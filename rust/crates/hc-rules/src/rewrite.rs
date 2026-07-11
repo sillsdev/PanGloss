@@ -2723,6 +2723,272 @@ pub(crate) fn build_prule_cache(g: &Grammar, table_id: TableId, rule: &RewriteRu
     PruleCache { syn_target, subrules }
 }
 
+// =================================================================================================
+// F2 prerequisite (HYBRID_FST_RUST_PLAN.md §7.1 item 2a) -- probing-only synthesis for
+// `hc_hybrid::surface`'s `SurfacePhonology` port.
+//
+// C# never physically removes a node on deletion -- `Annotation.FeatureStruct[Deletion] ==
+// Deleted` is an ANNOTATION, so a node's POSITION in the shape's node list is stable for the
+// entire life of a `Word`, across as many phonological rules as run over it (`SurfacePhonology.
+// RenderNodes` / `SurfaceNodes` rely on exactly this: `outNodes.Skip(1)`/`.Take(underlyingLen)`
+// slice by fixed position regardless of what deleted in between). This port's real
+// `syn_narrow`/`sim_narrow` (above) physically `Vec::remove`/`splice` instead -- correct and
+// deliberately UNCHANGED for the real per-word pipeline, which never needs cross-rule position
+// stability (each pipeline call starts from a freshly re-segmented, freshly-frozen `Shape`).
+//
+// The functions below are text-identical to `syn_narrow`/`sim_narrow` except the matched-and-
+// deleted target span is soft-marked (`ms.nodes[n].deleted = true`, left in place) instead of
+// `Vec::remove`'d; RHS insertion (`ms.nodes.splice`) is untouched. This reproduces C#'s own node
+// -COUNT arithmetic exactly: a pure-deletion subrule (empty RHS) never changes total node count
+// (matching C#, where deleted nodes are never removed); a subrule with a non-empty RHS increases
+// total node count by the RHS length regardless of how many LHS nodes it "replaces" (matching C#,
+// where the new RHS nodes are REAL insertions on top of the still-present-but-deleted LHS span).
+// `hc_hybrid::surface`'s own final segment-count check (mirroring `SurfacePhonology.cs:152`'s
+// `outNodes.Count != underlyingLen + extra`) is therefore sufficient to reject every insertion
+// case exactly where C# would, without this module needing any special-case "bail" logic of its
+// own -- see the F2 commit message / advisor discussion for the arithmetic argument in full.
+//
+// `Kind::Epenthesis` (an empty-LHS rule) has no C# analog here at all: it inserts nodes with no
+// originating position whatsoever, which this position-preserving model has nothing to anchor
+// them to. None of the three reference grammars (Indonesian/Sena/Amharic) has such a rule
+// (verified: every `PhonologicalRule`'s `PhoneticInput` is non-empty) or a `MetathesisRule`
+// (verified: zero `<MetathesisRule>` elements in any of the three), so [`probe_apply_rule`]
+// refuses (`ProbeOutcome::Refused`) rather than silently mis-track positions if either is ever
+// reached -- a conservative stance for a case the gate grammars never exercise, not a gap in the
+// covered cases.
+
+/// Soft-delete sibling of [`syn_narrow`] (Iterative Narrow, i.e. deletion/narrowing/expansion).
+/// See the module note above for exactly what differs (one line: `deleted = true` instead of
+/// `nodes.remove`) and why that's sufficient.
+#[allow(clippy::too_many_arguments)]
+fn probe_narrow(
+    g: &Grammar,
+    table: &CharDefTable,
+    rule: &RewriteRuleDef,
+    sr: &RewriteSubruleDef,
+    ms: &mut MutShape,
+    target: &Fst,
+    left: &Option<EnvFst>,
+    right: &Option<EnvFst>,
+) -> bool {
+    let rhs_nodes_base: Vec<MutNode> =
+        sr.rhs.nodes.iter().map(|n| new_seg_node_dirty(g, table, n, false, true)).collect();
+    let lhs_vars = pattern_var_occurrences(&rule.lhs);
+    let rhs_vars = pattern_var_occurrences(&sr.rhs);
+
+    let mut applied = false;
+    loop {
+        let (segs, node_of) = ms.segs(true);
+        let mut acted = false;
+        for (s, e) in all_spans(target, &segs) {
+            let target_nodes: Vec<usize> = node_of[s..e].to_vec();
+            if !width_matches(&target_nodes, rule.lhs.nodes.len()) {
+                continue;
+            }
+            if target_nodes.iter().any(|&n| {
+                ms.nodes[n].dirty || !matches!(ms.nodes[n].kind, NodeKind::Segment | NodeKind::Boundary)
+            }) {
+                continue;
+            }
+            let Some(left_match) = left_env_match(left, &segs, s) else {
+                continue;
+            };
+            let Some(right_match) = right_env_match(right, &segs, e) else {
+                continue;
+            };
+            let Some(bindings) =
+                resolve_bindings(g, ms, &node_of, &target_nodes, e, &lhs_vars, left, &left_match, right, &right_match)
+            else {
+                continue;
+            };
+            let rhs_nodes: Vec<MutNode> = rhs_nodes_base
+                .iter()
+                .cloned()
+                .zip(&rhs_vars)
+                .map(|(mut n, occs)| {
+                    for occ in occs {
+                        if let Some(&(b, _)) = bindings.get(&occ.var) {
+                            let mask = full_mask(g, occ.feature);
+                            n.lanes[occ.feature] = if occ.plus { b } else { mask & !b };
+                        }
+                    }
+                    n
+                })
+                .collect();
+            let last = *target_nodes.last().unwrap();
+            // Insert RHS right after the last target node (real, physical -- matches `syn_narrow`).
+            ms.nodes.splice(last + 1..last + 1, rhs_nodes);
+            // Soft-delete the target nodes instead of removing them (the one line that differs
+            // from `syn_narrow`) -- descending order not required for a mark-in-place, but kept for
+            // textual parallelism with the original.
+            for &n in target_nodes.iter().rev() {
+                ms.nodes[n].deleted = true;
+            }
+            applied = true;
+            acted = true;
+            break;
+        }
+        if !acted {
+            break;
+        }
+    }
+    applied
+}
+
+/// Soft-delete sibling of [`sim_narrow`] (Simultaneous Narrow). See the module note above.
+#[allow(clippy::too_many_arguments)]
+fn probe_sim_narrow(
+    g: &Grammar,
+    table: &CharDefTable,
+    rule: &RewriteRuleDef,
+    sr: &RewriteSubruleDef,
+    ms: &mut MutShape,
+    target: &Fst,
+    left: &Option<EnvFst>,
+    right: &Option<EnvFst>,
+) -> bool {
+    let rhs_nodes_base: Vec<MutNode> =
+        sr.rhs.nodes.iter().map(|n| new_seg_node_dirty(g, table, n, false, true)).collect();
+    let lhs_vars = pattern_var_occurrences(&rule.lhs);
+    let rhs_vars = pattern_var_occurrences(&sr.rhs);
+
+    let (segs, node_of) = ms.segs(true);
+    let mut accepted: Vec<(Vec<usize>, Bindings)> = Vec::new();
+    for (s, e) in all_spans(target, &segs) {
+        let target_nodes: Vec<usize> = node_of[s..e].to_vec();
+        if !width_matches(&target_nodes, rule.lhs.nodes.len()) {
+            continue;
+        }
+        if target_nodes.iter().any(|&n| {
+            ms.nodes[n].dirty || !matches!(ms.nodes[n].kind, NodeKind::Segment | NodeKind::Boundary)
+        }) {
+            continue;
+        }
+        let Some(left_match) = left_env_match(left, &segs, s) else {
+            continue;
+        };
+        let Some(right_match) = right_env_match(right, &segs, e) else {
+            continue;
+        };
+        let Some(bindings) =
+            resolve_bindings(g, ms, &node_of, &target_nodes, e, &lhs_vars, left, &left_match, right, &right_match)
+        else {
+            continue;
+        };
+        accepted.push((target_nodes, bindings));
+    }
+    if accepted.is_empty() {
+        return false;
+    }
+    for (target_nodes, bindings) in accepted.into_iter().rev() {
+        let rhs_nodes: Vec<MutNode> = rhs_nodes_base
+            .iter()
+            .cloned()
+            .zip(&rhs_vars)
+            .map(|(mut n, occs)| {
+                for occ in occs {
+                    if let Some(&(b, _)) = bindings.get(&occ.var) {
+                        let mask = full_mask(g, occ.feature);
+                        n.lanes[occ.feature] = if occ.plus { b } else { mask & !b };
+                    }
+                }
+                n
+            })
+            .collect();
+        let last = *target_nodes.last().unwrap();
+        ms.nodes.splice(last + 1..last + 1, rhs_nodes);
+        for &n in target_nodes.iter().rev() {
+            ms.nodes[n].deleted = true;
+        }
+    }
+    true
+}
+
+/// Outcome of applying one [`RewriteRuleDef`]'s subrules to a probing [`MutShape`] ([`probe_apply_rule`]).
+pub(crate) enum ProbeOutcome {
+    NoMatch,
+    Applied,
+    /// An empty-LHS (`Kind::Epenthesis`) rule was reached -- see the module note above for why
+    /// this is refused rather than approximated (unreachable on the three reference grammars).
+    Refused,
+}
+
+/// Probing analog of [`synthesize_with_mpr`]'s subrule loop (`syn_fs`/`mpr` always empty --
+/// `SurfacePhonology`'s probe `Word` carries neither, C#'s bare `new Word(surfaceStratum, shape)`
+/// two-arg constructor, `SurfacePhonology.cs:316`), routed through [`probe_narrow`]/
+/// [`probe_sim_narrow`] for `Kind::Narrow` instead of [`syn_narrow`]/[`sim_narrow`]; `Kind::Feature`
+/// reuses [`syn_feature`]/[`sim_feature`] completely unchanged (a feature-change subrule never
+/// touches node count or position, so there is nothing for a probing sibling to do differently).
+pub(crate) fn probe_apply_rule(g: &Grammar, rule: &RewriteRuleDef, ms: &mut MutShape) -> ProbeOutcome {
+    let table_id = TableId(0);
+    let table = &g.char_tables[table_id.0 as usize];
+    let mut applied = false;
+    for sr in &rule.subrules {
+        if !subrule_applicable(g, sr, &FeatureStruct::EMPTY, MprSet::EMPTY) {
+            continue;
+        }
+        match classify(rule, sr) {
+            Kind::Feature => {
+                let target = lhs_fst(g, table_id, &rule.lhs, dir_of(rule), true);
+                let left = compile_env(g, table_id, sr.left_env.as_ref());
+                let right = compile_env(g, table_id, sr.right_env.as_ref());
+                let did = match rule.mode {
+                    RewriteMode::Iterative => syn_feature(g, table, rule, sr, ms, &target, &left, &right),
+                    RewriteMode::Simultaneous => sim_feature(g, table, rule, sr, ms, &target, &left, &right),
+                };
+                applied |= did;
+            }
+            Kind::Narrow => {
+                let target = lhs_fst(g, table_id, &rule.lhs, dir_of(rule), true);
+                let left = compile_env(g, table_id, sr.left_env.as_ref());
+                let right = compile_env(g, table_id, sr.right_env.as_ref());
+                let did = match rule.mode {
+                    RewriteMode::Iterative => probe_narrow(g, table, rule, sr, ms, &target, &left, &right),
+                    RewriteMode::Simultaneous => probe_sim_narrow(g, table, rule, sr, ms, &target, &left, &right),
+                };
+                applied |= did;
+            }
+            Kind::Epenthesis => return ProbeOutcome::Refused,
+        }
+    }
+    if applied {
+        ProbeOutcome::Applied
+    } else {
+        ProbeOutcome::NoMatch
+    }
+}
+
+/// Run every phonological rule of one stratum over a probing [`MutShape`], in declaration order --
+/// the probing analog of a `LinearRuleCascade<Word,int>`'s single-pass-per-rule application. Every
+/// forward rule this port's `synthesize`/`synthesize_with_mpr` can apply yields AT MOST ONE result
+/// (`vec![ms.to_shape()]` or empty, never a branching set), so `LinearRuleCascade`'s general
+/// recursive "first terminal derivation" (`SurfacePhonology.cs`'s `cascade.Apply(word).
+/// DefaultIfEmpty(word).First()`) degenerates to a straight sequential fold here -- there is no
+/// branching to search, so applying each rule once, in order, to the SAME persistent `ms` already
+/// computes exactly that "first" result. `dirty` is reset before each rule (matching every real
+/// call site's `MutShape::from_shape`, which always starts `dirty: false`); `deleted` is NEVER
+/// reset -- that is the entire point of this probing path (module note above).
+pub(crate) fn probe_synthesize_stratum(g: &Grammar, prules: &[hc_grammar::model::PRuleId], ms: &mut MutShape) -> ProbeOutcome {
+    for &pid in prules {
+        for n in ms.nodes.iter_mut() {
+            n.dirty = false;
+        }
+        match &g.prules[pid.0 as usize] {
+            hc_grammar::model::PhonRuleDef::Rewrite(r) => {
+                if let ProbeOutcome::Refused = probe_apply_rule(g, r, ms) {
+                    return ProbeOutcome::Refused;
+                }
+            }
+            hc_grammar::model::PhonRuleDef::Metathesis(_) => {
+                // Unreachable on the three reference grammars (verified: zero `<MetathesisRule>`s);
+                // refuse rather than silently mis-track positions if one is ever added.
+                return ProbeOutcome::Refused;
+            }
+        }
+    }
+    ProbeOutcome::NoMatch // caller only inspects `Refused` vs. not; see `probe_synthesize_all_strata`.
+}
+
 /// Regression pins for the P6 fix's low-level premise: [`compile_lane_fst_grouped`]'s per-row
 /// `Group` capture correctly recovers each row's REAL matched segment position even when an
 /// Optional non-matching segment (e.g. one just inserted by an earlier rule's vacuous
