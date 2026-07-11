@@ -394,4 +394,145 @@ mod tests {
     fn classify_op_circumfix_when_insert_both_before_and_after_copy() {
         assert_eq!(classify_affix(&[insert("pre"), copy(1), insert("suf")]), MorphOp::CircumfixPrefix);
     }
+
+    // =============================================================================================
+    // `MorphTokenCodec::encode` round-trip — ported from `MorphTokenCodecTests.cs`'s
+    // `Encode_Suffix_RoundTripsToWordAnalysis`/`Encode_Compound_KeepsBothStems_OneRoot`.
+    //
+    // The C# originals parse a live sentence through `Morpher.ParseWord` and encode the resulting
+    // `Word`. That shape doesn't transfer directly here: `hc-parse::Morpher` hands back
+    // `WordAnalysis` (already-decoded numeric ids), never the raw `Word` the codec consumes, and
+    // (per this crate's F1 commit message / MANIFEST.txt §5) the shared toy fixture has no
+    // suffix/compounding rule to drive an end-to-end parse anyway. Per `morpher.rs`'s own
+    // `trace_tests` precedent, a HAND-BUILT `Word` covers the identical surface — `encode` only
+    // ever reads `word.morphs`/`word.root_allomorph` plus `Grammar::allomorph_owners`/`entries`/
+    // `mrules`, none of which requires a real parse to populate correctly.
+    use hc_grammar::model::{MorphRuleDef, StratumId};
+    use hc_rules::word::MorphRecord;
+    use std::path::{Path, PathBuf};
+
+    fn sample_path(name: &str) -> Option<PathBuf> {
+        let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let path = manifest_dir.join("../../../samples/data").join(name);
+        path.exists().then_some(path)
+    }
+
+    fn load_indonesian() -> Option<Grammar> {
+        let path = sample_path("indonesian-hc.xml")?;
+        let xml = std::fs::read_to_string(&path).expect("read grammar");
+        Some(hc_grammar::load(&xml).unwrap_or_else(|e| panic!("failed to load grammar: {e}")))
+    }
+
+    /// Every root allomorph in the grammar, as `(AllomorphId, owning MorphemeId)` pairs, in
+    /// `allomorph_owners` order (deterministic — a `Vec` scan, no hash-order dependency).
+    fn root_allomorphs(g: &Grammar) -> Vec<(AllomorphId, MorphemeId)> {
+        g.allomorph_owners
+            .iter()
+            .enumerate()
+            .filter_map(|(i, owner)| match owner {
+                AllomorphOwner::Root(le, _) => Some((AllomorphId(i as u32), g.entries[le.0 as usize].morpheme)),
+                AllomorphOwner::Affix(_, _) => None,
+            })
+            .collect()
+    }
+
+    /// The first affix allomorph the grammar defines (an `AffixProcessRule` or `RealizationalRule`
+    /// allomorph — a `CompoundingRule` never owns an `AllomorphId`, see `owning_morpheme`'s doc),
+    /// as `(AllomorphId, owning MorphemeId)`.
+    fn first_affix_allomorph(g: &Grammar) -> Option<(AllomorphId, MorphemeId)> {
+        g.allomorph_owners.iter().enumerate().find_map(|(i, owner)| match owner {
+            AllomorphOwner::Affix(mrule, _) => {
+                let morpheme = match &g.mrules[mrule.0 as usize] {
+                    MorphRuleDef::AffixProcess(def) => Some(def.morpheme),
+                    MorphRuleDef::Realizational(def) => Some(def.morpheme),
+                    MorphRuleDef::Compounding(_) => None,
+                };
+                morpheme.map(|m| (AllomorphId(i as u32), m))
+            }
+            AllomorphOwner::Root(_, _) => None,
+        })
+    }
+
+    fn empty_word() -> Word {
+        Word::new(hc_shape::ShapeBuilder::new().finish(), StratumId(0))
+    }
+
+    /// `MorphTokenCodecTests.Encode_Suffix_RoundTripsToWordAnalysis` (root + one affix; the C#
+    /// grammar builds a real suffix, but ANY affix allomorph exercises the identical codec path —
+    /// `encode`'s only affix-specific logic is `classify_op`'s RHS inspection, already covered by
+    /// `classify_op_populates_affix_roles_from_output_actions` above; this test's job is the
+    /// root/morpheme-index/decode round-trip `ClassifyOp` alone cannot prove).
+    #[test]
+    fn encode_root_plus_affix_round_trips_ops_and_root_index() {
+        let Some(g) = load_indonesian() else {
+            eprintln!("skipping: indonesian-hc.xml not present on disk");
+            return;
+        };
+        let Some((root_allo, root_morpheme)) = root_allomorphs(&g).into_iter().next() else {
+            panic!("Indonesian grammar has no root allomorphs at all");
+        };
+        let Some((affix_allo, affix_morpheme)) = first_affix_allomorph(&g) else {
+            panic!("Indonesian grammar has no affix-rule allomorphs at all");
+        };
+
+        let mut w = empty_word();
+        w.root_allomorph = Some(root_allo);
+        w.morphs = vec![MorphRecord::new(root_allo, root_morpheme, 0), MorphRecord::new(affix_allo, affix_morpheme, 1)];
+
+        let mut codec = MorphTokenCodec::new();
+        let tokens = codec.encode(&g, &w);
+
+        assert_eq!(tokens.len(), 2, "one token per morph");
+        // Morpheme channel: decoded indices reproduce the morphs, in `order`.
+        let decoded: Vec<MorphemeId> = tokens.iter().map(|&t| codec.get_morpheme(get_morpheme_id(t))).collect();
+        assert_eq!(decoded, vec![root_morpheme, affix_morpheme]);
+        // Root recovered purely from the op codes.
+        assert_eq!(root_index(&tokens), 0);
+        let ops: Vec<MorphOp> = tokens.iter().map(|&t| get_op(t)).collect();
+        assert_eq!(ops[0], MorphOp::Root);
+        assert_ne!(ops[1], MorphOp::Root, "the affix must not also be classified Root");
+        assert_ne!(ops[1], MorphOp::None, "a real affix allomorph must classify to a real op");
+    }
+
+    /// `MorphTokenCodecTests.Encode_Compound_KeepsBothStems_OneRoot`: two root morphs, exactly one
+    /// tagged `Root`, the other `Compound` (not lost) — this is the test that actually EXERCISES
+    /// `classify_op`'s `AllomorphOwner::Root` non-head arm (`MorphOp::Compound`), previously only
+    /// inferred correct, never executed by any test in this crate.
+    #[test]
+    fn encode_compound_keeps_both_stems_one_root() {
+        let Some(g) = load_indonesian() else {
+            eprintln!("skipping: indonesian-hc.xml not present on disk");
+            return;
+        };
+        let mut roots = root_allomorphs(&g).into_iter();
+        let Some((head_allo, head_morpheme)) = roots.next() else {
+            panic!("Indonesian grammar has no root allomorphs at all");
+        };
+        // A second, DISTINCT root morpheme (a different LexEntry) to stand in as the compound's
+        // non-head — `classify_op` only inspects `AllomorphOwner`/`is_head_root`, not whether any
+        // real `CompoundingRule` references this pair, so any second root allomorph exercises the
+        // identical code path a genuine compound would.
+        let Some((non_head_allo, non_head_morpheme)) =
+            roots.find(|&(_, m)| m != head_morpheme)
+        else {
+            panic!("Indonesian grammar has fewer than two distinct root morphemes");
+        };
+
+        let mut w = empty_word();
+        w.root_allomorph = Some(head_allo);
+        w.morphs =
+            vec![MorphRecord::new(head_allo, head_morpheme, 0), MorphRecord::new(non_head_allo, non_head_morpheme, 1)];
+
+        let mut codec = MorphTokenCodec::new();
+        let tokens = codec.encode(&g, &w);
+
+        assert_eq!(tokens.len(), 2, "two stems -> two morphemes, neither lost");
+        let ops: Vec<MorphOp> = tokens.iter().map(|&t| get_op(t)).collect();
+        assert_eq!(ops.iter().filter(|&&op| op == MorphOp::Root).count(), 1, "exactly one Root");
+        assert!(ops.contains(&MorphOp::Compound), "the non-head stem must be tagged Compound, not lost");
+        assert_eq!(root_index(&tokens), 0);
+
+        let decoded: Vec<MorphemeId> = tokens.iter().map(|&t| codec.get_morpheme(get_morpheme_id(t))).collect();
+        assert_eq!(decoded, vec![head_morpheme, non_head_morpheme]);
+    }
 }
