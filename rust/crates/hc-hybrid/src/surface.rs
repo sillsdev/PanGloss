@@ -44,10 +44,20 @@ use unicode_normalization::UnicodeNormalization;
 /// One `DeletionJunctions` hit: the affix's own resulting surface, paired with the deleted
 /// neighbor's underlying feature struct rendered in C#'s `FeatureStruct.ToString()` format (the
 /// `fst-stats` golden's exact dump format — see [`render_feature_struct`]).
+///
+/// `deleted_neighbor_lanes` (F3 addition, advisor-flagged during the trie-builder review): the
+/// SAME neighbor class's raw phonological feature lanes, alongside the already-rendered string.
+/// `FstTemplateAnalyzer.WireDeletionSkips` (`FstTemplateAnalyzer.cs:1467-1500`) gates each
+/// junction-deletion skip arc on `segments[0].IsUnifiable(onsetClass)` — a real FeatureStruct
+/// unification test, not a string comparison — so the trie builder (`trie.rs`) needs the lanes,
+/// not just the rendered label the F2 stats dump was built for. Keeping both avoids re-deriving
+/// the string from lanes (or vice versa) and keeps `render_feature_struct`'s latent-divergence
+/// caveats (see that function's doc) scoped to display only.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DeletionJunction {
     pub affix_surface: String,
     pub deleted_neighbor: String,
+    pub deleted_neighbor_lanes: Vec<u64>,
 }
 
 pub struct SurfacePhonology<'g> {
@@ -231,8 +241,9 @@ impl<'g> SurfacePhonology<'g> {
             .iter()
             .find(|(_, cd)| cd.kind() == CharDefKind::Segment && cd.representations().iter().any(|r| r == c1))?
             .1;
-        let deleted_neighbor = render_feature_struct(self.g, cd.feature_lanes());
-        Some(DeletionJunction { affix_surface, deleted_neighbor })
+        let deleted_neighbor_lanes = cd.feature_lanes().to_vec();
+        let deleted_neighbor = render_feature_struct(self.g, &deleted_neighbor_lanes);
+        Some(DeletionJunction { affix_surface, deleted_neighbor, deleted_neighbor_lanes })
     }
 
     /// C# `SurfaceOf` (`SurfacePhonology.cs:297-301`).
