@@ -7,6 +7,7 @@
 //! port). Later milestones (F2-F9, see the plan's §8) add `surface`, `trie`, `walk`, `inverse`,
 //! `env_nfa`, `compiler`/`compiler_v1`, `proposers`, `composite`, `replay`, `probe`, `advisor`.
 
+pub mod surface;
 pub mod token;
 
 #[cfg(test)]

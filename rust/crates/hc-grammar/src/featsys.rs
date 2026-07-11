@@ -165,7 +165,12 @@ impl PhonFeatureSystem {
             xml_id: TYPE_XML_ID.to_string(),
             name: "Type".to_string(),
             symbol_index: type_symbol_index,
-            symbol_names: vec!["Segment".to_string(), "Boundary".to_string()],
+            // Display strings only (the `type_symbol_index` lookup keys above are unrelated
+            // internal sentinels, unchanged) -- C# `HCFeatureSystem.cs:39-40` gives `Segment`/
+            // `Boundary` lower-case `Description`s (`"segment"`/`"boundary"`), which is what
+            // `FeatureStruct.ToString()`-style dumps print (F2, `SurfacePhonology`'s
+            // `DeletionJunctions` golden shows `Type:segment`, never `Type:Segment`).
+            symbol_names: vec!["segment".to_string(), "boundary".to_string()],
             mask: full_mask(2),
             default_bits: None,
         });
@@ -232,6 +237,17 @@ impl PhonFeatureSystem {
     /// The feature's original XML `id` attribute, by [`FlatIndex`].
     pub fn feature_xml_id(&self, flat: FlatIndex) -> &str {
         &self.features[flat.0 as usize].xml_id
+    }
+
+    /// A symbol's display name (`<Symbol id="...">NAME</Symbol>` text — C# `FeatureSymbol.
+    /// Description`), by the owning feature's [`FlatIndex`] and the symbol's dense index (as used
+    /// in a feature-lane bitmask). F2 prerequisite (HYBRID_FST_RUST_PLAN.md §7.1 bullet 4): needed
+    /// to render a char-def's `FeatureStruct` in C#'s `FeatureStruct.ToString()` format
+    /// (`SurfacePhonology`'s `DeletionJunctions` dump prints the deleted neighbor's own feature
+    /// struct this way). Panics on an out-of-range `idx` (a caller bug — every `idx` in this crate
+    /// comes from iterating that same feature's own mask/symbol_count).
+    pub fn symbol_name(&self, flat: FlatIndex, idx: u32) -> &str {
+        &self.features[flat.0 as usize].symbol_names[idx as usize]
     }
 
     /// Dense symbol index of a symbol, by the feature's [`FlatIndex`] and the symbol's XML `id`.
