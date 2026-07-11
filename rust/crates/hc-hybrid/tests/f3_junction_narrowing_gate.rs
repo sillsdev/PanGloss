@@ -17,6 +17,17 @@
 //!   neighbor unifying with "t".
 //! - the narrowing pair (c1="p", c2="i") must be safely REJECTED by the segment-count guard, not
 //!   misread as a second, spurious "p"-class junction.
+//!
+//! ADVISOR FOLLOW-UP: the task's own wording ("isolation variant shows the correctly-spliced form";
+//! "boundary probes reject inputs of the wrong length") names `SurfacePhonology::variants`'s two
+//! guards (the isolation splice via `surface_of`, and `boundary_variant`'s node-count guard) -- a
+//! DIFFERENT reject path from `deletion_junctions`/`try_probe_deletion` above. The fixture's second
+//! affix, `api_prefix` (insert text "api+"), has the narrowing pair adjacent in its OWN underlying,
+//! so `variants("api+")` exercises both: the isolation probe must render the spliced "au", and every
+//! boundary-neighbor probe over the full alphabet must be rejected cleanly (a non-empty-RHS rule
+//! always grows total node count by its RHS length, regardless of LHS length -- see `surface.rs`'s
+//! "F2 prerequisite" module note), leaving exactly {"api+", "au"} with no spurious or truncated
+//! boundary-probe leakage.
 
 use std::path::{Path, PathBuf};
 
@@ -62,5 +73,24 @@ fn junction_narrowing_reject_path_finds_the_real_deletion_and_rejects_the_narrow
     assert_eq!(
         junctions[0].deleted_neighbor_lanes, t_lanes,
         "the deleted neighbor's class must unify with 't', not 'p' or anything else"
+    );
+}
+
+#[test]
+fn junction_narrowing_variants_isolation_splice_and_boundary_reject() {
+    let xml = std::fs::read_to_string(fixture_path("SurfacePhonologyJunctionTests.narrowing.xml"))
+        .expect("read toy fixture (see hc-hybrid tests/fixtures/fst-advisor-toys)");
+    let g = hc_grammar::load(&xml).unwrap_or_else(|e| panic!("failed to load toy fixture: {e}"));
+    let surface = SurfacePhonology::new(&g);
+
+    let variants = surface.variants("api+");
+    assert_eq!(
+        variants,
+        vec!["api+".to_string(), "au".to_string()],
+        "exactly the verbatim underlying plus the one correctly-spliced isolation form \
+         ('api+' narrows p+i->u in isolation to 'au'); every boundary-neighbor probe over the full \
+         alphabet must be rejected cleanly by the node-count guard (the narrowing rule's non-empty \
+         RHS grows node count regardless of the neighbor), leaving no spurious or truncated entries \
+         -- got {variants:?}"
     );
 }

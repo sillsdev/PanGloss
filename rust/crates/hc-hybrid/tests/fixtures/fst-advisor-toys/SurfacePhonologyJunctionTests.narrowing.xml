@@ -1850,7 +1850,7 @@
           </LexicalEntry>
         </LexicalEntries>
       </Stratum>
-      <Stratum characterDefinitionTable="table1" morphologicalRuleOrder="unordered" phonologicalRules="prule1 prule2" morphologicalRules="mrule1">
+      <Stratum characterDefinitionTable="table1" morphologicalRuleOrder="unordered" phonologicalRules="prule1 prule2" morphologicalRules="mrule1 mrule2">
         <Name>Surface</Name>
         <MorphologicalRuleDefinitions>
           <MorphologicalRule id="mrule1" requiredPartsOfSpeech="V" outputPartOfSpeech="N">
@@ -1871,6 +1871,25 @@
               </MorphologicalSubrule>
             </MorphologicalSubrules>
             <Gloss>AV</Gloss>
+          </MorphologicalRule>
+          <MorphologicalRule id="mrule2" requiredPartsOfSpeech="V" outputPartOfSpeech="N">
+            <Name>api_prefix</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="msubrule2">
+                <MorphologicalInput>
+                  <PhoneticSequence id="msubrule2_1">
+                    <OptionalSegmentSequence min="1" max="-1" />
+                  </PhoneticSequence>
+                </MorphologicalInput>
+                <MorphologicalOutput>
+                  <InsertSegments>
+                    <PhoneticShape>api+</PhoneticShape>
+                  </InsertSegments>
+                  <CopyFromInput index="msubrule2_1" />
+                </MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <Gloss>CAUS</Gloss>
           </MorphologicalRule>
         </MorphologicalRuleDefinitions>
         <LexicalEntries>
