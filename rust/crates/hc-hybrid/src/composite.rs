@@ -15,8 +15,12 @@
 //! 3. `ReduplicationProposer` ([`crate::proposers::ReduplicationProposer`], built for real)
 //! 4. `InfixProposer` ([`crate::proposers::InfixProposer`], built for real)
 //! 5. `ComposedPhonologyProposer` (DEFERRED STUB)
-//! 6. `LockstepPhonologyProposer` (v1, DEFAULT phonology path; DEFERRED STUB) — `ChainPhonologyProposer`
-//!    (the `useChainPhonology` opt-in) is F7's job and never constructed here at all.
+//! 6. `LockstepPhonologyProposer` (v1, DEFAULT phonology path; DEFERRED STUB) OR, when
+//!    `useChainPhonology` is on ([`CompositeAnalyzer::with_chain_phonology`], F7),
+//!    [`crate::proposers::ChainPhonologyProposer`] instead — the two are mutually exclusive at this
+//!    one order position, matching C#'s `CompositeProposer.ForLanguage` (`useChainPhonology ?
+//!    new ChainPhonologyProposer(...) : new LockstepPhonologyProposer(...)`, both landing at the
+//!    SAME slot in the `generators` list).
 //!
 //! ## Dedup (plan §4.2 / `CompositeProposer.AnalyzeWord`, `:111-125`)
 //! C# dedups by `Signature(candidate, ids)`, a PER-CALL `Dictionary<IMorpheme,int>` assigning
@@ -40,7 +44,7 @@ use rustc_hash::FxHashSet as HashSet;
 use hc_grammar::model::{Grammar, MorphemeId};
 use hc_parse::{Morpher, WordAnalysis as EngineAnalysis};
 
-use crate::proposers::{InfixProposer, ReduplicationProposer};
+use crate::proposers::{ChainPhonologyProposer, InfixProposer, ReduplicationProposer};
 use crate::replay::{self, MorphemeOwner};
 use crate::surface::SurfacePhonology;
 use crate::token::MorphOp;
@@ -72,6 +76,10 @@ pub struct CompositeAnalyzer<'g> {
     /// knob (not silently dropped) so the composite's public shape already matches the plan's §3.6
     /// "knob parity" requirement once the real proposer lands.
     forward_synthesis: bool,
+    /// `useChainPhonology` (F7): `None` (default, matching C#'s own default) keeps position 6 as the
+    /// `LockstepPhonologyProposer` stub; `Some` (via [`CompositeAnalyzer::with_chain_phonology`])
+    /// swaps in the real [`ChainPhonologyProposer`] instead.
+    chain: Option<ChainPhonologyProposer>,
 }
 
 impl<'g> CompositeAnalyzer<'g> {
@@ -92,7 +100,25 @@ impl<'g> CompositeAnalyzer<'g> {
             redup: ReduplicationProposer::new(g),
             infix: InfixProposer::new(g, surface),
             forward_synthesis,
+            chain: None,
         }
+    }
+
+    /// Builder: enable `useChainPhonology` (F7) — builds [`ChainPhonologyProposer`]'s own
+    /// underlying-only trie (see that type's doc) and swaps it in for position 6, replacing the
+    /// `LockstepPhonologyProposer` stub. `surface`/`morpher` here are BUILD-time only (used once to
+    /// construct the chain proposer's own trie/compiled rule chain, then discarded — mirrors every
+    /// other build-time-only `Morpher` use in this crate, e.g. `Trie::build`'s own `morpher` param).
+    pub fn with_chain_phonology(
+        mut self,
+        g: &'g Grammar,
+        surface: &SurfacePhonology<'g>,
+        morpher: &Morpher,
+        max_states: usize,
+        deriv_depth: usize,
+    ) -> Self {
+        self.chain = Some(ChainPhonologyProposer::new(g, surface, morpher, max_states, deriv_depth, self.max_beam_work));
+        self
     }
 
     /// C# `CompositeProposer.AnalyzeWord` (`:111-125`): the deduped, labeled candidate stream, in
@@ -146,8 +172,12 @@ impl<'g> CompositeAnalyzer<'g> {
         );
         // 5. ComposedPhonologyProposer (deferred stub).
         extend("ComposedPhonologyProposer", Vec::new(), &mut out, &mut seen);
-        // 6. LockstepPhonologyProposer (v1 default phonology path; deferred stub).
-        extend("LockstepPhonologyProposer", Vec::new(), &mut out, &mut seen);
+        // 6. LockstepPhonologyProposer (v1 default; deferred stub) OR ChainPhonologyProposer
+        //    (useChainPhonology opt-in, F7) -- mutually exclusive at this one slot, see module doc.
+        match &self.chain {
+            Some(chain) => extend("ChainPhonologyProposer", chain.analyze_word(self.g, word), &mut out, &mut seen),
+            None => extend("LockstepPhonologyProposer", Vec::new(), &mut out, &mut seen),
+        }
 
         out
     }

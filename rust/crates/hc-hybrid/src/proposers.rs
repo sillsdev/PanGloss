@@ -35,6 +35,8 @@ use hc_grammar::chardef::{CharDefId, CharDefTable};
 use hc_grammar::model::{Grammar, MRuleId, MorphRuleDef, MorphemeId, OutputAction};
 use hc_shape::{NodeKind, Shape};
 
+use crate::compiler::{self, RuleInverseTier};
+use crate::inverse::InversePhonology;
 use crate::surface::SurfacePhonology;
 use crate::token::{classify_affix, MorphOp};
 use crate::trie::{surface_table, Trie};
@@ -370,6 +372,71 @@ impl InfixProposer {
             }
         }
         out
+    }
+}
+
+/// `ChainPhonologyProposer` (F7, HYBRID_FST_RUST_PLAN.md §8): port of C# `ChainPhonologyProposer.cs`
+/// -- phonology coverage via the GENERAL rule-inverse chain (`compiler::compile_default`, I1/I3)
+/// walked by [`walk::analyze_chain`] (I2), the opt-in replacement candidate for the v1 lockstep
+/// compiler (`compiler_v1.rs`, still F7's other job).
+///
+/// Owns its OWN "underlying-only acceptor" trie (`Trie::build_ex` with `enable_variants: false`,
+/// `enable_junction_probing: false`), mirroring C#'s `_underlyingOnlyFst = new
+/// FstTemplateAnalyzer(language)` -- composing against the surface-precompiled trie the bare
+/// walker/composite share would apply phonology twice (LEVER_2.md's original finding); see
+/// `trie.rs`'s `Trie::build_ex` doc for the exact C# ctor evidence this mirrors.
+///
+/// **Chain order.** `compiler::compile_default` enumerates strata/rules in forward (synthesis)
+/// document order; `walk::analyze_chain` wants reverse-application order (index 0 = surface-facing,
+/// the inverse of the LAST rule HC applied). A single flat `.rev()` of the compiled list reaches
+/// that order (reversing a concatenation of per-stratum groups yields the reversed groups in
+/// reversed order, i.e. exactly "strata reversed, and within each stratum the rule list reversed") --
+/// the same argument C#'s own `ChainPhonologyProposer.cs` module doc makes for why
+/// `ComposedPhonologyProposer`'s already-correct `Strata.Reverse().SelectMany(s =>
+/// s.PhonologicalRules.Reverse())` order and this proposer's single flat `.Reverse()` land on the
+/// identical order.
+///
+/// **IdentitySkip rules dropped before reversal** -- a PERFORMANCE choice: an `IdentitySkip` rule's
+/// `Pinv` is identity-only by [`RuleInverseTier`]'s own contract, so stacking it into the chain would
+/// be harmless (every symbol passes its self-loops unchanged) but adds a pure extra walk-time level
+/// with zero coverage gain.
+pub struct ChainPhonologyProposer {
+    underlying_trie: Trie,
+    /// Reverse-application order, `IdentitySkip` entries already dropped. Empty means "no rule
+    /// contributed a non-identity branch" (a Sena-like no-phonology grammar) -- [`AnalyzeWord`]
+    /// mirrors C#'s own early-out for that case rather than paying the chain-walk setup cost for a
+    /// guaranteed-empty result.
+    ///
+    /// [`AnalyzeWord`]: ChainPhonologyProposer::analyze_word
+    chain: Vec<InversePhonology>,
+    max_beam_work: i64,
+    max_boundary_insertions: i32,
+}
+
+impl ChainPhonologyProposer {
+    pub fn new(g: &Grammar, surface: &SurfacePhonology, morpher: &hc_parse::Morpher, max_states: usize, deriv_depth: usize, max_beam_work: i64) -> Self {
+        let underlying_trie = Trie::build_ex(g, surface, morpher, max_states, deriv_depth, false, false);
+        let compiled = compiler::compile_default(g);
+        let chain: Vec<InversePhonology> = compiled
+            .into_iter()
+            .filter(|c| c.tier != RuleInverseTier::IdentitySkip)
+            .rev()
+            .map(|c| c.pinv)
+            .collect();
+        ChainPhonologyProposer { underlying_trie, chain, max_beam_work, max_boundary_insertions: walk::DEFAULT_MAX_BOUNDARY_INSERTIONS }
+    }
+
+    /// How many walk-chain rules (after dropping `IdentitySkip`) this proposer's chain stacks --
+    /// mirrors C#'s `ChainLength` (an I7 measurement-battery diagnostic).
+    pub fn chain_length(&self) -> usize {
+        self.chain.len()
+    }
+
+    pub fn analyze_word(&self, g: &Grammar, word: &str) -> Vec<WordAnalysis> {
+        if self.chain.is_empty() {
+            return Vec::new();
+        }
+        walk::analyze_chain(g, &self.underlying_trie, &self.chain, word, self.max_beam_work, self.max_boundary_insertions).analyses
     }
 }
 
