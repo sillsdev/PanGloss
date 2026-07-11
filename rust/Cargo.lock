@@ -119,6 +119,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "hc-hybrid"
+version = "0.1.0"
+dependencies = [
+ "hc-featstruct",
+ "hc-grammar",
+ "hc-parse",
+ "hc-rules",
+ "hc-shape",
+ "rustc-hash",
+]
+
+[[package]]
 name = "hc-memo"
 version = "0.1.0"
 dependencies = [
