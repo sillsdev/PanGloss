@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="utf-8"?>
+<HermitCrabInput>
+  <Language>
+    <Name>FstCoverageProbeToyAfterPhonology</Name>
+    <!--
+      `FstCoverageProbeToyGrammar.xml` ("before") plus exactly ONE phonological rule ("prTToD", an
+      UNCONDITIONAL t->d substitution) wired into the stratum's `phonologicalRules` attribute --
+      ports the C# inline `tToD` rule built in `Probe_DetectsGainedCoverage_
+      AfterAddingPhonologicalRule` (`FstCoverageProbeTests.cs:107-115`). Bare root "dat" (entry
+      entryDat) now surfaces only as "dad" once this rule exists -- "dat" itself is deliberately
+      excluded from the test corpus for the same reason the C# original excludes it (a real
+      "gained dad, lost dat" would confound a single-gain assertion). Everything else is
+      byte-identical to the "before" fixture.
+    -->
+    <PartsOfSpeech>
+      <PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <HeadFeatures />
+    <PhonologicalFeatureSystem>
+      <SymbolicFeature id="featCons"><Name>cons</Name><Symbols><Symbol id="symConsP">+</Symbol><Symbol id="symConsM">-</Symbol></Symbols></SymbolicFeature>
+      <SymbolicFeature id="featVoc"><Name>voc</Name><Symbols><Symbol id="symVocP">+</Symbol><Symbol id="symVocM">-</Symbol></Symbols></SymbolicFeature>
+      <SymbolicFeature id="featVoice"><Name>voice</Name><Symbols><Symbol id="symVoiceP">+</Symbol><Symbol id="symVoiceM">-</Symbol></Symbols></SymbolicFeature>
+      <SymbolicFeature id="featCont"><Name>cont</Name><Symbols><Symbol id="symContP">+</Symbol><Symbol id="symContM">-</Symbol></Symbols></SymbolicFeature>
+    </PhonologicalFeatureSystem>
+    <!--
+      NOTE (found empirically debugging `probe_detects_gained_coverage_after_adding_phonological_
+      rule`): s/t and g/d must NOT share a (cons,voc,voice) triple -- with only those three binary
+      features, s and t collapsed to the same feature vector (both cons+,voc-,voice-), and so did g
+      and d (both cons+,voc-,voice+), making the engine's own segmentation genuinely ambiguous
+      between them (`parse_word("sag")` returned the ambiguous signature `|[st]a[gd]`, not a clean
+      literal parse) -- harmless with zero phonological rules (BASE still parsed everything, just
+      ambiguously), but once the unconditioned t->d rule existed the ambiguity + the rule's own
+      un-application interacted to make "sag" itself stop parsing at all, a genuine "verify by
+      running it" catch per the plan's own \S11 lesson. `featCont` (continuant) is the 4th feature
+      that makes every one of the five segments' vectors distinct.
+    -->
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cS"><Representations><Representation>s</Representation></Representations>
+          <FeatureValue feature="featCons" symbolValues="symConsP" /><FeatureValue feature="featVoc" symbolValues="symVocM" />
+          <FeatureValue feature="featVoice" symbolValues="symVoiceM" /><FeatureValue feature="featCont" symbolValues="symContP" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations>
+          <FeatureValue feature="featCons" symbolValues="symConsM" /><FeatureValue feature="featVoc" symbolValues="symVocP" />
+          <FeatureValue feature="featVoice" symbolValues="symVoiceP" /><FeatureValue feature="featCont" symbolValues="symContP" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cG"><Representations><Representation>g</Representation></Representations>
+          <FeatureValue feature="featCons" symbolValues="symConsP" /><FeatureValue feature="featVoc" symbolValues="symVocM" />
+          <FeatureValue feature="featVoice" symbolValues="symVoiceP" /><FeatureValue feature="featCont" symbolValues="symContP" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cD"><Representations><Representation>d</Representation></Representations>
+          <FeatureValue feature="featCons" symbolValues="symConsP" /><FeatureValue feature="featVoc" symbolValues="symVocM" />
+          <FeatureValue feature="featVoice" symbolValues="symVoiceP" /><FeatureValue feature="featCont" symbolValues="symContM" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cT"><Representations><Representation>t</Representation></Representations>
+          <FeatureValue feature="featCons" symbolValues="symConsP" /><FeatureValue feature="featVoc" symbolValues="symVocM" />
+          <FeatureValue feature="featVoice" symbolValues="symVoiceM" /><FeatureValue feature="featCont" symbolValues="symContM" />
+        </SegmentDefinition>
+      </SegmentDefinitions>
+      <BoundaryDefinitions>
+        <BoundaryDefinition id="cPlus"><Representations><Representation>+</Representation></Representations></BoundaryDefinition>
+      </BoundaryDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <SegmentNaturalClass id="ncAll">
+        <Name>All</Name>
+        <Segment segment="cS" /><Segment segment="cA" /><Segment segment="cG" /><Segment segment="cD" /><Segment segment="cT" />
+      </SegmentNaturalClass>
+      <SegmentNaturalClass id="ncT"><Name>T</Name><Segment segment="cT" /></SegmentNaturalClass>
+      <SegmentNaturalClass id="ncD"><Name>D</Name><Segment segment="cD" /></SegmentNaturalClass>
+    </NaturalClasses>
+    <PhonologicalRuleDefinitions>
+      <PhonologicalRule id="prTToD">
+        <Name>t_to_d_probe</Name>
+        <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncT" /></PhoneticSequence></PhoneticInput>
+        <PhonologicalSubrules>
+          <PhonologicalSubrule>
+            <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncD" /></PhoneticSequence></PhoneticOutput>
+          </PhonologicalSubrule>
+        </PhonologicalSubrules>
+      </PhonologicalRule>
+    </PhonologicalRuleDefinitions>
+    <Strata>
+      <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" phonologicalRules="prTToD">
+        <Name>S</Name>
+        <LexicalEntries>
+          <LexicalEntry id="entrySag" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="alloSag"><PhoneticShape>sag</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>sag</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="entryDat" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="alloDat"><PhoneticShape>dat</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>dat</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>

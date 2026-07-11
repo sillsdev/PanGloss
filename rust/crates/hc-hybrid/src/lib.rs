@@ -3,19 +3,23 @@
 //! the full port plan (this crate is its §7 module sketch) and `HYBRID_FST_FEASIBILITY.md` for the
 //! architecture this crate implements.
 //!
-//! F1-F5 have landed: crate scaffold + [`token`], [`surface`], [`trie`], [`walk`] (bare walker),
-//! and [`replay`] (verify: `FstReplay`/`VerifiedFstAnalyzer`). Later milestones (F6-F9, see the
-//! plan's §8) add `inverse`, `env_nfa`, `compiler`/`compiler_v1`, `proposers`, `composite`,
-//! `probe`, `advisor`.
+//! F1-F7 have landed: crate scaffold + [`token`], [`surface`], [`trie`], [`walk`] (bare + chain
+//! walkers), [`replay`] (verify: `FstReplay`/`VerifiedFstAnalyzer`), `inverse`/`env_nfa`/
+//! `compiler`/`compiler_v1`, [`proposers`], [`composite`]. F8 adds [`probe`] (`FstCoverageProbe`)
+//! and [`advisor`] (`GrammarFstAdvisor`), plus [`stats`] (the `fst-stats` dump assembly). F9 is
+//! the remaining milestone (full battery + docs).
 
+pub mod advisor;
 pub mod canon;
 pub mod compiler;
 pub mod compiler_v1;
 pub mod composite;
 pub mod env_nfa;
 pub mod inverse;
+pub mod probe;
 pub mod proposers;
 pub mod replay;
+pub mod stats;
 pub mod surface;
 pub mod token;
 pub mod trie;

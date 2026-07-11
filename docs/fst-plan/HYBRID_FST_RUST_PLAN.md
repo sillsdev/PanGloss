@@ -508,11 +508,94 @@ this precisely). **Two things this milestone did NOT resolve, still open:**
    `CompositeAnalyzer` exists, still a no-op). Whichever milestone next touches synthesis-path parity
    should claim this explicitly rather than let it drift forward silently again.
 
-**F8 — probe + advisor (1 d).** `probe.rs` (`ProbeReport` incl. `BeamOverflows`, tier report,
-uncovered constructs; `CompareGrammars`), `advisor.rs` (advisories + `Regular` axis + verdict +
-`Format()`). Gate: `fst-stats` output byte-identical on all three grammars; the three C# probe
-edit-loop tests ported with their concrete assertions (each asserts specific gained/lost coverage
-after an affix/phonology/redup edit — mechanical, not "visibly moves").
+**F8 — probe + advisor (1 d) — DONE 2026-07-11.** `probe.rs` (`ProbeReport` incl. `BeamOverflows`,
+tier report, uncovered constructs; `CompareGrammars`), `advisor.rs` (advisories + `Regular` axis +
+verdict + `Format()`). Gate: `fst-stats` output byte-identical on all three grammars; the three C#
+probe edit-loop tests ported with their concrete assertions (each asserts specific gained/lost
+coverage after an affix/phonology/redup edit — mechanical, not "visibly moves").
+
+**Actually shipped:** `advisor.rs` is a line-for-line port of `GrammarFstAdvisor.cs`/
+`GrammarFstReport` (every advisory `issue`/`advice` string copied verbatim, including the em
+dashes/`×`/`⁺` glyphs); `probe.rs` ports `FstCoverageProbe`/`ProbeReport`/`CoverageDiff` on top of
+F5-F7's `CompositeAnalyzer`/`VerifiedFstAnalyzer` (no owning struct — a per-call "build fresh from
+`&Grammar`" function instead, since `CompositeAnalyzer` borrows its `Trie`, which would make an
+owning probe struct self-referential; recorded as an approved Rust-idiom deviation, same class as
+`composite.rs`/`replay.rs`'s own). `ComposedPhonologyProposer` is wired UNCONDITIONALLY in
+`probe.rs` (matching C#'s `FstCoverageProbe.ForLanguage`, `:93` — unlike `CompositeAnalyzer::new`'s
+own more conservative stub default). All six `FstCoverageProbeTests` methods ported (not just the
+three edit-loop ones — the other three are the only coverage `compare_grammars`/the
+never-over-generates soundness claim/the coverage-rate contract get). `stats.rs` assembles the
+full six-section `fst-stats` dump, reusing F2's per-affix/bare-root dump (moved from a
+test-private copy into production code so both the F2 gate and F8's own full-file gate share one
+implementation, per the plan's reuse rule) plus F3's `StateCount`/F7's tier report/F8's advisor
+report.
+
+**Gate result:** two test tiers in `f8_fst_stats_gate.rs`. (1) advisor-report-only, byte-identical
+on all three grammars UNCONDITIONALLY (pure static analysis — cheap even on Amharic, which is the
+only one of the three that exercises the infixation/opaque/regular-escape branch; Sena exercises
+the zero-escape "Tier 1" branch and per-stratum rule re-examination — `li+po`/`ndi+ipron`/
+`ndi+ppron`/`ndi+verb` each counted twice; Indonesian exercises the reduplication-escape and
+Kaplan-&-Kay-regular-environment branches). (2) the full six-section assembly, byte-identical line
+-for-line on Indonesian/Sena unconditionally, Amharic `#[ignore]`d for the same reason
+`f2_surface_phonology_gate.rs`'s own Amharic test is (DeletionJunctions probing cost in debug
+builds) — the advisor-only gate already covers Amharic's F8-new section unconditionally, so this
+is not a silent Amharic gap. **Found empirically, not assumed** (plan §11's own lesson): the frozen
+`stats.txt` goldens do NOT contain current `FstStatsCommand.cs`'s trailing `== StructuralDump ==`
+pointer section (confirmed via `od -c` on the tail bytes of `indonesian/stats.txt` — the golden
+predates that F3-era extension, which only ever regenerated the sibling `structural-dump.txt` file,
+not `stats.txt` itself); `stats::assemble_lines` matches the golden's ACTUAL shape, not current
+`FstStatsCommand.cs` verbatim — recorded here since `MANIFEST.txt` was never updated for this at
+F3 time.
+
+**Also found empirically, not assumed:** the phonological-rule edit-loop toy fixture's first draft
+had s/t and g/d sharing an identical (cons,voc,voice) feature triple — harmless with zero
+phonological rules (the base grammar still parsed "sag"/"dat", just via an ambiguous engine
+signature, `|[st]a[gd]`), but once the unconditioned t→d rule was added, that ambiguity + the
+rule's own un-application interacted to make "sag" stop parsing ENTIRELY (a genuine `plain_morpher.
+parse_word` failure, reproduced with hc-hybrid entirely out of the picture) — not an hc-hybrid bug,
+a fixture-authoring one. Fixed by adding a 4th binary feature (`featCont`) so every one of the five
+toy segments has a distinct feature vector; documented in the fixture XML itself. This is exactly
+the class of bug the plan's §11 "go empirical immediately" risk note anticipates.
+
+**Known pre-existing gap, NOT F8's and not touched this milestone:** `f4_bare_walker_gate.rs`'s
+`sena_bare_candidates_match_golden_slice_60` fails on a completely clean checkout of this branch
+(confirmed via `git stash` before starting F8's own work) — `sena/candidates-bare-slice60.tsv` is
+missing from the golden directory, so the test's own overflow-count assertion (expects the 2 known
+pathological words to overflow) fails against an empty baseline. This is an F4-era golden-generation
+gap, unrelated to probe/advisor; flagged here rather than silently left for a future milestone to
+rediscover.
+
+**Fable review follow-up (2026-07-11, verdict "safe to merge with notes"):** two notes recorded,
+neither blocking. (1) `probe.rs`'s beam-overflow doc originally overclaimed that recomputing the
+bare walk "reproduces the blind spot faithfully" — corrected in the module doc: C#'s
+`BeamOverflows` is a running delta on a *shared* `FstTemplateAnalyzer` instance that
+`ReduplicationProposer`/`InfixProposer`/`ComposedPhonologyProposer` also walk through
+(`FstCoverageProbe.cs:91-93`), so one corpus word can increment it more than once and
+`LastBeamOverflowWord` can end up being a sibling-proposer residue/variant string, not the corpus
+word; this port counts at most one overflow per corpus word and always reports the corpus word
+itself — an undercount relative to C# on grammars where sibling proposers also overflow, diagnostic
+-only and zero on all three real grammars today. (2) `GrammarFstAdvisorTests.cs` (8 C# test methods)
+was never ported to `advisor.rs` — unlike `probe.rs`, `advisor.rs` has no `#[cfg(test)]` module at
+all; coverage is golden-only (byte-identical on 3 real grammars). Reviewer verified by line-by-line
+inspection (not by test) that the following branches match C# with no divergence found: the Tier 2⁺
+verdict string and tier-check ordering, the probe-able/`[probe-able]` tag path, the bounded
+-reduplicant `regular=true` arm, the non-regular unbounded-rewrite tail, metathesis/ModifyFromInput
+`Info` advisories, and the many-allomorphs cost threshold (`> 8`) — but none of these have a Rust
+unit test pinning them, only inspection. Recommended next step if this crate gets another advisor
+-focused pass: port `Analyze_ReduplicationRule_FlaggedEscapeAndTierDowngraded` and
+`Analyze_BoundedReduplicant_IsRegular` from `GrammarFstAdvisorTests.cs` (each needs a small
+hand-authored toy grammar — `FstCoverageProbeToyGrammar.AfterRedup.xml`'s unbounded
+`OptionalSegmentSequence min="1" max="-1"` reduplication rule is a ready-made template for the
+first; the second needs the same rule with `max="1"` instead) — deferred rather than attempted here
+since it needs new fixture engineering, not a mechanical fix.
+
+**hc-cli gap, cross-milestone, not F8-specific:** the plan's §7 crate-plan text calls for `hc-rs
+fst-batch`/`fst-candidates`/`fst-stats` CLI commands mirroring the C# oracle tool's flags. None of
+F1 through F8 actually wired these into `hc-cli` (it has no dependency on `hc-hybrid` at all, and no
+`fst-*` subcommand exists) — every milestone's gates run directly against library functions from
+Rust integration tests instead. This is a real, consistently-deferred gap across the WHOLE plan, not
+something introduced or newly discovered here; F9's own checklist item "Crate docs + CLI usage
+written" is the natural place to close it, so it is recorded here rather than attempted piecemeal.
 
 **F9 — full battery + docs (1–2 d).** Full-corpus runs recorded for the battery: Sena 7,121
 verified parity (watchdogged), Amharic per §5.3 with explicit exclusion list; Rust-vs-C# benchmark
