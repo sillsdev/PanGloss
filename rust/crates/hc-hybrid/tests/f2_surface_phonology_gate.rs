@@ -6,11 +6,15 @@
 //! "== Per-affix Variants / DeletionJunctions ==" and "== Bare-root surfaces ==", mirroring
 //! `FstStatsCommand.cs`'s exact enumeration (`AffixUnderlyingForms`, the per-stratum sorted-entry
 //! bare-root loop) and line format (`FstStatsCommand.cs:72-100`) line-for-line.
+//!
+//! F8 moved this test's own private helpers (`affix_underlying_forms`/`xml_key_of`/the two dump
+//! loops) into production code (`hc_hybrid::stats`), since F8's own full-file `fst-stats` gate
+//! (`f8_fst_stats_gate.rs`) needs the identical computation — this test now calls that production
+//! code directly instead of carrying its own copy (plan §4.1's "reuse, don't duplicate").
 
-use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use hc_grammar::model::{LexEntryId, MorphRuleDef, OutputAction};
+use hc_hybrid::stats::{bare_root_lines, per_affix_lines};
 use hc_hybrid::surface::SurfacePhonology;
 use hc_parse::Morpher;
 
@@ -46,49 +50,6 @@ fn section_lines(text: &str, header: &str) -> Vec<String> {
     out
 }
 
-fn join(items: &[String]) -> String {
-    if items.is_empty() {
-        "-".to_string()
-    } else {
-        items.join(";")
-    }
-}
-
-/// C# `FstStatsCommand.AffixUnderlyingForms` (`FstStatsCommand.cs:119-142`): every distinct affix
-/// underlying-form string across the grammar's affix-process/realizational-affix rules.
-fn affix_underlying_forms(g: &hc_grammar::model::Grammar) -> BTreeSet<String> {
-    let mut seen = BTreeSet::new();
-    // C# iterates `stratum.MorphologicalRules` PER STRATUM (`FstStatsCommand.cs:122-124`), not a
-    // language-wide rule table -- a declared rule unreferenced by any stratum's own
-    // `morphologicalRules` list (e.g. Sena has several such rules) must NOT contribute here.
-    for sd in &g.strata {
-        for &mid in &sd.mrules {
-            let mrule = &g.mrules[mid.0 as usize];
-            let allomorphs = match mrule {
-                MorphRuleDef::AffixProcess(def) => &def.allomorphs,
-                MorphRuleDef::Realizational(def) => &def.allomorphs,
-                MorphRuleDef::Compounding(_) => continue,
-            };
-            for allo in allomorphs {
-                for action in &allo.rhs {
-                    if let OutputAction::InsertSegments { shape, .. } = action {
-                        seen.insert(shape.text.clone());
-                    }
-                }
-            }
-        }
-    }
-    seen
-}
-
-/// C# `FstStatsCommand.XmlIdOf` (`XmlMorphemeIds.TryGet(entry, id) ?? entry.Id ?? "?"`) — this
-/// port's `MorphemeInfo::xml_key` is exactly that stable id (see `f1_selector_gate.rs`'s identical
-/// convention).
-fn xml_key_of(g: &hc_grammar::model::Grammar, entry: LexEntryId) -> &str {
-    let morpheme = g.entries[entry.0 as usize].morpheme;
-    &g.morphemes[morpheme.0 as usize].xml_key
-}
-
 /// Runs the F2 gate for one grammar: builds both dump sections from the live grammar + a fresh
 /// `SurfacePhonology`/`Morpher`, and asserts they match the golden `stats.txt`'s corresponding
 /// sections line-for-line (order included -- both sides sort the same way).
@@ -107,47 +68,15 @@ fn run_gate(grammar_file: &str, golden_dir: &str) {
     let surface = SurfacePhonology::new(&g);
     let morpher = Morpher::new(&g, usize::MAX);
 
-    // --- "== Per-affix Variants / DeletionJunctions ==" ---
-    let mut variant_lines = Vec::new();
-    for underlying in affix_underlying_forms(&g) {
-        let variants = surface.variants(&underlying);
-        variant_lines.push(format!("{underlying}\tVariants\t{}", join(&variants)));
-        let junctions: Vec<String> = {
-            let mut js: Vec<String> = surface
-                .deletion_junctions(&underlying)
-                .into_iter()
-                .map(|j| format!("{}/{}", j.affix_surface, j.deleted_neighbor))
-                .collect();
-            js.sort();
-            js
-        };
-        variant_lines.push(format!("{underlying}\tDeletionJunctions\t{}", join(&junctions)));
-    }
-
-    // --- "== Bare-root surfaces ==" ---
-    let mut bare_root_lines = Vec::new();
-    for sd in &g.strata {
-        let mut entries: Vec<LexEntryId> = sd.entries.clone();
-        entries.sort_by(|&a, &b| xml_key_of(&g, a).cmp(xml_key_of(&g, b)));
-        for entry in entries {
-            let n_allomorphs = g.entries[entry.0 as usize].allomorphs.len();
-            let surfaces = surface.bare_root_surfaces(&morpher, entry);
-            let line = format!("{}\t{}", xml_key_of(&g, entry), join(&surfaces));
-            // C# prints one line PER ROOT ALLOMORPH, each independently recomputing the SAME
-            // whole-entry `GenerateWords` result (`FstStatsCommand.cs:93-98`) -- so an entry with N
-            // allomorphs produces N identical lines, not one.
-            for _ in 0..n_allomorphs {
-                bare_root_lines.push(line.clone());
-            }
-        }
-    }
+    let variant_lines = per_affix_lines(&g, &surface);
+    let bare_lines = bare_root_lines(&g, &surface, &morpher);
 
     let golden_text = std::fs::read_to_string(&golden).expect("read golden");
     let golden_variants = section_lines(&golden_text, "== Per-affix Variants / DeletionJunctions ==");
     let golden_bare_roots = section_lines(&golden_text, "== Bare-root surfaces ==");
 
     assert_eq!(variant_lines, golden_variants, "{grammar_file}: Variants/DeletionJunctions dump mismatch");
-    assert_eq!(bare_root_lines, golden_bare_roots, "{grammar_file}: bare-root surfaces dump mismatch");
+    assert_eq!(bare_lines, golden_bare_roots, "{grammar_file}: bare-root surfaces dump mismatch");
 }
 
 #[test]
