@@ -521,6 +521,17 @@ paths; run the oracle with `DOTNET_gcServer=0`.
 
 ## 12. After parity: the recorded follow-ups (do NOT do these during the port)
 
+0. **Investigate (don't necessarily fix yet) the bare walker's Sena full-corpus performance.**
+   F4 found the bare walker takes multiple minutes (confirmed independently: 9+ CPU-minutes and
+   still running when checked) to walk the full 7,121-word Sena corpus in `--release`, well past
+   the architecture's whole premise of sub-millisecond-to-millisecond per-word cost. F4 itself
+   correctly deferred this per this section's own "no while-we're-here optimization before F9"
+   rule and gated on a 60-word slice instead (byte-identical, including both known pathological
+   words) -- but before F7/F8 stack more per-word walk logic on top of `walk.rs`, check whether
+   this is isolated to a handful of pathological words (matching the feasibility report's own
+   Sena pathological-tail framing) or systemic (e.g. non-O(1) arc/closure lookups that would
+   compound as more machinery gets added). Flagged by an independent Fable review of F4
+   (2026-07-11) as worth investigating sooner rather than purely deferring to post-parity.
 1. **Re-measure chain vs v1 in Rust.** The C# 37× chain penalty is allocation/hash-heavy; Rust
    may compress it dramatically. If chain-on comes within the original ≤1.5× p50 budget on the
    battery, the default flip + the C# plan's deferred retirements (junction probing,
