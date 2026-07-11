@@ -283,9 +283,9 @@ pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
         .ok_or_else(|| GrammarError::Xml("no active <Language> element".into()))?;
 
     // --- top-level lints (constructs the reference grammars never contain) --------------------
-    if lang.child("FootFeatures").is_some() {
-        return Err(GrammarError::Unsupported("FootFeatures".into()));
-    }
+    // FootFeatures (F1, HYBRID_FST_RUST_PLAN.md §7.1 item 4): no longer hard-linted — loaded by
+    // `build_syn_features` below, mirroring HeadFeatures exactly (see that function + the
+    // `SynFeatureSystem::foot` doc for the confirmed-against-C# shared-namespace behavior).
     // StemName / Family / RealizationalRule (plan W5): no longer hard-linted — loaded below
     // (StemNames/Families passes) and inline in `load_stratum`/`try_load_lex_entry`.
     // MorphemeCoOccurrenceRule / AllomorphCoOccurrenceRule (plan W6): no longer hard-linted here —
@@ -629,7 +629,29 @@ fn build_syn_features(lang: &Node) -> Result<SynFeatureSystem, GrammarError> {
         }
     }
 
-    Ok(SynFeatureSystem { features, pos, head })
+    // The foot complex feature, present iff <FootFeatures> exists (F1: mirrors <HeadFeatures>
+    // exactly, `XmlLanguageLoader.cs:250-255` — `AddFootFeature()` + `LoadSyntacticFeatureSystem
+    // (footFeatsElem, SyntacticFeatureType.Foot)`). Foot-declared features are added to the SAME
+    // `features` vec as head's — there is one shared syntactic feature namespace in C#, not two —
+    // so a real grammar could in principle declare a feature under `<FootFeatures>` that
+    // `<AssignedHeadFeatures>` references, and vice versa (confirmed, not assumed: see the
+    // `SynFeatureSystem` doc).
+    let mut foot = None;
+    if let Some(ff) = lang.child("FootFeatures") {
+        foot = Some(FeatId(features.len() as u16));
+        features.push(SynFeature {
+            xml_id: "__foot__".into(),
+            name: "foot".into(),
+            kind: SynFeatureKind::Complex,
+        });
+        for fd in ff.children.iter().filter(|e| e.is_active()) {
+            if let Some(f) = load_syn_feature(fd)? {
+                features.push(f);
+            }
+        }
+    }
+
+    Ok(SynFeatureSystem { features, pos, head, foot })
 }
 
 /// Port of `XmlLanguageLoader.LoadFeature` for the syntactic domain.
@@ -709,14 +731,18 @@ fn load_syn_fs(elem: &Node, syn: &SynFeatureSystem) -> Result<FeatureStruct, Gra
     Ok(b.build())
 }
 
-/// Build a `{POS?, head?}` syntactic feature struct from an element carrying a POS id-list
-/// attribute (`pos_attr`) and/or a head-features child element (`head_elem`), then intern it.
-/// Foot features are ignored (they lint at the top level; the reference grammars have none).
+/// Build a `{POS?, head?, foot?}` syntactic feature struct from an element carrying a POS id-list
+/// attribute (`pos_attr`), a head-features child element (`head_elem`), and/or a foot-features
+/// child element (`foot_elem`), then intern it. `foot_elem` mirrors `head_elem` exactly (F1,
+/// HYBRID_FST_RUST_PLAN.md §7.1 item 4) — both are `None`/absent-element no-ops when the grammar
+/// declares no `<FootFeatures>` at all (`syn.foot == None`), matching every pre-F1 caller's
+/// behavior bit-for-bit.
 fn build_syn_fs(
     elem: &Node,
     syn: &SynFeatureSystem,
     pos_attr: Option<&str>,
     head_elem: Option<&str>,
+    foot_elem: Option<&str>,
 ) -> Result<FeatureStruct, GrammarError> {
     let mut b = FeatureStructBuilder::new();
     if let Some(pa) = pos_attr {
@@ -729,15 +755,19 @@ fn build_syn_fs(
             b.add(head_fid, FeatureValue::Complex(load_syn_fs(hn, syn)?));
         }
     }
+    if let (Some(fe), Some(foot_fid)) = (foot_elem, syn.foot) {
+        if let Some(fn_) = elem.child(fe) {
+            b.add(foot_fid, FeatureValue::Complex(load_syn_fs(fn_, syn)?));
+        }
+    }
     Ok(b.build())
 }
 
 /// `LoadStemName` (`XmlLanguageLoader.cs:323-345`, W5). Each `<Region>` becomes one region FS:
 /// the `<StemName>`'s own `partsOfSpeech` attribute (shared by every region) plus that region's
-/// own optional `<AssignedHeadFeatures>` — exactly the `{POS, head}` shape `build_syn_fs`
-/// produces for `RequiredSyntacticFeatureStruct` elsewhere, so a region FS is directly comparable
-/// (via `subsumes`) to a word's accumulated syntactic FS. `<AssignedFootFeatures>` is dead here
-/// for the same reason `FootFeatures` lints unsupported grammar-wide (see this module's top doc).
+/// own optional `<AssignedHeadFeatures>`/`<AssignedFootFeatures>` — exactly the `{POS, head, foot}`
+/// shape `build_syn_fs` produces for `RequiredSyntacticFeatureStruct` elsewhere, so a region FS is
+/// directly comparable (via `subsumes`) to a word's accumulated syntactic FS.
 fn load_stem_name(
     fs_interner: &mut Interner<FeatureStruct>,
     sn: &Node,
@@ -751,6 +781,11 @@ fn load_stem_name(
         if let (Some(head_fid), Some(hn)) = (syn.head, region.child("AssignedHeadFeatures")) {
             b.add(head_fid, FeatureValue::Complex(load_syn_fs(hn, syn)?));
         }
+        // F1: `AssignedFootFeatures` on a StemName `<Region>` (`XmlLanguageLoader.cs:332-337`) —
+        // previously dead here because FootFeatures lint made `syn.foot` always `None`.
+        if let (Some(foot_fid), Some(fnode)) = (syn.foot, region.child("AssignedFootFeatures")) {
+            b.add(foot_fid, FeatureValue::Complex(load_syn_fs(fnode, syn)?));
+        }
         regions.push(fs_interner.intern(b.build()));
     }
     Ok(StemNameDef { name: sn.text_of("Name").map(str::to_string), regions })
@@ -762,8 +797,9 @@ fn intern_syn_fs(
     syn: &SynFeatureSystem,
     pos_attr: Option<&str>,
     head_elem: Option<&str>,
+    foot_elem: Option<&str>,
 ) -> Result<hc_featstruct::FsId, GrammarError> {
-    let fs = build_syn_fs(elem, syn, pos_attr, head_elem)?;
+    let fs = build_syn_fs(elem, syn, pos_attr, head_elem, foot_elem)?;
     Ok(acc.fs_interner.intern(fs))
 }
 
@@ -1459,8 +1495,8 @@ fn try_load_affix_process_rule(
 ) -> Result<Option<MRuleId>, GrammarError> {
     let mrule_id = MRuleId(acc.mrules.len() as u32);
 
-    let required_syn_fs = intern_syn_fs(acc, mr, ro.syn, Some("requiredPartsOfSpeech"), Some("RequiredHeadFeatures"))?;
-    let out_syn_fs = intern_syn_fs(acc, mr, ro.syn, Some("outputPartOfSpeech"), Some("OutputHeadFeatures"))?;
+    let required_syn_fs = intern_syn_fs(acc, mr, ro.syn, Some("requiredPartsOfSpeech"), Some("RequiredHeadFeatures"), Some("RequiredFootFeatures"))?;
+    let out_syn_fs = intern_syn_fs(acc, mr, ro.syn, Some("outputPartOfSpeech"), Some("OutputHeadFeatures"), Some("OutputFootFeatures"))?;
 
     let mut obligatory_features = Vec::new();
     if let Some(ids) = mr.attr_ne("outputObligatoryFeatures") {
@@ -1560,7 +1596,7 @@ fn try_load_realizational_rule(
 
     // No `requiredPartsOfSpeech`/POS attribute on `<RealizationalRule>` (DTD + loader both omit
     // it) — head/foot only, foot dead as everywhere else.
-    let required_syn_fs = intern_syn_fs(acc, real, ro.syn, None, Some("RequiredHeadFeatures"))?;
+    let required_syn_fs = intern_syn_fs(acc, real, ro.syn, None, Some("RequiredHeadFeatures"), Some("RequiredFootFeatures"))?;
 
     // `<RealizationalFeatures>` wrapped in the head feature (`XmlLanguageLoader.cs:972-980`):
     // `FeatureStruct.New().Feature(_headFeature).EqualTo(LoadFeatureStruct(realFeatElem, ...))`.
@@ -1641,7 +1677,7 @@ fn load_affix_allomorph(
     )?);
 
     // Subrule-level requirement FS carries head/foot only (no POS), per LoadAffixProcessAllomorph.
-    let required_syn_fs = intern_syn_fs(acc, sub, ro.syn, None, Some("RequiredHeadFeatures"))?;
+    let required_syn_fs = intern_syn_fs(acc, sub, ro.syn, None, Some("RequiredHeadFeatures"), Some("RequiredFootFeatures"))?;
 
     let vars = load_variables(sub.child("VariableFeatures"), ro.phon)?;
 
@@ -1763,10 +1799,24 @@ fn try_load_compounding_rule(
 ) -> Result<Option<MRuleId>, GrammarError> {
     let mrule_id = MRuleId(acc.mrules.len() as u32);
 
-    let head_required_syn_fs = intern_syn_fs(acc, comp, ro.syn, Some("headPartsOfSpeech"), Some("HeadRequiredHeadFeatures"))?;
-    let non_head_required_syn_fs =
-        intern_syn_fs(acc, comp, ro.syn, Some("nonHeadPartsOfSpeech"), Some("NonHeadRequiredHeadFeatures"))?;
-    let out_syn_fs = intern_syn_fs(acc, comp, ro.syn, Some("outputPartOfSpeech"), Some("OutputHeadFeatures"))?;
+    let head_required_syn_fs = intern_syn_fs(
+        acc,
+        comp,
+        ro.syn,
+        Some("headPartsOfSpeech"),
+        Some("HeadRequiredHeadFeatures"),
+        Some("HeadRequiredFootFeatures"),
+    )?;
+    let non_head_required_syn_fs = intern_syn_fs(
+        acc,
+        comp,
+        ro.syn,
+        Some("nonHeadPartsOfSpeech"),
+        Some("NonHeadRequiredHeadFeatures"),
+        Some("NonHeadRequiredFootFeatures"),
+    )?;
+    let out_syn_fs =
+        intern_syn_fs(acc, comp, ro.syn, Some("outputPartOfSpeech"), Some("OutputHeadFeatures"), Some("OutputFootFeatures"))?;
 
     let head_prod_restrictions_mpr = load_mpr_set(comp.attr("headProdRestrictionsMprFeatures"), ro.mpr)?;
     let non_head_prod_restrictions_mpr =
@@ -1870,7 +1920,7 @@ fn load_affix_template(
     ro: &Ro,
     acc: &mut Acc,
 ) -> Result<AffixTemplateDef, GrammarError> {
-    let required_syn_fs = intern_syn_fs(acc, temp, ro.syn, Some("requiredPartsOfSpeech"), None)?;
+    let required_syn_fs = intern_syn_fs(acc, temp, ro.syn, Some("requiredPartsOfSpeech"), None, None)?;
 
     let mut slots = Vec::new();
     for slot in temp.elems("Slot").filter(|e| e.is_active()) {
@@ -1916,7 +1966,7 @@ fn try_load_lex_entry(
         None => None,
     };
 
-    let syn_fs = intern_syn_fs(acc, entry, ro.syn, Some("partOfSpeech"), Some("AssignedHeadFeatures"))?;
+    let syn_fs = intern_syn_fs(acc, entry, ro.syn, Some("partOfSpeech"), Some("AssignedHeadFeatures"), Some("AssignedFootFeatures"))?;
     let mpr = load_mpr_set(entry.attr("ruleFeatures"), ro.mpr)?;
     let partial = parse_bool(entry.attr("partial"), false);
 
@@ -2595,13 +2645,37 @@ mod tests {
         );
     }
 
+    /// F1 (HYBRID_FST_RUST_PLAN.md §7.1 item 4): `<FootFeatures>` is no longer hard-linted
+    /// unsupported — the `fst-advisor-toys/HermitCrabTestBase.shared.xml` fixture needs it (an
+    /// empty `<FootFeatures/>` plus `AssignedFootFeatures` referencing head-declared features).
+    /// This test now pins the *positive* behavior: `<FootFeatures>` loads, adds a foot complex
+    /// feature (mirroring `<HeadFeatures>`/`syn.head` exactly), and its own declared features join
+    /// the shared syntactic feature namespace (confirmed against `XmlLanguageLoader.cs:244-256`
+    /// which adds both under the SAME `SyntacticFeatureSystem` — see the `SynFeatureSystem::foot`
+    /// doc). Was `foot_features_lints_unsupported` pre-F1.
     #[test]
-    fn foot_features_lints_unsupported() {
+    fn foot_features_loads_as_a_complex_feature_mirroring_head() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
           <PartsOfSpeech><PartOfSpeech id="p"><Name>n</Name></PartOfSpeech></PartsOfSpeech>
           <FootFeatures><SymbolicFeature id="f"><Name>x</Name><Symbols><Symbol id="s">+</Symbol></Symbols></SymbolicFeature></FootFeatures>
         </Language></HermitCrabInput>"#;
-        assert!(matches!(load(XML), Err(GrammarError::Unsupported(_))));
+        let g = load(XML).expect("FootFeatures must load, not lint unsupported");
+        assert!(g.syn_features.foot.is_some(), "foot complex feature must be present");
+        assert!(
+            g.syn_features.feature_by_xml_id("f").is_some(),
+            "foot-declared feature 'f' must join the syntactic feature namespace"
+        );
+    }
+
+    /// An absent `<FootFeatures>` element must still leave `syn.foot == None` (no spurious complex
+    /// feature invented) — the exact `<HeadFeatures>`-absent behavior already pinned elsewhere.
+    #[test]
+    fn absent_foot_features_element_leaves_foot_none() {
+        const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
+          <PartsOfSpeech><PartOfSpeech id="p"><Name>n</Name></PartOfSpeech></PartsOfSpeech>
+        </Language></HermitCrabInput>"#;
+        let g = load(XML).expect("grammar with no FootFeatures must still load");
+        assert!(g.syn_features.foot.is_none());
     }
 
     /// Regression test for the `<AffixTemplate final>` bug (rust-conversion.md §13.1 T1-#2):

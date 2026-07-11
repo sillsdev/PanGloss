@@ -153,10 +153,20 @@ impl MprSet {
 // --- Syntactic feature system ----------------------------------------------------------------
 
 /// The syntactic feature system: POS (always feature 0 in C# via `AddPartsOfSpeech`) plus the
-/// head complex feature and every feature declared under `<HeadFeatures>` (`FootFeatures`
-/// lints unsupported-v1). Symbol/feature ids are dense indices in declaration order; tree
-/// feature structs ([`hc_featstruct::FeatureStruct`]) reference features by
-/// [`hc_featstruct::FeatId`] into this system.
+/// head complex feature (every feature declared under `<HeadFeatures>`) and the foot complex
+/// feature (every feature declared under `<FootFeatures>` — F1, HYBRID_FST_RUST_PLAN.md §7.1
+/// item 4: previously hard-linted unsupported because no reference grammar used it; the
+/// `fst-advisor-toys/HermitCrabTestBase.shared.xml` fixture does, via an empty `<FootFeatures/>`
+/// plus `AssignedFootFeatures`/`RequiredFootFeatures` regions). Symbol/feature ids are dense
+/// indices in declaration order; tree feature structs ([`hc_featstruct::FeatureStruct`])
+/// reference features by [`hc_featstruct::FeatId`] into this system.
+///
+/// Head and foot share ONE feature namespace (`XmlLanguageLoader.cs:244-256`: both
+/// `LoadSyntacticFeatureSystem(headFeatsElem, SyntacticFeatureType.Head)` and the foot
+/// counterpart add their declared features to the SAME `_language.SyntacticFeatureSystem`) — a
+/// `<FeatureValue feature="x">` inside `AssignedFootFeatures` may reference a feature declared
+/// under `<HeadFeatures>` and vice versa; this is not a loader bug, it is confirmed C# behavior
+/// (verified directly against `XmlLanguageLoader.cs`, not assumed).
 #[derive(Debug)]
 pub struct SynFeatureSystem {
     /// Feature defs indexed by `FeatId.0`.
@@ -165,8 +175,11 @@ pub struct SynFeatureSystem {
     /// document order — bit `i` of its `SymbolBits` = the i-th declared POS).
     pub pos: hc_featstruct::FeatId,
     /// The head complex feature (present iff the grammar has `<HeadFeatures>`). Its value in
-    /// a syntactic FS is a nested `FeatureStruct` over the head-declared features.
+    /// a syntactic FS is a nested `FeatureStruct` over the head/foot-shared declared features.
     pub head: Option<hc_featstruct::FeatId>,
+    /// The foot complex feature (present iff the grammar has `<FootFeatures>`), C#'s
+    /// `AddFootFeature()`/`_footFeature`. Mirrors [`Self::head`] exactly.
+    pub foot: Option<hc_featstruct::FeatId>,
 }
 
 #[derive(Debug)]
