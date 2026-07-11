@@ -258,3 +258,79 @@ fn every_emitted_indonesian_analysis_reconfirms() {
         "every emitted analysis must re-confirm, none should be lost"
     );
 }
+
+/// Quirk 8's compounding-CONDITIONALLY-open clause, specifically exercised (advisor review of this
+/// milestone): the Indonesian and Sena-slice-60 gates above are both byte-identical, but NEITHER
+/// corpus contains a verified multi-root candidate (Indonesian's compounding rules "must stay
+/// silent" per the feasibility report; Sena's only known compound, `ndikhali`, is corpus index
+/// 4386 -- outside the first 60 words). That means `confirm`'s `extra_roots`-population loop and
+/// its `(!extra_roots.is_empty() && Compounding)` admission clause -- the single most load-bearing
+/// line of this whole milestone -- ran ZERO times in the gates above, even though both passed. This
+/// test drives it for real: on the FULL Sena grammar (not the slice), the bare proposer's own
+/// candidate for "ndikhali" includes `entry413+entry1072` (confirmed directly against
+/// `candidates-bare-full.tsv` line 287711, `mrule47+entry413+entry1072+mrule9:1` -- a genuine
+/// two-root compound candidate the bare walker itself proposes), and the C# COMPOSITE verified
+/// golden (`batch-chainoff-full.tsv`, idx 4386) confirms that exact signature as a real verified
+/// analysis. So `VerifiedFstAnalyzer::analyze_word("ndikhali")` must yield at least one analysis
+/// carrying two `entry` (root) tokens, and every one of those must re-confirm (idempotence) --
+/// exactly the same double-run discipline as the Indonesian soundness assert above, targeted at
+/// the one path that assert structurally could not reach.
+#[test]
+fn ndikhali_compound_verifies_with_two_roots_and_reconfirms() {
+    let Some(g) = load_grammar("sena-hc.xml") else {
+        eprintln!("skipping: sena-hc.xml not present on disk");
+        return;
+    };
+    let trie = build_trie(&g);
+    let verify_morpher = Morpher::new(&g, usize::MAX);
+    let analyzer =
+        VerifiedFstAnalyzer::new(&g, &trie, &verify_morpher, walk::DEFAULT_MAX_BEAM_WORK);
+    let owners = replay::build_morpheme_owners(&g);
+
+    let verified = analyzer.analyze_word("ndikhali");
+    assert!(
+        !verified.is_empty(),
+        "\"ndikhali\" (a known 2-root Sena compound) must verify to >=1 analysis"
+    );
+
+    let is_root_entry = |id: u32| {
+        owners
+            .get(id as usize)
+            .copied()
+            .flatten()
+            .is_some_and(|o| matches!(o, replay::MorphemeOwner::LexEntry(_)))
+    };
+    let has_two_roots = verified.iter().any(|wa| {
+        wa.morpheme_ids
+            .iter()
+            .filter(|&&id| is_root_entry(id))
+            .count()
+            >= 2
+    });
+    assert!(
+        has_two_roots,
+        "expected at least one verified \"ndikhali\" analysis with two root (LexEntry) morphemes, \
+         got signatures: {:?}",
+        verified
+            .iter()
+            .map(|wa| replay::signature(&g, wa))
+            .collect::<Vec<_>>()
+    );
+
+    for wa in &verified {
+        let candidate = Candidate {
+            morphemes: wa.morpheme_ids.iter().map(|&id| MorphemeId(id)).collect(),
+            root_index: wa.root_morpheme_index,
+        };
+        let reconfirmed = replay::confirm(&g, &owners, &verify_morpher, &candidate, "ndikhali");
+        assert!(
+            reconfirmed.is_some(),
+            "\"ndikhali\" analysis {:?} did not re-confirm",
+            replay::signature(&g, wa)
+        );
+        assert_eq!(
+            replay::signature(&g, &reconfirmed.unwrap()),
+            replay::signature(&g, wa)
+        );
+    }
+}
