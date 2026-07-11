@@ -101,7 +101,7 @@ fn run() -> ExitCode {
                 "hc-rs {} — HermitCrab Rust engine CLI\n\
                  usage: hc-rs batch <grammar.xml> <words.txt> <out.tsv> [--step-cap N] [--word-timeout-ms N] [--memo=on|off] [--threads N] [--start N]\n\
                  usage: hc-rs generate <grammar.xml> <root-morpheme-id> [other-morpheme-id ...]\n\
-                 usage: hc-rs parse <grammar.xml> <word> [--trace[=<file>]] [--trace-format=text|json] [--gloss]\n\
+                 usage: hc-rs parse <grammar.xml> <word> [--trace[=<file>]] [--trace-format=text|json] [--gloss] [--natural-gloss=eng] [--realize-map=<path>]\n\
                  usage: hc-rs fst-stats <grammar.xml> [out.txt]  (omit out.txt to print to stdout)",
                 env!("CARGO_PKG_VERSION")
             );
@@ -167,11 +167,31 @@ fn run_fst_stats(args: &[String]) -> Result<(), String> {
 /// (same index order as `ParseOutcome.analyses`/`.structured`), via the new additive `hc-realize`
 /// crate. Purely additive — orthogonal to `--trace`, works with or without it, and never touches
 /// the parity line above it.
+///
+/// `--natural-gloss=eng` (`docs/natural-phrases-plan.md` N2): after the parity line (and after
+/// the `gloss:` line for that same analysis, if `--gloss` was also given), print one additional
+/// `eng:\t{text}` line per surviving analysis -- `eng:\t{text} ({residue})` when the realization
+/// is only partial (`hc_realize::Realization::complete == false`). `eng` is the only supported
+/// value today (a hard error lists what's supported, rather than silently no-op-ing on a typo);
+/// the flag name leaves room for other target languages later without a breaking change.
+/// `--natural-gloss` implies building the gloss bundle -> IR -> realization chain internally, but
+/// deliberately does NOT imply `--gloss`'s own `gloss:` line -- the two flags are independent.
+///
+/// `--realize-map=<path>` overrides the sidecar `hc_realize::RealizeMap` used to build each
+/// analysis's `GlossIr`; omitted, it defaults to `<grammar-dir>/<grammar-stem-with-"-hc"-suffix-
+/// stripped>-realize.toml` (e.g. `samples/data/amharic-hc.xml` -> `samples/data/amharic-
+/// realize.toml`), matching `samples/data/*-realize.toml`'s naming convention
+/// (`docs/natural-phrases-plan.md` N1). A missing default-resolved file degrades to
+/// `RealizeMap::empty()` (the documented no-sidecar path, e.g. Sena); a missing *explicitly*
+/// named `--realize-map` file, or any sidecar that fails to parse (default-resolved or explicit),
+/// is a hard error -- typos must not silently degrade.
 fn run_parse(args: &[String]) -> Result<(), String> {
     let mut positional: Vec<&str> = Vec::new();
     let mut trace_dest: Option<Option<String>> = None; // None = --trace not given; Some(None) = stdout; Some(Some(path)) = file
     let mut trace_format = "text".to_string();
     let mut gloss = false;
+    let mut natural_gloss: Option<String> = None;
+    let mut realize_map_arg: Option<String> = None;
 
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -186,27 +206,56 @@ fn run_parse(args: &[String]) -> Result<(), String> {
                 trace_format = s["--trace-format=".len()..].to_string();
             }
             "--gloss" => gloss = true,
+            "--natural-gloss" => {
+                let v = it.next().ok_or("--natural-gloss requires a value")?;
+                natural_gloss = Some(v.clone());
+            }
+            s if s.starts_with("--natural-gloss=") => {
+                natural_gloss = Some(s["--natural-gloss=".len()..].to_string());
+            }
+            "--realize-map" => {
+                let v = it.next().ok_or("--realize-map requires a value")?;
+                realize_map_arg = Some(v.clone());
+            }
+            s if s.starts_with("--realize-map=") => {
+                realize_map_arg = Some(s["--realize-map=".len()..].to_string());
+            }
             s => positional.push(s),
         }
     }
     if trace_format != "text" && trace_format != "json" {
         return Err(format!("invalid --trace-format: {trace_format} (expected text|json)"));
     }
+    if let Some(v) = &natural_gloss {
+        if v != "eng" {
+            return Err(format!("unsupported --natural-gloss value: {v} (supported: eng)"));
+        }
+    }
     let [grammar_path, word] = positional[..] else {
-        return Err("usage: parse <grammar.xml> <word> [--trace[=<file>]] [--trace-format=text|json] [--gloss]".into());
+        return Err("usage: parse <grammar.xml> <word> [--trace[=<file>]] [--trace-format=text|json] [--gloss] [--natural-gloss=eng] [--realize-map=<path>]".into());
     };
 
     let xml = fs::read_to_string(grammar_path).map_err(|e| format!("read {grammar_path}: {e}"))?;
     let grammar = hc_grammar::load(&xml).map_err(|e| format!("load {grammar_path}: {e:?}"))?;
     let morpher = Morpher::new(&grammar, usize::MAX);
 
+    // `--natural-gloss=eng` setup: the embedded English table + the per-grammar sidecar map, both
+    // built once up front (not per-analysis) since neither depends on the word being parsed.
+    let natural: Option<(hc_realize::TableRealizer, hc_realize::RealizeMap)> = match &natural_gloss {
+        None => None,
+        Some(_) => {
+            let realizer = hc_realize::TableRealizer::new()
+                .map_err(|e| format!("load embedded natural-gloss assets: {e}"))?;
+            let map = load_realize_map(grammar_path, realize_map_arg.as_deref())?;
+            Some((realizer, map))
+        }
+    };
+
     if let Some(dest) = trace_dest {
         let sink = hc_rules::trace::TreeTraceSink::new();
         let outcome = morpher.parse_word_traced(word, &hc_parse::ParseOptions::default(), &sink);
         println!("{}\t{}", word, outcome.signature());
-        if gloss {
-            print_gloss_lines(&grammar, &outcome, word);
-        }
+        print_realize_lines(&grammar, &outcome, word, gloss, natural.as_ref());
 
         let rendered = match sink.root() {
             Some(root) if trace_format == "json" => trace_render::render_json(&grammar, &sink, root),
@@ -221,22 +270,72 @@ fn run_parse(args: &[String]) -> Result<(), String> {
         // No --trace: behave like a minimal, single-word `batch` (the parse result only).
         let outcome = morpher.parse_word(word);
         println!("{}\t{}", word, outcome.signature());
-        if gloss {
-            print_gloss_lines(&grammar, &outcome, word);
-        }
+        print_realize_lines(&grammar, &outcome, word, gloss, natural.as_ref());
     }
     Ok(())
 }
 
-/// `--gloss`'s per-analysis output (N0): one `gloss:\t{leipzig}` line per `outcome.structured[i]`,
-/// in that same order -- deliberately reading `.structured`, not `.analyses`, since `hc_realize::
-/// gloss_bundle` needs the numeric morpheme ordinals, not the display-string join `.analyses`
-/// carries (see `ParseOutcome`'s own doc on why the two views share an index but not a shape).
-fn print_gloss_lines(grammar: &Grammar, outcome: &ParseOutcome, word: &str) {
+/// `--gloss`/`--natural-gloss=eng`'s per-analysis output (N0/N2): for each `outcome.structured[i]`
+/// (same index order as `ParseOutcome.analyses`), optionally a `gloss:\t{leipzig}` line, then
+/// optionally an `eng:\t{text}` (or `eng:\t{text} ({residue})` when partial) line -- interleaved
+/// per analysis, not as two separate passes, so a reader can tell which `eng:` line goes with
+/// which `gloss:` line when a word has more than one surviving analysis. Deliberately reading
+/// `.structured`, not `.analyses`, since `hc_realize::gloss_bundle` needs the numeric morpheme
+/// ordinals, not the display-string join `.analyses` carries (see `ParseOutcome`'s own doc on why
+/// the two views share an index but not a shape).
+fn print_realize_lines(
+    grammar: &Grammar,
+    outcome: &ParseOutcome,
+    word: &str,
+    gloss: bool,
+    natural: Option<&(hc_realize::TableRealizer, hc_realize::RealizeMap)>,
+) {
     for analysis in &outcome.structured {
         let bundle = hc_realize::gloss_bundle(grammar, analysis);
-        println!("gloss:\t{}", hc_realize::leipzig(&bundle, word));
+        if gloss {
+            println!("gloss:\t{}", hc_realize::leipzig(&bundle, word));
+        }
+        if let Some((realizer, map)) = natural {
+            let ir = hc_realize::to_ir(&bundle, map, word);
+            let realization = hc_realize::Realizer::realize(realizer, &ir);
+            if realization.complete {
+                println!("eng:\t{}", realization.text);
+            } else {
+                println!("eng:\t{} ({})", realization.text, realization.residue.join("-"));
+            }
+        }
     }
+}
+
+/// Resolve and load the `--natural-gloss=eng` sidecar [`hc_realize::RealizeMap`]: `explicit_arg`
+/// (`--realize-map=<path>`) wins when given, else the default path is derived from
+/// `grammar_path`'s directory and stem (`docs/natural-phrases-plan.md` N2: strip a trailing
+/// `-hc` from the stem, append `-realize.toml`). An explicit path that doesn't exist, or any
+/// resolved path that exists but fails to parse, is a hard error; a *default*-resolved path that
+/// doesn't exist degrades to `RealizeMap::empty()` (the documented no-sidecar path).
+fn load_realize_map(grammar_path: &str, explicit_arg: Option<&str>) -> Result<hc_realize::RealizeMap, String> {
+    let (path, explicit) = match explicit_arg {
+        Some(p) => (std::path::PathBuf::from(p), true),
+        None => (default_realize_map_path(grammar_path), false),
+    };
+    if !path.exists() {
+        if explicit {
+            return Err(format!("--realize-map file not found: {}", path.display()));
+        }
+        return Ok(hc_realize::RealizeMap::empty());
+    }
+    let text = fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
+    hc_realize::RealizeMap::parse(&text).map_err(|e| format!("parse {}: {e}", path.display()))
+}
+
+/// `<grammar-dir>/<grammar-stem-with-"-hc"-suffix-stripped>-realize.toml`, e.g.
+/// `samples/data/amharic-hc.xml` -> `samples/data/amharic-realize.toml`.
+fn default_realize_map_path(grammar_path: &str) -> std::path::PathBuf {
+    let path = std::path::Path::new(grammar_path);
+    let dir = path.parent().unwrap_or_else(|| std::path::Path::new("."));
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+    let stem = stem.strip_suffix("-hc").unwrap_or(stem);
+    dir.join(format!("{stem}-realize.toml"))
 }
 
 fn run_batch(args: &[String]) -> Result<(), String> {

@@ -16,6 +16,11 @@
 //! gloss (which degrades *gracefully but silently* to `extras` — exactly the failure mode a
 //! line-numbered load error is meant to prevent for sidecar typos specifically; see
 //! [`RealizeMap::parse`]).
+//!
+//! N2 (`docs/natural-phrases-plan.md` N2) reuses this exact subset for `crate::table::
+//! TableRealizer`'s two embedded assets (`templates.toml`'s `[cells]`, `lexicon.toml`'s
+//! `[plural_exceptions]`) rather than writing a third parser — [`parse_section`] is the
+//! generalized (any single section name) core [`RealizeMap::parse`] itself now sits on top of.
 #![forbid(unsafe_code)]
 
 use std::collections::HashMap;
@@ -82,52 +87,8 @@ impl RealizeMap {
     /// `extras`.
     pub fn parse(text: &str) -> Result<RealizeMap, MapError> {
         let mut entries: HashMap<String, FeatureAssignment> = HashMap::new();
-        let mut seen_section = false;
 
-        for (idx, raw_line) in text.lines().enumerate() {
-            let line_no = idx + 1;
-            let line = raw_line.trim();
-
-            if line.is_empty() || line.starts_with('#') {
-                continue;
-            }
-
-            if line == "[features]" {
-                if seen_section {
-                    return Err(MapError {
-                        line: line_no,
-                        message: "duplicate [features] section header".to_string(),
-                    });
-                }
-                seen_section = true;
-                continue;
-            }
-
-            if line.starts_with('[') {
-                return Err(MapError {
-                    line: line_no,
-                    message: format!(
-                        "unsupported section header {line:?}; only [features] is supported"
-                    ),
-                });
-            }
-
-            if !seen_section {
-                return Err(MapError {
-                    line: line_no,
-                    message: "key/value line before the [features] section header".to_string(),
-                });
-            }
-
-            let eq_pos = line.find('=').ok_or_else(|| MapError {
-                line: line_no,
-                message: format!("malformed line (expected key = \"value\"): {line:?}"),
-            })?;
-            let (key_part, val_part) = line.split_at(eq_pos);
-            let val_part = &val_part[1..]; // skip the '='
-
-            let key = parse_key(key_part.trim(), line_no)?;
-            let raw_value = parse_quoted_value(val_part.trim(), line_no)?;
+        for (line_no, key, raw_value) in parse_section(text, "features")? {
             let assignment = parse_feature_assignment(&raw_value).map_err(|message| MapError {
                 line: line_no,
                 message: format!("{key:?}: {message}"),
@@ -142,6 +103,74 @@ impl RealizeMap {
 
         Ok(RealizeMap { entries })
     }
+}
+
+/// Parse one named section (`"[{section}]"`) of the restricted TOML subset documented at module
+/// level into its `key = "value"` entries, each tagged with its 1-indexed source line number.
+///
+/// Generalizes [`RealizeMap::parse`]'s original single-purpose `[features]` reader so
+/// `docs/natural-phrases-plan.md` N2's `TableRealizer` asset loaders (`templates.toml`'s
+/// `[cells]`, `lexicon.toml`'s `[plural_exceptions]`) can reuse the exact same subset and error
+/// behavior instead of a third hand-rolled parser — same restrictions (full-line `#` comments,
+/// exactly one matching section header, bare-or-quoted keys, always-quoted values), same
+/// line-numbered failure mode for anything outside the subset. The line number travels with each
+/// entry so a caller whose *value* needs further validation (`RealizeMap::parse`'s
+/// `Feature:Value` parsing, `TableRealizer`'s cell-key/template-slot validation) can still report
+/// a precise line on that later failure, not just on the raw key/value shape.
+pub(crate) fn parse_section(
+    text: &str,
+    section: &str,
+) -> Result<Vec<(usize, String, String)>, MapError> {
+    let header = format!("[{section}]");
+    let mut entries: Vec<(usize, String, String)> = Vec::new();
+    let mut seen_section = false;
+
+    for (idx, raw_line) in text.lines().enumerate() {
+        let line_no = idx + 1;
+        let line = raw_line.trim();
+
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+
+        if line == header {
+            if seen_section {
+                return Err(MapError {
+                    line: line_no,
+                    message: format!("duplicate {header} section header"),
+                });
+            }
+            seen_section = true;
+            continue;
+        }
+
+        if line.starts_with('[') {
+            return Err(MapError {
+                line: line_no,
+                message: format!("unsupported section header {line:?}; only {header} is supported"),
+            });
+        }
+
+        if !seen_section {
+            return Err(MapError {
+                line: line_no,
+                message: format!("key/value line before the {header} section header"),
+            });
+        }
+
+        let eq_pos = line.find('=').ok_or_else(|| MapError {
+            line: line_no,
+            message: format!("malformed line (expected key = \"value\"): {line:?}"),
+        })?;
+        let (key_part, val_part) = line.split_at(eq_pos);
+        let val_part = &val_part[1..]; // skip the '='
+
+        let key = parse_key(key_part.trim(), line_no)?;
+        let value = parse_quoted_value(val_part.trim(), line_no)?;
+        entries.push((line_no, key, value));
+    }
+
+    Ok(entries)
 }
 
 /// Parse a `key` token: either a bare identifier (`[A-Za-z0-9_-]+`) or a double-quoted string

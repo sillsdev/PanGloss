@@ -26,7 +26,7 @@ pub enum Concept {
 
 /// Grammatical number, as amharic's `pl` gloss (and any other grammar's plural-marking
 /// morpheme) resolves to. `Unspec` is the default: no morpheme in the bundle assigned `Num`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Num {
     Unspec,
     Sg,
@@ -34,6 +34,10 @@ pub enum Num {
 }
 
 impl Num {
+    /// All variants, in declaration order — used by [`crate::table::TableRealizer`]'s 108-cell
+    /// (`docs/natural-phrases-plan.md` N2) full-coverage validation.
+    pub(crate) const ALL: [Num; 3] = [Num::Unspec, Num::Sg, Num::Pl];
+
     pub(crate) fn parse(value: &str) -> Option<Num> {
         match value {
             "Unspec" => Some(Num::Unspec),
@@ -63,7 +67,7 @@ impl Num {
 /// | `poss.3p`      | `P3Pl`  |
 ///
 /// `None` is the default: no morpheme in the bundle assigned `Poss` (an unpossessed noun).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Poss {
     None,
     P1Sg,
@@ -77,6 +81,20 @@ pub enum Poss {
 }
 
 impl Poss {
+    /// All variants, in declaration order — used by [`crate::table::TableRealizer`]'s 108-cell
+    /// (`docs/natural-phrases-plan.md` N2) full-coverage validation.
+    pub(crate) const ALL: [Poss; 9] = [
+        Poss::None,
+        Poss::P1Sg,
+        Poss::P1Pl,
+        Poss::P2SgM,
+        Poss::P2SgF,
+        Poss::P2Pl,
+        Poss::P3SgM,
+        Poss::P3SgF,
+        Poss::P3Pl,
+    ];
+
     pub(crate) fn parse(value: &str) -> Option<Poss> {
         match value {
             "None" => Some(Poss::None),
@@ -97,7 +115,7 @@ impl Poss {
 /// (ablative; `abl` is a second rule realizing the same ablative meaning — see
 /// `samples/data/amharic-realize.toml`'s comment), `to` (allative). `None` is the default: no
 /// morpheme in the bundle assigned `Case`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CaseRole {
     None,
     Loc,
@@ -106,6 +124,11 @@ pub enum CaseRole {
 }
 
 impl CaseRole {
+    /// All variants, in declaration order — used by [`crate::table::TableRealizer`]'s 108-cell
+    /// (`docs/natural-phrases-plan.md` N2) full-coverage validation.
+    pub(crate) const ALL: [CaseRole; 4] =
+        [CaseRole::None, CaseRole::Loc, CaseRole::Abl, CaseRole::All];
+
     pub(crate) fn parse(value: &str) -> Option<CaseRole> {
         match value {
             "None" => Some(CaseRole::None),

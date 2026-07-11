@@ -16,6 +16,12 @@
 //! the per-grammar sidecar mapping from raw gloss strings to those features. [`ir::to_ir`]
 //! builds a `GlossIr` from a `GlossBundle` the same way `gloss_bundle`/`leipzig` are built:
 //! total, additive, never touching parity output.
+//!
+//! N2 (`docs/natural-phrases-plan.md` N2) adds the realizer layer on top of the IR: [`realize`]
+//! defines the [`realize::Realizer`] trait and its [`realize::Realization`] result type (the
+//! Architecture-A upgrade seam, see that module's doc), and [`table`] defines
+//! [`table::TableRealizer`], the compile-time English construction-table implementation this
+//! milestone ships.
 #![forbid(unsafe_code)]
 
 use hc_grammar::model::Grammar;
@@ -23,9 +29,13 @@ use hc_parse::WordAnalysis;
 
 pub mod ir;
 pub mod map;
+pub mod realize;
+pub mod table;
 
 pub use ir::{to_ir, CaseRole, Concept, GlossIr, Num, Poss};
 pub use map::{FeatureAssignment, MapError, RealizeMap};
+pub use realize::{Realization, Realizer};
+pub use table::TableRealizer;
 
 /// One morpheme's display data, resolved from `Grammar::morphemes` (or synthesized for the
 /// guessed-root sentinel / an out-of-range ordinal — see [`gloss_bundle`]'s doc for the exact
