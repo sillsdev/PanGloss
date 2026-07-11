@@ -12,6 +12,7 @@ path = "src/main.rs"
 [dependencies]
 hc-parse.workspace = true
 hc-grammar.workspace = true
+hc-realize.workspace = true
 hc-featstruct.workspace = true
 hc-fst.workspace = true
 hc-rules.workspace = true

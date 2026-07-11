@@ -13,6 +13,7 @@ members = [
     "crates/hc-hybrid",
     "crates/hc-ffi",
     "crates/hc-cli",
+    "crates/hc-realize",
 ]
 
 [workspace.package]
@@ -41,6 +42,7 @@ hc-rules = { path = "crates/hc-rules" }
 hc-memo = { path = "crates/hc-memo" }
 hc-parse = { path = "crates/hc-parse" }
 hc-hybrid = { path = "crates/hc-hybrid" }
+hc-realize = { path = "crates/hc-realize" }
 # dev
 criterion = "0.5"
 proptest = "1"
