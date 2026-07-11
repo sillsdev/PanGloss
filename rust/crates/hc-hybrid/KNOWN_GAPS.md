@@ -125,7 +125,14 @@ times out). This milestone determined the ACTUAL exclusion set empirically, per 
 instruction, rather than importing V1b's list wholesale — and found it to be **empty**:
 `f9_full_battery_gate.rs::amharic_full_corpus_verified_matches_golden_gated_subset` ran all 673
 words with a 60s/word watchdog and got **0 pathological/timed-out, 0 mismatches**, byte-identical
-against `amharic/batch-chainoff.tsv`, in 3.4s total wall time. Restricted verify (a single pinned
+against `amharic/batch-chainoff.tsv`, in 3.4s total wall time. **Read "673/673" precisely**: 626 of
+the 673 golden result lines are empty (`-`, no verified analysis); only **47** carry a non-empty
+verified signature (root + ≤1 affix words, e.g. `entry37+mrule11:0;entry37+mrule9:0`). So the
+verify-accept-nonempty path is genuinely exercised, but on ~47 morphologically-simple words, not on
+all 673 — the byte-identical match is meaningful (it pins both the 47 accepts AND the 626 correct
+non-emissions), just not as deep as the bare count suggests. The separate all-673 candidate-parity
+gate and the 50-word negatives (verify-reject) gate exercise proposer-emit and verify-reject
+independently, so combined Amharic coverage is broader than this one gate alone. Restricted verify (a single pinned
 root + a few rules) is a strictly easier search than the unrestricted engine analysis V1b measured,
 exactly as plan §5.2 predicted ("collapses the search that currently caps out") — none of V1b's 13
 unrestricted-engine timeout words turned out to be reachable/relevant as a hybrid-verify candidate
@@ -141,3 +148,17 @@ this crate's unification-arc (`FeatureStruct`-labeled) trie without first concre
 alphabet — the same "quotiented chain" idea already deferred to plan §12 item 5 (post-parity). Its
 lazy-composition design is a read-worthy reference for `walk.rs`'s `ChainClosure`/`CascadeSymbol`,
 not a dependency. See `docs/fst-plan/F1_QUIRK_AUDIT.md`'s "rustfst evaluation" section.
+
+## 11. Goldens are gitignored → the full-corpus gates SKIP (not fail) on a fresh clone
+
+The `rust/parity-out/golden/fst-advisor/**` tree is a gitignored, locally-present on-disk artifact
+generated once by the C# `fst-advisor`-branch oracle console in the `machine` repo (see the tree's
+`MANIFEST.txt` for the oracle ref + recipe). Every golden-comparison gate resolves its `golden_path`
+and, when the file is absent, returns early (`None` → skip) rather than failing. That is the
+deliberate crate convention (all full-corpus/Amharic-scale gates are also `#[ignore]`d), but it has
+a real consequence worth stating plainly: **a CI job on a fresh clone without the C#-generated
+goldens present cannot reproduce the headline Sena 7,121/7,121 or Amharic 673/673 numbers** — those
+gates silently no-op there. The headline results in items 8/9 rest on locally-present C# captures
+(re-run and re-verified by hand at merge time), not on anything a clean-checkout CI run exercises.
+Committing the goldens (or a compressed subset) would close this; left gitignored for now to keep
+the repo free of large generated oracle dumps, matching the same policy in the `machine` repo.
