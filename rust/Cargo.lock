@@ -75,6 +75,7 @@ dependencies = [
  "hc-featstruct",
  "hc-fst",
  "hc-grammar",
+ "hc-hybrid",
  "hc-parse",
  "hc-rules",
  "rayon",

@@ -15,4 +15,5 @@ hc-grammar.workspace = true
 hc-featstruct.workspace = true
 hc-fst.workspace = true
 hc-rules.workspace = true
+hc-hybrid.workspace = true
 rayon.workspace = true
