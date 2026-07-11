@@ -122,13 +122,31 @@ pub fn confirm(
     candidate: &Candidate,
     word: &str,
 ) -> Option<EngineAnalysis> {
+    confirm_checked(g, owners, morpher, candidate, word).0
+}
+
+/// [`confirm`], plus a second return value reporting whether the underlying restricted
+/// `parse_word_selected` call hit `Morpher::with_word_timeout`'s wall-clock deadline
+/// (`ParseOutcome::timed_out`) — added in F9 (`HYBRID_FST_RUST_PLAN.md` §8's full-corpus Sena
+/// watchdog gate) so a full-corpus run can distinguish "this word's restricted verify did not
+/// finish in the configured budget" (a pathological word to record explicitly, per the plan's own
+/// instruction) from "this word's restricted verify finished and genuinely found no matching
+/// analysis" (an ordinary, correct `None`). `confirm` itself is unchanged behaviorally — it just
+/// discards the new second value — so every existing caller/gate is unaffected.
+pub fn confirm_checked(
+    g: &Grammar,
+    owners: &[Option<MorphemeOwner>],
+    morpher: &Morpher,
+    candidate: &Candidate,
+    word: &str,
+) -> (Option<EngineAnalysis>, bool) {
     if candidate.root_index < 0 || candidate.root_index as usize >= candidate.morphemes.len() {
-        return None;
+        return (None, false);
     }
     let root_index = candidate.root_index as usize;
     let root_entry = match owner_of(owners, candidate.morphemes[root_index]) {
         Some(MorphemeOwner::LexEntry(le)) => le,
-        _ => return None, // FstReplay.cs:38-41: the designated root must be a LexEntry.
+        _ => return (None, false), // FstReplay.cs:38-41: the designated root must be a LexEntry.
     };
 
     let mut rules: HashSet<MRuleId> = HashSet::default();
@@ -144,7 +162,7 @@ pub fn confirm(
             Some(MorphemeOwner::MRule(mid)) => {
                 rules.insert(mid);
             }
-            None => return None, // FstReplay.cs:56-59: neither a LexEntry nor an IHCRule -> null.
+            None => return (None, false), // FstReplay.cs:56-59: neither a LexEntry nor an IHCRule -> null.
         }
     }
 
@@ -164,11 +182,13 @@ pub fn confirm(
         Some(&lex_entry_filter),
         Some(&rule_filter),
     );
+    let timed_out = outcome.timed_out;
 
-    outcome
+    let found = outcome
         .structured
         .into_iter()
-        .find(|wa| analyses_match(wa, candidate))
+        .find(|wa| analyses_match(wa, candidate));
+    (found, timed_out)
 }
 
 fn owner_of(owners: &[Option<MorphemeOwner>], m: MorphemeId) -> Option<MorphemeOwner> {
