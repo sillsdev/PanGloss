@@ -12,3 +12,4 @@ hc-shape.workspace = true
 hc-rules.workspace = true
 hc-parse.workspace = true
 rustc-hash.workspace = true
+unicode-normalization.workspace = true

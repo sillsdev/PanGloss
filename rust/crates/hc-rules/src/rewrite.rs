@@ -2913,38 +2913,56 @@ pub(crate) enum ProbeOutcome {
     Refused,
 }
 
-/// Probing analog of [`synthesize_with_mpr`]'s subrule loop (`syn_fs`/`mpr` always empty --
+/// Probing analog of [`synthesize_with_mpr_cached`]'s subrule loop (`syn_fs`/`mpr` always empty --
 /// `SurfacePhonology`'s probe `Word` carries neither, C#'s bare `new Word(surfaceStratum, shape)`
 /// two-arg constructor, `SurfacePhonology.cs:316`), routed through [`probe_narrow`]/
 /// [`probe_sim_narrow`] for `Kind::Narrow` instead of [`syn_narrow`]/[`sim_narrow`]; `Kind::Feature`
 /// reuses [`syn_feature`]/[`sim_feature`] completely unchanged (a feature-change subrule never
 /// touches node count or position, so there is nothing for a probing sibling to do differently).
-pub(crate) fn probe_apply_rule(g: &Grammar, rule: &RewriteRuleDef, ms: &mut MutShape) -> ProbeOutcome {
+///
+/// **Cached, not recompiled per call** (`crate::cache::RuleCache`, read via `cache.prule_rewrite
+/// (pid)`): `SurfacePhonology` probes every affix underlying form against every alphabet
+/// representative (potentially alphabet² for `DeletionJunctions`), so this is called far more often
+/// than any other per-rule entry point in the engine -- exactly the hot-loop `RuleCache` exists for
+/// (`crate::cache`'s own module doc). Recompiling `lhs_fst`/`compile_env` per call here (an earlier,
+/// uncached draft of this function) made Amharic's 417-segment-alphabet probing impractically slow
+/// (well past the C# ~112s figure the plan flags as a KNOWN, deliberately-deferred cost -- this was a
+/// SEPARATE, avoidable inefficiency on top of that, not the same pathology, and had to be fixed to
+/// make the F2 gate runnable at all).
+pub(crate) fn probe_apply_rule_cached(
+    g: &Grammar,
+    pid: hc_grammar::model::PRuleId,
+    rule: &RewriteRuleDef,
+    ms: &mut MutShape,
+    cache: &crate::cache::RuleCache,
+) -> ProbeOutcome {
     let table_id = TableId(0);
     let table = &g.char_tables[table_id.0 as usize];
+    let pc = cache.prule_rewrite(pid);
     let mut applied = false;
-    for sr in &rule.subrules {
+    for (i, sr) in rule.subrules.iter().enumerate() {
         if !subrule_applicable(g, sr, &FeatureStruct::EMPTY, MprSet::EMPTY) {
             continue;
         }
+        let sc = &pc.subrules[i];
         match classify(rule, sr) {
             Kind::Feature => {
-                let target = lhs_fst(g, table_id, &rule.lhs, dir_of(rule), true);
-                let left = compile_env(g, table_id, sr.left_env.as_ref());
-                let right = compile_env(g, table_id, sr.right_env.as_ref());
+                let target = pc.syn_target.as_ref().expect("Feature/Narrow subrule always has a compiled syn target");
                 let did = match rule.mode {
-                    RewriteMode::Iterative => syn_feature(g, table, rule, sr, ms, &target, &left, &right),
-                    RewriteMode::Simultaneous => sim_feature(g, table, rule, sr, ms, &target, &left, &right),
+                    RewriteMode::Iterative => syn_feature(g, table, rule, sr, ms, target, &sc.syn_left, &sc.syn_right),
+                    RewriteMode::Simultaneous => {
+                        sim_feature(g, table, rule, sr, ms, target, &sc.syn_left, &sc.syn_right)
+                    }
                 };
                 applied |= did;
             }
             Kind::Narrow => {
-                let target = lhs_fst(g, table_id, &rule.lhs, dir_of(rule), true);
-                let left = compile_env(g, table_id, sr.left_env.as_ref());
-                let right = compile_env(g, table_id, sr.right_env.as_ref());
+                let target = pc.syn_target.as_ref().expect("Feature/Narrow subrule always has a compiled syn target");
                 let did = match rule.mode {
-                    RewriteMode::Iterative => probe_narrow(g, table, rule, sr, ms, &target, &left, &right),
-                    RewriteMode::Simultaneous => probe_sim_narrow(g, table, rule, sr, ms, &target, &left, &right),
+                    RewriteMode::Iterative => probe_narrow(g, table, rule, sr, ms, target, &sc.syn_left, &sc.syn_right),
+                    RewriteMode::Simultaneous => {
+                        probe_sim_narrow(g, table, rule, sr, ms, target, &sc.syn_left, &sc.syn_right)
+                    }
                 };
                 applied |= did;
             }
@@ -2968,14 +2986,19 @@ pub(crate) fn probe_apply_rule(g: &Grammar, rule: &RewriteRuleDef, ms: &mut MutS
 /// computes exactly that "first" result. `dirty` is reset before each rule (matching every real
 /// call site's `MutShape::from_shape`, which always starts `dirty: false`); `deleted` is NEVER
 /// reset -- that is the entire point of this probing path (module note above).
-pub(crate) fn probe_synthesize_stratum(g: &Grammar, prules: &[hc_grammar::model::PRuleId], ms: &mut MutShape) -> ProbeOutcome {
+pub(crate) fn probe_synthesize_stratum(
+    g: &Grammar,
+    prules: &[hc_grammar::model::PRuleId],
+    ms: &mut MutShape,
+    cache: &crate::cache::RuleCache,
+) -> ProbeOutcome {
     for &pid in prules {
         for n in ms.nodes.iter_mut() {
             n.dirty = false;
         }
         match &g.prules[pid.0 as usize] {
             hc_grammar::model::PhonRuleDef::Rewrite(r) => {
-                if let ProbeOutcome::Refused = probe_apply_rule(g, r, ms) {
+                if let ProbeOutcome::Refused = probe_apply_rule_cached(g, pid, r, ms, cache) {
                     return ProbeOutcome::Refused;
                 }
             }

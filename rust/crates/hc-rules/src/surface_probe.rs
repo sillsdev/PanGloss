@@ -18,6 +18,7 @@ use hc_grammar::chardef::{CharDefId, CharDefKind, CharDefTable};
 use hc_grammar::model::Grammar;
 use hc_shape::{NodeKind, Shape, NO_CHAR_DEF};
 
+use crate::cache::RuleCache;
 use crate::rewrite::{self, MutShape, ProbeOutcome};
 
 /// One SEGMENT-kind node surviving a probe cascade (boundaries/anchors already excluded -- C#
@@ -36,10 +37,17 @@ pub struct ProbeSeg {
 /// dropped -- see `crate::rewrite`'s module note). Returns `None` iff the cascade reaches a
 /// structurally-unrepresentable rule (`ProbeOutcome::Refused` -- an empty-LHS/Epenthesis rule or a
 /// metathesis rule; unreachable on the three reference grammars, see `crate::rewrite`'s note).
-pub fn probe_synthesize(g: &Grammar, shape: &Shape) -> Option<Vec<ProbeSeg>> {
+///
+/// `cache` (built ONCE by the caller, e.g. `SurfacePhonology::new` -> `RuleCache::build`, and reused
+/// across every probe) is not optional here: `SurfacePhonology` probes an affix underlying form
+/// against every alphabet representative (up to alphabet² for `DeletionJunctions`), so recompiling
+/// each rule's FST per call -- rather than once, up front -- turns Amharic's already-known-slow
+/// 417-segment-alphabet probing (the plan's own ~112s C# figure) into something orders of magnitude
+/// worse. See `crate::rewrite::probe_apply_rule_cached`'s doc for the measured motivation.
+pub fn probe_synthesize(g: &Grammar, shape: &Shape, cache: &RuleCache) -> Option<Vec<ProbeSeg>> {
     let mut ms = MutShape::from_shape(shape);
     for sd in &g.strata {
-        if let ProbeOutcome::Refused = rewrite::probe_synthesize_stratum(g, &sd.prules, &mut ms) {
+        if let ProbeOutcome::Refused = rewrite::probe_synthesize_stratum(g, &sd.prules, &mut ms, cache) {
             return None;
         }
     }
