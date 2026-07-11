@@ -1,0 +1,13 @@
+# Natural-phrases N1 (docs/natural-phrases-plan.md N1) sidecar for samples/data/indonesian-hc.xml.
+#
+# Minimal by design: indonesian-hc.xml's lexical roots are already English glosses (baca "read",
+# ambil "take", ...) that pass straight through hc_realize::ir::Concept::Lex unmapped -- no
+# entry needed for them, only affix-level feature glosses would ever go in [features] below.
+#
+# The grammar's derivational/voice affix glosses (AV, Caus, APPL, NMLZR, RECIP, Cont, ...) are
+# intentionally left unmapped here: they don't correspond to this milestone's Num/Poss/Case
+# feature vocabulary (they're valence-changing/voice morphology, not nominal number/possessor/
+# case), so they correctly fall through to hc_realize::ir::GlossIr::extras and surface in the
+# Leipzig fallback rather than being forced into a feature slot that doesn't fit them.
+
+[features]

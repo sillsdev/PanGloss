@@ -1,0 +1,38 @@
+# Natural-phrases N1 (docs/natural-phrases-plan.md N1) sidecar for samples/data/amharic-hc.xml.
+#
+# Maps every nominal-relevant <Gloss> string in the grammar to a hc_realize::ir feature
+# assignment. Verb-related glosses (aspect/agreement markers like ipfv.*, pfv.*, juss.*,
+# conv.*, *.npst, plus neg/obj/caus/def.m/-pfv-/-ipfv-/-conv-) intentionally have NO entry here
+# -- they are correctly left for hc_realize::ir::GlossIr::extras (N1's documented "unmapped ->
+# extras" fallback), since N1/N2 scope is nominal realization only.
+#
+# Inventory method: every <Gloss>...</Gloss> in amharic-hc.xml was grepped and cross-checked
+# against its <MorphologicalRule>/<AffixTemplate> context before mapping (see the N1 commit
+# message for the full list). Two notes on that inventory:
+#   - "poss.*" has exactly eight distinguished forms in this grammar (no bare poss.2/poss.3,
+#     no poss.1f/poss.1m) -- see hc_realize::ir::Poss's doc comment for the full correspondence
+#     table this file's poss.* lines implement.
+#   - "abl" and "from" are two separate MorphologicalRule definitions (different rule ids,
+#     appear both in the unordered stratum-1 rule set and again in stratum 2) but both realize
+#     ablative case semantically ("away from" / "from") -- mapped to the same Case:Abl value.
+
+[features]
+
+# Number
+"pl" = "Num:Pl"
+
+# Possessor person/number/gender
+"poss.1s" = "Poss:P1Sg"
+"poss.1p" = "Poss:P1Pl"
+"poss.2m" = "Poss:P2SgM"
+"poss.2f" = "Poss:P2SgF"
+"poss.2p" = "Poss:P2Pl"
+"poss.3m" = "Poss:P3SgM"
+"poss.3f" = "Poss:P3SgF"
+"poss.3p" = "Poss:P3Pl"
+
+# Case / adposition role
+"at" = "Case:Loc"
+"from" = "Case:Abl"
+"abl" = "Case:Abl"
+"to" = "Case:All"

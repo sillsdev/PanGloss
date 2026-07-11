@@ -10,10 +10,22 @@
 //! Degrades gracefully everywhere (`docs/natural-phrases-plan.md`'s non-negotiable constraint 4):
 //! an out-of-range morpheme ordinal, a missing gloss, or a guessed root never panics — worst case
 //! is a `[?]` token in the rendered string.
+//!
+//! N1 (`docs/natural-phrases-plan.md` N1) adds a typed IR on top: [`ir`] defines
+//! [`ir::GlossIr`] and its closed-enum feature slots, and [`map`] defines [`map::RealizeMap`],
+//! the per-grammar sidecar mapping from raw gloss strings to those features. [`ir::to_ir`]
+//! builds a `GlossIr` from a `GlossBundle` the same way `gloss_bundle`/`leipzig` are built:
+//! total, additive, never touching parity output.
 #![forbid(unsafe_code)]
 
 use hc_grammar::model::Grammar;
 use hc_parse::WordAnalysis;
+
+pub mod ir;
+pub mod map;
+
+pub use ir::{to_ir, CaseRole, Concept, GlossIr, Num, Poss};
+pub use map::{FeatureAssignment, MapError, RealizeMap};
 
 /// One morpheme's display data, resolved from `Grammar::morphemes` (or synthesized for the
 /// guessed-root sentinel / an out-of-range ordinal — see [`gloss_bundle`]'s doc for the exact
