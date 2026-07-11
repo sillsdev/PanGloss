@@ -9,6 +9,8 @@
 //! `probe`, `advisor`.
 
 pub mod canon;
+pub mod composite;
+pub mod proposers;
 pub mod replay;
 pub mod surface;
 pub mod token;
