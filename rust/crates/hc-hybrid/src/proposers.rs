@@ -80,9 +80,10 @@ fn render_surface_only(table: &CharDefTable, shape: &Shape) -> Option<String> {
 /// faithfully-preserved C# quirk, not an oversight in this port).
 fn is_reduplication_rule(def: &MorphRuleDef) -> bool {
     match def {
-        MorphRuleDef::AffixProcess(d) => {
-            d.allomorphs.iter().any(|a| classify_affix(&a.rhs) == MorphOp::Reduplication)
-        }
+        MorphRuleDef::AffixProcess(d) => d
+            .allomorphs
+            .iter()
+            .any(|a| classify_affix(&a.rhs) == MorphOp::Reduplication),
         _ => false,
     }
 }
@@ -137,7 +138,10 @@ impl ReduplicationProposer {
                 }
             }
         }
-        ReduplicationProposer { redup_rules, suffix_surfaces }
+        ReduplicationProposer {
+            redup_rules,
+            suffix_surfaces,
+        }
     }
 
     /// C# `AnalyzeWord` (`:134-209`). Operates on `char`s (Rust's `char` == a Unicode scalar value;
@@ -237,7 +241,10 @@ impl ReduplicationProposer {
                 if let Some(suf) = extra_suffix {
                     morphemes.push(mrule_morpheme(g, suf));
                 }
-                out.push(WordAnalysis { morphemes, root_index: base.root_index });
+                out.push(WordAnalysis {
+                    morphemes,
+                    root_index: base.root_index,
+                });
             }
         }
     }
@@ -254,7 +261,9 @@ fn infix_string(rhs: &[OutputAction]) -> Option<String> {
     let mut current: Option<String> = None;
     for action in rhs {
         if let OutputAction::InsertSegments { shape, .. } = action {
-            current.get_or_insert_with(String::new).push_str(&shape.text);
+            current
+                .get_or_insert_with(String::new)
+                .push_str(&shape.text);
         } else if let Some(run) = current.take() {
             runs.push(run);
         }
@@ -351,7 +360,10 @@ impl InfixProposer {
                     for base in &base_outcome.analyses {
                         let mut morphemes = base.morphemes.clone();
                         morphemes.push(mrule_morpheme(g, *rule));
-                        out.push(WordAnalysis { morphemes, root_index: base.root_index });
+                        out.push(WordAnalysis {
+                            morphemes,
+                            root_index: base.root_index,
+                        });
                     }
                     i = index_of_chars(&chars, &infix_chars, pos + 1);
                 }
@@ -393,9 +405,15 @@ mod tests {
         };
         let trie = build_trie(&g);
         let redup = ReduplicationProposer::new(&g);
-        assert!(!redup.redup_rules.is_empty(), "Indonesian must have at least one redup rule");
+        assert!(
+            !redup.redup_rules.is_empty(),
+            "Indonesian must have at least one redup rule"
+        );
         let out = redup.analyze_word(&g, &trie, "membagi-bagi", walk::DEFAULT_MAX_BEAM_WORK);
-        assert!(!out.is_empty(), "expected at least one reduplication candidate for membagi-bagi");
+        assert!(
+            !out.is_empty(),
+            "expected at least one reduplication candidate for membagi-bagi"
+        );
     }
 
     /// `index_of_chars` basic behavior: interior-only, ordinal, no false match at/after the end.

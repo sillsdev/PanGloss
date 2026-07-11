@@ -103,12 +103,15 @@ impl<'g> CompositeAnalyzer<'g> {
         let mut out: Vec<LabeledCandidate> = Vec::new();
 
         let extend = |proposer: &'static str,
-                          candidates: Vec<Candidate>,
-                          out: &mut Vec<LabeledCandidate>,
-                          seen: &mut HashSet<(Vec<u32>, i32)>| {
+                      candidates: Vec<Candidate>,
+                      out: &mut Vec<LabeledCandidate>,
+                      seen: &mut HashSet<(Vec<u32>, i32)>| {
             for candidate in candidates {
                 if seen.insert(dedup_key(&candidate)) {
-                    out.push(LabeledCandidate { proposer, candidate });
+                    out.push(LabeledCandidate {
+                        proposer,
+                        candidate,
+                    });
                 }
             }
         };
@@ -128,14 +131,16 @@ impl<'g> CompositeAnalyzer<'g> {
         // 3. ReduplicationProposer (real).
         extend(
             "ReduplicationProposer",
-            self.redup.analyze_word(self.g, self.trie, word, self.max_beam_work),
+            self.redup
+                .analyze_word(self.g, self.trie, word, self.max_beam_work),
             &mut out,
             &mut seen,
         );
         // 4. InfixProposer (real).
         extend(
             "InfixProposer",
-            self.infix.analyze_word(self.g, self.trie, word, self.max_beam_work),
+            self.infix
+                .analyze_word(self.g, self.trie, word, self.max_beam_work),
             &mut out,
             &mut seen,
         );
@@ -149,7 +154,10 @@ impl<'g> CompositeAnalyzer<'g> {
 
     /// The unlabeled candidate stream (verify doesn't care which proposer contributed a candidate).
     pub fn analyze_word(&self, word: &str) -> Vec<Candidate> {
-        self.analyze_word_labeled(word).into_iter().map(|lc| lc.candidate).collect()
+        self.analyze_word_labeled(word)
+            .into_iter()
+            .map(|lc| lc.candidate)
+            .collect()
     }
 
     /// C# `CoversAllConstructs` (`CompositeProposer.cs:45,109`): every `MorphOp` the bare FST proposer
@@ -165,7 +173,10 @@ impl<'g> CompositeAnalyzer<'g> {
         for op in InfixProposer::COVERED_OPS {
             covered.insert(op);
         }
-        self.trie.uncovered_ops().iter().all(|op| covered.contains(op))
+        self.trie
+            .uncovered_ops()
+            .iter()
+            .all(|op| covered.contains(op))
     }
 
     /// Propose (this composite) -> verify ([`replay::confirm`]) -- C# `VerifiedFstAnalyzer.AnalyzeWord`
@@ -213,7 +224,12 @@ pub fn batch_lines(
 /// one line per surviving candidate, in composite emission order (NOT sorted -- the golden itself is
 /// emission-order, e.g. `mengamat-amati`'s 9 `ReduplicationProposer` lines are grouped by which
 /// suffix-peel matched first, not alphabetically).
-pub fn candidate_lines(g: &Grammar, composite: &CompositeAnalyzer, idx: usize, word: &str) -> Vec<String> {
+pub fn candidate_lines(
+    g: &Grammar,
+    composite: &CompositeAnalyzer,
+    idx: usize,
+    word: &str,
+) -> Vec<String> {
     composite
         .analyze_word_labeled(word)
         .into_iter()
@@ -228,8 +244,11 @@ pub fn candidate_lines(g: &Grammar, composite: &CompositeAnalyzer, idx: usize, w
 /// (candidate `morphemes`/`root_index` already index `g.morphemes` exactly like a verified
 /// [`EngineAnalysis`] does -- see `replay::signature`'s identical construction).
 fn candidate_signature(g: &Grammar, c: &Candidate) -> String {
-    let keys: Vec<&str> =
-        c.morphemes.iter().map(|&MorphemeId(id)| g.morphemes[id as usize].xml_key.as_str()).collect();
+    let keys: Vec<&str> = c
+        .morphemes
+        .iter()
+        .map(|&MorphemeId(id)| g.morphemes[id as usize].xml_key.as_str())
+        .collect();
     format!("{}:{}", keys.join("+"), c.root_index)
 }
 
@@ -255,17 +274,23 @@ mod tests {
         let build_morpher = hc_parse::Morpher::new(&g, usize::MAX);
         let surface = SurfacePhonology::new(&g);
         let trie = Trie::build(&g, &surface, &build_morpher, 1_000_000, 2, true);
-        let composite = CompositeAnalyzer::new(&g, &trie, &surface, walk::DEFAULT_MAX_BEAM_WORK, false);
+        let composite =
+            CompositeAnalyzer::new(&g, &trie, &surface, walk::DEFAULT_MAX_BEAM_WORK, false);
 
         let labeled = composite.analyze_word_labeled("membagi-bagi");
         assert!(
-            labeled.iter().any(|lc| lc.proposer == "ReduplicationProposer"),
+            labeled
+                .iter()
+                .any(|lc| lc.proposer == "ReduplicationProposer"),
             "expected at least one ReduplicationProposer candidate for membagi-bagi"
         );
 
         let verify_morpher = hc_parse::Morpher::new(&g, usize::MAX);
         let owners = replay::build_morpheme_owners(&g);
         let verified = composite.analyze_word_verified(&verify_morpher, &owners, "membagi-bagi");
-        assert!(!verified.is_empty(), "membagi-bagi must verify to at least one analysis");
+        assert!(
+            !verified.is_empty(),
+            "membagi-bagi must verify to at least one analysis"
+        );
     }
 }

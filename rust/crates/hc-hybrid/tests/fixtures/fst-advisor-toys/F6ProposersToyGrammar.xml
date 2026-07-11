@@ -1,0 +1,139 @@
+<?xml version="1.0" encoding="utf-8"?>
+<HermitCrabInput>
+  <Language>
+    <Name>F6ProposersToy</Name>
+    <!--
+      Hand-authored minimal grammar (NOT a C#-XmlLanguageWriter export) exercising the F6 sibling
+      proposers: ReduplicationProposer's four scan kinds (full/partial copy, separator+tail copy,
+      separator+suffix-peel) and InfixProposer's remove-and-recurse, mirroring the SHAPES of
+      VerifiedFstAnalyzerTests.cs's `Composite_CoversFullReduplication_WhereFstAloneMisses`/
+      `Composite_CoversSeparatorReduplication_WhereFstAloneMisses`/
+      `Composite_CoversSuffixStackedOutsideReduplication_WhereSeparatorScanAloneMisses`/
+      `Composite_CoversInfixation_WhereFstAloneMisses` (fst-oracle branch), NOT a byte-for-byte
+      round-trip of those tests' in-code-built grammars.
+
+      Rationale for hand-authoring rather than exporting via C# XmlLanguageWriter (recorded per
+      HYBRID_FST_RUST_PLAN.md \S9's "if a suitable toy fixture doesn't already exist" escape hatch):
+      hc-grammar's loader is non-DTD-validating and already accepts fully hand-written minimal XML
+      directly -- this crate's own sibling `hc-grammar/src/load.rs::loads_hand_built_minimal_grammar`
+      test is the established Rust-side precedent for this exact mechanism (a self-contained "Mini"
+      grammar, no C# round-trip). Reusing HermitCrabTestBase.shared.xml plus a hand-edited XML rule
+      insertion would cost strictly MORE effort (that 1900-line fixture, DTD id constraints and all)
+      for no additional coverage this milestone's proposers need.
+    -->
+    <PartsOfSpeech>
+      <PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <HeadFeatures />
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cG"><Representations><Representation>g</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cS"><Representations><Representation>s</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cZ"><Representations><Representation>z</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+      <BoundaryDefinitions>
+        <BoundaryDefinition id="cPlus"><Representations><Representation>+</Representation></Representations></BoundaryDefinition>
+      </BoundaryDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <SegmentNaturalClass id="ncAll">
+        <Name>All</Name>
+        <Segment segment="cA" /><Segment segment="cG" /><Segment segment="cS" /><Segment segment="cZ" />
+      </SegmentNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered"
+               morphologicalRules="mrRedup mrSepRedup mrTrailingSuffix mrInfix">
+        <Name>S</Name>
+        <MorphologicalRuleDefinitions>
+          <!-- RED: full copy (base . base) -- classify_affix sees two Copy(stem) actions. -->
+          <MorphologicalRule id="mrRedup" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
+            <Name>-RED</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subRedup">
+                <MorphologicalInput>
+                  <PhoneticSequence id="stemRedup">
+                    <OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAll" /></OptionalSegmentSequence>
+                  </PhoneticSequence>
+                </MorphologicalInput>
+                <MorphologicalOutput>
+                  <CopyFromInput index="stemRedup" />
+                  <CopyFromInput index="stemRedup" />
+                </MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <Gloss>RED</Gloss>
+          </MorphologicalRule>
+          <!-- CONT: separator ("z") + full copy (base . z . base) -- also reduplication-classified
+               (two Copy(stem) actions), matching the real Indonesian -Cont rule's own classification. -->
+          <MorphologicalRule id="mrSepRedup" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
+            <Name>-CONT</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subSepRedup">
+                <MorphologicalInput>
+                  <PhoneticSequence id="stemSepRedup">
+                    <OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAll" /></OptionalSegmentSequence>
+                  </PhoneticSequence>
+                </MorphologicalInput>
+                <MorphologicalOutput>
+                  <CopyFromInput index="stemSepRedup" />
+                  <InsertSegments><PhoneticShape>z</PhoneticShape></InsertSegments>
+                  <CopyFromInput index="stemSepRedup" />
+                </MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <Gloss>CONT</Gloss>
+          </MorphologicalRule>
+          <!-- TRL: a plain trailing suffix ("s"), stackable OUTSIDE mrSepRedup's own output --
+               exercises ReduplicationProposer's Phase G1 suffix-peel scan. -->
+          <MorphologicalRule id="mrTrailingSuffix" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
+            <Name>-TRL</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subTrailingSuffix">
+                <MorphologicalInput>
+                  <PhoneticSequence id="stemTrl">
+                    <OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAll" /></OptionalSegmentSequence>
+                  </PhoneticSequence>
+                </MorphologicalInput>
+                <MorphologicalOutput>
+                  <CopyFromInput index="stemTrl" />
+                  <InsertSegments><PhoneticShape>s</PhoneticShape></InsertSegments>
+                </MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <Gloss>TRL</Gloss>
+          </MorphologicalRule>
+          <!-- INF: infixed "a" after the first segment (s . a . ag) -- classify_affix sees an
+               inserted action strictly between two distinct Copy(...) parts. -->
+          <MorphologicalRule id="mrInfix" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
+            <Name>-INF</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subInfix">
+                <MorphologicalInput>
+                  <PhoneticSequence id="infixFirst"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
+                  <PhoneticSequence id="infixRest">
+                    <OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAll" /></OptionalSegmentSequence>
+                  </PhoneticSequence>
+                </MorphologicalInput>
+                <MorphologicalOutput>
+                  <CopyFromInput index="infixFirst" />
+                  <InsertSegments><PhoneticShape>a</PhoneticShape></InsertSegments>
+                  <CopyFromInput index="infixRest" />
+                </MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <Gloss>INF</Gloss>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <LexicalEntries>
+          <LexicalEntry id="entrySag" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="alloSag"><PhoneticShape>sag</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>sag</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>
