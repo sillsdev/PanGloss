@@ -433,10 +433,17 @@ port is expected to change this calculus materially (`HYBRID_FST_RUST_PLAN.md`).
   gap (more candidates verified-and-rejected than strictly necessary), explicitly not a soundness
   gap.
 - **Compounding is bounded at 2 roots** (the loop's bound; lift to `MaxStemCount` if a grammar
-  needs 3 — with the recorded caveat that lifting it via a genuine cycle in the trie would create
-  a walk that can loop while accumulating tokens, defeating the dedup that makes the walker
-  terminate; today's construction is a DAG so this cannot happen, but a future lift must add an
-  explicit defense).
+  needs 3). **Correction (found during the Rust F3 milestone, 2026-07-11):** this report and the
+  C# `FstTemplateAnalyzer.cs`'s own comment both previously claimed "today's construction is a
+  DAG, so [an unbounded walk] cannot happen" — that's false on a compounding grammar (confirmed on
+  Sena, in both languages: `end→join` plus `join→entry` over shared memoized root chains is a
+  genuine graph cycle, `FstTemplateAnalyzer.cs:1294-1304` + its caller at :351-362, mirrored
+  byte-identically in the Rust port's `trie.rs`). The walk still terminates today only because
+  every lap through the cycle consumes at least one input segment (no ε-cycle) and the existing
+  root-count bound/dedup prevent runaway token accumulation in practice — not because the
+  structure is acyclic. **Anyone implementing the walker (F4 in the Rust plan) must not assume
+  the trie is a DAG** for compounding grammars; the termination argument rests on segment
+  consumption per lap, not on graph shape.
 
 ### 8.6 The mathematical carve-out (bounded by theory)
 

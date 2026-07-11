@@ -95,6 +95,17 @@ pub fn structural_dump(g: &Grammar, trie: &Trie) -> Vec<String> {
 /// Color refinement to a fixed point. Returns each state's final canonical color, dense-ranked
 /// `0..K-1` by the sorted-ordinal order of its distinguishing key string at the round of
 /// convergence.
+///
+/// KNOWN LIMIT (flagged by F3's review, deferred, not blocking): this is 1-WL / color refinement,
+/// strictly weaker than graph isomorphism -- ties are never individualized, so two states in the
+/// same final color class are multiset-bisimilar, not necessarily isomorphic. A byte-identical
+/// structural-dump match today is real evidence (no symmetric substructure has been observed on
+/// any of the three reference grammars), but is not a soundness proof against a future grammar
+/// with genuine symmetric substructure. Two cheap strengthenings recommended before leaning on
+/// this gate for a grammar suspected of symmetry: (a) pin/emit the start state's color explicitly
+/// (currently unpinned), (b) emit a per-color state-count histogram alongside the arc dump. F4's
+/// own candidate-parity gate (comparing actual analysis output, not just trie structure) is an
+/// independent backstop against this gap in the meantime.
 fn canonicalize(g: &Grammar, trie: &Trie, seed: &[String]) -> Vec<u32> {
     let n = seed.len();
     let mut color = dense_rank(seed);
