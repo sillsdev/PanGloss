@@ -1,6 +1,9 @@
 /target
 **/*.rs.bk
 Cargo.lock.orig
+# .NET build artifacts for the dotnet-harness project (not Rust, but shares this repo).
+dotnet-harness/**/obj/
+dotnet-harness/**/bin/
 # Corpus/golden artifacts produced by the parity harness stay untracked (see rust-conversion.md §8).
 /parity-out/
 *.tsv

@@ -56,6 +56,16 @@ use crate::token::{self, MorphOp};
 /// across languages).
 pub type StateId = u32;
 
+/// C#'s `language.SurfaceStratum.CharacterDefinitionTable` lookup, factored out of
+/// [`TrieBuilder::new`] so `walk.rs` (F4) can segment a surface WORD against the identical table
+/// (same "one stratum, one table" convention every reference grammar satisfies — see that
+/// constructor's own doc) without duplicating the lookup.
+pub(crate) fn surface_table(g: &Grammar) -> (&CharDefTable, usize) {
+    let surface_stratum = g.strata.last().expect("a grammar has at least one stratum");
+    let table = &g.char_tables[surface_stratum.table.0 as usize];
+    (table, g.phon_features.len())
+}
+
 /// One trie arc's condition. `Segment`/`Boundary` carry the SAME phonological feature lanes
 /// `hc_rules::shape_feat::segment_with_features` attaches to a live parse shape (`Vec<u64>`, width
 /// `grammar.phon_features.len()`), so a later walker (F4/F7) matches them with
@@ -79,11 +89,36 @@ pub type StateId = u32;
 ///   collapsed every segment to the indistinguishable `[Type:segment]`, catastrophically merging
 ///   the structural dump (caught immediately by the F3 gate's byte-comparison against the
 ///   regenerated Sena golden).
+///
+/// `char_def` (found building F4's walker): the SAME zero-phon-feature fact above means
+/// `flat_unifiable` on a Sena arc's `lanes` is TRIVIALLY TRUE against any other Sena segment's lanes
+/// (every non-`Type` lane defaults to the full/wildcard mask when no `<FeatureValue>` narrows it —
+/// see `hc_grammar::chardef::CharDefTable`'s own `unif_closure` field doc and
+/// `hc_parse::root_trie`'s module doc, "Segment discrimination without phonological features",
+/// which already solved this EXACT problem for lexical lookup: C#'s real per-segment identity for a
+/// zero-feature grammar lives in `StrRep`, which this port does not model as a lane — its faithful
+/// analog is the segment's own [`CharDefId`]). A lane-only arc match therefore lets ANY Sena segment
+/// cross an arc built for any OTHER Sena segment, which — caught empirically building this
+/// milestone's Sena candidate-parity gate — overflows the beam budget on effectively every corpus
+/// word (the first real segment already matches almost the whole shared trie). Match predicate
+/// mirrors `root_trie.rs`'s `edge_matches` exactly: `char_def` equality, OR closure membership when
+/// the table has one (`CharDefTable::unifiable_cds`), AND `flat_unifiable` on the lanes — which
+/// reduces to plain `char_def` identity for a zero-feature table (no closure exists) and adds
+/// nothing spurious for a feature-bearing one (identity implies unifiable lanes trivially; the
+/// closure only ever WIDENS a feature-bearing table's cross-char-def matches, never narrows).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ArcLabel {
     Epsilon,
-    Segment { lanes: Vec<u64>, reprs: Vec<String> },
-    Boundary { lanes: Vec<u64>, reprs: Vec<String> },
+    Segment {
+        lanes: Vec<u64>,
+        reprs: Vec<String>,
+        char_def: u32,
+    },
+    Boundary {
+        lanes: Vec<u64>,
+        reprs: Vec<String>,
+        char_def: u32,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -117,6 +152,23 @@ pub struct Trie {
 }
 
 impl Trie {
+    /// Test-support constructor: assemble a [`Trie`] directly from already-built states, bypassing
+    /// [`Trie::build`]'s grammar-driven [`TrieBuilder`] entirely. Mirrors C# `BeamCapTests`'s own
+    /// pattern of hand-building an `InversePhonology` chain (bypassing `RuleInverseCompiler`) so a
+    /// pathological shape is fully engineered rather than emergent from a real grammar — the bare-
+    /// walker analog needed by `walk.rs`'s beam-cap port (F4), since the bare walk has no chain to
+    /// hand-build instead. Every [`StateData`]/[`ArcData`] field is already `pub`; this constructor
+    /// exists only because [`Trie`]'s own fields are not.
+    pub fn from_states(states: Vec<StateData>, start: StateId, codec: token::MorphTokenCodec) -> Trie {
+        Trie {
+            states,
+            start,
+            codec,
+            uncovered: [false; 12],
+            boundary_alphabet: Vec::new(),
+        }
+    }
+
     pub fn state_count(&self) -> usize {
         self.states.len()
     }
@@ -182,7 +234,7 @@ impl Trie {
 pub fn label_repr(g: &Grammar, label: &ArcLabel) -> String {
     match label {
         ArcLabel::Epsilon => "EPS".to_string(),
-        ArcLabel::Segment { lanes, reprs } => {
+        ArcLabel::Segment { lanes, reprs, .. } => {
             if g.phon_features.is_empty() {
                 // No declared phonological features anywhere in this grammar (Sena) -- C#'s
                 // loader never calls `LoadFeatureStruct` for ANY segment in that case, so every
@@ -261,9 +313,7 @@ impl<'g> TrieBuilder<'g> {
         // C#'s single `_table` field: `language.SurfaceStratum.CharacterDefinitionTable` — the
         // LAST stratum's table, used for every segmentation this class does (roots, affixes,
         // surface variants alike). Matches `SurfacePhonology::new`'s identical convention.
-        let surface_stratum = g.strata.last().expect("a grammar has at least one stratum");
-        let table = &g.char_tables[surface_stratum.table.0 as usize];
-        let w = g.phon_features.len();
+        let (table, w) = surface_table(g);
 
         let mut boundary_alphabet = Vec::new();
         for (_, cd) in table.iter() {
@@ -318,18 +368,57 @@ impl<'g> TrieBuilder<'g> {
         id as StateId
     }
 
+    /// PARITY (quirk #9, found building F4's candidate-order gate — not in the original 8-item
+    /// `F1_QUIRK_AUDIT.md` list; added here): C#'s `State.Arcs` is `ArcCollection`
+    /// (`src/SIL.Machine/FiniteState/ArcCollection.cs`), which stores arcs in a `List<Arc>` kept
+    /// "sorted" by `_arcs.BinarySearch(arc, _arcComparer)` on every `Add` (`:136-143`), where
+    /// `_arcComparer` projects each arc's `PriorityType` (`:24`). `FstTemplateAnalyzer` never sets a
+    /// non-default priority anywhere (grepped: zero hits for `ArcPriorityType`/`priorityType` in
+    /// that file), so EVERY comparison the comparer ever makes here ties (`Compare` returns `0`).
+    /// .NET's `List<T>.BinarySearch` (`lo=0, hi=count-1; i=lo+((hi-lo)>>1); if Compare(arr[i],v)==0
+    /// return i;`) returns the FIRST probed midpoint the moment a tie is found — with an
+    /// all-tied comparer that is the very first comparison, so the insertion index for the
+    /// `k`-th arc added to a state (`k` = arcs already present) is the deterministic, closed-form
+    /// `0` if `k==0` else `(k-1)/2` (`AddInternal`'s `_arcs.Insert(index, arc)`, `:141` — this
+    /// reduces to plain insertion-order-preserving `push` for `k∈{0,1}` but reorders non-trivially
+    /// from the 4th arc onward: NOT a bug in this port, a faithful mirror of a real, previously
+    /// undocumented ArcCollection quirk that determines candidate EMISSION order, not merely trie
+    /// topology (`trie.rs`'s F3-era module doc and `canon.rs`'s doc both already flagged that C#'s
+    /// raw arc order is not plain insertion order and predicted a later order-sensitive gate would
+    /// need to confront it — this is that gate). `debug_assert!` below documents the "one shared
+    /// priority" precondition this closed form depends on, so a future construct that ever varies
+    /// arc priority fails loudly here rather than silently reordering wrong.
+    fn arc_insert_index(current_len: usize) -> usize {
+        if current_len == 0 {
+            0
+        } else {
+            (current_len - 1) / 2
+        }
+    }
+
+    // NOTE: `arc_insert_index` assumes every arc at a state shares one priority (C#'s implicit
+    // constant `ArcPriorityType.Medium` -- see that function's doc). `ArcData` has no priority
+    // field at all, so there is nothing to assert structurally; this is a marker comment for
+    // whoever adds a priority-varying construct later; that person must revisit this function.
+    fn insert_arc(&mut self, from: StateId, arc: ArcData) {
+        let arcs = &mut self.states[from as usize].arcs;
+        let idx = Self::arc_insert_index(arcs.len());
+        arcs.insert(idx, arc);
+    }
+
     fn add_epsilon(&mut self, from: StateId, to: StateId) {
-        self.states[from as usize].arcs.push(ArcData {
-            label: ArcLabel::Epsilon,
-            target: to,
-        });
+        self.insert_arc(
+            from,
+            ArcData {
+                label: ArcLabel::Epsilon,
+                target: to,
+            },
+        );
     }
 
     fn add_labeled(&mut self, from: StateId, label: ArcLabel) -> StateId {
         let to = self.new_state();
-        self.states[from as usize]
-            .arcs
-            .push(ArcData { label, target: to });
+        self.insert_arc(from, ArcData { label, target: to });
         to
     }
 
@@ -356,10 +445,12 @@ impl<'g> TrieBuilder<'g> {
                     NodeKind::Segment => Some(ArcLabel::Segment {
                         lanes,
                         reprs: reprs(),
+                        char_def: cd_id.0,
                     }),
                     NodeKind::Boundary => Some(ArcLabel::Boundary {
                         lanes,
                         reprs: reprs(),
+                        char_def: cd_id.0,
                     }),
                     _ => None,
                 }
@@ -976,7 +1067,7 @@ impl<'g> TrieBuilder<'g> {
 /// lane lookups; every real char-def is already `w`-wide (`hc_grammar`'s loader stamps every
 /// char-def, segment or boundary, with a full `feat_sys.len()`-wide row including its own `Type`
 /// pin), so the pad branch is defensive, not a live path.
-fn lanes_for(table: &CharDefTable, cd: CharDefId, w: usize) -> Vec<u64> {
+pub(crate) fn lanes_for(table: &CharDefTable, cd: CharDefId, w: usize) -> Vec<u64> {
     let raw = table.get(cd).feature_lanes();
     if raw.len() == w {
         raw.to_vec()

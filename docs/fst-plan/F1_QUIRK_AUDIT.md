@@ -265,6 +265,46 @@ signature format; `FstReplay`'s signature space and the batch `fst-restricted`/`
 space are each their own per-run identity-numbering scheme, not literally the same numbers, though
 both exist to route around the same underlying defect.
 
+## 9. `ArcCollection` binary-search insertion order (found during F4, added to §4.3's list)
+
+**File:** `src/SIL.Machine/FiniteState/ArcCollection.cs:19-25` (comparer) + `:136-143`
+(`AddInternal`)
+
+```csharp
+_arcComparer = ProjectionComparer<Arc<TData, TOffset>>.Create(arc => arc.PriorityType).Reverse();
+...
+private State<TData, TOffset> AddInternal(Arc<TData, TOffset> arc)
+{
+    int index = _arcs.BinarySearch(arc, _arcComparer);
+    if (index < 0)
+        index = ~index;
+    _arcs.Insert(index, arc);
+    return arc.Target;
+}
+```
+
+**Verdict: CONFIRMED, not in the original 8-item list — F4 is the first milestone that needed raw
+arc order** (F3's own structural-dump gate canonicalizes/sorts arc lines before comparing, per
+`canon.rs`'s doc, which explicitly predicted this: "F4's own candidate-parity gate ... is an
+independent backstop against this gap"). `FstTemplateAnalyzer.cs` never references
+`ArcPriorityType`/`priorityType` anywhere (grepped: zero hits), so every arc it adds carries the
+same implicit default priority, and every comparison `_arcComparer` ever makes here returns `0`
+(tied). .NET's `List<T>.BinarySearch` (`lo=0,hi=count-1; i=lo+((hi-lo)>>1); if
+Compare(arr[i],v)==0 return i;`) returns the FIRST probed midpoint the instant a tie is found — with
+an all-tied comparer that is the very first comparison ever made per insert, so the insertion index
+for the `k`-th arc added to one state (`k` = arcs already present at that state) reduces to the
+closed form `0` if `k==0` else `(k-1)/2` (integer division). This reorders non-trivially from the
+4th arc added onward and directly determines the WALK's candidate emission order (both walkers
+iterate `state.Arcs` forward via the indexer, which maps straight to the reordered `_arcs[index]`).
+
+**Empirical confirmation (not just derived):** implementing this exact closed form in Rust's
+`trie.rs` (`arc_insert_index`, replacing plain `Vec::push` with `Vec::insert` at the computed
+index) turned F4's Indonesian candidate gate from "112 lines each side, 3 lines out of order" into
+byte-identical including line order — on the first attempt, no formula iteration needed. F3's own
+gates (StateCount, canonical structural dump) are unaffected by this change (both are order-
+independent by construction), confirming this quirk was invisible to every gate before F4 and is
+real, not a coincidental reordering that happened to fix the diff.
+
 ## Selector read-site inventory (supports quirk #8 and the F1 selector-plumbing item)
 
 Every C# read site of `Morpher.LexEntrySelector`/`Morpher.RuleSelector`, grepped directly (not
