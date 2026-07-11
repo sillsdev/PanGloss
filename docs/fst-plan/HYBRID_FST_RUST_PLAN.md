@@ -183,6 +183,17 @@ list (audit for more during F1 — any newly found quirk gets added here):
    are gate #3 — the debit points must match exactly.
 8. `FstReplay` keeps templates, strata, and ALL phonological rules open; `CompoundingRule` opens
    only when extra roots are present. Signature match is per-morpheme identity + root index.
+9. **(Found during F4.)** `State.Arcs` (`ArcCollection.AddInternal`) stores arcs via
+   `List<T>.BinarySearch` against a comparer keyed on `ArcPriorityType`; `FstTemplateAnalyzer` never
+   varies that priority (always the implicit default), so every comparison ties, and .NET's
+   binary search returns the first-probed midpoint on a tie — a deterministic, closed-form,
+   NON-insertion-order arc storage order: the `k`-th arc added to a state (`k` = arcs already
+   present) lands at index `0` if `k==0` else `(k-1)/2`. This determines per-word CANDIDATE
+   EMISSION ORDER (the bare/chain walkers iterate `state.Arcs` forward), which F3's own structural
+   dump gate could not catch (it canonicalizes/sorts arc lines before comparing — see `canon.rs`'s
+   doc, which predicted exactly this). Ported in `trie.rs`'s `arc_insert_index`/`insert_arc`
+   (replaces plain `push`); confirmed by F4's candidate-order gate going from a count-only match to
+   byte-identical, line order included, the moment this was implemented.
 
 If a quirk turns out to be *unportable* exactly (e.g. it leans on C# reference identity), stop,
 document the smallest behavioral delta, and get review sign-off before proceeding — do not silently

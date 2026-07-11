@@ -11,6 +11,7 @@ pub mod canon;
 pub mod surface;
 pub mod token;
 pub mod trie;
+pub mod walk;
 
 #[cfg(test)]
 mod smoke_tests {
