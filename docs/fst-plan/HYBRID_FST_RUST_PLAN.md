@@ -220,6 +220,14 @@ parity, hybrid parity is gated per grammar, in this order:
    sanity), and gate verified-set parity on the intersection of words where the Rust ENGINE is at
    parity, expanding as the engine port closes its residuals. Record the exclusion list
    explicitly — never report a subset gate as a full gate.
+   **Hard precondition (added post-F5, per an independent Fable review):** F5's `replay.rs` never
+   wires `RealizationalAffixProcessRule`/mrule gating on the synthesis side — harmless on
+   Indonesian/Sena (zero realizational rules in either), but Amharic has real realizational rules,
+   so this must be closed (wiring `SynthesisRealizationalAffixProcessRule.cs`/
+   `SynthesisAffixTemplatesRule.cs`'s C# equivalents into the Rust synthesis-side gate) **before**
+   the first milestone runs any Amharic word through `VerifiedFstAnalyzer` — don't rely on a cold
+   golden mismatch to rediscover this gap; it's a known, named precondition, not a surprise to
+   debug later.
 
 ## 6. Oracles and goldens
 

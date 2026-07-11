@@ -317,6 +317,19 @@ fn ndikhali_compound_verifies_with_two_roots_and_reconfirms() {
             .collect::<Vec<_>>()
     );
 
+    // Per an independent Fable review of F5: the exact-signature cross-check against the golden
+    // was previously only a doc comment, not an assertion. Strengthened per that recommendation --
+    // the bare walker's own candidate golden (candidates-bare-full.tsv:287711) proposes
+    // "mrule47+entry413+entry1072+mrule9:1" for "ndikhali", and the C# composite-verified golden
+    // confirms it as a real analysis; assert it's actually among what THIS engine verifies, not
+    // just that some two-root analysis exists.
+    let signatures: Vec<String> = verified.iter().map(|wa| replay::signature(&g, wa)).collect();
+    assert!(
+        signatures.iter().any(|s| s == "mrule47+entry413+entry1072+mrule9:1"),
+        "expected the C#-oracle-confirmed signature \"mrule47+entry413+entry1072+mrule9:1\" among \
+         \"ndikhali\"'s verified analyses, got: {signatures:?}"
+    );
+
     for wa in &verified {
         let candidate = Candidate {
             morphemes: wa.morpheme_ids.iter().map(|&id| MorphemeId(id)).collect(),
