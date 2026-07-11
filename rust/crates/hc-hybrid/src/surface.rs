@@ -291,7 +291,7 @@ impl<'g> SurfacePhonology<'g> {
 /// ordinal, `ANY` if nothing is constrained. A fully-unconstrained feature (`lanes[f] == full_mask`)
 /// is omitted entirely — matching C#'s `_definite` dictionary, which never holds an entry for a
 /// feature nobody set.
-fn render_feature_struct(g: &Grammar, lanes: &[u64]) -> String {
+pub(crate) fn render_feature_struct(g: &Grammar, lanes: &[u64]) -> String {
     let fs = &g.phon_features;
     let mut entries: Vec<(&str, String)> = Vec::new();
     for i in 0..fs.len() {
