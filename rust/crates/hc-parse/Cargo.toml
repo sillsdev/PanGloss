@@ -1,0 +1,26 @@
+[package]
+name = "hc-parse"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+hc-featstruct.workspace = true
+hc-shape.workspace = true
+hc-fst.workspace = true
+hc-rules.workspace = true
+hc-grammar.workspace = true
+hc-memo.workspace = true
+rustc-hash.workspace = true
+unicode-normalization.workspace = true
+bumpalo.workspace = true
+smallvec.workspace = true
+rayon.workspace = true
+
+[features]
+# OFF by default — never part of a normal `cargo build`. `hc-ffi`'s abort-safety test (plan §8
+# layer 7, M8) enables this only via its own `[dev-dependencies]` entry, so it is compiled in for
+# `cargo test` but never for the shipped `hermit_crab.dll` (`cargo build --release -p hc-ffi`
+# builds only `[dependencies]`, never `[dev-dependencies]`). See `batch.rs::TEST_PANIC_WORD`.
+test-panic-hook = []

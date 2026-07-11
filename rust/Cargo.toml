@@ -1,0 +1,59 @@
+# HermitCrab Rust engine — workspace root.
+# See ../rust-conversion.md for the full plan (crate map: §5.1).
+[workspace]
+resolver = "2"
+members = [
+    "crates/hc-grammar",
+    "crates/hc-featstruct",
+    "crates/hc-shape",
+    "crates/hc-fst",
+    "crates/hc-rules",
+    "crates/hc-memo",
+    "crates/hc-parse",
+    "crates/hc-ffi",
+    "crates/hc-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.90"
+license = "MIT"
+repository = "https://github.com/sillsdev/machine"
+
+# Shared dependency versions — pinned once here, referenced with `.workspace = true`.
+[workspace.dependencies]
+quick-xml = "0.37"
+unicode-normalization = "0.1"
+hashbrown = "0.15"
+rustc-hash = "2"
+bumpalo = "3"
+smallvec = { version = "1", features = ["union", "const_generics"] }
+rayon = "1"
+thiserror = "2"
+# internal crates
+hc-grammar = { path = "crates/hc-grammar" }
+hc-featstruct = { path = "crates/hc-featstruct" }
+hc-shape = { path = "crates/hc-shape" }
+hc-fst = { path = "crates/hc-fst" }
+hc-rules = { path = "crates/hc-rules" }
+hc-memo = { path = "crates/hc-memo" }
+hc-parse = { path = "crates/hc-parse" }
+# dev
+criterion = "0.5"
+proptest = "1"
+
+# Release profile tuned for the FFI cdylib and CLI: max optimization, single codegen unit,
+# fat LTO. panic = "unwind" is REQUIRED — hc-ffi relies on catch_unwind at the C boundary
+# (rust-conversion.md §4.2, §8 layer 7); "abort" would break abort-safety.
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "unwind"
+
+# A faster-to-build optimized profile for iterating on benchmarks during development.
+[profile.bench]
+opt-level = 3
+lto = "thin"
+codegen-units = 16

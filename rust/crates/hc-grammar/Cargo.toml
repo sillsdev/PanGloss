@@ -1,0 +1,15 @@
+[package]
+name = "hc-grammar"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+hc-featstruct.workspace = true
+hc-shape.workspace = true
+quick-xml.workspace = true
+unicode-normalization.workspace = true
+smallvec.workspace = true
+hashbrown.workspace = true
+thiserror.workspace = true

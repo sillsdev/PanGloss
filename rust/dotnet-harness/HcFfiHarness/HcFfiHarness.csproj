@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Plan §4.2 / M8: a .NET 10 P/Invoke console harness standing in for the net48 FieldWorks-style
+    host (which this machine cannot build/run — same substitution the earlier oracle-export
+    session used dotnet 10 for). Its job is narrow and specific: prove `hermit_crab.dll` is
+    genuinely callable through REAL managed P/Invoke marshalling (calling convention, struct
+    layout, string encoding) — a cdylib can pass its own Rust-side tests while still being
+    unreachable or silently wrong from a managed caller, which is exactly the class of bug this
+    harness exists to catch. It does not re-verify parity (hc-ffi's own Rust integration tests
+    already do that, comparing the FFI path to the in-process engine analysis-for-analysis).
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+</Project>

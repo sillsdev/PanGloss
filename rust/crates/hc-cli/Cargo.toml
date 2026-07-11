@@ -1,0 +1,18 @@
+[package]
+name = "hc-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "hc-rs"
+path = "src/main.rs"
+
+[dependencies]
+hc-parse.workspace = true
+hc-grammar.workspace = true
+hc-featstruct.workspace = true
+hc-fst.workspace = true
+hc-rules.workspace = true
+rayon.workspace = true
