@@ -9,6 +9,7 @@
 //! `probe`, `advisor`.
 
 pub mod canon;
+pub mod compiler;
 pub mod composite;
 pub mod env_nfa;
 pub mod inverse;
