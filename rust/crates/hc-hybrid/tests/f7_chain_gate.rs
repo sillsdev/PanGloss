@@ -113,3 +113,50 @@ fn indonesian_chain_on_verified_matches_chainon_golden() {
 fn indonesian_no_junctions_chain_matches_men_words_golden() {
     run_chain_batch_gate("indonesian-hc.xml", "men-words.txt", "indonesian", "men-words-batch.tsv", false);
 }
+
+/// F6's empirical finding ("neither ComposedPhonologyProposer nor LockstepPhonologyProposer ever
+/// contributes a distinguishable candidate on Indonesian") re-confirmed now that BOTH are built for
+/// REAL (not just assumed-safe stubs): enabling both against the real Indonesian grammar must still
+/// reproduce the chain-OFF golden byte-for-byte (`batch-chainoff.tsv`), same as the plain stub
+/// composite F6 already gates. This is the corpus-level double-check the plan asks for; the NEW
+/// required gate (a toy grammar where they DO contribute) is what actually forces them to prove
+/// themselves -- see the toy-gate test file.
+#[test]
+fn indonesian_real_lockstep_and_composed_are_still_corpus_inert() {
+    let Some(g) = load_grammar("indonesian-hc.xml") else {
+        eprintln!("skipping: indonesian-hc.xml not present");
+        return;
+    };
+    let Some(wpath) = words_path("indonesian", "indonesian-words.txt") else {
+        eprintln!("skipping: word list not present");
+        return;
+    };
+    let Some(gold_path) = golden_path("indonesian", "batch-chainoff.tsv") else {
+        eprintln!("skipping: golden not present");
+        return;
+    };
+
+    let surface = SurfacePhonology::new(&g);
+    let build_morpher = Morpher::new(&g, usize::MAX);
+    let trie = Trie::build(&g, &surface, &build_morpher, 1_000_000, 2, true);
+    let lockstep_morpher = Morpher::new(&g, usize::MAX);
+    let composite = CompositeAnalyzer::new(&g, &trie, &surface, walk::DEFAULT_MAX_BEAM_WORK, false)
+        .with_composed_phonology(&g)
+        .with_lockstep_phonology(&g, &surface, &lockstep_morpher, 1_000_000, 2);
+
+    let verify_morpher = Morpher::new(&g, usize::MAX);
+    let owners = replay::build_morpheme_owners(&g);
+    let words = read_words(&wpath);
+    let golden_lines = read_lines(&gold_path);
+
+    let mut rust_lines = Vec::with_capacity(words.len() * 2);
+    for (i, word) in words.iter().enumerate() {
+        let [started, result] = composite::batch_lines(&g, &composite, &verify_morpher, &owners, i, word);
+        rust_lines.push(started);
+        rust_lines.push(result);
+    }
+    assert_eq!(rust_lines.len(), golden_lines.len());
+    for (i, (rust_line, golden_line)) in rust_lines.iter().zip(golden_lines.iter()).enumerate() {
+        assert_eq!(rust_line, golden_line, "diverges at line {i} -- Lockstep/Composed contributed something new");
+    }
+}

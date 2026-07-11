@@ -60,7 +60,7 @@ use std::rc::Rc;
 use rustc_hash::FxHashSet as HashSet;
 
 use hc_grammar::model::{Grammar, MorphemeId};
-use hc_shape::{CdBits, NodeKind, Shape};
+use hc_shape::{CdBits, NodeKind, Shape, NO_CHAR_DEF};
 
 use crate::inverse::InversePhonology;
 use crate::token::{self, MorphOp};
@@ -276,7 +276,15 @@ pub struct InputSegment {
 /// lanes. `closure` is `None` for a zero-phon-feature table (Sena), reducing this to plain
 /// `char_def` identity.
 fn arc_matches_segment(arc_char_def: u32, arc_lanes: &[u64], seg: &InputSegment, closure: Option<&[CdBits]>) -> bool {
-    let cd_ok = arc_char_def == seg.char_def
+    // F7 addition: `seg.char_def == NO_CHAR_DEF` marks an ABSTRACT post-rewrite node (a feature-
+    // change rule reset its identity — `hc_rules::rewrite`'s own "char_def reset" convention,
+    // encountered here via `ComposedPhonologyProposer`'s un-applied shape, never via a bare
+    // surface-word segmentation, which always resolves a real char_def). Such a node has no
+    // literal identity to gate on at all — pure lane unification, no identity gate — mirroring
+    // `hc_rules::surface_probe::matching_reps`'s identical `char_def != NO_CHAR_DEF` split for the
+    // exact same situation.
+    let cd_ok = seg.char_def == NO_CHAR_DEF
+        || arc_char_def == seg.char_def
         || closure.is_some_and(|c| {
             (arc_char_def as usize) < c.len() && c[arc_char_def as usize].contains(seg.char_def)
         });

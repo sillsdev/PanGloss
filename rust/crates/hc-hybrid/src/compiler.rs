@@ -145,8 +145,12 @@ fn alloc(next_state: &mut u32) -> StateId {
 
 /// A flat sequence of plain `Context`/`CharDef` nodes — the bounded shape this compiler's Lhs/Rhs
 /// windows support (C# `FlattenFlatConstraints`). `None` if any node isn't one of those two kinds
-/// (a quantifier/anchor/segments directly in the target window — not attempted).
-fn flatten_flat(nodes: &[PatternNode]) -> Option<&[PatternNode]> {
+/// (a quantifier/anchor/segments directly in the target window — not attempted). `pub(crate)`:
+/// `compiler_v1.rs` (F7) reuses this exact shape check for its OWN Lhs/Rhs/environment windows (C#
+/// `PhonologyRuleCompiler.TryGetConstraints` requires precisely the same flat plain-constraint
+/// shape, for both the target window AND the environments — v1 has no `EnvNfaCompiler`-equivalent
+/// at all).
+pub(crate) fn flatten_flat(nodes: &[PatternNode]) -> Option<&[PatternNode]> {
     if nodes.iter().all(|n| matches!(n, PatternNode::Context(_) | PatternNode::CharDef(_))) {
         Some(nodes)
     } else {
