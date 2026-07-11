@@ -62,6 +62,43 @@ use hc_shape::Shape;
 /// now.
 pub type NonHeadRootFilter<'a> = &'a (dyn Fn(StratumId, &Shape) -> Vec<(AllomorphId, LexEntryId)> + Sync);
 
+/// F1 (HYBRID_FST_RUST_PLAN.md §7.1 item 1): the admission unit C#'s `Morpher.RuleSelector` gates —
+/// one variant per `IHCRule`-implementing kind that has its own `RuleSelector` read site (see the
+/// grep inventory in `docs/fst-plan/F1_QUIRK_AUDIT.md`'s "Selector read-site inventory"). Mirrors
+/// C#'s `Func<IHCRule, bool>` taking a *type-tagged* rule reference rather than a shared supertype,
+/// since Rust has no single `IHCRule` object to hand back — the caller's closure switches on the
+/// variant instead of doing an `is` check, an approved deviation in mechanism only (§7.1 preamble):
+/// the SET of admissible rules a given predicate computes is what parity requires, not how the
+/// predicate is shaped.
+///
+/// **F1 scope note**: only [`RuleRef::Stratum`], [`RuleRef::Template`], and [`RuleRef::MRule`] are
+/// wired into the analysis cascade this milestone (`StratumAnalyzer::apply_one_mrule`/
+/// `analyze_template`, plus `hc-parse::Morpher`'s stratum-descent loop on both the analysis AND
+/// synthesis side). Phonological-rule-level gating (`AnalysisRewriteRule`/`AnalysisMetathesisRule`/
+/// `SynthesisRewriteRule`/`SynthesisMetathesisRule`'s own `RuleSelector` checks) and synthesis-side
+/// mrule/template gating are NOT wired yet — deferred to F5 (`replay.rs`), the first milestone that
+/// actually needs to restrict anything beyond a stratum/template/mrule set (`FstReplay`'s own
+/// predicate keeps every phonological rule permanently open, `r is IPhonologicalRule` unconditionally
+/// true — HYBRID_FST_RUST_PLAN.md §4.3 quirk #8 — so no F1-F4 code path is blocked by this deferral).
+/// Flagged here, not silently dropped; a `PRule` variant will be added when F5/F7 needs one.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum RuleRef {
+    /// `AnalysisLanguageRule.cs:29` / `SynthesisStratumRule.cs:51`'s stratum-level gate.
+    Stratum(StratumId),
+    /// `AnalysisAffixTemplateRule.cs:34`'s template-level gate.
+    Template(TemplateId),
+    /// The morphological-rule-level gate shared, textually identically, by
+    /// `AnalysisAffixProcessRule.cs:42`, `AnalysisCompoundingRule.cs:42`, and
+    /// `AnalysisRealizationalAffixProcessRule.cs:42` (one `MRuleId` covers all three C# rule kinds,
+    /// matching `hc_grammar::model::MorphRuleDef`'s own unification of them under one id space).
+    MRule(MRuleId),
+}
+
+/// The Rust mirror of `Morpher.RuleSelector` (`Func<IHCRule, bool>`) — see [`RuleRef`]'s doc for
+/// exactly which gates this predicate reaches at F1. `None` (every pre-existing caller) means
+/// "every rule admitted", byte-identical to C#'s default `rule => true` (`Morpher.cs:72`).
+pub type RuleFilter<'a> = &'a (dyn Fn(RuleRef) -> bool + Sync);
+
 use crate::cache::RuleCache;
 use crate::cascade::Cascade;
 use crate::trace::{FailureReason, TraceHandle, TraceSink};
@@ -416,7 +453,7 @@ pub fn analyze_stratum(
     // with). Passing `None` keeps this signature — and every existing test's call site — unchanged,
     // by falling all the way back to the pre-cache recompile-every-call behavior. See
     // `crate::cache`'s module doc.
-    StratumAnalyzer::new(g, stratum, *cfg, None, None, None, budget).analyze(input)
+    StratumAnalyzer::new(g, stratum, *cfg, None, None, None, None, budget).analyze(input)
 }
 
 /// Analyze `input` through `stratum` with the #451 order-invariant memo active (M6). Identical to
@@ -434,7 +471,7 @@ pub fn analyze_stratum_scoped(
 ) -> StratumAnalysis {
     // See `analyze_stratum`'s doc: no production call site, and `None` keeps every test call site
     // unchanged (byte-for-byte the pre-cache behavior).
-    StratumAnalyzer::new(g, stratum, *cfg, scope, None, None, budget).analyze(input)
+    StratumAnalyzer::new(g, stratum, *cfg, scope, None, None, None, budget).analyze(input)
 }
 
 /// Identical to [`analyze_stratum_scoped`], plus the compounding non-head root filter
@@ -461,12 +498,32 @@ pub fn analyze_stratum_scoped_filtered(
     cache: &RuleCache,
     budget: &StepBudget,
 ) -> StratumAnalysis {
-    StratumAnalyzer::new(g, stratum, *cfg, scope, non_head_root_filter, Some(cache), budget).analyze(input)
+    analyze_stratum_scoped_filtered_ruled(g, stratum, input, cfg, scope, non_head_root_filter, None, cache, budget)
+}
+
+/// Identical to [`analyze_stratum_scoped_filtered`], plus the F1 morphological-rule/template-level
+/// selector (`RuleFilter`; see that type's doc for exactly which C# gates it mirrors and which it
+/// defers to F5). `None` (via [`analyze_stratum_scoped_filtered`]) is every admitted, byte-identical
+/// to every pre-existing caller.
+#[allow(clippy::too_many_arguments)]
+pub fn analyze_stratum_scoped_filtered_ruled(
+    g: &Grammar,
+    stratum: StratumId,
+    input: Word,
+    cfg: &AnalyzerConfig,
+    scope: Option<&MemoScope>,
+    non_head_root_filter: Option<NonHeadRootFilter>,
+    rule_filter: Option<RuleFilter>,
+    cache: &RuleCache,
+    budget: &StepBudget,
+) -> StratumAnalysis {
+    StratumAnalyzer::new(g, stratum, *cfg, scope, non_head_root_filter, rule_filter, Some(cache), budget)
+        .analyze(input)
 }
 
 /// The stratum orchestrator. Borrows the caller's [`StepBudget`] (see that type's doc) rather than
 /// owning its own step counter — one `StratumAnalyzer` no longer means one budget.
-struct StratumAnalyzer<'g, 's, 'f, 'c, 'b> {
+struct StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b> {
     g: &'g Grammar,
     stratum_id: StratumId,
     stratum: &'g hc_grammar::model::StratumDef,
@@ -484,19 +541,24 @@ struct StratumAnalyzer<'g, 's, 'f, 'c, 'b> {
     /// The M5c non-head lexicon filter, or `None` (unfiltered — every pre-existing caller). See
     /// [`NonHeadRootFilter`] and [`Self::non_head_root_matches`].
     non_head_root_filter: Option<NonHeadRootFilter<'f>>,
+    /// F1 (§7.1 item 1): the mrule/template selector, or `None` (every pre-existing caller — every
+    /// rule admitted). See [`RuleFilter`]'s doc.
+    rule_filter: Option<RuleFilter<'r>>,
     /// The compile-once FST cache (plan §13.2 step 5) — see `crate::cache`'s module doc. `None`
     /// falls all the way back to the pre-cache recompile-every-call behavior (see [`analyze_stratum`]'s
     /// doc for why that's still needed).
     cache: Option<&'c RuleCache>,
 }
 
-impl<'g, 's, 'f, 'c, 'b> StratumAnalyzer<'g, 's, 'f, 'c, 'b> {
+impl<'g, 's, 'f, 'r, 'c, 'b> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b> {
+    #[allow(clippy::too_many_arguments)]
     fn new(
         g: &'g Grammar,
         stratum_id: StratumId,
         cfg: AnalyzerConfig,
         scope: Option<&'s MemoScope>,
         non_head_root_filter: Option<NonHeadRootFilter<'f>>,
+        rule_filter: Option<RuleFilter<'r>>,
         cache: Option<&'c RuleCache>,
         budget: &'b StepBudget,
     ) -> Self {
@@ -512,8 +574,16 @@ impl<'g, 's, 'f, 'c, 'b> StratumAnalyzer<'g, 's, 'f, 'c, 'b> {
             budget,
             scope,
             non_head_root_filter,
+            rule_filter,
             cache,
         }
+    }
+
+    /// F1: `RuleRef::MRule`/`RuleRef::Template` admission — `true` (admit) when no filter was
+    /// supplied, matching C#'s `rule => true` default.
+    #[inline]
+    fn rule_admitted(&self, r: RuleRef) -> bool {
+        self.rule_filter.is_none_or(|f| f(r))
     }
 
     /// The order-independent memo key for `w` (C# `new AnalysisStateKey(word)`). Clones the shape +
@@ -545,6 +615,13 @@ impl<'g, 's, 'f, 'c, 'b> StratumAnalyzer<'g, 's, 'f, 'c, 'b> {
     /// dedup-key indices (Word.cs:317-327; analysis only ever grows these lists, so the index is
     /// always `len - 1`). `morph::analyze` is left semantics-pure — the bookkeeping lives here.
     fn apply_one_mrule(&self, id: MRuleId, w: &Word) -> Vec<Word> {
+        // F1 (§7.1 item 1): `AnalysisAffixProcessRule.cs:42`/`AnalysisCompoundingRule.cs:42`/
+        // `AnalysisRealizationalAffixProcessRule.cs:42`'s shared top-of-`Apply` gate — checked
+        // before the budget tick, matching "a rejected-by-gate rule was never attempted" (same
+        // placement convention as the `MaxStemCount`/`MaxApplicationCount` gates just below).
+        if !self.rule_admitted(RuleRef::MRule(id)) {
+            return Vec::new();
+        }
         if self.over_budget() {
             return Vec::new();
         }
@@ -834,6 +911,10 @@ impl<'g, 's, 'f, 'c, 'b> StratumAnalyzer<'g, 's, 'f, 'c, 'b> {
     /// top-down, then **`Add`** — a widening union, not `unify`/`priority_union` — the unified FS
     /// onto each output's syntactic FS (cs:65-67: `sfs.Add(fs)`, never fails).
     fn analyze_template(&self, tid: TemplateId, input: &Word) -> Vec<Word> {
+        // F1 (§7.1 item 1): `AnalysisAffixTemplateRule.cs:34`'s top-of-`Apply` gate.
+        if !self.rule_admitted(RuleRef::Template(tid)) {
+            return Vec::new();
+        }
         let tmpl = &self.g.templates[tid.0 as usize];
         let req = self.g.fs_interner.get(tmpl.required_syn_fs);
         // `input.SyntacticFeatureStruct.Unify(RequiredSyntacticFeatureStruct, out fs)` (cs:40).

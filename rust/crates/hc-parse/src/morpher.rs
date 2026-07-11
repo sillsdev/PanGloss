@@ -29,7 +29,7 @@ use hc_grammar::model::{AllomorphId, AllomorphOwner, Grammar, LexEntryId, MRuleI
 use hc_memo::AnalysisScope;
 use hc_rules::cache::RuleCache;
 use hc_rules::shape_feat::segment_with_features;
-use hc_rules::stratum::{analyze_stratum_scoped_filtered, AnalyzerConfig, NonHeadRootFilter};
+use hc_rules::stratum::{AnalyzerConfig, NonHeadRootFilter};
 use hc_rules::trace::{FailureReason, NoopSink, TraceHandle, TraceSink};
 use hc_rules::word::{MorphRecord, Word, WordKey};
 use hc_featstruct::{FeatId, FeatureStruct, FeatureValue};
@@ -206,12 +206,50 @@ impl<'g> Morpher<'g> {
         self.parse_word_core(word, opts, trace)
     }
 
+    /// F1 (HYBRID_FST_RUST_PLAN.md §7.1 item 1): the restricted-analysis entry point —
+    /// `hc-hybrid`'s future `FstReplay`-analog (F5) calls this to pin the search the way C#'s
+    /// `Morpher.LexEntrySelector`/`RuleSelector` do. Per-call parameters rather than C#'s mutable
+    /// instance state (an approved deviation, §7.1 preamble: "Prefer per-call parameters ... "):
+    /// thread-safe by construction, and every existing `parse_word*` call site is unaffected (this
+    /// is a new, additive entry point, not a signature change to the others).
+    ///
+    /// `lex_entry_filter` mirrors C#'s ONE `LexEntrySelector` read site
+    /// (`Morpher.cs:370`/`LexicalLookup`) exactly — see [`Self::lexical_lookup`]. `rule_filter`
+    /// mirrors [`hc_rules::stratum::RuleRef`]'s F1 subset (stratum/template/mrule admission, both
+    /// analysis AND synthesis stratum-descent) — see that type's doc for what's deferred to F5.
+    /// `None` for either reproduces [`Self::parse_word_opts`] byte-for-byte (both this method and
+    /// `parse_word_opts` bottom out in the same `parse_word_core_selected`).
+    pub fn parse_word_selected(
+        &self,
+        word: &str,
+        opts: &ParseOptions,
+        lex_entry_filter: Option<&dyn Fn(LexEntryId) -> bool>,
+        rule_filter: Option<hc_rules::stratum::RuleFilter>,
+    ) -> ParseOutcome {
+        let sink = NoopSink;
+        self.parse_word_core_selected(word, opts, &sink, lex_entry_filter, rule_filter)
+    }
+
     /// The shared implementation behind [`Self::parse_word_opts`] (traced with a no-op [`NoopSink`])
     /// and [`Self::parse_word_traced`] (traced with a real sink) — one body, parameterized by
     /// `trace`, so the two paths cannot drift. Every trace call is guarded by
     /// `trace.is_tracing()` first (§4.1's zero-cost-when-off requirement); `NoopSink`'s own methods
-    /// are `unreachable!()` and are never reached because of that guard.
+    /// are `unreachable!()` and are never reached because of that guard. Both filters `None` — see
+    /// [`Self::parse_word_core_selected`] for the F1 selector-restricted sibling.
     fn parse_word_core(&self, word: &str, opts: &ParseOptions, trace: &dyn TraceSink) -> ParseOutcome {
+        self.parse_word_core_selected(word, opts, trace, None, None)
+    }
+
+    /// F1: the actual shared implementation — [`Self::parse_word_core`] is a thin `(None, None)`
+    /// wrapper over this, so the unfiltered path and the selector-restricted path can never drift.
+    fn parse_word_core_selected(
+        &self,
+        word: &str,
+        opts: &ParseOptions,
+        trace: &dyn TraceSink,
+        lex_entry_filter: Option<&dyn Fn(LexEntryId) -> bool>,
+        rule_filter: Option<hc_rules::stratum::RuleFilter>,
+    ) -> ParseOutcome {
         let g = self.g;
         let n = g.strata.len();
         if n == 0 {
@@ -303,15 +341,25 @@ impl<'g> Morpher<'g> {
         input_set.insert(input.dedup_key(), input);
         let mut results: HashMap<WordKey, Word> = HashMap::default();
         for s in (0..n).rev() {
+            // F1 (§7.1 item 1): `AnalysisLanguageRule.cs:28-29` — `if (!RuleSelector(_strata[i]))
+            // continue;`. C#'s `continue` leaves `inputSet` untouched for the next (shallower)
+            // iteration, contributing nothing to `results` — mirrored here by skipping the whole
+            // body WITHOUT reassigning `input_set`, so a later stratum still receives the same
+            // candidates a rejected stratum would have (mechanically) passed through unopposed.
+            let stratum_ref = hc_rules::stratum::RuleRef::Stratum(StratumId(s as u8));
+            if rule_filter.is_some_and(|f| !f(stratum_ref)) {
+                continue;
+            }
             let mut output_set: HashMap<WordKey, Word> = HashMap::default();
             for w in input_set.values() {
-                let res = analyze_stratum_scoped_filtered(
+                let res = hc_rules::stratum::analyze_stratum_scoped_filtered_ruled(
                     g,
                     StratumId(s as u8),
                     w.clone(),
                     &cfg,
                     scope,
                     Some(filter),
+                    rule_filter,
                     &self.cache,
                     &budget,
                 );
@@ -331,12 +379,12 @@ impl<'g> Morpher<'g> {
         //    `Morpher.Synthesize` (SINGLE_THREADED branch, Morpher.cs:283-301).
         let mut matches: HashMap<WordKey, Word> = HashMap::default();
         for aw in results.values() {
-            for syn_word in self.lexical_lookup(aw) {
+            for syn_word in self.lexical_lookup_filtered(aw, lex_entry_filter) {
                 // `synthesisWord.ExpandAlternatives()` (Morpher.cs:478): recover the shape-equivalent
                 // candidates `MergeEquivalentAnalyses` folded away, each with the deeper strata's
                 // rules replayed, then synthesize every one of them.
                 for alt in syn_word.expand_alternatives() {
-                    for vw in self.synthesis_pipeline_traced(alt, trace, root) {
+                    for vw in self.synthesis_pipeline_selected(alt, trace, root, rule_filter) {
                         if self.is_word_valid_traced(&vw, trace, root) && self.is_match_traced(&vw, word, trace, root) {
                             matches.entry(vw.dedup_key()).or_insert(vw);
                         }
@@ -404,12 +452,25 @@ impl<'g> Morpher<'g> {
     /// with the root's underlying form, resets the syntactic FS / MPR / partial flag, and records the
     /// root morph — `Word.SetRootAllomorph`, Word.cs:137-147). The analysis history (`mrule_apps` /
     /// `mrule_app_index`) is carried over unchanged — it is what synthesis will confirm.
-    fn lexical_lookup(&self, aw: &Word) -> Vec<Word> {
+    ///
+    /// F1-extended (§7.1 item 1) with the ONE
+    /// `LexEntrySelector` read site (`Morpher.cs:370`, `.Where(LexEntrySelector)` on the
+    /// distinct-entries sequence, checked BEFORE the `.Distinct()`/per-allomorph expansion below —
+    /// mirrored here by filtering `matched` before the dedup loop, so a rejected entry contributes
+    /// no allomorph clones at all, exactly like C#'s `Where` short-circuiting the LINQ pipeline
+    /// before `Distinct()` runs). `None` reproduces the pre-F1 unfiltered behavior byte-for-byte —
+    /// every existing call site (there was exactly one) passes `None`/`lex_entry_filter` straight
+    /// through from [`Self::parse_word_core`].
+    fn lexical_lookup_filtered(&self, aw: &Word, lex_entry_filter: Option<&dyn Fn(LexEntryId) -> bool>) -> Vec<Word> {
         let g = self.g;
         let matched = self.root_index.search(g, aw.stratum, &aw.shape);
-        // Distinct entries in first-seen order (C# `.Distinct()` on the entry sequence).
+        // Distinct entries in first-seen order (C# `.Distinct()` on the entry sequence), filtered by
+        // `lex_entry_filter` first (C#: `.Where(LexEntrySelector)` precedes `.Distinct()`).
         let mut entries: Vec<LexEntryId> = Vec::new();
         for (_, le) in &matched {
+            if lex_entry_filter.is_some_and(|f| !f(*le)) {
+                continue;
+            }
             if !entries.contains(le) {
                 entries.push(*le);
             }
@@ -467,6 +528,25 @@ impl<'g> Morpher<'g> {
     /// synthesis render as a followable rule sequence (design doc §6's acceptance bar) rather than
     /// a single `Successful` leaf under the root.
     fn synthesis_pipeline_traced(&self, syn_word: Word, trace: &dyn TraceSink, parent: TraceHandle) -> Vec<Word> {
+        self.synthesis_pipeline_selected(syn_word, trace, parent, None)
+    }
+
+    /// F1 (§7.1 item 1): [`Self::synthesis_pipeline_traced`]'s selector-restricted sibling — adds
+    /// `SynthesisStratumRule.cs:51`'s `!_morpher.RuleSelector(_stratum)` half of that method's entry
+    /// gate (the `input.RootAllomorph.Morpheme.Stratum.Depth > _stratum.Depth` half is already
+    /// enforced INSIDE `synthesize_stratum_traced` itself — see that function's doc, which notes
+    /// "`RuleSelector` is always the identity in the batch tool", i.e. this half was never wired
+    /// until now). On rejection the word passes through UNCHANGED (C#'s `input.ToEnumerable()`), not
+    /// dropped — mirrored here by inserting `w.clone()` into `next` directly instead of calling
+    /// `synthesize_stratum_traced`. `None` reproduces [`Self::synthesis_pipeline_traced`]
+    /// byte-for-byte (both bottom out here).
+    fn synthesis_pipeline_selected(
+        &self,
+        syn_word: Word,
+        trace: &dyn TraceSink,
+        parent: TraceHandle,
+        rule_filter: Option<hc_rules::stratum::RuleFilter>,
+    ) -> Vec<Word> {
         let g = self.g;
         let n = g.strata.len();
         let mut cur: HashMap<WordKey, Word> = HashMap::default();
@@ -475,8 +555,15 @@ impl<'g> Morpher<'g> {
             if cur.is_empty() {
                 break; // PipelineRuleCascade stops once the working set empties (cs:20).
             }
+            let stratum_ref = hc_rules::stratum::RuleRef::Stratum(StratumId(s as u8));
+            let admitted = rule_filter.is_none_or(|f| f(stratum_ref));
             let mut next: HashMap<WordKey, Word> = HashMap::default();
             for w in cur.values() {
+                if !admitted {
+                    // SynthesisStratumRule.cs:51: `return input.ToEnumerable();` — pass through.
+                    next.entry(w.dedup_key()).or_insert_with(|| w.clone());
+                    continue;
+                }
                 let node_parent = w.trace.unwrap_or(parent);
                 for o in hc_rules::stratum::synthesize_stratum_traced(
                     g,
