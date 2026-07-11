@@ -10,6 +10,8 @@
 
 pub mod canon;
 pub mod composite;
+pub mod env_nfa;
+pub mod inverse;
 pub mod proposers;
 pub mod replay;
 pub mod surface;
