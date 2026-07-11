@@ -43,6 +43,32 @@ fn chain_covers(g: &hc_grammar::model::Grammar, trie: &Trie, chain: &[hc_hybrid:
     !walk::analyze_chain(g, trie, chain, word, walk::DEFAULT_MAX_BEAM_WORK, walk::DEFAULT_MAX_BOUNDARY_INSERTIONS).analyses.is_empty()
 }
 
+/// C# `Sig(WordAnalysis)`: `join("+", gloss)` in morpheme order + `":"` + root index -- ported here
+/// via `xml_key` (same convention `replay::signature`/`composite::candidate_signature` use) so the
+/// real-engine set and the chain-walked set are directly comparable strings.
+fn engine_sigs(g: &hc_grammar::model::Grammar, word: &str) -> std::collections::HashSet<String> {
+    Morpher::new(g, usize::MAX)
+        .parse_word(word)
+        .structured
+        .iter()
+        .map(|wa| {
+            let keys: Vec<&str> = wa.morpheme_ids.iter().map(|&id| g.morphemes[id as usize].xml_key.as_str()).collect();
+            format!("{}:{}", keys.join("+"), wa.root_morpheme_index)
+        })
+        .collect()
+}
+
+fn chain_sigs(g: &hc_grammar::model::Grammar, trie: &Trie, chain: &[hc_hybrid::inverse::InversePhonology], word: &str) -> std::collections::HashSet<String> {
+    walk::analyze_chain(g, trie, chain, word, walk::DEFAULT_MAX_BEAM_WORK, walk::DEFAULT_MAX_BOUNDARY_INSERTIONS)
+        .analyses
+        .iter()
+        .map(|wa| {
+            let keys: Vec<&str> = wa.morphemes.iter().map(|&hc_grammar::model::MorphemeId(id)| g.morphemes[id as usize].xml_key.as_str()).collect();
+            format!("{}:{}", keys.join("+"), wa.root_index)
+        })
+        .collect()
+}
+
 #[test]
 fn chain_recovers_word_internal_rule_two_segment_lhs_far_from_any_boundary() {
     // "katanaga"+"-i" -> an_to_am (2-segment Lhs "a n"->"a m", unconditioned) -> "katamagai".
@@ -62,6 +88,10 @@ fn chain_recovers_word_internal_rule_two_segment_lhs_far_from_any_boundary() {
     let chain_trie_morpher = Morpher::new(&g, usize::MAX);
     let chain_trie = Trie::build_ex(&g, &surface, &chain_trie_morpher, 1_000_000, 2, false, false);
     assert!(chain_covers(&g, &chain_trie, std::slice::from_ref(&r.pinv), "katamagai"), "the chain must recover the word-internal 2-segment substitution");
+    assert!(
+        chain_sigs(&g, &chain_trie, std::slice::from_ref(&r.pinv), "katamagai").is_subset(&engine_sigs(&g, "katamagai")),
+        "soundness: chain candidates must be a subset of the engine's"
+    );
 
     let compiled2 = compiler::compile_default(&g);
     let r2 = rule(&compiled2, "an_to_am");
@@ -97,6 +127,10 @@ fn chain_recovers_two_rule_feeding_chain_mid_root() {
     // Chain order = reverse application order: index 0 = last-applied (rule B, surface-facing).
     let chain = [rule_b.pinv.clone(), rule_a.pinv.clone()];
     assert!(chain_covers(&g, &chain_trie, &chain, "aaadbaaai"), "the 2-level chain must recover the feeding cascade");
+    assert!(
+        chain_sigs(&g, &chain_trie, &chain, "aaadbaaai").is_subset(&engine_sigs(&g, "aaadbaaai")),
+        "soundness: chain candidates must be a subset of the engine's"
+    );
 
     let compiled2 = compiler::compile_default(&g);
     let rule_b2 = rule(&compiled2, "t_to_d_before_b");
@@ -126,6 +160,10 @@ fn chain_recovers_long_distance_harmony_suffix_vowel_agrees_with_first_root_vowe
     let chain_trie = Trie::build_ex(&g, &surface, &chain_trie_morpher, 1_000_000, 2, false, false);
     let covered = walk::analyze_chain(&g, &chain_trie, std::slice::from_ref(&r.pinv), "uptku", walk::DEFAULT_MAX_BEAM_WORK, walk::DEFAULT_MAX_BOUNDARY_INSERTIONS);
     assert!(!covered.analyses.is_empty(), "the chain must recover the harmonized suffix form");
+    assert!(
+        chain_sigs(&g, &chain_trie, std::slice::from_ref(&r.pinv), "uptku").is_subset(&engine_sigs(&g, "uptku")),
+        "soundness: chain candidates must be a subset of the engine's"
+    );
 
     let compiled2 = compiler::compile_default(&g);
     let r2 = rule(&compiled2, "round_harmony");

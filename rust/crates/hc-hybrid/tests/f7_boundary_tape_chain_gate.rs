@@ -17,6 +17,31 @@ use hc_hybrid::trie::Trie;
 use hc_hybrid::walk;
 use hc_parse::Morpher;
 
+/// C# `Sig(WordAnalysis).IsSubsetOf(engine)` soundness check, ported via `xml_key` (same
+/// convention `replay::signature`/`composite::candidate_signature` use).
+fn engine_sigs(g: &hc_grammar::model::Grammar, word: &str) -> std::collections::HashSet<String> {
+    Morpher::new(g, usize::MAX)
+        .parse_word(word)
+        .structured
+        .iter()
+        .map(|wa| {
+            let keys: Vec<&str> = wa.morpheme_ids.iter().map(|&id| g.morphemes[id as usize].xml_key.as_str()).collect();
+            format!("{}:{}", keys.join("+"), wa.root_morpheme_index)
+        })
+        .collect()
+}
+
+fn chain_sigs_capped(g: &hc_grammar::model::Grammar, trie: &Trie, chain: &[hc_hybrid::inverse::InversePhonology], word: &str, max_boundary_insertions: i32) -> std::collections::HashSet<String> {
+    walk::analyze_chain(g, trie, chain, word, walk::DEFAULT_MAX_BEAM_WORK, max_boundary_insertions)
+        .analyses
+        .iter()
+        .map(|wa| {
+            let keys: Vec<&str> = wa.morphemes.iter().map(|&hc_grammar::model::MorphemeId(id)| g.morphemes[id as usize].xml_key.as_str()).collect();
+            format!("{}:{}", keys.join("+"), wa.root_index)
+        })
+        .collect()
+}
+
 fn load(fixture: &str) -> hc_grammar::model::Grammar {
     let xml = std::fs::read_to_string(format!(
         "{}/tests/fixtures/fst-advisor-toys/{fixture}",
@@ -46,6 +71,10 @@ fn chain_recovers_boundary_conditioned_substitution_after_morpheme_junction() {
     let chain_trie = Trie::build_ex(&g, &surface, &chain_trie_morpher, 1_000_000, 2, false, false);
     let covered = walk::analyze_chain(&g, &chain_trie, std::slice::from_ref(&r.pinv), "sabata", walk::DEFAULT_MAX_BEAM_WORK, walk::DEFAULT_MAX_BOUNDARY_INSERTIONS);
     assert!(!covered.analyses.is_empty(), "the chain must recover the boundary-conditioned voicing via the insert-boundary move");
+    assert!(
+        chain_sigs_capped(&g, &chain_trie, std::slice::from_ref(&r.pinv), "sabata", walk::DEFAULT_MAX_BOUNDARY_INSERTIONS).is_subset(&engine_sigs(&g, "sabata")),
+        "soundness: chain candidates must be a subset of the engine's"
+    );
 
     // A matched non-word (differs from the lexicon entry "pata" after the shared prefix) must stay
     // unparsed. NOTE (matching the C# original's own note): "sapata" (the literal unvoiced
@@ -85,6 +114,10 @@ fn chain_respects_insertion_cap_two_boundary_crossings_never_hangs() {
     let r2 = compiled2.iter().find(|r| r.name == "voice_after_boundary_cap").expect("rule compiled");
     let covered = walk::analyze_chain(&g, &chain_trie, std::slice::from_ref(&r2.pinv), "satibata", walk::DEFAULT_MAX_BEAM_WORK, 4);
     assert!(!covered.analyses.is_empty(), "a generous cap (4) covers both boundary crossings");
+    assert!(
+        chain_sigs_capped(&g, &chain_trie, std::slice::from_ref(&r2.pinv), "satibata", 4).is_subset(&engine_sigs(&g, "satibata")),
+        "soundness: chain candidates must be a subset of the engine's"
+    );
 
     // A matched non-word must stay unparsed even under the generous cap.
     let compiled3 = compiler::compile_default(&g);

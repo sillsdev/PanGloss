@@ -38,6 +38,31 @@ fn chain_covers(g: &hc_grammar::model::Grammar, trie: &Trie, chain: &[hc_hybrid:
     !walk::analyze_chain(g, trie, chain, word, walk::DEFAULT_MAX_BEAM_WORK, walk::DEFAULT_MAX_BOUNDARY_INSERTIONS).analyses.is_empty()
 }
 
+/// C# `Sig(WordAnalysis).IsSubsetOf(engine)` soundness check, ported via `xml_key` (same
+/// convention `replay::signature`/`composite::candidate_signature` use).
+fn engine_sigs(g: &hc_grammar::model::Grammar, word: &str) -> std::collections::HashSet<String> {
+    Morpher::new(g, usize::MAX)
+        .parse_word(word)
+        .structured
+        .iter()
+        .map(|wa| {
+            let keys: Vec<&str> = wa.morpheme_ids.iter().map(|&id| g.morphemes[id as usize].xml_key.as_str()).collect();
+            format!("{}:{}", keys.join("+"), wa.root_morpheme_index)
+        })
+        .collect()
+}
+
+fn chain_sigs(g: &hc_grammar::model::Grammar, trie: &Trie, chain: &[hc_hybrid::inverse::InversePhonology], word: &str) -> std::collections::HashSet<String> {
+    walk::analyze_chain(g, trie, chain, word, walk::DEFAULT_MAX_BEAM_WORK, walk::DEFAULT_MAX_BOUNDARY_INSERTIONS)
+        .analyses
+        .iter()
+        .map(|wa| {
+            let keys: Vec<&str> = wa.morphemes.iter().map(|&hc_grammar::model::MorphemeId(id)| g.morphemes[id as usize].xml_key.as_str()).collect();
+            format!("{}:{}", keys.join("+"), wa.root_index)
+        })
+        .collect()
+}
+
 #[test]
 fn chain_recovers_word_internal_deletion_with_env_gating() {
     // "kadata"+"-i" = "kadatai" -> d_deletion (d->0/a_a) -> surface "kaatai".
@@ -61,6 +86,10 @@ fn chain_recovers_word_internal_deletion_with_env_gating() {
     let compiled2 = compiler::compile_default(&g);
     let r2 = rule(&compiled2, "d_deletion");
     assert!(chain_covers(&g, &chain_trie, std::slice::from_ref(&r2.pinv), "kaatai"), "the chain must restore the deleted word-internal segment");
+    assert!(
+        chain_sigs(&g, &chain_trie, std::slice::from_ref(&r2.pinv), "kaatai").is_subset(&engine_sigs(&g, "kaatai")),
+        "soundness: chain candidates must be a subset of the engine's"
+    );
 
     // Soundness: a matched non-word (same length/shape, no valid restoration site) must stay unparsed.
     let compiled3 = compiler::compile_default(&g);
@@ -89,6 +118,10 @@ fn chain_recovers_word_internal_epenthesis_with_env_gating() {
     let compiled2 = compiler::compile_default(&g);
     let r2 = rule(&compiled2, "i_epenthesis");
     assert!(chain_covers(&g, &chain_trie, std::slice::from_ref(&r2.pinv), "atikau"), "the chain must strip the epenthesized segment");
+    assert!(
+        chain_sigs(&g, &chain_trie, std::slice::from_ref(&r2.pinv), "atikau").is_subset(&engine_sigs(&g, "atikau")),
+        "soundness: chain candidates must be a subset of the engine's"
+    );
 
     // Soundness: a different vowel in the epenthesis slot must stay unparsed.
     let compiled3 = compiler::compile_default(&g);
@@ -123,6 +156,10 @@ fn chain_respects_restoration_cap_unconditioned_deletion() {
     let cap2_all = compiler::compile(&g, 2);
     let cap2 = rule(&cap2_all, "d_deletion_unconditioned");
     assert!(chain_covers(&g, &chain_trie, std::slice::from_ref(&cap2.pinv), "agau"), "with cap 2 the chain restores both deleted segments");
+    assert!(
+        chain_sigs(&g, &chain_trie, std::slice::from_ref(&cap2.pinv), "agau").is_subset(&engine_sigs(&g, "agau")),
+        "soundness: chain candidates must be a subset of the engine's"
+    );
 
     // Cap 0 disables deletion-inverse entirely -- honest IdentitySkip, reason "restoration-cap".
     let cap0_all = compiler::compile(&g, 0);
