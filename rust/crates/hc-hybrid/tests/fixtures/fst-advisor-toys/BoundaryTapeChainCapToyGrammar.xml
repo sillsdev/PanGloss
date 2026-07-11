@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="utf-8"?>
+<HermitCrabInput>
+  <Language>
+    <Name>BoundaryTapeChainCapToy</Name>
+    <!--
+      Port fixture for BoundaryTapeChainTests.cs's
+      Chain_RespectsInsertionCap_TwoBoundaryCrossings_NeverHangs (I4). A single prefix "sa+ti+"
+      bakes TWO literal boundaries into one InsertSegments shape, so reaching the lexicon requires
+      the chain's global "insert boundary" move to supply TWO phantom boundary symbols -- this pins
+      max_boundary_insertions directly. Same boundary-only voicing rule as the sibling fixture (fires
+      only at the SECOND boundary, immediately left of the root's "p"; the first boundary, between
+      "sa" and "ti", precedes "t", never itself a substitution site, only a crossing the walk must
+      still pay for). "sa+ti+"+"pata" = "sa+ti+pata" -> surface "satibata".
+    -->
+    <PartsOfSpeech>
+      <PartOfSpeech id="posN"><Name>n</Name></PartOfSpeech>
+      <PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <HeadFeatures />
+    <PhonologicalFeatureSystem>
+      <SymbolicFeature id="featCons"><Name>cons</Name><Symbols><Symbol id="symConsP">+</Symbol><Symbol id="symConsM">-</Symbol></Symbols></SymbolicFeature>
+      <SymbolicFeature id="featVoc"><Name>voc</Name><Symbols><Symbol id="symVocP">+</Symbol><Symbol id="symVocM">-</Symbol></Symbols></SymbolicFeature>
+      <SymbolicFeature id="featPoa">
+        <Name>poa</Name>
+        <Symbols><Symbol id="symPoaBila">bila</Symbol><Symbol id="symPoaAlve">alve</Symbol><Symbol id="symPoaHigh">high</Symbol></Symbols>
+      </SymbolicFeature>
+      <SymbolicFeature id="featVoice"><Name>voice</Name><Symbols><Symbol id="symVoiceP">+</Symbol><Symbol id="symVoiceM">-</Symbol></Symbols></SymbolicFeature>
+    </PhonologicalFeatureSystem>
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cS"><Representations><Representation>s</Representation></Representations>
+          <FeatureValue feature="featCons" symbolValues="symConsP" /><FeatureValue feature="featVoc" symbolValues="symVocM" /><FeatureValue feature="featPoa" symbolValues="symPoaAlve" /><FeatureValue feature="featVoice" symbolValues="symVoiceM" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations>
+          <FeatureValue feature="featCons" symbolValues="symConsM" /><FeatureValue feature="featVoc" symbolValues="symVocP" /><FeatureValue feature="featPoa" symbolValues="symPoaBila" /><FeatureValue feature="featVoice" symbolValues="symVoiceP" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cT"><Representations><Representation>t</Representation></Representations>
+          <FeatureValue feature="featCons" symbolValues="symConsP" /><FeatureValue feature="featVoc" symbolValues="symVocM" /><FeatureValue feature="featPoa" symbolValues="symPoaHigh" /><FeatureValue feature="featVoice" symbolValues="symVoiceM" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cI"><Representations><Representation>i</Representation></Representations>
+          <FeatureValue feature="featCons" symbolValues="symConsM" /><FeatureValue feature="featVoc" symbolValues="symVocP" /><FeatureValue feature="featPoa" symbolValues="symPoaHigh" /><FeatureValue feature="featVoice" symbolValues="symVoiceP" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cP"><Representations><Representation>p</Representation></Representations>
+          <FeatureValue feature="featCons" symbolValues="symConsP" /><FeatureValue feature="featVoc" symbolValues="symVocM" /><FeatureValue feature="featPoa" symbolValues="symPoaBila" /><FeatureValue feature="featVoice" symbolValues="symVoiceM" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cB"><Representations><Representation>b</Representation></Representations>
+          <FeatureValue feature="featCons" symbolValues="symConsP" /><FeatureValue feature="featVoc" symbolValues="symVocM" /><FeatureValue feature="featPoa" symbolValues="symPoaBila" /><FeatureValue feature="featVoice" symbolValues="symVoiceP" />
+        </SegmentDefinition>
+      </SegmentDefinitions>
+      <BoundaryDefinitions>
+        <BoundaryDefinition id="cPlus"><Representations><Representation>+</Representation></Representations></BoundaryDefinition>
+      </BoundaryDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <SegmentNaturalClass id="ncP"><Name>P</Name><Segment segment="cP" /></SegmentNaturalClass>
+      <SegmentNaturalClass id="ncB"><Name>B</Name><Segment segment="cB" /></SegmentNaturalClass>
+      <SegmentNaturalClass id="ncAll">
+        <Name>All</Name>
+        <Segment segment="cS" /><Segment segment="cA" /><Segment segment="cT" /><Segment segment="cI" /><Segment segment="cP" /><Segment segment="cB" />
+      </SegmentNaturalClass>
+    </NaturalClasses>
+    <PhonologicalRuleDefinitions>
+      <PhonologicalRule id="prVoiceAfterBoundaryCap">
+        <Name>voice_after_boundary_cap</Name>
+        <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncP" /></PhoneticSequence></PhoneticInput>
+        <PhonologicalSubrules>
+          <PhonologicalSubrule>
+            <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncB" /></PhoneticSequence></PhoneticOutput>
+            <Environment>
+              <LeftEnvironment><PhoneticTemplate><PhoneticSequence><BoundaryMarker boundary="cPlus" /></PhoneticSequence></PhoneticTemplate></LeftEnvironment>
+            </Environment>
+          </PhonologicalSubrule>
+        </PhonologicalSubrules>
+      </PhonologicalRule>
+    </PhonologicalRuleDefinitions>
+    <Strata>
+      <Stratum characterDefinitionTable="t1" phonologicalRules="prVoiceAfterBoundaryCap" morphologicalRules="mrSaTi">
+        <Name>S</Name>
+        <MorphologicalRuleDefinitions>
+          <MorphologicalRule id="mrSaTi" requiredPartsOfSpeech="posV" outputPartOfSpeech="posN">
+            <Name>sa+ti+(SATI)</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subSaTi">
+                <MorphologicalInput>
+                  <PhoneticSequence id="stem"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAll" /></OptionalSegmentSequence></PhoneticSequence>
+                </MorphologicalInput>
+                <MorphologicalOutput><InsertSegments><PhoneticShape>sa+ti+</PhoneticShape></InsertSegments><CopyFromInput index="stem" /></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <Gloss>SATI</Gloss>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <AffixTemplates>
+          <AffixTemplate final="true">
+            <Name>T1</Name>
+            <Slot morphologicalRules="mrSaTi"><Name>Sl1</Name></Slot>
+          </AffixTemplate>
+        </AffixTemplates>
+        <LexicalEntries>
+          <LexicalEntry id="ePata2" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="aPata2"><PhoneticShape>pata</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>pata</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>
