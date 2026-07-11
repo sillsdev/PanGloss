@@ -434,14 +434,54 @@ extra-roots, signature match), `VerifiedFstAnalyzer`. Gate: **verified bare-FST 
 Indonesian + the Sena slice-60 file vs the F0 `--bare` batch goldens; thread-invariance asserted;
 soundness assert (every emitted analysis re-confirms) run once on Indonesian.
 
-**F6 — sibling proposers + composite (2–3 d).** `proposers.rs` (reduplication with all four scans
-incl. suffix-peel; infix over variants; `ComposedPhonologyProposer`; v1 `compiler_v1.rs` +
-`LockstepPhonologyProposer` bug-for-bug; `ForwardSynthesisProposer` behind the flag) +
-`composite.rs` (order + dedup). Gate: **THE HEADLINE — full composite candidate AND verified
-parity, chain-off, Indonesian 121/121 byte-identical + Sena slice-60 + negatives goldens all
-`-`**; `PhonologyRuleCompilerTests`, redup/infix/composite toy tests ported and green.
+**F6 — sibling proposers + composite (2–3 d) — DONE, re-scoped 2026-07-11 per an independent Fable
+review.** `proposers.rs`: `ReduplicationProposer` (all four C# scan kinds) and `InfixProposer` built
+for real. `composite.rs`: `CompositeProposer`'s fixed order (FST → [ForwardSynthesis] → Redup →
+Infix → ComposedPhonology → Lockstep, confirmed against `CompositeProposer.cs:32-46,87-104`) and
+signature dedup, wired through F5's verify path.
 
-**F7 — the chain (3–4 d).** `inverse.rs`, `env_nfa.rs`, `compiler.rs` (tiers + reasons, deletion
+**`ComposedPhonologyProposer`, v1 `compiler_v1.rs`/`LockstepPhonologyProposer`, and
+`ForwardSynthesisProposer` were NOT built this milestone — wired as permanently-empty stubs at
+their correct order position instead, moved to F7 below.** This is not a silent gap: the review
+independently confirmed via the real C# `fst-candidates` golden (labeled by proposer) that on
+Indonesian, Sena, and even Amharic (673 words, checked opportunistically though outside F6's own
+scope), every candidate in the real C# composite comes from `FstTemplateAnalyzer`
+(+`ReduplicationProposer` on Indonesian) alone — Composed/Lockstep never contribute a
+distinguishable candidate on any corpus this port currently has. The reasons differ by grammar and
+matter for what F7 must still prove: **Sena** is a structural guarantee (zero phonological rules,
+both proposers no-op by construction — Sena's pass proves nothing about them specifically).
+**Indonesian's Lockstep v1 no-op is also a guarantee**, not a coincidence: every one of its 5
+phonological rules is v1-unsupported by an already-audited quirk (quirks 1/2 in
+`F1_QUIRK_AUDIT.md` — boundary markers in the environment, α-variables + quantifiers, or an
+explicit excluded-MPR-feature reject), so v1's alphabet/arc-building rejects all of them and the
+proposer is provably inert. **Indonesian's Composed no-op is empirical-plus-structural, not
+guaranteed**: it genuinely runs (5 rules), but every candidate it proposes is deduped against one
+FST/Redup already proposes via F2/F3's junction-arc baking — because all 5 rules are
+junction/redup-conditioned, exactly the shape junction probing was built to subsume. **A future
+grammar with a genuine mid-word (non-junction-conditioned) phonological rule would get candidates
+ONLY from Composed/Lockstep/the chain — nothing else in this pipeline can produce them** — so this
+is a real, not cosmetic, scope carve-out.
+
+Gate actually met this milestone (verified independently, byte-identical): full composite candidate
+AND verified parity, chain-off, Indonesian 121/121 + Sena slice-60 + negatives (Indonesian + Sena,
+50 words each) all `-`. **NOT met, moved to F7**: `PhonologyRuleCompilerTests` (impossible to port
+with no compiler built) and quirks 1-2's behavioral verification (they describe the unbuilt v1
+compiler). 5 new toy tests (redup/infix, hand-authored XML, not C#-`XmlLanguageWriter`-exported —
+acceptable for now per the review, but revisit the export/round-trip step in F9 to close that loop
+per §9's stated convention) cover what F6 actually built.
+
+**F7 — the chain (3–4 d) — SCOPE EXPANDED 2026-07-11 to also cover what F6 deferred.** In addition
+to its original scope below: build `compiler_v1.rs`/`LockstepPhonologyProposer` (bug-for-bug per
+quirks 1-2) and `ComposedPhonologyProposer`, port `PhonologyRuleCompilerTests`, and add a **new
+required gate**: a toy grammar with a genuine word-internal (non-junction-conditioned) single-segment
+phonological rule, generated so its C# `fst-candidates` dump shows real `LockstepPhonologyProposer`/
+`ComposedPhonologyProposer` lines (not just FST/Redup) — byte-match this specifically in Rust. This
+is the only gate anywhere in the plan that actually forces these two proposers to produce a
+non-empty result and be checked; without it, F6's "empty stub happens to match" state could persist
+undetected indefinitely (Amharic's own real-composite golden is ALSO FST-only, so Amharic will not
+force this either — confirmed, not assumed).
+
+`inverse.rs`, `env_nfa.rs`, `compiler.rs` (tiers + reasons, deletion
 floors, epenthesis ε-output, metathesis + 256-combo cap + identity seeding), chain half of
 `walk.rs` (state-vector configs, `CascadeSymbol`, `ChainClosure` branches, boundary insertion +
 `InsertionsUsed`), `ChainPhonologyProposer`. Gates: tier reports byte-identical (incl. reason
