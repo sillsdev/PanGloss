@@ -29,12 +29,24 @@ two engines' scopes overlap, something already calling HermitCrab could call Pan
 minimal changes. PanGloss is meant to be called directly (not through `Machine`'s C# layer), so this
 is about a familiar *shape*, not wire compatibility with any specific C# interop path.
 
+## Where this is going: the hybrid FST
+
+PanGloss's active development is porting a **propose-and-verify hybrid FST analyzer** — a fast path
+that proposes candidate analyses with an ensemble of finite-state machines in microseconds, then
+verifies each one exactly with the real engine (sound by construction, never a false positive) —
+originally built and measured in C# on the `fst-advisor` branch of `sillsdev/machine`
+(22-72x per-word speedups over the pooled engine, engine-pathological words answered in
+milliseconds). See [`docs/fst-plan/`](docs/fst-plan/) for the full research and port plan:
+start with `HYBRID_FST_FEASIBILITY.md` (what it is and why it works), then
+`HYBRID_FST_RUST_PLAN.md` (the milestone-by-milestone Rust port plan this repo is executing).
+
 ## Layout
 
 - `rust/` — the ported engine (crate map and build instructions in
   [`rust/README.md`](rust/README.md)).
 - `samples/data/` — reference grammars (Amharic, Indonesian, Sena) used by `rust/`'s test suite.
-- `docs/` — the port audit (above) plus historical planning documents under `docs/history/`.
+- `docs/` — the port audit (above), the FST plan (`docs/fst-plan/`), and historical planning
+  documents under `docs/history/`.
 
 ## Building
 
