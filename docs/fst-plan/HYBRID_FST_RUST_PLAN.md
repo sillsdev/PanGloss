@@ -565,6 +565,30 @@ pathological words to overflow) fails against an empty baseline. This is an F4-e
 gap, unrelated to probe/advisor; flagged here rather than silently left for a future milestone to
 rediscover.
 
+**Fable review follow-up (2026-07-11, verdict "safe to merge with notes"):** two notes recorded,
+neither blocking. (1) `probe.rs`'s beam-overflow doc originally overclaimed that recomputing the
+bare walk "reproduces the blind spot faithfully" — corrected in the module doc: C#'s
+`BeamOverflows` is a running delta on a *shared* `FstTemplateAnalyzer` instance that
+`ReduplicationProposer`/`InfixProposer`/`ComposedPhonologyProposer` also walk through
+(`FstCoverageProbe.cs:91-93`), so one corpus word can increment it more than once and
+`LastBeamOverflowWord` can end up being a sibling-proposer residue/variant string, not the corpus
+word; this port counts at most one overflow per corpus word and always reports the corpus word
+itself — an undercount relative to C# on grammars where sibling proposers also overflow, diagnostic
+-only and zero on all three real grammars today. (2) `GrammarFstAdvisorTests.cs` (8 C# test methods)
+was never ported to `advisor.rs` — unlike `probe.rs`, `advisor.rs` has no `#[cfg(test)]` module at
+all; coverage is golden-only (byte-identical on 3 real grammars). Reviewer verified by line-by-line
+inspection (not by test) that the following branches match C# with no divergence found: the Tier 2⁺
+verdict string and tier-check ordering, the probe-able/`[probe-able]` tag path, the bounded
+-reduplicant `regular=true` arm, the non-regular unbounded-rewrite tail, metathesis/ModifyFromInput
+`Info` advisories, and the many-allomorphs cost threshold (`> 8`) — but none of these have a Rust
+unit test pinning them, only inspection. Recommended next step if this crate gets another advisor
+-focused pass: port `Analyze_ReduplicationRule_FlaggedEscapeAndTierDowngraded` and
+`Analyze_BoundedReduplicant_IsRegular` from `GrammarFstAdvisorTests.cs` (each needs a small
+hand-authored toy grammar — `FstCoverageProbeToyGrammar.AfterRedup.xml`'s unbounded
+`OptionalSegmentSequence min="1" max="-1"` reduplication rule is a ready-made template for the
+first; the second needs the same rule with `max="1"` instead) — deferred rather than attempted here
+since it needs new fixture engineering, not a mechanical fix.
+
 **hc-cli gap, cross-milestone, not F8-specific:** the plan's §7 crate-plan text calls for `hc-rs
 fst-batch`/`fst-candidates`/`fst-stats` CLI commands mirroring the C# oracle tool's flags. None of
 F1 through F8 actually wired these into `hc-cli` (it has no dependency on `hc-hybrid` at all, and no

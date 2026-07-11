@@ -35,9 +35,16 @@
 //! phonology proposer's own PRIVATE trie/walk. `walk.rs`'s `analyze_word` doc names this exact gap
 //! as "a future `fst-stats`-style diagnostic, F8's job": since `analyze_word` is a stateless
 //! function (no shared instance to read an accumulated counter off), this module recomputes the
-//! SAME bare walk once more per word purely to read its `overflowed` flag — cheap, and exactly the
-//! bare-walk instance C# tracks (position 1 of the composite), so the blind spot is reproduced
-//! faithfully rather than accidentally fixed.
+//! SAME bare walk once more per word purely to read its `overflowed` flag — cheap, and it is the
+//! same bare-walk instance C# tracks (position 1 of the composite). This is NOT a full match,
+//! though: C#'s counter is a running delta on that *shared* instance, which `ReduplicationProposer`/
+//! `InfixProposer`/`ComposedPhonologyProposer` also walk through (`FstCoverageProbe.cs:91-93`), so
+//! one corpus word can increment it more than once (once per overflowed string those siblings walk,
+//! `FstTemplateAnalyzer.cs:631`), and `LastBeamOverflowWord` can end up being a residue/variant
+//! string rather than the corpus word itself. This port counts at most one overflow per corpus word
+//! (from the single extra top-level bare walk added above) and always reports the corpus word
+//! itself — an undercount relative to C# on grammars where sibling proposers also overflow, not an
+//! exact reproduction of the blind spot. Diagnostic-only, ungated, zero on all three grammars today.
 
 use rustc_hash::FxHashSet as HashSet;
 
