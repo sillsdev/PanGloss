@@ -1,11 +1,37 @@
-//! `walk.rs` (F4, HYBRID_FST_RUST_PLAN.md §8) — the BARE half of C#'s `FstTemplateAnalyzer` walker:
-//! `AnalyzeShape`/`EpsilonClosure`/`BeamBudget`/`ToWordAnalyses`
-//! (`FstTemplateAnalyzer.cs:441-729,552-637`, `fst-oracle` branch). Scope: the bare NFA walk over the
-//! F3 trie only. The CHAIN walker (`AnalyzeChain`/`ChainClosure`/`CascadeSymbol`, state-vector
-//! `PConfig`s, `PConfigKey`, boundary insertion) is F7's job — explicitly out of scope here, per the
-//! plan's own module sketch (§7) and milestone list (§8).
+//! `walk.rs` (F4/F7, HYBRID_FST_RUST_PLAN.md §8) — C#'s `FstTemplateAnalyzer` walker, both halves:
+//! `AnalyzeShape`/`EpsilonClosure`/`BeamBudget`/`ToWordAnalyses` (F4, `FstTemplateAnalyzer.cs:
+//! 441-729,552-637`) and the CHAIN walker `AnalyzeChain`/`ChainClosure`/`CascadeSymbol`, state-vector
+//! `PConfig`s/`PConfigKey`, boundary insertion (F7, `:759-1197`).
 //!
-//! ## Beam-debit points: the bare walk has ONE, not two (quirk 7's chain-specific framing, verified)
+//! ## Two walkers, one trie, ONE mode selector — not unified into one code path
+//! Per this milestone's brief: "read how C# structures the choice between them ... don't try to
+//! unify them into one code path if C# doesn't." C# doesn't: `AnalyzeWord(string)` always calls the
+//! bare `AnalyzeShape`; a caller wanting the chain calls `AnalyzeChain`/`AnalyzeComposed` directly —
+//! there is no shared dispatch function, no flag threaded through one entry point, just two
+//! independently-callable methods on the same `FstTemplateAnalyzer` instance (both read the same
+//! `_start`/`_tokenOnEntry`/`Enter`/`Key`-equivalent trie plumbing, but their closure/frontier/
+//! candidate-emission logic is entirely separate). This module mirrors that exactly: [`analyze_shape`]
+//! (bare) and [`analyze_chain`] (chain) are two separate public functions over the same [`Trie`]; the
+//! CALLER (a sibling proposer — `walk::analyze_word` for the bare FST, F7's `ChainPhonologyProposer`
+//! for the chain) picks which one to invoke, exactly mirroring `LockstepPhonologyProposer`/
+//! `ChainPhonologyProposer` each calling their own C# method (`AnalyzeComposed`/`AnalyzeChain`) rather
+//! than a shared dispatcher.
+//!
+//! ## Chain walk overview (C# `AnalyzeChain`/`CascadeSymbol`/`ChainClosure`)
+//! `chain: &[InversePhonology]` is stored in "reverse application order" (index 0 = inverse of the
+//! LAST rule HC applied during synthesis, closest to the surface; the last index sits closest to the
+//! lexicon trie). [`PConfig`] carries one rule-state PER chain level plus the lexicon [`Config`] plus
+//! a global boundary-insertion counter. [`cascade_symbol`] feeds one symbol into `chain[rank]`: a
+//! matching arc either stops (ε-output, epenthesis-inverse), cascades its emission into `rank+1`
+//! (recursion), or — at the last rank — must unify a REAL (non-ε) trie arc, advancing the lexicon walk.
+//! [`chain_closure`] floods: (a) trie ε-arcs (unchanged from the bare walk), (b) per-level structural
+//! epsilons, (c) per-level ε-input restoration arcs (cascading down via [`cascade_symbol`]), (d) the
+//! global "insert boundary" move (offering each `trie.boundary_alphabet` member at rank 0, bounded by
+//! `max_boundary_insertions`). A boundary-conditioned trie arc is treated as a REAL symbol here
+//! (contrast the bare walk's [`is_free_arc`], which crosses it for free) — only (d) can ever cross one,
+//! matching `F1_QUIRK_AUDIT.md`'s framing of the boundary tape.
+//!
+//! ## Beam-debit points: the bare walk has ONE axis; the chain walk has BOTH (quirk 7, verified)
 //! `F1_QUIRK_AUDIT.md` quirk 7 documents two debit axes in the C# source: (a) once per genuinely-new
 //! post-dedup frontier admission, and (b) once per matching arc INSIDE `CascadeSymbol`, before
 //! recursing to the next rank. Reading `AnalyzeShape`/`EpsilonClosure` directly (not assuming the
@@ -36,6 +62,7 @@ use rustc_hash::FxHashSet as HashSet;
 use hc_grammar::model::{Grammar, MorphemeId};
 use hc_shape::{CdBits, NodeKind, Shape};
 
+use crate::inverse::InversePhonology;
 use crate::token::{self, MorphOp};
 use crate::trie::{surface_table, ArcLabel, StateId, Trie};
 
@@ -372,6 +399,323 @@ pub fn analyze_word(g: &Grammar, trie: &Trie, word: &str, max_beam_work: i64) ->
     analyze_shape(trie, &segments, table.unif_closure_rows(), max_beam_work)
 }
 
+// =================================================================================================
+// The CHAIN walker (F7): `AnalyzeChain`/`ChainClosure`/`CascadeSymbol`.
+// =================================================================================================
+
+/// C# `AnalyzeChain`'s default (`FstTemplateAnalyzer.cs:816`): generous default, real grammars need
+/// at most one inserted boundary per morpheme junction the word actually has; only a pathological
+/// grammar/word combination hits this, converting a would-be hang into "unparsed".
+pub const DEFAULT_MAX_BOUNDARY_INSERTIONS: i32 = 8;
+
+/// C# `PConfig` (`FstTemplateAnalyzer.cs:731-756`): one state PER chain level, plus the lexicon
+/// [`Config`], plus how many global "insert boundary" ε-moves this config has already taken.
+#[derive(Clone)]
+pub struct PConfig {
+    pub rule_states: Vec<u32>,
+    pub lex: Config,
+    pub insertions_used: i32,
+}
+
+/// Dedup key for a [`PConfig`] (C# `PConfigKey`): the chain's state vector + the lexicon state id +
+/// lexicon token history + insertions-used, by value.
+#[derive(Clone, PartialEq, Eq, Hash)]
+struct PConfigKey {
+    rule_states: Vec<u32>,
+    lex_state: StateId,
+    lex_tokens: Rc<[u32]>,
+    insertions_used: i32,
+}
+
+fn pkey(pc: &PConfig) -> PConfigKey {
+    PConfigKey {
+        rule_states: pc.rule_states.clone(),
+        lex_state: pc.lex.state,
+        lex_tokens: Rc::clone(&pc.lex.tokens),
+        insertions_used: pc.insertions_used,
+    }
+}
+
+fn all_accepting(chain: &[InversePhonology], rule_states: &[u32]) -> bool {
+    chain.iter().zip(rule_states).all(|(pinv, &s)| pinv.is_accepting(s))
+}
+
+/// A trie arc's own (lanes, target) if it is NOT a pure epsilon arc (C#'s `!larc.Input.IsEpsilon`
+/// guard at both the `CascadeSymbol` bottom join and `ChainClosure`'s ε-input-restoration join) --
+/// covers BOTH `ArcLabel::Segment` and `ArcLabel::Boundary` (the chain's lexicon join has no notion
+/// of "this rank's emission must be a literal surface segment vs. a boundary"; that discrimination
+/// is carried entirely by the lane rows themselves via the synthetic Type feature -- see `inverse.rs`'s
+/// module doc).
+fn trie_arc_lanes(label: &ArcLabel) -> Option<&[u64]> {
+    match label {
+        ArcLabel::Epsilon => None,
+        ArcLabel::Segment { lanes, .. } | ArcLabel::Boundary { lanes, .. } => Some(lanes),
+    }
+}
+
+/// C# `CascadeSymbol` (`FstTemplateAnalyzer.cs:948-1009`): feed `symbol` (lanes only -- see
+/// `inverse.rs`'s PARITY note) into `chain[rank]` at `rule_states[rank]`'s current state. Eagerly
+/// collects what C#'s `IEnumerable<PConfig>` `yield return`s -- a failed [`BeamBudget::try_debit`]
+/// stops the loop immediately (C#'s `yield break`), discarding no already-collected config, exactly
+/// matching the generator's "stop enumerating right here" semantics.
+#[allow(clippy::too_many_arguments)]
+fn cascade_symbol(
+    trie: &Trie,
+    chain: &[InversePhonology],
+    rule_states: &[u32],
+    rank: usize,
+    symbol: &[u64],
+    lex: &Config,
+    budget: &mut BeamBudget,
+    insertions_used: i32,
+) -> Vec<PConfig> {
+    let mut out = Vec::new();
+    for arc in chain[rank].arcs_from(rule_states[rank]) {
+        if arc.is_epsilon_input() || !arc.surface_unifiable(symbol) {
+            continue; // ε-input arcs are taken in the closure; this arc must consume a real symbol
+        }
+        // I6 enumeration-axis debit: BEFORE cloning the state vector / recursing / scanning the lexicon.
+        if !budget.try_debit() {
+            return out;
+        }
+        let mut new_states = rule_states.to_vec();
+        new_states[rank] = arc.target;
+        if arc.is_epsilon_output() {
+            // I0/I3 plumbing: consumes the incoming symbol but emits nothing further down the
+            // chain -- the cascade for THIS symbol stops here; the lexicon does not advance.
+            out.push(PConfig { rule_states: new_states, lex: lex.clone(), insertions_used });
+            continue;
+        }
+        let underlying = arc.underlying.as_ref().expect("non-epsilon-output arc has Some(underlying)");
+        if rank == chain.len() - 1 {
+            // Bottom of the chain: the emission must unify a (non-ε) lexicon arc.
+            for larc in trie.arcs(lex.state) {
+                if let Some(lanes) = trie_arc_lanes(&larc.label) {
+                    if hc_featstruct::flat_unifiable(lanes, underlying) {
+                        out.push(PConfig {
+                            rule_states: new_states.clone(),
+                            lex: enter(trie, larc.target, &lex.tokens),
+                            insertions_used,
+                        });
+                    }
+                }
+            }
+        } else {
+            out.extend(cascade_symbol(trie, chain, &new_states, rank + 1, underlying, lex, budget, insertions_used));
+        }
+    }
+    out
+}
+
+/// C# `ChainClosure` (`FstTemplateAnalyzer.cs:1036-1194`): closure over (a) lexicon ε-arcs (unchanged
+/// from the bare walk), (b) per-level structural-epsilon arcs, (c) per-level ε-input restoration arcs
+/// (cascading down via [`cascade_symbol`] before they can unify a lexicon arc), (d) the global "insert
+/// boundary" move, bounded by `max_boundary_insertions` via [`PConfig::insertions_used`] (part of
+/// [`PConfigKey`], so the dedup set is finite regardless of chain/trie topology).
+fn chain_closure(
+    trie: &Trie,
+    chain: &[InversePhonology],
+    configs: Vec<PConfig>,
+    max_boundary_insertions: i32,
+    budget: &mut BeamBudget,
+) -> Vec<PConfig> {
+    let mut result = Vec::new();
+    let mut seen: HashSet<PConfigKey> = HashSet::default();
+    let mut stack: Vec<PConfig> = Vec::new();
+    for pc in configs {
+        if seen.insert(pkey(&pc)) {
+            result.push(pc.clone());
+            stack.push(pc);
+        }
+    }
+
+    while !stack.is_empty() && !budget.overflowed() {
+        let pc = stack.pop().expect("stack non-empty per loop guard");
+
+        // (a) lexicon ε-arcs: the morphotactic network's slot-entry/skip transitions.
+        for larc in trie.arcs(pc.lex.state) {
+            if matches!(larc.label, ArcLabel::Epsilon) {
+                let nc =
+                    PConfig { rule_states: pc.rule_states.clone(), lex: enter(trie, larc.target, &pc.lex.tokens), insertions_used: pc.insertions_used };
+                if seen.insert(pkey(&nc)) {
+                    if !budget.try_debit() {
+                        break;
+                    }
+                    result.push(nc.clone());
+                    stack.push(nc);
+                }
+            }
+        }
+
+        // (b) + (c) per-level epsilon arcs.
+        for rank in 0..chain.len() {
+            if budget.overflowed() {
+                break;
+            }
+            for arc in chain[rank].arcs_from(pc.rule_states[rank]) {
+                if !arc.is_epsilon_input() {
+                    continue; // must not consume a real surface symbol to be taken in closure
+                }
+                // I6 enumeration-axis debit: mirrors `cascade_symbol`'s per-matching-arc debit.
+                if !budget.try_debit() {
+                    break;
+                }
+                let mut new_states = pc.rule_states.clone();
+                new_states[rank] = arc.target;
+                if arc.is_epsilon_output() {
+                    // (b) structural epsilon: pure state move at this rank only.
+                    let nc = PConfig { rule_states: new_states, lex: pc.lex.clone(), insertions_used: pc.insertions_used };
+                    if seen.insert(pkey(&nc)) {
+                        if !budget.try_debit() {
+                            break;
+                        }
+                        result.push(nc.clone());
+                        stack.push(nc);
+                    }
+                    continue;
+                }
+                // (c) real ε-input restoration: its emission must cascade down through rank+1..end
+                // (or, if this is already the last rank, unify a lexicon arc directly).
+                let underlying = arc.underlying.clone().expect("ε-input, non-ε-output arc has Some(underlying)");
+                if rank == chain.len() - 1 {
+                    for larc in trie.arcs(pc.lex.state) {
+                        if let Some(lanes) = trie_arc_lanes(&larc.label) {
+                            if hc_featstruct::flat_unifiable(lanes, &underlying) {
+                                let nc = PConfig {
+                                    rule_states: new_states.clone(),
+                                    lex: enter(trie, larc.target, &pc.lex.tokens),
+                                    insertions_used: pc.insertions_used,
+                                };
+                                if seen.insert(pkey(&nc)) {
+                                    if !budget.try_debit() {
+                                        break;
+                                    }
+                                    result.push(nc.clone());
+                                    stack.push(nc);
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    for nc in cascade_symbol(trie, chain, &new_states, rank + 1, &underlying, &pc.lex, budget, pc.insertions_used) {
+                        if seen.insert(pkey(&nc)) {
+                            if !budget.try_debit() {
+                                break;
+                            }
+                            result.push(nc.clone());
+                            stack.push(nc);
+                        }
+                    }
+                }
+            }
+        }
+
+        // (d) I4: global "insert boundary" move -- offered while under the per-word insertion
+        // budget; the shared I6 work budget is also checked between boundary symbols.
+        if !budget.overflowed() && pc.insertions_used < max_boundary_insertions {
+            for boundary_lanes in &trie.boundary_alphabet {
+                if budget.overflowed() {
+                    break;
+                }
+                for nc0 in cascade_symbol(trie, chain, &pc.rule_states, 0, boundary_lanes, &pc.lex, budget, 0) {
+                    let nc = PConfig { rule_states: nc0.rule_states, lex: nc0.lex, insertions_used: pc.insertions_used + 1 };
+                    if seen.insert(pkey(&nc)) {
+                        if !budget.try_debit() {
+                            break;
+                        }
+                        result.push(nc.clone());
+                        stack.push(nc);
+                    }
+                }
+            }
+        }
+    }
+    result
+}
+
+/// C# `AnalyzeChain` (`FstTemplateAnalyzer.cs:812-915`): the general chain walker over
+/// already-extracted `segments` -- the chain analog of [`analyze_shape`], factored out the same way
+/// so hand-built-trie unit tests can exercise the walk without a real [`Grammar`]/char-def table
+/// (mirroring [`analyze_shape`]/[`analyze_word`]'s own split). `chain` is in "reverse application
+/// order" (see this module's doc).
+pub fn analyze_chain_segments(
+    trie: &Trie,
+    chain: &[InversePhonology],
+    segments: &[InputSegment],
+    max_beam_work: i64,
+    max_boundary_insertions: i32,
+) -> WalkOutcome {
+    let start_states: Vec<u32> = chain.iter().map(|p| p.start_state).collect();
+    let mut budget = BeamBudget::new(max_beam_work);
+    let empty_tokens: Rc<[u32]> = Rc::from(Vec::<u32>::new().into_boxed_slice());
+    let start_lex = enter(trie, trie.start(), &empty_tokens);
+    let mut current = chain_closure(
+        trie,
+        chain,
+        vec![PConfig { rule_states: start_states, lex: start_lex, insertions_used: 0 }],
+        max_boundary_insertions,
+        &mut budget,
+    );
+
+    for seg in segments {
+        if budget.overflowed() {
+            break;
+        }
+        let mut next: Vec<PConfig> = Vec::new();
+        let mut seen: HashSet<PConfigKey> = HashSet::default();
+        for pc in &current {
+            if budget.overflowed() {
+                break;
+            }
+            for nc in cascade_symbol(trie, chain, &pc.rule_states, 0, &seg.lanes, &pc.lex, &mut budget, pc.insertions_used) {
+                if seen.insert(pkey(&nc)) {
+                    if !budget.try_debit() {
+                        break;
+                    }
+                    next.push(nc);
+                }
+            }
+        }
+        current = chain_closure(trie, chain, next, max_boundary_insertions, &mut budget);
+        if current.is_empty() {
+            break;
+        }
+    }
+
+    if budget.overflowed() {
+        return WalkOutcome { analyses: Vec::new(), overflowed: true };
+    }
+
+    let mut results = Vec::new();
+    let mut emitted: HashSet<Rc<[u32]>> = HashSet::default();
+    for pc in &current {
+        if all_accepting(chain, &pc.rule_states) && trie.is_accepting(pc.lex.state) && emitted.insert(Rc::clone(&pc.lex.tokens)) {
+            results.extend(to_word_analyses(trie.codec(), &pc.lex.tokens));
+        }
+    }
+    WalkOutcome { analyses: results, overflowed: false }
+}
+
+/// C# `AnalyzeChain(string, ...)`: segment `word` against `g`'s surface table then walk it (thin
+/// wrapper over [`analyze_chain_segments`], mirroring [`analyze_word`]'s own wrapper over
+/// [`analyze_shape`]). Same empty-on-segmentation-failure behavior as [`analyze_word`] (PARITY: C#'s
+/// `AnalyzeChain` catches `InvalidShapeException` internally too, `:819-827`).
+pub fn analyze_chain(
+    g: &Grammar,
+    trie: &Trie,
+    chain: &[InversePhonology],
+    word: &str,
+    max_beam_work: i64,
+    max_boundary_insertions: i32,
+) -> WalkOutcome {
+    let (table, _w) = surface_table(g);
+    let Ok(shape) = hc_grammar::segment::segment(table, word) else {
+        return WalkOutcome { analyses: Vec::new(), overflowed: false };
+    };
+    let segments = word_segments(g, &shape);
+    analyze_chain_segments(trie, chain, &segments, max_beam_work, max_boundary_insertions)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -547,5 +891,122 @@ mod tests {
         let healthy = build_comb_trie(2, 2);
         let ok = analyze_shape(&healthy, &[], None, DEFAULT_MAX_BEAM_WORK);
         assert!(!ok.overflowed, "a fresh call's budget must be unaffected by a prior overflow");
+    }
+
+    // =============================================================================================
+    // Chain walker tests (F7).
+    // =============================================================================================
+
+    /// A 3-state trie: state0 --Segment(B)--> state1 --Segment(A)--> state2 (accepting, token=Root).
+    fn deletion_trie() -> Trie {
+        const A: [u64; 1] = [0b01];
+        const B: [u64; 1] = [0b10];
+        let mut codec = token::MorphTokenCodec::new();
+        let idx = codec.get_or_add_index(MorphemeId(0));
+        let mut states = vec![StateData::default(), StateData::default(), StateData {
+            accepting: true,
+            token: Some(token::encode(MorphOp::Root, idx)),
+            ..StateData::default()
+        }];
+        states[0].arcs.push(ArcData {
+            label: ArcLabel::Segment { lanes: B.to_vec(), reprs: vec!["b".into()], char_def: 0 },
+            target: 1,
+        });
+        states[1].arcs.push(ArcData {
+            label: ArcLabel::Segment { lanes: A.to_vec(), reprs: vec!["a".into()], char_def: 1 },
+            target: 2,
+        });
+        Trie::from_states(states, 0, codec)
+    }
+
+    /// The core new capability the chain brings over the bare walk: a deletion the surface never
+    /// shows, recovered ONLY because the lexicon has a matching arc for the restored underlying
+    /// segment at the exact position it's needed (the LEVER_2 spike shape,
+    /// `LeverTwoSpikeTests`/`ChainDeletionEpenthesisTests`'s C# analogue, minimized). The bare walk
+    /// on word "A" (one real segment) finds NOTHING at all -- state0 has no arc for A, only B. A
+    /// length-1 chain whose `InversePhonology` restores B (ε-input) and passes A through as
+    /// identity, both self-looping at its one accepting state, finds exactly the one candidate the
+    /// lexicon actually licenses.
+    #[test]
+    fn chain_recovers_a_deletion_the_bare_walk_cannot_see() {
+        const A: [u64; 1] = [0b01];
+        const B: [u64; 1] = [0b10];
+        let trie = deletion_trie();
+
+        let seg_a = InputSegment { char_def: 1, lanes: A.to_vec() };
+        let bare = analyze_shape(&trie, std::slice::from_ref(&seg_a), None, DEFAULT_MAX_BEAM_WORK);
+        assert!(bare.analyses.is_empty(), "bare walk cannot see the deleted B at all");
+
+        let mut pinv = InversePhonology::new();
+        pinv.start_state = 0;
+        pinv.set_accepting(0);
+        pinv.add_arc(0, Some(A.to_vec()), Some(A.to_vec()), 0); // identity: A passes through
+        pinv.add_arc(0, None, Some(B.to_vec()), 0); // ε-input restoration: B was deleted here
+        let chain = vec![pinv];
+
+        let chained = analyze_chain_segments(&trie, &chain, &[seg_a], DEFAULT_MAX_BEAM_WORK, DEFAULT_MAX_BOUNDARY_INSERTIONS);
+        assert!(!chained.overflowed);
+        assert_eq!(chained.analyses.len(), 1, "the chain recovers exactly the one lexicon-licensed candidate");
+        assert_eq!(chained.analyses[0].morphemes, vec![MorphemeId(0)]);
+        assert_eq!(chained.analyses[0].root_index, 0);
+    }
+
+    /// Without the restoration arc, an otherwise-identical chain must NOT manufacture the deletion
+    /// out of nothing -- a length-1 chain that is pure identity behaves exactly like the bare walk
+    /// (finds nothing), confirming the previous test's positive result comes from the restoration
+    /// arc specifically, not from some other difference between the two walkers.
+    #[test]
+    fn identity_only_chain_matches_bare_walk_on_the_same_deletion_trie() {
+        const A: [u64; 1] = [0b01];
+        let trie = deletion_trie();
+        let seg_a = InputSegment { char_def: 1, lanes: A.to_vec() };
+
+        let mut pinv = InversePhonology::new();
+        pinv.start_state = 0;
+        pinv.set_accepting(0);
+        pinv.add_arc(0, Some(A.to_vec()), Some(A.to_vec()), 0);
+        let chain = vec![pinv];
+
+        let chained =
+            analyze_chain_segments(&trie, &chain, std::slice::from_ref(&seg_a), DEFAULT_MAX_BEAM_WORK, DEFAULT_MAX_BOUNDARY_INSERTIONS);
+        let bare = analyze_shape(&trie, &[seg_a], None, DEFAULT_MAX_BEAM_WORK);
+        assert_eq!(chained.analyses, bare.analyses);
+        assert!(chained.analyses.is_empty());
+    }
+
+    /// Pathological chain: an unconditioned restoration self-loop offered at every closure step
+    /// must not hang or explode -- the shared I6 beam budget stops it (never a throw, never a
+    /// silent wrong answer), exercising the chain's OWN enumeration-axis debit inside
+    /// `chain_closure`'s ε-input-restoration branch (quirk 7's two-axis accounting, chain-specific).
+    #[test]
+    fn chain_beam_budget_stops_an_unconditioned_restoration_loop() {
+        const A: [u64; 1] = [0b01];
+        const B: [u64; 1] = [0b10];
+        // A trie with a genuine ε-cycle at state0 (B self-loop as an EPSILON arc) so the
+        // restoration's lexicon join can keep re-admitting the same lexicon state over and over
+        // via distinct rule-state histories is not even needed -- the chain's OWN closure
+        // recursion (cascade_symbol's rank fan-out) is what must be capped; a single-level chain
+        // with the restoration targeting a FRESH state each admission is unnecessary to engineer
+        // since PConfigKey dedup already collapses same-state repeats. Instead: a small comb-style
+        // trie already proven explosive for the bare walker's frontier, walked through a
+        // permissive identity chain, confirms the chain's budget is independently enforced.
+        let trie = deletion_trie();
+        let seg_a = InputSegment { char_def: 1, lanes: A.to_vec() };
+        let seg_b = InputSegment { char_def: 0, lanes: B.to_vec() };
+
+        let mut pinv = InversePhonology::new();
+        pinv.start_state = 0;
+        pinv.set_accepting(0);
+        pinv.add_arc(0, Some(A.to_vec()), Some(A.to_vec()), 0);
+        pinv.add_arc(0, Some(B.to_vec()), Some(B.to_vec()), 0);
+        pinv.add_arc(0, None, Some(B.to_vec()), 0);
+        let chain = vec![pinv];
+
+        let start = std::time::Instant::now();
+        let out = analyze_chain_segments(&trie, &chain, &[seg_b, seg_a], 5, DEFAULT_MAX_BOUNDARY_INSERTIONS);
+        let elapsed = start.elapsed();
+        assert!(out.overflowed, "a 5-unit budget must overflow well before finishing");
+        assert!(out.analyses.is_empty());
+        assert!(elapsed < std::time::Duration::from_secs(5), "must never hang (took {elapsed:?})");
     }
 }
