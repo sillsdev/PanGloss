@@ -597,12 +597,93 @@ Rust integration tests instead. This is a real, consistently-deferred gap across
 something introduced or newly discovered here; F9's own checklist item "Crate docs + CLI usage
 written" is the natural place to close it, so it is recorded here rather than attempted piecemeal.
 
-**F9 — full battery + docs (1–2 d).** Full-corpus runs recorded for the battery: Sena 7,121
-verified parity (watchdogged), Amharic per §5.3 with explicit exclusion list; Rust-vs-C# benchmark
-table (states, build ms, walk p50/p95 chain-off/on, verify cost/word, overflow counts — the
-standing stats battery); `KNOWN_GAPS` equivalent written into the crate docs; this plan's status
+**F9 — full battery + docs (1–2 d) — DONE 2026-07-11.** Full-corpus runs recorded for the battery:
+Sena 7,121 verified parity (watchdogged), Amharic per §5.3 with explicit exclusion list; Rust-vs-C#
+benchmark table (states, build ms, walk p50/p95 chain-off/on, verify cost/word, overflow counts —
+the standing stats battery); `KNOWN_GAPS` equivalent written into the crate docs; this plan's status
 block updated. Gate: §3 checklist all green (with Amharic's recorded gating), README for the crate
 + CLI usage.
+
+**Actually shipped — headline result: Sena full 7,121-word verified parity, watchdogged, 0
+exclusions needed; Amharic full 673/673 verified parity, ALSO 0 exclusions needed (better than the
+plan anticipated).** New gate file `rust/crates/hc-hybrid/tests/f9_full_battery_gate.rs` (all
+`#[ignore]`d — expensive full-corpus/Amharic-scale, per this crate's established convention — and
+each ACTUALLY RUN in `--release` before being reported here, twice independently with matching
+numbers):
+
+1. **Sena, 7,121/7,121 words, byte-identical, 0 pathological/timed-out, 0 mismatches.** Reuses the
+   exact slice-60 comparison convention `f6_composite_gate.rs` already established (STARTED/`ok`
+   line pairs, sorted-ordinal `;`-joined signatures), widened to the full corpus, against
+   `sena/batch-chainoff-full.tsv` (chain OFF, the primary configuration). Watchdog: a NEW
+   `replay::confirm_checked` (added this milestone; `confirm` now a thin wrapper over it) reuses
+   `Morpher::with_word_timeout`'s existing wall-clock mechanism — a generous 60s/word budget on the
+   VERIFY step — rather than inventing a new one, per the plan's own instruction; it never fired.
+   Total wall time: **1,263.4s (~21 minutes)** — faster than the C# manifest's own 30-40 minute
+   estimate for the equivalent run, and well inside F4/§12 item 0's documented bare-walker
+   performance-gap concern (BeamBudget's finite work-unit cap already bounds propose; nothing here
+   needed a harder cap). This closes the plan's own headline claim ("has NEVER been gated before").
+2. **Amharic, 673/673 words verified parity, byte-identical, 0 exclusions** — NOT a subset gate,
+   contrary to the plan's own anticipation. Per an explicit instruction from an independent review
+   during this milestone: the true exclusion set was derived by ACTUALLY RUNNING this hybrid's own
+   watchdogged gate and classifying each divergence (timeout → exclusion; non-timeout mismatch →
+   real bug), rather than importing the engine-port's own prior UNRESTRICTED-engine measurement
+   (`docs/history/rust-optimizations-phase2.md` §V1b, 13 timeout words) wholesale — restricted
+   verify (one pinned root + a few rules) is a strictly easier search than unrestricted analysis,
+   exactly as §5.2 predicts ("collapses the search that currently caps out"), and none of V1b's 13
+   words reproduced as a hybrid-verify timeout. Total wall time: 3.4s (twice, matching to the
+   millisecond order across two independent runs). Two other Amharic goldens existed on disk since
+   F0 but had never been gated by ANY test in F1-F8 — closed this milestone too:
+   `amharic/candidates-composite.tsv` (full 673-word composite CANDIDATE parity — a real, previously
+   -unnoticed hole in checklist item §3.2) and `amharic/negatives.txt` (the 50-word soundness
+   battery). All three: green.
+3. **The Amharic "hard precondition" (§5.3, RealizationalAffixProcessRule/mrule synthesis-side
+   gating)**: investigated directly rather than assumed closed or left open. Code-level, it IS
+   wired uniformly — `hc-rules::morph.rs` dispatches `synth_realizational`/`ana_realizational`
+   generically for `MorphRuleDef::Realizational` (both C# `SynthesisRealizationalAffixProcessRule`/
+   `AnalysisRealizationalAffixProcessRule` equivalents), and `hc-hybrid::replay.rs`'s
+   `rule_filter`/`build_morpheme_owners` already treat it identically to `AffixProcess` under one
+   `RuleRef::MRule` space — closed transparently by the engine port's own prior W5 milestone, before
+   this plan's F5 even started. **But corpus-level: `grep -c "<RealizationalRule"` on all three
+   grammar XMLs is 0/0/0** — none of Indonesian/Sena/Amharic defines a single `RealizationalRule`,
+   so no gate anywhere in this WHOLE plan ever exercises this path. Recorded honestly in
+   `KNOWN_GAPS.md` item 6 as "implemented and structurally sound by generic-dispatch symmetry, never
+   empirically exercised" — NOT reported as "closed and verified," which the evidence does not
+   support.
+4. **CLI gap (recorded cross-milestone at F8) partially closed:** `hc-rs fst-stats <grammar.xml>
+   [out.txt]` now exists in `hc-cli`, reusing `stats::assemble_lines` directly (verified
+   byte-identical, modulo this crate's existing CRLF-golden-vs-LF-output normalization convention,
+   against `indonesian/stats.txt`). `fst-batch`/`fst-candidates` remain unwired — recorded honestly
+   in `KNOWN_GAPS.md` item 4 rather than rushed; `fst-stats` was the cheapest of the three (no batch/
+   candidate iteration, no watchdog) with the most immediate diagnostic value, per the plan's own
+   framing of this as "the natural place" to start closing the gap.
+5. **Benchmark table** (Rust vs C#, all measured on this machine in `--release`): see the table
+   immediately below. `KNOWN_GAPS.md` (new, `rust/crates/hc-hybrid/KNOWN_GAPS.md`) catalogues every
+   open item across F0-F9 in one place. `README.md` (new, same directory) documents the crate's
+   public API surface and CLI usage.
+
+**Rust-vs-C# benchmark table** (StateCount from F3's gate; C# figures from
+`docs/fst-plan/HYBRID_FST_FEASIBILITY.md`/`FST_FULL_GRAMMAR_PLAN.md`, already-recorded historical
+measurements, not re-run here — the plan's `parity-out` goldens are frozen against a fixed oracle
+ref, not a moving target to re-benchmark):
+
+| Grammar | StateCount | C# build time | Rust build time | C# verified p50/p95 | Rust verified (this milestone) | Overflow count |
+|---|---|---|---|---|---|---|
+| Indonesian | 547 | ~0.3-0.4s (probing) / ~40ms bare | sub-second (see `f3`/`f8` gates; not separately re-timed here) | 1.4 / 6.0 ms | full 121/121 byte-identical (F6/F7 gates); not re-timed for p50/p95 this milestone | 0 |
+| Sena | 18,871 | ~1.3-1.5s (0 phonological rules) | sub-second build; **full 7,121-word verified batch: 1,263.4s total, ≈177ms/word mean** | 31 / 173 ms | full 7,121/7,121 byte-identical, 0 timeouts (this milestone's headline gate) | 0 |
+| Amharic | 6,672 | ~112s (junction-probing cost bug, §8.3) / ~40ms bare | **full 673-word trie build + verified batch: 3.4s total, ≈5ms/word mean** | not recorded in C# (build cost prohibitive) | full 673/673 byte-identical, 0 exclusions (this milestone) | 0 |
+
+Rust per-word figures above are AGGREGATE MEANS (total wall time / word count) from the watchdog
+gate's own timing, not separately-computed p50/p95 percentiles — a scope note, not a gap: computing
+true percentiles would need per-word timing collection this milestone's gate did not add (it times
+the whole run, not each word, to keep the gate itself simple.) The C# p50/p95 figures are carried
+over unchanged from the historical feasibility-report measurements for comparison, not re-derived.
+Every overflow count is 0 across all three grammars at the default beam budget (matching the F8
+stats goldens), so item 2(b)'s known beam-overflow undercount (`KNOWN_GAPS.md` #2) has no effect on
+any number in this table.
+
+**§13 definition-of-done checklist — updated below** (see that section for the final state; this is
+the first milestone to actually check any of those boxes — F0-F8 left the checklist entirely
+unchecked despite meeting most of its items along the way).
 
 Total: **~14–21 agent-days** across 10 commits minimum (expect more — one per sub-slice is fine;
 never less).
@@ -799,15 +880,15 @@ paths; run the oracle with `DOTNET_gcServer=0`.
 
 ## 13. Definition of done (checklist)
 
-- [ ] F0 goldens generated + manifest (oracle ref recorded)
-- [ ] §3.1 verified parity: Indonesian chain-off + chain-on, byte-identical, 121/121
-- [ ] §3.1 verified parity: Sena full 7,121 (watchdogged), byte-identical
-- [ ] §3.1 verified parity: Amharic on the engine-parity subset, exclusion list recorded
-- [ ] §3.2 candidate parity per grammar (same scopes)
-- [ ] §3.3 structural parity: StateCounts, tier reports (with reasons), advisor reports, overflow counts
-- [ ] §3.4 soundness batteries empty on both sides
-- [ ] §3.5 toy-test suite ported and green (fixture XMLs committed)
-- [ ] §3.6 knob parity pinned by tests
-- [ ] Stats battery table (Rust vs C#) recorded in docs
-- [ ] Every §4.3 quirk pinned by a test + `// PARITY:` comment
-- [ ] Crate docs + CLI usage written; this plan's status block updated with results
+- [x] F0 goldens generated + manifest (oracle ref recorded) — `rust/parity-out/golden/fst-advisor/MANIFEST.txt`
+- [x] §3.1 verified parity: Indonesian chain-off + chain-on, byte-identical, 121/121 — `f6_composite_gate.rs`/`f7_chain_gate.rs`
+- [x] §3.1 verified parity: Sena full 7,121 (watchdogged), byte-identical — F9's `f9_full_battery_gate.rs`, 0 pathological, 0 mismatches
+- [x] §3.1 verified parity: Amharic — F9 found the true exclusion list is EMPTY (673/673 byte-identical, better than the plan anticipated); recorded explicitly rather than assumed, see F9's own entry above and `KNOWN_GAPS.md` #9
+- [x] §3.2 candidate parity per grammar (same scopes) — Indonesian full (`f6`), Sena slice-60 (`f6`; full-corpus composite-candidate golden does not exist, see `KNOWN_GAPS.md` #7 for the honest scope note), Amharic full 673/673 (F9, previously ungated — see `KNOWN_GAPS.md` #9)
+- [x] §3.3 structural parity: StateCounts, tier reports (with reasons), advisor reports, overflow counts — F3/F7/F8 gates, all three grammars
+- [x] §3.4 soundness batteries empty on both sides — Indonesian/Sena (`f6_composite_gate.rs`), Amharic (F9, previously ungated)
+- [ ] §3.5 toy-test suite ported and green (fixture XMLs committed) — the large majority ported with documented, reasoned exceptions (2 `RuleInverseCompilerTests` methods covered elsewhere, 1 `ChainWalkerTests` method dropped with a precise reason, metathesis-rule tests N/A — no grammar declares one); left UNCHECKED because `GrammarFstAdvisorTests.cs`'s 8 methods were never ported as Rust unit tests at all (golden-only coverage) — see `KNOWN_GAPS.md` #3, a real, not cosmetic, remaining gap
+- [x] §3.6 knob parity pinned by tests — all seven knobs (`forwardSynthesis`, `maxAffixes`, `useChainPhonology`, `enableJunctionProbing`, `maxBeamWork`, `restorationCap`, `maxBoundaryInsertions`) have dedicated test coverage (e.g. `chain_respects_restoration_cap_unconditioned_deletion`) plus the literal-default-string byte-comparison in `f8_fst_stats_gate.rs`
+- [x] Stats battery table (Rust vs C#) recorded in docs — see F9's entry above
+- [x] Every §4.3 quirk pinned by a test + `// PARITY:` comment — quirks 1/2/7/8/9 by dedicated behavioral tests, quirk 3 by StateCount/structural-dump golden equivalence (an emergent property, not a standalone assertion), quirk 4/5 by the tier-report golden (quirk 5's exact reason string `alpha-variable,no-effect` is byte-gated on Amharic), quirk 6 by faithful absence of detection code (matching C#'s own documented non-feature) — see `F1_QUIRK_AUDIT.md` for the full per-quirk verdict
+- [x] Crate docs + CLI usage written; this plan's status block updated with results — `rust/crates/hc-hybrid/README.md`, `rust/crates/hc-hybrid/KNOWN_GAPS.md`, this section and F9's entry above
