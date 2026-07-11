@@ -26,8 +26,7 @@ fn mrule_name(g: &Grammar, id: hc_grammar::model::MRuleId) -> String {
         MorphRuleDef::Realizational(d) => d.name.as_deref(),
         MorphRuleDef::Compounding(d) => d.name.as_deref(),
     };
-    name.map(str::to_string)
-        .unwrap_or_else(|| format!("mrule#{idx}"))
+    name.map(str::to_string).unwrap_or_else(|| format!("mrule#{idx}"))
 }
 
 fn prule_name(g: &Grammar, id: hc_grammar::model::PRuleId) -> String {
@@ -39,8 +38,7 @@ fn prule_name(g: &Grammar, id: hc_grammar::model::PRuleId) -> String {
         PhonRuleDef::Rewrite(d) => d.name.as_deref(),
         PhonRuleDef::Metathesis(d) => d.name.as_deref(),
     };
-    name.map(str::to_string)
-        .unwrap_or_else(|| format!("prule#{idx}"))
+    name.map(str::to_string).unwrap_or_else(|| format!("prule#{idx}"))
 }
 
 fn stratum_name(g: &Grammar, id: hc_grammar::model::StratumId) -> String {
@@ -83,13 +81,7 @@ pub fn render_text(g: &Grammar, sink: &TreeTraceSink, root: TraceHandle) -> Stri
     out
 }
 
-fn render_text_node(
-    g: &Grammar,
-    sink: &TreeTraceSink,
-    h: TraceHandle,
-    depth: usize,
-    out: &mut String,
-) {
+fn render_text_node(g: &Grammar, sink: &TreeTraceSink, h: TraceHandle, depth: usize, out: &mut String) {
     let n: TraceNode = sink.node(h);
     for _ in 0..depth {
         out.push_str("  ");
@@ -157,16 +149,10 @@ fn render_json_node(g: &Grammar, sink: &TreeTraceSink, h: TraceHandle, out: &mut
         out.push_str(&format!(",\"failureReason\":\"{reason:?}\""));
     }
     if let Some(w) = &n.output {
-        out.push_str(&format!(
-            ",\"outputShape\":\"{}\"",
-            json_escape(&render_word_shape(g, w))
-        ));
+        out.push_str(&format!(",\"outputShape\":\"{}\"", json_escape(&render_word_shape(g, w))));
     }
     if let Some(w) = &n.input {
-        out.push_str(&format!(
-            ",\"inputShape\":\"{}\"",
-            json_escape(&render_word_shape(g, w))
-        ));
+        out.push_str(&format!(",\"inputShape\":\"{}\"", json_escape(&render_word_shape(g, w))));
     }
     out.push_str(",\"children\":[");
     for (i, &c) in n.children.iter().enumerate() {
@@ -247,10 +233,7 @@ mod tests {
         let m = Morpher::new(&g, usize::MAX);
         let sink = TreeTraceSink::new();
         let outcome = m.parse_word_traced("sagd", &ParseOptions::default(), &sink);
-        assert!(
-            !outcome.analyses.is_empty(),
-            "sanity: \"sagd\" must still parse"
-        );
+        assert!(!outcome.analyses.is_empty(), "sanity: \"sagd\" must still parse");
 
         let root = sink.root().expect("analyze_word must mint a root");
         let rendered = render_text(&g, &sink, root);
@@ -295,10 +278,7 @@ mod tests {
                          \x20   Successful  shape=sagd\n\
                          \x20 MorphologicalRuleSynthesis \"ed_suffix\"  [NonPartialRuleProhibitedAfterFinalTemplate]  input=sag\n\
                          \x20 Failed  [PartialParse]  shape=sag\n";
-        assert_eq!(
-            rendered, expected,
-            "golden text-tree render changed:\n{rendered}"
-        );
+        assert_eq!(rendered, expected, "golden text-tree render changed:\n{rendered}");
     }
 
     #[test]

@@ -177,9 +177,7 @@ fn run_parse(args: &[String]) -> Result<(), String> {
     while let Some(a) = it.next() {
         match a.as_str() {
             "--trace" => trace_dest = Some(None),
-            s if s.starts_with("--trace=") => {
-                trace_dest = Some(Some(s["--trace=".len()..].to_string()))
-            }
+            s if s.starts_with("--trace=") => trace_dest = Some(Some(s["--trace=".len()..].to_string())),
             "--trace-format" => {
                 let v = it.next().ok_or("--trace-format requires a value")?;
                 trace_format = v.clone();
@@ -192,14 +190,10 @@ fn run_parse(args: &[String]) -> Result<(), String> {
         }
     }
     if trace_format != "text" && trace_format != "json" {
-        return Err(format!(
-            "invalid --trace-format: {trace_format} (expected text|json)"
-        ));
+        return Err(format!("invalid --trace-format: {trace_format} (expected text|json)"));
     }
     let [grammar_path, word] = positional[..] else {
-        return Err(
-            "usage: parse <grammar.xml> <word> [--trace[=<file>]] [--trace-format=text|json] [--gloss]".into(),
-        );
+        return Err("usage: parse <grammar.xml> <word> [--trace[=<file>]] [--trace-format=text|json] [--gloss]".into());
     };
 
     let xml = fs::read_to_string(grammar_path).map_err(|e| format!("read {grammar_path}: {e}"))?;
@@ -215,9 +209,7 @@ fn run_parse(args: &[String]) -> Result<(), String> {
         }
 
         let rendered = match sink.root() {
-            Some(root) if trace_format == "json" => {
-                trace_render::render_json(&grammar, &sink, root)
-            }
+            Some(root) if trace_format == "json" => trace_render::render_json(&grammar, &sink, root),
             Some(root) => trace_render::render_text(&grammar, &sink, root),
             None => String::new(), // no strata / invalid shape: nothing was ever traced
         };
@@ -257,9 +249,7 @@ fn run_batch(args: &[String]) -> Result<(), String> {
     let mut memo = true;
     // Default: number of logical CPUs (typical rayon default) — matches plan §7's "parallel by
     // default, override for the 1/2/4/8/16 benchmark sweep" M7 requirement.
-    let mut threads: usize = std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(1);
+    let mut threads: usize = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
     // 0-based resume index (C# `batch --start=N` equivalent, BatchCommand.cs): skip the first N
     // words (already-completed rows from a prior crashed/killed run) and append rather than
     // truncate `out.tsv`, so a watchdog wrapper can kill+relaunch a stalled word and continue
@@ -283,17 +273,11 @@ fn run_batch(args: &[String]) -> Result<(), String> {
             }
             "--word-timeout-ms" => {
                 let v = it.next().ok_or("--word-timeout-ms requires a value")?;
-                word_timeout_ms = Some(
-                    v.parse()
-                        .map_err(|_| format!("invalid --word-timeout-ms: {v}"))?,
-                );
+                word_timeout_ms = Some(v.parse().map_err(|_| format!("invalid --word-timeout-ms: {v}"))?);
             }
             s if s.starts_with("--word-timeout-ms=") => {
                 let v = &s["--word-timeout-ms=".len()..];
-                word_timeout_ms = Some(
-                    v.parse()
-                        .map_err(|_| format!("invalid --word-timeout-ms: {v}"))?,
-                );
+                word_timeout_ms = Some(v.parse().map_err(|_| format!("invalid --word-timeout-ms: {v}"))?);
             }
             "--memo" => {
                 let v = it.next().ok_or("--memo requires a value")?;
@@ -442,8 +426,7 @@ fn run_batch(args: &[String]) -> Result<(), String> {
                     dedup_ns as f64 / 1e6,
                 );
             }
-            writeln!(w, "{i}\t{word}\t{elapsed_ms}\t{status}\t{signature}")
-                .map_err(|e| e.to_string())?;
+            writeln!(w, "{i}\t{word}\t{elapsed_ms}\t{status}\t{signature}").map_err(|e| e.to_string())?;
             w.flush().map_err(|e| e.to_string())?; // per-line flush (AutoFlush), crash/monitor resumable
         }
     } else {
@@ -476,8 +459,7 @@ fn run_batch(args: &[String]) -> Result<(), String> {
                 }
                 ("ok", r.outcome.signature())
             };
-            writeln!(w, "{i}\t{word}\t{elapsed_ms}\t{status}\t{signature}")
-                .map_err(|e| e.to_string())?;
+            writeln!(w, "{i}\t{word}\t{elapsed_ms}\t{status}\t{signature}").map_err(|e| e.to_string())?;
         }
     }
     w.flush().map_err(|e| e.to_string())?;
@@ -505,9 +487,7 @@ fn run_batch(args: &[String]) -> Result<(), String> {
 /// needs a `WordAnalysis`, which isn't naturally hand-typable either).
 fn run_generate(args: &[String]) -> Result<(), String> {
     let [grammar_path, root_id, other_ids @ ..] = args else {
-        return Err(
-            "usage: generate <grammar.xml> <root-morpheme-id> [other-morpheme-id ...]".into(),
-        );
+        return Err("usage: generate <grammar.xml> <root-morpheme-id> [other-morpheme-id ...]".into());
     };
 
     let xml = fs::read_to_string(grammar_path).map_err(|e| format!("read {grammar_path}: {e}"))?;
@@ -622,8 +602,7 @@ mod tests {
     fn scratch_dir(tag: &str) -> std::path::PathBuf {
         static COUNTER: AtomicU32 = AtomicU32::new(0);
         let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let dir =
-            std::env::temp_dir().join(format!("hc-rs-cli-test-{tag}-{}-{n}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("hc-rs-cli-test-{tag}-{}-{n}", std::process::id()));
         fs::create_dir_all(&dir).expect("create scratch dir");
         dir
     }
@@ -666,9 +645,7 @@ mod tests {
         assert_eq!(fields.len(), 5, "idx/word/ms/status/signature: {fields:?}");
         assert_eq!(fields[0], "0");
         assert_eq!(fields[1], "kat");
-        fields[2]
-            .parse::<u128>()
-            .expect("ms column must be an integer");
+        fields[2].parse::<u128>().expect("ms column must be an integer");
         assert_eq!(fields[3], "TIMEOUT");
         assert_eq!(fields[4], "-");
     }
@@ -678,18 +655,12 @@ mod tests {
     #[test]
     fn word_timeout_ms_zero_writes_timeout_row_parallel() {
         let lines = run_batch_tsv("par-timeout", &["--word-timeout-ms", "0", "--threads", "2"]);
-        assert_eq!(
-            lines.len(),
-            1,
-            "no STARTED line in the parallel writer: {lines:?}"
-        );
+        assert_eq!(lines.len(), 1, "no STARTED line in the parallel writer: {lines:?}");
         let fields: Vec<&str> = lines[0].split('\t').collect();
         assert_eq!(fields.len(), 5);
         assert_eq!(fields[0], "0");
         assert_eq!(fields[1], "kat");
-        fields[2]
-            .parse::<u128>()
-            .expect("ms column must be an integer");
+        fields[2].parse::<u128>().expect("ms column must be an integer");
         assert_eq!(fields[3], "TIMEOUT");
         assert_eq!(fields[4], "-");
     }
@@ -705,10 +676,7 @@ mod tests {
             let fields: Vec<&str> = result_line.split('\t').collect();
             assert_eq!(fields.len(), 5, "threads={threads}: {fields:?}");
             assert_eq!(fields[3], "ok", "threads={threads}: {fields:?}");
-            assert_ne!(
-                fields[4], "-",
-                "threads={threads}: \"kat\" should analyze to a real signature"
-            );
+            assert_ne!(fields[4], "-", "threads={threads}: \"kat\" should analyze to a real signature");
         }
     }
 }

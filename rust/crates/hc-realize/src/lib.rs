@@ -102,7 +102,7 @@ pub fn gloss_bundle(grammar: &Grammar, wa: &WordAnalysis) -> GlossBundle {
 
 /// Render a [`GlossBundle`] as a Leipzig-style gloss string: each token's rendering, joined with
 /// `-` (`house-pl-poss.1s`). A token renders as, in priority order: its `gloss` if present; else,
-/// when it is the bundle's (guessed) root, `*{surface_word}*`; else `[?]` (an ungl​ossed real
+/// when it is the bundle's (guessed) root, `*{surface_word}*`; else `[?]` (an unglossed real
 /// morpheme, or a defensive out-of-range ordinal). An empty bundle renders as the empty string.
 ///
 /// "Guessed root" here means `token.is_root && bundle.guessed` — a real (non-guessed) root
