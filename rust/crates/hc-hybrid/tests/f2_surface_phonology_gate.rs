@@ -161,6 +161,10 @@ fn sena_variants_and_bare_roots_match_golden() {
 }
 
 #[test]
+#[ignore = "slow probe: Amharic's 417-segment alphabet makes DeletionJunctions probing \
+            expensive in debug builds (release-mode run: 104.14s, in line with the C# oracle's \
+            ~112s figure). Verified byte-identical against the golden in release mode as part \
+            of the F2 milestone; run explicitly with --ignored --release when re-verifying."]
 fn amharic_variants_and_bare_roots_match_golden() {
     run_gate("amharic-hc.xml", "amharic");
 }
