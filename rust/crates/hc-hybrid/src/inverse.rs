@@ -73,7 +73,12 @@ impl Arc {
 /// that quirk is specific to C#'s `ArcCollection`/`FstTemplateAnalyzer`'s morphotactic trie; C#'s
 /// own `InversePhonology.AddArc` (`InversePhonology.cs:72-79`) is a plain `List<Arc>.Add`, so this
 /// type mirrors that directly: plain append, arcs walked in insertion order.
-#[derive(Default)]
+/// `Clone` (F7, HYBRID_FST_RUST_PLAN.md §7.1 additive-contract-change convention, same as
+/// `hc-rules`'s `node_pins`/`node_full_lanes` going `pub`): callers that need to hold TWO compiled
+/// rules from the same `compiler::compile` call simultaneously in a chain array (e.g. a two-rule
+/// feeding-chain test) need an owned copy of each `Pinv`, not just a shared borrow of the
+/// `Vec<CompiledRuleInverse>` they came from. No existing caller's behavior changes.
+#[derive(Default, Clone)]
 pub struct InversePhonology {
     arcs: rustc_hash::FxHashMap<StateId, Vec<Arc>>,
     accepting: rustc_hash::FxHashSet<StateId>,
