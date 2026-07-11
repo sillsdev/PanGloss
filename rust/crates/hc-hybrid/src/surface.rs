@@ -300,6 +300,15 @@ fn render_feature_struct(g: &Grammar, lanes: &[u64]) -> String {
         let value = if names.len() == 1 {
             names[0].to_string()
         } else {
+            // PARITY: C# sorts a multi-symbol {a, b} value with the default (culture-aware)
+            // `OrderBy` comparer; this sorts ordinal. Also, a feature authored to its full symbol
+            // set (every possible value listed explicitly, as opposed to left unconstrained) still
+            // prints in C#'s _definite dict but is indistinguishable from "unconstrained" here,
+            // since lanes can't tell "all values, explicitly" from "no constraint" apart -- so
+            // Rust omits it where C# would print it. Both are latent, unexercised by any current
+            // golden (every DeletionJunctions hit today is single-symbol) -- if a future F6/F7/F8
+            // golden mismatch shows up in {...} member ordering or a missing bracketed feature,
+            // check here first. See docs/fst-plan review notes on F2 for the reasoning.
             names.sort_unstable();
             format!("{{{}}}", names.join(", "))
         };
