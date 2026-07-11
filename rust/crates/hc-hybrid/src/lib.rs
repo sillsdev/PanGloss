@@ -3,11 +3,13 @@
 //! the full port plan (this crate is its §7 module sketch) and `HYBRID_FST_FEASIBILITY.md` for the
 //! architecture this crate implements.
 //!
-//! This F1 milestone lands only the crate scaffold + [`token`] (the `MorphTokenCodec`/`MorphToken`
-//! port). Later milestones (F2-F9, see the plan's §8) add `surface`, `trie`, `walk`, `inverse`,
-//! `env_nfa`, `compiler`/`compiler_v1`, `proposers`, `composite`, `replay`, `probe`, `advisor`.
+//! F1-F5 have landed: crate scaffold + [`token`], [`surface`], [`trie`], [`walk`] (bare walker),
+//! and [`replay`] (verify: `FstReplay`/`VerifiedFstAnalyzer`). Later milestones (F6-F9, see the
+//! plan's §8) add `inverse`, `env_nfa`, `compiler`/`compiler_v1`, `proposers`, `composite`,
+//! `probe`, `advisor`.
 
 pub mod canon;
+pub mod replay;
 pub mod surface;
 pub mod token;
 pub mod trie;

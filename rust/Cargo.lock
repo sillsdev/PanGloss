@@ -127,6 +127,7 @@ dependencies = [
  "hc-parse",
  "hc-rules",
  "hc-shape",
+ "rayon",
  "rustc-hash",
  "unicode-normalization",
 ]
