@@ -26,9 +26,7 @@
 //! pass Indonesian/Sena (neither has one) and silently under-count Amharic's `affixExamined` (§5.3:
 //! Amharic has real realizational rules) — ported explicitly, not by accident of a wildcard match.
 
-use hc_grammar::model::{
-    Grammar, MorphRuleDef, OutputAction, PartRef, PatternNode, PhonRuleDef,
-};
+use hc_grammar::model::{Grammar, MorphRuleDef, OutputAction, PartRef, PatternNode, PhonRuleDef};
 
 /// C# `GrammarAdvisorySeverity` — same declared order (`Info` < `Cost` < `Escape`), so `derive(Ord)`
 /// gives the exact `Max`/`OrderByDescending` semantics C#'s int-backed enum comparisons rely on.
@@ -72,7 +70,9 @@ fn group_by_rule(advisories: &[Advisory]) -> Vec<Vec<&Advisory>> {
     use rustc_hash::FxHashMap as HashMap;
     let mut map: HashMap<(&str, &str, &str), Vec<&Advisory>> = HashMap::default();
     for a in advisories {
-        map.entry((a.rule.as_str(), a.stratum.as_str(), a.kind)).or_default().push(a);
+        map.entry((a.rule.as_str(), a.stratum.as_str(), a.kind))
+            .or_default()
+            .push(a);
     }
     map.into_values().collect()
 }
@@ -83,19 +83,32 @@ impl Report {
     }
 
     fn group_max_severity(group: &[&Advisory]) -> Severity {
-        group.iter().map(|a| a.severity).max().expect("non-empty group")
+        group
+            .iter()
+            .map(|a| a.severity)
+            .max()
+            .expect("non-empty group")
     }
 
     pub fn escape_count(&self) -> usize {
-        self.groups().iter().filter(|g| Self::group_max_severity(g) == Severity::Escape).count()
+        self.groups()
+            .iter()
+            .filter(|g| Self::group_max_severity(g) == Severity::Escape)
+            .count()
     }
 
     pub fn cost_count(&self) -> usize {
-        self.groups().iter().filter(|g| Self::group_max_severity(g) == Severity::Cost).count()
+        self.groups()
+            .iter()
+            .filter(|g| Self::group_max_severity(g) == Severity::Cost)
+            .count()
     }
 
     pub fn info_count(&self) -> usize {
-        self.groups().iter().filter(|g| Self::group_max_severity(g) == Severity::Info).count()
+        self.groups()
+            .iter()
+            .filter(|g| Self::group_max_severity(g) == Severity::Info)
+            .count()
     }
 
     /// C# `OpaqueEscapeCount` (`:132-134`): among escape-tier groups, how many have ANY advisory
@@ -104,7 +117,10 @@ impl Report {
         self.groups()
             .iter()
             .filter(|g| Self::group_max_severity(g) == Severity::Escape)
-            .filter(|g| g.iter().any(|a| a.severity == Severity::Escape && a.probeable == Some(false)))
+            .filter(|g| {
+                g.iter()
+                    .any(|a| a.severity == Severity::Escape && a.probeable == Some(false))
+            })
             .count()
     }
 
@@ -118,7 +134,10 @@ impl Report {
         self.groups()
             .iter()
             .filter(|g| Self::group_max_severity(g) == Severity::Escape)
-            .filter(|g| g.iter().any(|a| a.severity == Severity::Escape && a.regular != Some(true)))
+            .filter(|g| {
+                g.iter()
+                    .any(|a| a.severity == Severity::Escape && a.regular != Some(true))
+            })
             .count()
     }
 
@@ -155,7 +174,9 @@ impl Report {
         out.push('\n');
         out.push_str(&format!(
             "  examined {} affix, {} phonological, {} compounding rule(s)\n",
-            self.affix_rules_examined, self.phonological_rules_examined, self.compounding_rules_examined
+            self.affix_rules_examined,
+            self.phonological_rules_examined,
+            self.compounding_rules_examined
         ));
         out.push_str(&format!(
             "  {} escape(s) ({} probe-able, {} opaque), {} cost(s), {} info — {} rule advisories\n",
@@ -181,7 +202,11 @@ impl Report {
         // C# `OrderByDescending(a => a.Severity).ThenBy(a => a.Rule, StringComparer.Ordinal)` —
         // Rust `sort_by` is stable and `str`'s `Ord` is byte-wise ordinal-equivalent (same
         // convention `replay.rs`'s `join_sorted` doc already establishes).
-        sorted.sort_by(|a, b| b.severity.cmp(&a.severity).then_with(|| a.rule.cmp(&b.rule)));
+        sorted.sort_by(|a, b| {
+            b.severity
+                .cmp(&a.severity)
+                .then_with(|| a.rule.cmp(&b.rule))
+        });
 
         for a in sorted {
             let probe = match a.probeable {
@@ -265,8 +290,9 @@ pub fn analyze_with_threshold(g: &Grammar, many_allomorphs_threshold: usize) -> 
                         stratum: stratum_name.clone(),
                         kind: "compounding",
                         severity: Severity::Info,
-                        issue: "Compounding rule; bounded by MaxStemCount, so it stays finite-state."
-                            .to_string(),
+                        issue:
+                            "Compounding rule; bounded by MaxStemCount, so it stays finite-state."
+                                .to_string(),
                         advice: "Keep MaxStemCount as low as the language needs; unbounded \
                                  compounding is not finite-state."
                             .to_string(),
@@ -368,7 +394,11 @@ fn analyze_affix(
             });
         }
 
-        if allomorph.rhs.iter().any(|a| matches!(a, OutputAction::Modify(_, _))) {
+        if allomorph
+            .rhs
+            .iter()
+            .any(|a| matches!(a, OutputAction::Modify(_, _)))
+        {
             advisories.push(Advisory {
                 rule: rule_name.to_string(),
                 stratum: stratum.to_string(),
@@ -396,7 +426,8 @@ fn analyze_affix(
                 "{} allomorphs; each one multiplies the un-application branching during analysis.",
                 allomorphs.len()
             ),
-            advice: "Consolidate allomorphs via environment conditioning where the language allows \
+            advice:
+                "Consolidate allomorphs via environment conditioning where the language allows \
                      it."
                 .to_string(),
             probeable: None,
@@ -459,7 +490,9 @@ fn has_infixed_copy(rhs: &[OutputAction]) -> bool {
     if last == first {
         return false;
     }
-    rhs[first + 1..last].iter().any(|a| !matches!(a, OutputAction::Copy(_)))
+    rhs[first + 1..last]
+        .iter()
+        .any(|a| !matches!(a, OutputAction::Copy(_)))
 }
 
 /// C# `IsPartBounded` (`:589-595`): the copied part's own LHS pattern has no unbounded quantifier.
@@ -483,7 +516,9 @@ fn is_part_bounded(allomorph: &hc_grammar::model::AffixAllomorphDef, part: PartR
 /// walk, not a shallow top-level-only check.
 fn has_unbounded_quantifier(nodes: &[PatternNode]) -> bool {
     nodes.iter().any(|n| match n {
-        PatternNode::Quantifier { max, children, .. } => max.is_none() || has_unbounded_quantifier(children),
+        PatternNode::Quantifier { max, children, .. } => {
+            max.is_none() || has_unbounded_quantifier(children)
+        }
         _ => false,
     })
 }
@@ -528,14 +563,18 @@ fn analyze_phonological(prule: &PhonRuleDef, stratum: &str, advisories: &mut Vec
 }
 
 /// C# `GrammarFstAdvisor.AnalyzeRewrite` (`:508-582`).
-fn analyze_rewrite(rule: &hc_grammar::model::RewriteRuleDef, stratum: &str, advisories: &mut Vec<Advisory>) {
+fn analyze_rewrite(
+    rule: &hc_grammar::model::RewriteRuleDef,
+    stratum: &str,
+    advisories: &mut Vec<Advisory>,
+) {
     fn env_nodes(env: &Option<hc_grammar::model::Pattern>) -> &[PatternNode] {
         env.as_ref().map(|p| p.nodes.as_slice()).unwrap_or(&[])
     }
-    let unbounded_environment = rule
-        .subrules
-        .iter()
-        .any(|sr| has_unbounded_quantifier(env_nodes(&sr.left_env)) || has_unbounded_quantifier(env_nodes(&sr.right_env)));
+    let unbounded_environment = rule.subrules.iter().any(|sr| {
+        has_unbounded_quantifier(env_nodes(&sr.left_env))
+            || has_unbounded_quantifier(env_nodes(&sr.right_env))
+    });
 
     let rule_name = rule.name.clone().unwrap_or_default();
 
@@ -543,8 +582,11 @@ fn analyze_rewrite(rule: &hc_grammar::model::RewriteRuleDef, stratum: &str, advi
         // Kaplan & Kay (1994): a directional rewrite rule with regular components is a regular
         // relation regardless of environment length; regularity here hinges on whether the
         // rule's OWN Lhs/Rhs are bounded.
-        let rewrite_bounded =
-            !has_unbounded_quantifier(&rule.lhs.nodes) && rule.subrules.iter().all(|sr| !has_unbounded_quantifier(&sr.rhs.nodes));
+        let rewrite_bounded = !has_unbounded_quantifier(&rule.lhs.nodes)
+            && rule
+                .subrules
+                .iter()
+                .all(|sr| !has_unbounded_quantifier(&sr.rhs.nodes));
         let tail = if rewrite_bounded {
             " REGULAR (Kaplan & Kay 1994: a directional rewrite rule is a regular relation \
              however long its environment): the long-distance dependency (e.g. vowel harmony / \
@@ -587,7 +629,12 @@ fn analyze_rewrite(rule: &hc_grammar::model::RewriteRuleDef, stratum: &str, advi
 
     // Deletion: LHS longer than every subrule's RHS.
     let lhs_segments = count_constraints(&rule.lhs.nodes);
-    if lhs_segments > 0 && rule.subrules.iter().all(|sr| count_constraints(&sr.rhs.nodes) < lhs_segments) {
+    if lhs_segments > 0
+        && rule
+            .subrules
+            .iter()
+            .all(|sr| count_constraints(&sr.rhs.nodes) < lhs_segments)
+    {
         advisories.push(Advisory {
             rule: rule_name,
             stratum: stratum.to_string(),

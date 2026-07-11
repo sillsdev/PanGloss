@@ -111,12 +111,20 @@ impl std::fmt::Display for ProbeReport {
         )?;
         if !self.covers_all_constructs {
             write!(f, ", uncovered constructs: [{}]", {
-                let names: Vec<String> = self.uncovered_constructs.iter().map(|op| format!("{op:?}")).collect();
+                let names: Vec<String> = self
+                    .uncovered_constructs
+                    .iter()
+                    .map(|op| format!("{op:?}"))
+                    .collect();
                 names.join(",")
             })?;
         }
         if self.unsupported_phonology_rule_count > 0 {
-            write!(f, ", {} unsupported phonology rule(s)", self.unsupported_phonology_rule_count)?;
+            write!(
+                f,
+                ", {} unsupported phonology rule(s)",
+                self.unsupported_phonology_rule_count
+            )?;
         }
         if self.beam_overflows > 0 {
             write!(
@@ -156,8 +164,9 @@ pub fn for_language_with_options(
     let trie = Trie::build(g, &surface, &build_morpher, MAX_STATES, DERIV_DEPTH, true);
     let verify_morpher = Morpher::new(g, usize::MAX);
 
-    let mut composite = CompositeAnalyzer::new(g, &trie, &surface, DEFAULT_MAX_BEAM_WORK, forward_synthesis)
-        .with_composed_phonology(g);
+    let mut composite =
+        CompositeAnalyzer::new(g, &trie, &surface, DEFAULT_MAX_BEAM_WORK, forward_synthesis)
+            .with_composed_phonology(g);
     composite = if use_chain_phonology {
         composite.with_chain_phonology(g, &surface, &build_morpher, MAX_STATES, DERIV_DEPTH)
     } else {
@@ -198,7 +207,10 @@ pub fn for_language_with_options(
     let unsupported_phonology_rule_count = if use_chain_phonology {
         // C# `ChainPhonologyProposer.UnsupportedRuleCount` (`ChainPhonologyProposer.cs:70`):
         // count of `IdentitySkip`-tier compiled rules.
-        compiler::compile_default(g).iter().filter(|c| c.tier == RuleInverseTier::IdentitySkip).count()
+        compiler::compile_default(g)
+            .iter()
+            .filter(|c| c.tier == RuleInverseTier::IdentitySkip)
+            .count()
     } else {
         // C# `LockstepPhonologyProposer.UnsupportedRuleCount` (`LockstepPhonologyProposer.cs:35`):
         // the v1 compiler's own unsupported-subrule count.
@@ -231,8 +243,16 @@ pub fn compare_grammars(before: &Grammar, after: &Grammar, words: &[&str]) -> Co
     let before_report = for_language(before, words);
     let after_report = for_language(after, words);
 
-    let before_unparsed: HashSet<&str> = before_report.unparsed_words.iter().map(String::as_str).collect();
-    let after_unparsed: HashSet<&str> = after_report.unparsed_words.iter().map(String::as_str).collect();
+    let before_unparsed: HashSet<&str> = before_report
+        .unparsed_words
+        .iter()
+        .map(String::as_str)
+        .collect();
+    let after_unparsed: HashSet<&str> = after_report
+        .unparsed_words
+        .iter()
+        .map(String::as_str)
+        .collect();
 
     let mut gained: Vec<String> = before_unparsed
         .iter()
@@ -274,13 +294,17 @@ mod tests {
 
     use super::*;
 
-    const BASE: &str = include_str!("../tests/fixtures/fst-advisor-toys/FstCoverageProbeToyGrammar.xml");
-    const AFTER_SUFFIX: &str =
-        include_str!("../tests/fixtures/fst-advisor-toys/FstCoverageProbeToyGrammar.AfterSuffix.xml");
-    const AFTER_PHONOLOGY: &str =
-        include_str!("../tests/fixtures/fst-advisor-toys/FstCoverageProbeToyGrammar.AfterPhonology.xml");
-    const AFTER_REDUP: &str =
-        include_str!("../tests/fixtures/fst-advisor-toys/FstCoverageProbeToyGrammar.AfterRedup.xml");
+    const BASE: &str =
+        include_str!("../tests/fixtures/fst-advisor-toys/FstCoverageProbeToyGrammar.xml");
+    const AFTER_SUFFIX: &str = include_str!(
+        "../tests/fixtures/fst-advisor-toys/FstCoverageProbeToyGrammar.AfterSuffix.xml"
+    );
+    const AFTER_PHONOLOGY: &str = include_str!(
+        "../tests/fixtures/fst-advisor-toys/FstCoverageProbeToyGrammar.AfterPhonology.xml"
+    );
+    const AFTER_REDUP: &str = include_str!(
+        "../tests/fixtures/fst-advisor-toys/FstCoverageProbeToyGrammar.AfterRedup.xml"
+    );
 
     fn load(xml: &str) -> Grammar {
         hc_grammar::load(xml).unwrap_or_else(|e| panic!("failed to load toy grammar: {e}"))

@@ -26,7 +26,10 @@ fn sample_path(name: &str) -> Option<PathBuf> {
 
 fn golden_path(grammar: &str) -> Option<PathBuf> {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let path = manifest_dir.join("../../parity-out/golden/fst-advisor").join(grammar).join("stats.txt");
+    let path = manifest_dir
+        .join("../../parity-out/golden/fst-advisor")
+        .join(grammar)
+        .join("stats.txt");
     path.exists().then_some(path)
 }
 
@@ -72,11 +75,18 @@ fn run_gate(grammar_file: &str, golden_dir: &str) {
     let bare_lines = bare_root_lines(&g, &surface, &morpher);
 
     let golden_text = std::fs::read_to_string(&golden).expect("read golden");
-    let golden_variants = section_lines(&golden_text, "== Per-affix Variants / DeletionJunctions ==");
+    let golden_variants =
+        section_lines(&golden_text, "== Per-affix Variants / DeletionJunctions ==");
     let golden_bare_roots = section_lines(&golden_text, "== Bare-root surfaces ==");
 
-    assert_eq!(variant_lines, golden_variants, "{grammar_file}: Variants/DeletionJunctions dump mismatch");
-    assert_eq!(bare_lines, golden_bare_roots, "{grammar_file}: bare-root surfaces dump mismatch");
+    assert_eq!(
+        variant_lines, golden_variants,
+        "{grammar_file}: Variants/DeletionJunctions dump mismatch"
+    );
+    assert_eq!(
+        bare_lines, golden_bare_roots,
+        "{grammar_file}: bare-root surfaces dump mismatch"
+    );
 }
 
 #[test]

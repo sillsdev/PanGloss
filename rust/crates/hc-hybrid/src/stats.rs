@@ -89,7 +89,10 @@ pub fn per_affix_lines(g: &Grammar, surface: &SurfacePhonology) -> Vec<String> {
             .map(|j| format!("{}/{}", j.affix_surface, j.deleted_neighbor))
             .collect();
         junctions.sort();
-        lines.push(format!("{underlying}\tDeletionJunctions\t{}", join(&junctions)));
+        lines.push(format!(
+            "{underlying}\tDeletionJunctions\t{}",
+            join(&junctions)
+        ));
     }
     lines
 }
@@ -120,6 +123,8 @@ pub fn bare_root_lines(g: &Grammar, surface: &SurfacePhonology, morpher: &Morphe
 /// each preceded by its `== Header ==` line and followed by exactly one blank separator line,
 /// EXCEPT the last (bare-root surfaces), which simply ends the file (matching the golden's own
 /// EOF, confirmed via hexdump — see this module's doc).
+#[allow(clippy::vec_init_then_push)] // interleaved with computed values (state count, tier
+                                     // report/advisor lines) -- not expressible as one `vec![]`.
 pub fn assemble_lines(
     trie: &Trie,
     compiled: &[CompiledRuleInverse],

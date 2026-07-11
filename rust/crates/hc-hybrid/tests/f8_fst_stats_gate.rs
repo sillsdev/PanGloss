@@ -32,14 +32,19 @@ fn sample_path(name: &str) -> Option<PathBuf> {
 
 fn golden_path(grammar: &str) -> Option<PathBuf> {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let path = manifest_dir.join("../../parity-out/golden/fst-advisor").join(grammar).join("stats.txt");
+    let path = manifest_dir
+        .join("../../parity-out/golden/fst-advisor")
+        .join(grammar)
+        .join("stats.txt");
     path.exists().then_some(path)
 }
 
 /// Every line of the golden file, CRLF-normalized (same convention every other gate in this crate
 /// uses) — the unit for the full-file comparison.
 fn golden_lines(text: &str) -> Vec<String> {
-    text.lines().map(|l| l.trim_end_matches('\r').to_string()).collect()
+    text.lines()
+        .map(|l| l.trim_end_matches('\r').to_string())
+        .collect()
 }
 
 /// Extract the `== GrammarFstAdvisor report ==` section's OWN lines: unlike
@@ -88,7 +93,10 @@ fn run_advisor_gate(grammar_file: &str, golden_dir: &str) {
     let golden_text = std::fs::read_to_string(&golden).expect("read golden");
     let expected = advisor_section_lines(&golden_text);
 
-    assert_eq!(got, expected, "{grammar_file}: GrammarFstAdvisor report section mismatch");
+    assert_eq!(
+        got, expected,
+        "{grammar_file}: GrammarFstAdvisor report section mismatch"
+    );
 }
 
 #[test]
@@ -126,12 +134,23 @@ fn run_full_stats_gate(grammar_file: &str, golden_dir: &str) {
     let compiled = compiler::compile_default(&g);
     let advisor_report = advisor::analyze(&g);
 
-    let got = stats::assemble_lines(&trie, &compiled, &advisor_report, &g, &surface, &build_morpher);
+    let got = stats::assemble_lines(
+        &trie,
+        &compiled,
+        &advisor_report,
+        &g,
+        &surface,
+        &build_morpher,
+    );
 
     let golden_text = std::fs::read_to_string(&golden).expect("read golden");
     let expected = golden_lines(&golden_text);
 
-    assert_eq!(got.len(), expected.len(), "{grammar_file}: fst-stats line-count mismatch");
+    assert_eq!(
+        got.len(),
+        expected.len(),
+        "{grammar_file}: fst-stats line-count mismatch"
+    );
     for (i, (g, e)) in got.iter().zip(expected.iter()).enumerate() {
         assert_eq!(g, e, "{grammar_file}: fst-stats diverges at line {i}");
     }
