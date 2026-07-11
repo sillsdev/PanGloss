@@ -470,7 +470,8 @@ compiler). 5 new toy tests (redup/infix, hand-authored XML, not C#-`XmlLanguageW
 acceptable for now per the review, but revisit the export/round-trip step in F9 to close that loop
 per §9's stated convention) cover what F6 actually built.
 
-**F7 — the chain (3–4 d) — SCOPE EXPANDED 2026-07-11 to also cover what F6 deferred.** In addition
+**F7 — the chain (3–4 d) — DONE 2026-07-11, reviewed by an independent Fable pass (verdict: safe to
+merge, no correctness findings). SCOPE EXPANDED 2026-07-11 to also cover what F6 deferred.** In addition
 to its original scope below: build `compiler_v1.rs`/`LockstepPhonologyProposer` (bug-for-bug per
 quirks 1-2) and `ComposedPhonologyProposer`, port `PhonologyRuleCompilerTests`, and add a **new
 required gate**: a toy grammar with a genuine word-internal (non-junction-conditioned) single-segment
@@ -489,6 +490,23 @@ strings) on all three grammars; chain-on verified parity (Indonesian 121/121 byt
 chain-on golden); the I4 marquee cross-check reproduced (`--no-junctions --chain` over the F0
 `men-words.txt` byte-matches its golden — 46/46); `RuleInverseCompilerTests`/`ChainWalkerTests`/
 `ChainDeletionEpenthesisTests`/`BoundaryTape*` ported.
+
+**Actually shipped, all gates above met byte-identical, plus the new required gate (real C#
+`fst-candidates` dump showing Composed/Lockstep lines, byte-matched in Rust — not corpus-inert this
+time).** `compiler_v1.rs`/`LockstepPhonologyProposer` and `ComposedPhonologyProposer` are now real
+(not stubs); `RuleInverseCompilerTests` 7/9 ported (2 `[Explicit]` covered by `compiler.rs`'s own
+tier-report goldens instead); `ChainWalkerTests` 3/4 (the metathesis-recovery method dropped — the
+underlying-only trie already contains the target word via bare-root synthesis baking regardless of
+the chain, so no assertion would isolate the chain's own (non-)contribution; the module doc pins
+this precisely). **Two things this milestone did NOT resolve, still open:**
+1. **Metathesis rule compilation remains an unconditional `IdentitySkip` stub** in `compiler.rs`'s
+   `RuleInverseCompiler` — confirmed inert on Indonesian/Sena/Amharic and both new toy fixtures (none
+   declares a `<MetathesisRule>`), so no gate here is masking a real gap, but a future grammar with
+   one will get nothing from the chain for it.
+2. **`ForwardSynthesisProposer` has no real implementation and no owning milestone** — F6 deferred it
+   to F7, F7 did not build it (only the pre-existing opt-in `forward_synthesis` flag on
+   `CompositeAnalyzer` exists, still a no-op). Whichever milestone next touches synthesis-path parity
+   should claim this explicitly rather than let it drift forward silently again.
 
 **F8 — probe + advisor (1 d).** `probe.rs` (`ProbeReport` incl. `BeamOverflows`, tier report,
 uncovered constructs; `CompareGrammars`), `advisor.rs` (advisories + `Regular` axis + verdict +

@@ -1,0 +1,307 @@
+<?xml version="1.0" encoding="utf-8"?>
+<HermitCrabInput>
+  <Language>
+    <Name>RuleInverseCompilerToy</Name>
+    <!--
+      Port fixture for RuleInverseCompilerTests.cs (F7's "RuleInverseCompilerTests ported" gate).
+      C#'s original builds each rule IN CODE against a shared 24-segment HermitCrabTestBase.Table1;
+      this port authors one minimal XML grammar instead (established convention, see
+      F7LockstepComposedToyGrammar.xml's own header), with just enough segments/features/natural
+      classes for each rule below. No Strata lexicon/morphology is needed at all -- compiler.rs's
+      compile() only requires each rule to be wired to a Stratum's phonologicalRules list (DTD:
+      Stratum's MorphologicalRuleDefinitions/AffixTemplates/LexicalEntries are all optional), so
+      this fixture has none.
+
+      Lessons already paid for (F7LockstepComposedToyGrammar.xml) baked in from the start: no "--"
+      inside XML comments (illegal per the XML spec); no reliance on any DTD-declared attribute
+      default (this file has no DOCTYPE, so no default is ever applied by this hand-authored,
+      non-validating path).
+
+      One phonological feature system (cons, voc, nasal, poa) serves every rule below; poa
+      (place-of-articulation) is a 3-valued symbolic feature (bila/alve/velr) used only by the
+      alpha-variable assimilation rule.
+
+      Rule -> segments used:
+        t_to_d               (plain substitution, no env)         t, d
+        t_to_d_env            (left+right env)                     t, d, g
+        t_to_d_harmony         (quantified env span, C* d)          t, d, g
+        nasal_assim            (alpha-variable place assimilation)  m, n, q (bilabial/alveolar/"velar"
+                                                                     stand-in -- ASCII, not IPA), p
+        two_seg                (2-segment Lhs)                     t, g, d, b
+        t_to_d_rtl              (RightToLeft direction)              t, d (reuses t/d segments)
+        broad_swap              (MetathesisRule, deferred -- see
+                                 compiler.rs's compile_metathesis_stub doc)  any two of the above
+    -->
+    <PartsOfSpeech>
+      <PartOfSpeech id="posN"><Name>n</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <HeadFeatures />
+    <PhonologicalFeatureSystem>
+      <SymbolicFeature id="featCons">
+        <Name>cons</Name>
+        <Symbols><Symbol id="symConsP">+</Symbol><Symbol id="symConsM">-</Symbol></Symbols>
+      </SymbolicFeature>
+      <SymbolicFeature id="featVoc">
+        <Name>voc</Name>
+        <Symbols><Symbol id="symVocP">+</Symbol><Symbol id="symVocM">-</Symbol></Symbols>
+      </SymbolicFeature>
+      <SymbolicFeature id="featNasal">
+        <Name>nasal</Name>
+        <Symbols><Symbol id="symNasalP">+</Symbol><Symbol id="symNasalM">-</Symbol></Symbols>
+      </SymbolicFeature>
+      <SymbolicFeature id="featPoa">
+        <Name>poa</Name>
+        <Symbols>
+          <Symbol id="symPoaBila">bila</Symbol>
+          <Symbol id="symPoaAlve">alve</Symbol>
+          <Symbol id="symPoaVelr">velr</Symbol>
+        </Symbols>
+      </SymbolicFeature>
+      <!--
+        REQUIRED (found empirically, same lesson as F7LockstepComposedToyGrammar.xml's own "high"
+        feature): cons/voc/nasal/poa alone left t and d (also g/b, p unused) featurally IDENTICAL
+        except where poa already varies -- the compiler's own no-observable-change check then
+        reports "no-effect" and downgrades to IdentitySkip, since a probed t->d substitution
+        produces bit-identical lanes. "voice" gives every segment below a unique tuple.
+      -->
+      <SymbolicFeature id="featVoice">
+        <Name>voice</Name>
+        <Symbols><Symbol id="symVoiceP">+</Symbol><Symbol id="symVoiceM">-</Symbol></Symbols>
+      </SymbolicFeature>
+    </PhonologicalFeatureSystem>
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <!--
+          "p" is declared FIRST (mirrors RuleInverseCompilerTests.cs's own comment: "'p' is the
+          first bilabial (cons+,voc-) alphabet member defined in Table1"): compiler.rs's
+          `node_full_lanes` (see `hc-rules/src/rewrite.rs`'s own doc: "alpha-variable features are
+          treated as unpinned -- the flagged variable-binding gap") strips ANY feature carrying an
+          `<AlphaVariable>` overlay from the ENVIRONMENT representative's own lane computation --
+          so `ncBilabialTrigger`'s poa=bila pin is invisible at representative-pick time, and the
+          representative is instead the FIRST segment in TABLE order matching the class's
+          remaining (non-alpha) pins (cons+,voc-,nasal-). Table order must therefore put a bilabial
+          member first for the representative to bind poa=bila, exactly as C#'s own test relies on
+          its Table1's declaration order for the identical reason.
+        -->
+        <SegmentDefinition id="cP">
+          <Representations><Representation>p</Representation></Representations>
+          <FeatureValue feature="featCons" symbolValues="symConsP" />
+          <FeatureValue feature="featVoc" symbolValues="symVocM" />
+          <FeatureValue feature="featNasal" symbolValues="symNasalM" />
+          <FeatureValue feature="featPoa" symbolValues="symPoaBila" />
+          <FeatureValue feature="featVoice" symbolValues="symVoiceM" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cT">
+          <Representations><Representation>t</Representation></Representations>
+          <FeatureValue feature="featCons" symbolValues="symConsP" />
+          <FeatureValue feature="featVoc" symbolValues="symVocM" />
+          <FeatureValue feature="featNasal" symbolValues="symNasalM" />
+          <FeatureValue feature="featPoa" symbolValues="symPoaAlve" />
+          <FeatureValue feature="featVoice" symbolValues="symVoiceM" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cD">
+          <Representations><Representation>d</Representation></Representations>
+          <FeatureValue feature="featCons" symbolValues="symConsP" />
+          <FeatureValue feature="featVoc" symbolValues="symVocM" />
+          <FeatureValue feature="featNasal" symbolValues="symNasalM" />
+          <FeatureValue feature="featPoa" symbolValues="symPoaAlve" />
+          <FeatureValue feature="featVoice" symbolValues="symVoiceP" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cG">
+          <Representations><Representation>g</Representation></Representations>
+          <FeatureValue feature="featCons" symbolValues="symConsP" />
+          <FeatureValue feature="featVoc" symbolValues="symVocM" />
+          <FeatureValue feature="featNasal" symbolValues="symNasalM" />
+          <FeatureValue feature="featPoa" symbolValues="symPoaVelr" />
+          <FeatureValue feature="featVoice" symbolValues="symVoiceM" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cB">
+          <Representations><Representation>b</Representation></Representations>
+          <FeatureValue feature="featCons" symbolValues="symConsP" />
+          <FeatureValue feature="featVoc" symbolValues="symVocM" />
+          <FeatureValue feature="featNasal" symbolValues="symNasalM" />
+          <FeatureValue feature="featPoa" symbolValues="symPoaBila" />
+          <FeatureValue feature="featVoice" symbolValues="symVoiceP" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cM">
+          <Representations><Representation>m</Representation></Representations>
+          <FeatureValue feature="featCons" symbolValues="symConsP" />
+          <FeatureValue feature="featVoc" symbolValues="symVocM" />
+          <FeatureValue feature="featNasal" symbolValues="symNasalP" />
+          <FeatureValue feature="featPoa" symbolValues="symPoaBila" />
+          <FeatureValue feature="featVoice" symbolValues="symVoiceP" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cN">
+          <Representations><Representation>n</Representation></Representations>
+          <FeatureValue feature="featCons" symbolValues="symConsP" />
+          <FeatureValue feature="featVoc" symbolValues="symVocM" />
+          <FeatureValue feature="featNasal" symbolValues="symNasalP" />
+          <FeatureValue feature="featPoa" symbolValues="symPoaAlve" />
+          <FeatureValue feature="featVoice" symbolValues="symVoiceP" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cQ">
+          <Representations><Representation>q</Representation></Representations>
+          <FeatureValue feature="featCons" symbolValues="symConsP" />
+          <FeatureValue feature="featVoc" symbolValues="symVocM" />
+          <FeatureValue feature="featNasal" symbolValues="symNasalP" />
+          <FeatureValue feature="featPoa" symbolValues="symPoaVelr" />
+          <FeatureValue feature="featVoice" symbolValues="symVoiceP" />
+        </SegmentDefinition>
+      </SegmentDefinitions>
+      <BoundaryDefinitions>
+        <BoundaryDefinition id="cPlus"><Representations><Representation>+</Representation></Representations></BoundaryDefinition>
+      </BoundaryDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <SegmentNaturalClass id="ncT"><Name>T</Name><Segment segment="cT" /></SegmentNaturalClass>
+      <SegmentNaturalClass id="ncD"><Name>D</Name><Segment segment="cD" /></SegmentNaturalClass>
+      <SegmentNaturalClass id="ncG"><Name>G</Name><Segment segment="cG" /></SegmentNaturalClass>
+      <SegmentNaturalClass id="ncB"><Name>B</Name><Segment segment="cB" /></SegmentNaturalClass>
+      <SegmentNaturalClass id="ncAny">
+        <Name>Any</Name>
+        <Segment segment="cT" /><Segment segment="cD" /><Segment segment="cG" /><Segment segment="cB" />
+        <Segment segment="cP" /><Segment segment="cM" /><Segment segment="cN" /><Segment segment="cQ" />
+      </SegmentNaturalClass>
+      <!-- Placeless nasal class: cons+,voc-,nasal+ with NO poa pin -- matches m, n, and q alike. -->
+      <FeatureNaturalClass id="ncNasalCons">
+        <Name>NasalCons</Name>
+        <FeatureValue feature="featCons" symbolValues="symConsP" />
+        <FeatureValue feature="featVoc" symbolValues="symVocM" />
+        <FeatureValue feature="featNasal" symbolValues="symNasalP" />
+      </FeatureNaturalClass>
+      <!--
+        Non-nasal bilabial obstruents (b, p) -- pinning poa explicitly (not just "any consonant")
+        so the compiler's representative-probe for the RightEnvironment is GUARANTEED to bind the
+        alpha variable to poa=bila, regardless of which of the two matching segments it happens to
+        pick as its one representative (both share the same poa) -- deliberately narrower than "any
+        consonant" for exactly this reason (found empirically: an unpinned-poa environment class let
+        the compiler pick table-first "t" (poa=alve) as its representative instead of the intended
+        bilabial trigger).
+      -->
+      <FeatureNaturalClass id="ncBilabialTrigger">
+        <Name>BilabialTrigger</Name>
+        <FeatureValue feature="featCons" symbolValues="symConsP" />
+        <FeatureValue feature="featVoc" symbolValues="symVocM" />
+        <FeatureValue feature="featNasal" symbolValues="symNasalM" />
+        <FeatureValue feature="featPoa" symbolValues="symPoaBila" />
+      </FeatureNaturalClass>
+    </NaturalClasses>
+    <PhonologicalRuleDefinitions>
+      <PhonologicalRule id="prPlain">
+        <Name>t_to_d</Name>
+        <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncT" /></PhoneticSequence></PhoneticInput>
+        <PhonologicalSubrules>
+          <PhonologicalSubrule>
+            <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncD" /></PhoneticSequence></PhoneticOutput>
+          </PhonologicalSubrule>
+        </PhonologicalSubrules>
+      </PhonologicalRule>
+      <PhonologicalRule id="prEnv">
+        <Name>t_to_d_env</Name>
+        <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncT" /></PhoneticSequence></PhoneticInput>
+        <PhonologicalSubrules>
+          <PhonologicalSubrule>
+            <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncD" /></PhoneticSequence></PhoneticOutput>
+            <Environment>
+              <LeftEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncG" /></PhoneticSequence></PhoneticTemplate></LeftEnvironment>
+              <RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncD" /></PhoneticSequence></PhoneticTemplate></RightEnvironment>
+            </Environment>
+          </PhonologicalSubrule>
+        </PhonologicalSubrules>
+      </PhonologicalRule>
+      <PhonologicalRule id="prHarmony">
+        <Name>t_to_d_harmony</Name>
+        <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncT" /></PhoneticSequence></PhoneticInput>
+        <PhonologicalSubrules>
+          <PhonologicalSubrule>
+            <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncD" /></PhoneticSequence></PhoneticOutput>
+            <Environment>
+              <RightEnvironment>
+                <PhoneticTemplate>
+                  <PhoneticSequence>
+                    <OptionalSegmentSequence min="0" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence>
+                    <SimpleContext naturalClass="ncD" />
+                  </PhoneticSequence>
+                </PhoneticTemplate>
+              </RightEnvironment>
+            </Environment>
+          </PhonologicalSubrule>
+        </PhonologicalSubrules>
+      </PhonologicalRule>
+      <PhonologicalRule id="prNasalAssim">
+        <Name>nasal_assim</Name>
+        <VariableFeatures>
+          <VariableFeature id="va" name="a" phonologicalFeature="featPoa" />
+        </VariableFeatures>
+        <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncNasalCons" /></PhoneticSequence></PhoneticInput>
+        <PhonologicalSubrules>
+          <PhonologicalSubrule>
+            <PhoneticOutput>
+              <PhoneticSequence>
+                <SimpleContext naturalClass="ncNasalCons">
+                  <AlphaVariables><AlphaVariable variableFeature="va" polarity="plus" /></AlphaVariables>
+                </SimpleContext>
+              </PhoneticSequence>
+            </PhoneticOutput>
+            <Environment>
+              <RightEnvironment>
+                <PhoneticTemplate>
+                  <PhoneticSequence>
+                    <SimpleContext naturalClass="ncBilabialTrigger">
+                      <AlphaVariables><AlphaVariable variableFeature="va" polarity="plus" /></AlphaVariables>
+                    </SimpleContext>
+                  </PhoneticSequence>
+                </PhoneticTemplate>
+              </RightEnvironment>
+            </Environment>
+          </PhonologicalSubrule>
+        </PhonologicalSubrules>
+      </PhonologicalRule>
+      <PhonologicalRule id="prTwoSeg">
+        <Name>two_seg</Name>
+        <PhoneticInput>
+          <PhoneticSequence>
+            <SimpleContext naturalClass="ncT" />
+            <SimpleContext naturalClass="ncG" />
+          </PhoneticSequence>
+        </PhoneticInput>
+        <PhonologicalSubrules>
+          <PhonologicalSubrule>
+            <PhoneticOutput>
+              <PhoneticSequence>
+                <SimpleContext naturalClass="ncD" />
+                <SimpleContext naturalClass="ncB" />
+              </PhoneticSequence>
+            </PhoneticOutput>
+          </PhonologicalSubrule>
+        </PhonologicalSubrules>
+      </PhonologicalRule>
+      <PhonologicalRule id="prRtl" multipleApplicationOrder="rightToLeftIterative">
+        <Name>t_to_d_rtl</Name>
+        <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncT" /></PhoneticSequence></PhoneticInput>
+        <PhonologicalSubrules>
+          <PhonologicalSubrule>
+            <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncD" /></PhoneticSequence></PhoneticOutput>
+          </PhonologicalSubrule>
+        </PhonologicalSubrules>
+      </PhonologicalRule>
+      <MetathesisRule id="prSwap" leftSwitch="swR" rightSwitch="swL">
+        <Name>broad_swap</Name>
+        <StructuralDescription>
+          <PhoneticTemplate>
+            <PhoneticSequence>
+              <SimpleContext id="swL" naturalClass="ncAny" />
+              <SimpleContext id="swR" naturalClass="ncAny" />
+            </PhoneticSequence>
+          </PhoneticTemplate>
+        </StructuralDescription>
+      </MetathesisRule>
+    </PhonologicalRuleDefinitions>
+    <Strata>
+      <Stratum characterDefinitionTable="t1" phonologicalRules="prPlain prEnv prHarmony prNasalAssim prTwoSeg prRtl prSwap">
+        <Name>S</Name>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>

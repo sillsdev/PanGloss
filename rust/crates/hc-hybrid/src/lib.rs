@@ -9,7 +9,11 @@
 //! `probe`, `advisor`.
 
 pub mod canon;
+pub mod compiler;
+pub mod compiler_v1;
 pub mod composite;
+pub mod env_nfa;
+pub mod inverse;
 pub mod proposers;
 pub mod replay;
 pub mod surface;

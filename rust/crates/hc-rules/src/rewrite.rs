@@ -163,7 +163,12 @@ fn full_mask(g: &Grammar, f: usize) -> u64 {
 /// pinned iff the node constrains it to a proper subset of its symbols (an unconstrained lane is
 /// `full_mask`); alpha-variable features are treated as unpinned (unconstrained — the flagged
 /// variable-binding gap).
-fn node_pins(g: &Grammar, table: &CharDefTable, node: &PatternNode) -> Vec<(usize, u64)> {
+///
+/// `pub` (F7, HYBRID_FST_RUST_PLAN.md §7.1): exposed so `hc_hybrid::env_nfa`/`hc_hybrid::compiler`
+/// can build identity-arc/probe-representative lane rows for a pattern node without duplicating
+/// this natural-class/char-def lane resolution — a small, additive, reviewed contract change (no
+/// existing caller's behavior changes; the function body itself is unmodified).
+pub fn node_pins(g: &Grammar, table: &CharDefTable, node: &PatternNode) -> Vec<(usize, u64)> {
     let w = g.phon_features.len();
     match node {
         PatternNode::Context(sc) => {
@@ -192,7 +197,9 @@ fn node_pins(g: &Grammar, table: &CharDefTable, node: &PatternNode) -> Vec<(usiz
 
 /// Full `W`-lane vector for a pattern node, unconstrained lanes = `full_mask` (the driver's
 /// feature-math representation, distinct from the FST-facing `UNCONSTRAINED = u64::MAX`).
-fn node_full_lanes(g: &Grammar, table: &CharDefTable, node: &PatternNode) -> Vec<u64> {
+///
+/// `pub` (F7, HYBRID_FST_RUST_PLAN.md §7.1) — see [`node_pins`]'s doc for why.
+pub fn node_full_lanes(g: &Grammar, table: &CharDefTable, node: &PatternNode) -> Vec<u64> {
     let w = g.phon_features.len();
     let mut lanes: Vec<u64> = (0..w).map(|f| full_mask(g, f)).collect();
     for (f, bits) in node_pins(g, table, node) {

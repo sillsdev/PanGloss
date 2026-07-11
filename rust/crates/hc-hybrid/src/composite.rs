@@ -10,13 +10,18 @@
 //! as `[redup, infix, composed, phonology]` with `forwardSynthesis` (if enabled) `Insert(0, ...)`ed
 //! into THAT list — i.e. forwardSynthesis lands between FST and redup, exactly where the plan says):
 //! 1. `FstTemplateAnalyzer` (the bare walker, [`crate::walk::analyze_word`])
-//! 2. `ForwardSynthesisProposer` (opt-in via `forward_synthesis`; DEFERRED STUB — see `proposers.rs`'s
-//!    module doc for why)
+//! 2. `ForwardSynthesisProposer` (opt-in via `forward_synthesis`; DEFERRED STUB — no real
+//!    implementation exists yet, see `proposers.rs`'s module doc)
 //! 3. `ReduplicationProposer` ([`crate::proposers::ReduplicationProposer`], built for real)
 //! 4. `InfixProposer` ([`crate::proposers::InfixProposer`], built for real)
-//! 5. `ComposedPhonologyProposer` (DEFERRED STUB)
-//! 6. `LockstepPhonologyProposer` (v1, DEFAULT phonology path; DEFERRED STUB) — `ChainPhonologyProposer`
-//!    (the `useChainPhonology` opt-in) is F7's job and never constructed here at all.
+//! 5. `ComposedPhonologyProposer` (real as of F7; this analyzer's own default keeps the slot empty
+//!    unless [`CompositeAnalyzer::with_composed_phonology`] is called — see the field doc below)
+//! 6. `LockstepPhonologyProposer` (v1, real as of F7; DEFAULT phonology path) OR, when
+//!    `useChainPhonology` is on ([`CompositeAnalyzer::with_chain_phonology`], F7),
+//!    [`crate::proposers::ChainPhonologyProposer`] instead — the two are mutually exclusive at this
+//!    one order position, matching C#'s `CompositeProposer.ForLanguage` (`useChainPhonology ?
+//!    new ChainPhonologyProposer(...) : new LockstepPhonologyProposer(...)`, both landing at the
+//!    SAME slot in the `generators` list).
 //!
 //! ## Dedup (plan §4.2 / `CompositeProposer.AnalyzeWord`, `:111-125`)
 //! C# dedups by `Signature(candidate, ids)`, a PER-CALL `Dictionary<IMorpheme,int>` assigning
@@ -28,19 +33,23 @@
 //! representation simplification, not a behavior change — see `repl ay.rs`'s identical argument for
 //! why comparing raw ids suffices in place of C#'s object-identity dictionary.
 //!
-//! ## Corpus-empirical scope decision
-//! See `proposers.rs`'s module doc: `ComposedPhonologyProposer`/`LockstepPhonologyProposer`/
-//! `ForwardSynthesisProposer` are wired at their correct order position but always yield zero
-//! candidates (an oracle-verified-safe stub for the corpus-level gates; NOT a substitute for their
-//! real logic, which remains open work — see this crate's F6 commit message for the exact deferred
-//! scope).
+//! ## Corpus-empirical scope decision (F6, now partly superseded by F7)
+//! See `proposers.rs`'s module doc: F6 shipped `ComposedPhonologyProposer`/`LockstepPhonologyProposer`/
+//! `ForwardSynthesisProposer` as stubs wired at their correct order position, justified by
+//! corpus-inertness on Indonesian/Sena/Amharic. F7 replaced the first two with real logic (exercised
+//! by their own toy-grammar gates, not by corpus inertness); `ForwardSynthesisProposer` remains a
+//! stub — no struct exists for it yet — and this analyzer's own defaults still keep Composed/Lockstep
+//! at the empty stub unless a caller opts in (see the field docs below); this is a Rust-port-only
+//! default, not a match for C#'s own unconditional real-proposer construction.
 
 use rustc_hash::FxHashSet as HashSet;
 
 use hc_grammar::model::{Grammar, MorphemeId};
 use hc_parse::{Morpher, WordAnalysis as EngineAnalysis};
 
-use crate::proposers::{InfixProposer, ReduplicationProposer};
+use crate::proposers::{
+    ChainPhonologyProposer, ComposedPhonologyProposer, InfixProposer, LockstepPhonologyProposer, ReduplicationProposer,
+};
 use crate::replay::{self, MorphemeOwner};
 use crate::surface::SurfacePhonology;
 use crate::token::MorphOp;
@@ -72,6 +81,26 @@ pub struct CompositeAnalyzer<'g> {
     /// knob (not silently dropped) so the composite's public shape already matches the plan's §3.6
     /// "knob parity" requirement once the real proposer lands.
     forward_synthesis: bool,
+    /// Position 6 (F7): `None` is this constructor's OWN default, NOT a match for C#'s — C#'s
+    /// `CompositeProposer.ForLanguage` unconditionally builds a REAL `LockstepPhonologyProposer` or
+    /// `ChainPhonologyProposer` (whichever `useChainPhonology` selects); there is no stub path on the
+    /// C# side at all. `None` here keeps the Rust default at the empty STUB (oracle-verified-safe on
+    /// Indonesian/Sena/Amharic — F6's finding) purely as this port's own opt-in convenience. `Some(...)`
+    /// — via [`CompositeAnalyzer::with_chain_phonology`] or [`CompositeAnalyzer::with_lockstep_phonology`]
+    /// — swaps in the REAL proposer (mutually exclusive, matching C#'s `useChainPhonology` knob picking
+    /// exactly one of the two). Any caller wiring this analyzer end-to-end MUST call one of the
+    /// `with_*_phonology` builders to match C#'s behavior — `CompositeAnalyzer::new` alone does not.
+    phonology: Option<Phonology>,
+    /// Position 5 (F7): `None` (default) keeps it the `ComposedPhonologyProposer` STUB (empty,
+    /// same oracle-verified-safe finding); `Some` (via
+    /// [`CompositeAnalyzer::with_composed_phonology`]) swaps in the real proposer.
+    composed: Option<ComposedPhonologyProposer>,
+}
+
+/// Position 6's two mutually-exclusive REAL proposers (see [`CompositeAnalyzer::phonology`]'s doc).
+enum Phonology {
+    Chain(ChainPhonologyProposer),
+    Lockstep(LockstepPhonologyProposer),
 }
 
 impl<'g> CompositeAnalyzer<'g> {
@@ -92,7 +121,49 @@ impl<'g> CompositeAnalyzer<'g> {
             redup: ReduplicationProposer::new(g),
             infix: InfixProposer::new(g, surface),
             forward_synthesis,
+            phonology: None,
+            composed: None,
         }
+    }
+
+    /// Builder: enable `useChainPhonology` (F7) — builds [`ChainPhonologyProposer`]'s own
+    /// underlying-only trie (see that type's doc) and swaps it in for position 6, replacing the
+    /// `LockstepPhonologyProposer` stub. `surface`/`morpher` here are BUILD-time only (used once to
+    /// construct the chain proposer's own trie/compiled rule chain, then discarded — mirrors every
+    /// other build-time-only `Morpher` use in this crate, e.g. `Trie::build`'s own `morpher` param).
+    pub fn with_chain_phonology(
+        mut self,
+        g: &'g Grammar,
+        surface: &SurfacePhonology<'g>,
+        morpher: &Morpher,
+        max_states: usize,
+        deriv_depth: usize,
+    ) -> Self {
+        self.phonology = Some(Phonology::Chain(ChainPhonologyProposer::new(g, surface, morpher, max_states, deriv_depth, self.max_beam_work)));
+        self
+    }
+
+    /// Builder (F7 -- F6's deferred scope): enable the REAL `LockstepPhonologyProposer` (v1) at
+    /// position 6, replacing its stub. Mutually exclusive with [`Self::with_chain_phonology`] (the
+    /// LAST of the two called wins, matching "one of the two, not both" — C#'s own knob is a plain
+    /// boolean, never both proposers at once).
+    pub fn with_lockstep_phonology(
+        mut self,
+        g: &'g Grammar,
+        surface: &SurfacePhonology<'g>,
+        morpher: &Morpher,
+        max_states: usize,
+        deriv_depth: usize,
+    ) -> Self {
+        self.phonology = Some(Phonology::Lockstep(LockstepPhonologyProposer::new(g, surface, morpher, max_states, deriv_depth, self.max_beam_work)));
+        self
+    }
+
+    /// Builder (F7 -- F6's deferred scope): enable the REAL `ComposedPhonologyProposer` at
+    /// position 5, replacing its stub.
+    pub fn with_composed_phonology(mut self, g: &'g Grammar) -> Self {
+        self.composed = Some(ComposedPhonologyProposer::new(g));
+        self
     }
 
     /// C# `CompositeProposer.AnalyzeWord` (`:111-125`): the deduped, labeled candidate stream, in
@@ -144,10 +215,22 @@ impl<'g> CompositeAnalyzer<'g> {
             &mut out,
             &mut seen,
         );
-        // 5. ComposedPhonologyProposer (deferred stub).
-        extend("ComposedPhonologyProposer", Vec::new(), &mut out, &mut seen);
-        // 6. LockstepPhonologyProposer (v1 default phonology path; deferred stub).
-        extend("LockstepPhonologyProposer", Vec::new(), &mut out, &mut seen);
+        // 5. ComposedPhonologyProposer (F7 -- real when enabled via with_composed_phonology, else
+        //    the deferred stub).
+        match &self.composed {
+            Some(composed) => {
+                extend("ComposedPhonologyProposer", composed.analyze_word(self.g, self.trie, word, self.max_beam_work), &mut out, &mut seen)
+            }
+            None => extend("ComposedPhonologyProposer", Vec::new(), &mut out, &mut seen),
+        }
+        // 6. LockstepPhonologyProposer (v1 default; deferred stub unless enabled) OR
+        //    ChainPhonologyProposer (useChainPhonology opt-in, F7) -- mutually exclusive at this one
+        //    slot, see module doc.
+        match &self.phonology {
+            Some(Phonology::Chain(chain)) => extend("ChainPhonologyProposer", chain.analyze_word(self.g, word), &mut out, &mut seen),
+            Some(Phonology::Lockstep(lockstep)) => extend("LockstepPhonologyProposer", lockstep.analyze_word(self.g, word), &mut out, &mut seen),
+            None => extend("LockstepPhonologyProposer", Vec::new(), &mut out, &mut seen),
+        }
 
         out
     }

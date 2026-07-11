@@ -4,37 +4,31 @@
 //! `C:\Users\johnm\Documents\repos\machine\.worktrees\fst-oracle\src\SIL.Machine.Morphology.HermitCrab\`
 //! (the `fst-oracle` oracle branch).
 //!
-//! ## Scope decision (recorded, not silent — see this crate's F6 commit message)
-//! `ComposedPhonologyProposer`, `LockstepPhonologyProposer` (+ its `PhonologyRuleCompiler` v1 +
-//! `InversePhonology` substrate), and `ForwardSynthesisProposer` are wired into
-//! [`crate::composite::CompositeAnalyzer`] at their correct FIXED ORDER position (matching C#
-//! `CompositeProposer.ForLanguage`'s construction order exactly) but as DEFERRED STUBS that always
-//! yield zero candidates. This is empirically justified, not a guess: diffing this milestone's own
-//! frozen `candidates-composite.tsv` goldens against `candidates-bare.tsv` for ALL THREE grammars
-//! (Indonesian, Sena, Amharic) shows the ONLY tag ever added beyond `FstTemplateAnalyzer` is
-//! `ReduplicationProposer` — `InfixProposer`, `ComposedPhonologyProposer`, and
-//! `LockstepPhonologyProposer` contribute a genuinely NEW signature on ZERO corpus words across all
-//! three grammars, even though the C# oracle that generated those goldens ran the REAL
-//! `ComposedPhonologyProposer`/`LockstepPhonologyProposer` (chain-off default composite). That
-//! oracle fact is what makes the corpus-level headline gates (candidate parity, verified parity,
-//! negatives) stub-safe for those three proposers specifically — Infix turns out to be corpus-inert
-//! too (no infix rule in any of the three reference grammars), so it is built for REAL below (it is
-//! cheap and self-contained) even though the corpus gate does not exercise it; only Composed/
-//! Lockstep/ForwardSynthesis are deferred, because building them for real requires either a
-//! standalone phonology-cascade-over-a-shape helper (`ComposedPhonologyProposer` — feasible, but not
-//! on the critical path per an advisor review of this milestone) or an entirely new automaton
-//! subsystem (`PhonologyRuleCompiler`/`InversePhonology`/the lockstep walker — confirmed
-//! multi-day greenfield work, and the ONLY thing forcing it is `PhonologyRuleCompilerTests`, which
-//! drives `AnalyzeComposed` end-to-end rather than asserting static compiler output alone). Deferred
-//! precisely: `compiler_v1.rs`, `inverse.rs`, the lockstep proposer, `ComposedPhonologyProposer`'s
-//! real logic, `ForwardSynthesisProposer`'s real logic, and their toy tests
-//! (`PhonologyRuleCompilerTests`, `ComposedPhonology_CoversCrossBoundaryAlternation_...`,
-//! `Composite_WithPhonologyAndReduplication_ParallelMatchesSequential`'s Composed-specific half).
+//! ## Scope decision (F6 deferred, F7 resolved for two of the three — see this crate's F6 and F7
+//! ## commit messages)
+//! `ComposedPhonologyProposer` and `LockstepPhonologyProposer` (+ its `PhonologyRuleCompiler` v1 +
+//! `InversePhonology` substrate, `compiler_v1.rs`/`inverse.rs`) are now built for REAL below, wired
+//! into [`crate::composite::CompositeAnalyzer`] at their correct FIXED ORDER position (matching C#
+//! `CompositeProposer.ForLanguage`'s construction order exactly) — F6 shipped them as stubs that
+//! always yielded zero candidates; F7 replaced both stubs with real logic (`quirk1`/`quirk2` tests
+//! in `f7_phonology_rule_compiler_v1_gate.rs` pin their known-quirky behavior). `ForwardSynthesisProposer`
+//! remains a DEFERRED STUB — no struct exists for it yet, only the opt-in `forward_synthesis: bool`
+//! flag on [`crate::composite::CompositeAnalyzer`], which changes nothing observable until a real
+//! implementation lands.
+//!
+//! F6's original empirical scope-decision evidence (diffing `candidates-composite.tsv` against
+//! `candidates-bare.tsv` for Indonesian/Sena/Amharic showed only `ReduplicationProposer` ever added a
+//! new signature beyond `FstTemplateAnalyzer`, even though the C# oracle ran the REAL Composed/
+//! Lockstep proposers) is what made the corpus-level headline gates stub-safe THEN; it says nothing
+//! about F7's real implementations, which are exercised directly by their own toy-grammar gates
+//! (`f7_phonology_rule_compiler_v1_gate.rs`) rather than by corpus inertness.
 
 use hc_grammar::chardef::{CharDefId, CharDefTable};
 use hc_grammar::model::{Grammar, MRuleId, MorphRuleDef, MorphemeId, OutputAction};
 use hc_shape::{NodeKind, Shape};
 
+use crate::compiler::{self, RuleInverseTier};
+use crate::inverse::InversePhonology;
 use crate::surface::SurfacePhonology;
 use crate::token::{classify_affix, MorphOp};
 use crate::trie::{surface_table, Trie};
@@ -370,6 +364,199 @@ impl InfixProposer {
             }
         }
         out
+    }
+}
+
+/// `ChainPhonologyProposer` (F7, HYBRID_FST_RUST_PLAN.md §8): port of C# `ChainPhonologyProposer.cs`
+/// -- phonology coverage via the GENERAL rule-inverse chain (`compiler::compile_default`, I1/I3)
+/// walked by [`walk::analyze_chain`] (I2), the opt-in replacement candidate for the v1 lockstep
+/// compiler (`compiler_v1.rs`, still F7's other job).
+///
+/// Owns its OWN "underlying-only acceptor" trie (`Trie::build_ex` with `enable_variants: false`,
+/// `enable_junction_probing: false`), mirroring C#'s `_underlyingOnlyFst = new
+/// FstTemplateAnalyzer(language)` -- composing against the surface-precompiled trie the bare
+/// walker/composite share would apply phonology twice (LEVER_2.md's original finding); see
+/// `trie.rs`'s `Trie::build_ex` doc for the exact C# ctor evidence this mirrors.
+///
+/// **Chain order.** `compiler::compile_default` enumerates strata/rules in forward (synthesis)
+/// document order; `walk::analyze_chain` wants reverse-application order (index 0 = surface-facing,
+/// the inverse of the LAST rule HC applied). A single flat `.rev()` of the compiled list reaches
+/// that order (reversing a concatenation of per-stratum groups yields the reversed groups in
+/// reversed order, i.e. exactly "strata reversed, and within each stratum the rule list reversed") --
+/// the same argument C#'s own `ChainPhonologyProposer.cs` module doc makes for why
+/// `ComposedPhonologyProposer`'s already-correct `Strata.Reverse().SelectMany(s =>
+/// s.PhonologicalRules.Reverse())` order and this proposer's single flat `.Reverse()` land on the
+/// identical order.
+///
+/// **IdentitySkip rules dropped before reversal** -- a PERFORMANCE choice: an `IdentitySkip` rule's
+/// `Pinv` is identity-only by [`RuleInverseTier`]'s own contract, so stacking it into the chain would
+/// be harmless (every symbol passes its self-loops unchanged) but adds a pure extra walk-time level
+/// with zero coverage gain.
+pub struct ChainPhonologyProposer {
+    underlying_trie: Trie,
+    /// Reverse-application order, `IdentitySkip` entries already dropped. Empty means "no rule
+    /// contributed a non-identity branch" (a Sena-like no-phonology grammar) -- [`AnalyzeWord`]
+    /// mirrors C#'s own early-out for that case rather than paying the chain-walk setup cost for a
+    /// guaranteed-empty result.
+    ///
+    /// [`AnalyzeWord`]: ChainPhonologyProposer::analyze_word
+    chain: Vec<InversePhonology>,
+    max_beam_work: i64,
+    max_boundary_insertions: i32,
+}
+
+impl ChainPhonologyProposer {
+    pub fn new(g: &Grammar, surface: &SurfacePhonology, morpher: &hc_parse::Morpher, max_states: usize, deriv_depth: usize, max_beam_work: i64) -> Self {
+        let underlying_trie = Trie::build_ex(g, surface, morpher, max_states, deriv_depth, false, false);
+        let compiled = compiler::compile_default(g);
+        let chain: Vec<InversePhonology> = compiled
+            .into_iter()
+            .filter(|c| c.tier != RuleInverseTier::IdentitySkip)
+            .rev()
+            .map(|c| c.pinv)
+            .collect();
+        ChainPhonologyProposer { underlying_trie, chain, max_beam_work, max_boundary_insertions: walk::DEFAULT_MAX_BOUNDARY_INSERTIONS }
+    }
+
+    /// How many walk-chain rules (after dropping `IdentitySkip`) this proposer's chain stacks --
+    /// mirrors C#'s `ChainLength` (an I7 measurement-battery diagnostic).
+    pub fn chain_length(&self) -> usize {
+        self.chain.len()
+    }
+
+    pub fn analyze_word(&self, g: &Grammar, word: &str) -> Vec<WordAnalysis> {
+        if self.chain.is_empty() {
+            return Vec::new();
+        }
+        walk::analyze_chain(g, &self.underlying_trie, &self.chain, word, self.max_beam_work, self.max_boundary_insertions).analyses
+    }
+}
+
+/// `LockstepPhonologyProposer` (F7 -- F6's deferred scope): port of C#
+/// `LockstepPhonologyProposer.cs`. Phonology coverage via the v1 merged-single-automaton compiler
+/// (`compiler_v1::compile`), walked as a length-1 chain (C# `AnalyzeComposed` = `AnalyzeChain(word,
+/// new[] { pinv })`, ported directly as `walk::analyze_chain` over a one-element chain slice --
+/// there is exactly ONE product-walk implementation, not two drifting copies, matching C#'s own
+/// "thin wrapper" comment on `AnalyzeComposed`).
+///
+/// Owns its own underlying-only trie exactly like [`ChainPhonologyProposer`] (same LEVER_2.md
+/// reasoning: composing against the surface-precompiled trie would apply phonology twice).
+///
+/// **Quirk 1** (`F1_QUIRK_AUDIT.md`): [`has_non_identity_arcs`] inspects ONLY the arcs leaving the
+/// Pinv's START state (`pinv.arcs_from(pinv.start_state)`), never arcs reachable transitively after
+/// a non-empty left-environment chain -- ported by literally mirroring C#'s scan depth (one hop),
+/// not "any non-identity arc anywhere in the automaton". A rule whose every subrule branch begins
+/// with a left-environment identity arc is therefore invisible to this check and this whole
+/// proposer silently contributes nothing for it, with no diagnostic -- exactly C#'s documented bug.
+pub struct LockstepPhonologyProposer {
+    underlying_trie: Trie,
+    pinv: InversePhonology,
+    has_arcs: bool,
+    max_beam_work: i64,
+    max_boundary_insertions: i32,
+}
+
+impl LockstepPhonologyProposer {
+    pub fn new(g: &Grammar, surface: &SurfacePhonology, morpher: &hc_parse::Morpher, max_states: usize, deriv_depth: usize, max_beam_work: i64) -> Self {
+        let underlying_trie = Trie::build_ex(g, surface, morpher, max_states, deriv_depth, false, false);
+        let result = crate::compiler_v1::compile(g);
+        let has_arcs = has_non_identity_arcs(&result.pinv);
+        LockstepPhonologyProposer {
+            underlying_trie,
+            pinv: result.pinv,
+            has_arcs,
+            max_beam_work,
+            max_boundary_insertions: walk::DEFAULT_MAX_BOUNDARY_INSERTIONS,
+        }
+    }
+
+    /// C# `HasNonIdentityArcs` port (quirk 1) -- gates [`Self::analyze_word`]'s early return above,
+    /// and is asserted directly by `quirk1_lockstep_proposer_misses_left_environment_gated_rule_from_state_zero`
+    /// (`f7_phonology_rule_compiler_v1_gate.rs`).
+    pub fn has_arcs(&self) -> bool {
+        self.has_arcs
+    }
+
+    pub fn analyze_word(&self, g: &Grammar, word: &str) -> Vec<WordAnalysis> {
+        if !self.has_arcs {
+            return Vec::new();
+        }
+        let chain = std::slice::from_ref(&self.pinv);
+        walk::analyze_chain(g, &self.underlying_trie, chain, word, self.max_beam_work, self.max_boundary_insertions).analyses
+    }
+}
+
+/// C# `LockstepPhonologyProposer.HasNonIdentityArcs` (quirk 1, see the struct doc above).
+fn has_non_identity_arcs(pinv: &InversePhonology) -> bool {
+    pinv.arcs_from(pinv.start_state).iter().any(|arc| arc.is_epsilon_input() || arc.surface != arc.underlying)
+}
+
+/// `ComposedPhonologyProposer` (F7 -- F6's deferred scope): port of C# `ComposedPhonologyProposer.cs`.
+/// Un-applies the grammar's phonological rules directly against the ASSEMBLED surface (reusing
+/// each rule's own analysis-direction un-apply, [`hc_rules::rewrite::analyze`] -- exactly the
+/// rules `AnalysisStratumRule` runs: surface stratum first, rules reversed within a stratum), then
+/// walks the resulting under-specified shape through the SHARED main (junction-probed) trie via the
+/// BARE walker ([`walk::analyze_shape`]) -- literally phonology⁻¹ ∘ morphotactics. Unlike
+/// [`ChainPhonologyProposer`]/[`LockstepPhonologyProposer`], this proposer does NOT build its own
+/// trie: C#'s ctor takes the SAME `FstTemplateAnalyzer` the composite's bare-FST proposer already
+/// uses (`ComposedPhonologyProposer.cs`'s ctor signature), so this type borrows the caller's `Trie`
+/// per call instead of owning one.
+///
+/// Metathesis rules are skipped in the un-apply cascade (consistent with this crate's F7 metathesis
+/// scope decision, `compiler.rs`'s module doc) -- `has_phonology` still counts them toward "does
+/// this grammar have ANY phonological rule" (matching C#'s literal `rules.Count > 0`, computed over
+/// ALL `IPhonologicalRule`s regardless of kind), so the gate itself is bit-for-bit faithful even
+/// though the cascade silently no-ops a metathesis rule's own contribution; no reference grammar or
+/// the new toy grammar has one.
+pub struct ComposedPhonologyProposer {
+    has_phonology: bool,
+}
+
+impl ComposedPhonologyProposer {
+    pub fn new(g: &Grammar) -> Self {
+        let has_phonology = g.strata.iter().any(|s| !s.prules.is_empty());
+        ComposedPhonologyProposer { has_phonology }
+    }
+
+    pub fn analyze_word(&self, g: &Grammar, trie: &Trie, word: &str, max_beam_work: i64) -> Vec<WordAnalysis> {
+        if !self.has_phonology {
+            return Vec::new(); // no phonology => the bare FST proposer already covers everything
+        }
+        let (table, _w) = surface_table(g);
+        // `hc_grammar::segment::segment` returns a width-0 "bare" shape (segmentation gate only,
+        // per that module's own doc); `hc_rules::rewrite::analyze` matches on phonological feature
+        // lanes, so this needs the FEATURE-BEARING segmentation instead (found empirically: a
+        // width-0 shape panics deep inside `MutShape::to_shape`'s lane-width assert the first time
+        // any rule actually un-applies -- exactly the "go empirical immediately" lesson this
+        // codebase's own history repeats).
+        let Ok(shape) = hc_rules::shape_feat::segment_with_features(g, table, word) else {
+            return Vec::new();
+        };
+        // Un-apply phonology in place: strata in REVERSE order, and within each stratum the rules
+        // in REVERSE application order -- mirrors AnalysisLanguageRule/AnalysisStratumRule exactly.
+        let mut current = shape;
+        for stratum in g.strata.iter().rev() {
+            for &prule_id in stratum.prules.iter().rev() {
+                if let hc_grammar::model::PhonRuleDef::Rewrite(rule) = &g.prules[prule_id.0 as usize] {
+                    if let Some(out) = hc_rules::rewrite::analyze(g, rule, &current).into_iter().next() {
+                        current = out;
+                    }
+                }
+            }
+        }
+        // NOT `walk::word_segments` (which RE-DERIVES lanes from each node's char_def via a
+        // char-def-table lookup -- correct for a bare, width-0 surface segmentation, where the
+        // shape carries no real lanes of its own, but WRONG here: `current` is already
+        // feature-bearing, and a feature-change rule's un-apply may have reset a node's char_def to
+        // `NO_CHAR_DEF` (an abstract node -- its real identity lives ONLY in its own lanes now, per
+        // `hc_rules::rewrite`'s "char_def reset" convention). Read the shape's own lanes directly
+        // instead, matching `arc_matches_segment`'s NO_CHAR_DEF handling (walk.rs).
+        let segments: Vec<walk::InputSegment> = current
+            .interior()
+            .filter(|(_, kind, ..)| *kind == NodeKind::Segment)
+            .map(|(i, _, cd, _)| walk::InputSegment { char_def: cd, lanes: current.node_lanes(i).to_vec() })
+            .collect();
+        walk::analyze_shape(trie, &segments, table.unif_closure_rows(), max_beam_work).analyses
     }
 }
 

@@ -9,3 +9,7 @@ dotnet-harness/**/bin/
 *.tsv
 # ...but conformance fixtures' oracle-generated expectations are tests, not scratch — keep them tracked.
 !/conformance/**/expected.tsv
+# ...same reasoning for the F7 toy-grammar gate's real C# oracle dumps (fst-candidates/fst-batch,
+# chain-off and --chain): tiny, hand-verified, essential to the gate -- not the large corpus goldens
+# under /parity-out/ that get regenerated locally per rust-conversion.md §8.
+!/crates/hc-hybrid/tests/fixtures/fst-advisor-toys/*.tsv

@@ -221,7 +221,40 @@ impl Trie {
         deriv_depth: usize,
         enable_junction_probing: bool,
     ) -> Trie {
-        let mut b = TrieBuilder::new(g, max_states, deriv_depth, enable_junction_probing);
+        Trie::build_ex(g, surface, morpher, max_states, deriv_depth, enable_junction_probing, true)
+    }
+
+    /// [`Trie::build`] with an additional `enable_variants` knob (F7, HYBRID_FST_RUST_PLAN.md §8):
+    /// C#'s `LockstepPhonologyProposer`/`ChainPhonologyProposer` each build their own "underlying-only
+    /// acceptor" via `new FstTemplateAnalyzer(language)` -- a DIFFERENT, simpler constructor
+    /// (`FstTemplateAnalyzer.cs:150-164`) than the one every other caller uses, whose
+    /// `affixSurfaces` closure is `s => new[] { s }` (the identity function -- literally no surface
+    /// probing, not merely "probing suppressed"): `BuildAffixArcs`'s variant loop
+    /// (`variant == underlying` always true) therefore builds ONLY the underlying affix arc, no
+    /// assimilated-surface variant arcs at all. `enable_junction_probing` alone (`Trie::build`'s
+    /// existing knob) does NOT achieve this -- it only gates `DeletionJunctions` (confirmed by
+    /// reading `FstTemplateAnalyzer.cs:205-226`'s private ctor directly: the `enableJunctionProbing`
+    /// ternary picks only between `surfacePhonology.DeletionJunctions` and a no-op, while
+    /// `affixSurfaces` is unconditionally `surfacePhonology.Variants` on THAT ctor path) -- so the
+    /// chain/lockstep proposers' trie needs this SEPARATE, additional suppression.
+    /// `enable_variants = false` skips the `surface.variants(underlying)` loop entirely (equivalent
+    /// output to C#'s identity closure, since that loop already `continue`s on `variant == underlying`
+    /// -- not iterating it at all changes nothing observable, just skips calling into
+    /// [`SurfacePhonology`] for no reason). `bare_root_surfaces` is left on its existing
+    /// synthesis-aware path regardless (C#'s simple ctor's `root => new[] { UnderlyingForm(root) }`
+    /// vs. the full ctor's obligatoriness-aware `BareRootSurfaces` — a difference this port does not
+    /// yet distinguish; see this crate's F7 commit message for why this is scoped-safe on the three
+    /// reference grammars, verified by the chain-on gate rather than assumed).
+    pub fn build_ex<'g>(
+        g: &'g Grammar,
+        surface: &SurfacePhonology<'g>,
+        morpher: &Morpher<'g>,
+        max_states: usize,
+        deriv_depth: usize,
+        enable_junction_probing: bool,
+        enable_variants: bool,
+    ) -> Trie {
+        let mut b = TrieBuilder::new(g, max_states, deriv_depth, enable_junction_probing, enable_variants);
         b.run(surface, morpher);
         b.finish()
     }
@@ -300,6 +333,7 @@ struct TrieBuilder<'g> {
     max_states: usize,
     deriv_depth: usize,
     enable_junction_probing: bool,
+    enable_variants: bool,
     boundary_alphabet: Vec<Vec<u64>>,
 }
 
@@ -309,6 +343,7 @@ impl<'g> TrieBuilder<'g> {
         max_states: usize,
         deriv_depth: usize,
         enable_junction_probing: bool,
+        enable_variants: bool,
     ) -> Self {
         // C#'s single `_table` field: `language.SurfaceStratum.CharacterDefinitionTable` — the
         // LAST stratum's table, used for every segmentation this class does (roots, affixes,
@@ -338,6 +373,7 @@ impl<'g> TrieBuilder<'g> {
             max_states,
             deriv_depth,
             enable_junction_probing,
+            enable_variants,
             boundary_alphabet,
         };
         b.start = b.new_state();
@@ -660,16 +696,20 @@ impl<'g> TrieBuilder<'g> {
         let end = self.add_segments(token_state, &labels);
         self.add_epsilon(end, after);
 
-        for variant in surface.variants(underlying) {
-            if variant == underlying {
-                continue; // underlying path already built
+        // F7: `enable_variants = false` mirrors C#'s "underlying-only acceptor" ctor (see
+        // `Trie::build_ex`'s doc) -- skip probing entirely rather than probe-then-discard.
+        if self.enable_variants {
+            for variant in surface.variants(underlying) {
+                if variant == underlying {
+                    continue; // underlying path already built
+                }
+                let Ok(vshape) = hc_grammar::segment::segment(self.table, &variant) else {
+                    continue;
+                };
+                let vlabels = self.get_segments(&vshape);
+                let vend = self.add_segments(token_state, &vlabels);
+                self.add_epsilon(vend, after);
             }
-            let Ok(vshape) = hc_grammar::segment::segment(self.table, &variant) else {
-                continue;
-            };
-            let vlabels = self.get_segments(&vshape);
-            let vend = self.add_segments(token_state, &vlabels);
-            self.add_epsilon(vend, after);
         }
     }
 
