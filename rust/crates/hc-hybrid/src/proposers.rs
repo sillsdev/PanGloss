@@ -4,32 +4,24 @@
 //! `C:\Users\johnm\Documents\repos\machine\.worktrees\fst-oracle\src\SIL.Machine.Morphology.HermitCrab\`
 //! (the `fst-oracle` oracle branch).
 //!
-//! ## Scope decision (recorded, not silent — see this crate's F6 commit message)
-//! `ComposedPhonologyProposer`, `LockstepPhonologyProposer` (+ its `PhonologyRuleCompiler` v1 +
-//! `InversePhonology` substrate), and `ForwardSynthesisProposer` are wired into
-//! [`crate::composite::CompositeAnalyzer`] at their correct FIXED ORDER position (matching C#
-//! `CompositeProposer.ForLanguage`'s construction order exactly) but as DEFERRED STUBS that always
-//! yield zero candidates. This is empirically justified, not a guess: diffing this milestone's own
-//! frozen `candidates-composite.tsv` goldens against `candidates-bare.tsv` for ALL THREE grammars
-//! (Indonesian, Sena, Amharic) shows the ONLY tag ever added beyond `FstTemplateAnalyzer` is
-//! `ReduplicationProposer` — `InfixProposer`, `ComposedPhonologyProposer`, and
-//! `LockstepPhonologyProposer` contribute a genuinely NEW signature on ZERO corpus words across all
-//! three grammars, even though the C# oracle that generated those goldens ran the REAL
-//! `ComposedPhonologyProposer`/`LockstepPhonologyProposer` (chain-off default composite). That
-//! oracle fact is what makes the corpus-level headline gates (candidate parity, verified parity,
-//! negatives) stub-safe for those three proposers specifically — Infix turns out to be corpus-inert
-//! too (no infix rule in any of the three reference grammars), so it is built for REAL below (it is
-//! cheap and self-contained) even though the corpus gate does not exercise it; only Composed/
-//! Lockstep/ForwardSynthesis are deferred, because building them for real requires either a
-//! standalone phonology-cascade-over-a-shape helper (`ComposedPhonologyProposer` — feasible, but not
-//! on the critical path per an advisor review of this milestone) or an entirely new automaton
-//! subsystem (`PhonologyRuleCompiler`/`InversePhonology`/the lockstep walker — confirmed
-//! multi-day greenfield work, and the ONLY thing forcing it is `PhonologyRuleCompilerTests`, which
-//! drives `AnalyzeComposed` end-to-end rather than asserting static compiler output alone). Deferred
-//! precisely: `compiler_v1.rs`, `inverse.rs`, the lockstep proposer, `ComposedPhonologyProposer`'s
-//! real logic, `ForwardSynthesisProposer`'s real logic, and their toy tests
-//! (`PhonologyRuleCompilerTests`, `ComposedPhonology_CoversCrossBoundaryAlternation_...`,
-//! `Composite_WithPhonologyAndReduplication_ParallelMatchesSequential`'s Composed-specific half).
+//! ## Scope decision (F6 deferred, F7 resolved for two of the three — see this crate's F6 and F7
+//! ## commit messages)
+//! `ComposedPhonologyProposer` and `LockstepPhonologyProposer` (+ its `PhonologyRuleCompiler` v1 +
+//! `InversePhonology` substrate, `compiler_v1.rs`/`inverse.rs`) are now built for REAL below, wired
+//! into [`crate::composite::CompositeAnalyzer`] at their correct FIXED ORDER position (matching C#
+//! `CompositeProposer.ForLanguage`'s construction order exactly) — F6 shipped them as stubs that
+//! always yielded zero candidates; F7 replaced both stubs with real logic (`quirk1`/`quirk2` tests
+//! in `f7_phonology_rule_compiler_v1_gate.rs` pin their known-quirky behavior). `ForwardSynthesisProposer`
+//! remains a DEFERRED STUB — no struct exists for it yet, only the opt-in `forward_synthesis: bool`
+//! flag on [`crate::composite::CompositeAnalyzer`], which changes nothing observable until a real
+//! implementation lands.
+//!
+//! F6's original empirical scope-decision evidence (diffing `candidates-composite.tsv` against
+//! `candidates-bare.tsv` for Indonesian/Sena/Amharic showed only `ReduplicationProposer` ever added a
+//! new signature beyond `FstTemplateAnalyzer`, even though the C# oracle ran the REAL Composed/
+//! Lockstep proposers) is what made the corpus-level headline gates stub-safe THEN; it says nothing
+//! about F7's real implementations, which are exercised directly by their own toy-grammar gates
+//! (`f7_phonology_rule_compiler_v1_gate.rs`) rather than by corpus inertness.
 
 use hc_grammar::chardef::{CharDefId, CharDefTable};
 use hc_grammar::model::{Grammar, MRuleId, MorphRuleDef, MorphemeId, OutputAction};
@@ -478,8 +470,9 @@ impl LockstepPhonologyProposer {
         }
     }
 
-    /// C# `UnsupportedRuleCount` passthrough diagnostic -- not consulted by any gate in this
-    /// milestone, kept for parity with the C# public surface.
+    /// C# `HasNonIdentityArcs` port (quirk 1) -- gates [`Self::analyze_word`]'s early return above,
+    /// and is asserted directly by `quirk1_lockstep_proposer_misses_left_environment_gated_rule_from_state_zero`
+    /// (`f7_phonology_rule_compiler_v1_gate.rs`).
     pub fn has_arcs(&self) -> bool {
         self.has_arcs
     }

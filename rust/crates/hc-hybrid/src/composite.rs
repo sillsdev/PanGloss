@@ -10,12 +10,13 @@
 //! as `[redup, infix, composed, phonology]` with `forwardSynthesis` (if enabled) `Insert(0, ...)`ed
 //! into THAT list — i.e. forwardSynthesis lands between FST and redup, exactly where the plan says):
 //! 1. `FstTemplateAnalyzer` (the bare walker, [`crate::walk::analyze_word`])
-//! 2. `ForwardSynthesisProposer` (opt-in via `forward_synthesis`; DEFERRED STUB — see `proposers.rs`'s
-//!    module doc for why)
+//! 2. `ForwardSynthesisProposer` (opt-in via `forward_synthesis`; DEFERRED STUB — no real
+//!    implementation exists yet, see `proposers.rs`'s module doc)
 //! 3. `ReduplicationProposer` ([`crate::proposers::ReduplicationProposer`], built for real)
 //! 4. `InfixProposer` ([`crate::proposers::InfixProposer`], built for real)
-//! 5. `ComposedPhonologyProposer` (DEFERRED STUB)
-//! 6. `LockstepPhonologyProposer` (v1, DEFAULT phonology path; DEFERRED STUB) OR, when
+//! 5. `ComposedPhonologyProposer` (real as of F7; this analyzer's own default keeps the slot empty
+//!    unless [`CompositeAnalyzer::with_composed_phonology`] is called — see the field doc below)
+//! 6. `LockstepPhonologyProposer` (v1, real as of F7; DEFAULT phonology path) OR, when
 //!    `useChainPhonology` is on ([`CompositeAnalyzer::with_chain_phonology`], F7),
 //!    [`crate::proposers::ChainPhonologyProposer`] instead — the two are mutually exclusive at this
 //!    one order position, matching C#'s `CompositeProposer.ForLanguage` (`useChainPhonology ?
@@ -32,12 +33,14 @@
 //! representation simplification, not a behavior change — see `repl ay.rs`'s identical argument for
 //! why comparing raw ids suffices in place of C#'s object-identity dictionary.
 //!
-//! ## Corpus-empirical scope decision
-//! See `proposers.rs`'s module doc: `ComposedPhonologyProposer`/`LockstepPhonologyProposer`/
-//! `ForwardSynthesisProposer` are wired at their correct order position but always yield zero
-//! candidates (an oracle-verified-safe stub for the corpus-level gates; NOT a substitute for their
-//! real logic, which remains open work — see this crate's F6 commit message for the exact deferred
-//! scope).
+//! ## Corpus-empirical scope decision (F6, now partly superseded by F7)
+//! See `proposers.rs`'s module doc: F6 shipped `ComposedPhonologyProposer`/`LockstepPhonologyProposer`/
+//! `ForwardSynthesisProposer` as stubs wired at their correct order position, justified by
+//! corpus-inertness on Indonesian/Sena/Amharic. F7 replaced the first two with real logic (exercised
+//! by their own toy-grammar gates, not by corpus inertness); `ForwardSynthesisProposer` remains a
+//! stub — no struct exists for it yet — and this analyzer's own defaults still keep Composed/Lockstep
+//! at the empty stub unless a caller opts in (see the field docs below); this is a Rust-port-only
+//! default, not a match for C#'s own unconditional real-proposer construction.
 
 use rustc_hash::FxHashSet as HashSet;
 
@@ -78,11 +81,15 @@ pub struct CompositeAnalyzer<'g> {
     /// knob (not silently dropped) so the composite's public shape already matches the plan's §3.6
     /// "knob parity" requirement once the real proposer lands.
     forward_synthesis: bool,
-    /// Position 6 (F7): `None` (default, matching C#'s own default composite) keeps it the
-    /// `LockstepPhonologyProposer` STUB (empty, oracle-verified-safe on all 3 reference grammars —
-    /// F6's finding). `Some(...)` — via [`CompositeAnalyzer::with_chain_phonology`] or
-    /// [`CompositeAnalyzer::with_lockstep_phonology`] — swaps in the REAL proposer instead
-    /// (mutually exclusive, matching C#'s `useChainPhonology` knob picking exactly one of the two).
+    /// Position 6 (F7): `None` is this constructor's OWN default, NOT a match for C#'s — C#'s
+    /// `CompositeProposer.ForLanguage` unconditionally builds a REAL `LockstepPhonologyProposer` or
+    /// `ChainPhonologyProposer` (whichever `useChainPhonology` selects); there is no stub path on the
+    /// C# side at all. `None` here keeps the Rust default at the empty STUB (oracle-verified-safe on
+    /// Indonesian/Sena/Amharic — F6's finding) purely as this port's own opt-in convenience. `Some(...)`
+    /// — via [`CompositeAnalyzer::with_chain_phonology`] or [`CompositeAnalyzer::with_lockstep_phonology`]
+    /// — swaps in the REAL proposer (mutually exclusive, matching C#'s `useChainPhonology` knob picking
+    /// exactly one of the two). Any caller wiring this analyzer end-to-end MUST call one of the
+    /// `with_*_phonology` builders to match C#'s behavior — `CompositeAnalyzer::new` alone does not.
     phonology: Option<Phonology>,
     /// Position 5 (F7): `None` (default) keeps it the `ComposedPhonologyProposer` STUB (empty,
     /// same oracle-verified-safe finding); `Some` (via

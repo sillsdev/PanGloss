@@ -10,8 +10,11 @@
       metathesized word yet. This fixture (bare root "aaskaa", MetathesisRule "s k" -> "k s") exists
       only to confirm that documented reality directly: the real engine (which DOES support
       metathesis synthesis/analysis, unlike the hybrid FST's compiler) parses "aaksaa", but
-      compiler.rs's compiled Pinv for this rule is the identity-only stub, so the chain built from
-      it alone does NOT recover "aaksaa" -- exactly the gap, not a false pass.
+      compiler.rs's compiled Pinv for this rule is the identity-only stub. The Rust test does NOT
+      assert whether the chain recovers "aaksaa" or not: this word's underlying-only trie already
+      contains it via bare-root synthesis baking (a separate, documented Trie::build_ex gap), so a
+      positive result would be a trie artifact rather than evidence of chain recovery -- exactly the
+      gap, reported honestly rather than asserted either way.
     -->
     <PartsOfSpeech>
       <PartOfSpeech id="posN"><Name>n</Name></PartOfSpeech>

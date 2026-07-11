@@ -13,8 +13,11 @@
 //! `Chain_RecoversMetathesis_WordInternalConsonantSwap` is a DEFERRED gap, not a full port (see
 //! `compiler.rs`'s `compile_metathesis_stub` doc, and `f7_rule_inverse_compiler_gate.rs`'s own
 //! metathesis test for the first instance of this same documented deferral): asserts what actually
-//! happens (real engine parses the metathesized word; the compiled Pinv is the identity-only stub;
-//! the chain built from it does NOT recover the word), not C#'s full recovery expectation.
+//! happens (real engine parses the metathesized word; the compiled Pinv is the identity-only stub)
+//! and stops there -- it does NOT assert the chain-recovery outcome either way, because this word's
+//! underlying-only trie already contains it via bare-root synthesis baking (`Trie::build_ex`'s own
+//! documented gap), so a positive result here would be a trie artifact, not evidence the chain
+//! itself recovered anything. C#'s full recovery expectation is not re-asserted.
 //!
 //! C#'s own "HONESTY NOTE" convention (today's real composite already covers these words via
 //! `ComposedPhonologyProposer`/bare-root synthesis, independent of the chain) is not re-asserted

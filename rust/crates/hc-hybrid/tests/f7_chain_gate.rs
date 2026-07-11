@@ -3,7 +3,9 @@
 //! --chain` over `men-words.txt` byte-matches its golden -- 46/46)."
 //!
 //! `--chain` alone means the FULL composite (`FstTemplateAnalyzer` + `ReduplicationProposer` +
-//! `InfixProposer` + `ComposedPhonologyProposer` (stub) + `ChainPhonologyProposer` instead of
+//! `InfixProposer` + `ComposedPhonologyProposer` (real as of F7, but left at this analyzer's own
+//! empty-stub default in this gate's composite construction -- see `composite.rs`'s field docs) +
+//! `ChainPhonologyProposer` instead of
 //! `LockstepPhonologyProposer`) -- NOT the bare walker alone (that's `--bare`'s separate meaning,
 //! per `HYBRID_FST_RUST_PLAN.md` §6.1). `--no-junctions` additionally disables junction probing on
 //! the MAIN (shared bare-FST/Redup/Infix) trie ONLY -- `ChainPhonologyProposer`'s own
