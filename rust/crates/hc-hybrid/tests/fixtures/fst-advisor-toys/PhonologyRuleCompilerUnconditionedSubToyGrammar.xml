@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="utf-8"?>
+<HermitCrabInput>
+  <Language>
+    <Name>PhonologyRuleCompilerUnconditionedSubToy</Name>
+    <!--
+      Port fixture for PhonologyRuleCompilerTests.cs's Compile_AutoRecoversUnconditionedSubstitution
+      -- kept SEPARATE from PhonologyRuleCompilerDeletionToyGrammar.xml and from the left-context
+      substitution fixture deliberately: an UNCONDITIONED "t->d" rule fires on every "t" anywhere,
+      so combining it with a left-context-gated "t->d/g_" rule in one stratum would make the
+      left-context test unable to prove its own gating actually matters (the unconditioned rule
+      would recover the same word regardless).
+
+      Root+suffix, NOT a bare root (found empirically, corrected from an earlier bare-root draft):
+      `Trie::build_ex`'s own doc records a KNOWN, already-scoped port gap -- `bare_root_surfaces` is
+      "left on its existing synthesis-aware path regardless" of the `enable_variants`/
+      `enable_junction_probing` knobs, unlike C#'s truly-bare `FstTemplateAnalyzer(language)` ctor
+      (`root => new[] { UnderlyingForm(root) }`, literally no phonology at all for a bare root) --
+      so a BARE root's underlying-only-trie baseline in this port already "sees" a rule-substituted
+      surface via bare-root synthesis, where C#'s baseline would not. Using a suffixed word instead
+      (root "da" + suffix "-t") sidesteps this entirely: the SUFFIX's own arc correctly has no
+      variant baked in under `enable_variants=false` (matching the deletion fixture's own suffixed
+      words, whose baseline checks pass cleanly for the same reason), giving a faithful "baseline
+      must be empty" check. "da"+"t" = "dat" -> t_to_d (unconditioned) -> surface "dad".
+    -->
+    <PartsOfSpeech>
+      <PartOfSpeech id="posN"><Name>n</Name></PartOfSpeech>
+      <PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <HeadFeatures />
+    <PhonologicalFeatureSystem>
+      <SymbolicFeature id="featCons"><Name>cons</Name><Symbols><Symbol id="symConsP">+</Symbol><Symbol id="symConsM">-</Symbol></Symbols></SymbolicFeature>
+      <SymbolicFeature id="featVoc"><Name>voc</Name><Symbols><Symbol id="symVocP">+</Symbol><Symbol id="symVocM">-</Symbol></Symbols></SymbolicFeature>
+      <SymbolicFeature id="featVoice"><Name>voice</Name><Symbols><Symbol id="symVoiceP">+</Symbol><Symbol id="symVoiceM">-</Symbol></Symbols></SymbolicFeature>
+    </PhonologicalFeatureSystem>
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cD"><Representations><Representation>d</Representation></Representations>
+          <FeatureValue feature="featCons" symbolValues="symConsP" /><FeatureValue feature="featVoc" symbolValues="symVocM" />
+          <FeatureValue feature="featVoice" symbolValues="symVoiceP" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations>
+          <FeatureValue feature="featCons" symbolValues="symConsM" /><FeatureValue feature="featVoc" symbolValues="symVocP" />
+          <FeatureValue feature="featVoice" symbolValues="symVoiceP" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cT"><Representations><Representation>t</Representation></Representations>
+          <FeatureValue feature="featCons" symbolValues="symConsP" /><FeatureValue feature="featVoc" symbolValues="symVocM" />
+          <FeatureValue feature="featVoice" symbolValues="symVoiceM" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cZ"><Representations><Representation>z</Representation></Representations>
+          <FeatureValue feature="featCons" symbolValues="symConsM" /><FeatureValue feature="featVoc" symbolValues="symVocM" />
+          <FeatureValue feature="featVoice" symbolValues="symVoiceM" />
+        </SegmentDefinition>
+      </SegmentDefinitions>
+      <BoundaryDefinitions>
+        <BoundaryDefinition id="cPlus"><Representations><Representation>+</Representation></Representations></BoundaryDefinition>
+      </BoundaryDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <SegmentNaturalClass id="ncT"><Name>T</Name><Segment segment="cT" /></SegmentNaturalClass>
+      <SegmentNaturalClass id="ncD"><Name>D</Name><Segment segment="cD" /></SegmentNaturalClass>
+      <SegmentNaturalClass id="ncAll">
+        <Name>All</Name>
+        <Segment segment="cD" /><Segment segment="cA" /><Segment segment="cT" /><Segment segment="cZ" />
+      </SegmentNaturalClass>
+    </NaturalClasses>
+    <PhonologicalRuleDefinitions>
+      <PhonologicalRule id="prTToD">
+        <Name>t_to_d</Name>
+        <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncT" /></PhoneticSequence></PhoneticInput>
+        <PhonologicalSubrules>
+          <PhonologicalSubrule>
+            <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncD" /></PhoneticSequence></PhoneticOutput>
+          </PhonologicalSubrule>
+        </PhonologicalSubrules>
+      </PhonologicalRule>
+    </PhonologicalRuleDefinitions>
+    <Strata>
+      <Stratum characterDefinitionTable="t1" phonologicalRules="prTToD" morphologicalRules="mrT">
+        <Name>S</Name>
+        <MorphologicalRuleDefinitions>
+          <MorphologicalRule id="mrT" requiredPartsOfSpeech="posV" outputPartOfSpeech="posN">
+            <Name>-t(T)</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subT">
+                <MorphologicalInput>
+                  <PhoneticSequence id="stem"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAll" /></OptionalSegmentSequence></PhoneticSequence>
+                </MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stem" /><InsertSegments><PhoneticShape>t</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <Gloss>T</Gloss>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <AffixTemplates>
+          <AffixTemplate final="true">
+            <Name>T1</Name>
+            <Slot morphologicalRules="mrT"><Name>Sl1</Name></Slot>
+          </AffixTemplate>
+        </AffixTemplates>
+        <LexicalEntries>
+          <LexicalEntry id="eDa" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="aDa"><PhoneticShape>da</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>da</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>
