@@ -56,7 +56,8 @@ runtime):
   `mkCN`, `mkQuant`, `mkAdv`, `mkUtt`, `sgNum`/`plNum`, `a_Quant`, the RGL pronoun constants),
   never against an invented one -- see that file's header for exactly which opers were verified
   against the real `gf-rgl` source and why the functor's parameters are named `Grammar`/
-  `Constructors`/`LexGloss` rather than the design docs' illustrative `Syntax`/`SyntaxEng`.
+  `Constructors`/`LexGloss` rather than `Syntax`/`SyntaxEng` (real, but build-generated API
+  wrappers shipped with installed RGL distributions rather than checked-in gf-rgl sources).
 - `GlossEng.gf` -- the ~2-line functor instantiation for English.
 - `gen_templates.py` (stdlib-only Python) -- given a working `gf` install, compiles `GlossEng.gf`,
   enumerates all 108 `(Case, Poss, GNum)` trees applied to `n_N`, linearizes them via the GF
@@ -105,6 +106,6 @@ cargo test -p hc-realize
 
 Unit tests live alongside each module; integration gates live under `tests/` (`n0_gloss_gate.rs`,
 `n1_ir_gate.rs`, `n2_realize_gate.rs`) and exercise real `samples/data/*-hc.xml` grammars end to
-end, including the flagship *"in my houses"* assertion and a full-corpus robustness sweep (every
-word in every sample grammar's wordlist, with and without a sidecar map: never panics, never
-empty output, parity signature unchanged).
+end, including the flagship *"in my houses"* assertion and a corpus robustness sweep (all of
+Indonesian, deterministically subsampled Amharic/Sena — see the test's own doc comment — with and
+without a sidecar map: never panics, never empty output, parity signature unchanged).
