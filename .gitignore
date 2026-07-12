@@ -1,0 +1,5 @@
+# Real language grammars + word lists are DESIGN-ONLY local inputs — never committed.
+# (Purged from history 2026-07-11; kept locally, gitignored, for building/testing the design.)
+# Toy/synthetic fixtures under rust/crates/hc-hybrid/tests/fixtures/ ARE committed.
+/samples/data/*-hc.xml
+/samples/data/*-words.txt
