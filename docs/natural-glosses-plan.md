@@ -2,6 +2,18 @@
 
 **Status:** assessment of a proposed design (2026-07-11). Not scheduled; candidate post-parity work (after F9).
 
+**Update (2026-07-11):** N0–N3 of the revised plan below shipped on branch `worktree-natural-phrases`
+(`docs/natural-phrases-plan.md` tracks the milestone-by-milestone build). Architecture B ("GF as
+build tool", §8) was chosen as the ship-first target, exactly as this document recommends: a new
+`hc-realize` crate maps parsed word analyses to a typed IR and renders English phrases from a
+compile-time construction table (`rust/crates/hc-realize/assets/eng/templates.toml`), with zero
+runtime GF dependency. `templates.toml` is still hand-authored, not yet GF-generated — N3 wrote
+the GF grammar sources (`rust/crates/hc-realize/gf/`) that are meant to define it and the
+regeneration script that would rewrite it, but the GF compiler was never available on the
+development machine to run either, so the table remains the committed source of truth pending a
+first real `gf` install and regeneration pass. See `rust/crates/hc-realize/README.md` for the
+current pipeline and regeneration loop.
+
 The proposal: use PanGloss as the "decompiler" (LRL surface word → structural feature bundle)
 and a Grammatical Framework (GF) grammar compiled to PGF as the "compiler" (feature bundle →
 fluent LWC phrase, e.g. `evlerimde` → `house+PL+1SG+LOC` → *"in my houses"* / *"मेरे घरों में"*).
