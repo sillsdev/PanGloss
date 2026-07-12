@@ -1,7 +1,34 @@
 # Natural Phrases — Implementation Plan (Architecture B, ship-first)
 
-**Status:** approved for build 2026-07-11, on branch `natural-phrases` (worktree
-`.worktrees/natural-phrases`). Design rationale: `docs/natural-glosses-plan.md` (esp. §6–§8).
+**Status: SHIPPED (N0–N4), 2026-07-11**, branch `worktree-natural-phrases`
+(worktree `.claude/worktrees/natural-phrases`), rebased onto post-F9 `main` including the
+real-grammar history purge (`561598a`). Built milestone-per-commit by sonnet subagents with
+orchestrator review-fix commits after each milestone. Shipped scope and deviations:
+
+- **N0–N2 as planned** (`hc-realize` crate; `GlossBundle` → `GlossIr` → `Realizer`/
+  `TableRealizer`; `hc-rs parse --gloss` / `--natural-gloss=eng [--realize-map=…]`). Demo:
+  amharic `ቤትህ` → *"your house"*; `ልጆቹ` → *"his children"* / *"children (def.m)"*.
+  Deviations: `GlossBundle` keeps the root inline (`root_index`) rather than a separate `root`
+  field; `Poss` has 9 variants (amharic's real inventory gender-splits 2nd/3rd sg → 108
+  template cells, not 96); the mapping/asset parser is a hand-rolled restricted TOML subset
+  (zero new deps, line-numbered errors).
+- **Corpus finding (N1):** no amharic corpus word combines a Case gloss with poss/pl on one
+  analysis (its adpositions parse as roots), so the end-to-end demo is possessed/pluralized
+  nominals; the flagship *"in my houses"* (Loc+P1Sg+Pl) is pinned at the unit level on
+  hand-built IRs.
+- **Perf finding (N1/N2):** Sena under an uncapped debug-build Morpher is pathological; the
+  N2 robustness sweep runs step-capped (100k) + word-timeout, all of Indonesian, subsampled
+  amharic/Sena (documented in the gate).
+- **N3:** GF sources in `rust/crates/hc-realize/gf/` (functor over the checked-in `Grammar`/
+  `Constructors` RGL modules, param-record lincats) + `gen_templates.py` + crate README.
+  **Not compile-verified** — no `gf` install on this machine; the first
+  `gf --make GlossEng.gf` is the outstanding verification step (tracked in file headers).
+- **Post-purge note:** sample grammars/wordlists are now gitignored local design inputs
+  (`561598a`); the n0/n1/n2 gates self-skip without them. The gate tests and sidecars do pin
+  a small number of individual words/glosses drawn from those grammars — flagged for a policy
+  call on whether that fits the purge's intent.
+
+Original plan follows. Design rationale: `docs/natural-glosses-plan.md` (esp. §6–§8).
 This plan implements **Architecture B** (compile-time GF, runtime tables) scoped to a
 demoable end-to-end pipeline, with the grammar source and trait boundaries laid so
 Architecture A (embedded PGF runtime) stays a pure upgrade.
