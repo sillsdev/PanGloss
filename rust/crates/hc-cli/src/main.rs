@@ -277,7 +277,9 @@ fn run_parse(args: &[String]) -> Result<(), String> {
 
 /// `--gloss`/`--natural-gloss=eng`'s per-analysis output (N0/N2): for each `outcome.structured[i]`
 /// (same index order as `ParseOutcome.analyses`), optionally a `gloss:\t{leipzig}` line, then
-/// optionally an `eng:\t{text}` (or `eng:\t{text} ({residue})` when partial) line -- interleaved
+/// optionally an `eng:\t{text}` (or `eng:\t{text} ({residue})` when residue is non-empty; an
+/// incomplete realization with empty residue prints bare -- a guessed root's `*word*` notation
+/// already signals incompleteness, so a trailing `()` would be noise) line -- interleaved
 /// per analysis, not as two separate passes, so a reader can tell which `eng:` line goes with
 /// which `gloss:` line when a word has more than one surviving analysis. Deliberately reading
 /// `.structured`, not `.analyses`, since `hc_realize::gloss_bundle` needs the numeric morpheme
@@ -298,7 +300,7 @@ fn print_realize_lines(
         if let Some((realizer, map)) = natural {
             let ir = hc_realize::to_ir(&bundle, map, word);
             let realization = hc_realize::Realizer::realize(realizer, &ir);
-            if realization.complete {
+            if realization.residue.is_empty() {
                 println!("eng:\t{}", realization.text);
             } else {
                 println!("eng:\t{} ({})", realization.text, realization.residue.join("-"));
