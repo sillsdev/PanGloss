@@ -1,0 +1,4 @@
+[submodule "machine"]
+	path = machine
+	url = https://github.com/sillsdev/machine.git
+	branch = conformance-framework
