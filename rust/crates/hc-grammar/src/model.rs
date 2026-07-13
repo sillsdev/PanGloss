@@ -229,7 +229,9 @@ impl SynFeatureSystem {
     /// value.
     pub fn mask(&self, feat: hc_featstruct::FeatId) -> u64 {
         match &self.features[feat.0 as usize].kind {
-            SynFeatureKind::Symbolic { symbols, .. } => hc_featstruct::full_mask(symbols.len() as u32),
+            SynFeatureKind::Symbolic { symbols, .. } => {
+                hc_featstruct::full_mask(symbols.len() as u32)
+            }
             SynFeatureKind::Complex => 0,
         }
     }
@@ -290,7 +292,10 @@ pub enum PatternNode {
     },
     /// `<Segments><PhoneticShape>..</..></Segments>` → a group of per-node constraints from
     /// segmenting the shape string against `table` (includes boundary nodes).
-    Segments { table: TableId, shape: SegmentedText },
+    Segments {
+        table: TableId,
+        shape: SegmentedText,
+    },
     /// `initialBoundaryCondition="true"` / `finalBoundaryCondition="true"` on a
     /// `<PhoneticTemplate>` → left/right side anchor constraint.
     Anchor(AnchorSide),
@@ -670,7 +675,10 @@ pub enum OutputAction {
     /// `<CopyFromInput index="..">`.
     Copy(PartRef),
     /// `<InsertSegments>`.
-    InsertSegments { table: TableId, shape: SegmentedText },
+    InsertSegments {
+        table: TableId,
+        shape: SegmentedText,
+    },
     /// `<ModifyFromInput index=".."><SimpleContext..>`.
     Modify(PartRef, SimpleContext),
     /// `<InsertSimpleContext>`.
@@ -833,7 +841,10 @@ pub struct MprGroup {
 /// bit — flagged, not silently assumed). Returns `(ungrouped_bits, [(match_type, bucket_bits),
 /// ..])`; `ungrouped_bits` is exactly C#'s `Group == null` bucket, which always uses "All" semantics
 /// (see the two callers below) alongside true `All`-type groups.
-fn mpr_group_buckets(groups: &[MprGroup], test: MprSet) -> (MprSet, Vec<(MprGroupMatchType, MprSet)>) {
+fn mpr_group_buckets(
+    groups: &[MprGroup],
+    test: MprSet,
+) -> (MprSet, Vec<(MprGroupMatchType, MprSet)>) {
     let mut owned = MprSet::EMPTY;
     let mut buckets = Vec::new();
     for group in groups {
@@ -912,7 +923,8 @@ impl Grammar {
     /// `CompoundingSubrule`, `RewriteSubrule` — every C# call site that dispatches through
     /// `IsMatchRequired`/`IsMatchExcluded`, never `CompoundMprFeaturesMatch`).
     pub fn mpr_group_ok(&self, required: MprSet, excluded: MprSet, have: MprSet) -> bool {
-        mpr_required_ok(&self.mpr_groups, required, have) && mpr_excluded_ok(&self.mpr_groups, excluded, have)
+        mpr_required_ok(&self.mpr_groups, required, have)
+            && mpr_excluded_ok(&self.mpr_groups, excluded, have)
     }
 
     /// See the free function [`mpr_add_output`] (this grammar's own `mpr_groups`).
@@ -948,7 +960,11 @@ mod mpr_group_tests {
 
     #[test]
     fn all_type_group_requires_every_member_present() {
-        let groups = [group(MprGroupMatchType::All, MprGroupOutput::Append, &[0, 1])];
+        let groups = [group(
+            MprGroupMatchType::All,
+            MprGroupOutput::Append,
+            &[0, 1],
+        )];
         // Rule requires both bit 0 and bit 1 (the whole group) -- only bit 0 present -> fail.
         assert!(!mpr_required_ok(&groups, set(&[0, 1]), set(&[0])));
         // Both present -> pass.
@@ -957,7 +973,11 @@ mod mpr_group_tests {
 
     #[test]
     fn any_type_group_requires_only_one_member_present() {
-        let groups = [group(MprGroupMatchType::Any, MprGroupOutput::Append, &[0, 1])];
+        let groups = [group(
+            MprGroupMatchType::Any,
+            MprGroupOutput::Append,
+            &[0, 1],
+        )];
         assert!(mpr_required_ok(&groups, set(&[0, 1]), set(&[0])));
         assert!(mpr_required_ok(&groups, set(&[0, 1]), set(&[1])));
         assert!(!mpr_required_ok(&groups, set(&[0, 1]), set(&[])));
@@ -975,7 +995,11 @@ mod mpr_group_tests {
 
     #[test]
     fn excluded_any_type_group_fails_only_when_every_member_present() {
-        let groups = [group(MprGroupMatchType::Any, MprGroupOutput::Append, &[0, 1])];
+        let groups = [group(
+            MprGroupMatchType::Any,
+            MprGroupOutput::Append,
+            &[0, 1],
+        )];
         // Only one of the two excluded features present -> still passes (Any-excluded fails only
         // when ALL members are present).
         assert!(mpr_excluded_ok(&groups, set(&[0, 1]), set(&[0])));
@@ -1000,7 +1024,11 @@ mod mpr_group_tests {
 
     #[test]
     fn output_touching_no_group_is_a_plain_union() {
-        let groups = [group(MprGroupMatchType::All, MprGroupOutput::Overwrite, &[0, 1])];
+        let groups = [group(
+            MprGroupMatchType::All,
+            MprGroupOutput::Overwrite,
+            &[0, 1],
+        )];
         // Output bit 5 belongs to no group at all -> the overwrite group is untouched.
         let result = mpr_add_output(&groups, set(&[0]), set(&[5]));
         assert_eq!(result, set(&[0, 5]));

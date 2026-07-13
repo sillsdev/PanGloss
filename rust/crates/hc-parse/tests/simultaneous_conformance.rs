@@ -37,7 +37,11 @@ fn simultaneous_feeding_matches_oracle() {
     let m = Morpher::new(&g, usize::MAX);
     let cases = [("gigugu", "|gigugu"), ("gigugi", "-"), ("gigigi", "-")];
     for (word, expected) in cases {
-        assert_eq!(m.parse_word(word).signature(), expected, "simultaneous-feeding word {word:?}");
+        assert_eq!(
+            m.parse_word(word).signature(),
+            expected,
+            "simultaneous-feeding word {word:?}"
+        );
     }
 }
 
@@ -83,7 +87,11 @@ fn simultaneous_epenthesis_matches_oracle() {
     let m = Morpher::new(&g, usize::MAX);
     let cases = [("buibui", "|b+?uibui"), ("bubu", "-"), ("bibu", "-")];
     for (word, expected) in cases {
-        assert_eq!(m.parse_word(word).signature(), expected, "simultaneous-epenthesis word {word:?}");
+        assert_eq!(
+            m.parse_word(word).signature(),
+            expected,
+            "simultaneous-epenthesis word {word:?}"
+        );
     }
 }
 
@@ -119,7 +127,10 @@ fn simultaneous_epenthesis_memo_cache_soundness_against_the_confirmed_csharp_bug
         "Rust's memo cache must not change the answer on this self-opaquing-epenthesis shape \
          (this is exactly the shape that trips C#'s own nogood-cache bug, §3/§7 open question 3)"
     );
-    assert_eq!(on_sig, "|b+?uibui", "both memo settings must agree with the traced/correct oracle value");
+    assert_eq!(
+        on_sig, "|b+?uibui",
+        "both memo settings must agree with the traced/correct oracle value"
+    );
 }
 
 /// `rust/conformance/rewrite/simultaneous-epenthesis-cascade/` — a hand-designed (not C#-test-

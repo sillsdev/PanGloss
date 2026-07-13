@@ -153,9 +153,16 @@ pub fn segment_with_patterns(
         let c = chars[i];
         let mut consumed_pattern = false;
         if c == '[' {
-            if let Some(close) = chars[i..].iter().position(|&ch| ch == ']').map(|off| i + off) {
+            if let Some(close) = chars[i..]
+                .iter()
+                .position(|&ch| ch == ']')
+                .map(|off| i + off)
+            {
                 let class_name: String = chars[i + 1..close].iter().collect();
-                if let Some(nc) = natural_classes.iter().find(|nc| nc.name.as_deref() == Some(class_name.as_str())) {
+                if let Some(nc) = natural_classes
+                    .iter()
+                    .find(|nc| nc.name.as_deref() == Some(class_name.as_str()))
+                {
                     let cd_set = nat_class_cd_set(table, nc);
                     builder.push_segment_with_lanes_and_set(&[], cd_set);
                     i = close + 1;
@@ -213,7 +220,9 @@ pub fn segment_with_patterns(
 /// back to [`CdSet::Unrestricted`] when every segment in the table qualifies.
 fn nat_class_cd_set(table: &CharDefTable, nc: &NaturalClass) -> CdSet {
     match &nc.kind {
-        NaturalClassKind::Segments(segs) => CdSet::Members(CdBits::from_ids(segs.iter().map(|cd| cd.0))),
+        NaturalClassKind::Segments(segs) => {
+            CdSet::Members(CdBits::from_ids(segs.iter().map(|cd| cd.0)))
+        }
         NaturalClassKind::Feature(pairs) => {
             let mut members = Vec::new();
             let mut all = true;
@@ -222,7 +231,10 @@ fn nat_class_cd_set(table: &CharDefTable, nc: &NaturalClass) -> CdSet {
                     continue;
                 }
                 let lanes = cd.feature_lanes();
-                if pairs.iter().all(|&(f, bits)| lanes[f.0 as usize] & bits.0 != 0) {
+                if pairs
+                    .iter()
+                    .all(|&(f, bits)| lanes[f.0 as usize] & bits.0 != 0)
+                {
                     members.push(id.0);
                 } else {
                     all = false;
@@ -279,7 +291,11 @@ mod tests {
 
     // --- Finding N3: root-allomorph PhoneticShape pattern-language fallback --------------------
 
-    fn segments_class(xml_id: &str, name: &str, members: Vec<crate::chardef::CharDefId>) -> NaturalClass {
+    fn segments_class(
+        xml_id: &str,
+        name: &str,
+        members: Vec<crate::chardef::CharDefId>,
+    ) -> NaturalClass {
         NaturalClass {
             xml_id: xml_id.to_string(),
             name: Some(name.to_string()),
@@ -289,7 +305,12 @@ mod tests {
 
     #[test]
     fn bracket_class_reference_inserts_an_abstract_node_with_the_class_members() {
-        let t = table(vec![seg("c_b", &["b"]), seg("c_t", &["t"]), seg("c_a", &["a"]), seg("c_e", &["e"])]);
+        let t = table(vec![
+            seg("c_b", &["b"]),
+            seg("c_t", &["t"]),
+            seg("c_a", &["a"]),
+            seg("c_e", &["e"]),
+        ]);
         let a = t.lookup_nfd("a").unwrap();
         let e = t.lookup_nfd("e").unwrap();
         let nc = segments_class("nc1", "Vowel", vec![a, e]);
@@ -399,7 +420,10 @@ mod tests {
         let t = table(vec![seg("c1", &["c"]), seg("c2", &["v"])]);
         let shape = segment(&t, "cvc").unwrap();
         let interior: Vec<_> = shape.interior().map(|(_, k, _, _)| k).collect();
-        assert_eq!(interior, vec![NodeKind::Segment, NodeKind::Segment, NodeKind::Segment]);
+        assert_eq!(
+            interior,
+            vec![NodeKind::Segment, NodeKind::Segment, NodeKind::Segment]
+        );
     }
 
     #[test]
@@ -407,11 +431,19 @@ mod tests {
         // "s", "y", and "sy" are all defined; segmenting "sy" must pick the 2-char "sy" match,
         // not "s" followed by "y" — this is the greedy longest-match requirement from
         // GetShapeNodes' `for (int j = normalized.Length - i; j > 0; j--)` descending loop.
-        let t = table(vec![seg("c_s", &["s"]), seg("c_y", &["y"]), seg("c_sy", &["sy"])]);
+        let t = table(vec![
+            seg("c_s", &["s"]),
+            seg("c_y", &["y"]),
+            seg("c_sy", &["sy"]),
+        ]);
         let sy_id = t.lookup_nfd("sy").unwrap();
         let shape = segment(&t, "sy").unwrap();
         let interior: Vec<_> = shape.interior().collect();
-        assert_eq!(interior.len(), 1, "should be one node (the 2-char match), not two");
+        assert_eq!(
+            interior.len(),
+            1,
+            "should be one node (the 2-char match), not two"
+        );
         assert_eq!(interior[0].2, sy_id.0);
     }
 
@@ -419,7 +451,10 @@ mod tests {
     fn boundary_becomes_optional_node() {
         let t = table(vec![seg("c1", &["a"]), bnd("b1", &["+"])]);
         let shape = segment(&t, "a+a").unwrap();
-        let flags: Vec<_> = shape.interior().map(|(_, k, _, f)| (k, f.is_optional())).collect();
+        let flags: Vec<_> = shape
+            .interior()
+            .map(|(_, k, _, f)| (k, f.is_optional()))
+            .collect();
         assert_eq!(
             flags,
             vec![

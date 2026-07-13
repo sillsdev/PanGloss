@@ -18,9 +18,9 @@
 //!   constraint).
 
 use hc_grammar::model::{
-    AffixAllomorphDef, AffixProcessRuleDef, AllomorphId, Grammar, MorphRuleDef, MorphemeId,
-    MprSet, NatClassId, OutputAction, PartRef, Pattern, PatternNode, ReduplicationHint,
-    SimpleContext, StratumId, VarTable,
+    AffixAllomorphDef, AffixProcessRuleDef, AllomorphId, Grammar, MorphRuleDef, MorphemeId, MprSet,
+    NatClassId, OutputAction, PartRef, Pattern, PatternNode, ReduplicationHint, SimpleContext,
+    StratumId, VarTable,
 };
 use hc_rules::morph::synthesize;
 use hc_rules::word::MorphRecord;
@@ -42,7 +42,10 @@ fn nat_class(g: &Grammar, xml_id: &str) -> NatClassId {
 }
 
 fn ctx(nc: NatClassId) -> SimpleContext {
-    SimpleContext { nat_class: nc, vars: vec![] }
+    SimpleContext {
+        nat_class: nc,
+        vars: vec![],
+    }
 }
 
 fn any_pattern(g: &Grammar) -> Pattern {
@@ -107,7 +110,8 @@ fn root_word(g: &Grammar, text: &str) -> Word {
     let shape = hc_rules::shape_feat::segment_with_features(g, &g.char_tables[0], text)
         .expect("root segments");
     let mut w = Word::new(shape, StratumId(0));
-    w.morphs.push(MorphRecord::new(AllomorphId(100), MorphemeId(100), 0));
+    w.morphs
+        .push(MorphRecord::new(AllomorphId(100), MorphemeId(100), 0));
     w
 }
 
@@ -168,7 +172,10 @@ fn zero_feat_segments_class_renders_only_its_members() {
     let g = load_zero_feat_grammar();
     // Plan §13.1 Tier-1 #1: `len()` is never 0 post-fix (the always-appended synthetic `Type`
     // feature) — `is_empty()` is the correct "zero *authored* phonological features" check now.
-    assert!(g.phon_features.is_empty(), "sanity: this grammar has zero authored phonological features");
+    assert!(
+        g.phon_features.is_empty(),
+        "sanity: this grammar has zero authored phonological features"
+    );
     let rule = prefix_rule(200, "nc_nasal", &g);
 
     let sig = synth_display(&g, "bali", &rule);
@@ -252,11 +259,17 @@ fn load_feature_grammar() -> Grammar {
 #[test]
 fn feature_grammar_segments_class_narrows_tighter_than_lane_union() {
     let g = load_feature_grammar();
-    assert!(!g.phon_features.is_empty(), "sanity: this grammar has phonological features");
+    assert!(
+        !g.phon_features.is_empty(),
+        "sanity: this grammar has phonological features"
+    );
     let rule = prefix_rule(200, "nc_bd", &g);
 
     let sig = synth_display(&g, "p", &rule);
-    assert_eq!(sig, "[bd]p", "Segments-kind class must narrow to its exact explicit members");
+    assert_eq!(
+        sig, "[bd]p",
+        "Segments-kind class must narrow to its exact explicit members"
+    );
 }
 
 /// `nc_voiced` is `Feature`-kind (`voi+`), matching `b`, `d`, `g`, `a` but excluding `p` (voiceless)
@@ -272,5 +285,8 @@ fn feature_grammar_feature_class_behavior_is_unchanged() {
     let rule = prefix_rule(200, "nc_voiced", &g);
 
     let sig = synth_display(&g, "p", &rule);
-    assert_eq!(sig, "[bdga]p", "Feature-kind class rendering must stay lane-unification-derived");
+    assert_eq!(
+        sig, "[bdga]p",
+        "Feature-kind class rendering must stay lane-unification-derived"
+    );
 }

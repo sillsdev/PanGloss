@@ -11,15 +11,17 @@
 mod common;
 
 use common::load_alpha_grammar;
+use hc_grammar::chardef::CharDefId;
 use hc_grammar::model::{
     AffixAllomorphDef, AffixProcessRuleDef, AffixTemplateDef, AllomorphId, Grammar, MRuleId,
     MorphRuleDef, MorphRuleOrder, MorphemeId, MprSet, OutputAction, PartRef, Pattern, PatternNode,
     ReduplicationHint, SegmentedText, SimpleContext, SlotDef, StratumDef, StratumId, TableId,
     TemplateId, VarTable,
 };
-use hc_grammar::chardef::CharDefId;
 use hc_memo::AnalysisScope;
-use hc_rules::stratum::{analyze_stratum, analyze_stratum_scoped, AnalyzerConfig, MemoScope, StepBudget};
+use hc_rules::stratum::{
+    analyze_stratum, analyze_stratum_scoped, AnalyzerConfig, MemoScope, StepBudget,
+};
 use hc_rules::Word;
 use hc_shape::{NodeKind, Shape, ShapeBuilder};
 use std::cell::RefCell;
@@ -67,7 +69,10 @@ fn insert_segments(g: &Grammar, text: &str) -> OutputAction {
     let shape = hc_grammar::segment::segment(&g.char_tables[0], text).expect("segments");
     OutputAction::InsertSegments {
         table: TableId(0),
-        shape: SegmentedText { text: text.to_string(), shape },
+        shape: SegmentedText {
+            text: text.to_string(),
+            shape,
+        },
     }
 }
 
@@ -103,7 +108,10 @@ fn suffix_rule(g: &Grammar, morpheme: u32, seg: &str) -> MorphRuleDef {
         allomorphs: vec![allomorph(
             morpheme,
             vec![one_or_more("nc_any", g)],
-            vec![OutputAction::Copy(PartRef::Input(0)), insert_segments(g, seg)],
+            vec![
+                OutputAction::Copy(PartRef::Input(0)),
+                insert_segments(g, seg),
+            ],
         )],
     })
 }
@@ -173,9 +181,22 @@ fn memo_on_equals_memo_off_unordered() {
     let (g, s) = build_unordered();
     let cfg = AnalyzerConfig::default();
 
-    let off = analyze_stratum(&g, s, word(&g, "akp", s), &cfg, &StepBudget::new(usize::MAX));
+    let off = analyze_stratum(
+        &g,
+        s,
+        word(&g, "akp", s),
+        &cfg,
+        &StepBudget::new(usize::MAX),
+    );
     let scope: MemoScope = RefCell::new(AnalysisScope::new());
-    let on = analyze_stratum_scoped(&g, s, word(&g, "akp", s), &cfg, Some(&scope), &StepBudget::new(usize::MAX));
+    let on = analyze_stratum_scoped(
+        &g,
+        s,
+        word(&g, "akp", s),
+        &cfg,
+        Some(&scope),
+        &StepBudget::new(usize::MAX),
+    );
 
     assert!(!off.capped && !on.capped);
     assert_eq!(
@@ -184,9 +205,7 @@ fn memo_on_equals_memo_off_unordered() {
         "memo must not change the candidate set"
     );
     // The full set is still { akp (seed), ak, a } — memo did not drop the deep root.
-    assert!(candidate_shapes(&on.words).contains(&vec![
-        common::char_def(&g, "char_a").0
-    ]));
+    assert!(candidate_shapes(&on.words).contains(&vec![common::char_def(&g, "char_a").0]));
 
     // The memo actually fired: at least one mrule-memo entry was stored during expansion, and it
     // includes a nogood (a state from which no rule unapplies — e.g. the bare root "a").
@@ -224,9 +243,22 @@ fn memo_on_equals_memo_off_with_template() {
     let s = push_stratum(&mut g, MorphRuleOrder::Unordered, vec![rk_id], vec![tmpl]);
 
     let cfg = AnalyzerConfig::default();
-    let off = analyze_stratum(&g, s, word(&g, "akp", s), &cfg, &StepBudget::new(usize::MAX));
+    let off = analyze_stratum(
+        &g,
+        s,
+        word(&g, "akp", s),
+        &cfg,
+        &StepBudget::new(usize::MAX),
+    );
     let scope: MemoScope = RefCell::new(AnalysisScope::new());
-    let on = analyze_stratum_scoped(&g, s, word(&g, "akp", s), &cfg, Some(&scope), &StepBudget::new(usize::MAX));
+    let on = analyze_stratum_scoped(
+        &g,
+        s,
+        word(&g, "akp", s),
+        &cfg,
+        Some(&scope),
+        &StepBudget::new(usize::MAX),
+    );
 
     assert!(!off.capped && !on.capped);
     assert_eq!(

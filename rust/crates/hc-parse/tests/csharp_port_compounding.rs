@@ -183,7 +183,10 @@ fn simple_rules_3_prefix_commutes_with_compounding() {
     // AssertRootAllomorphsEquals(output, "9"): every analysis' root morpheme is entry "9" (dat, V).
     let root9 = csharp_port_common::morpheme_ordinal(&g3, "9");
     for wa in &out3.structured {
-        assert_eq!(wa.morpheme_ids[wa.root_morpheme_index as usize], root9, "root must be entry 9");
+        assert_eq!(
+            wa.morpheme_ids[wa.root_morpheme_index as usize], root9,
+            "root must be entry 9"
+        );
     }
 
     // PARITY PIN for the OLD (mis-ported) head+nonHead grammar: the non-head span would be "didat",
@@ -253,7 +256,10 @@ fn morphosyntactic_rules() {
     // {2,3}, overlaps 2); non-head unrestricted -> both "39"/"ab+ba" and "40"/"abba" (V, homophones).
     let out3 = m3.parse_word("ssagabba");
     assert_morphs_eq(&out3, &["Perc0 39", "Perc0 40", "Perc3 39", "Perc3 40"]);
-    assert_eq!(root_gloss_set(&out3), BTreeSet::from(["Perc0".to_string(), "Perc3".to_string()]));
+    assert_eq!(
+        root_gloss_set(&out3),
+        BTreeSet::from(["Perc0".to_string(), "Perc3".to_string()])
+    );
 }
 
 // =================================================================================================
@@ -296,7 +302,9 @@ fn prod_restrict_grammar(rule_mpr_attrs: &str, e5_attrs: &str, e8_attrs: &str) -
     );
     // Leak each configuration's grammar: `Morpher` borrows it, six configurations per test run,
     // process-lifetime leak is bounded and irrelevant for a test binary.
-    let g = Box::leak(Box::new(csharp_port_common::build_grammar_custom_lexicon(&mrule, "mrC1", &lexicon)));
+    let g = Box::leak(Box::new(csharp_port_common::build_grammar_custom_lexicon(
+        &mrule, "mrC1", &lexicon,
+    )));
     Morpher::new(g, usize::MAX)
 }
 

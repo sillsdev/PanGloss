@@ -333,7 +333,11 @@ pub fn priority_union(a: &FeatureStruct, b: &FeatureStruct) -> FeatureStruct {
 /// This is the one operation in this module that needs a per-feature symbol-count mask (to test
 /// "all bits set"); this tree model carries none, so callers supply `mask_of(feat)` (in this
 /// crate's grammar-loading caller, `SynFeatureSystem::mask`).
-pub fn add(a: &FeatureStruct, b: &FeatureStruct, mask_of: &impl Fn(FeatId) -> u64) -> FeatureStruct {
+pub fn add(
+    a: &FeatureStruct,
+    b: &FeatureStruct,
+    mask_of: &impl Fn(FeatId) -> u64,
+) -> FeatureStruct {
     let ae = a.entries();
     let be = b.entries();
     let mut builder = FeatureStructBuilder::new();
@@ -963,7 +967,11 @@ mod tests {
     fn property_subtract_self_is_empty() {
         let u = universe();
         for a in &u {
-            assert_eq!(subtract(a, a), FeatureStruct::EMPTY, "subtract(a,a) not empty for a={a:?}");
+            assert_eq!(
+                subtract(a, a),
+                FeatureStruct::EMPTY,
+                "subtract(a,a) not empty for a={a:?}"
+            );
         }
     }
 

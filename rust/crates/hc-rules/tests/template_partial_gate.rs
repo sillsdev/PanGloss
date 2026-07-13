@@ -25,10 +25,10 @@ mod common;
 use common::load_alpha_grammar;
 use hc_grammar::chardef::CharDefId;
 use hc_grammar::model::{
-    AffixAllomorphDef, AffixProcessRuleDef, AffixTemplateDef, AllomorphId, AllomorphOwner,
-    Grammar, LexEntryDef, LexEntryId, MRuleId, MorphRuleDef, MorphRuleOrder, MorphemeId, MprSet,
-    OutputAction, PartRef, Pattern, PatternNode, ReduplicationHint, RootAllomorphDef, SegmentedText,
-    SimpleContext, SlotDef, StratumDef, StratumId, TableId, TemplateId, VarTable,
+    AffixAllomorphDef, AffixProcessRuleDef, AffixTemplateDef, AllomorphId, AllomorphOwner, Grammar,
+    LexEntryDef, LexEntryId, MRuleId, MorphRuleDef, MorphRuleOrder, MorphemeId, MprSet,
+    OutputAction, PartRef, Pattern, PatternNode, ReduplicationHint, RootAllomorphDef,
+    SegmentedText, SimpleContext, SlotDef, StratumDef, StratumId, TableId, TemplateId, VarTable,
 };
 use hc_rules::cache::RuleCache;
 use hc_rules::stratum::synthesize_stratum;
@@ -83,7 +83,10 @@ fn insert_segments(g: &Grammar, text: &str) -> OutputAction {
     let shape = hc_grammar::segment::segment(&g.char_tables[0], text).expect("segments");
     OutputAction::InsertSegments {
         table: TableId(0),
-        shape: SegmentedText { text: text.to_string(), shape },
+        shape: SegmentedText {
+            text: text.to_string(),
+            shape,
+        },
     }
 }
 
@@ -129,7 +132,10 @@ fn push_suffix_rule(g: &mut Grammar, morpheme: u32, seg: &str, partial: bool) ->
         allomorphs: vec![allomorph(
             allo_id.0,
             vec![one_or_more("nc_any", g)],
-            vec![OutputAction::Copy(PartRef::Input(0)), insert_segments(g, seg)],
+            vec![
+                OutputAction::Copy(PartRef::Input(0)),
+                insert_segments(g, seg),
+            ],
         )],
     });
     g.mrules.push(rule);
@@ -172,7 +178,11 @@ fn push_template(g: &mut Grammar, is_final: bool, slot_rule: MRuleId) -> Templat
         name: None,
         is_final,
         required_syn_fs: hc_featstruct::FsId(0),
-        slots: vec![SlotDef { name: None, optional: false, rules: vec![slot_rule] }],
+        slots: vec![SlotDef {
+            name: None,
+            optional: false,
+            rules: vec![slot_rule],
+        }],
     });
     id
 }
@@ -193,7 +203,10 @@ fn push_root_entry(g: &mut Grammar, partial: bool) -> AllomorphId {
         partial,
         allomorphs: vec![RootAllomorphDef {
             id: allo_id,
-            shape: SegmentedText { text: "a".to_string(), shape },
+            shape: SegmentedText {
+                text: "a".to_string(),
+                shape,
+            },
             is_bound: false,
             environments: vec![],
             co_occurrence: vec![],
@@ -230,7 +243,7 @@ fn gate1_partial_word_with_applicable_template_passes_through() {
 
     let mut input = word(&g, "a", s);
     input.flags.is_partial = true; // the word itself is partial
-    // root_allomorph stays None => root_is_partial(g, input) == false => the template IS applicable.
+                                   // root_allomorph stays None => root_is_partial(g, input) == false => the template IS applicable.
 
     let cache = RuleCache::build(&g);
     let out = synthesize_stratum(&g, s, input, 10_000, &cache);
@@ -244,7 +257,10 @@ fn gate1_partial_word_with_applicable_template_passes_through() {
     // not part of a stratum's public output); the passthrough itself sets it `Some(true)` internally
     // (asserted indirectly by this word surviving `synthesize_stratum`'s own
     // `is_last_applied_rule_final != Some(true)` filter at all).
-    assert_eq!(char_defs(&out[0].shape), char_defs(&shape_with_lanes(&g, "a")));
+    assert_eq!(
+        char_defs(&out[0].shape),
+        char_defs(&shape_with_lanes(&g, "a"))
+    );
 }
 
 // =================================================================================================
@@ -285,7 +301,10 @@ fn gate2_partial_root_morpheme_blocks_template_application() {
         1,
         "a word whose root morpheme is partial must pass through untemplated, not be dropped"
     );
-    assert_eq!(char_defs(&out[0].shape), char_defs(&shape_with_lanes(&g, "a")));
+    assert_eq!(
+        char_defs(&out[0].shape),
+        char_defs(&shape_with_lanes(&g, "a"))
+    );
 }
 
 // =================================================================================================
@@ -331,7 +350,10 @@ fn gate3_partial_rule_prohibited_after_nonfinal_template_unless_input_partial() 
         1,
         "the same partial rule must be allowed to apply when the input is already partial"
     );
-    assert_eq!(char_defs(&out_b[0].shape), char_defs(&shape_with_lanes(&g, "ap")));
+    assert_eq!(
+        char_defs(&out_b[0].shape),
+        char_defs(&shape_with_lanes(&g, "ap"))
+    );
 }
 
 // =================================================================================================
@@ -369,5 +391,8 @@ fn gate4_template_rule_is_exempt_from_the_post_template_gates() {
          even on a non-partial word; got {:?}",
         out.iter().map(|w| char_defs(&w.shape)).collect::<Vec<_>>()
     );
-    assert_eq!(char_defs(&out[0].shape), char_defs(&shape_with_lanes(&g, "ap")));
+    assert_eq!(
+        char_defs(&out[0].shape),
+        char_defs(&shape_with_lanes(&g, "ap"))
+    );
 }

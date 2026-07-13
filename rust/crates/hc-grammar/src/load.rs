@@ -28,7 +28,9 @@ use hashbrown::{HashMap, HashSet};
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::reader::Reader;
 
-use hc_featstruct::{FeatId, FeatureStruct, FeatureStructBuilder, FeatureValue, Interner, SymbolBits};
+use hc_featstruct::{
+    FeatId, FeatureStruct, FeatureStructBuilder, FeatureValue, Interner, SymbolBits,
+};
 use hc_shape::NodeKind;
 
 use crate::chardef::{CharDefId, CharDefTable};
@@ -53,7 +55,10 @@ struct Node {
 impl Node {
     /// `(string)elem.Attribute(name)` — `None` if absent.
     fn attr(&self, name: &str) -> Option<&str> {
-        self.attrs.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str())
+        self.attrs
+            .iter()
+            .find(|(k, _)| k == name)
+            .map(|(_, v)| v.as_str())
     }
 
     /// The attribute value only if present and non-empty (mirrors `!string.IsNullOrEmpty`).
@@ -319,7 +324,10 @@ pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
     let mut mpr_index: HashMap<String, MprId> = HashMap::new();
     {
         let count = lang
-            .elems2("MorphologicalPhonologicalRuleFeatures", "MorphologicalPhonologicalRuleFeature")
+            .elems2(
+                "MorphologicalPhonologicalRuleFeatures",
+                "MorphologicalPhonologicalRuleFeature",
+            )
             .filter(|e| e.is_active())
             .count();
         if count > 64 {
@@ -328,7 +336,10 @@ pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
             )));
         }
         for mf in lang
-            .elems2("MorphologicalPhonologicalRuleFeatures", "MorphologicalPhonologicalRuleFeature")
+            .elems2(
+                "MorphologicalPhonologicalRuleFeatures",
+                "MorphologicalPhonologicalRuleFeature",
+            )
             .filter(|e| e.is_active())
         {
             let id = mf.attr("id").unwrap_or("").to_string();
@@ -372,7 +383,9 @@ pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
                 for se in nc.elems("Segment") {
                     let seg_id = se.attr("segment").unwrap_or("");
                     let (_, cd) = chardef_index.get(seg_id).ok_or_else(|| {
-                        GrammarError::Semantic(format!("natural class references unknown segment '{seg_id}'"))
+                        GrammarError::Semantic(format!(
+                            "natural class references unknown segment '{seg_id}'"
+                        ))
                     })?;
                     segs.push(*cd);
                 }
@@ -408,7 +421,10 @@ pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
     for fam in lang.elems2("Families", "Family").filter(|e| e.is_active()) {
         let id = fam.attr("id").unwrap_or("").to_string();
         family_index.insert(id, FamilyId(family_defs.len() as u32));
-        family_defs.push(FamilyDef { name: Some(fam.text.clone()), entries: Vec::new() });
+        family_defs.push(FamilyDef {
+            name: Some(fam.text.clone()),
+            entries: Vec::new(),
+        });
     }
 
     let ro = Ro {
@@ -426,7 +442,10 @@ pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
     // --- phonological rules -------------------------------------------------------------------
     let mut prules: Vec<PhonRuleDef> = Vec::new();
     let mut prule_index: HashMap<String, PRuleId> = HashMap::new();
-    for pr in lang.under("PhonologicalRuleDefinitions").filter(|e| e.is_active()) {
+    for pr in lang
+        .under("PhonologicalRuleDefinitions")
+        .filter(|e| e.is_active())
+    {
         match pr.tag.as_str() {
             "MetathesisRule" => {
                 let def = load_metathesis_rule(pr, &ro)?;
@@ -514,7 +533,11 @@ pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
         }
         acc.morphemes[primary.0 as usize]
             .co_occurrence
-            .push(MorphemeCoOccurrenceRuleDef { require, others, adjacency });
+            .push(MorphemeCoOccurrenceRuleDef {
+                require,
+                others,
+                adjacency,
+            });
     }
 
     for co in lang
@@ -538,18 +561,30 @@ pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
             })?;
             others.push(aid);
         }
-        let rule = AllomorphCoOccurrenceRuleDef { require, others, adjacency };
+        let rule = AllomorphCoOccurrenceRuleDef {
+            require,
+            others,
+            adjacency,
+        };
         match acc.allomorph_owners[primary.0 as usize] {
             AllomorphOwner::Root(le, idx) => {
-                acc.entries[le.0 as usize].allomorphs[idx as usize].co_occurrence.push(rule);
+                acc.entries[le.0 as usize].allomorphs[idx as usize]
+                    .co_occurrence
+                    .push(rule);
             }
-            AllomorphOwner::Affix(mr, idx) => match &mut acc.mrules[mr.0 as usize] {
-                MorphRuleDef::AffixProcess(def) => def.allomorphs[idx as usize].co_occurrence.push(rule),
-                MorphRuleDef::Realizational(def) => def.allomorphs[idx as usize].co_occurrence.push(rule),
-                MorphRuleDef::Compounding(_) => {
-                    unreachable!("compounding rules mint no AllomorphId (no per-allomorph registry entry)")
+            AllomorphOwner::Affix(mr, idx) => {
+                match &mut acc.mrules[mr.0 as usize] {
+                    MorphRuleDef::AffixProcess(def) => {
+                        def.allomorphs[idx as usize].co_occurrence.push(rule)
+                    }
+                    MorphRuleDef::Realizational(def) => {
+                        def.allomorphs[idx as usize].co_occurrence.push(rule)
+                    }
+                    MorphRuleDef::Compounding(_) => {
+                        unreachable!("compounding rules mint no AllomorphId (no per-allomorph registry entry)")
+                    }
                 }
-            },
+            }
         }
     }
 
@@ -651,7 +686,12 @@ fn build_syn_features(lang: &Node) -> Result<SynFeatureSystem, GrammarError> {
         }
     }
 
-    Ok(SynFeatureSystem { features, pos, head, foot })
+    Ok(SynFeatureSystem {
+        features,
+        pos,
+        head,
+        foot,
+    })
 }
 
 /// Port of `XmlLanguageLoader.LoadFeature` for the syntactic domain.
@@ -670,9 +710,9 @@ fn load_syn_feature(elem: &Node) -> Result<Option<SynFeature>, GrammarError> {
                     symbols.len()
                 )));
             }
-            let default_symbol = elem.attr_ne("defaultSymbol").and_then(|d| {
-                symbols.iter().position(|(id, _)| id == d).map(|i| i as u32)
-            });
+            let default_symbol = elem
+                .attr_ne("defaultSymbol")
+                .and_then(|d| symbols.iter().position(|(id, _)| id == d).map(|i| i as u32));
             Ok(Some(SynFeature {
                 xml_id,
                 name,
@@ -695,9 +735,9 @@ fn load_syn_feature(elem: &Node) -> Result<Option<SynFeature>, GrammarError> {
 fn parse_pos_bits(syn: &SynFeatureSystem, ids: &str) -> Result<SymbolBits, GrammarError> {
     let mut bits = SymbolBits::EMPTY;
     for id in ids.split_whitespace() {
-        let idx = syn.symbol_index(syn.pos, id).ok_or_else(|| {
-            GrammarError::Semantic(format!("unknown part-of-speech id '{id}'"))
-        })?;
+        let idx = syn
+            .symbol_index(syn.pos, id)
+            .ok_or_else(|| GrammarError::Semantic(format!("unknown part-of-speech id '{id}'")))?;
         bits.set(idx);
     }
     Ok(bits)
@@ -708,15 +748,17 @@ fn load_syn_fs(elem: &Node, syn: &SynFeatureSystem) -> Result<FeatureStruct, Gra
     let mut b = FeatureStructBuilder::new();
     for fv in elem.elems("FeatureValue").filter(|e| e.is_active()) {
         let feat_xml = fv.attr("feature").unwrap_or("");
-        let feat_id = syn
-            .feature_by_xml_id(feat_xml)
-            .ok_or_else(|| GrammarError::Semantic(format!("unknown syntactic feature '{feat_xml}'")))?;
+        let feat_id = syn.feature_by_xml_id(feat_xml).ok_or_else(|| {
+            GrammarError::Semantic(format!("unknown syntactic feature '{feat_xml}'"))
+        })?;
         match fv.attr_ne("symbolValues") {
             Some(vals) => {
                 let mut bits = SymbolBits::EMPTY;
                 for sym in vals.split_whitespace() {
                     let idx = syn.symbol_index(feat_id, sym).ok_or_else(|| {
-                        GrammarError::Semantic(format!("unknown symbol '{sym}' on feature '{feat_xml}'"))
+                        GrammarError::Semantic(format!(
+                            "unknown symbol '{sym}' on feature '{feat_xml}'"
+                        ))
                     })?;
                     bits.set(idx);
                 }
@@ -788,7 +830,10 @@ fn load_stem_name(
         }
         regions.push(fs_interner.intern(b.build()));
     }
-    Ok(StemNameDef { name: sn.text_of("Name").map(str::to_string), regions })
+    Ok(StemNameDef {
+        name: sn.text_of("Name").map(str::to_string),
+        regions,
+    })
 }
 
 fn intern_syn_fs(
@@ -830,14 +875,16 @@ fn load_phon_constraints(
     let mut map: HashMap<u32, SymbolBits> = HashMap::new();
     for fv in nc.elems("FeatureValue").filter(|e| e.is_active()) {
         let feat_xml = fv.attr("feature").unwrap_or("");
-        let flat = fs
-            .flat_index(feat_xml)
-            .ok_or_else(|| GrammarError::Semantic(format!("unknown phonological feature '{feat_xml}'")))?;
+        let flat = fs.flat_index(feat_xml).ok_or_else(|| {
+            GrammarError::Semantic(format!("unknown phonological feature '{feat_xml}'"))
+        })?;
         let mut bits = SymbolBits::EMPTY;
         if let Some(vals) = fv.attr_ne("symbolValues") {
             for sym in vals.split_whitespace() {
                 let idx = fs.symbol_index(flat, sym).ok_or_else(|| {
-                    GrammarError::Semantic(format!("unknown symbol '{sym}' on feature '{feat_xml}'"))
+                    GrammarError::Semantic(format!(
+                        "unknown symbol '{sym}' on feature '{feat_xml}'"
+                    ))
                 })?;
                 bits.set(idx);
             }
@@ -853,8 +900,12 @@ fn load_phon_constraints(
     // authored constraint — it is inserted unconditionally, last. `SegmentNaturalClass` needs no
     // equivalent injection: it gets `Type=Segment` "for free" via the lane-union-of-members logic
     // once each member char-def's own lanes correctly carry `Type` (`hc-grammar/src/chardef.rs`).
-    map.insert(fs.type_flat().0, SymbolBits::single(crate::featsys::TYPE_SEGMENT_SYMBOL));
-    let mut out: Vec<(FlatIndex, SymbolBits)> = map.into_iter().map(|(k, v)| (FlatIndex(k), v)).collect();
+    map.insert(
+        fs.type_flat().0,
+        SymbolBits::single(crate::featsys::TYPE_SEGMENT_SYMBOL),
+    );
+    let mut out: Vec<(FlatIndex, SymbolBits)> =
+        map.into_iter().map(|(k, v)| (FlatIndex(k), v)).collect();
     out.sort_by_key(|(f, _)| f.0);
     Ok(out)
 }
@@ -868,7 +919,9 @@ fn load_variables(elem: Option<&Node>, phon: &GrammarPhonology) -> Result<VarTab
             let name = v.attr("name").unwrap_or("").to_string();
             let feat_xml = v.attr("phonologicalFeature").unwrap_or("");
             let flat = phon.feature_system().flat_index(feat_xml).ok_or_else(|| {
-                GrammarError::Semantic(format!("variable references unknown phonological feature '{feat_xml}'"))
+                GrammarError::Semantic(format!(
+                    "variable references unknown phonological feature '{feat_xml}'"
+                ))
             })?;
             vars.push((id, name, flat));
         }
@@ -880,7 +933,11 @@ fn load_variables(elem: Option<&Node>, phon: &GrammarPhonology) -> Result<VarTab
 // Patterns (`LoadPatternNodes` / `LoadSimpleContext` / templates / sequences).
 // =============================================================================================
 
-fn load_simple_context(rec: &Node, vars: &VarTable, ro: &Ro) -> Result<SimpleContext, GrammarError> {
+fn load_simple_context(
+    rec: &Node,
+    vars: &VarTable,
+    ro: &Ro,
+) -> Result<SimpleContext, GrammarError> {
     let nc_xml = rec.attr("naturalClass").unwrap_or("");
     let nat_class = ro
         .natclass
@@ -922,7 +979,9 @@ fn load_one_pattern_node(
     let node = match rec.tag.as_str() {
         "SimpleContext" => PatternNode::Context(load_simple_context(rec, vars, ro)?),
         "Segment" => PatternNode::CharDef(resolve_chardef(ro, rec.attr("segment").unwrap_or(""))?),
-        "BoundaryMarker" => PatternNode::CharDef(resolve_chardef(ro, rec.attr("boundary").unwrap_or(""))?),
+        "BoundaryMarker" => {
+            PatternNode::CharDef(resolve_chardef(ro, rec.attr("boundary").unwrap_or(""))?)
+        }
         "OptionalSegmentSequence" => {
             let min: u32 = match rec.attr_ne("min") {
                 Some(s) => s
@@ -936,7 +995,11 @@ fn load_one_pattern_node(
                     .map_err(|_| GrammarError::Semantic(format!("bad max '{s}'")))?,
                 None => -1,
             };
-            let max = if max_raw < 0 { None } else { Some(max_raw as u32) };
+            let max = if max_raw < 0 {
+                None
+            } else {
+                Some(max_raw as u32)
+            };
             let children = load_pattern_nodes(rec, vars, default_table, ro)?;
             PatternNode::Quantifier { min, max, children }
         }
@@ -1070,8 +1133,12 @@ fn load_allomorph_environments(
     let empty_vars = VarTable::default();
     if let Some(block) = envs {
         for env in block.elems("Environment") {
-            let left_pt = env.child("LeftEnvironment").and_then(|n| n.child("PhoneticTemplate"));
-            let right_pt = env.child("RightEnvironment").and_then(|n| n.child("PhoneticTemplate"));
+            let left_pt = env
+                .child("LeftEnvironment")
+                .and_then(|n| n.child("PhoneticTemplate"));
+            let right_pt = env
+                .child("RightEnvironment")
+                .and_then(|n| n.child("PhoneticTemplate"));
             out.push(EnvironmentDef {
                 require,
                 left: load_phonetic_template(left_pt, &empty_vars, default_table, ro)?,
@@ -1106,7 +1173,8 @@ fn load_rewrite_rule(pr: &Node, ro: &Ro) -> Result<RewriteRuleDef, GrammarError>
     // Phonological rules have no default char-def table context; Segments there carry their own.
     let default_table = TableId(0);
     let lhs = load_phonetic_sequence(
-        pr.child("PhoneticInput").and_then(|n| n.child("PhoneticSequence")),
+        pr.child("PhoneticInput")
+            .and_then(|n| n.child("PhoneticSequence")),
         &vars,
         default_table,
         ro,
@@ -1117,7 +1185,14 @@ fn load_rewrite_rule(pr: &Node, ro: &Ro) -> Result<RewriteRuleDef, GrammarError>
         .elems2("PhonologicalSubrules", "PhonologicalSubrule")
         .filter(|e| e.is_active())
     {
-        subrules.push(load_rewrite_subrule(sub, &vars, default_table, ro, mode, &lhs)?);
+        subrules.push(load_rewrite_subrule(
+            sub,
+            &vars,
+            default_table,
+            ro,
+            mode,
+            &lhs,
+        )?);
     }
 
     Ok(RewriteRuleDef {
@@ -1156,7 +1231,8 @@ fn load_rewrite_subrule(
     let required_mpr = load_mpr_set(sub.attr("requiredMPRFeatures"), ro.mpr)?;
     let excluded_mpr = load_mpr_set(sub.attr("excludedMPRFeatures"), ro.mpr)?;
     let rhs = load_phonetic_sequence(
-        sub.child("PhoneticOutput").and_then(|n| n.child("PhoneticSequence")),
+        sub.child("PhoneticOutput")
+            .and_then(|n| n.child("PhoneticSequence")),
         vars,
         default_table,
         ro,
@@ -1165,8 +1241,12 @@ fn load_rewrite_subrule(
     let (left_env, right_env) = match sub.child("Environment") {
         None => (None, None),
         Some(env) => {
-            let left_pt = env.child("LeftEnvironment").and_then(|n| n.child("PhoneticTemplate"));
-            let right_pt = env.child("RightEnvironment").and_then(|n| n.child("PhoneticTemplate"));
+            let left_pt = env
+                .child("LeftEnvironment")
+                .and_then(|n| n.child("PhoneticTemplate"));
+            let right_pt = env
+                .child("RightEnvironment")
+                .and_then(|n| n.child("PhoneticTemplate"));
             (
                 load_phonetic_template(left_pt, vars, default_table, ro)?,
                 load_phonetic_template(right_pt, vars, default_table, ro)?,
@@ -1174,8 +1254,15 @@ fn load_rewrite_subrule(
         }
     };
 
-    let self_opaquing =
-        compute_self_opaquing(ro, default_table, mode, lhs, &rhs, left_env.as_ref(), right_env.as_ref());
+    let self_opaquing = compute_self_opaquing(
+        ro,
+        default_table,
+        mode,
+        lhs,
+        &rhs,
+        left_env.as_ref(),
+        right_env.as_ref(),
+    );
 
     Ok(RewriteSubruleDef {
         required_pos,
@@ -1259,10 +1346,12 @@ fn env_nodes_unifiable(
         }
         PatternNode::Context(_) | PatternNode::CharDef(_) => {
             let node_pins = pattern_node_pin_bits(phon, table, natural_classes, n);
-            rhs_pins.iter().all(|&(f, bits)| match node_pins.iter().find(|&&(nf, _)| nf == f) {
-                Some(&(_, nbits)) => bits & nbits != 0,
-                None => true,
-            })
+            rhs_pins.iter().all(
+                |&(f, bits)| match node_pins.iter().find(|&&(nf, _)| nf == f) {
+                    Some(&(_, nbits)) => bits & nbits != 0,
+                    None => true,
+                },
+            )
         }
         // Anchor/Segments: no phonological feature pin to violate.
         _ => true,
@@ -1294,7 +1383,9 @@ fn pattern_node_pin_bits(
                     .collect(),
                 NaturalClassKind::Segments(segs) => (0..w)
                     .filter_map(|f| {
-                        let bits = segs.iter().fold(0u64, |acc, cd| acc | table.get(*cd).feature_lanes()[f]);
+                        let bits = segs
+                            .iter()
+                            .fold(0u64, |acc, cd| acc | table.get(*cd).feature_lanes()[f]);
                         (bits != phon.mask(FlatIndex(f as u32))).then_some((f, bits))
                     })
                     .collect(),
@@ -1302,7 +1393,10 @@ fn pattern_node_pin_bits(
         }
         PatternNode::CharDef(cd) => {
             let lanes = table.get(*cd).feature_lanes();
-            (0..w).filter(|&f| lanes[f] != phon.mask(FlatIndex(f as u32))).map(|f| (f, lanes[f])).collect()
+            (0..w)
+                .filter(|&f| lanes[f] != phon.mask(FlatIndex(f as u32)))
+                .map(|f| (f, lanes[f]))
+                .collect()
         }
         _ => Vec::new(),
     }
@@ -1330,12 +1424,12 @@ fn pattern_node_pin_bits(
 /// index into `pattern.nodes` is sufficient and avoids adding an authored-`Group` pattern-node kind
 /// (and the matching `hc_rules::bridge::PatternBridge` case) that would only ever wrap one node.
 fn load_metathesis_rule(pr: &Node, ro: &Ro) -> Result<MetathesisRuleDef, GrammarError> {
-    let left_switch_xml = pr
-        .attr("leftSwitch")
-        .ok_or_else(|| GrammarError::Semantic("MetathesisRule missing required 'leftSwitch' attribute".into()))?;
-    let right_switch_xml = pr
-        .attr("rightSwitch")
-        .ok_or_else(|| GrammarError::Semantic("MetathesisRule missing required 'rightSwitch' attribute".into()))?;
+    let left_switch_xml = pr.attr("leftSwitch").ok_or_else(|| {
+        GrammarError::Semantic("MetathesisRule missing required 'leftSwitch' attribute".into())
+    })?;
+    let right_switch_xml = pr.attr("rightSwitch").ok_or_else(|| {
+        GrammarError::Semantic("MetathesisRule missing required 'rightSwitch' attribute".into())
+    })?;
     // DTD: `multipleApplicationOrder (leftToRightIterative | rightToLeftIterative)` — no
     // `simultaneous` option here (unlike `<PhonologicalRule>`), so no W1.4-style lint is needed.
     let dir = match pr.attr("multipleApplicationOrder") {
@@ -1347,7 +1441,9 @@ fn load_metathesis_rule(pr: &Node, ro: &Ro) -> Result<MetathesisRuleDef, Grammar
         .child("StructuralDescription")
         .and_then(|n| n.child("PhoneticTemplate"))
         .ok_or_else(|| {
-            GrammarError::Semantic("MetathesisRule missing StructuralDescription/PhoneticTemplate".into())
+            GrammarError::Semantic(
+                "MetathesisRule missing StructuralDescription/PhoneticTemplate".into(),
+            )
         })?;
 
     let mut nodes = Vec::new();
@@ -1415,10 +1511,9 @@ fn load_stratum(
     prule_index: &HashMap<String, PRuleId>,
 ) -> Result<StratumDef, GrammarError> {
     let table_xml = stratum.attr("characterDefinitionTable").unwrap_or("");
-    let table = *ro
-        .table
-        .get(table_xml)
-        .ok_or_else(|| GrammarError::Semantic(format!("stratum references unknown table '{table_xml}'")))?;
+    let table = *ro.table.get(table_xml).ok_or_else(|| {
+        GrammarError::Semantic(format!("stratum references unknown table '{table_xml}'"))
+    })?;
     let mrule_order = match stratum.attr("morphologicalRuleOrder") {
         Some("unordered") => MorphRuleOrder::Unordered,
         _ => MorphRuleOrder::Linear,
@@ -1436,7 +1531,10 @@ fn load_stratum(
 
     // Morphological rule definitions (document order), building a local xml-id → MRuleId map.
     let mut local_mr: HashMap<String, MRuleId> = HashMap::new();
-    for mr in stratum.under("MorphologicalRuleDefinitions").filter(|e| e.is_active()) {
+    for mr in stratum
+        .under("MorphologicalRuleDefinitions")
+        .filter(|e| e.is_active())
+    {
         let loaded = match mr.tag.as_str() {
             "MorphologicalRule" => try_load_affix_process_rule(mr, table, stratum_id, ro, acc)?,
             "RealizationalRule" => try_load_realizational_rule(mr, table, stratum_id, ro, acc)?,
@@ -1460,7 +1558,10 @@ fn load_stratum(
 
     // Affix templates (document order).
     let mut templates = Vec::new();
-    for temp in stratum.elems2("AffixTemplates", "AffixTemplate").filter(|e| e.is_active()) {
+    for temp in stratum
+        .elems2("AffixTemplates", "AffixTemplate")
+        .filter(|e| e.is_active())
+    {
         let def = load_affix_template(temp, &local_mr, ro, acc)?;
         let tid = TemplateId(acc.templates.len() as u32);
         acc.templates.push(def);
@@ -1469,7 +1570,10 @@ fn load_stratum(
 
     // Lexical entries (document order; entries with zero loadable allomorphs are dropped).
     let mut entries = Vec::new();
-    for entry in stratum.elems2("LexicalEntries", "LexicalEntry").filter(|e| e.is_active()) {
+    for entry in stratum
+        .elems2("LexicalEntries", "LexicalEntry")
+        .filter(|e| e.is_active())
+    {
         if let Some(eid) = try_load_lex_entry(entry, table, stratum_id, ro, acc)? {
             entries.push(eid);
         }
@@ -1495,16 +1599,29 @@ fn try_load_affix_process_rule(
 ) -> Result<Option<MRuleId>, GrammarError> {
     let mrule_id = MRuleId(acc.mrules.len() as u32);
 
-    let required_syn_fs = intern_syn_fs(acc, mr, ro.syn, Some("requiredPartsOfSpeech"), Some("RequiredHeadFeatures"), Some("RequiredFootFeatures"))?;
-    let out_syn_fs = intern_syn_fs(acc, mr, ro.syn, Some("outputPartOfSpeech"), Some("OutputHeadFeatures"), Some("OutputFootFeatures"))?;
+    let required_syn_fs = intern_syn_fs(
+        acc,
+        mr,
+        ro.syn,
+        Some("requiredPartsOfSpeech"),
+        Some("RequiredHeadFeatures"),
+        Some("RequiredFootFeatures"),
+    )?;
+    let out_syn_fs = intern_syn_fs(
+        acc,
+        mr,
+        ro.syn,
+        Some("outputPartOfSpeech"),
+        Some("OutputHeadFeatures"),
+        Some("OutputFootFeatures"),
+    )?;
 
     let mut obligatory_features = Vec::new();
     if let Some(ids) = mr.attr_ne("outputObligatoryFeatures") {
         for id in ids.split_whitespace() {
-            let fid = ro
-                .syn
-                .feature_by_xml_id(id)
-                .ok_or_else(|| GrammarError::Semantic(format!("unknown obligatory feature '{id}'")))?;
+            let fid = ro.syn.feature_by_xml_id(id).ok_or_else(|| {
+                GrammarError::Semantic(format!("unknown obligatory feature '{id}'"))
+            })?;
             obligatory_features.push(fid);
         }
     }
@@ -1557,27 +1674,30 @@ fn try_load_affix_process_rule(
     // `requiredStemName` (W5, `XmlLanguageLoader.cs:908-910`).
     let required_stem_name = match mr.attr_ne("requiredStemName") {
         Some(sid) => Some(*ro.stem_names.get(sid).ok_or_else(|| {
-            GrammarError::Semantic(format!("MorphologicalRule references unknown requiredStemName '{sid}'"))
+            GrammarError::Semantic(format!(
+                "MorphologicalRule references unknown requiredStemName '{sid}'"
+            ))
         })?),
         None => None,
     };
 
-    acc.mrules.push(MorphRuleDef::AffixProcess(AffixProcessRuleDef {
-        morpheme,
-        name: mr.text_of("Name").map(str::to_string),
-        blockable: parse_bool(mr.attr("blockable"), true),
-        partial: parse_bool(mr.attr("partial"), false),
-        max_apps,
-        required_syn_fs,
-        out_syn_fs,
-        obligatory_features,
-        required_stem_name,
-        allomorphs,
-        // Set by the post-pass in `load()` once every stratum's templates are known — default
-        // `false` here, same as every other not-yet-known-at-construction-time field pattern in
-        // this loader.
-        is_template_rule: false,
-    }));
+    acc.mrules
+        .push(MorphRuleDef::AffixProcess(AffixProcessRuleDef {
+            morpheme,
+            name: mr.text_of("Name").map(str::to_string),
+            blockable: parse_bool(mr.attr("blockable"), true),
+            partial: parse_bool(mr.attr("partial"), false),
+            max_apps,
+            required_syn_fs,
+            out_syn_fs,
+            obligatory_features,
+            required_stem_name,
+            allomorphs,
+            // Set by the post-pass in `load()` once every stratum's templates are known — default
+            // `false` here, same as every other not-yet-known-at-construction-time field pattern in
+            // this loader.
+            is_template_rule: false,
+        }));
     Ok(Some(mrule_id))
 }
 
@@ -1596,7 +1716,14 @@ fn try_load_realizational_rule(
 
     // No `requiredPartsOfSpeech`/POS attribute on `<RealizationalRule>` (DTD + loader both omit
     // it) — head/foot only, foot dead as everywhere else.
-    let required_syn_fs = intern_syn_fs(acc, real, ro.syn, None, Some("RequiredHeadFeatures"), Some("RequiredFootFeatures"))?;
+    let required_syn_fs = intern_syn_fs(
+        acc,
+        real,
+        ro.syn,
+        None,
+        Some("RequiredHeadFeatures"),
+        Some("RequiredFootFeatures"),
+    )?;
 
     // `<RealizationalFeatures>` wrapped in the head feature (`XmlLanguageLoader.cs:972-980`):
     // `FeatureStruct.New().Feature(_headFeature).EqualTo(LoadFeatureStruct(realFeatElem, ...))`.
@@ -1645,14 +1772,15 @@ fn try_load_realizational_rule(
         co_occurrence: Vec::new(),
     });
 
-    acc.mrules.push(MorphRuleDef::Realizational(RealizationalRuleDef {
-        morpheme,
-        name: real.text_of("Name").map(str::to_string),
-        blockable: parse_bool(real.attr("blockable"), true),
-        required_syn_fs,
-        real_fs,
-        allomorphs,
-    }));
+    acc.mrules
+        .push(MorphRuleDef::Realizational(RealizationalRuleDef {
+            morpheme,
+            name: real.text_of("Name").map(str::to_string),
+            blockable: parse_bool(real.attr("blockable"), true),
+            required_syn_fs,
+            real_fs,
+            allomorphs,
+        }));
     Ok(Some(mrule_id))
 }
 
@@ -1663,12 +1791,8 @@ fn load_affix_allomorph(
     ro: &Ro,
     acc: &mut Acc,
 ) -> Result<AffixAllomorphDef, GrammarError> {
-    let mut environments = load_allomorph_environments(
-        sub.child("RequiredEnvironments"),
-        true,
-        default_table,
-        ro,
-    )?;
+    let mut environments =
+        load_allomorph_environments(sub.child("RequiredEnvironments"), true, default_table, ro)?;
     environments.extend(load_allomorph_environments(
         sub.child("ExcludedEnvironments"),
         false,
@@ -1677,23 +1801,38 @@ fn load_affix_allomorph(
     )?);
 
     // Subrule-level requirement FS carries head/foot only (no POS), per LoadAffixProcessAllomorph.
-    let required_syn_fs = intern_syn_fs(acc, sub, ro.syn, None, Some("RequiredHeadFeatures"), Some("RequiredFootFeatures"))?;
+    let required_syn_fs = intern_syn_fs(
+        acc,
+        sub,
+        ro.syn,
+        None,
+        Some("RequiredHeadFeatures"),
+        Some("RequiredFootFeatures"),
+    )?;
 
     let vars = load_variables(sub.child("VariableFeatures"), ro.phon)?;
 
-    let input = sub
-        .child("MorphologicalInput")
-        .ok_or_else(|| GrammarError::Semantic("MorphologicalSubrule without MorphologicalInput".into()))?;
+    let input = sub.child("MorphologicalInput").ok_or_else(|| {
+        GrammarError::Semantic("MorphologicalSubrule without MorphologicalInput".into())
+    })?;
     let required_mpr = load_mpr_set(input.attr("requiredMPRFeatures"), ro.mpr)?;
     let excluded_mpr = load_mpr_set(input.attr("excludedMPRFeatures"), ro.mpr)?;
 
     let mut lhs = Vec::new();
     let mut part_names: HashMap<String, PartRef> = HashMap::new();
-    load_morph_lhs(input, &vars, default_table, ro, PartKind::Input, &mut lhs, &mut part_names)?;
+    load_morph_lhs(
+        input,
+        &vars,
+        default_table,
+        ro,
+        PartKind::Input,
+        &mut lhs,
+        &mut part_names,
+    )?;
 
-    let output = sub
-        .child("MorphologicalOutput")
-        .ok_or_else(|| GrammarError::Semantic("MorphologicalSubrule without MorphologicalOutput".into()))?;
+    let output = sub.child("MorphologicalOutput").ok_or_else(|| {
+        GrammarError::Semantic("MorphologicalSubrule without MorphologicalOutput".into())
+    })?;
     let out_mpr = load_mpr_set(output.attr("MPRFeatures"), ro.mpr)?;
     let redup_hint = match output.attr("redupMorphType") {
         Some("prefix") => ReduplicationHint::Prefix,
@@ -1750,25 +1889,27 @@ fn load_morph_rhs(
         match part.tag.as_str() {
             "CopyFromInput" => {
                 let idx = part.attr("index").unwrap_or("");
-                let pr = *part_names
-                    .get(idx)
-                    .ok_or_else(|| GrammarError::Semantic(format!("CopyFromInput unknown part '{idx}'")))?;
+                let pr = *part_names.get(idx).ok_or_else(|| {
+                    GrammarError::Semantic(format!("CopyFromInput unknown part '{idx}'"))
+                })?;
                 rhs.push(OutputAction::Copy(pr));
             }
             "InsertSimpleContext" => {
-                let sc = part
-                    .child("SimpleContext")
-                    .ok_or_else(|| GrammarError::Semantic("InsertSimpleContext without SimpleContext".into()))?;
-                rhs.push(OutputAction::InsertContext(load_simple_context(sc, vars, ro)?));
+                let sc = part.child("SimpleContext").ok_or_else(|| {
+                    GrammarError::Semantic("InsertSimpleContext without SimpleContext".into())
+                })?;
+                rhs.push(OutputAction::InsertContext(load_simple_context(
+                    sc, vars, ro,
+                )?));
             }
             "ModifyFromInput" => {
                 let idx = part.attr("index").unwrap_or("");
-                let pr = *part_names
-                    .get(idx)
-                    .ok_or_else(|| GrammarError::Semantic(format!("ModifyFromInput unknown part '{idx}'")))?;
-                let sc = part
-                    .child("SimpleContext")
-                    .ok_or_else(|| GrammarError::Semantic("ModifyFromInput without SimpleContext".into()))?;
+                let pr = *part_names.get(idx).ok_or_else(|| {
+                    GrammarError::Semantic(format!("ModifyFromInput unknown part '{idx}'"))
+                })?;
+                let sc = part.child("SimpleContext").ok_or_else(|| {
+                    GrammarError::Semantic("ModifyFromInput without SimpleContext".into())
+                })?;
                 rhs.push(OutputAction::Modify(pr, load_simple_context(sc, vars, ro)?));
             }
             "InsertSegments" => {
@@ -1815,21 +1956,28 @@ fn try_load_compounding_rule(
         Some("NonHeadRequiredHeadFeatures"),
         Some("NonHeadRequiredFootFeatures"),
     )?;
-    let out_syn_fs =
-        intern_syn_fs(acc, comp, ro.syn, Some("outputPartOfSpeech"), Some("OutputHeadFeatures"), Some("OutputFootFeatures"))?;
+    let out_syn_fs = intern_syn_fs(
+        acc,
+        comp,
+        ro.syn,
+        Some("outputPartOfSpeech"),
+        Some("OutputHeadFeatures"),
+        Some("OutputFootFeatures"),
+    )?;
 
-    let head_prod_restrictions_mpr = load_mpr_set(comp.attr("headProdRestrictionsMprFeatures"), ro.mpr)?;
+    let head_prod_restrictions_mpr =
+        load_mpr_set(comp.attr("headProdRestrictionsMprFeatures"), ro.mpr)?;
     let non_head_prod_restrictions_mpr =
         load_mpr_set(comp.attr("nonHeadProdRestrictionsMprFeatures"), ro.mpr)?;
-    let output_prod_restrictions_mpr = load_mpr_set(comp.attr("outputProdRestrictionsMprFeatures"), ro.mpr)?;
+    let output_prod_restrictions_mpr =
+        load_mpr_set(comp.attr("outputProdRestrictionsMprFeatures"), ro.mpr)?;
 
     let mut obligatory_features = Vec::new();
     if let Some(ids) = comp.attr_ne("outputObligatoryFeatures") {
         for id in ids.split_whitespace() {
-            let fid = ro
-                .syn
-                .feature_by_xml_id(id)
-                .ok_or_else(|| GrammarError::Semantic(format!("unknown obligatory feature '{id}'")))?;
+            let fid = ro.syn.feature_by_xml_id(id).ok_or_else(|| {
+                GrammarError::Semantic(format!("unknown obligatory feature '{id}'"))
+            })?;
             obligatory_features.push(fid);
         }
     }
@@ -1857,20 +2005,21 @@ fn try_load_compounding_rule(
         return Ok(None);
     }
 
-    acc.mrules.push(MorphRuleDef::Compounding(CompoundingRuleDef {
-        xml_id: comp.attr("id").unwrap_or("").to_string(),
-        name: comp.text_of("Name").map(str::to_string),
-        blockable: parse_bool(comp.attr("blockable"), true),
-        max_apps,
-        head_required_syn_fs,
-        non_head_required_syn_fs,
-        out_syn_fs,
-        head_prod_restrictions_mpr,
-        non_head_prod_restrictions_mpr,
-        output_prod_restrictions_mpr,
-        obligatory_features,
-        subrules,
-    }));
+    acc.mrules
+        .push(MorphRuleDef::Compounding(CompoundingRuleDef {
+            xml_id: comp.attr("id").unwrap_or("").to_string(),
+            name: comp.text_of("Name").map(str::to_string),
+            blockable: parse_bool(comp.attr("blockable"), true),
+            max_apps,
+            head_required_syn_fs,
+            non_head_required_syn_fs,
+            out_syn_fs,
+            head_prod_restrictions_mpr,
+            non_head_prod_restrictions_mpr,
+            output_prod_restrictions_mpr,
+            obligatory_features,
+            subrules,
+        }));
     Ok(Some(mrule_id))
 }
 
@@ -1881,25 +2030,41 @@ fn load_compounding_subrule(
 ) -> Result<CompoundingSubruleDef, GrammarError> {
     let vars = load_variables(sub.child("VariableFeatures"), ro.phon)?;
 
-    let head = sub
-        .child("HeadMorphologicalInput")
-        .ok_or_else(|| GrammarError::Semantic("CompoundingSubrule without HeadMorphologicalInput".into()))?;
+    let head = sub.child("HeadMorphologicalInput").ok_or_else(|| {
+        GrammarError::Semantic("CompoundingSubrule without HeadMorphologicalInput".into())
+    })?;
     let required_mpr = load_mpr_set(head.attr("requiredMPRFeatures"), ro.mpr)?;
     let excluded_mpr = load_mpr_set(head.attr("excludedMPRFeatures"), ro.mpr)?;
 
     let mut head_lhs = Vec::new();
     let mut non_head_lhs = Vec::new();
     let mut part_names: HashMap<String, PartRef> = HashMap::new();
-    load_morph_lhs(head, &vars, default_table, ro, PartKind::Head, &mut head_lhs, &mut part_names)?;
+    load_morph_lhs(
+        head,
+        &vars,
+        default_table,
+        ro,
+        PartKind::Head,
+        &mut head_lhs,
+        &mut part_names,
+    )?;
 
-    let non_head = sub
-        .child("NonHeadMorphologicalInput")
-        .ok_or_else(|| GrammarError::Semantic("CompoundingSubrule without NonHeadMorphologicalInput".into()))?;
-    load_morph_lhs(non_head, &vars, default_table, ro, PartKind::NonHead, &mut non_head_lhs, &mut part_names)?;
+    let non_head = sub.child("NonHeadMorphologicalInput").ok_or_else(|| {
+        GrammarError::Semantic("CompoundingSubrule without NonHeadMorphologicalInput".into())
+    })?;
+    load_morph_lhs(
+        non_head,
+        &vars,
+        default_table,
+        ro,
+        PartKind::NonHead,
+        &mut non_head_lhs,
+        &mut part_names,
+    )?;
 
-    let output = sub
-        .child("MorphologicalOutput")
-        .ok_or_else(|| GrammarError::Semantic("CompoundingSubrule without MorphologicalOutput".into()))?;
+    let output = sub.child("MorphologicalOutput").ok_or_else(|| {
+        GrammarError::Semantic("CompoundingSubrule without MorphologicalOutput".into())
+    })?;
     let out_mpr = load_mpr_set(output.attr("MPRFeatures"), ro.mpr)?;
     let rhs = load_morph_rhs(output, &vars, &part_names, default_table, ro)?;
 
@@ -1920,7 +2085,8 @@ fn load_affix_template(
     ro: &Ro,
     acc: &mut Acc,
 ) -> Result<AffixTemplateDef, GrammarError> {
-    let required_syn_fs = intern_syn_fs(acc, temp, ro.syn, Some("requiredPartsOfSpeech"), None, None)?;
+    let required_syn_fs =
+        intern_syn_fs(acc, temp, ro.syn, Some("requiredPartsOfSpeech"), None, None)?;
 
     let mut slots = Vec::new();
     for slot in temp.elems("Slot").filter(|e| e.is_active()) {
@@ -1966,13 +2132,23 @@ fn try_load_lex_entry(
         None => None,
     };
 
-    let syn_fs = intern_syn_fs(acc, entry, ro.syn, Some("partOfSpeech"), Some("AssignedHeadFeatures"), Some("AssignedFootFeatures"))?;
+    let syn_fs = intern_syn_fs(
+        acc,
+        entry,
+        ro.syn,
+        Some("partOfSpeech"),
+        Some("AssignedHeadFeatures"),
+        Some("AssignedFootFeatures"),
+    )?;
     let mpr = load_mpr_set(entry.attr("ruleFeatures"), ro.mpr)?;
     let partial = parse_bool(entry.attr("partial"), false);
 
     let lex_id = LexEntryId(acc.entries.len() as u32);
     let mut allomorphs = Vec::new();
-    for allo in entry.elems2("Allomorphs", "Allomorph").filter(|e| e.is_active()) {
+    for allo in entry
+        .elems2("Allomorphs", "Allomorph")
+        .filter(|e| e.is_active())
+    {
         let allo_id = AllomorphId(acc.allomorph_owners.len() as u32);
         match load_root_allomorph(allo, default_table, allo_id, ro) {
             Ok(def) => {
@@ -2029,20 +2205,21 @@ fn load_root_allomorph(
     // Finding N3: `LoadRootAllomorph` is C#'s one `allowPattern = true` call site — root-allomorph
     // shapes fall back to the `[NatClass]`/`([NatClass])`/`[NatClass]*` pattern language wherever a
     // literal character-definition match fails, instead of erroring the whole allomorph out.
-    let shape = segment_text_with_patterns(default_table, shape_str, ro.phon, ro.natural_class_defs)?;
+    let shape =
+        segment_text_with_patterns(default_table, shape_str, ro.phon, ro.natural_class_defs)?;
     // C# throws InvalidShapeException (→ dropped) if the shape is entirely boundary markers.
-    if shape.shape.interior().all(|(_, k, _, _)| k == NodeKind::Boundary) {
+    if shape
+        .shape
+        .interior()
+        .all(|(_, k, _, _)| k == NodeKind::Boundary)
+    {
         return Err(GrammarError::Semantic(format!(
             "root allomorph shape {shape_str:?} is all boundaries"
         )));
     }
 
-    let mut environments = load_allomorph_environments(
-        allo.child("RequiredEnvironments"),
-        true,
-        default_table,
-        ro,
-    )?;
+    let mut environments =
+        load_allomorph_environments(allo.child("RequiredEnvironments"), true, default_table, ro)?;
     environments.extend(load_allomorph_environments(
         allo.child("ExcludedEnvironments"),
         false,
@@ -2118,7 +2295,10 @@ impl Grammar {
                 SynFeatureKind::Symbolic {
                     symbols,
                     default_symbol,
-                } => format!("Symbolic symbols={} default={default_symbol:?}", symbols.len()),
+                } => format!(
+                    "Symbolic symbols={} default={default_symbol:?}",
+                    symbols.len()
+                ),
                 SynFeatureKind::Complex => "Complex".to_string(),
             };
             let _ = writeln!(out, "  feat[{i}] id={} name={} {kind}", f.xml_id, f.name);
@@ -2307,13 +2487,33 @@ mod tests {
         let xml = std::fs::read_to_string(&path).expect("read grammar");
         let g = load(&xml).unwrap_or_else(|e| panic!("failed to load {xml_name}: {e}"));
 
-        assert_eq!(g.syn_features.features.len(), expect_syn_features, "{xml_name}: syn features");
+        assert_eq!(
+            g.syn_features.features.len(),
+            expect_syn_features,
+            "{xml_name}: syn features"
+        );
         assert_eq!(pos_symbol_count(&g), expect_pos, "{xml_name}: POS symbols");
-        assert_eq!(g.natural_classes.len(), expect_nat_classes, "{xml_name}: natural classes");
-        assert_eq!(g.prules.len(), expect_prules, "{xml_name}: phonological rules");
-        assert_eq!(g.mrules.len(), expect_mrules, "{xml_name}: morphological rules");
+        assert_eq!(
+            g.natural_classes.len(),
+            expect_nat_classes,
+            "{xml_name}: natural classes"
+        );
+        assert_eq!(
+            g.prules.len(),
+            expect_prules,
+            "{xml_name}: phonological rules"
+        );
+        assert_eq!(
+            g.mrules.len(),
+            expect_mrules,
+            "{xml_name}: morphological rules"
+        );
         assert_eq!(g.templates.len(), expect_templates, "{xml_name}: templates");
-        assert_eq!(g.entries.len(), expect_entries, "{xml_name}: lexical entries");
+        assert_eq!(
+            g.entries.len(),
+            expect_entries,
+            "{xml_name}: lexical entries"
+        );
         assert_eq!(g.strata.len(), expect_strata, "{xml_name}: strata");
 
         // Every morphological AffixProcess rule and every lexical entry is a morpheme.
@@ -2329,7 +2529,10 @@ mod tests {
         );
 
         // The empty FS is always interned first (FsId 0).
-        assert!(!g.fs_interner.is_empty(), "{xml_name}: empty FS must be interned");
+        assert!(
+            !g.fs_interner.is_empty(),
+            "{xml_name}: empty FS must be interned"
+        );
     }
 
     #[test]
@@ -2493,7 +2696,10 @@ mod tests {
         assert_eq!(a.allomorphs.len(), 1);
         assert!(a.allomorphs[0].out_mpr.contains(MprId(0)));
         // The RHS copies the captured input part then inserts "+b".
-        assert!(matches!(a.allomorphs[0].rhs[0], OutputAction::Copy(PartRef::Input(0))));
+        assert!(matches!(
+            a.allomorphs[0].rhs[0],
+            OutputAction::Copy(PartRef::Input(0))
+        ));
     }
 
     /// Finding N3: a root-allomorph `<PhoneticShape>` whose text doesn't literally match a
@@ -2558,7 +2764,11 @@ mod tests {
         let e_id = g.char_tables[0].lookup_nfd("e").unwrap();
         assert_eq!(interior[0].2, g.char_tables[0].lookup_nfd("b").unwrap().0);
         assert_eq!(interior[2].2, g.char_tables[0].lookup_nfd("t").unwrap().0);
-        assert_eq!(interior[1].2, hc_shape::NO_CHAR_DEF, "the class reference is an abstract node");
+        assert_eq!(
+            interior[1].2,
+            hc_shape::NO_CHAR_DEF,
+            "the class reference is an abstract node"
+        );
         match shape.node_cd_set(interior[1].0) {
             hc_shape::EffectiveCdSet::Members(b) => {
                 assert!(b.contains(a_id.0) && b.contains(e_id.0));
@@ -2628,15 +2838,25 @@ mod tests {
 </HermitCrabInput>
 "#;
         let g = load(XML).unwrap_or_else(|e| panic!("grammar failed to load: {e}"));
-        assert_eq!(g.entries.len(), 5, "every entry must survive with its one allomorph");
+        assert_eq!(
+            g.entries.len(),
+            5,
+            "every entry must survive with its one allomorph"
+        );
         let is_pattern = |i: usize| {
             let e = &g.entries[i];
             assert_eq!(e.allomorphs.len(), 1, "entry {i}: exactly one allomorph");
             e.allomorphs[0].is_pattern
         };
         assert!(is_pattern(0), "[Any]* : iterative -> pattern");
-        assert!(is_pattern(1), "([Vowel]) : optional, not a boundary -> pattern");
-        assert!(!is_pattern(2), "b[Vowel]t : mandatory (non-optional, non-iterative) class -> NOT a pattern");
+        assert!(
+            is_pattern(1),
+            "([Vowel]) : optional, not a boundary -> pattern"
+        );
+        assert!(
+            !is_pattern(2),
+            "b[Vowel]t : mandatory (non-optional, non-iterative) class -> NOT a pattern"
+        );
         assert!(!is_pattern(3), "pit : plain literal shape -> NOT a pattern");
         assert!(
             !is_pattern(4),
@@ -2660,7 +2880,10 @@ mod tests {
           <FootFeatures><SymbolicFeature id="f"><Name>x</Name><Symbols><Symbol id="s">+</Symbol></Symbols></SymbolicFeature></FootFeatures>
         </Language></HermitCrabInput>"#;
         let g = load(XML).expect("FootFeatures must load, not lint unsupported");
-        assert!(g.syn_features.foot.is_some(), "foot complex feature must be present");
+        assert!(
+            g.syn_features.foot.is_some(),
+            "foot complex feature must be present"
+        );
         assert!(
             g.syn_features.feature_by_xml_id("f").is_some(),
             "foot-declared feature 'f' must join the syntactic feature namespace"
@@ -2777,8 +3000,14 @@ mod tests {
         let g = load(XML).unwrap();
 
         // AffixTemplate final: omitted -> true (the bug), explicit "false" -> false.
-        assert!(g.templates[0].is_final, "AffixTemplate final defaults to true per DTD");
-        assert!(!g.templates[1].is_final, "explicit final=\"false\" must still be honored");
+        assert!(
+            g.templates[0].is_final,
+            "AffixTemplate final defaults to true per DTD"
+        );
+        assert!(
+            !g.templates[1].is_final,
+            "explicit final=\"false\" must still be honored"
+        );
 
         // Slot optional: omitted -> false.
         assert!(!g.templates[0].slots[0].optional);
@@ -2787,15 +3016,27 @@ mod tests {
         let MorphRuleDef::AffixProcess(mr1) = &g.mrules[0] else {
             panic!("expected affix process rule");
         };
-        assert!(mr1.blockable, "MorphologicalRule blockable defaults to true per DTD");
-        assert!(!mr1.partial, "MorphologicalRule partial defaults to false per DTD");
-        assert_eq!(mr1.max_apps, 1, "MorphologicalRule multipleApplication defaults to 1 per DTD");
+        assert!(
+            mr1.blockable,
+            "MorphologicalRule blockable defaults to true per DTD"
+        );
+        assert!(
+            !mr1.partial,
+            "MorphologicalRule partial defaults to false per DTD"
+        );
+        assert_eq!(
+            mr1.max_apps, 1,
+            "MorphologicalRule multipleApplication defaults to 1 per DTD"
+        );
 
         // MorphologicalOutput redupMorphType: omitted -> Implicit.
         assert_eq!(mr1.allomorphs[0].redup_hint, ReduplicationHint::Implicit);
 
         // Allomorph isBound: omitted -> false.
-        assert!(!g.entries[0].allomorphs[0].is_bound, "Allomorph isBound defaults to false per DTD");
+        assert!(
+            !g.entries[0].allomorphs[0].is_bound,
+            "Allomorph isBound defaults to false per DTD"
+        );
 
         // MorphologicalPhonologicalRuleFeatureGroup matchType/outputType: both omitted.
         assert_eq!(g.mpr_groups[0].match_type, MprGroupMatchType::Any);
@@ -2840,7 +3081,11 @@ mod tests {
         let PhonRuleDef::Rewrite(pr0) = &g.prules[0] else {
             panic!("expected a rewrite rule");
         };
-        assert_eq!(pr0.mode, RewriteMode::Simultaneous, "multipleApplicationOrder=\"simultaneous\" must round-trip");
+        assert_eq!(
+            pr0.mode,
+            RewriteMode::Simultaneous,
+            "multipleApplicationOrder=\"simultaneous\" must round-trip"
+        );
 
         // Sanity: the same rule with `leftToRightIterative` (the default) must still load fine and
         // round-trip Iterative — confirms this isn't a blanket "always Simultaneous now" bug.
@@ -2934,7 +3179,9 @@ mod tests {
         </Language></HermitCrabInput>"#;
         let g = load(XML).unwrap_or_else(|e| panic!("self-opaquing probe grammar must load: {e}"));
         let rewrite = |i: usize| -> &RewriteRuleDef {
-            let PhonRuleDef::Rewrite(r) = &g.prules[i] else { panic!("expected a rewrite rule at {i}") };
+            let PhonRuleDef::Rewrite(r) = &g.prules[i] else {
+                panic!("expected a rewrite rule at {i}")
+            };
             r
         };
         assert!(
@@ -2949,7 +3196,10 @@ mod tests {
             !rewrite(2).subrules[0].self_opaquing,
             "prC: same patterns as prB but Iterative mode -> mode gate short-circuits to false"
         );
-        assert!(rewrite(3).subrules[0].self_opaquing, "prD: Epenthesis + Simultaneous is unconditionally self-opaquing");
+        assert!(
+            rewrite(3).subrules[0].self_opaquing,
+            "prD: Epenthesis + Simultaneous is unconditionally self-opaquing"
+        );
         assert!(
             !rewrite(4).subrules[0].self_opaquing,
             "prE: Narrow/Expansion is irrelevant/always false regardless of rule.mode"
@@ -2962,15 +3212,23 @@ mod tests {
     fn pos_grammar_with_n_symbols(n: usize) -> String {
         let mut pos = String::new();
         for i in 0..n {
-            pos.push_str(&format!(r#"<PartOfSpeech id="p{i}"><Name>p{i}</Name></PartOfSpeech>"#));
+            pos.push_str(&format!(
+                r#"<PartOfSpeech id="p{i}"><Name>p{i}</Name></PartOfSpeech>"#
+            ));
         }
-        format!(r#"<HermitCrabInput><Language><Name>X</Name><PartsOfSpeech>{pos}</PartsOfSpeech></Language></HermitCrabInput>"#)
+        format!(
+            r#"<HermitCrabInput><Language><Name>X</Name><PartsOfSpeech>{pos}</PartsOfSpeech></Language></HermitCrabInput>"#
+        )
     }
 
     #[test]
     fn pos_symbol_cap_63_ok_64_rejected() {
         let ok = load(&pos_grammar_with_n_symbols(63));
-        assert!(ok.is_ok(), "63 parts of speech must load fine: {:?}", ok.err());
+        assert!(
+            ok.is_ok(),
+            "63 parts of speech must load fine: {:?}",
+            ok.err()
+        );
         let bad = load(&pos_grammar_with_n_symbols(64));
         assert!(
             matches!(bad, Err(GrammarError::Unsupported(_))),
@@ -2995,7 +3253,11 @@ mod tests {
     #[test]
     fn phonological_symbolic_feature_cap_63_ok_64_rejected() {
         let ok = load(&phon_feature_grammar_with_n_symbols(63));
-        assert!(ok.is_ok(), "a 63-symbol phonological feature must load fine: {:?}", ok.err());
+        assert!(
+            ok.is_ok(),
+            "a 63-symbol phonological feature must load fine: {:?}",
+            ok.err()
+        );
         let bad = load(&phon_feature_grammar_with_n_symbols(64));
         assert!(
             matches!(bad, Err(GrammarError::Unsupported(_))),

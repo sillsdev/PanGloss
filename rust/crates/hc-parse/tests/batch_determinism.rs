@@ -43,7 +43,11 @@ fn indonesian_batch_is_thread_count_invariant() {
         .map(|w| w.trim().to_string())
         .filter(|w| !w.is_empty())
         .collect();
-    assert!(words.len() >= 50, "expected the full Indonesian corpus, got {}", words.len());
+    assert!(
+        words.len() >= 50,
+        "expected the full Indonesian corpus, got {}",
+        words.len()
+    );
 
     let morpher = Morpher::new(&grammar, usize::MAX).with_memo(true);
 
@@ -51,7 +55,11 @@ fn indonesian_batch_is_thread_count_invariant() {
     let mut runs: Vec<Vec<String>> = Vec::new();
     for &threads in &thread_counts {
         let results = hc_parse_batch(&morpher, &words, threads);
-        assert_eq!(results.len(), words.len(), "threads={threads}: result count must match word count");
+        assert_eq!(
+            results.len(),
+            words.len(),
+            "threads={threads}: result count must match word count"
+        );
         let sigs: Vec<String> = results.iter().map(|r| r.outcome.signature()).collect();
         runs.push(sigs);
     }

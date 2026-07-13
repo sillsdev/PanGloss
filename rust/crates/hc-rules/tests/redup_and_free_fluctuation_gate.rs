@@ -55,7 +55,12 @@ fn shape_with_lanes(g: &Grammar, text: &str) -> Shape {
     let mut b = ShapeBuilder::with_features_capacity(w, seg.len());
     for (_, kind, cd, _) in seg.interior() {
         let mut lanes = vec![u64::MAX; w as usize];
-        for (i, &l) in t.get(hc_grammar::chardef::CharDefId(cd)).feature_lanes().iter().enumerate() {
+        for (i, &l) in t
+            .get(hc_grammar::chardef::CharDefId(cd))
+            .feature_lanes()
+            .iter()
+            .enumerate()
+        {
             lanes[i] = l;
         }
         match kind {
@@ -69,7 +74,11 @@ fn shape_with_lanes(g: &Grammar, text: &str) -> Shape {
 
 fn root_word(g: &Grammar, text: &str, morpheme: u32) -> Word {
     let mut w = Word::new(shape_with_lanes(g, text), StratumId(0));
-    w.morphs.push(MorphRecord::new(AllomorphId(morpheme), MorphemeId(morpheme), 0));
+    w.morphs.push(MorphRecord::new(
+        AllomorphId(morpheme),
+        MorphemeId(morpheme),
+        0,
+    ));
     w
 }
 
@@ -88,12 +97,20 @@ fn one_or_more(nc: &str, g: &Grammar) -> Pattern {
 }
 
 fn single(nc: &str, g: &Grammar) -> Pattern {
-    Pattern { nodes: vec![PatternNode::Context(ctx(nc, g))] }
+    Pattern {
+        nodes: vec![PatternNode::Context(ctx(nc, g))],
+    }
 }
 
 fn insert_segments(g: &Grammar, text: &str) -> OutputAction {
     let shape = hc_grammar::segment::segment(&g.char_tables[0], text).expect("segments");
-    OutputAction::InsertSegments { table: TableId(0), shape: SegmentedText { text: text.to_string(), shape } }
+    OutputAction::InsertSegments {
+        table: TableId(0),
+        shape: SegmentedText {
+            text: text.to_string(),
+            shape,
+        },
+    }
 }
 
 fn allomorph(
@@ -172,9 +189,9 @@ fn prefix_hint_reduplication_attributes_the_new_leading_copy_to_the_affix_not_th
             vec![attached_part, stem_part],
             vec![
                 OutputAction::Copy(PartRef::Input(1)), // stem echo #1 (new / leading)
-                insert_segments(&g, "n"),               // filler glue (always new)
-                OutputAction::Copy(PartRef::Input(0)),  // attached-material echo (singleton/existing)
-                OutputAction::Copy(PartRef::Input(1)),  // stem echo #2 (base / existing)
+                insert_segments(&g, "n"),              // filler glue (always new)
+                OutputAction::Copy(PartRef::Input(0)), // attached-material echo (singleton/existing)
+                OutputAction::Copy(PartRef::Input(1)), // stem echo #2 (base / existing)
             ],
             ReduplicationHint::Prefix,
         )],
@@ -225,8 +242,8 @@ fn suffix_hint_reduplication_keeps_the_first_copy_as_the_root() {
             vec![stem_part],
             vec![
                 OutputAction::Copy(PartRef::Input(0)), // base (existing)
-                insert_segments(&g, "n"),               // glue (new)
-                OutputAction::Copy(PartRef::Input(0)),  // redup echo (new)
+                insert_segments(&g, "n"),              // glue (new)
+                OutputAction::Copy(PartRef::Input(0)), // redup echo (new)
             ],
             ReduplicationHint::Suffix,
         )],
@@ -241,7 +258,11 @@ fn suffix_hint_reduplication_keeps_the_first_copy_as_the_root() {
     // guarantee this pre-fix; the assertion that matters is the *count* stays exactly 2 — neither
     // occurrence is dropped or double-counted — and root sorts first, per the module docs' proof
     // that `order` cannot move for this single-part `Suffix` shape).
-    assert_eq!(seq, vec![100, 200], "root first, redup rule's own morpheme second; got {seq:?}");
+    assert_eq!(
+        seq,
+        vec![100, 200],
+        "root first, redup rule's own morpheme second; got {seq:?}"
+    );
 }
 
 // =================================================================================================
@@ -267,13 +288,19 @@ fn constraint_equal_adjacent_allomorphs_both_synthesize() {
             allomorph(
                 200,
                 vec![one_or_more("nc_any", &g)],
-                vec![OutputAction::Copy(PartRef::Input(0)), insert_segments(&g, "n")],
+                vec![
+                    OutputAction::Copy(PartRef::Input(0)),
+                    insert_segments(&g, "n"),
+                ],
                 ReduplicationHint::Implicit,
             ),
             allomorph(
                 201,
                 vec![one_or_more("nc_any", &g)],
-                vec![OutputAction::Copy(PartRef::Input(0)), insert_segments(&g, "g")],
+                vec![
+                    OutputAction::Copy(PartRef::Input(0)),
+                    insert_segments(&g, "g"),
+                ],
                 ReduplicationHint::Implicit,
             ),
         ],
@@ -285,7 +312,10 @@ fn constraint_equal_adjacent_allomorphs_both_synthesize() {
         .map(|w| {
             let last = w.shape.interior().last().unwrap();
             let cd = hc_grammar::chardef::CharDefId(last.2);
-            g.char_tables[0].get(cd).representations()[0].chars().next().unwrap()
+            g.char_tables[0].get(cd).representations()[0]
+                .chars()
+                .next()
+                .unwrap()
         })
         .collect();
     assert_eq!(
@@ -295,7 +325,10 @@ fn constraint_equal_adjacent_allomorphs_both_synthesize() {
          got {} output(s) with suffixes {suffixes:?}",
         out.len()
     );
-    assert!(suffixes.contains(&'n') && suffixes.contains(&'g'), "got suffixes {suffixes:?}");
+    assert!(
+        suffixes.contains(&'n') && suffixes.contains(&'g'),
+        "got suffixes {suffixes:?}"
+    );
 }
 
 #[test]
@@ -314,17 +347,27 @@ fn constraint_unequal_adjacent_allomorphs_still_break_after_the_first() {
             allomorph(
                 200,
                 vec![one_or_more("nc_any", &g)],
-                vec![OutputAction::Copy(PartRef::Input(0)), insert_segments(&g, "n")],
+                vec![
+                    OutputAction::Copy(PartRef::Input(0)),
+                    insert_segments(&g, "n"),
+                ],
                 ReduplicationHint::Implicit,
             ),
             {
                 let mut a = allomorph(
                     201,
                     vec![one_or_more("nc_any", &g)],
-                    vec![OutputAction::Copy(PartRef::Input(0)), insert_segments(&g, "g")],
+                    vec![
+                        OutputAction::Copy(PartRef::Input(0)),
+                        insert_segments(&g, "g"),
+                    ],
                     ReduplicationHint::Implicit,
                 );
-                a.environments = vec![EnvironmentDef { require: true, left: None, right: None }];
+                a.environments = vec![EnvironmentDef {
+                    require: true,
+                    left: None,
+                    right: None,
+                }];
                 a
             },
         ],

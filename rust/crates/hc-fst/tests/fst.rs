@@ -61,7 +61,9 @@ fn accepts_whole(fst: &hc_fst::Fst, s: &[u8]) -> bool {
 /// Compile a pattern both determinized and epsilon-removed (nondeterministic).
 fn both(nodes: Vec<CompileNode>) -> (hc_fst::Fst, hc_fst::Fst) {
     (
-        CompileInput::new(nodes.clone()).deterministic(true).compile(),
+        CompileInput::new(nodes.clone())
+            .deterministic(true)
+            .compile(),
         CompileInput::new(nodes).deterministic(false).compile(),
     )
 }
@@ -81,7 +83,11 @@ fn check_language(nodes: Vec<CompileNode>, max_len: usize, oracle: impl Fn(&[u8]
         }
         let want = oracle(&s);
         assert_eq!(accepts_whole(&det, &s), want, "det disagrees on {s:?}");
-        assert_eq!(accepts_whole(&nondet, &s), want, "nondet disagrees on {s:?}");
+        assert_eq!(
+            accepts_whole(&nondet, &s),
+            want,
+            "nondet disagrees on {s:?}"
+        );
     }
 }
 
@@ -90,11 +96,18 @@ fn lang_a_bstar_c() {
     // a b* c
     let nodes = vec![
         CompileNode::Constraint(sym(A)),
-        CompileNode::Quantifier { min: 0, max: None, children: vec![CompileNode::Constraint(sym(B))] },
+        CompileNode::Quantifier {
+            min: 0,
+            max: None,
+            children: vec![CompileNode::Constraint(sym(B))],
+        },
         CompileNode::Constraint(sym(C)),
     ];
     check_language(nodes, 5, |s| {
-        s.len() >= 2 && s[0] == A && *s.last().unwrap() == C && s[1..s.len() - 1].iter().all(|&x| x == B)
+        s.len() >= 2
+            && s[0] == A
+            && *s.last().unwrap() == C
+            && s[1..s.len() - 1].iter().all(|&x| x == B)
     });
 }
 
@@ -102,10 +115,15 @@ fn lang_a_bstar_c() {
 fn lang_alternation_then_c() {
     // (a|b) c
     let nodes = vec![
-        CompileNode::Alternation(vec![vec![CompileNode::Constraint(sym(A))], vec![CompileNode::Constraint(sym(B))]]),
+        CompileNode::Alternation(vec![
+            vec![CompileNode::Constraint(sym(A))],
+            vec![CompileNode::Constraint(sym(B))],
+        ]),
         CompileNode::Constraint(sym(C)),
     ];
-    check_language(nodes, 4, |s| s.len() == 2 && (s[0] == A || s[0] == B) && s[1] == C);
+    check_language(nodes, 4, |s| {
+        s.len() == 2 && (s[0] == A || s[0] == B) && s[1] == C
+    });
 }
 
 #[test]
@@ -113,7 +131,11 @@ fn lang_optional_middle() {
     // a b? c
     let nodes = vec![
         CompileNode::Constraint(sym(A)),
-        CompileNode::Quantifier { min: 0, max: Some(1), children: vec![CompileNode::Constraint(sym(B))] },
+        CompileNode::Quantifier {
+            min: 0,
+            max: Some(1),
+            children: vec![CompileNode::Constraint(sym(B))],
+        },
         CompileNode::Constraint(sym(C)),
     ];
     check_language(nodes, 4, |s| s == [A, C] || s == [A, B, C]);
@@ -133,8 +155,13 @@ fn lang_bounded_quantifier() {
 #[test]
 fn lang_overlapping_natural_classes() {
     // [ab][bc] -- overlapping classes stress determinization's negated-condition subsets.
-    let nodes = vec![CompileNode::Constraint(cls(&[A, B])), CompileNode::Constraint(cls(&[B, C]))];
-    check_language(nodes, 3, |s| s.len() == 2 && (s[0] == A || s[0] == B) && (s[1] == B || s[1] == C));
+    let nodes = vec![
+        CompileNode::Constraint(cls(&[A, B])),
+        CompileNode::Constraint(cls(&[B, C])),
+    ];
+    check_language(nodes, 3, |s| {
+        s.len() == 2 && (s[0] == A || s[0] == B) && (s[1] == B || s[1] == C)
+    });
 }
 
 // =============================================================================================
@@ -158,13 +185,20 @@ fn entire_spans(fst: &hc_fst::Fst, s: &[u8]) -> Vec<(i32, i32)> {
 #[test]
 fn det_and_nondet_report_same_entire_spans() {
     // [ab][bc] again, but now check *spans* over all start positions.
-    let nodes = vec![CompileNode::Constraint(cls(&[A, B])), CompileNode::Constraint(cls(&[B, C]))];
+    let nodes = vec![
+        CompileNode::Constraint(cls(&[A, B])),
+        CompileNode::Constraint(cls(&[B, C])),
+    ];
     let (det, nondet) = both(nodes);
     for s in enumerate(4) {
         if s.is_empty() {
             continue;
         }
-        assert_eq!(entire_spans(&det, &s), entire_spans(&nondet, &s), "spans differ on {s:?}");
+        assert_eq!(
+            entire_spans(&det, &s),
+            entire_spans(&nondet, &s),
+            "spans differ on {s:?}"
+        );
     }
 }
 
@@ -177,7 +211,10 @@ fn capture_simple_group_span() {
     // a (g:b) c ; on "abc" the group captures the middle segment: offsets (1, 2).
     let nodes = vec![
         CompileNode::Constraint(sym(A)),
-        CompileNode::Group { name: "g".into(), children: vec![CompileNode::Constraint(sym(B))] },
+        CompileNode::Group {
+            name: "g".into(),
+            children: vec![CompileNode::Constraint(sym(B))],
+        },
         CompileNode::Constraint(sym(C)),
     ];
     // capture groups take the nondeterministic path in HermitCrab (AllSubmatches); test that path.
@@ -197,7 +234,10 @@ fn capture_group_over_multiple_segments() {
         CompileNode::Constraint(sym(A)),
         CompileNode::Group {
             name: "g".into(),
-            children: vec![CompileNode::Constraint(sym(B)), CompileNode::Constraint(sym(B))],
+            children: vec![
+                CompileNode::Constraint(sym(B)),
+                CompileNode::Constraint(sym(B)),
+            ],
         },
         CompileNode::Constraint(sym(C)),
     ];
@@ -221,31 +261,44 @@ fn capture_ambiguous_alternation_spans() {
             name: "g1".into(),
             children: vec![CompileNode::Alternation(vec![
                 vec![CompileNode::Constraint(sym(A))],
-                vec![CompileNode::Constraint(sym(A)), CompileNode::Constraint(sym(B))],
+                vec![
+                    CompileNode::Constraint(sym(A)),
+                    CompileNode::Constraint(sym(B)),
+                ],
             ])],
         },
         CompileNode::Group {
             name: "g2".into(),
             children: vec![CompileNode::Alternation(vec![
-                vec![CompileNode::Constraint(sym(B)), CompileNode::Constraint(sym(C))],
+                vec![
+                    CompileNode::Constraint(sym(B)),
+                    CompileNode::Constraint(sym(C)),
+                ],
                 vec![CompileNode::Constraint(sym(C))],
             ])],
         },
     ];
     let fst = CompileInput::new(nodes).deterministic(false).compile();
-    let results = Transduce::new(&fst, input(&[A, B, C])).anchored(true, true).all_matches();
+    let results = Transduce::new(&fst, input(&[A, B, C]))
+        .anchored(true, true)
+        .all_matches();
     let mut pairs: Vec<SpanPair> = results
         .iter()
-        .map(|r| (fst.get_offsets("g1", &r.registers), fst.get_offsets("g2", &r.registers)))
+        .map(|r| {
+            (
+                fst.get_offsets("g1", &r.registers),
+                fst.get_offsets("g2", &r.registers),
+            )
+        })
         .collect();
     pairs.sort();
     pairs.dedup();
-    let mut want = vec![
-        (Some((0, 1)), Some((1, 3))),
-        (Some((0, 2)), Some((2, 3))),
-    ];
+    let mut want = vec![(Some((0, 1)), Some((1, 3))), (Some((0, 2)), Some((2, 3)))];
     want.sort();
-    assert_eq!(pairs, want, "ambiguous capture spans wrong (tag reindexing?)");
+    assert_eq!(
+        pairs, want,
+        "ambiguous capture spans wrong (tag reindexing?)"
+    );
 }
 
 #[test]
@@ -255,7 +308,10 @@ fn capture_group_in_quantifier_last_iteration() {
     let nodes = vec![CompileNode::Quantifier {
         min: 1,
         max: None,
-        children: vec![CompileNode::Group { name: "g".into(), children: vec![CompileNode::Constraint(sym(A))] }],
+        children: vec![CompileNode::Group {
+            name: "g".into(),
+            children: vec![CompileNode::Constraint(sym(A))],
+        }],
     }];
     let fst = CompileInput::new(nodes).deterministic(false).compile();
     let res = Transduce::new(&fst, input(&[A, A, A]))
@@ -306,7 +362,10 @@ fn result_compare_longer_match_first_ltor() {
     let t = Transduce::new(&fst, Vec::new());
     let longer = mk_result(0, 3, 1);
     let shorter = mk_result(0, 1, 0);
-    assert_eq!(t.result_compare(&longer, &shorter), std::cmp::Ordering::Less);
+    assert_eq!(
+        t.result_compare(&longer, &shorter),
+        std::cmp::Ordering::Less
+    );
 }
 
 #[test]
@@ -316,7 +375,10 @@ fn result_compare_direction_flips_length_preference() {
     let longer = mk_result(0, 3, 1);
     let shorter = mk_result(0, 1, 0);
     // RightToLeft negates the length comparison: shorter next_ann now sorts first.
-    assert_eq!(t.result_compare(&longer, &shorter), std::cmp::Ordering::Greater);
+    assert_eq!(
+        t.result_compare(&longer, &shorter),
+        std::cmp::Ordering::Greater
+    );
 }
 
 #[test]
@@ -333,7 +395,12 @@ fn result_compare_order_is_final_tiebreak() {
 
 /// Entire-match spans in the *raw* `all_matches()` order (no re-sort) — used to verify the
 /// engine emits results in `ResultCompare` order end-to-end.
-fn entire_spans_in_order(fst: &hc_fst::Fst, segs: Vec<Segment>, start: bool, end: bool) -> Vec<(i32, i32)> {
+fn entire_spans_in_order(
+    fst: &hc_fst::Fst,
+    segs: Vec<Segment>,
+    start: bool,
+    end: bool,
+) -> Vec<(i32, i32)> {
     Transduce::new(fst, segs)
         .anchored(start, end)
         .all_matches()
@@ -348,10 +415,17 @@ fn ordering_deterministic_end_to_end() {
     // ResultCompare: same accept priority, -NextAnnotation => longer first. Hand-reasoned order.
     let nodes = vec![
         CompileNode::Constraint(sym(A)),
-        CompileNode::Quantifier { min: 0, max: Some(1), children: vec![CompileNode::Constraint(sym(B))] },
+        CompileNode::Quantifier {
+            min: 0,
+            max: Some(1),
+            children: vec![CompileNode::Constraint(sym(B))],
+        },
     ];
     let fst = CompileInput::new(nodes).deterministic(true).compile();
-    assert_eq!(entire_spans_in_order(&fst, input(&[A, B]), true, false), vec![(0, 2), (0, 1)]);
+    assert_eq!(
+        entire_spans_in_order(&fst, input(&[A, B]), true, false),
+        vec![(0, 2), (0, 1)]
+    );
 }
 
 #[test]
@@ -361,11 +435,20 @@ fn ordering_nondeterministic_end_to_end() {
     // longer first.
     let nodes = vec![
         CompileNode::Constraint(sym(A)),
-        CompileNode::Quantifier { min: 0, max: Some(1), children: vec![CompileNode::Constraint(sym(A))] },
+        CompileNode::Quantifier {
+            min: 0,
+            max: Some(1),
+            children: vec![CompileNode::Constraint(sym(A))],
+        },
     ];
     let fst = CompileInput::new(nodes).deterministic(false).compile();
-    let results = Transduce::new(&fst, input(&[A, A])).anchored(true, false).all_matches();
-    let spans: Vec<_> = results.iter().filter_map(|r| fst.get_offsets(ENTIRE_MATCH, &r.registers)).collect();
+    let results = Transduce::new(&fst, input(&[A, A]))
+        .anchored(true, false)
+        .all_matches();
+    let spans: Vec<_> = results
+        .iter()
+        .filter_map(|r| fst.get_offsets(ENTIRE_MATCH, &r.registers))
+        .collect();
     assert_eq!(spans, vec![(0, 2), (0, 1)]);
 }
 
@@ -378,19 +461,30 @@ fn ordering_nondeterministic_tie_falls_through_to_order_end_to_end() {
     // wiring still produces a well-defined, self-consistent order.
     let nodes = vec![CompileNode::Alternation(vec![
         vec![
-            CompileNode::Group { name: "g".into(), children: vec![CompileNode::Constraint(sym(A))] },
+            CompileNode::Group {
+                name: "g".into(),
+                children: vec![CompileNode::Constraint(sym(A))],
+            },
             CompileNode::Constraint(sym(A)),
         ],
         vec![
             CompileNode::Constraint(sym(A)),
-            CompileNode::Group { name: "g".into(), children: vec![CompileNode::Constraint(sym(A))] },
+            CompileNode::Group {
+                name: "g".into(),
+                children: vec![CompileNode::Constraint(sym(A))],
+            },
         ],
     ])];
     let fst = CompileInput::new(nodes).deterministic(false).compile();
-    let results = Transduce::new(&fst, input(&[A, A])).anchored(true, true).all_matches();
+    let results = Transduce::new(&fst, input(&[A, A]))
+        .anchored(true, true)
+        .all_matches();
     let t = Transduce::new(&fst, Vec::new()); // for result_compare (uses fst determinism/direction)
-    // both parses, both with entire span (0,2) but different g capture.
-    let gs: std::collections::BTreeSet<_> = results.iter().filter_map(|r| fst.get_offsets("g", &r.registers)).collect();
+                                              // both parses, both with entire span (0,2) but different g capture.
+    let gs: std::collections::BTreeSet<_> = results
+        .iter()
+        .filter_map(|r| fst.get_offsets("g", &r.registers))
+        .collect();
     assert_eq!(gs, [(0, 1), (1, 2)].into_iter().collect());
     // Emitted in nondecreasing ResultCompare order (single start position -> one sorted block).
     for w in results.windows(2) {
@@ -403,7 +497,11 @@ fn integration_longest_match_wins_single() {
     // a b?  on "ab" (start-anchored, not end-anchored): matches "a" and "ab"; single best = "ab".
     let nodes = vec![
         CompileNode::Constraint(sym(A)),
-        CompileNode::Quantifier { min: 0, max: Some(1), children: vec![CompileNode::Constraint(sym(B))] },
+        CompileNode::Quantifier {
+            min: 0,
+            max: Some(1),
+            children: vec![CompileNode::Constraint(sym(B))],
+        },
     ];
     let fst = CompileInput::new(nodes).deterministic(true).compile();
     let res = Transduce::new(&fst, input(&[A, B]))
@@ -420,10 +518,16 @@ fn integration_longest_match_wins_single() {
 #[test]
 fn unanchored_finds_match_at_any_start() {
     // pattern "b c"; input "a b c" -> one entire match at (1,3).
-    let nodes = vec![CompileNode::Constraint(sym(B)), CompileNode::Constraint(sym(C))];
+    let nodes = vec![
+        CompileNode::Constraint(sym(B)),
+        CompileNode::Constraint(sym(C)),
+    ];
     let fst = CompileInput::new(nodes).deterministic(true).compile();
     let res = Transduce::new(&fst, input(&[A, B, C])).all_matches();
-    let spans: Vec<_> = res.iter().filter_map(|r| fst.get_offsets(ENTIRE_MATCH, &r.registers)).collect();
+    let spans: Vec<_> = res
+        .iter()
+        .filter_map(|r| fst.get_offsets(ENTIRE_MATCH, &r.registers))
+        .collect();
     assert_eq!(spans, vec![(1, 3)]);
 }
 
@@ -435,7 +539,9 @@ fn unanchored_finds_match_at_any_start() {
 // =============================================================================================
 
 fn compile_dir(nodes: Vec<CompileNode>, det: bool, dir: Direction) -> hc_fst::Fst {
-    CompileInput::new(nodes).deterministic(det).compile_with_direction(dir)
+    CompileInput::new(nodes)
+        .deterministic(det)
+        .compile_with_direction(dir)
 }
 
 /// Whole-string acceptance for an FST of arbitrary direction (anchored both ends).
@@ -443,7 +549,12 @@ fn whole(fst: &hc_fst::Fst, s: &[u8]) -> bool {
     Transduce::new(fst, input(s)).anchored(true, true).accepts()
 }
 
-fn entire_span_first(fst: &hc_fst::Fst, segs: Vec<Segment>, start: bool, end: bool) -> Option<(i32, i32)> {
+fn entire_span_first(
+    fst: &hc_fst::Fst,
+    segs: Vec<Segment>,
+    start: bool,
+    end: bool,
+) -> Option<(i32, i32)> {
     Transduce::new(fst, segs)
         .anchored(start, end)
         .first_match()
@@ -468,15 +579,27 @@ fn rtl_asymmetric_language_walks_right_to_left() {
 
         // L2R: accepts "a b c", rejects the reversal.
         assert!(whole(&ltr, &[A, B, C]), "L2R must accept a b c (det={det})");
-        assert!(!whole(&ltr, &[C, B, A]), "L2R must reject c b a (det={det})");
+        assert!(
+            !whole(&ltr, &[C, B, A]),
+            "L2R must reject c b a (det={det})"
+        );
 
         // R2L: accepts the physical reversal "c b a", rejects "a b c".
         assert!(whole(&rtl, &[C, B, A]), "R2L must accept c b a (det={det})");
-        assert!(!whole(&rtl, &[A, B, C]), "R2L must reject a b c (det={det})");
+        assert!(
+            !whole(&rtl, &[A, B, C]),
+            "R2L must reject a b c (det={det})"
+        );
 
         // The whole-string entire span is (0,3) regardless of direction.
-        assert_eq!(entire_span_first(&ltr, input(&[A, B, C]), true, true), Some((0, 3)));
-        assert_eq!(entire_span_first(&rtl, input(&[C, B, A]), true, true), Some((0, 3)));
+        assert_eq!(
+            entire_span_first(&ltr, input(&[A, B, C]), true, true),
+            Some((0, 3))
+        );
+        assert_eq!(
+            entire_span_first(&rtl, input(&[C, B, A]), true, true),
+            Some((0, 3))
+        );
     }
 }
 
@@ -485,35 +608,72 @@ fn rtl_asymmetric_language_walks_right_to_left() {
 /// 0); `endAnchor` binds to the physical START (leftmost, consumed last).
 #[test]
 fn rtl_start_anchor_binds_physical_end() {
-    let nodes = vec![CompileNode::Constraint(sym(A)), CompileNode::Constraint(sym(B))];
+    let nodes = vec![
+        CompileNode::Constraint(sym(A)),
+        CompileNode::Constraint(sym(B)),
+    ];
     let fst = compile_dir(nodes, true, Direction::RightToLeft);
 
     // "b a": R2L traversal is [a (phys 1), b (phys 0)]; rightmost segment 'a' matches the first
     // arc, so a start-anchored (rightmost-anchored) match succeeds.
-    assert!(Transduce::new(&fst, input(&[B, A])).anchored(true, false).accepts(), "b a start-anchored R2L");
+    assert!(
+        Transduce::new(&fst, input(&[B, A]))
+            .anchored(true, false)
+            .accepts(),
+        "b a start-anchored R2L"
+    );
 
     // "b a c": rightmost segment is now 'c'. Start-anchored R2L must begin there -> arc 'a' vs 'c'
     // fails, so NO start-anchored match. But unanchored still finds "b a" at physical (0,2). This
     // is the discriminator: the anchor bound to the physical END, not the L2R start.
-    assert!(!Transduce::new(&fst, input(&[B, A, C])).anchored(true, false).accepts(), "b a c start-anchored R2L rejects");
-    assert_eq!(entire_span_first(&fst, input(&[B, A, C]), false, false), Some((0, 2)), "b a c unanchored R2L finds (0,2)");
+    assert!(
+        !Transduce::new(&fst, input(&[B, A, C]))
+            .anchored(true, false)
+            .accepts(),
+        "b a c start-anchored R2L rejects"
+    );
+    assert_eq!(
+        entire_span_first(&fst, input(&[B, A, C]), false, false),
+        Some((0, 2)),
+        "b a c unanchored R2L finds (0,2)"
+    );
 }
 
 #[test]
 fn rtl_end_anchor_binds_physical_start() {
-    let nodes = vec![CompileNode::Constraint(sym(A)), CompileNode::Constraint(sym(B))];
+    let nodes = vec![
+        CompileNode::Constraint(sym(A)),
+        CompileNode::Constraint(sym(B)),
+    ];
     let fst = compile_dir(nodes, true, Direction::RightToLeft);
 
     // "b a": consuming both segments ends at the physically-leftmost segment 'b' (traversal end),
     // so an end-anchored (leftmost-anchored) match succeeds. Physical entire span (0,2).
-    assert!(Transduce::new(&fst, input(&[B, A])).anchored(false, true).accepts(), "b a end-anchored R2L");
-    assert_eq!(entire_span_first(&fst, input(&[B, A]), false, true), Some((0, 2)));
+    assert!(
+        Transduce::new(&fst, input(&[B, A]))
+            .anchored(false, true)
+            .accepts(),
+        "b a end-anchored R2L"
+    );
+    assert_eq!(
+        entire_span_first(&fst, input(&[B, A]), false, true),
+        Some((0, 2))
+    );
 
     // "c b a": R2L matches "a b" consuming physical segments 2,1, ending at traversal index 2 with
     // the leftmost 'c' still unconsumed -> end-anchor requires reaching data end, so NO match.
     // Unanchored still matches at physical (1,3). Proves end-anchor bound to the physical START.
-    assert!(!Transduce::new(&fst, input(&[C, B, A])).anchored(false, true).accepts(), "c b a end-anchored R2L rejects");
-    assert_eq!(entire_span_first(&fst, input(&[C, B, A]), false, false), Some((1, 3)), "c b a unanchored R2L finds (1,3)");
+    assert!(
+        !Transduce::new(&fst, input(&[C, B, A]))
+            .anchored(false, true)
+            .accepts(),
+        "c b a end-anchored R2L rejects"
+    );
+    assert_eq!(
+        entire_span_first(&fst, input(&[C, B, A]), false, false),
+        Some((1, 3)),
+        "c b a unanchored R2L finds (1,3)"
+    );
 }
 
 /// GUARD #2 (capture offsets under reversal). Pattern `a (g:b) c` walked R2L against physical
@@ -525,7 +685,10 @@ fn rtl_end_anchor_binds_physical_start() {
 fn rtl_capture_group_offsets() {
     let nodes = vec![
         CompileNode::Constraint(sym(A)),
-        CompileNode::Group { name: "g".into(), children: vec![CompileNode::Constraint(sym(B))] },
+        CompileNode::Group {
+            name: "g".into(),
+            children: vec![CompileNode::Constraint(sym(B))],
+        },
         CompileNode::Constraint(sym(C)),
     ];
     // capture groups take the nondeterministic path in HermitCrab (AllSubmatches).
@@ -534,8 +697,16 @@ fn rtl_capture_group_offsets() {
         .anchored(true, true)
         .first_match()
         .expect("R2L should match c b a");
-    assert_eq!(fst.get_offsets(ENTIRE_MATCH, &res.registers), Some((0, 3)), "entire span physical (0,3)");
-    assert_eq!(fst.get_offsets("g", &res.registers), Some((1, 2)), "group g physical (1,2)");
+    assert_eq!(
+        fst.get_offsets(ENTIRE_MATCH, &res.registers),
+        Some((0, 3)),
+        "entire span physical (0,3)"
+    );
+    assert_eq!(
+        fst.get_offsets("g", &res.registers),
+        Some((1, 2)),
+        "group g physical (1,2)"
+    );
 }
 
 /// GUARD #4 (hand-built automaton, det + nondet match sets under R2L). Pattern `(a|b) c` R2L
@@ -545,7 +716,10 @@ fn rtl_capture_group_offsets() {
 #[test]
 fn rtl_hand_built_match_set() {
     let nodes = vec![
-        CompileNode::Alternation(vec![vec![CompileNode::Constraint(sym(A))], vec![CompileNode::Constraint(sym(B))]]),
+        CompileNode::Alternation(vec![
+            vec![CompileNode::Constraint(sym(A))],
+            vec![CompileNode::Constraint(sym(B))],
+        ]),
         CompileNode::Constraint(sym(C)),
     ];
     // Oracle: R2L accepts physical `s` iff its reversal is in the L2R language {(a|b) c}, i.e.
@@ -557,7 +731,11 @@ fn rtl_hand_built_match_set() {
             if s.is_empty() {
                 continue;
             }
-            assert_eq!(whole(&rtl, &s), oracle(&s), "R2L match set wrong on {s:?} (det={det})");
+            assert_eq!(
+                whole(&rtl, &s),
+                oracle(&s),
+                "R2L match set wrong on {s:?} (det={det})"
+            );
         }
     }
 }

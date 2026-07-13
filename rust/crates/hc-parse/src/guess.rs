@@ -94,7 +94,9 @@ pub fn nodes_of(shape: &Shape, table: &CharDefTable, feat_width: usize) -> Vec<G
         };
         let cd_set = match shape.node_cd_set(i) {
             hc_shape::EffectiveCdSet::Members(b) => CdSet::Members(b.clone()),
-            hc_shape::EffectiveCdSet::Singleton(_) | hc_shape::EffectiveCdSet::Unrestricted => CdSet::Unrestricted,
+            hc_shape::EffectiveCdSet::Singleton(_) | hc_shape::EffectiveCdSet::Unrestricted => {
+                CdSet::Unrestricted
+            }
         };
         let flags = shape.flags(i);
         out.push(GuessNode {
@@ -182,7 +184,12 @@ fn unify_shape_nodes(node: &GuessNode, pattern: &GuessNode) -> Option<GuessNode>
     if node.kind != pattern.kind {
         return None;
     }
-    let (char_def, cd_set) = unify_identity(node.char_def, &node.cd_set, pattern.char_def, &pattern.cd_set)?;
+    let (char_def, cd_set) = unify_identity(
+        node.char_def,
+        &node.cd_set,
+        pattern.char_def,
+        &pattern.cd_set,
+    )?;
     let lanes = unify_lanes(&node.lanes, &pattern.lanes)?;
     Some(GuessNode {
         kind: node.kind,
@@ -269,7 +276,14 @@ pub fn render_match(table: &CharDefTable, matched: &[GuessNode]) -> String {
         if node.kind == NodeKind::Boundary || node.deleted {
             continue;
         }
-        let reps = matching_reps_for_node(table, node.kind, node.char_def, &node.cd_set, &node.lanes, false);
+        let reps = matching_reps_for_node(
+            table,
+            node.kind,
+            node.char_def,
+            &node.cd_set,
+            &node.lanes,
+            false,
+        );
         if let Some(first) = reps.into_iter().next() {
             out.push_str(&first);
         }
@@ -313,7 +327,11 @@ pub fn render_match(table: &CharDefTable, matched: &[GuessNode]) -> String {
 /// call site is a documented no-op — every yielded `Word` is a fresh clone with no `Equals`
 /// override — the real dedup is the per-pattern `shape_set` here); duplicates across different
 /// patterns are real and survive, matching C#.
-pub fn lexical_guess(g: &Grammar, lexical_patterns: &[(AllomorphId, LexEntryId)], aw: &Word) -> Vec<Word> {
+pub fn lexical_guess(
+    g: &Grammar,
+    lexical_patterns: &[(AllomorphId, LexEntryId)],
+    aw: &Word,
+) -> Vec<Word> {
     let table = &g.char_tables[g.strata[aw.stratum.0 as usize].table.0 as usize];
     let feat_width = g.phon_features.len();
     let input_nodes = nodes_of(&aw.shape, table, feat_width);
@@ -365,7 +383,11 @@ pub fn lexical_guess(g: &Grammar, lexical_patterns: &[(AllomorphId, LexEntryId)]
                 pattern_entry,
                 text: shape_string,
             }));
-            nw.morphs = vec![MorphRecord::new(AllomorphId::GUESSED, MorphemeId::GUESSED, 0)];
+            nw.morphs = vec![MorphRecord::new(
+                AllomorphId::GUESSED,
+                MorphemeId::GUESSED,
+                0,
+            )];
             out.push(nw);
         }
     }
@@ -382,18 +404,42 @@ mod tests {
 
     /// A concrete segment node (a real char-def, e.g. table id 1 = "a").
     fn seg(cd: u32) -> GuessNode {
-        GuessNode { kind: NodeKind::Segment, char_def: cd, lanes: vec![], cd_set: CdSet::Unrestricted, optional: false, iterative: false, deleted: false }
+        GuessNode {
+            kind: NodeKind::Segment,
+            char_def: cd,
+            lanes: vec![],
+            cd_set: CdSet::Unrestricted,
+            optional: false,
+            iterative: false,
+            deleted: false,
+        }
     }
 
     /// A mandatory `[Any]` class-reference node: abstract, matches every segment (the "Any"
     /// class's empty-FS / all-members convention, `nat_class_cd_set`'s `Unrestricted` fallback).
     fn any_class(optional: bool, iterative: bool) -> GuessNode {
-        GuessNode { kind: NodeKind::Segment, char_def: NO_CHAR_DEF, lanes: vec![], cd_set: CdSet::Unrestricted, optional, iterative, deleted: false }
+        GuessNode {
+            kind: NodeKind::Segment,
+            char_def: NO_CHAR_DEF,
+            lanes: vec![],
+            cd_set: CdSet::Unrestricted,
+            optional,
+            iterative,
+            deleted: false,
+        }
     }
 
     /// A boundary node ("+"), optional (as every boundary is after segmentation).
     fn boundary(cd: u32) -> GuessNode {
-        GuessNode { kind: NodeKind::Boundary, char_def: cd, lanes: vec![], cd_set: CdSet::Unrestricted, optional: true, iterative: false, deleted: false }
+        GuessNode {
+            kind: NodeKind::Boundary,
+            char_def: cd,
+            lanes: vec![],
+            cd_set: CdSet::Unrestricted,
+            optional: true,
+            iterative: false,
+            deleted: false,
+        }
     }
 
     const A: u32 = 1; // the "a" char-def id used throughout these hand-built fixtures.
@@ -419,10 +465,21 @@ mod tests {
     fn unify_merges_disjoint_lane_constraints_from_both_sides() {
         let a_is_valuea = 0b01u64;
         let b_is_valueb = 0b01u64;
-        let input = GuessNode { lanes: vec![a_is_valuea, u64::MAX], ..seg(A) };
-        let pattern = GuessNode { lanes: vec![u64::MAX, b_is_valueb], ..seg(A) };
-        let unified = unify_shape_nodes(&input, &pattern).expect("compatible: same char_def, unifiable lanes");
-        assert_eq!(unified.lanes, vec![a_is_valuea, b_is_valueb], "both constraints must survive the unify");
+        let input = GuessNode {
+            lanes: vec![a_is_valuea, u64::MAX],
+            ..seg(A)
+        };
+        let pattern = GuessNode {
+            lanes: vec![u64::MAX, b_is_valueb],
+            ..seg(A)
+        };
+        let unified = unify_shape_nodes(&input, &pattern)
+            .expect("compatible: same char_def, unifiable lanes");
+        assert_eq!(
+            unified.lanes,
+            vec![a_is_valuea, b_is_valueb],
+            "both constraints must survive the unify"
+        );
     }
 
     /// "Test sequences": a single 'a' node against a single 'i' pattern node -- different
@@ -453,11 +510,18 @@ mod tests {
     #[test]
     fn optional_class_matches_zero_or_one_node_but_not_two() {
         let pattern = vec![any_class(true, false)];
-        assert_eq!(match_nodes_with_pattern(&nodes(0), &pattern).len(), 1, "zero nodes: skip");
+        assert_eq!(
+            match_nodes_with_pattern(&nodes(0), &pattern).len(),
+            1,
+            "zero nodes: skip"
+        );
         let one = match_nodes_with_pattern(&nodes(1), &pattern);
         assert_eq!(one.len(), 1, "one node: consume");
         assert_eq!(one[0], nodes(1));
-        assert!(match_nodes_with_pattern(&nodes(2), &pattern).is_empty(), "two nodes: no path consumes both");
+        assert!(
+            match_nodes_with_pattern(&nodes(2), &pattern).is_empty(),
+            "two nodes: no path consumes both"
+        );
     }
 
     /// "Test ambiguity": `([Any])([Any])` -- two independently optional (non-iterative) slots.
@@ -471,14 +535,25 @@ mod tests {
         assert_eq!(zero[0], nodes(0));
 
         let one = match_nodes_with_pattern(&nodes(1), &pattern);
-        assert_eq!(one.len(), 2, "one node: two ways to place it (first slot or second slot)");
+        assert_eq!(
+            one.len(),
+            2,
+            "one node: two ways to place it (first slot or second slot)"
+        );
         assert!(one.iter().all(|m| *m == nodes(1)));
 
         let two = match_nodes_with_pattern(&nodes(2), &pattern);
-        assert_eq!(two.len(), 1, "two nodes: both slots consumed, exactly one path");
+        assert_eq!(
+            two.len(),
+            1,
+            "two nodes: both slots consumed, exactly one path"
+        );
         assert_eq!(two[0], nodes(2));
 
-        assert!(match_nodes_with_pattern(&nodes(3), &pattern).is_empty(), "three nodes: only two slots, no path");
+        assert!(
+            match_nodes_with_pattern(&nodes(3), &pattern).is_empty(),
+            "three nodes: only two slots, no path"
+        );
     }
 
     /// "Test Kleene star": `[Any]*` -- zero, one, or more real nodes, always exactly one path
@@ -501,13 +576,23 @@ mod tests {
     #[test]
     fn plus_after_class_is_a_boundary_not_kleene_plus() {
         let pattern = vec![any_class(false, false), boundary(PLUS)];
-        assert!(match_nodes_with_pattern(&nodes(0), &pattern).is_empty(), "mandatory class needs >=1 node");
+        assert!(
+            match_nodes_with_pattern(&nodes(0), &pattern).is_empty(),
+            "mandatory class needs >=1 node"
+        );
 
         let one = match_nodes_with_pattern(&nodes(1), &pattern);
         assert_eq!(one.len(), 1);
-        assert_eq!(one[0], nodes(1), "the boundary pattern slot is skipped (no boundary in the input)");
+        assert_eq!(
+            one[0],
+            nodes(1),
+            "the boundary pattern slot is skipped (no boundary in the input)"
+        );
 
-        assert!(match_nodes_with_pattern(&nodes(2), &pattern).is_empty(), "second real node can't match a boundary");
+        assert!(
+            match_nodes_with_pattern(&nodes(2), &pattern).is_empty(),
+            "second real node can't match a boundary"
+        );
     }
 
     // =============================================================================================
@@ -522,12 +607,21 @@ mod tests {
 
     #[test]
     fn concrete_input_against_a_restricted_class_pattern_narrows_to_the_concrete_id() {
-        let pattern_in_class = GuessNode { cd_set: CdSet::Members(CdBits::from_ids([A, I])), ..any_class(false, false) };
+        let pattern_in_class = GuessNode {
+            cd_set: CdSet::Members(CdBits::from_ids([A, I])),
+            ..any_class(false, false)
+        };
         let got = match_nodes_with_pattern(&[seg(A)], std::slice::from_ref(&pattern_in_class));
         assert_eq!(got.len(), 1);
-        assert_eq!(got[0][0].char_def, A, "the unified node keeps the concrete identity");
+        assert_eq!(
+            got[0][0].char_def, A,
+            "the unified node keeps the concrete identity"
+        );
 
-        let pattern_excludes = GuessNode { cd_set: CdSet::Members(CdBits::from_ids([I])), ..any_class(false, false) };
+        let pattern_excludes = GuessNode {
+            cd_set: CdSet::Members(CdBits::from_ids([I])),
+            ..any_class(false, false)
+        };
         assert!(
             match_nodes_with_pattern(&[seg(A)], &[pattern_excludes]).is_empty(),
             "A is not a member of the pattern's restricted class"
@@ -536,8 +630,14 @@ mod tests {
 
     #[test]
     fn two_abstract_classes_unify_to_their_intersection() {
-        let left = GuessNode { cd_set: CdSet::Members(CdBits::from_ids([1, 2, 3])), ..any_class(false, false) };
-        let right = GuessNode { cd_set: CdSet::Members(CdBits::from_ids([2, 3, 4])), ..any_class(false, false) };
+        let left = GuessNode {
+            cd_set: CdSet::Members(CdBits::from_ids([1, 2, 3])),
+            ..any_class(false, false)
+        };
+        let right = GuessNode {
+            cd_set: CdSet::Members(CdBits::from_ids([2, 3, 4])),
+            ..any_class(false, false)
+        };
         let unified = unify_shape_nodes(&left, &right).expect("2,3 are shared");
         match unified.cd_set {
             CdSet::Members(b) => {
@@ -548,8 +648,14 @@ mod tests {
             CdSet::Unrestricted => panic!("expected a narrowed Members set"),
         }
 
-        let disjoint_right = GuessNode { cd_set: CdSet::Members(CdBits::from_ids([9])), ..any_class(false, false) };
-        assert!(unify_shape_nodes(&left, &disjoint_right).is_none(), "disjoint classes cannot unify");
+        let disjoint_right = GuessNode {
+            cd_set: CdSet::Members(CdBits::from_ids([9])),
+            ..any_class(false, false)
+        };
+        assert!(
+            unify_shape_nodes(&left, &disjoint_right).is_none(),
+            "disjoint classes cannot unify"
+        );
     }
 
     // =============================================================================================
@@ -590,7 +696,11 @@ mod tests {
         let i = table.lookup_nfd("i").unwrap().0;
         let plus = table.lookup_nfd("+").unwrap().0;
         let matched = vec![seg(a), boundary(plus), seg(i)];
-        assert_eq!(render_match(table, &matched), "ai", "the boundary node must be skipped");
+        assert_eq!(
+            render_match(table, &matched),
+            "ai",
+            "the boundary node must be skipped"
+        );
     }
 
     #[test]
@@ -599,7 +709,10 @@ mod tests {
         let table = &g.char_tables[0];
         let a = table.lookup_nfd("a").unwrap().0;
         // An abstract node restricted to {"a"} renders "a" (table document order, first rep).
-        let restricted = GuessNode { cd_set: CdSet::Members(CdBits::from_ids([a])), ..any_class(false, false) };
+        let restricted = GuessNode {
+            cd_set: CdSet::Members(CdBits::from_ids([a])),
+            ..any_class(false, false)
+        };
         assert_eq!(render_match(table, &[restricted]), "a");
     }
 

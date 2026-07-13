@@ -52,6 +52,9 @@ fn n1_isactive_grammar_loads_and_matches_oracle_signatures() {
     let cases = [("kat", "|kat"), ("sod", "|sod")];
     for (word, expected) in cases {
         let got = morpher.parse_word(word).signature();
-        assert_eq!(got, expected, "word {word:?}: signature mismatch vs C# oracle");
+        assert_eq!(
+            got, expected,
+            "word {word:?}: signature mismatch vs C# oracle"
+        );
     }
 }

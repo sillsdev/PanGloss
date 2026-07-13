@@ -29,7 +29,13 @@ fn expected_rows(dir: &Path) -> Vec<(String, String, String)> {
     text.lines()
         .filter_map(|line| {
             let cols: Vec<&str> = line.split('\t').collect();
-            (cols.len() >= 5).then(|| (cols[1].to_string(), cols[3].to_string(), cols[4].to_string()))
+            (cols.len() >= 5).then(|| {
+                (
+                    cols[1].to_string(),
+                    cols[3].to_string(),
+                    cols[4].to_string(),
+                )
+            })
         })
         .collect()
 }
@@ -37,13 +43,20 @@ fn expected_rows(dir: &Path) -> Vec<(String, String, String)> {
 fn replay(fixture: &str) {
     let dir = fixture_dir(fixture);
     let xml = std::fs::read_to_string(dir.join("grammar.xml")).expect("read grammar.xml");
-    let grammar = load(&xml).unwrap_or_else(|e| panic!("mpr-groups/{fixture} grammar failed to load: {e}"));
+    let grammar =
+        load(&xml).unwrap_or_else(|e| panic!("mpr-groups/{fixture} grammar failed to load: {e}"));
     let morpher = Morpher::new(&grammar, usize::MAX).with_memo(true);
 
     let rows = expected_rows(&dir);
-    assert!(!rows.is_empty(), "mpr-groups/{fixture}/expected.tsv had no completed rows");
+    assert!(
+        !rows.is_empty(),
+        "mpr-groups/{fixture}/expected.tsv had no completed rows"
+    );
     for (word, status, expected_sig) in rows {
-        assert_eq!(status, "ok", "oracle rows in this fixture are all ok-status");
+        assert_eq!(
+            status, "ok",
+            "oracle rows in this fixture are all ok-status"
+        );
         let got = morpher.parse_word(&word).signature();
         assert_eq!(
             got, expected_sig,

@@ -32,7 +32,8 @@ mod support;
 use std::ffi::c_void;
 
 use hermit_crab::{
-    decode, hc_buf_free, hc_grammar_free, hc_grammar_load, hc_parse_batch, HcError, HcResultBuf, HcStr, HC_ERR_PANIC, HC_OK,
+    decode, hc_buf_free, hc_grammar_free, hc_grammar_load, hc_parse_batch, HcError, HcResultBuf,
+    HcStr, HC_ERR_PANIC, HC_OK,
 };
 
 #[test]
@@ -60,7 +61,13 @@ fn batch_panic_is_caught_and_handle_stays_usable() {
     let mid = poisoned.len() / 2;
     poisoned.insert(mid, hc_parse::batch::TEST_PANIC_WORD.to_string());
 
-    let hcstrs: Vec<HcStr> = poisoned.iter().map(|w| HcStr { ptr: w.as_ptr(), len: w.len() }).collect();
+    let hcstrs: Vec<HcStr> = poisoned
+        .iter()
+        .map(|w| HcStr {
+            ptr: w.as_ptr(),
+            len: w.len(),
+        })
+        .collect();
     let mut out = HcResultBuf::EMPTY;
     // max_threads = 4: genuinely engages rayon's scoped pool, not a trivially-sequential path.
     let code = unsafe { hc_parse_batch(handle, hcstrs.as_ptr(), hcstrs.len(), 4, &mut out) };
@@ -74,16 +81,30 @@ fn batch_panic_is_caught_and_handle_stays_usable() {
         "a panic inside a rayon worker task must surface as HC_ERR_PANIC at the FFI boundary, not crash the process or silently succeed"
     );
     // `out` must still be in the documented "valid, freeable, empty" state on the error path.
-    assert!(out.data.is_null(), "HcResultBuf must be left empty on an error return");
+    assert!(
+        out.data.is_null(),
+        "HcResultBuf must be left empty on an error return"
+    );
     unsafe { hc_buf_free(&mut out) }; // must be a safe no-op on an already-empty buffer
 
     // (2) The process is alive and the SAME handle still works for further calls — the grammar
     // tier and the handle's internal state were not corrupted by the caught unwind.
-    let hcstrs_ok: Vec<HcStr> = words.iter().map(|w| HcStr { ptr: w.as_ptr(), len: w.len() }).collect();
+    let hcstrs_ok: Vec<HcStr> = words
+        .iter()
+        .map(|w| HcStr {
+            ptr: w.as_ptr(),
+            len: w.len(),
+        })
+        .collect();
     let mut out2 = HcResultBuf::EMPTY;
-    let code2 = unsafe { hc_parse_batch(handle, hcstrs_ok.as_ptr(), hcstrs_ok.len(), 4, &mut out2) };
-    assert_eq!(code2, HC_OK, "the handle must remain usable for further hc_parse_batch calls after a caught panic");
-    let decoded = decode(unsafe { std::slice::from_raw_parts(out2.data, out2.len) }).expect("decode post-panic batch buffer");
+    let code2 =
+        unsafe { hc_parse_batch(handle, hcstrs_ok.as_ptr(), hcstrs_ok.len(), 4, &mut out2) };
+    assert_eq!(
+        code2, HC_OK,
+        "the handle must remain usable for further hc_parse_batch calls after a caught panic"
+    );
+    let decoded = decode(unsafe { std::slice::from_raw_parts(out2.data, out2.len) })
+        .expect("decode post-panic batch buffer");
     assert_eq!(decoded.len(), words.len());
     unsafe { hc_buf_free(&mut out2) };
 

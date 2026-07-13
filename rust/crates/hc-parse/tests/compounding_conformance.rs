@@ -47,7 +47,11 @@ fn prefix_commute_matches_oracle() {
         ("pʰutdas", "-"),
     ];
     for (word, expected) in cases {
-        assert_eq!(m.parse_word(word).signature(), expected, "prefix-commute word {word:?}");
+        assert_eq!(
+            m.parse_word(word).signature(),
+            expected,
+            "prefix-commute word {word:?}"
+        );
     }
 }
 
@@ -68,6 +72,10 @@ fn nonhead_not_root_matches_oracle() {
         ("pʰutdas", "-"),
     ];
     for (word, expected) in cases {
-        assert_eq!(m.parse_word(word).signature(), expected, "nonhead-not-root word {word:?}");
+        assert_eq!(
+            m.parse_word(word).signature(),
+            expected,
+            "nonhead-not-root word {word:?}"
+        );
     }
 }

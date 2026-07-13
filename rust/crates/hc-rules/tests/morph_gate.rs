@@ -17,10 +17,9 @@ mod common;
 use common::{load_alpha_grammar, nat_class};
 use hc_grammar::chardef::CharDefId;
 use hc_grammar::model::{
-    AffixAllomorphDef, AffixProcessRuleDef, AllomorphId, CompoundingRuleDef,
-    CompoundingSubruleDef, Grammar, MorphRuleDef, MorphemeId, MprSet, OutputAction, PartRef,
-    Pattern, PatternNode, ReduplicationHint, SegmentedText, SimpleContext, StratumId, TableId,
-    VarTable,
+    AffixAllomorphDef, AffixProcessRuleDef, AllomorphId, CompoundingRuleDef, CompoundingSubruleDef,
+    Grammar, MorphRuleDef, MorphemeId, MprSet, OutputAction, PartRef, Pattern, PatternNode,
+    ReduplicationHint, SegmentedText, SimpleContext, StratumId, TableId, VarTable,
 };
 use hc_rules::morph::{analyze, synthesize};
 use hc_rules::{MorphRecord, Word};
@@ -61,7 +60,11 @@ fn cd(g: &Grammar, xml_id: &str) -> u32 {
 /// A word carrying a single "root" morph at position 0.
 fn root_word(g: &Grammar, text: &str, morpheme: u32) -> Word {
     let mut w = Word::new(shape_with_lanes(g, text), StratumId(0));
-    w.morphs.push(MorphRecord::new(AllomorphId(morpheme), MorphemeId(morpheme), 0));
+    w.morphs.push(MorphRecord::new(
+        AllomorphId(morpheme),
+        MorphemeId(morpheme),
+        0,
+    ));
     w
 }
 
@@ -84,14 +87,19 @@ fn one_or_more(nc: &str, g: &Grammar) -> Pattern {
 
 /// A single-node part matching a natural class.
 fn single(nc: &str, g: &Grammar) -> Pattern {
-    Pattern { nodes: vec![PatternNode::Context(ctx(nc, g))] }
+    Pattern {
+        nodes: vec![PatternNode::Context(ctx(nc, g))],
+    }
 }
 
 fn insert_segments(g: &Grammar, text: &str) -> OutputAction {
     let shape = hc_grammar::segment::segment(&g.char_tables[0], text).expect("segments");
     OutputAction::InsertSegments {
         table: TableId(0),
-        shape: SegmentedText { text: text.to_string(), shape },
+        shape: SegmentedText {
+            text: text.to_string(),
+            shape,
+        },
     }
 }
 
@@ -143,7 +151,10 @@ fn suffix_synthesis_appends_and_orders_root_then_affix() {
         vec![allomorph(
             200,
             vec![one_or_more("nc_any", &g)],
-            vec![OutputAction::Copy(PartRef::Input(0)), insert_segments(&g, "n")],
+            vec![
+                OutputAction::Copy(PartRef::Input(0)),
+                insert_segments(&g, "n"),
+            ],
         )],
     );
 
@@ -152,7 +163,12 @@ fn suffix_synthesis_appends_and_orders_root_then_affix() {
     // Shape: root "apa" copied, then affix "n" appended → a p a n.
     assert_eq!(
         char_defs(&out[0].shape),
-        vec![cd(&g, "char_a"), cd(&g, "char_p"), cd(&g, "char_a"), cd(&g, "char_n")]
+        vec![
+            cd(&g, "char_a"),
+            cd(&g, "char_p"),
+            cd(&g, "char_a"),
+            cd(&g, "char_n")
+        ]
     );
     // Morph order = surface order: root (100) then suffix (200).
     assert_eq!(
@@ -170,7 +186,10 @@ fn suffix_round_trip_recovers_stem_shape() {
         vec![allomorph(
             200,
             vec![one_or_more("nc_any", &g)],
-            vec![OutputAction::Copy(PartRef::Input(0)), insert_segments(&g, "n")],
+            vec![
+                OutputAction::Copy(PartRef::Input(0)),
+                insert_segments(&g, "n"),
+            ],
         )],
     );
 
@@ -180,7 +199,10 @@ fn suffix_round_trip_recovers_stem_shape() {
     assert!(
         recovered.iter().any(|w| w.shape == stem.shape),
         "analyze(synthesize(stem)) recovers the stem shape; got {:?}",
-        recovered.iter().map(|w| char_defs(&w.shape)).collect::<Vec<_>>()
+        recovered
+            .iter()
+            .map(|w| char_defs(&w.shape))
+            .collect::<Vec<_>>()
     );
 }
 
@@ -199,7 +221,10 @@ fn prefix_synthesis_prepends_and_orders_affix_then_root() {
         vec![allomorph(
             200,
             vec![one_or_more("nc_any", &g)],
-            vec![insert_segments(&g, "n"), OutputAction::Copy(PartRef::Input(0))],
+            vec![
+                insert_segments(&g, "n"),
+                OutputAction::Copy(PartRef::Input(0)),
+            ],
         )],
     );
 
@@ -207,7 +232,12 @@ fn prefix_synthesis_prepends_and_orders_affix_then_root() {
     assert_eq!(out.len(), 1);
     assert_eq!(
         char_defs(&out[0].shape),
-        vec![cd(&g, "char_n"), cd(&g, "char_a"), cd(&g, "char_p"), cd(&g, "char_a")]
+        vec![
+            cd(&g, "char_n"),
+            cd(&g, "char_a"),
+            cd(&g, "char_p"),
+            cd(&g, "char_a")
+        ]
     );
     // Surface order: prefix (200) then root (100).
     assert_eq!(
@@ -274,7 +304,9 @@ fn simulfix_synthesis_voices_target_segment() {
 fn simulfix_analysis_underspecifies_modified_feature() {
     let g = load_alpha_grammar();
     let voi = common::feat(&g, "feat_voi").0 as usize;
-    let full_voi = g.phon_features.mask(hc_grammar::featsys::FlatIndex(voi as u32));
+    let full_voi = g
+        .phon_features
+        .mask(hc_grammar::featsys::FlatIndex(voi as u32));
 
     let stem = root_word(&g, "ap", 100);
     let rule = affix_rule(
@@ -329,7 +361,10 @@ fn compound_rule() -> MorphRuleDef {
             out_mpr: MprSet::EMPTY,
             head_lhs: vec![], // filled per test (needs the grammar)
             non_head_lhs: vec![],
-            rhs: vec![OutputAction::Copy(PartRef::Head(0)), OutputAction::Copy(PartRef::NonHead(0))],
+            rhs: vec![
+                OutputAction::Copy(PartRef::Head(0)),
+                OutputAction::Copy(PartRef::NonHead(0)),
+            ],
         }],
     })
 }
@@ -379,7 +414,10 @@ fn compound_synthesis_joins_head_and_non_head() {
     // (see `hc-parse/tests/csharp_port_compounding.rs`'s
     // `simple_rules_1_homophone_disjunction_finding`).
     assert_eq!(out[0].non_heads.len(), 1);
-    assert_eq!(char_defs(&out[0].non_heads[0].shape), char_defs(&shape_with_lanes(&g, "ka")));
+    assert_eq!(
+        char_defs(&out[0].non_heads[0].shape),
+        char_defs(&shape_with_lanes(&g, "ka"))
+    );
 }
 
 #[test]
@@ -427,8 +465,16 @@ fn ana_affix_dedup_is_scoped_per_allomorph_not_shared_across_the_rule() {
     let rule = affix_rule(
         200,
         vec![
-            allomorph(200, vec![one_or_more("nc_any", &g)], vec![OutputAction::Copy(PartRef::Input(0))]),
-            allomorph(201, vec![one_or_more("nc_any", &g)], vec![OutputAction::Copy(PartRef::Input(0))]),
+            allomorph(
+                200,
+                vec![one_or_more("nc_any", &g)],
+                vec![OutputAction::Copy(PartRef::Input(0))],
+            ),
+            allomorph(
+                201,
+                vec![one_or_more("nc_any", &g)],
+                vec![OutputAction::Copy(PartRef::Input(0))],
+            ),
         ],
     );
     let out = analyze(&g, &stem, &rule);
@@ -472,8 +518,18 @@ fn ana_affix_dedup_distinguishes_segment_identity_on_zero_feature_grammars() {
             .map(|i| w.shape.char_def(i))
             .collect()
     };
-    let abxc = vec![cd(&g, "char_a"), cd(&g, "char_b"), cd(&g, "char_x"), cd(&g, "char_c")];
-    let axbc = vec![cd(&g, "char_a"), cd(&g, "char_x"), cd(&g, "char_b"), cd(&g, "char_c")];
+    let abxc = vec![
+        cd(&g, "char_a"),
+        cd(&g, "char_b"),
+        cd(&g, "char_x"),
+        cd(&g, "char_c"),
+    ];
+    let axbc = vec![
+        cd(&g, "char_a"),
+        cd(&g, "char_x"),
+        cd(&g, "char_b"),
+        cd(&g, "char_c"),
+    ];
     let got: Vec<Vec<u32>> = out.iter().map(non_optional_cds).collect();
     assert!(
         got.contains(&abxc) && got.contains(&axbc),
@@ -490,7 +546,10 @@ fn compound_subrule_any_plus_any(g: &Grammar) -> CompoundingSubruleDef {
         out_mpr: MprSet::EMPTY,
         head_lhs: vec![one_or_more("nc_any", g)],
         non_head_lhs: vec![one_or_more("nc_any", g)],
-        rhs: vec![OutputAction::Copy(PartRef::Head(0)), OutputAction::Copy(PartRef::NonHead(0))],
+        rhs: vec![
+            OutputAction::Copy(PartRef::Head(0)),
+            OutputAction::Copy(PartRef::NonHead(0)),
+        ],
     }
 }
 
@@ -505,7 +564,10 @@ fn ana_compound_dedup_is_scoped_per_subrule_not_shared_across_the_rule() {
     // C# resets `srOutput` fresh for each subrule index `i` (AnalysisCompoundingRule.cs:56-58).
     let mut rule = compound_rule();
     if let MorphRuleDef::Compounding(def) = &mut rule {
-        def.subrules = vec![compound_subrule_any_plus_any(&g), compound_subrule_any_plus_any(&g)];
+        def.subrules = vec![
+            compound_subrule_any_plus_any(&g),
+            compound_subrule_any_plus_any(&g),
+        ];
     }
     let out = analyze(&g, &input, &rule);
     let want_head = char_defs(&shape_with_lanes(&g, "apa"));
@@ -517,7 +579,10 @@ fn ana_compound_dedup_is_scoped_per_subrule_not_shared_across_the_rule() {
                 && w.current_non_head().map(|nh| char_defs(&nh.shape)) == Some(want_nh.clone())
         })
         .count();
-    assert_eq!(matching, 2, "each subrule's identical apa|ka split must survive independently, got {matching}");
+    assert_eq!(
+        matching, 2,
+        "each subrule's identical apa|ka split must survive independently, got {matching}"
+    );
 }
 
 // =================================================================================================
@@ -525,7 +590,10 @@ fn ana_compound_dedup_is_scoped_per_subrule_not_shared_across_the_rule() {
 // =================================================================================================
 
 fn sena_path() -> String {
-    format!("{}/../../../samples/data/sena-hc.xml", env!("CARGO_MANIFEST_DIR"))
+    format!(
+        "{}/../../../samples/data/sena-hc.xml",
+        env!("CARGO_MANIFEST_DIR")
+    )
 }
 
 #[test]
@@ -546,7 +614,9 @@ fn sena_affix_and_compounding_rules_compile_and_run_without_panic() {
     let probe_shape =
         hc_grammar::segment::segment(&g.char_tables[0], &probe_text).expect("probe segments");
     let mut probe = Word::new(probe_shape, StratumId(0));
-    probe.morphs.push(MorphRecord::new(AllomorphId(0), MorphemeId(0), 0));
+    probe
+        .morphs
+        .push(MorphRecord::new(AllomorphId(0), MorphemeId(0), 0));
 
     let mut affix_rules = 0usize;
     let mut compounding_rules = 0usize;
@@ -600,7 +670,13 @@ fn sena_affix_and_compounding_rules_compile_and_run_without_panic() {
          compounding rules, {allomorphs} affix allomorphs, {parts_compiled} LHS parts compiled; \
          analyze+synthesize ran on probe word {probe_text:?} without panic"
     );
-    assert!(affix_rules >= 100, "expected ~132 affix-process rules, got {affix_rules}");
-    assert!(compounding_rules >= 8, "expected 8 compounding rules, got {compounding_rules}");
+    assert!(
+        affix_rules >= 100,
+        "expected ~132 affix-process rules, got {affix_rules}"
+    );
+    assert!(
+        compounding_rules >= 8,
+        "expected 8 compounding rules, got {compounding_rules}"
+    );
     assert!(parts_compiled > 0);
 }

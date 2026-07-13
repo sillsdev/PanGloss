@@ -47,7 +47,9 @@ pub struct ProbeSeg {
 pub fn probe_synthesize(g: &Grammar, shape: &Shape, cache: &RuleCache) -> Option<Vec<ProbeSeg>> {
     let mut ms = MutShape::from_shape(shape);
     for sd in &g.strata {
-        if let ProbeOutcome::Refused = rewrite::probe_synthesize_stratum(g, &sd.prules, &mut ms, cache) {
+        if let ProbeOutcome::Refused =
+            rewrite::probe_synthesize_stratum(g, &sd.prules, &mut ms, cache)
+        {
             return None;
         }
     }
@@ -55,7 +57,11 @@ pub fn probe_synthesize(g: &Grammar, shape: &Shape, cache: &RuleCache) -> Option
         ms.nodes
             .iter()
             .filter(|n| n.kind == NodeKind::Segment)
-            .map(|n| ProbeSeg { char_def: n.char_def, lanes: n.lanes.clone(), deleted: n.deleted })
+            .map(|n| ProbeSeg {
+                char_def: n.char_def,
+                lanes: n.lanes.clone(),
+                deleted: n.deleted,
+            })
             .collect(),
     )
 }
@@ -93,7 +99,10 @@ fn matching_reps(table: &CharDefTable, char_def: u32, lanes: &[u64]) -> Vec<Stri
             continue;
         }
         let member = if char_def != NO_CHAR_DEF {
-            id.0 == char_def || table.unifiable_cds(CharDefId(char_def)).is_some_and(|b| b.contains(id.0))
+            id.0 == char_def
+                || table
+                    .unifiable_cds(CharDefId(char_def))
+                    .is_some_and(|b| b.contains(id.0))
         } else {
             true // NO_CHAR_DEF (post-rewrite abstract node): pure lane unification, no identity gate.
         };

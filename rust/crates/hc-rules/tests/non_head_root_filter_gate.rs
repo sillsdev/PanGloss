@@ -120,7 +120,10 @@ fn compound_rule_with(
             out_mpr: MprSet::EMPTY,
             head_lhs: vec![one_or_more("nc_any", g)],
             non_head_lhs: vec![one_or_more("nc_any", g)],
-            rhs: vec![OutputAction::Copy(PartRef::Head(0)), OutputAction::Copy(PartRef::NonHead(0))],
+            rhs: vec![
+                OutputAction::Copy(PartRef::Head(0)),
+                OutputAction::Copy(PartRef::NonHead(0)),
+            ],
         }],
     })
 }
@@ -159,16 +162,21 @@ fn push_entry(g: &mut Grammar, syn_fs: FsId, mpr: MprSet) -> LexEntryId {
 /// to find and re-segment.
 fn push_allomorph(g: &mut Grammar, entry: LexEntryId, text: &str) {
     let shape = shape_with_lanes(g, text);
-    g.entries[entry.0 as usize].allomorphs.push(RootAllomorphDef {
-        id: AllomorphId(300),
-        shape: SegmentedText { text: text.to_string(), shape },
-        is_bound: false,
-        environments: vec![],
-        co_occurrence: vec![],
-        properties: vec![],
-        stem_name: None,
-        is_pattern: false,
-    });
+    g.entries[entry.0 as usize]
+        .allomorphs
+        .push(RootAllomorphDef {
+            id: AllomorphId(300),
+            shape: SegmentedText {
+                text: text.to_string(),
+                shape,
+            },
+            is_bound: false,
+            environments: vec![],
+            co_occurrence: vec![],
+            properties: vec![],
+            stem_name: None,
+            is_pattern: false,
+        });
 }
 
 /// Whether the candidate set contains the head="apa" / non-head="ka" split.
@@ -202,7 +210,8 @@ fn split_survives_when_non_head_is_a_lexicon_root() {
     let r = push_mrule(&mut g, rule);
     let s = push_stratum(&mut g, vec![r]);
 
-    let filter: NonHeadRootFilter = &|_st, _shape| vec![(hc_grammar::model::AllomorphId(300), entry)];
+    let filter: NonHeadRootFilter =
+        &|_st, _shape| vec![(hc_grammar::model::AllomorphId(300), entry)];
 
     let cache = hc_rules::cache::RuleCache::build(&g);
     let out = analyze_stratum_scoped_filtered(
@@ -216,7 +225,10 @@ fn split_survives_when_non_head_is_a_lexicon_root() {
         &StepBudget::new(usize::MAX),
     );
     assert!(!out.capped);
-    assert!(has_apa_ka_split(&g, &out.words), "root found, both sub-checks trivial: split must survive");
+    assert!(
+        has_apa_ka_split(&g, &out.words),
+        "root found, both sub-checks trivial: split must survive"
+    );
 }
 
 // =================================================================================================
@@ -247,7 +259,10 @@ fn split_dropped_when_non_head_is_not_a_root() {
     assert!(
         !has_apa_ka_split(&g, &out.words),
         "no matching root in the lexicon: the split must be thrown away, got {:?}",
-        out.words.iter().map(|w| char_defs(&w.shape)).collect::<Vec<_>>()
+        out.words
+            .iter()
+            .map(|w| char_defs(&w.shape))
+            .collect::<Vec<_>>()
     );
 }
 
@@ -267,7 +282,8 @@ fn split_dropped_when_root_found_but_mpr_restriction_unsatisfied() {
     let r = push_mrule(&mut g, rule);
     let s = push_stratum(&mut g, vec![r]);
 
-    let filter: NonHeadRootFilter = &|_st, _shape| vec![(hc_grammar::model::AllomorphId(300), entry)];
+    let filter: NonHeadRootFilter =
+        &|_st, _shape| vec![(hc_grammar::model::AllomorphId(300), entry)];
 
     let cache = hc_rules::cache::RuleCache::build(&g);
     let out = analyze_stratum_scoped_filtered(
@@ -301,7 +317,8 @@ fn split_dropped_when_root_found_but_syntactic_fs_conflicts() {
     let r = push_mrule(&mut g, rule);
     let s = push_stratum(&mut g, vec![r]);
 
-    let filter: NonHeadRootFilter = &|_st, _shape| vec![(hc_grammar::model::AllomorphId(300), entry)];
+    let filter: NonHeadRootFilter =
+        &|_st, _shape| vec![(hc_grammar::model::AllomorphId(300), entry)];
 
     let cache = hc_rules::cache::RuleCache::build(&g);
     let out = analyze_stratum_scoped_filtered(
@@ -337,7 +354,13 @@ fn unfiltered_backward_compat_ignores_the_gate_entirely() {
     let r = push_mrule(&mut g, rule);
     let s = push_stratum(&mut g, vec![r]);
 
-    let out = analyze_stratum(&g, s, word(&g, "apaka", s), &AnalyzerConfig::default(), &StepBudget::new(usize::MAX));
+    let out = analyze_stratum(
+        &g,
+        s,
+        word(&g, "apaka", s),
+        &AnalyzerConfig::default(),
+        &StepBudget::new(usize::MAX),
+    );
     assert!(!out.capped);
     assert!(
         has_apa_ka_split(&g, &out.words),

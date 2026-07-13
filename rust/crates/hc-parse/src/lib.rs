@@ -70,10 +70,7 @@ mod tests {
 
     #[test]
     fn signatures_are_sorted_and_joined() {
-        let got = result_signature(&[
-            ("b+c".into(), "surf".into()),
-            ("a+c".into(), "surf".into()),
-        ]);
+        let got = result_signature(&[("b+c".into(), "surf".into()), ("a+c".into(), "surf".into())]);
         assert_eq!(got, "a+c|surf;b+c|surf");
     }
 

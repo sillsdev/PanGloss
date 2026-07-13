@@ -32,7 +32,11 @@ fn simple_rule_matches_oracle() {
     let m = Morpher::new(&g, usize::MAX);
     let cases = [("mui", "51|mui"), ("miu", "-")];
     for (word, expected) in cases {
-        assert_eq!(m.parse_word(word).signature(), expected, "simple_rule word {word:?}");
+        assert_eq!(
+            m.parse_word(word).signature(),
+            expected,
+            "simple_rule word {word:?}"
+        );
     }
 }
 
@@ -49,7 +53,11 @@ fn complex_rule_matches_oracle() {
         ("mi+u", "-"),
     ];
     for (word, expected) in cases {
-        assert_eq!(m.parse_word(word).signature(), expected, "complex_rule word {word:?}");
+        assert_eq!(
+            m.parse_word(word).signature(),
+            expected,
+            "complex_rule word {word:?}"
+        );
     }
 }
 
@@ -61,6 +69,10 @@ fn not_unapplied_matches_oracle() {
     let m = Morpher::new(&g, usize::MAX);
     let cases = [("pui", "52+|pui"), ("piu", "-")];
     for (word, expected) in cases {
-        assert_eq!(m.parse_word(word).signature(), expected, "not_unapplied word {word:?}");
+        assert_eq!(
+            m.parse_word(word).signature(),
+            expected,
+            "not_unapplied word {word:?}"
+        );
     }
 }

@@ -36,7 +36,8 @@ fn collect_reasons(sink: &TreeTraceSink, h: TraceHandle, out: &mut Vec<FailureRe
 fn disjunctive_recheck_matches_oracle() {
     let dir = fixture_dir();
     let xml = std::fs::read_to_string(dir.join("grammar.xml")).expect("read grammar.xml");
-    let grammar = load(&xml).unwrap_or_else(|e| panic!("disjunctive-recheck grammar failed to load: {e}"));
+    let grammar =
+        load(&xml).unwrap_or_else(|e| panic!("disjunctive-recheck grammar failed to load: {e}"));
     let morpher = Morpher::new(&grammar, usize::MAX).with_memo(true);
 
     let text = std::fs::read_to_string(dir.join("expected.tsv")).expect("read expected.tsv");
@@ -48,7 +49,10 @@ fn disjunctive_recheck_matches_oracle() {
         }
         let (word, expected_sig) = (cols[1], cols[4]);
         let got = morpher.parse_word(word).signature();
-        assert_eq!(got, expected_sig, "disjunctive-recheck: word {word:?} signature mismatch vs C# oracle");
+        assert_eq!(
+            got, expected_sig,
+            "disjunctive-recheck: word {word:?} signature mismatch vs C# oracle"
+        );
         checked += 1;
     }
     assert_eq!(checked, 12, "expected.tsv should pin all 12 fixture words");
@@ -63,7 +67,8 @@ fn disjunctive_recheck_matches_oracle() {
 fn disjunctive_recheck_traces_the_rejection_reason() {
     let dir = fixture_dir();
     let xml = std::fs::read_to_string(dir.join("grammar.xml")).expect("read grammar.xml");
-    let grammar = load(&xml).unwrap_or_else(|e| panic!("disjunctive-recheck grammar failed to load: {e}"));
+    let grammar =
+        load(&xml).unwrap_or_else(|e| panic!("disjunctive-recheck grammar failed to load: {e}"));
     let morpher = Morpher::new(&grammar, usize::MAX).with_memo(true);
 
     for word in ["wakta", "pakda"] {

@@ -48,7 +48,8 @@ use hc_grammar::model::{Grammar, MorphemeId};
 use hc_parse::{Morpher, WordAnalysis as EngineAnalysis};
 
 use crate::proposers::{
-    ChainPhonologyProposer, ComposedPhonologyProposer, InfixProposer, LockstepPhonologyProposer, ReduplicationProposer,
+    ChainPhonologyProposer, ComposedPhonologyProposer, InfixProposer, LockstepPhonologyProposer,
+    ReduplicationProposer,
 };
 use crate::replay::{self, MorphemeOwner};
 use crate::surface::SurfacePhonology;
@@ -139,7 +140,14 @@ impl<'g> CompositeAnalyzer<'g> {
         max_states: usize,
         deriv_depth: usize,
     ) -> Self {
-        self.phonology = Some(Phonology::Chain(ChainPhonologyProposer::new(g, surface, morpher, max_states, deriv_depth, self.max_beam_work)));
+        self.phonology = Some(Phonology::Chain(ChainPhonologyProposer::new(
+            g,
+            surface,
+            morpher,
+            max_states,
+            deriv_depth,
+            self.max_beam_work,
+        )));
         self
     }
 
@@ -155,7 +163,14 @@ impl<'g> CompositeAnalyzer<'g> {
         max_states: usize,
         deriv_depth: usize,
     ) -> Self {
-        self.phonology = Some(Phonology::Lockstep(LockstepPhonologyProposer::new(g, surface, morpher, max_states, deriv_depth, self.max_beam_work)));
+        self.phonology = Some(Phonology::Lockstep(LockstepPhonologyProposer::new(
+            g,
+            surface,
+            morpher,
+            max_states,
+            deriv_depth,
+            self.max_beam_work,
+        )));
         self
     }
 
@@ -218,17 +233,30 @@ impl<'g> CompositeAnalyzer<'g> {
         // 5. ComposedPhonologyProposer (F7 -- real when enabled via with_composed_phonology, else
         //    the deferred stub).
         match &self.composed {
-            Some(composed) => {
-                extend("ComposedPhonologyProposer", composed.analyze_word(self.g, self.trie, word, self.max_beam_work), &mut out, &mut seen)
-            }
+            Some(composed) => extend(
+                "ComposedPhonologyProposer",
+                composed.analyze_word(self.g, self.trie, word, self.max_beam_work),
+                &mut out,
+                &mut seen,
+            ),
             None => extend("ComposedPhonologyProposer", Vec::new(), &mut out, &mut seen),
         }
         // 6. LockstepPhonologyProposer (v1 default; deferred stub unless enabled) OR
         //    ChainPhonologyProposer (useChainPhonology opt-in, F7) -- mutually exclusive at this one
         //    slot, see module doc.
         match &self.phonology {
-            Some(Phonology::Chain(chain)) => extend("ChainPhonologyProposer", chain.analyze_word(self.g, word), &mut out, &mut seen),
-            Some(Phonology::Lockstep(lockstep)) => extend("LockstepPhonologyProposer", lockstep.analyze_word(self.g, word), &mut out, &mut seen),
+            Some(Phonology::Chain(chain)) => extend(
+                "ChainPhonologyProposer",
+                chain.analyze_word(self.g, word),
+                &mut out,
+                &mut seen,
+            ),
+            Some(Phonology::Lockstep(lockstep)) => extend(
+                "LockstepPhonologyProposer",
+                lockstep.analyze_word(self.g, word),
+                &mut out,
+                &mut seen,
+            ),
             None => extend("LockstepPhonologyProposer", Vec::new(), &mut out, &mut seen),
         }
 

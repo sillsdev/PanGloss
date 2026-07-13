@@ -96,11 +96,21 @@ fn grammar() -> hc_grammar::model::Grammar {
 fn fixture_sanity_pattern_entry_is_excluded_from_the_trie() {
     let g = grammar();
     assert_eq!(g.entries.len(), 1);
-    assert!(g.entries[0].allomorphs[0].is_pattern, "[Any]* must classify as a pattern (chunk 1)");
-    assert!(g.entries[0].syn_fs == hc_featstruct::FsId(0), "the pattern entry's syn FS must be empty");
+    assert!(
+        g.entries[0].allomorphs[0].is_pattern,
+        "[Any]* must classify as a pattern (chunk 1)"
+    );
+    assert!(
+        g.entries[0].syn_fs == hc_featstruct::FsId(0),
+        "the pattern entry's syn FS must be empty"
+    );
 
     let m = Morpher::new(&g, usize::MAX);
-    assert_eq!(m.lexical_patterns().len(), 1, "the pattern must land in Morpher::lexical_patterns");
+    assert_eq!(
+        m.lexical_patterns().len(),
+        1,
+        "the pattern must land in Morpher::lexical_patterns"
+    );
 }
 
 /// C#: `Assert.That(morpher.AnalyzeWord("gag"), Is.Empty)` and `AnalyzeWord("gagd")` likewise —
@@ -127,13 +137,31 @@ fn guess_on_gag_has_exactly_one_analysis_root_only() {
     let opts = ParseOptions::default().with_guess_root(true);
     let outcome = m.parse_word_opts("gag", &opts);
 
-    assert!(outcome.guessed, "the guess branch must have fired (normal path was empty)");
-    assert_eq!(outcome.analyses.len(), 1, "exactly one guess for \"gag\": {:?}", outcome.analyses);
-    assert_eq!(outcome.analyses[0].0, "gag", "root-only join: just the guessed root's rendered text");
+    assert!(
+        outcome.guessed,
+        "the guess branch must have fired (normal path was empty)"
+    );
+    assert_eq!(
+        outcome.analyses.len(),
+        1,
+        "exactly one guess for \"gag\": {:?}",
+        outcome.analyses
+    );
+    assert_eq!(
+        outcome.analyses[0].0, "gag",
+        "root-only join: just the guessed root's rendered text"
+    );
     assert_eq!(outcome.structured.len(), 1);
-    assert_eq!(outcome.structured[0].root_morpheme_index, 0, "the root is morph index 0 (C#'s '*' marker)");
+    assert_eq!(
+        outcome.structured[0].root_morpheme_index, 0,
+        "the root is morph index 0 (C#'s '*' marker)"
+    );
     assert_eq!(outcome.structured[0].morpheme_ids.len(), 1);
-    assert_eq!(outcome.structured[0].morpheme_ids[0], u32::MAX, "the sentinel MorphemeId::GUESSED value");
+    assert_eq!(
+        outcome.structured[0].morpheme_ids[0],
+        u32::MAX,
+        "the sentinel MorphemeId::GUESSED value"
+    );
     assert!(outcome.structured[0].guessed);
 }
 
@@ -150,18 +178,37 @@ fn guess_on_gagd_has_two_analyses_two_morph_first() {
     let outcome = m.parse_word_opts("gagd", &opts);
 
     assert!(outcome.guessed);
-    assert_eq!(outcome.analyses.len(), 2, "two coexisting guesses: {:?}", outcome.analyses);
+    assert_eq!(
+        outcome.analyses.len(),
+        2,
+        "two coexisting guesses: {:?}",
+        outcome.analyses
+    );
     assert_eq!(outcome.structured.len(), 2);
 
     // [0]: the 2-morph guess -- root "gag" (index 0) + the PAST-suffix rule.
-    assert_eq!(outcome.analyses[0].0, "gag+PAST", "2-morph join: guessed root text + the rule's MorphemeId");
+    assert_eq!(
+        outcome.analyses[0].0, "gag+PAST",
+        "2-morph join: guessed root text + the rule's MorphemeId"
+    );
     assert_eq!(outcome.structured[0].morpheme_ids.len(), 2);
     assert_eq!(outcome.structured[0].root_morpheme_index, 0);
-    assert_eq!(outcome.structured[0].morpheme_ids[0], u32::MAX, "the guessed root's sentinel id");
-    assert_ne!(outcome.structured[0].morpheme_ids[1], u32::MAX, "the PAST suffix is a REAL morpheme, not guessed");
+    assert_eq!(
+        outcome.structured[0].morpheme_ids[0],
+        u32::MAX,
+        "the guessed root's sentinel id"
+    );
+    assert_ne!(
+        outcome.structured[0].morpheme_ids[1],
+        u32::MAX,
+        "the PAST suffix is a REAL morpheme, not guessed"
+    );
 
     // [1]: the 1-morph guess -- the whole surface word "gagd" guessed as one bare root.
-    assert_eq!(outcome.analyses[1].0, "gagd", "1-morph join: just the guessed root's rendered text");
+    assert_eq!(
+        outcome.analyses[1].0, "gagd",
+        "1-morph join: just the guessed root's rendered text"
+    );
     assert_eq!(outcome.structured[1].morpheme_ids.len(), 1);
     assert_eq!(outcome.structured[1].root_morpheme_index, 0);
     assert_eq!(outcome.structured[1].morpheme_ids[0], u32::MAX);
@@ -174,6 +221,12 @@ fn guess_on_gagd_has_two_analyses_two_morph_first() {
     // are genuinely different: [0]'s came from a real affix-rule application (leaving a residual
     // "+?" boundary-optional marker in the display regex), [1]'s is a bare guessed root with no
     // affix at all, so their `to_regex_display` strings differ even though both denote "gagd".
-    assert_eq!(outcome.analyses[0].1, "gag+?d", "the affix path leaves the inserted boundary visible in the display regex");
-    assert_eq!(outcome.analyses[1].1, "gagd", "the bare-root guess renders the surface plainly");
+    assert_eq!(
+        outcome.analyses[0].1, "gag+?d",
+        "the affix path leaves the inserted boundary visible in the display regex"
+    );
+    assert_eq!(
+        outcome.analyses[1].1, "gagd",
+        "the bare-root guess renders the surface plainly"
+    );
 }

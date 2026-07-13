@@ -30,7 +30,10 @@ fn sample_path(name: &str) -> Option<PathBuf> {
 
 fn golden_path(grammar: &str, file_name: &str) -> Option<PathBuf> {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let path = manifest_dir.join("../../parity-out/golden/fst-advisor").join(grammar).join(file_name);
+    let path = manifest_dir
+        .join("../../parity-out/golden/fst-advisor")
+        .join(grammar)
+        .join(file_name);
     path.exists().then_some(path)
 }
 
@@ -39,11 +42,21 @@ fn words_path(grammar_dir: &str, name: &str) -> Option<PathBuf> {
 }
 
 fn read_lines(path: &Path) -> Vec<String> {
-    std::fs::read_to_string(path).expect("read golden").lines().map(|l| l.trim_end_matches('\r').to_string()).filter(|l| !l.is_empty()).collect()
+    std::fs::read_to_string(path)
+        .expect("read golden")
+        .lines()
+        .map(|l| l.trim_end_matches('\r').to_string())
+        .filter(|l| !l.is_empty())
+        .collect()
 }
 
 fn read_words(path: &Path) -> Vec<String> {
-    std::fs::read_to_string(path).expect("read word list").lines().map(|w| w.trim().to_string()).filter(|w| !w.is_empty()).collect()
+    std::fs::read_to_string(path)
+        .expect("read word list")
+        .lines()
+        .map(|w| w.trim().to_string())
+        .filter(|w| !w.is_empty())
+        .collect()
 }
 
 fn load_grammar(grammar_file: &str) -> Option<Grammar> {
@@ -53,7 +66,13 @@ fn load_grammar(grammar_file: &str) -> Option<Grammar> {
 }
 
 /// Verified-composite-batch gate, chain-on.
-fn run_chain_batch_gate(grammar_file: &str, words_file: &str, grammar_dir: &str, golden_file: &str, enable_junction_probing: bool) {
+fn run_chain_batch_gate(
+    grammar_file: &str,
+    words_file: &str,
+    grammar_dir: &str,
+    golden_file: &str,
+    enable_junction_probing: bool,
+) {
     let Some(wpath) = words_path(grammar_dir, words_file) else {
         eprintln!("skipping {words_file}: not present on disk");
         return;
@@ -69,7 +88,14 @@ fn run_chain_batch_gate(grammar_file: &str, words_file: &str, grammar_dir: &str,
 
     let surface = SurfacePhonology::new(&g);
     let build_morpher = Morpher::new(&g, usize::MAX);
-    let trie = Trie::build(&g, &surface, &build_morpher, 1_000_000, 2, enable_junction_probing);
+    let trie = Trie::build(
+        &g,
+        &surface,
+        &build_morpher,
+        1_000_000,
+        2,
+        enable_junction_probing,
+    );
     let chain_morpher = Morpher::new(&g, usize::MAX);
     let composite = CompositeAnalyzer::new(&g, &trie, &surface, walk::DEFAULT_MAX_BEAM_WORK, false)
         .with_chain_phonology(&g, &surface, &chain_morpher, 1_000_000, 2);
@@ -82,7 +108,8 @@ fn run_chain_batch_gate(grammar_file: &str, words_file: &str, grammar_dir: &str,
 
     let mut rust_lines = Vec::with_capacity(words.len() * 2);
     for (i, word) in words.iter().enumerate() {
-        let [started, result] = composite::batch_lines(&g, &composite, &verify_morpher, &owners, i, word);
+        let [started, result] =
+            composite::batch_lines(&g, &composite, &verify_morpher, &owners, i, word);
         rust_lines.push(started);
         rust_lines.push(result);
     }
@@ -95,7 +122,10 @@ fn run_chain_batch_gate(grammar_file: &str, words_file: &str, grammar_dir: &str,
         rust_lines.len()
     );
     for (i, (rust_line, golden_line)) in rust_lines.iter().zip(golden_lines.iter()).enumerate() {
-        assert_eq!(rust_line, golden_line, "{grammar_dir}/{golden_file}: diverges at line {i}");
+        assert_eq!(
+            rust_line, golden_line,
+            "{grammar_dir}/{golden_file}: diverges at line {i}"
+        );
     }
 }
 
@@ -104,7 +134,13 @@ fn run_chain_batch_gate(grammar_file: &str, words_file: &str, grammar_dir: &str,
 /// generated with the composite's own default knobs plus `--chain`).
 #[test]
 fn indonesian_chain_on_verified_matches_chainon_golden() {
-    run_chain_batch_gate("indonesian-hc.xml", "indonesian-words.txt", "indonesian", "batch-chainon.tsv", true);
+    run_chain_batch_gate(
+        "indonesian-hc.xml",
+        "indonesian-words.txt",
+        "indonesian",
+        "batch-chainon.tsv",
+        true,
+    );
 }
 
 /// The I4 marquee cross-check: `--no-junctions --chain` over the 46 non-reduplicated meN- words
@@ -113,7 +149,13 @@ fn indonesian_chain_on_verified_matches_chainon_golden() {
 /// proposer, which never used junction probing anyway, recovers the same words alone).
 #[test]
 fn indonesian_no_junctions_chain_matches_men_words_golden() {
-    run_chain_batch_gate("indonesian-hc.xml", "men-words.txt", "indonesian", "men-words-batch.tsv", false);
+    run_chain_batch_gate(
+        "indonesian-hc.xml",
+        "men-words.txt",
+        "indonesian",
+        "men-words-batch.tsv",
+        false,
+    );
 }
 
 /// F6's empirical finding ("neither ComposedPhonologyProposer nor LockstepPhonologyProposer ever
@@ -153,12 +195,16 @@ fn indonesian_real_lockstep_and_composed_are_still_corpus_inert() {
 
     let mut rust_lines = Vec::with_capacity(words.len() * 2);
     for (i, word) in words.iter().enumerate() {
-        let [started, result] = composite::batch_lines(&g, &composite, &verify_morpher, &owners, i, word);
+        let [started, result] =
+            composite::batch_lines(&g, &composite, &verify_morpher, &owners, i, word);
         rust_lines.push(started);
         rust_lines.push(result);
     }
     assert_eq!(rust_lines.len(), golden_lines.len());
     for (i, (rust_line, golden_line)) in rust_lines.iter().zip(golden_lines.iter()).enumerate() {
-        assert_eq!(rust_line, golden_line, "diverges at line {i} -- Lockstep/Composed contributed something new");
+        assert_eq!(
+            rust_line, golden_line,
+            "diverges at line {i} -- Lockstep/Composed contributed something new"
+        );
     }
 }

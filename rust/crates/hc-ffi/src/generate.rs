@@ -57,7 +57,12 @@ pub unsafe extern "C" fn hc_generate_words(
         } else {
             unsafe { std::slice::from_raw_parts(morpheme_ids, morpheme_count) }
         };
-        let wa = WordAnalysis { morpheme_ids: ids.to_vec(), root_morpheme_index, pos_id: None, guessed: false };
+        let wa = WordAnalysis {
+            morpheme_ids: ids.to_vec(),
+            root_morpheme_index,
+            pos_id: None,
+            guessed: false,
+        };
         let words = gh.morpher.generate_words_from_analysis(&wa);
         Ok(crate::buffer::encode_generated_words(&words))
     });
@@ -119,7 +124,9 @@ mod tests {
         let mut handle: HcGrammarHandle = std::ptr::null_mut();
         let mut err = crate::error::HcError::EMPTY;
         let xml = GRAMMAR_XML.as_bytes();
-        let rc = unsafe { crate::grammar::hc_grammar_load(xml.as_ptr(), xml.len(), &mut handle, &mut err) };
+        let rc = unsafe {
+            crate::grammar::hc_grammar_load(xml.as_ptr(), xml.len(), &mut handle, &mut err)
+        };
         assert_eq!(rc, HC_OK, "grammar load failed");
         handle
     }

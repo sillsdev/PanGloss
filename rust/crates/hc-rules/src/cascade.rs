@@ -342,7 +342,10 @@ mod tests {
         let c = Cascade::new(false, UNCAPPED);
         let got = c.combination(2, 2i64, &r, &|n: &i64| *n).words;
         // 2 --r1--> 4 --r0--> 5 is reachable only because combination retries r0 after r1.
-        assert!(got.contains(&5), "combination must reach 5 via r1-then-r0; got {got:?}");
+        assert!(
+            got.contains(&5),
+            "combination must reach 5 via r1-then-r0; got {got:?}"
+        );
     }
 
     #[test]

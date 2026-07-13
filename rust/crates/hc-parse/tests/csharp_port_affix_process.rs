@@ -54,9 +54,15 @@ use hc_rules::Word;
 /// (`FeatureStruct.New(syn).Symbol("N").Value` in C#), built the same way `hc_grammar::load`'s
 /// `intern_syn_fs` would.
 fn pos_fs(g: &Grammar, xml_id: &str) -> FeatureStruct {
-    let idx = g.syn_features.symbol_index(g.syn_features.pos, xml_id).unwrap();
+    let idx = g
+        .syn_features
+        .symbol_index(g.syn_features.pos, xml_id)
+        .unwrap();
     let mut b = FeatureStructBuilder::new();
-    b.add(g.syn_features.pos, FeatureValue::Symbolic(SymbolBits::single(idx)));
+    b.add(
+        g.syn_features.pos,
+        FeatureValue::Symbolic(SymbolBits::single(idx)),
+    );
     b.build()
 }
 
@@ -74,7 +80,8 @@ fn root_word(g: &hc_grammar::model::Grammar, gloss: &str) -> Word {
         .find(|(_, e)| g.morphemes[e.morpheme.0 as usize].morph_id.as_deref() == Some(gloss))
         .unwrap_or_else(|| panic!("no entry with MorphemeId {gloss:?}"));
     let allo = &entry.allomorphs[0];
-    let shape = hc_grammar::segment::segment(&g.char_tables[0], &allo.shape.text).expect("segments");
+    let shape =
+        hc_grammar::segment::segment(&g.char_tables[0], &allo.shape.text).expect("segments");
     let mut w = Word::new(shape, hc_grammar::model::StratumId(0));
     w.syn_fs = g.fs_interner.get(entry.syn_fs).clone();
     w.root_allomorph = Some(allo.id);
@@ -100,9 +107,21 @@ fn morphosyntactic_rules() {
     };
 
     // (1) required=V, output=N -> output category N.
-    let g1 = build_grammar("", "", &mrule_xml("NMLZ", r#"requiredPartsOfSpeech="posV""#, r#"outputPartOfSpeech="posN""#), "mrS", "");
+    let g1 = build_grammar(
+        "",
+        "",
+        &mrule_xml(
+            "NMLZ",
+            r#"requiredPartsOfSpeech="posV""#,
+            r#"outputPartOfSpeech="posN""#,
+        ),
+        "mrS",
+        "",
+    );
     let stem1 = root_word(&g1, "32");
-    let MorphRuleDef::AffixProcess(_) = &g1.mrules[0] else { panic!() };
+    let MorphRuleDef::AffixProcess(_) = &g1.mrules[0] else {
+        panic!()
+    };
     let out1 = hc_rules::morph::synthesize(&g1, &stem1, &g1.mrules[0]);
     assert_eq!(out1.len(), 1);
     assert_eq!(
@@ -112,7 +131,13 @@ fn morphosyntactic_rules() {
     );
 
     // (2) required=V, output=<empty> -> output category stays V (unchanged).
-    let g2 = build_grammar("", "", &mrule_xml("3.SG", r#"requiredPartsOfSpeech="posV""#, ""), "mrS", "");
+    let g2 = build_grammar(
+        "",
+        "",
+        &mrule_xml("3.SG", r#"requiredPartsOfSpeech="posV""#, ""),
+        "mrS",
+        "",
+    );
     let stem2 = root_word(&g2, "32");
     let out2 = hc_rules::morph::synthesize(&g2, &stem2, &g2.mrules[0]);
     assert_eq!(out2.len(), 1);
@@ -123,7 +148,13 @@ fn morphosyntactic_rules() {
     );
 
     // (3) required=<empty>, output=N -> output category N (root's own V is not required).
-    let g3 = build_grammar("", "", &mrule_xml("NMLZ", "", r#"outputPartOfSpeech="posN""#), "mrS", "");
+    let g3 = build_grammar(
+        "",
+        "",
+        &mrule_xml("NMLZ", "", r#"outputPartOfSpeech="posN""#),
+        "mrS",
+        "",
+    );
     let stem3 = root_word(&g3, "32");
     let out3 = hc_rules::morph::synthesize(&g3, &stem3, &g3.mrules[0]);
     assert_eq!(out3.len(), 1);
@@ -166,7 +197,11 @@ fn percolation_rules() {
             surviving.push(gloss);
         }
     }
-    assert_eq!(surviving, vec!["Perc0", "Perc3"], "reconfig 1 (pers=2): only Perc0/Perc3 survive");
+    assert_eq!(
+        surviving,
+        vec!["Perc0", "Perc3"],
+        "reconfig 1 (pers=2): only Perc0/Perc3 survive"
+    );
 
     // Reconfiguration 2: required pers in {2,3} (a disjunctive requirement). Perc0 (unspecified),
     // Perc2 (pers=3), Perc3 (pers in {2,3}), and Perc4 (pers in {1,3}, overlaps 3) all survive;
@@ -264,23 +299,43 @@ fn suffix_rules() {
     let s_suffix = mrule_id(&g, "3SG");
     let ed_suffix = mrule_id(&g, "PAST");
     assert_eq!(
-        m.generate_words(lex_entry_id(&g, "32"), &[GenMorpheme::Rule(s_suffix)], FeatureStruct::EMPTY),
+        m.generate_words(
+            lex_entry_id(&g, "32"),
+            &[GenMorpheme::Rule(s_suffix)],
+            FeatureStruct::EMPTY
+        ),
         vec!["sagz".to_string()]
     );
     assert_eq!(
-        m.generate_words(lex_entry_id(&g, "32"), &[GenMorpheme::Rule(ed_suffix)], FeatureStruct::EMPTY),
+        m.generate_words(
+            lex_entry_id(&g, "32"),
+            &[GenMorpheme::Rule(ed_suffix)],
+            FeatureStruct::EMPTY
+        ),
         vec!["sagd".to_string()]
     );
     assert_eq!(
-        m.generate_words(lex_entry_id(&g, "33"), &[GenMorpheme::Rule(s_suffix)], FeatureStruct::EMPTY),
+        m.generate_words(
+            lex_entry_id(&g, "33"),
+            &[GenMorpheme::Rule(s_suffix)],
+            FeatureStruct::EMPTY
+        ),
         vec!["sasɯz".to_string()]
     );
     assert_eq!(
-        m.generate_words(lex_entry_id(&g, "33"), &[GenMorpheme::Rule(ed_suffix)], FeatureStruct::EMPTY),
+        m.generate_words(
+            lex_entry_id(&g, "33"),
+            &[GenMorpheme::Rule(ed_suffix)],
+            FeatureStruct::EMPTY
+        ),
         vec!["sast".to_string()]
     );
     assert_eq!(
-        m.generate_words(lex_entry_id(&g, "34"), &[GenMorpheme::Rule(ed_suffix)], FeatureStruct::EMPTY),
+        m.generate_words(
+            lex_entry_id(&g, "34"),
+            &[GenMorpheme::Rule(ed_suffix)],
+            FeatureStruct::EMPTY
+        ),
         vec!["sazd".to_string()]
     );
 }
@@ -465,7 +520,11 @@ fn simulfix_rules_lane_level_modification_still_works() {
     let vp = g1.phon_features.symbol_index(voi, "fVd_p").unwrap();
     let voiced_bits = 1u64 << vp;
     // 5 nodes total (2 boundaries + 3 interior: p,i,p); interior index 3 is the modified final "p".
-    assert_eq!(out[0].shape.node_lanes(3)[voi.0 as usize], voiced_bits, "target segment's voi lane is voiced");
+    assert_eq!(
+        out[0].shape.node_lanes(3)[voi.0 as usize],
+        voiced_bits,
+        "target segment's voi lane is voiced"
+    );
 }
 
 /// Ports `AffixProcessRuleTests.ReduplicationRules` (AffixProcessRuleTests.cs:967-1156), the first 2
@@ -867,7 +926,13 @@ fn infix_rules() {
         </PhonologicalSubrules>
       </PhonologicalRule>
     "#;
-    let g = build_grammar(prules, "pr_asp", mrules, "mrPerfAct mrPerfPass mrImperfAct mrImperfPass", "");
+    let g = build_grammar(
+        prules,
+        "pr_asp",
+        mrules,
+        "mrPerfAct mrPerfPass mrImperfAct mrImperfPass",
+        "",
+    );
     let m = Morpher::new(&g, usize::MAX);
     assert_morphs_eq(&m.parse_word("katab"), &["49 PER.ACT"]);
     assert_morphs_eq(&m.parse_word("kutib"), &["49 PER.PSV"]);

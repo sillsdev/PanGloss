@@ -128,7 +128,13 @@ impl SymbolBits {
 
     /// C# `IntersectWith(not, other, notOther)` — returns the new flags (this is unify).
     #[inline]
-    pub fn intersect_with(self, not: bool, other: SymbolBits, not_other: bool, mask: u64) -> SymbolBits {
+    pub fn intersect_with(
+        self,
+        not: bool,
+        other: SymbolBits,
+        not_other: bool,
+        mask: u64,
+    ) -> SymbolBits {
         let a = self.0;
         let b = other.0;
         SymbolBits(match (not, not_other) {
@@ -141,7 +147,13 @@ impl SymbolBits {
 
     /// C# `UnionWith(not, other, notOther)` — returns the new flags.
     #[inline]
-    pub fn union_with(self, not: bool, other: SymbolBits, not_other: bool, mask: u64) -> SymbolBits {
+    pub fn union_with(
+        self,
+        not: bool,
+        other: SymbolBits,
+        not_other: bool,
+        mask: u64,
+    ) -> SymbolBits {
         let a = self.0;
         let b = other.0;
         SymbolBits(match (not, not_other) {
@@ -154,7 +166,13 @@ impl SymbolBits {
 
     /// C# `ExceptWith(not, other, notOther)` — returns the new flags.
     #[inline]
-    pub fn except_with(self, not: bool, other: SymbolBits, not_other: bool, mask: u64) -> SymbolBits {
+    pub fn except_with(
+        self,
+        not: bool,
+        other: SymbolBits,
+        not_other: bool,
+        mask: u64,
+    ) -> SymbolBits {
         let a = self.0;
         let b = other.0;
         SymbolBits(match (not, not_other) {
@@ -228,7 +246,10 @@ mod tests {
         assert!(s.has_any());
         assert!(s.get(2) && s.get(5) && !s.get(3));
         assert_eq!(s.first(), Some(2));
-        assert_eq!(s, SymbolBits::single(2).union_with(false, SymbolBits::single(5), false, full_mask(8)));
+        assert_eq!(
+            s,
+            SymbolBits::single(2).union_with(false, SymbolBits::single(5), false, full_mask(8))
+        );
     }
 
     #[test]

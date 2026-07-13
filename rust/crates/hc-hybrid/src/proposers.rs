@@ -406,8 +406,16 @@ pub struct ChainPhonologyProposer {
 }
 
 impl ChainPhonologyProposer {
-    pub fn new(g: &Grammar, surface: &SurfacePhonology, morpher: &hc_parse::Morpher, max_states: usize, deriv_depth: usize, max_beam_work: i64) -> Self {
-        let underlying_trie = Trie::build_ex(g, surface, morpher, max_states, deriv_depth, false, false);
+    pub fn new(
+        g: &Grammar,
+        surface: &SurfacePhonology,
+        morpher: &hc_parse::Morpher,
+        max_states: usize,
+        deriv_depth: usize,
+        max_beam_work: i64,
+    ) -> Self {
+        let underlying_trie =
+            Trie::build_ex(g, surface, morpher, max_states, deriv_depth, false, false);
         let compiled = compiler::compile_default(g);
         let chain: Vec<InversePhonology> = compiled
             .into_iter()
@@ -415,7 +423,12 @@ impl ChainPhonologyProposer {
             .rev()
             .map(|c| c.pinv)
             .collect();
-        ChainPhonologyProposer { underlying_trie, chain, max_beam_work, max_boundary_insertions: walk::DEFAULT_MAX_BOUNDARY_INSERTIONS }
+        ChainPhonologyProposer {
+            underlying_trie,
+            chain,
+            max_beam_work,
+            max_boundary_insertions: walk::DEFAULT_MAX_BOUNDARY_INSERTIONS,
+        }
     }
 
     /// How many walk-chain rules (after dropping `IdentitySkip`) this proposer's chain stacks --
@@ -428,7 +441,15 @@ impl ChainPhonologyProposer {
         if self.chain.is_empty() {
             return Vec::new();
         }
-        walk::analyze_chain(g, &self.underlying_trie, &self.chain, word, self.max_beam_work, self.max_boundary_insertions).analyses
+        walk::analyze_chain(
+            g,
+            &self.underlying_trie,
+            &self.chain,
+            word,
+            self.max_beam_work,
+            self.max_boundary_insertions,
+        )
+        .analyses
     }
 }
 
@@ -457,8 +478,16 @@ pub struct LockstepPhonologyProposer {
 }
 
 impl LockstepPhonologyProposer {
-    pub fn new(g: &Grammar, surface: &SurfacePhonology, morpher: &hc_parse::Morpher, max_states: usize, deriv_depth: usize, max_beam_work: i64) -> Self {
-        let underlying_trie = Trie::build_ex(g, surface, morpher, max_states, deriv_depth, false, false);
+    pub fn new(
+        g: &Grammar,
+        surface: &SurfacePhonology,
+        morpher: &hc_parse::Morpher,
+        max_states: usize,
+        deriv_depth: usize,
+        max_beam_work: i64,
+    ) -> Self {
+        let underlying_trie =
+            Trie::build_ex(g, surface, morpher, max_states, deriv_depth, false, false);
         let result = crate::compiler_v1::compile(g);
         let has_arcs = has_non_identity_arcs(&result.pinv);
         LockstepPhonologyProposer {
@@ -482,13 +511,23 @@ impl LockstepPhonologyProposer {
             return Vec::new();
         }
         let chain = std::slice::from_ref(&self.pinv);
-        walk::analyze_chain(g, &self.underlying_trie, chain, word, self.max_beam_work, self.max_boundary_insertions).analyses
+        walk::analyze_chain(
+            g,
+            &self.underlying_trie,
+            chain,
+            word,
+            self.max_beam_work,
+            self.max_boundary_insertions,
+        )
+        .analyses
     }
 }
 
 /// C# `LockstepPhonologyProposer.HasNonIdentityArcs` (quirk 1, see the struct doc above).
 fn has_non_identity_arcs(pinv: &InversePhonology) -> bool {
-    pinv.arcs_from(pinv.start_state).iter().any(|arc| arc.is_epsilon_input() || arc.surface != arc.underlying)
+    pinv.arcs_from(pinv.start_state)
+        .iter()
+        .any(|arc| arc.is_epsilon_input() || arc.surface != arc.underlying)
 }
 
 /// `ComposedPhonologyProposer` (F7 -- F6's deferred scope): port of C# `ComposedPhonologyProposer.cs`.
@@ -518,7 +557,13 @@ impl ComposedPhonologyProposer {
         ComposedPhonologyProposer { has_phonology }
     }
 
-    pub fn analyze_word(&self, g: &Grammar, trie: &Trie, word: &str, max_beam_work: i64) -> Vec<WordAnalysis> {
+    pub fn analyze_word(
+        &self,
+        g: &Grammar,
+        trie: &Trie,
+        word: &str,
+        max_beam_work: i64,
+    ) -> Vec<WordAnalysis> {
         if !self.has_phonology {
             return Vec::new(); // no phonology => the bare FST proposer already covers everything
         }
@@ -537,8 +582,13 @@ impl ComposedPhonologyProposer {
         let mut current = shape;
         for stratum in g.strata.iter().rev() {
             for &prule_id in stratum.prules.iter().rev() {
-                if let hc_grammar::model::PhonRuleDef::Rewrite(rule) = &g.prules[prule_id.0 as usize] {
-                    if let Some(out) = hc_rules::rewrite::analyze(g, rule, &current).into_iter().next() {
+                if let hc_grammar::model::PhonRuleDef::Rewrite(rule) =
+                    &g.prules[prule_id.0 as usize]
+                {
+                    if let Some(out) = hc_rules::rewrite::analyze(g, rule, &current)
+                        .into_iter()
+                        .next()
+                    {
                         current = out;
                     }
                 }
@@ -554,7 +604,10 @@ impl ComposedPhonologyProposer {
         let segments: Vec<walk::InputSegment> = current
             .interior()
             .filter(|(_, kind, ..)| *kind == NodeKind::Segment)
-            .map(|(i, _, cd, _)| walk::InputSegment { char_def: cd, lanes: current.node_lanes(i).to_vec() })
+            .map(|(i, _, cd, _)| walk::InputSegment {
+                char_def: cd,
+                lanes: current.node_lanes(i).to_vec(),
+            })
             .collect();
         walk::analyze_shape(trie, &segments, table.unif_closure_rows(), max_beam_work).analyses
     }

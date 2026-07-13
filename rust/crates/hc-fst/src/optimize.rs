@@ -158,7 +158,12 @@ fn get_first_free_index(subset: &SubsetState) -> i32 {
 
 // --- register index allocation (Fst.cs:1203-1216) ---------------------------------------------
 
-fn get_register_index(reg_indices: &mut HashMap<(i32, i32), i32>, next_tag: i32, tag: i32, index: i32) -> i32 {
+fn get_register_index(
+    reg_indices: &mut HashMap<(i32, i32), i32>,
+    next_tag: i32,
+    tag: i32,
+    index: i32,
+) -> i32 {
     if index == 0 {
         return tag;
     }
@@ -263,7 +268,10 @@ impl<'n> Builder<'n> {
         let mut cmd_tags: BTreeMap<i32, i32> = BTreeMap::new();
         for ts in &target.states {
             for (&k, &v) in &ts.tags {
-                let found = cur_subset.states.iter().any(|cs| cs.tags.get(&k) == Some(&v));
+                let found = cur_subset
+                    .states
+                    .iter()
+                    .any(|cs| cs.tags.get(&k) == Some(&v));
                 if !found {
                     cmd_tags.insert(k, v);
                 }
@@ -336,13 +344,33 @@ impl<'n> Builder<'n> {
                         {
                             continue;
                         }
-                        let src = get_register_index(&mut self.reg_indices, self.next_tag, ftag_key, index);
-                        let dest = get_register_index(&mut self.reg_indices, self.next_tag, ftag_key, tag_index.1);
+                        let src = get_register_index(
+                            &mut self.reg_indices,
+                            self.next_tag,
+                            ftag_key,
+                            index,
+                        );
+                        let dest = get_register_index(
+                            &mut self.reg_indices,
+                            self.next_tag,
+                            ftag_key,
+                            tag_index.1,
+                        );
                         new_cmds.retain(|c| !(c.src == src && c.dest == dest));
                     }
                     if tag_index.1 != ftag_val {
-                        let src = get_register_index(&mut self.reg_indices, self.next_tag, ftag_key, ftag_val);
-                        let dest = get_register_index(&mut self.reg_indices, self.next_tag, ftag_key, tag_index.1);
+                        let src = get_register_index(
+                            &mut self.reg_indices,
+                            self.next_tag,
+                            ftag_key,
+                            ftag_val,
+                        );
+                        let dest = get_register_index(
+                            &mut self.reg_indices,
+                            self.next_tag,
+                            ftag_key,
+                            tag_index.1,
+                        );
                         new_cmds.push(Cmd { dest, src });
                     }
                     reordered_indices.insert(tag_index, ftag_val);
@@ -419,10 +447,7 @@ fn deterministic_get_arcs(nfa: &Nfa, from: &SubsetState) -> Vec<(SubsetState, Ma
         if states.is_empty() {
             continue;
         }
-        let input = MatchInput {
-            pos,
-            negated: neg,
-        };
+        let input = MatchInput { pos, negated: neg };
         if !input.is_satisfiable() {
             continue;
         }
@@ -528,22 +553,24 @@ fn optimize(nfa: &Nfa, deterministic: bool, direction: Direction) -> Fst {
         reg_nums.insert(i, i);
     }
     let mut register_count = b.next_tag;
-    let renumber = |cmds: &mut Vec<Cmd>, reg_nums: &mut HashMap<i32, i32>, register_count: &mut i32| {
-        let assign = |reg: i32, reg_nums: &mut HashMap<i32, i32>, register_count: &mut i32| -> i32 {
-            *reg_nums.entry(reg).or_insert_with(|| {
-                let r = *register_count;
-                *register_count += 1;
-                r
-            })
-        };
-        for cmd in cmds.iter_mut() {
-            if cmd.src != CURRENT_POSITION {
-                cmd.src = assign(cmd.src, reg_nums, register_count);
+    let renumber =
+        |cmds: &mut Vec<Cmd>, reg_nums: &mut HashMap<i32, i32>, register_count: &mut i32| {
+            let assign =
+                |reg: i32, reg_nums: &mut HashMap<i32, i32>, register_count: &mut i32| -> i32 {
+                    *reg_nums.entry(reg).or_insert_with(|| {
+                        let r = *register_count;
+                        *register_count += 1;
+                        r
+                    })
+                };
+            for cmd in cmds.iter_mut() {
+                if cmd.src != CURRENT_POSITION {
+                    cmd.src = assign(cmd.src, reg_nums, register_count);
+                }
+                cmd.dest = assign(cmd.dest, reg_nums, register_count);
             }
-            cmd.dest = assign(cmd.dest, reg_nums, register_count);
-        }
-        cmds.sort();
-    };
+            cmds.sort();
+        };
     for st in b.states.iter_mut() {
         renumber(&mut st.finishers, &mut reg_nums, &mut register_count);
         for arc in st.arcs.iter_mut() {

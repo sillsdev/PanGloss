@@ -24,15 +24,17 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Duration;
 
-use rustc_hash::FxHashMap as HashMap;
-use hc_grammar::model::{AllomorphId, AllomorphOwner, Grammar, LexEntryId, MRuleId, MorphRuleDef, MorphemeId, StratumId};
+use hc_featstruct::{FeatId, FeatureStruct, FeatureValue};
+use hc_grammar::model::{
+    AllomorphId, AllomorphOwner, Grammar, LexEntryId, MRuleId, MorphRuleDef, MorphemeId, StratumId,
+};
 use hc_memo::AnalysisScope;
 use hc_rules::cache::RuleCache;
 use hc_rules::shape_feat::segment_with_features;
 use hc_rules::stratum::{AnalyzerConfig, NonHeadRootFilter};
 use hc_rules::trace::{FailureReason, NoopSink, TraceHandle, TraceSink};
 use hc_rules::word::{MorphRecord, Word, WordKey};
-use hc_featstruct::{FeatId, FeatureStruct, FeatureValue};
+use rustc_hash::FxHashMap as HashMap;
 
 use crate::guess;
 use crate::root_trie::{collect_lexical_patterns, RootAllomorphIndex};
@@ -202,7 +204,12 @@ impl<'g> Morpher<'g> {
     /// (chunk 3) or the analysis/synthesis rule cascades (chunks 4-6) — a candidate rejected by
     /// `allomorphs_valid_cached` produces no trace event yet (a known, temporary gap the later
     /// chunks close; see this method's body).
-    pub fn parse_word_traced(&self, word: &str, opts: &ParseOptions, trace: &dyn TraceSink) -> ParseOutcome {
+    pub fn parse_word_traced(
+        &self,
+        word: &str,
+        opts: &ParseOptions,
+        trace: &dyn TraceSink,
+    ) -> ParseOutcome {
         self.parse_word_core(word, opts, trace)
     }
 
@@ -236,7 +243,12 @@ impl<'g> Morpher<'g> {
     /// `trace.is_tracing()` first (§4.1's zero-cost-when-off requirement); `NoopSink`'s own methods
     /// are `unreachable!()` and are never reached because of that guard. Both filters `None` — see
     /// [`Self::parse_word_core_selected`] for the F1 selector-restricted sibling.
-    fn parse_word_core(&self, word: &str, opts: &ParseOptions, trace: &dyn TraceSink) -> ParseOutcome {
+    fn parse_word_core(
+        &self,
+        word: &str,
+        opts: &ParseOptions,
+        trace: &dyn TraceSink,
+    ) -> ParseOutcome {
         self.parse_word_core_selected(word, opts, trace, None, None)
     }
 
@@ -329,14 +341,16 @@ impl<'g> Morpher<'g> {
         // `merge_equivalent` bypass just above: a trace built against a memoized replay would show a
         // narrower rule-attempt set than the real unmemoized engine explores, in exactly the cases a
         // human trusts the trace to explain.
-        let scope_cell = (self.memo && !trace.is_tracing()).then(|| RefCell::new(AnalysisScope::new()));
+        let scope_cell =
+            (self.memo && !trace.is_tracing()).then(|| RefCell::new(AnalysisScope::new()));
         let scope = scope_cell.as_ref();
         // M5c: the non-head lexicon filter (`AnalysisCompoundingRule.Apply`'s root-allomorph-search
         // gate — see `hc_rules::stratum::NonHeadRootFilter`'s doc). `hc-parse` owns the
         // `RootAllomorphIndex`, so the closure body lives here; `hc-rules` only receives the search
         // results, never the index type itself (crate-boundary: `hc-rules` cannot depend on
         // `hc-parse`).
-        let filter: NonHeadRootFilter = &|st: StratumId, shape: &hc_shape::Shape| self.root_index.search(g, st, shape);
+        let filter: NonHeadRootFilter =
+            &|st: StratumId, shape: &hc_shape::Shape| self.root_index.search(g, st, shape);
         let mut input_set: HashMap<WordKey, Word> = HashMap::default();
         input_set.insert(input.dedup_key(), input);
         let mut results: HashMap<WordKey, Word> = HashMap::default();
@@ -385,7 +399,9 @@ impl<'g> Morpher<'g> {
                 // rules replayed, then synthesize every one of them.
                 for alt in syn_word.expand_alternatives() {
                     for vw in self.synthesis_pipeline_selected(alt, trace, root, rule_filter) {
-                        if self.is_word_valid_traced(&vw, trace, root) && self.is_match_traced(&vw, word, trace, root) {
+                        if self.is_word_valid_traced(&vw, trace, root)
+                            && self.is_match_traced(&vw, word, trace, root)
+                        {
                             matches.entry(vw.dedup_key()).or_insert(vw);
                         }
                     }
@@ -396,7 +412,8 @@ impl<'g> Morpher<'g> {
         // P11 §1.2's guess branch: only on a TOTAL miss of the normal (real-lexicon) path, and
         // only when the caller opted in. `results.values()` is `origAnalyses` (the design doc's
         // §1.2 notes this is the exact same analysis-candidate set, no re-analysis/copy).
-        let (ordered_matches, guessed): (Vec<Word>, bool) = if opts.guess_root && matches.is_empty() {
+        let (ordered_matches, guessed): (Vec<Word>, bool) = if opts.guess_root && matches.is_empty()
+        {
             let mut guess_matches: Vec<Word> = Vec::new();
             for aw in results.values() {
                 // `LexicalGuess(analysisWord).Distinct()` — the `.Distinct()` is a documented C#
@@ -405,7 +422,9 @@ impl<'g> Morpher<'g> {
                 for synthesis_word in guess::lexical_guess(g, &self.lexical_patterns, aw) {
                     for alt in synthesis_word.expand_alternatives() {
                         for vw in self.synthesis_pipeline_traced(alt, trace, root) {
-                            if self.is_word_valid_traced(&vw, trace, root) && self.is_match_traced(&vw, word, trace, root) {
+                            if self.is_word_valid_traced(&vw, trace, root)
+                                && self.is_match_traced(&vw, word, trace, root)
+                            {
                                 // No dedup here (§1.2: "unlike the normal path's HashSet/Distinct,
                                 // duplicates ... survive into the output") — a plain `Vec`, not a
                                 // `WordKey`-deduped `HashMap` like `matches` above.
@@ -461,7 +480,11 @@ impl<'g> Morpher<'g> {
     /// before `Distinct()` runs). `None` reproduces the pre-F1 unfiltered behavior byte-for-byte —
     /// every existing call site (there was exactly one) passes `None`/`lex_entry_filter` straight
     /// through from [`Self::parse_word_core`].
-    fn lexical_lookup_filtered(&self, aw: &Word, lex_entry_filter: Option<&dyn Fn(LexEntryId) -> bool>) -> Vec<Word> {
+    fn lexical_lookup_filtered(
+        &self,
+        aw: &Word,
+        lex_entry_filter: Option<&dyn Fn(LexEntryId) -> bool>,
+    ) -> Vec<Word> {
         let g = self.g;
         let matched = self.root_index.search(g, aw.stratum, &aw.shape);
         // Distinct entries in first-seen order (C# `.Distinct()` on the entry sequence), filtered by
@@ -495,13 +518,25 @@ impl<'g> Morpher<'g> {
     /// re-segmented *with phonological features* from its stored surface text (the C# `Segments`
     /// shape carries a per-node FeatureStruct; the loader-stored `RootAllomorphDef.shape` is
     /// feature-less), so synthesis and surface rendering see the same feature-bearing shape C# does.
-    fn set_root_allomorph(&self, w: &mut Word, le: LexEntryId, allo: hc_grammar::model::AllomorphId, text: &str) {
+    fn set_root_allomorph(
+        &self,
+        w: &mut Word,
+        le: LexEntryId,
+        allo: hc_grammar::model::AllomorphId,
+        text: &str,
+    ) {
         let g = self.g;
         let entry = &g.entries[le.0 as usize];
         let root_stratum = g.morphemes[entry.morpheme.0 as usize].stratum;
         let table = &g.char_tables[g.strata[root_stratum.0 as usize].table.0 as usize];
-        let root_shape = segment_with_features(g, table, text)
-            .unwrap_or_else(|_| entry.allomorphs.iter().find(|a| a.id == allo).map(|a| a.shape.shape.clone()).unwrap());
+        let root_shape = segment_with_features(g, table, text).unwrap_or_else(|_| {
+            entry
+                .allomorphs
+                .iter()
+                .find(|a| a.id == allo)
+                .map(|a| a.shape.shape.clone())
+                .unwrap()
+        });
         w.shape = root_shape;
         w.stratum = root_stratum;
         w.syn_fs = g.fs_interner.get(entry.syn_fs).clone();
@@ -527,7 +562,12 @@ impl<'g> Morpher<'g> {
     /// reassigns each output word's trace cursor -- the mechanism that makes a traced multi-rule
     /// synthesis render as a followable rule sequence (design doc §6's acceptance bar) rather than
     /// a single `Successful` leaf under the root.
-    fn synthesis_pipeline_traced(&self, syn_word: Word, trace: &dyn TraceSink, parent: TraceHandle) -> Vec<Word> {
+    fn synthesis_pipeline_traced(
+        &self,
+        syn_word: Word,
+        trace: &dyn TraceSink,
+        parent: TraceHandle,
+    ) -> Vec<Word> {
         self.synthesis_pipeline_selected(syn_word, trace, parent, None)
     }
 
@@ -629,7 +669,13 @@ impl<'g> Morpher<'g> {
     /// match). Only reached for candidates that already passed [`Self::is_word_valid_traced`] (the
     /// `&&` short-circuit at both call sites), matching C#'s `IsWordValid(word) && IsMatch(word,
     /// input)` order exactly.
-    fn is_match_traced(&self, w: &Word, word: &str, trace: &dyn TraceSink, parent: TraceHandle) -> bool {
+    fn is_match_traced(
+        &self,
+        w: &Word,
+        word: &str,
+        trace: &dyn TraceSink,
+        parent: TraceHandle,
+    ) -> bool {
         let parent = w.trace.unwrap_or(parent);
         let g = self.g;
         let n = g.strata.len();
@@ -662,7 +708,10 @@ impl<'g> Morpher<'g> {
     fn allomorphs_in_morph_order(
         &self,
         w: &Word,
-    ) -> Vec<(hc_grammar::model::AllomorphId, hc_grammar::model::MorphemeId)> {
+    ) -> Vec<(
+        hc_grammar::model::AllomorphId,
+        hc_grammar::model::MorphemeId,
+    )> {
         let mut ms = w.morphs.clone();
         ms.sort_by_key(|m| m.order);
         let mut seen: Vec<hc_grammar::model::AllomorphId> = Vec::new();
@@ -691,9 +740,15 @@ impl<'g> Morpher<'g> {
             .into_iter()
             .map(|(_, morpheme)| {
                 if morpheme == MorphemeId::GUESSED {
-                    w.guessed_root.as_ref().map(|gr| gr.text.clone()).unwrap_or_default()
+                    w.guessed_root
+                        .as_ref()
+                        .map(|gr| gr.text.clone())
+                        .unwrap_or_default()
                 } else {
-                    g.morphemes[morpheme.0 as usize].morph_id.clone().unwrap_or_default()
+                    g.morphemes[morpheme.0 as usize]
+                        .morph_id
+                        .clone()
+                        .unwrap_or_default()
                 }
             })
             .collect::<Vec<String>>()
@@ -722,7 +777,12 @@ impl<'g> Morpher<'g> {
             Some(FeatureValue::Symbolic(bits)) => bits.first(),
             _ => None,
         };
-        WordAnalysis { morpheme_ids, root_morpheme_index, pos_id, guessed }
+        WordAnalysis {
+            morpheme_ids,
+            root_morpheme_index,
+            pos_id,
+            guessed,
+        }
     }
 }
 
@@ -850,7 +910,12 @@ fn resolve_other(g: &Grammar, id: MorphemeId) -> Option<GenMorpheme> {
 /// here, so this function's own contract stays a plain "two already-ordered sequences" merge with
 /// no morpheme-specific direction knowledge baked in.
 fn interleavings(left: &[GenMorpheme], right: &[GenMorpheme]) -> Vec<Vec<GenMorpheme>> {
-    fn go(left: &[GenMorpheme], right: &[GenMorpheme], acc: &mut Vec<GenMorpheme>, out: &mut Vec<Vec<GenMorpheme>>) {
+    fn go(
+        left: &[GenMorpheme],
+        right: &[GenMorpheme],
+        acc: &mut Vec<GenMorpheme>,
+        out: &mut Vec<Vec<GenMorpheme>>,
+    ) {
         if left.is_empty() && right.is_empty() {
             out.push(acc.clone());
             return;
@@ -892,7 +957,12 @@ impl<'g> Morpher<'g> {
     /// per-allomorph required-syntactic-FS/bound-root gates are all exactly as parse-time (Morpher.cs
     /// itself calls the identical private `IsWordValid`, Morpher.cs:555, for both `Synthesize` and
     /// `GenerateWords`) — see [`Self::is_word_valid`]'s own doc for the C# citations.
-    pub fn generate_words(&self, root: LexEntryId, others: &[GenMorpheme], real_fs: FeatureStruct) -> Vec<String> {
+    pub fn generate_words(
+        &self,
+        root: LexEntryId,
+        others: &[GenMorpheme],
+        real_fs: FeatureStruct,
+    ) -> Vec<String> {
         let g = self.g;
         let permutations = permute_rules(g, others);
         let mut words: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
@@ -903,7 +973,10 @@ impl<'g> Morpher<'g> {
                 for item in perm {
                     match *item {
                         PermItem::Rule(id) => {
-                            seed.morphological_rule_unapplied(is_realizational_rule(g, id), Some(id));
+                            seed.morphological_rule_unapplied(
+                                is_realizational_rule(g, id),
+                                Some(id),
+                            );
                         }
                         PermItem::NonHead(allo_id) => {
                             // C# `synthesisWord.MorphologicalRuleUnapplied(rule.Item1)` with
@@ -952,7 +1025,9 @@ impl<'g> Morpher<'g> {
             _ => return Vec::new(),
         };
         let resolve_side = |ids: &[u32]| -> Option<Vec<GenMorpheme>> {
-            ids.iter().map(|&id| resolve_other(g, MorphemeId(id))).collect()
+            ids.iter()
+                .map(|&id| resolve_other(g, MorphemeId(id)))
+                .collect()
         };
         // `left` resolves in the word's left-to-right position order (outermost prefix first);
         // reverse it to root-outward order before interleaving — `interleavings`' documented
@@ -1007,7 +1082,9 @@ impl<'g> Morpher<'g> {
     fn build_allomorph_seed(&self, allo_id: AllomorphId, real_fs: FeatureStruct) -> Word {
         let g = self.g;
         let AllomorphOwner::Root(le, idx) = g.allomorph_owners[allo_id.0 as usize] else {
-            unreachable!("PermItem::NonHead is only ever built from a root allomorph (permute_rules)")
+            unreachable!(
+                "PermItem::NonHead is only ever built from a root allomorph (permute_rules)"
+            )
         };
         self.build_root_seed(le, idx as usize, real_fs)
     }
@@ -1090,9 +1167,16 @@ mod trace_tests {
         let ok = m.is_word_valid_traced(&word, &sink, root);
         assert!(!ok);
 
-        let child = *sink.node(root).children.first().expect("Failed must be appended under root");
+        let child = *sink
+            .node(root)
+            .children
+            .first()
+            .expect("Failed must be appended under root");
         assert_eq!(sink.node(child).type_, TraceType::Failed);
-        assert_eq!(sink.node(child).failure_reason, Some(FailureReason::PartialParse));
+        assert_eq!(
+            sink.node(child).failure_reason,
+            Some(FailureReason::PartialParse)
+        );
     }
 
     #[test]
@@ -1105,7 +1189,10 @@ mod trace_tests {
         let root = sink.analyze_word(&word);
         let ok = m.is_word_valid_traced(&word, &sink, root);
         assert!(ok, "a fresh Word with nothing pending must be valid");
-        assert!(sink.node(root).children.is_empty(), "no Failed event should fire for a valid word");
+        assert!(
+            sink.node(root).children.is_empty(),
+            "no Failed event should fire for a valid word"
+        );
     }
 
     #[test]

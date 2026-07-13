@@ -41,7 +41,10 @@ use hc_rules::{MorphRecord, Word};
 use hc_shape::{NodeKind, Shape, ShapeBuilder};
 
 fn sena_path() -> String {
-    format!("{}/../../../samples/data/sena-hc.xml", env!("CARGO_MANIFEST_DIR"))
+    format!(
+        "{}/../../../samples/data/sena-hc.xml",
+        env!("CARGO_MANIFEST_DIR")
+    )
 }
 
 fn load_sena() -> Option<Grammar> {
@@ -141,16 +144,25 @@ fn nonhead_resolution_replaces_shape_and_syntactic_fs() {
     let out = analyze_with_root_filter(&g, &input, &rule, filter);
 
     let want_head_cds = ico_cds.clone();
-    let hit = out.iter().find(|w| char_defs(&w.shape) == want_head_cds).unwrap_or_else(|| {
-        panic!(
-            "no candidate split into head=ico; got {:?}",
-            out.iter().map(|w| char_defs(&w.shape)).collect::<Vec<_>>()
-        )
-    });
-    let nh = hit.current_non_head().expect("the surviving candidate has a non-head");
+    let hit = out
+        .iter()
+        .find(|w| char_defs(&w.shape) == want_head_cds)
+        .unwrap_or_else(|| {
+            panic!(
+                "no candidate split into head=ico; got {:?}",
+                out.iter().map(|w| char_defs(&w.shape)).collect::<Vec<_>>()
+            )
+        });
+    let nh = hit
+        .current_non_head()
+        .expect("the surviving candidate has a non-head");
 
     // (1) Shape replaced with the resolved root's own canonical shape.
-    assert_eq!(char_defs(&nh.shape), sine_cds, "non-head shape must be the resolved root's own shape");
+    assert_eq!(
+        char_defs(&nh.shape),
+        sine_cds,
+        "non-head shape must be the resolved root's own shape"
+    );
     // Syntactic FS replaced with the entry's (no longer the empty FS `Word::new` starts from).
     assert_eq!(
         nh.syn_fs,
@@ -158,7 +170,11 @@ fn nonhead_resolution_replaces_shape_and_syntactic_fs() {
         "non-head syntactic FS must be the matched LexEntry's own FS"
     );
     // Root allomorph pinned.
-    assert_eq!(nh.root_allomorph, Some(sine_allo), "non-head must carry the pinned root allomorph id");
+    assert_eq!(
+        nh.root_allomorph,
+        Some(sine_allo),
+        "non-head must carry the pinned root allomorph id"
+    );
     // The ROOT morph is recorded on the non-head's own morph list (order 0, spans the whole shape).
     assert_eq!(
         nh.morphs,
@@ -238,7 +254,11 @@ fn synthesis_records_non_head_root_morph_in_the_final_signature() {
     head.non_head_unapplied(nh);
 
     let out = synthesize(&g, &head, &rule);
-    assert_eq!(out.len(), 1, "the real POS-compatible split must synthesize exactly one word");
+    assert_eq!(
+        out.len(),
+        1,
+        "the real POS-compatible split must synthesize exactly one word"
+    );
     let w = &out[0];
 
     // (2) The non-head's ROOT morph survives into the synthesized word (Tier-2 #7's third
@@ -258,7 +278,11 @@ fn synthesis_records_non_head_root_morph_in_the_final_signature() {
     // non-head stays as permanent history, which is exactly what lets `Word::dedup_key()`
     // distinguish two compounds built from surface-homophone but lexically distinct non-heads (see
     // `hc-parse/tests/csharp_port_compounding.rs`'s `simple_rules_1_homophone_disjunction_finding`).
-    assert_eq!(w.non_heads.len(), 1, "the non-head stays in the list as history, not popped");
+    assert_eq!(
+        w.non_heads.len(),
+        1,
+        "the non-head stays in the list as history, not popped"
+    );
     assert_eq!(
         char_defs(&w.non_heads[0].shape),
         char_defs(&shape_with_lanes(&g, "sine")),

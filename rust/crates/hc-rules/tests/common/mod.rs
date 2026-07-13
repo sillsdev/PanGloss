@@ -136,12 +136,17 @@ pub fn char_def(g: &Grammar, xml_id: &str) -> hc_grammar::chardef::CharDefId {
 
 /// A `SimpleContext` with no alpha variables over the given natural class.
 pub fn ctx(nat_class: hc_grammar::model::NatClassId) -> hc_grammar::model::SimpleContext {
-    hc_grammar::model::SimpleContext { nat_class, vars: vec![] }
+    hc_grammar::model::SimpleContext {
+        nat_class,
+        vars: vec![],
+    }
 }
 
 /// Resolve a phonological feature's `FlatIndex` by XML id.
 pub fn feat(g: &Grammar, xml_id: &str) -> hc_grammar::featsys::FlatIndex {
-    g.phon_features.flat_index(xml_id).unwrap_or_else(|| panic!("no feature {xml_id}"))
+    g.phon_features
+        .flat_index(xml_id)
+        .unwrap_or_else(|| panic!("no feature {xml_id}"))
 }
 
 /// A `SimpleContext` over `nat_class` carrying one alpha variable `VarId(var)` governing feature
@@ -154,7 +159,11 @@ pub fn ctx_var(
 ) -> hc_grammar::model::SimpleContext {
     hc_grammar::model::SimpleContext {
         nat_class,
-        vars: vec![hc_grammar::model::AlphaVar { feature, var: hc_grammar::model::VarId(var), plus }],
+        vars: vec![hc_grammar::model::AlphaVar {
+            feature,
+            var: hc_grammar::model::VarId(var),
+            plus,
+        }],
     }
 }
 

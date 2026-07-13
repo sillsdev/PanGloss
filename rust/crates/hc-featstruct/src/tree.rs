@@ -52,7 +52,9 @@ pub struct FeatureStruct {
 
 impl FeatureStruct {
     /// The empty feature structure (unifies with everything, subsumes everything).
-    pub const EMPTY: FeatureStruct = FeatureStruct { entries: Vec::new() };
+    pub const EMPTY: FeatureStruct = FeatureStruct {
+        entries: Vec::new(),
+    };
 
     /// Entries in ascending `FeatId` order.
     #[inline]
@@ -101,7 +103,9 @@ impl FeatureStructBuilder {
     }
 
     pub fn build(self) -> FeatureStruct {
-        FeatureStruct { entries: self.entries }
+        FeatureStruct {
+            entries: self.entries,
+        }
     }
 }
 
@@ -118,7 +122,10 @@ mod tests {
         let fs = b.build();
         assert_eq!(fs.len(), 2);
         assert_eq!(fs.entries()[0].0, FeatId(1));
-        assert_eq!(fs.get(FeatId(3)), Some(&FeatureValue::Symbolic(SymbolBits(0b11))));
+        assert_eq!(
+            fs.get(FeatId(3)),
+            Some(&FeatureValue::Symbolic(SymbolBits(0b11)))
+        );
         assert_eq!(fs.get(FeatId(2)), None);
     }
 

@@ -30,8 +30,8 @@
 //!   memoization for one call), but a separate one is cleaner.
 #![forbid(unsafe_code)]
 
-use std::collections::BTreeMap;
 use std::collections::hash_map::DefaultHasher;
+use std::collections::BTreeMap;
 use std::hash::BuildHasherDefault;
 
 use hc_featstruct::FeatureStruct;
@@ -113,7 +113,11 @@ pub struct MemoEntry<W> {
 }
 
 impl<W> MemoEntry<W> {
-    pub fn new(results: Vec<W>, mrule_trail_prefix_length: usize, non_head_prefix_length: usize) -> Self {
+    pub fn new(
+        results: Vec<W>,
+        mrule_trail_prefix_length: usize,
+        non_head_prefix_length: usize,
+    ) -> Self {
         MemoEntry {
             results,
             mrule_trail_prefix_length,

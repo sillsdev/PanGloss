@@ -37,7 +37,9 @@
 
 use hc_featstruct::flat_unifiable;
 use hc_grammar::chardef::{CharDefId, CharDefKind, CharDefTable};
-use hc_grammar::model::{Dir, Grammar, MetathesisRuleDef, MprSet, Pattern, PatternNode, PhonRuleDef, RewriteRuleDef};
+use hc_grammar::model::{
+    Dir, Grammar, MetathesisRuleDef, MprSet, Pattern, PatternNode, PhonRuleDef, RewriteRuleDef,
+};
 use hc_shape::{NodeKind, ShapeBuilder, NO_CHAR_DEF};
 
 use crate::env_nfa;
@@ -89,8 +91,11 @@ pub const DEFAULT_RESTORATION_CAP: i32 = 1;
 /// module's doc for why full metathesis probing is deferred).
 pub fn compile(g: &Grammar, restoration_cap: i32) -> Vec<CompiledRuleInverse> {
     let (table, _w) = crate::trie::surface_table(g);
-    let segment_alphabet: Vec<CharDefId> =
-        table.iter().filter(|(_, cd)| cd.kind() == CharDefKind::Segment).map(|(id, _)| id).collect();
+    let segment_alphabet: Vec<CharDefId> = table
+        .iter()
+        .filter(|(_, cd)| cd.kind() == CharDefKind::Segment)
+        .map(|(id, _)| id)
+        .collect();
     let probe_alphabet: Vec<CharDefId> = table.iter().map(|(id, _)| id).collect(); // Segment ∪ Boundary = every char def
 
     let mut results = Vec::new();
@@ -98,7 +103,14 @@ pub fn compile(g: &Grammar, restoration_cap: i32) -> Vec<CompiledRuleInverse> {
         for &prule_id in &stratum.prules {
             match &g.prules[prule_id.0 as usize] {
                 PhonRuleDef::Rewrite(rule) => {
-                    results.push(compile_rewrite_rule(g, table, &segment_alphabet, &probe_alphabet, rule, restoration_cap));
+                    results.push(compile_rewrite_rule(
+                        g,
+                        table,
+                        &segment_alphabet,
+                        &probe_alphabet,
+                        rule,
+                        restoration_cap,
+                    ));
                 }
                 PhonRuleDef::Metathesis(mrule) => {
                     results.push(compile_metathesis_stub(&probe_alphabet, table, mrule));
@@ -151,7 +163,10 @@ fn alloc(next_state: &mut u32) -> StateId {
 /// shape, for both the target window AND the environments — v1 has no `EnvNfaCompiler`-equivalent
 /// at all).
 pub(crate) fn flatten_flat(nodes: &[PatternNode]) -> Option<&[PatternNode]> {
-    if nodes.iter().all(|n| matches!(n, PatternNode::Context(_) | PatternNode::CharDef(_))) {
+    if nodes
+        .iter()
+        .all(|n| matches!(n, PatternNode::Context(_) | PatternNode::CharDef(_)))
+    {
         Some(nodes)
     } else {
         None
@@ -211,9 +226,16 @@ fn compile_rewrite_rule(
         Some(lhs) if lhs.len() > MAX_LHS_SEGMENTS => add_reason(&mut reasons, "lhs-too-long"),
         Some(lhs) => {
             for subrule in &rule.subrules {
-                if let Some(spec) =
-                    try_build_subrule_spec(g, table, segment_alphabet, probe_alphabet, rule, subrule, lhs, &mut reasons)
-                {
+                if let Some(spec) = try_build_subrule_spec(
+                    g,
+                    table,
+                    segment_alphabet,
+                    probe_alphabet,
+                    rule,
+                    subrule,
+                    lhs,
+                    &mut reasons,
+                ) {
                     specs.push(spec);
                 }
             }
@@ -230,7 +252,11 @@ fn compile_rewrite_rule(
         specs.retain(|s| !s.is_restoration_event);
         any_restoration = false;
     }
-    let floors: usize = if any_restoration { restoration_cap as usize + 1 } else { 1 };
+    let floors: usize = if any_restoration {
+        restoration_cap as usize + 1
+    } else {
+        1
+    };
     let mut floor_base = vec![0u32; floors];
     for f in floor_base.iter_mut().enumerate().skip(1).map(|(_, fb)| fb) {
         *f = alloc(&mut next_state);
@@ -241,14 +267,32 @@ fn compile_rewrite_rule(
         pinv.set_accepting(floor_base[f]);
         for &cd in probe_alphabet {
             let lanes = table.get(cd).feature_lanes().to_vec();
-            pinv.add_arc(floor_base[f], Some(lanes.clone()), Some(lanes), floor_base[f]);
+            pinv.add_arc(
+                floor_base[f],
+                Some(lanes.clone()),
+                Some(lanes),
+                floor_base[f],
+            );
         }
         for spec in &specs {
             if spec.is_restoration_event && f == floors - 1 {
                 continue; // top floor: restoration budget spent -- no further deletion branches
             }
-            let rejoin = if spec.is_restoration_event { floor_base[f + 1] } else { floor_base[f] };
-            emit_subrule(g, table, &mut pinv, &mut next_state, spec, floor_base[f], rejoin, &mut reasons);
+            let rejoin = if spec.is_restoration_event {
+                floor_base[f + 1]
+            } else {
+                floor_base[f]
+            };
+            emit_subrule(
+                g,
+                table,
+                &mut pinv,
+                &mut next_state,
+                spec,
+                floor_base[f],
+                rejoin,
+                &mut reasons,
+            );
             any_compiled = true;
         }
     }
@@ -260,7 +304,12 @@ fn compile_rewrite_rule(
     } else {
         RuleInverseTier::Exact
     };
-    CompiledRuleInverse { name: rule.name.clone().unwrap_or_default(), pinv, tier, reasons }
+    CompiledRuleInverse {
+        name: rule.name.clone().unwrap_or_default(),
+        pinv,
+        tier,
+        reasons,
+    }
 }
 
 /// C# `TryBuildSubruleSpec`.
@@ -275,7 +324,10 @@ fn try_build_subrule_spec<'a>(
     lhs: &[PatternNode],
     reasons: &mut Vec<String>,
 ) -> Option<SubruleSpec<'a>> {
-    if subrule.required_pos.is_some() || subrule.required_mpr != MprSet::EMPTY || subrule.excluded_mpr != MprSet::EMPTY {
+    if subrule.required_pos.is_some()
+        || subrule.required_mpr != MprSet::EMPTY
+        || subrule.excluded_mpr != MprSet::EMPTY
+    {
         // I1's call, unchanged: the gate is DROPPED (a sound superset), reported so the tier
         // report shows the cost.
         add_reason(reasons, "mpr-or-syntactic-gate");
@@ -301,8 +353,10 @@ fn try_build_subrule_spec<'a>(
         add_reason(reasons, "alpha-variable");
     }
 
-    let left_probe = build_probe_representative(g, table, probe_alphabet, subrule.left_env.as_ref());
-    let right_probe = build_probe_representative(g, table, probe_alphabet, subrule.right_env.as_ref());
+    let left_probe =
+        build_probe_representative(g, table, probe_alphabet, subrule.left_env.as_ref());
+    let right_probe =
+        build_probe_representative(g, table, probe_alphabet, subrule.right_env.as_ref());
     let (left_probe, right_probe) = match (left_probe, right_probe) {
         (Some(l), Some(r)) => (l, r),
         _ => {
@@ -322,7 +376,9 @@ fn try_build_subrule_spec<'a>(
         candidates: Vec::new(),
     };
     for combo in enumerate_lhs_candidates(g, table, segment_alphabet, lhs) {
-        if let Some(arcs) = try_probe_candidate(g, table, rule, &combo, rhs.len(), &left_probe, &right_probe) {
+        if let Some(arcs) =
+            try_probe_candidate(g, table, rule, &combo, rhs.len(), &left_probe, &right_probe)
+        {
             spec.candidates.push(arcs);
         }
     }
@@ -378,9 +434,15 @@ fn append_node_representative(
         PatternNode::Anchor(_) => true, // zero-width; the probe word's own edges satisfy it
         PatternNode::Context(_) | PatternNode::CharDef(_) => {
             let lanes = hc_rules::rewrite::node_full_lanes(g, table, node);
-            match probe_alphabet.iter().find(|&&cd| flat_unifiable(table.get(cd).feature_lanes(), &lanes)) {
+            match probe_alphabet
+                .iter()
+                .find(|&&cd| flat_unifiable(table.get(cd).feature_lanes(), &lanes))
+            {
                 Some(&cd) => {
-                    result.push(ProbeSeg { lanes: table.get(cd).feature_lanes().to_vec(), kind: table.get(cd).kind() });
+                    result.push(ProbeSeg {
+                        lanes: table.get(cd).feature_lanes().to_vec(),
+                        kind: table.get(cd).kind(),
+                    });
                     true
                 }
                 None => false,
@@ -414,7 +476,11 @@ fn enumerate_lhs_candidates(
         .iter()
         .map(|node| {
             let lanes = hc_rules::rewrite::node_full_lanes(g, table, node);
-            segment_alphabet.iter().copied().filter(|&cd| flat_unifiable(table.get(cd).feature_lanes(), &lanes)).collect()
+            segment_alphabet
+                .iter()
+                .copied()
+                .filter(|&cd| flat_unifiable(table.get(cd).feature_lanes(), &lanes))
+                .collect()
         })
         .collect();
     if pools.iter().any(|p| p.is_empty()) {
@@ -447,7 +513,8 @@ fn try_probe_candidate(
     right_probe: &[ProbeSeg],
 ) -> Option<Vec<ArcSpec>> {
     let w = g.phon_features.len() as u32;
-    let mut before: Vec<(Vec<u64>, CharDefKind)> = Vec::with_capacity(left_probe.len() + combo.len() + right_probe.len());
+    let mut before: Vec<(Vec<u64>, CharDefKind)> =
+        Vec::with_capacity(left_probe.len() + combo.len() + right_probe.len());
     before.extend(left_probe.iter().map(|p| (p.lanes.clone(), p.kind)));
     for &cd in combo {
         before.push((table.get(cd).feature_lanes().to_vec(), CharDefKind::Segment));
@@ -481,7 +548,8 @@ fn try_probe_candidate(
 
     let target_start = left_probe.len();
     if delta == 0 {
-        let changed = (0..combo.len()).any(|i| after[target_start + i] != before[target_start + i].0);
+        let changed =
+            (0..combo.len()).any(|i| after[target_start + i] != before[target_start + i].0);
         if !changed {
             return None; // unaffected by the rule in this context -- no arc
         }
@@ -497,12 +565,18 @@ fn try_probe_candidate(
     }
     for i in shared..combo.len() {
         // Deletion-inverse: this underlying segment left no surface trace -- ε-input restoration.
-        arcs.push(ArcSpec { surface: None, underlying: Some(before[target_start + i].0.clone()) });
+        arcs.push(ArcSpec {
+            surface: None,
+            underlying: Some(before[target_start + i].0.clone()),
+        });
     }
     for i in shared..rhs_count {
         // Epenthesis-inverse: this surface segment was inserted by the rule -- consume it, emit
         // nothing downstream (ε-output).
-        arcs.push(ArcSpec { surface: Some(after[target_start + i].clone()), underlying: None });
+        arcs.push(ArcSpec {
+            surface: Some(after[target_start + i].clone()),
+            underlying: None,
+        });
     }
     Some(arcs)
 }
@@ -549,9 +623,18 @@ fn emit_subrule(
 /// SORTED ORDINAL (byte-wise) by name (plan §4.2/§6.1's golden-line convention) -- `reasons` is
 /// comma-joined, `-` if empty.
 pub fn format_tier_report(compiled: &[CompiledRuleInverse]) -> String {
-    let exact = compiled.iter().filter(|c| c.tier == RuleInverseTier::Exact).count();
-    let permissive = compiled.iter().filter(|c| c.tier == RuleInverseTier::Permissive).count();
-    let identity_skip = compiled.iter().filter(|c| c.tier == RuleInverseTier::IdentitySkip).count();
+    let exact = compiled
+        .iter()
+        .filter(|c| c.tier == RuleInverseTier::Exact)
+        .count();
+    let permissive = compiled
+        .iter()
+        .filter(|c| c.tier == RuleInverseTier::Permissive)
+        .count();
+    let identity_skip = compiled
+        .iter()
+        .filter(|c| c.tier == RuleInverseTier::IdentitySkip)
+        .count();
 
     let mut lines: Vec<String> = compiled
         .iter()
@@ -561,7 +644,11 @@ pub fn format_tier_report(compiled: &[CompiledRuleInverse]) -> String {
                 RuleInverseTier::Permissive => "Permissive",
                 RuleInverseTier::IdentitySkip => "IdentitySkip",
             };
-            let reasons = if c.reasons.is_empty() { "-".to_string() } else { c.reasons.join(",") };
+            let reasons = if c.reasons.is_empty() {
+                "-".to_string()
+            } else {
+                c.reasons.join(",")
+            };
             format!("{}\t{}\t{}", c.name, tier, reasons)
         })
         .collect();
@@ -633,7 +720,13 @@ remove consonant length from lexical forms\tExact\t-";
             return;
         };
         let compiled = compile_default(&g);
-        assert!(compiled.is_empty(), "Sena has zero phonological rules, confirmed no-op");
-        assert_eq!(format_tier_report(&compiled), "Exact=0, Permissive=0, IdentitySkip=0\n");
+        assert!(
+            compiled.is_empty(),
+            "Sena has zero phonological rules, confirmed no-op"
+        );
+        assert_eq!(
+            format_tier_report(&compiled),
+            "Exact=0, Permissive=0, IdentitySkip=0\n"
+        );
     }
 }

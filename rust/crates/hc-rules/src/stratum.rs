@@ -32,14 +32,14 @@ use std::collections::hash_map::Entry;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use rustc_hash::FxHashMap as HashMap;
 use hc_featstruct::{add, is_unifiable, subsumes, subtract, unify};
 use hc_grammar::model::{
-    AllomorphId, AllomorphOwner, Grammar, LexEntryId, MRuleId, MorphRuleDef, MorphRuleOrder, SlotDef,
-    StratumId, TemplateId,
+    AllomorphId, AllomorphOwner, Grammar, LexEntryId, MRuleId, MorphRuleDef, MorphRuleOrder,
+    SlotDef, StratumId, TemplateId,
 };
 use hc_memo::{AnalysisScope, AnalysisStateKey, MemoEntry};
 use hc_shape::Shape;
+use rustc_hash::FxHashMap as HashMap;
 
 /// Callback injected so compounding analysis can prune non-heads against the lexicon without
 /// `hc-rules` depending on `hc-parse` (crate-boundary: `hc-parse` depends on `hc-rules`, not the
@@ -60,7 +60,8 @@ use hc_shape::Shape;
 /// `+ Sync` even though nothing is threaded yet: M7 parallelizes batch parsing across words, and a
 /// non-`Sync` closure type baked in now would be a breaking API change later — cheap to get right
 /// now.
-pub type NonHeadRootFilter<'a> = &'a (dyn Fn(StratumId, &Shape) -> Vec<(AllomorphId, LexEntryId)> + Sync);
+pub type NonHeadRootFilter<'a> =
+    &'a (dyn Fn(StratumId, &Shape) -> Vec<(AllomorphId, LexEntryId)> + Sync);
 
 /// F1 (HYBRID_FST_RUST_PLAN.md §7.1 item 1): the admission unit C#'s `Morpher.RuleSelector` gates —
 /// one variant per `IHCRule`-implementing kind that has its own `RuleSelector` read site (see the
@@ -189,7 +190,13 @@ pub struct StepBudget {
 
 impl StepBudget {
     pub fn new(cap: usize) -> Self {
-        StepBudget { cap, steps: Cell::new(0), capped: Cell::new(false), deadline: None, timed_out: Cell::new(false) }
+        StepBudget {
+            cap,
+            steps: Cell::new(0),
+            capped: Cell::new(false),
+            deadline: None,
+            timed_out: Cell::new(false),
+        }
     }
 
     /// Arm (or leave unarmed) an optional wall-clock deadline alongside the existing step cap —
@@ -263,8 +270,8 @@ mod step_budget_timeout_tests {
     #[test]
     fn wall_clock_deadline_fires_independent_of_an_uncapped_step_cap() {
         const N_HUGE: u64 = 200_000_000; // large enough that running it to completion unchecked
-                                          // takes far longer than the deadline below on any dev/CI
-                                          // machine — the "step-cap-irrelevant infinite-ish loop".
+                                         // takes far longer than the deadline below on any dev/CI
+                                         // machine — the "step-cap-irrelevant infinite-ish loop".
         let timeout = Duration::from_millis(30);
         let budget = StepBudget::new(usize::MAX).with_timeout(Some(timeout));
 
@@ -309,7 +316,10 @@ mod step_budget_timeout_tests {
         let budget = StepBudget::new(usize::MAX).with_timeout(Some(Duration::from_millis(0)));
         // Give the already-past deadline a moment's daylight against timer granularity.
         std::thread::sleep(Duration::from_millis(1));
-        assert!(budget.over_budget(), "an already-past deadline must fire on the first check");
+        assert!(
+            budget.over_budget(),
+            "an already-past deadline must fire on the first check"
+        );
         assert!(budget.timed_out());
         assert!(!budget.capped());
     }
@@ -354,7 +364,10 @@ mod step_budget_timeout_tests {
              far short of the old 1024-tick cadence interval"
         );
         assert!(budget.timed_out());
-        assert!(!budget.capped(), "the step cap (usize::MAX) must never fire");
+        assert!(
+            !budget.capped(),
+            "the step cap (usize::MAX) must never fire"
+        );
         assert!(
             i < N,
             "must break out before exhausting all {N} ticks (i={i}) -- the pre-fix cadence ran to \
@@ -379,7 +392,10 @@ mod step_budget_timeout_tests {
         }
         assert!(budget.over_budget(), "step cap must still fire on its own");
         assert!(budget.capped());
-        assert!(!budget.timed_out(), "no deadline was armed, so timed_out() must stay false");
+        assert!(
+            !budget.timed_out(),
+            "no deadline was armed, so timed_out() must stay false"
+        );
     }
 }
 
@@ -498,7 +514,17 @@ pub fn analyze_stratum_scoped_filtered(
     cache: &RuleCache,
     budget: &StepBudget,
 ) -> StratumAnalysis {
-    analyze_stratum_scoped_filtered_ruled(g, stratum, input, cfg, scope, non_head_root_filter, None, cache, budget)
+    analyze_stratum_scoped_filtered_ruled(
+        g,
+        stratum,
+        input,
+        cfg,
+        scope,
+        non_head_root_filter,
+        None,
+        cache,
+        budget,
+    )
 }
 
 /// Identical to [`analyze_stratum_scoped_filtered`], plus the F1 morphological-rule/template-level
@@ -517,8 +543,17 @@ pub fn analyze_stratum_scoped_filtered_ruled(
     cache: &RuleCache,
     budget: &StepBudget,
 ) -> StratumAnalysis {
-    StratumAnalyzer::new(g, stratum, *cfg, scope, non_head_root_filter, rule_filter, Some(cache), budget)
-        .analyze(input)
+    StratumAnalyzer::new(
+        g,
+        stratum,
+        *cfg,
+        scope,
+        non_head_root_filter,
+        rule_filter,
+        Some(cache),
+        budget,
+    )
+    .analyze(input)
 }
 
 /// The stratum orchestrator. Borrows the caller's [`StepBudget`] (see that type's doc) rather than
@@ -656,7 +691,9 @@ impl<'g, 's, 'f, 'r, 'c, 'b> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b> {
         // and every `AffixProcess` rule) preserves the pre-#7 unfiltered/unresolved behavior.
         let mut outs = match (rule, self.non_head_root_filter) {
             (MorphRuleDef::Compounding(_), Some(filter)) => match self.cache {
-                Some(cache) => morph::analyze_cached_with_root_filter(self.g, id, w, rule, cache, filter),
+                Some(cache) => {
+                    morph::analyze_cached_with_root_filter(self.g, id, w, rule, cache, filter)
+                }
                 None => morph::analyze_with_root_filter(self.g, w, rule, filter),
             },
             _ => match self.cache {
@@ -719,7 +756,12 @@ impl<'g, 's, 'f, 'r, 'c, 'b> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b> {
     /// C# `MemoizedCombinationRuleCascade.ApplyRules` (cs:62-110): the memo wrapper around one node's
     /// subtree expansion. Returns the subtree-local results (for storage/replay); `out` is the shared
     /// deduped accumulator the caller ultimately reads.
-    fn memo_apply_rules(&self, input: &Word, out: &mut OrderedDedup, scope: &MemoScope) -> Vec<Word> {
+    fn memo_apply_rules(
+        &self,
+        input: &Word,
+        out: &mut OrderedDedup,
+        scope: &MemoScope,
+    ) -> Vec<Word> {
         if self.over_budget() {
             return Vec::new();
         }
@@ -768,7 +810,11 @@ impl<'g, 's, 'f, 'r, 'c, 'b> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b> {
             if s.has_memo_capacity() {
                 s.memo.insert(
                     key,
-                    MemoEntry::new(results.clone(), input.mrule_apps.len(), input.non_heads.len()),
+                    MemoEntry::new(
+                        results.clone(),
+                        input.mrule_apps.len(),
+                        input.non_heads.len(),
+                    ),
                 );
             }
         }
@@ -780,7 +826,12 @@ impl<'g, 's, 'f, 'r, 'c, 'b> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b> {
     /// descent itself memoized via [`Self::memo_apply_rules`]. The Phase-5 `HasReachableRoot` gate
     /// (cs:130-137) is intentionally omitted: the Rust baseline cascade has no such gate, so including
     /// it would break the memo-on == memo-off invariant.
-    fn memo_apply_rules_raw(&self, input: &Word, out: &mut OrderedDedup, scope: &MemoScope) -> Vec<Word> {
+    fn memo_apply_rules_raw(
+        &self,
+        input: &Word,
+        out: &mut OrderedDedup,
+        scope: &MemoScope,
+    ) -> Vec<Word> {
         let mut local = Vec::new();
         let in_key = input.dedup_key();
         for i in 0..self.reversed_mrules.len() {
@@ -884,7 +935,11 @@ impl<'g, 's, 'f, 'r, 'c, 'b> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b> {
             if s.has_template_capacity() {
                 s.template_memo.insert(
                     key,
-                    MemoEntry::new(results.clone(), input.mrule_apps.len(), input.non_heads.len()),
+                    MemoEntry::new(
+                        results.clone(),
+                        input.mrule_apps.len(),
+                        input.non_heads.len(),
+                    ),
                 );
             }
         }
@@ -1002,7 +1057,9 @@ impl<'g, 's, 'f, 'r, 'c, 'b> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b> {
                     None => rewrite::analyze(self.g, r, &input.shape),
                 },
                 hc_grammar::model::PhonRuleDef::Metathesis(r) => match self.cache {
-                    Some(cache) => metathesis::analyze_cached(r, &input.shape, cache.prule_metathesis(pid)),
+                    Some(cache) => {
+                        metathesis::analyze_cached(r, &input.shape, cache.prule_metathesis(pid))
+                    }
                     None => metathesis::analyze(self.g, r, &input.shape),
                 },
             };
@@ -1082,7 +1139,8 @@ pub fn synthesize_template(g: &Grammar, tid: TemplateId, input: &Word, cap: usiz
     let tmpl = &g.templates[tid.0 as usize];
     let steps = Cell::new(0usize);
     let mut out: HashMap<WordKey, Word> = HashMap::default();
-    let apply = |g: &Grammar, rid: MRuleId, w: &Word| morph::synthesize(g, w, &g.mrules[rid.0 as usize]);
+    let apply =
+        |g: &Grammar, rid: MRuleId, w: &Word| morph::synthesize(g, w, &g.mrules[rid.0 as usize]);
     synth_slots_generic(
         g,
         tmpl,
@@ -1126,7 +1184,9 @@ fn guided_template_apply(
         let node_parent = input.trace.unwrap_or(parent);
         trace.begin_apply_template(node_parent, tid, input);
     }
-    synth_slots_generic(g, tmpl, input, 0, &mut out, cap, steps, &apply, trace, tid, parent);
+    synth_slots_generic(
+        g, tmpl, input, 0, &mut out, cap, steps, &apply, trace, tid, parent,
+    );
     out.into_values().collect()
 }
 
@@ -1175,7 +1235,19 @@ fn synth_slots_generic<F>(
             steps.set(steps.get() + 1);
             for w in apply(g, rid, input) {
                 if seen.insert(w.dedup_key(), ()).is_none() {
-                    synth_slots_generic(g, tmpl, &w, i + 1, out, cap, steps, apply, trace, tid, parent);
+                    synth_slots_generic(
+                        g,
+                        tmpl,
+                        &w,
+                        i + 1,
+                        out,
+                        cap,
+                        steps,
+                        apply,
+                        trace,
+                        tid,
+                        parent,
+                    );
                 }
             }
         }
@@ -1192,7 +1264,8 @@ fn synth_slots_generic<F>(
         let node_parent = input.trace.unwrap_or(parent);
         trace.end_apply_template(node_parent, tid, input, true);
     }
-    out.entry(input.dedup_key()).or_insert_with(|| input.clone());
+    out.entry(input.dedup_key())
+        .or_insert_with(|| input.clone());
 }
 
 // =================================================================================================
@@ -1230,7 +1303,14 @@ fn synth_slots_generic<F>(
 /// which is what the design's §6 acceptance walkthrough and the "rule sequence a human can follow"
 /// bar need; the `MorphologicalRuleNotApplied(reason)` wiring is explicitly deferred, flagged here
 /// rather than silently dropped.
-fn guided_synth(g: &Grammar, id: MRuleId, w: &Word, cache: &RuleCache, trace: &dyn TraceSink, parent: TraceHandle) -> Vec<Word> {
+fn guided_synth(
+    g: &Grammar,
+    id: MRuleId,
+    w: &Word,
+    cache: &RuleCache,
+    trace: &dyn TraceSink,
+    parent: TraceHandle,
+) -> Vec<Word> {
     if w.mrule_app_index < 0 {
         return Vec::new();
     }
@@ -1257,7 +1337,15 @@ fn guided_synth(g: &Grammar, id: MRuleId, w: &Word, cache: &RuleCache, trace: &d
     // directly. This function no longer emits its own `Applied` event -- doing so here AND inside
     // the `synth_*_cached` functions would double-emit.
     let node_parent = w.trace.unwrap_or(parent);
-    let mut outs = morph::synthesize_cached_traced(g, id, w, &g.mrules[id.0 as usize], cache, trace, node_parent);
+    let mut outs = morph::synthesize_cached_traced(
+        g,
+        id,
+        w,
+        &g.mrules[id.0 as usize],
+        cache,
+        trace,
+        node_parent,
+    );
     for o in &mut outs {
         o.mrule_app_index -= 1;
         if is_compound {
@@ -1318,8 +1406,22 @@ fn has_remaining_rules_from_stratum(g: &Grammar, w: &Word, stratum: StratumId) -
 /// No test calls this directly (only `hc-parse::Morpher::parse_word`'s synthesis pipeline does), so
 /// — unlike `analyze_stratum`/`analyze_stratum_scoped` above — `cache` is a required parameter: this
 /// is the hot synthesis path the compile-once cache exists for (see `crate::cache`'s module doc).
-pub fn synthesize_stratum(g: &Grammar, stratum: StratumId, input: Word, cap: usize, cache: &RuleCache) -> Vec<Word> {
-    synthesize_stratum_traced(g, stratum, input, cap, cache, &crate::trace::NoopSink, TraceHandle::DUMMY)
+pub fn synthesize_stratum(
+    g: &Grammar,
+    stratum: StratumId,
+    input: Word,
+    cap: usize,
+    cache: &RuleCache,
+) -> Vec<Word> {
+    synthesize_stratum_traced(
+        g,
+        stratum,
+        input,
+        cap,
+        cache,
+        &crate::trace::NoopSink,
+        TraceHandle::DUMMY,
+    )
 }
 
 /// P12 chunks 4/5: [`synthesize_stratum`]'s traced sibling -- the single source of truth both share
@@ -1362,8 +1464,28 @@ pub fn synthesize_stratum_traced(
     }
 
     // ApplyMorphologicalRules(input).Concat(ApplyTemplates(input)) (cs:58).
-    let mut candidates = synth_apply_mrules(g, stratum, sd, &input, cap, &steps, cache, trace, node_parent);
-    candidates.extend(synth_apply_templates(g, stratum, sd, &input, cap, &steps, cache, trace, node_parent));
+    let mut candidates = synth_apply_mrules(
+        g,
+        stratum,
+        sd,
+        &input,
+        cap,
+        &steps,
+        cache,
+        trace,
+        node_parent,
+    );
+    candidates.extend(synth_apply_templates(
+        g,
+        stratum,
+        sd,
+        &input,
+        cap,
+        &steps,
+        cache,
+        trace,
+        node_parent,
+    ));
 
     let mut out: HashMap<WordKey, Word> = HashMap::default();
     for w in candidates {
@@ -1400,10 +1522,19 @@ pub fn synthesize_stratum_traced(
         for &pid in &sd.prules {
             let result = match &g.prules[pid.0 as usize] {
                 hc_grammar::model::PhonRuleDef::Rewrite(r) => {
-                    rewrite::synthesize_with_mpr_cached_traced(g, pid, r, &nw, cache, trace, w_parent)
+                    rewrite::synthesize_with_mpr_cached_traced(
+                        g, pid, r, &nw, cache, trace, w_parent,
+                    )
                 }
                 hc_grammar::model::PhonRuleDef::Metathesis(r) => {
-                    metathesis::synthesize_cached_traced(pid, r, &nw, cache.prule_metathesis(pid), trace, w_parent)
+                    metathesis::synthesize_cached_traced(
+                        pid,
+                        r,
+                        &nw,
+                        cache.prule_metathesis(pid),
+                        trace,
+                        w_parent,
+                    )
                 }
             };
             if let Some(s) = result.into_iter().next() {
@@ -1467,7 +1598,9 @@ fn synth_apply_mrules(
         if w.flags.is_last_applied_rule_final == Some(true) {
             result.push(w);
         } else {
-            result.extend(synth_apply_templates(g, stratum, sd, &w, cap, steps, cache, trace, parent));
+            result.extend(synth_apply_templates(
+                g, stratum, sd, &w, cap, steps, cache, trace, parent,
+            ));
         }
     }
     result
@@ -1676,7 +1809,9 @@ fn synth_apply_templates(
             let templated: Vec<Word> = out.values().cloned().collect();
             for t in templated {
                 if t.dedup_key() != in_key {
-                    for m in synth_apply_mrules(g, stratum, sd, &t, cap, steps, cache, trace, parent) {
+                    for m in
+                        synth_apply_mrules(g, stratum, sd, &t, cap, steps, cache, trace, parent)
+                    {
                         out.entry(m.dedup_key()).or_insert(m);
                     }
                 }

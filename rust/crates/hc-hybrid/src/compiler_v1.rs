@@ -44,7 +44,9 @@
 
 use hc_featstruct::flat_unifiable;
 use hc_grammar::chardef::{CharDefId, CharDefKind, CharDefTable};
-use hc_grammar::model::{Grammar, MprSet, Pattern, PatternNode, PhonRuleDef, RewriteRuleDef, RewriteSubruleDef};
+use hc_grammar::model::{
+    Grammar, MprSet, Pattern, PatternNode, PhonRuleDef, RewriteRuleDef, RewriteSubruleDef,
+};
 use hc_shape::{NodeKind, ShapeBuilder, NO_CHAR_DEF};
 
 use crate::compiler::flatten_flat;
@@ -72,7 +74,11 @@ fn alloc(next_state: &mut u32) -> u32 {
 pub fn compile(g: &Grammar) -> V1CompileResult {
     let (table, w) = crate::trie::surface_table(g);
     // Quirk 2: Segment-type ONLY (see module doc).
-    let alphabet: Vec<CharDefId> = table.iter().filter(|(_, cd)| cd.kind() == CharDefKind::Segment).map(|(id, _)| id).collect();
+    let alphabet: Vec<CharDefId> = table
+        .iter()
+        .filter(|(_, cd)| cd.kind() == CharDefKind::Segment)
+        .map(|(id, _)| id)
+        .collect();
 
     let mut pinv = InversePhonology::new();
     pinv.start_state = 0;
@@ -90,13 +96,25 @@ pub fn compile(g: &Grammar) -> V1CompileResult {
                 continue; // metathesis and other non-rewrite rule types: not yet supported (uncounted)
             };
             for subrule in &rule.subrules {
-                if !try_compile_subrule_v1(g, table, w as u32, &alphabet, &mut pinv, &mut next_state, rule, subrule) {
+                if !try_compile_subrule_v1(
+                    g,
+                    table,
+                    w as u32,
+                    &alphabet,
+                    &mut pinv,
+                    &mut next_state,
+                    rule,
+                    subrule,
+                ) {
                     unsupported += 1;
                 }
             }
         }
     }
-    V1CompileResult { pinv, unsupported_rule_count: unsupported }
+    V1CompileResult {
+        pinv,
+        unsupported_rule_count: unsupported,
+    }
 }
 
 fn flatten_env(pattern: Option<&Pattern>) -> Option<&[PatternNode]> {
@@ -109,11 +127,19 @@ fn flatten_env(pattern: Option<&Pattern>) -> Option<&[PatternNode]> {
 /// One alphabet representative's lane row per environment/target constraint node (C#
 /// `BuildProbeString`, generalized here to lane rows instead of representation-string characters —
 /// see module doc). `None` if some node has no unifiable `alphabet` member (quirk 2's mechanism).
-fn build_probe_representative_v1(g: &Grammar, table: &CharDefTable, alphabet: &[CharDefId], nodes: &[PatternNode]) -> Option<Vec<Vec<u64>>> {
+fn build_probe_representative_v1(
+    g: &Grammar,
+    table: &CharDefTable,
+    alphabet: &[CharDefId],
+    nodes: &[PatternNode],
+) -> Option<Vec<Vec<u64>>> {
     let mut result = Vec::with_capacity(nodes.len());
     for node in nodes {
         let lanes = hc_rules::rewrite::node_full_lanes(g, table, node);
-        match alphabet.iter().find(|&&cd| flat_unifiable(table.get(cd).feature_lanes(), &lanes)) {
+        match alphabet
+            .iter()
+            .find(|&&cd| flat_unifiable(table.get(cd).feature_lanes(), &lanes))
+        {
             Some(&cd) => result.push(table.get(cd).feature_lanes().to_vec()),
             None => return None,
         }
@@ -133,33 +159,54 @@ fn try_compile_subrule_v1(
     rule: &RewriteRuleDef,
     subrule: &RewriteSubruleDef,
 ) -> bool {
-    if subrule.required_pos.is_some() || subrule.required_mpr != MprSet::EMPTY || subrule.excluded_mpr != MprSet::EMPTY {
+    if subrule.required_pos.is_some()
+        || subrule.required_mpr != MprSet::EMPTY
+        || subrule.excluded_mpr != MprSet::EMPTY
+    {
         return false;
     }
-    let Some(left_env) = flatten_env(subrule.left_env.as_ref()) else { return false };
-    let Some(lhs) = flatten_flat(&rule.lhs.nodes) else { return false };
+    let Some(left_env) = flatten_env(subrule.left_env.as_ref()) else {
+        return false;
+    };
+    let Some(lhs) = flatten_flat(&rule.lhs.nodes) else {
+        return false;
+    };
     if lhs.len() != 1 {
         return false; // v1: single-segment Lhs only
     }
-    let Some(rhs) = flatten_flat(&subrule.rhs.nodes) else { return false };
+    let Some(rhs) = flatten_flat(&subrule.rhs.nodes) else {
+        return false;
+    };
     if rhs.len() > 1 {
         return false; // v1: deletion (0) or plain substitution (1) only
     }
-    let Some(right_env) = flatten_env(subrule.right_env.as_ref()) else { return false };
+    let Some(right_env) = flatten_env(subrule.right_env.as_ref()) else {
+        return false;
+    };
 
     let is_deletion = rhs.is_empty();
     if is_deletion && left_env.is_empty() && right_env.is_empty() {
         return false; // unconditioned deletion would over-restore everywhere
     }
 
-    let Some(left_probe) = build_probe_representative_v1(g, table, alphabet, left_env) else { return false };
-    let Some(right_probe) = build_probe_representative_v1(g, table, alphabet, right_env) else { return false };
+    let Some(left_probe) = build_probe_representative_v1(g, table, alphabet, left_env) else {
+        return false;
+    };
+    let Some(right_probe) = build_probe_representative_v1(g, table, alphabet, right_env) else {
+        return false;
+    };
 
     // Environment ARCS use the constraint's own (possibly underspecified) lanes -- NOT the probe
     // representative -- exactly like `EnvNfaCompiler`'s identity arcs (C# `ChainLeftEnvironment`/
     // `ChainRightEnvironment` read `leftEnv`/`rightEnv`'s own `FeatureStruct`s, never the probe).
-    let left_env_lanes: Vec<Vec<u64>> = left_env.iter().map(|n| hc_rules::rewrite::node_full_lanes(g, table, n)).collect();
-    let right_env_lanes: Vec<Vec<u64>> = right_env.iter().map(|n| hc_rules::rewrite::node_full_lanes(g, table, n)).collect();
+    let left_env_lanes: Vec<Vec<u64>> = left_env
+        .iter()
+        .map(|n| hc_rules::rewrite::node_full_lanes(g, table, n))
+        .collect();
+    let right_env_lanes: Vec<Vec<u64>> = right_env
+        .iter()
+        .map(|n| hc_rules::rewrite::node_full_lanes(g, table, n))
+        .collect();
     let lhs_lanes = hc_rules::rewrite::node_full_lanes(g, table, &lhs[0]);
 
     // The left-environment chain is the same for every candidate below (depends only on the
@@ -172,13 +219,34 @@ fn try_compile_subrule_v1(
         if !flat_unifiable(&candidate_lanes, &lhs_lanes) {
             continue;
         }
-        match probe_v1(g, w, rule, &left_probe, &candidate_lanes, &right_probe, is_deletion) {
+        match probe_v1(
+            g,
+            w,
+            rule,
+            &left_probe,
+            &candidate_lanes,
+            &right_probe,
+            is_deletion,
+        ) {
             ProbeOutcome::Restoration => {
-                add_restoration_branch_v1(pinv, next_state, from_state, candidate_lanes, &right_env_lanes);
+                add_restoration_branch_v1(
+                    pinv,
+                    next_state,
+                    from_state,
+                    candidate_lanes,
+                    &right_env_lanes,
+                );
                 added_any = true;
             }
             ProbeOutcome::Substitution(surface) => {
-                add_substitution_branch_v1(pinv, next_state, from_state, surface, candidate_lanes, &right_env_lanes);
+                add_substitution_branch_v1(
+                    pinv,
+                    next_state,
+                    from_state,
+                    surface,
+                    candidate_lanes,
+                    &right_env_lanes,
+                );
                 added_any = true;
             }
             ProbeOutcome::NoEffect => {}
@@ -241,7 +309,11 @@ fn probe_v1(
 /// state 0, returning the state reached once the whole environment has matched (state 0 itself if
 /// empty). Runs in parallel with state 0's own identity self-loops (an NFA permits multiple
 /// outgoing arcs from one state), so no existing arc is disturbed.
-fn chain_left_environment_v1(pinv: &mut InversePhonology, next_state: &mut u32, left_env: &[Vec<u64>]) -> u32 {
+fn chain_left_environment_v1(
+    pinv: &mut InversePhonology,
+    next_state: &mut u32,
+    left_env: &[Vec<u64>],
+) -> u32 {
     let mut state = 0u32;
     for lanes in left_env {
         let next = alloc(next_state);
@@ -254,10 +326,19 @@ fn chain_left_environment_v1(pinv: &mut InversePhonology, next_state: &mut u32, 
 /// C# `ChainRightEnvironment`: consume each right-environment segment as identity, ending back at
 /// state 0. Only called with a non-empty environment (the zero-length case is handled directly by
 /// the two `AddXBranch` callers).
-fn chain_right_environment_v1(pinv: &mut InversePhonology, next_state: &mut u32, from: u32, right_env: &[Vec<u64>]) {
+fn chain_right_environment_v1(
+    pinv: &mut InversePhonology,
+    next_state: &mut u32,
+    from: u32,
+    right_env: &[Vec<u64>],
+) {
     let mut state = from;
     for (i, lanes) in right_env.iter().enumerate() {
-        let next = if i == right_env.len() - 1 { 0 } else { alloc(next_state) };
+        let next = if i == right_env.len() - 1 {
+            0
+        } else {
+            alloc(next_state)
+        };
         pinv.add_arc(state, Some(lanes.clone()), Some(lanes.clone()), next);
         state = next;
     }
@@ -265,7 +346,13 @@ fn chain_right_environment_v1(pinv: &mut InversePhonology, next_state: &mut u32,
 
 /// C# `AddRestorationBranch`: ε-input restore `underlying` from `from_state`, then consume the
 /// right-environment segments as identity back to state 0 (straight to 0 if no right context).
-fn add_restoration_branch_v1(pinv: &mut InversePhonology, next_state: &mut u32, from_state: u32, underlying: Vec<u64>, right_env: &[Vec<u64>]) {
+fn add_restoration_branch_v1(
+    pinv: &mut InversePhonology,
+    next_state: &mut u32,
+    from_state: u32,
+    underlying: Vec<u64>,
+    right_env: &[Vec<u64>],
+) {
     if right_env.is_empty() {
         pinv.add_arc(from_state, None, Some(underlying), 0);
         return;
@@ -277,7 +364,14 @@ fn add_restoration_branch_v1(pinv: &mut InversePhonology, next_state: &mut u32, 
 
 /// C# `AddSubstitutionBranch`: a real arc consuming the surfaced segment and emitting the
 /// underlying one, then the right-environment chain (straight to 0 if no right context).
-fn add_substitution_branch_v1(pinv: &mut InversePhonology, next_state: &mut u32, from_state: u32, surface: Vec<u64>, underlying: Vec<u64>, right_env: &[Vec<u64>]) {
+fn add_substitution_branch_v1(
+    pinv: &mut InversePhonology,
+    next_state: &mut u32,
+    from_state: u32,
+    surface: Vec<u64>,
+    underlying: Vec<u64>,
+    right_env: &[Vec<u64>],
+) {
     if right_env.is_empty() {
         pinv.add_arc(from_state, Some(surface), Some(underlying), 0);
         return;
@@ -317,7 +411,10 @@ mod tests {
             return;
         };
         let result = compile(&g);
-        assert!(result.unsupported_rule_count > 0, "Indonesian's real rules all hit v1's narrow shape (quirks 1/2)");
+        assert!(
+            result.unsupported_rule_count > 0,
+            "Indonesian's real rules all hit v1's narrow shape (quirks 1/2)"
+        );
     }
 
     #[test]

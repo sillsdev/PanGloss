@@ -19,8 +19,8 @@ mod support;
 use std::ffi::c_void;
 
 use hermit_crab::{
-    decode, encode_single, hc_buf_free, hc_grammar_free, hc_grammar_load, hc_parse_batch, hc_parse_word,
-    DecodedWord, HcError, HcResultBuf, HcStr, DEFAULT_MEMO, DEFAULT_STEP_CAP, HC_OK,
+    decode, encode_single, hc_buf_free, hc_grammar_free, hc_grammar_load, hc_parse_batch,
+    hc_parse_word, DecodedWord, HcError, HcResultBuf, HcStr, DEFAULT_MEMO, DEFAULT_STEP_CAP, HC_OK,
 };
 
 fn load_handle(xml: &str) -> *mut c_void {
@@ -50,7 +50,11 @@ fn ffi_batch_matches_in_process_for_full_indonesian_corpus() {
         eprintln!("skipping: indonesian-words.txt not present on disk");
         return;
     };
-    assert_eq!(words.len(), 121, "test data assumption stale: expected 121 Indonesian words");
+    assert_eq!(
+        words.len(),
+        121,
+        "test data assumption stale: expected 121 Indonesian words"
+    );
 
     // In-process baseline: an independent grammar load (hc-ffi's internal Grammar is private to
     // the crate), under the SAME step-cap/memo config the FFI handle builds internally, so a
@@ -62,7 +66,13 @@ fn ffi_batch_matches_in_process_for_full_indonesian_corpus() {
 
     // FFI path: one hc_parse_batch call over the whole corpus — exercises the real rayon path,
     // not just hc_parse_word's single-threaded one (that's covered separately, below).
-    let hcstrs: Vec<HcStr> = words.iter().map(|w| HcStr { ptr: w.as_ptr(), len: w.len() }).collect();
+    let hcstrs: Vec<HcStr> = words
+        .iter()
+        .map(|w| HcStr {
+            ptr: w.as_ptr(),
+            len: w.len(),
+        })
+        .collect();
     let mut out = HcResultBuf::EMPTY;
     let code = unsafe { hc_parse_batch(handle, hcstrs.as_ptr(), hcstrs.len(), 4, &mut out) };
     assert_eq!(code, HC_OK, "hc_parse_batch failed: code={code}");

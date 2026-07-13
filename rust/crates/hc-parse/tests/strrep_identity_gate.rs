@@ -25,7 +25,8 @@ fn fixture_dir() -> PathBuf {
 fn strrep_identity_matches_oracle() {
     let dir = fixture_dir();
     let xml = std::fs::read_to_string(dir.join("grammar.xml")).expect("read grammar.xml");
-    let grammar = load(&xml).unwrap_or_else(|e| panic!("strrep-identity grammar failed to load: {e}"));
+    let grammar =
+        load(&xml).unwrap_or_else(|e| panic!("strrep-identity grammar failed to load: {e}"));
     let morpher = Morpher::new(&grammar, usize::MAX).with_memo(true);
 
     let text = std::fs::read_to_string(dir.join("expected.tsv")).expect("read expected.tsv");
@@ -37,7 +38,10 @@ fn strrep_identity_matches_oracle() {
         }
         let (word, expected_sig) = (cols[1], cols[4]);
         let got = morpher.parse_word(word).signature();
-        assert_eq!(got, expected_sig, "strrep-identity: word {word:?} signature mismatch vs C# oracle");
+        assert_eq!(
+            got, expected_sig,
+            "strrep-identity: word {word:?} signature mismatch vs C# oracle"
+        );
         checked += 1;
     }
     assert_eq!(checked, 12, "expected.tsv should pin all 12 fixture words");

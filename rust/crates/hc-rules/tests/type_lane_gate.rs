@@ -51,9 +51,13 @@ fn concrete_lanes(g: &Grammar, cd: CharDefId) -> Vec<u64> {
 }
 
 fn matches_single(pattern: &Pattern, g: &Grammar, lanes: Vec<u64>) -> bool {
-    let compiled = PatternBridge::new(g).compile_pattern(pattern).expect("pattern compiles");
+    let compiled = PatternBridge::new(g)
+        .compile_pattern(pattern)
+        .expect("pattern compiles");
     let fst = compiled.input.compile();
-    Transduce::new(&fst, vec![Segment::new(lanes)]).anchored(true, true).accepts()
+    Transduce::new(&fst, vec![Segment::new(lanes)])
+        .anchored(true, true)
+        .accepts()
 }
 
 // =================================================================================================
@@ -91,14 +95,23 @@ fn zero_feat_grammar_phon_features_len_is_one_not_zero() {
     // synthetic `Type` feature), not 0 — `is_empty()` is the new spelling of the old "no features"
     // check.
     let g = zero_feat_grammar();
-    assert!(g.phon_features.is_empty(), "zero *authored* phonological features");
-    assert_eq!(g.phon_features.len(), 1, "Type is always appended, even at zero authored features");
+    assert!(
+        g.phon_features.is_empty(),
+        "zero *authored* phonological features"
+    );
+    assert_eq!(
+        g.phon_features.len(),
+        1,
+        "Type is always appended, even at zero authored features"
+    );
 }
 
 #[test]
 fn zero_feat_boundary_marker_pattern_does_not_match_a_segment() {
     let g = zero_feat_grammar();
-    let boundary_pattern = Pattern { nodes: vec![PatternNode::CharDef(char_def(&g, "char_plus"))] };
+    let boundary_pattern = Pattern {
+        nodes: vec![PatternNode::CharDef(char_def(&g, "char_plus"))],
+    };
     let seg_lanes = concrete_lanes(&g, char_def(&g, "char_a"));
     let bnd_lanes = concrete_lanes(&g, char_def(&g, "char_plus"));
 
@@ -116,11 +129,16 @@ fn zero_feat_boundary_marker_pattern_does_not_match_a_segment() {
 #[test]
 fn zero_feat_segment_literal_pattern_does_not_match_a_boundary() {
     let g = zero_feat_grammar();
-    let segment_pattern = Pattern { nodes: vec![PatternNode::CharDef(char_def(&g, "char_a"))] };
+    let segment_pattern = Pattern {
+        nodes: vec![PatternNode::CharDef(char_def(&g, "char_a"))],
+    };
     let seg_lanes = concrete_lanes(&g, char_def(&g, "char_a"));
     let bnd_lanes = concrete_lanes(&g, char_def(&g, "char_plus"));
 
-    assert!(matches_single(&segment_pattern, &g, seg_lanes), "a segment-literal pattern must match its own segment");
+    assert!(
+        matches_single(&segment_pattern, &g, seg_lanes),
+        "a segment-literal pattern must match its own segment"
+    );
     assert!(
         !matches_single(&segment_pattern, &g, bnd_lanes),
         "a segment-literal pattern must NOT match a boundary node"
@@ -135,12 +153,18 @@ fn zero_feat_feature_natural_class_matches_segment_not_boundary() {
     // per architecture point 3) but reject the boundary.
     let g = zero_feat_grammar();
     let pattern = Pattern {
-        nodes: vec![PatternNode::Context(SimpleContext { nat_class: nat_class(&g, "nc_any"), vars: vec![] })],
+        nodes: vec![PatternNode::Context(SimpleContext {
+            nat_class: nat_class(&g, "nc_any"),
+            vars: vec![],
+        })],
     };
     let seg_lanes = concrete_lanes(&g, char_def(&g, "char_a"));
     let bnd_lanes = concrete_lanes(&g, char_def(&g, "char_plus"));
 
-    assert!(matches_single(&pattern, &g, seg_lanes), "an unconstrained FeatureNaturalClass must still match segments");
+    assert!(
+        matches_single(&pattern, &g, seg_lanes),
+        "an unconstrained FeatureNaturalClass must still match segments"
+    );
     assert!(
         !matches_single(&pattern, &g, bnd_lanes),
         "an unconstrained FeatureNaturalClass must NOT match a boundary (implicit Type=Segment pin)"
@@ -197,15 +221,27 @@ fn feature_grammar() -> Grammar {
 #[test]
 fn feature_grammar_phon_features_len_includes_type_appended_last() {
     let g = feature_grammar();
-    assert!(!g.phon_features.is_empty(), "sanity: this grammar has one authored phonological feature");
-    assert_eq!(g.phon_features.len(), 2, "1 authored feature + the always-appended Type feature");
-    assert_eq!(g.phon_features.type_flat(), hc_grammar::featsys::FlatIndex(1));
+    assert!(
+        !g.phon_features.is_empty(),
+        "sanity: this grammar has one authored phonological feature"
+    );
+    assert_eq!(
+        g.phon_features.len(),
+        2,
+        "1 authored feature + the always-appended Type feature"
+    );
+    assert_eq!(
+        g.phon_features.type_flat(),
+        hc_grammar::featsys::FlatIndex(1)
+    );
 }
 
 #[test]
 fn feature_grammar_boundary_marker_pattern_does_not_match_a_segment() {
     let g = feature_grammar();
-    let boundary_pattern = Pattern { nodes: vec![PatternNode::CharDef(char_def(&g, "char_plus"))] };
+    let boundary_pattern = Pattern {
+        nodes: vec![PatternNode::CharDef(char_def(&g, "char_plus"))],
+    };
     let seg_lanes = concrete_lanes(&g, char_def(&g, "char_b"));
     let bnd_lanes = concrete_lanes(&g, char_def(&g, "char_plus"));
 
@@ -224,13 +260,25 @@ fn feature_grammar_voiced_class_matches_only_voiced_segment_never_boundary() {
     // assertion this fix adds — must reject the boundary too.
     let g = feature_grammar();
     let pattern = Pattern {
-        nodes: vec![PatternNode::Context(SimpleContext { nat_class: nat_class(&g, "nc_voiced"), vars: vec![] })],
+        nodes: vec![PatternNode::Context(SimpleContext {
+            nat_class: nat_class(&g, "nc_voiced"),
+            vars: vec![],
+        })],
     };
     let voiced_lanes = concrete_lanes(&g, char_def(&g, "char_b"));
     let voiceless_lanes = concrete_lanes(&g, char_def(&g, "char_p"));
     let bnd_lanes = concrete_lanes(&g, char_def(&g, "char_plus"));
 
-    assert!(matches_single(&pattern, &g, voiced_lanes), "must still match the voiced segment");
-    assert!(!matches_single(&pattern, &g, voiceless_lanes), "must still reject the voiceless segment");
-    assert!(!matches_single(&pattern, &g, bnd_lanes), "must reject the boundary (implicit Type=Segment pin)");
+    assert!(
+        matches_single(&pattern, &g, voiced_lanes),
+        "must still match the voiced segment"
+    );
+    assert!(
+        !matches_single(&pattern, &g, voiceless_lanes),
+        "must still reject the voiceless segment"
+    );
+    assert!(
+        !matches_single(&pattern, &g, bnd_lanes),
+        "must reject the boundary (implicit Type=Segment pin)"
+    );
 }

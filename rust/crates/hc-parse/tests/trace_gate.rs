@@ -67,7 +67,12 @@ fn obligatory_feature_never_satisfied_grammar() -> hc_grammar::model::Grammar {
 
 /// Walk the whole tree collecting `(TraceType, FailureReason)` for every node that carries a
 /// `failure_reason`, plus a flag for whether any `Successful` node exists.
-fn scan(sink: &TreeTraceSink, h: hc_rules::trace::TraceHandle, reasons: &mut Vec<(TraceType, FailureReason)>, has_success: &mut bool) {
+fn scan(
+    sink: &TreeTraceSink,
+    h: hc_rules::trace::TraceHandle,
+    reasons: &mut Vec<(TraceType, FailureReason)>,
+    has_success: &mut bool,
+) {
     let n = sink.node(h);
     if n.type_ == TraceType::Successful {
         *has_success = true;
@@ -87,7 +92,11 @@ fn traced_and_untraced_parse_agree_on_the_signature() {
     let plain = m.parse_word("sagd");
     let sink = TreeTraceSink::new();
     let traced = m.parse_word_traced("sagd", &ParseOptions::default(), &sink);
-    assert_eq!(plain.signature(), traced.signature(), "tracing must not change parse behavior");
+    assert_eq!(
+        plain.signature(),
+        traced.signature(),
+        "tracing must not change parse behavior"
+    );
 }
 
 #[test]
@@ -96,7 +105,10 @@ fn trivially_valid_word_produces_a_successful_node_under_the_root() {
     let m = Morpher::new(&g, usize::MAX);
     let sink = TreeTraceSink::new();
     let outcome = m.parse_word_traced("sagd", &ParseOptions::default(), &sink);
-    assert!(!outcome.analyses.is_empty(), "sanity: the grammar still parses \"sagd\"");
+    assert!(
+        !outcome.analyses.is_empty(),
+        "sanity: the grammar still parses \"sagd\""
+    );
 
     let root = sink.root().expect("analyze_word must mint a root");
     assert_eq!(sink.node(root).type_, TraceType::WordAnalysis);
@@ -104,7 +116,10 @@ fn trivially_valid_word_produces_a_successful_node_under_the_root() {
     let mut reasons = Vec::new();
     let mut has_success = false;
     scan(&sink, root, &mut reasons, &mut has_success);
-    assert!(has_success, "a valid parse must produce a Successful node somewhere in the tree");
+    assert!(
+        has_success,
+        "a valid parse must produce a Successful node somewhere in the tree"
+    );
 }
 
 #[test]
@@ -114,7 +129,10 @@ fn obligatory_syntactic_feature_never_satisfied_is_reported() {
     let sink = TreeTraceSink::new();
     let outcome = m.parse_word_traced("sagz", &ParseOptions::default(), &sink);
     // The rule's own obligatory feature is never satisfiable, so this word must never validate.
-    assert!(outcome.analyses.is_empty(), "sanity: \"sagz\" must NOT validate (its obligatory feature is unsatisfiable)");
+    assert!(
+        outcome.analyses.is_empty(),
+        "sanity: \"sagz\" must NOT validate (its obligatory feature is unsatisfiable)"
+    );
 
     let root = sink.root().expect("analyze_word must mint a root");
     let mut reasons = Vec::new();
@@ -122,7 +140,9 @@ fn obligatory_syntactic_feature_never_satisfied_is_reported() {
     scan(&sink, root, &mut reasons, &mut has_success);
     assert!(!has_success);
     assert!(
-        reasons.iter().any(|&(t, r)| t == TraceType::Failed && r == FailureReason::ObligatorySyntacticFeatures),
+        reasons.iter().any(
+            |&(t, r)| t == TraceType::Failed && r == FailureReason::ObligatorySyntacticFeatures
+        ),
         "expected a Failed(ObligatorySyntacticFeatures) node; got {reasons:?}"
     );
 }
@@ -150,7 +170,9 @@ fn real_indonesian_word_exercises_surface_form_mismatch() {
     let mut has_success = false;
     scan(&sink, root, &mut reasons, &mut has_success);
     assert!(
-        reasons.iter().any(|&(t, r)| t == TraceType::Failed && r == FailureReason::SurfaceFormMismatch),
+        reasons
+            .iter()
+            .any(|&(t, r)| t == TraceType::Failed && r == FailureReason::SurfaceFormMismatch),
         "expected at least one Failed(SurfaceFormMismatch) node for \"memaca\"; got {reasons:?}"
     );
 }

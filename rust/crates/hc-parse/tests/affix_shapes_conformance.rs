@@ -19,7 +19,9 @@ use hc_grammar::load;
 use hc_parse::Morpher;
 
 fn fixture_dir(name: &str) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../conformance/affix-shapes").join(name)
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../conformance/affix-shapes")
+        .join(name)
 }
 
 /// Replay one fixture's `words.txt` against its `expected.tsv`, returning the number of words
@@ -39,7 +41,10 @@ fn replay(name: &str) -> usize {
         }
         let (word, expected_sig) = (cols[1], cols[4]);
         let got = morpher.parse_word(word).signature();
-        assert_eq!(got, expected_sig, "{name}: word {word:?} signature mismatch vs C# oracle");
+        assert_eq!(
+            got, expected_sig,
+            "{name}: word {word:?} signature mismatch vs C# oracle"
+        );
         checked += 1;
     }
     checked

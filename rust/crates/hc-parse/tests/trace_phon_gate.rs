@@ -14,7 +14,11 @@ use hc_parse::{Morpher, ParseOptions};
 use hc_rules::trace::{FailureReason, TraceHandle, TraceType, TreeTraceSink};
 
 /// Every `PhonologicalRuleSynthesis` node anywhere in the tree, as `(subrule_index, failure_reason)`.
-fn phon_synth_nodes(sink: &TreeTraceSink, h: TraceHandle, out: &mut Vec<(Option<i32>, Option<FailureReason>)>) {
+fn phon_synth_nodes(
+    sink: &TreeTraceSink,
+    h: TraceHandle,
+    out: &mut Vec<(Option<i32>, Option<FailureReason>)>,
+) {
     let n = sink.node(h);
     if n.type_ == TraceType::PhonologicalRuleSynthesis {
         out.push((n.subrule_index, n.failure_reason));
@@ -64,7 +68,10 @@ fn live_trace_shows_phonological_rule_applied_for_a_word_the_rule_fires_on() {
          must never change control flow/results), so this is the one check that turns the \
          equivalence argument from \"by inspection\" into \"by test\""
     );
-    assert!(!outcome.analyses.is_empty(), "sanity: {word:?} must still parse with tracing on");
+    assert!(
+        !outcome.analyses.is_empty(),
+        "sanity: {word:?} must still parse with tracing on"
+    );
 
     let root = sink.root().expect("analyze_word must mint a root");
     let mut nodes = Vec::new();
@@ -76,7 +83,9 @@ fn live_trace_shows_phonological_rule_applied_for_a_word_the_rule_fires_on() {
          metathesis.rs fired no trace events at all"
     );
     assert!(
-        nodes.iter().any(|(idx, reason)| *idx == Some(0) && reason.is_none()),
+        nodes
+            .iter()
+            .any(|(idx, reason)| *idx == Some(0) && reason.is_none()),
         "expected subrule 0 to report Applied (no FailureReason) for at least one derivation of \
          {word:?}; got {nodes:?}"
     );
@@ -95,14 +104,23 @@ fn live_trace_reports_pattern_fallback_for_a_word_the_rule_never_matches() {
     let plain = m.parse_word(word);
     let sink = TreeTraceSink::new();
     let outcome = m.parse_word_traced(word, &ParseOptions::default(), &sink);
-    assert_eq!(plain.signature(), outcome.signature(), "tracing must not change the parse result");
-    assert!(!outcome.analyses.is_empty(), "sanity: {word:?} must still parse with tracing on");
+    assert_eq!(
+        plain.signature(),
+        outcome.signature(),
+        "tracing must not change the parse result"
+    );
+    assert!(
+        !outcome.analyses.is_empty(),
+        "sanity: {word:?} must still parse with tracing on"
+    );
 
     let root = sink.root().expect("analyze_word must mint a root");
     let mut nodes = Vec::new();
     phon_synth_nodes(&sink, root, &mut nodes);
     assert!(
-        nodes.iter().any(|(idx, reason)| *idx == Some(0) && *reason == Some(FailureReason::Pattern)),
+        nodes
+            .iter()
+            .any(|(idx, reason)| *idx == Some(0) && *reason == Some(FailureReason::Pattern)),
         "expected subrule 0 to report NotApplied(Pattern) for at least one derivation of {word:?} \
          (rule3's LHS never matches a vowel-final root); got {nodes:?}"
     );
@@ -132,8 +150,15 @@ fn live_trace_shows_metathesis_rule_applied() {
     let plain = m.parse_word(word);
     let sink = TreeTraceSink::new();
     let outcome = m.parse_word_traced(word, &ParseOptions::default(), &sink);
-    assert_eq!(plain.signature(), outcome.signature(), "tracing must not change the parse result");
-    assert!(!outcome.analyses.is_empty(), "sanity: {word:?} must still parse with tracing on");
+    assert_eq!(
+        plain.signature(),
+        outcome.signature(),
+        "tracing must not change the parse result"
+    );
+    assert!(
+        !outcome.analyses.is_empty(),
+        "sanity: {word:?} must still parse with tracing on"
+    );
 
     let root = sink.root().expect("analyze_word must mint a root");
     let mut nodes = Vec::new();
@@ -145,7 +170,9 @@ fn live_trace_shows_metathesis_rule_applied() {
          prule loop exactly like the rewrite-rule case above"
     );
     assert!(
-        nodes.iter().any(|(idx, reason)| *idx == Some(-1) && reason.is_none()),
+        nodes
+            .iter()
+            .any(|(idx, reason)| *idx == Some(-1) && reason.is_none()),
         "expected subrule index -1, Applied (no reason), for at least one derivation of {word:?}; \
          got {nodes:?}"
     );

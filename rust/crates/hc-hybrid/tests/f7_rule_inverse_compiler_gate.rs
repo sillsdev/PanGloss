@@ -34,16 +34,28 @@ fn load() -> Grammar {
     hc_grammar::load(xml).unwrap_or_else(|e| panic!("toy grammar failed to load: {e}"))
 }
 
-fn rule<'a>(g: &'a Grammar, compiled: &'a [compiler::CompiledRuleInverse], name: &str) -> &'a compiler::CompiledRuleInverse {
+fn rule<'a>(
+    g: &'a Grammar,
+    compiled: &'a [compiler::CompiledRuleInverse],
+    name: &str,
+) -> &'a compiler::CompiledRuleInverse {
     let _ = g;
-    compiled.iter().find(|r| r.name == name).unwrap_or_else(|| panic!("no compiled rule named {name:?}"))
+    compiled
+        .iter()
+        .find(|r| r.name == name)
+        .unwrap_or_else(|| panic!("no compiled rule named {name:?}"))
 }
 
 /// Standalone interpreter mirroring C#'s test-local `RunPinv` (no lexicon/trie involved -- I1's own
 /// tests predate the I2 walker). Segments `surface` against `table`, walks `pinv`'s arcs closing
 /// over epsilon (structural + ε-input restoration) at every step, and renders every accepted
 /// underlying reading back to a string; returns `[]` for a surface the table can't even segment.
-fn run_pinv(g: &Grammar, table: &CharDefTable, pinv: &InversePhonology, surface: &str) -> Vec<String> {
+fn run_pinv(
+    g: &Grammar,
+    table: &CharDefTable,
+    pinv: &InversePhonology,
+    surface: &str,
+) -> Vec<String> {
     let Ok(shape) = hc_rules::shape_feat::segment_with_features(g, table, surface) else {
         return Vec::new();
     };
@@ -53,7 +65,8 @@ fn run_pinv(g: &Grammar, table: &CharDefTable, pinv: &InversePhonology, surface:
         .map(|(i, _, _, _)| shape.node_lanes(i).to_vec())
         .collect();
 
-    let mut current: Vec<(StateId, Vec<Vec<u64>>)> = closure(pinv, vec![(pinv.start_state, Vec::new())]);
+    let mut current: Vec<(StateId, Vec<Vec<u64>>)> =
+        closure(pinv, vec![(pinv.start_state, Vec::new())]);
     for seg in &segs {
         let mut next: Vec<(StateId, Vec<Vec<u64>>)> = Vec::new();
         for (state, underlying) in &current {
@@ -75,7 +88,11 @@ fn run_pinv(g: &Grammar, table: &CharDefTable, pinv: &InversePhonology, surface:
                     // segment for an identity arc (the underspecified constraint unifies with it,
                     // same as C#'s walk-time unification against the lexicon); render the arc's
                     // own (possibly more specific) underlying lanes otherwise.
-                    u2.push(if arc.surface.as_ref() == Some(u) { seg.clone() } else { u.clone() });
+                    u2.push(if arc.surface.as_ref() == Some(u) {
+                        seg.clone()
+                    } else {
+                        u.clone()
+                    });
                 }
                 next.push((arc.target, u2));
             }
@@ -96,8 +113,12 @@ fn run_pinv(g: &Grammar, table: &CharDefTable, pinv: &InversePhonology, surface:
 /// Closure over ε-input (restoration) and structural-epsilon arcs, matching C#'s own bounded
 /// (state, rendered-so-far) visited set exactly (same rationale: two distinct readings can land at
 /// the same state with the same segment count and must not collapse).
-fn closure(pinv: &InversePhonology, configs: Vec<(StateId, Vec<Vec<u64>>)>) -> Vec<(StateId, Vec<Vec<u64>>)> {
-    let mut visited: rustc_hash::FxHashSet<(StateId, Vec<Vec<u64>>)> = rustc_hash::FxHashSet::default();
+fn closure(
+    pinv: &InversePhonology,
+    configs: Vec<(StateId, Vec<Vec<u64>>)>,
+) -> Vec<(StateId, Vec<Vec<u64>>)> {
+    let mut visited: rustc_hash::FxHashSet<(StateId, Vec<Vec<u64>>)> =
+        rustc_hash::FxHashSet::default();
     let mut result = Vec::new();
     let mut stack = Vec::new();
     for (state, underlying) in configs {
@@ -127,7 +148,11 @@ fn closure(pinv: &InversePhonology, configs: Vec<(StateId, Vec<Vec<u64>>)>) -> V
 fn render(table: &CharDefTable, segments: &[Vec<u64>]) -> String {
     let mut s = String::new();
     for lanes in segments {
-        match table.iter().find(|(_, cd)| cd.kind() == CharDefKind::Segment && flat_unifiable(cd.feature_lanes(), lanes) && cd.feature_lanes() == lanes.as_slice()) {
+        match table.iter().find(|(_, cd)| {
+            cd.kind() == CharDefKind::Segment
+                && flat_unifiable(cd.feature_lanes(), lanes)
+                && cd.feature_lanes() == lanes.as_slice()
+        }) {
             Some((_, cd)) => s.push_str(&cd.representations()[0]),
             None => s.push('?'),
         }
@@ -145,7 +170,10 @@ fn compile_plain_substitution_no_environment_is_exact() {
     assert!(result.reasons.is_empty());
 
     assert!(run_pinv(&g, table, &result.pinv, "d").contains(&"t".to_string()));
-    assert!(run_pinv(&g, table, &result.pinv, "g").contains(&"g".to_string()), "unrelated segment: identity only");
+    assert!(
+        run_pinv(&g, table, &result.pinv, "g").contains(&"g".to_string()),
+        "unrelated segment: identity only"
+    );
 }
 
 #[test]
@@ -170,10 +198,21 @@ fn compile_quantified_environment_span_long_distance_harmony_is_exact() {
     let table = &g.char_tables[0];
     let compiled = compiler::compile_default(&g);
     let result = rule(&g, &compiled, "t_to_d_harmony");
-    assert_eq!(result.tier, RuleInverseTier::Exact, "quantified env spans must NOT be relegated to Permissive: {:?}", result.reasons);
+    assert_eq!(
+        result.tier,
+        RuleInverseTier::Exact,
+        "quantified env spans must NOT be relegated to Permissive: {:?}",
+        result.reasons
+    );
 
-    assert!(run_pinv(&g, table, &result.pinv, "dggd").contains(&"tggd".to_string()), "2-segment span");
-    assert!(run_pinv(&g, table, &result.pinv, "dgggd").contains(&"tgggd".to_string()), "3-segment span: genuinely unbounded");
+    assert!(
+        run_pinv(&g, table, &result.pinv, "dggd").contains(&"tggd".to_string()),
+        "2-segment span"
+    );
+    assert!(
+        run_pinv(&g, table, &result.pinv, "dgggd").contains(&"tgggd".to_string()),
+        "3-segment span: genuinely unbounded"
+    );
     assert_eq!(
         run_pinv(&g, table, &result.pinv, "dggb"),
         vec!["dggb".to_string()],
@@ -237,5 +276,9 @@ fn metathesis_rule_is_the_documented_identityskip_stub_not_a_combo_cap_port() {
     let result = rule(&g, &compiled, "broad_swap");
     assert_eq!(result.tier, RuleInverseTier::IdentitySkip);
     assert_eq!(result.reasons, vec!["metathesis-unported".to_string()]);
-    assert_eq!(run_pinv(&g, table, &result.pinv, "tg"), vec!["tg".to_string()], "identity-only, not reject-all");
+    assert_eq!(
+        run_pinv(&g, table, &result.pinv, "tg"),
+        vec!["tg".to_string()],
+        "identity-only, not reject-all"
+    );
 }

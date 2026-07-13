@@ -41,10 +41,18 @@ pub mod generate;
 pub mod grammar;
 pub mod parse;
 
-pub use buffer::{decode, decode_generated_words, encode_batch, encode_generated_words, encode_single, DecodedAnalysis, DecodedWord};
-pub use error::{HcError, HcResultBuf, HC_ERR_GRAMMAR_LOAD, HC_ERR_INVALID_ARG, HC_ERR_NULL_ARG, HC_ERR_PANIC, HC_ERR_UTF8, HC_OK};
+pub use buffer::{
+    decode, decode_generated_words, encode_batch, encode_generated_words, encode_single,
+    DecodedAnalysis, DecodedWord,
+};
+pub use error::{
+    HcError, HcResultBuf, HC_ERR_GRAMMAR_LOAD, HC_ERR_INVALID_ARG, HC_ERR_NULL_ARG, HC_ERR_PANIC,
+    HC_ERR_UTF8, HC_OK,
+};
 pub use generate::hc_generate_words;
-pub use grammar::{hc_grammar_free, hc_grammar_load, HcGrammarHandle, DEFAULT_MEMO, DEFAULT_STEP_CAP};
+pub use grammar::{
+    hc_grammar_free, hc_grammar_load, HcGrammarHandle, DEFAULT_MEMO, DEFAULT_STEP_CAP,
+};
 pub use parse::{hc_buf_free, hc_parse_batch, hc_parse_word, HcStr};
 
 /// ABI version — bump on any struct layout or semantic change so the managed side can detect a

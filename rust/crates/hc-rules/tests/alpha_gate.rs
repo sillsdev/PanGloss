@@ -70,10 +70,20 @@ fn nasal_assim_rule(g: &Grammar) -> RewriteRuleDef {
         pat_char(char_def(g, "char_n")),
         subrule(
             // RHS: any segment, poa = αa (the bound place is written onto the nasal).
-            pat(PatternNode::Context(ctx_var(nat_class(g, "nc_any"), poa, 0, true))),
+            pat(PatternNode::Context(ctx_var(
+                nat_class(g, "nc_any"),
+                poa,
+                0,
+                true,
+            ))),
             None,
             // Right env: a consonant whose poa binds αa.
-            Some(pat(PatternNode::Context(ctx_var(nat_class(g, "nc_cons"), poa, 0, true)))),
+            Some(pat(PatternNode::Context(ctx_var(
+                nat_class(g, "nc_cons"),
+                poa,
+                0,
+                true,
+            )))),
         ),
     )
 }
@@ -90,7 +100,11 @@ fn nasal_assimilation_applies_the_bound_place() {
 
     // "nb": the following b is labial -> the nasal's poa becomes labial (0b01).
     let out2 = hc_rules::rewrite::synthesize(&g, &r, &seg(&g, "nb"));
-    assert_eq!(interior(&out2[0])[0].1[POA], 0b01, "n poa -> labial (from b)");
+    assert_eq!(
+        interior(&out2[0])[0].1[POA],
+        0b01,
+        "n poa -> labial (from b)"
+    );
 }
 
 // =================================================================================================
@@ -101,11 +115,21 @@ fn nasal_assimilation_applies_the_bound_place() {
 fn place_agreement_rule(g: &Grammar) -> RewriteRuleDef {
     let poa = feat(g, "feat_poa");
     rule(
-        pat(PatternNode::Context(ctx_var(nat_class(g, "nc_cons"), poa, 0, true))),
+        pat(PatternNode::Context(ctx_var(
+            nat_class(g, "nc_cons"),
+            poa,
+            0,
+            true,
+        ))),
         subrule(
             pat(PatternNode::Context(ctx(nat_class(g, "nc_voiced")))), // -> [+voice]
             None,
-            Some(pat(PatternNode::Context(ctx_var(nat_class(g, "nc_cons"), poa, 0, true)))),
+            Some(pat(PatternNode::Context(ctx_var(
+                nat_class(g, "nc_cons"),
+                poa,
+                0,
+                true,
+            )))),
         ),
     )
 }
@@ -118,7 +142,11 @@ fn place_agreement_applies_when_places_agree() {
     // voi lane (FlatIndex 1): p is 0b10 (-), becomes 0b01 (+).
     let out = hc_rules::rewrite::synthesize(&g, &r, &seg(&g, "pb"));
     assert_eq!(out.len(), 1, "agreeing places: rule applies");
-    assert_eq!(interior(&out[0])[0].1[1], 0b01, "p voiced (agreement satisfied)");
+    assert_eq!(
+        interior(&out[0])[0].1[1],
+        0b01,
+        "p voiced (agreement satisfied)"
+    );
 }
 
 #[test]
@@ -129,7 +157,10 @@ fn place_agreement_rejects_when_places_disagree() {
     // consonants) and wrongly voice p; the agreement check binds a=labial from p, then finds k's
     // poa=velar does not overlap -> REJECT. No application.
     let out = hc_rules::rewrite::synthesize(&g, &r, &seg(&g, "pk"));
-    assert!(out.is_empty(), "disagreeing places: candidate rejected, rule does not apply");
+    assert!(
+        out.is_empty(),
+        "disagreeing places: candidate rejected, rule does not apply"
+    );
 }
 
 // =================================================================================================
@@ -147,7 +178,11 @@ fn analysis_agreement_applies_when_places_agree() {
     // following b agrees -> unapply makes the first b's voice underspecified (full mask 0b11).
     let out = hc_rules::rewrite::analyze(&g, &r, &seg(&g, "bb"));
     assert_eq!(out.len(), 1, "agreeing places: unapplication proceeds");
-    assert_eq!(interior(&out[0])[0].1[1], 0b11, "first b: voice underspecified on unapply");
+    assert_eq!(
+        interior(&out[0])[0].1[1],
+        0b11,
+        "first b: voice underspecified on unapply"
+    );
 }
 
 #[test]
@@ -158,7 +193,10 @@ fn analysis_agreement_rejects_when_places_disagree() {
     // place (velar) disagrees -> candidate rejected; g itself has no following consonant. No
     // unapplication (the FST alone would over-generate an analysis here).
     let out = hc_rules::rewrite::analyze(&g, &r, &seg(&g, "bg"));
-    assert!(out.is_empty(), "disagreeing places: analysis candidate rejected");
+    assert!(
+        out.is_empty(),
+        "disagreeing places: analysis candidate rejected"
+    );
 }
 
 // =================================================================================================
@@ -182,7 +220,12 @@ fn analysis_agreement_rejects_when_places_disagree() {
 fn quantifier_gap_rule(g: &Grammar) -> RewriteRuleDef {
     let poa = feat(g, "feat_poa");
     rule(
-        pat(PatternNode::Context(ctx_var(nat_class(g, "nc_cons"), poa, 0, true))),
+        pat(PatternNode::Context(ctx_var(
+            nat_class(g, "nc_cons"),
+            poa,
+            0,
+            true,
+        ))),
         subrule(
             pat(PatternNode::Context(ctx(nat_class(g, "nc_voiced")))),
             Some(Pattern {
@@ -243,7 +286,11 @@ fn synthesis_left_env_var_across_unbounded_quantifier_accepts_agreeing_place_at_
     for fillers in [0usize, 1, 2, 3, 5] {
         let w = quantifier_gap_word('p', fillers, 'p');
         let out = hc_rules::rewrite::synthesize(&g, &r, &seg(&g, &w));
-        assert_eq!(out.len(), 1, "agreeing places across a {fillers}-segment quantifier gap ({w:?}): must apply");
+        assert_eq!(
+            out.len(),
+            1,
+            "agreeing places across a {fillers}-segment quantifier gap ({w:?}): must apply"
+        );
         let target_lanes = interior(&out[0]).last().unwrap().1.clone();
         assert_eq!(target_lanes[1], 0b01, "target voiced (gap={fillers})");
     }
@@ -259,5 +306,8 @@ fn analysis_left_env_var_across_unbounded_quantifier_rejects_disagreeing_place()
     // (the `ana_feature` call site uses the identical `resolve_bindings` fix).
     let w = quantifier_gap_word('g', 2, 'b');
     let out = hc_rules::rewrite::analyze(&g, &r, &seg(&g, &w));
-    assert!(out.is_empty(), "disagreeing places across the quantifier gap ({w:?}): analysis must reject");
+    assert!(
+        out.is_empty(),
+        "disagreeing places across the quantifier gap ({w:?}): analysis must reject"
+    );
 }

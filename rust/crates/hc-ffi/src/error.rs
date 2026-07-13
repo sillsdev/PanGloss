@@ -41,7 +41,11 @@ pub struct HcResultBuf {
 
 impl HcResultBuf {
     /// The zeroed "empty/no buffer" state — always valid to hand to `hc_buf_free`.
-    pub const EMPTY: HcResultBuf = HcResultBuf { data: std::ptr::null_mut(), len: 0, cap: 0 };
+    pub const EMPTY: HcResultBuf = HcResultBuf {
+        data: std::ptr::null_mut(),
+        len: 0,
+        cap: 0,
+    };
 }
 
 /// `hc_grammar_load`'s out-parameter: an error code plus an owned UTF-8 message buffer (empty on
@@ -54,7 +58,11 @@ pub struct HcError {
 }
 
 impl HcError {
-    pub const EMPTY: HcError = HcError { code: HC_OK, _pad: 0, message: HcResultBuf::EMPTY };
+    pub const EMPTY: HcError = HcError {
+        code: HC_OK,
+        _pad: 0,
+        message: HcResultBuf::EMPTY,
+    };
 }
 
 /// Move `bytes` into a leaked `(ptr, len, cap)` triple suitable for handing across the FFI
@@ -118,7 +126,11 @@ pub(crate) fn set_error(err: *mut HcError, code: i32, msg: &str) {
     let buf = leak_buf(msg.as_bytes().to_vec());
     // SAFETY: see `write_empty_buf`.
     unsafe {
-        *err = HcError { code, _pad: 0, message: buf };
+        *err = HcError {
+            code,
+            _pad: 0,
+            message: buf,
+        };
     }
 }
 

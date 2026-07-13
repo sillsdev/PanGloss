@@ -32,13 +32,17 @@ fn word_initial_epenthesis_matches_oracle() {
     let g = load_fixture("word-initial-epenthesis");
     let m = Morpher::new(&g, usize::MAX);
     let cases = [
-        ("taba", "|taba"),   // strip word-initial ta on analysis, re-epenthesize on confirm
-        ("ba", "-"),         // obligatory epenthesis: the bare surface can never round-trip
-        ("bata", "|bata"),   // no-fire control: right env needs exactly `C V #`
-        ("tabata", "-"),     // env-respecting negative: `ta` before `C V C V` must not strip
+        ("taba", "|taba"), // strip word-initial ta on analysis, re-epenthesize on confirm
+        ("ba", "-"),       // obligatory epenthesis: the bare surface can never round-trip
+        ("bata", "|bata"), // no-fire control: right env needs exactly `C V #`
+        ("tabata", "-"),   // env-respecting negative: `ta` before `C V C V` must not strip
     ];
     for (word, expected) in cases {
-        assert_eq!(m.parse_word(word).signature(), expected, "word-initial-epenthesis word {word:?}");
+        assert_eq!(
+            m.parse_word(word).signature(),
+            expected,
+            "word-initial-epenthesis word {word:?}"
+        );
     }
 }
 
@@ -57,12 +61,16 @@ fn deletion_reinsertion_matches_oracle() {
     let cases = [
         // b u (i) b u (i): skip/skip=19, skip/consume=24, consume/skip=25, consume/consume=26
         ("bubu", "19|bubu;24|bubu;25|bubu;26|bubu"),
-        ("buibu", "-"),    // surface i after a high V can never survive obligatory synthesis
-        ("bibu", "-"),     // analysis candidates (bibu, biibu, ...) match no lexical entry
+        ("buibu", "-"), // surface i after a high V can never survive obligatory synthesis
+        ("bibu", "-"),  // analysis candidates (bibu, biibu, ...) match no lexical entry
         ("buiibuii", "-"), // reachable only as its own analysis candidate; synthesis yields bubu
     ];
     for (word, expected) in cases {
-        assert_eq!(m.parse_word(word).signature(), expected, "deletion-reinsertion word {word:?}");
+        assert_eq!(
+            m.parse_word(word).signature(),
+            expected,
+            "deletion-reinsertion word {word:?}"
+        );
     }
 }
 
@@ -110,12 +118,16 @@ fn merge_matches_oracle() {
     let g = load_fixture("merge");
     let m = Morpher::new(&g, usize::MAX);
     let cases = [
-        ("butbut", "|butbut"),     // 2-segment `ii` -> 1-segment `t` merge, reversed on analysis
-        ("buiibuii", "-"),         // un-rewritten surface: no valid analysis (rule is obligatory)
-        ("buiibut", "-"),          // mixed surface: same reason
+        ("butbut", "|butbut"), // 2-segment `ii` -> 1-segment `t` merge, reversed on analysis
+        ("buiibuii", "-"),     // un-rewritten surface: no valid analysis (rule is obligatory)
+        ("buiibut", "-"),      // mixed surface: same reason
     ];
     for (word, expected) in cases {
-        assert_eq!(m.parse_word(word).signature(), expected, "merge word {word:?}");
+        assert_eq!(
+            m.parse_word(word).signature(),
+            expected,
+            "merge word {word:?}"
+        );
     }
 }
 
@@ -129,11 +141,15 @@ fn multiplemerge_matches_oracle() {
     let g = load_fixture("multiplemerge");
     let m = Morpher::new(&g, usize::MAX);
     let cases = [
-        ("bttbtt", "|bttbtt"),     // 3-segment `u-i-i` -> 2-segment `t-t` merge, reversed
-        ("buiibuii", "-"),         // un-rewritten surface: no valid analysis
-        ("bttbuii", "-"),          // mixed surface: same reason
+        ("bttbtt", "|bttbtt"), // 3-segment `u-i-i` -> 2-segment `t-t` merge, reversed
+        ("buiibuii", "-"),     // un-rewritten surface: no valid analysis
+        ("bttbuii", "-"),      // mixed surface: same reason
     ];
     for (word, expected) in cases {
-        assert_eq!(m.parse_word(word).signature(), expected, "multiplemerge word {word:?}");
+        assert_eq!(
+            m.parse_word(word).signature(),
+            expected,
+            "multiplemerge word {word:?}"
+        );
     }
 }

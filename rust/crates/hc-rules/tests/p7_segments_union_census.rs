@@ -63,7 +63,9 @@ fn census(g: &Grammar, xml: &str, tag: &str) {
 
     // (a) Every Segments-kind class union is exact: no non-member char-def unifies with it.
     for (ncid, nc) in g.natural_classes.iter().enumerate() {
-        let NaturalClassKind::Segments(segs) = &nc.kind else { continue };
+        let NaturalClassKind::Segments(segs) = &nc.kind else {
+            continue;
+        };
         let mut lanes = vec![0u64; w];
         for cd in segs {
             for (i, &l) in table.get(*cd).feature_lanes().iter().enumerate() {
@@ -96,7 +98,9 @@ fn census(g: &Grammar, xml: &str, tag: &str) {
         let mut rest = xml;
         while let Some(s) = rest.find("<PhoneticShape>") {
             rest = &rest[s + "<PhoneticShape>".len()..];
-            let e = rest.find("</PhoneticShape>").expect("balanced PhoneticShape");
+            let e = rest
+                .find("</PhoneticShape>")
+                .expect("balanced PhoneticShape");
             v.push(&rest[..e]);
             rest = &rest[e..];
         }
@@ -143,7 +147,11 @@ fn census(g: &Grammar, xml: &str, tag: &str) {
             );
         }
     }
-    eprintln!("{tag}: P7 census holds ({} defs, {} phon features)", table.len(), w);
+    eprintln!(
+        "{tag}: P7 census holds ({} defs, {} phon features)",
+        table.len(),
+        w
+    );
 }
 
 #[test]

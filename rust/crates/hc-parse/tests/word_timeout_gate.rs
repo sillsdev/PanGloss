@@ -43,7 +43,10 @@ fn no_word_timeout_is_unaffected() {
     let outcome = m.parse_word("sagd");
     assert!(!outcome.timed_out);
     assert!(!outcome.capped);
-    assert!(!outcome.analyses.is_empty(), "sanity: the grammar still parses \"sagd\"");
+    assert!(
+        !outcome.analyses.is_empty(),
+        "sanity: the grammar still parses \"sagd\""
+    );
 }
 
 /// `with_word_timeout(Some(0ms))` deterministically expires before construction even finishes
@@ -62,15 +65,24 @@ fn zero_ms_word_timeout_fires_and_reports_no_analyses() {
     let outcome = m.parse_word("sagd");
     let elapsed = start.elapsed();
 
-    assert!(outcome.timed_out, "a 0ms deadline must fire on the very first budget check");
-    assert!(!outcome.capped, "--step-cap was usize::MAX -- the cap itself must never fire");
+    assert!(
+        outcome.timed_out,
+        "a 0ms deadline must fire on the very first budget check"
+    );
+    assert!(
+        !outcome.capped,
+        "--step-cap was usize::MAX -- the cap itself must never fire"
+    );
     assert!(
         outcome.analyses.is_empty(),
         "an immediately-expired budget must abort before finding any analyses"
     );
     // A generous bound: a real analysis of this grammar/word takes microseconds, so even with
     // scheduling noise this must stay far below "ran to completion normally".
-    assert!(elapsed < Duration::from_secs(1), "elapsed {elapsed:?} should be near-instant");
+    assert!(
+        elapsed < Duration::from_secs(1),
+        "elapsed {elapsed:?} should be near-instant"
+    );
 }
 
 /// A `--word-timeout-ms` long enough to never fire is a no-op vs. omitting the flag entirely --

@@ -29,7 +29,8 @@ fn sample_path(name: &str) -> Option<PathBuf> {
 
 fn golden_path() -> Option<PathBuf> {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let path = manifest_dir.join("../../parity-out/golden/fst-advisor/indonesian/restricted-first20.tsv");
+    let path =
+        manifest_dir.join("../../parity-out/golden/fst-advisor/indonesian/restricted-first20.tsv");
     path.exists().then_some(path)
 }
 
@@ -42,8 +43,11 @@ fn signature(g: &hc_grammar::model::Grammar, analyses: &[hc_parse::WordAnalysis]
     let mut sigs: Vec<String> = analyses
         .iter()
         .map(|wa| {
-            let joined: Vec<&str> =
-                wa.morpheme_ids.iter().map(|&id| g.morphemes[id as usize].xml_key.as_str()).collect();
+            let joined: Vec<&str> = wa
+                .morpheme_ids
+                .iter()
+                .map(|&id| g.morphemes[id as usize].xml_key.as_str())
+                .collect();
             format!("{}:{}", joined.join("+"), wa.root_morpheme_index)
         })
         .collect();
@@ -69,8 +73,14 @@ fn entry_by_xml_key(g: &hc_grammar::model::Grammar, key: &str) -> LexEntryId {
 /// the same format; this is used for both (the candidate always has exactly one signature, no `-`
 /// case in this golden — every one of the first 20 words has >=1 analysis, per MANIFEST.txt §4).
 fn parse_single_signature(sig: &str) -> (&str, i32) {
-    let (key, idx) = sig.rsplit_once(':').unwrap_or_else(|| panic!("malformed signature: {sig}"));
-    (key, idx.parse().unwrap_or_else(|_| panic!("malformed root index in: {sig}")))
+    let (key, idx) = sig
+        .rsplit_once(':')
+        .unwrap_or_else(|| panic!("malformed signature: {sig}"));
+    (
+        key,
+        idx.parse()
+            .unwrap_or_else(|_| panic!("malformed root index in: {sig}")),
+    )
 }
 
 #[test]
@@ -105,7 +115,8 @@ fn selector_restricted_analysis_matches_fst_restricted_golden_first20() {
         let root = entry_by_xml_key(&g, candidate_key);
         let filter = |le: LexEntryId| le == root;
 
-        let outcome = morpher.parse_word_selected(word, &ParseOptions::default(), Some(&filter), None);
+        let outcome =
+            morpher.parse_word_selected(word, &ParseOptions::default(), Some(&filter), None);
         let restricted_sig = signature(&g, &outcome.structured);
 
         assert_eq!(
@@ -118,8 +129,15 @@ fn selector_restricted_analysis_matches_fst_restricted_golden_first20() {
     // 20 distinct corpus-word indices (0..19); "ajar" is a homograph (two lex entries), so the
     // golden has 21 lines total for those 20 words — checking both counts catches either a missing
     // word or a silently-dropped homograph line.
-    assert_eq!(word_indices.len(), 20, "expected 20 distinct word indices (first 20 corpus words)");
-    assert!(checked >= 20, "expected at least 20 golden lines, got {checked}");
+    assert_eq!(
+        word_indices.len(),
+        20,
+        "expected 20 distinct word indices (first 20 corpus words)"
+    );
+    assert!(
+        checked >= 20,
+        "expected at least 20 golden lines, got {checked}"
+    );
 }
 
 /// F1 Fable-review coverage gap (not closed by the test above): every one of the first-20 golden's
@@ -174,7 +192,8 @@ fn rule_filter_rejecting_mrules_empties_an_mrule_dependent_analysis() {
     // Baseline: no rule filter reproduces the independently-oracled golden signature exactly —
     // proves this test's pinning is correct AND that the unfiltered case is genuinely non-empty
     // (so the filtered case below is a real reduction, not a vacuous empty-to-empty non-test).
-    let unfiltered = morpher.parse_word_selected("memakai", &ParseOptions::default(), Some(&filter), None);
+    let unfiltered =
+        morpher.parse_word_selected("memakai", &ParseOptions::default(), Some(&filter), None);
     assert_eq!(
         signature(&g, &unfiltered.structured),
         "mrule14+entry1:1",
@@ -185,8 +204,12 @@ fn rule_filter_rejecting_mrules_empties_an_mrule_dependent_analysis() {
     // RuleRef variants) — "memakai" needs exactly one MRule (mrule14) to analyze at all, so this
     // must empty the restricted set.
     let reject_all_mrules = |r: RuleRef| !matches!(r, RuleRef::MRule(_));
-    let filtered =
-        morpher.parse_word_selected("memakai", &ParseOptions::default(), Some(&filter), Some(&reject_all_mrules));
+    let filtered = morpher.parse_word_selected(
+        "memakai",
+        &ParseOptions::default(),
+        Some(&filter),
+        Some(&reject_all_mrules),
+    );
     assert_eq!(
         signature(&g, &filtered.structured),
         "-",

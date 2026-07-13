@@ -9,15 +9,15 @@
 mod common;
 
 use common::*;
+use hc_featstruct::FeatureStruct;
+use hc_grammar::chardef::CharDefId;
+use hc_grammar::model::AnchorSide;
 use hc_grammar::model::{
     Dir, NatClassId, Pattern, PatternNode, RewriteMode, RewriteRuleDef, RewriteSubruleDef,
 };
-use hc_grammar::model::{AnchorSide};
-use hc_grammar::chardef::CharDefId;
-use hc_shape::{NodeKind, Shape};
-use hc_featstruct::FeatureStruct;
 use hc_grammar::model::{MprId, MprSet, PRuleId};
 use hc_rules::trace::{FailureReason, TraceSink, TraceType, TreeTraceSink};
+use hc_shape::{NodeKind, Shape};
 
 // ---- rule builders -----------------------------------------------------------------------------
 
@@ -61,17 +61,28 @@ fn rule_multi(lhs: Pattern, subrules: Vec<RewriteSubruleDef>, mode: RewriteMode)
 }
 
 fn pat_ctx(nc: NatClassId) -> Pattern {
-    Pattern { nodes: vec![PatternNode::Context(ctx(nc))] }
+    Pattern {
+        nodes: vec![PatternNode::Context(ctx(nc))],
+    }
 }
 fn pat_char(cd: CharDefId) -> Pattern {
-    Pattern { nodes: vec![PatternNode::CharDef(cd)] }
+    Pattern {
+        nodes: vec![PatternNode::CharDef(cd)],
+    }
 }
 
 /// The interior of a shape as `(NodeKind, char_def, lanes, optional)`.
 fn interior(s: &Shape) -> Vec<(NodeKind, u32, Vec<u64>, bool)> {
     (0..s.len())
         .filter(|&i| !matches!(s.kind(i), NodeKind::LeftAnchor | NodeKind::RightAnchor))
-        .map(|i| (s.kind(i), s.char_def(i), s.node_lanes(i).to_vec(), s.flags(i).is_optional()))
+        .map(|i| {
+            (
+                s.kind(i),
+                s.char_def(i),
+                s.node_lanes(i).to_vec(),
+                s.flags(i).is_optional(),
+            )
+        })
         .collect()
 }
 
@@ -123,7 +134,11 @@ fn feature_change_synthesis_voices_t_between_vowels() {
     assert_eq!(got[0].2, A.to_vec(), "left a unchanged");
     assert_eq!(got[2].2, A.to_vec(), "right a unchanged");
     assert_eq!(got[1].2, D.to_vec(), "medial t -> [+voi] == d lanes");
-    assert_eq!(got[1].1, hc_shape::NO_CHAR_DEF, "char_def reset: identity now feature-driven, not stale char_t");
+    assert_eq!(
+        got[1].1,
+        hc_shape::NO_CHAR_DEF,
+        "char_def reset: identity now feature-driven, not stale char_t"
+    );
 }
 
 #[test]
@@ -134,7 +149,10 @@ fn feature_change_synthesis_iterates_over_all_targets() {
     let out = hc_rules::rewrite::synthesize(&g, &r, &seg(&g, "atata"));
     let got = interior(&out[0]);
     let lanes: Vec<Vec<u64>> = got.iter().map(|x| x.2.clone()).collect();
-    assert_eq!(lanes, vec![A.to_vec(), D.to_vec(), A.to_vec(), D.to_vec(), A.to_vec()]);
+    assert_eq!(
+        lanes,
+        vec![A.to_vec(), D.to_vec(), A.to_vec(), D.to_vec(), A.to_vec()]
+    );
 }
 
 #[test]
@@ -156,7 +174,11 @@ fn feature_change_analysis_underspecifies_voice() {
     let out = hc_rules::rewrite::analyze(&g, &r, &seg(&g, "ada"));
     assert_eq!(out.len(), 1, "unapplied");
     let got = interior(&out[0]);
-    assert_eq!(got[1].2, vec![0b01, 0b11, 0b01], "d -> [cons+, voi underspecified, Type=Segment]");
+    assert_eq!(
+        got[1].2,
+        vec![0b01, 0b11, 0b01],
+        "d -> [cons+, voi underspecified, Type=Segment]"
+    );
 }
 
 #[test]
@@ -187,7 +209,10 @@ fn feature_change_round_trip_recovers_superset() {
 
 fn place_rule(g: &hc_grammar::model::Grammar) -> RewriteRuleDef {
     // p -> [vel] (place feature), no environment (fires unconditionally).
-    rule(pat_char(char_def(g, "char_p")), subrule(pat_ctx(nat_class(g, "nc_vel")), None, None))
+    rule(
+        pat_char(char_def(g, "char_p")),
+        subrule(pat_ctx(nat_class(g, "nc_vel")), None, None),
+    )
 }
 
 #[test]
@@ -206,8 +231,16 @@ fn feature_change_analysis_reversal_excludes_the_third_symbol() {
     let cor = 0b010u64;
     let vel = 0b100u64;
     let got = interior(&out[0])[0].2[place];
-    assert_eq!(got, lab | vel, "place must be {{lab, vel}} (L ∪ R), excluding the untouched 'cor' symbol");
-    assert_ne!(got, lab | cor | vel, "must NOT be the old full-unconstrain bug");
+    assert_eq!(
+        got,
+        lab | vel,
+        "place must be {{lab, vel}} (L ∪ R), excluding the untouched 'cor' symbol"
+    );
+    assert_ne!(
+        got,
+        lab | cor | vel,
+        "must NOT be the old full-unconstrain bug"
+    );
 }
 
 // =================================================================================================
@@ -234,7 +267,10 @@ fn deletion_synthesis_removes_t_between_vowels() {
     let out = hc_rules::rewrite::synthesize(&g, &r, &seg(&g, "ata"));
     let got = interior(&out[0]);
     assert_eq!(got.len(), 2, "t deleted");
-    assert_eq!(got.iter().map(|x| x.2.clone()).collect::<Vec<_>>(), vec![A.to_vec(), A.to_vec()]);
+    assert_eq!(
+        got.iter().map(|x| x.2.clone()).collect::<Vec<_>>(),
+        vec![A.to_vec(), A.to_vec()]
+    );
 }
 
 #[test]
@@ -255,9 +291,11 @@ fn deletion_analysis_reinserts_optional_t() {
 fn deletion_round_trip_recovers_original() {
     let g = load_probe_grammar();
     let r = deletion_rule(&g);
-    let synth = hc_rules::rewrite::synthesize(&g, &r, &seg(&g, "ata")).pop().unwrap(); // "aa"
+    let synth = hc_rules::rewrite::synthesize(&g, &r, &seg(&g, "ata"))
+        .pop()
+        .unwrap(); // "aa"
     let ana = hc_rules::rewrite::analyze(&g, &r, &synth).pop().unwrap(); // "a(t)a"
-    // Taking the optional t recovers the original interior a t a.
+                                                                         // Taking the optional t recovers the original interior a t a.
     let got = interior(&ana);
     assert_eq!(got.len(), 3);
     assert_eq!(got[1].2, T.to_vec());
@@ -274,7 +312,9 @@ fn word_initial_deletion_rule(g: &hc_grammar::model::Grammar) -> RewriteRuleDef 
         pat_char(char_def(g, "char_t")),
         subrule(
             Pattern::default(), // empty RHS => deletion
-            Some(Pattern { nodes: vec![PatternNode::Anchor(AnchorSide::Left)] }),
+            Some(Pattern {
+                nodes: vec![PatternNode::Anchor(AnchorSide::Left)],
+            }),
             Some(pat_ctx(nat_class(g, "nc_vowel"))),
         ),
     )
@@ -315,7 +355,9 @@ fn word_initial_deletion_analysis_reinserts_optional_t_at_word_start() {
 fn word_initial_deletion_round_trip_recovers_original() {
     let g = load_probe_grammar();
     let r = word_initial_deletion_rule(&g);
-    let synth = hc_rules::rewrite::synthesize(&g, &r, &seg(&g, "ta")).pop().unwrap(); // "a"
+    let synth = hc_rules::rewrite::synthesize(&g, &r, &seg(&g, "ta"))
+        .pop()
+        .unwrap(); // "a"
     let ana = hc_rules::rewrite::analyze(&g, &r, &synth).pop().unwrap(); // "(t)a"
     let got = interior(&ana);
     assert_eq!(got.len(), 2);
@@ -367,7 +409,10 @@ fn narrow_synthesis_replacement_segment_is_not_optional() {
     assert_eq!(got[2].2, A.to_vec(), "right a unchanged");
     assert_eq!(got[1].1, char_def(&g, "char_n").0, "coalesced segment is n");
     assert_eq!(got[1].2, D.to_vec(), "n shares d's [cons+, voi+] lanes");
-    assert!(!got[1].3, "the narrowed RHS segment must NOT be optional (R1)");
+    assert!(
+        !got[1].3,
+        "the narrowed RHS segment must NOT be optional (R1)"
+    );
 }
 
 // =================================================================================================
@@ -389,7 +434,14 @@ fn merge_with_alpha_voice_rule(g: &hc_grammar::model::Grammar) -> RewriteRuleDef
             ],
         },
         subrule(
-            Pattern { nodes: vec![PatternNode::Context(ctx_var(nat_class(g, "nc_cons"), voi, 1, true))] },
+            Pattern {
+                nodes: vec![PatternNode::Context(ctx_var(
+                    nat_class(g, "nc_cons"),
+                    voi,
+                    1,
+                    true,
+                ))],
+            },
             None,
             None,
         ),
@@ -408,7 +460,11 @@ fn narrow_synthesis_resolves_rhs_alpha_variable_from_lhs() {
     assert_eq!(out.len(), 1, "rule applied");
     let got = interior(&out[0]);
     assert_eq!(got.len(), 1, "coalesced to a single consonant");
-    assert_eq!(got[0].2, T.to_vec(), "voice resolved from the captured LHS var ('t'), not left unconstrained");
+    assert_eq!(
+        got[0].2,
+        T.to_vec(),
+        "voice resolved from the captured LHS var ('t'), not left unconstrained"
+    );
 }
 
 // =================================================================================================
@@ -435,7 +491,10 @@ fn epenthesis_synthesis_inserts_t_between_vowels() {
     let out = hc_rules::rewrite::synthesize(&g, &r, &seg(&g, "aa"));
     let got = interior(&out[0]);
     assert_eq!(got.len(), 3, "one segment epenthesized");
-    assert_eq!(got.iter().map(|x| x.2.clone()).collect::<Vec<_>>(), vec![A.to_vec(), T.to_vec(), A.to_vec()]);
+    assert_eq!(
+        got.iter().map(|x| x.2.clone()).collect::<Vec<_>>(),
+        vec![A.to_vec(), T.to_vec(), A.to_vec()]
+    );
     assert!(!got[1].3, "synthesized epenthetic segment is not optional");
 }
 
@@ -450,7 +509,9 @@ fn epenthesis_synthesis_word_initial_site() {
         Pattern::default(),
         subrule(
             pat_char(char_def(&g, "char_t")),
-            Some(Pattern { nodes: vec![PatternNode::Anchor(AnchorSide::Left)] }),
+            Some(Pattern {
+                nodes: vec![PatternNode::Anchor(AnchorSide::Left)],
+            }),
             Some(pat_ctx(nat_class(&g, "nc_vowel"))),
         ),
     );
@@ -512,16 +573,21 @@ fn epenthesis_analysis_multi_node_target_matches_document_order() {
     );
     // "dta" contains only the REVERSED sequence d,t — C# would not match it, and neither may we.
     let out = hc_rules::rewrite::analyze(&g, &r, &seg(&g, "dta"));
-    assert!(out.is_empty(), "reversed physical sequence must NOT match the analysis target");
+    assert!(
+        out.is_empty(),
+        "reversed physical sequence must NOT match the analysis target"
+    );
 }
 
 #[test]
 fn epenthesis_round_trip_recovers_superset() {
     let g = load_probe_grammar();
     let r = epenthesis_rule(&g);
-    let synth = hc_rules::rewrite::synthesize(&g, &r, &seg(&g, "aa")).pop().unwrap(); // "ata"
+    let synth = hc_rules::rewrite::synthesize(&g, &r, &seg(&g, "aa"))
+        .pop()
+        .unwrap(); // "ata"
     let ana = hc_rules::rewrite::analyze(&g, &r, &synth).pop().unwrap(); // "a(t)a"
-    // Skipping the optional t recovers the original "aa".
+                                                                         // Skipping the optional t recovers the original "aa".
     let got = interior(&ana);
     assert!(got[1].3, "optional t: skipping it recovers the original aa");
 }
@@ -548,7 +614,13 @@ fn mark_optional(shape: &Shape, interior_idx: usize) -> Shape {
     let lanes = shape.node_lanes(idx).to_vec();
     let mut m = hc_shape::ShapeBuilder::from_shape(shape);
     m.delete(idx);
-    m.insert(idx, NodeKind::Segment, char_def, hc_shape::NodeFlags(hc_shape::NodeFlags::OPTIONAL), &lanes);
+    m.insert(
+        idx,
+        NodeKind::Segment,
+        char_def,
+        hc_shape::NodeFlags(hc_shape::NodeFlags::OPTIONAL),
+        &lanes,
+    );
     m.freeze()
 }
 
@@ -599,7 +671,10 @@ fn feature_change_synthesis_rejects_an_over_wide_optional_skip_span() {
     // No width-correct "tt" span exists once 'a' is excluded from consideration, so the guard
     // correctly rejects the only (over-wide) candidate: the rule must not apply. The load-bearing
     // regression check is simply that this call returns instead of panicking.
-    assert!(out.is_empty(), "no width-correct match exists; the over-wide span must be rejected, not applied");
+    assert!(
+        out.is_empty(),
+        "no width-correct match exists; the over-wide span must be rejected, not applied"
+    );
 }
 
 fn double_t_narrow_rule(g: &hc_grammar::model::Grammar) -> RewriteRuleDef {
@@ -628,7 +703,10 @@ fn narrow_synthesis_rejects_an_over_wide_optional_skip_span() {
     let base = seg(&g, "tat");
     let input = mark_optional(&base, 1);
     let out = hc_rules::rewrite::synthesize(&g, &r, &input);
-    assert!(out.is_empty(), "no width-correct match exists; the over-wide span must be rejected, not applied");
+    assert!(
+        out.is_empty(),
+        "no width-correct match exists; the over-wide span must be rejected, not applied"
+    );
 }
 
 // =================================================================================================
@@ -644,7 +722,9 @@ fn feature_change_word_final_anchor_environment() {
         subrule(
             pat_ctx(nat_class(&g, "nc_voi")),
             Some(pat_ctx(nat_class(&g, "nc_vowel"))),
-            Some(Pattern { nodes: vec![PatternNode::Anchor(AnchorSide::Right)] }),
+            Some(Pattern {
+                nodes: vec![PatternNode::Anchor(AnchorSide::Right)],
+            }),
         ),
     );
     // "at": t is word-final and preceded by a vowel -> voiced.
@@ -654,7 +734,10 @@ fn feature_change_word_final_anchor_environment() {
 
     // "ata": the t is NOT word-final (an a follows) -> rule must not fire.
     let out2 = hc_rules::rewrite::synthesize(&g, &r, &seg(&g, "ata"));
-    assert!(out2.is_empty(), "medial t is not word-final: no application");
+    assert!(
+        out2.is_empty(),
+        "medial t is not word-final: no application"
+    );
 }
 
 // =================================================================================================
@@ -683,7 +766,11 @@ fn disjunctive_simultaneous_rule(g: &hc_grammar::model::Grammar) -> RewriteRuleD
     rule_multi(
         pat_ctx(nat_class(g, "nc_cons")),
         vec![
-            subrule(pat_ctx(nat_class(g, "nc_voi")), None, Some(pat_ctx(nat_class(g, "nc_cons")))),
+            subrule(
+                pat_ctx(nat_class(g, "nc_voi")),
+                None,
+                Some(pat_ctx(nat_class(g, "nc_cons"))),
+            ),
             subrule(pat_ctx(nat_class(g, "nc_t")), None, None),
         ],
         RewriteMode::Simultaneous,
@@ -707,7 +794,11 @@ fn simultaneous_multi_subrule_disjunction_first_subrule_wins_at_overlapping_posi
     let out = hc_rules::rewrite::synthesize(&g, &r, &seg(&g, "td"));
     assert_eq!(out.len(), 1, "rule applied");
     let got = interior(&out[0]);
-    assert_eq!(got.len(), 2, "no nodes added/removed (Feature-kind rewrite)");
+    assert_eq!(
+        got.len(),
+        2,
+        "no nodes added/removed (Feature-kind rewrite)"
+    );
     assert_eq!(
         got[0].2,
         D.to_vec(),
@@ -767,7 +858,11 @@ fn simultaneous_narrow_synthesis_merges_two_non_overlapping_sites_in_one_pass() 
     let out = hc_rules::rewrite::synthesize(&g, &r, &seg(&g, "attatta"));
     assert_eq!(out.len(), 1, "rule applied");
     let got = interior(&out[0]);
-    assert_eq!(got.len(), 5, "both tt pairs coalesced to a single n each (7 nodes -> 5)");
+    assert_eq!(
+        got.len(),
+        5,
+        "both tt pairs coalesced to a single n each (7 nodes -> 5)"
+    );
     assert_eq!(
         got.iter().map(|x| x.2.clone()).collect::<Vec<_>>(),
         vec![A.to_vec(), D.to_vec(), A.to_vec(), D.to_vec(), A.to_vec()],
@@ -775,8 +870,15 @@ fn simultaneous_narrow_synthesis_merges_two_non_overlapping_sites_in_one_pass() 
     );
     for (i, node) in got.iter().enumerate() {
         if i % 2 == 1 {
-            assert_eq!(node.1, char_def(&g, "char_n").0, "narrowed segment at index {i} is n");
-            assert!(!node.3, "the narrowed RHS segment must NOT be optional (same R1 invariant syn_narrow has)");
+            assert_eq!(
+                node.1,
+                char_def(&g, "char_n").0,
+                "narrowed segment at index {i} is n"
+            );
+            assert!(
+                !node.3,
+                "the narrowed RHS segment must NOT be optional (same R1 invariant syn_narrow has)"
+            );
         }
     }
 }
@@ -788,7 +890,10 @@ fn simultaneous_narrow_synthesis_merges_two_non_overlapping_sites_in_one_pass() 
 // multi-subrule readout order/early-stop C#'s `SynthesisRewriteRule.Apply` (cs:65-85) uses.
 // =================================================================================================
 
-fn children_of(sink: &TreeTraceSink, h: hc_rules::trace::TraceHandle) -> Vec<hc_rules::trace::TraceHandle> {
+fn children_of(
+    sink: &TreeTraceSink,
+    h: hc_rules::trace::TraceHandle,
+) -> Vec<hc_rules::trace::TraceHandle> {
     sink.node(h).children.clone()
 }
 
@@ -812,7 +917,11 @@ fn traced_synthesis_pattern_fallback_when_nothing_matches() {
     );
     assert!(out.is_empty(), "rule doesn't apply to an all-vowel input");
     let children = children_of(&sink, root);
-    assert_eq!(children.len(), 1, "exactly one trace event, for the rule's one subrule");
+    assert_eq!(
+        children.len(),
+        1,
+        "exactly one trace event, for the rule's one subrule"
+    );
     let ev = sink.node(children[0]);
     assert_eq!(ev.type_, TraceType::PhonologicalRuleSynthesis);
     assert_eq!(ev.subrule_index, Some(0));
@@ -841,9 +950,16 @@ fn traced_synthesis_applied_carries_no_reason_and_the_rewritten_output() {
     let ev = sink.node(children[0]);
     assert_eq!(ev.type_, TraceType::PhonologicalRuleSynthesis);
     assert_eq!(ev.subrule_index, Some(0));
-    assert_eq!(ev.failure_reason, None, "Applied carries no FailureReason (TraceManager.cs:174-184)");
+    assert_eq!(
+        ev.failure_reason, None,
+        "Applied carries no FailureReason (TraceManager.cs:174-184)"
+    );
     let out_word = ev.output.expect("Applied records the output word");
-    assert_eq!(interior(&out_word.shape), interior(&out[0]), "trace output matches the returned shape");
+    assert_eq!(
+        interior(&out_word.shape),
+        interior(&out[0]),
+        "trace output matches the returned shape"
+    );
 }
 
 /// [`SynthesisRewriteSubruleSpec.IsApplicable`]'s first gate (`RequiredMprFeatures`, C#
@@ -874,7 +990,10 @@ fn traced_synthesis_required_mpr_gate_reports_reason_before_the_pattern_is_tried
         &sink,
         root,
     );
-    assert!(out.is_empty(), "gate fails, so the rule cannot apply regardless of the pattern");
+    assert!(
+        out.is_empty(),
+        "gate fails, so the rule cannot apply regardless of the pattern"
+    );
     let ev = sink.node(children_of(&sink, root)[0]);
     assert_eq!(ev.failure_reason, Some(FailureReason::RequiredMprFeatures));
 }
@@ -897,7 +1016,14 @@ fn traced_synthesis_excluded_mpr_gate_reports_reason() {
     let mut have = MprSet::EMPTY;
     have.insert(MprId(0)); // the synthesizing word HAS the excluded feature
     let out = hc_rules::rewrite::synthesize_with_mpr_traced(
-        &g, PRuleId(2), &r, &seg(&g, "ata"), &FeatureStruct::EMPTY, have, &sink, root,
+        &g,
+        PRuleId(2),
+        &r,
+        &seg(&g, "ata"),
+        &FeatureStruct::EMPTY,
+        have,
+        &sink,
+        root,
     );
     assert!(out.is_empty());
     let ev = sink.node(children_of(&sink, root)[0]);
@@ -918,7 +1044,11 @@ fn traced_synthesis_multi_subrule_readout_reports_failure_then_applied_in_order(
         vec![
             // subrule 0: requires a preceding consonant -- never holds in "ata" (t is preceded by a
             // vowel) -- Pattern fallback.
-            subrule(pat_ctx(nat_class(&g, "nc_voi")), Some(pat_ctx(nat_class(&g, "nc_cons"))), None),
+            subrule(
+                pat_ctx(nat_class(&g, "nc_voi")),
+                Some(pat_ctx(nat_class(&g, "nc_cons"))),
+                None,
+            ),
             // subrule 1: the ordinary intervocalic voicing rule -- matches.
             subrule(
                 pat_ctx(nat_class(&g, "nc_voi")),
@@ -942,13 +1072,20 @@ fn traced_synthesis_multi_subrule_readout_reports_failure_then_applied_in_order(
     );
     assert_eq!(out.len(), 1, "subrule 1 applies");
     let children = children_of(&sink, root);
-    assert_eq!(children.len(), 2, "subrule 0 (failed) then subrule 1 (applied) -- both reported");
+    assert_eq!(
+        children.len(),
+        2,
+        "subrule 0 (failed) then subrule 1 (applied) -- both reported"
+    );
     let ev0 = sink.node(children[0]);
     assert_eq!(ev0.subrule_index, Some(0));
     assert_eq!(ev0.failure_reason, Some(FailureReason::Pattern));
     let ev1 = sink.node(children[1]);
     assert_eq!(ev1.subrule_index, Some(1));
-    assert_eq!(ev1.failure_reason, None, "the first Applied index -- readout stops here");
+    assert_eq!(
+        ev1.failure_reason, None,
+        "the first Applied index -- readout stops here"
+    );
 }
 
 /// Analysis side (`analyze_traced`): no gate, no `FailureReason` at all either way -- just
@@ -969,7 +1106,10 @@ fn traced_analysis_reports_unapplied_and_not_unapplied() {
     let ev = sink.node(children[0]);
     assert_eq!(ev.type_, TraceType::PhonologicalRuleAnalysis);
     assert_eq!(ev.subrule_index, Some(0));
-    assert_eq!(ev.failure_reason, None, "analysis events never carry a FailureReason (ITraceManager.cs:42-43)");
+    assert_eq!(
+        ev.failure_reason, None,
+        "analysis events never carry a FailureReason (ITraceManager.cs:42-43)"
+    );
 
     // "at": no vowel-t-vowel deletion site exists at all -- NotUnapplied.
     let sink2 = TreeTraceSink::new();
@@ -992,13 +1132,22 @@ fn traced_analysis_cached_matches_uncached() {
     // test to pass alongside the cache (matching every real `_cached`/`_cached_traced` call site's
     // own `(pid, rule)` contract: `rule` must describe the same rule `pid` indexes).
     let for_cache = deletion_rule(&g);
-    g.prules.push(hc_grammar::model::PhonRuleDef::Rewrite(for_cache));
+    g.prules
+        .push(hc_grammar::model::PhonRuleDef::Rewrite(for_cache));
     let cache = hc_rules::cache::RuleCache::build(&g);
     let r = deletion_rule(&g);
 
     let sink = TreeTraceSink::new();
     let root = sink.generate_words();
-    let out = hc_rules::rewrite::analyze_cached_traced(&g, PRuleId(0), &r, &seg(&g, "aa"), &cache, &sink, root);
+    let out = hc_rules::rewrite::analyze_cached_traced(
+        &g,
+        PRuleId(0),
+        &r,
+        &seg(&g, "aa"),
+        &cache,
+        &sink,
+        root,
+    );
     assert_eq!(out.len(), 1);
     let ev = sink.node(children_of(&sink, root)[0]);
     assert_eq!(ev.type_, TraceType::PhonologicalRuleAnalysis);

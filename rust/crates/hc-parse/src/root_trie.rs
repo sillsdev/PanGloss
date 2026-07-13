@@ -186,7 +186,8 @@ impl RootAllomorphTrie {
         let mut cur = 0usize;
         for (cd, lanes, cd_set) in segs {
             let found = self.nodes[cur].edges.iter().position(|e| {
-                e.char_def == *cd && (*cd != NO_CHAR_DEF || (e.cd_set == *cd_set && e.lanes == *lanes))
+                e.char_def == *cd
+                    && (*cd != NO_CHAR_DEF || (e.cd_set == *cd_set && e.lanes == *lanes))
             });
             cur = match found {
                 Some(ei) => self.nodes[cur].edges[ei].target,
@@ -345,7 +346,11 @@ impl RootAllomorphTrie {
 /// pattern-derived node (`char_def == NO_CHAR_DEF`, loader N3) contributes its stored [`CdSet`]
 /// (the class's member set); a concrete node's set is never consulted (implicit singleton), stored
 /// as the free [`CdSet::Unrestricted`].
-fn shape_segments(shape: &Shape, table: &CharDefTable, feat_width: usize) -> Vec<(u32, Vec<u64>, CdSet)> {
+fn shape_segments(
+    shape: &Shape,
+    table: &CharDefTable,
+    feat_width: usize,
+) -> Vec<(u32, Vec<u64>, CdSet)> {
     let mut out = Vec::new();
     for i in 0..shape.len() {
         if shape.kind(i) == NodeKind::Segment {
@@ -460,7 +465,9 @@ mod tests {
     /// Test helper: a concrete-node path (the pre-wave-4 2-tuple form) — `cd_set` never consulted
     /// for a concrete edge, stored as the free `Unrestricted`.
     fn concrete(segs: &[(u32, Vec<u64>)]) -> Vec<(u32, Vec<u64>, CdSet)> {
-        segs.iter().map(|(cd, l)| (*cd, l.clone(), CdSet::Unrestricted)).collect()
+        segs.iter()
+            .map(|(cd, l)| (*cd, l.clone(), CdSet::Unrestricted))
+            .collect()
     }
 
     // A tiny hand-built trie over a 1-lane "feature system". Segments are `(char_def, lanes)`:
@@ -475,13 +482,21 @@ mod tests {
             feat_width: 1,
             allomorph_count: 0,
         };
-        t.add_path(&concrete(&[(10, vec![0b01]), (11, vec![0b10])]), AllomorphId(100), LexEntryId(0));
+        t.add_path(
+            &concrete(&[(10, vec![0b01]), (11, vec![0b10])]),
+            AllomorphId(100),
+            LexEntryId(0),
+        );
         t.add_path(
             &concrete(&[(10, vec![0b01]), (11, vec![0b10]), (12, vec![0b01])]),
             AllomorphId(101),
             LexEntryId(1),
         );
-        t.add_path(&concrete(&[(11, vec![0b10])]), AllomorphId(102), LexEntryId(2));
+        t.add_path(
+            &concrete(&[(11, vec![0b10])]),
+            AllomorphId(102),
+            LexEntryId(2),
+        );
         t
     }
 
@@ -548,12 +563,19 @@ mod tests {
         // With Some(closure) and lane-compatible input (query cd 99, lanes [0b01] unify with the
         // stored edge's [0b01]), the equality-miss fallback lets root A's edge match.
         let got = t.search_segs_with_closure(&[(99, vec![0b01]), (11, vec![0b10])], Some(&closure));
-        assert_eq!(got, vec![(AllomorphId(100), LexEntryId(0))], "closure hit must cross-match");
+        assert_eq!(
+            got,
+            vec![(AllomorphId(100), LexEntryId(0))],
+            "closure hit must cross-match"
+        );
 
         // The exact same query with closure = None (the Sena/zero-feature regime) must NOT match --
         // this is the "closure absent ⇒ bit-for-bit today's behavior" invariant (design §3).
         let got_none = t.search_segs_with_closure(&[(99, vec![0b01]), (11, vec![0b10])], None);
-        assert!(got_none.is_empty(), "closure disabled must still reject a distinct char_def");
+        assert!(
+            got_none.is_empty(),
+            "closure disabled must still reject a distinct char_def"
+        );
     }
 
     #[test]
@@ -567,7 +589,10 @@ mod tests {
         // [0b01] (AND = 0). Design A's soundness argument (§3): the closure hit is REFINED by the
         // existing `flat_unifiable` conjunct, never a substitute for it.
         let got = t.search_segs_with_closure(&[(99, vec![0b10]), (11, vec![0b10])], Some(&closure));
-        assert!(got.is_empty(), "closure membership must not bypass the phonological-lane conjunct");
+        assert!(
+            got.is_empty(),
+            "closure membership must not bypass the phonological-lane conjunct"
+        );
     }
 
     #[test]
@@ -577,7 +602,10 @@ mod tests {
         // must behave exactly like the no-closure case for this cd.
         let closure = vec![CdBits::empty(); 100];
         let got = t.search_segs_with_closure(&[(99, vec![0b01]), (11, vec![0b10])], Some(&closure));
-        assert!(got.is_empty(), "an empty closure row must not manufacture a match");
+        assert!(
+            got.is_empty(),
+            "an empty closure row must not manufacture a match"
+        );
     }
 
     #[test]
@@ -592,11 +620,18 @@ mod tests {
     fn homographs_accumulate_at_one_accepting_node() {
         // Two entries sharing the identical surface /p a/ both accept at the same node.
         let mut t = tiny_trie();
-        t.add_path(&concrete(&[(10, vec![0b01]), (11, vec![0b10])]), AllomorphId(200), LexEntryId(7));
+        t.add_path(
+            &concrete(&[(10, vec![0b01]), (11, vec![0b10])]),
+            AllomorphId(200),
+            LexEntryId(7),
+        );
         let got = t.search_segs(&[(10, vec![0b01]), (11, vec![0b10])]);
         assert_eq!(
             got,
-            vec![(AllomorphId(100), LexEntryId(0)), (AllomorphId(200), LexEntryId(7))],
+            vec![
+                (AllomorphId(100), LexEntryId(0)),
+                (AllomorphId(200), LexEntryId(7))
+            ],
         );
     }
 
@@ -606,7 +641,12 @@ mod tests {
         // Empty input: root node has no accepts ⇒ nothing.
         assert!(t.search_segs(&[]).is_empty());
         // /p a b b/: after /p a b/ there is no further edge ⇒ end-anchored fail.
-        let got = t.search_segs(&[(10, vec![0b01]), (11, vec![0b10]), (12, vec![0b01]), (12, vec![0b01])]);
+        let got = t.search_segs(&[
+            (10, vec![0b01]),
+            (11, vec![0b10]),
+            (12, vec![0b01]),
+            (12, vec![0b01]),
+        ]);
         assert!(got.is_empty());
     }
 
@@ -625,10 +665,24 @@ mod tests {
             feat_width: 0,
             allomorph_count: 0,
         };
-        t.add_path(&concrete(&[(1, vec![]), (2, vec![])]), AllomorphId(1), LexEntryId(0)); // /b a/
-        t.add_path(&concrete(&[(3, vec![]), (4, vec![])]), AllomorphId(2), LexEntryId(1)); // /m u/
-        assert_eq!(t.search_segs(&[(1, vec![]), (2, vec![])]), vec![(AllomorphId(1), LexEntryId(0))]);
-        assert_eq!(t.search_segs(&[(3, vec![]), (4, vec![])]), vec![(AllomorphId(2), LexEntryId(1))]);
+        t.add_path(
+            &concrete(&[(1, vec![]), (2, vec![])]),
+            AllomorphId(1),
+            LexEntryId(0),
+        ); // /b a/
+        t.add_path(
+            &concrete(&[(3, vec![]), (4, vec![])]),
+            AllomorphId(2),
+            LexEntryId(1),
+        ); // /m u/
+        assert_eq!(
+            t.search_segs(&[(1, vec![]), (2, vec![])]),
+            vec![(AllomorphId(1), LexEntryId(0))]
+        );
+        assert_eq!(
+            t.search_segs(&[(3, vec![]), (4, vec![])]),
+            vec![(AllomorphId(2), LexEntryId(1))]
+        );
         // A different length or a swapped char_def must not match either root.
         assert!(t.search_segs(&[(1, vec![]), (4, vec![])]).is_empty());
         assert_eq!(t.allomorph_count(), 2);
@@ -649,7 +703,11 @@ mod tests {
         t.add_path(
             &[
                 (20, vec![], CdSet::Unrestricted),
-                (NO_CHAR_DEF, vec![], CdSet::Members(CdBits::from_ids([21, 23]))),
+                (
+                    NO_CHAR_DEF,
+                    vec![],
+                    CdSet::Members(CdBits::from_ids([21, 23])),
+                ),
                 (22, vec![], CdSet::Unrestricted),
             ],
             AllomorphId(300),
@@ -677,7 +735,9 @@ mod tests {
         let t = pattern_trie();
         // "bit" (24 not in {21, 23}): the membership gate must reject even though a NO_CHAR_DEF
         // edge exists at that position and the (empty) lanes trivially unify.
-        assert!(t.search_segs(&[(20, vec![]), (24, vec![]), (22, vec![])]).is_empty());
+        assert!(t
+            .search_segs(&[(20, vec![]), (24, vec![]), (22, vec![])])
+            .is_empty());
     }
 
     #[test]
@@ -702,26 +762,44 @@ mod tests {
             allomorph_count: 0,
         };
         t.add_path(
-            &[(5, vec![], CdSet::Unrestricted), (NO_CHAR_DEF, vec![], CdSet::Members(CdBits::from_ids([1])))],
+            &[
+                (5, vec![], CdSet::Unrestricted),
+                (NO_CHAR_DEF, vec![], CdSet::Members(CdBits::from_ids([1]))),
+            ],
             AllomorphId(1),
             LexEntryId(0),
         );
         t.add_path(
-            &[(5, vec![], CdSet::Unrestricted), (NO_CHAR_DEF, vec![], CdSet::Members(CdBits::from_ids([2])))],
+            &[
+                (5, vec![], CdSet::Unrestricted),
+                (NO_CHAR_DEF, vec![], CdSet::Members(CdBits::from_ids([2]))),
+            ],
             AllomorphId(2),
             LexEntryId(1),
         );
-        assert_eq!(t.search_segs(&[(5, vec![]), (1, vec![])]), vec![(AllomorphId(1), LexEntryId(0))]);
-        assert_eq!(t.search_segs(&[(5, vec![]), (2, vec![])]), vec![(AllomorphId(2), LexEntryId(1))]);
+        assert_eq!(
+            t.search_segs(&[(5, vec![]), (1, vec![])]),
+            vec![(AllomorphId(1), LexEntryId(0))]
+        );
+        assert_eq!(
+            t.search_segs(&[(5, vec![]), (2, vec![])]),
+            vec![(AllomorphId(2), LexEntryId(1))]
+        );
         // Identical classes DO share an edge (prefix sharing still works for patterns).
         t.add_path(
-            &[(5, vec![], CdSet::Unrestricted), (NO_CHAR_DEF, vec![], CdSet::Members(CdBits::from_ids([1])))],
+            &[
+                (5, vec![], CdSet::Unrestricted),
+                (NO_CHAR_DEF, vec![], CdSet::Members(CdBits::from_ids([1]))),
+            ],
             AllomorphId(3),
             LexEntryId(2),
         );
         assert_eq!(
             t.search_segs(&[(5, vec![]), (1, vec![])]),
-            vec![(AllomorphId(1), LexEntryId(0)), (AllomorphId(3), LexEntryId(2))],
+            vec![
+                (AllomorphId(1), LexEntryId(0)),
+                (AllomorphId(3), LexEntryId(2))
+            ],
         );
     }
 }

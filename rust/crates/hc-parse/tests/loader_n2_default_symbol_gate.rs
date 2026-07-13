@@ -45,6 +45,9 @@ fn n2_default_symbol_matches_oracle() {
     let cases = [("bat", "|bat"), ("bdt", "-")];
     for (word, expected) in cases {
         let got = morpher.parse_word(word).signature();
-        assert_eq!(got, expected, "word {word:?}: signature mismatch vs C# oracle");
+        assert_eq!(
+            got, expected,
+            "word {word:?}: signature mismatch vs C# oracle"
+        );
     }
 }

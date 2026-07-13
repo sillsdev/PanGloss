@@ -213,12 +213,20 @@ pub fn decode(bytes: &[u8]) -> Option<Vec<DecodedWord>> {
                 morpheme_ids.push(r.u32()?);
             }
             analyses.push(DecodedAnalysis {
-                pos_id: if pos_id_raw < 0 { None } else { Some(pos_id_raw as u32) },
+                pos_id: if pos_id_raw < 0 {
+                    None
+                } else {
+                    Some(pos_id_raw as u32)
+                },
                 root_morpheme_index,
                 morpheme_ids,
             });
         }
-        words.push(DecodedWord { invalid_shape: status == 1, capped: capped == 1, analyses });
+        words.push(DecodedWord {
+            invalid_shape: status == 1,
+            capped: capped == 1,
+            analyses,
+        });
     }
     Some(words)
 }
@@ -291,8 +299,18 @@ mod tests {
         let outcome = ParseOutcome {
             analyses: vec![("b+c".into(), "surf".into()), ("a+c".into(), "surf".into())],
             structured: vec![
-                WordAnalysis { morpheme_ids: vec![2, 3], root_morpheme_index: 0, pos_id: Some(5), guessed: false },
-                WordAnalysis { morpheme_ids: vec![1, 3], root_morpheme_index: 1, pos_id: None, guessed: false },
+                WordAnalysis {
+                    morpheme_ids: vec![2, 3],
+                    root_morpheme_index: 0,
+                    pos_id: Some(5),
+                    guessed: false,
+                },
+                WordAnalysis {
+                    morpheme_ids: vec![1, 3],
+                    root_morpheme_index: 1,
+                    pos_id: None,
+                    guessed: false,
+                },
             ],
             capped: true,
             invalid_shape: false,
@@ -306,8 +324,16 @@ mod tests {
         assert_eq!(
             decoded[0].analyses,
             vec![
-                DecodedAnalysis { pos_id: None, root_morpheme_index: 1, morpheme_ids: vec![1, 3] },
-                DecodedAnalysis { pos_id: Some(5), root_morpheme_index: 0, morpheme_ids: vec![2, 3] },
+                DecodedAnalysis {
+                    pos_id: None,
+                    root_morpheme_index: 1,
+                    morpheme_ids: vec![1, 3]
+                },
+                DecodedAnalysis {
+                    pos_id: Some(5),
+                    root_morpheme_index: 0,
+                    morpheme_ids: vec![2, 3]
+                },
             ]
         );
     }

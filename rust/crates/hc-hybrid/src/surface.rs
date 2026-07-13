@@ -132,7 +132,9 @@ impl<'g> SurfacePhonology<'g> {
             return v.clone();
         }
         let computed = self.compute_variants(underlying);
-        self.variants_cache.borrow_mut().insert(underlying.to_string(), computed.clone());
+        self.variants_cache
+            .borrow_mut()
+            .insert(underlying.to_string(), computed.clone());
         computed
     }
 
@@ -155,12 +157,16 @@ impl<'g> SurfacePhonology<'g> {
         for c in &self.alphabet {
             // Left neighbor: c + underlying — the morpheme's own span is everything AFTER the
             // neighbor's one segment (`outNodes.Skip(1)`, SurfacePhonology.cs:157-159).
-            if let Some(rendered) = self.boundary_variant(&format!("{c}{underlying}"), underlying_len, true) {
+            if let Some(rendered) =
+                self.boundary_variant(&format!("{c}{underlying}"), underlying_len, true)
+            {
                 result.insert(rendered);
             }
             // Right neighbor: underlying + c — the morpheme's own span is everything BEFORE the
             // neighbor's one segment (`outNodes.Take(underlyingLen)`).
-            if let Some(rendered) = self.boundary_variant(&format!("{underlying}{c}"), underlying_len, false) {
+            if let Some(rendered) =
+                self.boundary_variant(&format!("{underlying}{c}"), underlying_len, false)
+            {
                 result.insert(rendered);
             }
         }
@@ -172,13 +178,21 @@ impl<'g> SurfacePhonology<'g> {
     /// unsegmentable, structurally unreliable (an insertion occurred — see `hc_rules::rewrite`'s F2
     /// module note for why the segment-count check below is exactly C#'s epenthesis/insertion
     /// guard), or a surviving node has no single representation.
-    fn boundary_variant(&self, context: &str, underlying_len: usize, from_end: bool) -> Option<String> {
+    fn boundary_variant(
+        &self,
+        context: &str,
+        underlying_len: usize,
+        from_end: bool,
+    ) -> Option<String> {
         let segs = self.surface_segments(context)?;
         if segs.len() != underlying_len + 1 {
             return None; // unsegmentable, or an insertion fired ⇒ no reliable morpheme portion.
         }
-        let morpheme_nodes: &[ProbeSeg] =
-            if from_end { &segs[1..] } else { &segs[..underlying_len] };
+        let morpheme_nodes: &[ProbeSeg] = if from_end {
+            &segs[1..]
+        } else {
+            &segs[..underlying_len]
+        };
         surface_probe::render_nodes(self.table, morpheme_nodes)
     }
 
@@ -188,7 +202,9 @@ impl<'g> SurfacePhonology<'g> {
             return v.clone();
         }
         let computed = self.compute_deletion_junctions(underlying);
-        self.junctions_cache.borrow_mut().insert(underlying.to_string(), computed.clone());
+        self.junctions_cache
+            .borrow_mut()
+            .insert(underlying.to_string(), computed.clone());
         computed
     }
 
@@ -206,7 +222,9 @@ impl<'g> SurfacePhonology<'g> {
                 continue;
             }
             for c2 in &self.alphabet {
-                if let Some(hit2) = self.try_probe_deletion(underlying, c1, Some(c2), underlying_len) {
+                if let Some(hit2) =
+                    self.try_probe_deletion(underlying, c1, Some(c2), underlying_len)
+                {
                     result.push(hit2);
                     break; // one confirming c2 is enough to know c1's class deletes in SOME context.
                 }
@@ -239,11 +257,17 @@ impl<'g> SurfacePhonology<'g> {
         let cd = self
             .table
             .iter()
-            .find(|(_, cd)| cd.kind() == CharDefKind::Segment && cd.representations().iter().any(|r| r == c1))?
+            .find(|(_, cd)| {
+                cd.kind() == CharDefKind::Segment && cd.representations().iter().any(|r| r == c1)
+            })?
             .1;
         let deleted_neighbor_lanes = cd.feature_lanes().to_vec();
         let deleted_neighbor = render_feature_struct(self.g, &deleted_neighbor_lanes);
-        Some(DeletionJunction { affix_surface, deleted_neighbor, deleted_neighbor_lanes })
+        Some(DeletionJunction {
+            affix_surface,
+            deleted_neighbor,
+            deleted_neighbor_lanes,
+        })
     }
 
     /// C# `SurfaceOf` (`SurfacePhonology.cs:297-301`).
@@ -264,7 +288,11 @@ impl<'g> SurfacePhonology<'g> {
     /// (pre-phonology) segmentation, or `None` if unsegmentable.
     fn node_count(&self, str_: &str) -> Option<usize> {
         let shape = hc_rules::shape_feat::segment_with_features(self.g, self.table, str_).ok()?;
-        Some((0..shape.len()).filter(|&i| shape.kind(i) == NodeKind::Segment).count())
+        Some(
+            (0..shape.len())
+                .filter(|&i| shape.kind(i) == NodeKind::Segment)
+                .count(),
+        )
     }
 
     /// C# `FstTemplateAnalyzer.BareRootSurfaces` / the `fst-stats` tool's own replica
@@ -275,7 +303,11 @@ impl<'g> SurfacePhonology<'g> {
     /// all — a real, confirmed difference between the two C# call sites, not a porting choice).
     /// Empty ⇒ the bare root is not a valid word (obligatory inflection).
     pub fn bare_root_surfaces(&self, morpher: &Morpher<'g>, entry: LexEntryId) -> Vec<String> {
-        let raw = morpher.generate_words(entry, &[] as &[GenMorpheme], hc_featstruct::FeatureStruct::EMPTY);
+        let raw = morpher.generate_words(
+            entry,
+            &[] as &[GenMorpheme],
+            hc_featstruct::FeatureStruct::EMPTY,
+        );
         let mut out: BTreeSet<String> = BTreeSet::new();
         for s in raw {
             out.insert(s.nfd().collect());
@@ -297,7 +329,10 @@ pub(crate) fn render_feature_struct(g: &Grammar, lanes: &[u64]) -> String {
     for i in 0..fs.len() {
         let flat = hc_grammar::featsys::FlatIndex(i as u32);
         let symbol_count = fs.symbol_count(flat);
-        let bits = lanes.get(i).copied().unwrap_or(full_mask(symbol_count as u32));
+        let bits = lanes
+            .get(i)
+            .copied()
+            .unwrap_or(full_mask(symbol_count as u32));
         if bits == full_mask(symbol_count as u32) {
             continue; // unconstrained ⇒ no entry, matching C#'s sparse `_definite`.
         }
@@ -329,6 +364,9 @@ pub(crate) fn render_feature_struct(g: &Grammar, lanes: &[u64]) -> String {
         return "ANY".to_string();
     }
     entries.sort_by(|a, b| a.0.cmp(b.0));
-    let joined: Vec<String> = entries.into_iter().map(|(name, value)| format!("{name}:{value}")).collect();
+    let joined: Vec<String> = entries
+        .into_iter()
+        .map(|(name, value)| format!("{name}:{value}"))
+        .collect();
     format!("[{}]", joined.join(", "))
 }

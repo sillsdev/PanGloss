@@ -73,7 +73,10 @@ mod tests {
     #[test]
     fn unify_absent_is_unconstrained() {
         assert_eq!(flat_unify(&[0b011], &[]), Some(vec![0b011]));
-        assert_eq!(flat_unify(&[0b011, UNCONSTRAINED], &[0b001]), Some(vec![0b001]));
+        assert_eq!(
+            flat_unify(&[0b011, UNCONSTRAINED], &[0b001]),
+            Some(vec![0b001])
+        );
     }
 
     #[test]
@@ -84,7 +87,10 @@ mod tests {
     #[test]
     fn unify_trims_trailing_all_ones() {
         // lane 1 intersects to all-ones -> trimmed away.
-        assert_eq!(flat_unify(&[0b01, UNCONSTRAINED], &[UNCONSTRAINED, UNCONSTRAINED]), Some(vec![0b01]));
+        assert_eq!(
+            flat_unify(&[0b01, UNCONSTRAINED], &[UNCONSTRAINED, UNCONSTRAINED]),
+            Some(vec![0b01])
+        );
     }
 
     #[test]

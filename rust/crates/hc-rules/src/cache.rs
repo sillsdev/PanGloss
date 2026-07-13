@@ -35,7 +35,9 @@
 //! `morph::synthesize_cached`/`analyze_cached`, `validity::allomorphs_valid_cached`) add.
 
 use hc_fst::Fst;
-use hc_grammar::model::{AllomorphId, AllomorphOwner, Grammar, MRuleId, MorphRuleDef, PRuleId, PhonRuleDef, TableId};
+use hc_grammar::model::{
+    AllomorphId, AllomorphOwner, Grammar, MRuleId, MorphRuleDef, PRuleId, PhonRuleDef, TableId,
+};
 
 use crate::metathesis::{self, MetaCache};
 use crate::morph::{self, AnalysisLhs, CompoundCache};
@@ -88,11 +90,19 @@ impl RuleCache {
             .prules
             .iter()
             .map(|rule| match rule {
-                PhonRuleDef::Rewrite(r) => PruleCacheEntry::Rewrite(rewrite::build_prule_cache(g, TABLE, r)),
-                PhonRuleDef::Metathesis(r) => PruleCacheEntry::Metathesis(metathesis::build_meta_cache(g, TABLE, r)),
+                PhonRuleDef::Rewrite(r) => {
+                    PruleCacheEntry::Rewrite(rewrite::build_prule_cache(g, TABLE, r))
+                }
+                PhonRuleDef::Metathesis(r) => {
+                    PruleCacheEntry::Metathesis(metathesis::build_meta_cache(g, TABLE, r))
+                }
             })
             .collect();
-        let allomorphs = g.allomorph_owners.iter().map(|owner| build_allomorph_cache(g, owner)).collect();
+        let allomorphs = g
+            .allomorph_owners
+            .iter()
+            .map(|owner| build_allomorph_cache(g, owner))
+            .collect();
         let compounds = g
             .mrules
             .iter()
@@ -101,7 +111,11 @@ impl RuleCache {
                 MorphRuleDef::AffixProcess(_) | MorphRuleDef::Realizational(_) => None,
             })
             .collect();
-        RuleCache { prules, allomorphs, compounds }
+        RuleCache {
+            prules,
+            allomorphs,
+            compounds,
+        }
     }
 
     pub(crate) fn prule_rewrite(&self, pid: PRuleId) -> &PruleCache {
@@ -137,7 +151,11 @@ fn build_allomorph_cache(g: &Grammar, owner: &AllomorphOwner) -> AllomorphCache 
     match *owner {
         AllomorphOwner::Root(le, idx) => {
             let def = &g.entries[le.0 as usize].allomorphs[idx as usize];
-            AllomorphCache { envs: build_env_cache(g, &def.environments), synth_lhs: None, ana_lhs: None }
+            AllomorphCache {
+                envs: build_env_cache(g, &def.environments),
+                synth_lhs: None,
+                ana_lhs: None,
+            }
         }
         // `MorphRuleDef::affix_allomorphs` centralizes the AffixProcess/Realizational-both-own-
         // AffixAllomorphDef fact (see that method's doc) so this site doesn't need its own

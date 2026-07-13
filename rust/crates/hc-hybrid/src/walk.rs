@@ -240,7 +240,10 @@ pub fn to_word_analyses(codec: &token::MorphTokenCodec, tokens: &[u32]) -> Vec<W
         .collect();
     if root_indices.len() <= 1 {
         let root_index = root_indices.first().map(|&i| i as i32).unwrap_or(-1);
-        return vec![WordAnalysis { morphemes, root_index }];
+        return vec![WordAnalysis {
+            morphemes,
+            root_index,
+        }];
     }
     root_indices
         .into_iter()
@@ -275,7 +278,12 @@ pub struct InputSegment {
 /// `char_def` equality, OR closure membership when the table has one, AND `flat_unifiable` on the
 /// lanes. `closure` is `None` for a zero-phon-feature table (Sena), reducing this to plain
 /// `char_def` identity.
-fn arc_matches_segment(arc_char_def: u32, arc_lanes: &[u64], seg: &InputSegment, closure: Option<&[CdBits]>) -> bool {
+fn arc_matches_segment(
+    arc_char_def: u32,
+    arc_lanes: &[u64],
+    seg: &InputSegment,
+    closure: Option<&[CdBits]>,
+) -> bool {
     // F7 addition: `seg.char_def == NO_CHAR_DEF` marks an ABSTRACT post-rewrite node (a feature-
     // change rule reset its identity — `hc_rules::rewrite`'s own "char_def reset" convention,
     // encountered here via `ComposedPhonologyProposer`'s un-applied shape, never via a bare
@@ -324,7 +332,10 @@ pub fn analyze_shape(
                 break;
             }
             for arc in trie.arcs(config.state) {
-                if let ArcLabel::Segment { lanes, char_def, .. } = &arc.label {
+                if let ArcLabel::Segment {
+                    lanes, char_def, ..
+                } = &arc.label
+                {
                     if arc_matches_segment(*char_def, lanes, seg, closure) {
                         let nc = enter(trie, arc.target, &config.tokens);
                         if seen.insert(key_of(&nc)) {
@@ -445,7 +456,10 @@ fn pkey(pc: &PConfig) -> PConfigKey {
 }
 
 fn all_accepting(chain: &[InversePhonology], rule_states: &[u32]) -> bool {
-    chain.iter().zip(rule_states).all(|(pinv, &s)| pinv.is_accepting(s))
+    chain
+        .iter()
+        .zip(rule_states)
+        .all(|(pinv, &s)| pinv.is_accepting(s))
 }
 
 /// A trie arc's own (lanes, target) if it is NOT a pure epsilon arc (C#'s `!larc.Input.IsEpsilon`
@@ -491,10 +505,17 @@ fn cascade_symbol(
         if arc.is_epsilon_output() {
             // I0/I3 plumbing: consumes the incoming symbol but emits nothing further down the
             // chain -- the cascade for THIS symbol stops here; the lexicon does not advance.
-            out.push(PConfig { rule_states: new_states, lex: lex.clone(), insertions_used });
+            out.push(PConfig {
+                rule_states: new_states,
+                lex: lex.clone(),
+                insertions_used,
+            });
             continue;
         }
-        let underlying = arc.underlying.as_ref().expect("non-epsilon-output arc has Some(underlying)");
+        let underlying = arc
+            .underlying
+            .as_ref()
+            .expect("non-epsilon-output arc has Some(underlying)");
         if rank == chain.len() - 1 {
             // Bottom of the chain: the emission must unify a (non-ε) lexicon arc.
             for larc in trie.arcs(lex.state) {
@@ -509,7 +530,16 @@ fn cascade_symbol(
                 }
             }
         } else {
-            out.extend(cascade_symbol(trie, chain, &new_states, rank + 1, underlying, lex, budget, insertions_used));
+            out.extend(cascade_symbol(
+                trie,
+                chain,
+                &new_states,
+                rank + 1,
+                underlying,
+                lex,
+                budget,
+                insertions_used,
+            ));
         }
     }
     out
@@ -543,8 +573,11 @@ fn chain_closure(
         // (a) lexicon ε-arcs: the morphotactic network's slot-entry/skip transitions.
         for larc in trie.arcs(pc.lex.state) {
             if matches!(larc.label, ArcLabel::Epsilon) {
-                let nc =
-                    PConfig { rule_states: pc.rule_states.clone(), lex: enter(trie, larc.target, &pc.lex.tokens), insertions_used: pc.insertions_used };
+                let nc = PConfig {
+                    rule_states: pc.rule_states.clone(),
+                    lex: enter(trie, larc.target, &pc.lex.tokens),
+                    insertions_used: pc.insertions_used,
+                };
                 if seen.insert(pkey(&nc)) {
                     if !budget.try_debit() {
                         break;
@@ -572,7 +605,11 @@ fn chain_closure(
                 new_states[rank] = arc.target;
                 if arc.is_epsilon_output() {
                     // (b) structural epsilon: pure state move at this rank only.
-                    let nc = PConfig { rule_states: new_states, lex: pc.lex.clone(), insertions_used: pc.insertions_used };
+                    let nc = PConfig {
+                        rule_states: new_states,
+                        lex: pc.lex.clone(),
+                        insertions_used: pc.insertions_used,
+                    };
                     if seen.insert(pkey(&nc)) {
                         if !budget.try_debit() {
                             break;
@@ -584,7 +621,10 @@ fn chain_closure(
                 }
                 // (c) real ε-input restoration: its emission must cascade down through rank+1..end
                 // (or, if this is already the last rank, unify a lexicon arc directly).
-                let underlying = arc.underlying.clone().expect("ε-input, non-ε-output arc has Some(underlying)");
+                let underlying = arc
+                    .underlying
+                    .clone()
+                    .expect("ε-input, non-ε-output arc has Some(underlying)");
                 if rank == chain.len() - 1 {
                     for larc in trie.arcs(pc.lex.state) {
                         if let Some(lanes) = trie_arc_lanes(&larc.label) {
@@ -605,7 +645,16 @@ fn chain_closure(
                         }
                     }
                 } else {
-                    for nc in cascade_symbol(trie, chain, &new_states, rank + 1, &underlying, &pc.lex, budget, pc.insertions_used) {
+                    for nc in cascade_symbol(
+                        trie,
+                        chain,
+                        &new_states,
+                        rank + 1,
+                        &underlying,
+                        &pc.lex,
+                        budget,
+                        pc.insertions_used,
+                    ) {
                         if seen.insert(pkey(&nc)) {
                             if !budget.try_debit() {
                                 break;
@@ -625,8 +674,21 @@ fn chain_closure(
                 if budget.overflowed() {
                     break;
                 }
-                for nc0 in cascade_symbol(trie, chain, &pc.rule_states, 0, boundary_lanes, &pc.lex, budget, 0) {
-                    let nc = PConfig { rule_states: nc0.rule_states, lex: nc0.lex, insertions_used: pc.insertions_used + 1 };
+                for nc0 in cascade_symbol(
+                    trie,
+                    chain,
+                    &pc.rule_states,
+                    0,
+                    boundary_lanes,
+                    &pc.lex,
+                    budget,
+                    0,
+                ) {
+                    let nc = PConfig {
+                        rule_states: nc0.rule_states,
+                        lex: nc0.lex,
+                        insertions_used: pc.insertions_used + 1,
+                    };
                     if seen.insert(pkey(&nc)) {
                         if !budget.try_debit() {
                             break;
@@ -660,7 +722,11 @@ pub fn analyze_chain_segments(
     let mut current = chain_closure(
         trie,
         chain,
-        vec![PConfig { rule_states: start_states, lex: start_lex, insertions_used: 0 }],
+        vec![PConfig {
+            rule_states: start_states,
+            lex: start_lex,
+            insertions_used: 0,
+        }],
         max_boundary_insertions,
         &mut budget,
     );
@@ -675,7 +741,16 @@ pub fn analyze_chain_segments(
             if budget.overflowed() {
                 break;
             }
-            for nc in cascade_symbol(trie, chain, &pc.rule_states, 0, &seg.lanes, &pc.lex, &mut budget, pc.insertions_used) {
+            for nc in cascade_symbol(
+                trie,
+                chain,
+                &pc.rule_states,
+                0,
+                &seg.lanes,
+                &pc.lex,
+                &mut budget,
+                pc.insertions_used,
+            ) {
                 if seen.insert(pkey(&nc)) {
                     if !budget.try_debit() {
                         break;
@@ -691,17 +766,26 @@ pub fn analyze_chain_segments(
     }
 
     if budget.overflowed() {
-        return WalkOutcome { analyses: Vec::new(), overflowed: true };
+        return WalkOutcome {
+            analyses: Vec::new(),
+            overflowed: true,
+        };
     }
 
     let mut results = Vec::new();
     let mut emitted: HashSet<Rc<[u32]>> = HashSet::default();
     for pc in &current {
-        if all_accepting(chain, &pc.rule_states) && trie.is_accepting(pc.lex.state) && emitted.insert(Rc::clone(&pc.lex.tokens)) {
+        if all_accepting(chain, &pc.rule_states)
+            && trie.is_accepting(pc.lex.state)
+            && emitted.insert(Rc::clone(&pc.lex.tokens))
+        {
             results.extend(to_word_analyses(trie.codec(), &pc.lex.tokens));
         }
     }
-    WalkOutcome { analyses: results, overflowed: false }
+    WalkOutcome {
+        analyses: results,
+        overflowed: false,
+    }
 }
 
 /// C# `AnalyzeChain(string, ...)`: segment `word` against `g`'s surface table then walk it (thin
@@ -718,10 +802,19 @@ pub fn analyze_chain(
 ) -> WalkOutcome {
     let (table, _w) = surface_table(g);
     let Ok(shape) = hc_grammar::segment::segment(table, word) else {
-        return WalkOutcome { analyses: Vec::new(), overflowed: false };
+        return WalkOutcome {
+            analyses: Vec::new(),
+            overflowed: false,
+        };
     };
     let segments = word_segments(g, &shape);
-    analyze_chain_segments(trie, chain, &segments, max_beam_work, max_boundary_insertions)
+    analyze_chain_segments(
+        trie,
+        chain,
+        &segments,
+        max_beam_work,
+        max_boundary_insertions,
+    )
 }
 
 #[cfg(test)]
@@ -748,7 +841,11 @@ mod tests {
             let surface = crate::surface::SurfacePhonology::new(&g);
             let t0 = std::time::Instant::now();
             let trie = Trie::build(&g, &surface, &morpher, 1_000_000, 2, true);
-            eprintln!("{name}: trie built in {:?}, {} states", t0.elapsed(), trie.state_count());
+            eprintln!(
+                "{name}: trie built in {:?}, {} states",
+                t0.elapsed(),
+                trie.state_count()
+            );
 
             let mut budget = BeamBudget::new(DEFAULT_MAX_BEAM_WORK);
             let empty_tokens: Rc<[u32]> = Rc::from(Vec::<u32>::new().into_boxed_slice());
@@ -853,7 +950,10 @@ mod tests {
         let out = analyze_shape(&trie, &[], None, 10_000);
         let elapsed = start.elapsed();
 
-        assert!(out.overflowed, "an explosive comb must overflow a small budget");
+        assert!(
+            out.overflowed,
+            "an explosive comb must overflow a small budget"
+        );
         assert!(
             out.analyses.is_empty(),
             "an overflowed word must fall to unparsed, never a partial guess"
@@ -898,7 +998,10 @@ mod tests {
 
         let healthy = build_comb_trie(2, 2);
         let ok = analyze_shape(&healthy, &[], None, DEFAULT_MAX_BEAM_WORK);
-        assert!(!ok.overflowed, "a fresh call's budget must be unaffected by a prior overflow");
+        assert!(
+            !ok.overflowed,
+            "a fresh call's budget must be unaffected by a prior overflow"
+        );
     }
 
     // =============================================================================================
@@ -911,17 +1014,29 @@ mod tests {
         const B: [u64; 1] = [0b10];
         let mut codec = token::MorphTokenCodec::new();
         let idx = codec.get_or_add_index(MorphemeId(0));
-        let mut states = vec![StateData::default(), StateData::default(), StateData {
-            accepting: true,
-            token: Some(token::encode(MorphOp::Root, idx)),
-            ..StateData::default()
-        }];
+        let mut states = vec![
+            StateData::default(),
+            StateData::default(),
+            StateData {
+                accepting: true,
+                token: Some(token::encode(MorphOp::Root, idx)),
+                ..StateData::default()
+            },
+        ];
         states[0].arcs.push(ArcData {
-            label: ArcLabel::Segment { lanes: B.to_vec(), reprs: vec!["b".into()], char_def: 0 },
+            label: ArcLabel::Segment {
+                lanes: B.to_vec(),
+                reprs: vec!["b".into()],
+                char_def: 0,
+            },
             target: 1,
         });
         states[1].arcs.push(ArcData {
-            label: ArcLabel::Segment { lanes: A.to_vec(), reprs: vec!["a".into()], char_def: 1 },
+            label: ArcLabel::Segment {
+                lanes: A.to_vec(),
+                reprs: vec!["a".into()],
+                char_def: 1,
+            },
             target: 2,
         });
         Trie::from_states(states, 0, codec)
@@ -941,9 +1056,20 @@ mod tests {
         const B: [u64; 1] = [0b10];
         let trie = deletion_trie();
 
-        let seg_a = InputSegment { char_def: 1, lanes: A.to_vec() };
-        let bare = analyze_shape(&trie, std::slice::from_ref(&seg_a), None, DEFAULT_MAX_BEAM_WORK);
-        assert!(bare.analyses.is_empty(), "bare walk cannot see the deleted B at all");
+        let seg_a = InputSegment {
+            char_def: 1,
+            lanes: A.to_vec(),
+        };
+        let bare = analyze_shape(
+            &trie,
+            std::slice::from_ref(&seg_a),
+            None,
+            DEFAULT_MAX_BEAM_WORK,
+        );
+        assert!(
+            bare.analyses.is_empty(),
+            "bare walk cannot see the deleted B at all"
+        );
 
         let mut pinv = InversePhonology::new();
         pinv.start_state = 0;
@@ -952,9 +1078,19 @@ mod tests {
         pinv.add_arc(0, None, Some(B.to_vec()), 0); // ε-input restoration: B was deleted here
         let chain = vec![pinv];
 
-        let chained = analyze_chain_segments(&trie, &chain, &[seg_a], DEFAULT_MAX_BEAM_WORK, DEFAULT_MAX_BOUNDARY_INSERTIONS);
+        let chained = analyze_chain_segments(
+            &trie,
+            &chain,
+            &[seg_a],
+            DEFAULT_MAX_BEAM_WORK,
+            DEFAULT_MAX_BOUNDARY_INSERTIONS,
+        );
         assert!(!chained.overflowed);
-        assert_eq!(chained.analyses.len(), 1, "the chain recovers exactly the one lexicon-licensed candidate");
+        assert_eq!(
+            chained.analyses.len(),
+            1,
+            "the chain recovers exactly the one lexicon-licensed candidate"
+        );
         assert_eq!(chained.analyses[0].morphemes, vec![MorphemeId(0)]);
         assert_eq!(chained.analyses[0].root_index, 0);
     }
@@ -967,7 +1103,10 @@ mod tests {
     fn identity_only_chain_matches_bare_walk_on_the_same_deletion_trie() {
         const A: [u64; 1] = [0b01];
         let trie = deletion_trie();
-        let seg_a = InputSegment { char_def: 1, lanes: A.to_vec() };
+        let seg_a = InputSegment {
+            char_def: 1,
+            lanes: A.to_vec(),
+        };
 
         let mut pinv = InversePhonology::new();
         pinv.start_state = 0;
@@ -975,8 +1114,13 @@ mod tests {
         pinv.add_arc(0, Some(A.to_vec()), Some(A.to_vec()), 0);
         let chain = vec![pinv];
 
-        let chained =
-            analyze_chain_segments(&trie, &chain, std::slice::from_ref(&seg_a), DEFAULT_MAX_BEAM_WORK, DEFAULT_MAX_BOUNDARY_INSERTIONS);
+        let chained = analyze_chain_segments(
+            &trie,
+            &chain,
+            std::slice::from_ref(&seg_a),
+            DEFAULT_MAX_BEAM_WORK,
+            DEFAULT_MAX_BOUNDARY_INSERTIONS,
+        );
         let bare = analyze_shape(&trie, &[seg_a], None, DEFAULT_MAX_BEAM_WORK);
         assert_eq!(chained.analyses, bare.analyses);
         assert!(chained.analyses.is_empty());
@@ -999,8 +1143,14 @@ mod tests {
         // trie already proven explosive for the bare walker's frontier, walked through a
         // permissive identity chain, confirms the chain's budget is independently enforced.
         let trie = deletion_trie();
-        let seg_a = InputSegment { char_def: 1, lanes: A.to_vec() };
-        let seg_b = InputSegment { char_def: 0, lanes: B.to_vec() };
+        let seg_a = InputSegment {
+            char_def: 1,
+            lanes: A.to_vec(),
+        };
+        let seg_b = InputSegment {
+            char_def: 0,
+            lanes: B.to_vec(),
+        };
 
         let mut pinv = InversePhonology::new();
         pinv.start_state = 0;
@@ -1011,10 +1161,22 @@ mod tests {
         let chain = vec![pinv];
 
         let start = std::time::Instant::now();
-        let out = analyze_chain_segments(&trie, &chain, &[seg_b, seg_a], 5, DEFAULT_MAX_BOUNDARY_INSERTIONS);
+        let out = analyze_chain_segments(
+            &trie,
+            &chain,
+            &[seg_b, seg_a],
+            5,
+            DEFAULT_MAX_BOUNDARY_INSERTIONS,
+        );
         let elapsed = start.elapsed();
-        assert!(out.overflowed, "a 5-unit budget must overflow well before finishing");
+        assert!(
+            out.overflowed,
+            "a 5-unit budget must overflow well before finishing"
+        );
         assert!(out.analyses.is_empty());
-        assert!(elapsed < std::time::Duration::from_secs(5), "must never hang (took {elapsed:?})");
+        assert!(
+            elapsed < std::time::Duration::from_secs(5),
+            "must never hang (took {elapsed:?})"
+        );
     }
 }

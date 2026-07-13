@@ -22,8 +22,8 @@
 
 mod csharp_port_common;
 use csharp_port_common::{build_grammar, lex_entry_id, morpheme_ordinal, mrule_id};
-use hc_parse::{GenMorpheme, Morpher, WordAnalysis};
 use hc_featstruct::FeatureStruct;
+use hc_parse::{GenMorpheme, Morpher, WordAnalysis};
 use std::collections::BTreeSet;
 
 /// `si+` prefix (Gloss "3SG") + `+ɯd` suffix (Gloss "PAST"), both `requiredPartsOfSpeech="posV"` —
@@ -56,7 +56,11 @@ fn generate_words_can_generate_returns_correct_word() {
     let m = Morpher::new(&g, usize::MAX);
 
     let wa = WordAnalysis {
-        morpheme_ids: vec![morpheme_ordinal(&g, "3SG"), morpheme_ordinal(&g, "33"), morpheme_ordinal(&g, "PAST")],
+        morpheme_ids: vec![
+            morpheme_ordinal(&g, "3SG"),
+            morpheme_ordinal(&g, "33"),
+            morpheme_ordinal(&g, "PAST"),
+        ],
         root_morpheme_index: 1,
         pos_id: None,
         guessed: false,
@@ -140,7 +144,11 @@ fn direct_api_compounding_non_head() {
 
     let root = lex_entry_id(&g, "5");
     let non_head = lex_entry_id(&g, "9");
-    let words = m.generate_words(root, &[GenMorpheme::NonHead(non_head)], FeatureStruct::EMPTY);
+    let words = m.generate_words(
+        root,
+        &[GenMorpheme::NonHead(non_head)],
+        FeatureStruct::EMPTY,
+    );
     assert_eq!(words, vec!["pʰutdat".to_string()]);
 }
 
@@ -189,7 +197,11 @@ fn direct_api_compounding_two_non_heads_resolve_distinct_slots() {
     let root = lex_entry_id(&g, "5"); // "pʰut"
     let dat = lex_entry_id(&g, "8"); // "dat" -- pushed FIRST (non_heads[0]), confirmed SECOND
     let bupu = lex_entry_id(&g, "46"); // "bupu" -- pushed SECOND (non_heads[1]), confirmed FIRST
-    let words = m.generate_words(root, &[GenMorpheme::NonHead(dat), GenMorpheme::NonHead(bupu)], FeatureStruct::EMPTY);
+    let words = m.generate_words(
+        root,
+        &[GenMorpheme::NonHead(dat), GenMorpheme::NonHead(bupu)],
+        FeatureStruct::EMPTY,
+    );
     assert_eq!(
         words,
         vec!["pʰutbupudat".to_string()],
@@ -237,7 +249,11 @@ fn generate_words_from_analysis_two_prefixes_confirm_in_the_correct_relative_ord
 
     // Word-position order: OUTER (leftmost) then INNER (adjacent to root) then the root "32" ("sag", V).
     let wa = WordAnalysis {
-        morpheme_ids: vec![morpheme_ordinal(&g, "OUTER"), morpheme_ordinal(&g, "INNER"), morpheme_ordinal(&g, "32")],
+        morpheme_ids: vec![
+            morpheme_ordinal(&g, "OUTER"),
+            morpheme_ordinal(&g, "INNER"),
+            morpheme_ordinal(&g, "32"),
+        ],
         root_morpheme_index: 2,
         pos_id: None,
         guessed: false,
@@ -268,12 +284,20 @@ fn analyze_word_can_analyze_returns_correct_analysis() {
     let m = Morpher::new(&g, usize::MAX);
 
     let outcome = m.parse_word("sagd");
-    let want_pos = g.syn_features.symbol_index(g.syn_features.pos, "posV").expect("posV symbol");
+    let want_pos = g
+        .syn_features
+        .symbol_index(g.syn_features.pos, "posV")
+        .expect("posV symbol");
     let want = WordAnalysis {
         morpheme_ids: vec![morpheme_ordinal(&g, "32"), morpheme_ordinal(&g, "PAST")],
         root_morpheme_index: 0,
         pos_id: Some(want_pos),
         guessed: false,
     };
-    assert_eq!(outcome.structured, vec![want], "structured WordAnalysis mismatch (got {:?})", outcome.structured);
+    assert_eq!(
+        outcome.structured,
+        vec![want],
+        "structured WordAnalysis mismatch (got {:?})",
+        outcome.structured
+    );
 }

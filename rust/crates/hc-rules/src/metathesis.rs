@@ -62,14 +62,16 @@
 //! first explain what XML would ever set it.
 
 use hc_fst::{CompileNode, Direction, Fst, Segment, Transduce, ENTIRE_MATCH};
-use hc_grammar::model::{Grammar, MetathesisRuleDef, Pattern, PatternNode, PRuleId, StratumId, TableId};
+use hc_grammar::model::{
+    Grammar, MetathesisRuleDef, PRuleId, Pattern, PatternNode, StratumId, TableId,
+};
 use hc_shape::{NodeKind, Shape};
 
 use crate::bridge::PatternBridge;
-use rustc_hash::FxHashSet as HashSet;
 use crate::rewrite::{dir_from_model, reverse, MutNode, MutShape};
 use crate::trace::{FailureReason, TraceHandle, TraceSink};
 use crate::word::Word;
+use rustc_hash::FxHashSet as HashSet;
 
 const LEFT_GROUP: &str = "L";
 const RIGHT_GROUP: &str = "R";
@@ -120,8 +122,12 @@ fn compile_switch_pattern(
     dir: Direction,
     deterministic: bool,
 ) -> CompiledSwitchPattern {
-    let bridge = PatternBridge::new(g).with_table(table).deterministic(deterministic);
-    let mut compiled = bridge.compile_pattern(pattern).expect("metathesis pattern compiles");
+    let bridge = PatternBridge::new(g)
+        .with_table(table)
+        .deterministic(deterministic);
+    let mut compiled = bridge
+        .compile_pattern(pattern)
+        .expect("metathesis pattern compiles");
     let (mut left_idx, mut right_idx) = (left_idx, right_idx);
     let (anchor_start, anchor_end) = match dir {
         Direction::LeftToRight => (compiled.anchor_start, compiled.anchor_end),
@@ -135,11 +141,21 @@ fn compile_switch_pattern(
         }
     };
     for (idx, name) in [(left_idx, LEFT_GROUP), (right_idx, RIGHT_GROUP)] {
-        let child = std::mem::replace(&mut compiled.input.nodes[idx], CompileNode::Constraint(Vec::new()));
-        compiled.input.nodes[idx] = CompileNode::Group { name: name.to_string(), children: vec![child] };
+        let child = std::mem::replace(
+            &mut compiled.input.nodes[idx],
+            CompileNode::Constraint(Vec::new()),
+        );
+        compiled.input.nodes[idx] = CompileNode::Group {
+            name: name.to_string(),
+            children: vec![child],
+        };
     }
     let fst = compiled.input.compile_with_direction(dir);
-    CompiledSwitchPattern { fst, anchor_start, anchor_end }
+    CompiledSwitchPattern {
+        fst,
+        anchor_start,
+        anchor_end,
+    }
 }
 
 /// Full-pattern-node-space index (`MetathesisRuleDef.left_switch`/`right_switch`'s own index space,
@@ -155,7 +171,10 @@ fn compiled_index(pattern: &Pattern, full_idx: u32) -> usize {
 }
 
 fn non_anchor_count(nodes: &[PatternNode]) -> usize {
-    nodes.iter().filter(|n| !matches!(n, PatternNode::Anchor(_))).count()
+    nodes
+        .iter()
+        .filter(|n| !matches!(n, PatternNode::Anchor(_)))
+        .count()
 }
 
 /// C# `AnalysisMetathesisRuleSpec`'s ctor (`AnalysisMetathesisRuleSpec.cs:19-45`): rebuild the
@@ -168,7 +187,11 @@ fn non_anchor_count(nodes: &[PatternNode]) -> usize {
 /// to search the surface for the arrangement synthesis always produces (left switch first). Returns
 /// the rebuilt pattern plus the left/right switch's own indices in *that* pattern's full-node-space
 /// (trivially `pre.len()`/`pre.len()+1`, since both are freshly appended right after `pre`).
-fn build_analysis_pattern(pattern: &Pattern, left_switch: u32, right_switch: u32) -> (Pattern, u32, u32) {
+fn build_analysis_pattern(
+    pattern: &Pattern,
+    left_switch: u32,
+    right_switch: u32,
+) -> (Pattern, u32, u32) {
     let (first, last) = if left_switch < right_switch {
         (left_switch, right_switch)
     } else {
@@ -217,13 +240,24 @@ fn match_candidates(pattern: &CompiledSwitchPattern, segs: &[Segment]) -> Vec<Ca
             let (es, ee) = fst.get_offsets(ENTIRE_MATCH, &r.registers)?;
             let (ls, le) = fst.get_offsets(LEFT_GROUP, &r.registers)?;
             let (rs, re) = fst.get_offsets(RIGHT_GROUP, &r.registers)?;
-            Some((es as usize, ee as usize, ls as usize, le as usize, rs as usize, re as usize))
+            Some((
+                es as usize,
+                ee as usize,
+                ls as usize,
+                le as usize,
+                rs as usize,
+                re as usize,
+            ))
         })
         .collect();
     out.sort_unstable();
     out.dedup();
     out.into_iter()
-        .map(|(es, ee, ls, le, rs, re)| Candidate { entire: (es, ee), left: (ls, le), right: (rs, re) })
+        .map(|(es, ee, ls, le, rs, re)| Candidate {
+            entire: (es, ee),
+            left: (ls, le),
+            right: (rs, re),
+        })
         .collect()
 }
 
@@ -254,8 +288,17 @@ fn seg_range_to_nodes(node_of: &[usize], range: (usize, usize)) -> Vec<usize> {
 /// final `Vec::splice`, rather than mutating `ms.nodes` in place through a sequence of index-shifting
 /// operations).
 fn synthesis_reorder(ms: &mut MutShape, left: &[usize], right: &[usize]) {
-    let lo = *left.iter().chain(right).min().expect("both ranges non-empty");
-    let hi = *left.iter().chain(right).max().expect("both ranges non-empty") + 1;
+    let lo = *left
+        .iter()
+        .chain(right)
+        .min()
+        .expect("both ranges non-empty");
+    let hi = *left
+        .iter()
+        .chain(right)
+        .max()
+        .expect("both ranges non-empty")
+        + 1;
     let window: Vec<MutNode> = ms.nodes[lo..hi].to_vec();
     let loc = |abs: usize| abs - lo;
     let left_loc: Vec<usize> = left.iter().map(|&i| loc(i)).collect();
@@ -310,7 +353,12 @@ fn synthesis_reorder(ms: &mut MutShape, left: &[usize], right: &[usize]) {
 /// no longer found; this falls back to appending at the current end of `order` rather than panicking.
 /// C#'s own `ShapeNode.AddAfter` on a just-removed node is equally not a well-specified operation for
 /// this input, so no attempt is made to reproduce a specific (undefined) C# outcome here.
-fn move_nodes_after(order: &mut Vec<usize>, window: &[MutNode], mut cur: Option<usize>, range: &[usize]) {
+fn move_nodes_after(
+    order: &mut Vec<usize>,
+    window: &[MutNode],
+    mut cur: Option<usize>,
+    range: &[usize],
+) {
     for &n in range {
         if window[n].kind == NodeKind::Segment {
             let np = order.iter().position(|&i| i == n);
@@ -319,7 +367,11 @@ fn move_nodes_after(order: &mut Vec<usize>, window: &[MutNode], mut cur: Option<
             }
             let insert_at = match cur {
                 None => 0,
-                Some(c) => order.iter().position(|&i| i == c).map(|p| p + 1).unwrap_or(order.len()),
+                Some(c) => order
+                    .iter()
+                    .position(|&i| i == c)
+                    .map(|p| p + 1)
+                    .unwrap_or(order.len()),
             };
             order.insert(insert_at.min(order.len()), n);
         }
@@ -386,17 +438,26 @@ pub fn synthesize(g: &Grammar, rule: &MetathesisRuleDef, input: &Shape) -> Vec<S
     let dir = dir_from_model(rule.dir);
     let left_idx = compiled_index(&rule.pattern, rule.left_switch);
     let right_idx = compiled_index(&rule.pattern, rule.right_switch);
-    let compiled = compile_switch_pattern(g, table_id, &rule.pattern, left_idx, right_idx, dir, true);
+    let compiled =
+        compile_switch_pattern(g, table_id, &rule.pattern, left_idx, right_idx, dir, true);
     let pattern_len = non_anchor_count(&rule.pattern.nodes);
     synthesize_with_pattern(&compiled, pattern_len, input)
 }
 
-pub(crate) fn synthesize_cached(rule: &MetathesisRuleDef, input: &Shape, cache: &MetaCache) -> Vec<Shape> {
+pub(crate) fn synthesize_cached(
+    rule: &MetathesisRuleDef,
+    input: &Shape,
+    cache: &MetaCache,
+) -> Vec<Shape> {
     let pattern_len = non_anchor_count(&rule.pattern.nodes);
     synthesize_with_pattern(&cache.syn, pattern_len, input)
 }
 
-fn synthesize_with_pattern(pattern: &CompiledSwitchPattern, pattern_len: usize, input: &Shape) -> Vec<Shape> {
+fn synthesize_with_pattern(
+    pattern: &CompiledSwitchPattern,
+    pattern_len: usize,
+    input: &Shape,
+) -> Vec<Shape> {
     let mut ms = MutShape::from_shape(input);
     let mut applied = false;
     loop {
@@ -408,7 +469,11 @@ fn synthesize_with_pattern(pattern: &CompiledSwitchPattern, pattern_len: usize, 
             }
             let left_nodes = seg_range_to_nodes(&node_of, cand.left);
             let right_nodes = seg_range_to_nodes(&node_of, cand.right);
-            if left_nodes.iter().chain(&right_nodes).any(|&n| ms.nodes[n].dirty) {
+            if left_nodes
+                .iter()
+                .chain(&right_nodes)
+                .any(|&n| ms.nodes[n].dirty)
+            {
                 continue; // Modified=Clean: only the switch nodes are gated (see module doc).
             }
             synthesis_reorder(&mut ms, &left_nodes, &right_nodes);
@@ -479,7 +544,13 @@ pub(crate) fn synthesize_cached_traced(
             out_word.shape = s.clone();
         }
         if result.is_empty() {
-            trace.phonological_rule_not_applied(node_parent, pid, -1, &out_word, FailureReason::Pattern);
+            trace.phonological_rule_not_applied(
+                node_parent,
+                pid,
+                -1,
+                &out_word,
+                FailureReason::Pattern,
+            );
         } else {
             trace.phonological_rule_applied(node_parent, pid, -1, &out_word);
         }
@@ -490,7 +561,13 @@ pub(crate) fn synthesize_cached_traced(
 /// Shared readout for the two synthesis-traced functions above: `result` is what the untraced
 /// [`synthesize`]/[`synthesize_cached`] already returned -- empty means `NotApplied(Pattern)` (using
 /// the original `input`), non-empty means `Applied` (using the rewritten shape).
-fn report_metathesis_synth(trace: &dyn TraceSink, parent: TraceHandle, pid: PRuleId, input: &Shape, result: &[Shape]) {
+fn report_metathesis_synth(
+    trace: &dyn TraceSink,
+    parent: TraceHandle,
+    pid: PRuleId,
+    input: &Shape,
+    result: &[Shape],
+) {
     match result.first() {
         Some(out_shape) => {
             let snap = Word::new(out_shape.clone(), StratumId(0));
@@ -512,18 +589,28 @@ pub fn analyze(g: &Grammar, rule: &MetathesisRuleDef, input: &Shape) -> Vec<Shap
         build_analysis_pattern(&rule.pattern, rule.left_switch, rule.right_switch);
     let left_idx = compiled_index(&ana_pattern, left_idx_full);
     let right_idx = compiled_index(&ana_pattern, right_idx_full);
-    let compiled = compile_switch_pattern(g, table_id, &ana_pattern, left_idx, right_idx, dir, false);
+    let compiled =
+        compile_switch_pattern(g, table_id, &ana_pattern, left_idx, right_idx, dir, false);
     let pattern_len = non_anchor_count(&ana_pattern.nodes);
     analyze_with_pattern(&compiled, pattern_len, input)
 }
 
-pub(crate) fn analyze_cached(rule: &MetathesisRuleDef, input: &Shape, cache: &MetaCache) -> Vec<Shape> {
-    let (ana_pattern, ..) = build_analysis_pattern(&rule.pattern, rule.left_switch, rule.right_switch);
+pub(crate) fn analyze_cached(
+    rule: &MetathesisRuleDef,
+    input: &Shape,
+    cache: &MetaCache,
+) -> Vec<Shape> {
+    let (ana_pattern, ..) =
+        build_analysis_pattern(&rule.pattern, rule.left_switch, rule.right_switch);
     let pattern_len = non_anchor_count(&ana_pattern.nodes);
     analyze_with_pattern(&cache.ana, pattern_len, input)
 }
 
-fn analyze_with_pattern(pattern: &CompiledSwitchPattern, pattern_len: usize, input: &Shape) -> Vec<Shape> {
+fn analyze_with_pattern(
+    pattern: &CompiledSwitchPattern,
+    pattern_len: usize,
+    input: &Shape,
+) -> Vec<Shape> {
     let mut ms = MutShape::from_shape(input);
     let mut applied = false;
     loop {
@@ -535,7 +622,11 @@ fn analyze_with_pattern(pattern: &CompiledSwitchPattern, pattern_len: usize, inp
             }
             let left_nodes = seg_range_to_nodes(&node_of, cand.left);
             let right_nodes = seg_range_to_nodes(&node_of, cand.right);
-            if left_nodes.iter().chain(&right_nodes).any(|&n| ms.nodes[n].dirty) {
+            if left_nodes
+                .iter()
+                .chain(&right_nodes)
+                .any(|&n| ms.nodes[n].dirty)
+            {
                 continue;
             }
             ana_union(&mut ms, &left_nodes, &right_nodes);
@@ -609,7 +700,13 @@ pub(crate) fn analyze_cached_traced(
 
 /// Shared readout for the two analysis-traced functions above (see this section's doc for why no
 /// `FailureReason` is ever attached, mirroring C# exactly).
-fn report_metathesis_analysis(trace: &dyn TraceSink, parent: TraceHandle, pid: PRuleId, input: &Shape, result: &[Shape]) {
+fn report_metathesis_analysis(
+    trace: &dyn TraceSink,
+    parent: TraceHandle,
+    pid: PRuleId,
+    input: &Shape,
+    result: &[Shape],
+) {
     match result.first() {
         Some(out_shape) => {
             let snap = Word::new(out_shape.clone(), StratumId(0));
@@ -633,18 +730,38 @@ pub(crate) struct MetaCache {
     ana: CompiledSwitchPattern,
 }
 
-pub(crate) fn build_meta_cache(g: &Grammar, table_id: TableId, rule: &MetathesisRuleDef) -> MetaCache {
+pub(crate) fn build_meta_cache(
+    g: &Grammar,
+    table_id: TableId,
+    rule: &MetathesisRuleDef,
+) -> MetaCache {
     let syn_dir = dir_from_model(rule.dir);
     let syn_left = compiled_index(&rule.pattern, rule.left_switch);
     let syn_right = compiled_index(&rule.pattern, rule.right_switch);
-    let syn = compile_switch_pattern(g, table_id, &rule.pattern, syn_left, syn_right, syn_dir, true);
+    let syn = compile_switch_pattern(
+        g,
+        table_id,
+        &rule.pattern,
+        syn_left,
+        syn_right,
+        syn_dir,
+        true,
+    );
 
     let ana_dir = reverse(syn_dir);
     let (ana_pattern, ana_left_full, ana_right_full) =
         build_analysis_pattern(&rule.pattern, rule.left_switch, rule.right_switch);
     let ana_left = compiled_index(&ana_pattern, ana_left_full);
     let ana_right = compiled_index(&ana_pattern, ana_right_full);
-    let ana = compile_switch_pattern(g, table_id, &ana_pattern, ana_left, ana_right, ana_dir, false);
+    let ana = compile_switch_pattern(
+        g,
+        table_id,
+        &ana_pattern,
+        ana_left,
+        ana_right,
+        ana_dir,
+        false,
+    );
 
     MetaCache { syn, ana }
 }

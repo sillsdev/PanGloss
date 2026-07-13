@@ -29,7 +29,10 @@ fn compile_ok(grammar: &Grammar, pattern: &Pattern, what: &str) -> usize {
             .unwrap_or_else(|e| panic!("{what}: bridge failed (det={det}): {e}"));
         let fst = compiled.compile();
         // Every compiled FST has at least a start state (empty patterns accept the empty string).
-        assert!(fst.state_count() >= 1, "{what}: FST has no states (det={det})");
+        assert!(
+            fst.state_count() >= 1,
+            "{what}: FST has no states (det={det})"
+        );
     }
     1
 }
@@ -48,7 +51,11 @@ fn compile_all_prule_patterns(grammar: &Grammar, tag: &str) -> (usize, usize) {
             // `crates/hc-parse/tests/csharp_port_metathesis.rs` instead of this LHS/RHS/environment
             // structural census, which is specific to `RewriteRuleDef`'s shape.
             PhonRuleDef::Metathesis(m) => {
-                pattern_count += compile_ok(grammar, &m.pattern, &format!("{tag} prule[{ri}] (metathesis) pattern"));
+                pattern_count += compile_ok(
+                    grammar,
+                    &m.pattern,
+                    &format!("{tag} prule[{ri}] (metathesis) pattern"),
+                );
                 continue;
             }
         };
@@ -58,12 +65,21 @@ fn compile_all_prule_patterns(grammar: &Grammar, tag: &str) -> (usize, usize) {
             alpha_var_patterns += 1;
         }
         for (si, sr) in prule.subrules.iter().enumerate() {
-            pattern_count += compile_ok(grammar, &sr.rhs, &format!("{tag} prule[{ri}] sub[{si}] RHS"));
+            pattern_count += compile_ok(
+                grammar,
+                &sr.rhs,
+                &format!("{tag} prule[{ri}] sub[{si}] RHS"),
+            );
             if let Some(le) = &sr.left_env {
-                pattern_count += compile_ok(grammar, le, &format!("{tag} prule[{ri}] sub[{si}] leftEnv"));
+                pattern_count +=
+                    compile_ok(grammar, le, &format!("{tag} prule[{ri}] sub[{si}] leftEnv"));
             }
             if let Some(re) = &sr.right_env {
-                pattern_count += compile_ok(grammar, re, &format!("{tag} prule[{ri}] sub[{si}] rightEnv"));
+                pattern_count += compile_ok(
+                    grammar,
+                    re,
+                    &format!("{tag} prule[{ri}] sub[{si}] rightEnv"),
+                );
             }
         }
     }
@@ -91,7 +107,10 @@ fn compiles_all_indonesian_prule_patterns() {
     // Independently confirmed count: 5 `<PhonologicalRule ` in indonesian-hc.xml.
     let (rules, patterns) = compile_all_prule_patterns(&grammar, "indonesian");
     assert_eq!(rules, 5, "indonesian phonological-rule count");
-    assert!(patterns >= rules, "each rule contributes at least its LHS pattern");
+    assert!(
+        patterns >= rules,
+        "each rule contributes at least its LHS pattern"
+    );
 }
 
 #[test]

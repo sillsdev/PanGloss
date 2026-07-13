@@ -130,7 +130,10 @@ fn word_shape(g: &Grammar, text: &str) -> hc_shape::Shape {
 /// `load_syn_fs`), so the test doesn't depend on any lexicon/`AssignedHeadFeatures` machinery --
 /// just the bare feature system the two rules already reference.
 fn num_fs(g: &Grammar, symbol_xml_id: &str) -> FeatureStruct {
-    let feat_num = g.syn_features.feature_by_xml_id("featNum").expect("featNum declared");
+    let feat_num = g
+        .syn_features
+        .feature_by_xml_id("featNum")
+        .expect("featNum declared");
     let idx = g
         .syn_features
         .symbol_index(feat_num, symbol_xml_id)
@@ -138,7 +141,10 @@ fn num_fs(g: &Grammar, symbol_xml_id: &str) -> FeatureStruct {
     let mut inner = FeatureStructBuilder::new();
     inner.add(feat_num, FeatureValue::Symbolic(SymbolBits::single(idx)));
     let mut outer = FeatureStructBuilder::new();
-    outer.add(g.syn_features.head.expect("HeadFeatures declared"), FeatureValue::Complex(inner.build()));
+    outer.add(
+        g.syn_features.head.expect("HeadFeatures declared"),
+        FeatureValue::Complex(inner.build()),
+    );
     outer.build()
 }
 
@@ -151,7 +157,11 @@ fn analysis_chain_survives_only_because_add_widens_not_narrows() {
     // Control: confirm this is a genuine narrowing-vs-widening fork, not a vacuous fixture --
     // `sg` and `pl` are disjoint at `num`, so a real `unify` fails outright on this exact pair
     // (the operation the pre-fix Rust code used in `ana_syn_fs`).
-    assert_eq!(unify(&sg, &pl), None, "sanity: sg/pl must be disjoint for this gate to mean anything");
+    assert_eq!(
+        unify(&sg, &pl),
+        None,
+        "sanity: sg/pl must be disjoint for this gate to mean anything"
+    );
 
     let mut w0 = Word::new(word_shape(&g, "cat"), StratumId(0));
     w0.syn_fs = sg;
@@ -161,8 +171,14 @@ fn analysis_chain_survives_only_because_add_widens_not_narrows() {
     // must retain BOTH `sg` (from the input) and `pl` (from the requirement) as a real two-bit
     // lane -- not narrowed to just `pl`, and not silently left at just `sg`.
     let out1 = analyze(&g, &w0, &g.mrules[0]);
-    assert_eq!(out1.len(), 1, "the inner rule's LHS should match the whole word exactly once");
-    let expected_widened = add(&num_fs(&g, "symSg"), &num_fs(&g, "symPl"), &|f| g.syn_features.mask(f));
+    assert_eq!(
+        out1.len(),
+        1,
+        "the inner rule's LHS should match the whole word exactly once"
+    );
+    let expected_widened = add(&num_fs(&g, "symSg"), &num_fs(&g, "symPl"), &|f| {
+        g.syn_features.mask(f)
+    });
     assert_eq!(
         out1[0].syn_fs, expected_widened,
         "the accumulated FS must be the union {{sg, pl}}, matching hc_featstruct::add directly"
@@ -185,7 +201,9 @@ fn analysis_chain_survives_only_because_add_widens_not_narrows() {
     // And the negative control: replaying rule 1's step with `unify` instead of `add` (i.e. the
     // pre-fix narrowing operator) on this exact input reproduces the failure the fix eliminates,
     // pinning down *why* the old code could never have produced a survivable candidate here.
-    let MorphRuleDef::AffixProcess(inner_def) = &g.mrules[0] else { panic!("expected affix rule") };
+    let MorphRuleDef::AffixProcess(inner_def) = &g.mrules[0] else {
+        panic!("expected affix rule")
+    };
     let req = g.fs_interner.get(inner_def.required_syn_fs);
     assert_eq!(
         unify(&w0.syn_fs, req),

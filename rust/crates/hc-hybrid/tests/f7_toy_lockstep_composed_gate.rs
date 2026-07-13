@@ -55,7 +55,9 @@ use hc_parse::Morpher;
 const TOY_XML: &str = include_str!("fixtures/fst-advisor-toys/F7LockstepComposedToyGrammar.xml");
 
 fn fixture_path(name: &str) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fst-advisor-toys").join(name)
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/fst-advisor-toys")
+        .join(name)
 }
 
 fn read_lines(path: &Path) -> Vec<String> {
@@ -68,7 +70,12 @@ fn read_lines(path: &Path) -> Vec<String> {
 }
 
 fn read_words(path: &Path) -> Vec<String> {
-    std::fs::read_to_string(path).unwrap().lines().map(|w| w.trim().to_string()).filter(|w| !w.is_empty()).collect()
+    std::fs::read_to_string(path)
+        .unwrap()
+        .lines()
+        .map(|w| w.trim().to_string())
+        .filter(|w| !w.is_empty())
+        .collect()
 }
 
 fn load() -> hc_grammar::model::Grammar {
@@ -91,15 +98,22 @@ fn toy_candidates_chainoff_matches_csharp_oracle_dump() {
         .with_lockstep_phonology(&g, &surface, &lockstep_morpher, 1_000_000, 2);
 
     let words = read_words(&fixture_path("F7LockstepComposedToyGrammar.words.txt"));
-    let golden = read_lines(&fixture_path("F7LockstepComposedToyGrammar.candidates-chainoff.tsv"));
+    let golden = read_lines(&fixture_path(
+        "F7LockstepComposedToyGrammar.candidates-chainoff.tsv",
+    ));
 
     let mut rust_lines = Vec::new();
     for (i, word) in words.iter().enumerate() {
         rust_lines.extend(composite::candidate_lines(&g, &composite, i, word));
     }
-    assert_eq!(rust_lines, golden, "toy candidates (chain-off) diverge from the real C# oracle dump");
+    assert_eq!(
+        rust_lines, golden,
+        "toy candidates (chain-off) diverge from the real C# oracle dump"
+    );
     assert!(
-        rust_lines.iter().any(|l| l.contains("ComposedPhonologyProposer")),
+        rust_lines
+            .iter()
+            .any(|l| l.contains("ComposedPhonologyProposer")),
         "the whole point of this gate: a real ComposedPhonologyProposer line must appear"
     );
 }
@@ -119,13 +133,18 @@ fn toy_candidates_chainon_matches_csharp_oracle_dump() {
         .with_chain_phonology(&g, &surface, &chain_morpher, 1_000_000, 2);
 
     let words = read_words(&fixture_path("F7LockstepComposedToyGrammar.words.txt"));
-    let golden = read_lines(&fixture_path("F7LockstepComposedToyGrammar.candidates-chainon.tsv"));
+    let golden = read_lines(&fixture_path(
+        "F7LockstepComposedToyGrammar.candidates-chainon.tsv",
+    ));
 
     let mut rust_lines = Vec::new();
     for (i, word) in words.iter().enumerate() {
         rust_lines.extend(composite::candidate_lines(&g, &composite, i, word));
     }
-    assert_eq!(rust_lines, golden, "toy candidates (--chain) diverge from the real C# oracle dump");
+    assert_eq!(
+        rust_lines, golden,
+        "toy candidates (--chain) diverge from the real C# oracle dump"
+    );
 }
 
 /// Byte-matches the real C# `fst-batch` verified dump, chain-off: only "lazi" verifies, to exactly
@@ -145,11 +164,14 @@ fn toy_batch_chainoff_matches_csharp_oracle_dump() {
     let verify_morpher = Morpher::new(&g, usize::MAX);
     let owners = replay::build_morpheme_owners(&g);
     let words = read_words(&fixture_path("F7LockstepComposedToyGrammar.words.txt"));
-    let golden = read_lines(&fixture_path("F7LockstepComposedToyGrammar.batch-chainoff.tsv"));
+    let golden = read_lines(&fixture_path(
+        "F7LockstepComposedToyGrammar.batch-chainoff.tsv",
+    ));
 
     let mut rust_lines = Vec::new();
     for (i, word) in words.iter().enumerate() {
-        let [started, result] = composite::batch_lines(&g, &composite, &verify_morpher, &owners, i, word);
+        let [started, result] =
+            composite::batch_lines(&g, &composite, &verify_morpher, &owners, i, word);
         rust_lines.push(started);
         rust_lines.push(result);
     }
@@ -172,11 +194,14 @@ fn toy_batch_chainon_matches_csharp_oracle_dump() {
     let verify_morpher = Morpher::new(&g, usize::MAX);
     let owners = replay::build_morpheme_owners(&g);
     let words = read_words(&fixture_path("F7LockstepComposedToyGrammar.words.txt"));
-    let golden = read_lines(&fixture_path("F7LockstepComposedToyGrammar.batch-chainon.tsv"));
+    let golden = read_lines(&fixture_path(
+        "F7LockstepComposedToyGrammar.batch-chainon.tsv",
+    ));
 
     let mut rust_lines = Vec::new();
     for (i, word) in words.iter().enumerate() {
-        let [started, result] = composite::batch_lines(&g, &composite, &verify_morpher, &owners, i, word);
+        let [started, result] =
+            composite::batch_lines(&g, &composite, &verify_morpher, &owners, i, word);
         rust_lines.push(started);
         rust_lines.push(result);
     }
@@ -193,11 +218,23 @@ fn toy_lockstep_proposer_finds_the_candidate_in_isolation() {
     let g = load();
     let surface = SurfacePhonology::new(&g);
     let morpher = Morpher::new(&g, usize::MAX);
-    let lockstep = LockstepPhonologyProposer::new(&g, &surface, &morpher, 1_000_000, 2, walk::DEFAULT_MAX_BEAM_WORK);
-    assert!(lockstep.has_arcs(), "the toy rule's Pinv must have a real non-identity arc (quirk 1 must not reject it)");
+    let lockstep = LockstepPhonologyProposer::new(
+        &g,
+        &surface,
+        &morpher,
+        1_000_000,
+        2,
+        walk::DEFAULT_MAX_BEAM_WORK,
+    );
+    assert!(
+        lockstep.has_arcs(),
+        "the toy rule's Pinv must have a real non-identity arc (quirk 1 must not reject it)"
+    );
     let candidates = lockstep.analyze_word(&g, "lazi");
     assert!(
-        candidates.iter().any(|c| c.root_index == 0 && c.morphemes.len() == 2),
+        candidates
+            .iter()
+            .any(|c| c.root_index == 0 && c.morphemes.len() == 2),
         "LockstepPhonologyProposer must find eLas+mrLoc directly on 'lazi', got {candidates:?}"
     );
 }
@@ -208,11 +245,24 @@ fn toy_chain_proposer_finds_the_candidate_in_isolation() {
     let g = load();
     let surface = SurfacePhonology::new(&g);
     let morpher = Morpher::new(&g, usize::MAX);
-    let chain = ChainPhonologyProposer::new(&g, &surface, &morpher, 1_000_000, 2, walk::DEFAULT_MAX_BEAM_WORK);
-    assert_eq!(chain.chain_length(), 1, "the toy grammar has exactly one phonological rule");
+    let chain = ChainPhonologyProposer::new(
+        &g,
+        &surface,
+        &morpher,
+        1_000_000,
+        2,
+        walk::DEFAULT_MAX_BEAM_WORK,
+    );
+    assert_eq!(
+        chain.chain_length(),
+        1,
+        "the toy grammar has exactly one phonological rule"
+    );
     let candidates = chain.analyze_word(&g, "lazi");
     assert!(
-        candidates.iter().any(|c| c.root_index == 0 && c.morphemes.len() == 2),
+        candidates
+            .iter()
+            .any(|c| c.root_index == 0 && c.morphemes.len() == 2),
         "ChainPhonologyProposer must find eLas+mrLoc directly on 'lazi', got {candidates:?}"
     );
 }
@@ -228,5 +278,9 @@ fn toy_bare_walker_cannot_see_lazi_at_all() {
     let build_morpher = Morpher::new(&g, usize::MAX);
     let trie = Trie::build(&g, &surface, &build_morpher, 1_000_000, 2, true);
     let bare = walk::analyze_word(&g, &trie, "lazi", walk::DEFAULT_MAX_BEAM_WORK);
-    assert!(bare.analyses.is_empty(), "bare walker must miss 'lazi' entirely, got {:?}", bare.analyses);
+    assert!(
+        bare.analyses.is_empty(),
+        "bare walker must miss 'lazi' entirely, got {:?}",
+        bare.analyses
+    );
 }

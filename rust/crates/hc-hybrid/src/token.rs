@@ -241,8 +241,12 @@ fn classify_op(g: &Grammar, allomorph: AllomorphId, is_head_root: bool) -> Morph
         AllomorphOwner::Root(_, _) => MorphOp::Compound,
         AllomorphOwner::Affix(mrule, idx) => {
             let rhs: &[OutputAction] = match &g.mrules[mrule.0 as usize] {
-                hc_grammar::model::MorphRuleDef::AffixProcess(def) => &def.allomorphs[idx as usize].rhs,
-                hc_grammar::model::MorphRuleDef::Realizational(def) => &def.allomorphs[idx as usize].rhs,
+                hc_grammar::model::MorphRuleDef::AffixProcess(def) => {
+                    &def.allomorphs[idx as usize].rhs
+                }
+                hc_grammar::model::MorphRuleDef::Realizational(def) => {
+                    &def.allomorphs[idx as usize].rhs
+                }
                 hc_grammar::model::MorphRuleDef::Compounding(_) => {
                     unreachable!("a CompoundingRule never owns an AllomorphId")
                 }
@@ -262,9 +266,20 @@ pub fn classify_affix(rhs: &[OutputAction]) -> MorphOp {
     // impl (it is a small grammar-model enum with no such need elsewhere), so this groups with a
     // plain O(n^2) scan over `rhs`'s own (small — a handful of RHS actions) length rather than
     // adding a `Hash` derive to an `hc-grammar` type for this one call site.
-    let copy_parts: Vec<PartRef> =
-        rhs.iter().filter_map(|a| if let OutputAction::Copy(p) = a { Some(*p) } else { None }).collect();
-    if copy_parts.iter().any(|p| copy_parts.iter().filter(|&&q| q == *p).count() >= 2) {
+    let copy_parts: Vec<PartRef> = rhs
+        .iter()
+        .filter_map(|a| {
+            if let OutputAction::Copy(p) = a {
+                Some(*p)
+            } else {
+                None
+            }
+        })
+        .collect();
+    if copy_parts
+        .iter()
+        .any(|p| copy_parts.iter().filter(|&&q| q == *p).count() >= 2)
+    {
         return MorphOp::Reduplication;
     }
 
@@ -351,7 +366,11 @@ mod tests {
     #[test]
     fn derivation_array_is_self_describing() {
         // prefix m10 . root m20 . suffix m30 -- a whole WordAnalysis in 12 bytes.
-        let derivation = [encode(MorphOp::Prefix, 10), encode(MorphOp::Root, 20), encode(MorphOp::Suffix, 30)];
+        let derivation = [
+            encode(MorphOp::Prefix, 10),
+            encode(MorphOp::Root, 20),
+            encode(MorphOp::Suffix, 30),
+        ];
         let ids: Vec<u32> = derivation.iter().map(|&t| get_morpheme_id(t)).collect();
         assert_eq!(ids, vec![10, 20, 30]);
         assert_eq!(root_index(&derivation), 1);
@@ -368,21 +387,36 @@ mod tests {
     }
     fn insert(text: &str) -> OutputAction {
         let shape = hc_shape::ShapeBuilder::new().finish();
-        OutputAction::InsertSegments { table: TableId(0), shape: SegmentedText { text: text.to_string(), shape } }
+        OutputAction::InsertSegments {
+            table: TableId(0),
+            shape: SegmentedText {
+                text: text.to_string(),
+                shape,
+            },
+        }
     }
 
     #[test]
     fn classify_op_populates_affix_roles_from_output_actions() {
         assert_eq!(classify_affix(&[copy(1), copy(1)]), MorphOp::Reduplication);
-        assert_eq!(classify_affix(&[copy(1), insert("a"), copy(2)]), MorphOp::Infix);
+        assert_eq!(
+            classify_affix(&[copy(1), insert("a"), copy(2)]),
+            MorphOp::Infix
+        );
         assert_eq!(classify_affix(&[insert("di"), copy(1)]), MorphOp::Prefix);
         assert_eq!(classify_affix(&[copy(1), insert("s")]), MorphOp::Suffix);
     }
 
     #[test]
     fn classify_op_process_from_modify_with_no_copy() {
-        let ctx = SimpleContext { nat_class: hc_grammar::model::NatClassId(0), vars: Vec::new() };
-        assert_eq!(classify_affix(&[OutputAction::Modify(PartRef::Input(0), ctx)]), MorphOp::Process);
+        let ctx = SimpleContext {
+            nat_class: hc_grammar::model::NatClassId(0),
+            vars: Vec::new(),
+        };
+        assert_eq!(
+            classify_affix(&[OutputAction::Modify(PartRef::Input(0), ctx)]),
+            MorphOp::Process
+        );
     }
 
     #[test]
@@ -392,7 +426,10 @@ mod tests {
 
     #[test]
     fn classify_op_circumfix_when_insert_both_before_and_after_copy() {
-        assert_eq!(classify_affix(&[insert("pre"), copy(1), insert("suf")]), MorphOp::CircumfixPrefix);
+        assert_eq!(
+            classify_affix(&[insert("pre"), copy(1), insert("suf")]),
+            MorphOp::CircumfixPrefix
+        );
     }
 
     // =============================================================================================
@@ -430,7 +467,9 @@ mod tests {
             .iter()
             .enumerate()
             .filter_map(|(i, owner)| match owner {
-                AllomorphOwner::Root(le, _) => Some((AllomorphId(i as u32), g.entries[le.0 as usize].morpheme)),
+                AllomorphOwner::Root(le, _) => {
+                    Some((AllomorphId(i as u32), g.entries[le.0 as usize].morpheme))
+                }
                 AllomorphOwner::Affix(_, _) => None,
             })
             .collect()
@@ -440,17 +479,20 @@ mod tests {
     /// allomorph — a `CompoundingRule` never owns an `AllomorphId`, see `owning_morpheme`'s doc),
     /// as `(AllomorphId, owning MorphemeId)`.
     fn first_affix_allomorph(g: &Grammar) -> Option<(AllomorphId, MorphemeId)> {
-        g.allomorph_owners.iter().enumerate().find_map(|(i, owner)| match owner {
-            AllomorphOwner::Affix(mrule, _) => {
-                let morpheme = match &g.mrules[mrule.0 as usize] {
-                    MorphRuleDef::AffixProcess(def) => Some(def.morpheme),
-                    MorphRuleDef::Realizational(def) => Some(def.morpheme),
-                    MorphRuleDef::Compounding(_) => None,
-                };
-                morpheme.map(|m| (AllomorphId(i as u32), m))
-            }
-            AllomorphOwner::Root(_, _) => None,
-        })
+        g.allomorph_owners
+            .iter()
+            .enumerate()
+            .find_map(|(i, owner)| match owner {
+                AllomorphOwner::Affix(mrule, _) => {
+                    let morpheme = match &g.mrules[mrule.0 as usize] {
+                        MorphRuleDef::AffixProcess(def) => Some(def.morpheme),
+                        MorphRuleDef::Realizational(def) => Some(def.morpheme),
+                        MorphRuleDef::Compounding(_) => None,
+                    };
+                    morpheme.map(|m| (AllomorphId(i as u32), m))
+                }
+                AllomorphOwner::Root(_, _) => None,
+            })
     }
 
     fn empty_word() -> Word {
@@ -477,21 +519,35 @@ mod tests {
 
         let mut w = empty_word();
         w.root_allomorph = Some(root_allo);
-        w.morphs = vec![MorphRecord::new(root_allo, root_morpheme, 0), MorphRecord::new(affix_allo, affix_morpheme, 1)];
+        w.morphs = vec![
+            MorphRecord::new(root_allo, root_morpheme, 0),
+            MorphRecord::new(affix_allo, affix_morpheme, 1),
+        ];
 
         let mut codec = MorphTokenCodec::new();
         let tokens = codec.encode(&g, &w);
 
         assert_eq!(tokens.len(), 2, "one token per morph");
         // Morpheme channel: decoded indices reproduce the morphs, in `order`.
-        let decoded: Vec<MorphemeId> = tokens.iter().map(|&t| codec.get_morpheme(get_morpheme_id(t))).collect();
+        let decoded: Vec<MorphemeId> = tokens
+            .iter()
+            .map(|&t| codec.get_morpheme(get_morpheme_id(t)))
+            .collect();
         assert_eq!(decoded, vec![root_morpheme, affix_morpheme]);
         // Root recovered purely from the op codes.
         assert_eq!(root_index(&tokens), 0);
         let ops: Vec<MorphOp> = tokens.iter().map(|&t| get_op(t)).collect();
         assert_eq!(ops[0], MorphOp::Root);
-        assert_ne!(ops[1], MorphOp::Root, "the affix must not also be classified Root");
-        assert_ne!(ops[1], MorphOp::None, "a real affix allomorph must classify to a real op");
+        assert_ne!(
+            ops[1],
+            MorphOp::Root,
+            "the affix must not also be classified Root"
+        );
+        assert_ne!(
+            ops[1],
+            MorphOp::None,
+            "a real affix allomorph must classify to a real op"
+        );
     }
 
     /// `MorphTokenCodecTests.Encode_Compound_KeepsBothStems_OneRoot`: two root morphs, exactly one
@@ -512,27 +568,38 @@ mod tests {
         // non-head — `classify_op` only inspects `AllomorphOwner`/`is_head_root`, not whether any
         // real `CompoundingRule` references this pair, so any second root allomorph exercises the
         // identical code path a genuine compound would.
-        let Some((non_head_allo, non_head_morpheme)) =
-            roots.find(|&(_, m)| m != head_morpheme)
+        let Some((non_head_allo, non_head_morpheme)) = roots.find(|&(_, m)| m != head_morpheme)
         else {
             panic!("Indonesian grammar has fewer than two distinct root morphemes");
         };
 
         let mut w = empty_word();
         w.root_allomorph = Some(head_allo);
-        w.morphs =
-            vec![MorphRecord::new(head_allo, head_morpheme, 0), MorphRecord::new(non_head_allo, non_head_morpheme, 1)];
+        w.morphs = vec![
+            MorphRecord::new(head_allo, head_morpheme, 0),
+            MorphRecord::new(non_head_allo, non_head_morpheme, 1),
+        ];
 
         let mut codec = MorphTokenCodec::new();
         let tokens = codec.encode(&g, &w);
 
         assert_eq!(tokens.len(), 2, "two stems -> two morphemes, neither lost");
         let ops: Vec<MorphOp> = tokens.iter().map(|&t| get_op(t)).collect();
-        assert_eq!(ops.iter().filter(|&&op| op == MorphOp::Root).count(), 1, "exactly one Root");
-        assert!(ops.contains(&MorphOp::Compound), "the non-head stem must be tagged Compound, not lost");
+        assert_eq!(
+            ops.iter().filter(|&&op| op == MorphOp::Root).count(),
+            1,
+            "exactly one Root"
+        );
+        assert!(
+            ops.contains(&MorphOp::Compound),
+            "the non-head stem must be tagged Compound, not lost"
+        );
         assert_eq!(root_index(&tokens), 0);
 
-        let decoded: Vec<MorphemeId> = tokens.iter().map(|&t| codec.get_morpheme(get_morpheme_id(t))).collect();
+        let decoded: Vec<MorphemeId> = tokens
+            .iter()
+            .map(|&t| codec.get_morpheme(get_morpheme_id(t)))
+            .collect();
         assert_eq!(decoded, vec![head_morpheme, non_head_morpheme]);
     }
 }

@@ -50,7 +50,11 @@ fn n3_pattern_shapes_grammar_loads_with_the_allomorph_present() {
     let xml = std::fs::read_to_string(fixture_path("grammar.xml")).expect("read grammar.xml");
     let grammar = load(&xml).unwrap_or_else(|e| panic!("grammar failed to load: {e}"));
     assert_eq!(grammar.entries.len(), 1, "the lexical entry must survive");
-    assert_eq!(grammar.entries[0].allomorphs.len(), 1, "the pattern-shaped allomorph must survive");
+    assert_eq!(
+        grammar.entries[0].allomorphs.len(),
+        1,
+        "the pattern-shaped allomorph must survive"
+    );
 }
 
 /// End-to-end replay against the oracle TSV — live since wave-4's `CdSet`-aware edge matching
@@ -66,6 +70,9 @@ fn n3_pattern_shapes_matches_oracle_end_to_end() {
     let cases = [("bat", "|b[ae]t"), ("bet", "|b[ae]t")];
     for (word, expected) in cases {
         let got = morpher.parse_word(word).signature();
-        assert_eq!(got, expected, "word {word:?}: signature mismatch vs C# oracle");
+        assert_eq!(
+            got, expected,
+            "word {word:?}: signature mismatch vs C# oracle"
+        );
     }
 }

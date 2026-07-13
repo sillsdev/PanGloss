@@ -21,12 +21,19 @@ pub enum CompileNode {
     /// A single-segment arc constraint (match = [`hc_featstruct::flat_unifiable`]).
     Constraint(Vec<u64>),
     /// A named capture group around a child sequence (C# `CreateTag` start/end).
-    Group { name: String, children: Vec<CompileNode> },
+    Group {
+        name: String,
+        children: Vec<CompileNode>,
+    },
     /// `(alt0 | alt1 | ...)` — each alternative is its own node sequence.
     Alternation(Vec<Vec<CompileNode>>),
     /// `{min,max}` repetition of a child sequence; `max == None` is unbounded (Kleene).
     /// `min == 0` makes the whole thing optional.
-    Quantifier { min: u32, max: Option<u32>, children: Vec<CompileNode> },
+    Quantifier {
+        min: u32,
+        max: Option<u32>,
+        children: Vec<CompileNode>,
+    },
 }
 
 /// A whole pattern to compile into one FST. A single accepting alternative (id + priority),
@@ -110,7 +117,9 @@ fn gen_node(nfa: &mut Nfa, source: usize, node: &CompileNode) -> usize {
             }
             merge
         }
-        CompileNode::Quantifier { min, max, children } => gen_quantifier(nfa, source, *min, *max, children),
+        CompileNode::Quantifier { min, max, children } => {
+            gen_quantifier(nfa, source, *min, *max, children)
+        }
     }
 }
 

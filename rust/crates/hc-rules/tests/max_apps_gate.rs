@@ -77,7 +77,10 @@ fn insert_segments(g: &Grammar, text: &str) -> OutputAction {
     let shape = hc_grammar::segment::segment(&g.char_tables[0], text).expect("segments");
     OutputAction::InsertSegments {
         table: TableId(0),
-        shape: SegmentedText { text: text.to_string(), shape },
+        shape: SegmentedText {
+            text: text.to_string(),
+            shape,
+        },
     }
 }
 
@@ -116,7 +119,10 @@ fn self_matching_suffix_rule(g: &Grammar, morpheme: u32, seg: &str, max_apps: u1
         allomorphs: vec![allomorph(
             morpheme,
             vec![one_or_more("nc_any", g)],
-            vec![OutputAction::Copy(PartRef::Input(0)), insert_segments(g, seg)],
+            vec![
+                OutputAction::Copy(PartRef::Input(0)),
+                insert_segments(g, seg),
+            ],
         )],
     })
 }
@@ -171,14 +177,20 @@ fn max_apps_one_gates_a_self_matching_rule_to_a_single_unapplication() {
     for order in [MorphRuleOrder::Linear, MorphRuleOrder::Unordered] {
         let s = push_stratum(&mut g, order, vec![rid]);
         let out = analyze_stratum(&g, s, word(&g, "app", s), &cfg, &budget);
-        assert!(!out.capped, "{order:?}: gate must terminate without the step cap firing");
+        assert!(
+            !out.capped,
+            "{order:?}: gate must terminate without the step cap firing"
+        );
 
         let got = candidate_shapes(&out.words);
         let seed = vec![cd(&g, "char_a"), cd(&g, "char_p"), cd(&g, "char_p")];
         let one_unapplied = vec![cd(&g, "char_a"), cd(&g, "char_p")];
         let two_unapplied = vec![cd(&g, "char_a")];
 
-        assert!(got.contains(&seed), "{order:?}: seed [app] present; got {got:?}");
+        assert!(
+            got.contains(&seed),
+            "{order:?}: seed [app] present; got {got:?}"
+        );
         assert!(
             got.contains(&one_unapplied),
             "{order:?}: one unapplication [ap] reachable; got {got:?}"
@@ -208,17 +220,31 @@ fn max_apps_two_allows_exactly_two_unapplications_not_three() {
     let s = push_stratum(&mut g, MorphRuleOrder::Unordered, vec![rid]);
 
     let out = analyze_stratum(&g, s, word(&g, "appp", s), &cfg, &budget);
-    assert!(!out.capped, "gate must terminate without the step cap firing");
+    assert!(
+        !out.capped,
+        "gate must terminate without the step cap firing"
+    );
 
     let got = candidate_shapes(&out.words);
-    let seed = vec![cd(&g, "char_a"), cd(&g, "char_p"), cd(&g, "char_p"), cd(&g, "char_p")];
+    let seed = vec![
+        cd(&g, "char_a"),
+        cd(&g, "char_p"),
+        cd(&g, "char_p"),
+        cd(&g, "char_p"),
+    ];
     let one = vec![cd(&g, "char_a"), cd(&g, "char_p"), cd(&g, "char_p")];
     let two = vec![cd(&g, "char_a"), cd(&g, "char_p")];
     let three = vec![cd(&g, "char_a")];
 
     assert!(got.contains(&seed), "seed [appp] present; got {got:?}");
-    assert!(got.contains(&one), "one unapplication [app] reachable; got {got:?}");
-    assert!(got.contains(&two), "two unapplications [ap] reachable; got {got:?}");
+    assert!(
+        got.contains(&one),
+        "one unapplication [app] reachable; got {got:?}"
+    );
+    assert!(
+        got.contains(&two),
+        "two unapplications [ap] reachable; got {got:?}"
+    );
     assert!(
         !got.contains(&three),
         "max_apps=2 must block the third unapplication to [a]; got {got:?}"

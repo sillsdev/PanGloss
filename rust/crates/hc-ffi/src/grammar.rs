@@ -11,7 +11,9 @@
 use hc_grammar::model::Grammar;
 use hc_parse::Morpher;
 
-use crate::error::{clear_error, set_error, HcError, HC_ERR_GRAMMAR_LOAD, HC_ERR_NULL_ARG, HC_ERR_UTF8, HC_OK};
+use crate::error::{
+    clear_error, set_error, HcError, HC_ERR_GRAMMAR_LOAD, HC_ERR_NULL_ARG, HC_ERR_UTF8, HC_OK,
+};
 
 /// Opaque handle type in the C ABI (`typedef void* HcGrammarHandle;`). Actually a
 /// `Box<GrammarHandle>` leaked via [`Box::into_raw`]; reclaimed by [`hc_grammar_free`].
@@ -101,7 +103,10 @@ pub unsafe extern "C" fn hc_grammar_load(
             return Err((HC_ERR_NULL_ARG, "hc_grammar_load: out is null".to_string()));
         }
         if len > 0 && xml_utf8.is_null() {
-            return Err((HC_ERR_NULL_ARG, "hc_grammar_load: xml_utf8 is null but len > 0".to_string()));
+            return Err((
+                HC_ERR_NULL_ARG,
+                "hc_grammar_load: xml_utf8 is null but len > 0".to_string(),
+            ));
         }
         // SAFETY: `xml_utf8`/`len` validity is this function's documented precondition; the
         // null+zero-length case is handled above without dereferencing anything.
@@ -110,8 +115,12 @@ pub unsafe extern "C" fn hc_grammar_load(
         } else {
             unsafe { std::slice::from_raw_parts(xml_utf8, len) }
         };
-        let xml = std::str::from_utf8(bytes)
-            .map_err(|e| (HC_ERR_UTF8, format!("hc_grammar_load: invalid UTF-8 in grammar xml: {e}")))?;
+        let xml = std::str::from_utf8(bytes).map_err(|e| {
+            (
+                HC_ERR_UTF8,
+                format!("hc_grammar_load: invalid UTF-8 in grammar xml: {e}"),
+            )
+        })?;
         hc_grammar::load(xml).map_err(|e| (HC_ERR_GRAMMAR_LOAD, format!("hc_grammar_load: {e}")))
     });
 
@@ -163,7 +172,10 @@ pub unsafe extern "C" fn hc_grammar_free(handle: HcGrammarHandle) {
     if let Err(payload) = result {
         // No error channel on this signature (plan §4.2: `void` return) — the panic is still
         // caught (never crosses the boundary), just not reportable beyond a diagnostic.
-        eprintln!("hc_grammar_free: caught panic: {}", crate::error::panic_message(payload));
+        eprintln!(
+            "hc_grammar_free: caught panic: {}",
+            crate::error::panic_message(payload)
+        );
     }
 }
 

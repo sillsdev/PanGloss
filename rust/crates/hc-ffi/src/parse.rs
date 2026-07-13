@@ -5,7 +5,10 @@
 //! raised inside a worker thread and propagated out through `par_iter`/`.install()` is caught
 //! here, not left to unwind across the `extern "C"` frame.
 
-use crate::error::{write_buf, write_empty_buf, HcResultBuf, HC_ERR_INVALID_ARG, HC_ERR_NULL_ARG, HC_ERR_PANIC, HC_ERR_UTF8, HC_OK};
+use crate::error::{
+    write_buf, write_empty_buf, HcResultBuf, HC_ERR_INVALID_ARG, HC_ERR_NULL_ARG, HC_ERR_PANIC,
+    HC_ERR_UTF8, HC_OK,
+};
 use crate::grammar::HcGrammarHandle;
 
 /// A borrowed UTF-8 string passed into `hc_parse_batch` (plan §4.2's `HcStr`): a pointer + byte
@@ -44,7 +47,11 @@ pub unsafe extern "C" fn hc_parse_word(
         }
         // SAFETY: `word_utf8`/`len` validity is this function's documented precondition; the
         // null+zero-length case never dereferences the pointer.
-        let bytes: &[u8] = if len == 0 { &[] } else { unsafe { std::slice::from_raw_parts(word_utf8, len) } };
+        let bytes: &[u8] = if len == 0 {
+            &[]
+        } else {
+            unsafe { std::slice::from_raw_parts(word_utf8, len) }
+        };
         let word = std::str::from_utf8(bytes).map_err(|_| HC_ERR_UTF8)?;
         let outcome = gh.morpher.parse_word(word);
         Ok(crate::buffer::encode_single(&outcome))
@@ -91,7 +98,11 @@ pub unsafe extern "C" fn hc_parse_batch(
             }
             // SAFETY: each entry's `(ptr, len)` validity is this function's documented
             // precondition; the null+zero-length case never dereferences the pointer.
-            let bytes: &[u8] = if hs.len == 0 { &[] } else { unsafe { std::slice::from_raw_parts(hs.ptr, hs.len) } };
+            let bytes: &[u8] = if hs.len == 0 {
+                &[]
+            } else {
+                unsafe { std::slice::from_raw_parts(hs.ptr, hs.len) }
+            };
             let s = std::str::from_utf8(bytes).map_err(|_| HC_ERR_UTF8)?;
             rust_words.push(s.to_string());
         }
@@ -108,7 +119,10 @@ pub unsafe extern "C" fn hc_parse_batch(
 /// `hc_generate_words`): turn a `catch_unwind` result into a return code, always leaving `*out` in
 /// a valid, freeable state. `pub(crate)` so `generate` can reuse it rather than duplicating the
 /// three-way match.
-pub(crate) fn finish(result: std::thread::Result<Result<Vec<u8>, i32>>, out: *mut HcResultBuf) -> i32 {
+pub(crate) fn finish(
+    result: std::thread::Result<Result<Vec<u8>, i32>>,
+    out: *mut HcResultBuf,
+) -> i32 {
     match result {
         Ok(Ok(bytes)) => {
             write_buf(out, bytes);
@@ -150,6 +164,9 @@ pub unsafe extern "C" fn hc_buf_free(buf: *mut HcResultBuf) {
         *b = HcResultBuf::EMPTY;
     });
     if let Err(payload) = result {
-        eprintln!("hc_buf_free: caught panic: {}", crate::error::panic_message(payload));
+        eprintln!(
+            "hc_buf_free: caught panic: {}",
+            crate::error::panic_message(payload)
+        );
     }
 }

@@ -105,11 +105,19 @@ pub struct Register {
 impl Register {
     #[inline]
     pub const fn unset() -> Register {
-        Register { offset: 0, start: false, has: false }
+        Register {
+            offset: 0,
+            start: false,
+            has: false,
+        }
     }
     #[inline]
     pub const fn at(offset: i32, start: bool) -> Register {
-        Register { offset, start, has: true }
+        Register {
+            offset,
+            start,
+            has: true,
+        }
     }
     /// C# `Register.ValueEquals`.
     #[inline]

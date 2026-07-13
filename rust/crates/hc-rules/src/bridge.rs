@@ -73,7 +73,11 @@ pub fn pattern_var_occurrences(pattern: &Pattern) -> Vec<Vec<VarOccur>> {
             PatternNode::Context(sc) => sc
                 .vars
                 .iter()
-                .map(|av| VarOccur { feature: av.feature.0 as usize, var: av.var.0, plus: av.plus })
+                .map(|av| VarOccur {
+                    feature: av.feature.0 as usize,
+                    var: av.var.0,
+                    plus: av.plus,
+                })
                 .collect(),
             _ => Vec::new(),
         })
@@ -170,7 +174,10 @@ pub(crate) fn id_lane_width(grammar: &Grammar, table: TableId) -> Option<usize> 
 /// bitset `bits` there. (`lanes` may be shorter than `w` if a producer trimmed trailing
 /// unconstrained feature lanes; padding preserves that meaning.)
 pub(crate) fn push_id_lane(lanes: &mut Vec<u64>, w: usize, bits: u64) {
-    debug_assert!(lanes.len() <= w, "feature lanes wider than the id-lane index");
+    debug_assert!(
+        lanes.len() <= w,
+        "feature lanes wider than the id-lane index"
+    );
     while lanes.len() < w {
         lanes.push(UNCONSTRAINED);
     }
@@ -180,7 +187,12 @@ pub(crate) fn push_id_lane(lanes: &mut Vec<u64>, w: usize, bits: u64) {
 impl<'g> PatternBridge<'g> {
     /// A bridge resolving against table `TableId(0)`, compiling deterministic FSTs.
     pub fn new(grammar: &'g Grammar) -> Self {
-        PatternBridge { grammar, table: TableId(0), deterministic: true, id_lane: false }
+        PatternBridge {
+            grammar,
+            table: TableId(0),
+            deterministic: true,
+            id_lane: false,
+        }
     }
 
     /// Resolve char-defs/segment classes against a specific table.
@@ -345,7 +357,11 @@ impl<'g> PatternBridge<'g> {
                     // (its own throwaway flags, which stay false for real data).
                     let (mut cs, mut ce) = (false, false);
                     self.compile_nodes(children, &mut child_nodes, &mut cs, &mut ce, uses_vars)?;
-                    out.push(CompileNode::Quantifier { min: *min, max: *max, children: child_nodes });
+                    out.push(CompileNode::Quantifier {
+                        min: *min,
+                        max: *max,
+                        children: child_nodes,
+                    });
                 }
                 PatternNode::Segments { table, shape } => {
                     let seg_table = &self.grammar.char_tables[table.0 as usize];

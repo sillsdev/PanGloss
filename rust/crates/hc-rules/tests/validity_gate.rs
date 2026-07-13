@@ -35,7 +35,12 @@ fn probe_shape(g: &Grammar, text: &str) -> Shape {
     let mut b = ShapeBuilder::with_features_capacity(w, seg.len());
     for (_, kind, cd, _) in seg.interior() {
         let mut lanes = vec![u64::MAX; w as usize];
-        for (i, &l) in t.get(hc_grammar::chardef::CharDefId(cd)).feature_lanes().iter().enumerate() {
+        for (i, &l) in t
+            .get(hc_grammar::chardef::CharDefId(cd))
+            .feature_lanes()
+            .iter()
+            .enumerate()
+        {
             lanes[i] = l;
         }
         match kind {
@@ -48,11 +53,17 @@ fn probe_shape(g: &Grammar, text: &str) -> Shape {
 }
 
 fn single(g: &Grammar, nc: &str) -> Pattern {
-    Pattern { nodes: vec![PatternNode::Context(ctx(nat_class(g, nc)))] }
+    Pattern {
+        nodes: vec![PatternNode::Context(ctx(nat_class(g, nc)))],
+    }
 }
 
 fn env(require: bool, left: Option<Pattern>, right: Option<Pattern>) -> EnvironmentDef {
-    EnvironmentDef { require, left, right }
+    EnvironmentDef {
+        require,
+        left,
+        right,
+    }
 }
 
 /// A required environment with both sides declared must anchor each side to the *correct* edge of
@@ -69,19 +80,31 @@ fn environments_ok_anchors_left_and_right_to_the_correct_sides() {
 
     // "dat": preceded by d, followed by t -- both sides hold.
     let dat = probe_shape(&g, "dat");
-    assert!(environments_ok(&g, &envs, &dat, 1, 1), "d _ t: both sides should hold");
+    assert!(
+        environments_ok(&g, &envs, &dat, 1, 1),
+        "d _ t: both sides should hold"
+    );
 
     // "tad": preceded by t (not d), followed by d (not t) -- both sides fail.
     let tad = probe_shape(&g, "tad");
-    assert!(!environments_ok(&g, &envs, &tad, 1, 1), "t _ d: neither side should hold");
+    assert!(
+        !environments_ok(&g, &envs, &tad, 1, 1),
+        "t _ d: neither side should hold"
+    );
 
     // "dad": preceded by d (holds), followed by d not t (fails) -- AND semantics, overall false.
     let dad = probe_shape(&g, "dad");
-    assert!(!environments_ok(&g, &envs, &dad, 1, 1), "d _ d: right side fails, so overall false");
+    assert!(
+        !environments_ok(&g, &envs, &dad, 1, 1),
+        "d _ d: right side fails, so overall false"
+    );
 
     // "tat": preceded by t not d (fails), followed by t (holds) -- overall false.
     let tat = probe_shape(&g, "tat");
-    assert!(!environments_ok(&g, &envs, &tat, 1, 1), "t _ t: left side fails, so overall false");
+    assert!(
+        !environments_ok(&g, &envs, &tat, 1, 1),
+        "t _ t: left side fails, so overall false"
+    );
 }
 
 /// A left-only environment anchored at the word start: on "at" the target morph (index 0, the "a")
@@ -93,7 +116,10 @@ fn environments_ok_left_only_requires_real_preceding_context() {
     let envs = vec![env(true, Some(single(&g, "nc_d")), None)];
 
     let at = probe_shape(&g, "at");
-    assert!(!environments_ok(&g, &envs, &at, 0, 0), "no left context at all -- cannot match nc_d");
+    assert!(
+        !environments_ok(&g, &envs, &at, 0, 0),
+        "no left context at all -- cannot match nc_d"
+    );
 
     let dat = probe_shape(&g, "dat");
     assert!(environments_ok(&g, &envs, &dat, 1, 1), "preceded by d");
@@ -109,10 +135,16 @@ fn environments_ok_exclude_type_inverts_the_match() {
     let envs = vec![env(false, None, Some(single(&g, "nc_t")))];
 
     let dat = probe_shape(&g, "dat"); // "a" (index 1) IS followed by t -- excluded pattern matches,
-    assert!(!environments_ok(&g, &envs, &dat, 1, 1), "excluded env matched -> word invalid");
+    assert!(
+        !environments_ok(&g, &envs, &dat, 1, 1),
+        "excluded env matched -> word invalid"
+    );
 
     let dad = probe_shape(&g, "dad"); // "a" (index 1) is followed by d, not t -- exclusion holds.
-    assert!(environments_ok(&g, &envs, &dad, 1, 1), "excluded env did not match -> word valid");
+    assert!(
+        environments_ok(&g, &envs, &dad, 1, 1),
+        "excluded env did not match -> word valid"
+    );
 }
 
 /// No declared environments is vacuously valid (`Environments.Count > 0` guard, Allomorph.cs:112).
@@ -144,17 +176,26 @@ fn environments_ok_two_entries_use_or_semantics() {
     // "dat", morph = the middle "a": preceded by d — entry 1 holds, entry 2 fails. Exactly one
     // satisfied ⇒ must PASS (an AND regression fails here).
     let dat = probe_shape(&g, "dat");
-    assert!(environments_ok(&g, &envs, &dat, 1, 1), "one of two environments holds -> valid");
+    assert!(
+        environments_ok(&g, &envs, &dat, 1, 1),
+        "one of two environments holds -> valid"
+    );
 
     // "tad": preceded by t — exactly the OTHER entry holds ⇒ must also pass (pins that the OR is
     // over the whole list, not a lucky first-entry short-circuit).
     let tad = probe_shape(&g, "tad");
-    assert!(environments_ok(&g, &envs, &tad, 1, 1), "the other of two environments holds -> valid");
+    assert!(
+        environments_ok(&g, &envs, &tad, 1, 1),
+        "the other of two environments holds -> valid"
+    );
 
     // "aat": preceded by a (cons−, featurally disjoint from both d and t — n would NOT do here,
     // it is featurally identical to d in the probe grammar) — neither entry holds ⇒ must FAIL.
     let aat = probe_shape(&g, "aat");
-    assert!(!environments_ok(&g, &envs, &aat, 1, 1), "neither environment holds -> invalid");
+    assert!(
+        !environments_ok(&g, &envs, &aat, 1, 1),
+        "neither environment holds -> invalid"
+    );
 }
 
 // =================================================================================================
@@ -273,7 +314,9 @@ fn find_entry<'g>(g: &'g Grammar, text: &str) -> &'g hc_grammar::model::LexEntry
 }
 
 fn suffix_allomorph(g: &Grammar) -> (AllomorphId, hc_grammar::model::MorphemeId) {
-    let MorphRuleDef::AffixProcess(def) = &g.mrules[0] else { panic!("expected affix rule") };
+    let MorphRuleDef::AffixProcess(def) = &g.mrules[0] else {
+        panic!("expected affix rule")
+    };
     (def.allomorphs[0].id, def.morpheme)
 }
 
@@ -284,13 +327,19 @@ fn bound_root_alone_is_rejected() {
     let g = load_gate_grammar();
     let bat = find_entry(&g, "bat");
     let root_allo = bat.allomorphs[0].id;
-    assert!(bat.allomorphs[0].is_bound, "sanity: eBat's allomorph is isBound=\"true\"");
+    assert!(
+        bat.allomorphs[0].is_bound,
+        "sanity: eBat's allomorph is isBound=\"true\""
+    );
 
     let mut w = Word::new(entry_shape(&g, "bat"), hc_grammar::model::StratumId(0));
     w.syn_fs = g.fs_interner.get(bat.syn_fs).clone();
     w.morphs = vec![MorphRecord::new(root_allo, bat.morpheme, 0)];
 
-    assert!(!allomorphs_valid(&g, &w), "a bound root as the word's only allomorph must be rejected");
+    assert!(
+        !allomorphs_valid(&g, &w),
+        "a bound root as the word's only allomorph must be rejected"
+    );
 }
 
 /// The same bound root combined with the suffix (`distinct_count == 2`) is no longer rejected by
@@ -309,7 +358,10 @@ fn bound_root_with_an_affix_is_not_rejected_by_the_bound_gate() {
         MorphRecord::new(affix_allo, affix_morpheme, 3),
     ];
 
-    assert!(allomorphs_valid(&g, &w), "bound root + affix (distinct_count=2) must not be rejected");
+    assert!(
+        allomorphs_valid(&g, &w),
+        "bound root + affix (distinct_count=2) must not be rejected"
+    );
 }
 
 /// `AffixProcessAllomorph.RequiredSyntacticFeatureStruct` is re-checked at final-validity time
@@ -327,7 +379,10 @@ fn required_syntactic_fs_gates_on_the_words_accumulated_syn_fs() {
         MorphRecord::new(cat.allomorphs[0].id, cat.morpheme, 0),
         MorphRecord::new(affix_allo, affix_morpheme, 3),
     ];
-    assert!(!allomorphs_valid(&g, &w_cat), "cat is num=sg; the suffix requires num=pl -- must reject");
+    assert!(
+        !allomorphs_valid(&g, &w_cat),
+        "cat is num=sg; the suffix requires num=pl -- must reject"
+    );
 
     let dog = find_entry(&g, "dog");
     let mut w_dog = Word::new(entry_shape(&g, "dogx"), hc_grammar::model::StratumId(0));
@@ -336,5 +391,8 @@ fn required_syntactic_fs_gates_on_the_words_accumulated_syn_fs() {
         MorphRecord::new(dog.allomorphs[0].id, dog.morpheme, 0),
         MorphRecord::new(affix_allo, affix_morpheme, 3),
     ];
-    assert!(allomorphs_valid(&g, &w_dog), "dog is num=pl; the suffix's requirement is satisfied");
+    assert!(
+        allomorphs_valid(&g, &w_dog),
+        "dog is num=pl; the suffix's requirement is satisfied"
+    );
 }

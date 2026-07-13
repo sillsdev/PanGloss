@@ -41,7 +41,9 @@
 //! exercised, not vacuously skipped).
 
 mod csharp_port_common;
-use csharp_port_common::{assert_empty, assert_morphs_eq, build_grammar, build_grammar_cooccurrence, build_grammar_linear};
+use csharp_port_common::{
+    assert_empty, assert_morphs_eq, build_grammar, build_grammar_cooccurrence, build_grammar_linear,
+};
 use hc_parse::Morpher;
 use std::collections::BTreeSet;
 
@@ -128,8 +130,18 @@ fn analyze_word_concurrent_repeated_parsing_is_deterministic() {
     let memo_on = Morpher::new(&g, usize::MAX).with_memo(true);
     let memo_off = Morpher::new(&g, usize::MAX).with_memo(false);
     for word in ["sagd", "sag", "tag", "tagd", "gag", "xyzzy"] {
-        let a: BTreeSet<String> = memo_on.parse_word(word).analyses.into_iter().map(|(m, s)| format!("{m}|{s}")).collect();
-        let b: BTreeSet<String> = memo_off.parse_word(word).analyses.into_iter().map(|(m, s)| format!("{m}|{s}")).collect();
+        let a: BTreeSet<String> = memo_on
+            .parse_word(word)
+            .analyses
+            .into_iter()
+            .map(|(m, s)| format!("{m}|{s}"))
+            .collect();
+        let b: BTreeSet<String> = memo_off
+            .parse_word(word)
+            .analyses
+            .into_iter()
+            .map(|(m, s)| format!("{m}|{s}"))
+            .collect();
         assert_eq!(a, b, "memo-on vs memo-off disagree for {word:?}");
     }
 }
@@ -166,8 +178,18 @@ fn parse_word_single_threaded_matches_parallel_with_compounding() {
     let memo_on = Morpher::new(&g, usize::MAX).with_memo(true);
     let memo_off = Morpher::new(&g, usize::MAX).with_memo(false);
     for word in ["pʰutdidat", "pʰutdat"] {
-        let a: BTreeSet<String> = memo_on.parse_word(word).analyses.into_iter().map(|(m, s)| format!("{m}|{s}")).collect();
-        let b: BTreeSet<String> = memo_off.parse_word(word).analyses.into_iter().map(|(m, s)| format!("{m}|{s}")).collect();
+        let a: BTreeSet<String> = memo_on
+            .parse_word(word)
+            .analyses
+            .into_iter()
+            .map(|(m, s)| format!("{m}|{s}"))
+            .collect();
+        let b: BTreeSet<String> = memo_off
+            .parse_word(word)
+            .analyses
+            .into_iter()
+            .map(|(m, s)| format!("{m}|{s}"))
+            .collect();
         assert_eq!(a, b, "memo-on vs memo-off disagree for {word:?}");
     }
 }
@@ -212,8 +234,18 @@ fn parse_word_single_threaded_matches_parallel_with_affix_template() {
     let memo_on = Morpher::new(&g, usize::MAX).with_memo(true);
     let memo_off = Morpher::new(&g, usize::MAX).with_memo(false);
     for word in ["digusagd", "disagd", "gusagd", "sagd", "sag"] {
-        let a: BTreeSet<String> = memo_on.parse_word(word).analyses.into_iter().map(|(m, s)| format!("{m}|{s}")).collect();
-        let b: BTreeSet<String> = memo_off.parse_word(word).analyses.into_iter().map(|(m, s)| format!("{m}|{s}")).collect();
+        let a: BTreeSet<String> = memo_on
+            .parse_word(word)
+            .analyses
+            .into_iter()
+            .map(|(m, s)| format!("{m}|{s}"))
+            .collect();
+        let b: BTreeSet<String> = memo_off
+            .parse_word(word)
+            .analyses
+            .into_iter()
+            .map(|(m, s)| format!("{m}|{s}"))
+            .collect();
         assert_eq!(a, b, "memo-on vs memo-off disagree for {word:?}");
     }
 }

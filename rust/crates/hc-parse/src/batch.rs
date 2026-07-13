@@ -66,7 +66,11 @@ pub struct BatchWordOutcome {
 /// Panics if the rayon pool fails to build (e.g. `max_threads` combined with OS thread limits) —
 /// this mirrors `hc-cli`'s existing `.expect("spawn worker")` treatment of the equivalent
 /// main-thread setup failure: an environment problem, not a recoverable parse-time error.
-pub fn hc_parse_batch(morpher: &Morpher, words: &[String], max_threads: usize) -> Vec<BatchWordOutcome> {
+pub fn hc_parse_batch(
+    morpher: &Morpher,
+    words: &[String],
+    max_threads: usize,
+) -> Vec<BatchWordOutcome> {
     let n = words.len();
     if n == 0 {
         return Vec::new();
@@ -95,7 +99,9 @@ pub fn hc_parse_batch(morpher: &Morpher, words: &[String], max_threads: usize) -
             .for_each(|(&orig_idx, slot)| {
                 #[cfg(feature = "test-panic-hook")]
                 if words[orig_idx] == TEST_PANIC_WORD {
-                    panic!("hc_parse_batch test-panic-hook: deliberate panic for abort-safety test");
+                    panic!(
+                        "hc_parse_batch test-panic-hook: deliberate panic for abort-safety test"
+                    );
                 }
                 let start = Instant::now();
                 let outcome = morpher.parse_word(&words[orig_idx]);

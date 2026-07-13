@@ -153,19 +153,26 @@ fn build_trie(g: &Grammar) -> (Trie, Morpher<'_>) {
 /// default budget -- the caller asserts what it expects (see each `#[test]`'s own comment: 0 for
 /// Indonesian; the feasibility report's own "exactly the 2 known pathological-tail Sena words" for
 /// Sena, since the golden itself does not capture `BeamOverflowCount` -- see this file's module doc
-/// and `MANIFEST.txt` §4b).
-fn run_gate(grammar_file: &str, words_file: &str, golden_dir: &str, golden_file_name: &str) -> usize {
+/// and `MANIFEST.txt` §4b). Returns `None` when the (gitignored, real-language) sample/golden data
+/// isn't present on disk -- a bare `0` sentinel would be indistinguishable from a real "zero
+/// overflows" result and silently turn a skip into a false failure (Sena expects exactly 2).
+fn run_gate(
+    grammar_file: &str,
+    words_file: &str,
+    golden_dir: &str,
+    golden_file_name: &str,
+) -> Option<usize> {
     let Some(gpath) = sample_path(grammar_file) else {
         eprintln!("skipping {grammar_file}: not present on disk");
-        return 0;
+        return None;
     };
     let Some(wpath) = words_path(golden_dir, words_file) else {
         eprintln!("skipping {words_file}: not present on disk");
-        return 0;
+        return None;
     };
     let Some(gold_path) = golden_path(golden_dir, golden_file_name) else {
         eprintln!("skipping {golden_dir}/{golden_file_name}: golden not present on disk");
-        return 0;
+        return None;
     };
 
     let xml = std::fs::read_to_string(&gpath).expect("read grammar");
@@ -190,20 +197,25 @@ fn run_gate(grammar_file: &str, words_file: &str, golden_dir: &str, golden_file_
         );
     }
 
-    overflow_count(&g, &trie, &words)
+    Some(overflow_count(&g, &trie, &words))
 }
 
 #[test]
 fn indonesian_bare_candidates_match_golden_full_corpus() {
-    let overflows = run_gate(
+    let Some(overflows) = run_gate(
         "indonesian-hc.xml",
         "indonesian-words.txt",
         "indonesian",
         "candidates-bare.tsv",
-    );
+    ) else {
+        return; // sample/golden data not present on disk (see run_gate's doc)
+    };
     // Confirmed by an independent C#-side check too (fst-oracle commit 955db645,
     // `BeamOverflowCount: 0` on the full 121-word corpus at the same default budget).
-    assert_eq!(overflows, 0, "Indonesian: the default budget must clip nothing healthy");
+    assert_eq!(
+        overflows, 0,
+        "Indonesian: the default budget must clip nothing healthy"
+    );
 }
 
 /// Fast, always-run Sena gate: the 60-word guarded slice (same file the C# side calls
@@ -215,12 +227,14 @@ fn indonesian_bare_candidates_match_golden_full_corpus() {
 /// relaxation of the gate.
 #[test]
 fn sena_bare_candidates_match_golden_slice_60() {
-    let overflows = run_gate(
+    let Some(overflows) = run_gate(
         "sena-hc.xml",
         "slice-60.txt",
         "sena",
         "candidates-bare-slice60.tsv",
-    );
+    ) else {
+        return; // sample/golden data not present on disk (see run_gate's doc)
+    };
     assert_eq!(
         overflows, 2,
         "Sena slice-60: expected exactly the 2 known pathological-tail words (kakamwe, \
@@ -240,12 +254,14 @@ fn sena_bare_candidates_match_golden_slice_60() {
             even --release); the slice-60 gate already covers candidate-parity + the 2 known \
             pathological words. Run manually with --ignored --release; see module doc."]
 fn sena_bare_candidates_match_golden_full_corpus() {
-    let overflows = run_gate(
+    let Some(overflows) = run_gate(
         "sena-hc.xml",
         "sena-words.txt",
         "sena",
         "candidates-bare-full.tsv",
-    );
+    ) else {
+        return; // sample/golden data not present on disk (see run_gate's doc)
+    };
     eprintln!("Sena full corpus: {overflows} words overflowed the default budget");
 }
 
@@ -261,5 +277,8 @@ fn to_word_analyses_decodes_through_the_tries_own_codec() {
     let g = hc_grammar::load(&xml).unwrap_or_else(|e| panic!("failed to load grammar: {e}"));
     let (trie, _morpher) = build_trie(&g);
     let codec: &MorphTokenCodec = trie.codec();
-    assert!(codec.morpheme_count() > 0, "a real grammar's trie build must register morphemes");
+    assert!(
+        codec.morpheme_count() > 0,
+        "a real grammar's trie build must register morphemes"
+    );
 }

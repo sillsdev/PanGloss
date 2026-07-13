@@ -478,7 +478,13 @@ impl ShapeBuilder {
     /// `Segment`) node — the counterpart of
     /// [`push_segment_with_lanes_and_set`](Self::push_segment_with_lanes_and_set) for the
     /// positional-mutation path (plan §13.1 Tier-1 #3).
-    pub fn insert_with_set(&mut self, index: usize, flags: NodeFlags, lanes: &[u64], cd_set: CdSet) {
+    pub fn insert_with_set(
+        &mut self,
+        index: usize,
+        flags: NodeFlags,
+        lanes: &[u64],
+        cd_set: CdSet,
+    ) {
         self.insert(index, NodeKind::Segment, NO_CHAR_DEF, flags, lanes);
         self.cd_sets[index] = cd_set;
     }
@@ -545,7 +551,10 @@ impl ShapeBuilder {
     }
 
     fn into_shape(self) -> Shape {
-        debug_assert_eq!(self.feat_lanes.len(), self.kinds.len() * self.feat_width as usize);
+        debug_assert_eq!(
+            self.feat_lanes.len(),
+            self.kinds.len() * self.feat_width as usize
+        );
         debug_assert_eq!(self.cd_sets.len(), self.kinds.len());
         Shape {
             kinds: self.kinds.into_boxed_slice(),
@@ -664,7 +673,10 @@ mod tests {
         b.push_boundary(99);
         b.push_segment(2);
         let s = b.finish();
-        let flags: Vec<_> = s.interior().map(|(_, k, _, f)| (k, f.is_optional())).collect();
+        let flags: Vec<_> = s
+            .interior()
+            .map(|(_, k, _, f)| (k, f.is_optional()))
+            .collect();
         assert_eq!(
             flags,
             vec![
@@ -709,7 +721,7 @@ mod tests {
         assert_eq!(s.feat_width(), 2);
         assert_eq!(s.node_lanes(1), &[0b0011, 0b0101]); // segment 0
         assert_eq!(s.node_lanes(2), &[0b1000, 0b0001]); // segment 1
-        // Anchors got the default unconstrained fill.
+                                                        // Anchors got the default unconstrained fill.
         assert_eq!(s.node_lanes(0), &[u64::MAX, u64::MAX]);
         assert_eq!(s.node_lanes(3), &[u64::MAX, u64::MAX]);
         // A feature-less shape has width 0 and empty lane rows (back-compat with the append path).
@@ -737,7 +749,13 @@ mod tests {
         let base = build_with_lanes(2, &[0b0001, 0b0001], &[0b0010, 0b0010]);
         let mut m = ShapeBuilder::from_shape(&base);
         // Insert a new segment at index 2 (between the two segments; epenthesis-style AddAfter).
-        m.insert(2, NodeKind::Segment, 99, NodeFlags::EMPTY, &[0b0100, 0b1000]);
+        m.insert(
+            2,
+            NodeKind::Segment,
+            99,
+            NodeFlags::EMPTY,
+            &[0b0100, 0b1000],
+        );
         let s = m.freeze();
         assert_eq!(s.len(), 5); // one more node
         let interior: Vec<_> = s.interior().map(|(_, k, cd, _)| (k, cd)).collect();
@@ -811,7 +829,13 @@ mod tests {
         let mut m = ShapeBuilder::from_shape(&base);
         m.modify(1, &[0b0001, 0b0001]);
         m.delete(2);
-        m.insert(2, NodeKind::Segment, 77, NodeFlags::EMPTY, &[0b1111, 0b1111]);
+        m.insert(
+            2,
+            NodeKind::Segment,
+            77,
+            NodeFlags::EMPTY,
+            &[0b1111, 0b1111],
+        );
         let mutated = m.freeze();
         // The original frozen shape is completely unaffected by the builder's edits.
         assert_eq!(base.len(), 4);
@@ -829,10 +853,23 @@ mod tests {
         // Full round trip: frozen -> from_shape -> mutate -> freeze -> assert every column.
         let base = build_with_lanes(1, &[0b01], &[0b10]);
         let mut m = ShapeBuilder::from_shape(&base);
-        m.insert(2, NodeKind::Boundary, 5, NodeFlags(NodeFlags::OPTIONAL), &[u64::MAX]);
+        m.insert(
+            2,
+            NodeKind::Boundary,
+            5,
+            NodeFlags(NodeFlags::OPTIONAL),
+            &[u64::MAX],
+        );
         let s = m.freeze();
         let cols: Vec<_> = (0..s.len())
-            .map(|i| (s.kind(i), s.char_def(i), s.flags(i).is_optional(), s.node_lanes(i)[0]))
+            .map(|i| {
+                (
+                    s.kind(i),
+                    s.char_def(i),
+                    s.flags(i).is_optional(),
+                    s.node_lanes(i)[0],
+                )
+            })
             .collect();
         assert_eq!(
             cols,

@@ -18,7 +18,9 @@ use hc_grammar::load;
 use hc_parse::Morpher;
 
 fn fixture_dir(name: &str) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../conformance/realizational").join(name)
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../conformance/realizational")
+        .join(name)
 }
 
 /// Replay one fixture: load its grammar, parse every word in `expected.tsv`, and assert the
@@ -42,7 +44,10 @@ fn replay(name: &str) -> usize {
         }
         let (word, expected_sig) = (cols[1], cols[4]);
         let got = morpher.parse_word(word).signature();
-        assert_eq!(got, expected_sig, "{name}: word {word:?} signature mismatch vs C# oracle");
+        assert_eq!(
+            got, expected_sig,
+            "{name}: word {word:?} signature mismatch vs C# oracle"
+        );
         checked += 1;
     }
     checked
@@ -51,17 +56,29 @@ fn replay(name: &str) -> usize {
 #[test]
 #[ignore = "conformance/ not yet pulled into PanGloss as a submodule -- see docs/hermitcrab-rust-port-audit.md section 5; will start running again once it lands"]
 fn stem_name_matches_oracle() {
-    assert_eq!(replay("stem-name"), 12, "expected.tsv should pin all 12 fixture words");
+    assert_eq!(
+        replay("stem-name"),
+        12,
+        "expected.tsv should pin all 12 fixture words"
+    );
 }
 
 #[test]
 #[ignore = "conformance/ not yet pulled into PanGloss as a submodule -- see docs/hermitcrab-rust-port-audit.md section 5; will start running again once it lands"]
 fn family_blocking_matches_oracle() {
-    assert_eq!(replay("family-blocking"), 4, "expected.tsv should pin all 4 fixture words");
+    assert_eq!(
+        replay("family-blocking"),
+        4,
+        "expected.tsv should pin all 4 fixture words"
+    );
 }
 
 #[test]
 #[ignore = "conformance/ not yet pulled into PanGloss as a submodule -- see docs/hermitcrab-rust-port-audit.md section 5; will start running again once it lands"]
 fn realizational_rule_matches_oracle() {
-    assert_eq!(replay("realizational-rule"), 4, "expected.tsv should pin all 4 fixture words");
+    assert_eq!(
+        replay("realizational-rule"),
+        4,
+        "expected.tsv should pin all 4 fixture words"
+    );
 }

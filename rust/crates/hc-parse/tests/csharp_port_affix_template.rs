@@ -88,7 +88,13 @@ fn non_final_template() {
       <AffixTemplate requiredPartsOfSpeech="posV"><Name>verb</Name><Slot morphologicalRules="mrEd"><Name>Sl1</Name></Slot></AffixTemplate>
       <AffixTemplate requiredPartsOfSpeech="posN"><Name>noun</Name><Slot morphologicalRules="mrS" optional="true"><Name>Sl2</Name></Slot></AffixTemplate>
     "#;
-    let g = csharp_port_common::build_grammar("", "", mrules_final, "mrNom mrCompound", templates_final);
+    let g = csharp_port_common::build_grammar(
+        "",
+        "",
+        mrules_final,
+        "mrNom mrCompound",
+        templates_final,
+    );
     let m = Morpher::new(&g, usize::MAX);
     assert_morphs_eq(&m.parse_word("sagd"), &["32 PAST"]);
     assert_empty(&m.parse_word("sagdv"));
@@ -100,7 +106,13 @@ fn non_final_template() {
       <AffixTemplate requiredPartsOfSpeech="posV" final="false"><Name>verb</Name><Slot morphologicalRules="mrEd"><Name>Sl1</Name></Slot></AffixTemplate>
       <AffixTemplate requiredPartsOfSpeech="posN"><Name>noun</Name><Slot morphologicalRules="mrS" optional="true"><Name>Sl2</Name></Slot></AffixTemplate>
     "#;
-    let g2 = csharp_port_common::build_grammar("", "", mrules_final, "mrNom mrCompound", templates_nonfinal);
+    let g2 = csharp_port_common::build_grammar(
+        "",
+        "",
+        mrules_final,
+        "mrNom mrCompound",
+        templates_nonfinal,
+    );
     let m2 = Morpher::new(&g2, usize::MAX);
     assert_empty(&m2.parse_word("sagd"));
     assert_morphs_eq(&m2.parse_word("sagdv"), &["32 PAST NOM"]);
@@ -364,7 +376,8 @@ fn realizational_rule() {
       </AffixTemplate>
     "#;
 
-    let mrules1 = realizational_rule_mrules(r#"<FeatureValue feature="featEvid" symbolValues="symWit" />"#);
+    let mrules1 =
+        realizational_rule_mrules(r#"<FeatureValue feature="featEvid" symbolValues="symWit" />"#);
     let g1 = csharp_port_common::build_grammar_w5(
         "",
         r#"<Families><Family id="famSee">SEE</Family></Families>"#,

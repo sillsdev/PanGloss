@@ -146,7 +146,8 @@ impl CharDefTable {
         let mut lookup: HashMap<String, CharDefId> = HashMap::with_capacity(raw_defs.len() * 2);
 
         for raw in raw_defs {
-            let representations_nfd: Vec<String> = raw.representations.iter().map(|r| nfd(r)).collect();
+            let representations_nfd: Vec<String> =
+                raw.representations.iter().map(|r| nfd(r)).collect();
 
             // C# CharacterDefinitionTable.Add: collision on any normalized representation is an
             // error, checked before the char def is admitted to the table.
@@ -423,8 +424,11 @@ mod tests {
         assert_eq!(lanes.len(), 3);
         assert_eq!(lanes[0], 0b10); // feat1 explicitly set to symM (index 1)
         assert_eq!(lanes[1], feat_sys.mask(FlatIndex(1))); // feat2 unmentioned -> full mask
-        // Type is pinned to Segment-only bits, never left at the default full mask.
-        assert_eq!(lanes[feat_sys.type_flat().0 as usize], crate::featsys::TYPE_SEGMENT_BITS);
+                                                           // Type is pinned to Segment-only bits, never left at the default full mask.
+        assert_eq!(
+            lanes[feat_sys.type_flat().0 as usize],
+            crate::featsys::TYPE_SEGMENT_BITS
+        );
     }
 
     #[test]
@@ -432,7 +436,12 @@ mod tests {
         // The table itself doesn't do the matching (that's segment.rs), but confirm both "s",
         // "y", and "sy" are independently resolvable so segment.rs's greedy scan has real work
         // to do choosing between them.
-        let table = table_with(vec![seg("c1", &["s"]), seg("c2", &["y"]), seg("c3", &["sy"])]).unwrap();
+        let table = table_with(vec![
+            seg("c1", &["s"]),
+            seg("c2", &["y"]),
+            seg("c3", &["sy"]),
+        ])
+        .unwrap();
         assert!(table.lookup_nfd("s").is_some());
         assert!(table.lookup_nfd("y").is_some());
         assert!(table.lookup_nfd("sy").is_some());

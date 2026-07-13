@@ -40,7 +40,10 @@ fn amharic_closure_matches_gate_free_lane_scan() {
     };
     let xml = std::fs::read_to_string(&path).expect("read amharic-hc.xml");
     let g = hc_grammar::load(&xml).expect("amharic grammar loads");
-    assert!(!g.phon_features.is_empty(), "sanity: Amharic authors phonological features");
+    assert!(
+        !g.phon_features.is_empty(),
+        "sanity: Amharic authors phonological features"
+    );
 
     let table = &g.char_tables[0];
     let n = table.len() as u32;
@@ -57,17 +60,23 @@ fn amharic_closure_matches_gate_free_lane_scan() {
         // The closure (and `unifiable_cds`) only covers Segment×Segment pairs (§6.1) — boundary
         // rows are deliberately out of scope (boundaries stay `StrRep`-identity-gated in every
         // grammar), so restrict the property to segment pairs, matching the closure's own domain.
-        if table.get(cd_i).kind() != CharDefKind::Segment || table.get(cd_j).kind() != CharDefKind::Segment {
+        if table.get(cd_i).kind() != CharDefKind::Segment
+            || table.get(cd_j).kind() != CharDefKind::Segment
+        {
             continue;
         }
         checked_pairs += 1;
 
         // Design A: build-time closure membership (`CharDefTable::unifiable_cds`).
-        let design_a = table.unifiable_cds(cd_i).is_some_and(|closure| closure.contains(j));
+        let design_a = table
+            .unifiable_cds(cd_i)
+            .is_some_and(|closure| closure.contains(j));
 
         // Design C: gate-free lane scan, computed fresh right here — no closure consulted at all.
-        let design_c =
-            flat_unifiable(table.get(cd_i).feature_lanes(), table.get(cd_j).feature_lanes());
+        let design_c = flat_unifiable(
+            table.get(cd_i).feature_lanes(),
+            table.get(cd_j).feature_lanes(),
+        );
 
         assert_eq!(
             design_a,

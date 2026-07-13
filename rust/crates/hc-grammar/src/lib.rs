@@ -94,7 +94,11 @@ impl GrammarPhonology {
         let mut out = String::new();
         let _ = writeln!(out, "features={}", self.feature_system.len());
         for (flat, name, symbol_count) in self.feature_system.iter() {
-            let _ = writeln!(out, "  feature[{}] {} symbols={}", flat.0, name, symbol_count);
+            let _ = writeln!(
+                out,
+                "  feature[{}] {} symbols={}",
+                flat.0, name, symbol_count
+            );
         }
         for table in &self.tables {
             let _ = writeln!(
@@ -338,7 +342,12 @@ fn parse_symbolic_feature(
             _ => {}
         }
     }
-    Ok(RawFeature { xml_id, name, symbols, default_symbol })
+    Ok(RawFeature {
+        xml_id,
+        name,
+        symbols,
+        default_symbol,
+    })
 }
 
 fn parse_symbols(reader: &mut Reader<&[u8]>) -> Result<Vec<(String, String)>, GrammarError> {
@@ -371,19 +380,33 @@ fn parse_char_def_table(
     let mut defs = Vec::new();
     loop {
         match reader.read_event().map_err(xml_err)? {
-            Event::Start(e) if local(&e) == b"Name" => name = Some(read_text_until(reader, b"Name")?),
+            Event::Start(e) if local(&e) == b"Name" => {
+                name = Some(read_text_until(reader, b"Name")?)
+            }
             Event::Empty(e) if local(&e) == b"Name" => {
                 let _ = e;
                 name = Some(String::new());
             }
             Event::Start(e) if local(&e) == b"SegmentDefinitions" => {
-                parse_definitions_block(reader, b"SegmentDefinitions", b"SegmentDefinition", CharDefKind::Segment, &mut defs)?;
+                parse_definitions_block(
+                    reader,
+                    b"SegmentDefinitions",
+                    b"SegmentDefinition",
+                    CharDefKind::Segment,
+                    &mut defs,
+                )?;
             }
             Event::Empty(e) if local(&e) == b"SegmentDefinitions" => {
                 let _ = e;
             }
             Event::Start(e) if local(&e) == b"BoundaryDefinitions" => {
-                parse_definitions_block(reader, b"BoundaryDefinitions", b"BoundaryDefinition", CharDefKind::Boundary, &mut defs)?;
+                parse_definitions_block(
+                    reader,
+                    b"BoundaryDefinitions",
+                    b"BoundaryDefinition",
+                    CharDefKind::Boundary,
+                    &mut defs,
+                )?;
             }
             Event::Empty(e) if local(&e) == b"BoundaryDefinitions" => {
                 let _ = e;
@@ -408,7 +431,8 @@ fn parse_definitions_block(
             Event::Start(e) if local(&e) == item_tag => {
                 if is_active(&e)? {
                     let xml_id = get_attr(&e, "id")?.unwrap_or_default();
-                    let (representations, feature_values) = parse_definition_body(reader, item_tag)?;
+                    let (representations, feature_values) =
+                        parse_definition_body(reader, item_tag)?;
                     out.push(RawCharDef {
                         xml_id,
                         kind,
@@ -576,7 +600,10 @@ mod tests {
         let g = load_char_def_table_from_xml(HAND_BUILT_XML).unwrap();
         // 1 authored feature + the always-appended synthetic `Type` feature (plan §13.1 Tier-1 #1).
         assert_eq!(g.feature_system().len(), 2);
-        assert_eq!(g.feature_system().flat_index("feat1"), Some(featsys::FlatIndex(0)));
+        assert_eq!(
+            g.feature_system().flat_index("feat1"),
+            Some(featsys::FlatIndex(0))
+        );
         let table = g.main_table().unwrap();
         assert_eq!(table.len(), 5); // 4 segments + 1 boundary
         assert!(table.lookup_nfd("m").is_some());
@@ -588,7 +615,11 @@ mod tests {
         let g = load_char_def_table_from_xml(HAND_BUILT_XML).unwrap();
         let table = g.main_table().unwrap();
         let shape = segment::segment(table, "sy").unwrap();
-        assert_eq!(shape.interior().count(), 1, "must match the 2-char 'sy' def, not 's'+'y'");
+        assert_eq!(
+            shape.interior().count(),
+            1,
+            "must match the 2-char 'sy' def, not 's'+'y'"
+        );
     }
 
     // --- Finding N1 (phase2 audit C): PhonologicalFeatureSystem@isActive -----------------------
@@ -690,7 +721,12 @@ mod tests {
     fn load_words(name: &str) -> Option<Vec<String>> {
         let path = sample_path(name)?;
         let text = std::fs::read_to_string(path).ok()?;
-        Some(text.lines().map(str::to_string).filter(|l| !l.is_empty()).collect())
+        Some(
+            text.lines()
+                .map(str::to_string)
+                .filter(|l| !l.is_empty())
+                .collect(),
+        )
     }
 
     /// Shared body for the three real-grammar tests: load, sanity-check the feature system and
@@ -728,9 +764,9 @@ mod tests {
              Type feature) — loader may be dropping or double-counting <SymbolicFeature> elements"
         );
 
-        let table = grammar
-            .main_table()
-            .unwrap_or_else(|| panic!("{xml_name}: expected at least one CharacterDefinitionTable"));
+        let table = grammar.main_table().unwrap_or_else(|| {
+            panic!("{xml_name}: expected at least one CharacterDefinitionTable")
+        });
         assert_eq!(
             table.len(),
             expected_char_def_count,
@@ -757,7 +793,10 @@ mod tests {
                  1..={nfd_len} (each match step consumes >=1 char and emits exactly 1 node)"
             );
             let shape2 = segment::segment(table, word).unwrap();
-            assert_eq!(shape1, shape2, "{xml_name}: segmenting {word:?} must be deterministic");
+            assert_eq!(
+                shape1, shape2,
+                "{xml_name}: segmenting {word:?} must be deterministic"
+            );
         }
     }
 
@@ -781,7 +820,13 @@ mod tests {
         // target-language forms); the actual Amharic surface words are in Ge'ez/Ethiopic script.
         // Counts independently confirmed via `grep -c`: 22 <SymbolicFeature> under
         // <PhonologicalFeatureSystem>; 417 <SegmentDefinition> + 3 <BoundaryDefinition> = 420.
-        check_grammar("amharic-hc.xml", "amharic-words.txt", &["ሂዱ", "ሄደ", "ሆድ"], 22, 420);
+        check_grammar(
+            "amharic-hc.xml",
+            "amharic-words.txt",
+            &["ሂዱ", "ሄደ", "ሆድ"],
+            22,
+            420,
+        );
     }
 
     #[test]

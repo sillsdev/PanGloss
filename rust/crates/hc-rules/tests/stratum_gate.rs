@@ -75,7 +75,10 @@ fn insert_segments(g: &Grammar, text: &str) -> OutputAction {
     let shape = hc_grammar::segment::segment(&g.char_tables[0], text).expect("segments");
     OutputAction::InsertSegments {
         table: TableId(0),
-        shape: SegmentedText { text: text.to_string(), shape },
+        shape: SegmentedText {
+            text: text.to_string(),
+            shape,
+        },
     }
 }
 
@@ -112,7 +115,10 @@ fn suffix_rule(g: &Grammar, morpheme: u32, seg: &str) -> MorphRuleDef {
         allomorphs: vec![allomorph(
             morpheme,
             vec![one_or_more("nc_any", g)],
-            vec![OutputAction::Copy(PartRef::Input(0)), insert_segments(g, seg)],
+            vec![
+                OutputAction::Copy(PartRef::Input(0)),
+                insert_segments(g, seg),
+            ],
         )],
     })
 }
@@ -175,7 +181,13 @@ fn linear_stratum_unapplies_suffixes_in_reversed_order() {
     let s = push_stratum(&mut g, MorphRuleOrder::Linear, vec![a, b], vec![]);
 
     let input = word(&g, "apk", s);
-    let out = analyze_stratum(&g, s, input, &AnalyzerConfig::default(), &StepBudget::new(usize::MAX));
+    let out = analyze_stratum(
+        &g,
+        s,
+        input,
+        &AnalyzerConfig::default(),
+        &StepBudget::new(usize::MAX),
+    );
     assert!(!out.capped, "tiny linear stratum must not hit the cap");
 
     let got = candidate_shapes(&out.words);
@@ -218,7 +230,13 @@ fn unordered_combination_reaches_root_linear_permutation_misses() {
 
     // UNORDERED: reaches the root "a".
     let (gu, su) = build(MorphRuleOrder::Unordered);
-    let out_u = analyze_stratum(&gu, su, word(&gu, "akp", su), &AnalyzerConfig::default(), &StepBudget::new(usize::MAX));
+    let out_u = analyze_stratum(
+        &gu,
+        su,
+        word(&gu, "akp", su),
+        &AnalyzerConfig::default(),
+        &StepBudget::new(usize::MAX),
+    );
     assert!(!out_u.capped);
     let unordered = candidate_shapes(&out_u.words);
     let root = vec![cd(&gu, "char_a")];
@@ -227,22 +245,25 @@ fn unordered_combination_reaches_root_linear_permutation_misses() {
         "combination reaches root [a]; got {unordered:?}"
     );
     // Full unordered set: { akp (seed), ak, a }.
-    assert_eq!(
-        unordered,
-        {
-            let mut v = vec![
-                vec![cd(&gu, "char_a"), cd(&gu, "char_k"), cd(&gu, "char_p")],
-                vec![cd(&gu, "char_a"), cd(&gu, "char_k")],
-                vec![cd(&gu, "char_a")],
-            ];
-            v.sort();
-            v
-        }
-    );
+    assert_eq!(unordered, {
+        let mut v = vec![
+            vec![cd(&gu, "char_a"), cd(&gu, "char_k"), cd(&gu, "char_p")],
+            vec![cd(&gu, "char_a"), cd(&gu, "char_k")],
+            vec![cd(&gu, "char_a")],
+        ];
+        v.sort();
+        v
+    });
 
     // LINEAR: same rules, but permutation-over-reversed cannot reach the root.
     let (gl, sl) = build(MorphRuleOrder::Linear);
-    let out_l = analyze_stratum(&gl, sl, word(&gl, "akp", sl), &AnalyzerConfig::default(), &StepBudget::new(usize::MAX));
+    let out_l = analyze_stratum(
+        &gl,
+        sl,
+        word(&gl, "akp", sl),
+        &AnalyzerConfig::default(),
+        &StepBudget::new(usize::MAX),
+    );
     assert!(!out_l.capped);
     let linear = candidate_shapes(&out_l.words);
     assert!(
@@ -250,17 +271,14 @@ fn unordered_combination_reaches_root_linear_permutation_misses() {
         "permutation over reversed [B,A] must NOT reach root [a]; got {linear:?}"
     );
     // Full linear set: { akp (seed), ak }.
-    assert_eq!(
-        linear,
-        {
-            let mut v = vec![
-                vec![cd(&gl, "char_a"), cd(&gl, "char_k"), cd(&gl, "char_p")],
-                vec![cd(&gl, "char_a"), cd(&gl, "char_k")],
-            ];
-            v.sort();
-            v
-        }
-    );
+    assert_eq!(linear, {
+        let mut v = vec![
+            vec![cd(&gl, "char_a"), cd(&gl, "char_k"), cd(&gl, "char_p")],
+            vec![cd(&gl, "char_a"), cd(&gl, "char_k")],
+        ];
+        v.sort();
+        v
+    });
 }
 
 // =================================================================================================
@@ -281,8 +299,16 @@ fn template_stratum(slot0_optional: bool) -> (Grammar, StratumId) {
         is_final: true,
         required_syn_fs: hc_featstruct::FsId(0),
         slots: vec![
-            SlotDef { name: None, optional: slot0_optional, rules: vec![a] },
-            SlotDef { name: None, optional: false, rules: vec![b] },
+            SlotDef {
+                name: None,
+                optional: slot0_optional,
+                rules: vec![a],
+            },
+            SlotDef {
+                name: None,
+                optional: false,
+                rules: vec![b],
+            },
         ],
     });
     let s = push_stratum(&mut g, MorphRuleOrder::Unordered, vec![], vec![tid]);
@@ -298,25 +324,34 @@ fn optional_template_slot_yields_both_filled_and_skipped() {
     //   slot 1 is mandatory, so "apk" itself is NOT added (its material had to be consumed).
     // Template outputs = { a, ap }; with the seed the analysis set = { apk, ap, a }.
     let (g, s) = template_stratum(true);
-    let out = analyze_stratum(&g, s, word(&g, "apk", s), &AnalyzerConfig::default(), &StepBudget::new(usize::MAX));
+    let out = analyze_stratum(
+        &g,
+        s,
+        word(&g, "apk", s),
+        &AnalyzerConfig::default(),
+        &StepBudget::new(usize::MAX),
+    );
     assert!(!out.capped);
     let got = candidate_shapes(&out.words);
     let filled = vec![cd(&g, "char_a")]; // both slots unapplied
     let skipped = vec![cd(&g, "char_a"), cd(&g, "char_p")]; // slot 0 skipped
-    assert!(got.contains(&filled), "slot-filled analysis [a] present; got {got:?}");
-    assert!(got.contains(&skipped), "slot-skipped analysis [a,p] present; got {got:?}");
-    assert_eq!(
-        got,
-        {
-            let mut v = vec![
-                vec![cd(&g, "char_a"), cd(&g, "char_p"), cd(&g, "char_k")],
-                skipped.clone(),
-                filled.clone(),
-            ];
-            v.sort();
-            v
-        }
+    assert!(
+        got.contains(&filled),
+        "slot-filled analysis [a] present; got {got:?}"
     );
+    assert!(
+        got.contains(&skipped),
+        "slot-skipped analysis [a,p] present; got {got:?}"
+    );
+    assert_eq!(got, {
+        let mut v = vec![
+            vec![cd(&g, "char_a"), cd(&g, "char_p"), cd(&g, "char_k")],
+            skipped.clone(),
+            filled.clone(),
+        ];
+        v.sort();
+        v
+    });
 }
 
 #[test]
@@ -325,14 +360,23 @@ fn mandatory_slot_suppresses_the_skipped_analysis() {
     // adding "ap", so only the fully-unapplied "a" survives from the template.
     //   Analysis set = { apk (seed), a }  — the "ap" candidate is gone.
     let (g, s) = template_stratum(false);
-    let out = analyze_stratum(&g, s, word(&g, "apk", s), &AnalyzerConfig::default(), &StepBudget::new(usize::MAX));
+    let out = analyze_stratum(
+        &g,
+        s,
+        word(&g, "apk", s),
+        &AnalyzerConfig::default(),
+        &StepBudget::new(usize::MAX),
+    );
     assert!(!out.capped);
     let got = candidate_shapes(&out.words);
     assert!(
         !got.contains(&vec![cd(&g, "char_a"), cd(&g, "char_p")]),
         "mandatory slot 0 must suppress the slot-skipped [a,p] analysis; got {got:?}"
     );
-    assert!(got.contains(&vec![cd(&g, "char_a")]), "the filled [a] analysis survives; got {got:?}");
+    assert!(
+        got.contains(&vec![cd(&g, "char_a")]),
+        "the filled [a] analysis survives; got {got:?}"
+    );
 }
 
 // =================================================================================================
@@ -356,13 +400,22 @@ fn synthesis_template_optional_slot_yields_filled_and_skipped() {
         is_final: true,
         required_syn_fs: hc_featstruct::FsId(0),
         slots: vec![
-            SlotDef { name: None, optional: true, rules: vec![a] },
-            SlotDef { name: None, optional: false, rules: vec![b] },
+            SlotDef {
+                name: None,
+                optional: true,
+                rules: vec![a],
+            },
+            SlotDef {
+                name: None,
+                optional: false,
+                rules: vec![b],
+            },
         ],
     });
     // Root word "a" carrying a root morph (so morph attribution has a source).
     let mut root = word(&g, "a", StratumId(0));
-    root.morphs.push(MorphRecord::new(AllomorphId(100), MorphemeId(100), 0));
+    root.morphs
+        .push(MorphRecord::new(AllomorphId(100), MorphemeId(100), 0));
 
     let out = synthesize_template(&g, tid, &root, 10_000);
     let got = candidate_shapes(&out);
@@ -385,7 +438,10 @@ fn synthesis_template_optional_slot_yields_filled_and_skipped() {
 // =================================================================================================
 
 fn sena_path() -> String {
-    format!("{}/../../../samples/data/sena-hc.xml", env!("CARGO_MANIFEST_DIR"))
+    format!(
+        "{}/../../../samples/data/sena-hc.xml",
+        env!("CARGO_MANIFEST_DIR")
+    )
 }
 
 #[test]
@@ -414,7 +470,11 @@ fn sena_analysis_stratum_terminates_on_short_words() {
 
     // Short words only (the heavy-13 blow up unmemoized). The cap is the safety valve; unmemoized
     // even short words can exhaust it, in which case the candidate set is partial (reported).
-    let cfg = AnalyzerConfig { merge_equivalent: true, max_unapplications: 0, max_stem_count: 2 };
+    let cfg = AnalyzerConfig {
+        merge_equivalent: true,
+        max_unapplications: 0,
+        max_stem_count: 2,
+    };
     for text in ["leka", "kuti", "wace", "anthu", "mbuto"] {
         if hc_grammar::segment::segment(&g.char_tables[0], text).is_err() {
             eprintln!("  {text}: not segmentable against table 0 — skipped");
@@ -430,7 +490,11 @@ fn sena_analysis_stratum_terminates_on_short_words() {
         eprintln!(
             "  {text}: {} candidate(s){}",
             out.words.len(),
-            if out.capped { " [CAP FIRED — partial]" } else { "" }
+            if out.capped {
+                " [CAP FIRED — partial]"
+            } else {
+                ""
+            }
         );
     }
 }
@@ -467,7 +531,11 @@ fn merge_equivalent_analyses_folds_homophonous_suffixes_and_expand_recovers_both
     let s0 = push_stratum(&mut g, MorphRuleOrder::Unordered, vec![id_a, id_b], vec![]);
     let s1 = push_stratum(&mut g, MorphRuleOrder::Unordered, vec![id_z], vec![]);
 
-    let cfg = AnalyzerConfig { merge_equivalent: true, max_unapplications: 0, max_stem_count: 2 };
+    let cfg = AnalyzerConfig {
+        merge_equivalent: true,
+        max_unapplications: 0,
+        max_stem_count: 2,
+    };
 
     // Stratum 0: "agn" -> merge collapses the idA/idB candidates sharing shape "ag" into one
     // canonical + one alternative.
@@ -496,7 +564,10 @@ fn merge_equivalent_analyses_folds_homophonous_suffixes_and_expand_recovers_both
     seen_ids.sort_by_key(|id| id.0);
     let mut want_ids = vec![id_a, id_b];
     want_ids.sort_by_key(|id| id.0);
-    assert_eq!(seen_ids, want_ids, "canonical + alternative together cover both idA and idB");
+    assert_eq!(
+        seen_ids, want_ids,
+        "canonical + alternative together cover both idA and idB"
+    );
 
     // Stratum 1: feed the single canonical word in — the alternative rides along inside it, never
     // itself descending as a separate candidate (the perf win: one word, not two, enters the deeper
@@ -514,7 +585,8 @@ fn merge_equivalent_analyses_folds_homophonous_suffixes_and_expand_recovers_both
     // The payoff: expand_alternatives reconstructs BOTH histories, each now also carrying idZ — the
     // candidate set an unmerged (keep-every-candidate) engine would have produced.
     let expanded = final_word.expand_alternatives();
-    let mut got: Vec<Vec<Option<MRuleId>>> = expanded.iter().map(|w| w.mrule_apps.clone()).collect();
+    let mut got: Vec<Vec<Option<MRuleId>>> =
+        expanded.iter().map(|w| w.mrule_apps.clone()).collect();
     got.sort();
     let mut want = vec![vec![Some(id_a), Some(id_z)], vec![Some(id_b), Some(id_z)]];
     want.sort();
@@ -524,6 +596,10 @@ fn merge_equivalent_analyses_folds_homophonous_suffixes_and_expand_recovers_both
          signatures a non-merging engine would have produced"
     );
     for w in &expanded {
-        assert_eq!(char_defs(&w.shape), a_shape, "every expanded alternative shares the final shape");
+        assert_eq!(
+            char_defs(&w.shape),
+            a_shape,
+            "every expanded alternative shares the final shape"
+        );
     }
 }

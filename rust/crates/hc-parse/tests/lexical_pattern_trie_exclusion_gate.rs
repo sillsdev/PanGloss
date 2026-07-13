@@ -58,8 +58,14 @@ const XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 #[test]
 fn pattern_only_word_does_not_spuriously_match() {
     let g = load(XML).unwrap_or_else(|e| panic!("grammar failed to load: {e}"));
-    assert!(g.entries[0].allomorphs[0].is_pattern, "sanity: [Any]* must classify as a pattern");
-    assert!(!g.entries[1].allomorphs[0].is_pattern, "sanity: 'ab' is an ordinary root, not a pattern");
+    assert!(
+        g.entries[0].allomorphs[0].is_pattern,
+        "sanity: [Any]* must classify as a pattern"
+    );
+    assert!(
+        !g.entries[1].allomorphs[0].is_pattern,
+        "sanity: 'ab' is an ordinary root, not a pattern"
+    );
 
     let m = Morpher::new(&g, usize::MAX);
     for word in ["a", "b"] {

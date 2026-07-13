@@ -14,8 +14,8 @@ mod support;
 use std::ffi::c_void;
 
 use hermit_crab::{
-    decode, hc_buf_free, hc_generate_words, hc_grammar_free, hc_grammar_load, hc_parse_word, DecodedWord, HcError,
-    HcResultBuf, HC_OK,
+    decode, hc_buf_free, hc_generate_words, hc_grammar_free, hc_grammar_load, hc_parse_word,
+    DecodedWord, HcError, HcResultBuf, HC_OK,
 };
 
 fn load_handle(xml: &str) -> *mut c_void {
@@ -42,7 +42,13 @@ fn parse_one(handle: *mut c_void, word: &str) -> DecodedWord {
 fn generate(handle: *mut c_void, morpheme_ids: &[u32], root_morpheme_index: i32) -> Vec<String> {
     let mut out = HcResultBuf::EMPTY;
     let code = unsafe {
-        hc_generate_words(handle, morpheme_ids.as_ptr(), morpheme_ids.len(), root_morpheme_index, &mut out)
+        hc_generate_words(
+            handle,
+            morpheme_ids.as_ptr(),
+            morpheme_ids.len(),
+            root_morpheme_index,
+            &mut out,
+        )
     };
     assert_eq!(code, HC_OK, "hc_generate_words failed: code={code}");
     let bytes = unsafe { std::slice::from_raw_parts(out.data, out.len) }.to_vec();
@@ -83,7 +89,10 @@ fn regenerating_a_parsed_words_own_analysis_reproduces_it() {
     }
     unsafe { hc_grammar_free(handle) };
 
-    assert!(checked >= 10, "test data assumption stale: expected at least 10 unambiguous words in the first 60");
+    assert!(
+        checked >= 10,
+        "test data assumption stale: expected at least 10 unambiguous words in the first 60"
+    );
     assert!(
         mismatches.is_empty(),
         "{}/{checked} unambiguous words did not regenerate themselves: {mismatches:?}",

@@ -187,12 +187,37 @@ pub trait TraceSink {
     /// Mint the root node for one `GenerateWords` call (a distinct root from `AnalyzeWord`'s).
     fn generate_words(&self) -> TraceHandle;
 
-    fn begin_unapply_stratum(&self, parent: TraceHandle, stratum: StratumId, input: &Word) -> TraceHandle;
-    fn end_unapply_stratum(&self, parent: TraceHandle, stratum: StratumId, output: &Word) -> TraceHandle;
-    fn begin_apply_stratum(&self, parent: TraceHandle, stratum: StratumId, input: &Word) -> TraceHandle;
-    fn end_apply_stratum(&self, parent: TraceHandle, stratum: StratumId, output: &Word) -> TraceHandle;
+    fn begin_unapply_stratum(
+        &self,
+        parent: TraceHandle,
+        stratum: StratumId,
+        input: &Word,
+    ) -> TraceHandle;
+    fn end_unapply_stratum(
+        &self,
+        parent: TraceHandle,
+        stratum: StratumId,
+        output: &Word,
+    ) -> TraceHandle;
+    fn begin_apply_stratum(
+        &self,
+        parent: TraceHandle,
+        stratum: StratumId,
+        input: &Word,
+    ) -> TraceHandle;
+    fn end_apply_stratum(
+        &self,
+        parent: TraceHandle,
+        stratum: StratumId,
+        output: &Word,
+    ) -> TraceHandle;
 
-    fn begin_unapply_template(&self, parent: TraceHandle, template: TemplateId, input: &Word) -> TraceHandle;
+    fn begin_unapply_template(
+        &self,
+        parent: TraceHandle,
+        template: TemplateId,
+        input: &Word,
+    ) -> TraceHandle;
     fn end_unapply_template(
         &self,
         parent: TraceHandle,
@@ -200,7 +225,12 @@ pub trait TraceSink {
         output: &Word,
         unapplied: bool,
     ) -> TraceHandle;
-    fn begin_apply_template(&self, parent: TraceHandle, template: TemplateId, input: &Word) -> TraceHandle;
+    fn begin_apply_template(
+        &self,
+        parent: TraceHandle,
+        template: TemplateId,
+        input: &Word,
+    ) -> TraceHandle;
     fn end_apply_template(
         &self,
         parent: TraceHandle,
@@ -215,16 +245,44 @@ pub trait TraceSink {
     /// stratum, not a template (chunk 0's original `TemplateId` param was never checked against the
     /// oracle at landing time; fixed here at chunk 5, its first real call site, before any caller
     /// existed to break).
-    fn non_final_template_applied_last(&self, parent: TraceHandle, stratum: StratumId, output: &Word) -> TraceHandle;
+    fn non_final_template_applied_last(
+        &self,
+        parent: TraceHandle,
+        stratum: StratumId,
+        output: &Word,
+    ) -> TraceHandle;
     /// `ApplicableTemplatesNotApplied` — always `FailureReason::PartialParse`, but a DISTINCT trace
     /// event from [`Self::non_final_template_applied_last`] (§3.2's last row / §4.2's third bullet).
     /// P12 chunk 5 correction: C#'s actual signature (`ITraceManager.cs:73`) is also `(Stratum
     /// stratum, Word word)` -- chunk 0 omitted the stratum source entirely; added here.
-    fn applicable_templates_not_applied(&self, parent: TraceHandle, stratum: StratumId, input: &Word) -> TraceHandle;
+    fn applicable_templates_not_applied(
+        &self,
+        parent: TraceHandle,
+        stratum: StratumId,
+        input: &Word,
+    ) -> TraceHandle;
 
-    fn phonological_rule_unapplied(&self, parent: TraceHandle, rule: PRuleId, subrule: i32, output: &Word) -> TraceHandle;
-    fn phonological_rule_not_unapplied(&self, parent: TraceHandle, rule: PRuleId, subrule: i32, input: &Word) -> TraceHandle;
-    fn phonological_rule_applied(&self, parent: TraceHandle, rule: PRuleId, subrule: i32, output: &Word) -> TraceHandle;
+    fn phonological_rule_unapplied(
+        &self,
+        parent: TraceHandle,
+        rule: PRuleId,
+        subrule: i32,
+        output: &Word,
+    ) -> TraceHandle;
+    fn phonological_rule_not_unapplied(
+        &self,
+        parent: TraceHandle,
+        rule: PRuleId,
+        subrule: i32,
+        input: &Word,
+    ) -> TraceHandle;
+    fn phonological_rule_applied(
+        &self,
+        parent: TraceHandle,
+        rule: PRuleId,
+        subrule: i32,
+        output: &Word,
+    ) -> TraceHandle;
     fn phonological_rule_not_applied(
         &self,
         parent: TraceHandle,
@@ -234,9 +292,27 @@ pub trait TraceSink {
         reason: FailureReason,
     ) -> TraceHandle;
 
-    fn morphological_rule_unapplied(&self, parent: TraceHandle, rule: MRuleId, subrule: i32, output: &Word) -> TraceHandle;
-    fn morphological_rule_not_unapplied(&self, parent: TraceHandle, rule: MRuleId, subrule: i32, input: &Word) -> TraceHandle;
-    fn morphological_rule_applied(&self, parent: TraceHandle, rule: MRuleId, subrule: i32, output: &Word) -> TraceHandle;
+    fn morphological_rule_unapplied(
+        &self,
+        parent: TraceHandle,
+        rule: MRuleId,
+        subrule: i32,
+        output: &Word,
+    ) -> TraceHandle;
+    fn morphological_rule_not_unapplied(
+        &self,
+        parent: TraceHandle,
+        rule: MRuleId,
+        subrule: i32,
+        input: &Word,
+    ) -> TraceHandle;
+    fn morphological_rule_applied(
+        &self,
+        parent: TraceHandle,
+        rule: MRuleId,
+        subrule: i32,
+        output: &Word,
+    ) -> TraceHandle;
     fn morphological_rule_not_applied(
         &self,
         parent: TraceHandle,
@@ -246,7 +322,12 @@ pub trait TraceSink {
         reason: FailureReason,
     ) -> TraceHandle;
 
-    fn compounding_rule_not_unapplied(&self, parent: TraceHandle, rule: MRuleId, input: &Word) -> TraceHandle;
+    fn compounding_rule_not_unapplied(
+        &self,
+        parent: TraceHandle,
+        rule: MRuleId,
+        input: &Word,
+    ) -> TraceHandle;
     fn compounding_rule_not_applied(
         &self,
         parent: TraceHandle,
@@ -307,28 +388,68 @@ impl TraceSink for NoopSink {
     fn begin_unapply_template(&self, _p: TraceHandle, _t: TemplateId, _i: &Word) -> TraceHandle {
         unreachable!()
     }
-    fn end_unapply_template(&self, _p: TraceHandle, _t: TemplateId, _o: &Word, _u: bool) -> TraceHandle {
+    fn end_unapply_template(
+        &self,
+        _p: TraceHandle,
+        _t: TemplateId,
+        _o: &Word,
+        _u: bool,
+    ) -> TraceHandle {
         unreachable!()
     }
     fn begin_apply_template(&self, _p: TraceHandle, _t: TemplateId, _i: &Word) -> TraceHandle {
         unreachable!()
     }
-    fn end_apply_template(&self, _p: TraceHandle, _t: TemplateId, _o: &Word, _a: bool) -> TraceHandle {
+    fn end_apply_template(
+        &self,
+        _p: TraceHandle,
+        _t: TemplateId,
+        _o: &Word,
+        _a: bool,
+    ) -> TraceHandle {
         unreachable!()
     }
-    fn non_final_template_applied_last(&self, _p: TraceHandle, _s: StratumId, _o: &Word) -> TraceHandle {
+    fn non_final_template_applied_last(
+        &self,
+        _p: TraceHandle,
+        _s: StratumId,
+        _o: &Word,
+    ) -> TraceHandle {
         unreachable!()
     }
-    fn applicable_templates_not_applied(&self, _p: TraceHandle, _s: StratumId, _i: &Word) -> TraceHandle {
+    fn applicable_templates_not_applied(
+        &self,
+        _p: TraceHandle,
+        _s: StratumId,
+        _i: &Word,
+    ) -> TraceHandle {
         unreachable!()
     }
-    fn phonological_rule_unapplied(&self, _p: TraceHandle, _r: PRuleId, _s: i32, _o: &Word) -> TraceHandle {
+    fn phonological_rule_unapplied(
+        &self,
+        _p: TraceHandle,
+        _r: PRuleId,
+        _s: i32,
+        _o: &Word,
+    ) -> TraceHandle {
         unreachable!()
     }
-    fn phonological_rule_not_unapplied(&self, _p: TraceHandle, _r: PRuleId, _s: i32, _i: &Word) -> TraceHandle {
+    fn phonological_rule_not_unapplied(
+        &self,
+        _p: TraceHandle,
+        _r: PRuleId,
+        _s: i32,
+        _i: &Word,
+    ) -> TraceHandle {
         unreachable!()
     }
-    fn phonological_rule_applied(&self, _p: TraceHandle, _r: PRuleId, _s: i32, _o: &Word) -> TraceHandle {
+    fn phonological_rule_applied(
+        &self,
+        _p: TraceHandle,
+        _r: PRuleId,
+        _s: i32,
+        _o: &Word,
+    ) -> TraceHandle {
         unreachable!()
     }
     fn phonological_rule_not_applied(
@@ -341,13 +462,31 @@ impl TraceSink for NoopSink {
     ) -> TraceHandle {
         unreachable!()
     }
-    fn morphological_rule_unapplied(&self, _p: TraceHandle, _r: MRuleId, _s: i32, _o: &Word) -> TraceHandle {
+    fn morphological_rule_unapplied(
+        &self,
+        _p: TraceHandle,
+        _r: MRuleId,
+        _s: i32,
+        _o: &Word,
+    ) -> TraceHandle {
         unreachable!()
     }
-    fn morphological_rule_not_unapplied(&self, _p: TraceHandle, _r: MRuleId, _s: i32, _i: &Word) -> TraceHandle {
+    fn morphological_rule_not_unapplied(
+        &self,
+        _p: TraceHandle,
+        _r: MRuleId,
+        _s: i32,
+        _i: &Word,
+    ) -> TraceHandle {
         unreachable!()
     }
-    fn morphological_rule_applied(&self, _p: TraceHandle, _r: MRuleId, _s: i32, _o: &Word) -> TraceHandle {
+    fn morphological_rule_applied(
+        &self,
+        _p: TraceHandle,
+        _r: MRuleId,
+        _s: i32,
+        _o: &Word,
+    ) -> TraceHandle {
         unreachable!()
     }
     fn morphological_rule_not_applied(
@@ -360,10 +499,21 @@ impl TraceSink for NoopSink {
     ) -> TraceHandle {
         unreachable!()
     }
-    fn compounding_rule_not_unapplied(&self, _p: TraceHandle, _r: MRuleId, _i: &Word) -> TraceHandle {
+    fn compounding_rule_not_unapplied(
+        &self,
+        _p: TraceHandle,
+        _r: MRuleId,
+        _i: &Word,
+    ) -> TraceHandle {
         unreachable!()
     }
-    fn compounding_rule_not_applied(&self, _p: TraceHandle, _r: MRuleId, _i: &Word, _reason: FailureReason) -> TraceHandle {
+    fn compounding_rule_not_applied(
+        &self,
+        _p: TraceHandle,
+        _r: MRuleId,
+        _i: &Word,
+        _reason: FailureReason,
+    ) -> TraceHandle {
         unreachable!()
     }
     fn lexical_lookup(&self, _p: TraceHandle, _s: StratumId, _i: &Word) -> TraceHandle {
@@ -400,7 +550,10 @@ impl Default for TreeTraceSink {
 
 impl TreeTraceSink {
     pub fn new() -> Self {
-        TreeTraceSink { nodes: RefCell::new(Vec::new()), root: Cell::new(None) }
+        TreeTraceSink {
+            nodes: RefCell::new(Vec::new()),
+            root: Cell::new(None),
+        }
     }
 
     /// The tree's root node handle, if one has been minted yet (`analyze_word`/`generate_words`).
@@ -446,7 +599,9 @@ impl TreeTraceSink {
         *self.nodes.borrow()[parent.0 as usize]
             .children
             .last()
-            .expect("SynthesizeWord requires the cursor's last child (LexicalLookup) to exist first")
+            .expect(
+                "SynthesizeWord requires the cursor's last child (LexicalLookup) to exist first",
+            )
     }
 }
 
@@ -463,32 +618,75 @@ impl TraceSink for TreeTraceSink {
     }
 
     fn generate_words(&self) -> TraceHandle {
-        self.append_root(TraceNode::new(TraceType::GenerateWords, TraceSource::Language))
+        self.append_root(TraceNode::new(
+            TraceType::GenerateWords,
+            TraceSource::Language,
+        ))
     }
 
-    fn begin_unapply_stratum(&self, parent: TraceHandle, stratum: StratumId, input: &Word) -> TraceHandle {
-        let mut n = TraceNode::new(TraceType::StratumAnalysisInput, TraceSource::Stratum(stratum));
+    fn begin_unapply_stratum(
+        &self,
+        parent: TraceHandle,
+        stratum: StratumId,
+        input: &Word,
+    ) -> TraceHandle {
+        let mut n = TraceNode::new(
+            TraceType::StratumAnalysisInput,
+            TraceSource::Stratum(stratum),
+        );
         n.input = Some(input.clone());
         self.append(parent, n)
     }
-    fn end_unapply_stratum(&self, parent: TraceHandle, stratum: StratumId, output: &Word) -> TraceHandle {
-        let mut n = TraceNode::new(TraceType::StratumAnalysisOutput, TraceSource::Stratum(stratum));
+    fn end_unapply_stratum(
+        &self,
+        parent: TraceHandle,
+        stratum: StratumId,
+        output: &Word,
+    ) -> TraceHandle {
+        let mut n = TraceNode::new(
+            TraceType::StratumAnalysisOutput,
+            TraceSource::Stratum(stratum),
+        );
         n.output = Some(output.clone());
         self.append(parent, n)
     }
-    fn begin_apply_stratum(&self, parent: TraceHandle, stratum: StratumId, input: &Word) -> TraceHandle {
-        let mut n = TraceNode::new(TraceType::StratumSynthesisInput, TraceSource::Stratum(stratum));
+    fn begin_apply_stratum(
+        &self,
+        parent: TraceHandle,
+        stratum: StratumId,
+        input: &Word,
+    ) -> TraceHandle {
+        let mut n = TraceNode::new(
+            TraceType::StratumSynthesisInput,
+            TraceSource::Stratum(stratum),
+        );
         n.input = Some(input.clone());
         self.append(parent, n)
     }
-    fn end_apply_stratum(&self, parent: TraceHandle, stratum: StratumId, output: &Word) -> TraceHandle {
-        let mut n = TraceNode::new(TraceType::StratumSynthesisOutput, TraceSource::Stratum(stratum));
+    fn end_apply_stratum(
+        &self,
+        parent: TraceHandle,
+        stratum: StratumId,
+        output: &Word,
+    ) -> TraceHandle {
+        let mut n = TraceNode::new(
+            TraceType::StratumSynthesisOutput,
+            TraceSource::Stratum(stratum),
+        );
         n.output = Some(output.clone());
         self.append(parent, n)
     }
 
-    fn begin_unapply_template(&self, parent: TraceHandle, template: TemplateId, input: &Word) -> TraceHandle {
-        let mut n = TraceNode::new(TraceType::TemplateAnalysisInput, TraceSource::Template(template));
+    fn begin_unapply_template(
+        &self,
+        parent: TraceHandle,
+        template: TemplateId,
+        input: &Word,
+    ) -> TraceHandle {
+        let mut n = TraceNode::new(
+            TraceType::TemplateAnalysisInput,
+            TraceSource::Template(template),
+        );
         n.input = Some(input.clone());
         self.append(parent, n)
     }
@@ -505,14 +703,25 @@ impl TraceSink for TreeTraceSink {
         // `NonFinalTemplateAppliedLast`/`ApplicableTemplatesNotApplied`, a DIFFERENT pair of call
         // sites entirely -- see those methods' docs). Fixed here, at this method's first real call
         // site, before any caller could come to depend on the fabricated reason.
-        let mut n = TraceNode::new(TraceType::TemplateAnalysisOutput, TraceSource::Template(template));
+        let mut n = TraceNode::new(
+            TraceType::TemplateAnalysisOutput,
+            TraceSource::Template(template),
+        );
         if unapplied {
             n.output = Some(output.clone());
         }
         self.append(parent, n)
     }
-    fn begin_apply_template(&self, parent: TraceHandle, template: TemplateId, input: &Word) -> TraceHandle {
-        let mut n = TraceNode::new(TraceType::TemplateSynthesisInput, TraceSource::Template(template));
+    fn begin_apply_template(
+        &self,
+        parent: TraceHandle,
+        template: TemplateId,
+        input: &Word,
+    ) -> TraceHandle {
+        let mut n = TraceNode::new(
+            TraceType::TemplateSynthesisInput,
+            TraceSource::Template(template),
+        );
         n.input = Some(input.clone());
         self.append(parent, n)
     }
@@ -525,40 +734,86 @@ impl TraceSink for TreeTraceSink {
     ) -> TraceHandle {
         // P12 chunk 5 correction: same fix as `end_unapply_template` above -- `TraceManager.cs:
         // 211-216` sets `Output = applied ? output : null`, no `FailureReason` touched.
-        let mut n = TraceNode::new(TraceType::TemplateSynthesisOutput, TraceSource::Template(template));
+        let mut n = TraceNode::new(
+            TraceType::TemplateSynthesisOutput,
+            TraceSource::Template(template),
+        );
         if applied {
             n.output = Some(output.clone());
         }
         self.append(parent, n)
     }
 
-    fn non_final_template_applied_last(&self, parent: TraceHandle, stratum: StratumId, output: &Word) -> TraceHandle {
-        let mut n = TraceNode::new(TraceType::StratumSynthesisOutput, TraceSource::Stratum(stratum));
+    fn non_final_template_applied_last(
+        &self,
+        parent: TraceHandle,
+        stratum: StratumId,
+        output: &Word,
+    ) -> TraceHandle {
+        let mut n = TraceNode::new(
+            TraceType::StratumSynthesisOutput,
+            TraceSource::Stratum(stratum),
+        );
         n.output = Some(output.clone());
         n.failure_reason = Some(FailureReason::PartialParse);
         self.append(parent, n)
     }
-    fn applicable_templates_not_applied(&self, parent: TraceHandle, stratum: StratumId, input: &Word) -> TraceHandle {
-        let mut n = TraceNode::new(TraceType::StratumSynthesisOutput, TraceSource::Stratum(stratum));
+    fn applicable_templates_not_applied(
+        &self,
+        parent: TraceHandle,
+        stratum: StratumId,
+        input: &Word,
+    ) -> TraceHandle {
+        let mut n = TraceNode::new(
+            TraceType::StratumSynthesisOutput,
+            TraceSource::Stratum(stratum),
+        );
         n.input = Some(input.clone());
         n.failure_reason = Some(FailureReason::PartialParse);
         self.append(parent, n)
     }
 
-    fn phonological_rule_unapplied(&self, parent: TraceHandle, rule: PRuleId, subrule: i32, output: &Word) -> TraceHandle {
-        let mut n = TraceNode::new(TraceType::PhonologicalRuleAnalysis, TraceSource::PhonRule(rule));
+    fn phonological_rule_unapplied(
+        &self,
+        parent: TraceHandle,
+        rule: PRuleId,
+        subrule: i32,
+        output: &Word,
+    ) -> TraceHandle {
+        let mut n = TraceNode::new(
+            TraceType::PhonologicalRuleAnalysis,
+            TraceSource::PhonRule(rule),
+        );
         n.subrule_index = Some(subrule);
         n.output = Some(output.clone());
         self.append(parent, n)
     }
-    fn phonological_rule_not_unapplied(&self, parent: TraceHandle, rule: PRuleId, subrule: i32, input: &Word) -> TraceHandle {
-        let mut n = TraceNode::new(TraceType::PhonologicalRuleAnalysis, TraceSource::PhonRule(rule));
+    fn phonological_rule_not_unapplied(
+        &self,
+        parent: TraceHandle,
+        rule: PRuleId,
+        subrule: i32,
+        input: &Word,
+    ) -> TraceHandle {
+        let mut n = TraceNode::new(
+            TraceType::PhonologicalRuleAnalysis,
+            TraceSource::PhonRule(rule),
+        );
         n.subrule_index = Some(subrule);
         n.input = Some(input.clone());
         self.append(parent, n)
     }
-    fn phonological_rule_applied(&self, parent: TraceHandle, rule: PRuleId, subrule: i32, output: &Word) -> TraceHandle {
-        let mut n = TraceNode::new(TraceType::PhonologicalRuleSynthesis, TraceSource::PhonRule(rule));
+    fn phonological_rule_applied(
+        &self,
+        parent: TraceHandle,
+        rule: PRuleId,
+        subrule: i32,
+        output: &Word,
+    ) -> TraceHandle {
+        let mut n = TraceNode::new(
+            TraceType::PhonologicalRuleSynthesis,
+            TraceSource::PhonRule(rule),
+        );
         n.subrule_index = Some(subrule);
         n.output = Some(output.clone());
         self.append(parent, n)
@@ -571,27 +826,57 @@ impl TraceSink for TreeTraceSink {
         input: &Word,
         reason: FailureReason,
     ) -> TraceHandle {
-        let mut n = TraceNode::new(TraceType::PhonologicalRuleSynthesis, TraceSource::PhonRule(rule));
+        let mut n = TraceNode::new(
+            TraceType::PhonologicalRuleSynthesis,
+            TraceSource::PhonRule(rule),
+        );
         n.subrule_index = Some(subrule);
         n.input = Some(input.clone());
         n.failure_reason = Some(reason);
         self.append(parent, n)
     }
 
-    fn morphological_rule_unapplied(&self, parent: TraceHandle, rule: MRuleId, subrule: i32, output: &Word) -> TraceHandle {
-        let mut n = TraceNode::new(TraceType::MorphologicalRuleAnalysis, TraceSource::MorphRule(rule));
+    fn morphological_rule_unapplied(
+        &self,
+        parent: TraceHandle,
+        rule: MRuleId,
+        subrule: i32,
+        output: &Word,
+    ) -> TraceHandle {
+        let mut n = TraceNode::new(
+            TraceType::MorphologicalRuleAnalysis,
+            TraceSource::MorphRule(rule),
+        );
         n.subrule_index = Some(subrule);
         n.output = Some(output.clone());
         self.append(parent, n)
     }
-    fn morphological_rule_not_unapplied(&self, parent: TraceHandle, rule: MRuleId, subrule: i32, input: &Word) -> TraceHandle {
-        let mut n = TraceNode::new(TraceType::MorphologicalRuleAnalysis, TraceSource::MorphRule(rule));
+    fn morphological_rule_not_unapplied(
+        &self,
+        parent: TraceHandle,
+        rule: MRuleId,
+        subrule: i32,
+        input: &Word,
+    ) -> TraceHandle {
+        let mut n = TraceNode::new(
+            TraceType::MorphologicalRuleAnalysis,
+            TraceSource::MorphRule(rule),
+        );
         n.subrule_index = Some(subrule);
         n.input = Some(input.clone());
         self.append(parent, n)
     }
-    fn morphological_rule_applied(&self, parent: TraceHandle, rule: MRuleId, subrule: i32, output: &Word) -> TraceHandle {
-        let mut n = TraceNode::new(TraceType::MorphologicalRuleSynthesis, TraceSource::MorphRule(rule));
+    fn morphological_rule_applied(
+        &self,
+        parent: TraceHandle,
+        rule: MRuleId,
+        subrule: i32,
+        output: &Word,
+    ) -> TraceHandle {
+        let mut n = TraceNode::new(
+            TraceType::MorphologicalRuleSynthesis,
+            TraceSource::MorphRule(rule),
+        );
         n.subrule_index = Some(subrule);
         n.output = Some(output.clone());
         self.append(parent, n)
@@ -604,15 +889,26 @@ impl TraceSink for TreeTraceSink {
         input: &Word,
         reason: FailureReason,
     ) -> TraceHandle {
-        let mut n = TraceNode::new(TraceType::MorphologicalRuleSynthesis, TraceSource::MorphRule(rule));
+        let mut n = TraceNode::new(
+            TraceType::MorphologicalRuleSynthesis,
+            TraceSource::MorphRule(rule),
+        );
         n.subrule_index = Some(subrule);
         n.input = Some(input.clone());
         n.failure_reason = Some(reason);
         self.append(parent, n)
     }
 
-    fn compounding_rule_not_unapplied(&self, parent: TraceHandle, rule: MRuleId, input: &Word) -> TraceHandle {
-        let mut n = TraceNode::new(TraceType::CompoundingRuleAnalysis, TraceSource::MorphRule(rule));
+    fn compounding_rule_not_unapplied(
+        &self,
+        parent: TraceHandle,
+        rule: MRuleId,
+        input: &Word,
+    ) -> TraceHandle {
+        let mut n = TraceNode::new(
+            TraceType::CompoundingRuleAnalysis,
+            TraceSource::MorphRule(rule),
+        );
         n.input = Some(input.clone());
         self.append(parent, n)
     }
@@ -623,7 +919,10 @@ impl TraceSink for TreeTraceSink {
         input: &Word,
         reason: FailureReason,
     ) -> TraceHandle {
-        let mut n = TraceNode::new(TraceType::CompoundingRuleSynthesis, TraceSource::MorphRule(rule));
+        let mut n = TraceNode::new(
+            TraceType::CompoundingRuleSynthesis,
+            TraceSource::MorphRule(rule),
+        );
         n.input = Some(input.clone());
         n.failure_reason = Some(reason);
         self.append(parent, n)
@@ -699,7 +998,10 @@ mod tests {
         // Caller passes h1 (not root) as parent for the next event -- it nests UNDER the rule.
         let h2 = sink.morphological_rule_applied(h1, MRuleId(1), 0, &word);
         assert_eq!(sink.node(h1).children, vec![h2]);
-        assert!(sink.node(root).children == vec![h1], "h2 must not become a sibling of h1 under root");
+        assert!(
+            sink.node(root).children == vec![h1],
+            "h2 must not become a sibling of h1 under root"
+        );
     }
 
     /// The second, trickier cursor subtlety (§1.2): `SynthesizeWord` reaches TWO levels deep --
@@ -714,13 +1016,25 @@ mod tests {
         let root = sink.analyze_word(&word);
 
         let lex = sink.lexical_lookup(root, StratumId(0), &word);
-        assert_eq!(sink.node(root).children, vec![lex], "LexicalLookup is root's child, cursor unchanged");
+        assert_eq!(
+            sink.node(root).children,
+            vec![lex],
+            "LexicalLookup is root's child, cursor unchanged"
+        );
 
         // Call site passes `root` (the cursor, unchanged by LexicalLookup) -- not `lex`.
         let syn = sink.synthesize_word(root, &word);
 
-        assert_eq!(sink.node(root).children, vec![lex], "no new direct child of root");
-        assert_eq!(sink.node(lex).children, vec![syn], "SynthesizeWord landed under lex's children, not root's");
+        assert_eq!(
+            sink.node(root).children,
+            vec![lex],
+            "no new direct child of root"
+        );
+        assert_eq!(
+            sink.node(lex).children,
+            vec![syn],
+            "SynthesizeWord landed under lex's children, not root's"
+        );
     }
 
     #[test]
@@ -731,7 +1045,10 @@ mod tests {
 
         let f = sink.failed(root, &word, FailureReason::PartialParse);
         assert_eq!(sink.node(f).type_, TraceType::Failed);
-        assert_eq!(sink.node(f).failure_reason, Some(FailureReason::PartialParse));
+        assert_eq!(
+            sink.node(f).failure_reason,
+            Some(FailureReason::PartialParse)
+        );
         assert!(sink.node(f).output.is_some());
 
         let s = sink.successful(root, &word);

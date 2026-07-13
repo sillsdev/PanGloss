@@ -102,8 +102,14 @@ fn fifty_ms_word_timeout_fires_promptly_on_a_genuinely_slow_parse() {
     let outcome = m.parse_word(&word);
     let elapsed = start.elapsed();
 
-    assert!(outcome.timed_out, "the 50ms deadline must fire during this slow parse");
-    assert!(!outcome.capped, "--step-cap was usize::MAX -- the step cap itself must never fire");
+    assert!(
+        outcome.timed_out,
+        "the 50ms deadline must fire during this slow parse"
+    );
+    assert!(
+        !outcome.capped,
+        "--step-cap was usize::MAX -- the step cap itself must never fire"
+    );
     // Machine-speed-independent proxy for "aborted early": since the O1b fix, over_budget() samples
     // the wall clock on every call, so the deadline fires within about one (un)application attempt's
     // cost of the 50ms mark (~266µs/step in debug for this fixture) -- nowhere near the ~13699 steps

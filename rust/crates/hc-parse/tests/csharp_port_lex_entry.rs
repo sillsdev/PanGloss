@@ -203,7 +203,14 @@ fn stem_names() {
         <MorphemeId>stemname</MorphemeId>
       </LexicalEntry>
     "#;
-    let g = csharp_port_common::build_grammar_w5(stem_names, "", mrules, "mrSnEd mrSnT mrSnS", "", extra_lexicon);
+    let g = csharp_port_common::build_grammar_w5(
+        stem_names,
+        "",
+        mrules,
+        "mrSnEd mrSnT mrSnS",
+        "",
+        extra_lexicon,
+    );
     let m = Morpher::new(&g, usize::MAX);
 
     // LexEntryTests.cs:152-155: the unrestricted `san` allomorph is excluded wherever a named

@@ -323,9 +323,14 @@ fn ndikhali_compound_verifies_with_two_roots_and_reconfirms() {
     // "mrule47+entry413+entry1072+mrule9:1" for "ndikhali", and the C# composite-verified golden
     // confirms it as a real analysis; assert it's actually among what THIS engine verifies, not
     // just that some two-root analysis exists.
-    let signatures: Vec<String> = verified.iter().map(|wa| replay::signature(&g, wa)).collect();
+    let signatures: Vec<String> = verified
+        .iter()
+        .map(|wa| replay::signature(&g, wa))
+        .collect();
     assert!(
-        signatures.iter().any(|s| s == "mrule47+entry413+entry1072+mrule9:1"),
+        signatures
+            .iter()
+            .any(|s| s == "mrule47+entry413+entry1072+mrule9:1"),
         "expected the C#-oracle-confirmed signature \"mrule47+entry413+entry1072+mrule9:1\" among \
          \"ndikhali\"'s verified analyses, got: {signatures:?}"
     );

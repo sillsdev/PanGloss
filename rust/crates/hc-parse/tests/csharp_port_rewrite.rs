@@ -880,7 +880,10 @@ fn long_distance_rules() {
         "",
         "",
     );
-    assert_morphs_eq(&Morpher::new(&g1, usize::MAX).parse_word("bubabu"), &["13", "14"]);
+    assert_morphs_eq(
+        &Morpher::new(&g1, usize::MAX).parse_word("bubabu"),
+        &["13", "14"],
+    );
 
     // (2) RightEnvironment = cons, lowVowel, cons, rndVowel (the mirror image of (1)).
     let g2 = build_grammar(
@@ -899,7 +902,10 @@ fn long_distance_rules() {
         "",
         "",
     );
-    assert_morphs_eq(&Morpher::new(&g2, usize::MAX).parse_word("bubabu"), &["13", "15"]);
+    assert_morphs_eq(
+        &Morpher::new(&g2, usize::MAX).parse_word("bubabu"),
+        &["13", "15"],
+    );
 
     // (3) LeftEnvironment = highVowel, cons?, "+", cons?, vowel? -- mandatory highVowel+boundary,
     // optional cons/cons/vowel around them.
@@ -983,7 +989,10 @@ fn quantifier_rules() {
         "",
         "",
     );
-    assert_morphs_eq(&Morpher::new(&g1, usize::MAX).parse_word("buuubuuu"), &["27"]);
+    assert_morphs_eq(
+        &Morpher::new(&g1, usize::MAX).parse_word("buuubuuu"),
+        &["27"],
+    );
 }
 
 /// Ports `RewriteRuleTests.MultipleSegmentRules`'s FIRST reconfiguration only (RewriteRuleTests.cs:
@@ -1148,7 +1157,10 @@ fn disjunctive_rules() {
         "",
         "",
     );
-    assert_morphs_eq(&Morpher::new(&g2, usize::MAX).parse_word("bububu"), &["42", "43"]);
+    assert_morphs_eq(
+        &Morpher::new(&g2, usize::MAX).parse_word("bububu"),
+        &["42", "43"],
+    );
 
     // (3) `stop` target again, via anchors instead of a bare environment-less "else": subrule(a)
     // word-initial -> asp; subrule(b) word-FINAL -> unasp (RightSideAnchor, not an "else" fallback).
@@ -1194,7 +1206,10 @@ fn disjunctive_rules() {
         "",
         "",
     );
-    assert_morphs_eq(&Morpher::new(&g4, usize::MAX).parse_word("bubu"), &["46", "19"]);
+    assert_morphs_eq(
+        &Morpher::new(&g4, usize::MAX).parse_word("bubu"),
+        &["46", "19"],
+    );
 
     // (5) `voicelessStop` target; subrule(a) after another voicelessStop -> asp; subrule(b) (else)
     // -> unasp.

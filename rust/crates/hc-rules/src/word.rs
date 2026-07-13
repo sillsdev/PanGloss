@@ -93,7 +93,13 @@ pub enum MorphStatus {
 impl MorphRecord {
     /// A record with no passed-over set (root records and hand-built test records).
     pub fn new(allomorph: AllomorphId, morpheme: MorphemeId, order: u32) -> Self {
-        MorphRecord { allomorph, morpheme, order, passed_over: None, status: MorphStatus::Real }
+        MorphRecord {
+            allomorph,
+            morpheme,
+            order,
+            passed_over: None,
+            status: MorphStatus::Real,
+        }
     }
 }
 
@@ -455,7 +461,10 @@ impl Word {
             // The general case (cs:504-528): the source fanned out to >= 2 originals, so this word's
             // delta must be replayed onto each of them.
             Some(o) if o.len() >= 2 => {
-                let src = self.source.as_ref().expect("originals is Some => source is Some");
+                let src = self
+                    .source
+                    .as_ref()
+                    .expect("originals is Some => source is Some");
                 for original in o {
                     let mut alt = original.clone();
                     alt.shape = self.shape.clone();
@@ -559,7 +568,10 @@ mod tests {
 
         let r = stored.replay_onto(&query, 2, 0);
         // Result trail = query's prefix ++ stored's subtree-local suffix.
-        assert_eq!(r.mrule_apps, vec![Some(MRuleId(1)), Some(MRuleId(0)), Some(MRuleId(2))]);
+        assert_eq!(
+            r.mrule_apps,
+            vec![Some(MRuleId(1)), Some(MRuleId(0)), Some(MRuleId(2))]
+        );
         assert_eq!(r.mrule_app_index, 2);
     }
 

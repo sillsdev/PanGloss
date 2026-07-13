@@ -800,7 +800,8 @@ pub fn build_grammar(
 </HermitCrabInput>
 "#
     );
-    hc_grammar::load(&xml).unwrap_or_else(|e| panic!("csharp_port_common grammar failed to load: {e}\n---\n{xml}"))
+    hc_grammar::load(&xml)
+        .unwrap_or_else(|e| panic!("csharp_port_common grammar failed to load: {e}\n---\n{xml}"))
 }
 
 /// A grammar with no phonological rules and no affix templates, every declared morphological rule
@@ -817,7 +818,12 @@ pub fn build_morph_grammar(mrule_defs_xml: &str, mrule_ids: &str) -> Grammar {
 /// C# test's extra `AddEntry("dEnclitic", ...)` root; `cooccurrence_xml` is the
 /// `<MorphemeCoOccurrenceRules>`/`<AllomorphCoOccurrenceRules>` block, placed after `</Strata>`
 /// (DTD order: `Strata, MorphemeCoOccurrenceRules?, AllomorphCoOccurrenceRules?`).
-pub fn build_grammar_cooccurrence(mrule_defs_xml: &str, mrule_ids: &str, extra_lexicon_xml: &str, cooccurrence_xml: &str) -> Grammar {
+pub fn build_grammar_cooccurrence(
+    mrule_defs_xml: &str,
+    mrule_ids: &str,
+    extra_lexicon_xml: &str,
+    cooccurrence_xml: &str,
+) -> Grammar {
     let xml = format!(
         r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
@@ -842,7 +848,9 @@ pub fn build_grammar_cooccurrence(mrule_defs_xml: &str, mrule_ids: &str, extra_l
 </HermitCrabInput>
 "#
     );
-    hc_grammar::load(&xml).unwrap_or_else(|e| panic!("csharp_port_common cooccurrence grammar failed to load: {e}\n---\n{xml}"))
+    hc_grammar::load(&xml).unwrap_or_else(|e| {
+        panic!("csharp_port_common cooccurrence grammar failed to load: {e}\n---\n{xml}")
+    })
 }
 
 /// [`build_grammar`]'s W5 sibling for the realizational-cluster ports (`LexEntryTests.StemNames`,
@@ -886,7 +894,8 @@ pub fn build_grammar_w5(
 </HermitCrabInput>
 "#
     );
-    hc_grammar::load(&xml).unwrap_or_else(|e| panic!("csharp_port_common W5 grammar failed to load: {e}\n---\n{xml}"))
+    hc_grammar::load(&xml)
+        .unwrap_or_else(|e| panic!("csharp_port_common W5 grammar failed to load: {e}\n---\n{xml}"))
 }
 
 /// [`build_morph_grammar`] with the shared [`LEXICON_XML`] REPLACED by the caller's own block --
@@ -895,7 +904,11 @@ pub fn build_grammar_w5(
 /// the three entries the test touches (`5`/`8`/`9`) with per-configuration `ruleFeatures`
 /// attributes instead, which requires owning the whole lexicon (a second `<LexicalEntries>` block
 /// can only add entries, not modify the shared ones).
-pub fn build_grammar_custom_lexicon(mrule_defs_xml: &str, mrule_ids: &str, lexicon_xml: &str) -> Grammar {
+pub fn build_grammar_custom_lexicon(
+    mrule_defs_xml: &str,
+    mrule_ids: &str,
+    lexicon_xml: &str,
+) -> Grammar {
     let xml = format!(
         r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
@@ -918,8 +931,9 @@ pub fn build_grammar_custom_lexicon(mrule_defs_xml: &str, mrule_ids: &str, lexic
 </HermitCrabInput>
 "#
     );
-    hc_grammar::load(&xml)
-        .unwrap_or_else(|e| panic!("csharp_port_common custom-lexicon grammar failed to load: {e}\n---\n{xml}"))
+    hc_grammar::load(&xml).unwrap_or_else(|e| {
+        panic!("csharp_port_common custom-lexicon grammar failed to load: {e}\n---\n{xml}")
+    })
 }
 
 /// Identical to [`build_grammar`], but `morphologicalRuleOrder="linear"` (C#
@@ -955,7 +969,9 @@ pub fn build_grammar_linear(
 </HermitCrabInput>
 "#
     );
-    hc_grammar::load(&xml).unwrap_or_else(|e| panic!("csharp_port_common linear grammar failed to load: {e}\n---\n{xml}"))
+    hc_grammar::load(&xml).unwrap_or_else(|e| {
+        panic!("csharp_port_common linear grammar failed to load: {e}\n---\n{xml}")
+    })
 }
 
 /// The set of morpheme-join strings (C# `AssertMorphsEqual`'s gloss-joined-by-space form) among a
@@ -963,7 +979,11 @@ pub fn build_grammar_linear(
 /// `AssertMorphsEqual` joins with `" "` -- translated here so expected literals can be transcribed
 /// character-for-character from the C# source (`"32 PAST"`, not `"32+PAST"`).
 pub fn morphs_set(outcome: &ParseOutcome) -> BTreeSet<String> {
-    outcome.analyses.iter().map(|(m, _)| m.replace('+', " ")).collect()
+    outcome
+        .analyses
+        .iter()
+        .map(|(m, _)| m.replace('+', " "))
+        .collect()
 }
 
 /// Assert that `outcome`'s surviving analyses' morpheme-gloss strings are exactly `expected` (order-
@@ -972,7 +992,10 @@ pub fn morphs_set(outcome: &ParseOutcome) -> BTreeSet<String> {
 pub fn assert_morphs_eq(outcome: &ParseOutcome, expected: &[&str]) {
     let got = morphs_set(outcome);
     let want: BTreeSet<String> = expected.iter().map(|s| s.to_string()).collect();
-    assert_eq!(got, want, "morpheme-gloss sets differ (got {got:?}, want {want:?})");
+    assert_eq!(
+        got, want,
+        "morpheme-gloss sets differ (got {got:?}, want {want:?})"
+    );
 }
 
 #[track_caller]

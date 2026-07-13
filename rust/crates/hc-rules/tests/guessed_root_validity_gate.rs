@@ -98,10 +98,17 @@ fn load_gate_grammar() -> Grammar {
     hc_grammar::load(XML).expect("guessed-root validity-gate grammar loads")
 }
 
-fn find_entry<'g>(g: &'g Grammar, xml_id_allomorph_text: &str) -> &'g hc_grammar::model::LexEntryDef {
+fn find_entry<'g>(
+    g: &'g Grammar,
+    xml_id_allomorph_text: &str,
+) -> &'g hc_grammar::model::LexEntryDef {
     g.entries
         .iter()
-        .find(|e| e.allomorphs.iter().any(|a| a.shape.text == xml_id_allomorph_text))
+        .find(|e| {
+            e.allomorphs
+                .iter()
+                .any(|a| a.shape.text == xml_id_allomorph_text)
+        })
         .unwrap_or_else(|| panic!("no entry with an allomorph surface {xml_id_allomorph_text:?}"))
 }
 
@@ -141,7 +148,11 @@ fn guessed_word(g: &Grammar, text: &str) -> Word {
         pattern_entry,
         text: text.to_string(),
     }));
-    w.morphs = vec![MorphRecord::new(AllomorphId::GUESSED, MorphemeId::GUESSED, 0)];
+    w.morphs = vec![MorphRecord::new(
+        AllomorphId::GUESSED,
+        MorphemeId::GUESSED,
+        0,
+    )];
     w
 }
 
@@ -149,9 +160,15 @@ fn guessed_word(g: &Grammar, text: &str) -> Word {
 /// `distinct_count` to 2 (so the bound-root-ALONE gate stops firing and other checks can be
 /// isolated) and, for the environments test, to give the guessed morph's span a definite right
 /// edge with real material after it.
-fn guessed_word_plus(g: &Grammar, text: &str, second_allo: AllomorphId, second_morpheme: MorphemeId) -> Word {
+fn guessed_word_plus(
+    g: &Grammar,
+    text: &str,
+    second_allo: AllomorphId,
+    second_morpheme: MorphemeId,
+) -> Word {
     let mut w = guessed_word(g, text);
-    w.morphs.push(MorphRecord::new(second_allo, second_morpheme, 1));
+    w.morphs
+        .push(MorphRecord::new(second_allo, second_morpheme, 1));
     w
 }
 
@@ -183,7 +200,10 @@ fn guessed_root_alone_is_rejected_by_the_bound_gate() {
     // so would ALSO reject -- but the bound gate fires first in the checked order, so either
     // failure reason still rejects, which is all this test needs).
     let w = guessed_word(&g, "za");
-    assert!(!allomorphs_valid(&g, &w), "a bound guessed root alone (distinct_count=1) must be rejected");
+    assert!(
+        !allomorphs_valid(&g, &w),
+        "a bound guessed root alone (distinct_count=1) must be rejected"
+    );
 }
 
 #[test]
@@ -194,7 +214,10 @@ fn guessed_root_with_a_second_distinct_allomorph_is_not_rejected_by_the_bound_ga
     // guessed morph (order 0, span [0,0] = "a") is followed by real material "x" satisfying its
     // RightEnvironment, isolating the bound-gate result from the environments gate.
     let w = guessed_word_plus(&g, "ax", other_allo, other_morpheme);
-    assert!(allomorphs_valid(&g, &w), "bound guessed root + a second distinct allomorph must not be rejected");
+    assert!(
+        allomorphs_valid(&g, &w),
+        "bound guessed root + a second distinct allomorph must not be rejected"
+    );
 }
 
 // =================================================================================================
@@ -225,7 +248,11 @@ fn pers_p1_fs(g: &Grammar) -> hc_featstruct::FeatureStruct {
     // is an owned value per `hc_rules::word`'s module doc), so build via unify against an entry
     // that already carries pers=p1 would be simplest, but no such entry exists in this fixture;
     // instead read straight from a StemName region, which is exactly the {pers=p1} FS.
-    let sn1 = g.stem_names.iter().find(|s| s.name.as_deref() == Some("sn1")).expect("sn1 exists");
+    let sn1 = g
+        .stem_names
+        .iter()
+        .find(|s| s.name.as_deref() == Some("sn1"))
+        .expect("sn1 exists");
     g.fs_interner.get(sn1.regions[0]).clone()
 }
 
@@ -303,7 +330,9 @@ fn guessed_root_environments_delegate_to_the_pattern_allomorphs_own_environments
     let g = load_gate_grammar();
     let (other_allo, other_morpheme) = other_allo_and_morpheme(&g);
     assert!(
-        !find_entry(&g, "[Any]*").allomorphs[0].environments.is_empty(),
+        !find_entry(&g, "[Any]*").allomorphs[0]
+            .environments
+            .is_empty(),
         "sanity: aPattern declares a RequiredEnvironments block"
     );
     let w = guessed_word_plus(&g, "ab", other_allo, other_morpheme);

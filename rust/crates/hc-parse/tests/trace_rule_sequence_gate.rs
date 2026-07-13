@@ -24,7 +24,12 @@ fn sample_path(name: &str) -> Option<PathBuf> {
 /// Every chain of `MorphologicalRuleSynthesis` nodes that ends in a `Successful` leaf, found
 /// anywhere in the tree -- the "rule sequence" a human would read off a successful derivation.
 /// Collects all of them (a word can have several winning derivations); the caller picks the longest.
-fn successful_rule_chains(sink: &TreeTraceSink, h: TraceHandle, chain: &mut Vec<TraceHandle>, out: &mut Vec<Vec<TraceHandle>>) {
+fn successful_rule_chains(
+    sink: &TreeTraceSink,
+    h: TraceHandle,
+    chain: &mut Vec<TraceHandle>,
+    out: &mut Vec<Vec<TraceHandle>>,
+) {
     let n = sink.node(h);
     if n.type_ == TraceType::Successful {
         out.push(chain.clone());
@@ -56,7 +61,10 @@ fn real_indonesian_word_renders_a_followable_multi_rule_sequence() {
     let word = "menziarahi";
     let sink = TreeTraceSink::new();
     let outcome = morpher.parse_word_traced(word, &ParseOptions::default(), &sink);
-    assert!(!outcome.analyses.is_empty(), "sanity: {word:?} must still parse");
+    assert!(
+        !outcome.analyses.is_empty(),
+        "sanity: {word:?} must still parse"
+    );
 
     let root = sink.root().expect("analyze_word must mint a root");
     let mut chain = Vec::new();

@@ -17,7 +17,12 @@ pub fn sample_path(name: &str) -> Option<PathBuf> {
 pub fn load_words(name: &str) -> Option<Vec<String>> {
     let path = sample_path(name)?;
     let text = std::fs::read_to_string(path).ok()?;
-    Some(text.lines().map(str::to_string).filter(|l| !l.is_empty()).collect())
+    Some(
+        text.lines()
+            .map(str::to_string)
+            .filter(|l| !l.is_empty())
+            .collect(),
+    )
 }
 
 pub fn load_xml(name: &str) -> Option<String> {

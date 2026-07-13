@@ -159,7 +159,11 @@ impl Trie {
     /// walker analog needed by `walk.rs`'s beam-cap port (F4), since the bare walk has no chain to
     /// hand-build instead. Every [`StateData`]/[`ArcData`] field is already `pub`; this constructor
     /// exists only because [`Trie`]'s own fields are not.
-    pub fn from_states(states: Vec<StateData>, start: StateId, codec: token::MorphTokenCodec) -> Trie {
+    pub fn from_states(
+        states: Vec<StateData>,
+        start: StateId,
+        codec: token::MorphTokenCodec,
+    ) -> Trie {
         Trie {
             states,
             start,
@@ -221,7 +225,15 @@ impl Trie {
         deriv_depth: usize,
         enable_junction_probing: bool,
     ) -> Trie {
-        Trie::build_ex(g, surface, morpher, max_states, deriv_depth, enable_junction_probing, true)
+        Trie::build_ex(
+            g,
+            surface,
+            morpher,
+            max_states,
+            deriv_depth,
+            enable_junction_probing,
+            true,
+        )
     }
 
     /// [`Trie::build`] with an additional `enable_variants` knob (F7, HYBRID_FST_RUST_PLAN.md §8):
@@ -254,7 +266,13 @@ impl Trie {
         enable_junction_probing: bool,
         enable_variants: bool,
     ) -> Trie {
-        let mut b = TrieBuilder::new(g, max_states, deriv_depth, enable_junction_probing, enable_variants);
+        let mut b = TrieBuilder::new(
+            g,
+            max_states,
+            deriv_depth,
+            enable_junction_probing,
+            enable_variants,
+        );
         b.run(surface, morpher);
         b.finish()
     }

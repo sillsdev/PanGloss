@@ -78,7 +78,14 @@ fn matching_str_reps(table: &CharDefTable, shape: &Shape, i: usize, nfd: bool) -
     // one boundary via `StrRep`; the Rust `StrRep` analog (root_trie.rs docs) is the node's own
     // `char_def`, so a boundary renders exactly its authored representation (`+` → `+?`).
     if node_kind == NodeKind::Boundary {
-        return matching_reps_for_node(table, node_kind, shape.char_def(i), &hc_shape::CdSet::Unrestricted, &[], nfd);
+        return matching_reps_for_node(
+            table,
+            node_kind,
+            shape.char_def(i),
+            &hc_shape::CdSet::Unrestricted,
+            &[],
+            nfd,
+        );
     }
 
     // Segments: `cd.FeatureStruct.IsUnifiable(node.FeatureStruct)` on the **full** FS, which in C#
@@ -102,7 +109,9 @@ fn matching_str_reps(table: &CharDefTable, shape: &Shape, i: usize, nfd: bool) -
     // concrete `char_def` short-circuits before the CdSet is even read).
     let cd_set = match shape.node_cd_set(i) {
         EffectiveCdSet::Members(b) => hc_shape::CdSet::Members(b.clone()),
-        EffectiveCdSet::Singleton(_) | EffectiveCdSet::Unrestricted => hc_shape::CdSet::Unrestricted,
+        EffectiveCdSet::Singleton(_) | EffectiveCdSet::Unrestricted => {
+            hc_shape::CdSet::Unrestricted
+        }
     };
     matching_reps_for_node(table, node_kind, char_def, &cd_set, node_lanes, nfd)
 }
@@ -124,7 +133,11 @@ pub(crate) fn matching_reps_for_node(
     nfd: bool,
 ) -> Vec<String> {
     let reps_of = |cd: &CharDef| -> Vec<String> {
-        if nfd { cd.representations_nfd().to_vec() } else { cd.representations().to_vec() }
+        if nfd {
+            cd.representations_nfd().to_vec()
+        } else {
+            cd.representations().to_vec()
+        }
     };
     if kind == NodeKind::Boundary {
         if char_def != NO_CHAR_DEF && (char_def as usize) < table.len() {
@@ -142,7 +155,9 @@ pub(crate) fn matching_reps_for_node(
             // consults the build-time unifiability closure (`None` for a zero-feature table, so
             // Sena/en/sp keep the pre-P5 identity-only behavior bit-for-bit — see module doc).
             id.0 == char_def
-                || table.unifiable_cds(CharDefId(char_def)).is_some_and(|b| b.contains(id.0))
+                || table
+                    .unifiable_cds(CharDefId(char_def))
+                    .is_some_and(|b| b.contains(id.0))
         } else {
             match cd_set {
                 hc_shape::CdSet::Unrestricted => true,
@@ -358,16 +373,28 @@ mod tests {
         // C#'s GetMatchingStrReps/IsMatch is pure FeatureStruct unification for a feature-bearing
         // table (no separate StrRep gate, verified against `CharacterDefinitionTable.cs:96-106`),
         // so this is the faithful (not over-eager) behavior.
-        assert!(is_match(table, &shape, "y"), "closure-sibling spelling must confirm");
-        assert!(is_match(table, &shape, "x"), "own spelling must still confirm");
-        assert!(!is_match(table, &shape, "z"), "non-unifying (voi-) spelling must still reject");
+        assert!(
+            is_match(table, &shape, "y"),
+            "closure-sibling spelling must confirm"
+        );
+        assert!(
+            is_match(table, &shape, "x"),
+            "own spelling must still confirm"
+        );
+        assert!(
+            !is_match(table, &shape, "z"),
+            "non-unifying (voi-) spelling must still reject"
+        );
     }
 
     #[test]
     fn zero_feature_table_is_unaffected_by_closure_gate() {
         let g = hc_grammar::load(ZERO_FEAT_XML).expect("grammar loads");
         let table = &g.char_tables[0];
-        assert!(g.phon_features.is_empty(), "sanity: zero authored phon features (Sena regime)");
+        assert!(
+            g.phon_features.is_empty(),
+            "sanity: zero authored phon features (Sena regime)"
+        );
         let shape = one_segment_shape(table, find_cd(table, "char_x"));
         // No closure exists (StrRep/identity regime, `CharDefTable::unifiable_cds` returns `None`
         // for every cd here): rendering/matching stay identity-only, bit-for-bit pre-P5 behavior --
@@ -376,6 +403,9 @@ mod tests {
         assert_eq!(to_regex_display(table, &shape), "x");
         assert_eq!(to_plain_string(table, &shape, false), "x");
         assert!(is_match(table, &shape, "x"));
-        assert!(!is_match(table, &shape, "y"), "zero-feature table must stay identity-gated (no closure)");
+        assert!(
+            !is_match(table, &shape, "y"),
+            "zero-feature table must stay identity-gated (no closure)"
+        );
     }
 }
