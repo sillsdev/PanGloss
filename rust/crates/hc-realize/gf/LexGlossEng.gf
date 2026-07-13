@@ -16,7 +16,7 @@
 -- gen_templates.py substitutes "house"/"houses" back out for the real {n:sg}/{n:pl} template
 -- slots after linearizing -- see that script's header for the substitution invariant it enforces
 -- (every linearization must contain the placeholder word exactly once).
-instance LexGlossEng of LexGloss = open ParadigmsEng in {
+instance LexGlossEng of LexGloss = open GrammarEng, ParadigmsEng in {
   oper
     n_N       = mkN "house" ;
     in_Prep   = mkPrep "in" ;
