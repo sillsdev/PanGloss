@@ -1,0 +1,17 @@
+# Fixture IDs (as printed by the conformance driver, e.g. "edge-cases/foo") that are KNOWN,
+# understood, and currently accepted to FAIL against hc-rs -- not swept under the rug, tracked here
+# so run-conformance.sh can still exit 0 on a clean run while any NEW, unexplained failure still
+# fails the build. Every entry needs a reason and a doc pointer; nothing gets added here silently.
+# Lines starting with # and blank lines are ignored.
+
+# edge-cases/simultaneous-epenthesis-cascade -- fixture's own words.yaml documents a genuine C#
+# HermitCrab engine bug (IterativePhonologicalPatternRule.Apply's freshly-inserted epenthetic
+# vowel is itself a HighVowel, re-triggering its own LeftEnvironment -> a runaway self-feeding
+# cascade that only stops when Shape.Count hits a hardcoded 256-node cap and throws
+# InfiniteLoopException). expect_crash: true means "pass = also crash the same way". hc-rs instead
+# reaches the same real answer -- "bubu" has no valid analysis under this grammar (status=ok,
+# signature=-, verified 2026-07-13 by running the fixture directly, not just via the driver) --
+# without an exception. This is not a wrong-answer divergence; it is PanGloss choosing not to
+# reproduce a C#-side crash bug -- already tracked as a known, explicit scope decision (not silently
+# folded into "out of scope") in rust/docs/p13-simultaneous-design.md sections 6.2 and 7, item 2.
+edge-cases/simultaneous-epenthesis-cascade
