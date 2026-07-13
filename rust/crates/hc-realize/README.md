@@ -64,26 +64,32 @@ runtime):
   shell, substitutes the placeholder word back out for `{n:sg}`/`{n:pl}` slots, and rewrites
   `assets/eng/templates.toml`.
 
-**As of 2026-07-11 there is no `gf` install on this development machine.** None of the `.gf`
-sources or `gen_templates.py`'s actual `gf` invocations have been compiled or run -- only
-syntax-checked (`gf/gen_templates.py` is plain-Python-syntax-checked; the `.gf` files were
-designed by reading the real `gf-rgl` source directly, not by compiling against it). `templates.
-toml` therefore remains the committed, hand-authored source of truth for now; the loop below is
-what closes that gap once a `gf` install exists:
+**As of 2026-07-11 there was no `gf` install on the development machine that wrote these
+sources**, so none of the `.gf` files had been compiled or run by hand -- only syntax-checked
+(`gf/gen_templates.py` is plain-Python-syntax-checked; the `.gf` files were designed by reading
+the real `gf-rgl` source directly, not by compiling against it). **As of 2026-07-13,
+`.github/workflows/gf-ci.yml` closes that verification gap in CI:** it installs the official GF
+3.12 Ubuntu package, sparse-checks-out the `gf-rgl` subtrees `GlossFunctor.gf` opens (`abstract`,
+`api`, `common`, `english`, `prelude` at pinned tag `20260403`), and runs `gf --make GlossEng.gf`
+on every push/PR that touches `gf/` -- so a broken construct in these sources now fails CI
+instead of shipping silently wrong. That job compiles the grammar only; it does not run
+`gen_templates.py` or commit its output, so `templates.toml` remains the committed,
+hand-authored source of truth until someone actually runs the generator. The loop below is what
+closes that second gap:
 
 1. Edit the `.gf` sources in `gf/` (the construction logic, the lexicon, or both).
-2. Run `python gen_templates.py --gf gf --out ../assets/eng/templates.toml` from `gf/`.
+2. Run `python gen_templates.py --gf gf --out ../assets/eng/templates.toml` from `gf/` (with a
+   local `gf` install, or by adapting `gf-ci.yml`'s install steps).
 3. Commit the regenerated `templates.toml` alongside the `.gf` source change.
 4. `table::tests::assets_load_and_cover_all_108_cells` (N2, already in the suite) guards the
    invariant the generator is responsible for maintaining -- full 108-cell coverage, exactly one
    `{n:sg}`/`{n:pl}` slot per cell -- so a bad regeneration fails `cargo test -p hc-realize`, not
    a silent drift.
 
-The very first `gf --make GlossEng.gf` run is also the compile-verification step these sources
-have never had; expect to need small fixes (the exact `with (...)` functor-instantiation shape,
-the `gf --run` batch-output format `gen_templates.py` assumes) the first time it actually runs --
-see the header comments in `gf/GlossFunctor.gf` and `gf/gen_templates.py` for the specific spots
-flagged as highest-risk.
+If `gf-ci.yml`'s first real run turns up a compile error, that is exactly the gap it was built to
+find, not a workflow bug -- see the header comments in `gf/GlossFunctor.gf` and
+`gf/gen_templates.py` for the specific spots flagged as highest-risk (the `with (...)` functor
+instantiation shape, the three-way `Grammar`/`Constructors`/`LexGloss` interface combination).
 
 ## The Architecture-A upgrade path
 

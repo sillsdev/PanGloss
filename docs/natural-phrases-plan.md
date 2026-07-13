@@ -21,12 +21,15 @@ orchestrator review-fix commits after each milestone. Shipped scope and deviatio
   amharic/Sena (documented in the gate).
 - **N3:** GF sources in `rust/crates/hc-realize/gf/` (functor over the checked-in `Grammar`/
   `Constructors` RGL modules, param-record lincats) + `gen_templates.py` + crate README.
-  **Not compile-verified** — no `gf` install on this machine; the first
-  `gf --make GlossEng.gf` is the outstanding verification step (tracked in file headers).
+  **Compile-verification (2026-07-13):** `.github/workflows/gf-ci.yml` now runs
+  `gf --make GlossEng.gf` in CI on every push/PR touching `gf/` (GF 3.12 + pinned `gf-rgl`
+  sparse checkout) — no local `gf` install was ever needed; the outstanding gap is closed by
+  CI rather than by hand.
 - **Post-purge note:** sample grammars/wordlists are now gitignored local design inputs
   (`561598a`); the n0/n1/n2 gates self-skip without them. The gate tests and sidecars do pin
-  a small number of individual words/glosses drawn from those grammars — flagged for a policy
-  call on whether that fits the purge's intent.
+  a small number of individual words/glosses drawn from those grammars; asked 2026-07-13 —
+  the user decided to leave these as-is (small dictionary-style fixtures, not the full
+  grammar/corpus), so no further action here.
 
 Original plan follows. Design rationale: `docs/natural-glosses-plan.md` (esp. §6–§8).
 This plan implements **Architecture B** (compile-time GF, runtime tables) scoped to a

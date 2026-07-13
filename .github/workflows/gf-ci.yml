@@ -1,0 +1,69 @@
+name: GF Compile Check
+
+# Compile-verifies rust/crates/hc-realize/gf/*.gf against the real gf-rgl (Grammatical
+# Framework Resource Grammar Library) sources. This closes the gap flagged throughout
+# hc-realize's N3 milestone (see rust/crates/hc-realize/README.md and the header comments in
+# GlossFunctor.gf/GlossEng.gf): those sources were hand-written against gf-rgl by reading its
+# source, never compiled, because no `gf` install existed on the authoring machine. A failure
+# here may be a genuine bug in the grammar sources, not a workflow bug — see this workflow's
+# job summary / the `gf --make` output for the actual GF compiler diagnostic.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "rust/crates/hc-realize/gf/**"
+      - ".github/workflows/gf-ci.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "rust/crates/hc-realize/gf/**"
+      - ".github/workflows/gf-ci.yml"
+  workflow_dispatch:
+
+env:
+  GF_VERSION: "3.12"
+  GF_RELEASE_TAG: "release-3.12"
+  RGL_TAG: "20260403"
+
+jobs:
+  compile:
+    name: gf --make GlossEng.gf
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache GF .deb download
+        id: cache-gf-deb
+        uses: actions/cache@v4
+        with:
+          path: gf.deb
+          key: gf-deb-${{ env.GF_VERSION }}-ubuntu-24.04
+
+      - name: Download GF
+        if: steps.cache-gf-deb.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL -o gf.deb \
+            "https://github.com/GrammaticalFramework/gf-core/releases/download/${GF_RELEASE_TAG}/gf-${GF_VERSION}-ubuntu-24.04.deb"
+
+      - name: Install GF
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ./gf.deb
+          gf --version
+
+      - name: Fetch gf-rgl (sparse checkout, pinned tag)
+        run: |
+          git clone --filter=blob:none --no-checkout --depth 1 \
+            --branch "${RGL_TAG}" https://github.com/GrammaticalFramework/gf-rgl.git /tmp/gf-rgl
+          cd /tmp/gf-rgl
+          git sparse-checkout init --cone
+          git sparse-checkout set src/abstract src/api src/common src/english src/prelude
+          git checkout
+
+      - name: Compile GlossEng.gf
+        working-directory: rust/crates/hc-realize/gf
+        run: |
+          gf --make \
+            --path=.:/tmp/gf-rgl/src/abstract:/tmp/gf-rgl/src/api:/tmp/gf-rgl/src/common:/tmp/gf-rgl/src/english:/tmp/gf-rgl/src/prelude \
+            GlossEng.gf
