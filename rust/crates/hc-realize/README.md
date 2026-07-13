@@ -86,10 +86,13 @@ closes that second gap:
    `{n:sg}`/`{n:pl}` slot per cell -- so a bad regeneration fails `cargo test -p hc-realize`, not
    a silent drift.
 
-If `gf-ci.yml`'s first real run turns up a compile error, that is exactly the gap it was built to
-find, not a workflow bug -- see the header comments in `gf/GlossFunctor.gf` and
-`gf/gen_templates.py` for the specific spots flagged as highest-risk (the `with (...)` functor
-instantiation shape, the three-way `Grammar`/`Constructors`/`LexGloss` interface combination).
+`gf-ci.yml`'s first real run (2026-07-13) did turn up two genuine bugs, both fixed the same day
+(see `gf/GlossEng.gf` and `gf/LexGlossEng.gf`'s own headers for the specifics): the `with (...)`
+functor-instantiation clause needed one parenthesized `(Interface = Instance)` group per binding
+rather than one comma-separated group, and `LexGlossEng.gf` needed `GrammarEng` opened alongside
+`ParadigmsEng` for its `N`/`Prep` types to resolve. `GlossFunctor.gf`'s own three-way
+`Grammar`/`Constructors`/`LexGloss` parameter combination -- the spot flagged as highest-risk --
+compiled clean on the first try. The grammar links into a `.pgf` successfully as of that run.
 
 ## The Architecture-A upgrade path
 

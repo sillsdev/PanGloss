@@ -2,13 +2,14 @@
 -- only real RGL categories/opers, instantiated per language in a ~5-line file like GlossEng.gf.
 --
 -- Architecture-B source of truth for ../assets/eng/templates.toml (see Gloss.gf's header for the
--- full explanation, including why the abstract category is called GNum rather than Num). NOT yet
--- compile-verified -- there is no `gf` install on this machine as of 2026-07-11; verify with
--- `gf --make GlossEng.gf` when one is available. The single highest-risk spot to check first: the
--- `open Grammar, Constructors, LexGloss in` clause below and the matching `with (...)` clause in
--- GlossEng.gf, since LexGloss.gf's own interface itself references Grammar (an "interface
--- referencing an interface" -- a standard GF idiom, but the specific three-way combination here
--- was designed by reading gf-rgl source, not by compiling it).
+-- full explanation, including why the abstract category is called GNum rather than Num).
+--
+-- Compile-verified 2026-07-13 by `.github/workflows/gf-ci.yml`'s first real `gf --make
+-- GlossEng.gf` run: this file's own `open Grammar, Constructors, LexGloss in` clause and the
+-- three-way parameter combination compiled clean the first time -- the two real bugs that first
+-- run caught were both in the OTHER files, not here: GlossEng.gf's `with (...)` clause syntax
+-- (see that file's header) and LexGlossEng.gf's missing `GrammarEng` open (see that file's
+-- header).
 --
 -- API-module note (corrects docs/natural-glosses-plan.md section 2.3's / section 7 point 2's
 -- illustrative `open SyntaxEng` sketch, and an earlier draft of this header that wrongly claimed

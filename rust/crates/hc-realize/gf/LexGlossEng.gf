@@ -1,8 +1,13 @@
 -- Natural-phrases N3 (docs/natural-phrases-plan.md N3): the English lexicon instance.
 --
--- Architecture-B source of truth for ../assets/eng/templates.toml (see Gloss.gf's header). NOT
--- yet compile-verified -- there is no `gf` install on this machine as of 2026-07-11; verify with
--- `gf --make GlossEng.gf` when one is available.
+-- Architecture-B source of truth for ../assets/eng/templates.toml (see Gloss.gf's header).
+--
+-- Compile-verified 2026-07-13 by `.github/workflows/gf-ci.yml`'s first real `gf --make
+-- GlossEng.gf` run, which caught one genuine bug here: `open ParadigmsEng in {...}` alone left
+-- `n_N`/`in_Prep`/etc. unable to resolve the interface's `N`/`Prep` types ("constant not found: N/
+-- Prep, given ParadigmsEng, LexGlossEng") -- `ParadigmsEng`'s smart-paradigm opers don't
+-- themselves re-export the concrete category types LexGloss.gf's signatures are typed over.
+-- Opening `GrammarEng` too (the module that actually defines those lincats) fixed it.
 --
 -- Implements the LexGloss.gf interface for English: the placeholder noun "house" (its smart
 -- paradigm derives the regular plural "houses" -- see mkN's Str-only overload,

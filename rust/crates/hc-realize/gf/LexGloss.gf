@@ -1,9 +1,9 @@
 -- Natural-phrases N3 (docs/natural-phrases-plan.md N3): the per-language lexicon interface.
 --
 -- Architecture-B source of truth for ../assets/eng/templates.toml (see Gloss.gf's header for
--- the full explanation of that relationship and the regeneration loop). NOT yet compile-verified
--- -- there is no `gf` install on this machine as of 2026-07-11; verify with
--- `gf --make GlossEng.gf` when one is available.
+-- the full explanation of that relationship and the regeneration loop). Compile-verified
+-- 2026-07-13 by `.github/workflows/gf-ci.yml` -- see LexGlossEng.gf's header for the one fix
+-- that took (opening `GrammarEng` alongside `ParadigmsEng`).
 --
 -- This interface declares exactly what GlossFunctor.gf needs from a per-language lexicon: the
 -- one placeholder noun (n_N, the "{n}" slot -- see Gloss.gf) and the three case-role
