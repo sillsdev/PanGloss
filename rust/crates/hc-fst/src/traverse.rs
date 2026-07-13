@@ -29,7 +29,11 @@
 
 use std::cell::Cell;
 use std::collections::HashSet;
-use std::time::Instant;
+// std::time::Instant panics ("time not implemented on this platform") on wasm32-unknown-unknown;
+// web-time is a drop-in replacement (Performance.now()-backed there, a re-export of std::time
+// elsewhere) needed because the O2 profiling calls below are unconditional on every traversal,
+// not just when HC_FST_PROFILE is actually read (hc-wasm builds this crate for the browser demo).
+use web_time::Instant;
 
 use crate::fst::Fst;
 use crate::{Cmd, Direction, Register, CURRENT_POSITION};
@@ -91,7 +95,21 @@ pub mod profile {
     /// `StepBudget::steps()`'s read-only style); the CLI reads this once per word since each word
     /// gets a fresh process invocation in `batch` mode's per-word timing loop.
     #[allow(clippy::type_complexity)]
-    pub fn snapshot() -> (u64, u128, u128, u64, u128, usize, u64, u64, u128, u64, u128, usize, u64) {
+    pub fn snapshot() -> (
+        u64,
+        u128,
+        u128,
+        u64,
+        u128,
+        usize,
+        u64,
+        u64,
+        u128,
+        u64,
+        u128,
+        usize,
+        u64,
+    ) {
         (
             RUN_CALLS.with(|c| c.get()),
             RUN_NANOS.with(|c| c.get()),
@@ -120,10 +138,16 @@ pub struct Segment {
 
 impl Segment {
     pub fn new(lanes: Vec<u64>) -> Self {
-        Segment { lanes, optional: false }
+        Segment {
+            lanes,
+            optional: false,
+        }
     }
     pub fn optional(lanes: Vec<u64>) -> Self {
-        Segment { lanes, optional: true }
+        Segment {
+            lanes,
+            optional: true,
+        }
     }
 }
 
@@ -282,7 +306,11 @@ impl<'f> Transduce<'f> {
     }
 
     fn check_input_match(&self, arc: &crate::fst::Arc, ann_index: usize) -> bool {
-        ann_index < self.n() && self.fst.constraint(arc.constraint).matches(&self.seg(ann_index).lanes)
+        ann_index < self.n()
+            && self
+                .fst
+                .constraint(arc.constraint)
+                .matches(&self.seg(ann_index).lanes)
     }
 
     /// C# `CheckAccepting` (TraversalMethodBase.cs:130-191), acceptor path.
@@ -303,7 +331,12 @@ impl<'f> Transduce<'f> {
         let next_ann = self.next_ann_pos(ann_index);
         let mut match_registers = registers.to_vec();
         let fin = &self.fst.commands[meta.fin_lo as usize..meta.fin_hi as usize];
-        Self::execute_commands(&mut match_registers, fin, Register::unset(), Register::unset());
+        Self::execute_commands(
+            &mut match_registers,
+            fin,
+            Register::unset(),
+            Register::unset(),
+        );
 
         let infos = &self.fst.accept_infos[meta.accept_lo as usize..meta.accept_hi as usize];
         if infos.is_empty() {
@@ -331,7 +364,13 @@ impl<'f> Transduce<'f> {
 
     /// C# `Advance` (TraversalMethodBase.cs:248-351), linear acceptor path. Returns the produced
     /// continuation instances.
-    fn advance(&self, mut inst: Inst, arc: &crate::fst::Arc, optional: bool, cur_results: &mut Vec<FstResult>) -> Vec<Inst> {
+    fn advance(
+        &self,
+        mut inst: Inst,
+        arc: &crate::fst::Arc,
+        optional: bool,
+        cur_results: &mut Vec<FstResult>,
+    ) -> Vec<Inst> {
         let next_index = inst.ann_index + 1; // GetNextNonoverlappingAnnotationIndex, linear
         let end = self.ann_end(inst.ann_index);
         let arc_cmds = self.fst.commands[arc.cmd_lo as usize..arc.cmd_hi as usize].to_vec();
@@ -355,7 +394,12 @@ impl<'f> Transduce<'f> {
                 Register::at(end, false),
             );
             if !optional || self.end_anchor {
-                self.check_accepting(next_index, &inst.registers, arc.target as usize, cur_results);
+                self.check_accepting(
+                    next_index,
+                    &inst.registers,
+                    arc.target as usize,
+                    cur_results,
+                );
             }
             inst.state = arc.target as usize;
             inst.ann_index = next_index;
@@ -397,7 +441,12 @@ impl<'f> Transduce<'f> {
             }
         }
 
-        Self::execute_commands(registers, cmds, Register::at(offset, true), Register::unset());
+        Self::execute_commands(
+            registers,
+            cmds,
+            Register::at(offset, true),
+            Register::unset(),
+        );
 
         // linear: exactly one annotation starts at `offset`.
         if *ann_index < self.n() && !init_anns.contains(ann_index) {
@@ -467,7 +516,11 @@ impl<'f> Transduce<'f> {
                     // frozen FSTs have no epsilon arcs; only the input-match branch fires.
                     if self.check_input_match(arc, inst.ann_index) {
                         for new_inst in self.advance(inst.clone(), arc, false, &mut cur_results) {
-                            let key = (new_inst.state, new_inst.ann_index, new_inst.registers.clone());
+                            let key = (
+                                new_inst.state,
+                                new_inst.ann_index,
+                                new_inst.registers.clone(),
+                            );
                             if !traversed.contains(&key) {
                                 traversed.insert(key);
                                 stack.push(new_inst);
@@ -514,7 +567,8 @@ impl<'f> Transduce<'f> {
                 }
             }
 
-            let mut cur = self.traverse_from(&mut ann_index, &mut init_registers, &cmds, &mut init_anns);
+            let mut cur =
+                self.traverse_from(&mut ann_index, &mut init_registers, &cmds, &mut init_anns);
             if !cur.is_empty() {
                 cur.sort_by(|a, b| self.result_compare(a, b));
                 result_list.append(&mut cur);
@@ -532,7 +586,10 @@ impl<'f> Transduce<'f> {
             let __o2_distinct_start = Instant::now();
             let __o2_distinct_input_len = result_list.len();
             let __o2_distinct_result = distinct(result_list);
-            profile::record_distinct(__o2_distinct_start.elapsed().as_nanos(), __o2_distinct_input_len);
+            profile::record_distinct(
+                __o2_distinct_start.elapsed().as_nanos(),
+                __o2_distinct_input_len,
+            );
             __o2_distinct_result
         } else {
             result_list

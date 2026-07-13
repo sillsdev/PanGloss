@@ -1,0 +1,19 @@
+[package]
+name = "hc-wasm"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# cdylib for wasm-bindgen/wasm-pack; rlib so this crate's own `cargo test` runs natively too.
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+hc-grammar.workspace = true
+hc-parse.workspace = true
+hc-realize.workspace = true
+wasm-bindgen = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde-wasm-bindgen = "0.6"
+console_error_panic_hook = "0.1"

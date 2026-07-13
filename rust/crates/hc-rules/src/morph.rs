@@ -87,10 +87,10 @@ use hc_grammar::model::{
 use hc_shape::{CdBits, CdSet, EffectiveCdSet, NodeKind, Shape, ShapeBuilder, NO_CHAR_DEF};
 
 use crate::bridge::{BridgeError, PatternBridge};
-use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 use crate::stratum::NonHeadRootFilter;
 use crate::trace::{FailureReason, TraceHandle, TraceSink};
 use crate::word::{MorphRecord, MorphStatus, Word};
+use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 
 /// Phonological rules default to `TableId(0)` in every reference grammar; morphological rules
 /// resolve char-defs/natural-classes against the same table.
@@ -140,8 +140,12 @@ pub(crate) fn synthesize_cached_traced(
     parent: TraceHandle,
 ) -> Vec<Word> {
     let out = match rule {
-        MorphRuleDef::AffixProcess(def) => synth_affix_cached(g, word, def, mrid, cache, trace, parent),
-        MorphRuleDef::Compounding(def) => synth_compound_cached(g, word, def, mrid, cache, trace, parent),
+        MorphRuleDef::AffixProcess(def) => {
+            synth_affix_cached(g, word, def, mrid, cache, trace, parent)
+        }
+        MorphRuleDef::Compounding(def) => {
+            synth_compound_cached(g, word, def, mrid, cache, trace, parent)
+        }
         MorphRuleDef::Realizational(def) => {
             synth_realizational_cached(g, word, def, mrid, cache, trace, parent)
         }
@@ -293,7 +297,10 @@ fn apply_blocking(g: &Grammar, words: Vec<Word>, blockable: bool) -> Vec<Word> {
     if !blockable {
         return words;
     }
-    words.into_iter().map(|w| check_blocking(g, &w).unwrap_or(w)).collect()
+    words
+        .into_iter()
+        .map(|w| check_blocking(g, &w).unwrap_or(w))
+        .collect()
 }
 
 /// [`apply_blocking`]'s traced sibling (`synthesize_cached_traced`'s only caller). C# fires
@@ -521,7 +528,11 @@ fn to_fst(g: &Grammar, lanes: &[u64]) -> Vec<u64> {
 /// could not determine were actually present — to be treated as mandatory, breaking analysis of
 /// e.g. Indonesian's `meN-` prefix (whose nasal-assimilation/deletion phonological rules leave
 /// Optional candidate segments that the prefix's own un-insertion rule must be able to skip).
-pub(crate) fn segs_of(g: &Grammar, shape: &Shape, include_boundaries: bool) -> (Vec<Segment>, Vec<usize>) {
+pub(crate) fn segs_of(
+    g: &Grammar,
+    shape: &Shape,
+    include_boundaries: bool,
+) -> (Vec<Segment>, Vec<usize>) {
     // P10 `StrRep` identity lane (see `PatternBridge::id_lane`): every input node carries its
     // char-def identity as a membership bitset at index `id_width` — a concrete node is a
     // singleton, a class-born (`NO_CHAR_DEF`) node its stored `CdSet`. `Unrestricted` nodes (and
@@ -665,7 +676,10 @@ pub(crate) fn compile_parts(
 ) -> Result<(Fst, Vec<String>), BridgeError> {
     // P10: morphological-LHS FSTs carry the `StrRep` identity lane (see `PatternBridge::id_lane`);
     // their inputs all come from [`segs_of`], which emits the same lane.
-    let bridge = PatternBridge::new(g).with_table(TABLE).deterministic(deterministic).id_lane(true);
+    let bridge = PatternBridge::new(g)
+        .with_table(TABLE)
+        .deterministic(deterministic)
+        .id_lane(true);
     let mut nodes = Vec::new();
     let mut names = Vec::new();
     for (i, part) in parts.iter().enumerate() {
@@ -738,7 +752,11 @@ fn attribute_morphs(
     out: &[OutNode],
     head: &Word,
     non_head: Option<&Word>,
-    affix: Option<(hc_grammar::model::AllomorphId, hc_grammar::model::MorphemeId, &[u16])>,
+    affix: Option<(
+        hc_grammar::model::AllomorphId,
+        hc_grammar::model::MorphemeId,
+        &[u16],
+    )>,
 ) -> Vec<MorphRecord> {
     // ---- Pass 1: output positions per input morph / affix (Real records only, via owning_morph).
     let mut by_morph: HashMap<MorphKey, Vec<u32>> = HashMap::default();
@@ -885,9 +903,17 @@ fn attribute_morphs(
                     continue;
                 }
                 if let Some(host_order) = affix_host_order {
-                    records.push(MorphRecord { order: host_order, status: MorphStatus::SubsumedChild, ..m.clone() });
+                    records.push(MorphRecord {
+                        order: host_order,
+                        status: MorphStatus::SubsumedChild,
+                        ..m.clone()
+                    });
                 } else if !out.is_empty() {
-                    records.push(MorphRecord { order: 0, status: MorphStatus::SubsumedFirst, ..m.clone() });
+                    records.push(MorphRecord {
+                        order: 0,
+                        status: MorphStatus::SubsumedFirst,
+                        ..m.clone()
+                    });
                 }
                 marked.push(m.allomorph);
             }
@@ -910,12 +936,18 @@ fn attribute_morphs(
                     // children (SubsumedChild is lost, bug-compatible); a top-level SubsumedFirst
                     // re-anchors at the new first node.
                     (None, None) => match m.status {
-                        MorphStatus::SubsumedFirst if !out.is_empty() => Some((0, MorphStatus::SubsumedFirst)),
+                        MorphStatus::SubsumedFirst if !out.is_empty() => {
+                            Some((0, MorphStatus::SubsumedFirst))
+                        }
                         _ => None,
                     },
                 };
                 if let Some((order, status)) = new_anchor {
-                    records.push(MorphRecord { order, status, ..m.clone() });
+                    records.push(MorphRecord {
+                        order,
+                        status,
+                        ..m.clone()
+                    });
                     marked.push(m.allomorph);
                 }
             }
@@ -934,10 +966,17 @@ fn attribute_morphs(
     // own (see the doc block above). Pushed after the subsumed-input records and before the affix
     // runs, approximating C#'s input-`Morphs`-order attachment.
     if let Some((a, mo, p)) = affix {
-        let floaters = head.morphs.iter().filter(|m| m.status == MorphStatus::Floating);
+        let floaters = head
+            .morphs
+            .iter()
+            .filter(|m| m.status == MorphStatus::Floating);
         if let Some(host_order) = affix_host_order {
             for f in floaters {
-                records.push(MorphRecord { order: host_order, status: MorphStatus::SubsumedChild, ..f.clone() });
+                records.push(MorphRecord {
+                    order: host_order,
+                    status: MorphStatus::SubsumedChild,
+                    ..f.clone()
+                });
             }
         } else {
             records.extend(floaters.cloned());
@@ -1021,9 +1060,8 @@ fn copy_part(
     let mut positions: Vec<usize> = Vec::new();
     if s < e {
         let first_node = src.node_of[s];
-        let skippable = |i: usize| {
-            src.shape.kind(i) == NodeKind::Boundary || src.shape.flags(i).is_optional()
-        };
+        let skippable =
+            |i: usize| src.shape.kind(i) == NodeKind::Boundary || src.shape.flags(i).is_optional();
         let mut i = first_node;
         while i > 0 && skippable(i - 1) {
             i -= 1;
@@ -1068,8 +1106,11 @@ fn copy_part(
             }
         }
         let interior = p - 1; // anchor at index 0
-        let existing_origin =
-            if src.head { Origin::Head(interior) } else { Origin::NonHead(interior) };
+        let existing_origin = if src.head {
+            Origin::Head(interior)
+        } else {
+            Origin::NonHead(interior)
+        };
         let origin = match force_origin {
             Some(true) => existing_origin,
             Some(false) => Origin::Affix,
@@ -1116,7 +1157,12 @@ fn insert_segments(g: &Grammar, out: &mut Vec<OutNode>, seg_shape: &Shape, origi
 
 /// C# synthesis: `required.Unify(word.syn, useDefaults=true)`; on success priority-union `out`.
 /// Returns the post-application syn FS, or `None` if the required FS does not unify.
-fn synth_syn_fs(g: &Grammar, req: hc_featstruct::FsId, out: hc_featstruct::FsId, word: &Word) -> Option<FeatureStruct> {
+fn synth_syn_fs(
+    g: &Grammar,
+    req: hc_featstruct::FsId,
+    out: hc_featstruct::FsId,
+    word: &Word,
+) -> Option<FeatureStruct> {
     let req_fs = g.fs_interner.get(req);
     if !is_unifiable(req_fs, &word.syn_fs) {
         return None;
@@ -1133,7 +1179,12 @@ fn synth_syn_fs(g: &Grammar, req: hc_featstruct::FsId, out: hc_featstruct::FsId,
 /// `required` is non-empty, C# `Add`s it — a **widening union**, not a narrowing unify — onto
 /// that clone (`sfs.Add(_rule.RequiredSyntacticFeatureStruct)`, never fails); else if `out` is
 /// empty the result is cleared to empty.
-fn ana_syn_fs(g: &Grammar, req: hc_featstruct::FsId, out: hc_featstruct::FsId, word: &Word) -> Option<FeatureStruct> {
+fn ana_syn_fs(
+    g: &Grammar,
+    req: hc_featstruct::FsId,
+    out: hc_featstruct::FsId,
+    word: &Word,
+) -> Option<FeatureStruct> {
     let out_fs = g.fs_interner.get(out);
     if !is_unifiable(out_fs, &word.syn_fs) {
         return None;
@@ -1283,7 +1334,9 @@ fn synth_affix(g: &Grammar, word: &Word, rule: &AffixProcessRuleDef) -> Vec<Word
         // non-grammar-resident rule fixtures with no stable `AllomorphId`. The real pipeline calls
         // `synth_affix_cached`, which reads this from `crate::cache::RuleCache` instead. See
         // `crate::cache`'s module doc.
-        let Ok((fst, names)) = compile_parts(g, &allo.lhs, "p", true) else { continue };
+        let Ok((fst, names)) = compile_parts(g, &allo.lhs, "p", true) else {
+            continue;
+        };
         if let Some(w) = synth_process_allomorph(
             g,
             word,
@@ -1385,7 +1438,9 @@ fn synth_affix_cached(
             }
             continue;
         }
-        let Some((fst, names)) = cache.allomorph(allo.id).synth_lhs.as_ref() else { continue };
+        let Some((fst, names)) = cache.allomorph(allo.id).synth_lhs.as_ref() else {
+            continue;
+        };
         match synth_process_allomorph(
             g,
             word,
@@ -1421,7 +1476,13 @@ fn synth_affix_cached(
             }
             None => {
                 if trace.is_tracing() {
-                    trace.morphological_rule_not_applied(parent, mrid, i as i32, word, FailureReason::Pattern);
+                    trace.morphological_rule_not_applied(
+                        parent,
+                        mrid,
+                        i as i32,
+                        word,
+                        FailureReason::Pattern,
+                    );
                 }
             }
         }
@@ -1447,8 +1508,10 @@ fn realizational_is_blocked(real_fs: &FeatureStruct, syn_fs: &FeatureStruct) -> 
         let Some(sval) = syn_fs.get(*feat) else {
             return false;
         };
-        if let (hc_featstruct::FeatureValue::Complex(rfs), hc_featstruct::FeatureValue::Complex(sfs)) =
-            (rval, sval)
+        if let (
+            hc_featstruct::FeatureValue::Complex(rfs),
+            hc_featstruct::FeatureValue::Complex(sfs),
+        ) = (rval, sval)
         {
             if !realizational_is_blocked(rfs, sfs) {
                 return false;
@@ -1492,9 +1555,23 @@ fn synth_realizational(g: &Grammar, word: &Word, rule: &RealizationalRuleDef) ->
         if !g.mpr_group_ok(allo.required_mpr, allo.excluded_mpr, word.mpr) {
             continue;
         }
-        let Ok((fst, names)) = compile_parts(g, &allo.lhs, "p", true) else { continue };
+        let Ok((fst, names)) = compile_parts(g, &allo.lhs, "p", true) else {
+            continue;
+        };
         if let Some(w) = synth_process_allomorph(
-            g, word, rule.morpheme, &[], None, false, allo, &segs, &node_of, &new_syn, &fst, &names, &applied,
+            g,
+            word,
+            rule.morpheme,
+            &[],
+            None,
+            false,
+            allo,
+            &segs,
+            &node_of,
+            &new_syn,
+            &fst,
+            &names,
+            &applied,
         ) {
             output.push(w);
             applied.push(i as u16);
@@ -1559,9 +1636,23 @@ fn synth_realizational_cached(
             }
             continue;
         }
-        let Some((fst, names)) = cache.allomorph(allo.id).synth_lhs.as_ref() else { continue };
+        let Some((fst, names)) = cache.allomorph(allo.id).synth_lhs.as_ref() else {
+            continue;
+        };
         match synth_process_allomorph(
-            g, word, rule.morpheme, &[], None, false, allo, &segs, &node_of, &new_syn, fst, names, &applied,
+            g,
+            word,
+            rule.morpheme,
+            &[],
+            None,
+            false,
+            allo,
+            &segs,
+            &node_of,
+            &new_syn,
+            fst,
+            names,
+            &applied,
         ) {
             Some(mut w) => {
                 if trace.is_tracing() {
@@ -1582,7 +1673,13 @@ fn synth_realizational_cached(
             }
             None => {
                 if trace.is_tracing() {
-                    trace.morphological_rule_not_applied(parent, mrid, i as i32, word, FailureReason::Pattern);
+                    trace.morphological_rule_not_applied(
+                        parent,
+                        mrid,
+                        i as i32,
+                        word,
+                        FailureReason::Pattern,
+                    );
                 }
             }
         }
@@ -1689,7 +1786,11 @@ fn classify_redup(
         for (j, &rhs_idx) in part_actions.iter().enumerate() {
             let is_existing = match start {
                 None => {
-                    j == if hint == ReduplicationHint::Prefix { part_actions.len() - 1 } else { 0 }
+                    j == if hint == ReduplicationHint::Prefix {
+                        part_actions.len() - 1
+                    } else {
+                        0
+                    }
                 }
                 Some(s) => {
                     let idx = rhs_idx as i64;
@@ -1825,8 +1926,7 @@ pub(crate) struct AnalysisLhs {
 fn strip_boundaries(g: &Grammar, part: &Pattern) -> Pattern {
     fn is_boundary(g: &Grammar, cd: CharDefId) -> bool {
         let t = &g.char_tables[TABLE.0 as usize];
-        (cd.0 as usize) < t.len()
-            && t.get(cd).kind() == hc_grammar::chardef::CharDefKind::Boundary
+        (cd.0 as usize) < t.len() && t.get(cd).kind() == hc_grammar::chardef::CharDefKind::Boundary
     }
     fn strip(g: &Grammar, nodes: &[PatternNode]) -> Vec<PatternNode> {
         let mut out = Vec::new();
@@ -1848,7 +1948,9 @@ fn strip_boundaries(g: &Grammar, part: &Pattern) -> Pattern {
         }
         out
     }
-    Pattern { nodes: strip(g, &part.nodes) }
+    Pattern {
+        nodes: strip(g, &part.nodes),
+    }
 }
 
 /// Apply ctx pins to every `Constraint` node (recursively) of a compiled part — the analysis form
@@ -1880,10 +1982,12 @@ fn build_analysis_lhs(
     rhs: &[OutputAction],
 ) -> Result<AnalysisLhs, BridgeError> {
     // P10: same `StrRep` identity lane as `compile_parts` (inputs come from `segs_of`).
-    let bridge = PatternBridge::new(g).with_table(TABLE).deterministic(false).id_lane(true);
+    let bridge = PatternBridge::new(g)
+        .with_table(TABLE)
+        .deterministic(false)
+        .id_lane(true);
     let id_width = crate::bridge::id_lane_width(g, TABLE);
-    let lookup: HashMap<&str, &Pattern> =
-        lhs_parts.iter().map(|(n, p)| (n.as_str(), *p)).collect();
+    let lookup: HashMap<&str, &Pattern> = lhs_parts.iter().map(|(n, p)| (n.as_str(), *p)).collect();
     let mut lhs = AnalysisLhs {
         nodes: Vec::new(),
         captured: HashMap::default(),
@@ -2119,9 +2223,16 @@ fn untruncate(g: &Grammar, out: &mut Vec<OutNode>, part: &Pattern) {
 /// instead of leaving it to be recompiled on every application (the uncached [`ana_affix`] still calls
 /// this itself, once per call, for the standalone-fixture test callers that have no grammar-resident
 /// index to cache against).
-pub(crate) fn build_ana_affix_lhs(g: &Grammar, allo: &AffixAllomorphDef) -> Result<(Fst, AnalysisLhs), BridgeError> {
-    let parts: Vec<(String, &Pattern)> =
-        allo.lhs.iter().enumerate().map(|(i, p)| (format!("p{i}"), p)).collect();
+pub(crate) fn build_ana_affix_lhs(
+    g: &Grammar,
+    allo: &AffixAllomorphDef,
+) -> Result<(Fst, AnalysisLhs), BridgeError> {
+    let parts: Vec<(String, &Pattern)> = allo
+        .lhs
+        .iter()
+        .enumerate()
+        .map(|(i, p)| (format!("p{i}"), p))
+        .collect();
     let lhs = build_analysis_lhs(g, &parts, &allo.rhs)?;
     let fst = CompileInput::new(lhs.nodes.clone())
         .deterministic(false)
@@ -2136,8 +2247,12 @@ fn ana_affix(g: &Grammar, word: &Word, rule: &AffixProcessRuleDef) -> Vec<Word> 
     let (segs, node_of) = segs_of(g, &word.shape, false);
     let mut output = Vec::new();
     for allo in &rule.allomorphs {
-        let Ok((fst, lhs)) = build_ana_affix_lhs(g, allo) else { continue };
-        output.extend(ana_affix_allomorph(g, word, allo, &lhs, &fst, &segs, &node_of, &new_syn));
+        let Ok((fst, lhs)) = build_ana_affix_lhs(g, allo) else {
+            continue;
+        };
+        output.extend(ana_affix_allomorph(
+            g, word, allo, &lhs, &fst, &segs, &node_of, &new_syn,
+        ));
     }
     output
 }
@@ -2155,8 +2270,12 @@ fn ana_affix_cached(
     let (segs, node_of) = segs_of(g, &word.shape, false);
     let mut output = Vec::new();
     for allo in &rule.allomorphs {
-        let Some((fst, lhs)) = cache.allomorph(allo.id).ana_lhs.as_ref() else { continue };
-        output.extend(ana_affix_allomorph(g, word, allo, lhs, fst, &segs, &node_of, &new_syn));
+        let Some((fst, lhs)) = cache.allomorph(allo.id).ana_lhs.as_ref() else {
+            continue;
+        };
+        output.extend(ana_affix_allomorph(
+            g, word, allo, lhs, fst, &segs, &node_of, &new_syn,
+        ));
     }
     output
 }
@@ -2175,10 +2294,17 @@ fn ana_affix_allomorph(
     node_of: &[usize],
     new_syn: &FeatureStruct,
 ) -> Vec<Word> {
-    let parts: Vec<(String, &Pattern)> =
-        allo.lhs.iter().enumerate().map(|(i, p)| (format!("p{i}"), p)).collect();
+    let parts: Vec<(String, &Pattern)> = allo
+        .lhs
+        .iter()
+        .enumerate()
+        .map(|(i, p)| (format!("p{i}"), p))
+        .collect();
     let mut allo_out: Vec<Word> = Vec::new();
-    for result in Transduce::new(fst, segs.to_vec()).anchored(true, true).all_matches() {
+    for result in Transduce::new(fst, segs.to_vec())
+        .anchored(true, true)
+        .all_matches()
+    {
         let out = generate_shape(g, &parts, lhs, fst, &result, node_of, &word.shape);
         let shape = freeze_out(g, &out);
         let mut w = word.clone();
@@ -2205,8 +2331,12 @@ fn ana_realizational(g: &Grammar, word: &Word, rule: &RealizationalRuleDef) -> V
     let (segs, node_of) = segs_of(g, &word.shape, false);
     let mut output = Vec::new();
     for allo in &rule.allomorphs {
-        let Ok((fst, lhs)) = build_ana_affix_lhs(g, allo) else { continue };
-        output.extend(ana_realizational_allomorph(g, word, allo, &lhs, &fst, &segs, &node_of, &real_fs));
+        let Ok((fst, lhs)) = build_ana_affix_lhs(g, allo) else {
+            continue;
+        };
+        output.extend(ana_realizational_allomorph(
+            g, word, allo, &lhs, &fst, &segs, &node_of, &real_fs,
+        ));
     }
     output
 }
@@ -2224,8 +2354,12 @@ fn ana_realizational_cached(
     let (segs, node_of) = segs_of(g, &word.shape, false);
     let mut output = Vec::new();
     for allo in &rule.allomorphs {
-        let Some((fst, lhs)) = cache.allomorph(allo.id).ana_lhs.as_ref() else { continue };
-        output.extend(ana_realizational_allomorph(g, word, allo, lhs, fst, &segs, &node_of, &real_fs));
+        let Some((fst, lhs)) = cache.allomorph(allo.id).ana_lhs.as_ref() else {
+            continue;
+        };
+        output.extend(ana_realizational_allomorph(
+            g, word, allo, lhs, fst, &segs, &node_of, &real_fs,
+        ));
     }
     output
 }
@@ -2246,10 +2380,17 @@ fn ana_realizational_allomorph(
     node_of: &[usize],
     real_fs: &FeatureStruct,
 ) -> Vec<Word> {
-    let parts: Vec<(String, &Pattern)> =
-        allo.lhs.iter().enumerate().map(|(i, p)| (format!("p{i}"), p)).collect();
+    let parts: Vec<(String, &Pattern)> = allo
+        .lhs
+        .iter()
+        .enumerate()
+        .map(|(i, p)| (format!("p{i}"), p))
+        .collect();
     let mut allo_out: Vec<Word> = Vec::new();
-    for result in Transduce::new(fst, segs.to_vec()).anchored(true, true).all_matches() {
+    for result in Transduce::new(fst, segs.to_vec())
+        .anchored(true, true)
+        .all_matches()
+    {
         let out = generate_shape(g, &parts, lhs, fst, &result, node_of, &word.shape);
         let shape = freeze_out(g, &out);
         let mut w = word.clone();
@@ -2281,7 +2422,10 @@ fn ana_realizational_allomorph(
 /// resulting oversized search, an arbitrary (often shorter/wrong) survivor rather than C#'s
 /// deliberately-preferred longer one.
 fn push_remove_duplicates(out: &mut Vec<Word>, w: Word) {
-    let __o2_start = std::time::Instant::now();
+    // web_time::Instant, not std's: this call is unconditional on every invocation (the profiling
+    // read is gated, this timestamp isn't), and std::time::Instant panics on wasm32-unknown-unknown
+    // (hc-wasm builds this crate for the browser demo). web_time re-exports std elsewhere.
+    let __o2_start = web_time::Instant::now();
     let __o2_out_len = out.len();
     push_remove_duplicates_inner(out, w);
     dedup_profile::record(__o2_start.elapsed().as_nanos(), __o2_out_len);
@@ -2324,7 +2468,10 @@ pub mod dedup_profile {
 }
 
 fn push_remove_duplicates_inner(out: &mut Vec<Word>, w: Word) {
-    if let Some(existing) = out.iter_mut().find(|o| shape_duplicates(&w.shape, &o.shape)) {
+    if let Some(existing) = out
+        .iter_mut()
+        .find(|o| shape_duplicates(&w.shape, &o.shape))
+    {
         if w.shape.len() > existing.shape.len() {
             *existing = w;
         }
@@ -2368,12 +2515,17 @@ fn push_remove_duplicates_inner(out: &mut Vec<Word>, w: Word) {
 /// C# documents this dedup as "not strictly necessary, but it helps to reduce the search space"
 /// (AnalysisCompoundingRule.cs:99-100) — whereas being coarser deletes real analyses.
 fn shape_duplicates(a: &Shape, b: &Shape) -> bool {
-    let idx = |s: &Shape| -> Vec<usize> { (0..s.len()).filter(|&i| !s.flags(i).is_optional()).collect() };
+    let idx = |s: &Shape| -> Vec<usize> {
+        (0..s.len())
+            .filter(|&i| !s.flags(i).is_optional())
+            .collect()
+    };
     let ia = idx(a);
     let ib = idx(b);
     ia.len() == ib.len()
         && ia.iter().zip(&ib).all(|(&x, &y)| {
-            a.node_lanes(x) == b.node_lanes(y) && effective_cd_sets_eq(a.node_cd_set(x), b.node_cd_set(y))
+            a.node_lanes(x) == b.node_lanes(y)
+                && effective_cd_sets_eq(a.node_cd_set(x), b.node_cd_set(y))
         })
 }
 
@@ -2387,7 +2539,9 @@ fn effective_cd_sets_eq(a: EffectiveCdSet, b: EffectiveCdSet) -> bool {
         (EffectiveCdSet::Unrestricted, EffectiveCdSet::Unrestricted) => true,
         (EffectiveCdSet::Members(x), EffectiveCdSet::Members(y)) => x == y,
         (EffectiveCdSet::Singleton(x), EffectiveCdSet::Members(m))
-        | (EffectiveCdSet::Members(m), EffectiveCdSet::Singleton(x)) => m.count() == 1 && m.contains(x),
+        | (EffectiveCdSet::Members(m), EffectiveCdSet::Singleton(x)) => {
+            m.count() == 1 && m.contains(x)
+        }
         _ => false,
     }
 }
@@ -2423,11 +2577,27 @@ fn synth_compound(g: &Grammar, word: &Word, rule: &CompoundingRuleDef) -> Vec<Wo
         }
         // Recompiles both part-group FSTs on every call — kept as-is (not cached) for the same
         // standalone-fixture reason as `synth_affix`; the real pipeline calls `synth_compound_cached`.
-        let Ok((head_fst, head_names)) = compile_parts(g, &sr.head_lhs, "h", true) else { continue };
-        let Ok((nh_fst, nh_names)) = compile_parts(g, &sr.non_head_lhs, "n", true) else { continue };
+        let Ok((head_fst, head_names)) = compile_parts(g, &sr.head_lhs, "h", true) else {
+            continue;
+        };
+        let Ok((nh_fst, nh_names)) = compile_parts(g, &sr.non_head_lhs, "n", true) else {
+            continue;
+        };
         if let Ok(w) = synth_compound_subrule(
-            g, word, &nh, rule, sr, &head_segs, &head_node_of, &nh_segs, &nh_node_of, &new_syn,
-            &head_fst, &head_names, &nh_fst, &nh_names,
+            g,
+            word,
+            &nh,
+            rule,
+            sr,
+            &head_segs,
+            &head_node_of,
+            &nh_segs,
+            &nh_node_of,
+            &new_syn,
+            &head_fst,
+            &head_names,
+            &nh_fst,
+            &nh_names,
         ) {
             output.push(w);
             break; // C# breaks after the first matching subrule
@@ -2500,7 +2670,12 @@ fn synth_compound_cached(
     }
     if !rule.head_prod_restrictions_mpr.compound_match(word.mpr) {
         if trace.is_tracing() {
-            trace.compounding_rule_not_applied(parent, mrid, word, FailureReason::HeadProdRestrictMprFeatures);
+            trace.compounding_rule_not_applied(
+                parent,
+                mrid,
+                word,
+                FailureReason::HeadProdRestrictMprFeatures,
+            );
         }
         return Vec::new();
     }
@@ -2523,8 +2698,20 @@ fn synth_compound_cached(
             continue;
         };
         match synth_compound_subrule(
-            g, word, &nh, rule, sr, &head_segs, &head_node_of, &nh_segs, &nh_node_of, &new_syn,
-            head_fst, head_names, nh_fst, nh_names,
+            g,
+            word,
+            &nh,
+            rule,
+            sr,
+            &head_segs,
+            &head_node_of,
+            &nh_segs,
+            &nh_node_of,
+            &new_syn,
+            head_fst,
+            head_names,
+            nh_fst,
+            nh_names,
         ) {
             Ok(mut w) => {
                 if trace.is_tracing() {
@@ -2616,7 +2803,10 @@ fn synth_compound_subrule(
     let mut w = word.clone();
     w.shape = freeze_out(g, &out);
     w.syn_fs = new_syn.clone();
-    w.mpr = g.mpr_add_output(g.mpr_add_output(word.mpr, sr.out_mpr), rule.output_prod_restrictions_mpr);
+    w.mpr = g.mpr_add_output(
+        g.mpr_add_output(word.mpr, sr.out_mpr),
+        rule.output_prod_restrictions_mpr,
+    );
     w.morphs = morphs;
     w.obligatory.extend_from_slice(&rule.obligatory_features);
     // Deliberately NOT popped. C#'s `SynthesisCompoundingRule.Apply` (`ApplySubrule`, cs:248-291)
@@ -2666,7 +2856,10 @@ fn ana_compound_parts(sr: &CompoundingSubruleDef) -> Vec<(String, &Pattern)> {
 /// (grammar-static) — factored out so `crate::cache::RuleCache::build` can call it once per
 /// (rule, subrule) pair instead of leaving it to be recompiled on every application. Mirrors
 /// [`build_ana_affix_lhs`]'s role for affix-process allomorphs.
-fn build_ana_compound_lhs(g: &Grammar, sr: &CompoundingSubruleDef) -> Result<(Fst, AnalysisLhs), BridgeError> {
+fn build_ana_compound_lhs(
+    g: &Grammar,
+    sr: &CompoundingSubruleDef,
+) -> Result<(Fst, AnalysisLhs), BridgeError> {
     let parts = ana_compound_parts(sr);
     let lhs = build_analysis_lhs(g, &parts, &sr.rhs)?;
     let fst = CompileInput::new(lhs.nodes.clone())
@@ -2692,9 +2885,20 @@ fn ana_compound(
     let (segs, node_of) = segs_of(g, &word.shape, false);
     let mut output = Vec::new();
     for sr in &rule.subrules {
-        let Ok((fst, lhs)) = build_ana_compound_lhs(g, sr) else { continue };
+        let Ok((fst, lhs)) = build_ana_compound_lhs(g, sr) else {
+            continue;
+        };
         output.extend(ana_compound_subrule(
-            g, word, rule, sr, &lhs, &fst, &segs, &node_of, &new_syn, root_filter,
+            g,
+            word,
+            rule,
+            sr,
+            &lhs,
+            &fst,
+            &segs,
+            &node_of,
+            &new_syn,
+            root_filter,
         ));
     }
     output
@@ -2716,9 +2920,20 @@ fn ana_compound_cached(
     let cc = cache.compound(mrid);
     let mut output = Vec::new();
     for (i, sr) in rule.subrules.iter().enumerate() {
-        let Some((fst, lhs)) = cc.subrules[i].ana.as_ref() else { continue };
+        let Some((fst, lhs)) = cc.subrules[i].ana.as_ref() else {
+            continue;
+        };
         output.extend(ana_compound_subrule(
-            g, word, rule, sr, lhs, fst, &segs, &node_of, &new_syn, root_filter,
+            g,
+            word,
+            rule,
+            sr,
+            lhs,
+            fst,
+            &segs,
+            &node_of,
+            &new_syn,
+            root_filter,
         ));
     }
     output
@@ -2756,16 +2971,27 @@ fn ana_compound_subrule(
     root_filter: Option<NonHeadRootFilter>,
 ) -> Vec<Word> {
     let parts = ana_compound_parts(sr);
-    let head_parts: Vec<(String, &Pattern)> =
-        parts.iter().filter(|(n, _)| n.starts_with('h')).map(|(n, p)| (n.clone(), *p)).collect();
-    let nh_parts: Vec<(String, &Pattern)> =
-        parts.iter().filter(|(n, _)| n.starts_with('n')).map(|(n, p)| (n.clone(), *p)).collect();
+    let head_parts: Vec<(String, &Pattern)> = parts
+        .iter()
+        .filter(|(n, _)| n.starts_with('h'))
+        .map(|(n, p)| (n.clone(), *p))
+        .collect();
+    let nh_parts: Vec<(String, &Pattern)> = parts
+        .iter()
+        .filter(|(n, _)| n.starts_with('n'))
+        .map(|(n, p)| (n.clone(), *p))
+        .collect();
     let mut sr_out: Vec<Word> = Vec::new();
-    for result in Transduce::new(fst, segs.to_vec()).anchored(true, true).all_matches() {
+    for result in Transduce::new(fst, segs.to_vec())
+        .anchored(true, true)
+        .all_matches()
+    {
         // Acceptable: at least one head part captured (AnalysisCompoundingSubruleRuleSpec).
         let head_captured = head_parts.iter().any(|(name, _)| {
-            (0..*lhs.captured.get(name).unwrap_or(&0))
-                .any(|idx| fst.get_offsets(&group_name(name, idx), &result.registers).is_some())
+            (0..*lhs.captured.get(name).unwrap_or(&0)).any(|idx| {
+                fst.get_offsets(&group_name(name, idx), &result.registers)
+                    .is_some()
+            })
         });
         if !head_captured {
             continue;
@@ -2789,7 +3015,8 @@ fn ana_compound_subrule(
                 push_remove_duplicates_compound(&mut sr_out, w);
             }
             Some(filter) => {
-                for resolved_nh in resolve_non_head_roots(g, rule, filter, &nh_shape, word.stratum) {
+                for resolved_nh in resolve_non_head_roots(g, rule, filter, &nh_shape, word.stratum)
+                {
                     let mut w = word.clone();
                     w.shape = head_shape.clone();
                     w.syn_fs = new_syn.clone();
@@ -2831,10 +3058,15 @@ fn resolve_non_head_roots(
         if !is_unifiable(req, g.fs_interner.get(entry.syn_fs)) {
             continue;
         }
-        if !rule.non_head_prod_restrictions_mpr.compound_match(entry.mpr) {
+        if !rule
+            .non_head_prod_restrictions_mpr
+            .compound_match(entry.mpr)
+        {
             continue;
         }
-        let Some(allo) = entry.allomorphs.iter().find(|a| a.id == allo_id) else { continue };
+        let Some(allo) = entry.allomorphs.iter().find(|a| a.id == allo_id) else {
+            continue;
+        };
         let root_stratum = g.morphemes[entry.morpheme.0 as usize].stratum;
         let table = &g.char_tables[g.strata[root_stratum.0 as usize].table.0 as usize];
         let shape = crate::shape_feat::segment_with_features(g, table, &allo.shape.text)
@@ -2857,7 +3089,10 @@ fn resolve_non_head_roots(
 fn push_remove_duplicates_compound(out: &mut Vec<Word>, w: Word) {
     if let Some(existing) = out.iter_mut().find(|o| {
         shape_duplicates(&w.shape, &o.shape)
-            && shape_duplicates(&w.non_heads.last().unwrap().shape, &o.non_heads.last().unwrap().shape)
+            && shape_duplicates(
+                &w.non_heads.last().unwrap().shape,
+                &o.non_heads.last().unwrap().shape,
+            )
     }) {
         if w.shape.len() > existing.shape.len() {
             *existing = w;
@@ -2936,7 +3171,10 @@ pub(crate) struct AllomorphLhsCache {
 
 /// Build the LHS/RHS half of one affix allomorph's cache entry (`crate::cache::RuleCache::build`
 /// pairs this with the environment-gate half it builds itself via `crate::rewrite::compile_env`).
-pub(crate) fn build_allomorph_lhs_cache(g: &Grammar, allo: &AffixAllomorphDef) -> AllomorphLhsCache {
+pub(crate) fn build_allomorph_lhs_cache(
+    g: &Grammar,
+    allo: &AffixAllomorphDef,
+) -> AllomorphLhsCache {
     AllomorphLhsCache {
         synth_lhs: compile_parts(g, &allo.lhs, "p", true).ok(),
         ana_lhs: build_ana_affix_lhs(g, allo).ok(),

@@ -14,6 +14,7 @@ members = [
     "crates/hc-ffi",
     "crates/hc-cli",
     "crates/hc-realize",
+    "crates/hc-wasm",
 ]
 
 [workspace.package]
@@ -33,6 +34,11 @@ bumpalo = "3"
 smallvec = { version = "1", features = ["union", "const_generics"] }
 rayon = "1"
 thiserror = "2"
+# std::time::Instant is unimplemented (panics) on wasm32-unknown-unknown; web-time is a drop-in
+# replacement (Performance.now()-backed there, a plain re-export of std elsewhere) for the two
+# always-on O2 profiling counters (hc-fst::traverse, hc-rules::morph) that call Instant::now()
+# unconditionally on every parse, not just when a profiling env var is read (see hc-wasm).
+web-time = "1"
 # internal crates
 hc-grammar = { path = "crates/hc-grammar" }
 hc-featstruct = { path = "crates/hc-featstruct" }

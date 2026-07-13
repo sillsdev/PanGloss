@@ -9,3 +9,4 @@ license.workspace = true
 hc-featstruct.workspace = true
 hc-shape.workspace = true
 smallvec.workspace = true
+web-time.workspace = true
