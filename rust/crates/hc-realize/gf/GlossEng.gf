@@ -3,17 +3,19 @@
 -- Architecture-B source of truth for ../assets/eng/templates.toml (see Gloss.gf's header for the
 -- full explanation and GlossFunctor.gf's header for why this file's `with (...)` clause names
 -- Grammar/Constructors -- the checked-in gf-rgl modules -- rather than the build-generated
--- Syntax API wrapper). NOT yet compile-verified -- there is no `gf` install
--- on this machine as of 2026-07-11; verify with:
+-- Syntax API wrapper).
 --
---   gf --make GlossEng.gf
---
--- (run from this directory) when a `gf` install is available -- see gen_templates.py for the
--- full regeneration invocation once compilation is confirmed working.
+-- Compile-verified 2026-07-13 by `.github/workflows/gf-ci.yml` (GF 3.12 + pinned gf-rgl sparse
+-- checkout) -- the very first real `gf --make GlossEng.gf` run caught exactly one bug: a
+-- multi-binding `with (A = X, B = Y, C = Z)` clause is NOT legal GF syntax (`Syntax error:
+-- Unexpected token ','` right after the first binding). The real RGL's own multi-interface
+-- functors (e.g. gf-rgl's FoodsEng: `PhrasesEng ** FoodsI with (Syntax = SyntaxEng),
+-- (LexFoods = LexFoodsEng)`) instead chain one parenthesized `(Interface = Instance)` group per
+-- binding, comma-separated between groups -- fixed below to match.
 --
 -- Mirrors the real RGL's own ConstructorsEng.gf (github.com/GrammaticalFramework/gf-rgl,
 -- src/api/ConstructorsEng.gf, verified 2026-07-11: `resource ConstructorsEng = Constructors with
--- (Grammar = GrammarEng) ;`) -- same `with (...)` functor-instantiation shape, extended with the
--- LexGloss interface parameter this crate's functor also needs.
+-- (Grammar = GrammarEng) ;`) for the single-binding case; extended to the multi-binding
+-- `(A = X), (B = Y)` chain for the extra LexGloss interface parameter this crate's functor needs.
 concrete GlossEng of Gloss =
-  GlossFunctor with (Grammar = GrammarEng, Constructors = ConstructorsEng, LexGloss = LexGlossEng) ;
+  GlossFunctor with (Grammar = GrammarEng), (Constructors = ConstructorsEng), (LexGloss = LexGlossEng) ;
