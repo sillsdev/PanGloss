@@ -153,6 +153,21 @@
 //! this stage to exclude it; the recall gate (`tests/f2_indonesian_gate.rs`) separately excludes the
 //! 7 corpus words that only have a reduplicated analysis, printing each with its reason.
 //!
+//! ## Composite entries (P1d — interdigitation + Ge'ez boundary fusion)
+//! [`crate::preexpand`] (see that module's doc for the full design) applies the engine's own
+//! morphological rules to each root allomorph — and, recursively, to each resulting stem — and
+//! emits every surface the ordinary entries above cannot reach as ONE multi-tag entry in a single
+//! shared `Composites` lexicon. Every roots lexicon (`Root`, `TLRoots`, each `G{gi}Roots`) gets a
+//! bare redirect into `Composites`; each composite entry continues to `CompositeExit`, a
+//! bare-redirect UNION of every post-root continuation (`#`, `TLPost`, every `G{gi}Post`) — so a
+//! composite stem sits exactly where an ordinary root does (any prefix chain before it, any suffix
+//! chain after it; plan P1d interaction item 4), at the cost of a cross-group superset (upward
+//! only, confirm prunes). An `Infix` rule that produced at least one composite is removed from
+//! `uncovered` (it IS representable now); one that matched zero roots stays, honestly. Zero-cost
+//! and zero-entry for a grammar with no phonological rules and no `Infix` rules (Sena,
+//! byte-identical) and for one whose junctions the deletion-junction model already covers
+//! (Indonesian, zero composites emitted).
+//!
 //! ## Not emittable as literal lexc (routed to [`EmitReport::uncovered`], never silently dropped)
 //! - `RootAllomorphDef::is_pattern` allomorphs (iterative/optional shape nodes — no concrete
 //!   spelling).
@@ -220,6 +235,17 @@ pub struct EmitCounts {
     pub allomorphs_skipped: usize,
     /// Total lexc entry lines written — the number that most directly predicts foma compile cost.
     pub lexc_lines: usize,
+    /// P1d (`crate::preexpand`): (root allomorph, candidate rule) pairs actually attempted for the
+    /// rule-application/fusion composite mechanisms, after the cheap required-FS pre-filter — the
+    /// module's own scale-bridge number (`crate::preexpand`'s module doc).
+    pub composite_pairs_probed: usize,
+    /// Composite lexc entries emitted for `Role::Infix` rules (interdigitation, plan P1d item 1 —
+    /// e.g. Amharic's `-pfv-`/`-conv-`).
+    pub composite_interdigitation_entries: usize,
+    /// Composite lexc entries emitted for `Role::Prefix`/`Role::Suffix` rules whose fused surface
+    /// differs from what the ordinary two-entry emission already reaches (plan P1d item 2 — Ge'ez
+    /// boundary fusion).
+    pub composite_fusion_entries: usize,
 }
 
 /// Overall verdict for this grammar's foma path (plan §4, P1 gate F1).
@@ -377,7 +403,7 @@ pub(crate) fn owning_morpheme(g: &Grammar, mid: MRuleId) -> MorphemeId {
     }
 }
 
-fn allomorphs_of(g: &Grammar, mid: MRuleId) -> &[AffixAllomorphDef] {
+pub(crate) fn allomorphs_of(g: &Grammar, mid: MRuleId) -> &[AffixAllomorphDef] {
     match &g.mrules[mid.0 as usize] {
         MorphRuleDef::AffixProcess(def) => &def.allomorphs,
         MorphRuleDef::Realizational(def) => &def.allomorphs,
@@ -396,7 +422,7 @@ fn required_category(g: &Grammar, mid: MRuleId) -> FsId {
 }
 
 /// `trie.rs::rule_op`: a rule's primary role, from its FIRST allomorph.
-fn rule_role(g: &Grammar, mid: MRuleId) -> Role {
+pub(crate) fn rule_role(g: &Grammar, mid: MRuleId) -> Role {
     allomorphs_of(g, mid)
         .first()
         .map(|a| classify_affix(&a.rhs))
@@ -424,7 +450,7 @@ pub(crate) fn surface_table(g: &Grammar) -> &CharDefTable {
 /// `overflowed = true` means spellings were dropped (the caller must report it — an explicit
 /// under-approximation, never silent). `None` if some position fails to match any char-def
 /// (defensive; the loader already accepted this text once).
-fn surface_variants(table: &CharDefTable, text: &str) -> Option<(Vec<String>, bool)> {
+pub(crate) fn surface_variants(table: &CharDefTable, text: &str) -> Option<(Vec<String>, bool)> {
     let normalized = hc_grammar::nfd::nfd(text);
     let chars: Vec<char> = normalized.chars().collect();
     let mut variants: Vec<String> = vec![String::new()];
@@ -481,7 +507,7 @@ fn surface_variants(table: &CharDefTable, text: &str) -> Option<(Vec<String>, bo
 /// `Segment`-kind match (possibly multi-CHARACTER, e.g. `"ny"`/`"ng"`/`"kh"`/`"sy"` are each ONE
 /// segment), then return [`surface_variants`] of everything after it. `None` when `text` is
 /// entirely boundaries (or empty) — nothing to strip — or fails to segment at all.
-fn stripped_variants(table: &CharDefTable, text: &str) -> Option<(Vec<String>, bool)> {
+pub(crate) fn stripped_variants(table: &CharDefTable, text: &str) -> Option<(Vec<String>, bool)> {
     let normalized = hc_grammar::nfd::nfd(text);
     let chars: Vec<char> = normalized.chars().collect();
     let mut i = 0usize;
@@ -980,6 +1006,15 @@ pub fn emit(g: &Grammar) -> EmitResult {
 
     let roots = collect_roots(g, table, &mut uncovered, &mut counts, phon.as_ref());
 
+    // P1d (`crate::preexpand`, plan's Amharic capability stage): rule-application pre-expansion
+    // (interdigitation) + boundary-fusion composite probing. `should_run` short-circuits to zero
+    // pairs/zero composites for a grammar with no phonological rules AND no `Role::Infix` rule at
+    // all (Sena) — see that module's doc for why this keeps Sena's emitted lexc byte-for-byte.
+    let (composites, composite_report) = crate::preexpand::build_composites(g, width, phon.as_ref());
+    counts.composite_pairs_probed = composite_report.pairs_probed;
+    counts.composite_interdigitation_entries = composite_report.interdigitation_entries;
+    counts.composite_fusion_entries = composite_report.fusion_entries;
+
     // Standalone (stratum-attached) derivation rules, classified by primary role — mirrors
     // trie.rs run()'s "Standalone derivational affix rules" loop (`trie.rs:993-1008`), except
     // Role::None rules are INCLUDED in both zones rather than skipped (module doc, upward
@@ -1085,6 +1120,13 @@ pub fn emit(g: &Grammar) -> EmitResult {
             }
         }
     }
+    // P1d: composite entries' tag chains can reference a rule morpheme NO other site declares (an
+    // Infix rule is in no deriv layer and no slot). Roots re-inserting here is a harmless no-op.
+    for c in &composites {
+        for &(is_root, m) in &c.chain_morphemes {
+            symbols.insert((is_root, m.0));
+        }
+    }
     out.push_str("Multichar_Symbols\n");
     for &(is_root, id) in &symbols {
         let lexc = if is_root {
@@ -1127,11 +1169,28 @@ pub fn emit(g: &Grammar) -> EmitResult {
         };
     let all_roots: Vec<&RootRec> = roots.iter().collect();
     let has_templates = !g.templates.is_empty();
+    // P1d (`crate::preexpand`): composites are emitted ONCE, in a single shared `Composites`
+    // lexicon (each entry's upper tape = the ALREADY-CONCATENATED multi-tag chain,
+    // [`preexpand::CompositeRec::tag_lexc`]; `write_tag_entry` accepts any tag string), whose
+    // continuation `CompositeExit` is a bare-redirect UNION of every post-root continuation in the
+    // grammar (`#`, `TLPost`, every `G{gi}Post`). Every roots lexicon (`Root`, `TLRoots`,
+    // `G{gi}Roots`) gets one bare redirect INTO `Composites`, so a composite stem is reachable
+    // exactly where an ordinary root is — after any prefix chain — and can continue into any suffix
+    // chain (plan P1d interaction item 4: root-section replacement, not bare-only). Sharing one
+    // lexicon instead of copying all entries per site is a pure fan-out refactor plus an UPWARD
+    // approximation (a composite can now pair group A's prefixes with group B's suffix continuation
+    // — the same superset direction the emitter's group sharing already takes, module doc item 1;
+    // confirm prunes). Measured on Amharic: ~54k composite entries × ~6 sites ≈ 300k lexc lines
+    // collapsed to ~54k.
+    let has_composites = !composites.is_empty();
 
     // ---- LEXICON Root: bare roots, the template-less section, the outer-prefix hop into the
     // per-template dispatch ----
     write_lexicon_header(&mut out, "Root");
     write_root_entries(&mut out, &all_roots, "#", &mut counts);
+    if has_composites {
+        write_bare(&mut out, "Composites", &mut counts);
+    }
     if has_template_less_section {
         write_bare(&mut out, "TLPfx0", &mut counts);
     }
@@ -1181,6 +1240,9 @@ pub fn emit(g: &Grammar) -> EmitResult {
         );
         write_lexicon_header(&mut out, "TLRoots");
         write_root_entries(&mut out, &all_roots, "TLPost", &mut counts);
+        if has_composites {
+            write_bare(&mut out, "Composites", &mut counts);
+        }
         if phon.is_some() {
             // `TLRoots`' `Stripped` sibling (module doc, "Junction-aware affix/root emission"):
             // `TLPfx`'s final level routes every deletion-junction hit here instead of `TLRoots`.
@@ -1277,6 +1339,12 @@ pub fn emit(g: &Grammar) -> EmitResult {
         } else {
             write_root_entries(&mut out, &eligible_roots, &post_name, &mut counts);
         }
+        // P1d (`crate::preexpand`): the group's root section also admits every composite stem, via
+        // the shared `Composites` lexicon (see LEXICON Root's comment — no per-group category
+        // filtering; upward-only, confirm prunes).
+        if has_composites {
+            write_bare(&mut out, "Composites", &mut counts);
+        }
         if phon.is_some() {
             // `G{gi}Roots`' `Stripped` sibling (module doc, "Junction-aware affix/root emission"):
             // `G{gi}PfxD`'s final level routes deletion-junction hits here instead of `roots_name`.
@@ -1326,6 +1394,40 @@ pub fn emit(g: &Grammar) -> EmitResult {
             );
         }
     }
+
+    // ---- P1d shared composites section (see LEXICON Root's comment for the design) ----
+    if has_composites {
+        write_lexicon_header(&mut out, "Composites");
+        for c in &composites {
+            for v in &c.variants {
+                write_tag_entry(&mut out, &c.tag_lexc, v, "CompositeExit", &mut counts);
+            }
+        }
+        // The union of every post-root continuation in this grammar — a composite stem can go
+        // wherever an ordinary root can after its roots lexicon (upward superset across groups).
+        write_lexicon_header(&mut out, "CompositeExit");
+        write_bare(&mut out, "#", &mut counts);
+        if has_template_less_section {
+            write_bare(&mut out, "TLPost", &mut counts);
+        }
+        for gi in 0..group_keys.len() {
+            write_bare(&mut out, &format!("G{gi}Post"), &mut counts);
+        }
+    }
+
+    // P1d: an `Infix` rule that `crate::preexpand` rendered into at least one composite entry IS
+    // representable now (rule-application pre-expansion) — drop its "infix" uncovered items, from
+    // EVERY push site uniformly (standalone-rule classification, template-slot classification,
+    // allomorph-level zone mismatches — all use the `mrule{N}`/`mrule{N}#allo{K}` id convention).
+    // An infix rule that matched zero roots keeps its uncovered items, honestly.
+    uncovered.retain(|u| {
+        !(u.kind == "infix"
+            && u.id
+                .strip_prefix("mrule")
+                .and_then(|rest| rest.split('#').next())
+                .and_then(|s| s.parse::<u32>().ok())
+                .is_some_and(|idx| composite_report.covered_infix_rules.contains(&idx)))
+    });
 
     // Dedup uncovered reports (the same rule/allomorph can be visited from multiple slots/
     // groups/levels).

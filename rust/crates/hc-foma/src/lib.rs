@@ -1,5 +1,6 @@
 //! Phase P0 viability spike (docs/fst-plan/foma-fst-plan.md §P0, gate F0), P1 stage 1 (emitter core
-//! + Sena, gate F1), P1 stage 2 (junction-aware phonology + Indonesian, gate F1), and P2
+//! + Sena, gate F1), P1 stage 2 (junction-aware phonology + Indonesian, gate F1), P1d (Amharic
+//! capability stage — rule-application pre-expansion + boundary-fusion composites), and P2
 //! (propose→confirm composite, gate F2).
 //!
 //! - [`tags`]: the `<R:nnnn>`/`<M:nnnn>` tag codec (D2) — escaped lexc spellings, decoded literal
@@ -8,6 +9,11 @@
 //! - [`junctions`]: [`junctions::PhonologyProbe`], the pre-probed surface-variant/deletion-junction
 //!   machinery `emit` drives for a grammar with real phonological rules (stage 2) — a `None`-safe
 //!   no-op for a grammar without any (stage 1's Sena stays byte-identical).
+//! - [`preexpand`] (P1d, crate-internal): rule-application pre-expansion (interdigitation —
+//!   `Role::Infix` rules applied to each root via the engine's own `hc_rules::morph::synthesize`)
+//!   and boundary-fusion composite probing (Ge'ez glyph coalescence), emitted as multi-tag
+//!   composite entries in the engine's own morph order and wired into `emit`'s shared `Composites`
+//!   lexicon — see `tests/f3_amharic_gate.rs` (Amharic recall 100%, asserted).
 //! - [`analyzer`]: `FomaProposer`, the thin `emit + compile + apply-up` wrapper.
 //! - [`confirm`] (P2): a fresh port of `hc-hybrid/src/replay.rs`'s confirm half — `MorphemeOwner`,
 //!   `build_morpheme_owners`, and `confirm_all` (D4's multiplicity recovery: every matching analysis
@@ -22,9 +28,11 @@
 //! wasm32); `tests/f1_sena_gate.rs` is the P1 stage-1 gate (emit+compile Sena, recall vs. the full
 //! engine, `mbali`, overgeneration sanity); `tests/f2_indonesian_gate.rs` is the P1 stage-2 gate
 //! (emit+compile Indonesian, recall minus the reduplication exclusion list, junction spot-checks,
-//! overgeneration sanity, plus a Sena regression re-run); `tests/f4_composite_gate.rs` is the P2
-//! gate (over-generation pruning, `mbali` multiplicity, Indonesian redup round-trip, empty-on-miss,
-//! and a mini-parity smoke pass).
+//! overgeneration sanity, plus a Sena regression re-run); `tests/f3_amharic_gate.rs` is the P1d
+//! gate (Amharic: emit+compile with the infix items gone from `uncovered`, recall asserted 100%,
+//! end-to-end multiset parity vs the full engine, overgeneration sanity);
+//! `tests/f4_composite_gate.rs` is the P2 gate (over-generation pruning, `mbali` multiplicity,
+//! Indonesian redup round-trip, empty-on-miss, and a mini-parity smoke pass).
 //!
 //! ## `hc-parse` is now a NORMAL dependency (P2)
 //! Through P1, this crate's lib target never depended on `hc-parse` (the verifier engine) — only
@@ -44,6 +52,7 @@ pub mod confirm;
 pub mod emit;
 pub mod junctions;
 pub mod peel;
+pub(crate) mod preexpand;
 pub mod tags;
 
 /// Re-exported so downstream crates (and the P0 tests) have a single, versioned door into the
