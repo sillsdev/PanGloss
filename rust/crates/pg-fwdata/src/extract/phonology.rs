@@ -281,19 +281,39 @@ fn rule_direction(rec: &Record, ctx: &mut Ctx, label: &str) -> RuleDirection {
 fn extract_rewrite_rule(ctx: &mut Ctx, rec: &Record) -> Option<RewriteRule> {
     let label = "phonology.rules(rewrite)";
     let direction = rule_direction(rec, ctx, label);
-    let structural_description = rec
+    let structural_description: Vec<PhonContext> = rec
         .node
         .objsur_list("StrucDesc")
         .into_iter()
         .filter_map(|g| resolve_phon_context(ctx, &g, label))
         .collect();
-    let feature_constraint_variables = rec.node.objsur_list("FeatureConstraints");
-    let right_hand_sides = rec
+    let right_hand_sides: Vec<RewriteRhs> = rec
         .node
         .objsur_list("RightHandSides")
         .into_iter()
         .filter_map(|g| extract_rewrite_rhs(ctx, &g))
         .collect();
+    // `PhRegularRule.FeatureConstraints` is a *virtual* LCM property (`OverridesLing_Lex.cs`,
+    // `GetFeatureConstraintsExcept(null)`) — the raw `.fwdata` record has no such field. It is
+    // the deduplicated walk of every natural-class context's PlusConstr then MinusConstr lists,
+    // visiting StrucDesc, then each RHS's StrucChange, LeftContext, RightContext, in order —
+    // recomputed here over the already-extracted context trees so the snapshot carries the same
+    // variable scope HCLoader sees (it assigns per-rule variable names by this collection order).
+    let mut feature_constraint_variables: Vec<String> = Vec::new();
+    for c in &structural_description {
+        collect_feature_constraint_vars(c, &mut feature_constraint_variables);
+    }
+    for rhs in &right_hand_sides {
+        for c in &rhs.structural_change {
+            collect_feature_constraint_vars(c, &mut feature_constraint_variables);
+        }
+        if let Some(c) = &rhs.left_context {
+            collect_feature_constraint_vars(c, &mut feature_constraint_variables);
+        }
+        if let Some(c) = &rhs.right_context {
+            collect_feature_constraint_vars(c, &mut feature_constraint_variables);
+        }
+    }
     Some(RewriteRule {
         guid: rec.guid.clone(),
         name: ctx.best_analysis(&rec.node.ws_forms("Name")),
@@ -302,6 +322,32 @@ fn extract_rewrite_rule(ctx: &mut Ctx, rec: &Record) -> Option<RewriteRule> {
         feature_constraint_variables,
         right_hand_sides,
     })
+}
+
+/// The recursive walk `PhRegularRule.CollectVars` does (`OverridesLing_Lex.cs`): sequence and
+/// iteration contexts recurse into their members; a natural-class context contributes its
+/// `PlusConstr` list then its `MinusConstr` list, first occurrence wins (deduplicated).
+fn collect_feature_constraint_vars(c: &PhonContext, out: &mut Vec<String>) {
+    match c {
+        PhonContext::Sequence { members } => {
+            for m in members {
+                collect_feature_constraint_vars(m, out);
+            }
+        }
+        PhonContext::Iteration { member, .. } => collect_feature_constraint_vars(member, out),
+        PhonContext::NaturalClass {
+            plus_variables,
+            minus_variables,
+            ..
+        } => {
+            for g in plus_variables.iter().chain(minus_variables) {
+                if !out.contains(g) {
+                    out.push(g.clone());
+                }
+            }
+        }
+        _ => {}
+    }
 }
 
 fn extract_rewrite_rhs(ctx: &mut Ctx, guid: &str) -> Option<RewriteRhs> {

@@ -251,3 +251,37 @@ pub(crate) fn pattern_nodes(s: &str, ctx: &Ctx) -> Result<Vec<PatternNode>, Stri
     let tokens = tokenize(s)?;
     nodes_from_tokens(&tokens, ctx)
 }
+
+/// `IsValidEnvironment` (HCLoader.cs:1205-1271), the *upfront, whole-string* validity check every
+/// affix-allomorph environment goes through before any pattern is built from it: syntax (the
+/// split/tokenize grammar `m_envValidator` recognizes), literal-segment recognizability
+/// ("Unrecognized phoneme at position N" — e.g. an environment containing `~`), and natural-class
+/// resolution (`m_naturalClassLookup[abbr]` + `TryLoadNaturalClass` — both "no such abbreviation"
+/// and "the class exists but was skipped because a member phoneme didn't load", which in this
+/// compiler collapse into one `natclass_by_name` miss since skipped classes are never registered
+/// there).
+///
+/// Getting the *granularity* right matters, not just the verdict: an environment that fails any
+/// of these checks is invalid **as a whole** and takes `GetValidEnvironments`' blank-environment
+/// fallback (the allomorph gets an *unrestricted* pass — see `affixes::resolve_environments`),
+/// which is very different from the failure being discovered later, deep inside one side's
+/// pattern-node construction, where the only possible reaction is dropping that pass with no
+/// blank fallback. Sena 3 exercises this for real: its archiphoneme `N` claims graphemes `m`/`n`,
+/// so the standalone `m`/`n` phonemes are duplicate-grapheme-skipped, so `[Nas]`/`[-Lab]`/`[-Nas]`
+/// (whose members include those phonemes) fail to load, so environments like `/_[Nas]` are
+/// invalid — and HCLoader therefore emits those allomorphs' subrules *unrestricted*.
+///
+/// Implemented as a dry run of exactly the machinery the real build uses
+/// ([`split_environment_string`] + [`tokenize`] + [`nodes_from_tokens`] per side), so verdicts
+/// cannot drift from what pattern construction would actually accept.
+pub(crate) fn validate_environment(representation: &str, ctx: &Ctx) -> Result<(), String> {
+    let (left, right) = split_environment_string(representation)?;
+    for side in [left, right] {
+        if side.is_empty() {
+            continue;
+        }
+        let tokens = tokenize(&side)?;
+        nodes_from_tokens(&tokens, ctx)?;
+    }
+    Ok(())
+}

@@ -250,6 +250,8 @@ dependencies = [
  "hc-parse",
  "hc-realize",
  "hc-rules",
+ "pg-fwdata",
+ "pg-snapshot",
  "rayon",
 ]
 

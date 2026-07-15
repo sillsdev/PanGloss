@@ -43,10 +43,13 @@ start with `HYBRID_FST_FEASIBILITY.md` (what it is and why it works), then
 ## Layout
 
 - `rust/` — the ported engine (crate map and build instructions in
-  [`rust/README.md`](rust/README.md)).
+  [`rust/README.md`](rust/README.md)), including direct FieldWorks project (`.fwdata`) import —
+  see that README's "Direct FieldWorks project import" section and
+  [`docs/fwdata-import-plan.md`](docs/fwdata-import-plan.md).
 - `samples/data/` — reference grammars (Amharic, Indonesian, Sena) used by `rust/`'s test suite.
-- `docs/` — the port audit (above), the FST plan (`docs/fst-plan/`), and historical planning
-  documents under `docs/history/`.
+- `docs/` — the port audit (above), the FST plan (`docs/fst-plan/`), the FieldWorks-import plan
+  (`docs/fwdata-import-plan.md`, `docs/snapshot-format.md`), and historical planning documents
+  under `docs/history/`.
 
 ## Building
 

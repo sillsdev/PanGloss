@@ -724,7 +724,13 @@ fn variant_entry_grammar_dense_ids_are_internally_consistent() {
 // --- clitic morph types are Phase B (no dedicated Clitics-stratum handling) ---------------------
 
 #[test]
-fn clitic_typed_allomorph_is_unsupported_and_warns_rather_than_silently_dropped() {
+fn enclitic_entry_compiles_to_clitic_stratum_lex_entry_and_affix_rule() {
+    // HCLoader.cs:256-293's form partition: an enclitic `MoStemAllomorph` is BOTH a valid clitic
+    // lex-entry form (`IsValidLexEntryForm` + `IsCliticType`) and a valid rule form
+    // (`IsValidRuleForm`, HCLoader.cs:550-552), so the entry appears on the Clitics stratum twice
+    // over: as a `LexEntry` (stem role) and as a clitic affix-process rule
+    // (`LoadCliticAffixProcessRule`, HCLoader.cs:1030-1046, suffix-shaped per
+    // `LoadFormAffixProcessAllomorph`'s shared enclitic/suffix arm).
     let (mut snapshot, f) = fixture();
     let clitic_entry = LexEntry {
         guid: "entry-clitic".to_string(),
@@ -737,7 +743,7 @@ fn clitic_typed_allomorph_is_unsupported_and_warns_rather_than_silently_dropped(
             inflection_class: None,
             features: None,
             exception_features: Vec::new(),
-            from_parts_of_speech: Vec::new(),
+            from_parts_of_speech: vec![f.noun_pos.clone()],
             slots: Vec::new(),
         }],
         senses: vec![Sense {
@@ -752,11 +758,28 @@ fn clitic_typed_allomorph_is_unsupported_and_warns_rather_than_silently_dropped(
 
     let (grammar, warnings) = compile_project(&snapshot).expect("clitic entries must not be a hard error");
     assert!(
-        warnings.iter().any(|w| w.contains("unsupported") && w.contains("clitic")),
-        "expected an 'unsupported: ... clitic ...' warning; got {warnings:?}"
+        !warnings.iter().any(|w| w.contains("clitic")),
+        "clitics are implemented; no clitic warning expected, got {warnings:?}"
     );
-    // Only the original fixture stem entry compiles; the clitic-typed entry contributes no
-    // Morphology-stratum stem entry of its own (it has no non-clitic-typed allomorphs to fall
-    // back to), matching the "warn and drop" Phase-B contract rather than a silent stratum-swap.
-    assert_eq!(grammar.entries.len(), 1);
+    // The fixture's own stem entry + the clitic entry's stem role.
+    assert_eq!(grammar.entries.len(), 2);
+    let clitics = &grammar.strata[1];
+    assert_eq!(clitics.entries.len(), 1, "the enclitic's stem role lands on the Clitics stratum");
+    assert_eq!(
+        clitics.mrules.len(),
+        1,
+        "the enclitic's rule role (LoadCliticAffixProcessRule) lands on the Clitics stratum"
+    );
+    // The morphology stratum keeps only the fixture's own entries/rules.
+    assert!(grammar.strata[0].entries.len() == 1);
+    // The clitic morpheme records live on the Clitics stratum.
+    let clitic_rule_morpheme = match &grammar.mrules[clitics.mrules[0].0 as usize] {
+        crate::model::MorphRuleDef::AffixProcess(d) => d.morpheme,
+        other => panic!("expected an affix-process rule, got {other:?}"),
+    };
+    assert_eq!(grammar.morphemes[clitic_rule_morpheme.0 as usize].stratum.0, 1);
+    assert_eq!(
+        grammar.morphemes[clitic_rule_morpheme.0 as usize].gloss.as_deref(),
+        Some("TOP")
+    );
 }

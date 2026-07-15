@@ -135,7 +135,16 @@ pub fn compile_project(snapshot: &Snapshot) -> Result<(Grammar, Vec<String>), Gr
     // --- strata: Morphology (unordered), Clitics (unordered), Surface (linear) -----------------
     // HCLoader.cs:227-233. Custom `<Strata>` reorganization (plan §4 Phase B) is not implemented;
     // a snapshot that declares one gets a warning and the default 3-stratum layout regardless.
-    if snapshot.morphology.parser_parameters.strata.is_some() {
+    // A present-but-EMPTY `<Strata />` element (Amharic authors one) parses to zero stratum rule
+    // lists in HCLoader too (`m_strata.Count > 0` gates `CreateStrata`, HCLoader.cs:353-356) —
+    // that is the default layout, not a custom reorganization, so no warning for it.
+    if snapshot
+        .morphology
+        .parser_parameters
+        .strata
+        .as_deref()
+        .is_some_and(|s| !s.trim().is_empty())
+    {
         warnings.push(
             "unsupported: custom Strata parser-parameter reorganization not implemented; using \
              the default Morphology/Clitics/Surface layout"
@@ -153,6 +162,7 @@ pub fn compile_project(snapshot: &Snapshot) -> Result<(Grammar, Vec<String>), Gr
     // --- lexicon: stems + variants + affix rules -------------------------------------------------
     let mut clitic_mrules: Vec<MRuleId> = Vec::new();
     let mut morphology_entries: Vec<LexEntryId> = Vec::new();
+    let mut clitic_entries: Vec<LexEntryId> = Vec::new();
     lexicon::build(
         snapshot,
         &ctx,
@@ -160,6 +170,7 @@ pub fn compile_project(snapshot: &Snapshot) -> Result<(Grammar, Vec<String>), Gr
         &mut morphology_mrules,
         &mut clitic_mrules,
         &mut morphology_entries,
+        &mut clitic_entries,
         &mut warnings,
     )?;
 
@@ -197,7 +208,7 @@ pub fn compile_project(snapshot: &Snapshot) -> Result<(Grammar, Vec<String>), Gr
             prules: clitic_prules,
             mrules: clitic_mrules,
             templates: Vec::new(),
-            entries: Vec::new(),
+            entries: clitic_entries,
         },
         StratumDef {
             name: Some("Surface".to_string()),

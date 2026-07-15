@@ -36,6 +36,25 @@
 //! lines, mirroring `RunParallel` exactly. This is a deliberate Rust-side choice (C# keys the
 //! split on flag presence; we key it on thread count) — see the M7 commit/report for the full
 //! rationale.
+//!
+//! ## `import` and `.json`/`.fwdata` grammar dispatch (`docs/fwdata-import-plan.md` T4)
+//! `import <project.fwdata> <out.json>` runs `pg_fwdata::import_file` and writes the resulting
+//! `pg_snapshot::Snapshot::to_json()` to `<out.json>`. `ImportReport` warnings (dangling refs,
+//! unsupported constructs, log-and-skip decisions) and `Snapshot::validate()` warnings (dangling
+//! GUID cross-references *within* the snapshot) are printed to stderr, clearly labeled and kept
+//! separate since they come from different stages of the pipeline; exit is non-zero only on a
+//! hard `pg_fwdata::ImportError` (I/O failure / not-a-`.fwdata`-file), never on either warning list.
+//!
+//! Every other subcommand that takes a grammar path (`parse`, `batch`, `fst-stats`, `generate`)
+//! now dispatches on the path's extension via [`load_grammar`]: `.xml` (or anything else) is the
+//! legacy HC-XML path (`hc_grammar::load`, unchanged, no warnings); `.json` loads a `pg-snapshot`
+//! `Snapshot` (`Snapshot::from_json`) and compiles it (`hc_grammar::compile_project`); `.fwdata`
+//! imports the FieldWorks project file directly, in-memory, then compiles it -- no intermediate
+//! JSON file is written (run the `import` subcommand first if you want to keep the snapshot
+//! around, e.g. to inspect it or reuse it without re-importing every time). Compile/import
+//! warnings from `.json`/`.fwdata` dispatch are always printed to stderr, never stdout --
+//! `batch`'s TSV rows are parity-sensitive against C# goldens, so warnings must never be
+//! interleaved into that output stream.
 #![forbid(unsafe_code)]
 
 use std::fs::{self, OpenOptions};
@@ -96,17 +115,115 @@ fn run() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
+        Some("import") => match run_import(&args[2..]) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("hc-rs import: {e}");
+                ExitCode::FAILURE
+            }
+        },
         _ => {
             eprintln!(
                 "hc-rs {} — HermitCrab Rust engine CLI\n\
-                 usage: hc-rs batch <grammar.xml> <words.txt> <out.tsv> [--step-cap N] [--word-timeout-ms N] [--memo=on|off] [--threads N] [--start N]\n\
-                 usage: hc-rs generate <grammar.xml> <root-morpheme-id> [other-morpheme-id ...]\n\
-                 usage: hc-rs parse <grammar.xml> <word> [--trace[=<file>]] [--trace-format=text|json] [--gloss] [--natural-gloss=eng] [--realize-map=<path>]\n\
-                 usage: hc-rs fst-stats <grammar.xml> [out.txt]  (omit out.txt to print to stdout)",
+                 usage: hc-rs batch <grammar> <words.txt> <out.tsv> [--step-cap N] [--word-timeout-ms N] [--memo=on|off] [--threads N] [--start N]\n\
+                 usage: hc-rs generate <grammar> <root-morpheme-id> [other-morpheme-id ...]\n\
+                 usage: hc-rs parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--gloss] [--natural-gloss=eng] [--realize-map=<path>]\n\
+                 usage: hc-rs fst-stats <grammar> [out.txt]  (omit out.txt to print to stdout)\n\
+                 usage: hc-rs import <project.fwdata> <out.json>\n\
+                 \n\
+                 <grammar> is one of: a HermitCrab XML export (.xml, the legacy path), a\n\
+                 pg-snapshot JSON file (.json, from `hc-rs import` or any other producer), or a\n\
+                 FieldWorks project file (.fwdata, imported in-memory and compiled on the fly).",
                 env!("CARGO_PKG_VERSION")
             );
             ExitCode::FAILURE
         }
+    }
+}
+
+/// `import <project.fwdata> <out.json>` (`docs/fwdata-import-plan.md` T4): run `pg-fwdata` over a
+/// FieldWorks project file and write the resulting `pg_snapshot::Snapshot::to_json()` to
+/// `<out.json>`. Prints `ImportReport` warnings and `Snapshot::validate()` warnings to stderr,
+/// each under its own labeled heading (they come from different stages -- extraction vs.
+/// cross-reference validation -- and conflating them would make root-causing a warning harder).
+/// Non-zero exit only on a hard `pg_fwdata::ImportError`; neither warning list ever fails the
+/// command (`docs/fwdata-import-plan.md` §1: this pipeline must tolerate stale/dangling real-world
+/// project data, never crash on it).
+fn run_import(args: &[String]) -> Result<(), String> {
+    let [fwdata_path, out_path] = args else {
+        return Err("usage: import <project.fwdata> <out.json>".into());
+    };
+
+    let (snapshot, report) = pg_fwdata::import_file(std::path::Path::new(fwdata_path))
+        .map_err(|e| format!("import {fwdata_path}: {e}"))?;
+
+    eprintln!("import warnings ({}):", report.warnings.len());
+    for w in &report.warnings {
+        eprintln!("  {w}");
+    }
+
+    let validate_warnings = snapshot.validate();
+    eprintln!("validate warnings ({}):", validate_warnings.len());
+    for w in &validate_warnings {
+        eprintln!("  {w}");
+    }
+
+    fs::write(out_path, snapshot.to_json()).map_err(|e| format!("write {out_path}: {e}"))?;
+    eprintln!(
+        "import complete: {} lex entries, {} phonemes -> {out_path}",
+        snapshot.lexicon.entries.len(),
+        snapshot.phonology.phonemes.len()
+    );
+    Ok(())
+}
+
+/// Load a `Grammar` from any of the three supported grammar-path shapes, dispatching on the
+/// path's extension (see the module doc's "`import` and `.json`/`.fwdata` grammar dispatch"
+/// section): `.json` -> `pg_snapshot::Snapshot::from_json` + `hc_grammar::compile_project`;
+/// `.fwdata` -> `pg_fwdata::import_file` + `hc_grammar::compile_project` (in-memory, no
+/// intermediate file); anything else (including `.xml`) -> the legacy `hc_grammar::load`, which
+/// never produces warnings of its own. Returns any compile/import warnings alongside the
+/// `Grammar` -- callers are responsible for printing them to stderr (never stdout; see the
+/// module doc).
+fn load_grammar(path: &str) -> Result<(Grammar, Vec<String>), String> {
+    let ext = std::path::Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("");
+    match ext {
+        "json" => {
+            let json = fs::read_to_string(path).map_err(|e| format!("read {path}: {e}"))?;
+            let snapshot = pg_snapshot::Snapshot::from_json(&json)
+                .map_err(|e| format!("parse snapshot {path}: {e}"))?;
+            let (grammar, warnings) = hc_grammar::compile_project(&snapshot)
+                .map_err(|e| format!("compile {path}: {e:?}"))?;
+            Ok((grammar, warnings))
+        }
+        "fwdata" => {
+            let (snapshot, report) = pg_fwdata::import_file(std::path::Path::new(path))
+                .map_err(|e| format!("import {path}: {e}"))?;
+            let mut warnings = report.warnings;
+            warnings.extend(snapshot.validate());
+            let (grammar, compile_warnings) = hc_grammar::compile_project(&snapshot)
+                .map_err(|e| format!("compile {path}: {e:?}"))?;
+            warnings.extend(compile_warnings);
+            Ok((grammar, warnings))
+        }
+        _ => {
+            let xml = fs::read_to_string(path).map_err(|e| format!("read {path}: {e}"))?;
+            let grammar =
+                hc_grammar::load(&xml).map_err(|e| format!("load {path}: {e:?}"))?;
+            Ok((grammar, Vec::new()))
+        }
+    }
+}
+
+/// Print `load_grammar`'s warnings to stderr, one per line, prefixed so they're easy to grep out
+/// of a noisy log -- never to stdout (batch's TSV rows and parse's parity line are both
+/// parity-sensitive; see the module doc).
+fn print_grammar_warnings(warnings: &[String]) {
+    for w in warnings {
+        eprintln!("warning: {w}");
     }
 }
 
@@ -122,16 +239,16 @@ fn run() -> ExitCode {
 /// `fst-stats <grammar> <out.txt>` two-positional-argument shape (plan §6.1).
 fn run_fst_stats(args: &[String]) -> Result<(), String> {
     let [grammar_path, rest @ ..] = args else {
-        return Err("usage: fst-stats <grammar.xml> [out.txt]".into());
+        return Err("usage: fst-stats <grammar> [out.txt]".into());
     };
     let out_path = match rest {
         [] => None,
         [p] => Some(p.as_str()),
-        _ => return Err("usage: fst-stats <grammar.xml> [out.txt]".into()),
+        _ => return Err("usage: fst-stats <grammar> [out.txt]".into()),
     };
 
-    let xml = fs::read_to_string(grammar_path).map_err(|e| format!("read {grammar_path}: {e}"))?;
-    let g = hc_grammar::load(&xml).map_err(|e| format!("load {grammar_path}: {e:?}"))?;
+    let (g, warnings) = load_grammar(grammar_path)?;
+    print_grammar_warnings(&warnings);
     let build_morpher = Morpher::new(&g, usize::MAX);
     let surface = hc_hybrid::surface::SurfacePhonology::new(&g);
     let trie = hc_hybrid::trie::Trie::build(&g, &surface, &build_morpher, 1_000_000, 2, true);
@@ -238,11 +355,11 @@ fn run_parse(args: &[String]) -> Result<(), String> {
         }
     }
     let [grammar_path, word] = positional[..] else {
-        return Err("usage: parse <grammar.xml> <word> [--trace[=<file>]] [--trace-format=text|json] [--gloss] [--natural-gloss=eng] [--realize-map=<path>]".into());
+        return Err("usage: parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--gloss] [--natural-gloss=eng] [--realize-map=<path>]".into());
     };
 
-    let xml = fs::read_to_string(grammar_path).map_err(|e| format!("read {grammar_path}: {e}"))?;
-    let grammar = hc_grammar::load(&xml).map_err(|e| format!("load {grammar_path}: {e:?}"))?;
+    let (grammar, warnings) = load_grammar(grammar_path)?;
+    print_grammar_warnings(&warnings);
     let morpher = Morpher::new(&grammar, usize::MAX);
 
     // `--natural-gloss=eng` setup: the embedded English table + the per-grammar sidecar map, both
@@ -435,13 +552,13 @@ fn run_batch(args: &[String]) -> Result<(), String> {
     }
     let [grammar_path, words_path, out_path] = positional.as_slice() else {
         return Err(
-            "usage: batch <grammar.xml> <words.txt> <out.tsv> [--step-cap N] [--word-timeout-ms N] [--memo=on|off] [--threads N] [--start N]"
+            "usage: batch <grammar> <words.txt> <out.tsv> [--step-cap N] [--word-timeout-ms N] [--memo=on|off] [--threads N] [--start N]"
                 .into(),
         );
     };
 
-    let xml = fs::read_to_string(grammar_path).map_err(|e| format!("read {grammar_path}: {e}"))?;
-    let grammar = hc_grammar::load(&xml).map_err(|e| format!("load {grammar_path}: {e:?}"))?;
+    let (grammar, warnings) = load_grammar(grammar_path)?;
+    print_grammar_warnings(&warnings);
     let morpher = Morpher::new(&grammar, step_cap)
         .with_memo(memo)
         .with_word_timeout(word_timeout_ms.map(Duration::from_millis));
@@ -615,12 +732,12 @@ fn run_batch(args: &[String]) -> Result<(), String> {
 fn run_generate(args: &[String]) -> Result<(), String> {
     let [grammar_path, root_id, other_ids @ ..] = args else {
         return Err(
-            "usage: generate <grammar.xml> <root-morpheme-id> [other-morpheme-id ...]".into(),
+            "usage: generate <grammar> <root-morpheme-id> [other-morpheme-id ...]".into(),
         );
     };
 
-    let xml = fs::read_to_string(grammar_path).map_err(|e| format!("read {grammar_path}: {e}"))?;
-    let grammar = hc_grammar::load(&xml).map_err(|e| format!("load {grammar_path}: {e:?}"))?;
+    let (grammar, warnings) = load_grammar(grammar_path)?;
+    print_grammar_warnings(&warnings);
     let morpher = Morpher::new(&grammar, usize::MAX);
 
     let root = lex_entry_by_morpheme_id(&grammar, root_id)

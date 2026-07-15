@@ -1,6 +1,14 @@
 # Direct FieldWorks project ingestion (`.fwdata` → PanGloss)
 
-**Status: approved plan, implementation in progress (branch `worktree-fwdata-import`).**
+**Status: implemented on branch `worktree-fwdata-import`.**
+T1 `pg-snapshot` (format + serde model + validation): done.
+T2 `pg-fwdata` (streaming `.fwdata` reader → Snapshot + import report): done.
+T3 `hc_grammar::compile` (Snapshot → Grammar, HCLoader.cs port; Phase A full, Phase B
+warn-and-skip): done.
+T4 (CLI `import` subcommand + `.json`/`.fwdata` grammar dispatch in
+`parse`/`batch`/`fst-stats`/`generate`; §5.2 oracle conformance gate in
+`rust/crates/hc-cli/tests/fwdata_conformance_gate.rs`; README/docs): done — see that test's
+module doc for current conformance status per language.
 
 ## 1. Motivation
 

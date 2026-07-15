@@ -17,6 +17,7 @@ use crate::GrammarError;
 
 use super::{affixes, Acc, Ctx};
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn build(
     snapshot: &Snapshot,
     ctx: &Ctx,
@@ -24,10 +25,9 @@ pub(crate) fn build(
     morphology_mrules: &mut Vec<MRuleId>,
     clitic_mrules: &mut Vec<MRuleId>,
     morphology_entries: &mut Vec<LexEntryId>,
+    clitic_entries: &mut Vec<LexEntryId>,
     warnings: &mut Vec<String>,
 ) -> Result<(), GrammarError> {
-    let _ = clitic_mrules; // Clitics stratum is intentionally left empty — see affixes::shape_of.
-
     let infl_type_by_guid: HashMap<&str, &LexEntryInflType> = snapshot
         .morphology
         .lex_entry_infl_types
@@ -44,28 +44,83 @@ pub(crate) fn build(
         .collect();
 
     for entry in &snapshot.lexicon.entries {
-        warn_unsupported_clitic_forms(entry, warnings);
+        // Form partition (HCLoader.cs:256-293): each of an entry's forms lands in the stem or
+        // rule bucket for either the Morphology (m_morphophonemic) or Clitics (m_clitic)
+        // stratum by morph type. `IsCliticType` = Clitic/Enclitic/Proclitic/Particle; of those,
+        // only Enclitic/Proclitic are also rule forms (`IsValidRuleForm`, HCLoader.cs:550-552),
+        // so an enclitic form is deliberately in BOTH clitic buckets — HCLoader loads it both as
+        // a clitic-stratum lex entry and as a clitic-stratum affix-process rule.
+        let clitic = |a: &Allomorph| {
+            matches!(
+                a.morph_type,
+                MorphType::Clitic | MorphType::Enclitic | MorphType::Proclitic | MorphType::Particle
+            )
+        };
+        let affix_allos: Vec<&Allomorph> =
+            entry.allomorphs.iter().filter(|a| !clitic(a)).collect();
+        let clitic_affix_allos: Vec<&Allomorph> =
+            entry.allomorphs.iter().filter(|a| clitic(a)).collect();
+        let has_clitic_stem_form = entry
+            .allomorphs
+            .iter()
+            .any(|a| is_lex_entry_form(a, true));
+        let has_stem_form = entry.allomorphs.iter().any(|a| is_lex_entry_form(a, false));
 
-        // --- stems: one Grammar LexEntryDef per (entry, Msa::Stem) pair -------------------------
+        // --- stems: one Grammar LexEntryDef per (entry, Msa::Stem, stratum-bucket) --------------
         for msa in &entry.msas {
             if let Msa::Stem { .. } = msa {
-                if let Some(id) = build_stem_entry(entry, msa, None, ctx, acc, warnings) {
-                    morphology_entries.push(id);
+                if has_stem_form {
+                    if let Some(id) =
+                        build_stem_entry(entry, msa, None, StratumId(0), ctx, acc, warnings)
+                    {
+                        morphology_entries.push(id);
+                    }
+                }
+                if has_clitic_stem_form {
+                    if let Some(id) =
+                        build_stem_entry(entry, msa, None, StratumId(1), ctx, acc, warnings)
+                    {
+                        clitic_entries.push(id);
+                    }
                 }
             }
         }
 
-        // --- affix rules: one MorphRuleDef per (entry, non-stem MSA) pair -----------------------
+        // --- affix rules: one MorphRuleDef per (entry, MSA, non-empty rule bucket) --------------
+        // Every MSA kind participates (`LoadMorphologicalRule`'s switch, HCLoader.cs:877-908):
+        // deriv/infl/unclassified become ordinary affix rules; a *stem* MSA reached through a
+        // rule bucket becomes a clitic affix-process rule (`LoadCliticAffixProcessRule`).
         for msa in &entry.msas {
-            if matches!(msa, Msa::Stem { .. }) {
-                continue;
-            }
             let gloss = sense_gloss(entry, msa_guid(msa), ctx);
-            let stratum = StratumId(0); // "Morphology" — see `mod.rs`'s stratum layout.
-            if let Some(id) =
-                affixes::build_affix_rule(entry, msa, gloss.map(str::to_string), stratum, ctx, acc, warnings)
-            {
-                morphology_mrules.push(id);
+            // `LoadMorphologicalRule` (HCLoader.cs:887-892): an inflectional MSA with slots
+            // sets `s = null` — the rule is reachable ONLY through its template slot(s),
+            // never from the stratum's own rule list. Adding it to both would let it apply
+            // twice (template + free-floating), and a slot-scoped no-op subrule (e.g. Sena's
+            // unrestricted `^0+` noun-class prefixes) applying freely at the stratum level
+            // makes the analysis search space explode. Every other affix-rule kind (deriv,
+            // unclassified, slotless inflectional = partial, clitic) goes on the stratum list.
+            let template_only = matches!(msa, Msa::Inflectional { slots, .. } if !slots.is_empty());
+            for (bucket, stratum, mrules) in [
+                (&affix_allos, StratumId(0), &mut *morphology_mrules),
+                (&clitic_affix_allos, StratumId(1), &mut *clitic_mrules),
+            ] {
+                if bucket.is_empty() {
+                    continue;
+                }
+                if let Some(id) = affixes::build_affix_rule(
+                    entry,
+                    bucket,
+                    msa,
+                    gloss.map(str::to_string),
+                    stratum,
+                    ctx,
+                    acc,
+                    warnings,
+                ) {
+                    if !template_only {
+                        mrules.push(id);
+                    }
+                }
             }
         }
 
@@ -110,16 +165,15 @@ fn sense_gloss<'a>(entry: &'a LexEntry, msa: &str, ctx: &Ctx) -> Option<&'a str>
         .and_then(|s| super::best_ws(&s.gloss, ctx.default_analysis_ws.as_deref()))
 }
 
-/// Whether an allomorph is a valid "lex entry form" — `IsValidLexEntryForm`, HCLoader.cs:579-589:
-/// stem-type, non-abstract, non-empty. Clitic-typed forms (`Clitic`/`Enclitic`/`Proclitic`) are
-/// deliberately excluded here even though HCLoader treats them as forms too: HCLoader places
-/// clitics on the dedicated Clitics stratum with dual stem+rule handling, which this compiler does
-/// not implement (see `affixes::shape_of`, also Phase B). Compiling them onto the Morphology
-/// stratum as plain stems would be a silent semantic drift rather than an honest "unsupported"
-/// skip, so [`build`] warns and drops them instead — see `warn_unsupported_clitic_forms`.
-/// `Particle` remains accepted: it has no dedicated stratum handling in HCLoader beyond being a
-/// plain stem-shaped form.
-fn is_lex_entry_form(allo: &Allomorph) -> bool {
+/// Whether an allomorph is a valid "lex entry form" for the given stratum bucket —
+/// `IsValidLexEntryForm` (HCLoader.cs:579-589: non-abstract, non-empty, stem-or-clitic-typed)
+/// combined with the caller's clitic-vs-stem bucket split (HCLoader.cs:268-274:
+/// `IsCliticType(form.MorphTypeRA)` routes the form to `cliticStemAllos` → the Clitics stratum;
+/// stem types — `IsStemType`: root/stem/bound-root/bound-stem/phrase — to `stemAllos` → the
+/// Morphology stratum). `Particle` and bare `Clitic` are clitic-typed (HCLoader.cs:609-624), as
+/// are `Enclitic`/`Proclitic` — the latter two are *also* rule forms and additionally become
+/// clitic-stratum affix rules ([`build`]'s rule buckets).
+fn is_lex_entry_form(allo: &Allomorph, clitic: bool) -> bool {
     if allo.is_abstract {
         return false;
     }
@@ -127,34 +181,16 @@ fn is_lex_entry_form(allo: &Allomorph) -> bool {
     if !has_form {
         return false;
     }
-    matches!(
-        allo.morph_type,
-        MorphType::Root | MorphType::Stem | MorphType::BoundRoot | MorphType::BoundStem | MorphType::Phrase | MorphType::Particle
-    )
-}
-
-/// Emits one warning per allomorph that is otherwise a valid, non-empty form but was excluded from
-/// [`is_lex_entry_form`] solely because of its clitic morph type — so clitic forms are dropped
-/// loudly (Phase B) rather than silently disappearing from the compiled `Grammar`.
-fn warn_unsupported_clitic_forms(entry: &LexEntry, warnings: &mut Vec<String>) {
-    for allo in &entry.allomorphs {
-        if allo.is_abstract {
-            continue;
-        }
-        let has_form = !allo.forms.is_empty() && allo.forms.iter().any(|f| !f.form.trim().is_empty());
-        if !has_form {
-            continue;
-        }
-        if matches!(
+    if clitic {
+        matches!(
             allo.morph_type,
-            MorphType::Clitic | MorphType::Enclitic | MorphType::Proclitic
-        ) {
-            warnings.push(format!(
-                "unsupported: allomorph {:?} of entry {:?} has clitic morph type {:?}; clitics stratum \
-                 is not implemented, form skipped",
-                allo.guid, entry.guid, allo.morph_type
-            ));
-        }
+            MorphType::Clitic | MorphType::Enclitic | MorphType::Proclitic | MorphType::Particle
+        )
+    } else {
+        matches!(
+            allo.morph_type,
+            MorphType::Root | MorphType::Stem | MorphType::BoundRoot | MorphType::BoundStem | MorphType::Phrase
+        )
     }
 }
 
@@ -163,6 +199,7 @@ fn build_stem_entry(
     entry: &LexEntry,
     msa: &Msa,
     infl_type: Option<&LexEntryInflType>,
+    stratum: StratumId,
     ctx: &Ctx,
     acc: &mut Acc,
     warnings: &mut Vec<String>,
@@ -219,7 +256,8 @@ fn build_stem_entry(
 
     let lex_id = LexEntryId(acc.entries.len() as u32);
     let mut allomorphs = Vec::new();
-    for allo in entry.allomorphs.iter().filter(|a| is_lex_entry_form(a)) {
+    let clitic = stratum == StratumId(1);
+    for allo in entry.allomorphs.iter().filter(|a| is_lex_entry_form(a, clitic)) {
         match build_root_allomorph(allo, ctx, warnings) {
             Ok(def) => {
                 let allo_id = crate::model::AllomorphId(acc.allomorph_owners.len() as u32);
@@ -247,7 +285,7 @@ fn build_stem_entry(
         xml_key: guid.clone(),
         morph_id: None,
         gloss: sense_gloss(entry, guid, ctx).map(str::to_string),
-        stratum: StratumId(0),
+        stratum,
         properties: Vec::new(),
         co_occurrence: Vec::new(),
     });
@@ -464,7 +502,9 @@ fn build_variant_stem_entry(
 
     let lex_id = LexEntryId(acc.entries.len() as u32);
     let mut allomorphs = Vec::new();
-    for allo in variant_entry.allomorphs.iter().filter(|a| is_lex_entry_form(a)) {
+    // Variants are built for the Morphology bucket only (clitic-typed variant forms are a known
+    // gap — no reference corpus exercises them; see `build`'s partition doc).
+    for allo in variant_entry.allomorphs.iter().filter(|a| is_lex_entry_form(a, false)) {
         match build_root_allomorph(allo, ctx, warnings) {
             Ok(def) => {
                 let allo_id = crate::model::AllomorphId(acc.allomorph_owners.len() as u32);

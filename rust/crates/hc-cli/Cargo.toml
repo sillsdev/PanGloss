@@ -17,4 +17,6 @@ hc-featstruct.workspace = true
 hc-fst.workspace = true
 hc-rules.workspace = true
 hc-hybrid.workspace = true
+pg-snapshot.workspace = true
+pg-fwdata.workspace = true
 rayon.workspace = true

@@ -33,14 +33,16 @@ enum Shape {
 
 fn shape_of(mt: MorphType) -> Option<Shape> {
     match mt {
-        MorphType::Prefix | MorphType::PrefixingInterfix => Some(Shape::Prefix),
-        MorphType::Suffix | MorphType::SuffixingInterfix => Some(Shape::Suffix),
+        // Proclitic patterns exactly like a prefix and enclitic exactly like a suffix in
+        // `LoadFormAffixProcessAllomorph`'s morph-type switch (HCLoader.cs:1552-1605: the
+        // kMorphEnclitic case shares the suffix arm, kMorphProclitic the prefix arm) — the
+        // clitic-ness lives in *stratum placement* (the caller routes clitic-bucket rules onto
+        // the Clitics stratum, `lexicon::build`), not in the allomorph pattern shape.
+        MorphType::Prefix | MorphType::PrefixingInterfix | MorphType::Proclitic => Some(Shape::Prefix),
+        MorphType::Suffix | MorphType::SuffixingInterfix | MorphType::Enclitic => Some(Shape::Suffix),
         MorphType::Infix | MorphType::InfixingInterfix => Some(Shape::Infix),
-        // Proclitic/Enclitic/Clitic/Particle: Phase B ("clitic strata subtleties", plan §4) — a
-        // faithful port needs the separate Clitics-stratum placement and dual stem/rule role
-        // HCLoader gives these (`IsCliticType`, `LoadCliticAffixProcessRule`); folding them into
-        // an ordinary Morphology-stratum concatenative rule would be a silent behavior change,
-        // not a supported simplification, so this compiler declines rather than half-implements.
+        // Bare Clitic/Particle/Phrase: never rule forms (`IsValidRuleForm`, HCLoader.cs:536-569
+        // has no case for them) — they are *stem* forms (clitic-stratum lex entries).
         _ => None,
     }
 }
@@ -55,9 +57,16 @@ fn shape_of(mt: MorphType) -> Option<Shape> {
 /// itself is placed into a stratum's `mrules` list by the caller (HCLoader's own `s` variable,
 /// possibly `null`/none for a partial inflectional rule outside any template,
 /// HCLoader.cs:887-890).
+///
+/// `allos` is the caller's pre-partitioned allomorph bucket for this stratum (HCLoader.cs:256-293
+/// splits each entry's forms into affix vs clitic-affix buckets and calls
+/// `LoadMorphologicalRules` once per non-empty bucket — an entry with both a suffix-typed and an
+/// enclitic-typed form yields *two* rules per MSA, one per stratum, each seeing only its own
+/// bucket's forms).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn build_affix_rule(
     entry: &LexEntry,
+    allos: &[&Allomorph],
     msa: &Msa,
     gloss: Option<String>,
     stratum: StratumId,
@@ -65,9 +74,9 @@ pub(crate) fn build_affix_rule(
     acc: &mut Acc,
     warnings: &mut Vec<String>,
 ) -> Option<MRuleId> {
-    let rule_form_allos: Vec<&Allomorph> = entry
-        .allomorphs
+    let rule_form_allos: Vec<&Allomorph> = allos
         .iter()
+        .copied()
         .filter(|a| is_valid_rule_form(a, warnings))
         .collect();
     if rule_form_allos.is_empty() {
@@ -148,12 +157,30 @@ pub(crate) fn build_affix_rule(
             let empty = acc.fs_interner.intern(hc_featstruct::FeatureStruct::EMPTY);
             (req, empty, true, guid.clone())
         }
-        Msa::Stem { guid, .. } => {
-            // `LoadCliticAffixProcessRule` (HCLoader.cs:1030-1046) — clitic-as-affix-rule. Phase B.
-            warnings.push(format!(
-                "unsupported: clitic morphological-rule MSA {guid:?} not implemented; skipped"
-            ));
-            return None;
+        Msa::Stem {
+            guid,
+            from_parts_of_speech,
+            ..
+        } => {
+            // `LoadCliticAffixProcessRule` (HCLoader.cs:1030-1046): a stem MSA reached through
+            // the *rule* path (an entry with proclitic/enclitic — or mixed suffix/prefix — rule
+            // forms). Required FS = the attachment POS list (`FromPartsOfSpeechRC`, with
+            // descendants via `LoadAllPartsOfSpeech`); nothing else — no head features, no MPRs,
+            // no out FS, not partial.
+            let req_pos = if from_parts_of_speech.is_empty() {
+                None
+            } else {
+                Some(ctx.pos.bits_with_descendants(from_parts_of_speech.iter().map(String::as_str)))
+            };
+            let req = match super::features::build_syn_fs(ctx.syn, req_pos, None) {
+                Ok(fs) => acc.fs_interner.intern(fs),
+                Err(e) => {
+                    warnings.push(format!("MSA {guid:?}: {e}; skipped"));
+                    return None;
+                }
+            };
+            let empty = acc.fs_interner.intern(hc_featstruct::FeatureStruct::EMPTY);
+            (req, empty, false, guid.clone())
         }
     };
 
@@ -297,7 +324,17 @@ fn is_valid_rule_form(allo: &Allomorph, warnings: &mut Vec<String>) -> bool {
     }
     match allo.morph_type {
         MorphType::Infix | MorphType::InfixingInterfix => !allo.positions.is_empty(),
-        MorphType::Prefix | MorphType::PrefixingInterfix | MorphType::Suffix | MorphType::SuffixingInterfix => {
+        // Proclitic/Enclitic count as rule forms unconditionally in `IsValidRuleForm`
+        // (HCLoader.cs:550-552) — same non-empty/non-abstract gate as prefix/suffix, and the
+        // same Phase-B bracket-form (reduplication) skip since HCLoader routes a bracketed
+        // enclitic/proclitic form through the same reduplication branch (HCLoader.cs:1485-1519)
+        // this compiler doesn't implement yet.
+        MorphType::Prefix
+        | MorphType::PrefixingInterfix
+        | MorphType::Suffix
+        | MorphType::SuffixingInterfix
+        | MorphType::Proclitic
+        | MorphType::Enclitic => {
             let form = super::best_ws(&allo.forms, None).unwrap_or("");
             if form.contains('[') {
                 warnings.push(format!(
@@ -309,14 +346,9 @@ fn is_valid_rule_form(allo: &Allomorph, warnings: &mut Vec<String>) -> bool {
             }
             !form.trim().is_empty()
         }
-        MorphType::Proclitic | MorphType::Enclitic | MorphType::Clitic | MorphType::Particle => {
-            warnings.push(format!(
-                "unsupported: clitic/particle morphological-rule allomorph {:?} not implemented; \
-                 skipped",
-                allo.guid
-            ));
-            false
-        }
+        // Bare Clitic/Particle: stem forms (clitic-stratum lex entries), never rule forms —
+        // `IsValidRuleForm` has no case for them (HCLoader.cs:536-569). Not a warning: they are
+        // handled, just on the stem path (`lexicon::build`'s clitic-stem bucket).
         _ => false,
     }
 }
@@ -543,6 +575,19 @@ fn resolve_environments(
             has_blank = true;
             continue;
         };
+        // `IsValidEnvironment`'s upfront whole-string validity check (HCLoader.cs:1205-1271; see
+        // `environment::validate_environment`'s doc): a failing environment is invalid *as a
+        // whole* and lands in the same "treated as absent" blank-fallback bucket as a malformed
+        // split, rather than being discovered later (deep inside one side's pattern-node
+        // construction) and silently dropping this disjunct with no blank fallback.
+        if let Err(e) = environment::validate_environment(&env.representation, ctx) {
+            warnings.push(format!(
+                "invalid environment {:?} ({}): {e}; treated as absent",
+                env.guid, env.representation
+            ));
+            has_blank = true;
+            continue;
+        }
         match environment::split_environment_string(&env.representation) {
             Ok(pair) => out.push(Some(pair)),
             Err(e) => {
