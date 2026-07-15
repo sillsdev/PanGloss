@@ -1,0 +1,14 @@
+enumerated 591005 pre-compound derivations
+generated 0 2-root compound derivations
+realized 591005 derivations through phonology in 97.26s
+SAMPLED build: 30000/591005 derivations (104 forced-in corpus-word derivations + 29896 random)
+raw NFA: 2200837 states, 2200836 arcs, built in 39.41s (after 103.02s enumerate+realize)
+EXTRAPOLATED to the full 591005-derivation set (linear scaling assumption, labeled as extrapolation, not measured): ~43356855 states, ~43356836 arcs, ~776s build
+AT&T text size: 50773759 bytes (49583.7 KiB), gzipped: 12790537 bytes (12490.8 KiB)
+234 surface forms have >1 analysis in the enumerated set
+probe word: 'ajar' (2 analyses in source data)
+  raw NFA apply(): 2 distinct analysis strings returned
+  after determinize_unweighted() (34.33s): 2 distinct analyses -- PRESERVED
+  after + minimize_as_dfa() (47.96s): 2 distinct analyses -- PRESERVED
+  minimized: 1203622 states
+raw-NFA lookup: 121 words in 5699.4ms (47102.6us/word avg, 21 words/sec)

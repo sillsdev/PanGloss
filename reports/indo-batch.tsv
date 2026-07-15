@@ -1,0 +1,242 @@
+0	ajar	STARTED
+0	ajar	0	ok	|ajar;|ajar
+1	amat	STARTED
+1	amat	0	ok	|amat
+2	ambil	STARTED
+2	ambil	0	ok	|ambil
+3	baca	STARTED
+3	baca	0	ok	|baca
+4	bagi	STARTED
+4	bagi	0	ok	|ba[gG]i
+5	bantu	STARTED
+5	bantu	0	ok	|bantu
+6	beli	STARTED
+6	beli	0	ok	|beli
+7	cari	STARTED
+7	cari	0	ok	|cari
+8	catat	STARTED
+8	catat	0	ok	|catat
+9	dengar	STARTED
+9	dengar	0	ok	|de(ng)ar
+10	ekspor	STARTED
+10	ekspor	0	ok	|ekspor
+11	erang	STARTED
+11	erang	0	ok	|era(ng)
+12	fitnah	STARTED
+12	fitnah	0	ok	|fitnah
+13	gambar	STARTED
+13	gambar	0	ok	|[gG]ambar
+14	ganggu	STARTED
+14	ganggu	0	ok	|[gG]a(ng)[gG]u
+15	ganti	STARTED
+15	ganti	0	ok	|[gG]anti
+16	hilang	STARTED
+16	hilang	0	ok	|hila(ng)
+17	hitung	STARTED
+17	hitung	0	ok	|hitu(ng)
+18	isi	STARTED
+18	isi	0	ok	|isi
+19	jahit	STARTED
+19	jahit	0	ok	|jahit
+20	jual	STARTED
+20	jual	0	ok	|jual
+21	kaca	STARTED
+21	kaca	0	ok	|kaca
+22	kan	STARTED
+22	kan	0	ok	-
+23	karang	STARTED
+23	karang	0	ok	|kara(ng)
+24	kayuh	STARTED
+24	kayuh	0	ok	|kayuh
+25	khawatir	STARTED
+25	khawatir	0	ok	|(kh)awatir
+26	kirim	STARTED
+26	kirim	0	ok	|kirim
+27	langit	STARTED
+27	langit	0	ok	|la(ng)it
+28	lempar	STARTED
+28	lempar	0	ok	|lempar
+29	lihat	STARTED
+29	lihat	0	ok	|lihat
+30	masak	STARTED
+30	masak	0	ok	|masak
+31	mebaka	STARTED
+31	mebaka	0	ok	-
+32	medengar	STARTED
+32	medengar	1	ok	-
+33	mekaca	STARTED
+33	mekaca	0	ok	-
+34	melangit	STARTED
+34	melangit	1	ok	+|me+?la(ng)it
+35	melempar	STARTED
+35	melempar	1	ok	+|me+?lempar
+36	melihat	STARTED
+36	melihat	0	ok	+|me+?lihat
+37	memaca	STARTED
+37	memaca	1	ok	-
+38	memakai	STARTED
+38	memakai	6	ok	+|mem+?akai
+39	memasak	STARTED
+39	memasak	2	ok	+|me+?masak
+40	membaca	STARTED
+40	membaca	1	ok	+|mem+?baca
+41	membagi-bagi	STARTED
+41	membagi-bagi	24	ok	++|mem+?ba[gG]i+?-ba[gG]i
+42	membantu	STARTED
+42	membantu	1	ok	+|mem+?bantu
+43	membeli	STARTED
+43	membeli	4	ok	+|mem+?beli
+44	memfitnah	STARTED
+44	memfitnah	1	ok	+|mem+?fitnah
+45	memijit-mijit	STARTED
+45	memijit-mijit	17	ok	++|mem+?ijit+?-mijit
+46	meminta-minta	STARTED
+46	meminta-minta	18	ok	++|me+?minta+?-minta
+47	memlangit	STARTED
+47	memlangit	1	ok	-
+48	memukul	STARTED
+48	memukul	3	ok	+|mem+?ukul
+49	memulis	STARTED
+49	memulis	2	ok	-
+50	menaca	STARTED
+50	menaca	1	ok	-
+51	menakai	STARTED
+51	menakai	7	ok	-
+52	menanti	STARTED
+52	menanti	8	ok	+|me+?nanti
+53	mencari	STARTED
+53	mencari	5	ok	+|men+?cari
+54	mencatat	STARTED
+54	mencatat	1	ok	+|men+?catat
+55	mendengar	STARTED
+55	mendengar	4	ok	+|men+?de(ng)ar
+56	mengaca	STARTED
+56	mengaca	2	ok	+|me(ng)+?aca
+57	mengaco	STARTED
+57	mengaco	2	ok	+|me+?(ng)aco
+58	mengajar	STARTED
+58	mengajar	3	ok	+|me(ng)+?ajar
+59	mengakai	STARTED
+59	mengakai	6	ok	-
+60	mengamat-amati	STARTED
+60	mengamat-amati	58	ok	+++|me(ng)+?amat+?-amat+?i;+++|me(ng)+?amat+?-amat+?i
+61	mengambil	STARTED
+61	mengambil	4	ok	+|me(ng)+?ambil
+62	menganga	STARTED
+62	menganga	2	ok	+|me+?(ng)a(ng)a
+63	mengarang	STARTED
+63	mengarang	3	ok	+|me(ng)+?ara(ng)
+64	mengayuh-ngayuh	STARTED
+64	mengayuh-ngayuh	18	ok	++|me(ng)+?ayuh+?-(ng)ayuh
+65	mengekspor	STARTED
+65	mengekspor	3	ok	+|me(ng)+?ekspor
+66	mengerang	STARTED
+66	mengerang	3	ok	+|me(ng)+?era(ng)
+67	menggambar	STARTED
+67	menggambar	2	ok	+|me(ng)+?[gG]ambar
+68	mengganggu	STARTED
+68	mengganggu	1	ok	+|me(ng)+?[gG]a(ng)[gG]u
+69	mengganti	STARTED
+69	mengganti	6	ok	+|me(ng)+?[gG]anti
+70	menghilang	STARTED
+70	menghilang	2	ok	+|me(ng)+?hila(ng)
+71	menghitung	STARTED
+71	menghitung	1	ok	+|me(ng)+?hitu(ng)
+72	mengirim	STARTED
+72	mengirim	3	ok	+|me(ng)+?irim
+73	mengisi	STARTED
+73	mengisi	6	ok	+|me(ng)+?isi
+74	mengkhawatirkan	STARTED
+74	mengkhawatirkan	5	ok	++|me(ng)+?(kh)awatir+?kan
+75	menglangit	STARTED
+75	menglangit	1	ok	-
+76	mengolah	STARTED
+76	mengolah	2	ok	+|me(ng)+?olah
+77	mengulis	STARTED
+77	mengulis	3	ok	-
+78	mengundang	STARTED
+78	mengundang	6	ok	+|me(ng)+?unda(ng)
+79	mengurus	STARTED
+79	mengurus	2	ok	+|me(ng)+?urus
+80	menikah	STARTED
+80	menikah	1	ok	+|me+?nikah
+81	menjahit	STARTED
+81	menjahit	1	ok	+|men+?jahit
+82	menjual	STARTED
+82	menjual	1	ok	+|men+?jual
+83	menlangit	STARTED
+83	menlangit	1	ok	-
+84	mensyaratkan	STARTED
+84	mensyaratkan	4	ok	++|men+?(sy)arat+?kan
+85	menulis	STARTED
+85	menulis	2	ok	+|men+?ulis
+86	menulis-nulis	STARTED
+86	menulis-nulis	22	ok	++|men+?ulis+?-nulis
+87	menyanyi	STARTED
+87	menyanyi	8	ok	+|me+?(ny)a(ny)i
+88	menyatu	STARTED
+88	menyatu	2	ok	+|me(ny)+?atu
+89	menyewa	STARTED
+89	menyewa	2	ok	+|me(ny)+?ewa
+90	menyewa-nyewa	STARTED
+90	menyewa-nyewa	20	ok	++|me(ny)+?ewa+?-(ny)ewa
+91	menziarahi	STARTED
+91	menziarahi	6	ok	++|men+?ziarah+?i;++|men+?ziarah+?i
+92	meolah	STARTED
+92	meolah	0	ok	-
+93	mepakai	STARTED
+93	mepakai	1	ok	-
+94	merancang	STARTED
+94	merancang	1	ok	+|me+?ranca(ng)
+95	merasa	STARTED
+95	merasa	0	ok	+|me+?rasa
+96	metulis	STARTED
+96	metulis	0	ok	-
+97	mewakili	STARTED
+97	mewakili	4	ok	++|me+?wakil+?i
+98	meyakini	STARTED
+98	meyakini	4	ok	++|me+?yakin+?i
+99	meⁿ	STARTED
+99	meⁿ	0	ok	-
+100	minta	STARTED
+100	minta	0	ok	|minta
+101	nanti	STARTED
+101	nanti	1	ok	|nanti
+102	ngaco	STARTED
+102	ngaco	0	ok	|(ng)aco
+103	nganga	STARTED
+103	nganga	0	ok	|(ng)a(ng)a
+104	nikah	STARTED
+104	nikah	0	ok	|nikah
+105	nyanyi	STARTED
+105	nyanyi	0	ok	|(ny)a(ny)i
+106	olah	STARTED
+106	olah	0	ok	|olah
+107	pakai	STARTED
+107	pakai	0	ok	|pakai
+108	pukul	STARTED
+108	pukul	0	ok	|pukul
+109	rancang	STARTED
+109	rancang	0	ok	|ranca(ng)
+110	rasa	STARTED
+110	rasa	0	ok	|rasa
+111	satu	STARTED
+111	satu	0	ok	|satu
+112	sewa	STARTED
+112	sewa	0	ok	|sewa
+113	syarat	STARTED
+113	syarat	0	ok	|(sy)arat
+114	tulis	STARTED
+114	tulis	0	ok	|tulis
+115	undang	STARTED
+115	undang	0	ok	|unda(ng)
+116	urus	STARTED
+116	urus	0	ok	|urus
+117	wakil	STARTED
+117	wakil	0	ok	|wakil
+118	write-CONTpijit	STARTED
+118	write-CONTpijit	0	SKIPPED	-
+119	yakin	STARTED
+119	yakin	0	ok	|yakin
+120	ziarah	STARTED
+120	ziarah	0	ok	|ziarah
