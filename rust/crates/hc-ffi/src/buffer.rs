@@ -271,6 +271,7 @@ mod tests {
             steps: 0,
             timed_out: false,
             guessed: false,
+            candidates_generated: 0,
         };
         let bytes = encode_single(&outcome);
         let decoded = decode(&bytes).unwrap();
@@ -289,6 +290,7 @@ mod tests {
             steps: 0,
             timed_out: false,
             guessed: false,
+            candidates_generated: 0,
         };
         let decoded = decode(&encode_single(&outcome)).unwrap();
         assert!(decoded[0].invalid_shape);
@@ -317,6 +319,7 @@ mod tests {
             steps: 0,
             timed_out: false,
             guessed: false,
+            candidates_generated: 0,
         };
         let decoded = decode(&encode_single(&outcome)).unwrap();
         assert!(decoded[0].capped);

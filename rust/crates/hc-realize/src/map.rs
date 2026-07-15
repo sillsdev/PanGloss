@@ -103,6 +103,27 @@ impl RealizeMap {
 
         Ok(RealizeMap { entries })
     }
+
+    /// Insert or overwrite one gloss key's feature assignment. Crate-private: `entries` is a
+    /// private field of this module, so same-crate map builders that aren't `parse` (namely
+    /// [`crate::infer::infer_english`]) need this narrow door rather than reaching into the
+    /// field directly.
+    pub(crate) fn insert(&mut self, gloss: String, assignment: FeatureAssignment) {
+        self.entries.insert(gloss, assignment);
+    }
+
+    /// Merge `overrides` into `self`, per gloss key: every key present in `overrides` replaces
+    /// (or adds) that key's assignment here; keys only in `self` are left untouched. This is the
+    /// small additive method the design doc's `hc-wasm` precedence rule needs (`docs/superpowers/
+    /// specs/2026-07-14-add-to-dictionary-and-realize-inference-design.md`, "Sub-project 2:
+    /// RealizeMap inference": "inferred map is the base; a sidecar `realize.toml`, when present,
+    /// overrides per gloss key") — `self` is expected to be an [`crate::infer::infer_english`]
+    /// base map and `overrides` a parsed sidecar, but this method itself is agnostic to which
+    /// side is which; it just merges, sidecar-wins ordering is the caller's responsibility (call
+    /// it as `base.extend_overriding(sidecar)`, not the other way around).
+    pub fn extend_overriding(&mut self, overrides: RealizeMap) {
+        self.entries.extend(overrides.entries);
+    }
 }
 
 /// Parse one named section (`"[{section}]"`) of the restricted TOML subset documented at module
@@ -348,5 +369,30 @@ bare_key = "Ignore"
         let text = "\n# comment\n\n[features]\n\n# another\n\"pl\" = \"Num:Pl\"\n\n";
         let map = RealizeMap::parse(text).expect("should parse");
         assert_eq!(map.lookup("pl"), Some(FeatureAssignment::Num(Num::Pl)));
+    }
+
+    #[test]
+    fn extend_overriding_replaces_shared_keys_adds_new_keys_keeps_untouched_keys() {
+        let mut base =
+            RealizeMap::parse("[features]\n\"pl\" = \"Num:Pl\"\n\"loc\" = \"Case:Loc\"\n")
+                .expect("valid base");
+        let overrides =
+            RealizeMap::parse("[features]\n\"loc\" = \"Case:Abl\"\n\"abl\" = \"Case:Abl\"\n")
+                .expect("valid overrides");
+
+        base.extend_overriding(overrides);
+
+        // Untouched key survives.
+        assert_eq!(base.lookup("pl"), Some(FeatureAssignment::Num(Num::Pl)));
+        // Shared key: override wins.
+        assert_eq!(
+            base.lookup("loc"),
+            Some(FeatureAssignment::Case(CaseRole::Abl))
+        );
+        // New key from overrides is added.
+        assert_eq!(
+            base.lookup("abl"),
+            Some(FeatureAssignment::Case(CaseRole::Abl))
+        );
     }
 }

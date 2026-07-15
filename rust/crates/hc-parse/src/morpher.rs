@@ -33,7 +33,7 @@ use hc_rules::cache::RuleCache;
 use hc_rules::shape_feat::segment_with_features;
 use hc_rules::stratum::{AnalyzerConfig, NonHeadRootFilter};
 use hc_rules::trace::{FailureReason, NoopSink, TraceHandle, TraceSink};
-use hc_rules::word::{MorphRecord, Word, WordKey};
+use hc_rules::word::{GuessedRoot, MorphRecord, Word, WordKey};
 use rustc_hash::FxHashMap as HashMap;
 
 use crate::guess;
@@ -109,6 +109,14 @@ pub struct ParseOutcome {
     /// returned analysis; each `structured[i].guessed` mirrors this same value. Always `false` on
     /// the `parse_word` default path (guess off) and on the `invalid_shape` early return.
     pub guessed: bool,
+    /// Diagnostic only (not part of any C# contract, purely additive instrumentation): the total
+    /// number of synthesis candidates (`vw`) yielded by the synthesis pipeline before the
+    /// `is_word_valid_traced`/`is_match_traced` gate, across both the normal-match loop and (when
+    /// taken) the guess-root branch. `structured.len()` is the "accepted" counterpart (the subset
+    /// that passed the gate) — callers wanting a candidates-generated/-accepted stats pair use this
+    /// field alongside `structured.len()` rather than a second field here. Always 0 on the
+    /// `invalid_shape`/empty-grammar early returns, since no candidate is ever synthesized.
+    pub candidates_generated: usize,
 }
 
 impl ParseOutcome {
@@ -273,6 +281,7 @@ impl<'g> Morpher<'g> {
                 steps: 0,
                 timed_out: false,
                 guessed: false,
+                candidates_generated: 0,
             };
         }
         let surface_stratum = StratumId((n - 1) as u8);
@@ -290,6 +299,7 @@ impl<'g> Morpher<'g> {
                     steps: 0,
                     timed_out: false,
                     guessed: false,
+                    candidates_generated: 0,
                 }
             }
         };
@@ -391,6 +401,10 @@ impl<'g> Morpher<'g> {
 
         // 3. + 4. Synthesis: per analysis candidate, lexical lookup → synthesis pipeline → filter.
         //    `Morpher.Synthesize` (SINGLE_THREADED branch, Morpher.cs:283-301).
+        // Diagnostic-only counter (see `ParseOutcome::candidates_generated`'s doc): every `vw` this
+        // loop and the guess-branch loop below yield from the synthesis pipeline, counted before the
+        // validity/match gate — purely additive, does not affect which candidates are matched.
+        let mut candidates_generated: usize = 0;
         let mut matches: HashMap<WordKey, Word> = HashMap::default();
         for aw in results.values() {
             for syn_word in self.lexical_lookup_filtered(aw, lex_entry_filter) {
@@ -399,6 +413,7 @@ impl<'g> Morpher<'g> {
                 // rules replayed, then synthesize every one of them.
                 for alt in syn_word.expand_alternatives() {
                     for vw in self.synthesis_pipeline_selected(alt, trace, root, rule_filter) {
+                        candidates_generated += 1;
                         if self.is_word_valid_traced(&vw, trace, root)
                             && self.is_match_traced(&vw, word, trace, root)
                         {
@@ -422,6 +437,7 @@ impl<'g> Morpher<'g> {
                 for synthesis_word in guess::lexical_guess(g, &self.lexical_patterns, aw) {
                     for alt in synthesis_word.expand_alternatives() {
                         for vw in self.synthesis_pipeline_traced(alt, trace, root) {
+                            candidates_generated += 1;
                             if self.is_word_valid_traced(&vw, trace, root)
                                 && self.is_match_traced(&vw, word, trace, root)
                             {
@@ -462,6 +478,7 @@ impl<'g> Morpher<'g> {
             steps: budget.steps(),
             timed_out: budget.timed_out(),
             guessed,
+            candidates_generated,
         }
     }
 
@@ -1099,6 +1116,79 @@ impl<'g> Morpher<'g> {
         let g = self.g;
         let table = &g.char_tables[g.strata[w.stratum.0 as usize].table.0 as usize];
         surface::to_plain_string(table, &w.shape, false)
+    }
+
+    /// Add-to-dictionary support (hc-lexicon design doc, 2026-07-14): fabricate a hypothetical root
+    /// word for `shape_text` under an EXISTING lexical entry's class assignment (`exemplar`'s own
+    /// `syn_fs`/`mpr`/`partial`/stratum), then run it through the ordinary synthesis pipeline —
+    /// optionally applying exactly one inflectional affix/realizational rule first. This is the same
+    /// `AllomorphId::GUESSED`/`MorphemeId::GUESSED` fabrication [`guess::lexical_guess`] performs for
+    /// an unparsed word (`guess.rs`'s per-match body, ~lines 358-391) and the same guess-branch
+    /// pipeline call [`Self::parse_word_core_selected`] makes (`synthesis_pipeline_traced`, ~line
+    /// 439) — but seeded directly from a caller-chosen `exemplar` entry instead of a matched lexical
+    /// pattern, since there is no analysis word to clone from here (the caller is proposing a BRAND
+    /// NEW root, not analyzing existing text).
+    ///
+    /// `exemplar` supplies every REAL grammar id the `AllomorphId::GUESSED` sentinel resolution
+    /// sites need ([`hc_rules::word::GuessedRoot`]'s doc: "only the fabricated root itself has no
+    /// table row, never the pattern it came from") — its FIRST allomorph becomes
+    /// `pattern_allo`/`pattern_entry`, and its own `syn_fs`/`mpr`/`partial`/stratum become the
+    /// fabricated word's. `allomorphs_valid`'s `AllomorphId::GUESSED` branch
+    /// (`hc_rules::validity::allomorphs_valid_impl`) gates on that allomorph's bound/stem-name/
+    /// co-occurrence/environment constraints exactly as it would for a real lexical-pattern guess —
+    /// callers should pick an `exemplar` whose first allomorph carries no environment/stem-name
+    /// restriction that would spuriously reject an otherwise-valid class (every plain root
+    /// allomorph, the common case, has none).
+    ///
+    /// `rule`, when given, is queued via one [`Word::morphological_rule_unapplied`] call before
+    /// synthesis — exactly one application, no permutation search (hc-lexicon calls this once per
+    /// candidate affix rule, not once per rule combination).
+    ///
+    /// Returns every distinct, [`Self::is_word_valid`]-gated surface form the pipeline yields,
+    /// sorted. Empty (never an error) when `shape_text` fails to segment against the exemplar's own
+    /// stratum table, the exemplar has no allomorphs, or nothing synthesizes/validates — "an honest
+    /// empty paradigm" (the add-to-dictionary design doc's phrase), never a string fabricated
+    /// outside the pipeline.
+    pub fn synthesize_guessed_stem(
+        &self,
+        exemplar: LexEntryId,
+        shape_text: &str,
+        rule: Option<MRuleId>,
+    ) -> Vec<String> {
+        let g = self.g;
+        let entry = &g.entries[exemplar.0 as usize];
+        let Some(first_allo) = entry.allomorphs.first() else {
+            return Vec::new();
+        };
+        let stratum = g.morphemes[entry.morpheme.0 as usize].stratum;
+        let table = &g.char_tables[g.strata[stratum.0 as usize].table.0 as usize];
+        let Ok(shape) = segment_with_features(g, table, shape_text) else {
+            return Vec::new();
+        };
+
+        let mut w = Word::new(shape, stratum);
+        w.syn_fs = g.fs_interner.get(entry.syn_fs).clone();
+        w.mpr = entry.mpr;
+        w.flags.is_partial = entry.partial;
+        w.root_allomorph = Some(AllomorphId::GUESSED);
+        w.guessed_root = Some(Rc::new(GuessedRoot {
+            pattern_allo: first_allo.id,
+            pattern_entry: exemplar,
+            text: shape_text.to_string(),
+        }));
+        w.morphs = vec![MorphRecord::new(AllomorphId::GUESSED, MorphemeId::GUESSED, 0)];
+
+        if let Some(rid) = rule {
+            w.morphological_rule_unapplied(is_realizational_rule(g, rid), Some(rid));
+        }
+
+        let mut out: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        for vw in self.synthesis_pipeline(w) {
+            if self.is_word_valid(&vw) {
+                out.insert(self.generated_surface_of(&vw));
+            }
+        }
+        out.into_iter().collect()
     }
 }
 

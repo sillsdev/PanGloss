@@ -22,16 +22,24 @@
 //! Architecture-A upgrade seam, see that module's doc), and [`table`] defines
 //! [`table::TableRealizer`], the compile-time English construction-table implementation this
 //! milestone ships.
+//!
+//! `PanGloss-demo` repo's `docs/superpowers/specs/2026-07-14-add-to-dictionary-and-realize-
+//! inference-design.md` ("Sub-project 2: RealizeMap inference") adds [`infer`]: `infer_english`
+//! builds a [`RealizeMap`] straight from a grammar's affix glosses via a built-in English alias
+//! table, so grammars without a hand-authored sidecar still get natural-ish phrases. Wiring the
+//! inferred-map/sidecar-override precedence into `hc-wasm` is a separate, later phase.
 #![forbid(unsafe_code)]
 
 use hc_grammar::model::Grammar;
 use hc_parse::WordAnalysis;
 
+pub mod infer;
 pub mod ir;
 pub mod map;
 pub mod realize;
 pub mod table;
 
+pub use infer::infer_english;
 pub use ir::{to_ir, CaseRole, Concept, GlossIr, Num, Poss};
 pub use map::{FeatureAssignment, MapError, RealizeMap};
 pub use realize::{Realization, Realizer};
