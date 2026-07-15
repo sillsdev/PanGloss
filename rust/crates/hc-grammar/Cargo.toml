@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 hc-featstruct.workspace = true
 hc-shape.workspace = true
+pg-snapshot.workspace = true
 quick-xml.workspace = true
 unicode-normalization.workspace = true
 smallvec.workspace = true

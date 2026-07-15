@@ -14,6 +14,7 @@
 #![forbid(unsafe_code)]
 
 pub mod chardef;
+pub mod compile;
 pub mod featsys;
 pub mod lint;
 pub mod load;
@@ -21,6 +22,7 @@ pub mod model;
 pub mod nfd;
 pub mod segment;
 
+pub use compile::compile_project;
 pub use load::load;
 
 use quick_xml::events::{BytesEnd, BytesStart, Event};
