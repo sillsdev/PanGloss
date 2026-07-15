@@ -124,10 +124,13 @@ impl<'g> FomaAnalyzer<'g> {
         let candidates_generated = candidates.len();
         let mut analyses = Vec::new();
         let mut structured = Vec::new();
-        for c in &candidates {
-            for (wa, join, surface) in
-                confirm::confirm_all(self.g, &self.owners, &self.morpher, c, word)
-            {
+        // Batched confirm (John, 2026-07-15): ONE union re-parse routes every outcome analysis to
+        // its candidate's bucket — content-identical to per-candidate confirm_all (soundness
+        // argument in `confirm::confirm_batch`'s doc) at 1/N the re-parse cost. Buckets come back
+        // in candidate order, each in outcome order, preserving the previous concatenation order.
+        for bucket in confirm::confirm_batch(self.g, &self.owners, &self.morpher, &candidates, word)
+        {
+            for (wa, join, surface) in bucket {
                 structured.push(wa);
                 analyses.push((join, surface));
             }

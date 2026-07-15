@@ -23,6 +23,12 @@ use hc_rules::stratum::RuleRef;
 
 use crate::tags::Candidate;
 
+/// How many rules beyond a chunk's largest member's own rule set the chunk's union may admit
+/// (see [`confirm_batch`]'s doc). 0 = exact-filter grouping (never merges rule-diverse
+/// candidates); large = per-root-set full union (merges everything, risks near-cross-product
+/// searches on rule-diverse words). 3 measured best on the Sena 40-word set.
+pub const RULE_UNION_SLACK: usize = 3;
+
 /// Which grammar object owns a given [`MorphemeId`] — ported from `hc-hybrid/src/replay.rs`'s
 /// `MorphemeOwner` (`replay.rs:70-74`) verbatim. See that module's doc for the full quirk-8
 /// rationale (why a `CompoundingRule` never owns a morpheme and so is never this enum's `MRule`
@@ -91,15 +97,33 @@ pub fn confirm_all(
     candidate: &Candidate,
     word: &str,
 ) -> Vec<(EngineAnalysis, String, String)> {
+    confirm_batch(g, owners, morpher, std::slice::from_ref(candidate), word)
+        .pop()
+        .unwrap_or_default()
+}
+
+/// One candidate's resolved pins: designated root entry, non-root rule set, extra (compound)
+/// roots — the inputs `replay.rs:143-177` derives per candidate before building its filters.
+/// `None` reproduces the original's rejection cases (root slot not a `LexEntry`; a non-root
+/// morpheme owned by neither a `LexEntry` nor an `MRule`).
+struct CandidatePins {
+    root_entry: LexEntryId,
+    rules: HashSet<MRuleId>,
+    extra_roots: HashSet<LexEntryId>,
+}
+
+fn resolve_pins(
+    owners: &[Option<MorphemeOwner>],
+    candidate: &Candidate,
+) -> Option<CandidatePins> {
     if candidate.root_index < 0 || candidate.root_index as usize >= candidate.morphemes.len() {
-        return Vec::new();
+        return None;
     }
     let root_index = candidate.root_index as usize;
     let root_entry = match owner_of(owners, candidate.morphemes[root_index]) {
         Some(MorphemeOwner::LexEntry(le)) => le,
-        _ => return Vec::new(), // replay.rs:38-41 — the designated root must be a LexEntry.
+        _ => return None, // replay.rs:38-41 — the designated root must be a LexEntry.
     };
-
     let mut rules: HashSet<MRuleId> = HashSet::default();
     let mut extra_roots: HashSet<LexEntryId> = HashSet::default();
     for (i, &m) in candidate.morphemes.iter().enumerate() {
@@ -113,36 +137,165 @@ pub fn confirm_all(
             Some(MorphemeOwner::MRule(mid)) => {
                 rules.insert(mid);
             }
-            None => return Vec::new(), // replay.rs:56-59 — neither a LexEntry nor a rule -> None.
+            None => return None, // replay.rs:56-59 — neither a LexEntry nor a rule -> None.
+        }
+    }
+    Some(CandidatePins {
+        root_entry,
+        rules,
+        extra_roots,
+    })
+}
+
+/// Batched confirm (John, 2026-07-15: "one reparse for the union of candidates", with his
+/// prediction "it may go from 122 reparses to 4 sets of around 30 — that is fine" borne out by
+/// measurement): candidates are grouped by their ROOT SET (designated root + extra compound
+/// roots), and each group gets ONE `parse_word_selected` run whose filters admit the union of
+/// that group's rules; returned analyses are routed to the candidate they positionally match.
+/// Returns one bucket per input candidate (parallel by index), each bucket in its group
+/// outcome's own order — content-identical to calling [`confirm_all`] per candidate.
+///
+/// Grouping granularity — four strategies measured on the Sena 40-word set (confirm totals):
+/// per-candidate 400ms; one global union 339ms but REDISTRIBUTED cost (`kutongera` 5x slower —
+/// every homograph root + 28 candidates' rules in one parse is a near-cross-product search);
+/// per-root-set groups with full rule union 233ms but `kutongera` still 3x slower; exact
+/// (root set, rule set) groups 356ms — never regresses but rarely merges, because real FST
+/// candidates mostly differ in rule SETS, not just morpheme order.
+///
+/// **What this implements — root-set groups, sub-chunked by bounded rule-union slack:**
+/// candidates are grouped by root set (designated root + extra compound roots — the lexicon pin
+/// stays exactly as tight as per-candidate confirm), then greedily sub-chunked so that a chunk's
+/// rule-set UNION never exceeds its largest member's own rule set by more than
+/// [`RULE_UNION_SLACK`] rules. Homogeneous candidate families (shared rule core, the antumira/
+/// kakamwe shape) merge into a few parses; rule-diverse families (the kutongera shape) fall back
+/// toward tight per-candidate parses automatically.
+///
+/// **Why a chunk's union parse preserves its members' per-candidate results exactly:**
+/// - *No loss:* each member's own filters are a subset of the chunk's (wider admits more, the
+///   morpher is uncapped so nothing truncates).
+/// - *No spurious gain:* a derivation admitted by the chunk but not by some member's own filters
+///   uses a rule or root outside that member's pins — and every such rule/root contributes its
+///   own morpheme to the analysis's sequence, so the analysis fails that member's positional
+///   match and routes elsewhere (or nowhere). The one morpheme-less rule kind, `Compounding`, is
+///   gated per root set: it is admitted iff the root set has extra roots, identical to every
+///   member's own flag, and a compound derivation carries the extra root's MORPHEME in its
+///   sequence anyway.
+/// - *At most one bucket per analysis:* buckets are keyed by exact `(morpheme sequence,
+///   root_index)`, distinct after the caller's dedup, so routing is a map lookup.
+pub fn confirm_batch(
+    g: &Grammar,
+    owners: &[Option<MorphemeOwner>],
+    morpher: &Morpher,
+    candidates: &[Candidate],
+    word: &str,
+) -> Vec<Vec<(EngineAnalysis, String, String)>> {
+    let mut buckets: Vec<Vec<(EngineAnalysis, String, String)>> =
+        (0..candidates.len()).map(|_| Vec::new()).collect();
+
+    let pins: Vec<Option<CandidatePins>> =
+        candidates.iter().map(|c| resolve_pins(owners, c)).collect();
+
+    // 1) Group candidate indices by root set (designated root + extra roots), first-seen order.
+    let mut root_groups: Vec<(Vec<u32>, Vec<usize>)> = Vec::new();
+    for (i, p) in pins.iter().enumerate() {
+        let Some(p) = p else { continue };
+        let mut roots: Vec<u32> = std::iter::once(p.root_entry.0)
+            .chain(p.extra_roots.iter().map(|le| le.0))
+            .collect();
+        roots.sort_unstable();
+        match root_groups.iter_mut().find(|(k, _)| *k == roots) {
+            Some((_, members)) => members.push(i),
+            None => root_groups.push((roots, vec![i])),
         }
     }
 
-    let lex_entry_filter = |le: LexEntryId| le == root_entry || extra_roots.contains(&le);
-    let rule_filter = |r: RuleRef| match r {
-        RuleRef::Stratum(_) | RuleRef::Template(_) => true,
-        RuleRef::MRule(id) => {
-            rules.contains(&id)
-                || (!extra_roots.is_empty()
-                    && matches!(g.mrules[id.0 as usize], MorphRuleDef::Compounding(_)))
+    // 2) Sub-chunk each root group: a member joins a chunk only if the chunk's rule union stays
+    //    within RULE_UNION_SLACK of its largest member's own rule set (see doc above).
+    struct Chunk {
+        members: Vec<usize>,
+        union_rules: HashSet<MRuleId>,
+        max_member_rules: usize,
+    }
+    let mut work: Vec<(Vec<u32>, Chunk)> = Vec::new();
+    for (root_key, members) in root_groups {
+        let mut chunks: Vec<Chunk> = Vec::new();
+        for &i in &members {
+            let p = pins[i].as_ref().expect("grouped members always have pins");
+            let placed = chunks.iter_mut().any(|ch| {
+                let would_union = ch.union_rules.union(&p.rules).count();
+                let would_max = ch.max_member_rules.max(p.rules.len());
+                if would_union <= would_max + RULE_UNION_SLACK {
+                    ch.union_rules.extend(p.rules.iter().copied());
+                    ch.max_member_rules = would_max;
+                    ch.members.push(i);
+                    true
+                } else {
+                    false
+                }
+            });
+            if !placed {
+                chunks.push(Chunk {
+                    members: vec![i],
+                    union_rules: p.rules.clone(),
+                    max_member_rules: p.rules.len(),
+                });
+            }
         }
-    };
+        for ch in chunks {
+            work.push((root_key.clone(), ch));
+        }
+    }
 
-    let outcome = morpher.parse_word_selected(
-        word,
-        &ParseOptions::default(),
-        Some(&lex_entry_filter),
-        Some(&rule_filter),
-    );
+    for (root_key, chunk) in &work {
+        let members = &chunk.members;
+        let union_rules = &chunk.union_rules;
+        // Extra roots present iff the root set has more than the designated root — identical
+        // across members (same root set), matching each member's own per-candidate flag.
+        let any_extra_roots = root_key.len() > 1;
 
-    // `outcome.analyses[i]` and `outcome.structured[i]` describe the SAME analysis (ParseOutcome's
-    // own doc, `hc-parse/src/morpher.rs:79-120`) — zip before filtering so a match keeps both.
-    outcome
-        .structured
-        .into_iter()
-        .zip(outcome.analyses)
-        .filter(|(wa, _)| analyses_match(wa, candidate))
-        .map(|(wa, (join, surface))| (wa, join, surface))
-        .collect()
+        // Route each outcome analysis to the (at most one) group member it positionally matches.
+        // Defensive `entry().or_insert()` keeps first-wins semantics if a caller ever passes
+        // duplicate candidate keys despite the composite's own dedup.
+        let mut by_key: rustc_hash::FxHashMap<(Vec<u32>, i32), usize> =
+            rustc_hash::FxHashMap::default();
+        for &i in members {
+            by_key
+                .entry((
+                    candidates[i].morphemes.iter().map(|m| m.0).collect(),
+                    candidates[i].root_index,
+                ))
+                .or_insert(i);
+        }
+
+        let lex_entry_filter = |le: LexEntryId| root_key.binary_search(&le.0).is_ok();
+        let rule_filter = |r: RuleRef| match r {
+            RuleRef::Stratum(_) | RuleRef::Template(_) => true,
+            RuleRef::MRule(id) => {
+                union_rules.contains(&id)
+                    || (any_extra_roots
+                        && matches!(g.mrules[id.0 as usize], MorphRuleDef::Compounding(_)))
+            }
+        };
+
+        let outcome = morpher.parse_word_selected(
+            word,
+            &ParseOptions::default(),
+            Some(&lex_entry_filter),
+            Some(&rule_filter),
+        );
+
+        // `outcome.analyses[i]` and `outcome.structured[i]` describe the SAME analysis
+        // (ParseOutcome's own doc, `hc-parse/src/morpher.rs:79-120`) — zip so a routed match
+        // keeps both.
+        for (wa, (join, surface)) in outcome.structured.into_iter().zip(outcome.analyses) {
+            let key = (wa.morpheme_ids.clone(), wa.root_morpheme_index);
+            if let Some(&i) = by_key.get(&key) {
+                debug_assert!(analyses_match(&wa, &candidates[i]));
+                buckets[i].push((wa, join, surface));
+            }
+        }
+    }
+    buckets
 }
 
 #[cfg(test)]
