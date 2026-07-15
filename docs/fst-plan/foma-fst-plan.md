@@ -11,16 +11,33 @@ propose→verify contract spec, every claim file:line-cited). Key citations inli
 COTS foma network as the proposer, keep the Rust HermitCrab engine as the verifier
 (propose→confirm), wire the result into CLI and `hc-wasm`, and delete `hc-hybrid`.
 
-**Non-goals (explicitly out of scope for this plan):**
-- Replacing `hc-fst` (2,848 lines). It is NOT the "custom-spun FST" in the product sense —
-  it is the acceptor substrate *inside* the retained verify engine: every phonological rule
-  match (`hc-rules/src/{rewrite,morph,metathesis,bridge}.rs`) and root-trie lookup
-  (`hc-parse/src/root_trie.rs`) runs on it. It only dies if/when the FST-only endgame
-  (verification gate, reports/08 §5) retires the whole engine.
-- FST-only (no-verify) operation. That remains gated on reports/08 §5; this plan is the
-  staging step that shares its compiler work (the emitter built here is the same artifact
-  the FST-only endgame needs).
-- The C# migration decision. Unaffected; the emitter logic is portable by design.
+**Architecture is settled (John, 2026-07-15):** "We will never do a full HC backup, we will
+always use FST to propose and HC to prune. The only question is can we move to foma completely
+and sunset any of our code that implements FST's." Consequences baked into this plan:
+- There is NO per-grammar fallback to full engine search. A grammar whose proposer recall is
+  below 100% is a **compiler capability gap** to close (see P1d), never a bypass to ship.
+- FST-only (no-verify) operation is off the table — propose+prune is the permanent shape.
+- ALL owned FST code is on the sunset trajectory: `hc-hybrid` (this plan, P5), and `hc-fst`
+  (2,848 lines — the acceptor substrate inside the prune engine: rewrite-rule matching in
+  `hc-rules/src/{rewrite,morph,metathesis,bridge}.rs`, root-trie lookup in
+  `hc-parse/src/root_trie.rs`) as a follow-on milestone (P6 investigation) once the proposer
+  path is done. `hc-fst` is embedded in prune-engine internals (feature-aware traversal,
+  registers), so its replacement is a separate feasibility question — but it is IN scope of
+  the goal, not exempt.
+
+**Scale mandate (John, 2026-07-15, verbatim emphasis his):** "THESE ARE SMALL GRAMMARS — WE
+NEED TO BUILD THE SYSTEM TO HANDLE FULL SIZED, MAXIMALLY COMPLEX GRAMMARS. If you haven't seen
+the feature yet, you will." Therefore:
+- "Zero uses in the reference grammars" is NEVER a design justification. Uncovered-construct
+  reports are work queues, not accepted losses.
+- Enumeration-based emitter mechanisms (pairwise junction probing, rep-variant cartesian
+  products, per-root rule pre-expansion) are correctness bridges at 10²–10³ entries; each must
+  have a named scale-proof successor — normally compiling the HC rewrite rules into foma's
+  replace calculus (composition, not enumeration). That rule-compilation milestone (formerly
+  "v2, deferred") is now mainline follow-on work (P6), and every bridge below cites it.
+- Capacity planning targets 10⁴–10⁵ entries and hundreds of rules (FLEx-scale).
+
+**Non-goals:** the C# migration decision (unaffected; emitter logic portable by design).
 
 ## 1. Architecture
 
@@ -46,8 +63,10 @@ HC XML ──hc-grammar::load──> Grammar
   compile exactly, weaken it into a superset (drop a context, make a rule optional,
   skip a constraint). Never approximate downward — under-generation is a silently lost
   analysis, not an error.
-- Per-grammar tiering: a grammar whose foma path fails its parity gate falls back to the
-  full engine search (`parse_word_opts`) — shipped behavior today, so fallback = status quo.
+- Per-grammar tiering exists only as a DEV state (`FomaTier` in EmitReport): it tells us where
+  the compiler still has capability gaps. Nothing ships on a fallback tier; every grammar must
+  reach 100% proposer recall before P5. (Superseded 2026-07-15: earlier drafts allowed a
+  full-engine-search fallback tier — removed per the settled architecture above.)
 
 ## 2. Verified foundations (grilled 2026-07-15)
 
@@ -119,8 +138,9 @@ HC XML ──hc-grammar::load──> Grammar
   `probe_synthesize` — the exact trick `hc-hybrid` uses today, so recall is provably ≥
   hc-hybrid's. Allomorph environments/MPR/HeadFeatures are NOT encoded in v1
   (upward approximation; confirm prunes — that is the census-verified cheap direction,
-  reports/09 Table 1). v2 (separate milestone, feeds the FST-only gate) emits real foma
-  replace rules from prules and flags from constraints.
+  reports/09 Table 1). P6 (mainline follow-on, per the scale mandate) emits real foma
+  replace rules from prules and flags from constraints — the scale-proof successor to
+  every enumeration bridge.
 - **D4 — Multiplicity recovery.** The engine returns a multiset (Sena `mbali`: 8 today in
   Rust, 15 in C# — known engine divergence, orthogonal to this work). Candidates are
   deduped by `(morphemes, root_index)`; for each confirmed candidate, collect ALL matching
@@ -164,8 +184,35 @@ New crate `rust/crates/hc-foma` with `foma` pinned; smoke tests:
 `hc-foma::emit(Grammar) -> FomaSource` and `decode(tag_string) -> Vec<Candidate>`.
 Order of attack (easiest recall first): **Sena** (0 prules, lexc-only, but 1,369 entries +
 24 templates) → **Indonesian** (5 prules via pre-probed variants + junctions, 7 redup
-words via peel) → **Amharic** (7 prules, 417 segments; if pre-probing explodes or stalls,
-tier Amharic to fallback and record why — do not block the plan on it).
+words via peel) → **Amharic** (7 prules, 417 segments).
+
+Stage outcomes (2026-07-15): Sena 326/326 tier Full; Indonesian 97/97 non-redup, Partial{6}
+(3 circumfix rules + 3 redup rules); Amharic 4/36 (~11%) — misses fully classified as
+(a) interdigitating infix rules (-pfv-/-conv-, 24/32) and (b) Ge'ez glyph coalescence at
+morph boundaries (8/32).
+
+### P1d — Amharic capability stage (NEW, required — no fallback tier exists)
+Close both Amharic miss classes in the emitter; 100% recall required like the others:
+1. **Interdigitation (Role::Infix rules):** rule-application pre-expansion — for each
+   (root allomorph × infix-rule allomorph) pair, apply the real mrule to the root shape via
+   the engine's own rule-application machinery (`hc-rules` morph apply; the same engine code
+   `parse_word_selected` trusts) and emit the rendered composite string as ONE lexc entry
+   carrying BOTH tags, in the engine's own morph order (read the engine's analysis of a
+   corpus word to fix tag order + root_index — positional trap applies). Bounded O(roots ×
+   infix rules). *Scale bridge:* fine at 10²–10³ roots; the P6 successor is compiling these
+   as foma rules over root patterns.
+2. **Boundary fusion (glyph coalescence):** generalize the junction model from
+   deletion-only to fusion — probe real (left-morph-final, right-morph-initial) adjacencies
+   (actual morph text pairs, not alphabet abstractions) and emit fused-spelling variants of
+   the affix with a correspondingly-stripped/altered neighbor partition, the same
+   `{roots}Stripped`-style encoding stage 2 introduced. Bounded by actual adjacency pairs.
+   *Scale bridge:* same P6 successor (replace-rule compilation handles fusion natively).
+3. Circumfix rules (Indonesian's 3 uncovered items) belong to this stage too if any corpus
+   or conformance fixture exercises them: emit as paired prefix+suffix entries sharing one
+   morpheme tag on the prefix half (flag-paired later; positional order check first).
+4. Gate: Amharic recall 100% on the corpus sample (same denominator rules as other stages —
+   engine-analyzed words, redup excluded only if Amharic has redup); f3 gate's
+   fallback-verdict assertion REPLACED by the 100% assertion; Sena + Indonesian unchanged.
 Unit tests per construct family; emitted source also compiled by C-foma oracle in a test
 behind `--ignored` (uses the P0 binary).
 **Gate F1:** all three grammars emit + compile (or are explicitly tiered out with a
@@ -188,17 +235,16 @@ round-trip; a `guess_root`-style miss returns empty rather than panicking.
 **3a. Corpus parity.** Harness compares foma path vs `parse_word_opts` as multisets keyed
 by `(morpheme_ids sequence, root_morpheme_index)`:
 - Indonesian: all 121 corpus words — required 100%.
-- Sena: sample-300 corpus — required 100% (any shortfall = enumerate + fix or tier out).
-- Amharic: corpus words file — measured and reported; 100% required only if Amharic
-  passed F1 (otherwise it ships on the fallback tier).
+- Sena: sample-300 corpus — required 100%.
+- Amharic: corpus words file — required 100% (after P1d closes the capability gaps).
 
 **3b. Conformance suite (machine submodule).** Run the C# conformance driver in adapter
 mode against `hc-rs batch --engine=foma` (same path as `rust/tools/run-conformance.sh`,
 which builds `hc-cli` release and drives `machine/src/SIL.Machine.Morphology.HermitCrab.
 Conformance`). Required: the foma engine's pass/fail set is identical to the default
 engine's — zero NEW divergences beyond `rust/tools/known-conformance-divergences.txt`.
-Fixtures exercising constructs on a grammar's fallback tier run through the fallback and
-must therefore be identical by construction; any diff there indicates a routing bug.
+There is no fallback tier — every fixture runs through the foma path, so this suite is a
+direct capability test of the compiler across the full construct space.
 Wire an `--engine` pass-through into `run-conformance.sh` so both runs use one script.
 
 **3c. Timing — "does foma make it faster?"** Same-machine, same-build (release) A/B on all
@@ -238,6 +284,22 @@ unchanged, foma still zero new divergences post-sunset;
 grep shows zero dangling `hc-hybrid` references; final timing table (3c) pasted into
 this plan.
 
+### P6 — Scale + full-foma follow-on (mainline, post-sunset)
+Two workstreams, both mandated by the settled architecture and scale requirements (§0):
+1. **Replace-rule compilation:** emit HC rewrite rules as foma replace-calculus rules
+   (feature contexts → segment classes, α-variables → tuple-indexed expansion per
+   reports/08 §3.1, stratum-ordered composition) and retire the enumeration bridges
+   (junction probing, rule-application pre-expansion) grammar-by-grammar as rule
+   compilation covers them. Environments/MPR/HeadFeatures→flag-diacritics emission also
+   lands here (shrinks candidate overgeneration, cheaper confirm at scale).
+2. **hc-fst sunset feasibility:** determine whether foma networks can host what `hc-fst`
+   does inside the prune engine (rewrite-rule matching in hc-rules, root-trie lookup in
+   hc-parse — feature-aware traversal with registers). Deliverable: a feasibility report
+   with a prototype on one rule family; if yes, staged replacement; if no, a precise
+   statement of what keeps hc-fst alive (that answer bounds "move to foma completely").
+Gate F6: one grammar running with compiled replace rules end-to-end at parity; hc-fst
+feasibility verdict written into this plan.
+
 ## 5. Commit strategy
 
 The worktree branch (`worktree-fst-investigation`) has zero commits over main; all current
@@ -254,6 +316,7 @@ passed (F0…F5), so each is independently revertable.
 | foma-rs semantic divergence from C foma | low-medium | C-foma oracle cross-check in F0 + F1 |
 | Pre-probed variants miss a junction (recall loss) | low (same machinery as hc-hybrid today) | parity gates are exhaustive on corpora, keyed positionally |
 | Tag order ≠ engine morph order on infix/edge cases | low | F1 spot-check + F3 positional-multiset parity would catch instantly |
-| Amharic pre-probing explodes | medium | Explicit tier-out path; Amharic never blocks sunset |
+| Enumeration bridges (junctions, pre-expansion) don't scale to 10⁴–10⁵ entries | certain, by design | Each bridge names its P6 successor (replace-rule compilation); scale mandate in §0 |
+| Amharic interdigitation/fusion emission (P1d) proves hard | medium | Rule-application pre-expansion reuses the engine's own mrule apply; corpus gate is the truth test |
 | Multiplicity mismatch (free fluctuation) | low | D4 collects all matching analyses per candidate; mbali is a named F2 gate |
 | Grammar-load compile too slow in browser | low (tiny lexicons) | measure at F3/F4; `.bin` cache via foma-rs memory loader if needed |
