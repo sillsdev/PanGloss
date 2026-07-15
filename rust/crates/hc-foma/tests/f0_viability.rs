@@ -37,53 +37,18 @@ fn up_all(net: &Fsm, word: &str) -> BTreeSet<String> {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Tag escaping helpers -- a genuine gate finding, not incidental plumbing.
-//
-// Two nfst-lexc/foma-rs lexc-dialect conventions, confirmed against the crate source (not
-// assumed), make D2's literal tag syntax `<R:nnnn>` unparseable as written:
-//
-//   1. A bare `<` opens an inline XRE regex block (nfst-lexc-0.1.0/src/lexer.rs::lex_xre_block
-//      — a genuine lexc feature: `< regex >` embedded directly in an entry), and a bare `:` is
-//      the upper:lower pair separator (lexer.rs::is_word_boundary_byte). Both must be escaped
-//      with lexc's `%X` ("literal X") convention: `%<`, `%:`.
-//   2. lexc treats a bare `0` character as the alignment-epsilon marker and DROPS it --
-//      including inside a `Multichar_Symbols` NAME (foma-0.1.1/src/lexcread.rs::
-//      normalize_mc_symbol and ::lexc_string_to_tokens both special-case a bare '0' as
-//      "epsilon, discard"). Left unescaped, `<R:0001>` and `<R:0010>` both collapse to the
-//      same registered symbol `<R:1>` -- a silent tag collision that would corrupt the whole
-//      MorphemeId-decode scheme. `%0` escapes a zero digit to the `@ZERO@` marker, which both
-//      functions special-case BEFORE the bare-'0'-drop check, preserving it as a literal "0".
-//
-// `lexc_tag` builds the escaped *source* spelling (for Multichar_Symbols declarations and
-// entry occurrences); `tag_text` builds the corresponding *decoded* literal (what actually
-// appears in `apply_up` output) -- kept as two functions so a mismatch between them cannot be
-// silently pasted-over.
+// Tag escaping helpers -- a genuine gate finding, not incidental plumbing. The logic (and its
+// full rationale: `%<`/`%:`/`%>` escaping for the lexc dialects, `%0` for every zero digit
+// because a bare `0` is lexc's alignment-epsilon and silently collapses tag symbols) now lives
+// in `hc_foma::tags` (P1 stage 1) -- these are 4-digit-width wrappers so the P0 test bodies stay
+// byte-identical to what the gate originally verified, while exercising the REAL production
+// codec rather than a private copy that could drift.
 fn lexc_tag(prefix: &str, n: u32) -> String {
-    // Escape every one of `<`, `:`, `>` and every `0` digit. `>` is unescaped-safe under
-    // nfst-lexc (not a break char there) but is EXCLUDED from upstream C foma's NONRESERVED
-    // class (foma/lexc.l: "NONRESERVED = anything except ; < > ! or space"), so an unescaped
-    // trailing `>` is a syntax error under the real C compiler even though foma-rs accepts it.
-    // Escaping it unconditionally makes one source string portable to both dialects (verified
-    // against both foma/lexc.l and nfst-lexc-0.1.0/src/lexer.rs, not assumed).
-    let mut out = String::new();
-    out.push('%');
-    out.push('<');
-    out.push_str(prefix);
-    out.push('%');
-    out.push(':');
-    for c in format!("{n:04}").chars() {
-        if c == '0' {
-            out.push('%');
-        }
-        out.push(c);
-    }
-    out.push('%');
-    out.push('>');
-    out
+    hc_foma::tags::lexc_tag(prefix, n, 4)
 }
 
 fn tag_text(prefix: &str, n: u32) -> String {
-    format!("<{prefix}:{n:04}>")
+    hc_foma::tags::tag_text(prefix, n, 4)
 }
 
 // ---------------------------------------------------------------------------------------------

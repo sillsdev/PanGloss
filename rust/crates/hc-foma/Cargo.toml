@@ -10,3 +10,11 @@ license.workspace = true
 # a 3-day-old, 0-star, ubuntu-only-CI crate. Do not let cargo silently float us onto a newer
 # release until the gate has been re-run against it.
 foma = "=0.1.1"
+hc-grammar.workspace = true
+hc-featstruct.workspace = true
+
+[dev-dependencies]
+# Dev-only: the recall gate (tests/f1_sena_gate.rs) needs the real engine as an oracle. The lib
+# itself must never depend on hc-parse (kept lean for the wasm32 build — hc-wasm links hc-foma
+# directly; pulling the whole verifier engine into that binary would be a regression).
+hc-parse.workspace = true
