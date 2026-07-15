@@ -223,7 +223,7 @@ hierarchy exactly as `HCLoader.LoadPatternNode` consumes it (HCLoader.cs:2313-23
 | `leftContext` | `PhonContext`, optional | `PhSegRuleRHS.LeftContextOA` |
 | `rightContext` | `PhonContext`, optional | `PhSegRuleRHS.RightContextOA` |
 | `requiredPartsOfSpeech` | `guid[]` | `PhSegRuleRHS.InputPOSesRC`, resolved against `morphology.partsOfSpeech`. |
-| `requiredRuleFeatures` | `guid[]` | `PhSegRuleRHS.ReqRuleFeatsRC` (`IPhPhonRuleFeat.ItemRA`: an `MoInflClass` or a `CmPossibility`; HCLoader.cs:2610-2623). Each guid is the referenced item itself, **not** expanded to its subclass closure (`HCLoader.LoadAllInflClasses` does that at compile time, HCLoader.cs:2593-2608) — T3 must perform the same expansion using `morphology`'s inflection-class hierarchy. |
+| `requiredRuleFeatures` | `guid[]` | `PhSegRuleRHS.ReqRuleFeatsRC` (`IPhPhonRuleFeat.ItemRA`: an `MoInflClass` or a `CmPossibility`; HCLoader.cs:2610-2623) — each guid resolves against either `morphology.inflectionClasses` or `morphology.exceptionFeatures`. Each guid is the referenced item itself, **not** expanded to its subclass closure (`HCLoader.LoadAllInflClasses` does that at compile time, HCLoader.cs:2593-2608) — T3 must perform the same expansion using `morphology`'s inflection-class hierarchy. |
 | `excludedRuleFeatures` | `guid[]` | `PhSegRuleRHS.ExclRuleFeatsRC`, same shape. |
 
 #### `metathesis` → `MetathesisRule` (← `PhMetathesisRule`)
@@ -248,6 +248,7 @@ derivation is compiler policy over already-complete data and is not duplicated h
 | `partsOfSpeech` | `PartOfSpeech[]` | Root-level parts of speech (each carries its own `children`). ← `LangProject.PartsOfSpeechOA` top level. `HCLoader.LoadLanguage`'s `AllPartsOfSpeech` (HCLoader.cs:170) flattens the whole tree at load time — this format keeps the tree shape since flattening it is a trivial, reversible compiler-side step. |
 | `compoundRules` | `CompoundRule[]` | `MorphologicalDataOA.CompoundRulesOS`, in declaration order, **including** disabled ones (each carries its own `disabled` flag). When this list is empty *and* `parserParameters.noDefaultCompounding` is false, `HCLoader` synthesizes two default rules (`DefaultCompoundingRules`, HCLoader.cs:1808-1840) — that synthesis is compiler policy, not stored data. |
 | `adhocProhibitions` | `AdhocProhibition[]` | `IMoAlloAdhocProhibRepository`/`IMoMorphAdhocProhibRepository.AllInstances()` (HCLoader.cs:341-351), including disabled/dangling ones. |
+| `exceptionFeatures` | `ExceptionFeature[]` | The registry of "exception feature"/productivity-restriction possibilities referenced (by guid) from MSAs, compound-rule constituent requirements, and rewrite-rule right-hand sides. ← `MorphologicalDataOA.ProdRestrictOA.ReallyReallyAllPossibilities` (HCLoader.cs:180) **and** the `CmPossibility`-typed items of `PhonologicalDataOA.PhonRuleFeats` (HCLoader.cs:2619-2621) — both flattened into one registry since `HCLoader` treats them identically (an opaque, guid-identified `MprFeature`). Each entry: `guid`, `name` ← `CmPossibility.Name`, `abbreviation` ← `CmPossibility.Abbreviation`. |
 | `lexEntryInflTypes` | `LexEntryInflType[]` | `ILexEntryInflTypeRepository.AllInstances()` |
 | `parserParameters` | `ParserParameters` | `MorphologicalDataOA.ParserParameters` (raw `<ParserParameters><HC>` XML block, parsed by `HCLoader`'s constructor, HCLoader.cs:92-112) |
 
@@ -497,15 +498,15 @@ carries.
 - `Sense.msa` against the *same entry's* own `msas`.
 - `EntryRef.componentLexemes` against every entry and sense guid in the document.
 - Compound-rule `maxApps` keys in `parserParameters` against `morphology.compoundRules`.
+- `exceptionFeatures`/`fromExceptionFeatures`/`toExceptionFeatures` on MSAs and compound-rule
+  constituent requirements, and `requiredRuleFeatures`/`excludedRuleFeatures` on a rewrite rule's
+  RHS, against **either** `morphology.inflectionClasses` **or** `morphology.exceptionFeatures`
+  (both are valid — `HCLoader.LoadMprFeatures`, HCLoader.cs:2610-2623, accepts either kind for
+  the "rule feature" case; a guid resolving to neither is reported as dangling).
 
 It deliberately does **not** check (because this format has no canonical registry to check
 against):
 
-- `requiredRuleFeatures`/`excludedRuleFeatures` on a rewrite rule's RHS, and `exceptionFeatures`/
-  `fromExceptionFeatures`/`toExceptionFeatures` on MSAs/allomorphs/compound sides — these may
-  reference either an inflection class (checked) or an arbitrary `CmPossibility` "exception
-  feature"/"production restriction" list item, which is never enumerated as its own top-level
-  snapshot section (it's an open-ended, user-authored possibility list).
 - `EntryRef.variantEntryTypes`/`complexEntryTypes` — may reference either a `LexEntryInflType`
   or a plain `LexEntryType` possibility, the latter not enumerated anywhere in this format.
 - The raw text inside `Environment.representation` and `RuleMapping::InsertSegments.text` — these

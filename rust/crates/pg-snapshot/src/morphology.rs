@@ -37,6 +37,18 @@ pub struct Morphology {
     /// MSA is exactly the "stale ad-hoc rule" tolerance case called out in
     /// `docs/fwdata-import-plan.md` §1 — a [`crate::validate`] warning, never an import error).
     pub adhoc_prohibitions: Vec<AdhocProhibition>,
+    /// The registry of "exception feature" / productivity-restriction possibilities that MSAs,
+    /// compound-rule constituent requirements, and rewrite-rule right-hand sides restrict
+    /// productivity by. ← `MorphologicalDataOA.ProdRestrictOA.ReallyReallyAllPossibilities`
+    /// (`HCLoader.LoadLanguage`, HCLoader.cs:180) *and* the `CmPossibility`-typed items of
+    /// `PhonologicalDataOA.PhonRuleFeats` (HCLoader.cs:2619-2621) — both are flattened into this
+    /// one registry since `HCLoader` treats them identically (an opaque, guid-identified
+    /// `MprFeature`, `LoadMprFeature`, HCLoader.cs:571-577). Every `exceptionFeatures`/
+    /// `fromExceptionFeatures`/`toExceptionFeatures`/`requiredRuleFeatures`/
+    /// `excludedRuleFeatures` guid list elsewhere in this document either resolves here or is an
+    /// [`InflectionClass`] guid (the other kind `HCLoader.LoadMprFeatures` accepts,
+    /// HCLoader.cs:2610-2623).
+    pub exception_features: Vec<ExceptionFeature>,
     /// ← `ILexEntryInflTypeRepository.AllInstances()`.
     pub lex_entry_infl_types: Vec<LexEntryInflType>,
     pub parser_parameters: ParserParameters,
@@ -84,6 +96,22 @@ pub struct PartOfSpeech {
     /// flag.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub affix_templates: Vec<AffixTemplate>,
+}
+
+/// A user-authored "exception feature" / productivity-restriction possibility (also called a
+/// "rule feature" or "ad hoc feature" in the LCM docs — an arbitrary, user-defined
+/// `CmPossibility` list item with no further structure beyond identity/name). See
+/// [`Morphology::exception_features`] for which two LCM sources feed this one registry.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExceptionFeature {
+    pub guid: Guid,
+    /// ← `CmPossibility.Name` (best analysis alternative). `HCLoader` actually uses
+    /// `CmObject.ShortName` for its internal `MprFeature.Name` (HCLoader.cs:573), which for a
+    /// plain `CmPossibility` falls back to `Abbreviation` or `Name`; both are carried here so
+    /// T3 can match that fallback if desired.
+    pub name: String,
+    pub abbreviation: String,
 }
 
 /// An inflection class (declension/conjugation class). ← `MoInflClass`.

@@ -59,8 +59,8 @@ pub use feature::{
 pub use lexicon::{AffixProcess, Allomorph, EntryRef, LexEntry, Lexicon, Msa, RuleMapping, Sense};
 pub use morphology::{
     Adjacency, AdhocProhibition, AffixSlot, AffixTemplate, CompoundConstituentRequirement,
-    CompoundOutcome, CompoundRule, CompoundRuleMaxApplications, InflectionClass, LexEntryInflType,
-    Morphology, MorphType, ParserParameters, PartOfSpeech, StemName,
+    CompoundOutcome, CompoundRule, CompoundRuleMaxApplications, ExceptionFeature, InflectionClass,
+    LexEntryInflType, Morphology, MorphType, ParserParameters, PartOfSpeech, StemName,
 };
 pub use phonology::{
     BoundaryMarker, Environment, FeatureConstraint, MetathesisRule, NaturalClass, PhonContext,
@@ -253,6 +253,7 @@ mod tests {
             }],
             compound_rules: vec![],
             adhoc_prohibitions: vec![],
+            exception_features: vec![],
             lex_entry_infl_types: vec![],
             parser_parameters: ParserParameters::default(),
         };
@@ -380,6 +381,41 @@ mod tests {
             .push("dangling-env-guid".to_string());
         let warnings = snap.validate();
         assert!(warnings.iter().any(|w| w.contains("dangling-env-guid")));
+    }
+
+    #[test]
+    fn validate_reports_dangling_exception_feature_reference() {
+        let mut snap = sample_snapshot();
+        if let Msa::Stem {
+            exception_features, ..
+        } = &mut snap.lexicon.entries[0].msas[0]
+        {
+            exception_features.push("no-such-exception-feature".to_string());
+        } else {
+            panic!("expected the sample entry's MSA to be Msa::Stem");
+        }
+        let warnings = snap.validate();
+        assert!(warnings.iter().any(|w| w.contains("no-such-exception-feature")));
+    }
+
+    #[test]
+    fn validate_accepts_exception_feature_present_in_registry() {
+        let mut snap = sample_snapshot();
+        snap.morphology.exception_features.push(crate::morphology::ExceptionFeature {
+            guid: "latinate-guid".to_string(),
+            name: "Latinate".to_string(),
+            abbreviation: "lat".to_string(),
+        });
+        if let Msa::Stem {
+            exception_features, ..
+        } = &mut snap.lexicon.entries[0].msas[0]
+        {
+            exception_features.push("latinate-guid".to_string());
+        } else {
+            panic!("expected the sample entry's MSA to be Msa::Stem");
+        }
+        let warnings = snap.validate();
+        assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
     }
 
     #[test]

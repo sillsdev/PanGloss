@@ -11,9 +11,9 @@
 //! cross-reference families that are (a) structurally represented as GUIDs in this format and
 //! (b) checkable against an enumerated registry within the snapshot itself. A few reference
 //! families are **not** checked, and are called out at their call site below, because this
-//! format has no canonical registry to check them against (e.g. "exception feature"/production-
-//! restriction `CmPossibility` guids, which are arbitrary user-defined list items never
-//! enumerated as their own top-level snapshot section).
+//! format has no canonical registry to check them against (e.g. `EntryRef.variantEntryTypes`,
+//! which may reference either a `LexEntryInflType` — checkable — or a plain `LexEntryType`
+//! possibility list item never enumerated as its own top-level snapshot section).
 
 use std::collections::HashSet;
 
@@ -38,6 +38,7 @@ struct Registries {
     feature_constraints: HashSet<Guid>,
     parts_of_speech: HashSet<Guid>,
     inflection_classes: HashSet<Guid>,
+    exception_features: HashSet<Guid>,
     stem_names: HashSet<Guid>,
     affix_slots: HashSet<Guid>,
     entries: HashSet<Guid>,
@@ -141,6 +142,13 @@ fn build_registries(snap: &Snapshot) -> Registries {
         }
     }
 
+    let exception_features = snap
+        .morphology
+        .exception_features
+        .iter()
+        .map(|f| f.guid.clone())
+        .collect();
+
     Registries {
         phon_closed,
         phon_complex,
@@ -153,12 +161,25 @@ fn build_registries(snap: &Snapshot) -> Registries {
         feature_constraints,
         parts_of_speech,
         inflection_classes,
+        exception_features,
         stem_names,
         affix_slots,
         entries,
         senses,
         allomorphs,
         msas,
+    }
+}
+
+/// `guid` is a "rule feature"/"exception feature" reference: it may legitimately be either an
+/// [`crate::morphology::InflectionClass`] guid or an
+/// [`crate::morphology::ExceptionFeature`] guid (see `HCLoader.LoadMprFeatures`,
+/// HCLoader.cs:2610-2623, and `Morphology::exception_features`'s doc for why both are valid).
+fn check_rule_feature_ref(guid: &Guid, reg: &Registries, context: &str, warnings: &mut Vec<String>) {
+    if !reg.inflection_classes.contains(guid) && !reg.exception_features.contains(guid) {
+        warnings.push(format!(
+            "{context}: rule/exception feature {guid:?} does not resolve to a known inflection class or exception feature"
+        ));
     }
 }
 
@@ -313,11 +334,9 @@ pub fn validate(snap: &Snapshot) -> Vec<String> {
                     for p in &rhs.required_parts_of_speech {
                         check_pos_ref(p, &reg, &ctx, &mut warnings);
                     }
-                    // `required_rule_features`/`excluded_rule_features` may reference either an
-                    // inflection class or an arbitrary `CmPossibility` "rule feature" that this
-                    // format does not enumerate as its own registry — only the inflection-class
-                    // case is checkable, so an unresolved guid here is silently assumed to be
-                    // the (unverifiable) `CmPossibility` case rather than reported as dangling.
+                    for f in rhs.required_rule_features.iter().chain(&rhs.excluded_rule_features) {
+                        check_rule_feature_ref(f, &reg, &ctx, &mut warnings);
+                    }
                 }
             }
             crate::phonology::PhonologicalRule::Metathesis(m) => {
@@ -371,6 +390,11 @@ pub fn validate(snap: &Snapshot) -> Vec<String> {
         for side in [left, right] {
             if let Some(p) = &side.part_of_speech {
                 check_pos_ref(p, &reg, &ctx, &mut warnings);
+            }
+            for f in &side.exception_features {
+                if !reg.exception_features.contains(f) {
+                    warnings.push(format!("{ctx}: exception feature {f:?} does not resolve"));
+                }
             }
         }
         if let Some(p) = out_pos {
@@ -486,6 +510,7 @@ pub fn validate(snap: &Snapshot) -> Vec<String> {
                     part_of_speech,
                     inflection_class,
                     features,
+                    exception_features,
                     slots,
                     ..
                 } => {
@@ -498,6 +523,11 @@ pub fn validate(snap: &Snapshot) -> Vec<String> {
                     if let Some(fs) = features {
                         check_feature_structure(fs, &reg.syn_closed, &reg.syn_complex, &ctx, &mut warnings);
                     }
+                    for f in exception_features {
+                        if !reg.exception_features.contains(f) {
+                            warnings.push(format!("{ctx}: exception feature {f:?} does not resolve"));
+                        }
+                    }
                     for s in slots {
                         if !reg.affix_slots.contains(s) {
                             warnings.push(format!("{ctx}: slot {s:?} does not resolve"));
@@ -508,6 +538,7 @@ pub fn validate(snap: &Snapshot) -> Vec<String> {
                     part_of_speech,
                     slots,
                     features,
+                    exception_features,
                     ..
                 } => {
                     if let Some(p) = part_of_speech {
@@ -521,6 +552,11 @@ pub fn validate(snap: &Snapshot) -> Vec<String> {
                     if let Some(fs) = features {
                         check_feature_structure(fs, &reg.syn_closed, &reg.syn_complex, &ctx, &mut warnings);
                     }
+                    for f in exception_features {
+                        if !reg.exception_features.contains(f) {
+                            warnings.push(format!("{ctx}: exception feature {f:?} does not resolve"));
+                        }
+                    }
                 }
                 Msa::Derivational {
                     from_part_of_speech,
@@ -529,6 +565,8 @@ pub fn validate(snap: &Snapshot) -> Vec<String> {
                     to_features,
                     from_inflection_class,
                     to_inflection_class,
+                    from_exception_features,
+                    to_exception_features,
                     from_stem_name,
                     ..
                 } => {
@@ -540,6 +578,11 @@ pub fn validate(snap: &Snapshot) -> Vec<String> {
                     }
                     for ic in [from_inflection_class, to_inflection_class].into_iter().flatten() {
                         check_infl_class_ref(ic, &reg, &ctx, &mut warnings);
+                    }
+                    for f in from_exception_features.iter().chain(to_exception_features) {
+                        if !reg.exception_features.contains(f) {
+                            warnings.push(format!("{ctx}: exception feature {f:?} does not resolve"));
+                        }
                     }
                     if let Some(sn) = from_stem_name {
                         if !reg.stem_names.contains(sn) {
