@@ -112,6 +112,22 @@ tiny map (constraint ID → action) replayable without re-measuring.
   against the C foma oracle (apply_up output set-equality on corpus words) before the
   Eliminate arm is enabled. On any mismatch, the tuner disables Eliminate — everything
   stays flagged, still exact. **The design degrades to AllFlags, never to wrong.**
+  - **Oracle-gate results (2026-07-15, `rust/crates/hc-foma/tests/pk2_eliminate_flag_oracle.rs`,
+    C foma 0.10.0alpha via WSL):** U/R/D-typed testers are equivalence-preserving and
+    oracle-faithful — verified single and chained (incl. prefix-colliding attribute names),
+    valueless and with-value, and alongside `<R:nnnn>` tag symbols. **E-typed (`@E@`)
+    elimination silently degrades to Strip in BOTH engines** (foma-rs `flag_build`'s
+    decision table — a bug-for-bug port of C foma's — has no FLAG_EQUAL rows, so no filter
+    is built, yet `flag_purge` strips the symbols anyway). It therefore PASSES the
+    cross-engine oracle check above while violating §1's equivalence-preservation.
+    Consequences, binding on steps (3)+: (a) the per-attribute gate must ALSO assert
+    `eliminated == baseline` within one engine — cross-engine agreement alone is
+    insufficient; (b) the Eliminate arm is restricted to U/R/D-typed constraints (N/C/P
+    share E's structural gap — no `flag_build` rows — and must never receive Eliminate);
+    the emitter should prefer U/R/D encodings outright. (c) Issue #60's `_eq` is the
+    reporter's own xfst function, not a foma builtin; the nearest reproducible analog
+    (flag + reduplication-shaped stem + affix + tag) crashed neither engine, but the true
+    compile-replace shape remains unexercised — re-gate if compile-replace ever lands.
 - **Determinism:** fixed enumeration order, greedy ties broken by stable ID ⇒ same
   grammar + same budget = byte-identical network. Required for parity gates.
 - **Tuner cost:** greedy trials are O(n²) compiles worst-case. Bounds: (a) under `Auto`
