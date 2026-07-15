@@ -18,6 +18,7 @@ members = [
     "crates/hc-lexicon",
     "crates/hc-wasm",
     "crates/pg-snapshot",
+    "crates/pg-fwdata",
 ]
 
 [workspace.package]
@@ -56,6 +57,7 @@ hc-hybrid = { path = "crates/hc-hybrid" }
 hc-realize = { path = "crates/hc-realize" }
 hc-lexicon = { path = "crates/hc-lexicon" }
 pg-snapshot = { path = "crates/pg-snapshot" }
+pg-fwdata = { path = "crates/pg-fwdata" }
 # dev
 criterion = "0.5"
 proptest = "1"

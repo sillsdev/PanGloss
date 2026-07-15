@@ -1,0 +1,431 @@
+<?xml version="1.0" encoding="utf-8"?>
+<languageproject version="7000072">
+<rt class="LangProject" guid="00000000-0000-0000-0000-000000000001">
+<CurAnalysisWss>
+<Uni>en</Uni>
+</CurAnalysisWss>
+<CurVernWss>
+<Uni>fx</Uni>
+</CurVernWss>
+<LexDb>
+<objsur guid="00000000-0000-0000-0000-000000000002" t="o" />
+</LexDb>
+<MorphologicalData>
+<objsur guid="00000000-0000-0000-0000-000000000003" t="o" />
+</MorphologicalData>
+<MsFeatureSystem>
+<objsur guid="00000000-0000-0000-0000-000000000006" t="o" />
+</MsFeatureSystem>
+<PartsOfSpeech>
+<objsur guid="00000000-0000-0000-0000-00000000000a" t="o" />
+</PartsOfSpeech>
+<PhFeatureSystem>
+<objsur guid="00000000-0000-0000-0000-000000000005" t="o" />
+</PhFeatureSystem>
+<PhonologicalData>
+<objsur guid="00000000-0000-0000-0000-000000000004" t="o" />
+</PhonologicalData>
+</rt>
+<rt class="LexDb" guid="00000000-0000-0000-0000-000000000002" ownerguid="00000000-0000-0000-0000-000000000001">
+</rt>
+<rt class="FsFeatureSystem" guid="00000000-0000-0000-0000-000000000005" ownerguid="00000000-0000-0000-0000-000000000001">
+</rt>
+<rt class="FsFeatureSystem" guid="00000000-0000-0000-0000-000000000006" ownerguid="00000000-0000-0000-0000-000000000001">
+<Features>
+<objsur guid="00000000-0000-0000-0000-000000000007" t="o" />
+</Features>
+</rt>
+<rt class="FsClosedFeature" guid="00000000-0000-0000-0000-000000000007" ownerguid="00000000-0000-0000-0000-000000000006">
+<Abbreviation>
+<AUni ws="en">num</AUni>
+</Abbreviation>
+<Name>
+<AUni ws="en">Number</AUni>
+</Name>
+<Values>
+<objsur guid="00000000-0000-0000-0000-000000000008" t="o" />
+<objsur guid="00000000-0000-0000-0000-000000000009" t="o" />
+</Values>
+</rt>
+<rt class="FsSymFeatVal" guid="00000000-0000-0000-0000-000000000008" ownerguid="00000000-0000-0000-0000-000000000007">
+<Abbreviation>
+<AUni ws="en">sg</AUni>
+</Abbreviation>
+<Name>
+<AUni ws="en">singular</AUni>
+</Name>
+</rt>
+<rt class="FsSymFeatVal" guid="00000000-0000-0000-0000-000000000009" ownerguid="00000000-0000-0000-0000-000000000007">
+<Abbreviation>
+<AUni ws="en">pl</AUni>
+</Abbreviation>
+<Name>
+<AUni ws="en">plural</AUni>
+</Name>
+</rt>
+<rt class="CmPossibilityList" guid="00000000-0000-0000-0000-00000000000a" ownerguid="00000000-0000-0000-0000-000000000001">
+<Possibilities>
+<objsur guid="00000000-0000-0000-0000-00000000000b" t="o" />
+<objsur guid="00000000-0000-0000-0000-00000000000c" t="o" />
+</Possibilities>
+</rt>
+<rt class="PartOfSpeech" guid="00000000-0000-0000-0000-00000000000b" ownerguid="00000000-0000-0000-0000-00000000000a">
+<Abbreviation>
+<AUni ws="en">n</AUni>
+</Abbreviation>
+<Name>
+<AUni ws="en">Noun</AUni>
+</Name>
+</rt>
+<rt class="PartOfSpeech" guid="00000000-0000-0000-0000-00000000000c" ownerguid="00000000-0000-0000-0000-00000000000a">
+<Abbreviation>
+<AUni ws="en">v</AUni>
+</Abbreviation>
+<AffixSlots>
+<objsur guid="00000000-0000-0000-0000-00000000000d" t="o" />
+</AffixSlots>
+<AffixTemplates>
+<objsur guid="00000000-0000-0000-0000-00000000000e" t="o" />
+</AffixTemplates>
+<Name>
+<AUni ws="en">Verb</AUni>
+</Name>
+</rt>
+<rt class="MoInflAffixSlot" guid="00000000-0000-0000-0000-00000000000d" ownerguid="00000000-0000-0000-0000-00000000000c">
+<Name>
+<AUni ws="en">Tense</AUni>
+</Name>
+<Optional val="False" />
+</rt>
+<rt class="MoInflAffixTemplate" guid="00000000-0000-0000-0000-00000000000e" ownerguid="00000000-0000-0000-0000-00000000000c">
+<Disabled val="False" />
+<Final val="True" />
+<Name>
+<AUni ws="en">VerbTemplate</AUni>
+</Name>
+<SuffixSlots>
+<objsur guid="00000000-0000-0000-0000-00000000000d" t="r" />
+</SuffixSlots>
+</rt>
+<rt class="MoMorphData" guid="00000000-0000-0000-0000-000000000003" ownerguid="00000000-0000-0000-0000-000000000001">
+<ParserParameters>
+<Uni>&lt;ParserParameters&gt;&lt;HC&gt;&lt;NotOnClitics&gt;false&lt;/NotOnClitics&gt;&lt;Strata /&gt;&lt;/HC&gt;&lt;/ParserParameters&gt;</Uni>
+</ParserParameters>
+<ProdRestrict>
+<objsur guid="00000000-0000-0000-0000-00000000001f" t="o" />
+</ProdRestrict>
+</rt>
+<rt class="CmPossibilityList" guid="00000000-0000-0000-0000-00000000001f" ownerguid="00000000-0000-0000-0000-000000000003">
+<Possibilities>
+<objsur guid="00000000-0000-0000-0000-000000000020" t="o" />
+</Possibilities>
+</rt>
+<rt class="CmPossibility" guid="00000000-0000-0000-0000-000000000020" ownerguid="00000000-0000-0000-0000-00000000001f">
+<Abbreviation>
+<AUni ws="en">lat</AUni>
+</Abbreviation>
+<Name>
+<AUni ws="en">Latinate</AUni>
+</Name>
+</rt>
+<rt class="PhPhonData" guid="00000000-0000-0000-0000-000000000004" ownerguid="00000000-0000-0000-0000-000000000001">
+<Environments>
+<objsur guid="00000000-0000-0000-0000-000000000017" t="o" />
+</Environments>
+<NaturalClasses>
+<objsur guid="00000000-0000-0000-0000-000000000016" t="o" />
+</NaturalClasses>
+<PhonRuleFeats>
+<objsur guid="00000000-0000-0000-0000-000000000021" t="o" />
+</PhonRuleFeats>
+<PhonRules>
+<objsur guid="00000000-0000-0000-0000-000000000018" t="o" />
+</PhonRules>
+<PhonemeSets>
+<objsur guid="00000000-0000-0000-0000-00000000000f" t="o" />
+</PhonemeSets>
+</rt>
+<rt class="CmPossibilityList" guid="00000000-0000-0000-0000-000000000021" ownerguid="00000000-0000-0000-0000-000000000004">
+</rt>
+<rt class="PhPhonemeSet" guid="00000000-0000-0000-0000-00000000000f" ownerguid="00000000-0000-0000-0000-000000000004">
+<BoundaryMarkers>
+<objsur guid="00000000-0000-0000-0000-000000000014" t="o" />
+</BoundaryMarkers>
+<Name>
+<AUni ws="en">Main</AUni>
+</Name>
+<Phonemes>
+<objsur guid="00000000-0000-0000-0000-000000000010" t="o" />
+<objsur guid="00000000-0000-0000-0000-000000000012" t="o" />
+<objsur guid="00000000-0000-0000-0000-00000000001b" t="o" />
+</Phonemes>
+</rt>
+<rt class="PhPhoneme" guid="00000000-0000-0000-0000-000000000010" ownerguid="00000000-0000-0000-0000-00000000000f">
+<Codes>
+<objsur guid="00000000-0000-0000-0000-000000000011" t="o" />
+</Codes>
+<Name>
+<AUni ws="fx">a</AUni>
+</Name>
+</rt>
+<rt class="PhCode" guid="00000000-0000-0000-0000-000000000011" ownerguid="00000000-0000-0000-0000-000000000010">
+<Representation>
+<AUni ws="fx">a</AUni>
+</Representation>
+</rt>
+<rt class="PhPhoneme" guid="00000000-0000-0000-0000-000000000012" ownerguid="00000000-0000-0000-0000-00000000000f">
+<Codes>
+<objsur guid="00000000-0000-0000-0000-000000000013" t="o" />
+</Codes>
+<Name>
+<AUni ws="fx">t</AUni>
+</Name>
+</rt>
+<rt class="PhCode" guid="00000000-0000-0000-0000-000000000013" ownerguid="00000000-0000-0000-0000-000000000012">
+<Representation>
+<AUni ws="fx">t</AUni>
+</Representation>
+</rt>
+<rt class="PhPhoneme" guid="00000000-0000-0000-0000-00000000001b" ownerguid="00000000-0000-0000-0000-00000000000f">
+<Codes>
+<objsur guid="00000000-0000-0000-0000-00000000001c" t="o" />
+</Codes>
+<Name>
+<AUni ws="fx">d</AUni>
+</Name>
+</rt>
+<rt class="PhCode" guid="00000000-0000-0000-0000-00000000001c" ownerguid="00000000-0000-0000-0000-00000000001b">
+<Representation>
+<AUni ws="fx">d</AUni>
+</Representation>
+</rt>
+<rt class="PhBdryMarker" guid="00000000-0000-0000-0000-000000000014" ownerguid="00000000-0000-0000-0000-00000000000f">
+<Codes>
+<objsur guid="00000000-0000-0000-0000-000000000015" t="o" />
+</Codes>
+<Name>
+<AUni ws="en">plus</AUni>
+</Name>
+</rt>
+<rt class="PhCode" guid="00000000-0000-0000-0000-000000000015" ownerguid="00000000-0000-0000-0000-000000000014">
+<Representation>
+<AUni ws="fx">+</AUni>
+</Representation>
+</rt>
+<rt class="PhNCSegments" guid="00000000-0000-0000-0000-000000000016" ownerguid="00000000-0000-0000-0000-000000000004">
+<Abbreviation>
+<AUni ws="en">V</AUni>
+</Abbreviation>
+<Name>
+<AUni ws="en">Vowels</AUni>
+</Name>
+<Segments>
+<objsur guid="00000000-0000-0000-0000-000000000010" t="r" />
+</Segments>
+</rt>
+<rt class="PhEnvironment" guid="00000000-0000-0000-0000-000000000017" ownerguid="00000000-0000-0000-0000-000000000004">
+<Name>
+<AUni ws="en">afterVowel</AUni>
+</Name>
+<StringRepresentation>
+<Str>
+<Run ws="en">/[V]_</Run>
+</Str>
+</StringRepresentation>
+</rt>
+<rt class="PhRegularRule" guid="00000000-0000-0000-0000-000000000018" ownerguid="00000000-0000-0000-0000-000000000004">
+<Direction val="0" />
+<Disabled val="False" />
+<Name>
+<AUni ws="en">Voicing</AUni>
+</Name>
+<RightHandSides>
+<objsur guid="00000000-0000-0000-0000-00000000001a" t="o" />
+</RightHandSides>
+<StrucDesc>
+<objsur guid="00000000-0000-0000-0000-000000000019" t="o" />
+</StrucDesc>
+</rt>
+<rt class="PhSimpleContextSeg" guid="00000000-0000-0000-0000-000000000019" ownerguid="00000000-0000-0000-0000-000000000018">
+<FeatureStructure>
+<objsur guid="00000000-0000-0000-0000-000000000012" t="r" />
+</FeatureStructure>
+</rt>
+<rt class="PhSegRuleRHS" guid="00000000-0000-0000-0000-00000000001a" ownerguid="00000000-0000-0000-0000-000000000018">
+<LeftContext>
+<objsur guid="00000000-0000-0000-0000-00000000001d" t="o" />
+</LeftContext>
+<StrucChange>
+<objsur guid="00000000-0000-0000-0000-00000000001e" t="o" />
+</StrucChange>
+</rt>
+<rt class="PhSimpleContextNC" guid="00000000-0000-0000-0000-00000000001d" ownerguid="00000000-0000-0000-0000-00000000001a">
+<FeatureStructure>
+<objsur guid="00000000-0000-0000-0000-000000000016" t="r" />
+</FeatureStructure>
+</rt>
+<rt class="PhSimpleContextSeg" guid="00000000-0000-0000-0000-00000000001e" ownerguid="00000000-0000-0000-0000-00000000001a">
+<FeatureStructure>
+<objsur guid="00000000-0000-0000-0000-00000000001b" t="r" />
+</FeatureStructure>
+</rt>
+<rt class="LexEntry" guid="00000000-0000-0000-0000-000000000030">
+<CitationForm>
+<AUni ws="fx">kat</AUni>
+</CitationForm>
+<LexemeForm>
+<objsur guid="00000000-0000-0000-0000-000000000031" t="o" />
+</LexemeForm>
+<MorphoSyntaxAnalyses>
+<objsur guid="00000000-0000-0000-0000-000000000032" t="o" />
+</MorphoSyntaxAnalyses>
+<Senses>
+<objsur guid="00000000-0000-0000-0000-000000000033" t="o" />
+</Senses>
+</rt>
+<rt class="MoStemAllomorph" guid="00000000-0000-0000-0000-000000000031" ownerguid="00000000-0000-0000-0000-000000000030">
+<Form>
+<AUni ws="fx">kat</AUni>
+</Form>
+<IsAbstract val="False" />
+<MorphType>
+<objsur guid="d7f713e8-e8cf-11d3-9764-00c04f186933" t="r" />
+</MorphType>
+</rt>
+<rt class="MoStemMsa" guid="00000000-0000-0000-0000-000000000032" ownerguid="00000000-0000-0000-0000-000000000030">
+<MsFeatures>
+<objsur guid="00000000-0000-0000-0000-000000000034" t="o" />
+</MsFeatures>
+<PartOfSpeech>
+<objsur guid="00000000-0000-0000-0000-00000000000b" t="r" />
+</PartOfSpeech>
+</rt>
+<rt class="FsFeatStruc" guid="00000000-0000-0000-0000-000000000034" ownerguid="00000000-0000-0000-0000-000000000032">
+<FeatureSpecs>
+<objsur guid="00000000-0000-0000-0000-000000000035" t="o" />
+</FeatureSpecs>
+</rt>
+<rt class="FsClosedValue" guid="00000000-0000-0000-0000-000000000035" ownerguid="00000000-0000-0000-0000-000000000034">
+<Feature>
+<objsur guid="00000000-0000-0000-0000-000000000007" t="r" />
+</Feature>
+<Value>
+<objsur guid="00000000-0000-0000-0000-000000000009" t="r" />
+</Value>
+</rt>
+<rt class="LexSense" guid="00000000-0000-0000-0000-000000000033" ownerguid="00000000-0000-0000-0000-000000000030">
+<Gloss>
+<AUni ws="en">cat</AUni>
+</Gloss>
+<MorphoSyntaxAnalysis>
+<objsur guid="00000000-0000-0000-0000-000000000032" t="r" />
+</MorphoSyntaxAnalysis>
+</rt>
+<rt class="LexEntry" guid="00000000-0000-0000-0000-000000000040">
+<AlternateForms>
+<objsur guid="00000000-0000-0000-0000-000000000044" t="o" />
+</AlternateForms>
+<CitationForm>
+<AUni ws="fx">ranna</AUni>
+</CitationForm>
+<LexemeForm>
+<objsur guid="00000000-0000-0000-0000-000000000041" t="o" />
+</LexemeForm>
+<MorphoSyntaxAnalyses>
+<objsur guid="00000000-0000-0000-0000-000000000042" t="o" />
+</MorphoSyntaxAnalyses>
+<Senses>
+<objsur guid="00000000-0000-0000-0000-000000000043" t="o" />
+</Senses>
+</rt>
+<rt class="MoStemAllomorph" guid="00000000-0000-0000-0000-000000000044" ownerguid="00000000-0000-0000-0000-000000000040">
+<Form>
+<AUni ws="fx">xxx</AUni>
+</Form>
+<IsAbstract val="False" />
+<MorphType>
+<objsur guid="00000000-0000-0000-0000-00000000abcd" t="r" />
+</MorphType>
+</rt>
+<rt class="MoStemAllomorph" guid="00000000-0000-0000-0000-000000000041" ownerguid="00000000-0000-0000-0000-000000000040">
+<Form>
+<AUni ws="fx">ranna</AUni>
+</Form>
+<IsAbstract val="False" />
+<MorphType>
+<objsur guid="d7f713e8-e8cf-11d3-9764-00c04f186933" t="r" />
+</MorphType>
+</rt>
+<rt class="MoStemMsa" guid="00000000-0000-0000-0000-000000000042" ownerguid="00000000-0000-0000-0000-000000000040">
+<PartOfSpeech>
+<objsur guid="00000000-0000-0000-0000-00000000000c" t="r" />
+</PartOfSpeech>
+</rt>
+<rt class="LexSense" guid="00000000-0000-0000-0000-000000000043" ownerguid="00000000-0000-0000-0000-000000000040">
+<Gloss>
+<AUni ws="en">run</AUni>
+</Gloss>
+<MorphoSyntaxAnalysis>
+<objsur guid="00000000-0000-0000-0000-000000000042" t="r" />
+</MorphoSyntaxAnalysis>
+</rt>
+<rt class="LexEntry" guid="00000000-0000-0000-0000-000000000050">
+<CitationForm>
+<AUni ws="fx">-s</AUni>
+</CitationForm>
+<LexemeForm>
+<objsur guid="00000000-0000-0000-0000-000000000051" t="o" />
+</LexemeForm>
+<MorphoSyntaxAnalyses>
+<objsur guid="00000000-0000-0000-0000-000000000052" t="o" />
+</MorphoSyntaxAnalyses>
+<Senses>
+<objsur guid="00000000-0000-0000-0000-000000000053" t="o" />
+</Senses>
+</rt>
+<rt class="MoAffixAllomorph" guid="00000000-0000-0000-0000-000000000051" ownerguid="00000000-0000-0000-0000-000000000050">
+<Form>
+<AUni ws="fx">s</AUni>
+</Form>
+<IsAbstract val="False" />
+<MorphType>
+<objsur guid="d7f713dd-e8cf-11d3-9764-00c04f186933" t="r" />
+</MorphType>
+<PhoneEnv>
+<objsur guid="00000000-0000-0000-0000-000000000017" t="r" />
+<objsur guid="00000000-0000-0000-0000-0000000000ff" t="r" />
+</PhoneEnv>
+</rt>
+<rt class="MoInflAffMsa" guid="00000000-0000-0000-0000-000000000052" ownerguid="00000000-0000-0000-0000-000000000050">
+<InflFeats>
+<objsur guid="00000000-0000-0000-0000-000000000054" t="o" />
+</InflFeats>
+<PartOfSpeech>
+<objsur guid="00000000-0000-0000-0000-00000000000c" t="r" />
+</PartOfSpeech>
+<Slots>
+<objsur guid="00000000-0000-0000-0000-00000000000d" t="r" />
+</Slots>
+</rt>
+<rt class="FsFeatStruc" guid="00000000-0000-0000-0000-000000000054" ownerguid="00000000-0000-0000-0000-000000000052">
+<FeatureSpecs>
+<objsur guid="00000000-0000-0000-0000-000000000055" t="o" />
+</FeatureSpecs>
+</rt>
+<rt class="FsClosedValue" guid="00000000-0000-0000-0000-000000000055" ownerguid="00000000-0000-0000-0000-000000000054">
+<Feature>
+<objsur guid="00000000-0000-0000-0000-000000000007" t="r" />
+</Feature>
+<Value>
+<objsur guid="00000000-0000-0000-0000-000000000009" t="r" />
+</Value>
+</rt>
+<rt class="LexSense" guid="00000000-0000-0000-0000-000000000053" ownerguid="00000000-0000-0000-0000-000000000050">
+<Gloss>
+<AUni ws="en">3SG</AUni>
+</Gloss>
+<MorphoSyntaxAnalysis>
+<objsur guid="00000000-0000-0000-0000-000000000052" t="r" />
+</MorphoSyntaxAnalysis>
+</rt>
+</languageproject>
