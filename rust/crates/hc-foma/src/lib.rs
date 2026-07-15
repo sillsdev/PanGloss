@@ -1,0 +1,51 @@
+//! Phase P0 viability spike (docs/fst-plan/foma-fst-plan.md §P0, gate F0), P1 stage 1 (emitter core
+//! + Sena, gate F1), P1 stage 2 (junction-aware phonology + Indonesian, gate F1), and P2
+//! (propose→confirm composite, gate F2).
+//!
+//! - [`tags`]: the `<R:nnnn>`/`<M:nnnn>` tag codec (D2) — escaped lexc spellings, decoded literal
+//!   text, an `apply_up`-output decoder, and the `Candidate` split for compound (multi-root) paths.
+//! - [`emit`]: `Grammar -> lexc source` (D3) — see that module's doc for the full design.
+//! - [`junctions`]: [`junctions::PhonologyProbe`], the pre-probed surface-variant/deletion-junction
+//!   machinery `emit` drives for a grammar with real phonological rules (stage 2) — a `None`-safe
+//!   no-op for a grammar without any (stage 1's Sena stays byte-identical).
+//! - [`analyzer`]: `FomaProposer`, the thin `emit + compile + apply-up` wrapper.
+//! - [`confirm`] (P2): a fresh port of `hc-hybrid/src/replay.rs`'s confirm half — `MorphemeOwner`,
+//!   `build_morpheme_owners`, and `confirm_all` (D4's multiplicity recovery: every matching analysis
+//!   in the pinned `parse_word_selected` outcome, not just the first).
+//! - [`peel`] (P2, D6): a fresh port of `hc-hybrid/src/proposers.rs::ReduplicationProposer`, its
+//!   recursion target swapped to the foma proposer (`ReduplicationPeeler::peel_candidates`).
+//! - [`composite`] (P2): `FomaAnalyzer`, the public propose→confirm product API — `analyze_word`
+//!   mirrors `hc_parse::ParseOutcome`'s `analyses`/`structured` shape, plus diagnostics.
+//!
+//! `tests/f0_viability.rs` remains the P0 gate's record (proves the pure-Rust `foma` crate,
+//! crates.io v0.1.1, github.com/divvun/foma-rs, compiles and behaves correctly on Windows and
+//! wasm32); `tests/f1_sena_gate.rs` is the P1 stage-1 gate (emit+compile Sena, recall vs. the full
+//! engine, `mbali`, overgeneration sanity); `tests/f2_indonesian_gate.rs` is the P1 stage-2 gate
+//! (emit+compile Indonesian, recall minus the reduplication exclusion list, junction spot-checks,
+//! overgeneration sanity, plus a Sena regression re-run); `tests/f4_composite_gate.rs` is the P2
+//! gate (over-generation pruning, `mbali` multiplicity, Indonesian redup round-trip, empty-on-miss,
+//! and a mini-parity smoke pass).
+//!
+//! ## `hc-parse` is now a NORMAL dependency (P2)
+//! Through P1, this crate's lib target never depended on `hc-parse` (the verifier engine) — only
+//! `hc-grammar`/`hc-featstruct` and (stage 2) `hc-rules`/`hc-shape` for [`junctions`]'s probe
+//! machinery. P2's whole point is *confirm* — pinning `hc_parse::Morpher::parse_word_selected` to a
+//! candidate's root(s)/rules (plan §2) — so [`confirm`] and [`composite`] necessarily depend on
+//! `hc_parse::{Morpher, ParseOptions, WordAnalysis}` for real, not just as a dev-dependency oracle.
+//! This is not a new wasm32 risk: `hc-wasm` already links `hc-parse` directly (it IS the verifier
+//! engine `hc-wasm`'s own demo runs today), so this crate depending on it too adds no new transitive
+//! dependency to that build — see `tests/f2_indonesian_gate.rs`'s wasm32 `cargo check`, still green
+//! with `hc-parse` promoted, and this crate's own wasm32 check in CI/`README`.
+#![forbid(unsafe_code)]
+
+pub mod analyzer;
+pub mod composite;
+pub mod confirm;
+pub mod emit;
+pub mod junctions;
+pub mod peel;
+pub mod tags;
+
+/// Re-exported so downstream crates (and the P0 tests) have a single, versioned door into the
+/// `foma` runtime rather than depending on it directly.
+pub use foma as foma_runtime;

@@ -6,6 +6,7 @@ members = [
     "crates/hc-grammar",
     "crates/hc-featstruct",
     "crates/hc-shape",
+    "crates/hc-foma",
     "crates/hc-fst",
     "crates/hc-rules",
     "crates/hc-memo",
