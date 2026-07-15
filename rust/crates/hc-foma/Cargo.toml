@@ -12,6 +12,14 @@ license.workspace = true
 foma = "=0.1.1"
 hc-grammar.workspace = true
 hc-featstruct.workspace = true
+# P1 stage 2 (docs/fst-plan/foma-fst-plan.md, Indonesian): the junction-aware emitter
+# (`src/junctions.rs`) drives the real synthesis machinery to pre-probe surface variants, exactly
+# like `hc-hybrid/src/surface.rs` does today. Both are already wasm-safe (hc-rules is in hc-wasm's
+# dependency graph via hc-parse; see that crate's `web-time` use for the same `Instant`-on-wasm32
+# fix hc-fst needed) -- `cargo check -p hc-foma --target wasm32-unknown-unknown` covers this.
+hc-rules.workspace = true
+hc-shape.workspace = true
+rustc-hash.workspace = true
 
 [dev-dependencies]
 # Dev-only: the recall gate (tests/f1_sena_gate.rs) needs the real engine as an oracle. The lib

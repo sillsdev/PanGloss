@@ -104,6 +104,55 @@
 //! calling `apply_up`, so lexc surface text and query text live in the same normalization space
 //! regardless of whether the corpus file itself is NFC or NFD on disk.
 //!
+//! ## Junction-aware affix/root emission (P1 stage 2, Indonesian: `meN+tulis -> menulis`)
+//! Stage 1 (Sena, 0 phonological rules) emitted every affix/root surface as its literal, boundary-
+//! stripped authored text. That is exactly wrong for a grammar with real junction phonology: the
+//! `meN` rule's authored insert text is `"meⁿ+"` (`ⁿ` a placeholder nasal segment that phonological
+//! rules assimilate in place and, before a voiceless obstruent + vowel, delete the OBSTRUENT too),
+//! and no literal spelling of that text is ever the surface word. [`crate::junctions::PhonologyProbe`]
+//! (built once per grammar, `None` when the grammar has no phonological rules at all — a true no-op
+//! for Sena, preserving that gate byte-for-byte) drives the real synthesis cascade
+//! (`hc_rules::surface_probe::probe_synthesize`) to answer two questions per affix underlying text:
+//! - [`PhonologyProbe::variants`]: every surface spelling the affix can realize as, alone or next to
+//!   one alphabet neighbor on either side (`"meⁿ+"` -> `{"meng", "mem", "men", "meny", "me", ...}`).
+//!   [`emit_rule_allomorphs`] UNIONS these into the ordinary literal-text entries at every affix
+//!   emission site (any zone, any derivation level, any slot) — pure upward approximation, so it
+//!   can never cost recall, only add it.
+//! - [`PhonologyProbe::deletion_junctions`]: every affix spelling that, in SOME right-neighbor
+//!   context, additionally deletes that neighbor's own leading segment (`"meⁿ+"` -> `{"men", "mem",
+//!   "meng", ...}` — the SAME rendered strings `variants` can produce, since the deleted neighbor is
+//!   excluded from the render; the two sets legitimately overlap and both get emitted, to different
+//!   continuations, see below).
+//!
+//! **Encoding choice: per-prefix-variant root partitions, not lane-gated skip edges.** `hc-hybrid`'s
+//! trie (`trie.rs::wire_deletion_skips`) gates each deletion-skip edge on a real FeatureStruct
+//! unification test against the specific root's own onset, because its root chains are SHARED
+//! graph structure across every affix and an ungated skip edge would corrupt an unrelated affix's
+//! path. lexc has no equivalent sharing problem here (root text is written out per section, not
+//! linked as one graph), so this emitter takes the simpler, still-upward-safe route: whenever a
+//! prefix derivation chain's FINAL level is genuinely root-adjacent (its `next == exit` IS a roots
+//! lexicon — `TLRoots`/`G{gi}Roots`, never true for `OuterPfx`'s `TmplDispatch` exit or any
+//! `T{ti}P` template slot chain, which are never root-adjacent by construction), that roots lexicon
+//! gets a `{name}Stripped` sibling ([`write_roots_lexicon`]) holding every root's OWN
+//! [`stripped_variants`] (root text with its first SEGMENT — not first character; multi-char
+//! representations like `"ny"`/`"ng"` are one segment — removed). Every `deletion_junctions` hit for
+//! a rule at that final level is routed to `{exit}Stripped` instead of `exit`; every ordinary
+//! `variants` hit still goes to `exit` (module doc superset: nothing here ever narrows what stage 1
+//! already accepted). Deliberately UNGATED by onset class — every root gets a stripped entry
+//! regardless of whether its own initial segment would really delete after that particular
+//! assimilated spelling (e.g. `"mem"` + `baca`'s stripped `"aca"`, which the real grammar never
+//! licenses) — an explicit upward approximation (plan's iron rule): the extra candidate is harmless
+//! (P2's confirm prunes it), and it avoids needing lane-level unification data this emitter has no
+//! other use for. See [`crate::junctions`]'s module doc for why this is smaller in scope than
+//! `hc-hybrid`'s original (no `bare_root_surfaces`, no per-junction neighbor-class bookkeeping).
+//!
+//! **Reduplication is explicitly out of scope here** (plan D6 — the peel is P2's job): every rule
+//! whose primary allomorph classifies `Role::Reduplication` (Indonesian's `-Cont`, `-Pl`,
+//! `REDUP-meN`) is already routed to `uncovered` by the SAME zone-mismatch logic stage 1 uses for
+//! every other exotic role (see "Not emittable as literal lexc" below) — nothing new needed for
+//! this stage to exclude it; the recall gate (`tests/f2_indonesian_gate.rs`) separately excludes the
+//! 7 corpus words that only have a reduplicated analysis, printing each with its reason.
+//!
 //! ## Not emittable as literal lexc (routed to [`EmitReport::uncovered`], never silently dropped)
 //! - `RootAllomorphDef::is_pattern` allomorphs (iterative/optional shape nodes — no concrete
 //!   spelling).
@@ -124,6 +173,7 @@ use hc_grammar::model::{
     AffixAllomorphDef, Grammar, MRuleId, MorphRuleDef, MorphemeId, OutputAction, PartRef, SlotDef,
 };
 
+use crate::junctions::PhonologyProbe;
 use crate::tags;
 
 /// Floor for a derivation layer chain's depth (the actual depth is the rule count routed to that
@@ -420,6 +470,37 @@ fn surface_variants(table: &CharDefTable, text: &str) -> Option<(Vec<String>, bo
     Some((variants, overflowed))
 }
 
+/// Every accepted spelling of `text` with its OWN FIRST SEGMENT removed (module doc, "Junction-
+/// aware affix/root emission"): re-run [`surface_variants`]'s greedy segmentation, skip past any
+/// leading `Boundary`-kind matches (structural, already dropped from ordinary output — a root
+/// should never actually start with one, but this stays defensive), consume exactly one
+/// `Segment`-kind match (possibly multi-CHARACTER, e.g. `"ny"`/`"ng"`/`"kh"`/`"sy"` are each ONE
+/// segment), then return [`surface_variants`] of everything after it. `None` when `text` is
+/// entirely boundaries (or empty) — nothing to strip — or fails to segment at all.
+fn stripped_variants(table: &CharDefTable, text: &str) -> Option<(Vec<String>, bool)> {
+    let normalized = hc_grammar::nfd::nfd(text);
+    let chars: Vec<char> = normalized.chars().collect();
+    let mut i = 0usize;
+    while i < chars.len() {
+        let mut matched: Option<(usize, CharDefKind)> = None;
+        for j in (1..=(chars.len() - i)).rev() {
+            let candidate: String = chars[i..i + j].iter().collect();
+            if let Some(cd_id) = table.lookup_nfd(&candidate) {
+                matched = Some((j, table.get(cd_id).kind()));
+                break;
+            }
+        }
+        let (j, kind) = matched?;
+        i += j;
+        if kind == CharDefKind::Segment {
+            let remainder: String = chars[i..].iter().collect();
+            return surface_variants(table, &remainder);
+        }
+        // Boundary-kind: not a real segment to strip -- keep scanning for the first one.
+    }
+    None // nothing but boundaries, or empty text: no segment to strip.
+}
+
 /// Escape lexc's special characters in literal (non-tag) text: `%` (lexc's own escape char), `<`/
 /// `:`/`>` (XRE-block/pair-separator/C-foma-NONRESERVED syntax), and `0` (lexc's bare-zero
 /// alignment-epsilon marker — gate F0's finding, `tests/f0_viability.rs`'s module doc: this
@@ -484,6 +565,11 @@ struct RootRec {
     /// Every accepted spelling ([`surface_variants`]), each emitted as its own lexc entry line
     /// sharing this morpheme's one tag symbol.
     variants: Vec<String>,
+    /// Every accepted spelling with this root's own first segment removed ([`stripped_variants`]),
+    /// used ONLY by a roots lexicon's `Stripped` sibling (module doc, "Junction-aware affix/root
+    /// emission"). Empty when `phon` is `None` (no phonological rules at all — nothing needs it) or
+    /// when the root has no segment to strip.
+    stripped: Vec<String>,
 }
 
 fn collect_roots(
@@ -491,6 +577,7 @@ fn collect_roots(
     table: &CharDefTable,
     uncovered: &mut Vec<UncoveredItem>,
     counts: &mut EmitCounts,
+    phon: Option<&PhonologyProbe>,
 ) -> Vec<RootRec> {
     let mut roots = Vec::new();
     // Stratum order then entry order, mirroring trie.rs's own roots collection (`run()`,
@@ -529,10 +616,22 @@ fn collect_roots(
                                 ),
                             });
                         }
+                        // Stripped spellings (module doc): only ever consumed when `phon` is
+                        // `Some` (a `Stripped` roots lexicon only exists then, see
+                        // `write_roots_lexicon`), so skip the work entirely otherwise. Overflow on
+                        // the stripped side is not separately reported: fewer offered stripped
+                        // spellings is a strict subset of what stage 1 already accepts via
+                        // `variants` on the SAME root, so it can only under-supply the (already
+                        // upward-approximate) junction path, never regress stage 1's own gate.
+                        let stripped = phon
+                            .and_then(|_| stripped_variants(table, &allo.shape.text))
+                            .map(|(v, _)| v)
+                            .unwrap_or_default();
                         roots.push(RootRec {
                             morpheme: entry.morpheme,
                             category: entry.syn_fs,
                             variants,
+                            stripped,
                         });
                         counts.allomorphs_emitted += 1;
                     }
@@ -560,6 +659,14 @@ fn collect_roots(
 /// requiring each allomorph's role to be `zone_role` (or `None` — a zero morph is legal in either
 /// zone, exactly like `trie.rs::append_slots`'s `aop != op && aop != MorphOp::None` check,
 /// trie.rs:941-946).
+///
+/// `phon` (module doc, "Junction-aware affix/root emission"): when `Some`, every `InsertText::Text`
+/// allomorph ALSO gets [`PhonologyProbe::variants`]'s spellings unioned into `next` (safe at any
+/// zone/level: these are context-generic, upward-only additions to what stage 1 already emits).
+/// `junction_target`, when `Some`, additionally routes every [`PhonologyProbe::deletion_junctions`]
+/// hit to THAT lexicon instead of `next` — callers only pass it at a genuinely root-adjacent final
+/// derivation level (see `build_deriv_chain`); everywhere else it's `None` and this behaves exactly
+/// like stage 1.
 #[allow(clippy::too_many_arguments)]
 fn emit_rule_allomorphs(
     out: &mut String,
@@ -571,6 +678,8 @@ fn emit_rule_allomorphs(
     next: &str,
     uncovered: &mut Vec<UncoveredItem>,
     counts: &mut EmitCounts,
+    phon: Option<&PhonologyProbe>,
+    junction_target: Option<&str>,
 ) {
     let morpheme = owning_morpheme(g, mid);
     let tag_lexc = tags::morph_tag_lexc(morpheme, width);
@@ -602,33 +711,55 @@ fn emit_rule_allomorphs(
                 write_tag_entry(out, &tag_lexc, "", next, counts);
                 counts.allomorphs_emitted += 1;
             }
-            InsertText::Text(t) => match surface_variants(table, t) {
-                Some((variants, overflowed)) => {
-                    if overflowed {
+            InsertText::Text(t) => {
+                let mut emitted_any = false;
+                match surface_variants(table, t) {
+                    Some((variants, overflowed)) => {
+                        if overflowed {
+                            uncovered.push(UncoveredItem {
+                                kind: "rep-variant-overflow".to_string(),
+                                id: label.clone(),
+                                reason: format!(
+                                    "affix insert text {t:?} exceeds {REP_VARIANT_CAP} representation variants; excess spellings dropped"
+                                ),
+                            });
+                        }
+                        for surface in &variants {
+                            write_tag_entry(out, &tag_lexc, surface, next, counts);
+                        }
+                        emitted_any = true;
+                    }
+                    None => {
                         uncovered.push(UncoveredItem {
-                            kind: "rep-variant-overflow".to_string(),
+                            kind: "unsegmentable-affix".to_string(),
                             id: label.clone(),
                             reason: format!(
-                                "affix insert text {t:?} exceeds {REP_VARIANT_CAP} representation variants; excess spellings dropped"
+                                "affix insert text {t:?} does not re-segment against the surface char-def table"
                             ),
                         });
                     }
-                    for surface in &variants {
-                        write_tag_entry(out, &tag_lexc, surface, next, counts);
-                    }
-                    counts.allomorphs_emitted += 1;
                 }
-                None => {
-                    uncovered.push(UncoveredItem {
-                        kind: "unsegmentable-affix".to_string(),
-                        id: label,
-                        reason: format!(
-                            "affix insert text {t:?} does not re-segment against the surface char-def table"
-                        ),
-                    });
+                // Junction-aware enrichment (module doc): union in every probe-derived surface
+                // spelling, and (only where the caller says this level is root-adjacent) route
+                // deletion-junction spellings to the stripped-roots continuation instead.
+                if let Some(probe) = phon {
+                    for surface in probe.variants(t) {
+                        write_tag_entry(out, &tag_lexc, &surface, next, counts);
+                        emitted_any = true;
+                    }
+                    if let Some(target) = junction_target {
+                        for surface in probe.deletion_junctions(t) {
+                            write_tag_entry(out, &tag_lexc, &surface, target, counts);
+                            emitted_any = true;
+                        }
+                    }
+                }
+                if emitted_any {
+                    counts.allomorphs_emitted += 1;
+                } else {
                     counts.allomorphs_skipped += 1;
                 }
-            },
+            }
         }
     }
 }
@@ -642,6 +773,15 @@ fn emit_rule_allomorphs(
 /// Mirrors `trie.rs::build_derivation_layer` (each level: an epsilon skip to the next level plus
 /// one token+arc path per rule allomorph). Always defines `{prefix}0`, even when `rules` is
 /// empty (a plain passthrough), so callers can reference it unconditionally.
+///
+/// `phon`/`exit_is_roots` (module doc, "Junction-aware affix/root emission"): `phon` is unioned
+/// into every affix spelling at EVERY level (harmless anywhere). Deletion-junction routing to a
+/// `{exit}Stripped` roots lexicon additionally requires `zone_role == Role::Prefix`,
+/// `exit_is_roots` (the caller vouches that `exit` names an actual roots lexicon — never true for
+/// `OuterPfx`'s `TmplDispatch` exit or a template slot chain's exit, which are never root-adjacent
+/// by construction; passing `true` there would emit a dangling lexc reference), and only fires at
+/// the chain's FINAL level (`next == exit`, i.e. genuinely root-adjacent — an intermediate level's
+/// `next` is another derivation opportunity, not a root).
 #[allow(clippy::too_many_arguments)]
 fn build_deriv_chain(
     out: &mut String,
@@ -654,6 +794,8 @@ fn build_deriv_chain(
     exit: &str,
     uncovered: &mut Vec<UncoveredItem>,
     counts: &mut EmitCounts,
+    phon: Option<&PhonologyProbe>,
+    exit_is_roots: bool,
 ) -> String {
     let entry_name = format!("{prefix}0");
     if rules.is_empty() {
@@ -662,10 +804,16 @@ fn build_deriv_chain(
         return entry_name;
     }
     let depth = rules.len().max(DERIV_DEPTH_MIN);
+    let junction_target = if zone_role == Role::Prefix && exit_is_roots && phon.is_some() {
+        Some(format!("{exit}Stripped"))
+    } else {
+        None
+    };
     for level in 0..depth {
         let name = format!("{prefix}{level}");
         write_lexicon_header(out, &name);
-        let next = if level + 1 == depth {
+        let is_final = level + 1 == depth;
+        let next = if is_final {
             exit.to_string()
         } else {
             format!("{prefix}{}", level + 1)
@@ -675,7 +823,17 @@ fn build_deriv_chain(
         write_bare(out, &next, counts);
         for &mid in rules {
             emit_rule_allomorphs(
-                out, g, table, mid, zone_role, width, &next, uncovered, counts,
+                out,
+                g,
+                table,
+                mid,
+                zone_role,
+                width,
+                &next,
+                uncovered,
+                counts,
+                phon,
+                if is_final { junction_target.as_deref() } else { None },
             );
         }
     }
@@ -741,6 +899,11 @@ fn classify_template<'g>(
 /// zone-fitting) rule allomorph once; optional slots add an epsilon skip. Chain is named
 /// `{prefix}0` .. and ends at `exit`; always defines `{prefix}0` (passthrough when `slots` is
 /// empty).
+///
+/// `phon` (module doc, "Junction-aware affix/root emission"): unioned into every slot allomorph's
+/// spelling, same as [`build_deriv_chain`]. No junction routing here — a template slot chain's
+/// `exit` is never a roots lexicon directly (it always lands on further derivation, `G{gi}PfxD0` or
+/// `OuterSfx0`/`G{gi}Join`), so there is no root-adjacent final level to gate on.
 #[allow(clippy::too_many_arguments)]
 fn build_slot_chain(
     out: &mut String,
@@ -754,6 +917,7 @@ fn build_slot_chain(
     exit: &str,
     uncovered: &mut Vec<UncoveredItem>,
     counts: &mut EmitCounts,
+    phon: Option<&PhonologyProbe>,
 ) -> String {
     let entry_name = format!("{prefix}0");
     if slots.is_empty() {
@@ -784,7 +948,7 @@ fn build_slot_chain(
                 }
             }
             emit_rule_allomorphs(
-                out, g, table, mid, zone_role, width, &next, uncovered, counts,
+                out, g, table, mid, zone_role, width, &next, uncovered, counts, phon, None,
             );
         }
     }
@@ -804,7 +968,13 @@ pub fn emit(g: &Grammar) -> EmitResult {
         ..Default::default()
     };
 
-    let roots = collect_roots(g, table, &mut uncovered, &mut counts);
+    // P1 stage 2 (module doc, "Junction-aware affix/root emission"): `None` for a grammar with no
+    // phonological rules at all (Sena) -- every call site below that takes `phon.as_ref()` then
+    // sees `None` and behaves EXACTLY as stage 1 did, byte-for-byte (the Sena regression gate,
+    // `tests/f1_sena_gate.rs`, depends on this).
+    let phon = PhonologyProbe::new(g);
+
+    let roots = collect_roots(g, table, &mut uncovered, &mut counts, phon.as_ref());
 
     // Standalone (stratum-attached) derivation rules, classified by primary role — mirrors
     // trie.rs run()'s "Standalone derivational affix rules" loop (`trie.rs:993-1008`), except
@@ -932,6 +1102,25 @@ pub fn emit(g: &Grammar) -> EmitResult {
                 }
             }
         };
+    // The `{name}Stripped` sibling of a roots lexicon (module doc, "Junction-aware affix/root
+    // emission"): one entry per root's OWN [`stripped_variants`], same tag, same continuation as
+    // the intact lexicon. Falls back to a bare passthrough if not a single root offered a stripped
+    // spelling (keeps the lexicon non-empty -- mirrors the `eligible_roots.is_empty()` fallback
+    // below). Only ever called when `phon.is_some()`.
+    let write_stripped_root_entries =
+        |out: &mut String, roots: &[&RootRec], continuation: &str, counts: &mut EmitCounts| {
+            let mut any = false;
+            for r in roots {
+                let tag_lexc = tags::root_tag_lexc(r.morpheme, width);
+                for v in &r.stripped {
+                    write_tag_entry(out, &tag_lexc, v, continuation, counts);
+                    any = true;
+                }
+            }
+            if !any {
+                write_bare(out, continuation, counts);
+            }
+        };
     let all_roots: Vec<&RootRec> = roots.iter().collect();
     let has_templates = !g.templates.is_empty();
 
@@ -951,7 +1140,7 @@ pub fn emit(g: &Grammar) -> EmitResult {
     if has_templates {
         build_deriv_chain(
             &mut out, g, table, "OuterPfx", Role::Prefix, &deriv_prefix, width, "TmplDispatch",
-            &mut uncovered, &mut counts,
+            &mut uncovered, &mut counts, phon.as_ref(), false,
         );
         // One line per template's prefix-chain entry, deduped (templates with no prefix slots
         // all point straight at their group's prefix-derivation entry). `classify_template` here
@@ -976,7 +1165,7 @@ pub fn emit(g: &Grammar) -> EmitResult {
         // later-stratum rules apply outside a completed template — see module doc).
         build_deriv_chain(
             &mut out, g, table, "OuterSfx", Role::Suffix, &deriv_suffix, width, "#",
-            &mut uncovered, &mut counts,
+            &mut uncovered, &mut counts, phon.as_ref(), false,
         );
     }
 
@@ -984,10 +1173,16 @@ pub fn emit(g: &Grammar) -> EmitResult {
     if has_template_less_section {
         build_deriv_chain(
             &mut out, g, table, "TLPfx", Role::Prefix, &deriv_prefix, width, "TLRoots",
-            &mut uncovered, &mut counts,
+            &mut uncovered, &mut counts, phon.as_ref(), true,
         );
         write_lexicon_header(&mut out, "TLRoots");
         write_root_entries(&mut out, &all_roots, "TLPost", &mut counts);
+        if phon.is_some() {
+            // `TLRoots`' `Stripped` sibling (module doc, "Junction-aware affix/root emission"):
+            // `TLPfx`'s final level routes every deletion-junction hit here instead of `TLRoots`.
+            write_lexicon_header(&mut out, "TLRootsStripped");
+            write_stripped_root_entries(&mut out, &all_roots, "TLPost", &mut counts);
+        }
         write_lexicon_header(&mut out, "TLPost");
         write_bare(&mut out, "TLSfx0", &mut counts);
         if has_compounding_rules {
@@ -997,7 +1192,7 @@ pub fn emit(g: &Grammar) -> EmitResult {
         }
         build_deriv_chain(
             &mut out, g, table, "TLSfx", Role::Suffix, &deriv_suffix, width, "#",
-            &mut uncovered, &mut counts,
+            &mut uncovered, &mut counts, phon.as_ref(), false,
         );
     }
 
@@ -1024,6 +1219,7 @@ pub fn emit(g: &Grammar) -> EmitResult {
                     "OuterSfx0",
                     &mut uncovered,
                     &mut counts,
+                    phon.as_ref(),
                 );
                 join_lines.insert(entry);
             }
@@ -1045,6 +1241,8 @@ pub fn emit(g: &Grammar) -> EmitResult {
             &join_name,
             &mut uncovered,
             &mut counts,
+            phon.as_ref(),
+            false,
         );
 
         let post_name = format!("G{gi}Post");
@@ -1075,6 +1273,17 @@ pub fn emit(g: &Grammar) -> EmitResult {
         } else {
             write_root_entries(&mut out, &eligible_roots, &post_name, &mut counts);
         }
+        if phon.is_some() {
+            // `G{gi}Roots`' `Stripped` sibling (module doc, "Junction-aware affix/root emission"):
+            // `G{gi}PfxD`'s final level routes deletion-junction hits here instead of `roots_name`.
+            // Uses the SAME `eligible_roots`/passthrough choice as the intact lexicon just above.
+            write_lexicon_header(&mut out, &format!("{roots_name}Stripped"));
+            if eligible_roots.is_empty() {
+                write_bare(&mut out, &post_name, &mut counts);
+            } else {
+                write_stripped_root_entries(&mut out, &eligible_roots, &post_name, &mut counts);
+            }
+        }
 
         build_deriv_chain(
             &mut out,
@@ -1087,6 +1296,8 @@ pub fn emit(g: &Grammar) -> EmitResult {
             &roots_name,
             &mut uncovered,
             &mut counts,
+            phon.as_ref(),
+            true,
         );
 
         for &ti in &group_templates[gi] {
@@ -1107,6 +1318,7 @@ pub fn emit(g: &Grammar) -> EmitResult {
                 &format!("G{gi}PfxD0"),
                 &mut uncovered,
                 &mut counts,
+                phon.as_ref(),
             );
         }
     }
