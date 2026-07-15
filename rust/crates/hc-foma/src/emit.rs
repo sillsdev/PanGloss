@@ -254,7 +254,7 @@ pub struct EmitResult {
 /// logic is needed, not that crate's packed-token bit scheme (this crate's tags are
 /// `MorphemeId`-indexed strings).
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-enum Role {
+pub(crate) enum Role {
     None,
     Prefix,
     Suffix,
@@ -286,8 +286,9 @@ impl Role {
 }
 
 /// Port of `hc-hybrid/src/token.rs::classify_affix` (`MorphTokenCodec.ClassifyAffix`,
-/// `MorphTokenCodec.cs:76-129`).
-fn classify_affix(rhs: &[OutputAction]) -> Role {
+/// `MorphTokenCodec.cs:76-129`). `pub(crate)`: [`crate::peel`] (P2's reduplication peel, plan D6)
+/// reuses this exact classification rather than re-porting it a second time.
+pub(crate) fn classify_affix(rhs: &[OutputAction]) -> Role {
     let copy_parts: Vec<PartRef> = rhs
         .iter()
         .filter_map(|a| if let OutputAction::Copy(p) = a { Some(*p) } else { None })
@@ -364,7 +365,9 @@ fn first_insert_text(rhs: &[OutputAction]) -> InsertText<'_> {
     InsertText::None
 }
 
-fn owning_morpheme(g: &Grammar, mid: MRuleId) -> MorphemeId {
+/// `pub(crate)`: [`crate::peel`] reuses this too (its redup/suffix rules always resolve to
+/// `AffixProcess`/`Realizational`, so the `Compounding` `unreachable!` below is safe there as well).
+pub(crate) fn owning_morpheme(g: &Grammar, mid: MRuleId) -> MorphemeId {
     match &g.mrules[mid.0 as usize] {
         MorphRuleDef::AffixProcess(def) => def.morpheme,
         MorphRuleDef::Realizational(def) => def.morpheme,
@@ -402,7 +405,8 @@ fn rule_role(g: &Grammar, mid: MRuleId) -> Role {
 
 // --- Surface text (boundary-stripped, as-authored) ----------------------------------------------
 
-fn surface_table(g: &Grammar) -> &CharDefTable {
+/// `pub(crate)`: [`crate::peel`] reuses this to find the redup-peel's suffix surfaces.
+pub(crate) fn surface_table(g: &Grammar) -> &CharDefTable {
     let surface_stratum = g
         .strata
         .last()
