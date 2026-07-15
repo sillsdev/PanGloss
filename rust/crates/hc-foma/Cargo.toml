@@ -1,0 +1,12 @@
+[package]
+name = "hc-foma"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+# Pinned exact — gate F0 (docs/fst-plan/foma-fst-plan.md) is validating this specific version of
+# a 3-day-old, 0-star, ubuntu-only-CI crate. Do not let cargo silently float us onto a newer
+# release until the gate has been re-run against it.
+foma = "=0.1.1"
