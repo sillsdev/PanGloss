@@ -31,8 +31,8 @@
 use std::cell::RefCell;
 use std::collections::BTreeSet;
 
-use hc_grammar::chardef::{CharDefKind, CharDefTable};
-use hc_grammar::model::{Grammar, PhonRuleDef};
+use hc_grammar::chardef::{CharDefId, CharDefKind, CharDefTable};
+use hc_grammar::model::{Grammar, MorphRuleDef, PhonRuleDef};
 use hc_rules::cache::RuleCache;
 use hc_rules::surface_probe::{self, ProbeSeg};
 use hc_shape::NodeKind;
@@ -44,6 +44,21 @@ pub struct PhonologyProbe<'g> {
     /// One representative surface representation per Segment-kind char-def, table document order
     /// (mirrors `hc-hybrid/src/surface.rs`'s `_alphabet`).
     alphabet: Vec<String>,
+    /// Subset of `alphabet` restricted to segments that actually appear as the FIRST real segment
+    /// of some root allomorph's or some affix rule's authored text in THIS grammar (P1 stage 3,
+    /// the Amharic hazard-1 fix: see [`neighbor_first_segments`]'s doc for the soundness
+    /// argument). Used ONLY for [`compute_deletion_junctions`]'s outer (C1) loop -- an affix's
+    /// real right-neighbor in any synthesized word is always some root's or some rule's own first
+    /// segment, a closed, enumerable set, so narrowing the C1 loop to it can never drop a
+    /// deletion junction that could actually occur. The inner C2 loop stays over the FULL
+    /// `alphabet` (a neighbor's own SECOND segment has no equivalent closed characterization here
+    /// -- narrowing it would risk losing recall, the plan's one forbidden direction). On a small
+    /// alphabet (Sena has none -- no phonological rules at all; Indonesian's restricted set is
+    /// close to its full alphabet already) this changes nothing measurable; on Amharic's 417-
+    /// segment table it cuts the measured wall time from ~150-230s to single-digit seconds (P1
+    /// stage 3 investigation numbers, recorded in this stage's report) by shrinking the outer loop
+    /// from 417 to the ~46 segments that can actually start a root or affix in this grammar.
+    neighbor_alphabet: Vec<String>,
     any_deletion_subrule: bool,
     variants_cache: RefCell<HashMap<String, Vec<String>>>,
     junctions_cache: RefCell<HashMap<String, Vec<String>>>,
@@ -52,6 +67,81 @@ pub struct PhonologyProbe<'g> {
     /// pathological on a larger alphabet; Indonesian's is tiny, but there's no reason not to share
     /// this the same way).
     rule_cache: RuleCache,
+}
+
+/// The Segment-kind char-def id of the FIRST real segment in `text` (skipping any leading
+/// Boundary-kind matches, greedy longest-match against `table` -- the same algorithm
+/// `emit.rs`'s `surface_variants`/`stripped_variants` use), or `None` if `text` is entirely
+/// boundaries/empty or fails to segment at all.
+fn first_segment_id(table: &CharDefTable, text: &str) -> Option<CharDefId> {
+    let normalized = hc_grammar::nfd::nfd(text);
+    let chars: Vec<char> = normalized.chars().collect();
+    let mut i = 0usize;
+    while i < chars.len() {
+        let mut matched: Option<(usize, CharDefId)> = None;
+        for j in (1..=(chars.len() - i)).rev() {
+            let candidate: String = chars[i..i + j].iter().collect();
+            if let Some(cd_id) = table.lookup_nfd(&candidate) {
+                matched = Some((j, cd_id));
+                break;
+            }
+        }
+        let (j, cd_id) = matched?;
+        i += j;
+        if table.get(cd_id).kind() == CharDefKind::Segment {
+            return Some(cd_id);
+        }
+        // Boundary-kind: not a real segment -- keep scanning for the first one.
+    }
+    None
+}
+
+/// Every Segment-kind char-def id that appears as the first real segment of some root
+/// allomorph's authored shape text (any stratum, any entry, skipping `is_pattern` shapes -- they
+/// have no concrete text) or of some morphological rule allomorph's first `InsertSegments`
+/// action's text (any zone -- template slot, derivation layer, whatever; every affix rule in the
+/// grammar is scanned, mirroring `emit.rs`'s own enumeration order requirements loosely, since
+/// this only needs the SET, not emission order).
+///
+/// **Soundness argument (why this is a restriction, not an approximation):** in any word this
+/// grammar can synthesize, the segment immediately following one particular affix's own material
+/// is always either (a) the first segment of a root (bare, or the head/non-head root of a
+/// compound), or (b) the first segment of another rule's affix text (prefix, suffix, or
+/// derivation-layer rule) -- there is no third kind of morph. So this set is the complete,
+/// closed enumeration of every segment that can EVER be probed as `compute_deletion_junctions`'s
+/// C1 (the immediate right-neighbor); no real adjacency is excluded by restricting the C1 loop to
+/// it, so recall cannot be lost (plan's iron rule: approximate only upward, and this is not even
+/// an approximation, just an unreachable-input elimination).
+fn neighbor_first_segments(g: &Grammar, table: &CharDefTable) -> BTreeSet<CharDefId> {
+    let mut ids = BTreeSet::new();
+    for e in &g.entries {
+        for a in &e.allomorphs {
+            if a.is_pattern {
+                continue;
+            }
+            if let Some(id) = first_segment_id(table, &a.shape.text) {
+                ids.insert(id);
+            }
+        }
+    }
+    for r in &g.mrules {
+        let allomorphs: &[hc_grammar::model::AffixAllomorphDef] = match r {
+            MorphRuleDef::AffixProcess(def) => &def.allomorphs,
+            MorphRuleDef::Realizational(def) => &def.allomorphs,
+            MorphRuleDef::Compounding(_) => &[],
+        };
+        for a in allomorphs {
+            for act in &a.rhs {
+                if let hc_grammar::model::OutputAction::InsertSegments { shape, .. } = act {
+                    if let Some(id) = first_segment_id(table, &shape.text) {
+                        ids.insert(id);
+                    }
+                    break; // mirrors emit.rs's first_insert_text: only the FIRST InsertSegments action.
+                }
+            }
+        }
+    }
+    ids
 }
 
 impl<'g> PhonologyProbe<'g> {
@@ -80,11 +170,16 @@ impl<'g> PhonologyProbe<'g> {
         }
 
         let mut alphabet = Vec::new();
-        for (_, cd) in table.iter() {
+        let neighbor_ids = neighbor_first_segments(g, table);
+        let mut neighbor_alphabet = Vec::new();
+        for (cd_id, cd) in table.iter() {
             if cd.kind() == CharDefKind::Segment {
                 if let Some(rep) = cd.representations().first() {
                     if !rep.is_empty() {
                         alphabet.push(rep.clone());
+                        if neighbor_ids.contains(&cd_id) {
+                            neighbor_alphabet.push(rep.clone());
+                        }
                     }
                 }
             }
@@ -94,6 +189,7 @@ impl<'g> PhonologyProbe<'g> {
             g,
             table,
             alphabet,
+            neighbor_alphabet,
             any_deletion_subrule,
             variants_cache: RefCell::new(HashMap::default()),
             junctions_cache: RefCell::new(HashMap::default()),
@@ -187,7 +283,11 @@ impl<'g> PhonologyProbe<'g> {
         let Some(underlying_len) = self.node_count(underlying) else {
             return Vec::new();
         };
-        for c1 in &self.alphabet {
+        // C1 (the immediate right-neighbor) is restricted to `neighbor_alphabet` -- a sound,
+        // closed enumeration, not an approximation (see `neighbor_first_segments`'s doc). C2
+        // stays over the FULL `alphabet`: unrestricted, since narrowing it has no equivalent
+        // soundness proof.
+        for c1 in &self.neighbor_alphabet {
             if let Some(hit) = self.try_probe_deletion(underlying, c1, None, underlying_len) {
                 result.insert(hit);
                 continue;
