@@ -56,12 +56,19 @@ fn extract_entry(ctx: &mut Ctx, guid: &str) -> Option<LexEntry> {
         .iter()
         .filter_map(|g| extract_msa(ctx, g))
         .collect();
-    let senses: Vec<Sense> = rec
-        .node
-        .objsur_list("Senses")
-        .iter()
-        .filter_map(|g| extract_sense(ctx, g))
-        .collect();
+    // HCLoader resolves an MSA's gloss via `LexEntry.SenseWithMsa`, which searches
+    // `AllSenses` — every sense transitively owned by the entry, i.e. senses AND their
+    // subsenses recursively (`LexSense.SensesOS`, `AllSenses` at
+    // OverridesLing_Lex.cs:5019-5030: `senses.Add(this); foreach (subsense) senses.AddRange
+    // (subsense.AllSenses)`, pre-order). A `LexSense` can itself own further `LexSense`s (FLEx's
+    // "subsenses" feature: e.g. Sena's "guman" entry has a top sense glossed "find"/"encontrar"
+    // whose own `<Senses>` list owns a subsense glossed "consult"/"consultar" pointing at a
+    // *different*, POS-less MSA on the same entry) — flattening the whole tree here (rather than
+    // just the entry's direct `Senses` list) is required so [`sense_gloss`]'s per-MSA lookup in
+    // `hc-grammar::compile::lexicon` can find a subsense's gloss for its own MSA, exactly like
+    // legacy's `AllSenses`-based search does. Order is preserved (pre-order, parent before its
+    // subsenses) to mirror `AllSenses`, though `sense_gloss` itself doesn't depend on order.
+    let senses: Vec<Sense> = extract_senses_recursive(ctx, &rec.node.objsur_list("Senses"));
     let entry_refs: Vec<EntryRef> = rec
         .node
         .objsur_list("EntryRefs")
@@ -307,6 +314,22 @@ fn extract_msa(ctx: &mut Ctx, guid: &str) -> Option<Msa> {
             None
         }
     }
+}
+
+/// Flattens a list of top-level sense guids and every subsense transitively owned by each
+/// (`LexSense.SensesOS`) into one pre-order `Vec<Sense>` — see [`extract_entry`]'s doc for why
+/// this must mirror HCLoader's recursive `AllSenses`, not just the entry's direct `Senses` list.
+fn extract_senses_recursive(ctx: &mut Ctx, guids: &[String]) -> Vec<Sense> {
+    let mut out = Vec::new();
+    for g in guids {
+        let Some(rec) = ctx.get(g) else { continue };
+        let sub_guids = rec.node.objsur_list("Senses");
+        if let Some(sense) = extract_sense(ctx, g) {
+            out.push(sense);
+        }
+        out.extend(extract_senses_recursive(ctx, &sub_guids));
+    }
+    out
 }
 
 fn extract_sense(ctx: &mut Ctx, guid: &str) -> Option<Sense> {

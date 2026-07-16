@@ -83,6 +83,7 @@ pub fn compile_project(snapshot: &Snapshot) -> Result<(Grammar, Vec<String>), Gr
         by_guid: natclass_by_guid,
         by_name: natclass_by_name,
         any: any_nc,
+        last_unnamed: natclass_last_unnamed,
     } = natclass::build(snapshot, &phon_features, &phoneme_of, &mut warnings);
 
     // --- grammar-tier FS interner: the empty FS is interned first (FsId 0) ---------------------
@@ -237,7 +238,7 @@ pub fn compile_project(snapshot: &Snapshot) -> Result<(Grammar, Vec<String>), Gr
         }
     }
 
-    let grammar = Grammar {
+    let mut grammar = Grammar {
         name: Some(snapshot.project.name.clone()),
         phon_features,
         char_tables: vec![char_table],
@@ -256,6 +257,13 @@ pub fn compile_project(snapshot: &Snapshot) -> Result<(Grammar, Vec<String>), Gr
         entries: acc.entries,
         strata,
     };
+
+    // `pg-fwdata` extracts every declared natural class unconditionally, but HCLoader's own
+    // `m_language.NaturalClasses` only ever contains ones actually referenced somewhere in the
+    // grammar (lazy, on-demand construction — see `natclass::compact_to_referenced`'s doc for the
+    // full rationale and a confirmed live-data example). Compact now that every other compile step
+    // has had its chance to resolve a reference.
+    natclass::compact_to_referenced(&mut grammar, any_nc, natclass_last_unnamed);
 
     Ok((grammar, warnings))
 }
