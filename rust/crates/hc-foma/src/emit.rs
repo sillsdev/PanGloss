@@ -194,6 +194,7 @@ use hc_rules::word::{MorphRecord, Word};
 use hc_shape::{EffectiveCdSet, NodeKind, Shape};
 
 use crate::junctions::PhonologyProbe;
+use crate::precision::{ConstraintCatalog, PrecisionConfig, PrecisionEmit};
 use crate::tags;
 
 /// Floor for a derivation layer chain's depth (the actual depth is the rule count routed to that
@@ -697,22 +698,35 @@ fn write_bare(out: &mut String, continuation: &str, counts: &mut EmitCounts) {
 }
 
 /// One tagged entry: upper = the tag symbol ONLY (module doc's tag-tape convention), lower = the
-/// (already boundary-stripped) surface text, escaped. Empty surface = lexc's `0` epsilon.
+/// (already boundary-stripped) surface text, escaped, with the FST precision knob's inline flag
+/// text spliced in (`crate::precision`'s module doc, "Emission mechanism"). Empty surface = lexc's
+/// `0` epsilon (still gets the owner's own `@R@` prefix if applicable — see
+/// [`PrecisionEmit::tagged_lower`]).
+///
+/// `pk`/`owner`: every entry in the whole emitter funnels through this ONE function, which is what
+/// lets [`PrecisionEmit::tagged_lower`] gate the ENVIRONMENT family's `AllFlags` preset without
+/// touching every call site's own logic — `owner` identifies the allomorph THIS entry realizes
+/// (`Some(allo.id)` from [`emit_rule_allomorphs`] and `Some(root.id)` from the root-entry writers;
+/// `None` only for P1d composite entries, which are never an owner-side gate this step), and
+/// `surface` (this entry's own literal spelling, pre-escape) is checked against every covered
+/// constraint's set-side literal match regardless of owner. Under [`PrecisionConfig::Strip`] (`pk`
+/// built from that config) `tagged_lower` always returns exactly what this function wrote before
+/// the precision knob existed, so this is byte-identical to that version.
+#[allow(clippy::too_many_arguments)]
 fn write_tag_entry(
     out: &mut String,
     tag_lexc: &str,
     surface: &str,
     continuation: &str,
     counts: &mut EmitCounts,
+    pk: &mut PrecisionEmit,
+    owner: Option<AllomorphId>,
 ) {
     let escaped = escape_lexc_text(surface);
+    let lower = pk.tagged_lower(surface, &escaped, owner);
     out.push_str(tag_lexc);
     out.push(':');
-    if escaped.is_empty() {
-        out.push('0');
-    } else {
-        out.push_str(&escaped);
-    }
+    out.push_str(&lower);
     out.push(' ');
     out.push_str(continuation);
     out.push_str(" ;\n");
@@ -722,6 +736,9 @@ fn write_tag_entry(
 // --- Root collection ------------------------------------------------------------------------------
 
 struct RootRec {
+    /// The root allomorph's own registry id — `crate::precision`'s ENVIRONMENT-family owner-side
+    /// gate (`PrecisionEmit::tagged_lower`'s `owner` argument) is keyed on this.
+    id: AllomorphId,
     morpheme: MorphemeId,
     category: FsId,
     /// Every accepted spelling ([`surface_variants`]), each emitted as its own lexc entry line
@@ -864,6 +881,7 @@ fn collect_roots(
                     }
                 }
                 roots.push(RootRec {
+                    id: allo.id,
                     morpheme: entry.morpheme,
                     category: entry.syn_fs,
                     variants,
@@ -890,6 +908,11 @@ fn collect_roots(
 /// hit to THAT lexicon instead of `next` — callers only pass it at a genuinely root-adjacent final
 /// derivation level (see `build_deriv_chain`); everywhere else it's `None` and this behaves exactly
 /// like stage 1.
+///
+/// `pk` (`crate::precision`'s module doc): every entry this function writes for allomorph `allo`
+/// passes `Some(allo.id)` as [`write_tag_entry`]'s owner — the ENVIRONMENT family's `AllFlags`
+/// preset's owner-side require/disallow gate can then find it regardless of which zone/level/slot
+/// this call is emitting into.
 #[allow(clippy::too_many_arguments)]
 fn emit_rule_allomorphs(
     out: &mut String,
@@ -903,6 +926,7 @@ fn emit_rule_allomorphs(
     counts: &mut EmitCounts,
     phon: Option<&PhonologyProbe>,
     junction_target: Option<&str>,
+    pk: &mut PrecisionEmit,
 ) {
     let morpheme = owning_morpheme(g, mid);
     let tag_lexc = tags::morph_tag_lexc(morpheme, width);
@@ -929,9 +953,10 @@ fn emit_rule_allomorphs(
             counts.allomorphs_skipped += 1;
             continue;
         }
+        let owner = Some(allo.id);
         match first_insert_text(&allo.rhs) {
             InsertText::None => {
-                write_tag_entry(out, &tag_lexc, "", next, counts);
+                write_tag_entry(out, &tag_lexc, "", next, counts, pk, owner);
                 counts.allomorphs_emitted += 1;
             }
             InsertText::Text(t) => {
@@ -948,7 +973,7 @@ fn emit_rule_allomorphs(
                             });
                         }
                         for surface in &variants {
-                            write_tag_entry(out, &tag_lexc, surface, next, counts);
+                            write_tag_entry(out, &tag_lexc, surface, next, counts, pk, owner);
                         }
                         emitted_any = true;
                     }
@@ -967,12 +992,12 @@ fn emit_rule_allomorphs(
                 // deletion-junction spellings to the stripped-roots continuation instead.
                 if let Some(probe) = phon {
                     for surface in probe.variants(t) {
-                        write_tag_entry(out, &tag_lexc, &surface, next, counts);
+                        write_tag_entry(out, &tag_lexc, &surface, next, counts, pk, owner);
                         emitted_any = true;
                     }
                     if let Some(target) = junction_target {
                         for surface in probe.deletion_junctions(t) {
-                            write_tag_entry(out, &tag_lexc, &surface, target, counts);
+                            write_tag_entry(out, &tag_lexc, &surface, target, counts, pk, owner);
                             emitted_any = true;
                         }
                     }
@@ -1019,6 +1044,7 @@ fn build_deriv_chain(
     counts: &mut EmitCounts,
     phon: Option<&PhonologyProbe>,
     exit_is_roots: bool,
+    pk: &mut PrecisionEmit,
 ) -> String {
     let entry_name = format!("{prefix}0");
     if rules.is_empty() {
@@ -1057,6 +1083,7 @@ fn build_deriv_chain(
                 counts,
                 phon,
                 if is_final { junction_target.as_deref() } else { None },
+                pk,
             );
         }
     }
@@ -1141,6 +1168,7 @@ fn build_slot_chain(
     uncovered: &mut Vec<UncoveredItem>,
     counts: &mut EmitCounts,
     phon: Option<&PhonologyProbe>,
+    pk: &mut PrecisionEmit,
 ) -> String {
     let entry_name = format!("{prefix}0");
     if slots.is_empty() {
@@ -1171,7 +1199,7 @@ fn build_slot_chain(
                 }
             }
             emit_rule_allomorphs(
-                out, g, table, mid, zone_role, width, &next, uncovered, counts, phon, None,
+                out, g, table, mid, zone_role, width, &next, uncovered, counts, phon, None, pk,
             );
         }
     }
@@ -1640,7 +1668,22 @@ fn build_structural_composites(
 
 // --- Top-level emit ---------------------------------------------------------------------------
 
+/// `emit_with_precision(g, PrecisionConfig::Strip)` — v1's original, unconditional behavior.
+/// Callers that don't need the FST precision knob (`crate::precision`) keep using this; its output
+/// is byte-identical to before that module existed (verified, `tests/pk1_precision_recall_
+/// invariance.rs` and every other existing `hc-foma` gate).
 pub fn emit(g: &Grammar) -> EmitResult {
+    emit_with_precision(g, PrecisionConfig::Strip)
+}
+
+/// [`emit`], but with the FST precision knob (`crate::precision`) wired in: under
+/// [`PrecisionConfig::Strip`] (the default, and what [`emit`] always passes) this is
+/// byte-identical to the pre-knob emitter; under [`PrecisionConfig::AllFlags`], every
+/// `AllFlags`-coverable ENVIRONMENT gate-constraint instance (`crate::precision`'s module doc) is
+/// emitted as a real `@R@`+`@P@` flag scheme (require-only — exclude is declined this step, see
+/// `crate::precision`'s module doc finding 4) so `apply_up` refuses the illegal-environment
+/// paths those instances cover at lookup time.
+pub fn emit_with_precision(g: &Grammar, precision: PrecisionConfig) -> EmitResult {
     let width = tags::tag_width(g.morphemes.len());
     let table = surface_table(g);
 
@@ -1650,6 +1693,14 @@ pub fn emit(g: &Grammar) -> EmitResult {
         rules: g.mrules.len(),
         ..Default::default()
     };
+
+    // FST precision knob (`crate::precision`, step 1): the catalog walk is cheap (a handful of
+    // `Vec` scans over what `collect_roots`/the rule loop below already traverse) and safe to run
+    // unconditionally — `PrecisionEmit::build` only populates any lookup table when `precision ==
+    // AllFlags`, so under `Strip` every `pk.tagged_lower(..)` call below is a pure passthrough (see
+    // that module's doc).
+    let catalog = ConstraintCatalog::build(g);
+    let mut pk = PrecisionEmit::build(&catalog, precision);
 
     // P1 stage 2 (module doc, "Junction-aware affix/root emission"): `None` for a grammar with no
     // phonological rules at all (Sena) -- every call site below that takes `phon.as_ref()` then
@@ -1829,36 +1880,53 @@ pub fn emit(g: &Grammar) -> EmitResult {
         out.push_str(&lexc);
         out.push('\n');
     }
+    // FST precision knob (`crate::precision`): every flag symbol the `AllFlags` preset's covered
+    // ENVIRONMENT instances can emit -- lexc requires any multi-character token used in an entry
+    // to be pre-declared here, same as the tag symbols just above. Empty under `Strip`.
+    for sym in &pk.flag_symbols {
+        out.push_str(sym);
+        out.push('\n');
+    }
 
     // One lexc entry line per accepted spelling of one root (module doc, "Surface spelling").
-    let write_root_entries =
-        |out: &mut String, roots: &[&RootRec], continuation: &str, counts: &mut EmitCounts| {
-            for r in roots {
-                let tag_lexc = tags::root_tag_lexc(r.morpheme, width);
-                for v in &r.variants {
-                    write_tag_entry(out, &tag_lexc, v, continuation, counts);
-                }
+    // `pk`: `Some(r.id)` lets `crate::precision`'s ENVIRONMENT-family owner-side gate reroute a
+    // root allomorph's OWN entries too (Sena's dominant coverable shape turned out to be root-side
+    // `/ma_`/`/na_`, not the one rule-side `/mb_` hit — see `precision.rs`'s own test); every entry
+    // ALSO participates in the set side uniformly, regardless of owner, inside `write_tag_entry`.
+    let write_root_entries = |out: &mut String,
+                              roots: &[&RootRec],
+                              continuation: &str,
+                              counts: &mut EmitCounts,
+                              pk: &mut PrecisionEmit| {
+        for r in roots {
+            let tag_lexc = tags::root_tag_lexc(r.morpheme, width);
+            for v in &r.variants {
+                write_tag_entry(out, &tag_lexc, v, continuation, counts, pk, Some(r.id));
             }
-        };
+        }
+    };
     // The `{name}Stripped` sibling of a roots lexicon (module doc, "Junction-aware affix/root
     // emission"): one entry per root's OWN [`stripped_variants`], same tag, same continuation as
     // the intact lexicon. Falls back to a bare passthrough if not a single root offered a stripped
     // spelling (keeps the lexicon non-empty -- mirrors the `eligible_roots.is_empty()` fallback
     // below). Only ever called when `phon.is_some()`.
-    let write_stripped_root_entries =
-        |out: &mut String, roots: &[&RootRec], continuation: &str, counts: &mut EmitCounts| {
-            let mut any = false;
-            for r in roots {
-                let tag_lexc = tags::root_tag_lexc(r.morpheme, width);
-                for v in &r.stripped {
-                    write_tag_entry(out, &tag_lexc, v, continuation, counts);
-                    any = true;
-                }
+    let write_stripped_root_entries = |out: &mut String,
+                                       roots: &[&RootRec],
+                                       continuation: &str,
+                                       counts: &mut EmitCounts,
+                                       pk: &mut PrecisionEmit| {
+        let mut any = false;
+        for r in roots {
+            let tag_lexc = tags::root_tag_lexc(r.morpheme, width);
+            for v in &r.stripped {
+                write_tag_entry(out, &tag_lexc, v, continuation, counts, pk, Some(r.id));
+                any = true;
             }
-            if !any {
-                write_bare(out, continuation, counts);
-            }
-        };
+        }
+        if !any {
+            write_bare(out, continuation, counts);
+        }
+    };
     let all_roots: Vec<&RootRec> = roots.iter().collect();
     let has_templates = !g.templates.is_empty();
     // P1d (`crate::preexpand`): composites are emitted ONCE, in a single shared `Composites`
@@ -1879,7 +1947,7 @@ pub fn emit(g: &Grammar) -> EmitResult {
     // ---- LEXICON Root: bare roots, the template-less section, the outer-prefix hop into the
     // per-template dispatch ----
     write_lexicon_header(&mut out, "Root");
-    write_root_entries(&mut out, &all_roots, "#", &mut counts);
+    write_root_entries(&mut out, &all_roots, "#", &mut counts, &mut pk);
     if has_composites {
         write_bare(&mut out, "Composites", &mut counts);
     }
@@ -1895,7 +1963,7 @@ pub fn emit(g: &Grammar) -> EmitResult {
     if has_templates {
         build_deriv_chain(
             &mut out, g, table, "OuterPfx", Role::Prefix, &deriv_prefix, width, "TmplDispatch",
-            &mut uncovered, &mut counts, phon.as_ref(), false,
+            &mut uncovered, &mut counts, phon.as_ref(), false, &mut pk,
         );
         // One line per template's prefix-chain entry, deduped (templates with no prefix slots
         // all point straight at their group's prefix-derivation entry). `classify_template` here
@@ -1920,7 +1988,7 @@ pub fn emit(g: &Grammar) -> EmitResult {
         // later-stratum rules apply outside a completed template — see module doc).
         build_deriv_chain(
             &mut out, g, table, "OuterSfx", Role::Suffix, &deriv_suffix, width, "#",
-            &mut uncovered, &mut counts, phon.as_ref(), false,
+            &mut uncovered, &mut counts, phon.as_ref(), false, &mut pk,
         );
     }
 
@@ -1928,10 +1996,10 @@ pub fn emit(g: &Grammar) -> EmitResult {
     if has_template_less_section {
         build_deriv_chain(
             &mut out, g, table, "TLPfx", Role::Prefix, &deriv_prefix, width, "TLRoots",
-            &mut uncovered, &mut counts, phon.as_ref(), true,
+            &mut uncovered, &mut counts, phon.as_ref(), true, &mut pk,
         );
         write_lexicon_header(&mut out, "TLRoots");
-        write_root_entries(&mut out, &all_roots, "TLPost", &mut counts);
+        write_root_entries(&mut out, &all_roots, "TLPost", &mut counts, &mut pk);
         if has_composites {
             write_bare(&mut out, "Composites", &mut counts);
         }
@@ -1939,7 +2007,7 @@ pub fn emit(g: &Grammar) -> EmitResult {
             // `TLRoots`' `Stripped` sibling (module doc, "Junction-aware affix/root emission"):
             // `TLPfx`'s final level routes every deletion-junction hit here instead of `TLRoots`.
             write_lexicon_header(&mut out, "TLRootsStripped");
-            write_stripped_root_entries(&mut out, &all_roots, "TLPost", &mut counts);
+            write_stripped_root_entries(&mut out, &all_roots, "TLPost", &mut counts, &mut pk);
         }
         write_lexicon_header(&mut out, "TLPost");
         write_bare(&mut out, "TLSfx0", &mut counts);
@@ -1957,20 +2025,20 @@ pub fn emit(g: &Grammar) -> EmitResult {
             write_bare(&mut out, "TLCmpPfx0", &mut counts);
             build_deriv_chain(
                 &mut out, g, table, "TLCmpPfx", Role::Prefix, &deriv_prefix, width, "TLCmpRoots",
-                &mut uncovered, &mut counts, phon.as_ref(), true,
+                &mut uncovered, &mut counts, phon.as_ref(), true, &mut pk,
             );
             write_lexicon_header(&mut out, "TLCmpRoots");
-            write_root_entries(&mut out, &all_roots, "TLSfx0", &mut counts);
+            write_root_entries(&mut out, &all_roots, "TLSfx0", &mut counts, &mut pk);
             if phon.is_some() {
                 // `TLCmpRoots`' `Stripped` sibling — `TLCmpPfx`'s final level routes every
                 // deletion-junction hit here (module doc, "Junction-aware affix/root emission").
                 write_lexicon_header(&mut out, "TLCmpRootsStripped");
-                write_stripped_root_entries(&mut out, &all_roots, "TLSfx0", &mut counts);
+                write_stripped_root_entries(&mut out, &all_roots, "TLSfx0", &mut counts, &mut pk);
             }
         }
         build_deriv_chain(
             &mut out, g, table, "TLSfx", Role::Suffix, &deriv_suffix, width, "#",
-            &mut uncovered, &mut counts, phon.as_ref(), false,
+            &mut uncovered, &mut counts, phon.as_ref(), false, &mut pk,
         );
     }
 
@@ -1998,6 +2066,7 @@ pub fn emit(g: &Grammar) -> EmitResult {
                     &mut uncovered,
                     &mut counts,
                     phon.as_ref(),
+                    &mut pk,
                 );
                 join_lines.insert(entry);
             }
@@ -2021,6 +2090,7 @@ pub fn emit(g: &Grammar) -> EmitResult {
             &mut counts,
             phon.as_ref(),
             false,
+            &mut pk,
         );
 
         let post_name = format!("G{gi}Post");
@@ -2039,13 +2109,13 @@ pub fn emit(g: &Grammar) -> EmitResult {
             write_bare(&mut out, &format!("{cmp_pfx}0"), &mut counts);
             build_deriv_chain(
                 &mut out, g, table, &cmp_pfx, Role::Prefix, &deriv_prefix, width, &cmp_roots,
-                &mut uncovered, &mut counts, phon.as_ref(), true,
+                &mut uncovered, &mut counts, phon.as_ref(), true, &mut pk,
             );
             write_lexicon_header(&mut out, &cmp_roots);
-            write_root_entries(&mut out, &all_roots, &sfx_deriv_entry, &mut counts);
+            write_root_entries(&mut out, &all_roots, &sfx_deriv_entry, &mut counts, &mut pk);
             if phon.is_some() {
                 write_lexicon_header(&mut out, &format!("{cmp_roots}Stripped"));
-                write_stripped_root_entries(&mut out, &all_roots, &sfx_deriv_entry, &mut counts);
+                write_stripped_root_entries(&mut out, &all_roots, &sfx_deriv_entry, &mut counts, &mut pk);
             }
         }
 
@@ -2085,7 +2155,7 @@ pub fn emit(g: &Grammar) -> EmitResult {
             // satisfy; the passthrough admits a root-less path, harmless overgeneration).
             write_bare(&mut out, &post_name, &mut counts);
         } else {
-            write_root_entries(&mut out, &eligible_roots, &post_name, &mut counts);
+            write_root_entries(&mut out, &eligible_roots, &post_name, &mut counts, &mut pk);
         }
         // P1d (`crate::preexpand`): the group's root section also admits every composite stem, via
         // the shared `Composites` lexicon (see LEXICON Root's comment — no per-group category
@@ -2101,7 +2171,7 @@ pub fn emit(g: &Grammar) -> EmitResult {
             if eligible_roots.is_empty() {
                 write_bare(&mut out, &post_name, &mut counts);
             } else {
-                write_stripped_root_entries(&mut out, &eligible_roots, &post_name, &mut counts);
+                write_stripped_root_entries(&mut out, &eligible_roots, &post_name, &mut counts, &mut pk);
             }
         }
 
@@ -2118,6 +2188,7 @@ pub fn emit(g: &Grammar) -> EmitResult {
             &mut counts,
             phon.as_ref(),
             true,
+            &mut pk,
         );
 
         for &ti in &group_templates[gi] {
@@ -2139,6 +2210,7 @@ pub fn emit(g: &Grammar) -> EmitResult {
                 &mut uncovered,
                 &mut counts,
                 phon.as_ref(),
+                &mut pk,
             );
         }
     }
@@ -2148,7 +2220,7 @@ pub fn emit(g: &Grammar) -> EmitResult {
         write_lexicon_header(&mut out, "Composites");
         for c in &composites {
             for v in &c.variants {
-                write_tag_entry(&mut out, &c.tag_lexc, v, "CompositeExit", &mut counts);
+                write_tag_entry(&mut out, &c.tag_lexc, v, "CompositeExit", &mut counts, &mut pk, None);
             }
         }
         // The union of every post-root continuation in this grammar — a composite stem can go
