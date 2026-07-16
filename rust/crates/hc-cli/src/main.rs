@@ -629,13 +629,16 @@ fn run_batch(args: &[String]) -> Result<(), String> {
         // P3 (docs/fst-plan/foma-fst-plan.md): the foma path — one `FomaAnalyzer` built once
         // (the expensive emit+foma-compile step), reused across every word, exactly like
         // `hc_parse::Morpher` is built once above. `FomaProposer::propose` takes `&mut self`
-        // (the `foma` crate's `apply_init` handle is stateful per call), so this runs
+        // (the `foma` crate's `ApplyHandle` is stateful per call), so this runs
         // single-threaded regardless of `--threads` — the same shape as the `threads == 1`
         // legacy sequential writer below (STARTED sentinel + per-line flush), just routed
         // through `FomaAnalyzer::analyze_word` instead of `Morpher::parse_word`. `--step-cap`/
-        // `--word-timeout-ms`/`--memo` do not apply to this path (the verifier `Morpher` inside
-        // `FomaAnalyzer` is always uncapped, per plan §2) and are silently ignored, matching how
-        // the default engine silently ignores flags it doesn't ship yet.
+        // `--memo` do not apply to this path (the verifier `Morpher` inside `FomaAnalyzer` is
+        // always uncapped, per plan §2) and are silently ignored, matching how the default engine
+        // silently ignores flags it doesn't ship yet. `--word-timeout-ms` DOES apply here (wired
+        // via `FomaAnalyzer::with_word_timeout`, threading straight to the same internal
+        // `Morpher::with_word_timeout` the default engine below uses) — omitted (the default)
+        // stays a complete no-op, matching this flag's contract everywhere else.
         if threads != 1 {
             eprintln!(
                 "hc-rs batch --engine=foma: --threads {threads} ignored (foma path is single-threaded)"
@@ -643,7 +646,8 @@ fn run_batch(args: &[String]) -> Result<(), String> {
         }
         let t_compile = Instant::now();
         let mut analyzer = FomaAnalyzer::new(&grammar)
-            .map_err(|e| format!("foma compile failed for {grammar_path}: {e}"))?;
+            .map_err(|e| format!("foma compile failed for {grammar_path}: {e}"))?
+            .with_word_timeout(word_timeout_ms.map(Duration::from_millis));
         let compile_ms = t_compile.elapsed().as_secs_f64() * 1e3;
         eprintln!(
             "LOADTIME\tengine=foma\tgrammar_load_ms={grammar_load_ms:.3}\tanalyzer_build_ms={compile_ms:.3}\ttotal_ms={:.3}",

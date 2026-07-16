@@ -14,7 +14,7 @@ use std::fmt;
 use foma::apply::apply_init;
 use foma::lexcread::fsm_lexc_parse_string;
 use foma::options::FomaOptions;
-use foma::types::Fsm;
+use foma::types::ApplyHandle;
 
 use hc_grammar::model::Grammar;
 
@@ -49,23 +49,33 @@ impl std::error::Error for FomaError {}
 
 pub type Result<T> = std::result::Result<T, FomaError>;
 
-/// The compiled foma network for one grammar, plus the emitter's own report (uncovered
-/// constructs, counts, tier — plan P1 gate F1's "counts are plausible" assertions read this).
+/// The compiled foma network for one grammar (as a live [`ApplyHandle`], see below), plus the
+/// emitter's own report (uncovered constructs, counts, tier — plan P1 gate F1's "counts are
+/// plausible" assertions read this).
 pub struct FomaProposer {
-    net: Box<Fsm>,
+    // Built ONCE in `new` via `apply_init` and reused across every `propose` call (see that
+    // method's doc for why this is sound). `ApplyHandle` owns a full clone of the compiled `Fsm`
+    // (`foma::apply::apply_init`'s doc: "DEVIATION from C (owns a clone; the handle never mutates
+    // it, so observably equivalent for application)") plus its own grammar-static index tables
+    // (`apply_create_statemap`/`apply_create_sigarray`, built once inside `apply_init` itself) —
+    // it is fully owned/`'static`, not a borrow of any `Fsm` this struct would also need to store,
+    // so there is no self-referential-struct trap here: the original `Box<Fsm>` `fsm_lexc_parse_string`
+    // returned is consumed by `apply_init` and can be (is) dropped once the handle exists.
+    handle: Box<ApplyHandle>,
     pub report: EmitReport,
 }
 
 impl FomaProposer {
-    /// Emit `g`'s lexc source and compile it. `Err` iff `foma`'s lexc compiler itself rejects the
-    /// source (a bug in this crate's emitter, not a grammar-content problem — the emitter's own
-    /// `uncovered` list is how grammar CONTENT gaps are reported, always alongside `Ok`).
+    /// Emit `g`'s lexc source, compile it, and build the (word-independent) `ApplyHandle` once.
+    /// `Err` iff `foma`'s lexc compiler itself rejects the source (a bug in this crate's emitter,
+    /// not a grammar-content problem — the emitter's own `uncovered` list is how grammar CONTENT
+    /// gaps are reported, always alongside `Ok`).
     pub fn new(g: &Grammar) -> Result<Self> {
         let result = emit::emit(g);
         let opts = FomaOptions::default();
         match fsm_lexc_parse_string(&opts, None, &result.lexc_source) {
             Some(net) => Ok(FomaProposer {
-                net,
+                handle: apply_init(&net),
                 report: result.report,
             }),
             None => Err(FomaError::LexcCompileFailed(result.report)),
@@ -78,12 +88,21 @@ impl FomaProposer {
     /// Dedups by `(morphemes, root_index)`, preserving first-seen order across BOTH the
     /// `apply_up` path order and, within one path, the compound-split order (`tags::to_candidates`
     /// already yields ascending root-position order for a single path).
+    ///
+    /// Reuses `self.handle` across calls rather than rebuilding it per word (vendored
+    /// `foma::apply::apply_init`, ~apply.rs:481-577, unconditionally deep-clones the whole
+    /// compiled `Fsm` and rebuilds `apply_create_statemap`/`apply_create_sigarray` — all a
+    /// function of the NETWORK only, never the word). The per-word entry point,
+    /// `foma::apply::apply_up` (apply.rs:462-475, reached via `ApplyHandle::up`, apply.rs:667-669),
+    /// resets only per-word state — `h.instring`, `apply_create_sigmatch` (word-derived sigma
+    /// matches), and `apply_force_clear_stack` (apply.rs:424-433's `apply_updown`, the `Some(w)`
+    /// arm) — leaving `last_net`/`statemap`/`sigmatch_array`/`sigma_trie` (the grammar-static
+    /// tables) untouched, so repeated `up` calls on one handle are exactly the reuse this needs.
     pub fn propose(&mut self, word: &str) -> Vec<Candidate> {
         let normalized = hc_grammar::nfd::nfd(word);
-        let mut handle = apply_init(&self.net);
         let mut seen: HashSet<(Vec<u32>, i32)> = HashSet::new();
         let mut out = Vec::new();
-        for s in handle.up(&normalized) {
+        for s in self.handle.up(&normalized) {
             let Some(path) = tags::decode_path(&s) else {
                 continue;
             };

@@ -11,6 +11,8 @@
 //! contribute zero matches); under-generation would be a recall bug in `propose`/`peel_candidates`
 //! themselves (P1's job, already gated).
 
+use std::time::Duration;
+
 use hc_grammar::model::Grammar;
 use hc_parse::{Morpher, WordAnalysis};
 
@@ -147,6 +149,21 @@ impl<'g> FomaAnalyzer<'g> {
 
     pub fn grammar(&self) -> &'g Grammar {
         self.g
+    }
+
+    /// Arm (or leave unarmed) the internal confirming [`Morpher`]'s `--word-timeout-ms` deadline
+    /// (`hc_parse::Morpher::with_word_timeout`). `None` (also [`Self::new`]/[`Self::from_cached`]'s
+    /// implicit default) is a complete no-op — behavior stays byte-identical to before this
+    /// existed. NOTE: this only threads through the `Morpher` [`Self::new`]/[`Self::from_cached`]
+    /// just built for THIS instance — [`Self::into_parts`]/[`Self::from_cached`]'s cached-pieces
+    /// round trip does not persist the timeout (the `Morpher<'g>` it rebuilds is never one of the
+    /// cached pieces, per that method's own doc), so a caller using that path must call this again
+    /// after every `from_cached`.
+    pub fn with_word_timeout(self, timeout: Option<Duration>) -> Self {
+        FomaAnalyzer {
+            morpher: self.morpher.with_word_timeout(timeout),
+            ..self
+        }
     }
 
     /// Rehydrate a `FomaAnalyzer` from previously-built OWNED pieces (a compiled [`FomaProposer`]
