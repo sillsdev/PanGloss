@@ -399,6 +399,18 @@ repo — coordinate, don't edit it here beyond what's needed to test).
 **Gate F4:** wasm builds; demo analyzes Indonesian + Sena sample text with identical
 results to native; bundle-size delta reported (budget: total < 10 MB).
 
+**Gate F4 verdict (2026-07-16): MET.** wasm32 build succeeds; a node runtime smoke
+(`rust/tools/f4-wasm-smoke.js`, loads the actual wasm32 build) constructs
+`PanGlossGrammar` for both grammars with `engineKind() == "foma"` and analyzes with the
+foma engine: Indonesian `ajar` -> [instruct, teach], Sena `mbali` -> 8 analyses. Release
+bundle `hc_wasm_bg.wasm` = **1.58 MB** (budget < 10 MB). Two wasm32 RUNTIME crashes had to
+be fixed to get here — both compiled cleanly under gate F0's `cargo check` and only surfaced
+at runtime: (1) foma 0.1.1's `apply_init` `SystemTime::now()` seed (fixed in the vendored
+foma copy + upstream PR divvun/foma-rs#1); (2) the emit-time `probe_surface` `thread::spawn`
+(fixed by running inline on wasm32). LESSON: the wasm32 gate needs a RUNTIME smoke, not just
+`cargo check` — `f4-wasm-smoke.js` is that smoke and should be re-run on any change touching
+the emit/proposer path or the foma dependency.
+
 ### P5 — Sunset + docs (gate F5)
 Per D8: delete `hc-hybrid`, `fst-stats`, fst-advisor goldens + gate tests; workspace
 `Cargo.toml` cleanup; status headers on the seven `docs/fst-plan/*.md` legacy docs; this
