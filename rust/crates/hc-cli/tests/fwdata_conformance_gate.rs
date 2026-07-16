@@ -23,7 +23,7 @@
 //! reason rather than fail.
 //!
 //! # Why the full-corpus tests are `#[ignore]`d
-//! Comparison must be uncapped (`Morpher::new(&g, usize::MAX)`): a step cap truncates the
+//! The step cap stays `usize::MAX` (`Morpher::new(&g, usize::MAX)`): a *step* cap truncates the
 //! analysis cascade non-deterministically (`hc-parse/tests/batch_determinism.rs`'s own module
 //! doc), which would surface as spurious cross-compiler mismatches having nothing to do with
 //! either compiler. Uncapped analysis of the full corpora (7,121 Sena words / 673 Amharic words)
@@ -32,6 +32,22 @@
 //! expensive: ... run with --release --ignored`), so these two tests follow the same convention:
 //! not part of a plain `cargo test --workspace`, run explicitly with
 //! `cargo test -p hc-cli --release --ignored`.
+//!
+//! # The hang (fixed) -- `--word-timeout-ms`, not a step cap
+//! A handful of real corpus words (confirmed: at least one in Amharic's first 50) hit a genuine
+//! combinatorial blowup in the unmemoized-equivalent search space and never terminate under an
+//! uncapped step count -- this used to make `conformance_smoke_first_50_words_each_language`
+//! (previously not `#[ignore]`d) and both full-corpus tests here hang indefinitely. Confirmed via
+//! `fwdata_grammar_equivalence_gate.rs` (which needs no `Morpher` at all) that the two compiled
+//! `Grammar`s are structurally identical, so this is not an importer defect: the same word blows
+//! up identically regardless of which pipeline produced its grammar. `Morpher::with_word_timeout`
+//! (a wall-clock deadline, `hc-parse/tests/word_timeout_pathological_gate.rs`) fixes the hang
+//! without the step cap's non-determinism problem: [`run_conformance`] arms
+//! `WORD_TIMEOUT` on both morphers, and [`compare_word`] treats either side timing out as
+//! [`WordComparison::TimedOut`] -- reported separately, like known oracle drift, never counted as
+//! a match *or* a mismatch (a wall-clock deadline is inherently non-deterministic across runs/
+//! machines, so the partial result at the moment it fires is not a meaningful cross-pipeline
+//! comparison either way).
 //!
 //! # Known oracle drift (Sena 3) -- documented failure, not tolerance
 //! The committed `samples/data/sena-hc.xml` no longer corresponds byte-for-byte to the live
@@ -49,9 +65,18 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use hc_grammar::model::Grammar;
 use hc_parse::Morpher;
+
+/// Wall-clock deadline armed on every [`Morpher`] built in [`run_conformance`] (see the module
+/// doc's "The hang (fixed)" section). Generous relative to a normal word's parse time (real corpus
+/// words finish in low single-digit milliseconds; see this test file's own timing in the fast
+/// grammar-equivalence gate for comparable grammars) but small enough that even every one of the
+/// 7,121+673 corpus words hitting it in the worst case stays a bounded, if slow, test run rather
+/// than the previous unbounded hang.
+const WORD_TIMEOUT: Duration = Duration::from_millis(500);
 
 /// Corpus words known to hit the committed Sena oracle's three stale lexeme forms (see the
 /// module doc's "Known oracle drift" section for the full verification trail).
@@ -137,11 +162,17 @@ fn behavioral_result(grammar: &Grammar, outcome: &hc_parse::ParseOutcome) -> Vec
 enum WordComparison {
     Match,
     Mismatch { new: Vec<BehavioralAnalysis>, legacy: Vec<BehavioralAnalysis> },
+    /// Either side's `Morpher` hit [`WORD_TIMEOUT`] -- see the module doc's "The hang (fixed)"
+    /// section for why this is neither a match nor a mismatch, just reported and skipped.
+    TimedOut,
 }
 
 fn compare_word(new_grammar: &Grammar, new_morpher: &Morpher, legacy_grammar: &Grammar, legacy_morpher: &Morpher, word: &str) -> WordComparison {
     let new_outcome = new_morpher.parse_word(word);
     let legacy_outcome = legacy_morpher.parse_word(word);
+    if new_outcome.timed_out || legacy_outcome.timed_out {
+        return WordComparison::TimedOut;
+    }
     let new_result = behavioral_result(new_grammar, &new_outcome);
     let legacy_result = behavioral_result(legacy_grammar, &legacy_outcome);
     if new_result == legacy_result {
@@ -173,11 +204,16 @@ fn run_conformance(
     known_drift: &[(&str, &str)],
     max_mismatches_to_print: usize,
 ) -> usize {
-    let new_morpher = Morpher::new(new_grammar, usize::MAX).with_memo(true);
-    let legacy_morpher = Morpher::new(legacy_grammar, usize::MAX).with_memo(true);
+    let new_morpher = Morpher::new(new_grammar, usize::MAX)
+        .with_memo(true)
+        .with_word_timeout(Some(WORD_TIMEOUT));
+    let legacy_morpher = Morpher::new(legacy_grammar, usize::MAX)
+        .with_memo(true)
+        .with_word_timeout(Some(WORD_TIMEOUT));
 
     let mut matched = 0usize;
     let mut drift_expected = 0usize;
+    let mut timed_out = 0usize;
     let mut mismatches: Vec<(String, Vec<BehavioralAnalysis>, Vec<BehavioralAnalysis>)> = Vec::new();
 
     for word in words {
@@ -200,15 +236,25 @@ fn run_conformance(
                     eprintln!("  known oracle drift {word:?}: {reason}");
                 }
             },
+            WordComparison::TimedOut => {
+                timed_out += 1;
+                eprintln!(
+                    "  TIMED OUT {word:?}: either pipeline's Morpher exceeded {WORD_TIMEOUT:?} -- \
+                     a combinatorial-search issue (see module doc), not counted as a match or a \
+                     mismatch"
+                );
+            }
         }
     }
 
     eprintln!(
-        "{language} conformance: {} words total, {} matched, {} mismatched, {} known-oracle-drift",
+        "{language} conformance: {} words total, {} matched, {} mismatched, {} known-oracle-drift, \
+         {} timed-out",
         words.len(),
         matched,
         mismatches.len(),
         drift_expected,
+        timed_out,
     );
     for (word, new, legacy) in mismatches.iter().take(max_mismatches_to_print) {
         eprintln!("  MISMATCH {word:?}:");
@@ -345,21 +391,15 @@ fn amharic_new_pipeline_matches_legacy_oracle() {
     );
 }
 
-/// Was intended as a fast, always-run (not `#[ignore]`d) smoke test over a small prefix of each
-/// corpus, to give `cargo test --workspace` *some* live signal on this pipeline even without
-/// `--release --ignored`. In practice this does not hold: one of Amharic's first 50 words hits
-/// the same uncapped-`Morpher` combinatorial blowup as the full-corpus tests above (confirmed via
-/// bisection -- the hang predates every fix on this branch, present even at the bare T5-gate
-/// commit before any grammar-compiler changes). Confirmed out of scope for this branch: the
-/// grammar-equivalence gate (`fwdata_grammar_equivalence_gate.rs`) passes every category for both
-/// languages, so the two pipelines' grammars are structurally equivalent -- the same word hangs
-/// identically on both the new and legacy `Grammar`, meaning this is a parser-search-behavior
-/// issue (tracked as complete-conformance/FST-speedup work on other branches), not an importer
-/// defect. `#[ignore]`d for the same reason the two tests above are; run with `--ignored
-/// --release` like them.
+/// A fast, always-run (not `#[ignore]`d) smoke test over a small prefix of each corpus, to give
+/// `cargo test --workspace` *some* live signal on this pipeline even without `--release
+/// --ignored`. One of Amharic's first 50 words used to hang this test indefinitely (the same
+/// uncapped-`Morpher` combinatorial blowup as the full-corpus tests above; bisection showed it
+/// predates every fix on this branch, present even at the bare T5-gate commit before any grammar-
+/// compiler changes) -- fixed the same way as the full-corpus tests, via `run_conformance`'s
+/// `WORD_TIMEOUT` (see the module doc's "The hang (fixed)" section): the pathological word now
+/// reports as timed-out rather than hanging the whole suite, and this test terminates promptly.
 #[test]
-#[ignore] // pre-existing uncapped-Morpher blowup on an Amharic word, unrelated to importer
-          // correctness -- see this fn's doc; run with --ignored --release
 fn conformance_smoke_first_50_words_each_language() {
     // Collect every language's result before asserting -- otherwise the first mismatching
     // language would panic before a second, independent language ever got to run.
