@@ -162,15 +162,40 @@ fn resolve_pins(
 /// (root set, rule set) groups 356ms — never regresses but rarely merges, because real FST
 /// candidates mostly differ in rule SETS, not just morpheme order.
 ///
-/// **What this implements — root-set groups, sub-chunked by bounded rule-union slack:**
-/// candidates are grouped by root set (designated root + extra compound roots — the lexicon pin
-/// stays exactly as tight as per-candidate confirm), then greedily sub-chunked so that a chunk's
-/// rule-set UNION never exceeds its largest member's own rule set by more than
-/// [`RULE_UNION_SLACK`] rules. Homogeneous candidate families (shared rule core, the antumira/
-/// kakamwe shape) merge into a few parses; rule-diverse families (the kutongera shape) fall back
-/// toward tight per-candidate parses automatically.
+/// **What this implements — root-set groups, sub-chunked by bounded rule-union slack, THEN
+/// fused across root sets on an exact rule-filter match:**
+/// 1. candidates are grouped by root set (designated root + extra compound roots — the lexicon
+///    pin stays exactly as tight as per-candidate confirm), then greedily sub-chunked so that a
+///    chunk's rule-set UNION never exceeds its largest member's own rule set by more than
+///    [`RULE_UNION_SLACK`] rules. Homogeneous candidate families (shared rule core, the antumira/
+///    kakamwe shape) merge into a few parses; rule-diverse families (the kutongera shape) fall
+///    back toward tight per-candidate parses automatically.
+/// 2. **Cross-root-set fusion** (2026-07-16, the "identical morpheme-derivation, different
+///    proposed root" redundancy a tracer found costing ~1.8s of one Amharic word's *unbatched*
+///    confirm, and — measured after step 1 above already existed — still ~54% of the *batched*
+///    Sena confirm total): the analysis-phase mrule/template unapplication cascade
+///    (`hc_parse::Morpher::parse_word_core_selected`'s step 2) never reads `lex_entry_filter` —
+///    that closure is threaded into exactly one place, the step-3 `lexical_lookup_filtered` call
+///    — so two chunks from *different* root-set groups that happen to need the exact same
+///    `rule_filter` predicate (same admitted-`MRuleId` SET, same `Compounding`-admission flag)
+///    are provably computing the byte-identical analysis-phase result; they differ only in which
+///    root entries get admitted at the cheap step-3/4 lexical-lookup+synthesis stage. Such chunks
+///    are fused into ONE `parse_word_selected` call whose `lex_entry_filter` is the union of the
+///    constituent root keys and whose `rule_filter` set is left untouched (carried through
+///    explicitly as `any_extra_roots`, never re-derived from the fused root key's length — see
+///    the loop below). Measured on Sena's `cinagumanika`: 4 chunks across 4 distinct root keys
+///    shared `rule_ids=[15,21,51,54,58,120,134]` at ~50-66ms apiece; fusing them into one call
+///    keeps one ~50ms analysis pass instead of four.
 ///
-/// **Why a chunk's union parse preserves its members' per-candidate results exactly:**
+///    Deliberately EXACT rule-SET equality only, no slack: approximating here (the way step 1's
+///    RULE_UNION_SLACK does within one root set) would re-admit the broadened-rule-filter search
+///    blowup that step 1's slack bound exists to avoid, and would demote this fusion from "the
+///    analysis phase is provably identical" to merely "safe by downstream positional routing" —
+///    the weaker argument the unfused case already relies on for its own correctness.
+///
+/// **Why a chunk's union parse preserves its members' per-candidate results exactly** (both the
+/// within-root-set union of step 1 and the cross-root-set fusion of step 2 — the argument is the
+/// same shape for both, since fusion only ever *widens* `lex_entry_filter`, never the rule set):
 /// - *No loss:* each member's own filters are a subset of the chunk's (wider admits more, the
 ///   morpher is uncapped so nothing truncates).
 /// - *No spurious gain:* a derivation admitted by the chunk but not by some member's own filters
@@ -179,9 +204,13 @@ fn resolve_pins(
 ///   match and routes elsewhere (or nowhere). The one morpheme-less rule kind, `Compounding`, is
 ///   gated per root set: it is admitted iff the root set has extra roots, identical to every
 ///   member's own flag, and a compound derivation carries the extra root's MORPHEME in its
-///   sequence anyway.
+///   sequence anyway. Fusion carries `any_extra_roots` through unchanged (never recomputed from
+///   the fused/union root key), so this gate is untouched by fusion.
 /// - *At most one bucket per analysis:* buckets are keyed by exact `(morpheme sequence,
-///   root_index)`, distinct after the caller's dedup, so routing is a map lookup.
+///   root_index)`, distinct after the caller's dedup, so routing is a map lookup. Two fused
+///   members always come from *different* root sets, hence different designated root
+///   `LexEntryId`s, hence different root `MorphemeId`s at their own `root_index` (`owner_of` is a
+///   pure function of morpheme id) — so fused members can never collide on this key either.
 pub fn confirm_batch(
     g: &Grammar,
     owners: &[Option<MorphemeOwner>],
@@ -246,12 +275,51 @@ pub fn confirm_batch(
         }
     }
 
-    for (root_key, chunk) in &work {
+    // 3) Cross-root-set fusion (see doc above): merge `work` entries whose `rule_filter`
+    //    predicate would be BYTE-IDENTICAL — same admitted-`MRuleId` set, same `any_extra_roots`
+    //    (`Compounding`-admission) flag — regardless of which root set they came from. Keyed by
+    //    the rule set's sorted `MRuleId` list + the flag, so equality is exact, never slack-based.
+    struct FusedChunk {
+        /// Union of every fused member's own root set, sorted + deduped (widens only
+        /// `lex_entry_filter`; the analysis-phase-determining fields below are untouched).
+        root_keys: Vec<u32>,
+        members: Vec<usize>,
+        union_rules: HashSet<MRuleId>,
+        /// Carried through from each original chunk's own root-set length, NEVER recomputed from
+        /// `root_keys` post-fusion — fusion can turn a single-root chunk's root set into a
+        /// multi-entry union, and re-deriving the flag from that union's length would flip
+        /// `Compounding` admission for members whose own pins never asked for it (see doc above).
+        any_extra_roots: bool,
+    }
+    let mut fused: rustc_hash::FxHashMap<(Vec<u32>, bool), FusedChunk> =
+        rustc_hash::FxHashMap::default();
+    for (root_key, chunk) in work {
+        let any_extra_roots = root_key.len() > 1;
+        let mut rule_ids: Vec<u32> = chunk.union_rules.iter().map(|r| r.0).collect();
+        rule_ids.sort_unstable();
+        fused
+            .entry((rule_ids, any_extra_roots))
+            .and_modify(|f| {
+                for r in &root_key {
+                    if let Err(pos) = f.root_keys.binary_search(r) {
+                        f.root_keys.insert(pos, *r);
+                    }
+                }
+                f.members.extend(&chunk.members);
+            })
+            .or_insert_with(|| FusedChunk {
+                root_keys: root_key,
+                members: chunk.members,
+                union_rules: chunk.union_rules,
+                any_extra_roots,
+            });
+    }
+
+    for chunk in fused.values() {
         let members = &chunk.members;
         let union_rules = &chunk.union_rules;
-        // Extra roots present iff the root set has more than the designated root — identical
-        // across members (same root set), matching each member's own per-candidate flag.
-        let any_extra_roots = root_key.len() > 1;
+        let any_extra_roots = chunk.any_extra_roots;
+        let root_key = &chunk.root_keys;
 
         // Route each outcome analysis to the (at most one) group member it positionally matches.
         // Defensive `entry().or_insert()` keeps first-wins semantics if a caller ever passes
