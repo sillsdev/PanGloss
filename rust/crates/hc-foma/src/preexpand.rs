@@ -109,12 +109,16 @@
 
 use hc_featstruct::{flat_unifiable, is_unifiable, FsId};
 use hc_grammar::chardef::{CharDefId, CharDefKind, CharDefTable};
-use hc_grammar::model::{AllomorphId, Grammar, MRuleId, MorphRuleDef, MorphemeId, OutputAction};
+use hc_grammar::model::{
+    AllomorphId, Grammar, LexEntryId, MRuleId, MorphRuleDef, MorphemeId, OutputAction,
+};
 use hc_rules::cache::RuleCache;
 use hc_rules::morph::synthesize_cached;
 use hc_rules::surface_probe::{self, ProbeSeg};
 use hc_rules::word::{MorphRecord, Word};
 use hc_shape::NO_CHAR_DEF;
+#[cfg(not(target_arch = "wasm32"))]
+use rayon::prelude::*;
 
 use crate::emit::{rule_role, stripped_variants, surface_variants, Role};
 use crate::junctions::PhonologyProbe;
@@ -628,10 +632,171 @@ fn extend(
     }
 }
 
+/// Precomputes [`build_allomorph_variants`] for EVERY candidate rule against EVERY distinct root
+/// table this grammar's entries actually use, up front, before [`build_composites`]'s per-root loop
+/// starts (perf: parallelization plan part 2). This used to be a lazily-triggered
+/// `HashMap::or_insert_with` inside the root loop -- correct, but paid its ~3.4s (Amharic,
+/// profiled) first-touch cost serially, on whichever root happened to reach a given table first,
+/// and would have needed its own locking to stay sound once the root loop itself went parallel
+/// (below). Precomputing here instead means: (1) the cost becomes a one-time, parallelizable-across-
+/// rules pass instead of a serial tax paid inside the hot loop, and (2) every [`PhonologyProbe`]
+/// cache entry [`build_allomorph_variants`] can populate (`variants`/`deletion_junctions`, both
+/// `Mutex`-backed -- see that struct's doc) is already warm by the time [`build_composites`]'s
+/// parallel root workers start calling into it, so those workers only ever hit a cache HIT (a cheap
+/// lock+clone), never a concurrent first-touch compute race. Almost every reference grammar has
+/// exactly one distinct table (all strata share it), so `table_ids` has length 1 in practice and the
+/// real parallelism here is across `rules` (87 on Amharic); nested rayon parallel iterators (outer
+/// over tables, inner over rules) are fine either way -- rayon's work-stealing scheduler handles the
+/// degenerate outer-length-1 case with no overhead.
+fn build_rule_variants_all_tables(
+    g: &Grammar,
+    phon: Option<&PhonologyProbe>,
+    rules: &[(MRuleId, Role)],
+    table_ids: &[u16],
+) -> rustc_hash::FxHashMap<u16, Vec<Vec<AllomorphVariants>>> {
+    let one_table = |table_id: u16| -> (u16, Vec<Vec<AllomorphVariants>>) {
+        let root_table = &g.char_tables[table_id as usize];
+        #[cfg(target_arch = "wasm32")]
+        let variants: Vec<Vec<AllomorphVariants>> = rules
+            .iter()
+            .map(|(mid, _)| build_allomorph_variants(root_table, phon, &g.mrules[mid.0 as usize]))
+            .collect();
+        #[cfg(not(target_arch = "wasm32"))]
+        let variants: Vec<Vec<AllomorphVariants>> = rules
+            .par_iter()
+            .map(|(mid, _)| build_allomorph_variants(root_table, phon, &g.mrules[mid.0 as usize]))
+            .collect();
+        (table_id, variants)
+    };
+
+    #[cfg(target_arch = "wasm32")]
+    let per_table: Vec<(u16, Vec<Vec<AllomorphVariants>>)> =
+        table_ids.iter().map(|&t| one_table(t)).collect();
+    #[cfg(not(target_arch = "wasm32"))]
+    let per_table: Vec<(u16, Vec<Vec<AllomorphVariants>>)> =
+        table_ids.par_iter().map(|&t| one_table(t)).collect();
+
+    per_table.into_iter().collect()
+}
+
+/// One [`build_composites`] top-level work item: a single lexical entry, together with the
+/// grammar-static handles its (sequential, within-item) allomorph loop needs. Parallelized at THIS
+/// granularity, not per-allomorph, because [`Acc::seen`]'s cross-allomorph dedup (module doc's
+/// `Acc` field comment: "multiple root allomorphs ... can converge on a byte-identical entry") is
+/// only ever exercised WITHIN one entry's own allomorphs -- every chain's `tag_lexc` begins with
+/// [`tags::root_tag_lexc`] of THIS entry's own `morpheme`, a value unique to that `MorphemeId`
+/// (`hc_foma::tags`'s fixed-width, prefix-disambiguated encoding: `<R:nnnn>` vs `<M:nnnn>` tokens of
+/// equal length per numeral width, so two distinct token sequences can never collide as strings) --
+/// so no two DIFFERENT entries can ever produce the same `(tag_lexc, spelling)` key. Keeping each
+/// entry's own allomorphs on one worker with a fresh, entry-local `seen` set therefore reproduces
+/// the old shared-`Acc`-with-one-global-`seen` sequential result byte-for-byte, while still letting
+/// different entries run on different threads.
+struct RootWork {
+    entry_id: LexEntryId,
+}
+
+/// Process one [`RootWork`] item (all of one entry's own, non-pattern allomorphs) with a fresh,
+/// entry-local [`Acc`] -- the parallel unit [`build_composites`] maps over. Mirrors the body of the
+/// old sequential `for entry_id in &sd.entries { for allo in &entry.allomorphs { .. } }` loop
+/// exactly, just scoped to one entry and returning its own accumulator instead of writing into a
+/// grammar-wide shared one.
+fn process_root_work(
+    g: &Grammar,
+    width: usize,
+    rules: &[(MRuleId, Role)],
+    cache: &RuleCache,
+    rule_variants_by_table: &rustc_hash::FxHashMap<u16, Vec<Vec<AllomorphVariants>>>,
+    work: &RootWork,
+) -> (Vec<CompositeRec>, CompositeReport) {
+    let mut acc = Acc {
+        recs: Vec::new(),
+        seen: rustc_hash::FxHashSet::default(),
+        report: CompositeReport::default(),
+    };
+
+    let entry = &g.entries[work.entry_id.0 as usize];
+    let root_stratum = g.morphemes[entry.morpheme.0 as usize].stratum;
+    let table_id = g.strata[root_stratum.0 as usize].table.0;
+    let root_table = &g.char_tables[table_id as usize];
+    let entry_fs = g.fs_interner.get(entry.syn_fs);
+    let rule_variants = &rule_variants_by_table[&table_id];
+
+    for allo in &entry.allomorphs {
+        if allo.is_pattern {
+            continue;
+        }
+        let Some((root_variants, _)) = surface_variants(root_table, &allo.shape.text) else {
+            continue; // unsegmentable -- collect_roots already reports this once.
+        };
+        let root_stripped = stripped_variants(root_table, &allo.shape.text)
+            .map(|(v, _)| v)
+            .unwrap_or_default();
+
+        let Ok(shape) = hc_rules::shape_feat::segment_with_features(g, root_table, &allo.shape.text)
+        else {
+            continue;
+        };
+        let mut word = Word::new(shape, root_stratum);
+        word.syn_fs = entry_fs.clone();
+        word.mpr = entry.mpr;
+        word.root_allomorph = Some(allo.id);
+        word.morphs = vec![MorphRecord::new(allo.id, entry.morpheme, 0)];
+
+        let root_tag = tags::root_tag_lexc(entry.morpheme, width);
+        let chain0 = vec![(entry.morpheme, root_tag)];
+        // A fresh `ExtendCtx` per root: `root_table` is the OWNING stratum's table, which can in
+        // principle differ per root in a multi-table grammar (module doc's
+        // `f3_amharic_gate.rs`-documented hazard 2 — a non-issue for Amharic BY CONTENT, since all
+        // 3 strata share one table, but not assumed here).
+        let root_ctx = ExtendCtx {
+            g,
+            root_table,
+            rules,
+            rule_variants,
+            cache,
+        };
+        extend(
+            &root_ctx,
+            &word,
+            &chain0,
+            &root_variants,
+            &root_stripped,
+            0,
+            width,
+            &mut acc,
+        );
+    }
+
+    (acc.recs, acc.report)
+}
+
 /// Build every rule-application/fusion composite for `g` (module doc). `width` is the same tag
 /// digit width [`crate::emit::emit`] computes; `phon` is the SAME [`PhonologyProbe`] instance
 /// `emit.rs` already builds once per grammar (`None` for a grammar with no phonological rules at
 /// all).
+///
+/// **Parallelized across roots** (perf: this function's own `extend`-driven `probe_synthesize`
+/// fan-out was measured at 53% of Amharic's emit wall time, `HC_EMIT_PROFILE`): the outer
+/// `(stratum, entry)` loop is flattened into [`RootWork`] items and run through a dedicated rayon
+/// pool with [`crate::emit::PROBE_STACK_BYTES`]-sized worker stacks (same reason
+/// [`crate::junctions::PhonologyProbe`]'s own pool needs one -- `probe_synthesize`'s recursion
+/// overflows rayon's default 2-8MB stacks on Amharic's deep composite chains), one item per work
+/// unit, each producing its OWN local `(Vec<CompositeRec>, CompositeReport)` (see
+/// [`process_root_work`]'s doc for why per-entry, not per-allomorph or grammar-wide, is the correct
+/// granularity for `Acc::seen`). Results are collected via `par_iter().map(..).collect::<Vec<_>>()`,
+/// which preserves the ORIGINAL input order regardless of completion order, then merged into the
+/// final `recs`/`report` by iterating that Vec in order -- so the emitted lexc's composite-entry
+/// order (`emit.rs` writes `composites` in exactly the order this function returns them) is
+/// byte-for-byte identical to the old sequential loop's. `rayon::iter::ParallelExtend`/`sum` are
+/// deliberately NOT used for the report counters: a plain ordered fold keeps the merge trivially
+/// auditable against the sequential version, and the counts are cheap `usize` adds regardless.
+/// Recursion inside [`extend`] itself (depth ≤ [`MAX_EXTRA_RULES`]) stays entirely sequential, as
+/// before -- only this OUTERMOST per-root level is parallelized. `RuleCache` is built once here and
+/// shared read-only (its own module doc: "thereafter read-only... shares one `&RuleCache` across
+/// every worker with zero contention"); [`PhonologyProbe`]'s two per-text caches are `Mutex`-backed
+/// and already safe under concurrent access (its own doc) -- pre-warmed by
+/// [`build_rule_variants_all_tables`] below so the parallel root workers never race a first-touch
+/// compute into them.
 pub(crate) fn build_composites(
     g: &Grammar,
     width: usize,
@@ -640,87 +805,59 @@ pub(crate) fn build_composites(
     if !should_run(g, phon) {
         return (Vec::new(), CompositeReport::default());
     }
-    let mut acc = Acc {
-        recs: Vec::new(),
-        seen: rustc_hash::FxHashSet::default(),
-        report: CompositeReport::default(),
-    };
 
     let rules = candidate_rules(g);
     let cache = RuleCache::build(g);
-    // Per-table [`build_allomorph_variants`] cache (keyed by `TableId.0`, not just built once
-    // unconditionally): `root_table` is the OWNING stratum's table, which -- per the `root_ctx`
-    // comment just below -- can in principle differ per root in a multi-table grammar, so this
-    // still recomputes once per DISTINCT table rather than assuming a single grammar-wide one. On
-    // every reference grammar (all strata share one table) this populates exactly one entry, i.e.
-    // still computed exactly once total.
-    let mut rule_variants_cache: rustc_hash::FxHashMap<u16, Vec<Vec<AllomorphVariants>>> =
-        rustc_hash::FxHashMap::default();
 
+    // Flatten the `(stratum, entry)` work list in ORIGINAL order -- this order (plus each entry's
+    // own internal allomorph/rule ordering, unaffected by any of this) is exactly what determines
+    // the emitted composite lexc line order, so the merge below must reassemble per-entry results in
+    // this same sequence.
+    let mut work: Vec<RootWork> = Vec::new();
+    let mut table_ids: Vec<u16> = Vec::new();
     for sd in &g.strata {
         for &entry_id in &sd.entries {
             let entry = &g.entries[entry_id.0 as usize];
             let root_stratum = g.morphemes[entry.morpheme.0 as usize].stratum;
             let table_id = g.strata[root_stratum.0 as usize].table.0;
-            let root_table = &g.char_tables[table_id as usize];
-            let entry_fs = g.fs_interner.get(entry.syn_fs);
-
-            for allo in &entry.allomorphs {
-                if allo.is_pattern {
-                    continue;
-                }
-                let Some((root_variants, _)) = surface_variants(root_table, &allo.shape.text) else {
-                    continue; // unsegmentable -- collect_roots already reports this once.
-                };
-                let root_stripped = stripped_variants(root_table, &allo.shape.text)
-                    .map(|(v, _)| v)
-                    .unwrap_or_default();
-
-                let Ok(shape) =
-                    hc_rules::shape_feat::segment_with_features(g, root_table, &allo.shape.text)
-                else {
-                    continue;
-                };
-                let mut word = Word::new(shape, root_stratum);
-                word.syn_fs = entry_fs.clone();
-                word.mpr = entry.mpr;
-                word.root_allomorph = Some(allo.id);
-                word.morphs = vec![MorphRecord::new(allo.id, entry.morpheme, 0)];
-
-                let root_tag = tags::root_tag_lexc(entry.morpheme, width);
-                let chain0 = vec![(entry.morpheme, root_tag)];
-                let rule_variants = rule_variants_cache.entry(table_id).or_insert_with(|| {
-                    rules
-                        .iter()
-                        .map(|(mid, _)| {
-                            build_allomorph_variants(root_table, phon, &g.mrules[mid.0 as usize])
-                        })
-                        .collect()
-                });
-                // A fresh `ExtendCtx` per root: `root_table` is the OWNING stratum's table, which
-                // can in principle differ per root in a multi-table grammar (module doc's
-                // `f3_amharic_gate.rs`-documented hazard 2 — a non-issue for Amharic BY CONTENT,
-                // since all 3 strata share one table, but not assumed here).
-                let root_ctx = ExtendCtx {
-                    g,
-                    root_table,
-                    rules: &rules,
-                    rule_variants,
-                    cache: &cache,
-                };
-                extend(
-                    &root_ctx,
-                    &word,
-                    &chain0,
-                    &root_variants,
-                    &root_stripped,
-                    0,
-                    width,
-                    &mut acc,
-                );
+            if !table_ids.contains(&table_id) {
+                table_ids.push(table_id);
             }
+            work.push(RootWork { entry_id });
         }
     }
 
-    (acc.recs, acc.report)
+    // Part 2 of the perf fix: warm every `PhonologyProbe` cache entry `build_allomorph_variants`
+    // needs, for every table, before any root worker below can race a first-touch compute into it.
+    let rule_variants_by_table = build_rule_variants_all_tables(g, phon, &rules, &table_ids);
+
+    #[cfg(not(target_arch = "wasm32"))]
+    let pool = rayon::ThreadPoolBuilder::new()
+        .stack_size(crate::emit::PROBE_STACK_BYTES)
+        .build()
+        .expect("build preexpand composite rayon pool");
+
+    #[cfg(target_arch = "wasm32")]
+    let per_entry: Vec<(Vec<CompositeRec>, CompositeReport)> = work
+        .iter()
+        .map(|w| process_root_work(g, width, &rules, &cache, &rule_variants_by_table, w))
+        .collect();
+    #[cfg(not(target_arch = "wasm32"))]
+    let per_entry: Vec<(Vec<CompositeRec>, CompositeReport)> = pool.install(|| {
+        work.par_iter()
+            .map(|w| process_root_work(g, width, &rules, &cache, &rule_variants_by_table, w))
+            .collect()
+    });
+
+    let mut recs = Vec::new();
+    let mut report = CompositeReport::default();
+    for (r, rep) in per_entry {
+        recs.extend(r);
+        report.pairs_probed += rep.pairs_probed;
+        report.interdigitation_entries += rep.interdigitation_entries;
+        report.fusion_entries += rep.fusion_entries;
+        report.covered_infix_rules.extend(rep.covered_infix_rules);
+    }
+
+    (recs, report)
 }
