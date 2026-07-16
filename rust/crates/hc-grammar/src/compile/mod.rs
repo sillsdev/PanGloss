@@ -35,6 +35,7 @@ mod features;
 mod lexicon;
 mod mpr;
 mod natclass;
+mod reachability;
 mod rules;
 mod templates;
 #[cfg(test)]
@@ -257,6 +258,16 @@ pub fn compile_project(snapshot: &Snapshot) -> Result<(Grammar, Vec<String>), Gr
         entries: acc.entries,
         strata,
     };
+
+    // Mrule + morpheme-co-occurrence reachability compaction (`reachability::compact_mrules`'s
+    // doc has the full rationale): a rule whose only slot lives in a disabled template — or a
+    // morpheme co-occurrence rule targeting such a rule's MSA family — is built unconditionally
+    // upstream but never lands in a stratum's own list or an (already enabled-only) template's
+    // slot content, exactly mirroring how HCLoader's own exporter would never visit it. Runs
+    // before the natural-class compaction below so a class referenced *only* from a soon-to-be-
+    // dropped orphan rule is correctly treated as unreferenced too, not spuriously kept.
+    reachability::compact_mrules(&mut grammar, &mut warnings);
+    reachability::trim_unreachable_morpheme_coocurrence(&mut grammar);
 
     // `pg-fwdata` extracts every declared natural class unconditionally, but HCLoader's own
     // `m_language.NaturalClasses` only ever contains ones actually referenced somewhere in the

@@ -140,9 +140,11 @@ pub(crate) fn build(
                         &entry_by_guid,
                         &sense_owner,
                         &infl_type_by_guid,
+                        &affix_allos,
                         ctx,
                         acc,
                         morphology_entries,
+                        &mut *morphology_mrules,
                         warnings,
                     );
                 }
@@ -357,6 +359,17 @@ fn natural_class_defs<'a>(ctx: &Ctx<'a>) -> &'a [crate::model::NaturalClass] {
 /// `LoadLexEntryOfVariant` (HCLoader.cs:733-807): a variant entry (no senses of its own) borrows
 /// its own allomorphs but the *referenced* main entry/sense's stem MSA, gloss (with
 /// prepend/append), and inflection features.
+///
+/// A main-entry MSA that is *not* `Msa::Stem` (derivational/inflectional/unclassified) instead
+/// goes through [`build_variant_affix_rule`] — `LoadMorphologicalRules`'s senses-empty branch
+/// (HCLoader.cs:852-871) walks *every* `mainEntry.MorphoSyntaxAnalysesOC`, not just stem MSAs, and
+/// `LoadMorphologicalRule`'s dispatch (HCLoader.cs:877-908) builds an ordinary affix-process rule
+/// for each — using the *variant's own* allomorphs as the rule's forms but the main entry's MSA
+/// for every rule-level field. Confirmed against the gate's own diff (not merely inferred): legacy
+/// really does end up with a **second, distinct** `AffixProcessRule` object for the same gloss in
+/// this case (`LoadInflAffixProcessRule` always `new AffixProcessRule{...}`, HCLoader.cs:979-1006;
+/// both rules end up in `m_morphemes[msa]`, and `LoadAffixTemplate`'s `slot.Affixes` walk,
+/// HCLoader.cs:1704, pulls in both) — never a merged allomorph list on the pre-existing rule.
 #[allow(clippy::too_many_arguments)]
 fn build_variant(
     variant_entry: &LexEntry,
@@ -365,20 +378,22 @@ fn build_variant(
     entry_by_guid: &HashMap<&str, &LexEntry>,
     sense_owner: &HashMap<&str, (&LexEntry, &Sense)>,
     infl_type_by_guid: &HashMap<&str, &LexEntryInflType>,
+    variant_affix_allos: &[&Allomorph],
     ctx: &Ctx,
     acc: &mut Acc,
     morphology_entries: &mut Vec<LexEntryId>,
+    morphology_mrules: &mut Vec<MRuleId>,
     warnings: &mut Vec<String>,
 ) {
     let infl_types = get_infl_types(variant_entry_types, infl_type_by_guid);
 
     for component in component_lexemes {
         let main_msas: Vec<(&LexEntry, &Msa)> = if let Some(&e) = entry_by_guid.get(component.as_str()) {
-            e.msas.iter().filter(|m| matches!(m, Msa::Stem { .. })).map(|m| (e, m)).collect()
+            e.msas.iter().map(|m| (e, m)).collect()
         } else if let Some(&(e, sense)) = sense_owner.get(component.as_str()) {
             e.msas
                 .iter()
-                .filter(|m| matches!(m, Msa::Stem { .. }) && Some(m.guid()) == sense.msa.as_deref())
+                .filter(|m| Some(m.guid()) == sense.msa.as_deref())
                 .map(|m| (e, m))
                 .collect()
         } else {
@@ -389,8 +404,13 @@ fn build_variant(
             Vec::new()
         };
 
+        // Stem MSAs: one variant LexEntryDef per (infl_type, msa) pair -- infl_type-sensitive
+        // gloss prepend/append + inflFeats merge (`build_variant_stem_entry`).
         for &infl_type in &infl_types {
             for &(main_entry, msa) in &main_msas {
+                if !matches!(msa, Msa::Stem { .. }) {
+                    continue;
+                }
                 if let Some(id) = build_variant_stem_entry(
                     variant_entry,
                     main_entry,
@@ -404,7 +424,57 @@ fn build_variant(
                 }
             }
         }
+
+        // Non-stem MSAs: a second affix-process rule using the variant's own forms (see this
+        // fn's doc). Not infl_type-sensitive at all -- `LoadMorphologicalRule`'s senses-empty
+        // branch never touches `variant_entry_types`, confirmed by the gate diff rendering the
+        // plain gloss "3f", not an infl-type-decorated one -- so this runs once per (main_entry,
+        // msa), independent of the infl_type loop above.
+        for &(main_entry, msa) in &main_msas {
+            if matches!(msa, Msa::Stem { .. }) {
+                continue;
+            }
+            if let Some(id) =
+                build_variant_affix_rule(variant_entry, main_entry, msa, variant_affix_allos, ctx, acc, warnings)
+            {
+                let template_only = matches!(msa, Msa::Inflectional { slots, .. } if !slots.is_empty());
+                if !template_only {
+                    morphology_mrules.push(id);
+                }
+            }
+        }
     }
+}
+
+/// The non-stem counterpart of [`build_variant_stem_entry`] (see [`build_variant`]'s doc for the
+/// full HCLoader rationale): builds a full second `AffixProcessRule` for `msa` using
+/// `variant_entry`'s own rule-form allomorphs, reusing [`affixes::build_affix_rule`] verbatim so
+/// every mrule-level field (reqfs/outfs/partial/stratum/slot registration) is derived exactly the
+/// way the main entry's own rule for this same MSA was derived. `entry.ShortName`/circumfix
+/// classification in HCLoader always come from the entry passed to `LoadMorphologicalRule` --
+/// which stays the *variant* entry throughout (`LoadMorphologicalRules(stratum, entry, allos)`'s
+/// `entry` parameter is never reassigned to the main entry) -- so `variant_entry`, not
+/// `main_entry`, is passed as `build_affix_rule`'s `entry` argument here.
+fn build_variant_affix_rule(
+    variant_entry: &LexEntry,
+    main_entry: &LexEntry,
+    msa: &Msa,
+    variant_affix_allos: &[&Allomorph],
+    ctx: &Ctx,
+    acc: &mut Acc,
+    warnings: &mut Vec<String>,
+) -> Option<MRuleId> {
+    let gloss = sense_gloss(main_entry, msa_guid(msa), ctx).map(str::to_string);
+    affixes::build_affix_rule(
+        variant_entry,
+        variant_affix_allos,
+        msa,
+        gloss,
+        StratumId(0),
+        ctx,
+        acc,
+        warnings,
+    )
 }
 
 fn get_infl_types<'a>(
