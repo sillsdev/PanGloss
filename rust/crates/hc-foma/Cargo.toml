@@ -20,6 +20,12 @@ hc-featstruct.workspace = true
 hc-rules.workspace = true
 hc-shape.workspace = true
 rustc-hash.workspace = true
+# junctions.rs's alphabet probe loops (compute_variants/compute_deletion_junctions): parallelized
+# across CPU cores on non-wasm32 targets via a dedicated large-stack pool (see
+# `PhonologyProbe::new`'s doc) -- NOT used on wasm32-unknown-unknown, where `thread::spawn` (which
+# a rayon pool needs to build) aborts at runtime; that path stays the original sequential loop
+# (`#[cfg(target_arch = "wasm32")]`), mirroring `hc-parse/src/batch.rs`'s own scoped-pool pattern.
+rayon.workspace = true
 # P2 (docs/fst-plan/foma-fst-plan.md): confirm (`src/confirm.rs`) pins `Morpher::parse_word_selected`
 # to a proposed candidate's root(s)/rules — this crate's whole propose->CONFIRM point — so hc-parse
 # is now a normal (not dev-only) dependency. Not a new wasm32 risk: hc-wasm already links hc-parse

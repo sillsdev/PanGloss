@@ -1355,8 +1355,11 @@ fn structural_candidate_rules(g: &Grammar) -> Vec<MRuleId> {
 /// threads default to a few MiB — empirically NOT enough headroom for `hc_rules::surface_probe::
 /// probe_synthesize` run against a bare-root shape on Amharic-scale grammars, found by this gate's
 /// own `f3_amharic_gate` regression run once bare-root probing was added).
+/// `pub(crate)`: [`crate::junctions::PhonologyProbe`]'s own rayon worker pool reuses this exact
+/// value (its recursion through the same `probe_synthesize` machinery has the identical overflow
+/// risk) rather than a second, driftable copy of the constant.
 #[cfg(not(target_arch = "wasm32"))]
-const PROBE_STACK_BYTES: usize = 64 * 1024 * 1024;
+pub(crate) const PROBE_STACK_BYTES: usize = 64 * 1024 * 1024;
 
 /// The real, phonology-resolved surface of `shape` via the cheap build-time probe —
 /// [`hc_rules::surface_probe::probe_synthesize`] + [`hc_rules::surface_probe::render_nodes`] — when

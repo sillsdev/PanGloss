@@ -28,8 +28,8 @@
 //! completely untouched for grammars this stage doesn't target — the Sena regression gate
 //! (`tests/f1_sena_gate.rs`) depends on this being a true no-op, not just an empty result.
 
-use std::cell::RefCell;
 use std::collections::BTreeSet;
+use std::sync::Mutex;
 
 use hc_grammar::chardef::{CharDefId, CharDefKind, CharDefTable};
 use hc_grammar::model::{Grammar, MorphRuleDef, PhonRuleDef};
@@ -37,6 +37,8 @@ use hc_rules::cache::RuleCache;
 use hc_rules::surface_probe::{self, ProbeSeg};
 use hc_shape::NodeKind;
 use rustc_hash::FxHashMap as HashMap;
+#[cfg(not(target_arch = "wasm32"))]
+use rayon::prelude::*;
 
 pub struct PhonologyProbe<'g> {
     g: &'g Grammar,
@@ -60,13 +62,31 @@ pub struct PhonologyProbe<'g> {
     /// from 417 to the ~46 segments that can actually start a root or affix in this grammar.
     neighbor_alphabet: Vec<String>,
     any_deletion_subrule: bool,
-    variants_cache: RefCell<HashMap<String, Vec<String>>>,
-    junctions_cache: RefCell<HashMap<String, Vec<String>>>,
+    // `Mutex`, not `RefCell`: these two caches are only ever touched by `variants`/
+    // `deletion_junctions` themselves (never by the parallel probe loops those methods call
+    // into), but `RefCell` is never `Sync`, which would make the whole `PhonologyProbe` `!Sync`
+    // and block sharing `&self` across the rayon worker pool below -- `Mutex` is the same
+    // interior-mutability shape with the `Sync` bound rayon's `par_iter` closures need.
+    variants_cache: Mutex<HashMap<String, Vec<String>>>,
+    junctions_cache: Mutex<HashMap<String, Vec<String>>>,
     /// Compile-once FST cache, built ONCE here and reused across every probe (same rationale as
     /// `hc-hybrid/src/surface.rs`'s own `rule_cache` field: recompiling per probe would be
     /// pathological on a larger alphabet; Indonesian's is tiny, but there's no reason not to share
     /// this the same way).
     rule_cache: RuleCache,
+    /// A dedicated rayon pool (NOT the global default pool -- `hc-parse`'s own batch parallelism,
+    /// `hc-parse/src/batch.rs`, configures the global pool for ITS OWN stack needs, and this
+    /// crate must not fight it for that setting) for [`compute_variants`]/
+    /// [`compute_deletion_junctions`]'s alphabet-probe loops. Built ONCE per grammar (not once per
+    /// probed text -- 58 distinct texts on Amharic would otherwise pay pool-spawn cost 58 times)
+    /// with [`crate::emit::PROBE_STACK_BYTES`]-sized worker stacks: `probe_synthesize`'s own
+    /// recursion depth (same machinery, same overflow risk `emit.rs`'s `probe_surface` already
+    /// works around) needs far more than rayon's default 2-8MB worker stack. `None` on
+    /// wasm32-unknown-unknown, where building a pool would call `thread::spawn`, which aborts at
+    /// runtime there -- [`compute_variants`]/[`compute_deletion_junctions`] fall back to a plain
+    /// sequential loop on that target instead of touching this field at all.
+    #[cfg(not(target_arch = "wasm32"))]
+    pool: rayon::ThreadPool,
 }
 
 /// The Segment-kind char-def id of the FIRST real segment in `text` (skipping any leading
@@ -191,9 +211,14 @@ impl<'g> PhonologyProbe<'g> {
             alphabet,
             neighbor_alphabet,
             any_deletion_subrule,
-            variants_cache: RefCell::new(HashMap::default()),
-            junctions_cache: RefCell::new(HashMap::default()),
+            variants_cache: Mutex::new(HashMap::default()),
+            junctions_cache: Mutex::new(HashMap::default()),
             rule_cache: RuleCache::build(g),
+            #[cfg(not(target_arch = "wasm32"))]
+            pool: rayon::ThreadPoolBuilder::new()
+                .stack_size(crate::emit::PROBE_STACK_BYTES)
+                .build()
+                .expect("build phonology probe rayon pool"),
         })
     }
 
@@ -201,16 +226,29 @@ impl<'g> PhonologyProbe<'g> {
     /// on either side (mirrors `SurfacePhonology::variants`, `SurfacePhonology.cs:108-117`),
     /// memoized. Sorted (a `BTreeSet` internally) — callers don't need a particular order.
     pub fn variants(&self, underlying: &str) -> Vec<String> {
-        if let Some(v) = self.variants_cache.borrow().get(underlying) {
-            return v.clone();
+        {
+            let cache = self.variants_cache.lock().expect("variants_cache poisoned");
+            if let Some(v) = cache.get(underlying) {
+                return v.clone();
+            }
         }
         let computed = self.compute_variants(underlying);
         self.variants_cache
-            .borrow_mut()
+            .lock()
+            .expect("variants_cache poisoned")
             .insert(underlying.to_string(), computed.clone());
         computed
     }
 
+    /// Probes every alphabet neighbor `c` on both sides of `underlying` (module doc's C1×C2
+    /// fan-out — here just a single alphabet loop). Each `c`'s probe is fully independent and
+    /// read-only over `&self` (no shared mutable state touched -- see [`PhonologyProbe`]'s
+    /// `pool` field doc), so on non-wasm32 targets this runs across [`Self::pool`]'s worker
+    /// threads; on wasm32-unknown-unknown (no threads at all) it stays the original sequential
+    /// loop. The probe closure itself (`probe_one`) is shared between both paths -- only the
+    /// driving iterator (`iter()` vs. `par_iter()`) differs -- so there is exactly one place that
+    /// could introduce a results difference between targets, and it collects into the same
+    /// order-independent `BTreeSet` either way.
     fn compute_variants(&self, underlying: &str) -> Vec<String> {
         let mut result: BTreeSet<String> = BTreeSet::new();
         let Some(underlying_len) = self.node_count(underlying) else {
@@ -219,21 +257,24 @@ impl<'g> PhonologyProbe<'g> {
         if let Some(isolation) = self.surface_of(underlying) {
             result.insert(isolation);
         }
-        for c in &self.alphabet {
-            // Left neighbor: c + underlying -- this affix's own span is everything AFTER the
-            // neighbor's one segment.
-            if let Some(rendered) =
-                self.boundary_variant(&format!("{c}{underlying}"), underlying_len, true)
-            {
-                result.insert(rendered);
-            }
-            // Right neighbor: underlying + c -- this affix's own span is everything BEFORE the
-            // neighbor's one segment.
-            if let Some(rendered) =
-                self.boundary_variant(&format!("{underlying}{c}"), underlying_len, false)
-            {
-                result.insert(rendered);
-            }
+
+        // Left neighbor: c + underlying -- this affix's own span is everything AFTER the
+        // neighbor's one segment. Right neighbor: underlying + c -- everything BEFORE it.
+        let probe_one = |c: &String| -> [Option<String>; 2] {
+            [
+                self.boundary_variant(&format!("{c}{underlying}"), underlying_len, true),
+                self.boundary_variant(&format!("{underlying}{c}"), underlying_len, false),
+            ]
+        };
+
+        #[cfg(target_arch = "wasm32")]
+        let hits: Vec<[Option<String>; 2]> = self.alphabet.iter().map(probe_one).collect();
+        #[cfg(not(target_arch = "wasm32"))]
+        let hits: Vec<[Option<String>; 2]> =
+            self.pool.install(|| self.alphabet.par_iter().map(probe_one).collect());
+
+        for pair in hits {
+            result.extend(pair.into_iter().flatten());
         }
         result.into_iter().collect()
     }
@@ -265,16 +306,31 @@ impl<'g> PhonologyProbe<'g> {
     /// `SurfacePhonology.cs:214-225`, minus the neighbor-class bookkeeping -- see module doc).
     /// Empty (not probed at all) when this grammar has no rule that can ever delete a segment.
     pub fn deletion_junctions(&self, underlying: &str) -> Vec<String> {
-        if let Some(v) = self.junctions_cache.borrow().get(underlying) {
-            return v.clone();
+        {
+            let cache = self.junctions_cache.lock().expect("junctions_cache poisoned");
+            if let Some(v) = cache.get(underlying) {
+                return v.clone();
+            }
         }
         let computed = self.compute_deletion_junctions(underlying);
         self.junctions_cache
-            .borrow_mut()
+            .lock()
+            .expect("junctions_cache poisoned")
             .insert(underlying.to_string(), computed.clone());
         computed
     }
 
+    /// The C1×C2 fan-out (module doc/profiling: the dominant cost on Amharic — ~46 × ~417 probes
+    /// per distinct affix text). C1 (`neighbor_alphabet`) is the outer, PARALLELIZED loop: each
+    /// c1's own probe (the cheap zero-c2 check, then, on a miss, its private scan over the full
+    /// C2 `alphabet` that stops at the first hit) is entirely independent of every other c1's —
+    /// none of it reads or writes any shared mutable state — so distributing it across
+    /// [`Self::pool`]'s worker threads changes nothing about what any single c1 computes, only
+    /// which thread computes it. The per-c1 "break at first hit" short-circuit is preserved
+    /// exactly (it lives inside `probe_one`, unaffected by which iterator drives it), so this
+    /// stays the same total probe count per c1 as the sequential version, not more. Same
+    /// wasm32/non-wasm32 split as [`compute_variants`]: one shared closure, driving iterator
+    /// swapped by `cfg`, collected into the same order-independent `BTreeSet`.
     fn compute_deletion_junctions(&self, underlying: &str) -> Vec<String> {
         let mut result: BTreeSet<String> = BTreeSet::new();
         if !self.any_deletion_subrule {
@@ -287,20 +343,26 @@ impl<'g> PhonologyProbe<'g> {
         // closed enumeration, not an approximation (see `neighbor_first_segments`'s doc). C2
         // stays over the FULL `alphabet`: unrestricted, since narrowing it has no equivalent
         // soundness proof.
-        for c1 in &self.neighbor_alphabet {
+        let probe_one = |c1: &String| -> Option<String> {
             if let Some(hit) = self.try_probe_deletion(underlying, c1, None, underlying_len) {
-                result.insert(hit);
-                continue;
+                return Some(hit);
             }
             for c2 in &self.alphabet {
-                if let Some(hit2) =
-                    self.try_probe_deletion(underlying, c1, Some(c2), underlying_len)
+                if let Some(hit2) = self.try_probe_deletion(underlying, c1, Some(c2), underlying_len)
                 {
-                    result.insert(hit2);
-                    break; // one confirming c2 is enough to know c1's context can delete.
+                    return Some(hit2); // one confirming c2 is enough to know c1's context can delete.
                 }
             }
-        }
+            None
+        };
+
+        #[cfg(target_arch = "wasm32")]
+        let hits: Vec<Option<String>> = self.neighbor_alphabet.iter().map(probe_one).collect();
+        #[cfg(not(target_arch = "wasm32"))]
+        let hits: Vec<Option<String>> =
+            self.pool.install(|| self.neighbor_alphabet.par_iter().map(probe_one).collect());
+
+        result.extend(hits.into_iter().flatten());
         result.into_iter().collect()
     }
 
