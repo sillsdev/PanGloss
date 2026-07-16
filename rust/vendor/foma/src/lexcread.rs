@@ -15,6 +15,8 @@
 //! their C names and take `&mut LexcCompiler` (the caller-owned-context
 //! pattern), so the whole compile threads one borrow.
 
+use std::collections::HashMap;
+
 use crate::constructions::{add_fsm_arc, fsm_update_flags};
 use crate::define::add_defined;
 use crate::determinize::fsm_determinize;
@@ -145,6 +147,23 @@ struct LexcCompiler {
     mc: Option<usize>,
     lexstates: Option<usize>,
 
+    /* PERF (not in C, semantics-preserving): a first-character index over the
+    `mc` chain, so `first_mc_prefix` need not linear-scan every multichar
+    symbol for every character of every lexc entry. Keyed by the first `char`
+    of each mc symbol; each bucket lists arena indices in the SAME relative
+    order they appear when walking `mc` via `.next` (longest-first, and
+    LIFO within equal length — see `lexc_add_mc`), so scanning a bucket and
+    returning the first `starts_with` hit is exactly the linear scan's
+    selection rule, restricted to symbols that could possibly match. Lazily
+    rebuilt (see `ensure_mc_index`) whenever `mc_arena` has grown since the
+    last build, so it stays correct even if more mc symbols are registered
+    between tokenization calls. */
+    mc_index: HashMap<char, Vec<usize>>,
+    /// `mc_arena.len()` as of the last `mc_index` rebuild; a mismatch means
+    /// the chain changed (lexc_add_mc only ever pushes, never removes or
+    /// reorders in place) and the index must be rebuilt before use.
+    mc_index_len: usize,
+
     /* C: static struct sigma *lexsigma */
     lexsigma: Vec<Sigma>,
     /* C: static struct lexc_hashtable *hashtable — 3079 calloc'd bucket heads */
@@ -187,6 +206,8 @@ impl LexcCompiler {
             statelist: None,
             mc: None,
             lexstates: None,
+            mc_index: HashMap::new(),
+            mc_index_len: 0,
             lexsigma: Vec::new(),
             hashtable: Vec::new(),
             current_regex_network: None,
@@ -945,11 +966,59 @@ fn intern_symbol(lx: &mut LexcCompiler, sym: &str) -> i32 {
     n
 }
 
-/// The first (hence longest, since the chain is length-sorted) multichar symbol
-/// that is a prefix of `rest`.
-fn first_mc_prefix(lx: &LexcCompiler, rest: &str) -> Option<usize> {
+/// PERF (not in C): rebuild `lx.mc_index` from the `mc` chain if it has grown
+/// since the last build. `lexc_add_mc` is the only writer of the chain and it
+/// only ever pushes new entries onto `mc_arena` (see its body — no removal or
+/// in-place reorder), so `mc_arena.len()` is a sound "has the chain changed"
+/// signal: unchanged length implies unchanged chain.
+///
+/// Bucketing is done by walking the chain via `.next` (NOT by iterating
+/// `mc_arena` in push order — those two orders differ whenever a later-added
+/// symbol was inserted earlier in the chain by `lexc_add_mc`'s length-sorted
+/// insert). Each bucket therefore preserves the exact relative order the
+/// original linear scan would visit those symbols in, which is what makes
+/// `first_mc_prefix` below select identically to a full chain scan.
+fn ensure_mc_index(lx: &mut LexcCompiler) {
+    if lx.mc_index_len == lx.mc_arena.len() {
+        return;
+    }
+    lx.mc_index.clear();
     let mut m = lx.mc;
     while let Some(i) = m {
+        let symbol = lx.mc_arena[i]
+            .symbol
+            .as_deref()
+            .expect("multichar arena entry has a symbol");
+        // An empty mc symbol has no first char to bucket under. It cannot
+        // occur in practice: lexc_string_to_tokens would infinite-loop on a
+        // zero-length match (rest never advances) the very first time such a
+        // symbol reached the front of the old linear scan too, so this path
+        // is already unreachable pre-existing behavior, not a new gap.
+        debug_assert!(!symbol.is_empty(), "multichar symbol must be non-empty");
+        if let Some(c) = symbol.chars().next() {
+            lx.mc_index.entry(c).or_default().push(i);
+        }
+        m = lx.mc_arena[i].next;
+    }
+    lx.mc_index_len = lx.mc_arena.len();
+}
+
+/// The first (hence longest, since the chain is length-sorted) multichar symbol
+/// that is a prefix of `rest`.
+///
+/// PERF (not in C): consults `lx.mc_index`, a first-character index over the
+/// same chain, instead of linear-scanning every registered multichar symbol.
+/// `rest.starts_with(symbol)` can only hold when `symbol`'s first char equals
+/// `rest`'s first char (true for every non-empty `symbol`, which is all of
+/// them — see `ensure_mc_index`), so restricting the scan to the bucket for
+/// `rest`'s first char, in chain order, visits exactly the subsequence of
+/// symbols the original full scan could ever match against `rest`, in the
+/// same order. The selection (first hit wins) is therefore identical.
+fn first_mc_prefix(lx: &mut LexcCompiler, rest: &str) -> Option<usize> {
+    ensure_mc_index(lx);
+    let c = rest.chars().next()?;
+    let bucket = lx.mc_index.get(&c)?;
+    for &i in bucket {
         if rest.starts_with(
             lx.mc_arena[i]
                 .symbol
@@ -958,7 +1027,6 @@ fn first_mc_prefix(lx: &LexcCompiler, rest: &str) -> Option<usize> {
         ) {
             return Some(i);
         }
-        m = lx.mc_arena[i].next;
     }
     None
 }
@@ -1628,6 +1696,9 @@ fn lexc_cleanup(lx: &mut LexcCompiler) {
     /* free the mc list (symbols + nodes) */
     lx.mc_arena = Vec::new();
     lx.mc = None;
+    /* PERF: drop the derived first-char index alongside the chain it indexes */
+    lx.mc_index = HashMap::new();
+    lx.mc_index_len = 0;
     /* free the lexstates list (names + nodes; states freed via statelist) */
     lx.lexstates_arena = Vec::new();
     lx.lexstates = None;
