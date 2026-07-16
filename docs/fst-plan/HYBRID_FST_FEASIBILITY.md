@@ -1,5 +1,10 @@
 # The hybrid FST analyzer — feasibility report
 
+> **LEGACY — superseded by [`foma-fst-plan.md`](foma-fst-plan.md).** This document is part of the
+> record of the earlier custom-spun FST prototype (`hc-hybrid`), which PanGloss has sunset (plan
+> P5, gate F5, 2026-07-16) in favor of a foma-based FST proposer with the full HermitCrab engine
+> confirming/pruning. Kept for historical record only — not current design guidance.
+
 > **Audience:** technical readers (engineers, reviewers, planners) who do not necessarily know
 > HermitCrab, morphological parsing, or finite-state theory. This report explains what the hybrid
 > FST on the `fst-advisor` branch is, why an ensemble of cooperating finite-state machines works at

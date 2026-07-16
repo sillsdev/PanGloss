@@ -1,5 +1,10 @@
 # FST full-grammar coverage plan — 100% of Sena + Indonesian
 
+> **LEGACY — superseded by [`foma-fst-plan.md`](foma-fst-plan.md).** This document is part of the
+> record of the earlier custom-spun FST prototype (`hc-hybrid`), which PanGloss has sunset (plan
+> P5, gate F5, 2026-07-16) in favor of a foma-based FST proposer with the full HermitCrab engine
+> confirming/pruning. Kept for historical record only — not current design guidance.
+
 > Written 2026-07-02, after the left-environment session (commit `308f269c`) and its finding that
 > **0 of Indonesian's 5 phonological rules have ever compiled** (boundary-representative gap).
 > Companion to `FST_FAST_PATH_PLAN.md` (which stays the architecture reference); this doc is the

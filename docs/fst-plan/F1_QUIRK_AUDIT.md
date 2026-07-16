@@ -1,5 +1,10 @@
 # F1 quirk audit — HYBRID_FST_RUST_PLAN.md §4.3
 
+> **LEGACY — superseded by [`foma-fst-plan.md`](foma-fst-plan.md).** This document is part of the
+> record of the earlier custom-spun FST prototype (`hc-hybrid`), which PanGloss has sunset (plan
+> P5, gate F5, 2026-07-16) in favor of a foma-based FST proposer with the full HermitCrab engine
+> confirming/pruning. Kept for historical record only — not current design guidance.
+
 > Companion to `HYBRID_FST_RUST_PLAN.md` §4.3 ("bug-for-bug parity") and its F1 gate ("quirk audit
 > done; reviewer signs off that every C# read site of a §4.3-listed member was visited"). This
 > document is the evidence trail: for each of the 8 listed quirks, the real C# source location, a

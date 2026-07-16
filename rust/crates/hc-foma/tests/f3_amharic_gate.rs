@@ -163,6 +163,10 @@ fn candidates_cover(candidates: &[hc_foma::tags::Candidate], seq: &[u32], root_i
 // -------------------------------------------------------------------------------------------
 
 #[test]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "Amharic emit+compile (~35s) and the unoptimized engine oracle are impractically slow in debug (and the bounded-probe test overflows the 8 MiB debug stack); runs in --release (CI) or with --ignored --release. Matches f3_parity.rs's gate."
+)]
 fn a_amharic_emits_and_compiles() {
     let g = load_amharic();
 
@@ -259,6 +263,10 @@ fn a_amharic_emits_and_compiles() {
 // -------------------------------------------------------------------------------------------
 
 #[test]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "Amharic emit+compile (~35s) and the unoptimized engine oracle are impractically slow in debug; runs in --release (CI) or with --ignored --release. Matches f3_parity.rs's gate."
+)]
 fn b_amharic_recall_first_100_words_is_100_percent() {
     let g = load_amharic();
     assert!(
@@ -356,6 +364,10 @@ fn b_amharic_recall_first_100_words_is_100_percent() {
 // -------------------------------------------------------------------------------------------
 
 #[test]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "Amharic emit+compile (~35s) and the unoptimized engine oracle are impractically slow in debug; runs in --release (CI) or with --ignored --release. Matches f3_parity.rs's gate."
+)]
 fn c_amharic_end_to_end_multiset_parity() {
     let g = load_amharic();
     let mut analyzer = FomaAnalyzer::new(&g).expect("Amharic compiles");
@@ -433,6 +445,10 @@ fn c_amharic_end_to_end_multiset_parity() {
 // -------------------------------------------------------------------------------------------
 
 #[test]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "Amharic emit+compile (~35s) is impractically slow in debug and this bounded-probe test overflows the 8 MiB debug thread stack; runs in --release (CI) or with --ignored --release. Matches f3_parity.rs's gate."
+)]
 fn d_nonsense_word_proposes_boundedly_and_never_panics() {
     let g = load_amharic();
     let mut proposer = FomaProposer::new(&g).expect("Amharic compiles");

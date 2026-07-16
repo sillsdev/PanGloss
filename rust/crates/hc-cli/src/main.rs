@@ -131,71 +131,17 @@ fn run() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
-        Some("fst-stats") => match run_fst_stats(&args[2..]) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("hc-rs fst-stats: {e}");
-                ExitCode::FAILURE
-            }
-        },
         _ => {
             eprintln!(
                 "hc-rs {} — HermitCrab Rust engine CLI\n\
                  usage: hc-rs batch <grammar.xml> <words.txt> <out.tsv> [--step-cap N] [--word-timeout-ms N] [--memo=on|off] [--threads N] [--start N] [--engine=default|foma]\n\
                  usage: hc-rs generate <grammar.xml> <root-morpheme-id> [other-morpheme-id ...]\n\
-                 usage: hc-rs parse <grammar.xml> <word> [--trace[=<file>]] [--trace-format=text|json] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--engine=default|foma]\n\
-                 usage: hc-rs fst-stats <grammar.xml> [out.txt]  (omit out.txt to print to stdout)",
+                 usage: hc-rs parse <grammar.xml> <word> [--trace[=<file>]] [--trace-format=text|json] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--engine=default|foma]",
                 env!("CARGO_PKG_VERSION")
             );
             ExitCode::FAILURE
         }
     }
-}
-
-/// F9 (`HYBRID_FST_RUST_PLAN.md` §8/§13, closing the cross-milestone hc-cli gap recorded at F8):
-/// `hc-rs fst-stats <grammar.xml> [out.txt]` — the first of the plan's §6.1/§7 `hc-rs fst-*`
-/// commands to actually get a CLI subcommand (F1-F8 gated `hc-hybrid` exclusively via direct Rust
-/// library/test calls; no `fst-*` subcommand existed in `hc-cli` at all before this). Reuses
-/// `hc_hybrid::stats::assemble_lines` directly — the exact function F8's own gate compares
-/// byte-identically against the C# `fst-stats` golden (`FstStatsCommand.cs`) — so this command's
-/// output is, by construction, the same text that gate already verifies; this file adds no new
-/// stats-assembly logic of its own. `out.txt` is optional: omit it to print to stdout (handy for
-/// ad hoc inspection); provide it to write a file, mirroring the C# oracle tool's own
-/// `fst-stats <grammar> <out.txt>` two-positional-argument shape (plan §6.1).
-fn run_fst_stats(args: &[String]) -> Result<(), String> {
-    let [grammar_path, rest @ ..] = args else {
-        return Err("usage: fst-stats <grammar.xml> [out.txt]".into());
-    };
-    let out_path = match rest {
-        [] => None,
-        [p] => Some(p.as_str()),
-        _ => return Err("usage: fst-stats <grammar.xml> [out.txt]".into()),
-    };
-
-    let xml = fs::read_to_string(grammar_path).map_err(|e| format!("read {grammar_path}: {e}"))?;
-    let g = hc_grammar::load(&xml).map_err(|e| format!("load {grammar_path}: {e:?}"))?;
-    let build_morpher = Morpher::new(&g, usize::MAX);
-    let surface = hc_hybrid::surface::SurfacePhonology::new(&g);
-    let trie = hc_hybrid::trie::Trie::build(&g, &surface, &build_morpher, 1_000_000, 2, true);
-    let compiled = hc_hybrid::compiler::compile_default(&g);
-    let advisor_report = hc_hybrid::advisor::analyze(&g);
-
-    let lines = hc_hybrid::stats::assemble_lines(
-        &trie,
-        &compiled,
-        &advisor_report,
-        &g,
-        &surface,
-        &build_morpher,
-    );
-    let mut text = lines.join("\n");
-    text.push('\n');
-
-    match out_path {
-        Some(p) => fs::write(p, &text).map_err(|e| format!("write {p}: {e}"))?,
-        None => print!("{text}"),
-    }
-    Ok(())
 }
 
 /// P12 chunk 7 (design doc §4.3): `hc-rs parse <grammar.xml> <word> [--trace[=<file>]]

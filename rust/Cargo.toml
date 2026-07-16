@@ -11,7 +11,6 @@ members = [
     "crates/hc-rules",
     "crates/hc-memo",
     "crates/hc-parse",
-    "crates/hc-hybrid",
     "crates/hc-ffi",
     "crates/hc-cli",
     "crates/hc-realize",
@@ -50,7 +49,6 @@ hc-fst = { path = "crates/hc-fst" }
 hc-rules = { path = "crates/hc-rules" }
 hc-memo = { path = "crates/hc-memo" }
 hc-parse = { path = "crates/hc-parse" }
-hc-hybrid = { path = "crates/hc-hybrid" }
 hc-realize = { path = "crates/hc-realize" }
 hc-lexicon = { path = "crates/hc-lexicon" }
 # dev

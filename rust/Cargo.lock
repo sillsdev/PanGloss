@@ -245,7 +245,6 @@ dependencies = [
  "hc-foma",
  "hc-fst",
  "hc-grammar",
- "hc-hybrid",
  "hc-parse",
  "hc-realize",
  "hc-rules",
@@ -301,20 +300,6 @@ dependencies = [
  "quick-xml",
  "smallvec",
  "thiserror",
- "unicode-normalization",
-]
-
-[[package]]
-name = "hc-hybrid"
-version = "0.1.0"
-dependencies = [
- "hc-featstruct",
- "hc-grammar",
- "hc-parse",
- "hc-rules",
- "hc-shape",
- "rayon",
- "rustc-hash",
  "unicode-normalization",
 ]
 

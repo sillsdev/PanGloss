@@ -1,5 +1,10 @@
 # Grammar FST Advisor — plan
 
+> **LEGACY — superseded by [`foma-fst-plan.md`](foma-fst-plan.md).** This document is part of the
+> record of the earlier custom-spun FST prototype (`hc-hybrid`), which PanGloss has sunset (plan
+> P5, gate F5, 2026-07-16) in favor of a foma-based FST proposer with the full HermitCrab engine
+> confirming/pruning. Kept for historical record only — not current design guidance.
+
 A grammar evolves; one new rule can quietly push it from the fast finite-state path into the
 slow combinatorial search. This plan adds a **grammar advisor/linter** that, for any HermitCrab
 `Language`, flags the rules that make parsing expensive or block FST compilation, and gives the

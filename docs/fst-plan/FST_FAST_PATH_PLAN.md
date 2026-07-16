@@ -1,5 +1,10 @@
 # FST fast path — execution plan (no certification, all-in 99% coverage)
 
+> **LEGACY — superseded by [`foma-fst-plan.md`](foma-fst-plan.md).** This document is part of the
+> record of the earlier custom-spun FST prototype (`hc-hybrid`), which PanGloss has sunset (plan
+> P5, gate F5, 2026-07-16) in favor of a foma-based FST proposer with the full HermitCrab engine
+> confirming/pruning. Kept for historical record only — not current design guidance.
+
 > **STATUS AS OF THIS WRITING: all 5 phases executed and committed** (commits from "FST probe:..."
 > through "FST: probe becomes the full composite..."). This is NOT the same as "done" — read each
 > phase's own STATUS block (Phase 3 especially) and section 10/11 before assuming any specific
