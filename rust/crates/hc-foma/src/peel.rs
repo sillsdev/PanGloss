@@ -139,15 +139,23 @@ impl ReduplicationPeeler {
         let max_copy_len = len / 2;
 
         for l in 1..=max_copy_len {
-            // Prefix copy: chars[0..l] repeats immediately (chars[l..2l]) -- strip it.
+            // Prefix copy: chars[0..l] repeats immediately (chars[l..2l]) -- strip it. The
+            // reduplicant sits at the FRONT (surface position 0), so its morpheme PRECEDES the
+            // base's in ascending surface order — `prepend = true` (gate F3 3b: `austronesian-phase`'s
+            // `redupMorphType="prefix"` rules `mrRedupCV`/`mrRedupFull`, "tutula"/"tulatula", whose
+            // engine analyses are `[RED, root]` root_index=1; the old unconditional append produced
+            // `[root, RED]` root_index=0, which `crate::confirm`'s positional `analyses_match`
+            // rejected — an under-generation the recall gate never caught because the reference
+            // grammars' only redup was Indonesian's TAIL copy).
             if chars[0..l] == chars[l..2 * l] {
                 let residual: String = chars[l..len].iter().collect();
-                self.propose_for_residual(g, &residual, None, propose, &mut out);
+                self.propose_for_residual(g, &residual, None, true, propose, &mut out);
             }
             // Suffix copy: the last l chars repeat the l chars before them -- strip the trailing copy.
+            // The reduplicant sits at the END, so its morpheme FOLLOWS the base's — `prepend = false`.
             if chars[len - l..len] == chars[len - 2 * l..len - l] {
                 let residual: String = chars[0..len - l].iter().collect();
-                self.propose_for_residual(g, &residual, None, propose, &mut out);
+                self.propose_for_residual(g, &residual, None, false, propose, &mut out);
             }
         }
 
@@ -160,7 +168,8 @@ impl ReduplicationPeeler {
             }
             if before.len() >= copy.len() && before[before.len() - copy.len()..] == *copy {
                 let residual: String = before.iter().collect();
-                self.propose_for_residual(g, &residual, None, propose, &mut out);
+                // separator + tail copy: the reduplicant (the tail copy) is at the END -> append.
+                self.propose_for_residual(g, &residual, None, false, propose, &mut out);
                 continue; // plain tail matched -- do not also try the suffix-peel fallback.
             }
             for (suffix_text, suffix_rule) in &self.suffix_surfaces {
@@ -180,10 +189,13 @@ impl ReduplicationPeeler {
                     && before[before.len() - stripped_copy.len()..] == *stripped_copy
                 {
                     let residual: String = before.iter().collect();
+                    // separator + suffix-peel + tail copy: reduplicant + peeled suffix both trail
+                    // the base -> append (never a prefix reduplicant here).
                     self.propose_for_residual(
                         g,
                         &residual,
                         Some(*suffix_rule),
+                        false,
                         propose,
                         &mut out,
                     );
@@ -195,29 +207,55 @@ impl ReduplicationPeeler {
 
     /// C# `ProposeForResidual` (`ReduplicationProposer.cs:211-231`): recurse `residual` through the
     /// caller's proposer, then wrap every returned base candidate with the reduplication morpheme
-    /// (and, for the separator+suffix-peel path, the peeled suffix morpheme afterward) --
-    /// `root_index` is unchanged (the added morphemes are appended after the base's own morphemes,
-    /// matching HC's `root … RED suffix` application order).
+    /// (and, for the separator+suffix-peel path, the peeled suffix morpheme afterward).
+    ///
+    /// `prepend` (gate F3 3b): a `redupMorphType="prefix"` reduplication puts the reduplicant at the
+    /// FRONT of the surface word, so its morpheme must PRECEDE the base's in ascending surface order
+    /// (`crate::confirm`'s `analyses_match` is positional) — `prepend = true` puts the redup morpheme
+    /// first and shifts `root_index` right by one to keep it pointing at the same root. Every
+    /// tail/suffix scan passes `prepend = false` (the reduplicant trails the base, HC's
+    /// `root … RED suffix` order, `root_index` unchanged) — the original append-only behavior, which
+    /// was correct only because the reference grammars' one redup (Indonesian's tail copy) happened
+    /// never to be a prefix reduplicant. `extra_suffix` is only ever supplied on an append path, so
+    /// it is unconditionally appended after the base.
     fn propose_for_residual(
         &self,
         g: &Grammar,
         residual: &str,
         extra_suffix: Option<MRuleId>,
+        prepend: bool,
         propose: &mut dyn FnMut(&str) -> Vec<Candidate>,
         out: &mut Vec<Candidate>,
     ) {
         let base_candidates = propose(residual);
         for base in &base_candidates {
             for &redup in &self.redup_rules {
-                let mut morphemes = base.morphemes.clone();
-                morphemes.push(owning_morpheme(g, redup));
-                if let Some(suf) = extra_suffix {
-                    morphemes.push(owning_morpheme(g, suf));
+                let redup_m = owning_morpheme(g, redup);
+                if prepend {
+                    let mut morphemes = Vec::with_capacity(base.morphemes.len() + 1);
+                    morphemes.push(redup_m);
+                    morphemes.extend_from_slice(&base.morphemes);
+                    out.push(Candidate {
+                        morphemes,
+                        // The base's own root sat at `base.root_index`; prepending one morpheme
+                        // shifts every base morpheme (root included) one position right.
+                        root_index: if base.root_index < 0 {
+                            base.root_index
+                        } else {
+                            base.root_index + 1
+                        },
+                    });
+                } else {
+                    let mut morphemes = base.morphemes.clone();
+                    morphemes.push(redup_m);
+                    if let Some(suf) = extra_suffix {
+                        morphemes.push(owning_morpheme(g, suf));
+                    }
+                    out.push(Candidate {
+                        morphemes,
+                        root_index: base.root_index,
+                    });
                 }
-                out.push(Candidate {
-                    morphemes,
-                    root_index: base.root_index,
-                });
             }
         }
     }

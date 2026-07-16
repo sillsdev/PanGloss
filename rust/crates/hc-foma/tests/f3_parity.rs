@@ -280,12 +280,17 @@ fn sena_sample_300_multiset_parity() {
 
     assert_eq!(stats.n_excluded, 0, "Sena sample-300 is not expected to time out the full engine");
     assert_eq!(stats.n_compared, 300, "every one of the 300 sample words must be compared");
-    // KNOWN-FAILURES LEDGER (gate F3 NOT MET — foma-fst-plan.md "Gate F3 verdict"):
-    //   `musandilesera` — engine finds 10 analyses, foma 2. Same morpheme_ids chain surfaces at
-    //   multiple root_index values (2/3/4); the composite propose→confirm path (`composite.rs` /
-    //   `confirm.rs`) collapses the positional/multiplicity variants the full search keeps. Owned
-    //   by the recall-bug fix task; when fixed, delete this entry (the ledger must shrink).
-    assert_against_ledger(&stats, &[("musandilesera", 10, 2)], "sena (sample-300)");
+    // KNOWN-FAILURES LEDGER (gate F3): empty — the former `musandilesera` recall miss (engine 10,
+    //   foma 2) is FIXED. Root cause was NOT confirm/positional (that was ruled out): the 8 missing
+    //   analyses all had the root `é` (morpheme 542) as the FIRST root of an `é + tentar` compound,
+    //   inflected by prefix/suffix slots (`HAB`/`IND`) carried only by another group's template.
+    //   `é`'s own category (`FsId(2)`) unified only with group G1's key, so the emitter — which
+    //   routes a compound by its MAIN root's group — confined `é`-as-main to G1, whose template
+    //   lacks those slots; the engine reaches them via compound-HEAD re-categorization (`tentar`,
+    //   `FsId(6)`). Fixed in `emit.rs`'s `eligible_roots` (admit every root to every group when the
+    //   grammar has compounding rules — upward-safe, confirm prunes). Sena is now at full multiset
+    //   parity — any mismatch is a hard fail.
+    assert_against_ledger(&stats, &[], "sena (sample-300)");
 }
 
 // -------------------------------------------------------------------------------------------

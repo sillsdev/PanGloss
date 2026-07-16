@@ -348,7 +348,30 @@ cost on zero-analysis words — new finding, candidate for P6 profiling).
 3c targets met (or explicit signed-off exceptions recorded here); no test regressions
 workspace-wide (`cargo test`).
 
-**Gate F3 verdict (2026-07-15, P3 report): NOT MET.** 3a: 2 of 3 legs fail (Sena
+**Gate F3 verdict (2026-07-16): MET.** All recall gaps found by the initial P3 report
+(below) are now closed, nothing laundered:
+- **3a parity — 100% on all three grammars** (`hc-foma/tests/f3_parity.rs`, release, empty
+  known-failures ledger): Indonesian 121/121; Sena sample-300 0 mismatches (`musandilesera`
+  now 10/10 — `emit.rs` `eligible_roots` admits every root to every group for grammars with
+  compounding rules, so an `é`-headed-elsewhere inflected compound is reachable; upward-safe,
+  confirm prunes); Amharic 622 compared / 51 engine-timeout-excluded / 0 mismatches (`ገለፀ`
+  now 1/1 — `preexpand.rs` renders every matching char-def representation for merged
+  letter-series like Ge'ez ጸ/ፀ instead of only the first).
+- **3b conformance — zero new divergences.** `run-conformance.sh --engine=foma` = 14 passed,
+  1 failed, and that 1 is the SAME documented known divergence the default engine has
+  (`simultaneous-epenthesis-cascade`); the default run is identical. All 8 originally-failing
+  fixtures now pass via new `emit.rs` machinery (`pattern_variants` templatic class nodes;
+  `build_structural_composites` truncation/morphotactic; `probe_surface`/`probe_would_refuse`
+  epenthesis/metathesis; compound-head prefix chains for the PFX2 family) and a `peel.rs` fix
+  (prefix reduplication prepends the reduplicant morpheme + shifts root_index). Nothing added
+  to `known-conformance-divergences.txt`.
+- **3c timing — met**, numbers below (foma 8×–48× faster per corpus; two named exceptions).
+- **No workspace test regressions**: `cargo test -p hc-foma --release` green (lib + f0/f1/f2/f4
+  gates + f3_parity); `hc-foma` lib grew 11 focused regression tests for the above fixes.
+
+The initial P3-snapshot verdict is retained below for the record.
+
+**Gate F3 verdict (2026-07-15, P3 report — SUPERSEDED by the 2026-07-16 MET verdict above): NOT MET.** 3a: 2 of 3 legs fail (Sena
 `musandilesera` multiplicity/root-index mismatch — engine 10 analyses vs foma 2; Amharic
 `ገለፀ` recall miss — engine finds 1 analysis via the `-pfv-` infix rule on root
 entry30/"explain", foma finds 0). Both bugs live in `hc-foma/src/**` (composite.rs

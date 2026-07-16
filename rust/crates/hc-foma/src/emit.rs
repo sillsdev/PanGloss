@@ -1357,6 +1357,51 @@ fn probe_surface(g: &Grammar, table: &CharDefTable, shape: &Shape, cache: &RuleC
     })
 }
 
+/// Every `BoundaryDefinition` representation (NFD) in `table` — e.g. `austronesian-phase`'s "+".
+/// Empty for a grammar with no boundary definitions (the common case), where boundary-insertion
+/// ([`with_boundary_insertions`]) is a pure no-op.
+fn boundary_reps(table: &CharDefTable) -> Vec<String> {
+    let mut out = Vec::new();
+    for (_, cd) in table.iter() {
+        if cd.kind() == CharDefKind::Boundary {
+            for r in cd.representations_nfd() {
+                if !r.is_empty() && !out.contains(r) {
+                    out.push(r.clone());
+                }
+            }
+        }
+    }
+    out
+}
+
+/// `surface` plus every SINGLE-boundary-insertion variant (each rep in `bnd_reps` at each interior
+/// character gap). Gate F3 3b (`austronesian-phase`'s "mu+i"): a `MetathesisRule` can leave a
+/// boundary character INSIDE the surface word (`mi` + suffix `+u` --metathesis--> `mu+i`), but the
+/// only mechanism that renders a metathesized surface at all — [`Morpher::generate_words`] — strips
+/// every boundary (`include_boundaries = false`, `hc_parse::surface::to_plain_string`'s only
+/// generation call site), so its output "mui" can never match the boundary-bearing query "mu+i".
+/// The shape (which WOULD carry the boundary at its true position) is not exposed by
+/// `generate_words`' string-only API and `probe_surface` refuses on metathesis, so the exact
+/// position is unrecoverable at this layer — enumerate every interior insertion instead: bounded
+/// (one boundary, `bnd_reps.len() * (n-1)` extra strings for an n-char surface), upward-only
+/// (`crate::confirm` prunes; a spurious "m+ui" is simply never the query and matches nothing). A
+/// no-op when `bnd_reps` is empty (every grammar with no boundary definitions).
+fn with_boundary_insertions(surface: &str, bnd_reps: &[String]) -> Vec<String> {
+    let mut out = vec![surface.to_string()];
+    if bnd_reps.is_empty() {
+        return out;
+    }
+    let chars: Vec<char> = surface.chars().collect();
+    for pos in 1..chars.len() {
+        let head: String = chars[..pos].iter().collect();
+        let tail: String = chars[pos..].iter().collect();
+        for rep in bnd_reps {
+            out.push(format!("{head}{rep}{tail}"));
+        }
+    }
+    out
+}
+
 /// [`hc_rules::morph::synthesize`]'s `Word` carries `morphs` (each applied allomorph, with an
 /// `order` field reflecting ascending SURFACE position — module doc's "Tag tape convention"; this
 /// is what makes the resulting `tag_lexc` line up with `hc_parse::Morpher`'s own
@@ -1397,6 +1442,10 @@ struct StructCtx<'a> {
     rules: &'a [MRuleId],
     cache: &'a RuleCache,
     morpher: &'a Morpher<'a>,
+    /// Boundary representations for [`with_boundary_insertions`] (gate F3 3b, "mu+i") — applied only
+    /// to `generate_words`-fallback surfaces, where a metathesis may have moved a boundary into the
+    /// surface word. Empty for a grammar with no boundary definitions.
+    boundary_reps: &'a [String],
 }
 
 /// [`struct_extend`]'s output accumulator: the composite records plus a `(tag_lexc, spelling)`
@@ -1471,10 +1520,16 @@ fn struct_extend(
                     // (`mruleTruncOptIns` on a root beginning with its own optional segment: "sas"
                     // admits BOTH "gas" and "gsas" as legitimate parses) -- every one is upward-safe
                     // to pair with THIS `w`'s own tag order (cross-product, plan's iron rule).
+                    // Boundary-insertion (module doc, [`with_boundary_insertions`]): a metathesis in
+                    // this chain may have left a boundary char inside the surface (mu+i) that
+                    // `generate_words` stripped — a no-op when the grammar has no boundary defs.
                     let others: Vec<GenMorpheme> =
                         next_rule_chain.iter().map(|&m| GenMorpheme::Rule(m)).collect();
                     ctx.morpher
                         .generate_words(ctx.root_entry, &others, FeatureStruct::EMPTY)
+                        .iter()
+                        .flat_map(|s| with_boundary_insertions(s, ctx.boundary_reps))
+                        .collect()
                 }
             };
 
@@ -1525,6 +1580,9 @@ fn build_structural_composites(
         seen: rustc_hash::FxHashSet::default(),
         covered_rules: BTreeSet::new(),
     };
+    // Boundary reps for the metathesis/boundary-in-surface case (gate F3 3b, "mu+i"); computed from
+    // the surface stratum's table once (every stratum shares one table in the reference grammars).
+    let bnd_reps = boundary_reps(surface_table(g));
 
     for sd in &g.strata {
         for &entry_id in &sd.entries {
@@ -1557,6 +1615,7 @@ fn build_structural_composites(
                     rules,
                     cache,
                     morpher,
+                    boundary_reps: &bnd_reps,
                 };
                 struct_extend(&ctx, &word, &chain0, &[], 0, width, &mut acc);
             }
@@ -1872,8 +1931,28 @@ pub fn emit(g: &Grammar) -> EmitResult {
         write_bare(&mut out, "TLSfx0", &mut counts);
         if has_compounding_rules {
             write_bare(&mut out, "TLCmp", &mut counts);
+            // Gate F3 3b: the compound EXTRA root may itself carry prefix-derivation morphology —
+            // a prefix on the compound's head span (`fusional-latin`'s "lexbedom" = lex + be- +
+            // dom, `LEX+BEPFX2+DOMV`; `polysynthetic-inuit`'s "silamanuk" = sila + ma- + nuk,
+            // `SILA+MAPFX2+NUKV`). The engine's compound splitter unapplies a prefix cleanly from
+            // the head span, so a bare extra-root slot (v1) under-generates every prefixed-head
+            // compound. Wire a prefix-derivation chain before the extra root, exiting to a bounded
+            // `TLCmpRoots` (no further compound loop from here — one extra root, same bound as
+            // trie's `build_compound_loop`).
             write_lexicon_header(&mut out, "TLCmp");
+            write_bare(&mut out, "TLCmpPfx0", &mut counts);
+            build_deriv_chain(
+                &mut out, g, table, "TLCmpPfx", Role::Prefix, &deriv_prefix, width, "TLCmpRoots",
+                &mut uncovered, &mut counts, phon.as_ref(), true,
+            );
+            write_lexicon_header(&mut out, "TLCmpRoots");
             write_root_entries(&mut out, &all_roots, "TLSfx0", &mut counts);
+            if phon.is_some() {
+                // `TLCmpRoots`' `Stripped` sibling — `TLCmpPfx`'s final level routes every
+                // deletion-junction hit here (module doc, "Junction-aware affix/root emission").
+                write_lexicon_header(&mut out, "TLCmpRootsStripped");
+                write_stripped_root_entries(&mut out, &all_roots, "TLSfx0", &mut counts);
+            }
         }
         build_deriv_chain(
             &mut out, g, table, "TLSfx", Role::Suffix, &deriv_suffix, width, "#",
@@ -1936,8 +2015,24 @@ pub fn emit(g: &Grammar) -> EmitResult {
         if has_compounding_rules {
             let cmp_name = format!("G{gi}Cmp");
             write_bare(&mut out, &cmp_name, &mut counts);
+            // Gate F3 3b: the compound extra root may carry prefix-derivation morphology (a prefix
+            // on the compound's head span) — see the template-less `TLCmp` comment above for the
+            // full rationale (`lexbedom`/`silamanuk`). Same fix per group: a prefix-derivation
+            // chain before the extra root, exiting to a bounded `G{gi}CmpRoots`.
+            let cmp_pfx = format!("G{gi}CmpPfx");
+            let cmp_roots = format!("G{gi}CmpRoots");
             write_lexicon_header(&mut out, &cmp_name);
+            write_bare(&mut out, &format!("{cmp_pfx}0"), &mut counts);
+            build_deriv_chain(
+                &mut out, g, table, &cmp_pfx, Role::Prefix, &deriv_prefix, width, &cmp_roots,
+                &mut uncovered, &mut counts, phon.as_ref(), true,
+            );
+            write_lexicon_header(&mut out, &cmp_roots);
             write_root_entries(&mut out, &all_roots, &sfx_deriv_entry, &mut counts);
+            if phon.is_some() {
+                write_lexicon_header(&mut out, &format!("{cmp_roots}Stripped"));
+                write_stripped_root_entries(&mut out, &all_roots, &sfx_deriv_entry, &mut counts);
+            }
         }
 
         let roots_name = format!("G{gi}Roots");
@@ -1946,7 +2041,27 @@ pub fn emit(g: &Grammar) -> EmitResult {
         let eligible_roots: Vec<&RootRec> = roots
             .iter()
             .filter(|r| {
-                permissive[gi]
+                // Gate F3 3b (Sena `musandilesera`): a grammar with compounding rules can
+                // re-categorize a root via its compound HEAD — the compound `é + tentar` is headed
+                // by `tentar` (category `FsId(6)`), so the whole stem is licensed by `tentar`'s
+                // group (the one whose template carries the inflectional `HAB`/`IND` slots), even
+                // though `é`'s OWN category (`FsId(2)`) only unifies with group G1's key. The
+                // emitter routes a compound by its MAIN (first-surface) root's group, so `é`-as-main
+                // was confined to G1, whose template lacks those slots — under-generating every
+                // `é`-headed-elsewhere inflected compound (8 of the engine's 10 `musandilesera`
+                // analyses). Admitting EVERY root to EVERY group when the grammar has compounding
+                // rules is the upward-safe fix (confirm prunes the spurious simple-path entries this
+                // adds): it does NOT change the asymptotic emit size, since a compound grammar's
+                // `G{gi}Cmp`/`CmpRoots` sections ALREADY carry `all_roots` per group (already
+                // O(roots × groups) for a compound grammar). A grammar with NO compounding rule keeps
+                // the exact category/`permissive` filter — no root can be re-categorized there, so
+                // the approximation stays tight and small. (Every reference grammar has at least one
+                // compounding rule, so all three are broadened; measured cost is negligible — Sena's
+                // 1369 roots × 9 groups still emit + foma-compile in ~3s, Amharic/Indonesian have
+                // <80 roots each; and confirm keeps multiset parity intact since it only ever adds
+                // candidates the full engine then rejects.)
+                has_compounding_rules
+                    || permissive[gi]
                     || key_fs.is_empty()
                     || is_unifiable(g.fs_interner.get(r.category), key_fs)
             })
@@ -2091,6 +2206,16 @@ mod structural_and_pattern_tests {
         let xml = std::fs::read_to_string(&full)
             .unwrap_or_else(|e| panic!("{}: {e}", full.display()));
         hc_grammar::load(&xml).unwrap()
+    }
+
+    /// Load a `samples/data/*.xml` reference grammar; `None` (test skips) if not present on disk —
+    /// mirrors the existing `confirm`/`peel` test convention (those grammars aren't in every CI env).
+    fn load_sample(name: &str) -> Option<Grammar> {
+        let full = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../samples/data")
+            .join(name);
+        let xml = std::fs::read_to_string(&full).ok()?;
+        Some(hc_grammar::load(&xml).unwrap())
     }
 
     fn entry_id_of(g: &Grammar, xml_key: &str) -> LexEntryId {
@@ -2247,5 +2372,82 @@ mod structural_and_pattern_tests {
                 "{word:?} must be proposable"
             );
         }
+    }
+
+    /// Every proposed candidate must survive confirm end-to-end (propose -> peel -> confirm) — the
+    /// real conformance path, `crate::composite::FomaAnalyzer::analyze_word`.
+    fn assert_confirms(fixture: &str, words: &[&str]) {
+        let g = load(&format!("{fixture}/grammar.xml"));
+        let mut analyzer = crate::composite::FomaAnalyzer::new(&g)
+            .unwrap_or_else(|e| panic!("{fixture} compiles: {e}"));
+        for &word in words {
+            let outcome = analyzer.analyze_word(word);
+            assert!(
+                outcome.confirmed >= 1,
+                "{fixture}/{word:?}: expected >= 1 confirmed analysis, got {}",
+                outcome.confirmed
+            );
+        }
+    }
+
+    /// Gate F3 3b regression: a prefix on the compound HEAD span — the compound extra-root slot
+    /// wired through a prefix-derivation chain (`fusional-latin`'s "lexbedom" = `LEX+BEPFX2+DOMV`;
+    /// `polysynthetic-inuit`'s "silamanuk" = `SILA+MAPFX2+NUKV`). The v1 bare extra-root slot could
+    /// not place a prefix between the two roots, so both under-generated (foma returned zero).
+    #[test]
+    fn compound_head_prefix_confirms() {
+        assert_confirms("languages/fusional-latin", &["lexbedom"]);
+        assert_confirms("languages/polysynthetic-inuit", &["silamanuk"]);
+    }
+
+    /// Gate F3 3b regression: `redupMorphType="prefix"` reduplication — the peel must PREPEND the
+    /// redup morpheme (`[RED, root]`, root_index shifted) so `crate::confirm`'s positional match
+    /// succeeds (`austronesian-phase`'s "tutula" = `RDP+TULA`, "tulatula" = `RDPL+TULA`). The v1
+    /// append-only peel produced `[root, RED]` which confirm rejected.
+    #[test]
+    fn prefix_reduplication_confirms() {
+        assert_confirms("languages/austronesian-phase", &["tutula", "tulatula"]);
+    }
+
+    /// Gate F3 3b regression: metathesis that leaves a BoundaryDefinition char inside the surface
+    /// word (`austronesian-phase`'s "mu+i" = `mi` + suffix `+u` --metathesis--> `mu+i`,
+    /// `MI+3SGU`). `generate_words` strips the boundary ("mui"); [`with_boundary_insertions`]
+    /// re-introduces it at every interior gap so the boundary-bearing query is reachable.
+    #[test]
+    fn metathesis_boundary_in_surface_confirms() {
+        assert_confirms("languages/austronesian-phase", &["mu+i"]);
+    }
+
+    /// [`with_boundary_insertions`] is a no-op without boundary reps and enumerates every interior
+    /// gap with them.
+    #[test]
+    fn boundary_insertion_enumerates_interior_gaps() {
+        assert_eq!(with_boundary_insertions("mui", &[]), vec!["mui".to_string()]);
+        let plus = vec!["+".to_string()];
+        let got = with_boundary_insertions("mui", &plus);
+        assert!(got.contains(&"mui".to_string()));
+        assert!(got.contains(&"m+ui".to_string()));
+        assert!(got.contains(&"mu+i".to_string()));
+        assert_eq!(got.len(), 3, "original + 2 interior gaps");
+    }
+
+    /// Gate F3 regression (Sena `musandilesera`, formerly the last f3_parity ledger entry, foma 2 vs
+    /// engine 10): the `eligible_roots` broadening for compound grammars must make every
+    /// compound-HEAD-re-categorized `é`-first analysis proposable-and-confirmable. Full parity (10)
+    /// end-to-end via `FomaAnalyzer`. Skips if `samples/data/sena-hc.xml` is absent.
+    #[test]
+    fn sena_musandilesera_full_parity() {
+        let Some(g) = load_sample("sena-hc.xml") else {
+            eprintln!("skipping: sena-hc.xml not present on disk");
+            return;
+        };
+        let mut analyzer = crate::composite::FomaAnalyzer::new(&g).expect("sena compiles");
+        let outcome = analyzer.analyze_word("musandilesera");
+        assert_eq!(
+            outcome.confirmed, 10,
+            "musandilesera must confirm all 10 engine analyses (was 2 before the eligible_roots \
+             compound-recategorization broadening), got {}",
+            outcome.confirmed
+        );
     }
 }
