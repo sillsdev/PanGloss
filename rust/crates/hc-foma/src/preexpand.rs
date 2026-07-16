@@ -94,21 +94,24 @@
 //!
 //! ## SCALE BRIDGE (plan §0 scale mandate)
 //! This is an O(roots × rules^depth) enumeration -- workable at Amharic's 76 entries × 87 rules ×
-//! depth 3 (measured: ~305k pairs, ~54k entries, ~30-47s emit, all within the gate's soft budget)
-//! but decidedly NOT at FLEx scale (10⁴-10⁵ entries, hundreds of rules), and every probe here
-//! recompiles its rule's LHS FST from scratch ([`hc_rules::morph::synthesize`]; the
-//! `RuleCache`-aware `synthesize_cached_traced` is `pub(crate)` to `hc-rules` and unavailable
-//! here). The **P6 successor** (replace-rule compilation, `docs/fst-plan/foma-fst-plan.md` P6
-//! item 1) retires this bridge by compiling interdigitating/fusing rules as real foma
-//! replace-calculus rules over root natural-class patterns, composed directly into the network
-//! instead of enumerated per root and per chain -- exactly the same successor already named for
-//! [`crate::junctions::PhonologyProbe`]'s own enumeration bridge.
+//! depth 3 (measured: ~305k pairs, ~54k entries) but decidedly NOT at FLEx scale (10⁴-10⁵ entries,
+//! hundreds of rules). Each probe calls [`hc_rules::morph::synthesize_cached`] (the `RuleCache`-aware
+//! sibling of `synthesize`, now `pub` for exactly this cross-crate caller) against the SAME
+//! `RuleCache` [`build_composites`] builds once per grammar, so a rule's LHS FST is compiled once at
+//! cache-build time and read (not recompiled) on every one of its ~305k probes -- before this, each
+//! probe recompiled that FST from scratch (Thompson NFA build + determinize), which dominated
+//! Amharic's emit wall time (~35s of it). The **P6 successor** (replace-rule compilation,
+//! `docs/fst-plan/foma-fst-plan.md` P6 item 1) retires this bridge entirely by compiling
+//! interdigitating/fusing rules as real foma replace-calculus rules over root natural-class
+//! patterns, composed directly into the network instead of enumerated per root and per chain --
+//! exactly the same successor already named for [`crate::junctions::PhonologyProbe`]'s own
+//! enumeration bridge.
 
 use hc_featstruct::{flat_unifiable, is_unifiable, FsId};
 use hc_grammar::chardef::{CharDefId, CharDefKind, CharDefTable};
 use hc_grammar::model::{AllomorphId, Grammar, MRuleId, MorphRuleDef, MorphemeId, OutputAction};
 use hc_rules::cache::RuleCache;
-use hc_rules::morph::synthesize;
+use hc_rules::morph::synthesize_cached;
 use hc_rules::surface_probe::{self, ProbeSeg};
 use hc_rules::word::{MorphRecord, Word};
 use hc_shape::NO_CHAR_DEF;
@@ -233,6 +236,52 @@ fn morph_order_tags(w: &Word, known: &[(MorphemeId, String)]) -> Option<String> 
     }
 }
 
+/// One rule-allomorph's precomputed ordinary-surface strings (module doc's "Avoiding redundant
+/// entries") -- see [`build_allomorph_variants`]'s doc for why this is hoisted out of
+/// [`reachable_via_ordinary_emission`]'s hot path.
+struct AllomorphVariants {
+    /// `surface_variants(text) ∪ phon.variants(text)` for one allomorph's `InsertSegments` text.
+    ordinary: Vec<String>,
+    /// `phon.deletion_junctions(text)` for the same text (empty when `phon` is `None`; only ever
+    /// consulted on the prefix side, mirroring `emit.rs`'s own `{roots}Stripped` convention).
+    deletion: Vec<String>,
+}
+
+/// Precomputes [`reachable_via_ordinary_emission`]'s per-allomorph input ONCE per candidate rule,
+/// rather than recomputing `surface_variants`/`PhonologyProbe::variants`/`deletion_junctions` for
+/// the SAME allomorph text on every one of the ~305k (root, rule, depth) probes [`extend`] tries on
+/// Amharic: `(table, phon, rule)` are all grammar-static for the lifetime of one [`build_composites`]
+/// call, so each allomorph's ordinary/deletion surface sets never change across roots or depths --
+/// only `root_variants`/`root_stripped`/`fused` (genuinely per-probe) still need to be supplied at
+/// call time. Skips (empty entry) any allomorph with no `InsertSegments` text and returns an empty
+/// `Vec` for a `Compounding` rule (mirrors the old inline function's `continue`/early-`return false`).
+fn build_allomorph_variants(
+    table: &CharDefTable,
+    phon: Option<&PhonologyProbe>,
+    rule: &MorphRuleDef,
+) -> Vec<AllomorphVariants> {
+    let allomorphs = match rule {
+        MorphRuleDef::AffixProcess(def) => &def.allomorphs,
+        MorphRuleDef::Realizational(def) => &def.allomorphs,
+        MorphRuleDef::Compounding(_) => return Vec::new(),
+    };
+    allomorphs
+        .iter()
+        .filter_map(|allo| {
+            let text = allo.rhs.iter().find_map(|a| match a {
+                OutputAction::InsertSegments { shape, .. } => Some(shape.text.as_str()),
+                _ => None,
+            })?;
+            let mut ordinary: Vec<String> = surface_variants(table, text).map(|(v, _)| v).unwrap_or_default();
+            if let Some(p) = phon {
+                ordinary.extend(p.variants(text));
+            }
+            let deletion = phon.map(|p| p.deletion_junctions(text)).unwrap_or_default();
+            Some(AllomorphVariants { ordinary, deletion })
+        })
+        .collect()
+}
+
 /// Module doc's "Avoiding redundant entries": does the ORDINARY two-entry emission (literal root
 /// spelling(s), literal affix spelling(s), optionally enriched by [`PhonologyProbe`]) already reach
 /// `fused` through some combination? Mirrors `emit.rs`'s own two routing rules exactly:
@@ -240,34 +289,17 @@ fn morph_order_tags(w: &Word, known: &[(MorphemeId, String)]) -> Option<String> 
 /// spellings concatenate with a root spelling that has had its OWN leading segment stripped
 /// ([`stripped_variants`]) -- the `{roots}Stripped` mechanism `emit.rs`'s `build_deriv_chain` wires,
 /// PREFIX-only (there is no suffix-side equivalent in `emit.rs` today, so a `Suffix` rule only ever
-/// checks the plain `variants` × full-root combination).
-#[allow(clippy::too_many_arguments)]
+/// checks the plain `variants` × full-root combination). `allo_variants` is this rule's
+/// [`build_allomorph_variants`] output, precomputed once outside the root/depth probe loop.
 fn reachable_via_ordinary_emission(
-    table: &CharDefTable,
-    phon: Option<&PhonologyProbe>,
     root_variants: &[String],
     root_stripped: &[String],
-    rule: &MorphRuleDef,
+    allo_variants: &[AllomorphVariants],
     is_prefix: bool,
     fused: &str,
 ) -> bool {
-    let allomorphs = match rule {
-        MorphRuleDef::AffixProcess(def) => &def.allomorphs,
-        MorphRuleDef::Realizational(def) => &def.allomorphs,
-        MorphRuleDef::Compounding(_) => return false,
-    };
-    for allo in allomorphs {
-        let Some(text) = allo.rhs.iter().find_map(|a| match a {
-            OutputAction::InsertSegments { shape, .. } => Some(shape.text.as_str()),
-            _ => None,
-        }) else {
-            continue;
-        };
-        let mut ordinary: Vec<String> = surface_variants(table, text).map(|(v, _)| v).unwrap_or_default();
-        if let Some(p) = phon {
-            ordinary.extend(p.variants(text));
-        }
-        for a in &ordinary {
+    for av in allo_variants {
+        for a in &av.ordinary {
             for r in root_variants {
                 let concat = if is_prefix { format!("{a}{r}") } else { format!("{r}{a}") };
                 if concat == fused {
@@ -276,12 +308,10 @@ fn reachable_via_ordinary_emission(
             }
         }
         if is_prefix {
-            if let Some(p) = phon {
-                for a in p.deletion_junctions(text) {
-                    for r in root_stripped {
-                        if format!("{a}{r}") == fused {
-                            return true;
-                        }
+            for a in &av.deletion {
+                for r in root_stripped {
+                    if format!("{a}{r}") == fused {
+                        return true;
                     }
                 }
             }
@@ -414,8 +444,13 @@ struct ExtendCtx<'a> {
     g: &'a Grammar,
     root_table: &'a CharDefTable,
     rules: &'a [(MRuleId, Role)],
+    /// [`build_allomorph_variants`] output for each of `rules`, same order/indexing -- precomputed
+    /// once per grammar (see that function's doc for why this must not be recomputed per probe).
+    /// This is the only place `phon` still matters to [`extend`]'s own recursion (folded into each
+    /// allomorph's `ordinary`/`deletion` sets at precompute time) -- no separate `phon` field is
+    /// needed here anymore.
+    rule_variants: &'a [Vec<AllomorphVariants>],
     cache: &'a RuleCache,
-    phon: Option<&'a PhonologyProbe<'a>>,
 }
 
 /// [`extend`]'s output accumulator: the composite records, a `(tag_lexc, spelling)` dedup set
@@ -459,7 +494,7 @@ fn extend(
         return;
     }
     let base_fs = base_word.syn_fs.clone();
-    for &(mid, role) in ctx.rules {
+    for (ridx, &(mid, role)) in ctx.rules.iter().enumerate() {
         let rule = &ctx.g.mrules[mid.0 as usize];
         let (req, rule_morpheme) = rule_fs_and_morpheme(rule);
         // A rule already in this chain cannot apply again in the SAME composite (every reference
@@ -476,7 +511,7 @@ fn extend(
         }
         acc.report.pairs_probed += 1;
 
-        for w in synthesize(ctx.g, base_word, rule) {
+        for w in synthesize_cached(ctx.g, mid, base_word, rule, ctx.cache) {
             let Some(segs) = surface_probe::probe_synthesize(ctx.g, &w.shape, ctx.cache) else {
                 continue;
             };
@@ -506,11 +541,9 @@ fn extend(
                 .filter(|post| {
                     is_infix
                         || !reachable_via_ordinary_emission(
-                            ctx.root_table,
-                            ctx.phon,
                             redundancy_variants,
                             redundancy_stripped,
-                            rule,
+                            &ctx.rule_variants[ridx],
                             role == Role::Prefix,
                             post,
                         )
@@ -615,12 +648,21 @@ pub(crate) fn build_composites(
 
     let rules = candidate_rules(g);
     let cache = RuleCache::build(g);
+    // Per-table [`build_allomorph_variants`] cache (keyed by `TableId.0`, not just built once
+    // unconditionally): `root_table` is the OWNING stratum's table, which -- per the `root_ctx`
+    // comment just below -- can in principle differ per root in a multi-table grammar, so this
+    // still recomputes once per DISTINCT table rather than assuming a single grammar-wide one. On
+    // every reference grammar (all strata share one table) this populates exactly one entry, i.e.
+    // still computed exactly once total.
+    let mut rule_variants_cache: rustc_hash::FxHashMap<u16, Vec<Vec<AllomorphVariants>>> =
+        rustc_hash::FxHashMap::default();
 
     for sd in &g.strata {
         for &entry_id in &sd.entries {
             let entry = &g.entries[entry_id.0 as usize];
             let root_stratum = g.morphemes[entry.morpheme.0 as usize].stratum;
-            let root_table = &g.char_tables[g.strata[root_stratum.0 as usize].table.0 as usize];
+            let table_id = g.strata[root_stratum.0 as usize].table.0;
+            let root_table = &g.char_tables[table_id as usize];
             let entry_fs = g.fs_interner.get(entry.syn_fs);
 
             for allo in &entry.allomorphs {
@@ -647,6 +689,14 @@ pub(crate) fn build_composites(
 
                 let root_tag = tags::root_tag_lexc(entry.morpheme, width);
                 let chain0 = vec![(entry.morpheme, root_tag)];
+                let rule_variants = rule_variants_cache.entry(table_id).or_insert_with(|| {
+                    rules
+                        .iter()
+                        .map(|(mid, _)| {
+                            build_allomorph_variants(root_table, phon, &g.mrules[mid.0 as usize])
+                        })
+                        .collect()
+                });
                 // A fresh `ExtendCtx` per root: `root_table` is the OWNING stratum's table, which
                 // can in principle differ per root in a multi-table grammar (module doc's
                 // `f3_amharic_gate.rs`-documented hazard 2 — a non-issue for Amharic BY CONTENT,
@@ -655,8 +705,8 @@ pub(crate) fn build_composites(
                     g,
                     root_table,
                     rules: &rules,
+                    rule_variants,
                     cache: &cache,
-                    phon,
                 };
                 extend(
                     &root_ctx,

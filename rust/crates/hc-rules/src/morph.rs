@@ -153,6 +153,32 @@ pub(crate) fn synthesize_cached_traced(
     apply_blocking_traced(g, out, rule.blockable(), mrid, trace, parent)
 }
 
+/// Untraced, publicly-reachable sibling of [`synthesize_cached_traced`] for callers outside this
+/// crate that hold a `&RuleCache` but have no trace sink of their own (e.g. `hc-foma`'s
+/// rule-application pre-expansion, `hc_foma::preexpand`, which probes ~10^5 (root, rule) pairs at
+/// grammar-emit time and cannot afford [`synthesize`]'s uncached LHS-FST recompilation on every
+/// probe). Returns exactly what [`synthesize`] returns for the same `(g, word, rule)` inputs,
+/// provided `mrid` correctly identifies `rule` (same contract as [`synthesize_cached_traced`]) --
+/// the two differ only in where the LHS FST comes from (compiled fresh vs. read from `cache`), not
+/// in what they compute.
+pub fn synthesize_cached(
+    g: &Grammar,
+    mrid: MRuleId,
+    word: &Word,
+    rule: &MorphRuleDef,
+    cache: &crate::cache::RuleCache,
+) -> Vec<Word> {
+    synthesize_cached_traced(
+        g,
+        mrid,
+        word,
+        rule,
+        cache,
+        &crate::trace::NoopSink,
+        crate::trace::TraceHandle::DUMMY,
+    )
+}
+
 /// `RequiredMprFeatures`/`ExcludedMprFeatures` (§3.2): `g.mpr_group_ok` folds both C# gates into one
 /// bool; this reports which of the two actually failed, matching C#'s two separate `if` checks
 /// (e.g. `SynthesisAffixProcessRule.cs:145-172`) in the same required-then-excluded order.
