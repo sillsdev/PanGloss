@@ -788,6 +788,13 @@ const SENA_ENTRY_DRIFT: &[KnownEntryDrift] = &[
         new_guid: "3b21613c-4659-4729-b663-fec5dcefd48c",
         reason: "committed oracle has stale root \"guman\"; live fwdata says \"guman hello world\" (entry 33f6b0d5)",
     },
+    KnownEntryDrift {
+        new_guid: "c22ae5a7-f1d7-46e0-a7b2-6ec7d47e75b4",
+        reason: "same entry 33f6b0d5 (\"guman\"/\"guman hello world\") as the drift entry above, but its \
+                  second, POS-less stem MSA -- reachable only via a subsense (gloss \"consultar\") once \
+                  extract_senses_recursive existed to find it. Both MSAs share the entry's one root \
+                  allomorph, so both inherit the identical live-vs-oracle surface-form edit.",
+    },
 ];
 
 fn compare_entries(failures: &mut Vec<String>, language: &str, nv: &GV, lv: &GV, drift: &[KnownEntryDrift]) {
