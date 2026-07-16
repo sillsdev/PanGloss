@@ -9,6 +9,16 @@ T4 (CLI `import` subcommand + `.json`/`.fwdata` grammar dispatch in
 `parse`/`batch`/`fst-stats`/`generate`; §5.2 oracle conformance gate in
 `rust/crates/hc-cli/tests/fwdata_conformance_gate.rs`; README/docs): done — see that test's
 module doc for current conformance status per language.
+T5 (grammar-structural-equivalence gate, `rust/crates/hc-cli/tests/fwdata_grammar_equivalence_gate.rs`):
+done — now the primary correctness gate (see §5.2). **Both Sena 3 and Amharic pass every
+category**: the two pipelines (`.fwdata` → `compile_project` vs. HC-XML → `load`) produce
+structurally/semantically identical `Grammar`s, modulo the id scheme (Hvo vs. GUID) and four
+documented, verified Sena lex-entry surface-form edits made live in FieldWorks after the
+committed oracle was exported (see the gate's `SENA_ENTRY_DRIFT`). This gate found and drove
+the fix of five real importer defects along the way (subsense-gloss resolution, an environment
+literal-token segmentation bug, natural-class/mrule/morpheme-co-occurrence-rule reachability
+gaps relative to HCLoader's export, and a missing variant-entry affix-rule allomorph) — see
+`git log` on this branch for the fix commits.
 
 ## 1. Motivation
 
@@ -152,18 +162,39 @@ Baseline: `cargo test --workspace` green at branch point (verified).
    `rust/crates/pg-fwdata/tests/data/` (synthesized, not copied from FieldWorks — a few
    entries, one template, one phon rule, one environment) driving parser + extractor +
    compiler unit tests.
-2. **Oracle conformance (self-skipping, like the existing `sample_path()` tests)**: with the
-   FieldWorks repo present (`PANGLOSS_FW_PROJECTS_DIR` env var, or the known sibling path
-   `C:\Users\johnm\Documents\repos\FieldWorks\DistFiles\Projects`), import `Sena 3.fwdata`
-   and `Amharic.fwdata` → snapshot → `compile_project` → `Morpher`, and independently
-   `hc_grammar::load(samples/data/{sena,amharic}-hc.xml)` → `Morpher`. Run
-   `samples/data/{sena,amharic}-words.txt` through both; **parse-result signatures (morpheme
-   gloss sequences per analysis) must match**. Note: ids can't match (legacy export uses
-   session-scoped `Hvo` ints; we use GUIDs) so comparison is behavioral, not structural.
-   A freshly regenerated oracle (`GenerateHCConfig.exe`, FieldWorks `Output/Debug`) for
-   Sena 3 differs from the committed sample only by Hvo drift — committed samples are valid
-   oracles. Amharic's C# export crashes (§1), so the Amharic gate is: import succeeds with
-   a warning about the stale ad-hoc rule, and parses match the committed sample.
+2. **Grammar-structural equivalence (primary gate, `fwdata_grammar_equivalence_gate.rs`,
+   self-skipping like the existing `sample_path()` tests)**: with the FieldWorks repo present
+   (`PANGLOSS_FW_PROJECTS_DIR` env var, or the known sibling path
+   `C:\Users\johnm\Documents\repos\FieldWorks\DistFiles\Projects`), import `Sena 3.fwdata` and
+   `Amharic.fwdata` → snapshot → `compile_project` → `Grammar`, and independently
+   `hc_grammar::load(samples/data/{sena,amharic}-hc.xml)` → `Grammar`. Compare the two
+   `Grammar`s directly, category by category, via id-free canonical string signatures — **no
+   parsing, no `hc_parse::Morpher` involved at all**. This is what T2/T3/T4 are actually meant
+   to guarantee (the compiler produces the same grammar the legacy XML pipeline does) and it
+   runs in well under a second. Both languages pass every category as of this writing; see the
+   gate's own module doc for the full canonicalization scheme and the (small, per-word)
+   documented divergences that are not bugs (a `"***"` FieldWorks empty-label placeholder, an
+   inert extra `#` boundary marker the legacy exporter drops, `properties` never populated by
+   the new pipeline) plus the Sena `SENA_ENTRY_DRIFT` allowlist (live FieldWorks edits made
+   after the committed oracle was exported).
+
+   An earlier version of this gate instead ran every corpus word through both pipelines'
+   `Morpher` and compared parse-result signatures (morpheme gloss sequences per analysis;
+   `fwdata_conformance_gate.rs`, still present, `#[ignore]`d at full-corpus scale). That
+   approach conflates two different concerns: whether the *compiler* is correct, and whether
+   the *parser's search* terminates/behaves reasonably on a given grammar — an uncapped
+   `Morpher::new` genuinely hangs (combinatorial blowup, not a deadlock) on real corpus input
+   for both languages, independent of which pipeline produced the grammar. Parser search
+   behavior and full-corpus parse-time conformance are complete-conformance/FST-speedup
+   concerns (tracked on other branches, e.g. `worktree-fst-investigation`), not this branch's
+   job — this branch's job is the importer, and the structural-equivalence gate verifies
+   exactly that without the parser's runtime characteristics in the loop. The old test file
+   remains as a secondary reference; its "fast 50-word smoke" test is also `#[ignore]`d
+   (bisection showed the hang predates every fix on this branch — present even before T5 was
+   added — so it was never actually a passing fast check). Since the equivalence gate
+   confirms the two pipelines' grammars are structurally identical, the same word hangs
+   identically on both, which is itself evidence this is parser search behavior, not an
+   importer defect.
 3. **Determinism**: importing the same `.fwdata` twice produces byte-identical JSON
    (stable ordering — sort by GUID where LCM order is not meaningful; preserve LCM sequence
    order where it is, e.g. slots, rule order, allomorph order).
