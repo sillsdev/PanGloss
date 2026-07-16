@@ -8,7 +8,14 @@
 # `hc-rs batch <grammar> <words> <output>` already speaks that exact contract (5-column
 # idx/word/ms/status/signature TSV, `--start` resumption) — nothing engine-side needed to run this.
 #
-# Usage: rust/tools/run-conformance.sh [--include-pathological] [--skip-build]
+# Usage: rust/tools/run-conformance.sh [--include-pathological] [--skip-build] [--engine=default|foma]
+#
+# `--engine=foma` (P3, docs/fst-plan/foma-fst-plan.md 3b): passes `--engine=foma` through to every
+# `hc-rs batch` invocation the driver makes, so the SAME script runs the conformance suite against
+# either the default full-search engine (the pre-existing behavior, unchanged) or the
+# `hc_foma::composite::FomaAnalyzer` propose->confirm path -- run it twice (once per engine) to
+# compare pass/fail sets; the gate requires them identical (zero NEW divergences on the foma run
+# beyond known-conformance-divergences.txt).
 #
 # Exit code: 0 = every attempted fixture passed OR every failure is a documented, known divergence
 # (see known-conformance-divergences.txt, next to this script); 1 = at least one UNEXPECTED
@@ -22,17 +29,30 @@ conformance_project="$machine_dir/src/SIL.Machine.Morphology.HermitCrab.Conforma
 
 include_pathological=""
 skip_build=""
+engine="default"
 for arg in "$@"; do
   case "$arg" in
     --include-pathological) include_pathological="--include-pathological" ;;
     --skip-build) skip_build="1" ;;
+    --engine=*) engine="${arg#--engine=}" ;;
     *)
       echo "unknown argument: $arg" >&2
-      echo "usage: $0 [--include-pathological] [--skip-build]" >&2
+      echo "usage: $0 [--include-pathological] [--skip-build] [--engine=default|foma]" >&2
       exit 2
       ;;
   esac
 done
+case "$engine" in
+  default|foma) ;;
+  *)
+    echo "invalid --engine: $engine (expected default|foma)" >&2
+    exit 2
+    ;;
+esac
+engine_flag=""
+if [ "$engine" = "foma" ]; then
+  engine_flag="--engine=foma"
+fi
 
 if [ ! -f "$machine_dir/conformance/PROTOCOL.md" ]; then
   echo "error: $machine_dir/conformance is empty -- run 'git submodule update --init machine' first" >&2
@@ -62,9 +82,10 @@ fi
 out="$(mktemp)"
 trap 'rm -f "$out"' EXIT
 set +e
+echo "[run-conformance] engine=$engine" >&2
 dotnet run --no-build --project "$conformance_project" -- \
   --fixtures "$machine_dir/conformance" \
-  --adapter "$hc_rs batch {grammar} {words} {output}" \
+  --adapter "$hc_rs batch {grammar} {words} {output} $engine_flag" \
   --capabilities phonology \
   $include_pathological | tee "$out"
 driver_exit="${PIPESTATUS[0]}"

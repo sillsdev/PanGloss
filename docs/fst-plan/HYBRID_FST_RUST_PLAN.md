@@ -1,5 +1,10 @@
 # Hybrid FST → Rust — implementation plan (full parity, oracle-gated)
 
+> **LEGACY — superseded by [`foma-fst-plan.md`](foma-fst-plan.md).** This document is part of the
+> record of the earlier custom-spun FST prototype (`hc-hybrid`), which PanGloss has sunset (plan
+> P5, gate F5, 2026-07-16) in favor of a foma-based FST proposer with the full HermitCrab engine
+> confirming/pruning. Kept for historical record only — not current design guidance.
+
 > **Audience:** implementing agents (Sonnet, with Opus/Fable review) working on the `rust` branch
 > of the `machine` repo, after the `fst-advisor` branch has fully landed. Read this whole file
 > before editing anything. Companion documents: `HYBRID_FST_FEASIBILITY.md` (what the system is and

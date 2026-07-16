@@ -45,7 +45,7 @@
 //! separate since they come from different stages of the pipeline; exit is non-zero only on a
 //! hard `pg_fwdata::ImportError` (I/O failure / not-a-`.fwdata`-file), never on either warning list.
 //!
-//! Every other subcommand that takes a grammar path (`parse`, `batch`, `fst-stats`, `generate`)
+//! Every other subcommand that takes a grammar path (`parse`, `batch`, `generate`)
 //! now dispatches on the path's extension via [`load_grammar`]: `.xml` (or anything else) is the
 //! legacy HC-XML path (`hc_grammar::load`, unchanged, no warnings); `.json` loads a `pg-snapshot`
 //! `Snapshot` (`Snapshot::from_json`) and compiles it (`hc_grammar::compile_project`); `.fwdata`
@@ -62,10 +62,52 @@ use std::io::{BufWriter, Write};
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
+use hc_foma::composite::FomaAnalyzer;
 use hc_grammar::model::{Grammar, LexEntryId, MRuleId, MorphRuleDef};
-use hc_parse::{hc_parse_batch, GenMorpheme, Morpher, ParseOutcome};
+use hc_parse::{hc_parse_batch, GenMorpheme, Morpher, WordAnalysis};
 
 mod trace_render;
+
+/// P3 (docs/fst-plan/foma-fst-plan.md, gate F3): which proposer/verifier path a `batch`/`parse`
+/// invocation drives. `Default` is the pre-existing `hc_parse::Morpher` full-search engine
+/// (unchanged behavior, still the default when `--engine` is omitted). `Foma` routes through
+/// `hc_foma::composite::FomaAnalyzer` (propose via the compiled foma network, confirm via the
+/// same `Morpher` machinery pinned to each candidate) — see that crate's module docs for the
+/// propose→confirm contract. Output SHAPE (the 5-column batch TSV; the `parse` subcommand's
+/// `word\tsignature` line plus `--gloss`/`--natural-gloss` lines) is identical between engines by
+/// construction: both paths end in the same `hc_parse::result_signature`/`hc_realize` calls.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Engine {
+    Default,
+    Foma,
+}
+
+impl Engine {
+    fn parse(v: &str) -> Result<Self, String> {
+        match v {
+            "default" | "full" | "hc" => Ok(Engine::Default),
+            "foma" => Ok(Engine::Foma),
+            other => Err(format!("invalid --engine: {other} (expected default|foma)")),
+        }
+    }
+}
+
+/// Mirrors `Morpher::parse_word_core_selected`'s own shape-validity early return
+/// (`hc-parse/src/morpher.rs`: `segment_with_features` on the surface stratum's char-def table) —
+/// `hc_foma::composite::FomaAnalyzer` has no equivalent check of its own (a word the proposer can't
+/// segment at all just yields zero candidates), so the `--engine=foma` batch/parse paths call this
+/// directly to keep the `ok`-vs-`SKIPPED` status column identical to the default engine's, per the
+/// conformance protocol's own rule ("a `status` mismatch is always a failure",
+/// `machine/conformance/PROTOCOL.md` section 4). An empty-grammar (`g.strata.is_empty()`) is never
+/// `invalid_shape` in the default engine either (`morpher.rs`'s `n == 0` early return), so this
+/// mirrors that too.
+fn foma_invalid_shape(g: &Grammar, word: &str) -> bool {
+    let Some(last) = g.strata.last() else {
+        return false;
+    };
+    let surface_table = &g.char_tables[last.table.0 as usize];
+    hc_grammar::segment::segment(surface_table, word).is_err()
+}
 
 fn main() -> ExitCode {
     // The analysis cascade recurses to the depth of a word's unapplication chain, which on the heavy
@@ -108,13 +150,6 @@ fn run() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
-        Some("fst-stats") => match run_fst_stats(&args[2..]) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("hc-rs fst-stats: {e}");
-                ExitCode::FAILURE
-            }
-        },
         Some("import") => match run_import(&args[2..]) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
@@ -125,10 +160,9 @@ fn run() -> ExitCode {
         _ => {
             eprintln!(
                 "hc-rs {} — HermitCrab Rust engine CLI\n\
-                 usage: hc-rs batch <grammar> <words.txt> <out.tsv> [--step-cap N] [--word-timeout-ms N] [--memo=on|off] [--threads N] [--start N]\n\
+                 usage: hc-rs batch <grammar> <words.txt> <out.tsv> [--step-cap N] [--word-timeout-ms N] [--memo=on|off] [--threads N] [--start N] [--engine=default|foma]\n\
                  usage: hc-rs generate <grammar> <root-morpheme-id> [other-morpheme-id ...]\n\
-                 usage: hc-rs parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--gloss] [--natural-gloss=eng] [--realize-map=<path>]\n\
-                 usage: hc-rs fst-stats <grammar> [out.txt]  (omit out.txt to print to stdout)\n\
+                 usage: hc-rs parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--engine=default|foma]\n\
                  usage: hc-rs import <project.fwdata> <out.json>\n\
                  \n\
                  <grammar> is one of: a HermitCrab XML export (.xml, the legacy path), a\n\
@@ -227,52 +261,6 @@ fn print_grammar_warnings(warnings: &[String]) {
     }
 }
 
-/// F9 (`HYBRID_FST_RUST_PLAN.md` §8/§13, closing the cross-milestone hc-cli gap recorded at F8):
-/// `hc-rs fst-stats <grammar.xml> [out.txt]` — the first of the plan's §6.1/§7 `hc-rs fst-*`
-/// commands to actually get a CLI subcommand (F1-F8 gated `hc-hybrid` exclusively via direct Rust
-/// library/test calls; no `fst-*` subcommand existed in `hc-cli` at all before this). Reuses
-/// `hc_hybrid::stats::assemble_lines` directly — the exact function F8's own gate compares
-/// byte-identically against the C# `fst-stats` golden (`FstStatsCommand.cs`) — so this command's
-/// output is, by construction, the same text that gate already verifies; this file adds no new
-/// stats-assembly logic of its own. `out.txt` is optional: omit it to print to stdout (handy for
-/// ad hoc inspection); provide it to write a file, mirroring the C# oracle tool's own
-/// `fst-stats <grammar> <out.txt>` two-positional-argument shape (plan §6.1).
-fn run_fst_stats(args: &[String]) -> Result<(), String> {
-    let [grammar_path, rest @ ..] = args else {
-        return Err("usage: fst-stats <grammar> [out.txt]".into());
-    };
-    let out_path = match rest {
-        [] => None,
-        [p] => Some(p.as_str()),
-        _ => return Err("usage: fst-stats <grammar> [out.txt]".into()),
-    };
-
-    let (g, warnings) = load_grammar(grammar_path)?;
-    print_grammar_warnings(&warnings);
-    let build_morpher = Morpher::new(&g, usize::MAX);
-    let surface = hc_hybrid::surface::SurfacePhonology::new(&g);
-    let trie = hc_hybrid::trie::Trie::build(&g, &surface, &build_morpher, 1_000_000, 2, true);
-    let compiled = hc_hybrid::compiler::compile_default(&g);
-    let advisor_report = hc_hybrid::advisor::analyze(&g);
-
-    let lines = hc_hybrid::stats::assemble_lines(
-        &trie,
-        &compiled,
-        &advisor_report,
-        &g,
-        &surface,
-        &build_morpher,
-    );
-    let mut text = lines.join("\n");
-    text.push('\n');
-
-    match out_path {
-        Some(p) => fs::write(p, &text).map_err(|e| format!("write {p}: {e}"))?,
-        None => print!("{text}"),
-    }
-    Ok(())
-}
-
 /// P12 chunk 7 (design doc §4.3): `hc-rs parse <grammar.xml> <word> [--trace[=<file>]]
 /// [--trace-format=text|json]` -- today's CLI only has `batch`/`generate`, neither the right shape
 /// for "trace exactly one word" (see the design doc's own rationale). `--trace` with no value
@@ -309,6 +297,7 @@ fn run_parse(args: &[String]) -> Result<(), String> {
     let mut gloss = false;
     let mut natural_gloss: Option<String> = None;
     let mut realize_map_arg: Option<String> = None;
+    let mut engine = Engine::Default;
 
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -339,6 +328,13 @@ fn run_parse(args: &[String]) -> Result<(), String> {
             s if s.starts_with("--realize-map=") => {
                 realize_map_arg = Some(s["--realize-map=".len()..].to_string());
             }
+            "--engine" => {
+                let v = it.next().ok_or("--engine requires a value")?;
+                engine = Engine::parse(v)?;
+            }
+            s if s.starts_with("--engine=") => {
+                engine = Engine::parse(&s["--engine=".len()..])?;
+            }
             s => positional.push(s),
         }
     }
@@ -346,6 +342,11 @@ fn run_parse(args: &[String]) -> Result<(), String> {
         return Err(format!(
             "invalid --trace-format: {trace_format} (expected text|json)"
         ));
+    }
+    if engine == Engine::Foma && trace_dest.is_some() {
+        return Err("--trace is not supported with --engine=foma (the foma path has no trace \
+                     sink of its own; use the default engine for tracing)"
+            .into());
     }
     if let Some(v) = &natural_gloss {
         if v != "eng" {
@@ -355,12 +356,11 @@ fn run_parse(args: &[String]) -> Result<(), String> {
         }
     }
     let [grammar_path, word] = positional[..] else {
-        return Err("usage: parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--gloss] [--natural-gloss=eng] [--realize-map=<path>]".into());
+        return Err("usage: parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--engine=default|foma]".into());
     };
 
     let (grammar, warnings) = load_grammar(grammar_path)?;
     print_grammar_warnings(&warnings);
-    let morpher = Morpher::new(&grammar, usize::MAX);
 
     // `--natural-gloss=eng` setup: the embedded English table + the per-grammar sidecar map, both
     // built once up front (not per-analysis) since neither depends on the word being parsed.
@@ -375,11 +375,32 @@ fn run_parse(args: &[String]) -> Result<(), String> {
         }
     };
 
+    if engine == Engine::Foma {
+        // P3 (docs/fst-plan/foma-fst-plan.md): `--trace` was already rejected above, so this is
+        // always the "minimal single-word batch" shape below, just routed through
+        // `FomaAnalyzer::analyze_word` instead of `Morpher::parse_word`. Output shape (the
+        // `word\tsignature` line plus `--gloss`/`--natural-gloss` lines) is identical to the
+        // default engine's — both end in the same `hc_parse::result_signature`/`hc_realize` calls.
+        let mut analyzer = FomaAnalyzer::new(&grammar)
+            .map_err(|e| format!("foma compile failed for {grammar_path}: {e}"))?;
+        let (analyses, structured) = if foma_invalid_shape(&grammar, word) {
+            (Vec::new(), Vec::new())
+        } else {
+            let outcome = analyzer.analyze_word(word);
+            (outcome.analyses, outcome.structured)
+        };
+        println!("{}\t{}", word, hc_parse::result_signature(&analyses));
+        print_realize_lines(&grammar, &structured, word, gloss, natural.as_ref());
+        return Ok(());
+    }
+
+    let morpher = Morpher::new(&grammar, usize::MAX);
+
     if let Some(dest) = trace_dest {
         let sink = hc_rules::trace::TreeTraceSink::new();
         let outcome = morpher.parse_word_traced(word, &hc_parse::ParseOptions::default(), &sink);
         println!("{}\t{}", word, outcome.signature());
-        print_realize_lines(&grammar, &outcome, word, gloss, natural.as_ref());
+        print_realize_lines(&grammar, &outcome.structured, word, gloss, natural.as_ref());
 
         let rendered = match sink.root() {
             Some(root) if trace_format == "json" => {
@@ -396,7 +417,7 @@ fn run_parse(args: &[String]) -> Result<(), String> {
         // No --trace: behave like a minimal, single-word `batch` (the parse result only).
         let outcome = morpher.parse_word(word);
         println!("{}\t{}", word, outcome.signature());
-        print_realize_lines(&grammar, &outcome, word, gloss, natural.as_ref());
+        print_realize_lines(&grammar, &outcome.structured, word, gloss, natural.as_ref());
     }
     Ok(())
 }
@@ -411,14 +432,18 @@ fn run_parse(args: &[String]) -> Result<(), String> {
 /// `.structured`, not `.analyses`, since `hc_realize::gloss_bundle` needs the numeric morpheme
 /// ordinals, not the display-string join `.analyses` carries (see `ParseOutcome`'s own doc on why
 /// the two views share an index but not a shape).
+/// Shared by both engines' `parse` output (P3, docs/fst-plan/foma-fst-plan.md): takes the same
+/// `.structured` slice either `hc_parse::ParseOutcome` or `hc_foma::composite::FomaOutcome` exposes
+/// (parallel by index to `.analyses` in both), so the `--gloss`/`--natural-gloss=eng` lines are
+/// byte-for-byte identical in shape regardless of which engine produced them.
 fn print_realize_lines(
     grammar: &Grammar,
-    outcome: &ParseOutcome,
+    structured: &[WordAnalysis],
     word: &str,
     gloss: bool,
     natural: Option<&(hc_realize::TableRealizer, hc_realize::RealizeMap)>,
 ) {
-    for analysis in &outcome.structured {
+    for analysis in structured {
         let bundle = hc_realize::gloss_bundle(grammar, analysis);
         if gloss {
             println!("gloss:\t{}", hc_realize::leipzig(&bundle, word));
@@ -491,6 +516,9 @@ fn run_batch(args: &[String]) -> Result<(), String> {
     // truncate `out.tsv`, so a watchdog wrapper can kill+relaunch a stalled word and continue
     // where it left off (plan §8 layer 3's nightly full-Sena recipe).
     let mut start_idx: usize = 0;
+    // P3 (docs/fst-plan/foma-fst-plan.md): `--engine=foma` routes the whole batch through
+    // `hc_foma::composite::FomaAnalyzer` instead of `hc_parse::Morpher`. Default unchanged.
+    let mut engine = Engine::Default;
     let parse_memo = |v: &str| match v {
         "on" | "true" | "1" => Ok(true),
         "off" | "false" | "0" => Ok(false),
@@ -544,6 +572,13 @@ fn run_batch(args: &[String]) -> Result<(), String> {
                 let v = &s["--start=".len()..];
                 start_idx = v.parse().map_err(|_| format!("invalid --start: {v}"))?;
             }
+            "--engine" => {
+                let v = it.next().ok_or("--engine requires a value")?;
+                engine = Engine::parse(v)?;
+            }
+            s if s.starts_with("--engine=") => {
+                engine = Engine::parse(&s["--engine=".len()..])?;
+            }
             s => positional.push(s),
         }
     }
@@ -552,16 +587,19 @@ fn run_batch(args: &[String]) -> Result<(), String> {
     }
     let [grammar_path, words_path, out_path] = positional.as_slice() else {
         return Err(
-            "usage: batch <grammar> <words.txt> <out.tsv> [--step-cap N] [--word-timeout-ms N] [--memo=on|off] [--threads N] [--start N]"
+            "usage: batch <grammar> <words.txt> <out.tsv> [--step-cap N] [--word-timeout-ms N] [--memo=on|off] [--threads N] [--start N] [--engine=default|foma]"
                 .into(),
         );
     };
 
+    // P3 3c (docs/fst-plan/foma-fst-plan.md): one-time cost instrumentation -- "grammar load with
+    // emit+foma-compile vs load today (native)". `LOADTIME` always prints (cheap, one line per
+    // invocation, same convention as the existing `HC_STEP_STATS`/`HC_FST_PROFILE` diagnostics
+    // below, just unconditional since a single line costs nothing to always emit).
+    let t_load = Instant::now();
     let (grammar, warnings) = load_grammar(grammar_path)?;
     print_grammar_warnings(&warnings);
-    let morpher = Morpher::new(&grammar, step_cap)
-        .with_memo(memo)
-        .with_word_timeout(word_timeout_ms.map(Duration::from_millis));
+    let grammar_load_ms = t_load.elapsed().as_secs_f64() * 1e3;
 
     let words: Vec<String> = fs::read_to_string(words_path)
         .map_err(|e| format!("read {words_path}: {e}"))?
@@ -586,6 +624,78 @@ fn run_batch(args: &[String]) -> Result<(), String> {
     let mut skipped = 0u64;
     let mut capped_words = 0u64;
     let mut timed_out_words = 0u64;
+
+    if engine == Engine::Foma {
+        // P3 (docs/fst-plan/foma-fst-plan.md): the foma path — one `FomaAnalyzer` built once
+        // (the expensive emit+foma-compile step), reused across every word, exactly like
+        // `hc_parse::Morpher` is built once above. `FomaProposer::propose` takes `&mut self`
+        // (the `foma` crate's `apply_init` handle is stateful per call), so this runs
+        // single-threaded regardless of `--threads` — the same shape as the `threads == 1`
+        // legacy sequential writer below (STARTED sentinel + per-line flush), just routed
+        // through `FomaAnalyzer::analyze_word` instead of `Morpher::parse_word`. `--step-cap`/
+        // `--word-timeout-ms`/`--memo` do not apply to this path (the verifier `Morpher` inside
+        // `FomaAnalyzer` is always uncapped, per plan §2) and are silently ignored, matching how
+        // the default engine silently ignores flags it doesn't ship yet.
+        if threads != 1 {
+            eprintln!(
+                "hc-rs batch --engine=foma: --threads {threads} ignored (foma path is single-threaded)"
+            );
+        }
+        let t_compile = Instant::now();
+        let mut analyzer = FomaAnalyzer::new(&grammar)
+            .map_err(|e| format!("foma compile failed for {grammar_path}: {e}"))?;
+        let compile_ms = t_compile.elapsed().as_secs_f64() * 1e3;
+        eprintln!(
+            "LOADTIME\tengine=foma\tgrammar_load_ms={grammar_load_ms:.3}\tanalyzer_build_ms={compile_ms:.3}\ttotal_ms={:.3}",
+            grammar_load_ms + compile_ms
+        );
+        // P3 3c: candidate-count/confirm distributions -- `FomaOutcome` exposes exactly
+        // `candidates_generated`/`confirmed`; gated behind an env var (like `HC_STEP_STATS`)
+        // since it is one line per word, too much for a default-on diagnostic on a 7k-word corpus.
+        let stats_on = std::env::var("HC_FOMA_STATS").is_ok();
+        for (i, word) in words.iter().enumerate() {
+            if i < start_idx {
+                continue;
+            }
+            writeln!(w, "{i}\t{word}\tSTARTED").map_err(|e| e.to_string())?;
+            w.flush().map_err(|e| e.to_string())?;
+            let start = Instant::now();
+            let (status, signature) = if foma_invalid_shape(&grammar, word) {
+                skipped += 1;
+                ("SKIPPED", "-".to_string())
+            } else {
+                let outcome = analyzer.analyze_word(word);
+                parsed += 1;
+                if stats_on {
+                    eprintln!(
+                        "CANDSTATS\t{i}\t{word}\tcandidates_generated={}\tconfirmed={}",
+                        outcome.candidates_generated, outcome.confirmed
+                    );
+                }
+                ("ok", hc_parse::result_signature(&outcome.analyses))
+            };
+            let elapsed_ms = start.elapsed().as_millis();
+            writeln!(w, "{i}\t{word}\t{elapsed_ms}\t{status}\t{signature}")
+                .map_err(|e| e.to_string())?;
+            w.flush().map_err(|e| e.to_string())?;
+        }
+        w.flush().map_err(|e| e.to_string())?;
+        eprintln!(
+            "batch complete: {} words parsed ({} skipped) [engine=foma]",
+            parsed, skipped,
+        );
+        return Ok(());
+    }
+
+    let t_morpher = Instant::now();
+    let morpher = Morpher::new(&grammar, step_cap)
+        .with_memo(memo)
+        .with_word_timeout(word_timeout_ms.map(Duration::from_millis));
+    let morpher_build_ms = t_morpher.elapsed().as_secs_f64() * 1e3;
+    eprintln!(
+        "LOADTIME\tengine=default\tgrammar_load_ms={grammar_load_ms:.3}\tmorpher_build_ms={morpher_build_ms:.3}\ttotal_ms={:.3}",
+        grammar_load_ms + morpher_build_ms
+    );
 
     if threads == 1 {
         // Legacy sequential path (C# `RunSequential` equivalent): STARTED sentinel + per-line

@@ -148,6 +148,39 @@ impl<'g> FomaAnalyzer<'g> {
     pub fn grammar(&self) -> &'g Grammar {
         self.g
     }
+
+    /// Rehydrate a `FomaAnalyzer` from previously-built OWNED pieces (a compiled [`FomaProposer`]
+    /// — the expensive `emit`+foma-compile step — a [`ReduplicationPeeler`], and an owners map)
+    /// plus a fresh borrow of `g` for this call. Plan P4 (`docs/fst-plan/foma-fst-plan.md`
+    /// "`PanGlossGrammar::new` builds `FomaAnalyzer`"): a long-lived host (`hc-wasm`'s
+    /// `PanGlossGrammar`) that also OWNS the `Grammar` these borrow from can't store a
+    /// `FomaAnalyzer<'g>` as a sibling field of that same `Grammar` (that would be a
+    /// self-referential struct) — but it CAN store the three owned pieces here and reconstruct a
+    /// short-lived `FomaAnalyzer` from them plus `&self.grammar` for the duration of one call,
+    /// exactly the way `Morpher<'g>` itself is never stored, only ever built fresh per call from
+    /// an owned `&Grammar`. Pair with [`Self::into_parts`] to hand the (unchanged) owned pieces
+    /// back to long-term storage once the call is done.
+    pub fn from_cached(
+        g: &'g Grammar,
+        proposer: FomaProposer,
+        peeler: ReduplicationPeeler,
+        owners: Vec<Option<MorphemeOwner>>,
+    ) -> Self {
+        FomaAnalyzer {
+            g,
+            proposer,
+            peeler,
+            morpher: Morpher::new(g, usize::MAX),
+            owners,
+        }
+    }
+
+    /// The inverse of [`Self::from_cached`]: reclaim the three owned pieces this analyzer was
+    /// built from (or built fresh in [`Self::new`]), discarding only the transient `Morpher<'g>`
+    /// borrow (recreated for free on the next [`Self::from_cached`] call).
+    pub fn into_parts(self) -> (FomaProposer, ReduplicationPeeler, Vec<Option<MorphemeOwner>>) {
+        (self.proposer, self.peeler, self.owners)
+    }
 }
 
 #[cfg(test)]

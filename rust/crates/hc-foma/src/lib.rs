@@ -22,6 +22,11 @@
 //!   recursion target swapped to the foma proposer (`ReduplicationPeeler::peel_candidates`).
 //! - [`composite`] (P2): `FomaAnalyzer`, the public propose→confirm product API — `analyze_word`
 //!   mirrors `hc_parse::ParseOutcome`'s `analyses`/`structured` shape, plus diagnostics.
+//! - [`precision`] (P6 step 1, `docs/superpowers/specs/2026-07-15-fst-precision-knob-design.md`):
+//!   the FST precision knob's `ConstraintCatalog`/`PrecisionAction`/`PrecisionConfig` for the
+//!   GATE-CONSTRAINT ENVIRONMENT family, plus the `AllFlags` preset's flag-emission runtime
+//!   (`crate::emit::emit_with_precision` is the opt-in entry point; `crate::emit::emit` always
+//!   passes `PrecisionConfig::Strip`, byte-identical to before this step).
 //!
 //! `tests/f0_viability.rs` remains the P0 gate's record (proves the pure-Rust `foma` crate,
 //! crates.io v0.1.1, github.com/divvun/foma-rs, compiles and behaves correctly on Windows and
@@ -53,6 +58,7 @@ pub mod emit;
 pub mod junctions;
 pub mod peel;
 pub(crate) mod preexpand;
+pub mod precision;
 pub mod tags;
 
 /// Re-exported so downstream crates (and the P0 tests) have a single, versioned door into the

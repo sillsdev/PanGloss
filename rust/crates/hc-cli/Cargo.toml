@@ -16,7 +16,9 @@ hc-realize.workspace = true
 hc-featstruct.workspace = true
 hc-fst.workspace = true
 hc-rules.workspace = true
-hc-hybrid.workspace = true
 pg-snapshot.workspace = true
 pg-fwdata.workspace = true
+# P3 (docs/fst-plan/foma-fst-plan.md): `--engine=foma` on `batch`/`parse` routes through
+# `hc_foma::composite::FomaAnalyzer` instead of the default `hc_parse::Morpher` path.
+hc-foma.workspace = true
 rayon.workspace = true

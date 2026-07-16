@@ -1,8 +1,9 @@
 # FST precision knob — annotate-then-relax design
 
-Date: 2026-07-15. Status: **APPROVED DESIGN, IMPLEMENTATION DEFERRED** — do not start until
-the foma migration work (foma-fst-plan.md P0–P5) is complete. This design is the shape of
-that plan's P6 constraint-emission milestone.
+Date: 2026-07-15. Status: **IMPLEMENTED 2026-07-16 to the extent applicable** — steps 1, 2,
+and 5 shipped; steps 3 and 4 deferred with findings (see §9, which supersedes §8's sequencing
+where they disagree). Original status was "approved design, implementation deferred until
+foma-fst-plan P0–P5 complete"; P0–P5 completed 2026-07-16.
 
 ## 0. Idea and decision summary
 
@@ -185,3 +186,90 @@ Blocked on foma-fst-plan P0–P5 (emitter, confirm port, parity gates, hc-hybrid
 When P6 opens: (1) flag emission for the cheapest gate family (environments) + `AllFlags`
 preset + recall-invariance harness; (2) C-foma oracle gate for `eliminate flag`; (3) the
 tuner + budget; (4) rewrite-rule `Compose` trials joining the auction; (5) bench matrix.
+
+## 9. Implementation findings and step status (2026-07-16)
+
+Steps 1, 2, 5 are SHIPPED; steps 3, 4 are DEFERRED WITH FINDINGS. The findings below are
+measured/verified facts, not projections; where they contradict §8's assumptions, they win.
+
+### Step 1 — SHIPPED (`hc-foma::precision`, gate PK1, worktree commit 4eec8c1)
+
+- **Environments were NOT the cheapest gate family — they were the wrong family for flags.**
+  A left-environment is an ADJACENCY constraint; a persistent flag encodes "seen anywhere
+  earlier." Two encodings failed before the correct one: whole-literal set-sides
+  under-generate (contexts assemble across morpheme boundaries — the "miseru" recall break),
+  and all-suffixes breadth + per-occurrence micro-lexicons blew Sena's AllFlags compile to
+  ~1.5 GB. The correct encoding: every non-empty entry OVERWRITES `@P.ENV{id}.y|n@` (exactly
+  one inline symbol per entry per covered constraint — linear by construction), the owning
+  allomorph requires `@R.ENV{id}.y@`, empty entries preserve, and the y-test over-approximates
+  upward only (`ends_with` the literal OR proper suffix of it). Anything unprovable —
+  OR-lists, excludes, right contexts, anchors, non-literals, prule tail-rewrite risk —
+  declines to Strip (always recall-safe). See `hc-foma/src/precision.rs`'s module doc.
+- **Flag names must be dot-free AND zero-free** (`flag_id`, 0→Z): a `.` inside a flag NAME is
+  parsed as a field separator (constraints silently share one flag), and a literal `0` digit
+  anywhere in a flag symbol breaks matching once the symbol is spliced next to surface text
+  on a lexc tape, `%`-escaped or not (foma-rs, empirically bisected; C-foma cross-check still
+  owed).
+- **Environment constraints are KeepFlag/Strip ONLY, never Eliminate**: the encoding needs
+  `@P@` (unconditional overwrite), and `@P@` is in `flag_build`'s no-rows class (§5's PK2
+  finding) — eliminating it silently degrades to Strip. There is no U/R/D-only encoding of
+  adjacency (overwrite semantics are essential).
+
+### Step 2 — SHIPPED earlier (`tests/pk2_eliminate_flag_oracle.rs`; findings already in §5).
+
+### Step 3 (tuner + budget) — DEFERRED: the auction has no eligible candidates
+
+`eliminate flag` is the tuner's only mechanism, and as of step 1 the only emitted flag family
+(environments) is `@P@`-typed, i.e. categorically non-eliminable. The greedy auction would run
+over an empty candidate set on every grammar — untested scaffolding by construction. The tuner
+becomes implementable the day a U/R/D-typed gate family is emitted (candidates: MPR gating,
+stem names, co-occurrence — all long-distance-shaped, i.e. genuinely flag-suited, unlike
+environments). `PrecisionConfig::FullCompile`/`Auto` remain accepted-but-Strip-equivalent
+stubs; §3's per-constraint overrides belong to this deferred step too.
+
+### Step 4 (rewrite-rule Compose/Optionalize) — DEFERRED: architectural mismatch, empty safe subset
+
+Read-only feasibility analysis (2026-07-16), three load-bearing facts:
+
+1. **The emitter's representation is the opposite of what composition needs.** Every lexc
+   entry is a boundary-stripped, phonology-PRE-RESOLVED literal surface string (the
+   `PhonologyProbe`/`preexpand` machinery drives the real `hc_rules` engine at emit time and
+   bakes the results in). Composing a rule on top would re-match already-resolved material;
+   real Compose needs an underlying, boundary-preserving tape with phonology deferred — a
+   rewrite of `emit.rs`'s core convention cascading into `junctions.rs`/`preexpand.rs`, whose
+   pre-expansion is not organized per-rule and cannot be subtracted per-rule.
+2. **The equivalence-preserving safe subset is empty in practice**: 0 of 30 rewrite subrules
+   across the 7 phonology-bearing grammars (3 reference + 4 conformance) are unconditional
+   literal rewrites — every one carries a POS/MPR gate, an environment, or alpha-variable
+   agreement (Amharic prule6/7: 20 alpha bindings each, the hybrid line's one permanent
+   holdout).
+3. **Optionalize buys nothing pre-expansion doesn't already provide**: the upward-safe
+   superset it would produce is exactly what the probe/composite machinery already emits,
+   more cheaply. Recall is already 100% (gates F1–F3); Compose's only possible win was
+   network size/precision, and the emit-time cost lives elsewhere (see step 5: Amharic's
+   bottleneck is `preexpand`, not foma).
+
+`Skip` therefore remains the only populated action — matching what the enum already says.
+foma-rs itself is NOT the blocker (`fsm_parse_regex`/`fsm_rewrite`/`fsm_compose` exist and
+pass a toy composed-rule test in `f0_viability.rs`); the blocker is the emitter architecture
+plus the translation burden for `hc_rules::rewrite`'s real semantics (~3.5k LOC: POS/MPR
+gates, alpha agreement, self-opaquing fixpoints, direction/iteration modes).
+
+### Step 5 — SHIPPED (`hc-foma/examples/precision_bench.rs`)
+
+`cargo run -p hc-foma --release --example precision_bench` prints the per-grammar,
+per-preset matrix. Measured 2026-07-16 (100 Sena / 100 Indonesian / 40 Amharic corpus words):
+
+| grammar | env constraints (total/keep/strip) | states Strip→AllFlags | compile Strip→AllFlags | candidates/word | confirm total |
+|---|---|---|---|---|---|
+| Sena | 72/20/52 | 39,286 → 49,889 (1.27×) | 3.3s → 13.2s (4.1×) | 51.55 → 51.42 | 1748ms → 1488ms |
+| Indonesian | 0/0/0 | identical | identical | identical | identical |
+| Amharic | 1/0/1 | identical | identical | identical | identical |
+
+Headline readings: (a) recall invariance holds everywhere (confirmed/word identical);
+(b) on Sena, AllFlags costs 4× compile time and ~40% propose throughput (in Beesley &
+Karttunen's 20–70% flag-density band, §7) for a ~0.25% aggregate candidate reduction and a
+~15% confirm-time saving — **Strip stays the right default**, and AllFlags is an opt-in
+experiment surface; (c) Amharic's real load-time bottleneck is `preexpand`'s emit (~37s),
+not the foma compile (~2s) — the P6 profiling target is the pre-expansion machinery, not
+the network.

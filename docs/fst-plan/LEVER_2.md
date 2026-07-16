@@ -1,3 +1,8 @@
+> **LEGACY — superseded by [`foma-fst-plan.md`](foma-fst-plan.md).** This document is part of the
+> record of the earlier custom-spun FST prototype (`hc-hybrid`), which PanGloss has sunset (plan
+> P5, gate F5, 2026-07-16) in favor of a foma-based FST proposer with the full HermitCrab engine
+> confirming/pruning. Kept for historical record only — not current design guidance.
+
 > **Scope note:** see [`FST_FAST_PATH_PLAN.md`](FST_FAST_PATH_PLAN.md) for the current, active plan
 > (Phase 3 builds directly on the lockstep-composition spike below — no certification involved).
 
