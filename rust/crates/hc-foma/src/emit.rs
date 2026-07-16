@@ -1327,6 +1327,7 @@ fn structural_candidate_rules(g: &Grammar) -> Vec<MRuleId> {
 /// threads default to a few MiB — empirically NOT enough headroom for `hc_rules::surface_probe::
 /// probe_synthesize` run against a bare-root shape on Amharic-scale grammars, found by this gate's
 /// own `f3_amharic_gate` regression run once bare-root probing was added).
+#[cfg(not(target_arch = "wasm32"))]
 const PROBE_STACK_BYTES: usize = 64 * 1024 * 1024;
 
 /// The real, phonology-resolved surface of `shape` via the cheap build-time probe —
@@ -1344,6 +1345,19 @@ const PROBE_STACK_BYTES: usize = 64 * 1024 * 1024;
 /// `thread::spawn`) lets the closure borrow `g`/`table`/`shape`/`cache` directly, no cloning needed;
 /// the spawn/join overhead (microseconds) is negligible next to the probe's own cascade cost.
 fn probe_surface(g: &Grammar, table: &CharDefTable, shape: &Shape, cache: &RuleCache) -> Option<String> {
+    // wasm32-unknown-unknown has no thread support — `std::thread::Builder::spawn_scoped` panics
+    // there ("operation not supported on this platform"), which would crash `PanGlossGrammar::new`
+    // (hc-wasm) at construction, exactly like the vendored foma `apply_init` wasm fix. Run the
+    // probe inline on wasm instead: the large-stack rationale below cannot apply (no thread to give
+    // a stack to), and the wasm linear-memory stack is sized at link time — the reference grammars'
+    // probe depth fits the default, and a genuinely deeper grammar would need a link-time
+    // `-C link-arg=-zstack-size=…` bump, not a thread this target can't spawn.
+    #[cfg(target_arch = "wasm32")]
+    {
+        let segs = hc_rules::surface_probe::probe_synthesize(g, shape, cache)?;
+        return hc_rules::surface_probe::render_nodes(table, &segs).filter(|s| !s.is_empty());
+    }
+    #[cfg(not(target_arch = "wasm32"))]
     std::thread::scope(|scope| {
         std::thread::Builder::new()
             .stack_size(PROBE_STACK_BYTES)
