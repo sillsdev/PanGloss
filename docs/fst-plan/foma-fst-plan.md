@@ -262,9 +262,111 @@ Targets: load < 2 s per grammar (soft); lookup+confirm p95 < 50 ms on Sena's cur
 on Sena and Indonesian. If foma is NOT faster somewhere, that is a reportable finding
 with a profile, not something to bury — the sunset case rests partly on this number.
 
+**3c measured results (2026-07-15, P3 report, release build, single-threaded `hc-rs batch
+--threads 1`).** Machine NOT fully quiet throughout — two other agents' cargo/dotnet
+processes were present in the worktree for most of this run (see the P3 report for exact
+PIDs/timing); their CPU usage was near-zero (idle/waiting on locks) except during the
+initial hc-cli release build, and the qualitative speedups below (12x-1200x) dwarf any
+plausible contention effect, but the precise p50/p95 figures are not from an isolated
+machine. Sena's "full corpus" default-engine leg was abandoned after ~65 minutes (still
+~62% done, no per-word hang, just cumulatively slow — see finding below) in favor of the
+same sample-300 slice 3a already uses; the foma engine's Sena numbers are reported both
+ways (sample-300, matched, and the full 7,121-word corpus, which foma finishes quickly).
+
+| Grammar | Engine | N words | total wall | mean/word | p50/word | p95/word | max/word | words/sec |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| Indonesian | default | 121 | 505 ms | 4.17 ms | 2.0 ms | 23.0 ms | 88 ms | 240 |
+| Indonesian | foma | 121 | 60 ms | 0.50 ms | 0.0 ms | 3.0 ms | 14 ms | 2017 |
+| Sena (sample-300) | default | 300 | 106.5 s | 355 ms | 35.5 ms | 1635 ms | 15.75 s | 2.8 |
+| Sena (sample-300, matched) | foma | 300 | 4.52 s | 15.06 ms | 3.5 ms | 45.2 ms | 767 ms | 66.4 |
+| Sena (full corpus) | foma | 7121 | 125.9 s | 17.68 ms | 4.0 ms | 64.0 ms | 2.23 s | 56.6 |
+| Sena (full corpus) | default | ~4,400/7121 (abandoned) | (partial) | — | — | — | — | ~2.6 (extrapolated) |
+| Amharic (full corpus) | default | 673 | 1000.2 s | 1486 ms | 199 ms | 10.03 s | 12.43 s | 0.67 |
+| Amharic (full corpus) | foma | 673 | 20.7 s | 30.8 ms | 0 ms | 91.4 ms | 3.64 s | 32.5 |
+
+Amharic default's p95/max are dominated by 54/673 words hitting a 10 s `--word-timeout-ms`
+cap (unbounded default runs would be slower still); without the cap, Amharic default's
+total wall time would exceed the reported 1000.2 s.
+
+**Named pathological cases (Sena, sample-300, engine ms -> foma ms, byte-identical
+signatures confirmed via the `hc-rs batch` TSV in both cases):**
+
+| word | default ms | foma ms | speedup |
+|---|---:|---:|---:|
+| ndinakupangani | 3646 | 3 | 1215x |
+| cinacemerwa | 15752 | 724 | 21.8x |
+| cinagumanika | 9684 | 767 | 12.6x |
+| pidafikawo | 3230 | 11 | 294x |
+| manyeredzero | 4843 | 16 | 303x |
+| musandilesera | 3073 | 21 | 146x (signature MISMATCH — see 3a finding below) |
+| kamatamisa | 8897 | 171 | 52x |
+
+`cinacemerwa`/`cinagumanika`/`kamatamisa` are the three foma-side exceptions to the plan's
+"p95 < 50 ms on Sena's pathological words" sub-target: foma is still 13-22x faster than the
+full engine on these words, but the proposer overgenerates enough candidates that confirm's
+prune cost lands at 171-767 ms, not under 50 ms. Reportable finding, not hidden: these are
+words where the full engine ALSO finds zero analyses (signature `-`), so overgeneration
+finds and rejects many false candidates before returning empty — a case where the emitter's
+"approximate only upward" rule (plan §1) has a real cost, worth a P6 profiling pass.
+
+**Indonesian named reduplication words (default ms -> foma ms):** membagi-bagi 45->3,
+memijit-mijit 25->4, meminta-minta 26->3, mengamat-amati 88->14, mengayuh-ngayuh 23->3,
+menulis-nulis 34->6, menyewa-nyewa 26->5 — all well under both engines' 100 ms/1 ms
+targets, signatures byte-identical.
+
+**One-time costs (grammar load with emit+foma-compile vs native load):**
+
+| Grammar | grammar_load (xml parse+model build) | native `Morpher::new` | foma `FomaAnalyzer::new` (emit+compile) |
+|---|---:|---:|---:|
+| Indonesian | ~2 ms | ~2 ms | ~85-119 ms |
+| Sena | ~16-18 ms | ~22 ms | ~2.06-2.09 s |
+| Amharic | ~14-17 ms | ~8 ms | ~34.7-35.3 s |
+
+Amharic's ~2 s soft load target (plan §P3 3c) is exceeded by ~17x — already a KNOWN,
+named P6 item per plan §0/§P1d (`preexpand`'s O(roots x rules x depth) rule-application
+pre-expansion, ~305k synthesize probes measured in `tests/f3_amharic_gate.rs`). Sena and
+Indonesian are well under the soft budget.
+
+**Candidate-count / confirm distributions (`FomaOutcome.candidates_generated`/`.confirmed`,
+one line per word via `HC_FOMA_STATS=1`):**
+
+| Grammar | N | candidates_generated (mean/p50/p95/max) | confirmed (mean/p50/p95/max) |
+|---|---:|---|---|
+| Indonesian | 120 | 1.24 / 1 / 3.0 / 9 | 0.88 / 1 / 1.0 / 2 |
+| Sena (sample-300) | 289 | 30.1 / 19 / 98.2 / 234 | 2.57 / 2 / 8.0 / 28 |
+| Amharic (full) | 669 | 1.66 / 0 / 8.6 / 59 | 0.33 / 0 / 1.0 / 3 |
+
+**3c verdict:** total corpus wall time is strictly faster on foma for all three grammars
+(Indonesian 8.4x, Sena 23.6x matched-sample / Sena full-corpus foma alone at 56.6 words/sec,
+Amharic 48.3x) — the core "does foma make it faster" question is answered YES, decisively.
+Two explicit exceptions to sub-targets, both named above rather than buried: (1) Amharic
+grammar-load time (~35 s vs a 2 s soft target — known P6 item); (2) three Sena pathological
+words whose foma p95 lands at 171-767 ms rather than under 50 ms (overgeneration-prune
+cost on zero-analysis words — new finding, candidate for P6 profiling).
+
 **Gate F3:** 3a parity 100% on non-tiered grammars; 3b zero new conformance divergences;
 3c targets met (or explicit signed-off exceptions recorded here); no test regressions
 workspace-wide (`cargo test`).
+
+**Gate F3 verdict (2026-07-15, P3 report): NOT MET.** 3a: 2 of 3 legs fail (Sena
+`musandilesera` multiplicity/root-index mismatch — engine 10 analyses vs foma 2; Amharic
+`ገለፀ` recall miss — engine finds 1 analysis via the `-pfv-` infix rule on root
+entry30/"explain", foma finds 0). Both bugs live in `hc-foma/src/**` (composite.rs
+confirm/multiplicity and preexpand.rs interdigitation coverage respectively), which is
+outside this P3 task's editable scope (owned by concurrent P1d/P2 agents) — reported, not
+patched. Indonesian: 121/121, 100%, confirming the `--engine=foma` CLI wiring itself is
+sound. 3b: 8 NEW conformance divergences beyond the one known one, spanning
+edge-cases/loader-pattern-shapes, edge-cases/truncate-morphotactic, languages/agglutinative-
+turkic, languages/austronesian-phase, languages/bantu-verbal, languages/fusional-latin,
+languages/polysynthetic-inuit, languages/templatic-semitic — every failure is the foma
+engine returning signature `-` (zero analyses) on words the default engine parses
+correctly. This is the headline P3 finding: the emitter's v1 (lexc + pre-probed variants,
+plan D3) was built and gated ONLY against Sena/Indonesian/Amharic; the conformance suite's
+other 8 language fixtures exercise construct families v1 never targeted (root-and-pattern
+templatic morphology, productive reduplication classes, agglutinative chains) and the
+no-fallback-tier architecture (plan §0) means these fixtures have no other path to pass
+through. 3c: targets met with two named exceptions (above). Full per-fixture detail in the
+P3 agent report.
 
 ### P4 — hc-wasm integration (gate F4)
 `PanGlossGrammar::new` builds `FomaAnalyzer` when the grammar is on the foma tier

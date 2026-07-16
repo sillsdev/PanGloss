@@ -3,12 +3,19 @@
 //! Mirrors `hc-cli`'s `parse --gloss --natural-gloss=eng` glue (`hc-cli/src/main.rs`
 //! `print_realize_lines`) but for a whole run of text at once, tokenized here rather than one
 //! word at a time on a command line.
+//!
+//! P4 (`docs/fst-plan/foma-fst-plan.md` §4 P4, gate F4): `PanGlossGrammar::new` (and
+//! `apply_user_lexicon`, which reloads the grammar) also builds an `hc_foma::composite::FomaAnalyzer`
+//! for the grammar; `analyze_text` routes each word through it when present. A grammar whose
+//! emitted lexc source fails to foma-compile falls back automatically to the full engine (logged,
+//! see [`log_foma_fallback`]) — see [`FomaState`]'s doc for why the compiled proposer is stored as
+//! its own owned pieces rather than as a `FomaAnalyzer<'g>` field.
 #![forbid(unsafe_code)]
 
 use std::collections::HashMap;
 
 use hc_grammar::model::{Grammar, MorphRuleDef};
-use hc_parse::{Morpher, ParseOptions};
+use hc_parse::{Morpher, ParseOptions, WordAnalysis};
 use hc_realize::{gloss_bundle, leipzig, to_ir, RealizeMap, Realizer, TableRealizer};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
@@ -107,6 +114,116 @@ struct AnalyzeTextResult {
     new_cache_entries: HashMap<String, CachedWord>,
 }
 
+/// The OWNED (non-borrowing) pieces of a compiled `hc_foma::composite::FomaAnalyzer` for one
+/// grammar: the compiled foma net (`FomaProposer`, plan P4's expensive emit+foma-compile step),
+/// the reduplication peeler, and the morpheme-owner map. Stored separately from a `FomaAnalyzer`
+/// itself (which additionally borrows `&'g Grammar` and owns a `Morpher<'g>`) because
+/// `PanGlossGrammar` also OWNS the `Grammar` these would borrow from — a `PanGlossGrammar` field
+/// of type `FomaAnalyzer<'g>` tied to a sibling `grammar: Grammar` field is a self-referential
+/// struct Rust cannot express directly. Instead this crate does what it already does for
+/// `Morpher<'g>` (see [`PanGlossGrammar::analyze_text`]: never stored, always built fresh per call
+/// from `&self.grammar`): [`PanGlossGrammar::analyze_text`] takes this out of `self.foma`,
+/// reconstructs a short-lived `FomaAnalyzer` via `FomaAnalyzer::from_cached(&self.grammar, ...)`
+/// for the duration of one call, then hands the (unchanged) owned pieces back via
+/// `FomaAnalyzer::into_parts`.
+struct FomaState {
+    proposer: hc_foma::analyzer::FomaProposer,
+    peeler: hc_foma::peel::ReduplicationPeeler,
+    owners: Vec<Option<hc_foma::confirm::MorphemeOwner>>,
+}
+
+/// Emit + foma-compile `grammar`'s propose→confirm pieces. `Err` carries a human-readable message
+/// (`hc_foma::analyzer::FomaError`'s `Display`) — a compiler-gap diagnostic, not a grammar-content
+/// problem the caller can fix by editing their text.
+fn build_foma_state(grammar: &Grammar) -> Result<FomaState, String> {
+    let proposer =
+        hc_foma::analyzer::FomaProposer::new(grammar).map_err(|e| e.to_string())?;
+    Ok(FomaState {
+        peeler: hc_foma::peel::ReduplicationPeeler::new(grammar),
+        owners: hc_foma::confirm::build_morpheme_owners(grammar),
+        proposer,
+    })
+}
+
+/// Attempt to build [`FomaState`] for `grammar`; on failure, log the automatic fallback (plan P4:
+/// "compile failure → automatic fallback to full engine, logged") and return the diagnostic
+/// message alongside `None` so [`PanGlossGrammar::engine_diagnostic`] can surface it to JS without
+/// the caller needing to inspect the browser console.
+fn init_foma(grammar: &Grammar) -> (Option<FomaState>, Option<String>) {
+    match build_foma_state(grammar) {
+        Ok(state) => (Some(state), None),
+        Err(msg) => {
+            log_foma_fallback(&msg);
+            (None, Some(msg))
+        }
+    }
+}
+
+/// `console.error` in a browser (wasm32) build, `eprintln!` natively (this crate's own `cargo
+/// test` runs off the wasm32 target) — the "logged" half of plan P4's automatic-fallback
+/// requirement. Deliberately independent of `console_error_panic_hook` (set up in [`start`]),
+/// which only intercepts Rust panics; this is an ordinary `Err` return, not a panic.
+fn log_foma_fallback(msg: &str) {
+    let full = format!(
+        "hc-wasm: foma proposer compile failed, falling back to the full engine for this grammar: {msg}"
+    );
+    #[cfg(target_arch = "wasm32")]
+    web_sys::console::error_1(&JsValue::from_str(&full));
+    #[cfg(not(target_arch = "wasm32"))]
+    eprintln!("{full}");
+}
+
+/// Build one [`CachedWord`] from a (possibly foma- or full-engine-sourced) list of confirmed
+/// analyses plus the diagnostic fields `ParseOutcome`/`FomaOutcome` each carry under different
+/// names — shared by both engine paths in [`PanGlossGrammar::analyze_text`] so the
+/// gloss/leipzig/realize construction (which neither knows nor cares which engine produced
+/// `structured`) is written once.
+fn build_cached_word(
+    grammar: &Grammar,
+    realize_map: &RealizeMap,
+    realizer: &TableRealizer,
+    lower: &str,
+    structured: Vec<WordAnalysis>,
+    capped: bool,
+    invalid_shape: bool,
+    candidates_generated: usize,
+) -> CachedWord {
+    let analyses: Vec<AnalysisOut> = structured
+        .iter()
+        .map(|wa| {
+            let bundle = gloss_bundle(grammar, wa);
+            let leipzig_tag = leipzig(&bundle, lower);
+            let ir = to_ir(&bundle, realize_map, lower);
+            let realization = realizer.realize(&ir);
+            let morpheme_ids = bundle
+                .tokens
+                .iter()
+                .map(|t| {
+                    t.properties
+                        .iter()
+                        .find(|(k, _)| k == "ID")
+                        .map(|(_, v)| v.clone())
+                })
+                .collect();
+            AnalysisOut {
+                leipzig: leipzig_tag,
+                gloss: realization.text,
+                complete: realization.complete,
+                residue: realization.residue,
+                guessed: wa.guessed,
+                morpheme_ids,
+            }
+        })
+        .collect();
+    CachedWord {
+        candidates_accepted: analyses.len(),
+        analyses,
+        capped,
+        invalid_shape,
+        candidates_generated,
+    }
+}
+
 /// A loaded grammar plus the (grammar-independent) English realization pipeline, kept together so
 /// JS makes one object per grammar and calls [`PanGlossGrammar::analyze_text`] on it repeatedly.
 #[wasm_bindgen]
@@ -124,6 +241,16 @@ pub struct PanGlossGrammar {
     grammar: Grammar,
     realize_map: RealizeMap,
     realizer: TableRealizer,
+    /// `Some` iff this grammar's foma propose→confirm proposer compiled successfully (plan P4) —
+    /// see [`FomaState`]'s doc for why these are owned pieces rather than a stored `FomaAnalyzer`.
+    /// `None` means every word in this grammar routes through the full engine, either because
+    /// compilation failed (see `foma_diagnostic`) or (transiently, mid-`analyze_text`) while the
+    /// pieces are checked out to build this call's `FomaAnalyzer`.
+    foma: Option<FomaState>,
+    /// `Some` iff the most recent attempt to build `foma` (construction, or the last
+    /// `apply_user_lexicon` reload) failed — the human-readable reason, surfaced to JS via
+    /// [`PanGlossGrammar::engine_diagnostic`]. `None` once foma is active.
+    foma_diagnostic: Option<String>,
 }
 
 /// Every affix-morpheme `<Gloss>` string in `grammar` — the `AffixProcess`/`Realizational`
@@ -180,13 +307,41 @@ impl PanGlossGrammar {
         let realizer =
             TableRealizer::new().map_err(|e| js_err("load embedded English table", &e))?;
         let realize_map = build_realize_map(&grammar, realize_toml.as_deref())?;
+        let (foma, foma_diagnostic) = init_foma(&grammar);
         Ok(PanGlossGrammar {
             xml: xml.to_string(),
             realize_toml,
             grammar,
             realize_map,
             realizer,
+            foma,
+            foma_diagnostic,
         })
+    }
+
+    /// `"foma"` when this grammar's compiled propose→confirm proposer is active (plan P4's
+    /// mainline), `"engine"` when it isn't — either the emitted lexc source failed to foma-compile
+    /// at construction/reload time (`engineDiagnostic()` carries the reason) or this grammar has
+    /// never had one built. This reports the GRAMMAR-level engine `PanGlossGrammar` was built
+    /// with; it does NOT reflect the separate per-word guess-root retry `analyzeText` performs
+    /// through the full engine when the foma path itself confirms nothing for a given word (see
+    /// that method's doc) — that retry is a per-word display fallback, not a change of which
+    /// engine this instance is on.
+    #[wasm_bindgen(js_name = engineKind)]
+    pub fn engine_kind(&self) -> String {
+        if self.foma.is_some() {
+            "foma"
+        } else {
+            "engine"
+        }
+        .to_string()
+    }
+
+    /// `Some` iff the most recent attempt to compile this grammar's foma proposer failed — the
+    /// reason [`PanGlossGrammar::engine_kind`] reports `"engine"`. `None` once foma is active.
+    #[wasm_bindgen(js_name = engineDiagnostic)]
+    pub fn engine_diagnostic(&self) -> Option<String> {
+        self.foma_diagnostic.clone()
     }
 
     /// Tokenizes `text` and runs every word token through the full analyze -> gloss -> realize
@@ -197,26 +352,48 @@ impl PanGlossGrammar {
     ///
     /// `cache` is a JS object (or `undefined`/`null`) mapping a lowercased word to a previously
     /// returned [`CachedWord`] (i.e. the accumulated `newCacheEntries` of every prior call, merged
-    /// by the caller) — words present there skip `Morpher::parse_word_opts` entirely and are
-    /// replayed verbatim, so re-analyzing the same chapter (or any text sharing vocabulary with
-    /// one already seen) only pays the parse cost for genuinely new words. The cache is keyed
-    /// per-grammar by construction (it's only ever passed to the same `PanGlossGrammar` instance
-    /// the caller got it from), so callers don't need to namespace it themselves.
+    /// by the caller) — words present there skip re-analysis entirely and are replayed verbatim,
+    /// so re-analyzing the same chapter (or any text sharing vocabulary with one already seen)
+    /// only pays the parse cost for genuinely new words. The cache is keyed per-grammar by
+    /// construction (it's only ever passed to the same `PanGlossGrammar` instance the caller got
+    /// it from), so callers don't need to namespace it themselves.
+    ///
+    /// Routes each new word through `self.foma` (plan P4) when this grammar has one; a word that
+    /// engine confirms nothing for still gets the full engine's own `guess_root` retry (below),
+    /// exactly as it always did on the full-engine-only path — `FomaAnalyzer` deliberately never
+    /// sets `guess_root` itself (`hc_foma::composite`'s own doc), so unrecognized-word display
+    /// (part of what this demo is for, not a fallback to hide) still needs this one call.
     #[wasm_bindgen(js_name = analyzeText)]
-    pub fn analyze_text(&self, text: &str, cache: JsValue) -> Result<JsValue, JsValue> {
+    pub fn analyze_text(&mut self, text: &str, cache: JsValue) -> Result<JsValue, JsValue> {
         let cache: HashMap<String, CachedWord> = if cache.is_undefined() || cache.is_null() {
             HashMap::new()
         } else {
             serde_wasm_bindgen::from_value(cache).map_err(|e| JsValue::from_str(&e.to_string()))?
         };
 
+        // Never stored as a field (same "build fresh per call from an owned `&Grammar`" shape as
+        // `FomaState`'s rehydrated `FomaAnalyzer` below) — needed unconditionally, both as the
+        // sole engine when `self.foma` is `None` and as the guess-root retry when foma confirms
+        // nothing for a particular word.
         let morpher = Morpher::new(&self.grammar, usize::MAX);
         let opts = ParseOptions::default().with_guess_root(true);
         let mut new_cache_entries: HashMap<String, CachedWord> = HashMap::new();
 
-        let tokens: Vec<TokenOut> = tokenize(text)
-            .into_iter()
-            .map(|piece| match piece {
+        // Check the compiled foma pieces (if any) out of `self.foma` and rehydrate a
+        // `FomaAnalyzer` borrowing `&self.grammar` for the rest of this call — see [`FomaState`]'s
+        // doc for why this can't just be a stored field.
+        let mut foma_analyzer = self.foma.take().map(|state| {
+            hc_foma::composite::FomaAnalyzer::from_cached(
+                &self.grammar,
+                state.proposer,
+                state.peeler,
+                state.owners,
+            )
+        });
+
+        let mut tokens: Vec<TokenOut> = Vec::new();
+        for piece in tokenize(text) {
+            let token = match piece {
                 Piece::Other(s) => TokenOut {
                     kind: "other",
                     text: s.to_string(),
@@ -239,43 +416,61 @@ impl PanGlossGrammar {
                         (hit.clone(), true, 0.0)
                     } else {
                         let start = Instant::now();
-                        let outcome = morpher.parse_word_opts(&lower, &opts);
-                        let elapsed = start.elapsed().as_secs_f64() * 1000.0;
-                        let analyses = outcome
-                            .structured
-                            .iter()
-                            .map(|wa| {
-                                let bundle = gloss_bundle(&self.grammar, wa);
-                                let leipzig_tag = leipzig(&bundle, &lower);
-                                let ir = to_ir(&bundle, &self.realize_map, &lower);
-                                let realization = self.realizer.realize(&ir);
-                                let morpheme_ids = bundle
-                                    .tokens
-                                    .iter()
-                                    .map(|t| {
-                                        t.properties
-                                            .iter()
-                                            .find(|(k, _)| k == "ID")
-                                            .map(|(_, v)| v.clone())
-                                    })
-                                    .collect();
-                                AnalysisOut {
-                                    leipzig: leipzig_tag,
-                                    gloss: realization.text,
-                                    complete: realization.complete,
-                                    residue: realization.residue,
-                                    guessed: wa.guessed,
-                                    morpheme_ids,
+                        let (structured, capped, invalid_shape, candidates_generated) =
+                            match foma_analyzer.as_mut() {
+                                Some(analyzer) => {
+                                    let outcome = analyzer.analyze_word(&lower);
+                                    if outcome.structured.is_empty() {
+                                        // No confirmed foma candidate -- fall back to the full
+                                        // engine's own guess-root path for JUST this word (see
+                                        // this method's doc).
+                                        let fallback = morpher.parse_word_opts(&lower, &opts);
+                                        (
+                                            fallback.structured,
+                                            fallback.capped,
+                                            fallback.invalid_shape,
+                                            fallback.candidates_generated,
+                                        )
+                                    } else {
+                                        // `FomaAnalyzer` has no notion of a step-budget cascade
+                                        // (confirm is always uncapped by design) or of orthography
+                                        // validity (that's a property of the word/grammar, not the
+                                        // engine) -- `capped` is honestly always false here, and
+                                        // `invalid_shape` is answered independently via the same
+                                        // segmentation check `hc_lexicon` already uses elsewhere in
+                                        // this crate (`disambiguating_forms`).
+                                        let invalid_shape =
+                                            hc_lexicon::validate_shape(&self.grammar, &lower)
+                                                .is_err();
+                                        (
+                                            outcome.structured,
+                                            false,
+                                            invalid_shape,
+                                            outcome.candidates_generated,
+                                        )
+                                    }
                                 }
-                            })
-                            .collect();
-                        let fresh = CachedWord {
-                            analyses,
-                            capped: outcome.capped,
-                            invalid_shape: outcome.invalid_shape,
-                            candidates_generated: outcome.candidates_generated,
-                            candidates_accepted: outcome.structured.len(),
-                        };
+                                None => {
+                                    let outcome = morpher.parse_word_opts(&lower, &opts);
+                                    (
+                                        outcome.structured,
+                                        outcome.capped,
+                                        outcome.invalid_shape,
+                                        outcome.candidates_generated,
+                                    )
+                                }
+                            };
+                        let elapsed = start.elapsed().as_secs_f64() * 1000.0;
+                        let fresh = build_cached_word(
+                            &self.grammar,
+                            &self.realize_map,
+                            &self.realizer,
+                            &lower,
+                            structured,
+                            capped,
+                            invalid_shape,
+                            candidates_generated,
+                        );
                         new_cache_entries.insert(lower.clone(), fresh.clone());
                         (fresh, false, elapsed)
                     };
@@ -292,8 +487,20 @@ impl PanGlossGrammar {
                         from_cache,
                     }
                 }
-            })
-            .collect();
+            };
+            tokens.push(token);
+        }
+
+        // Hand the (content-unchanged) compiled pieces back to long-term storage -- the inverse
+        // of the check-out above. No-op (`self.foma` stays `None`) when this grammar has none.
+        if let Some(analyzer) = foma_analyzer.take() {
+            let (proposer, peeler, owners) = analyzer.into_parts();
+            self.foma = Some(FomaState {
+                proposer,
+                peeler,
+                owners,
+            });
+        }
 
         let result = AnalyzeTextResult {
             tokens,
@@ -377,9 +584,15 @@ impl PanGlossGrammar {
 
         let new_grammar = hc_grammar::load(&new_xml).map_err(|e| js_err("load grammar", &e))?;
         let new_realize_map = build_realize_map(&new_grammar, self.realize_toml.as_deref())?;
+        // The spliced-in entries change the lexicon the foma net was compiled from, so the
+        // proposer must be recompiled from scratch here too (plan P4) -- otherwise newly-added
+        // words would confirm via the full-engine guess-root retry forever, never via foma.
+        let (new_foma, new_foma_diagnostic) = init_foma(&new_grammar);
 
         self.grammar = new_grammar;
         self.realize_map = new_realize_map;
+        self.foma = new_foma;
+        self.foma_diagnostic = new_foma_diagnostic;
 
         let serializer = serde_wasm_bindgen::Serializer::json_compatible();
         report
@@ -577,5 +790,89 @@ mod tests {
         let with_none = build_realize_map(&g, None).expect("builds with None");
         let with_blank = build_realize_map(&g, Some("   \n")).expect("builds with blank sidecar");
         assert_eq!(with_none, with_blank);
+    }
+
+    // --- P4 gate F4: native parity smoke (docs/fst-plan/foma-fst-plan.md §4 P4) ---------------
+    //
+    // Not a browser round-trip, but the IDENTICAL Rust functions `PanGlossGrammar::new`/
+    // `analyze_text` call (`build_foma_state`, `hc_foma::composite::FomaAnalyzer::from_cached`/
+    // `analyze_word`), compiled natively, run over real corpus words from `samples/data/` and
+    // compared against the full engine's own `Morpher::parse_word_opts` as multisets keyed by
+    // `(morpheme_ids, root_index)` -- exactly the parity contract plan §P3/§D7 already gates the
+    // underlying `hc-foma` crate on; this test just confirms the wasm-facing wiring didn't lose
+    // anything in translation.
+
+    /// Loads `grammar_file`/`words_file` from `samples/data/` (skipping quietly if either is
+    /// absent, matching this workspace's usual "sample data may not be checked out" convention),
+    /// takes the first `sample` non-empty lines of the word list, and asserts the foma path's
+    /// confirmed analyses exactly multiset-match the full engine's for every one of them.
+    fn assert_foma_matches_engine(grammar_file: &str, words_file: &str, sample: usize) {
+        let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let samples_dir = manifest_dir.join("../../../samples/data");
+        let grammar_path = samples_dir.join(grammar_file);
+        let words_path = samples_dir.join(words_file);
+        if !grammar_path.exists() || !words_path.exists() {
+            eprintln!("skipping {grammar_file}: sample data not present on disk");
+            return;
+        }
+        let xml = std::fs::read_to_string(&grammar_path).expect("read grammar");
+        let grammar = hc_grammar::load(&xml)
+            .unwrap_or_else(|e| panic!("failed to load {grammar_file}: {e}"));
+        let foma_state = build_foma_state(&grammar)
+            .unwrap_or_else(|e| panic!("{grammar_file} must foma-compile (gate F1): {e}"));
+        let mut analyzer = hc_foma::composite::FomaAnalyzer::from_cached(
+            &grammar,
+            foma_state.proposer,
+            foma_state.peeler,
+            foma_state.owners,
+        );
+        let morpher = Morpher::new(&grammar, usize::MAX);
+        let opts = ParseOptions::default();
+
+        let words_text = std::fs::read_to_string(&words_path).expect("read words file");
+        let words: Vec<&str> = words_text
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .take(sample)
+            .collect();
+        assert!(!words.is_empty(), "{words_file} produced no sample words");
+
+        let mut checked = 0usize;
+        for &word in &words {
+            let foma_outcome = analyzer.analyze_word(word);
+            let engine_outcome = morpher.parse_word_opts(word, &opts);
+
+            let mut foma_keys: Vec<(Vec<u32>, i32)> = foma_outcome
+                .structured
+                .iter()
+                .map(|wa| (wa.morpheme_ids.clone(), wa.root_morpheme_index))
+                .collect();
+            let mut engine_keys: Vec<(Vec<u32>, i32)> = engine_outcome
+                .structured
+                .iter()
+                .map(|wa| (wa.morpheme_ids.clone(), wa.root_morpheme_index))
+                .collect();
+            foma_keys.sort();
+            engine_keys.sort();
+            assert_eq!(
+                foma_keys, engine_keys,
+                "{grammar_file}: foma vs full-engine mismatch for {word:?}"
+            );
+            checked += 1;
+        }
+        eprintln!("{grammar_file}: foma path matched the full engine on {checked} corpus word(s)");
+    }
+
+    #[test]
+    fn foma_path_matches_full_engine_on_sena_sample() {
+        assert_foma_matches_engine("sena-hc.xml", "sena-words.txt", 40);
+    }
+
+    #[test]
+    fn foma_path_matches_full_engine_on_indonesian_corpus() {
+        // Indonesian's whole corpus file is only 121 words (plan §P3: "all 121 corpus words
+        // required 100%") -- small enough to run in full rather than sampling.
+        assert_foma_matches_engine("indonesian-hc.xml", "indonesian-words.txt", usize::MAX);
     }
 }

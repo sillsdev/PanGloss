@@ -45,6 +45,7 @@ web-time = "1"
 hc-grammar = { path = "crates/hc-grammar" }
 hc-featstruct = { path = "crates/hc-featstruct" }
 hc-shape = { path = "crates/hc-shape" }
+hc-foma = { path = "crates/hc-foma" }
 hc-fst = { path = "crates/hc-fst" }
 hc-rules = { path = "crates/hc-rules" }
 hc-memo = { path = "crates/hc-memo" }

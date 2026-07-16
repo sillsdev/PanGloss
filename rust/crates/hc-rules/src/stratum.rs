@@ -30,7 +30,15 @@
 use std::cell::{Cell, RefCell};
 use std::collections::hash_map::Entry;
 use std::rc::Rc;
-use std::time::{Duration, Instant};
+// std::time::Instant panics ("time not implemented on this platform") on wasm32-unknown-unknown
+// -- this module's deadline check and always-on profiling timers (below) are unconditional on
+// every parse, so this crate's `web-time` dependency (already used the same way in `morph.rs` and
+// `hc-fst::traverse`, see those modules' own comments) belongs here too; this was the one spot the
+// wasm32 sweep missed (found by inspection while investigating a wasm32-runtime panic during P4
+// gate F4 work -- not itself reached by that panic, which turned out to be in a dependency, see
+// docs/fst-plan/foma-fst-plan.md's P4 report for the full story).
+// web_time re-exports std's `Duration` unchanged, so this is a pure drop-in for `Instant` alone.
+use web_time::{Duration, Instant};
 
 use hc_featstruct::{add, is_unifiable, subsumes, subtract, unify};
 use hc_grammar::model::{

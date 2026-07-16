@@ -14,9 +14,20 @@ hc-grammar.workspace = true
 hc-parse.workspace = true
 hc-realize.workspace = true
 hc-lexicon.workspace = true
+# P4 (docs/fst-plan/foma-fst-plan.md): `hc_foma::composite::FomaAnalyzer`, compiled at
+# `PanGlossGrammar::new`/`apply_user_lexicon` time and routed through by `analyze_text`. Already
+# proven wasm32-safe on its own (`hc-foma`'s own `cargo check --target wasm32-unknown-unknown`
+# gate, F0/F1/F2) and its `hc-parse` dependency is nothing new here -- this crate already links
+# `hc-parse` directly.
+hc-foma.workspace = true
 wasm-bindgen = "0.2"
 serde = { version = "1", features = ["derive"] }
 serde-wasm-bindgen = "0.6"
 console_error_panic_hook = "0.1"
 # std::time::Instant panics on wasm32-unknown-unknown -- same fix as hc-fst/hc-rules.
 web-time.workspace = true
+# Only the `console` feature -- `PanGlossGrammar`'s automatic foma-compile-failure fallback (P4)
+# logs via `console.error` in a browser build; natively (this crate's own `cargo test`) the same
+# call site uses `eprintln!` instead (see `log_foma_fallback`'s `cfg(target_arch = "wasm32")` split).
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+web-sys = { version = "0.3", features = ["console"] }
