@@ -624,6 +624,41 @@ fn optimize(nfa: &Nfa, deterministic: bool, direction: Direction) -> Fst {
         });
     }
 
+    // Min-hops-to-accept lower bound (consumed by the nondeterministic traversal's pruning, see
+    // `Fst::min_hops_to_accept` / `traverse.rs`): multi-source BFS on the REVERSED arc graph from
+    // every accepting state, ignoring arc constraints entirely. Ignoring constraints only ADDS
+    // edges relative to what any real input could traverse, so the resulting distance never
+    // over-estimates the number of arcs a real thread still needs — an admissible bound
+    // (`u32::MAX` = accept unreachable, i.e. a dead state). All arcs are unit-cost because the
+    // frozen automaton is epsilon-free, making plain BFS exact. O(states + arcs), once per
+    // compile.
+    let min_hops_to_accept = {
+        let mut preds: Vec<Vec<u32>> = vec![Vec::new(); states.len()];
+        for (s, st) in states.iter().enumerate() {
+            for arc in &arcs[st.arc_lo as usize..st.arc_hi as usize] {
+                preds[arc.target as usize].push(s as u32);
+            }
+        }
+        let mut dist = vec![u32::MAX; states.len()];
+        let mut bfs: VecDeque<u32> = VecDeque::new();
+        for (s, st) in states.iter().enumerate() {
+            if st.accepting {
+                dist[s] = 0;
+                bfs.push_back(s as u32);
+            }
+        }
+        while let Some(t) = bfs.pop_front() {
+            let d = dist[t as usize] + 1; // finite: only reached states are enqueued
+            for &p in &preds[t as usize] {
+                if dist[p as usize] > d {
+                    dist[p as usize] = d;
+                    bfs.push_back(p);
+                }
+            }
+        }
+        dist
+    };
+
     Fst {
         states,
         arcs,
@@ -636,6 +671,7 @@ fn optimize(nfa: &Nfa, deterministic: bool, direction: Direction) -> Fst {
         register_count: register_count as u32,
         groups: nfa.groups.clone(),
         initializers,
+        min_hops_to_accept,
     }
 }
 
@@ -651,5 +687,47 @@ impl crate::compile::CompileInput {
     pub fn compile_with_direction(&self, direction: Direction) -> Fst {
         let nfa = self.build_nfa();
         optimize(&nfa, self.deterministic, direction)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::compile::{CompileInput, CompileNode};
+
+    /// White-box check of the freeze-time `min_hops_to_accept` BFS: on a plain 3-symbol chain
+    /// `a b c`, every accepting state is 0 hops from accept, the start state is exactly 3, and
+    /// walking any path shortens the bound by exactly 1 per arc (unit-cost BFS on an epsilon-free
+    /// automaton). Checked on both the determinized and epsilon-removed compilations.
+    #[test]
+    fn min_hops_to_accept_chain_pattern() {
+        let nodes = vec![
+            CompileNode::Constraint(vec![0b001u64]),
+            CompileNode::Constraint(vec![0b010u64]),
+            CompileNode::Constraint(vec![0b100u64]),
+        ];
+        for det in [true, false] {
+            let fst = CompileInput::new(nodes.clone()).deterministic(det).compile();
+            let hops = fst.min_hops_to_accept();
+            assert_eq!(hops.len(), fst.state_count());
+            assert_eq!(
+                hops[fst.start() as usize],
+                3,
+                "start of `a b c` needs exactly 3 arcs (det={det})"
+            );
+            for (s, meta) in fst.states().iter().enumerate() {
+                if meta.accepting {
+                    assert_eq!(hops[s], 0, "accepting state {s} (det={det})");
+                } else {
+                    // every non-dead, non-accepting state's bound is 1 + min over its arcs'
+                    // targets (BFS relaxation fixpoint); this chain has no dead states.
+                    let best = fst.arcs()[meta.arc_lo as usize..meta.arc_hi as usize]
+                        .iter()
+                        .map(|a| hops[a.target as usize])
+                        .min()
+                        .expect("chain states all have arcs");
+                    assert_eq!(hops[s], best + 1, "state {s} (det={det})");
+                }
+            }
+        }
     }
 }

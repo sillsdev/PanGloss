@@ -29,6 +29,7 @@
 
 use std::cell::Cell;
 use std::collections::HashSet;
+use std::rc::Rc;
 // std::time::Instant panics ("time not implemented on this platform") on wasm32-unknown-unknown;
 // web-time is a drop-in replacement (Performance.now()-backed there, a re-export of std::time
 // elsewhere) needed because the O2 profiling calls below are unconditional on every traversal,
@@ -180,11 +181,53 @@ impl FstResult {
 }
 
 /// A live traversal instance (C# `TraversalInstance`).
+///
+/// `registers` is copy-on-write shared (`Rc`): the nondeterministic traversal clones an instance
+/// once per matching arc plus once more for the visited-set key, but most arcs carry **no**
+/// register commands (`cmd_lo == cmd_hi`), so eagerly deep-copying the `register_count * 2`
+/// scaffold on every clone dominated the confirm path (`docs/o2-profile-findings.md`:
+/// `nondet_max_traversed` reached 360K–542K on the pathological Amharic words). Cloning an `Inst`
+/// is now an O(1) refcount bump; [`Rc::make_mut`] deep-copies lazily, only at the moment an arc's
+/// non-empty command range actually writes (see [`Transduce::advance`]). Purely a representation
+/// change: every observable value (register contents, results, ordering) is identical.
 #[derive(Clone)]
 struct Inst {
     state: usize,
     ann_index: usize,
-    registers: Vec<Register>,
+    registers: Rc<Vec<Register>>,
+}
+
+/// Visited-set key wrapper for the shared register scaffold of the nondeterministic traversal.
+///
+/// Semantically identical to the plain `Vec<Register>` key it replaces (derived `Eq`/`Hash` over
+/// the register contents — the same key the C# reference uses, keeping every distinct
+/// `(state, ann_index, registers)` thread alive; do NOT collapse threads Pike-VM-style), but it
+/// stores the instance's `Rc` (a refcount bump) instead of a second deep clone of the registers.
+///
+/// - `Eq`: `Rc::ptr_eq` fast path (same allocation ⇒ trivially content-equal), falling back to
+///   full content equality. This is a pure optimization: it can never disagree with content
+///   equality, because pointer-equal implies content-equal.
+/// - `Hash`: hashes the **content** (exactly what `Vec<Register>`'s derived `Hash` did). Hashing
+///   the pointer instead would break the `Eq`/`Hash` consistency contract (content-equal keys in
+///   different allocations must collide); the win here is eliminating the extra deep clone, not
+///   the hashing.
+struct RegKey(Rc<Vec<Register>>);
+
+impl PartialEq for RegKey {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.0, &other.0) || self.0 == other.0
+    }
+}
+impl Eq for RegKey {}
+
+impl std::hash::Hash for RegKey {
+    #[inline]
+    fn hash<H: std::hash::Hasher>(&self, h: &mut H) {
+        // Content-based, delegating to Vec<Register>'s derived Hash — bit-for-bit the hash the
+        // old `(usize, usize, Vec<Register>)` key produced for the registers component.
+        self.0.hash(h);
+    }
 }
 
 /// The traversal driver.
@@ -373,7 +416,14 @@ impl<'f> Transduce<'f> {
     ) -> Vec<Inst> {
         let next_index = inst.ann_index + 1; // GetNextNonoverlappingAnnotationIndex, linear
         let end = self.ann_end(inst.ann_index);
-        let arc_cmds = self.fst.commands[arc.cmd_lo as usize..arc.cmd_hi as usize].to_vec();
+        // Borrowed straight from the CSR pool (`execute_commands` is an associated fn; `self` is
+        // never mutably borrowed here, so no defensive copy is needed). Most arcs have an EMPTY
+        // command range — the `is_empty` guards below skip `execute_commands` entirely for those
+        // (a no-op either way: it just loops over the commands), so `Rc::make_mut` deep-copies the
+        // shared register scaffold only when an arc genuinely writes. Finisher command ranges
+        // (`fin_lo..fin_hi`) are untouched by this: `check_accepting` runs them on its own
+        // per-result copy of the registers, as before.
+        let arc_cmds = &self.fst.commands[arc.cmd_lo as usize..arc.cmd_hi as usize];
 
         if next_index < self.n() {
             let next_offset = self.ann_start(next_index);
@@ -382,17 +432,20 @@ impl<'f> Transduce<'f> {
 
             // optional next annotation -> also spawn the "skip it" path (registers pre-command).
             if self.seg(next_index).optional {
-                let mut ti = inst.clone();
+                let mut ti = inst.clone(); // O(1): registers shared, deep-copied only on write
                 ti.ann_index = next_index;
                 out.extend(self.advance(ti, arc, true, cur_results));
             }
 
-            Self::execute_commands(
-                &mut inst.registers,
-                &arc_cmds,
-                Register::at(next_offset, next_start),
-                Register::at(end, false),
-            );
+            if !arc_cmds.is_empty() {
+                let regs: &mut Vec<Register> = Rc::make_mut(&mut inst.registers);
+                Self::execute_commands(
+                    regs,
+                    arc_cmds,
+                    Register::at(next_offset, next_start),
+                    Register::at(end, false),
+                );
+            }
             if !optional || self.end_anchor {
                 self.check_accepting(
                     next_index,
@@ -407,12 +460,15 @@ impl<'f> Transduce<'f> {
             out
         } else {
             let next_offset = self.end_pos();
-            Self::execute_commands(
-                &mut inst.registers,
-                &arc_cmds,
-                Register::at(next_offset, false),
-                Register::at(end, false),
-            );
+            if !arc_cmds.is_empty() {
+                let regs: &mut Vec<Register> = Rc::make_mut(&mut inst.registers);
+                Self::execute_commands(
+                    regs,
+                    arc_cmds,
+                    Register::at(next_offset, false),
+                    Register::at(end, false),
+                );
+            }
             self.check_accepting(self.n(), &inst.registers, arc.target as usize, cur_results);
             inst.state = arc.target as usize;
             inst.ann_index = self.n();
@@ -453,7 +509,7 @@ impl<'f> Transduce<'f> {
             insts.push(Inst {
                 state: self.fst.start() as usize,
                 ann_index: *ann_index,
-                registers: registers.to_vec(),
+                registers: Rc::new(registers.to_vec()),
             });
             init_anns.insert(*ann_index);
         }
@@ -509,20 +565,44 @@ impl<'f> Transduce<'f> {
             profile::record_det(__o2_det_start.elapsed().as_nanos());
         } else {
             let __o2_nondet_start = Instant::now();
-            let mut traversed: HashSet<(usize, usize, Vec<Register>)> = HashSet::new();
+            // Same visited-set key as before (and as the C# reference): the full
+            // (state, ann_index, register contents) triple — two insts at the same
+            // (state, ann_index) with different registers are genuinely different analyses and
+            // both stay live. `RegKey` only changes the key's *representation* (shares the
+            // instance's Rc instead of deep-cloning the registers a second time).
+            let mut traversed: HashSet<(usize, usize, RegKey)> = HashSet::new();
+            let n = self.n();
+            let min_hops = self.fst.min_hops_to_accept();
             while let Some(inst) = stack.pop() {
                 let arcs: Vec<crate::fst::Arc> = self.state_arcs(inst.state).to_vec();
                 for arc in &arcs {
                     // frozen FSTs have no epsilon arcs; only the input-match branch fires.
                     if self.check_input_match(arc, inst.ann_index) {
+                        // Min-hops-to-accept pruning (`Fst::min_hops_to_accept`, an admissible
+                        // lower bound computed at freeze time). After this arc consumes the
+                        // segment at `ann_index` (`check_input_match` guarantees
+                        // `ann_index < n`), at most `n - ann_index - 1` further arcs can ever be
+                        // taken: every arc consumes >= 1 segment (frozen FSTs are epsilon-free),
+                        // and `advance`'s optional-segment skips consume *extra* segments without
+                        // taking arcs, so they only lower the true count — `remaining` stays an
+                        // upper bound in both traversal directions (`ann_index` is a traversal
+                        // index; `phys()` only remaps which physical segment it denotes, not how
+                        // many are left). If even `remaining` hops cannot reach an accepting
+                        // state from `arc.target`, no thread through this arc can ever produce a
+                        // result — results are only emitted by `check_accepting` at accepting
+                        // states, and an accepting `arc.target` itself (min_hops == 0) is never
+                        // pruned since `remaining >= 0`. Dropping the thread loses nothing.
+                        let remaining = (n - inst.ann_index - 1) as u32;
+                        if min_hops[arc.target as usize] > remaining {
+                            continue;
+                        }
                         for new_inst in self.advance(inst.clone(), arc, false, &mut cur_results) {
                             let key = (
                                 new_inst.state,
                                 new_inst.ann_index,
-                                new_inst.registers.clone(),
+                                RegKey(Rc::clone(&new_inst.registers)),
                             );
-                            if !traversed.contains(&key) {
-                                traversed.insert(key);
+                            if traversed.insert(key) {
                                 stack.push(new_inst);
                             }
                         }
@@ -689,4 +769,36 @@ fn distinct(results: Vec<FstResult>) -> Vec<FstResult> {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    fn hash_of<T: Hash>(v: &T) -> u64 {
+        let mut h = DefaultHasher::new();
+        v.hash(&mut h);
+        h.finish()
+    }
+
+    /// `RegKey`'s Eq/Hash contract: content-equal keys in DIFFERENT allocations must be equal and
+    /// must collide (hash is content-based, never pointer-based); the `Rc::ptr_eq` fast path is
+    /// only ever an accelerator for the same-allocation case.
+    #[test]
+    fn regkey_eq_and_hash_are_content_based() {
+        let a = RegKey(Rc::new(vec![Register::at(1, true), Register::unset()]));
+        let b = RegKey(Rc::new(vec![Register::at(1, true), Register::unset()])); // distinct alloc
+        let c = RegKey(Rc::clone(&a.0)); // same alloc (ptr_eq fast path)
+        let d = RegKey(Rc::new(vec![Register::at(2, true), Register::unset()]));
+        assert!(a == b, "content-equal keys in different allocations");
+        assert!(a == c, "shared-allocation keys");
+        assert!(a != d, "different contents differ");
+        assert_eq!(hash_of(&a), hash_of(&b), "equal keys must hash equal");
+        assert_eq!(hash_of(&a), hash_of(&c));
+        // and RegKey's hash must equal the plain Vec<Register> hash it replaced (same visited-set
+        // behavior as the old (usize, usize, Vec<Register>) key, representation aside).
+        assert_eq!(hash_of(&a), hash_of(&*a.0));
+    }
 }

@@ -115,8 +115,12 @@ fn fifty_ms_word_timeout_fires_promptly_on_a_genuinely_slow_parse() {
     // cost of the 50ms mark (~266µs/step in debug for this fixture) -- nowhere near the ~13699 steps
     // an unbounded unwind takes. The bound below stays generous (not tightened to the new, much
     // smaller expected overshoot) so this test doesn't become a timing-precision assertion.
+    // Bound history: was 5_000; hc-fst's Rc/COW-register + min-hops-pruning traversal change cut
+    // per-step cost ~25%, so ~6,000-6,150 steps now fit inside the 50ms deadline on the reference
+    // machine. 9_000 keeps the same intent: far short of the ~13,699 an unbounded unwind takes,
+    // without asserting a step rate.
     assert!(
-        outcome.steps < 5_000,
+        outcome.steps < 9_000,
         "aborted at {} steps, which should be far short of the ~13699 an unbounded unwind takes",
         outcome.steps
     );

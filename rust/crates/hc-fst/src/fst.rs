@@ -73,6 +73,16 @@ pub struct Fst {
     pub(crate) groups: Vec<(String, i32)>,
     /// Commands run once at the start of each traversal attempt (C# `_initializers`).
     pub(crate) initializers: Vec<Cmd>,
+    /// Per-state minimum number of arcs to reach ANY accepting state, ignoring arc constraints
+    /// (`u32::MAX` = no accepting state reachable at all). Computed once at freeze time by a
+    /// multi-source BFS on the reversed arc graph from all accepting states (see
+    /// [`crate::optimize`]). Ignoring constraints only *adds* edges relative to any real
+    /// traversal, so this is an admissible lower bound: a real thread at state `s` must take at
+    /// least `min_hops_to_accept[s]` more arcs before it can accept. Frozen FSTs are epsilon-free
+    /// (both `Determinize` and `EpsilonRemoval` outputs), so every arc consumes >= 1 input
+    /// segment and "hops remaining" is bounded above by "segments remaining" — the invariant the
+    /// nondeterministic traversal's pruning (see [`crate::traverse`]) relies on.
+    pub(crate) min_hops_to_accept: Vec<u32>,
 }
 
 impl Fst {
@@ -102,6 +112,11 @@ impl Fst {
     }
     pub(crate) fn constraint(&self, id: ConstraintId) -> &MatchInput {
         &self.constraints[id.0 as usize]
+    }
+    /// See the field doc: per-state admissible lower bound on arcs-to-accept, indexed by state id.
+    #[inline]
+    pub(crate) fn min_hops_to_accept(&self) -> &[u32] {
+        &self.min_hops_to_accept
     }
 
     /// Resolve a group's tag (C# `_groups[name]`).
