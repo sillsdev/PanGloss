@@ -329,12 +329,13 @@ fn amharic_corpus_words_multiset_parity() {
     );
 
     assert!(stats.n_compared > 0, "parity gate must compare at least one word");
-    // KNOWN-FAILURES LEDGER (gate F3 NOT MET — foma-fst-plan.md "Gate F3 verdict"):
-    //   `ገለፀ` — engine finds root(entry30/explain)+-pfv-+pfv.3m (1 analysis), foma 0. An
-    //   interdigitation recall miss in `preexpand.rs` (same construct class P1d targeted, but this
-    //   root/rule pair stays uncovered). Owned by the recall-bug fix task; when fixed, delete this
-    //   entry (the ledger must shrink).
-    assert_against_ledger(&stats, &[("ገለፀ", 1, 0)], "amharic (full corpus)");
+    // KNOWN-FAILURES LEDGER (gate F3): empty — the former `ገለፀ` interdigitation recall miss is
+    //   FIXED (`preexpand.rs`'s `render_all_variants`: the composite emitter now renders every
+    //   letter-series-merged spelling a probed Ge'ez glyph can honestly carry, not just the
+    //   table-order-first one `hc_rules::surface_probe::render_nodes` returned, which had silently
+    //   picked the wrong ጸ/ፀ series for root entry30 + -pfv- + pfv.3m). Amharic is now at full
+    //   multiset parity — any mismatch is a hard fail.
+    assert_against_ledger(&stats, &[], "amharic (full corpus)");
     if stats.n_excluded > 0 {
         println!(
             "NOTE: {} Amharic corpus word(s) excluded from parity because the full engine itself \

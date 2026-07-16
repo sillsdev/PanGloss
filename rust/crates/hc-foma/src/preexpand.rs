@@ -104,13 +104,14 @@
 //! instead of enumerated per root and per chain -- exactly the same successor already named for
 //! [`crate::junctions::PhonologyProbe`]'s own enumeration bridge.
 
-use hc_featstruct::{is_unifiable, FsId};
-use hc_grammar::chardef::CharDefTable;
+use hc_featstruct::{flat_unifiable, is_unifiable, FsId};
+use hc_grammar::chardef::{CharDefId, CharDefKind, CharDefTable};
 use hc_grammar::model::{AllomorphId, Grammar, MRuleId, MorphRuleDef, MorphemeId, OutputAction};
 use hc_rules::cache::RuleCache;
 use hc_rules::morph::synthesize;
-use hc_rules::surface_probe;
+use hc_rules::surface_probe::{self, ProbeSeg};
 use hc_rules::word::{MorphRecord, Word};
+use hc_shape::NO_CHAR_DEF;
 
 use crate::emit::{rule_role, stripped_variants, surface_variants, Role};
 use crate::junctions::PhonologyProbe;
@@ -136,9 +137,10 @@ pub(crate) struct CompositeRec {
     /// The escaped, ALREADY-CONCATENATED upper-tape tag string (all the chain's tags, in engine
     /// morph order).
     pub tag_lexc: String,
-    /// The rendered, phonology-resolved surface spelling(s) (usually one; kept as a `Vec` for
-    /// symmetry with `RootRec::variants` and in case a rule's own disjunctive allomorphs produce
-    /// more than one distinct rendering for the same tag pair).
+    /// The rendered, phonology-resolved surface spelling(s) (usually one; a `Vec` because a
+    /// character-definition table can have a historical letter-series merger — see
+    /// [`render_all_variants`] — or because a rule's own disjunctive allomorphs produce more than
+    /// one distinct rendering for the same tag pair).
     pub variants: Vec<String>,
 }
 
@@ -288,6 +290,115 @@ fn reachable_via_ordinary_emission(
     false
 }
 
+/// Cap on [`render_all_variants`]'s Cartesian product. Kept SMALL (not a large defensive-only
+/// bound): measured on Amharic, `matching_reps_local`'s fallback branch (needed for genuine
+/// correctness — see that function's doc) fires on ~30% of all probed segments, because vowel
+/// quality changes on a Ge'ez consonant-vowel glyph are the ORDINARY case for this templatic
+/// language family, not a rare exception — so an unbounded (or generously bounded) product
+/// multiplies across every ambiguous position in a word and blows up total emitted lexc size
+/// catastrophically (measured: cap 64 grew Amharic's lexc source from 4.59 MB/71,142 lines to
+/// 21.65 MB/288,650 lines, which overflows the foma lexc compiler's own parse stack — a hard
+/// crash, not just a slowdown). The Amharic "ገለፀ" recall miss this module fixes needs exactly 2
+/// variants for its own composite record (`"ገለጸ"`/`"ገለፀ"` — verified directly); 4 leaves headroom
+/// for a second independently-ambiguous position in the same word without reopening the blow-up
+/// (measured: cap 4 keeps the same Amharic build well under the original baseline's order of
+/// magnitude). A grammar that genuinely needs more than 4 co-occurring alternatives on one
+/// composite would show up as its own recall-gate miss, at which point this constant (or the P6
+/// replace-rule successor, module doc) is the fix, not silently raising it speculatively.
+const MAX_RENDER_VARIANTS: usize = 4;
+
+/// Every literal spelling a probed SEGMENT node can honestly mean, for [`render_all_variants`].
+///
+/// **Fast, common path — concrete, unmutated identity** (`char_def != NO_CHAR_DEF` and its own
+/// feature lanes still unify with the node's current `lanes`): return ONLY that char-def's OWN
+/// representations, mirroring `crate::emit::surface_variants`'s already-established pattern for
+/// the identical shape of ambiguity (Sena `char4` = {"m","n"}: multiple spellings of the SAME
+/// character, never a search across OTHER characters). This is both correct (this IS the
+/// character the root was authored with) and cheap (no cross-table search).
+///
+/// **Fallback — abstract or mutated identity**: when `char_def == NO_CHAR_DEF` (a post-rewrite
+/// node whose identity was cleared by a feature-changing rule) or the node's OWN char-def no
+/// longer unifies with its current lanes (a rewrite changed features — e.g. a vowel-quality change
+/// on a Ge'ez consonant-vowel glyph — without reassigning identity), there IS no preferred
+/// spelling — fall through to the full `hc-rules`-equivalent search across every lane-unifiable
+/// segment char-def (same result its own private `matching_reps`, `hc-rules/src/
+/// surface_probe.rs:95-117`, computes — duplicated here for the same cross-crate reason that
+/// module's own doc already accepts: `hc-rules` cannot expose a private helper for this one
+/// caller). This is the branch [`MAX_RENDER_VARIANTS`]'s doc measures as ~30% of all probed
+/// segments on Amharic — NOT rare, because vowel-quality changes are the ordinary case for this
+/// templatic language family, which is exactly why the cap above must stay small.
+fn matching_reps_local(table: &CharDefTable, char_def: u32, lanes: &[u64]) -> Vec<String> {
+    if char_def != NO_CHAR_DEF {
+        let cd = table.get(CharDefId(char_def));
+        if flat_unifiable(lanes, cd.feature_lanes()) {
+            return cd.representations().to_vec();
+        }
+    }
+    let mut out = Vec::new();
+    for (id, cd) in table.iter() {
+        if cd.kind() != CharDefKind::Segment {
+            continue;
+        }
+        let member = if char_def != NO_CHAR_DEF {
+            id.0 == char_def
+                || table.unifiable_cds(CharDefId(char_def)).is_some_and(|b| b.contains(id.0))
+        } else {
+            true // NO_CHAR_DEF (post-rewrite abstract node): pure lane unification, no identity gate.
+        };
+        if !member {
+            continue;
+        }
+        if flat_unifiable(lanes, cd.feature_lanes()) {
+            out.extend(cd.representations().iter().cloned());
+        }
+    }
+    out
+}
+
+/// Every distinct literal surface rendering of `segs` — the recall fix for a real miss class
+/// `hc_rules::surface_probe::render_nodes` cannot see past: that function collapses each surviving
+/// segment node to its FIRST matching character-definition representation in table order,
+/// discarding every OTHER representation that also unifies with the node's own feature lanes (its
+/// own private `matching_reps` already computes the full set; `render_nodes` just takes
+/// `.next()`). For an alphabet with a historical letter-series merger — Ge'ez ጸ/ፀ are separate
+/// `CharDefId`s but mutually unifiable (the same modern phoneme spelled two ways) — the specific
+/// member a root's OWN allomorph was authored with is not necessarily table-order-first, so
+/// `render_nodes` can silently render the WRONG literal spelling for a composite whose final
+/// segment lands in such a class. Measured root cause of the Amharic "ገለፀ" recall miss (entry30
+/// "explain" + mrule13 "-pfv-" infix + mrule18 "pfv.3m" suffix): `render_nodes` produced "ገለጸ"
+/// (wrong series on the final consonant), which never matches the true surface, so `propose`
+/// found zero candidates for a word the full engine confirms in exactly one analysis.
+///
+/// Fixed the only sound way per plan §0 (propose may only OVER-generate, never under-generate):
+/// render every combination of each node's own matching representations (Cartesian product across
+/// positions, [`MAX_RENDER_VARIANTS`]-capped — see that constant's doc for why the cap must stay
+/// small on this grammar family) instead of guessing one. [`extend`]'s caller then tries each
+/// resulting string exactly the way it tried the old single `post` — confirm prunes whichever
+/// variants don't actually re-derive. Empty iff any surviving node has no matching representation
+/// at all (an under-specified node — `render_nodes`'s own `None` case, ported as an empty `Vec`
+/// here since this function's return type has no `Option`).
+fn render_all_variants(table: &CharDefTable, segs: &[ProbeSeg]) -> Vec<String> {
+    let mut variants: Vec<String> = vec![String::new()];
+    for seg in segs {
+        if seg.deleted {
+            continue;
+        }
+        let reps = matching_reps_local(table, seg.char_def, &seg.lanes);
+        if reps.is_empty() {
+            return Vec::new();
+        }
+        let mut next = Vec::with_capacity(variants.len() * reps.len());
+        for v in &variants {
+            for r in &reps {
+                next.push(format!("{v}{r}"));
+            }
+        }
+        next.truncate(MAX_RENDER_VARIANTS);
+        variants = next;
+    }
+    variants
+}
+
 /// Bound on total composite chain length beyond the root (module doc, "Chaining"): a root plus at
 /// most this many applied rules in one composite entry. `3` is the longest chain the recall gate
 /// actually demanded (Amharic "ሌባዎቹ": root + def.m (CLEAN concatenation) + pl (fuses with def.m's
@@ -322,16 +433,17 @@ struct Acc {
 /// [`MAX_EXTRA_RULES`]. `redundancy_variants`/`redundancy_stripped` are the "one side" strings the
 /// ORDINARY (non-composite) lexc path would concatenate the OTHER side's literal spelling against
 /// at THIS level: at depth 0 that is the root's own [`surface_variants`]/[`stripped_variants`]; at
-/// depth ≥ 1 it is the SINGLE rendered surface of the composite chain built so far (the previous
-/// level's own lexc entry is a fixed, already-decided string by the time a further rule's ordinary
-/// entry would concatenate against it) — [`build_composites`]/this function's own recursive call
-/// construct the right one for each depth, so [`reachable_via_ordinary_emission`] is checked
-/// UNIFORMLY at every depth, never skipped by a `pre == post` shortcut (module doc's investigation:
-/// a shortcut there is unsound whenever a rule's OWN LHS pattern silently drops part of what it
-/// matched — e.g. Amharic's "ላ" ("to") rule's LHS consumes-but-does-not-copy the pronoun root's
-/// leading glottal segment, so `pre` (the rule's own output) and `post` (after phonology) already
-/// agree with EACH OTHER while both still differ from what `emit.rs`'s literal, whole-root-text
-/// concatenation would produce — exactly the gap this composite mechanism exists to close).
+/// depth ≥ 1 it is the rendered surface(s) of the composite chain built so far (the previous
+/// level's own lexc entry is a fixed, already-decided set of strings by the time a further rule's
+/// ordinary entry would concatenate against it) — [`build_composites`]/this function's own
+/// recursive call construct the right one for each depth, so [`reachable_via_ordinary_emission`]
+/// is checked UNIFORMLY at every depth, never skipped by a `pre == post` shortcut (module doc's
+/// investigation: a shortcut there is unsound whenever a rule's OWN LHS pattern silently drops
+/// part of what it matched — e.g. Amharic's "ላ" ("to") rule's LHS consumes-but-does-not-copy the
+/// pronoun root's leading glottal segment, so `pre` (the rule's own output) and `post` (after
+/// phonology) already agree with EACH OTHER while both still differ from what `emit.rs`'s literal,
+/// whole-root-text concatenation would produce — exactly the gap this composite mechanism exists
+/// to close).
 #[allow(clippy::too_many_arguments)]
 fn extend(
     ctx: &ExtendCtx,
@@ -368,80 +480,112 @@ fn extend(
             let Some(segs) = surface_probe::probe_synthesize(ctx.g, &w.shape, ctx.cache) else {
                 continue;
             };
-            let Some(post) = surface_probe::render_nodes(ctx.root_table, &segs) else {
-                continue;
-            };
-            if post.is_empty() {
+            // Recall fix (module doc addendum, `render_all_variants`): a character-definition
+            // table can have merged letter-series ambiguity (Ge'ez ጸ/ፀ), where `hc_rules::
+            // surface_probe::render_nodes` collapses to a single, sometimes-WRONG rendering.
+            // `render_all_variants` yields every literal spelling the probed shape can honestly
+            // mean, computed ONCE per synthesized `w` here (NOT once per recursive call — see
+            // below) so this stays the same O(pairs_probed) shape as the original single-`post`
+            // code, never O(pairs_probed × variants^depth): only the SET OF STRINGS a single
+            // step considers grows; the recursion tree itself does not branch on it.
+            let posts: Vec<String> = render_all_variants(ctx.root_table, &segs)
+                .into_iter()
+                .filter(|p| !p.is_empty())
+                .collect();
+            if posts.is_empty() {
                 continue;
             }
             let is_infix = role == Role::Infix;
-            let dirty = is_infix
-                || !reachable_via_ordinary_emission(
-                    ctx.root_table,
-                    ctx.phon,
-                    redundancy_variants,
-                    redundancy_stripped,
-                    rule,
-                    role == Role::Prefix,
-                    &post,
-                );
+            // A variant is "dirty" iff it isn't already reachable via the ordinary two-entry
+            // path; only DIRTY variants need their own composite entry (a clean one is already
+            // realized correctly without this mechanism). Checking every variant here is cheap
+            // (a handful of short-string comparisons) — the expensive part avoided is recursing
+            // once per variant, not computing this per-variant flag.
+            let dirty_posts: Vec<&String> = posts
+                .iter()
+                .filter(|post| {
+                    is_infix
+                        || !reachable_via_ordinary_emission(
+                            ctx.root_table,
+                            ctx.phon,
+                            redundancy_variants,
+                            redundancy_stripped,
+                            rule,
+                            role == Role::Prefix,
+                            post,
+                        )
+                })
+                .collect();
 
             let mut next_chain = chain.to_vec();
             next_chain.push((rule_morpheme, tags::morph_tag_lexc(rule_morpheme, width)));
 
-            // A dirty step is emitted as a composite carrying the WHOLE chain's tags; a clean step
-            // is NOT emitted (the ordinary lexc entries already realize it correctly) but is still
-            // recursed through below — the recall gate's "ሌባዎቹ" chain fuses only at steps 2 and 3,
-            // with a byte-clean step 1 in between (see MAX_EXTRA_RULES's doc).
-            if dirty {
-                if let Some(tag_lexc) = morph_order_tags(&w, &next_chain) {
-                    if acc.seen.insert((tag_lexc.clone(), post.clone())) {
-                        acc.recs.push(CompositeRec {
-                            morpheme: next_chain[0].0,
-                            // `next_chain[0]` is always the seeding root; later elements are rules.
-                            chain_morphemes: next_chain
-                                .iter()
-                                .enumerate()
-                                .map(|(i, (m, _))| (i == 0, *m))
-                                .collect(),
-                            tag_lexc,
-                            variants: vec![post.clone()],
-                        });
-                        if is_infix {
-                            acc.report.interdigitation_entries += 1;
-                        } else {
-                            acc.report.fusion_entries += 1;
-                        }
-                    }
+            // Dirty variants are emitted as ONE composite record carrying every dirty spelling
+            // (module doc, "Chaining": a dirty step is emitted; a clean step is NOT emitted — the
+            // ordinary lexc entries already realize it correctly — but is still recursed through
+            // below, see the recursion comment further down).
+            if let Some(tag_lexc) = (!dirty_posts.is_empty()).then(|| morph_order_tags(&w, &next_chain)).flatten() {
+                let new_variants: Vec<String> = dirty_posts
+                    .iter()
+                    .filter(|post| acc.seen.insert((tag_lexc.clone(), (***post).clone())))
+                    .map(|post| (**post).clone())
+                    .collect();
+                if !new_variants.is_empty() {
+                    acc.recs.push(CompositeRec {
+                        morpheme: next_chain[0].0,
+                        // `next_chain[0]` is always the seeding root; later elements are rules.
+                        chain_morphemes: next_chain
+                            .iter()
+                            .enumerate()
+                            .map(|(i, (m, _))| (i == 0, *m))
+                            .collect(),
+                        tag_lexc,
+                        variants: new_variants,
+                    });
                     if is_infix {
-                        acc.report.covered_infix_rules.insert(mid.0);
+                        acc.report.interdigitation_entries += 1;
+                    } else {
+                        acc.report.fusion_entries += 1;
                     }
+                }
+                if is_infix {
+                    acc.report.covered_infix_rules.insert(mid.0);
                 }
             }
 
-            // Recurse (module doc, "Chaining") — dirty or clean. The ordinary-emission redundancy
-            // baseline one level deeper is THIS level's own rendered surface — and, ONLY when this
-            // step was CLEAN, also its stripped (first-segment-removed) form: a clean stem is
-            // realized by ordinary entries whose root half DOES have a `{roots}Stripped` sibling,
-            // so a deletion-junction prefix one level up (Indonesian `meN` over a suffixed stem:
+            // Recurse (module doc, "Chaining") — ONCE per synthesized `w`, dirty or clean, never
+            // once per variant (see the comment above `posts`). The ordinary-emission redundancy
+            // baseline one level deeper is EVERY variant THIS level rendered (already a `Vec`, so
+            // passing all of them costs nothing extra) — and, ONLY when EVERY variant at this
+            // level was clean (no dirty variant at all: a mixed clean/dirty step still means a
+            // composite got recorded above, so the stem is not purely ordinary), also each clean
+            // variant's stripped (first-segment-removed) form: a clean stem is realized by
+            // ordinary entries whose root half DOES have a `{roots}Stripped` sibling, so a
+            // deletion-junction prefix one level up (Indonesian `meN` over a suffixed stem:
             // `tuliskan -> menuliskan`) is ordinary-reachable and must not read as dirty (measured:
             // without this, Indonesian grew 42 spurious fusion composites; with it, zero). After a
             // DIRTY step the stem exists ONLY as a composite entry, which has no Stripped sibling —
             // offering a stripped baseline there could mark a genuinely-needed deeper composite
             // clean, a downward (recall-losing) error, the plan's one forbidden direction.
-            let deeper_variants = vec![post.clone()];
-            let deeper_stripped = if dirty {
-                Vec::new()
+            let all_clean = dirty_posts.is_empty();
+            let deeper_stripped = if all_clean {
+                let mut v = Vec::new();
+                for post in &posts {
+                    v.extend(
+                        stripped_variants(ctx.root_table, post)
+                            .map(|(sv, _)| sv)
+                            .unwrap_or_default(),
+                    );
+                }
+                v
             } else {
-                stripped_variants(ctx.root_table, &post)
-                    .map(|(v, _)| v)
-                    .unwrap_or_default()
+                Vec::new()
             };
             extend(
                 ctx,
                 &w,
                 &next_chain,
-                &deeper_variants,
+                &posts,
                 &deeper_stripped,
                 depth + 1,
                 width,
