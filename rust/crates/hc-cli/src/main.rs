@@ -628,22 +628,24 @@ fn run_batch(args: &[String]) -> Result<(), String> {
     if engine == Engine::Foma {
         // P3 (docs/fst-plan/foma-fst-plan.md): the foma path — one `FomaAnalyzer` built once
         // (the expensive emit+foma-compile step), reused across every word, exactly like
-        // `hc_parse::Morpher` is built once above. `FomaProposer::propose` takes `&mut self`
-        // (the `foma` crate's `ApplyHandle` is stateful per call), so this runs
-        // single-threaded regardless of `--threads` — the same shape as the `threads == 1`
-        // legacy sequential writer below (STARTED sentinel + per-line flush), just routed
-        // through `FomaAnalyzer::analyze_word` instead of `Morpher::parse_word`. `--step-cap`/
-        // `--memo` do not apply to this path (the verifier `Morpher` inside `FomaAnalyzer` is
-        // always uncapped, per plan §2) and are silently ignored, matching how the default engine
-        // silently ignores flags it doesn't ship yet. `--word-timeout-ms` DOES apply here (wired
-        // via `FomaAnalyzer::with_word_timeout`, threading straight to the same internal
-        // `Morpher::with_word_timeout` the default engine below uses) — omitted (the default)
-        // stays a complete no-op, matching this flag's contract everywhere else.
-        if threads != 1 {
-            eprintln!(
-                "hc-rs batch --engine=foma: --threads {threads} ignored (foma path is single-threaded)"
-            );
-        }
+        // `hc_parse::Morpher` is built once above. `--step-cap`/`--memo` do not apply to this
+        // path (the verifier `Morpher` inside `FomaAnalyzer` is always uncapped, per plan §2) and
+        // are silently ignored, matching how the default engine silently ignores flags it doesn't
+        // ship yet. `--word-timeout-ms` DOES apply here (wired via `FomaAnalyzer::with_word_timeout`,
+        // threading straight to the same internal `Morpher::with_word_timeout` the default engine
+        // below uses) — omitted (the default) stays a complete no-op, matching this flag's
+        // contract everywhere else.
+        //
+        // `--threads`: `threads == 1` keeps the legacy per-word sequential writer (STARTED
+        // sentinel + per-line flush, crash-resumable), routed through `FomaAnalyzer::analyze_word`
+        // exactly as before. `threads > 1` (perf pass, 2026-07-16) routes through
+        // `FomaAnalyzer::analyze_words` instead — CONFIRM (the dominant cost, per a tracer) runs
+        // across a dedicated rayon pool inside that call; PROPOSE stays sequential either way
+        // (see that method's own doc for why — the single foma `ApplyHandle` this analyzer owns
+        // can't be split across threads without a lock or a redundant per-thread network clone).
+        // Buffered + written once in original order, no `STARTED` lines — the same
+        // `RunParallel`-equivalent shape the default engine's `threads > 1` path already uses
+        // below, and for the same reason (no per-word crash-resume is possible in this mode).
         let t_compile = Instant::now();
         let mut analyzer = FomaAnalyzer::new(&grammar)
             .map_err(|e| format!("foma compile failed for {grammar_path}: {e}"))?
@@ -657,36 +659,83 @@ fn run_batch(args: &[String]) -> Result<(), String> {
         // `candidates_generated`/`confirmed`; gated behind an env var (like `HC_STEP_STATS`)
         // since it is one line per word, too much for a default-on diagnostic on a 7k-word corpus.
         let stats_on = std::env::var("HC_FOMA_STATS").is_ok();
-        for (i, word) in words.iter().enumerate() {
-            if i < start_idx {
-                continue;
+
+        if threads == 1 {
+            for (i, word) in words.iter().enumerate() {
+                if i < start_idx {
+                    continue;
+                }
+                writeln!(w, "{i}\t{word}\tSTARTED").map_err(|e| e.to_string())?;
+                w.flush().map_err(|e| e.to_string())?;
+                let start = Instant::now();
+                let (status, signature) = if foma_invalid_shape(&grammar, word) {
+                    skipped += 1;
+                    ("SKIPPED", "-".to_string())
+                } else {
+                    let outcome = analyzer.analyze_word(word);
+                    parsed += 1;
+                    if stats_on {
+                        eprintln!(
+                            "CANDSTATS\t{i}\t{word}\tcandidates_generated={}\tconfirmed={}",
+                            outcome.candidates_generated, outcome.confirmed
+                        );
+                    }
+                    ("ok", hc_parse::result_signature(&outcome.analyses))
+                };
+                let elapsed_ms = start.elapsed().as_millis();
+                writeln!(w, "{i}\t{word}\t{elapsed_ms}\t{status}\t{signature}")
+                    .map_err(|e| e.to_string())?;
+                w.flush().map_err(|e| e.to_string())?;
             }
-            writeln!(w, "{i}\t{word}\tSTARTED").map_err(|e| e.to_string())?;
-            w.flush().map_err(|e| e.to_string())?;
-            let start = Instant::now();
-            let (status, signature) = if foma_invalid_shape(&grammar, word) {
-                skipped += 1;
-                ("SKIPPED", "-".to_string())
-            } else {
-                let outcome = analyzer.analyze_word(word);
+        } else {
+            // Parallel path: skip `foma_invalid_shape` words up front (never handed to
+            // `analyze_words` at all — matches the sequential branch's own SKIPPED handling,
+            // just resolved before the batch call since `analyze_words` has no shape check of
+            // its own, same as `analyze_word`).
+            let remaining = &words[start_idx..];
+            let mut valid_idx: Vec<usize> = Vec::new();
+            let mut valid_words: Vec<String> = Vec::new();
+            for (j, word) in remaining.iter().enumerate() {
+                if foma_invalid_shape(&grammar, word) {
+                    skipped += 1;
+                } else {
+                    valid_idx.push(j);
+                    valid_words.push(word.clone());
+                }
+            }
+            let results = analyzer.analyze_words(&valid_words);
+            let mut rows: Vec<Option<(u128, &'static str, String)>> =
+                (0..remaining.len()).map(|_| None).collect();
+            for (k, &j) in valid_idx.iter().enumerate() {
+                let (outcome, elapsed) = &results[k];
                 parsed += 1;
                 if stats_on {
                     eprintln!(
-                        "CANDSTATS\t{i}\t{word}\tcandidates_generated={}\tconfirmed={}",
-                        outcome.candidates_generated, outcome.confirmed
+                        "CANDSTATS\t{}\t{}\tcandidates_generated={}\tconfirmed={}",
+                        start_idx + j,
+                        remaining[j],
+                        outcome.candidates_generated,
+                        outcome.confirmed
                     );
                 }
-                ("ok", hc_parse::result_signature(&outcome.analyses))
-            };
-            let elapsed_ms = start.elapsed().as_millis();
-            writeln!(w, "{i}\t{word}\t{elapsed_ms}\t{status}\t{signature}")
-                .map_err(|e| e.to_string())?;
-            w.flush().map_err(|e| e.to_string())?;
+                rows[j] = Some((
+                    elapsed.as_millis(),
+                    "ok",
+                    hc_parse::result_signature(&outcome.analyses),
+                ));
+            }
+            for (j, word) in remaining.iter().enumerate() {
+                let i = start_idx + j;
+                let (elapsed_ms, status, signature) =
+                    rows[j].take().unwrap_or((0, "SKIPPED", "-".to_string()));
+                writeln!(w, "{i}\t{word}\t{elapsed_ms}\t{status}\t{signature}")
+                    .map_err(|e| e.to_string())?;
+            }
         }
         w.flush().map_err(|e| e.to_string())?;
         eprintln!(
-            "batch complete: {} words parsed ({} skipped) [engine=foma]",
-            parsed, skipped,
+            "batch complete: {} words parsed ({} skipped) [engine=foma, threads={}]",
+            parsed, skipped, threads,
         );
         return Ok(());
     }
