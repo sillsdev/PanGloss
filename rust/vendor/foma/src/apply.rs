@@ -1380,44 +1380,53 @@ pub fn apply_append(h: &mut ApplyHandle, cptr: i32, sym: i32) -> i32 {
     let symin = l_in(h, cptr);
     let symout = l_out(h, cptr);
 
-    // Flag suppression: a suppressed flag diacritic renders as the empty string.
-    let a_suppressed =
-        h.has_flags != 0 && h.show_flags == 0 && h.flag_lookup[symin as usize].r#type != 0;
-    let b_suppressed =
-        h.has_flags != 0 && h.show_flags == 0 && h.flag_lookup[symout as usize].r#type != 0;
-    let mut astring: String = if a_suppressed {
-        String::new()
-    } else {
-        h.sigs[symin as usize]
-            .symbol
-            .as_deref()
-            .unwrap_or("")
-            .to_string()
-    };
-    let mut bstring: String = if b_suppressed {
-        String::new()
-    } else {
-        h.sigs[symout as usize]
-            .symbol
-            .as_deref()
-            .unwrap_or("")
-            .to_string()
-    };
-    // Pointer-equality of the two display strings (see module notes): both
-    // suppressed, or neither suppressed and the same sigs slot.
-    let astring_eq_bstring =
-        (a_suppressed && b_suppressed) || (!a_suppressed && !b_suppressed && symin == symout);
-    let sep = h.separator.as_deref().unwrap_or("").to_string();
-
     // Build the append contiguously at opos, discarding whatever a prior
     // (backtracked) branch left beyond it. opos always lands on a char boundary
     // because every advance is a whole symbol / separator / space / IDENTITY span.
     let start = h.opos as usize;
     h.outstring.truncate(start);
 
+    // PERF: `astring`/`bstring`/`sep` (the two sigma-symbol display strings and the
+    // enumerate/print-pairs separator) used to be built unconditionally here, before branch
+    // dispatch -- three `String` allocations on every one of this hot function's ~24.7M calls on
+    // the Sena corpus, even though the ordinary `apply_up` path (propose: `ENUMERATE` unset,
+    // `print_pairs == 0`) never reads `bstring`/`sep` at all, and reads `astring` only on the
+    // `sym` != IDENTITY/EPSILON branch below. Each is now built only inside the branch(es) that
+    // actually read it, gated on the SAME conditions the original code used to select those
+    // branches (`h.mode`, `h.print_pairs`, `sym`), so no behavior changes -- see
+    // `examples/propose_parity.rs` for the byte-identical-output verification this rests on.
     if (h.mode & ENUMERATE) == ENUMERATE {
+        // Flag suppression: a suppressed flag diacritic renders as the empty string.
+        let a_suppressed =
+            h.has_flags != 0 && h.show_flags == 0 && h.flag_lookup[symin as usize].r#type != 0;
+        let b_suppressed =
+            h.has_flags != 0 && h.show_flags == 0 && h.flag_lookup[symout as usize].r#type != 0;
+        let astring: String = if a_suppressed {
+            String::new()
+        } else {
+            h.sigs[symin as usize]
+                .symbol
+                .as_deref()
+                .unwrap_or("")
+                .to_string()
+        };
+        let bstring: String = if b_suppressed {
+            String::new()
+        } else {
+            h.sigs[symout as usize]
+                .symbol
+                .as_deref()
+                .unwrap_or("")
+                .to_string()
+        };
+        // Pointer-equality of the two display strings (see module notes): both
+        // suppressed, or neither suppressed and the same sigs slot.
+        let astring_eq_bstring = (a_suppressed && b_suppressed)
+            || (!a_suppressed && !b_suppressed && symin == symout);
+
         if (h.mode & (UPPER | LOWER)) == (UPPER | LOWER) {
             /* Print both sides, colon-separated (unless identical) */
+            let sep = h.separator.as_deref().unwrap_or("").to_string();
             h.outstring.push_str(&astring);
             if !astring_eq_bstring {
                 h.outstring.push_str(&sep);
@@ -1470,6 +1479,31 @@ pub fn apply_append(h: &mut ApplyHandle, cptr: i32, sym: i32) -> i32 {
             h.outstring.push_str(pstring);
         }
     } else if h.print_pairs != 0 && symin != symout {
+        // Flag suppression: a suppressed flag diacritic renders as the empty string.
+        let a_suppressed =
+            h.has_flags != 0 && h.show_flags == 0 && h.flag_lookup[symin as usize].r#type != 0;
+        let b_suppressed =
+            h.has_flags != 0 && h.show_flags == 0 && h.flag_lookup[symout as usize].r#type != 0;
+        let mut astring: String = if a_suppressed {
+            String::new()
+        } else {
+            h.sigs[symin as usize]
+                .symbol
+                .as_deref()
+                .unwrap_or("")
+                .to_string()
+        };
+        let mut bstring: String = if b_suppressed {
+            String::new()
+        } else {
+            h.sigs[symout as usize]
+                .symbol
+                .as_deref()
+                .unwrap_or("")
+                .to_string()
+        };
+        let sep = h.separator.as_deref().unwrap_or("").to_string();
+
         /* Print pairs is ON and the symbols differ */
         // C wrote a single input byte into the shared "?" literal (UB). Here the
         // whole input character is used for an UNKNOWN side; sigs is not mutated.
@@ -1494,17 +1528,34 @@ pub fn apply_append(h: &mut ApplyHandle, cptr: i32, sym: i32) -> i32 {
         let idlen = h.sigmatch_array[h.ipos as usize].consumes as usize;
         let ip = h.ipos as usize;
         let end = (ip + idlen).min(h.instring.len());
-        let chunk = h.instring[ip..end].to_string();
-        h.outstring.push_str(&chunk);
+        // PERF: push the input slice directly -- no intermediate `String` copy (the borrow of
+        // `h.instring` and the mutable borrow of `h.outstring` are disjoint fields).
+        h.outstring.push_str(&h.instring[ip..end]);
     } else if sym == EPSILON {
         return 0;
     } else {
-        let pstring = if (h.mode & DOWN) == DOWN {
-            &bstring
+        /* Print one side only (this branch is unreachable in ENUMERATE mode and reachable in
+        print_pairs mode only when symin == symout, in which case a's/b's suppression and content
+        are the same regardless of which side pstring picks). Push the chosen side's display
+        string straight into `h.outstring`, skipping the intermediate `String` the branches above
+        still need (for `.clone()`/mutation/dual-side use). */
+        if (h.mode & DOWN) == DOWN {
+            let b_suppressed = h.has_flags != 0
+                && h.show_flags == 0
+                && h.flag_lookup[symout as usize].r#type != 0;
+            if !b_suppressed {
+                let bstr = h.sigs[symout as usize].symbol.as_deref().unwrap_or("");
+                h.outstring.push_str(bstr);
+            }
         } else {
-            &astring
-        };
-        h.outstring.push_str(pstring);
+            let a_suppressed = h.has_flags != 0
+                && h.show_flags == 0
+                && h.flag_lookup[symin as usize].r#type != 0;
+            if !a_suppressed {
+                let astr = h.sigs[symin as usize].symbol.as_deref().unwrap_or("");
+                h.outstring.push_str(astr);
+            }
+        }
     }
 
     let mut len = (h.outstring.len() - start) as i32;
