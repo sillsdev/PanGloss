@@ -1,6 +1,8 @@
 # Plan: the better proposing FST (precision via derivation-aware emit)
 
-Status: PLANNED 2026-07-17 (John's direction: "put the rest of the complexity that HC is
+Status: **Phase 0 DONE 2026-07-17** (census merged at `328b5e8`, harness
+`rust/crates/hc-foma/examples/deadend_census.rs`; verdicts below). Originally PLANNED
+2026-07-17 (John's direction: "put the rest of the complexity that HC is
 handling in one or more FSTs" — staged version: ONE tighter proposing FST per grammar,
 HC still confirms). This is the concrete execution plan for foma-fst-plan §P6 workstream 1
 (replace-rule compilation), widened to cover the non-phonological precision gaps and
@@ -88,6 +90,46 @@ share × that grammar's failing-time fraction of confirm) is ≥15% of the gramm
 time. If NOTHING crosses the bar, this plan stops at Phase 0 like its predecessor — write
 the NO-GO into memory and the plan doc, and the remaining lever is per-attempt cascade
 cost only.
+
+## Phase 0 RESULTS (2026-07-17, merged `328b5e8`; verdicts are the main loop's)
+
+Attribution = deepest failure frontier in one combined analysis+synthesis trace tree per
+failing candidate; time shares = counterfactuals under the real `confirm_batch`. The
+"shallowest frontier" alternate definition disagrees completely (collapses ~everything to
+d4 because cheap per-allomorph shape checks fire first on every branch) — "deepest" is the
+plan's literal instruction and the informative one, but d4's share is definition-sensitive.
+
+Projected end-to-end win (class time-share × failing-time fraction of confirm):
+
+| Class | Sena-300 | Sena-1000 | Indonesian | Amharic (236w, full fixture) |
+|---|---|---|---|---|
+| d1 env | 1.1% | 1.5% | ~4%* | ~0% |
+| d2 disj | 1.4% | 1.5% | ~5%* | ~0% |
+| d3 feat | 14.1% | 17.2% | ~6%* | 14.4% |
+| d4 shape | **22.4%** | **23.1%** | **16.8%** | **28.6%** |
+| d5 order | **56.7%** | **49.5%** | **20.3%** | 6.2% |
+| d6 other | 0.2% | 1.0% | ~6%* | 0.3% |
+
+(*Indonesian's counterfactual denominator was only ~13ms total — directional only. A
+40-word Amharic slice inverted d4/d5 vs the 236-word run, re-confirming the small-sample
+trap harder than the plan's cited 12–28%.)
+
+**Verdicts:**
+- **E2 (d4, replace rules) — GO.** Clears both bars on every grammar; dominant on Amharic
+  as predicted. Build first? No — see d5.
+- **d5 (ordering/PartialParse) — the dominant class on Sena (~50–57%) and Indonesian, and
+  NO planned encoding targets it.** The FST proposes morpheme sets/orders the strata and
+  templates cannot realize into a complete parse. Next design step is an "E5":
+  stratum/template-order-faithful continuation-class structure in the emitted lexc —
+  attack it in morphotactics (cheap, no composition) before E2. Verify what d5's frontier
+  concretely is (sample real d5 candidates from the harness) before building.
+- **E4 (d3, feature bundles) — HOLD.** Projection straddles the 15% bar, AND the d3 mass
+  is overwhelmingly `HeadRequiredSyntacticFeatureStruct` — the COMPOUNDING head gate, not
+  affix features (Sena-300: 4,966 of 5,090). Likely spurious root+root compound proposals,
+  plausibly fixable in lexc morphotactics for far less than a feature encoding. Split d3
+  by analysis/synthesis side + rule kind before deciding.
+- **E1 (d1) — NO-GO** (≤2% everywhere; Sena's 72 env constraints are NOT where dead-ends
+  die). **E3 (d2) — NO-GO** (≤2.6% everywhere). Neither gets built.
 
 ## The encodings (build ONLY what Phase 0 licenses, largest attributed share first)
 
