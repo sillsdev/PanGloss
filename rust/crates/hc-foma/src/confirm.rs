@@ -18,8 +18,9 @@
 use rustc_hash::FxHashSet as HashSet;
 
 use hc_grammar::model::{Grammar, LexEntryId, MRuleId, MorphRuleDef, MorphemeId};
-use hc_parse::{Morpher, ParseOptions, WordAnalysis as EngineAnalysis};
+use hc_parse::{Morpher, ParseOptions, ParseOutcome, WordAnalysis as EngineAnalysis};
 use hc_rules::stratum::RuleRef;
+use hc_rules::trace::TraceSink;
 
 use crate::tags::Candidate;
 
@@ -145,6 +146,47 @@ fn resolve_pins(
         rules,
         extra_roots,
     })
+}
+
+/// Phase 0 census helper (candidate pre-filter plan,
+/// `docs/superpowers/specs/2026-07-16-candidate-prefilter-plan.md`): run exactly the same
+/// restricted reparse [`confirm_all`] would for ONE candidate (same pin resolution via
+/// [`resolve_pins`], same tight per-candidate filter — root set + exact rule set, no slack) but
+/// return the raw [`ParseOutcome`] instead of routing matches into a bucket, and accept a
+/// caller-supplied [`TraceSink`] so the census can classify *why* a failing candidate failed
+/// (validity-gate `FailureReason`, via the trace tree, vs. `candidates_generated == 0` meaning
+/// the unapply/synthesis cascade never produced a single candidate to test) — WITHOUT touching
+/// the timed paths ([`confirm_batch`]/[`confirm_all`], both still `NoopSink`-only, unchanged).
+/// `None` when the candidate's pins don't resolve (mirrors `confirm_all`'s empty-result case for
+/// the same inputs — `resolve_pins`'s doc explains the two rejection cases).
+///
+/// Deliberately NOT wired into any production call path — census-only instrumentation, additive.
+pub fn confirm_one_traced(
+    g: &Grammar,
+    owners: &[Option<MorphemeOwner>],
+    morpher: &Morpher,
+    candidate: &Candidate,
+    word: &str,
+    trace: &dyn TraceSink,
+) -> Option<ParseOutcome> {
+    let pins = resolve_pins(owners, candidate)?;
+    let any_extra_roots = !pins.extra_roots.is_empty();
+    let lex_entry_filter =
+        move |le: LexEntryId| le == pins.root_entry || pins.extra_roots.contains(&le);
+    let rule_filter = move |r: RuleRef| match r {
+        RuleRef::Stratum(_) | RuleRef::Template(_) => true,
+        RuleRef::MRule(id) => {
+            pins.rules.contains(&id)
+                || (any_extra_roots && matches!(g.mrules[id.0 as usize], MorphRuleDef::Compounding(_)))
+        }
+    };
+    Some(morpher.parse_word_selected_traced(
+        word,
+        &ParseOptions::default(),
+        trace,
+        Some(&lex_entry_filter),
+        Some(&rule_filter),
+    ))
 }
 
 /// Batched confirm (John, 2026-07-15: "one reparse for the union of candidates", with his

@@ -245,6 +245,25 @@ impl<'g> Morpher<'g> {
         self.parse_word_core_selected(word, opts, &sink, lex_entry_filter, rule_filter)
     }
 
+    /// [`Self::parse_word_selected`]'s traced sibling — the selector-restricted analog of
+    /// [`Self::parse_word_traced`]. Additive: a thin wrapper over
+    /// [`Self::parse_word_core_selected`] with a real sink instead of [`NoopSink`], so every
+    /// existing `parse_word_selected` call site is unaffected. Added for the candidate pre-filter
+    /// Phase 0 census (`docs/superpowers/specs/2026-07-16-candidate-prefilter-plan.md`): the
+    /// census needs to classify WHY a single restricted (per-candidate) reparse produced no match
+    /// (validity-gate `FailureReason` vs. no derivation at all), which requires a real
+    /// [`TraceSink`] on exactly the same selector-restricted path `hc_foma::confirm` uses.
+    pub fn parse_word_selected_traced(
+        &self,
+        word: &str,
+        opts: &ParseOptions,
+        trace: &dyn TraceSink,
+        lex_entry_filter: Option<&dyn Fn(LexEntryId) -> bool>,
+        rule_filter: Option<hc_rules::stratum::RuleFilter>,
+    ) -> ParseOutcome {
+        self.parse_word_core_selected(word, opts, trace, lex_entry_filter, rule_filter)
+    }
+
     /// The shared implementation behind [`Self::parse_word_opts`] (traced with a no-op [`NoopSink`])
     /// and [`Self::parse_word_traced`] (traced with a real sink) — one body, parameterized by
     /// `trace`, so the two paths cannot drift. Every trace call is guarded by
