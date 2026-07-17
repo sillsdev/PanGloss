@@ -1380,6 +1380,20 @@ struct MergeNode {
     next: Option<usize>,
 }
 
+/* PERF: doubly-linked bucket-chain cell for lexc_merge_states's hash table
+(distinct from MergeNode's singly-linked list, which is kept unchanged for
+lenlist). Needs O(1) unlink of ANY member -- including a bucket's current
+head -- so heads are addressed indirectly through a `bucket_head` index
+array rather than being embedded at fixed array positions the way
+MergeNode's are. See the comment above the population loop in
+lexc_merge_states for why unlinking is safe. */
+#[derive(Debug, Clone, Copy)]
+struct HashNode {
+    state: usize,
+    next: Option<usize>,
+    prev: Option<usize>,
+}
+
 // [spec:foma:def:lexcread.lexc-merge-states-fn]
 // [spec:foma:sem:lexcread.lexc-merge-states-fn]
 fn lexc_merge_states(lx: &mut LexcCompiler) {
@@ -1408,13 +1422,38 @@ fn lexc_merge_states(lx: &mut LexcCompiler) {
         pi += 1;
     }
     let tablesize = PRIMES[pi];
-    let mut hashstates: Vec<MergeNode> = vec![
-        MergeNode {
-            state: None,
-            next: None
-        };
-        tablesize as usize
-    ];
+
+    /* PERF: the hash-bucket chain used to be a flat MergeNode arena where
+    every leader's scan below walked the FULL physical chain from the
+    bucket head, including members already merged away (flagged
+    mergeable == 2 but never unlinked). For a hash that collapses many
+    states into one bucket (e.g. distance-1 states, which hash only on
+    their final (in,out) symbol pair) this made every later leader re-pay
+    the whole bucket length even though already-merged members can never
+    match again (guarded by `mergeable == 1` below) -- measured as 125x
+    (sena min) / 237x (sena mid) chain steps per state. Fix: a
+    doubly-linked bucket chain (`prev`/`next` over a HashNode arena,
+    addressed indirectly through `bucket_head` so the head-of-bucket slot
+    can also be spliced out in O(1)) plus a state -> node-index map, so a
+    purged member is physically unlinked from its bucket the moment it's
+    flagged, and every later scan walks a strictly shorter chain.
+
+    This is a pure work-reduction, not a behavior change: unlinking only
+    ever removes nodes that already fail the `mergeable == 1` guard below,
+    so it cannot change which candidate pairs get compared. Within one
+    leader's pass every not-yet-merged bucket member is still visited (the
+    loop never breaks early -- it walks the whole remaining chain), and the
+    merge target is always the leader `state`, never `hstate`, so the set
+    of states merged in one pass is independent of the order they're
+    visited in. Leader *selection* order is driven entirely by `lenlist`,
+    which this change does not touch. Physical states are also never
+    visited by two different purge chains before the rewrite pass below
+    (each entry's suffix states are disjoint physical objects until
+    trans.target is redirected through merge_with there), so eager
+    unlinking during the scan can't race with itself. */
+    let mut bucket_head: Vec<Option<usize>> = vec![None; tablesize as usize];
+    let mut hash_arena: Vec<HashNode> = Vec::new();
+    let mut state_to_node: Vec<Option<usize>> = vec![None; lx.state_arena.len()];
 
     {
         let mut s = lx.statelist;
@@ -1439,17 +1478,18 @@ fn lexc_merge_states(lx: &mut LexcCompiler) {
                 }
                 lx.state_arena[state].hashval %= tablesize;
                 let h = lx.state_arena[state].hashval as usize;
-                if hashstates[h].state.is_none() {
-                    hashstates[h].state = Some(state);
-                } else {
-                    let newh = hashstates.len();
-                    let oldnext = hashstates[h].next;
-                    hashstates.push(MergeNode {
-                        state: Some(state),
-                        next: oldnext,
-                    });
-                    hashstates[h].next = Some(newh);
+                let node_idx = hash_arena.len();
+                let old_head = bucket_head[h];
+                hash_arena.push(HashNode {
+                    state,
+                    next: old_head,
+                    prev: None,
+                });
+                if let Some(oh) = old_head {
+                    hash_arena[oh].prev = Some(node_idx);
                 }
+                bucket_head[h] = Some(node_idx);
+                state_to_node[state] = Some(node_idx);
             }
             s = lx.statelist_arena[sidx].next;
         }
@@ -1468,26 +1508,44 @@ fn lexc_merge_states(lx: &mut LexcCompiler) {
                     }
                     let state = cstate;
                     let hash = lx.state_arena[state].hashval as usize;
-                    let mut ch = Some(hash);
+                    let mut ch = bucket_head[hash];
                     while let Some(chidx) = ch {
-                        if let Some(hstate) = hashstates[chidx].state {
-                            if hstate != state
-                                && lx.state_arena[hstate].mergeable == 1
-                                && lx.state_arena[hstate].distance == lx.state_arena[state].distance
-                                && lexc_eq_paths(lx, hstate, state)
-                            {
-                                lx.state_arena[hstate].merge_with = state;
-                                let mut purge = hstate;
-                                while lx.state_arena[purge].lexstate.is_none() {
-                                    lx.state_arena[purge].mergeable = 2;
-                                    let t = lx.state_arena[purge]
-                                        .trans
-                                        .expect("non-lexstate node carries a trans");
-                                    purge = lx.trans_arena[t].target;
+                        let hstate = hash_arena[chidx].state;
+                        if hstate != state
+                            && lx.state_arena[hstate].mergeable == 1
+                            && lx.state_arena[hstate].distance == lx.state_arena[state].distance
+                            && lexc_eq_paths(lx, hstate, state)
+                        {
+                            lx.state_arena[hstate].merge_with = state;
+                            let mut purge = hstate;
+                            while lx.state_arena[purge].lexstate.is_none() {
+                                lx.state_arena[purge].mergeable = 2;
+                                /* PERF: physically unlink `purge` from its own
+                                bucket chain now that it can never match again
+                                (mergeable == 2 fails the guard above for
+                                every future leader's scan). Standard
+                                doubly-linked-list removal; if `purge` has no
+                                predecessor it IS the current bucket head, so
+                                splice `bucket_head` instead. */
+                                if let Some(node_idx) = state_to_node[purge].take() {
+                                    let pbucket = lx.state_arena[purge].hashval as usize;
+                                    let pprev = hash_arena[node_idx].prev;
+                                    let pnext = hash_arena[node_idx].next;
+                                    match pprev {
+                                        Some(p) => hash_arena[p].next = pnext,
+                                        None => bucket_head[pbucket] = pnext,
+                                    }
+                                    if let Some(n) = pnext {
+                                        hash_arena[n].prev = pprev;
+                                    }
                                 }
+                                let t = lx.state_arena[purge]
+                                    .trans
+                                    .expect("non-lexstate node carries a trans");
+                                purge = lx.trans_arena[t].target;
                             }
                         }
-                        ch = hashstates[chidx].next;
+                        ch = hash_arena[chidx].next;
                     }
                     cl = lenlist[clidx].next;
                 }
