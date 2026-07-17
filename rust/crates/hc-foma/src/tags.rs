@@ -87,32 +87,41 @@ pub type RawPath = Vec<(bool, MorphemeId)>;
 /// should never happen against this crate's own emitted networks; a defensive `None` rather than a
 /// panic in case a caller ever feeds `decode_path` a hand-written or foreign string.
 pub fn decode_path(s: &str) -> Option<RawPath> {
+    // PERF: no `Vec<char>` collection and no per-tag `String` collection. `<`, `R`, `M`, `:`, `>`,
+    // and the digits are all single-byte ASCII, so once we've located a tag-opening `<` (itself
+    // ASCII, so `str::find` is UTF-8-safe regardless of what multi-byte characters appear in the
+    // surrounding non-tag text) every subsequent byte we inspect up through the tag's closing `>`
+    // is verified ASCII before we treat its byte offset as a char boundary. `i` is always left
+    // sitting on a valid char boundary between iterations: it starts at 0, and every advance lands
+    // either on `s.len()` or one byte past a `>` we just verified is a single ASCII byte.
+    let bytes = s.as_bytes();
     let mut out = Vec::new();
-    let chars: Vec<char> = s.chars().collect();
     let mut i = 0usize;
-    while i < chars.len() {
-        if chars[i] != '<' {
-            i += 1;
-            continue;
-        }
-        let is_root = match chars.get(i + 1) {
-            Some('R') => true,
-            Some('M') => false,
+    while i < bytes.len() {
+        let Some(rel) = s[i..].find('<') else {
+            break;
+        };
+        i += rel;
+
+        let is_root = match bytes.get(i + 1) {
+            Some(b'R') => true,
+            Some(b'M') => false,
             _ => return None,
         };
-        if chars.get(i + 2) != Some(&':') {
+        if bytes.get(i + 2) != Some(&b':') {
             return None;
         }
         let start = i + 3;
         let mut j = start;
-        while j < chars.len() && chars[j].is_ascii_digit() {
+        while j < bytes.len() && bytes[j].is_ascii_digit() {
             j += 1;
         }
-        if j == start || chars.get(j) != Some(&'>') {
+        if j == start || bytes.get(j) != Some(&b'>') {
             return None;
         }
-        let digits: String = chars[start..j].iter().collect();
-        let n: u32 = digits.parse().ok()?;
+        // `s[start..j]` is a run of ASCII digits (verified above), so it's a valid `&str` slice
+        // with no intermediate `Vec<char>`/`String` collection.
+        let n: u32 = s[start..j].parse().ok()?;
         out.push((is_root, MorphemeId(n)));
         i = j + 1;
     }
