@@ -193,6 +193,47 @@ building: sample real d5-frontier candidates from `deadend_census.rs` to confirm
 frontier is genuinely ordering (not a shape effect misattributed by the deepest-frontier
 proxy), and confirm which of stratum-order vs template-slot-order carries the mass.
 
+**Pre-build investigation DONE 2026-07-17** (sample dump: `CENSUS_DUMP_D5=1`, harness at
+`d522f50`). Findings that fix E5's exact shape:
+- d5 is **100.00% `PartialParse`** on every grammar and sample size (Sena-300: 6541/6541;
+  Sena-1000: 18264/18264; Indonesian: 18/18). Zero `MaxApplicationCount`, zero
+  `NonPartialRule*AfterTemplate` anywhere — the OuterPfx/OuterSfx both-orders wiring and the
+  depth=rule-count deviation contribute NOTHING to d5 and must be left untouched.
+- Deepest-frontier reading is mechanically correct for this reason, not just a proxy choice:
+  `PartialParse` requires the branch to have COMPLETED a word (`is_last_applied_rule_final`)
+  before the leftover-pinned-rule check fires (`hc-rules/src/stratum.rs:1502-1512`), i.e. it
+  is by definition a deep failure. Shallowest-mode collapse (d5 → 1.3%) is the documented
+  shape-check-fires-first artifact.
+- **Sena: template-slot order carries the mass, via Superset 1 (group sharing).** 20/20
+  sampled candidates are cross-template mixes through the shared `G{gi}Join` (emit.rs
+  ~2048-2219): template A's prefix chain + template B's suffix chain, or an optional slot
+  reached via a sibling template's shorter chain with the home template's mandatory slots
+  unfilled (worked example: `piratu` = bare root + INTENS only, both mandatory slots empty;
+  INTENS is shared by 10 templates in the group). Stratum order contributes nothing.
+- **Indonesian's d5 is a DIFFERENT mechanism E5 will not touch**: the grammar has zero
+  `<AffixTemplate>` elements (one `unordered` stratum), so every cascade output finalizes
+  automatically; its PartialParse mass is reduplication-peeler candidate multiplicity (`Cont`
+  vs `pl` both offered against the same peeled shape, cross-producted). If ever prioritized,
+  that is a peel-precision fix, not an E5 variant. E5's projection is therefore **Sena-only:
+  51-55% of confirm time** (Indonesian's 19.4% projection does not apply to E5).
+- On `mbali`-shaped compounds, d5 and d3 are two failure surfaces of the same root
+  over-generation (the compounding permissive-admission gate) — the gate guards
+  `musandilesera` recall and is E4/d3 territory; E5 does not touch it.
+
+**E5 design as scoped (main-loop decision):** template-identity **flag binding**, not
+per-template un-sharing. Template identity across the prefix→suffix span is long-distance
+agreement — the one constraint family flags are legitimate for (the teardown killed flags
+for *adjacency*). One overwrite-type family: `@P.TMPL.<v>@` set on every exit from template
+ti's prefix chain, `@R.TMPL.<v>@` at ti's suffix entry inside `G{gi}Join`; every group entry
+point must set exactly one value (template-agnostic entries fan out per member). `@P@`
+overwrite semantics handle compound double-traversal. Flag symbols dot-free AND zero-free
+(precision.rs's empirically-found foma-rs traps). Cost is linear in entries vs un-sharing's
+multiplicative root replication (Sena mean 2.7×/group, unbounded on future grammars —
+`build-for-full-scale-grammars`). Un-sharing is the recorded FALLBACK if flags trip the
+propose-p95 budget or a demonstrable foma-rs defect. Registered behind the build-time
+encoding registry, default ON for Sena only after gates; Indonesian/Amharic decided by the
+post-E5 re-census.
+
 ### E1 — boundary-marked emit + composed environment restrictions (PARKED; targets d1)
 Emitter v2 keeps a morpheme-boundary symbol in the lexc output instead of stripping it,
 emits each allomorph's environment constraint (from `ConstraintCatalog`, preserved by the
