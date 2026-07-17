@@ -395,7 +395,18 @@ impl<'g> Morpher<'g> {
             }
             let mut output_set: HashMap<WordKey, Word> = HashMap::default();
             for w in input_set.values() {
-                let res = hc_rules::stratum::analyze_stratum_scoped_filtered_ruled(
+                // 2026-07-17 dead-end-attribution census addition (`docs/superpowers/specs/
+                // 2026-07-17-better-proposing-fst-plan.md` Phase 0): swapped for the `_traced`
+                // sibling so the analysis (unapply) cascade — previously completely untraced, see
+                // `hc_rules::stratum`'s own module doc — nests under this parse's trace tree exactly
+                // like the synthesis cascade already does. `w.trace.unwrap_or(root)` is the same
+                // resolved-cursor idiom used everywhere else in this function; `analyze_stratum_
+                // scoped_filtered_ruled_traced`'s own callees each fast-path back to the untraced
+                // body once `trace.is_tracing()` is false (every existing call site, since `trace`
+                // is `NoopSink` on every production path), so this is a no-op for
+                // `parse_word`/`parse_word_opts`/`parse_word_selected`/`confirm_batch`/`confirm_all`.
+                let node_parent = w.trace.unwrap_or(root);
+                let res = hc_rules::stratum::analyze_stratum_scoped_filtered_ruled_traced(
                     g,
                     StratumId(s as u8),
                     w.clone(),
@@ -405,6 +416,8 @@ impl<'g> Morpher<'g> {
                     rule_filter,
                     &self.cache,
                     &budget,
+                    trace,
+                    node_parent,
                 );
                 for o in res.words {
                     let k = o.dedup_key();

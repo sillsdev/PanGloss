@@ -266,6 +266,216 @@ pub fn analyze_with_root_filter(
 }
 
 // =================================================================================================
+// 2026-07-17 dead-end-attribution census addition (`docs/superpowers/specs/
+// 2026-07-17-better-proposing-fst-plan.md` Phase 0; harness: `rust/crates/hc-foma/examples/
+// deadend_census.rs`) — the analysis-side mirror of [`synthesize_cached_traced`], which this
+// module already has for synthesis. `hc_rules::stratum::StratumAnalyzer`'s analysis cascade has
+// NEVER threaded a trace sink before this landing (confirmed by grep: zero production or test
+// callers of `TraceSink::morphological_rule_unapplied`/`_not_unapplied` existed before this commit,
+// unlike the synthesis-side `morphological_rule_applied`/`_not_applied`, wired since P12 chunk 4).
+// So this family's only caller is `crate::stratum::StratumAnalyzer::apply_one_mrule`, itself only
+// reached with a REAL sink via the census's own traced entry point
+// (`hc_parse::Morpher::parse_word_selected_traced`); every pre-existing `parse_word*` call path
+// keeps building `StratumAnalyzer` with `&NoopSink`, so `trace.is_tracing()` is `false` and each
+// function below takes the exact fast-path `return analyze_cached(...)` — byte-identical output,
+// same call graph, to what ran before this landing. Zero behavior or cost change on any production
+// path (`confirm_batch`/`confirm_all`/`parse_word_selected`/`parse_word`/`parse_word_opts`).
+//
+// Each function below is a thin trace-emitting shell around the EXISTING per-allomorph/subrule
+// matcher (`ana_affix_allomorph`/`ana_realizational_allomorph`/`ana_compound_subrule`) — it does not
+// reimplement any matching logic, so the returned `Vec<Word>` is exactly what the untraced sibling
+// already returns; only trace events and each output word's `.trace` cursor are added.
+//
+// Reason-mapping (documented once, not per call site): a rule-level `ana_syn_fs` gate failing is
+// reported using the SAME `FailureReason` variant the synthesis-side twin gate uses
+// (`RequiredSyntacticFeatureStruct` for `AffixProcess`/`Realizational`,
+// `HeadRequiredSyntacticFeatureStruct` for `Compounding`'s head gate) even though, read literally,
+// `ana_syn_fs`'s actual unifiability check is against its `out` parameter, not `req` (see that
+// function's own doc) — both are feature-structure unify failures of the same KIND, which is what
+// the census's d3 (feature-clash) bucket measures; this is flagged, not silently smoothed over, and
+// repeated in `deadend_census.rs`'s own doc comment. A per-allomorph/subrule FST match producing
+// zero results is reported as `Pattern` (the census's d4, shape-mismatch, bucket): the intermediate
+// word's shape does not contain whatever that allomorph's analysis LHS needs to find. For
+// `Compounding`, `Pattern` also covers the case where the subrule's FST matched but
+// `resolve_non_head_roots` found no lexicon entry for the split-off non-head — a distinct C#
+// failure mode folded into the same bucket as a documented approximation (a non-head lexical miss
+// is structurally closer to "shape doesn't match anything real" than to d1/d2/d3/d5's mechanisms).
+// =================================================================================================
+
+/// [`analyze_cached`]'s traced sibling. See this section's module doc for the fast-path/reason-
+/// mapping contract every function below shares.
+pub(crate) fn analyze_cached_traced(
+    g: &Grammar,
+    mrid: MRuleId,
+    word: &Word,
+    rule: &MorphRuleDef,
+    cache: &crate::cache::RuleCache,
+    trace: &dyn TraceSink,
+    parent: TraceHandle,
+) -> Vec<Word> {
+    if !trace.is_tracing() {
+        return analyze_cached(g, mrid, word, rule, cache);
+    }
+    match rule {
+        MorphRuleDef::AffixProcess(def) => {
+            ana_affix_cached_traced(g, word, def, mrid, cache, trace, parent)
+        }
+        MorphRuleDef::Compounding(def) => {
+            ana_compound_cached_traced(g, word, def, mrid, cache, None, trace, parent)
+        }
+        MorphRuleDef::Realizational(def) => {
+            ana_realizational_cached_traced(g, word, def, mrid, cache, trace, parent)
+        }
+    }
+}
+
+/// [`analyze_cached_with_root_filter`]'s traced sibling — see this section's module doc.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn analyze_cached_with_root_filter_traced(
+    g: &Grammar,
+    mrid: MRuleId,
+    word: &Word,
+    rule: &MorphRuleDef,
+    cache: &crate::cache::RuleCache,
+    root_filter: NonHeadRootFilter,
+    trace: &dyn TraceSink,
+    parent: TraceHandle,
+) -> Vec<Word> {
+    if !trace.is_tracing() {
+        return analyze_cached_with_root_filter(g, mrid, word, rule, cache, root_filter);
+    }
+    match rule {
+        MorphRuleDef::AffixProcess(def) => {
+            ana_affix_cached_traced(g, word, def, mrid, cache, trace, parent)
+        }
+        MorphRuleDef::Compounding(def) => {
+            ana_compound_cached_traced(g, word, def, mrid, cache, Some(root_filter), trace, parent)
+        }
+        MorphRuleDef::Realizational(def) => {
+            ana_realizational_cached_traced(g, word, def, mrid, cache, trace, parent)
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn ana_affix_cached_traced(
+    g: &Grammar,
+    word: &Word,
+    rule: &AffixProcessRuleDef,
+    mrid: MRuleId,
+    cache: &crate::cache::RuleCache,
+    trace: &dyn TraceSink,
+    parent: TraceHandle,
+) -> Vec<Word> {
+    let Some(new_syn) = ana_syn_fs(g, rule.required_syn_fs, rule.out_syn_fs, word) else {
+        trace.morphological_rule_not_unapplied(
+            parent,
+            mrid,
+            -1,
+            word,
+            FailureReason::RequiredSyntacticFeatureStruct,
+        );
+        return Vec::new();
+    };
+    let (segs, node_of) = segs_of(g, &word.shape, false);
+    let mut output = Vec::new();
+    for (i, allo) in rule.allomorphs.iter().enumerate() {
+        let Some((fst, lhs)) = cache.allomorph(allo.id).ana_lhs.as_ref() else {
+            continue;
+        };
+        let before = output.len();
+        for mut w in ana_affix_allomorph(g, word, allo, lhs, fst, &segs, &node_of, &new_syn) {
+            w.trace = Some(trace.morphological_rule_unapplied(parent, mrid, i as i32, &w));
+            output.push(w);
+        }
+        if output.len() == before {
+            trace.morphological_rule_not_unapplied(parent, mrid, i as i32, word, FailureReason::Pattern);
+        }
+    }
+    output
+}
+
+#[allow(clippy::too_many_arguments)]
+fn ana_realizational_cached_traced(
+    g: &Grammar,
+    word: &Word,
+    rule: &RealizationalRuleDef,
+    mrid: MRuleId,
+    cache: &crate::cache::RuleCache,
+    trace: &dyn TraceSink,
+    parent: TraceHandle,
+) -> Vec<Word> {
+    let Some(real_fs) = unify(g.fs_interner.get(rule.real_fs), &word.real_fs) else {
+        trace.morphological_rule_not_unapplied(
+            parent,
+            mrid,
+            -1,
+            word,
+            FailureReason::RequiredSyntacticFeatureStruct,
+        );
+        return Vec::new();
+    };
+    let (segs, node_of) = segs_of(g, &word.shape, false);
+    let mut output = Vec::new();
+    for (i, allo) in rule.allomorphs.iter().enumerate() {
+        let Some((fst, lhs)) = cache.allomorph(allo.id).ana_lhs.as_ref() else {
+            continue;
+        };
+        let before = output.len();
+        for mut w in ana_realizational_allomorph(g, word, allo, lhs, fst, &segs, &node_of, &real_fs) {
+            w.trace = Some(trace.morphological_rule_unapplied(parent, mrid, i as i32, &w));
+            output.push(w);
+        }
+        if output.len() == before {
+            trace.morphological_rule_not_unapplied(parent, mrid, i as i32, word, FailureReason::Pattern);
+        }
+    }
+    output
+}
+
+#[allow(clippy::too_many_arguments)]
+fn ana_compound_cached_traced(
+    g: &Grammar,
+    word: &Word,
+    rule: &CompoundingRuleDef,
+    mrid: MRuleId,
+    cache: &crate::cache::RuleCache,
+    root_filter: Option<NonHeadRootFilter>,
+    trace: &dyn TraceSink,
+    parent: TraceHandle,
+) -> Vec<Word> {
+    let Some(new_syn) = ana_syn_fs(g, rule.head_required_syn_fs, rule.out_syn_fs, word) else {
+        trace.morphological_rule_not_unapplied(
+            parent,
+            mrid,
+            -1,
+            word,
+            FailureReason::HeadRequiredSyntacticFeatureStruct,
+        );
+        return Vec::new();
+    };
+    let (segs, node_of) = segs_of(g, &word.shape, false);
+    let cc = cache.compound(mrid);
+    let mut output = Vec::new();
+    for (i, sr) in rule.subrules.iter().enumerate() {
+        let Some((fst, lhs)) = cc.subrules[i].ana.as_ref() else {
+            continue;
+        };
+        let before = output.len();
+        for mut w in ana_compound_subrule(
+            g, word, rule, sr, lhs, fst, &segs, &node_of, &new_syn, root_filter,
+        ) {
+            w.trace = Some(trace.morphological_rule_unapplied(parent, mrid, i as i32, &w));
+            output.push(w);
+        }
+        if output.len() == before {
+            trace.morphological_rule_not_unapplied(parent, mrid, i as i32, word, FailureReason::Pattern);
+        }
+    }
+    output
+}
+
+// =================================================================================================
 // Lexical-family blocking (W5) — `Word.CheckBlocking` / the `ChooseInflectionalStem` seed helper.
 // =================================================================================================
 
