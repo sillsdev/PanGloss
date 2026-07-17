@@ -14,6 +14,7 @@ use std::fmt;
 use foma::apply::apply_init;
 use foma::lexcread::fsm_lexc_parse_string;
 use foma::options::FomaOptions;
+use foma::structures::fsm_sort_arcs;
 use foma::types::ApplyHandle;
 
 use hc_grammar::model::Grammar;
@@ -49,6 +50,20 @@ impl std::error::Error for FomaError {}
 
 pub type Result<T> = std::result::Result<T, FomaError>;
 
+/// Minimum arc count before `FomaProposer::new` pays `fsm_sort_arcs`'s one-time cost to switch
+/// `apply_up`'s per-word traversal from foma's linear arc-scan branch to its binary-search branch
+/// (gated on `net.arcs_sorted_out`, apply.rs's `apply_up`/`apply_follow_next_arc`).
+///
+/// Measured (prototype tracer, `examples/sort_probe.rs`): sorting is a clear win on real grammars
+/// — sena (85,763 arcs) 1.49x propose speedup, amharic (177,177 arcs) 2.05x — with traversal-
+/// identical results (states-entered and candidate sets identical, sorted vs. unsorted). But on a
+/// tiny network (indonesian, 3,263 arcs, ~337 arcs examined/word) the binary-search bookkeeping
+/// OUTWEIGHS the win: propose throughput regressed ~30%. This constant gates the sort so small
+/// grammars stay on the (cheaper, for them) linear scan while large ones get the binary-search
+/// speedup. 10,000 sits comfortably between indonesian's 3,263 (stays unsorted) and sena's 85,763
+/// (gets sorted).
+const ARC_SORT_MIN_ARCS: i32 = 10_000;
+
 /// The compiled foma network for one grammar (as a live [`ApplyHandle`], see below), plus the
 /// emitter's own report (uncovered constructs, counts, tier — plan P1 gate F1's "counts are
 /// plausible" assertions read this).
@@ -74,10 +89,19 @@ impl FomaProposer {
         let result = emit::emit(g);
         let opts = FomaOptions::default();
         match fsm_lexc_parse_string(&opts, None, &result.lexc_source) {
-            Some(net) => Ok(FomaProposer {
-                handle: apply_init(&net),
-                report: result.report,
-            }),
+            Some(mut net) => {
+                // direction 2 = "out": apply_up (propose's entry point) gates its binsearch
+                // branch on `net.arcs_sorted_out` (apply.rs's `apply_up`, ~line 469). See
+                // `ARC_SORT_MIN_ARCS`'s doc for why this is gated on network size rather than
+                // called unconditionally.
+                if net.arccount >= ARC_SORT_MIN_ARCS {
+                    fsm_sort_arcs(&mut net, 2);
+                }
+                Ok(FomaProposer {
+                    handle: apply_init(&net),
+                    report: result.report,
+                })
+            }
             None => Err(FomaError::LexcCompileFailed(result.report)),
         }
     }
