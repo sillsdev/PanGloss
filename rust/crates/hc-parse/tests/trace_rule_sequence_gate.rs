@@ -83,13 +83,35 @@ fn real_indonesian_word_renders_a_followable_multi_rule_sequence() {
         found.len()
     );
 
-    // Each node in the chain must be the PARENT of the next (a real nested sequence, not siblings
-    // coincidentally collected) -- re-walk from root confirming ancestry.
+    // Each node in the chain must be a DESCENDANT of the previous one (a real nested sequence, not
+    // siblings coincidentally collected) -- re-walk from root confirming ancestry.
+    //
+    // 2026-07-17 update (dead-end-attribution census, `docs/superpowers/specs/
+    // 2026-07-17-better-proposing-fst-plan.md` Phase 0): this used to require `step` be a DIRECT
+    // child of `cursor` -- true before the census wired the analysis (unapply) cascade into this
+    // same trace tree (see `hc-rules/src/stratum.rs`/`morph.rs`'s 2026-07-17 doc comments). Now a
+    // real multi-rule word's successful synthesis chain is typically nested a few levels under the
+    // analysis-side `MorphologicalRuleAnalysis`/`PhonologicalRuleAnalysis` nodes that produced its
+    // input (correct and intended: the tree now shows the WHOLE derivation, analysis included, not
+    // just the synthesis half) -- so "direct child" is too strict. `successful_rule_chains`'s own
+    // DFS already guarantees `found` is a single root-to-leaf path in visitation order (it only
+    // ever grows one `Vec` along the current recursion stack), so this loop's job is just to
+    // confirm each step is reachable strictly below the previous one, not a sibling.
+    fn is_descendant(sink: &TreeTraceSink, ancestor: TraceHandle, target: TraceHandle) -> bool {
+        let mut stack = sink.node(ancestor).children;
+        while let Some(h) = stack.pop() {
+            if h == target {
+                return true;
+            }
+            stack.extend(sink.node(h).children);
+        }
+        false
+    }
     let mut cursor = root;
     for &step in &found {
         assert!(
-            sink.node(cursor).children.contains(&step),
-            "chain node must be a direct child of the previous step -- got a non-nested collection"
+            is_descendant(&sink, cursor, step),
+            "chain node must be a descendant of the previous step -- got a non-nested collection"
         );
         cursor = step;
     }

@@ -299,12 +299,21 @@ pub trait TraceSink {
         subrule: i32,
         output: &Word,
     ) -> TraceHandle;
+    /// 2026-07-17 dead-end-attribution census addition (`deadend_census.rs`; plan
+    /// `docs/superpowers/specs/2026-07-17-better-proposing-fst-plan.md` Phase 0): unlike the
+    /// synthesis-side [`Self::morphological_rule_not_applied`] (which has carried a `FailureReason`
+    /// since P12 chunk 4), this method originally carried none — there was no call site at all
+    /// (`hc_rules::stratum::StratumAnalyzer`'s analysis cascade has never been traced; confirmed by
+    /// grep, zero production or test callers before this census). Adding the `reason` parameter here
+    /// is therefore a pure signature change on dead code, not a behavior change to anything that
+    /// exists today — see `crate::morph::analyze_cached_traced`'s doc for the first real caller.
     fn morphological_rule_not_unapplied(
         &self,
         parent: TraceHandle,
         rule: MRuleId,
         subrule: i32,
         input: &Word,
+        reason: FailureReason,
     ) -> TraceHandle;
     fn morphological_rule_applied(
         &self,
@@ -477,6 +486,7 @@ impl TraceSink for NoopSink {
         _r: MRuleId,
         _s: i32,
         _i: &Word,
+        _reason: FailureReason,
     ) -> TraceHandle {
         unreachable!()
     }
@@ -857,6 +867,7 @@ impl TraceSink for TreeTraceSink {
         rule: MRuleId,
         subrule: i32,
         input: &Word,
+        reason: FailureReason,
     ) -> TraceHandle {
         let mut n = TraceNode::new(
             TraceType::MorphologicalRuleAnalysis,
@@ -864,6 +875,7 @@ impl TraceSink for TreeTraceSink {
         );
         n.subrule_index = Some(subrule);
         n.input = Some(input.clone());
+        n.failure_reason = Some(reason);
         self.append(parent, n)
     }
     fn morphological_rule_applied(

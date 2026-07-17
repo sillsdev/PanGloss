@@ -477,7 +477,19 @@ pub fn analyze_stratum(
     // with). Passing `None` keeps this signature — and every existing test's call site — unchanged,
     // by falling all the way back to the pre-cache recompile-every-call behavior. See
     // `crate::cache`'s module doc.
-    StratumAnalyzer::new(g, stratum, *cfg, None, None, None, None, budget).analyze(input)
+    StratumAnalyzer::new(
+        g,
+        stratum,
+        *cfg,
+        None,
+        None,
+        None,
+        None,
+        budget,
+        &crate::trace::NoopSink,
+        TraceHandle::DUMMY,
+    )
+    .analyze(input)
 }
 
 /// Analyze `input` through `stratum` with the #451 order-invariant memo active (M6). Identical to
@@ -495,7 +507,19 @@ pub fn analyze_stratum_scoped(
 ) -> StratumAnalysis {
     // See `analyze_stratum`'s doc: no production call site, and `None` keeps every test call site
     // unchanged (byte-for-byte the pre-cache behavior).
-    StratumAnalyzer::new(g, stratum, *cfg, scope, None, None, None, budget).analyze(input)
+    StratumAnalyzer::new(
+        g,
+        stratum,
+        *cfg,
+        scope,
+        None,
+        None,
+        None,
+        budget,
+        &crate::trace::NoopSink,
+        TraceHandle::DUMMY,
+    )
+    .analyze(input)
 }
 
 /// Identical to [`analyze_stratum_scoped`], plus the compounding non-head root filter
@@ -560,13 +584,50 @@ pub fn analyze_stratum_scoped_filtered_ruled(
         rule_filter,
         Some(cache),
         budget,
+        &crate::trace::NoopSink,
+        TraceHandle::DUMMY,
+    )
+    .analyze(input)
+}
+
+/// 2026-07-17 dead-end-attribution census addition (see `crate::morph`'s analysis-tracing module
+/// doc, and [`StratumAnalyzer`]'s `trace`/`parent` fields): [`analyze_stratum_scoped_filtered_ruled`]'s
+/// traced sibling — identical in every other respect. The only intended caller is the census's own
+/// `hc_parse::Morpher::parse_word_selected_traced` path; every pre-existing entry point above keeps
+/// calling the untraced function (or passes `&NoopSink`/`TraceHandle::DUMMY` itself), so this is a
+/// new, additive call path, not a change to any existing one.
+#[allow(clippy::too_many_arguments)]
+pub fn analyze_stratum_scoped_filtered_ruled_traced(
+    g: &Grammar,
+    stratum: StratumId,
+    input: Word,
+    cfg: &AnalyzerConfig,
+    scope: Option<&MemoScope>,
+    non_head_root_filter: Option<NonHeadRootFilter>,
+    rule_filter: Option<RuleFilter>,
+    cache: &RuleCache,
+    budget: &StepBudget,
+    trace: &dyn TraceSink,
+    parent: TraceHandle,
+) -> StratumAnalysis {
+    StratumAnalyzer::new(
+        g,
+        stratum,
+        *cfg,
+        scope,
+        non_head_root_filter,
+        rule_filter,
+        Some(cache),
+        budget,
+        trace,
+        parent,
     )
     .analyze(input)
 }
 
 /// The stratum orchestrator. Borrows the caller's [`StepBudget`] (see that type's doc) rather than
 /// owning its own step counter — one `StratumAnalyzer` no longer means one budget.
-struct StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b> {
+struct StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
     g: &'g Grammar,
     stratum_id: StratumId,
     stratum: &'g hc_grammar::model::StratumDef,
@@ -591,9 +652,17 @@ struct StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b> {
     /// falls all the way back to the pre-cache recompile-every-call behavior (see [`analyze_stratum`]'s
     /// doc for why that's still needed).
     cache: Option<&'c RuleCache>,
+    /// 2026-07-17 dead-end-attribution census addition (see `crate::morph`'s analysis-tracing
+    /// module doc): the analysis-side trace sink + cursor, threaded exactly like every synthesis-
+    /// side function already does (`&NoopSink`/`TraceHandle::DUMMY` for every pre-existing caller —
+    /// `analyze_stratum`/`_scoped`/`_scoped_filtered`/`_scoped_filtered_ruled` all pass this
+    /// unchanged, so `trace.is_tracing()` is `false` and every gated call below takes its existing
+    /// fast path). Only [`analyze_stratum_scoped_filtered_ruled_traced`] passes a real sink.
+    trace: &'t dyn TraceSink,
+    parent: TraceHandle,
 }
 
-impl<'g, 's, 'f, 'r, 'c, 'b> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b> {
+impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
     #[allow(clippy::too_many_arguments)]
     fn new(
         g: &'g Grammar,
@@ -604,6 +673,8 @@ impl<'g, 's, 'f, 'r, 'c, 'b> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b> {
         rule_filter: Option<RuleFilter<'r>>,
         cache: Option<&'c RuleCache>,
         budget: &'b StepBudget,
+        trace: &'t dyn TraceSink,
+        parent: TraceHandle,
     ) -> Self {
         let stratum = &g.strata[stratum_id.0 as usize];
         let reversed_mrules: Vec<MRuleId> = stratum.mrules.iter().rev().copied().collect();
@@ -619,6 +690,8 @@ impl<'g, 's, 'f, 'r, 'c, 'b> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b> {
             non_head_root_filter,
             rule_filter,
             cache,
+            trace,
+            parent,
         }
     }
 
@@ -697,15 +770,33 @@ impl<'g, 's, 'f, 'r, 'c, 'b> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b> {
         // **per-subrule** duplicate-elimination scope C# uses (cs:99-117), which only
         // `ana_compound_subrule` itself has in hand. `None` (`hc-rules`'s own lexicon-free tests,
         // and every `AffixProcess` rule) preserves the pre-#7 unfiltered/unresolved behavior.
+        // 2026-07-17 dead-end-attribution census addition: `w.trace.unwrap_or(self.parent)` is the
+        // same "resolved cursor" idiom every synthesis-side call site already uses (e.g.
+        // `synth_apply_mrules`'s `w_parent`) — `w` carries forward whichever trace handle the
+        // DEEPEST successful analysis event along this branch minted, so a chain of successful
+        // unapplications nests correctly even though `apply_one_mrule` itself has no separate
+        // "begin" event. `_traced` siblings fast-path straight back to the untraced call below when
+        // `self.trace.is_tracing()` is false (every pre-existing caller — see `StratumAnalyzer::new`'s
+        // doc), so this swap is a no-op on every production path.
+        let node_parent = w.trace.unwrap_or(self.parent);
         let mut outs = match (rule, self.non_head_root_filter) {
             (MorphRuleDef::Compounding(_), Some(filter)) => match self.cache {
-                Some(cache) => {
-                    morph::analyze_cached_with_root_filter(self.g, id, w, rule, cache, filter)
-                }
+                Some(cache) => morph::analyze_cached_with_root_filter_traced(
+                    self.g,
+                    id,
+                    w,
+                    rule,
+                    cache,
+                    filter,
+                    self.trace,
+                    node_parent,
+                ),
                 None => morph::analyze_with_root_filter(self.g, w, rule, filter),
             },
             _ => match self.cache {
-                Some(cache) => morph::analyze_cached(self.g, id, w, rule, cache),
+                Some(cache) => {
+                    morph::analyze_cached_traced(self.g, id, w, rule, cache, self.trace, node_parent)
+                }
                 None => morph::analyze(self.g, w, rule),
             },
         };
@@ -1058,17 +1149,37 @@ impl<'g, 's, 'f, 'r, 'c, 'b> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b> {
         // place: C# discards the cascade's return value and freezes/uses `input` itself (cs:111).
         // Modelled as an in-place fold: each phonological rule that unapplies replaces the shape.
         // (Zero prules in Sena; untested by any acceptance gate — flagged in the report.)
+        //
+        // 2026-07-17 dead-end-attribution census addition: swapped for the `_traced` siblings
+        // (`rewrite::analyze_cached_traced`/`analyze_traced`, `metathesis::analyze_cached_traced`/
+        // `analyze_traced`) — all four already existed, built but unwired (see their own doc
+        // comments: "not yet wired into the live per-word pipeline"). Each fast-paths straight back
+        // to the untraced call above when `self.trace.is_tracing()` is false, so every pre-existing
+        // (production) caller is unaffected. No per-prule cursor advance (`self.parent` used
+        // unchanged for every prule in this loop) — see `deadend_census.rs`'s frontier-definition
+        // doc for why that coarser depth is an accepted simplification here.
         for &pid in self.stratum.prules.iter().rev() {
             let result = match &self.g.prules[pid.0 as usize] {
                 hc_grammar::model::PhonRuleDef::Rewrite(r) => match self.cache {
-                    Some(cache) => rewrite::analyze_cached(self.g, pid, r, &input.shape, cache),
-                    None => rewrite::analyze(self.g, r, &input.shape),
+                    Some(cache) => rewrite::analyze_cached_traced(
+                        self.g, pid, r, &input.shape, cache, self.trace, self.parent,
+                    ),
+                    None => rewrite::analyze_traced(
+                        self.g, pid, r, &input.shape, self.trace, self.parent,
+                    ),
                 },
                 hc_grammar::model::PhonRuleDef::Metathesis(r) => match self.cache {
-                    Some(cache) => {
-                        metathesis::analyze_cached(r, &input.shape, cache.prule_metathesis(pid))
-                    }
-                    None => metathesis::analyze(self.g, r, &input.shape),
+                    Some(cache) => metathesis::analyze_cached_traced(
+                        pid,
+                        r,
+                        &input.shape,
+                        cache.prule_metathesis(pid),
+                        self.trace,
+                        self.parent,
+                    ),
+                    None => metathesis::analyze_traced(
+                        self.g, pid, r, &input.shape, self.trace, self.parent,
+                    ),
                 },
             };
             if let Some(s) = result.into_iter().next() {
