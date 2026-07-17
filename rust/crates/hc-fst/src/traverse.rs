@@ -549,9 +549,13 @@ impl<'f> Transduce<'f> {
         if deterministic {
             let __o2_det_start = Instant::now();
             while let Some(inst) = stack.pop() {
-                let arcs: Vec<crate::fst::Arc> = self.state_arcs(inst.state).to_vec();
+                // `Arc` is `Copy` and `state_arcs` borrows straight from the frozen `Fst`'s CSR
+                // pool, so the slice can be iterated in place instead of cloned into a fresh
+                // `Vec` every pop — no other borrow of `self` conflicts (`check_input_match`/
+                // `advance` are themselves `&self` methods). Same arcs, same order, same result.
+                let arcs = self.state_arcs(inst.state);
                 let mut advanced = false;
-                for arc in &arcs {
+                for arc in arcs {
                     if self.check_input_match(arc, inst.ann_index) {
                         for ni in self.advance(inst, arc, false, &mut cur_results) {
                             stack.push(ni);
@@ -574,8 +578,10 @@ impl<'f> Transduce<'f> {
             let n = self.n();
             let min_hops = self.fst.min_hops_to_accept();
             while let Some(inst) = stack.pop() {
-                let arcs: Vec<crate::fst::Arc> = self.state_arcs(inst.state).to_vec();
-                for arc in &arcs {
+                // See the deterministic branch's comment above: `Arc` is `Copy` and this slice
+                // borrows straight from the frozen `Fst`, so no per-pop clone is needed.
+                let arcs = self.state_arcs(inst.state);
+                for arc in arcs {
                     // frozen FSTs have no epsilon arcs; only the input-match branch fires.
                     if self.check_input_match(arc, inst.ann_index) {
                         // Min-hops-to-accept pruning (`Fst::min_hops_to_accept`, an admissible
