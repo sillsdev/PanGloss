@@ -24,6 +24,36 @@ use crate::confirm::{self, MorphemeOwner};
 use crate::peel::ReduplicationPeeler;
 use crate::tags::Candidate;
 
+/// Per-word timer for [`FomaAnalyzer::analyze_words`]'s reported durations.
+/// `std::time::Instant::now()` COMPILES on wasm32-unknown-unknown but ABORTS at runtime
+/// ("time not implemented on this platform") — the same compiles-but-aborts trap as
+/// `SystemTime::now`/`thread::spawn` (see `rust/tools/f4-wasm-smoke.js`'s reason for existing).
+/// The wasm32 arm therefore reports `Duration::ZERO` instead of timing; native is unchanged.
+#[cfg(not(target_arch = "wasm32"))]
+mod word_timer {
+    pub struct Timer(std::time::Instant);
+    pub fn start() -> Timer {
+        Timer(std::time::Instant::now())
+    }
+    impl Timer {
+        pub fn elapsed(&self) -> std::time::Duration {
+            self.0.elapsed()
+        }
+    }
+}
+#[cfg(target_arch = "wasm32")]
+mod word_timer {
+    pub struct Timer;
+    pub fn start() -> Timer {
+        Timer
+    }
+    impl Timer {
+        pub fn elapsed(&self) -> std::time::Duration {
+            std::time::Duration::ZERO
+        }
+    }
+}
+
 /// The outcome of [`FomaAnalyzer::analyze_word`] — the `hc_parse::ParseOutcome`-compatible shape
 /// plan P2 calls for (`analyses`/`structured`), plus diagnostics the P2 gate's numbers come from:
 /// how many distinct candidates were proposed before confirm, how many survived confirm, and
@@ -209,7 +239,7 @@ impl<'g> FomaAnalyzer<'g> {
         let per_word: Vec<(Vec<Candidate>, bool, Duration)> = words
             .iter()
             .map(|word| {
-                let t0 = std::time::Instant::now();
+                let t0 = word_timer::start();
                 let (candidates, peel_used) = self.propose_candidates(word);
                 (candidates, peel_used, t0.elapsed())
             })
@@ -221,7 +251,7 @@ impl<'g> FomaAnalyzer<'g> {
             .iter()
             .zip(per_word.iter())
             .map(|(word, (candidates, _, _))| {
-                let t0 = std::time::Instant::now();
+                let t0 = word_timer::start();
                 let buckets =
                     confirm::confirm_batch(self.g, &self.owners, &self.morpher, candidates, word);
                 (buckets, t0.elapsed())
@@ -239,7 +269,7 @@ impl<'g> FomaAnalyzer<'g> {
                     .par_iter()
                     .zip(per_word.par_iter())
                     .map(|(word, (candidates, _, _))| {
-                        let t0 = std::time::Instant::now();
+                        let t0 = word_timer::start();
                         let buckets = confirm::confirm_batch(
                             self.g,
                             &self.owners,
