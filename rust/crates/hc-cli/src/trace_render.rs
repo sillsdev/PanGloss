@@ -288,13 +288,22 @@ mod tests {
         // and every stratum in `indonesian-hc.xml`. Reordering (passthrough inserted first, then the
         // recursion loop reads the complete set) restores the second attempt Rust was silently never
         // exploring, tracing or not -- a genuine control-flow fix, not a tracing-only special case.
+        // 2026-07-17 (dead-end-attribution census, `docs/superpowers/specs/
+        // 2026-07-17-better-proposing-fst-plan.md` Phase 0): the analysis (unapply) cascade is now
+        // traced too (`hc-rules/src/morph.rs`/`stratum.rs`'s `_traced` wiring), so the tree gains a
+        // `MorphologicalRuleAnalysis "ed_suffix"` node -- the unapplication of "sagd" back to "sag"
+        // that seeds the whole synthesis attempt, previously invisible -- and the entire synthesis
+        // chain now correctly nests under it (its input IS that unapplication's output). Same class
+        // of change as `hc-parse/tests/trace_rule_sequence_gate.rs`'s direct-child -> descendant
+        // loosening, and a more faithful trace (C# traces analysis as well), not a regression.
         let expected = "WordAnalysis  input=sagd\n\
-                         \x20 StratumSynthesisInput \"S\"  input=sag\n\
-                         \x20 MorphologicalRuleSynthesis \"ed_suffix\" subrule=0  shape=sagd\n\
-                         \x20   StratumSynthesisOutput \"S\"  shape=sagd\n\
-                         \x20   Successful  shape=sagd\n\
-                         \x20 MorphologicalRuleSynthesis \"ed_suffix\"  [NonPartialRuleProhibitedAfterFinalTemplate]  input=sag\n\
-                         \x20 Failed  [PartialParse]  shape=sag\n";
+                         \x20 MorphologicalRuleAnalysis \"ed_suffix\" subrule=0  shape=sag\n\
+                         \x20   StratumSynthesisInput \"S\"  input=sag\n\
+                         \x20   MorphologicalRuleSynthesis \"ed_suffix\" subrule=0  shape=sagd\n\
+                         \x20     StratumSynthesisOutput \"S\"  shape=sagd\n\
+                         \x20     Successful  shape=sagd\n\
+                         \x20   MorphologicalRuleSynthesis \"ed_suffix\"  [NonPartialRuleProhibitedAfterFinalTemplate]  input=sag\n\
+                         \x20   Failed  [PartialParse]  shape=sag\n";
         assert_eq!(
             rendered, expected,
             "golden text-tree render changed:\n{rendered}"
