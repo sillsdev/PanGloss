@@ -15,8 +15,6 @@
 //! their C names and take `&mut LexcCompiler` (the caller-owned-context
 //! pattern), so the whole compile threads one borrow.
 
-use std::collections::HashMap;
-
 use crate::constructions::{add_fsm_arc, fsm_update_flags};
 use crate::define::add_defined;
 use crate::determinize::fsm_determinize;
@@ -49,6 +47,21 @@ struct MulticharSymbols {
     symbol: Option<String>,
     sigma_number: i16,
     next: Option<usize>,
+}
+
+/* PERF (not in C): a node of `LexcCompiler::mc_trie`, a byte-trie over the
+`mc` chain's symbol strings (see the field's doc comment). Branching factor
+per node is small in practice (mc symbol alphabets are narrow — mostly the
+escape byte plus a handful of tag characters), so a linear-scanned Vec of
+(byte, child) pairs beats a HashMap's per-node overhead. */
+#[derive(Debug, Clone, Default)]
+struct McTrieNode {
+    children: Vec<(u8, usize)>,
+    /// `mc_arena` index of the symbol whose bytes end exactly at this node,
+    /// if any. At most one: `lexc_add_mc`'s `lexc_find_mc` de-dup guarantees
+    /// no two chain entries share the same symbol string, so no two symbols
+    /// can ever claim the same trie path.
+    symbol: Option<usize>,
 }
 
 // [spec:foma:def:lexcread.lexstates]
@@ -147,22 +160,21 @@ struct LexcCompiler {
     mc: Option<usize>,
     lexstates: Option<usize>,
 
-    /* PERF (not in C, semantics-preserving): a first-character index over the
-    `mc` chain, so `first_mc_prefix` need not linear-scan every multichar
-    symbol for every character of every lexc entry. Keyed by the first `char`
-    of each mc symbol; each bucket lists arena indices in the SAME relative
-    order they appear when walking `mc` via `.next` (longest-first, and
-    LIFO within equal length — see `lexc_add_mc`), so scanning a bucket and
-    returning the first `starts_with` hit is exactly the linear scan's
-    selection rule, restricted to symbols that could possibly match. Lazily
-    rebuilt (see `ensure_mc_index`) whenever `mc_arena` has grown since the
-    last build, so it stays correct even if more mc symbols are registered
-    between tokenization calls. */
-    mc_index: HashMap<char, Vec<usize>>,
-    /// `mc_arena.len()` as of the last `mc_index` rebuild; a mismatch means
+    /* PERF (not in C, semantics-preserving): a byte-trie over the `mc`
+    chain's symbol strings, so `first_mc_prefix` need not scan every
+    multichar symbol that could plausibly match `rest`. A first-character
+    index (this file's previous approach) degenerates when many symbols
+    share a first byte — e.g. every emitter-escaped tag starts with '%',
+    collapsing the whole chain into one bucket — because it only narrows on
+    the FIRST byte, not every byte of the shared prefix. The trie narrows on
+    every byte, so lookup cost is bounded by the longest matching symbol's
+    length, not by how many symbols share a prefix. See
+    `ensure_mc_index`/`first_mc_prefix`. */
+    mc_trie: Vec<McTrieNode>,
+    /// `mc_arena.len()` as of the last `mc_trie` rebuild; a mismatch means
     /// the chain changed (lexc_add_mc only ever pushes, never removes or
     /// reorders in place) and the index must be rebuilt before use.
-    mc_index_len: usize,
+    mc_trie_len: usize,
 
     /* C: static struct sigma *lexsigma */
     lexsigma: Vec<Sigma>,
@@ -206,8 +218,8 @@ impl LexcCompiler {
             statelist: None,
             mc: None,
             lexstates: None,
-            mc_index: HashMap::new(),
-            mc_index_len: 0,
+            mc_trie: Vec::new(),
+            mc_trie_len: 0,
             lexsigma: Vec::new(),
             hashtable: Vec::new(),
             current_regex_network: None,
@@ -258,6 +270,52 @@ fn lexc_suffix_hash(lx: &LexcCompiler, offset: i32) -> u32 {
         p += 1;
     }
     /* No tablemod here, we decide on the table size later */
+    h
+}
+
+/// PERF (not in C, semantics-preserving): `lexc_merge_states`'s bucket key.
+///
+/// `lexc_suffix_hash` hashes only the `(in,out)` symbol-pair sequence of a
+/// state's remaining suffix. But `lexc_eq_paths` — the full comparison the
+/// bucket scan exists to avoid paying too often — does not stop there: after
+/// walking that same symbol sequence it also requires
+/// `state_arena[one].lexstate == state_arena[two].lexstate`, i.e. the two
+/// suffixes must land on the *same declared LEXICON*. Two states created for
+/// words with disjoint symbol content that both terminate in DIFFERENT
+/// lexicons (e.g. "xat" -> LexA vs "yat" -> LexB, both a bare `-t->` suffix
+/// at distance 1) hash identically under `lexc_suffix_hash` alone, land in
+/// the same bucket, and always fail `lexc_eq_paths` at the terminal check —
+/// a pure waste, and pervasive in any grammar with many continuation
+/// classes. Folding in `dest_lexstate` (the target lexicon's
+/// `lexstates_arena` identity — see call site) splits that bucket without
+/// risk: two eq_paths-equal states provably share both the same raw suffix
+/// hash (same symbol sequence, by construction — see `lexc_add_word`'s
+/// per-word suffix hashing) AND the same terminal lexstate (eq_paths's own
+/// final check), so folding a pure function of exactly those two equal
+/// quantities cannot separate any true match into different buckets.
+///
+/// The finalizer (fmix32, as in MurmurHash3) is layered on top purely to
+/// spread whatever entropy the fold produces across the full `u32` range —
+/// `lexc_suffix_hash`'s shift-4 mixing saturates after ~8 short tokens and
+/// sigma numbers routinely exceed the 4 bits it shifts by, so without a
+/// finalizer, distinct suffixes can still cluster into adjacent raw values
+/// that a `% tablesize` reduction does not fully break up. It is likewise a
+/// pure function of its inputs, so it preserves the same guarantee.
+///
+/// Not spec-tagged: `lexc_suffix_hash` itself is untouched (its pinned
+/// return values are unaffected), only how its result is folded into
+/// `state.hashval` at the two creation call sites.
+fn lexc_merge_hash(raw_suffix_hash: u32, dest_lexstate: Option<usize>) -> u32 {
+    let dest_key = match dest_lexstate {
+        Some(l) => (l as u32).wrapping_add(1),
+        None => 0,
+    };
+    let mut h = raw_suffix_hash ^ dest_key.wrapping_mul(0x27d4_eb2f);
+    h ^= h >> 16;
+    h = h.wrapping_mul(0x85eb_ca6b);
+    h ^= h >> 13;
+    h = h.wrapping_mul(0xc2b2_ae35);
+    h ^= h >> 16;
     h
 }
 
@@ -966,69 +1024,93 @@ fn intern_symbol(lx: &mut LexcCompiler, sym: &str) -> i32 {
     n
 }
 
-/// PERF (not in C): rebuild `lx.mc_index` from the `mc` chain if it has grown
+/// PERF (not in C): rebuild `lx.mc_trie` from the `mc` chain if it has grown
 /// since the last build. `lexc_add_mc` is the only writer of the chain and it
 /// only ever pushes new entries onto `mc_arena` (see its body — no removal or
 /// in-place reorder), so `mc_arena.len()` is a sound "has the chain changed"
 /// signal: unchanged length implies unchanged chain.
 ///
-/// Bucketing is done by walking the chain via `.next` (NOT by iterating
-/// `mc_arena` in push order — those two orders differ whenever a later-added
-/// symbol was inserted earlier in the chain by `lexc_add_mc`'s length-sorted
-/// insert). Each bucket therefore preserves the exact relative order the
-/// original linear scan would visit those symbols in, which is what makes
-/// `first_mc_prefix` below select identically to a full chain scan.
+/// Inserts every declared symbol's byte sequence into the trie, recording at
+/// the terminal node which `mc_arena` entry it belongs to. Insertion order
+/// (which end of the chain a symbol came from) is irrelevant to the result:
+/// `lexc_find_mc` guarantees each symbol string is registered at most once,
+/// so no two chain entries can ever compete for the same terminal node.
 fn ensure_mc_index(lx: &mut LexcCompiler) {
-    if lx.mc_index_len == lx.mc_arena.len() {
+    if lx.mc_trie_len == lx.mc_arena.len() && !lx.mc_trie.is_empty() {
         return;
     }
-    lx.mc_index.clear();
+    lx.mc_trie.clear();
+    lx.mc_trie.push(McTrieNode::default()); // root, index 0
     let mut m = lx.mc;
     while let Some(i) = m {
         let symbol = lx.mc_arena[i]
             .symbol
             .as_deref()
-            .expect("multichar arena entry has a symbol");
-        // An empty mc symbol has no first char to bucket under. It cannot
+            .expect("multichar arena entry has a symbol")
+            .to_string();
+        // An empty mc symbol would terminate at the root itself. It cannot
         // occur in practice: lexc_string_to_tokens would infinite-loop on a
         // zero-length match (rest never advances) the very first time such a
-        // symbol reached the front of the old linear scan too, so this path
+        // symbol was consulted, under the old linear scan too, so this path
         // is already unreachable pre-existing behavior, not a new gap.
         debug_assert!(!symbol.is_empty(), "multichar symbol must be non-empty");
-        if let Some(c) = symbol.chars().next() {
-            lx.mc_index.entry(c).or_default().push(i);
+        let mut node = 0usize;
+        for &b in symbol.as_bytes() {
+            let existing = lx.mc_trie[node]
+                .children
+                .iter()
+                .find(|&&(cb, _)| cb == b)
+                .map(|&(_, n)| n);
+            node = match existing {
+                Some(n) => n,
+                None => {
+                    let new_idx = lx.mc_trie.len();
+                    lx.mc_trie.push(McTrieNode::default());
+                    lx.mc_trie[node].children.push((b, new_idx));
+                    new_idx
+                }
+            };
         }
+        lx.mc_trie[node].symbol = Some(i);
         m = lx.mc_arena[i].next;
     }
-    lx.mc_index_len = lx.mc_arena.len();
+    lx.mc_trie_len = lx.mc_arena.len();
 }
 
-/// The first (hence longest, since the chain is length-sorted) multichar symbol
-/// that is a prefix of `rest`.
+/// The longest declared multichar symbol that is a (byte) prefix of `rest`.
 ///
-/// PERF (not in C): consults `lx.mc_index`, a first-character index over the
-/// same chain, instead of linear-scanning every registered multichar symbol.
-/// `rest.starts_with(symbol)` can only hold when `symbol`'s first char equals
-/// `rest`'s first char (true for every non-empty `symbol`, which is all of
-/// them — see `ensure_mc_index`), so restricting the scan to the bucket for
-/// `rest`'s first char, in chain order, visits exactly the subsequence of
-/// symbols the original full scan could ever match against `rest`, in the
-/// same order. The selection (first hit wins) is therefore identical.
+/// PERF (not in C): consults `lx.mc_trie`, a byte-trie over the same chain,
+/// instead of linear-scanning (or first-char-bucket-scanning) every
+/// registered multichar symbol. Walking the trie byte by byte and
+/// remembering the deepest node whose `symbol` is set is exactly
+/// longest-prefix-match: for any two distinct declared symbols of the SAME
+/// length, both being byte-prefixes of `rest` at this position would force
+/// them to be the identical string (a prefix of a fixed byte sequence is
+/// determined by its length), which `lexc_find_mc`'s de-dup already rules
+/// out — so there is never a same-length tie to break, and the original
+/// length-sorted chain scan's "first hit wins" and this trie's "deepest hit
+/// wins" always select the same symbol.
 fn first_mc_prefix(lx: &mut LexcCompiler, rest: &str) -> Option<usize> {
     ensure_mc_index(lx);
-    let c = rest.chars().next()?;
-    let bucket = lx.mc_index.get(&c)?;
-    for &i in bucket {
-        if rest.starts_with(
-            lx.mc_arena[i]
-                .symbol
-                .as_deref()
-                .expect("multichar arena entry has a symbol"),
-        ) {
-            return Some(i);
+    let mut node = 0usize;
+    let mut best = lx.mc_trie[0].symbol;
+    for &b in rest.as_bytes() {
+        let next = lx.mc_trie[node]
+            .children
+            .iter()
+            .find(|&&(cb, _)| cb == b)
+            .map(|&(_, n)| n);
+        match next {
+            Some(n) => {
+                node = n;
+                if let Some(sym) = lx.mc_trie[node].symbol {
+                    best = Some(sym);
+                }
+            }
+            None => break,
         }
     }
-    None
+    best
 }
 
 /* Add MC to front of chain */
@@ -1216,7 +1298,19 @@ fn lexc_add_word(lx: &mut LexcCompiler) {
             lx.state_arena[newstate].trans = None;
             lx.state_arena[newstate].lexstate = None;
             lx.state_arena[newstate].mergeable = 1;
-            lx.state_arena[newstate].hashval = lexc_suffix_hash(lx, (i + 1) as i32);
+            /* PERF (not in C): fold the word's terminal lexicon identity into
+            the bucket key `lexc_merge_states` scans on — see
+            `lexc_merge_hash`'s doc comment for why this is sound (a pure
+            function of two quantities `lexc_eq_paths`-equal states already
+            provably share) and why it matters (the raw suffix hash alone
+            cannot distinguish two same-length suffixes that end in
+            different lexicons). `deststate` is this whole word's fixed
+            target, so its `.lexstate` is the exact value `lexc_eq_paths`
+            will eventually compare `newstate`'s chain against. */
+            lx.state_arena[newstate].hashval = lexc_merge_hash(
+                lexc_suffix_hash(lx, (i + 1) as i32),
+                lx.state_arena[deststate].lexstate,
+            );
             lx.state_arena[newstate].distance = (len - i as i32 - 1) as u16;
             lx.state_arena[newstate].merge_with = newstate;
             target = newstate;
@@ -1754,9 +1848,9 @@ fn lexc_cleanup(lx: &mut LexcCompiler) {
     /* free the mc list (symbols + nodes) */
     lx.mc_arena = Vec::new();
     lx.mc = None;
-    /* PERF: drop the derived first-char index alongside the chain it indexes */
-    lx.mc_index = HashMap::new();
-    lx.mc_index_len = 0;
+    /* PERF: drop the derived trie index alongside the chain it indexes */
+    lx.mc_trie = Vec::new();
+    lx.mc_trie_len = 0;
     /* free the lexstates list (names + nodes; states freed via statelist) */
     lx.lexstates_arena = Vec::new();
     lx.lexstates = None;
