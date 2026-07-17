@@ -92,6 +92,7 @@
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use foma::apply::apply_init;
@@ -103,7 +104,7 @@ use hc_foma::confirm::{self, MorphemeOwner};
 use hc_foma::emit;
 use hc_foma::peel::ReduplicationPeeler;
 use hc_foma::tags::{self, Candidate};
-use hc_grammar::model::Grammar;
+use hc_grammar::model::{Grammar, MorphemeId};
 use hc_parse::Morpher;
 use hc_rules::trace::{FailureReason, TraceNode, TraceType, TreeTraceSink};
 use rustc_hash::FxHashMap;
@@ -262,6 +263,100 @@ fn classify_reason(r: FailureReason) -> DClass {
         AllomorphCoOccurrenceRules | MorphemeCoOccurrenceRules | RequiredStemName
         | ExcludedStemName | BoundRoot => DClass::D6Other,
     }
+}
+
+// -------------------------------------------------------------------------------------------
+// ADDITIVE, throwaway: sample real d5 candidates for manual superset attribution (dead-end-census
+// task step 4/5). Gated on `CENSUS_DUMP_D5=1` so default census output/behavior is byte-identical
+// otherwise. Global budget (`CENSUS_DUMP_D5_MAX`, default 30) across ALL grammars in one run, so a
+// multi-grammar invocation doesn't spam one grammar's worth alone.
+// -------------------------------------------------------------------------------------------
+
+static D5_DUMP_BUDGET: AtomicUsize = AtomicUsize::new(usize::MAX);
+
+fn dump_d5_enabled() -> bool {
+    std::env::var("CENSUS_DUMP_D5").as_deref() == Ok("1")
+}
+
+fn init_dump_budget() {
+    let max = env_usize("CENSUS_DUMP_D5_MAX", 30);
+    D5_DUMP_BUDGET.store(max, Ordering::Relaxed);
+}
+
+fn take_dump_slot() -> bool {
+    loop {
+        let cur = D5_DUMP_BUDGET.load(Ordering::Relaxed);
+        if cur == 0 {
+            return false;
+        }
+        if D5_DUMP_BUDGET
+            .compare_exchange(cur, cur - 1, Ordering::Relaxed, Ordering::Relaxed)
+            .is_ok()
+        {
+            return true;
+        }
+    }
+}
+
+/// Human-readable description of one morpheme for the d5 sample dump: its owner kind
+/// (`LexEntry`=root / `MRule`=affix), display name (gloss, falling back to `morph_id` then
+/// `xml_key`), and — for an `MRule` — whether it is a template-slot rule (`is_template_rule`),
+/// since that is exactly the fact superset attribution (module doc items 1-3) needs to check
+/// against.
+fn describe_morpheme(g: &Grammar, owners: &[Option<MorphemeOwner>], m: MorphemeId) -> String {
+    let info = &g.morphemes[m.0 as usize];
+    let name = info
+        .gloss
+        .as_deref()
+        .or(info.morph_id.as_deref())
+        .unwrap_or(info.xml_key.as_str());
+    match owners.get(m.0 as usize).copied().flatten() {
+        Some(MorphemeOwner::LexEntry(id)) => {
+            format!("ROOT[{name}#{}]", id.0)
+        }
+        Some(MorphemeOwner::MRule(id)) => {
+            let tmpl = match &g.mrules[id.0 as usize] {
+                hc_grammar::model::MorphRuleDef::AffixProcess(def) if def.is_template_rule => {
+                    "tmpl-rule"
+                }
+                hc_grammar::model::MorphRuleDef::AffixProcess(_) => "standalone-rule",
+                hc_grammar::model::MorphRuleDef::Realizational(_) => "realizational-rule",
+                hc_grammar::model::MorphRuleDef::Compounding(_) => "compounding-rule",
+            };
+            format!("AFX[{name}#{}/{tmpl}]", id.0)
+        }
+        None => format!("UNOWNED[{name}]"),
+    }
+}
+
+fn dump_d5_sample(
+    g: &Grammar,
+    owners: &[Option<MorphemeOwner>],
+    word: &str,
+    candidate: &Candidate,
+    reason: FailureReason,
+) {
+    if !dump_d5_enabled() || !take_dump_slot() {
+        return;
+    }
+    let parts: Vec<String> = candidate
+        .morphemes
+        .iter()
+        .enumerate()
+        .map(|(i, m)| {
+            let base = describe_morpheme(g, owners, *m);
+            if i as i32 == candidate.root_index {
+                format!("*{base}*")
+            } else {
+                base
+            }
+        })
+        .collect();
+    println!(
+        "  [D5-SAMPLE] word={word:?} reason={} seq=[{}]",
+        reason_name(reason),
+        parts.join(" | ")
+    );
 }
 
 fn reason_name(r: FailureReason) -> &'static str {
@@ -525,6 +620,11 @@ fn measure_word(
         let dclass = dclass_of(outcome);
         *raw_hist[dclass.idx()].entry(raw_label(outcome)).or_insert(0) += 1;
         cat_counts[dclass.idx()] += 1;
+        if dclass == DClass::D5Ordering {
+            if let Outcome::Frontier(reason) = outcome {
+                dump_d5_sample(g, owners, word, &candidates[i], reason);
+            }
+        }
         cat_of.push(dclass);
     }
 
@@ -772,6 +872,7 @@ fn env_usize(name: &str, default: usize) -> usize {
 }
 
 fn run() {
+    init_dump_budget();
     let args: Vec<String> = std::env::args().collect();
     let grammars: Vec<(&str, &str, &str, usize)> = if args.len() >= 2 {
         let cap_override = args.get(2).and_then(|s| s.parse().ok());
