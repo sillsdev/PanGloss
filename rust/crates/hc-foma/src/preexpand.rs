@@ -638,16 +638,30 @@ fn extend(
 /// `HashMap::or_insert_with` inside the root loop -- correct, but paid its ~3.4s (Amharic,
 /// profiled) first-touch cost serially, on whichever root happened to reach a given table first,
 /// and would have needed its own locking to stay sound once the root loop itself went parallel
-/// (below). Precomputing here instead means: (1) the cost becomes a one-time, parallelizable-across-
-/// rules pass instead of a serial tax paid inside the hot loop, and (2) every [`PhonologyProbe`]
-/// cache entry [`build_allomorph_variants`] can populate (`variants`/`deletion_junctions`, both
-/// `Mutex`-backed -- see that struct's doc) is already warm by the time [`build_composites`]'s
-/// parallel root workers start calling into it, so those workers only ever hit a cache HIT (a cheap
-/// lock+clone), never a concurrent first-touch compute race. Almost every reference grammar has
-/// exactly one distinct table (all strata share it), so `table_ids` has length 1 in practice and the
-/// real parallelism here is across `rules` (87 on Amharic); nested rayon parallel iterators (outer
-/// over tables, inner over rules) are fine either way -- rayon's work-stealing scheduler handles the
-/// degenerate outer-length-1 case with no overhead.
+/// (below). Precomputing here instead means: (1) the cost becomes a one-time pass instead of a
+/// serial tax paid inside the hot loop, and (2) every [`PhonologyProbe`] cache entry
+/// [`build_allomorph_variants`] can populate (`variants`/`deletion_junctions`, both `Mutex`-backed
+/// -- see that struct's doc) is already warm by the time [`build_composites`]'s parallel root
+/// workers start calling into it, so those workers only ever hit a cache HIT (a cheap lock+clone),
+/// never a concurrent first-touch compute race.
+///
+/// **Deliberately SEQUENTIAL over `rules`/`table_ids`, not `par_iter()`**: each cache-missing rule's
+/// `PhonologyProbe::variants`/`deletion_junctions` call already fans out internally across
+/// [`PhonologyProbe`]'s own dedicated pool (`junctions.rs`'s `pool` field, built once, sized for
+/// `probe_synthesize`'s deep recursion). Driving THIS outer loop in parallel too -- whether on
+/// rayon's global pool (the original nested-pools shape) or, tried next, funneled into that same
+/// dedicated pool via an `install` indirection -- both measured SLOWER than plain sequential on
+/// Amharic: the first oversubscribes (global-pool threads blocked-and-waiting on top of the
+/// dedicated pool's own worker threads, both live at once); the second starves each individual
+/// rule's expensive C1×C2 probe of workers by letting up to ~87 outer tasks compete for the SAME
+/// pool's threads at once, so a single rule's fan-out -- the actually-expensive unit of work here
+/// -- finds few or no idle workers left to steal onto. A plain sequential loop instead gives EVERY
+/// cache-missing rule's probe call the ENTIRE dedicated pool to itself, one rule at a time --
+/// slower-looking by rule-count but faster in wall time because the pool's parallelism lands where
+/// the actual cost is (the alphabet-sized C1/C1×C2 fan-out inside one probe call), not spread thin
+/// across many simultaneously-cheap-until-they-aren't outer tasks. Table-level nesting is kept
+/// (`one_table` is still a closure over `rules`) purely for structure -- `table_ids` has length 1 on
+/// every reference grammar, so this loop's own iteration count is never the bottleneck either way.
 fn build_rule_variants_all_tables(
     g: &Grammar,
     phon: Option<&PhonologyProbe>,
@@ -656,25 +670,15 @@ fn build_rule_variants_all_tables(
 ) -> rustc_hash::FxHashMap<u16, Vec<Vec<AllomorphVariants>>> {
     let one_table = |table_id: u16| -> (u16, Vec<Vec<AllomorphVariants>>) {
         let root_table = &g.char_tables[table_id as usize];
-        #[cfg(target_arch = "wasm32")]
         let variants: Vec<Vec<AllomorphVariants>> = rules
             .iter()
-            .map(|(mid, _)| build_allomorph_variants(root_table, phon, &g.mrules[mid.0 as usize]))
-            .collect();
-        #[cfg(not(target_arch = "wasm32"))]
-        let variants: Vec<Vec<AllomorphVariants>> = rules
-            .par_iter()
             .map(|(mid, _)| build_allomorph_variants(root_table, phon, &g.mrules[mid.0 as usize]))
             .collect();
         (table_id, variants)
     };
 
-    #[cfg(target_arch = "wasm32")]
     let per_table: Vec<(u16, Vec<Vec<AllomorphVariants>>)> =
         table_ids.iter().map(|&t| one_table(t)).collect();
-    #[cfg(not(target_arch = "wasm32"))]
-    let per_table: Vec<(u16, Vec<Vec<AllomorphVariants>>)> =
-        table_ids.par_iter().map(|&t| one_table(t)).collect();
 
     per_table.into_iter().collect()
 }
