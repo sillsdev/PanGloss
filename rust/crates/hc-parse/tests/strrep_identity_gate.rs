@@ -23,6 +23,10 @@ fn fixture_dir() -> PathBuf {
 #[test]
 #[ignore = "conformance/ not yet pulled into PanGloss as a submodule -- see docs/hermitcrab-rust-port-audit.md section 5; will start running again once it lands"]
 fn strrep_identity_matches_oracle() {
+    if !fixture_dir().join("grammar.xml").exists() {
+        eprintln!("skipping: rust/conformance/allomorphy/strrep-identity not present on disk");
+        return;
+    }
     let dir = fixture_dir();
     let xml = std::fs::read_to_string(dir.join("grammar.xml")).expect("read grammar.xml");
     let grammar =

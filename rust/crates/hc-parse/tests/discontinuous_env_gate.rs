@@ -17,6 +17,12 @@ fn fixture_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../conformance/allomorphy/discontinuous-env")
 }
 
+/// Self-skip guard: `rust/conformance/` isn't a submodule yet (module doc), so `--include-ignored`
+/// runs (CI's release sweep included) must not panic on the missing directory.
+fn have_fixture() -> bool {
+    fixture_dir().join("grammar.xml").exists()
+}
+
 /// Collect every `FailureReason` reported anywhere in the tree (P12 chunk 3's own acceptance
 /// criterion: extend this fixture with a same-data assertion on *why*, not just the outcome).
 fn collect_reasons(sink: &TreeTraceSink, h: TraceHandle, out: &mut Vec<FailureReason>) {
@@ -32,6 +38,10 @@ fn collect_reasons(sink: &TreeTraceSink, h: TraceHandle, out: &mut Vec<FailureRe
 #[test]
 #[ignore = "conformance/ not yet pulled into PanGloss as a submodule -- see docs/hermitcrab-rust-port-audit.md section 5; will start running again once it lands"]
 fn discontinuous_env_matches_oracle() {
+    if !have_fixture() {
+        eprintln!("skipping: rust/conformance/allomorphy/discontinuous-env not present on disk");
+        return;
+    }
     let dir = fixture_dir();
     let xml = std::fs::read_to_string(dir.join("grammar.xml")).expect("read grammar.xml");
     let grammar =
@@ -63,6 +73,10 @@ fn discontinuous_env_matches_oracle() {
 #[test]
 #[ignore = "conformance/ not yet pulled into PanGloss as a submodule -- see docs/hermitcrab-rust-port-audit.md section 5; will start running again once it lands"]
 fn discontinuous_env_traces_the_rejection_reason() {
+    if !have_fixture() {
+        eprintln!("skipping: rust/conformance/allomorphy/discontinuous-env not present on disk");
+        return;
+    }
     let dir = fixture_dir();
     let xml = std::fs::read_to_string(dir.join("grammar.xml")).expect("read grammar.xml");
     let grammar =

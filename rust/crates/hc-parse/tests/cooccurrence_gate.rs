@@ -52,9 +52,19 @@ fn replay(name: &str) -> usize {
     checked
 }
 
+/// Self-skip guard: `rust/conformance/` isn't a submodule yet (module doc), so `--include-ignored`
+/// runs (CI's release sweep included) must not panic on the missing directory.
+fn have_fixture(name: &str) -> bool {
+    fixture_dir(name).join("grammar.xml").exists()
+}
+
 #[test]
 #[ignore = "conformance/ not yet pulled into PanGloss as a submodule -- see docs/hermitcrab-rust-port-audit.md section 5; will start running again once it lands"]
 fn morpheme_adjacency_matches_oracle() {
+    if !have_fixture("morpheme-adjacency") {
+        eprintln!("skipping: rust/conformance/cooccurrence/morpheme-adjacency not present on disk");
+        return;
+    }
     assert_eq!(
         replay("morpheme-adjacency"),
         16,
@@ -65,6 +75,10 @@ fn morpheme_adjacency_matches_oracle() {
 #[test]
 #[ignore = "conformance/ not yet pulled into PanGloss as a submodule -- see docs/hermitcrab-rust-port-audit.md section 5; will start running again once it lands"]
 fn allomorph_basic_matches_oracle() {
+    if !have_fixture("allomorph-basic") {
+        eprintln!("skipping: rust/conformance/cooccurrence/allomorph-basic not present on disk");
+        return;
+    }
     assert_eq!(
         replay("allomorph-basic"),
         4,
@@ -75,6 +89,10 @@ fn allomorph_basic_matches_oracle() {
 #[test]
 #[ignore = "conformance/ not yet pulled into PanGloss as a submodule -- see docs/hermitcrab-rust-port-audit.md section 5; will start running again once it lands"]
 fn and_semantics_pin_matches_oracle() {
+    if !have_fixture("and-semantics-pin") {
+        eprintln!("skipping: rust/conformance/cooccurrence/and-semantics-pin not present on disk");
+        return;
+    }
     assert_eq!(
         replay("and-semantics-pin"),
         2,

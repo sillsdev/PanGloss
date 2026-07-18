@@ -35,10 +35,20 @@ fn load_fixture(name: &str) -> hc_grammar::model::Grammar {
     load(&xml).unwrap_or_else(|e| panic!("{name}: grammar failed to load: {e}"))
 }
 
+/// Self-skip guard: `rust/conformance/` isn't a submodule yet (module doc), so `--include-ignored`
+/// runs (CI's release sweep included) must not panic on the missing directory.
+fn have_fixture(name: &str) -> bool {
+    fixture_path(name, "grammar.xml").exists()
+}
+
 /// `rust/conformance/compounding/prefix-commute/expected.tsv`.
 #[test]
 #[ignore = "conformance/ not yet pulled into PanGloss as a submodule -- see docs/hermitcrab-rust-port-audit.md section 5; will start running again once it lands"]
 fn prefix_commute_matches_oracle() {
+    if !have_fixture("prefix-commute") {
+        eprintln!("skipping: rust/conformance/compounding/prefix-commute not present on disk");
+        return;
+    }
     let g = load_fixture("prefix-commute");
     let m = Morpher::new(&g, usize::MAX);
     let cases = [
@@ -59,6 +69,10 @@ fn prefix_commute_matches_oracle() {
 #[test]
 #[ignore = "conformance/ not yet pulled into PanGloss as a submodule -- see docs/hermitcrab-rust-port-audit.md section 5; will start running again once it lands"]
 fn nonhead_not_root_matches_oracle() {
+    if !have_fixture("nonhead-not-root") {
+        eprintln!("skipping: rust/conformance/compounding/nonhead-not-root not present on disk");
+        return;
+    }
     let g = load_fixture("nonhead-not-root");
     let m = Morpher::new(&g, usize::MAX);
     // "pʰutdat" (P4, 2026-07-09): with head+nonHead order the dat-homophone pair (entries 8/9)
