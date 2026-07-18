@@ -74,8 +74,8 @@ pub struct FomaProposer {
     // it, so observably equivalent for application)") plus its own grammar-static index tables
     // (`apply_create_statemap`/`apply_create_sigarray`, built once inside `apply_init` itself) —
     // it is fully owned/`'static`, not a borrow of any `Fsm` this struct would also need to store,
-    // so there is no self-referential-struct trap here: the original `Box<Fsm>` `fsm_lexc_parse_string`
-    // returned is consumed by `apply_init` and can be (is) dropped once the handle exists.
+    // so there is no self-referential-struct trap here: the `Fsm` `fsm_lexc_parse_string` returns
+    // is consumed by `apply_init` and can be (is) dropped once the handle exists.
     handle: Box<ApplyHandle>,
     pub report: EmitReport,
 }

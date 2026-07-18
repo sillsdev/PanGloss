@@ -1,3 +1,0 @@
-# Standalone `cargo check` runs (VENDORED.md verification) build here; the
-# workspace build never does — only the workspace target dir is used then.
-/target

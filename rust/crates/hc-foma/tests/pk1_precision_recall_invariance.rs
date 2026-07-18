@@ -81,7 +81,7 @@ fn read_words(name: &str) -> Vec<String> {
 /// Emit `g` under `precision` and foma-compile it — panics loudly (not gracefully) on a compile
 /// failure, since that itself is exactly the kind of "AllFlags broke the network" finding this
 /// harness exists to catch.
-fn compile(g: &Grammar, precision: PrecisionConfig) -> (Box<Fsm>, EmitResult) {
+fn compile(g: &Grammar, precision: PrecisionConfig) -> (Fsm, EmitResult) {
     let result = emit::emit_with_precision(g, precision);
     let opts = FomaOptions::default();
     let net = fsm_lexc_parse_string(&opts, None, &result.lexc_source).unwrap_or_else(|| {

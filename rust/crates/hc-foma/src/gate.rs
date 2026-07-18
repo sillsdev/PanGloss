@@ -237,7 +237,7 @@ pub fn partition_entries(
 /// diagnostics pooled across every group (skipped rules/allomorphs, alpha-tuple reports, per-group
 /// entry/root counts) so a caller can report exactly what this prototype covers.
 pub struct GatedCompileResult {
-    pub net: Option<Box<Fsm>>,
+    pub net: Option<Fsm>,
     pub groups: usize,
     pub skipped_rules: Vec<String>,
     pub skipped_allomorphs: Vec<String>,
@@ -260,7 +260,7 @@ pub fn compile_gated_grammar(
     let gated = find_gated_subrules(g, prules_in_order);
     let groups = partition_entries(g, &gated, prules_in_order);
 
-    let mut final_net: Option<Box<Fsm>> = None;
+    let mut final_net: Option<Fsm> = None;
     let mut skipped_rules: Vec<String> = Vec::new();
     let mut skipped_allomorphs: Vec<String> = Vec::new();
     let mut tuple_reports: Vec<(String, Vec<TupleReport>)> = Vec::new();

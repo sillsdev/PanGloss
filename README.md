@@ -69,7 +69,7 @@ conformance gate that checks the fwdata pipeline's parses against the legacy XML
 
 The proposing FST is **compiled automatically at grammar load** whenever `--engine=foma` is
 used — the emitter turns the grammar's lexicon, morphotactics, and (pre-expanded) phonology
-into foma lexc source and compiles it in-process with a vendored pure-Rust foma
+into foma lexc source and compiles it in-process with a pure-Rust foma
 (no external binaries, no artifacts to manage). Compile time is interactive-scale:
 milliseconds to a few seconds on the reference grammars.
 
@@ -113,8 +113,10 @@ also runs on `wasm32-unknown-unknown` (`hc-wasm`, ~1.6 MB bundle; runtime smoke 
   `hc-grammar` (XML/snapshot → `Grammar`), `pg-fwdata` + `pg-snapshot` (FieldWorks import),
   `hc-foma` (lexc emit, FST propose, confirm orchestration), `hc-parse`/`hc-rules`/`hc-fst`
   (the HermitCrab engine, used both standalone and as the confirmer), `hc-cli` (the `hc-rs`
-  binary), `hc-wasm` (browser build), `rust/vendor/foma` (vendored foma-rs with a wasm32 fix,
-  pinned until [divvun/foma-rs#1](https://github.com/divvun/foma-rs/pull/1) is released).
+  binary), `hc-wasm` (browser build). `hc-foma` pins the official `foma` crate (crates.io,
+  [divvun/foma-rs](https://github.com/divvun/foma-rs)) directly — the wasm32
+  `SystemTime::now()` abort this repo used to work around with an in-tree vendored copy is
+  fixed upstream as of 0.4.0.
 - `machine/` — the `sillsdev/machine` conformance oracle (submodule); the binding correctness
   gate as HermitCrab evolves upstream.
 - `samples/data/` — reference grammars (Amharic, Indonesian, Sena). **Local-only and

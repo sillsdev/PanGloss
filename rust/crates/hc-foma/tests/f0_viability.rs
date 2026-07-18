@@ -81,7 +81,7 @@ s{m10}:s # ;
     )
 }
 
-fn compile_toy_lexc() -> Box<Fsm> {
+fn compile_toy_lexc() -> Fsm {
     let src = toy_lexc();
     fsm_lexc_parse_string(&opts(), None, &src).unwrap_or_else(|| panic!("toy lexc failed to compile:\n{src}"))
 }
@@ -206,7 +206,7 @@ pa{m}:pa # ;
     )
 }
 
-fn compile_rule_composition() -> Box<Fsm> {
+fn compile_rule_composition() -> Fsm {
     let o = opts();
     let src = rule_lexc();
     let lexicon =

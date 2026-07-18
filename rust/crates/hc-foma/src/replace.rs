@@ -51,7 +51,7 @@
 //! - [`AlphaVar::plus`] == `false` ("disagree" polarity) — no reference-grammar rule needs it.
 //! - `RewriteMode::Simultaneous` vs `Iterative` distinction, and `Dir::RightToLeft` — Indonesian's
 //!   5 rules are all `Iterative`/`LeftToRight`; every subrule is compiled with plain foma `->`
-//!   (see the report for the mapping-fidelity discussion; `vendor/foma/src/reverse.rs`'s
+//!   (see the report for the mapping-fidelity discussion; the `foma` crate's `src/reverse.rs`'s
 //!   `fsm_reverse` is the standard primitive `RightToLeft` would need, unexercised here).
 //! - MPR gating (`required_mpr`/`excluded_mpr` on a subrule) — flag-diacritic emission is P6
 //!   mainline work per the plan (`§P6` item 1's own text), not attempted in this slice.
@@ -456,7 +456,7 @@ pub fn compile_rewrite_rule(
     g: &Grammar,
     alphabet: &SegAlphabet,
     rule: &RewriteRuleDef,
-) -> Option<(Box<Fsm>, Vec<TupleReport>)> {
+) -> Option<(Fsm, Vec<TupleReport>)> {
     compile_rewrite_rule_subset(opts, g, alphabet, rule, &|_| true)
 }
 
@@ -479,8 +479,8 @@ pub fn compile_rewrite_rule_subset(
     alphabet: &SegAlphabet,
     rule: &RewriteRuleDef,
     allowed: &dyn Fn(usize) -> bool,
-) -> Option<(Box<Fsm>, Vec<TupleReport>)> {
-    let mut net: Option<Box<Fsm>> = None;
+) -> Option<(Fsm, Vec<TupleReport>)> {
+    let mut net: Option<Fsm> = None;
     let mut reports: Vec<TupleReport> = Vec::new();
 
     for (subrule_index, subrule) in rule.subrules.iter().enumerate() {
@@ -565,8 +565,8 @@ pub fn compile_and_compose_rules(
     prules_in_order: &[&PhonRuleDef],
     skipped: &mut Vec<String>,
     tuple_reports: &mut Vec<(String, Vec<TupleReport>)>,
-) -> Option<Box<Fsm>> {
-    let mut composed: Option<Box<Fsm>> = None;
+) -> Option<Fsm> {
+    let mut composed: Option<Fsm> = None;
     for pr in prules_in_order {
         let PhonRuleDef::Rewrite(rule) = pr else {
             skipped.push(match pr {
@@ -612,8 +612,8 @@ pub fn compile_and_compose_rules_gated(
     subrule_ok: &dyn Fn(usize, usize) -> bool,
     skipped: &mut Vec<String>,
     tuple_reports: &mut Vec<(String, Vec<TupleReport>)>,
-) -> Option<Box<Fsm>> {
-    let mut composed: Option<Box<Fsm>> = None;
+) -> Option<Fsm> {
+    let mut composed: Option<Fsm> = None;
     for (rule_pos, pr) in prules_in_order.iter().enumerate() {
         let PhonRuleDef::Rewrite(rule) = pr else {
             skipped.push(match pr {

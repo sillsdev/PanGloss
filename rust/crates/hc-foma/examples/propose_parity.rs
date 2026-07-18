@@ -1,7 +1,9 @@
 //! Candidate-set parity harness for two verified propose-phase micro-optimizations:
-//!   - Fix 1: `rust/vendor/foma/src/apply.rs`'s `apply_append` dead-string-allocation removal
-//!     (skip building `bstring`/`sep` on branches that never read them, and push display strings
-//!     straight into `h.outstring` instead of through an intermediate `String` where possible).
+//!   - Fix 1: `apply_append`'s dead-string-allocation removal (skip building `bstring`/`sep` on
+//!     branches that never read them, and push display strings straight into `h.outstring`
+//!     instead of through an intermediate `String` where possible) — applied to the
+//!     since-retired `rust/vendor/foma/src/apply.rs` and independently present in the official
+//!     `foma` crate as of the 0.4.0 release this repo now depends on directly.
 //!   - Fix 2: `rust/crates/hc-foma/src/tags.rs`'s `decode_path` rewrite from a `Vec<char>` scan to
 //!     direct byte/`&str` slicing.
 //!

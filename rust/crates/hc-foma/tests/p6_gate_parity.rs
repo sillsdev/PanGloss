@@ -187,7 +187,7 @@ fn rules_in_order(g: &Grammar) -> Vec<&PhonRuleDef> {
     out
 }
 
-fn boundary_cleanup(opts: &FomaOptions, table: &hc_grammar::chardef::CharDefTable, alphabet: &SegAlphabet) -> Option<Box<foma::types::Fsm>> {
+fn boundary_cleanup(opts: &FomaOptions, table: &hc_grammar::chardef::CharDefTable, alphabet: &SegAlphabet) -> Option<foma::types::Fsm> {
     let boundary_tokens: Vec<char> = table
         .iter()
         .filter(|(_, cd)| cd.kind() == CharDefKind::Boundary)
