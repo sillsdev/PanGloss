@@ -87,8 +87,11 @@ fn sample_path(name: &str) -> PathBuf {
 /// and `tabur` (`t`,`a`,`b`,`u`,`r`) both start with `t`+vowel (`nc13`+`nc3`, `prule5`'s own
 /// LHS/right-environment classes — the same shape `tulis`/`pukul` attest in the real corpus, so
 /// this is not an invented construct, just an invented SPELLING to avoid a lexicon collision).
-fn load_indonesian_augmented() -> Grammar {
+fn load_indonesian_augmented() -> Option<Grammar> {
     let path = sample_path("indonesian-hc.xml");
+    if !path.exists() {
+        return None;
+    }
     let xml = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     let inject = r#"
           <LexicalEntry id="entry67" partOfSpeech="pos2014">
@@ -111,7 +114,7 @@ fn load_indonesian_augmented() -> Grammar {
     let count = xml.matches("</LexicalEntries>").count();
     assert_eq!(count, 1, "expected exactly one </LexicalEntries> to splice before, found {count}");
     let xml = xml.replacen("</LexicalEntries>", inject, 1);
-    hc_grammar::load(&xml).unwrap_or_else(|e| panic!("failed to load augmented grammar: {e}"))
+    Some(hc_grammar::load(&xml).unwrap_or_else(|e| panic!("failed to load augmented grammar: {e}")))
 }
 
 /// Minimal, template-less, hand-authored grammar reproducing Amharic `prule1`'s exact shape
@@ -227,8 +230,12 @@ fn oracle_analyses(morpher: &Morpher, word: &str) -> HashSet<(Vec<u32>, i32)> {
 /// words — both the "should delete" control and the "must NOT delete" excluded root, in BOTH
 /// directions (the correct surface accepted, the incorrect surface rejected).
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with --include-ignored"]
 fn indonesian_mpr_exclusion_matches_oracle() {
-    let g = load_indonesian_augmented();
+    let Some(g) = load_indonesian_augmented() else {
+        eprintln!("skipping: indonesian-hc.xml not present on disk");
+        return;
+    };
     let morpher = Morpher::new(&g, usize::MAX);
 
     // Oracle ground truth, gathered empirically (module doc) -- NOT predicted:
@@ -265,8 +272,12 @@ fn indonesian_mpr_exclusion_matches_oracle() {
 /// (`compile_and_compose_rules`, unedited) must MISS `mentabur`'s real analysis -- proving the
 /// gate in the test above is not vacuous.
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with --include-ignored"]
 fn ungated_cascade_would_have_missed_the_excluded_root() {
-    let g = load_indonesian_augmented();
+    let Some(g) = load_indonesian_augmented() else {
+        eprintln!("skipping: indonesian-hc.xml not present on disk");
+        return;
+    };
     let morpher = Morpher::new(&g, usize::MAX);
     assert!(!oracle_analyses(&morpher, "mentabur").is_empty(), "oracle sanity");
 
@@ -374,8 +385,12 @@ fn ungated_cascade_would_have_missed_the_noun_entry() {
 /// entries neither collide with nor are reachable by any real corpus word (verified: neither
 /// `tanam` nor `tabur` appears in `indonesian-words.txt`), so this is a pure regression check.
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with --include-ignored"]
 fn indonesian_full_corpus_parity_unregressed() {
-    let g = load_indonesian_augmented();
+    let Some(g) = load_indonesian_augmented() else {
+        eprintln!("skipping: indonesian-hc.xml not present on disk");
+        return;
+    };
     let morpher = Morpher::new(&g, usize::MAX);
     let popts = ParseOptions::default();
 
