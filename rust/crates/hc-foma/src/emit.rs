@@ -724,12 +724,13 @@ fn char_is_combining(c: char) -> bool {
 /// — true for every reference/edge-case grammar's convention of modeling an accented letter as a
 /// single segment (exactly how `g_dia.xml`'s `é`/`î`/`ñ`/`ö` are each one `SegmentDefinition`,
 /// mirroring how the HermitCrab `CharacterDefinitionTable` format expects diacritics to be
-/// authored). A grammar that instead modeled a combining mark as its OWN standalone char-def
-/// (a base vowel segment immediately followed by an unrelated "tone mark" segment, so the run only
-/// exists after concatenating two DIFFERENT char-defs' representations) would need a
-/// cross-boundary version of this scan too — not implemented here since no reference/edge-case
-/// grammar does this and it would show up as a recall-gate miss, at which point this is the place
-/// to extend (same convention as [`PATTERN_ITER_CAP`]'s doc).
+/// authored). A grammar that instead models a combining mark as its OWN standalone char-def (a
+/// base segment immediately followed by an unrelated "tone mark" segment, so the run only exists
+/// after concatenating two DIFFERENT char-defs' representations) needs the cross-boundary
+/// companion scan, [`boundary_combining_run_symbols`], below — dormant (no reference/edge-case
+/// grammar does this today) but real: unlike the within-one-char-def case, apply's flat
+/// character-by-character retokenization of the query string never sees a char-def boundary at
+/// all, so the same merge bug reappears there.
 fn combining_run_symbols(table: &CharDefTable) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     for (_, cd) in table.iter() {
@@ -753,6 +754,100 @@ fn combining_run_symbols(table: &CharDefTable) -> BTreeSet<String> {
                     out.insert(escape_lexc_text(&run));
                 }
                 i = j;
+            }
+        }
+    }
+    out
+}
+
+/// Every Segment char-def representation in `table`, as an NFD char vector (one entry per
+/// `<Representation>`, table order irrelevant — callers only ever need the multiset of strings).
+/// Shared scan helper for [`boundary_combining_run_symbols`], which needs the same representation
+/// set twice over (once as candidate "preceding" text, once filtered down to mark-initial ones).
+fn segment_representations(table: &CharDefTable) -> Vec<Vec<char>> {
+    let mut out = Vec::new();
+    for (_, cd) in table.iter() {
+        if cd.kind() != CharDefKind::Segment {
+            continue;
+        }
+        for rep in cd.representations_nfd() {
+            out.push(rep.chars().collect());
+        }
+    }
+    out
+}
+
+/// The maximal trailing "base char + combining marks" run of an NFD representation: scan backward
+/// from the end for the last NON-combining char and return everything from there on; if the whole
+/// slice is combining marks (no base anywhere — a standalone mark-only char-def, or one applied
+/// recursively to a shorter trailing run), return it unchanged. This is exactly the suffix
+/// `vendor/foma`'s apply-time merge (see [`combining_run_symbols`]'s doc) would keep absorbing
+/// combining characters into, so it needs no separate case for "ends in a combining mark" or "is
+/// entirely combining marks" — both fall out of this same backward scan.
+fn trailing_combining_run(rep: &[char]) -> &[char] {
+    let mut i = rep.len();
+    while i > 0 && char_is_combining(rep[i - 1]) {
+        i -= 1;
+    }
+    if i == 0 {
+        rep
+    } else {
+        &rep[i - 1..]
+    }
+}
+
+/// Cross-char-def-boundary companion to [`combining_run_symbols`] (that function only scans
+/// WITHIN one char-def's own representation; this one covers a run that SPANS the boundary
+/// between two adjacent char-defs' representations — module doc "Not emittable"/gap case: a
+/// standalone combining-mark char-def, e.g. an autosegmental tone mark modeled as its own
+/// grapheme, as opposed to `g_dia.xml`'s convention of folding a diacritic into its base letter's
+/// own segment).
+///
+/// `vendor/foma`'s apply-time merge does not know about char-def or lexc-entry boundaries at all —
+/// it walks the emitted SURFACE STRING character by character and, after matching whatever token
+/// is longest at a position, keeps absorbing any IMMEDIATELY FOLLOWING run of combining-mark
+/// characters into that SAME token, regardless of which char-def contributed them. So whenever a
+/// "mark-initial" char-def M (its NFD form starts with a combining mark) is emitted right after
+/// another char-def P — both are Segment char-defs and can sit adjacent within one root/affix's own
+/// re-segmented literal text, e.g. [`surface_variants`]'s output — apply merges P's own trailing
+/// base+combining run together with M's leading marks into one token; absent a declaration, that
+/// merged run silently forces `IDENTITY`, the same total non-match bug `combining_run_symbols`
+/// fixes within one char-def, reappearing at the boundary between two.
+///
+/// For every Segment char-def representation P and every mark-initial Segment char-def
+/// representation M, declares `trailing_combining_run(P) ++ M`. Also declares the length-2 chain
+/// `trailing_combining_run(P) ++ M1 ++ M2` for every (possibly-repeating) pair of mark-initial M1,
+/// M2 (P·M1·M2, e.g. two stacked tone-mark morphemes) — capped at chain length 2 and not extended
+/// further: a length-N chain needs the cartesian product of N mark-initial reps, and no known
+/// grammar stacks three or more standalone combining-mark morphemes back to back (same convention
+/// as [`PATTERN_ITER_CAP`]'s doc: a recall-gate miss on a real grammar is what would justify
+/// raising this cap). `P` ranges over EVERY char-def in the grammar, not just ones provably
+/// adjacent to an M in some actual entry — an upward-safe over-declaration (an unused declared
+/// symbol changes nothing about which arcs exist; module doc's "harmless" convention), and far
+/// simpler than re-deriving actual adjacency from every root/affix's authored text.
+///
+/// A table with no mark-initial representation at all (every reference/edge-case grammar today)
+/// makes `mark_initial` empty and this returns an empty set immediately — zero-cost, same
+/// convention as `combining_run_symbols_measured_per_reference_grammar`'s measurement.
+fn boundary_combining_run_symbols(table: &CharDefTable) -> BTreeSet<String> {
+    let all_reps = segment_representations(table);
+    let mark_initial: Vec<&[char]> = all_reps
+        .iter()
+        .filter(|rep| rep.first().is_some_and(|&c| char_is_combining(c)))
+        .map(|rep| rep.as_slice())
+        .collect();
+    let mut out = BTreeSet::new();
+    if mark_initial.is_empty() {
+        return out;
+    }
+    for p in &all_reps {
+        let trailing = trailing_combining_run(p);
+        for &m in &mark_initial {
+            let run: String = trailing.iter().chain(m.iter()).collect();
+            out.insert(escape_lexc_text(&run));
+            for &m2 in &mark_initial {
+                let chain: String = trailing.iter().chain(m.iter()).chain(m2.iter()).collect();
+                out.insert(escape_lexc_text(&chain));
             }
         }
     }
@@ -2128,6 +2223,15 @@ pub fn emit_with_precision(g: &Grammar, precision: PrecisionConfig) -> EmitResul
         out.push_str(&sym);
         out.push('\n');
     }
+    // Boundary companion (see `boundary_combining_run_symbols`' doc): the same fix for a combining
+    // run that spans the boundary between two DIFFERENT char-defs (a standalone mark-initial
+    // char-def concatenated after another) rather than sitting entirely inside one. Empty, same as
+    // above, for every grammar with no mark-initial char-def (every reference/edge-case grammar
+    // today).
+    for sym in boundary_combining_run_symbols(table) {
+        out.push_str(&sym);
+        out.push('\n');
+    }
 
     // One lexc entry line per accepted spelling of one root (module doc, "Surface spelling").
     // `pk`: `Some(r.id)` lets `crate::precision`'s ENVIRONMENT-family owner-side gate reroute a
@@ -2881,5 +2985,77 @@ mod structural_and_pattern_tests {
             want.sort();
             assert_eq!(found, want, "{name}: unexpected combining-run symbol set");
         }
+    }
+
+    // --- Boundary diacritics gate (unit-level, white-box on `boundary_combining_run_symbols`) ----
+    //
+    // `boundary-mark-hc.xml` (loaded relative to THIS crate's manifest dir, same convention as
+    // `load_dia_fixture`) has exactly 3 Segment char-defs: "b" (a normal base), "é" (NFD: "e" +
+    // COMBINING ACUTE ACCENT -- a base+diacritic char-def, `combining_run_symbols`'s own case), and
+    // a standalone mark-initial char-def whose sole representation IS COMBINING ACUTE ACCENT alone
+    // (U+0301 -- an autosegmental tone mark modeled as its own grapheme, this function's new case).
+    // End-to-end coverage (propose+peel+confirm via `FomaAnalyzer`) lives in
+    // `tests/f5_diacritics_gate.rs`.
+
+    fn load_boundary_fixture() -> Grammar {
+        let full =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/boundary-mark-hc.xml");
+        let xml = std::fs::read_to_string(&full).unwrap_or_else(|e| panic!("{}: {e}", full.display()));
+        hc_grammar::load(&xml).unwrap()
+    }
+
+    /// The actual boundary bug: with P ranging over {"b", "e\u{301}", "\u{301}"} (the table's 3
+    /// trailing-run candidates -- "e\u{301}" is already one `combining_run_symbols` run in its own
+    /// right; "\u{301}" is the mark-initial char-def's own degenerate all-marks trailing run) and
+    /// the lone mark-initial M = "\u{301}", [`boundary_combining_run_symbols`] must declare all 3
+    /// length-1 boundary runs (`P ++ M`) AND all 3 length-2 chain runs (`P ++ M ++ M`, since the
+    /// fixture has only one mark-initial char-def, so the chain-of-2 cartesian product collapses
+    /// to repeating it) -- nothing more, nothing less.
+    #[test]
+    fn boundary_combining_run_symbols_finds_cross_char_def_runs() {
+        let g = load_boundary_fixture();
+        let table = surface_table(&g);
+        let mut got: Vec<String> = boundary_combining_run_symbols(table).into_iter().collect();
+        got.sort();
+        let mut want = vec![
+            "b\u{301}".to_string(),             // "b" (P) . mark
+            "e\u{301}\u{301}".to_string(),       // "e\u{301}" (P's trailing run) . mark
+            "\u{301}\u{301}".to_string(),        // mark-initial char-def itself as P . mark
+            "b\u{301}\u{301}".to_string(),       // chain-of-2: "b" . mark . mark
+            "e\u{301}\u{301}\u{301}".to_string(), // chain-of-2: "e\u{301}" . mark . mark
+            "\u{301}\u{301}\u{301}".to_string(),  // chain-of-2: mark . mark . mark
+        ];
+        want.sort();
+        assert_eq!(got, want);
+    }
+
+    /// The emitted lexc source must actually declare these boundary runs in `Multichar_Symbols`,
+    /// same convention as `emitted_lexc_declares_the_combining_runs`.
+    #[test]
+    fn emitted_lexc_declares_the_boundary_runs() {
+        let g = load_boundary_fixture();
+        let result = emit(&g);
+        let header_end = result.lexc_source.find("\nLEXICON").unwrap_or(result.lexc_source.len());
+        let header = &result.lexc_source[..header_end];
+        for run in ["b\u{301}", "b\u{301}\u{301}", "\u{301}\u{301}\u{301}"] {
+            assert!(
+                header.contains(run),
+                "Multichar_Symbols header must declare the boundary run {run:?}; header:\n{header}"
+            );
+        }
+    }
+
+    /// No spurious declarations for a grammar with no mark-initial char-def at all: `dia-hc.xml`'s
+    /// 4 diacritic char-defs (é/î/ñ/ö) each decompose to base+trailing-mark, never mark-INITIAL, so
+    /// `mark_initial` is empty and the function must short-circuit to an empty set -- same
+    /// zero-cost convention as `combining_run_symbols_measured_per_reference_grammar`.
+    #[test]
+    fn boundary_combining_run_symbols_empty_with_no_mark_initial_char_def() {
+        let g = load_dia_fixture();
+        let table = surface_table(&g);
+        assert!(
+            boundary_combining_run_symbols(table).is_empty(),
+            "dia-hc.xml has no mark-initial char-def; boundary function must declare nothing"
+        );
     }
 }

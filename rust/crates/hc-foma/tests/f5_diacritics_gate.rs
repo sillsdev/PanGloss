@@ -146,3 +146,72 @@ fn c_foma_analyzer_matches_engine_exactly() {
         }
     }
 }
+
+// -------------------------------------------------------------------------------------------
+// (d) BOUNDARY CASE: a standalone combining-mark char-def (e.g. an autosegmental tone mark
+//     modeled as its own grapheme) concatenated right after a DIFFERENT char-def in a root's own
+//     surface text -- `emit::combining_run_symbols` only scans WITHIN one char-def's own
+//     representation, so this run (spanning the boundary between two DIFFERENT char-defs) was a
+//     dormant instance of the exact same bug until `emit::boundary_combining_run_symbols` (see
+//     that function's doc in `src/emit.rs`) closed it. `tests/fixtures/boundary-mark-affix-hc.xml`:
+//     3 char-defs ("b"/"s" plain, and a standalone mark whose sole representation is COMBINING
+//     ACUTE ACCENT alone), one root spelled "b" + the standalone mark's own representation (i.e.
+//     authored text "b\u{301}", two codepoints, base then a DIFFERENT char-def's mark -- not one
+//     char-def's own decomposition), one optional suffix rule inserting "s" (mirroring
+//     `dia-hc.xml`'s PL rule). Separate fixture from `boundary-mark-hc.xml` (used by
+//     `src/emit.rs`'s white-box unit tests): that one's char-def table is deliberately minimal (3
+//     char-defs, exact-set-asserted); adding this rule's own "s" char-def to it would grow that
+//     exact-set assertion for no reason.
+// -------------------------------------------------------------------------------------------
+
+fn load_boundary_mark() -> Grammar {
+    let path = fixture_path("boundary-mark-affix-hc.xml");
+    let xml = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    hc_grammar::load(&xml).unwrap_or_else(|e| panic!("failed to load boundary-mark-affix-hc.xml: {e}"))
+}
+
+const BOUNDARY_WORDS: &[&str] = &["b\u{301}", "b\u{301}s"];
+
+#[test]
+fn d_boundary_mark_declares_the_cross_char_def_run() {
+    let g = load_boundary_mark();
+    let result = emit::emit(&g);
+    let header_end = result.lexc_source.find("\nLEXICON").unwrap_or(result.lexc_source.len());
+    let header = &result.lexc_source[..header_end];
+    assert!(
+        header.contains("b\u{301}"),
+        "Multichar_Symbols header must declare the cross-char-def boundary run \"b\\u{{301}}\"; \
+         header:\n{header}"
+    );
+}
+
+#[test]
+fn e_boundary_mark_foma_analyzer_matches_engine_exactly() {
+    let g = load_boundary_mark();
+    let mut analyzer = FomaAnalyzer::new(&g).expect("boundary-mark-hc.xml compiles");
+    let morpher = Morpher::new(&g, usize::MAX);
+    let opts = ParseOptions::default();
+
+    for &word in BOUNDARY_WORDS {
+        let engine_outcome = morpher.parse_word_opts(word, &opts);
+        let foma_outcome = analyzer.analyze_word(word);
+
+        assert!(
+            !engine_outcome.structured.is_empty(),
+            "sanity: the default engine itself must analyze {word:?} (fixture bug, not the foma \
+             boundary-mark bug under test, if this fails)"
+        );
+        assert_eq!(
+            foma_outcome.confirmed,
+            engine_outcome.structured.len(),
+            "word {word:?}: foma engine confirmed {} analyses, default engine found {} -- \
+             expected full parity on this closed-vocabulary fixture (the boundary-mark bug \
+             reproduces as a silent zero here)",
+            foma_outcome.confirmed,
+            engine_outcome.structured.len()
+        );
+        for (_, surface) in &foma_outcome.analyses {
+            assert_eq!(surface, word, "confirmed analysis surface must equal the queried word");
+        }
+    }
+}
