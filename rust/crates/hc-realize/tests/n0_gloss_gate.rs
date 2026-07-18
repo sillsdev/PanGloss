@@ -14,6 +14,14 @@
 //! marker authored with hyphens already inside it), which is why `beg--pfv--pfv.3m` has doubled
 //! dashes: that is `leipzig`'s plain `-`-join faithfully reproducing real grammar data, not a
 //! rendering bug.
+//!
+//! ## Test-timing policy (revised 2026-07-17)
+//! The default local `cargo test --workspace --release` run must stay under ~60s and must not
+//! depend on the gitignored real-language corpus fixtures (`samples/data/*`) at all. The 5 tests
+//! here that load a real sample grammar are unconditionally `#[ignore = "..."]`d (the existing
+//! self-skip above already keeps `--include-ignored` green when the fixture is absent); the two
+//! guessed-root tests at the bottom of this file use a fully synthetic inline grammar and stay in
+//! the default run.
 
 use std::path::{Path, PathBuf};
 
@@ -52,6 +60,7 @@ fn single_analysis_leipzig(g: &Grammar, word: &str) -> String {
 // --- Indonesian ------------------------------------------------------------------------------
 
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with --include-ignored"]
 fn indonesian_pinned_leipzig_strings() {
     let Some(g) = load_grammar("indonesian-hc.xml") else {
         eprintln!("skipping: indonesian-hc.xml not present on disk");
@@ -72,6 +81,7 @@ fn indonesian_pinned_leipzig_strings() {
 // --- Amharic ---------------------------------------------------------------------------------
 
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/amharic-hc.xml); run with --include-ignored"]
 fn amharic_pinned_leipzig_strings() {
     let Some(g) = load_grammar("amharic-hc.xml") else {
         eprintln!("skipping: amharic-hc.xml not present on disk");
@@ -88,6 +98,7 @@ fn amharic_pinned_leipzig_strings() {
 // --- Sena ------------------------------------------------------------------------------------
 
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
 fn sena_pinned_leipzig_strings() {
     let Some(g) = load_grammar("sena-hc.xml") else {
         eprintln!("skipping: sena-hc.xml not present on disk");
@@ -106,6 +117,7 @@ fn sena_pinned_leipzig_strings() {
 /// order as `outcome.analyses`, without collapsing or reordering the (deliberately undeduped)
 /// candidate set.
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
 fn sena_multi_analysis_gloss_lines_match_analyses_count_and_order() {
     let Some(g) = load_grammar("sena-hc.xml") else {
         eprintln!("skipping: sena-hc.xml not present on disk");
@@ -140,6 +152,7 @@ fn sena_multi_analysis_gloss_lines_match_analyses_count_and_order() {
 /// mutates either) pins that non-interference for real multi-morpheme, multi-analysis words
 /// across all three sample grammars.
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/{indonesian,amharic,sena}-hc.xml); run with --include-ignored"]
 fn gloss_path_never_perturbs_parity_signature() {
     for (xml_name, words) in [
         (

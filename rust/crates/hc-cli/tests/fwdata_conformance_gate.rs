@@ -22,16 +22,18 @@
 //! untracked local corpora; either being absent makes the relevant test self-skip with a printed
 //! reason rather than fail.
 //!
-//! # Why the full-corpus tests are `#[ignore]`d
+//! # Why every test in this file is `#[ignore]`d (revised 2026-07-17)
 //! The step cap stays `usize::MAX` (`Morpher::new(&g, usize::MAX)`): a *step* cap truncates the
 //! analysis cascade non-deterministically (`hc-parse/tests/batch_determinism.rs`'s own module
 //! doc), which would surface as spurious cross-compiler mismatches having nothing to do with
 //! either compiler. Uncapped analysis of the full corpora (7,121 Sena words / 673 Amharic words)
-//! through *two* grammars each is expensive -- consistent with this workspace's existing
-//! convention for full-corpus runs (`hc-hybrid/tests/f9_full_battery_gate.rs`'s `#[ignore] //
-//! expensive: ... run with --release --ignored`), so these two tests follow the same convention:
-//! not part of a plain `cargo test --workspace`, run explicitly with
-//! `cargo test -p hc-cli --release --ignored`.
+//! through *two* grammars each is expensive, so the two full-corpus tests are `#[ignore]`d on
+//! that basis alone (consistent with this workspace's existing convention for full-corpus runs).
+//! The third, fast 50-word smoke test is ALSO unconditionally `#[ignore]`d, on different grounds:
+//! the default local `cargo test --workspace --release` run must not depend on the gitignored
+//! `samples/data/*` corpus fixtures (or a real FieldWorks project checkout) at all, regardless of
+//! test speed. Run any/all of them explicitly with
+//! `cargo test -p hc-cli --release -- --include-ignored`.
 //!
 //! # The hang (fixed) -- `--word-timeout-ms`, not a step cap
 //! A handful of real corpus words (confirmed: at least one in Amharic's first 50) hit a genuine
@@ -365,8 +367,10 @@ fn load_legacy(xml_path: &Path) -> Grammar {
 }
 
 #[test]
-#[ignore] // expensive: full 7,121-word Sena corpus through two uncapped Grammars; run with
-          // `cargo test -p hc-cli --release --ignored sena3_new_pipeline_matches_legacy_oracle`
+#[ignore = "expensive: full 7,121-word Sena corpus through two uncapped Grammars; also needs a \
+            real FieldWorks project checkout + local gitignored corpus data \
+            (samples/data/sena-hc.xml, sena-words.txt); run with \
+            `cargo test -p hc-cli --release --include-ignored sena3_new_pipeline_matches_legacy_oracle`"]
 fn sena3_new_pipeline_matches_legacy_oracle() {
     let Some(fwdata_path) = project_fwdata("Sena 3") else {
         eprintln!("skipping: Sena 3 FieldWorks project not present on disk");
@@ -407,8 +411,10 @@ fn sena3_new_pipeline_matches_legacy_oracle() {
 }
 
 #[test]
-#[ignore] // expensive: full 673-word Amharic corpus through two uncapped Grammars; run with
-          // `cargo test -p hc-cli --release --ignored amharic_new_pipeline_matches_legacy_oracle`
+#[ignore = "expensive: full 673-word Amharic corpus through two uncapped Grammars; also needs a \
+            real FieldWorks project checkout + local gitignored corpus data \
+            (samples/data/amharic-hc.xml, amharic-words.txt); run with \
+            `cargo test -p hc-cli --release --include-ignored amharic_new_pipeline_matches_legacy_oracle`"]
 fn amharic_new_pipeline_matches_legacy_oracle() {
     let Some(fwdata_path) = project_fwdata("Amharic") else {
         eprintln!("skipping: Amharic FieldWorks project not present on disk");
@@ -461,15 +467,21 @@ fn amharic_new_pipeline_matches_legacy_oracle() {
     );
 }
 
-/// A fast, always-run (not `#[ignore]`d) smoke test over a small prefix of each corpus, to give
-/// `cargo test --workspace` *some* live signal on this pipeline even without `--release
-/// --ignored`. One of Amharic's first 50 words used to hang this test indefinitely (the same
+/// A fast smoke test over a small prefix of each corpus, giving *some* live signal on this
+/// pipeline. One of Amharic's first 50 words used to hang this test indefinitely (the same
 /// uncapped-`Morpher` combinatorial blowup as the full-corpus tests above; bisection showed it
 /// predates every fix on this branch, present even at the bare T5-gate commit before any grammar-
 /// compiler changes) -- fixed the same way as the full-corpus tests, via `run_conformance`'s
 /// `WORD_TIMEOUT` (see the module doc's "The hang (fixed)" section): the pathological word now
 /// reports as timed-out rather than hanging the whole suite, and this test terminates promptly.
+///
+/// Test-timing policy (revised 2026-07-17): despite being fast, this still loads a real
+/// FieldWorks project checkout and the gitignored `samples/data/{sena,amharic}-{hc.xml,words.txt}`
+/// corpus fixtures, so per policy it is unconditionally `#[ignore]`d too (the default local
+/// `cargo test --workspace --release` run must not depend on gitignored corpus data at all); the
+/// self-skip guards below already keep `--include-ignored` runs green when either is absent.
 #[test]
+#[ignore = "needs a real FieldWorks project checkout + local gitignored corpus data (samples/data/{sena,amharic}-{hc.xml,words.txt}); run with --include-ignored"]
 fn conformance_smoke_first_50_words_each_language() {
     // Collect every language's result before asserting -- otherwise the first mismatching
     // language would panic before a second, independent language ever got to run.

@@ -12,6 +12,15 @@
 //!     `ParseOptions::default()` (no guessing) is checked directly against the Sena corpus.
 //! (e) MINI-PARITY smoke: first 40 Sena corpus words + every non-redup Indonesian corpus word,
 //!     100% multiset parity required; per-word timings reported.
+//!
+//! ## Test-timing policy (revised 2026-07-17)
+//! The default local `cargo test --workspace --release` run must stay under ~60s and must not
+//! depend on the gitignored real-language corpus fixtures (`samples/data/*`) at all. Every test in
+//! this file loads a real Sena and/or Indonesian grammar, so all five are unconditionally
+//! `#[ignore = "..."]`d (replacing the old `cfg_attr(debug_assertions, ...)` debug-only ignore on
+//! (d)/(e)), each with a self-skip guard so `--include-ignored` runs stay green where the fixture
+//! is absent (CI). Run the full set locally with
+//! `cargo test -p hc-foma --release --test f4_composite_gate -- --include-ignored`.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -33,6 +42,11 @@ const REDUP_WORDS: &[&str] = &[
 fn sample_path(name: &str) -> PathBuf {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     manifest_dir.join("../../../samples/data").join(name)
+}
+
+/// Self-skip guard: gitignored real-corpus fixtures aren't present in a fresh clone or CI.
+fn have(name: &str) -> bool {
+    sample_path(name).exists()
 }
 
 fn load_sena() -> Grammar {
@@ -80,7 +94,12 @@ fn analyses_multiset(v: &[(String, String)]) -> Vec<(String, String)> {
 // -------------------------------------------------------------------------------------------
 
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
 fn a_overgeneration_pruned_mbali() {
+    if !have("sena-hc.xml") {
+        eprintln!("skipping: sena-hc.xml not present on disk");
+        return;
+    }
     let g = load_sena();
     let mut analyzer = FomaAnalyzer::new(&g).expect("sena compiles");
     let morpher = Morpher::new(&g, usize::MAX);
@@ -120,7 +139,12 @@ fn a_overgeneration_pruned_mbali() {
 // -------------------------------------------------------------------------------------------
 
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
 fn b_mbali_multiplicity_matches_full_engine() {
+    if !have("sena-hc.xml") {
+        eprintln!("skipping: sena-hc.xml not present on disk");
+        return;
+    }
     let g = load_sena();
     let mut analyzer = FomaAnalyzer::new(&g).expect("sena compiles");
     let morpher = Morpher::new(&g, usize::MAX);
@@ -156,7 +180,12 @@ fn b_mbali_multiplicity_matches_full_engine() {
 // -------------------------------------------------------------------------------------------
 
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with --include-ignored"]
 fn c_indonesian_redup_words_round_trip() {
+    if !have("indonesian-hc.xml") {
+        eprintln!("skipping: indonesian-hc.xml not present on disk");
+        return;
+    }
     let g = load_indonesian();
     let mut analyzer = FomaAnalyzer::new(&g).expect("indonesian compiles");
     let morpher = Morpher::new(&g, usize::MAX);
@@ -202,11 +231,12 @@ fn c_indonesian_redup_words_round_trip() {
 const D_SCAN_WORDS: usize = 400;
 
 #[test]
-#[cfg_attr(
-    debug_assertions,
-    ignore = "scans a Sena corpus prefix through the engine oracle; slow unoptimized, run with --release or --ignored"
-)]
+#[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
 fn d_no_analysis_word_returns_empty_consistent_with_engine() {
+    if !have("sena-hc.xml") {
+        eprintln!("skipping: sena-hc.xml not present on disk");
+        return;
+    }
     let g = load_sena();
     let mut analyzer = FomaAnalyzer::new(&g).expect("sena compiles");
     let morpher = Morpher::new(&g, usize::MAX);
@@ -250,11 +280,12 @@ fn d_no_analysis_word_returns_empty_consistent_with_engine() {
 // -------------------------------------------------------------------------------------------
 
 #[test]
-#[cfg_attr(
-    debug_assertions,
-    ignore = "engine oracle is slow unoptimized on the Sena words; run in --release (where this test always runs) or with --ignored"
-)]
+#[ignore = "needs local gitignored corpus data (samples/data/{sena,indonesian}-hc.xml); run with --include-ignored"]
 fn e_mini_parity_sena_40_and_indonesian_non_redup() {
+    if !have("sena-hc.xml") || !have("indonesian-hc.xml") {
+        eprintln!("skipping: sena-hc.xml/indonesian-hc.xml not present on disk");
+        return;
+    }
     let opts = ParseOptions::default();
     let mut mismatches: Vec<String> = Vec::new();
 

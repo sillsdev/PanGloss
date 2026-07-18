@@ -803,6 +803,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with --include-ignored"]
     fn loads_and_segments_indonesian() {
         // Counts independently confirmed via `grep -c` scoped to the relevant XML blocks:
         // 14 <SymbolicFeature> under <PhonologicalFeatureSystem>; 29 <SegmentDefinition> + 3
@@ -817,6 +818,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "needs local gitignored corpus data (samples/data/amharic-hc.xml); run with --include-ignored"]
     fn loads_and_segments_amharic() {
         // amharic-words.txt's first few lines are English glosses (leftover header content, not
         // target-language forms); the actual Amharic surface words are in Ge'ez/Ethiopic script.
@@ -832,6 +834,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
     fn loads_and_segments_sena() {
         // Sena's real XML has no <PhonologicalFeatureSystem> element at all (its SymbolicFeatures
         // live under HeadFeatures, the syntactic feature system, out of this milestone's scope) —

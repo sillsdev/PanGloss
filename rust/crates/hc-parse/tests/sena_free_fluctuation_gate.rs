@@ -21,6 +21,10 @@
 //! sub-analyses, byte-identical to `golden/master/sena-full.tsv`'s `ana` row.
 //! Self-skips like the existing convention (`batch_determinism.rs`) when the untracked Sena corpus
 //! isn't present on disk.
+//!
+//! Test-timing policy (revised 2026-07-17): the default local `cargo test --workspace --release`
+//! run must stay under ~60s and must not depend on this gitignored fixture at all, so this test is
+//! unconditionally `#[ignore = "..."]`d; run with `--include-ignored` locally.
 
 use std::path::{Path, PathBuf};
 
@@ -34,6 +38,7 @@ fn sample_path(name: &str) -> Option<PathBuf> {
 }
 
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
 fn sena_ana_recovers_free_fluctuating_analyses() {
     let Some(grammar_path) = sample_path("sena-hc.xml") else {
         eprintln!("skipping: sena-hc.xml not present on disk");

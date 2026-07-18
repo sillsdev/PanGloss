@@ -65,6 +65,12 @@
 //! Same convention as `fwdata_conformance_gate.rs`: both the real FieldWorks project directory
 //! and the committed oracle XML are untracked local corpora; either being absent makes the
 //! relevant test self-skip with a printed reason rather than fail.
+//!
+//! # Test-timing policy (revised 2026-07-17)
+//! The default local `cargo test --workspace --release` run must not depend on a real FieldWorks
+//! project checkout or the gitignored `samples/data/*-hc.xml` fixtures at all, so both tests here
+//! are unconditionally `#[ignore = "..."]`d regardless of speed; the self-skip guards above already
+//! keep `--include-ignored` runs green when either is absent.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -1071,6 +1077,7 @@ fn compare_grammars(language: &str, new_g: &Grammar, legacy_g: &Grammar, entry_d
 // =================================================================================================
 
 #[test]
+#[ignore = "needs a real FieldWorks project checkout + local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
 fn sena3_new_pipeline_grammar_matches_legacy_oracle() {
     let Some(fwdata_path) = project_fwdata("Sena 3") else {
         eprintln!("skipping: Sena 3 FieldWorks project not present on disk");
@@ -1093,6 +1100,7 @@ fn sena3_new_pipeline_grammar_matches_legacy_oracle() {
 }
 
 #[test]
+#[ignore = "needs a real FieldWorks project checkout + local gitignored corpus data (samples/data/amharic-hc.xml); run with --include-ignored"]
 fn amharic_new_pipeline_grammar_matches_legacy_oracle() {
     let Some(fwdata_path) = project_fwdata("Amharic") else {
         eprintln!("skipping: Amharic FieldWorks project not present on disk");

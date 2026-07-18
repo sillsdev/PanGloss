@@ -13,6 +13,10 @@
 //! `--threads 1` too, on unmodified `hc-rules`/`hc-parse` engine code — unrelated to this module).
 //! If this test is ever pointed at a corpus/step-cap combination where words hit the cap, expect
 //! it to go flaky for reasons that have nothing to do with `hc_parse_batch`.
+//!
+//! Test-timing policy (revised 2026-07-17): the default local `cargo test --workspace --release`
+//! run must stay under ~60s and must not depend on these gitignored fixtures at all, so both tests
+//! here are unconditionally `#[ignore = "..."]`d; run with `--include-ignored` locally.
 
 use std::path::{Path, PathBuf};
 
@@ -26,6 +30,7 @@ fn sample_path(name: &str) -> Option<PathBuf> {
 }
 
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml, indonesian-words.txt); run with --include-ignored"]
 fn indonesian_batch_is_thread_count_invariant() {
     let Some(grammar_path) = sample_path("indonesian-hc.xml") else {
         eprintln!("skipping: indonesian-hc.xml not present on disk");
@@ -86,6 +91,7 @@ fn indonesian_batch_is_thread_count_invariant() {
 /// Output order must be the original word order, independent of the longest-first dispatch
 /// order used internally for scheduling.
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml, indonesian-words.txt); run with --include-ignored"]
 fn indonesian_batch_output_order_matches_input_order() {
     let Some(grammar_path) = sample_path("indonesian-hc.xml") else {
         eprintln!("skipping: indonesian-hc.xml not present on disk");

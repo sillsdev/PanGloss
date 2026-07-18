@@ -17,7 +17,7 @@ fn sample_path(name: &str) -> Option<PathBuf> {
 }
 
 #[test]
-#[ignore]
+#[ignore = "diagnostic instrumentation, not a correctness gate; also needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
 fn sena_cold_vs_warm_and_memo_effect() {
     let Some(gpath) = sample_path("sena-hc.xml") else {
         eprintln!("skipping: sena-hc.xml not present on disk");

@@ -428,6 +428,7 @@ mod tests {
     /// A bare-root word ("ajar", per `replay.rs`'s own equivalent test) confirms to a non-empty set
     /// of matches, all sharing the expected root entry.
     #[test]
+    #[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with --include-ignored"]
     fn confirm_bare_root_word_verifies() {
         let Some(g) = load_indonesian() else {
             eprintln!("skipping: indonesian-hc.xml not present on disk");
@@ -465,6 +466,7 @@ mod tests {
     /// A candidate whose designated "root" position is out of range (or empty) must confirm to
     /// nothing, never panic.
     #[test]
+    #[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with --include-ignored"]
     fn confirm_rejects_out_of_range_root_index() {
         let Some(g) = load_indonesian() else {
             eprintln!("skipping: indonesian-hc.xml not present on disk");
@@ -482,6 +484,7 @@ mod tests {
     /// A non-root morpheme id that resolves to neither a `LexEntry` nor an `MRule` (e.g. a
     /// `MorphemeId` that doesn't exist in this grammar at all) must confirm to nothing.
     #[test]
+    #[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with --include-ignored"]
     fn confirm_rejects_unowned_non_root_morpheme() {
         let Some(g) = load_indonesian() else {
             eprintln!("skipping: indonesian-hc.xml not present on disk");

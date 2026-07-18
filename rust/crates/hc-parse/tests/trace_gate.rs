@@ -154,6 +154,7 @@ fn obligatory_syntactic_feature_never_satisfied_is_reported() {
 /// `SurfaceFormMismatch` -- the real grammar naturally exercises the third wired reason, not just a
 /// hand-built one.
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with --include-ignored"]
 fn real_indonesian_word_exercises_surface_form_mismatch() {
     let Some(grammar_path) = sample_path("indonesian-hc.xml") else {
         eprintln!("skipping: indonesian-hc.xml not present on disk");

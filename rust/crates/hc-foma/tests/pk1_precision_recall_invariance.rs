@@ -29,6 +29,17 @@
 //! (b) at least one Sena corpus word's raw candidate set is a STRICT subset under `AllFlags`
 //! (fewer candidates than `Strip`, not just an equal-size coincidence) — i.e. the flags visibly
 //! prune something, not merely compile to a no-op.
+//!
+//! ## Test-timing policy (revised 2026-07-17)
+//! The default local `cargo test --workspace --release` run must stay under ~60s and must not
+//! depend on the gitignored real-language corpus fixtures (`samples/data/*`) at all — every test
+//! in this file loads one, so ALL FOUR (including the otherwise-fast
+//! `emit_and_emit_with_precision_strip_are_the_same_call`) are unconditionally
+//! `#[ignore = "..."]`d, replacing the old `cfg_attr(debug_assertions, ...)` debug-only ignore on
+//! the three engine-oracle tests. `load_grammar`'s existing `Option`-returning self-skip already
+//! keeps `--include-ignored` runs green where the fixture is absent (CI); the `#[ignore]` is what
+//! keeps them out of the default run at all, run speed aside. Run the full set locally with
+//! `cargo test -p hc-foma --release --test pk1_precision_recall_invariance -- --include-ignored`.
 
 use std::collections::{BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
@@ -231,10 +242,7 @@ const SENA_SCAN_WORDS: usize = 30;
 /// Asserts only the confirmed-set identity (recall) here; non-vacuity (strict shrink) is the
 /// full-corpus test's job.
 #[test]
-#[cfg_attr(
-    debug_assertions,
-    ignore = "compiles two Sena networks + engine-oracle confirm; run with --release or --ignored"
-)]
+#[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
 fn sena_miseru_focused_recall_invariance() {
     let Some(g) = load_grammar("sena-hc.xml") else {
         eprintln!("skipping: sena-hc.xml not present on disk");
@@ -251,11 +259,7 @@ fn sena_miseru_focused_recall_invariance() {
 }
 
 #[test]
-#[cfg_attr(
-    debug_assertions,
-    ignore = "compiles two Sena networks and runs the full engine oracle via confirm; slow \
-              unoptimized, run with --release or --ignored"
-)]
+#[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
 fn sena_precision_recall_invariance() {
     let Some(g) = load_grammar("sena-hc.xml") else {
         eprintln!("skipping: sena-hc.xml not present on disk");
@@ -302,11 +306,7 @@ fn sena_precision_recall_invariance() {
 // -------------------------------------------------------------------------------------------
 
 #[test]
-#[cfg_attr(
-    debug_assertions,
-    ignore = "compiles two Indonesian networks and runs the full engine oracle via confirm; slow \
-              unoptimized, run with --release or --ignored"
-)]
+#[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with --include-ignored"]
 fn indonesian_precision_recall_invariance() {
     let Some(g) = load_grammar("indonesian-hc.xml") else {
         eprintln!("skipping: indonesian-hc.xml not present on disk");
@@ -333,6 +333,7 @@ fn indonesian_precision_recall_invariance() {
 // -------------------------------------------------------------------------------------------
 
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/{sena,indonesian}-hc.xml); run with --include-ignored"]
 fn emit_and_emit_with_precision_strip_are_the_same_call() {
     // `emit::emit` is defined as `emit_with_precision(g, PrecisionConfig::Strip)` -- this is a
     // structural/documentation-level assertion (loaded once, cheaply, on whichever sample grammar

@@ -4,6 +4,10 @@
 //!
 //! The sample grammars are untracked local corpus files (per `rust-conversion.md` §8); each test
 //! self-skips when they are absent (fresh clone / CI).
+//!
+//! Test-timing policy (revised 2026-07-17): the default local `cargo test --workspace --release`
+//! run must stay under ~60s and must not depend on these gitignored fixtures at all, so all three
+//! tests here are unconditionally `#[ignore = "..."]`d; run with `--include-ignored` locally.
 
 use std::path::{Path, PathBuf};
 
@@ -142,6 +146,7 @@ fn assert_real_root_lookups(
 }
 
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
 fn sena_root_trie_indexes_and_looks_up() {
     let Some(g) = load_grammar("sena-hc.xml") else {
         eprintln!("skipping: sena-hc.xml not present on disk");
@@ -164,6 +169,7 @@ fn sena_root_trie_indexes_and_looks_up() {
 }
 
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with --include-ignored"]
 fn indonesian_root_trie_indexes_and_looks_up() {
     let Some(g) = load_grammar("indonesian-hc.xml") else {
         eprintln!("skipping: indonesian-hc.xml not present on disk");
@@ -182,6 +188,7 @@ fn indonesian_root_trie_indexes_and_looks_up() {
 /// search that root's shape with one extra segment appended — a strictly longer input cannot accept
 /// at the shorter root's node, so the original allomorph id must now be *absent*.
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
 fn sena_negative_lookup_is_end_anchored() {
     let Some(g) = load_grammar("sena-hc.xml") else {
         eprintln!("skipping: sena-hc.xml not present on disk");

@@ -11,6 +11,14 @@
 //! `cargo run -p hc-cli -- parse <grammar> <word> --gloss --natural-gloss=eng` to see the actual
 //! output, THEN writing the expected assertion — same "run first, pin second" discipline
 //! `n0_gloss_gate.rs`/`n1_ir_gate.rs` document for their own pinned strings.
+//!
+//! ## Test-timing policy (revised 2026-07-17)
+//! The default local `cargo test --workspace --release` run must stay under ~60s and must not
+//! depend on the gitignored real-language corpus fixtures (`samples/data/*-hc.xml`,
+//! `samples/data/*-words.txt`) at all. Every test in this file loads a real grammar (and the
+//! robustness sweep also loads corpus word lists), so all are unconditionally
+//! `#[ignore = "..."]`d — the existing self-skip above already keeps `--include-ignored` green
+//! when the fixture is absent.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -74,6 +82,7 @@ fn realize_all(g: &Grammar, map: &RealizeMap, r: &TableRealizer, word: &str) -> 
 // `hc-realize/src/table.rs`'s own unit tests on hand-built `GlossIr`s instead.
 
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/amharic-hc.xml); run with --include-ignored"]
 fn amharic_possessed_noun_renders_your_house() {
     let Some(g) = load_grammar("amharic-hc.xml") else {
         eprintln!("skipping: amharic-hc.xml not present on disk");
@@ -90,6 +99,7 @@ fn amharic_possessed_noun_renders_your_house() {
 }
 
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/amharic-hc.xml); run with --include-ignored"]
 fn amharic_plural_only_noun_renders_children() {
     let Some(g) = load_grammar("amharic-hc.xml") else {
         eprintln!("skipping: amharic-hc.xml not present on disk");
@@ -107,6 +117,7 @@ fn amharic_plural_only_noun_renders_children() {
 }
 
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/amharic-hc.xml); run with --include-ignored"]
 fn amharic_ambiguous_pluralized_possessed_noun_one_complete_one_partial() {
     let Some(g) = load_grammar("amharic-hc.xml") else {
         eprintln!("skipping: amharic-hc.xml not present on disk");
@@ -135,6 +146,7 @@ fn amharic_ambiguous_pluralized_possessed_noun_one_complete_one_partial() {
 }
 
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/amharic-hc.xml); run with --include-ignored"]
 fn amharic_unpossessed_bare_root_renders_with_indefinite_article() {
     let Some(g) = load_grammar("amharic-hc.xml") else {
         eprintln!("skipping: amharic-hc.xml not present on disk");
@@ -152,6 +164,7 @@ fn amharic_unpossessed_bare_root_renders_with_indefinite_article() {
 }
 
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/amharic-hc.xml); run with --include-ignored"]
 fn amharic_unmapped_verb_word_falls_back_to_partial_citation_form() {
     let Some(g) = load_grammar("amharic-hc.xml") else {
         eprintln!("skipping: amharic-hc.xml not present on disk");
@@ -199,6 +212,7 @@ fn amharic_unmapped_verb_word_falls_back_to_partial_citation_form() {
 // same timing pass). Measured with this exact subsampling + timeout at authoring time: comfortably
 // under a minute total across all three corpora.
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/*-hc.xml, *-words.txt); run with --include-ignored"]
 fn realize_never_panics_on_a_subsampled_full_corpus_sweep() {
     struct Corpus {
         xml: &'static str,
