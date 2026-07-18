@@ -37,7 +37,11 @@
 //! own "show your implementation gets it right" ask): the UNGATED cascade
 //! (`compile_and_compose_rules`, the pre-existing, unedited entry point) is shown to MISS the exact
 //! analysis the real engine accepts, for the excluded root — the gated path (previous test)
-//! recovers it. `indonesian_full_corpus_parity_unregressed` reruns the FULL 97/97 Indonesian corpus
+//! recovers it. `ungated_cascade_would_have_missed_the_noun_entry` mirrors this for case 2: the
+//! ungated POS fixture cascade obligatorily merges BOTH entries' "xyx", so the noun's raw-"xyx"
+//! analysis becomes unreachable, proving the POS gate closes a real gap too (not merely that the
+//! gated path happens to match the oracle). `indonesian_full_corpus_parity_unregressed` reruns the
+//! FULL 97/97 Indonesian corpus
 //! gate through the gated compile path (the augmented grammar's 2 synthetic entries neither collide
 //! with nor are reachable by any real corpus word). `amharic_gated_subrules_and_tuple_counts_
 //! unregressed` reconfirms Amharic's own tuple-expansion numbers (82 states / 1,110,358 arcs,
@@ -325,6 +329,44 @@ fn synthetic_pos_gate_matches_oracle() {
         let got = query_candidates(&net, &alphabet, word);
         assert_eq!(got, want, "gated network must match the oracle exactly for {word:?}");
     }
+}
+
+/// Mirrors `ungated_cascade_would_have_missed_the_excluded_root` for case 2: demonstrates the POS
+/// gate closes a REAL recall gap, not just that the gated path happens to match the oracle. The
+/// UNGATED cascade applies `prule1` to both entries regardless of POS, so `entryN` (noun, "xyx")
+/// obligatorily merges to "w" -- the oracle's noun analysis of raw "xyx" becomes unreachable.
+#[test]
+fn ungated_cascade_would_have_missed_the_noun_entry() {
+    let g = hc_grammar::load(POS_FIXTURE_XML)
+        .unwrap_or_else(|e| panic!("failed to load POS fixture: {e}\n{POS_FIXTURE_XML}"));
+    let morpher = Morpher::new(&g, usize::MAX);
+    assert!(!oracle_analyses(&morpher, "xyx").is_empty(), "oracle sanity: xyx must analyze (noun)");
+
+    let table = &g.char_tables[0];
+    let alphabet = SegAlphabet::new(table);
+    let opts = FomaOptions::default();
+    let ro = rules_in_order(&g);
+
+    let mut skipped = Vec::new();
+    let mut tuple_reports = Vec::new();
+    let rules_net = compile_and_compose_rules(&opts, &g, &alphabet, &ro, &mut skipped, &mut tuple_reports)
+        .expect("ungated cascade must still compile (prule1's shape is supported, just ungated)");
+    let ureport = emit_underlying(&g, &alphabet);
+    let lexc_net = foma::lexcread::fsm_lexc_parse_string(&opts, None, &ureport.lexc_source)
+        .expect("underlying lexc must compile");
+    let mut net = foma::constructions::fsm_compose(&opts, lexc_net, rules_net);
+    if let Some(cleanup) = boundary_cleanup(&opts, table, &alphabet) {
+        net = foma::constructions::fsm_compose(&opts, net, cleanup);
+    }
+    net = foma::minimize::fsm_minimize(&opts, net);
+
+    let got = query_candidates(&net, &alphabet, "xyx");
+    assert!(
+        got.is_empty(),
+        "the UNGATED cascade should incorrectly reject raw 'xyx' (obligatory merge with no POS \
+         exception applied to both entries) -- got {got:?}; if this now passes, prule1's compiled \
+         regex changed shape and this regression guard needs re-deriving, not deleting"
+    );
 }
 
 /// Regression: the full Indonesian corpus parity gate (`f2_indonesian_gate.rs`'s own 97/97
