@@ -33,3 +33,10 @@ rayon.workspace = true
 # no new transitive dependency to that build. `cargo check -p hc-foma --target wasm32-unknown-unknown`
 # and the same for hc-wasm both stay part of this crate's gate.
 hc-parse.workspace = true
+
+[dev-dependencies]
+# P6 prototype (examples/p6_aweti_probe.rs): Aweti's fixture ships as a pg-snapshot JSON, loaded
+# via `pg_snapshot::Snapshot::from_json` + `hc_grammar::compile_project` — the same loader
+# `examples/aweti_probe.rs` (untracked, main-tree-only) already established for this fixture.
+# Dev-only: no non-test/example code in this crate needs the snapshot format.
+pg-snapshot.workspace = true

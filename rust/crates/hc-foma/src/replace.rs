@@ -167,17 +167,20 @@ enum Slot {
     Fixed(CharDefId),
     /// A natural class with no alpha binding at this occurrence: renders as a `[c1|c2|...]` union.
     Union(Vec<CharDefId>),
-    /// A natural class occurrence bound to an alpha variable: resolved per-tuple by
+    /// A natural class occurrence bound to one OR MORE alpha variables (Amharic's CV-merger binds
+    /// up to 20 vars on a SINGLE `SimpleContext` — report-08 §3 item 1: "the 20 variables jointly
+    /// copy the feature bundles of one (C,V) segment pair"): resolved per-tuple by
     /// [`resolve_alpha_tuples`], not fixed until a concrete assignment is chosen. `occurrence` is
     /// this specific SLOT INSTANCE's own id (unique per occurrence, NOT per variable — two
     /// occurrences of the same [`VarId`] almost always draw from two DIFFERENT classes, e.g.
-    /// prule4's RHS `nc11` (the nasal output class) vs its right-environment `nc12` (the
-    /// following-obstruent class): they must agree on the var's FEATURE VALUE, not resolve to the
-    /// identical segment — see [`resolve_alpha_tuples`]'s doc for why this rules out a
-    /// same-var-implies-same-segment shortcut).
+    /// Indonesian prule4's RHS `nc11` (the nasal output class) vs its right-environment `nc12`
+    /// (the following-obstruent class): they must agree on the var's FEATURE VALUE, not resolve
+    /// to the identical segment — see [`resolve_alpha_tuples`]'s doc for why this rules out a
+    /// same-var-implies-same-segment shortcut). `vars` is one `(VarId, feature lane)` pair per
+    /// `AlphaVariable` this ONE occurrence carries — all of them apply to the SAME concrete
+    /// segment eventually chosen for this occurrence.
     Alpha {
-        var: VarId,
-        feature: hc_grammar::featsys::FlatIndex,
+        vars: Vec<(VarId, hc_grammar::featsys::FlatIndex)>,
         occurrence: usize,
         base_members: Vec<CharDefId>,
     },
@@ -196,28 +199,23 @@ fn pattern_slots(g: &Grammar, pattern: &Pattern, next_occurrence: &mut usize) ->
                 if sc.vars.is_empty() {
                     let members = class_members(g, table_of(g, sc), sc.nat_class, &HashSet::new());
                     out.push(Slot::Union(members));
-                } else if sc.vars.len() == 1 {
-                    let v = &sc.vars[0];
-                    if !v.plus {
+                } else {
+                    if sc.vars.iter().any(|v| !v.plus) {
                         // "disagree" polarity — documented gap, never seen in the reference
                         // grammars (module doc).
                         return None;
                     }
-                    let mut excl = HashSet::new();
-                    excl.insert(v.feature.0 as usize);
+                    let excl: HashSet<usize> =
+                        sc.vars.iter().map(|v| v.feature.0 as usize).collect();
                     let base = class_members(g, table_of(g, sc), sc.nat_class, &excl);
                     let occurrence = *next_occurrence;
                     *next_occurrence += 1;
+                    let vars = sc.vars.iter().map(|v| (v.var, v.feature)).collect();
                     out.push(Slot::Alpha {
-                        var: v.var,
-                        feature: v.feature,
+                        vars,
                         occurrence,
                         base_members: base,
                     });
-                } else {
-                    // No reference-grammar SimpleContext binds >1 alpha var at once; bail rather
-                    // than guess at an untested combination.
-                    return None;
                 }
             }
             PatternNode::Quantifier { .. } | PatternNode::Segments { .. } | PatternNode::Anchor(_) => {
@@ -275,28 +273,27 @@ pub struct TupleReport {
 /// `AlphaAssignment { values: {} }` and a `raw_product`/`surviving` of 1 (nothing to expand).
 fn resolve_alpha_tuples(g: &Grammar, slot_lists: &[&[Slot]]) -> (Vec<AlphaAssignment>, TupleReport) {
     let table = &g.char_tables[0];
-    // Flatten to (occurrence, var, feature, members), document order (deterministic, not
-    // semantically load-bearing), plus the var-group membership needed for the filter step.
+    // Flatten to (occurrence, vars, members), document order (deterministic, not semantically
+    // load-bearing), plus the var-group membership needed for the filter step. One occurrence may
+    // carry MANY (var, feature) pairs at once (Amharic's CV-merger: up to 20 on one node) — all of
+    // them constrain the SAME concrete segment this occurrence resolves to.
     struct Occ {
         id: usize,
-        var: VarId,
-        feature: hc_grammar::featsys::FlatIndex,
+        vars: Vec<(VarId, hc_grammar::featsys::FlatIndex)>,
         members: Vec<CharDefId>,
     }
     let mut occs: Vec<Occ> = Vec::new();
     for slots in slot_lists {
         for slot in slots.iter() {
             if let Slot::Alpha {
-                var,
-                feature,
+                vars,
                 occurrence,
                 base_members,
             } = slot
             {
                 occs.push(Occ {
                     id: *occurrence,
-                    var: *var,
-                    feature: *feature,
+                    vars: vars.clone(),
                     members: base_members.clone(),
                 });
             }
@@ -334,11 +331,14 @@ fn resolve_alpha_tuples(g: &Grammar, slot_lists: &[&[Slot]]) -> (Vec<AlphaAssign
     }
 
     // Joint-agreement filter: for every pair of occurrences sharing a VarId, the two chosen
-    // segments must unify (bitwise overlap) at that variable's feature lane.
+    // segments must unify (bitwise overlap) at that variable's feature lane. An occurrence with
+    // MULTIPLE vars contributes one entry per var it carries.
     let mut var_pairs: std::collections::HashMap<VarId, Vec<(usize, hc_grammar::featsys::FlatIndex)>> =
         std::collections::HashMap::new();
     for occ in &occs {
-        var_pairs.entry(occ.var).or_default().push((occ.id, occ.feature));
+        for &(var, feature) in &occ.vars {
+            var_pairs.entry(var).or_default().push((occ.id, feature));
+        }
     }
     let lane_value = |cd: CharDefId, feature: hc_grammar::featsys::FlatIndex| -> u64 {
         table.get(cd).feature_lanes()[feature.0 as usize]
