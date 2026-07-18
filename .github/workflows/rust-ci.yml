@@ -80,6 +80,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # See the `test` job's checkout step: `cargo llvm-cov --workspace` below also runs the
+          # default (non-ignored) suite, which includes the machine/conformance-dependent unit
+          # tests that need this submodule present to pass.
+          submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: llvm-tools-preview
