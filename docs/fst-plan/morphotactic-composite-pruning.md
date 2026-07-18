@@ -1,9 +1,88 @@
 # Morphotactic pruning for composite pre-expansion (Aweti scale fix)
 
-Status: LANDED (2026-07-17). Implementation complete, all gates verified green on
-`pruning-morphotactics-wip` (merged with current `main`) — see "Final verification (2026-07-17)"
-below for the full test list, the Amharic A/B numbers, wasm32 checks, and the `f3_parity` Amharic
-finding.
+Status: PARTIAL. The pruning mechanism itself is LANDED and merged to `main` (2026-07-17) — see
+"Final verification" below: it is correct, recall-preserving, and clears the specific crash it was
+built for (`build_composites` OOMing past 4.9GB without finishing). **But it does not make Aweti
+usable end to end**, and should not be described as "the Aweti scale fix" without that caveat. See
+"Aweti end-to-end result (2026-07-18)" immediately below — pruning bounds the *build* recursion,
+but Aweti's *emitted* composite set is still ~124x Amharic's, and the resulting network cannot be
+consumed by `propose`. Enumeration (even pruned) is not a viable strategy for Aweti-shaped grammars;
+see `docs/fst-plan/foma-fst-plan.md`'s P6 section for the intended successor.
+
+## Aweti end-to-end result (2026-07-18): pruning is necessary but not sufficient
+
+Ran `hc-rs batch aweti.json aweti-words.txt out.tsv --engine=foma` (real corpus, real CLI, on
+`pruning-morphotactics-wip` merged with `main`) for the first time since the pruning fix landed —
+the "Final verification" gates below never actually exercise Aweti itself, only the 4 reference
+grammars' gates plus the pruning mechanism's own unit/A-B tests. Findings, most important first:
+
+1. **The original crash is fixed.** `build_composites`/`build_structural_composites` (the pruned
+   recursion this doc's fix targets) now completes, bounded, in `emit()`'s own ~551s — down from
+   "OOMs past 4.9GB without finishing" on `main` pre-fix. `HC_PREEXPAND_PROBE_CAP=20000000` never
+   fired (actual: 8,365,763 pairs probed) — the recursion is genuinely bounded, not just lucky.
+2. **But the emitted network is still enormous.** `hc_foma::emit::emit`'s own `EmitCounts` for
+   Aweti: `lexc_source` = **691,184,759 bytes** (9,720,129 lines), `composite_fusion_entries` =
+   **2,833,559**, `composite_structural_entries` = **230,476** — compare Amharic's production
+   numbers from the same day (`interdigitation_entries=386 fusion_entries=22775`): Aweti's fusion
+   entry count alone is **~124x** Amharic's. Pruning cut the *build-time exploration* (which rule
+   orderings get tried) but did nothing to cut the *emitted output size* (how many distinct
+   surviving composites there are) — for a grammar shaped like Aweti (855 roots, all
+   fusion-class — zero infix rules — against 47 fusion-eligible rules, mostly-optional slots on an
+   Unordered stratum), that output is still combinatorially huge.
+3. **`FomaAnalyzer::new` (emit + foma-compile) completes** — bounded at ~1.2-1.3GB peak RSS,
+   ~774s wall (551s emit + ~223s foma compile) — confirmed via a zero-word batch run that exits
+   cleanly. This is slow (13 min, nowhere near the sub-10ms/word bar, though it's a one-time cost)
+   but not a crash.
+4. **`analyze_word` (propose+confirm) crashes on the very first corpus word, deterministically,
+   every time** — `cargo run --example aweti_confirm_probe`, wrapped in the same dedicated 1 GiB
+   stack `hc-cli`'s own `main()` uses (needed even to get past compile without a plain stack
+   overflow — compile itself is recursion-heavy). Localized to inside `propose_candidates`
+   (`crate::composite::FomaAnalyzer::propose_candidates`, calling `FomaProposer::propose` UNION
+   `ReduplicationPeeler::peel_candidates`) — a debug print placed immediately after that call,
+   before `confirm_batch`, never fires. **Not isolated further between propose and peel** — do not
+   over-read "propose() specifically" into this; the strategy conclusion below does not depend on
+   which of the two it is. Manifests as memory growing unboundedly (observed RSS: 1.2GB → 34GB
+   before an 8,858,370,064-byte single allocation failed one run; a rerun of the identical
+   input failed with a 112-byte allocation instead — consistent with cumulative unbounded growth
+   exhausting usable process memory, not one single pathologically-sized request) — this is the
+   overwhelmingly likely consequence of `apply_up` finding a very large or unbounded number of
+   accepting paths through a 9.7-million-line, 2.8-million-fusion-entry network, not a distinct
+   bug in the candidate-extraction code itself.
+5. **Recall was already compromised before any of this**: the emitter's own report shows 121
+   uncovered items for Aweti even at the composite-generation stage — 100+ roots hit
+   `rep-variant-overflow` (root shape exceeds 64 representation variants, excess spellings
+   silently dropped), 13 `Reduplication`-classified standalone rules unrepresented, 4 misplaced
+   `CircumfixPrefix` allomorphs. None of this is new to pruning (`Tier::Partial { uncovered: 121 }`
+   is the emitter's pre-existing uncovered-construct reporting), but it means even a hypothetically
+   successful compile+propose would not yet be at the "100% recall, no fallback tier" bar
+   ([[build-for-full-scale-grammars]]) — there is real emitter work queued here regardless of the
+   propose crash.
+
+**Conclusion**: morphotactic pruning was the right, necessary fix for the specific OOM it targeted,
+and should stay (it's a strict improvement, verified recall-preserving, and Amharic's real
+production numbers already benefit — 2.92x probe shrink). But **enumeration-based composite
+generation (pruned or not) is not a viable end-to-end strategy for Aweti-shaped grammars** — the
+emitted network is too large for `propose` to consume regardless of how cheaply it was built. The
+evidence points toward P6 (replace-rule compilation, `docs/fst-plan/foma-fst-plan.md`) as the
+right strategy for this grammar shape: it compiles phonology/rule application directly into foma's
+native replace calculus rather than enumerating per-root composites, and was independently shown to
+compile Aweti's 18 phonological rules into a tiny network (30 states/2143 arcs, 28.8ms) with no
+enumeration blow-up at all. **This is not yet a proven fix** — the P6 prototype only compiled
+Aweti's phonology rules; it has not been wired up to Aweti's full templated morphotactics (its
+minimal `uflexc` emitter does not yet support templates), so closing this gap is real unbuilt work,
+tracked as its own task. See `docs/fst-plan/foma-fst-plan.md` for the strategy-selection design
+question this raises: `composite_scale_hint` (should_run / candidate-rule-count / root-count) did
+NOT predict this explosion — Aweti looked ordinary on all three signals; a usable per-grammar
+strategy selector needs a much cheaper predictor than "run the 9-minute emit and see," e.g.
+sampling rep-variant-overflow rate or fusion-eligible-rule-count against slot/stratum optionality
+structure on a handful of roots.
+
+Diagnostics used (throwaway examples, `rust/crates/hc-foma/examples/`): `aweti_emit_only.rs` (calls
+`emit()` alone, no foma compile, to separate emit-time from compile-time cost and print
+`EmitCounts`/`EmitReport` directly) and `aweti_confirm_probe.rs` (builds `FomaAnalyzer` once, then
+calls `analyze_word` on each corpus word in sequence with a flush before each, so the last-printed
+word localizes an abort without needing a rebuild per word — both wrapped in a dedicated 1 GiB
+stack thread, matching `hc-cli`'s own `main()`, since compile itself needs it).
 
 ## Final verification (2026-07-17)
 

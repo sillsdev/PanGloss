@@ -116,6 +116,15 @@ impl<'g> FomaAnalyzer<'g> {
     pub fn analyze_word(&mut self, word: &str) -> FomaOutcome {
         let (candidates, peel_used) = self.propose_candidates(word);
         let candidates_generated = candidates.len();
+        // `HC_DEBUG_CANDIDATES=1` (diagnostic-only, off by default, same env-gated-diagnostic
+        // precedent as `HC_PREEXPAND_FLAT`/`HC_PREEXPAND_PROBE_CAP`): prints the proposed-candidate
+        // count right after `propose_candidates` returns, before `confirm_batch` runs -- the fast
+        // way to tell whether a runaway is in propose/peel vs. confirm without a debugger attached
+        // (`docs/fst-plan/morphotactic-composite-pruning.md`'s Aweti investigation used this to
+        // localize an allocation-failure crash to inside `propose_candidates`).
+        if std::env::var("HC_DEBUG_CANDIDATES").is_ok() {
+            eprintln!("[HC_DEBUG_CANDIDATES] word={word:?} candidates_generated={candidates_generated}");
+        }
         let mut analyses = Vec::new();
         let mut structured = Vec::new();
         // Batched confirm (John, 2026-07-15): ONE union re-parse routes every outcome analysis to
