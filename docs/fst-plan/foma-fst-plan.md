@@ -482,6 +482,44 @@ Two workstreams, both mandated by the settled architecture and scale requirement
 Gate F6: one grammar running with compiled replace rules end-to-end at parity; hc-fst
 feasibility verdict written into this plan.
 
+**P6 item 1 status (2026-07-17): prototype GO, merged to main (ac3cfb3).** Gate F6's first
+half is met on Indonesian: replace-rule compilation end-to-end at 97/97 recall parity
+(`docs/fst-plan/p6-prototype-report.md`), Amharic's 20-α-variable CV-merger compiles to 312
+tuples (tuple-indexed model held), all 18 Aweti prules compose in ~27ms. Remaining mainline
+items, costed in the report §6 — headline ones:
+- **MPR/POS rule-exception gating via flag diacritics (RECALL-critical, tasked):** composed
+  rules apply obligatorily, so an ignored `excludedMPRFeatures`/`requiredPartsOfSpeech` can
+  delete the un-applied surface path (under-generation). Test cases exist today: Indonesian
+  prule5, Amharic prule1/prule2. Must land before any grammar with rule exceptions rides P6.
+- **Templated morphotactics in the underlying-form emitter** (refit emit.rs's skeleton with an
+  underlying-text source, not a uflexc rewrite).
+- RTL direction, Simultaneous-mode fidelity, Quantifier patterns, metathesis (report §6).
+
+**Keep-old-paths directive (John 2026-07-17):** the enumeration bridges are NOT retired when
+P6 mainlines — both paths stay selectable for months, chosen per grammar by a measured
+pre-flight determination (composite_scale_hint pattern), never by language identity. A grammar
+where every strategy blows its budget = honest compiler-gap error, never OOM/silent recall
+loss. Related: morphotactic chain pruning for the enumeration path (Aweti scale fix) is on
+branch `pruning-morphotactics-wip` (spec: docs/fst-plan/morphotactic-composite-pruning.md on
+that branch), being finished; its f3_parity-Amharic abnormal-exit finding is under
+investigation (pre-existing-vs-introduced).
+
+**Non-Latin / non-ASCII robustness follow-up (tasked, fires when `worktree-foma-diacritics-fix`
+lands in main):** that branch adds a machine-conformance fixture for the hc-foma Latin-diacritic
+(é/ö/ñ/î) zero-parse bug; the rust-side fix is separate. The P6 prototype independently found
+the same bug family inside foma's regex reader (report §2.3: adjacent non-ASCII codepoints
+silently mis-tokenized — worked around by space-separated rendering, but latent for any future
+caller). When the diacritics branch lands: one agent pass to (a) fix/regression-test the §2.3
+latent tokenization class at the source, (b) extend machine conformance with non-Latin-script
+fixtures beyond Ge'ez — combining marks (NFC vs NFD inputs), multi-codepoint graphemes
+(e.g. Aweti's ʼ), PUA codepoints, and at least one non-BMP script — so "7000 languages" script
+coverage is gated, not assumed.
+
+**Test-suite timing policy (John 2026-07-17, being implemented):** default local
+`cargo test --workspace --release` must return in <60s — slow gates move to unconditional
+`#[ignore]` (kept green, run via `--include-ignored`; CI extended to run them), with one fast
+smoke per gate file staying in the default run.
+
 ## 5. Commit strategy
 
 The worktree branch (`worktree-fst-investigation`) has zero commits over main; all current
