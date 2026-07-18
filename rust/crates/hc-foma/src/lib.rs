@@ -59,6 +59,10 @@
 pub mod analyzer;
 pub mod composite;
 pub mod confirm;
+/// E2 feasibility probe (not mainline; see that module's doc): does token-space Infix-rule
+/// splicing (Amharic root-and-pattern interdigitation) reach 100% recall composed with
+/// [`replace`]'s rule cascade? Standalone, additive, same status as [`replace`]/[`uflexc`].
+pub mod e2_infix_probe;
 pub mod emit;
 /// P6 feasibility prototype sibling of [`replace`]/[`uflexc`]: static MPR/POS subrule gating (the
 /// `docs/fst-plan/p6-prototype-report.md` §6 item 4 gap). See that module's doc for the design and
