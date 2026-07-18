@@ -448,16 +448,45 @@ fn render_slots(alphabet: &SegAlphabet, slots: &[Slot], assignment: &AlphaAssign
 /// subrule's pattern needs an unsupported construct (module doc's scope list) — the CALLER
 /// decides whether to skip that rule (reported uncovered) or treat the whole compile as failed;
 /// this prototype's driver skips and reports.
+///
+/// Thin wrapper over [`compile_rewrite_rule_subset`] that includes every subrule (the pre-gating
+/// behavior, unchanged for every existing caller).
 pub fn compile_rewrite_rule(
     opts: &FomaOptions,
     g: &Grammar,
     alphabet: &SegAlphabet,
     rule: &RewriteRuleDef,
 ) -> Option<(Box<Fsm>, Vec<TupleReport>)> {
+    compile_rewrite_rule_subset(opts, g, alphabet, rule, &|_| true)
+}
+
+/// Identical to [`compile_rewrite_rule`], but SKIPS any subrule for which `allowed(subrule_index)`
+/// is `false` (document order, `0`-based into `rule.subrules`) — the MPR/POS gating mechanism
+/// (`crate::gate`): a subrule declaring `requiredPartsOfSpeech`/`requiredMPRFeatures`/
+/// `excludedMPRFeatures` must not compile into a network branch that a NON-eligible lexical entry's
+/// group can reach (module doc "static partition" design in `crate::gate`). Returns `None` if
+/// EVERY subrule is either filtered out or hits an unsupported construct — the caller (per-group
+/// rule cascade builder) treats that identically to "this rule doesn't fire in this group": the
+/// whole rule is simply absent from the group's composed cascade (identity), not an error. This is
+/// the same `None` the pre-gating code already used for "unsupported construct", so no NEW branch
+/// is introduced at any call site — see [`compile_and_compose_rules_gated`]'s doc for the one
+/// known imprecision this shares with the ungated path (a rule with one unsupported subrule and one
+/// supported-but-gated subrule reports the WHOLE rule uncovered for every group, matching
+/// [`compile_rewrite_rule`]'s own pre-existing all-or-nothing `?` short-circuit — not a regression).
+pub fn compile_rewrite_rule_subset(
+    opts: &FomaOptions,
+    g: &Grammar,
+    alphabet: &SegAlphabet,
+    rule: &RewriteRuleDef,
+    allowed: &dyn Fn(usize) -> bool,
+) -> Option<(Box<Fsm>, Vec<TupleReport>)> {
     let mut net: Option<Box<Fsm>> = None;
     let mut reports: Vec<TupleReport> = Vec::new();
 
-    for subrule in &rule.subrules {
+    for (subrule_index, subrule) in rule.subrules.iter().enumerate() {
+        if !allowed(subrule_index) {
+            continue;
+        }
         // One shared occurrence counter per subrule: the LHS is textually shared across every
         // subrule of a rule but its alpha slots are numbered FRESH per subrule (HC's variable
         // scoping is per-subrule, module doc), so `lhs_slots` is (re)computed here, not hoisted
@@ -553,6 +582,49 @@ pub fn compile_and_compose_rules(
         // prototype report, not hidden.
         let _ = (rule.mode, rule.dir); // read for the record; not branched on (see doc above)
         match compile_rewrite_rule(opts, g, alphabet, rule) {
+            Some((net, reports)) => {
+                tuple_reports.push((rule.xml_id.clone(), reports));
+                composed = Some(match composed {
+                    None => net,
+                    Some(prev) => fsm_compose(opts, prev, net),
+                });
+            }
+            None => skipped.push(rule.xml_id.clone()),
+        }
+    }
+    composed
+}
+
+/// Identical to [`compile_and_compose_rules`], but for ONE GATING GROUP (`crate::gate`): for every
+/// `Rewrite`-kind rule at position `rule_pos` in `prules_in_order`, `subrule_ok(rule_pos, sub_idx)`
+/// decides whether that specific subrule is included for THIS group (module doc: a group is a set
+/// of lexical entries that agree on every gated subrule's applicability, so ungated subrules always
+/// pass `subrule_ok` unconditionally — only `crate::gate`'s own gated-subrule list ever returns
+/// `false`). A rule whose every subrule is filtered out for this group is skipped exactly like an
+/// unsupported-construct rule (absent from the group's cascade, i.e. identity for this group) —
+/// see [`compile_rewrite_rule_subset`]'s doc.
+#[allow(clippy::too_many_arguments)]
+pub fn compile_and_compose_rules_gated(
+    opts: &FomaOptions,
+    g: &Grammar,
+    alphabet: &SegAlphabet,
+    prules_in_order: &[&PhonRuleDef],
+    subrule_ok: &dyn Fn(usize, usize) -> bool,
+    skipped: &mut Vec<String>,
+    tuple_reports: &mut Vec<(String, Vec<TupleReport>)>,
+) -> Option<Box<Fsm>> {
+    let mut composed: Option<Box<Fsm>> = None;
+    for (rule_pos, pr) in prules_in_order.iter().enumerate() {
+        let PhonRuleDef::Rewrite(rule) = pr else {
+            skipped.push(match pr {
+                PhonRuleDef::Metathesis(m) => format!("{} (metathesis, unhandled)", m.xml_id),
+                PhonRuleDef::Rewrite(_) => unreachable!(),
+            });
+            continue;
+        };
+        let _ = (rule.mode, rule.dir); // see compile_and_compose_rules's own doc on this
+        let allowed = |sub_idx: usize| subrule_ok(rule_pos, sub_idx);
+        match compile_rewrite_rule_subset(opts, g, alphabet, rule, &allowed) {
             Some((net, reports)) => {
                 tuple_reports.push((rule.xml_id.clone(), reports));
                 composed = Some(match composed {
