@@ -302,12 +302,28 @@ fn sena_sample_300_multiset_parity() {
 /// Per-word engine-oracle timeout, matching `tests/f3_amharic_gate.rs::ENGINE_TIMEOUT`.
 const AMHARIC_ENGINE_TIMEOUT: Duration = Duration::from_secs(10);
 
-#[test]
-#[cfg_attr(
-    debug_assertions,
-    ignore = "engine oracle is slow unoptimized; run in --release (where this test always runs) or with --ignored"
-)]
-fn amharic_corpus_words_multiset_parity() {
+/// HARDENING, not a verified crash fix (see the commit message this landed in for the full
+/// investigation): this test (unlike `tests/f3_amharic_gate.rs`'s end-to-end test, which only
+/// compares the first `WORD_CAP = 100` corpus words) runs the FULL 673-word corpus through
+/// `FomaAnalyzer::analyze_word` -> `crate::confirm::confirm_batch` ->
+/// `hc_parse::Morpher::parse_word_selected` directly on the `cargo test` harness's own per-test
+/// thread, which has neither of the two stack-size guards this exact recursion class already gets
+/// elsewhere: `hc-cli`'s `main()` (a dedicated 1 GiB main-thread stack, see that file's doc) and
+/// `hc_parse::batch::hc_parse_batch`'s rayon pool workers (`WORKER_STACK_SIZE`, same 1 GiB). This
+/// test had been reported to abort abnormally (no panic text) on a long run elsewhere; a controlled,
+/// otherwise-idle rerun of the SAME unmodified test on unmodified `main` here completed cleanly
+/// (`cargo test -p hc-foma --release --test f3_parity amharic`, 673-word corpus, 986s, `ok`) with 11
+/// concurrent `rustc`/`cargo` processes observed system-wide at the time of the original report --
+/// i.e. this could not be reproduced as a deterministic in-process bug, and is more consistent with
+/// external termination under memory/scheduling contention from concurrently-running builds than
+/// with a genuine stack overflow. Giving this test the SAME stack-size guard its sibling call sites
+/// already carry is free (Windows reserves, doesn't commit, this address space) and closes the gap
+/// on the chance it ever is stack depth -- it does not depend on which explanation is right. Spawning
+/// the whole test body onto that thread is a runtime detail only; it does not change what is
+/// compared or asserted. (A spawned thread's stdout/panics bypass libtest's per-test capture, so
+/// this test's `println!` output -- and any assertion-failure text -- is no longer gated by
+/// `--nocapture`; acceptable for a diagnostic-heavy, always-slow gate like this one.)
+fn amharic_corpus_words_multiset_parity_impl() {
     let g = load_grammar("amharic-hc.xml");
     let mut analyzer = FomaAnalyzer::new(&g).expect("amharic compiles");
     let morpher = Morpher::new(&g, usize::MAX).with_word_timeout(Some(AMHARIC_ENGINE_TIMEOUT));
@@ -350,4 +366,25 @@ fn amharic_corpus_words_multiset_parity() {
             stats.n_excluded
         );
     }
+}
+
+/// Stack size matching `hc-cli`'s own main-thread worker (`hc-cli/src/main.rs`) and
+/// `hc_parse::batch::hc_parse_batch`'s rayon pool workers (`WORKER_STACK_SIZE`) — the same
+/// recursion class (`Morpher::parse_word_selected`'s analysis cascade), so the same proven-sufficient
+/// size, not one of `hc-foma`'s own smaller `PROBE_STACK_BYTES` (64 MiB, sized for a different,
+/// shallower foma-side probe recursion).
+const AMHARIC_PARITY_STACK_BYTES: usize = 1 << 30; // 1 GiB
+
+#[test]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "engine oracle is slow unoptimized; run in --release (where this test always runs) or with --ignored"
+)]
+fn amharic_corpus_words_multiset_parity() {
+    std::thread::Builder::new()
+        .stack_size(AMHARIC_PARITY_STACK_BYTES)
+        .spawn(amharic_corpus_words_multiset_parity_impl)
+        .expect("spawn amharic_corpus_words_multiset_parity worker thread")
+        .join()
+        .expect("amharic_corpus_words_multiset_parity worker thread panicked");
 }
