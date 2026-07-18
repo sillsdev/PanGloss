@@ -59,7 +59,12 @@ pub mod junctions;
 pub mod peel;
 pub(crate) mod preexpand;
 pub mod precision;
+/// P6 feasibility prototype (docs/fst-plan/p6-prototype-report.md): replace-rule compilation +
+/// underlying-form lexc, NOT wired into the mainline `emit`/`analyzer` path. See that module's doc.
+pub mod replace;
 pub mod tags;
+/// P6 feasibility prototype sibling of [`replace`]: the underlying-form lexc emitter.
+pub mod uflexc;
 
 /// Re-exported so downstream crates (and the P0 tests) have a single, versioned door into the
 /// `foma` runtime rather than depending on it directly.
