@@ -94,7 +94,9 @@ fn w91_affix_shapes_covered_by_upstream_fixtures() {
     let austronesian = fixtures
         .iter()
         .find(|f| f.category == "languages" && f.name == "austronesian-phase")
-        .expect("languages/austronesian-phase must be discoverable (machine submodule initialized?)");
+        .expect(
+            "languages/austronesian-phase must be discoverable (machine submodule initialized?)",
+        );
     let truncate = fixtures
         .iter()
         .find(|f| f.category == "edge-cases" && f.name == "truncate-morphotactic")
@@ -103,11 +105,20 @@ fn w91_affix_shapes_covered_by_upstream_fixtures() {
     let g = hc_grammar::load(&austronesian.load_grammar_xml()).unwrap();
     let morpher = Morpher::new(&g, usize::MAX).with_memo(true);
     // infix: sumulat = SULAT + AV (-um- infixed after the first consonant).
-    assert_eq!(morpher.parse_word("sumulat").signature(), "SULAT+AV|sumulat");
+    assert_eq!(
+        morpher.parse_word("sumulat").signature(),
+        "SULAT+AV|sumulat"
+    );
     // circumfix: keadilan = ADIL + NMLZ (ke-...-an wraps the stem).
-    assert_eq!(morpher.parse_word("keadilan").signature(), "NMLZ+ADIL|keadilan");
+    assert_eq!(
+        morpher.parse_word("keadilan").signature(),
+        "NMLZ+ADIL|keadilan"
+    );
     // noncontiguous: katibɯd = KTB + PERF, plus its obligatory-rewrite negative control.
-    assert_eq!(morpher.parse_word("katibɯd").signature(), "KTB+PERF|katibɯd");
+    assert_eq!(
+        morpher.parse_word("katibɯd").signature(),
+        "KTB+PERF|katibɯd"
+    );
     assert_eq!(morpher.parse_word("katabɯd").signature(), "-");
     // truncate (also present in austronesian-phase itself): pur = PURE + INCP.
     assert_eq!(morpher.parse_word("pur").signature(), "PURE+INCP|pur");
@@ -117,5 +128,8 @@ fn w91_affix_shapes_covered_by_upstream_fixtures() {
     // truncate-morphotactic's own distinguishing row: "gas" has TWO distinct analyses (direct +
     // chained), per that fixture's words.yaml note — the unplanned-second-analysis pin.
     let gas = morpher2.parse_word("gas").signature();
-    assert_eq!(gas, "++|gas;+|gas", "gas must yield both the direct and chained analyses");
+    assert_eq!(
+        gas, "++|gas;+|gas",
+        "gas must yield both the direct and chained analyses"
+    );
 }

@@ -314,7 +314,11 @@ mod tests {
         // Must not panic even if neither root exists on disk in some hypothetical checkout —
         // exercised for real by pointing scan_one_root at a nonexistent directory.
         let mut out = Vec::new();
-        scan_one_root(Path::new("/definitely/does/not/exist"), Root::Machine, &mut out);
+        scan_one_root(
+            Path::new("/definitely/does/not/exist"),
+            Root::Machine,
+            &mut out,
+        );
         assert!(out.is_empty());
     }
 
@@ -341,7 +345,10 @@ mod tests {
             },
         ];
         let violations = graduation_guard_violations(&fixtures);
-        assert_eq!(violations, vec![("edge-cases".to_string(), "foo".to_string())]);
+        assert_eq!(
+            violations,
+            vec![("edge-cases".to_string(), "foo".to_string())]
+        );
     }
 
     #[test]
