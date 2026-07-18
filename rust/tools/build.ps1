@@ -4,9 +4,13 @@
   no per-worktree copy-and-edit needed.
 
   Handles: worktree/path resolution, full-workspace vs single-crate builds, target-dir
-  redirection (build output always lands under G:\cargo-build-cache, never on C:, so 30+
-  worktrees can't fill the system drive), sccache wiring if installed,
-  a cross-worktree concurrency gate, and process-tree cleanup so a killed/timed-out build
+  redirection (prefers C:\cargo-targets -- NVMe, fast for the scattered small-file I/O a
+  build/link does -- as long as C: keeps >=50GB free; falls back to G:\cargo-build-cache,
+  a spinning HDD with much more capacity but worse random-I/O latency, once C: gets tight,
+  so 30+ worktrees can't refill the space crisis that motivated moving off C: in the first
+  place), sccache wiring if installed (its cache always lives on the HDD root -- cache hits
+  are cheap single-blob reads, so capacity matters more there than seek time), a
+  cross-worktree concurrency gate, and process-tree cleanup so a killed/timed-out build
   doesn't leave orphaned rustc/link processes behind.
 
   Examples:

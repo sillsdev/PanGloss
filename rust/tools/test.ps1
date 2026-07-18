@@ -7,9 +7,9 @@
   output, unlike `cargo test`'s single interleaved stream. Falls back to `cargo test`
   automatically if nextest isn't installed.
 
-  Same target-dir redirection (build output always lands under G:\cargo-build-cache,
-  never on C:), sccache wiring, cross-worktree concurrency gate, and process-tree
-  cleanup as build.ps1 -- see _common.ps1.
+  Same target-dir redirection (prefers C:\cargo-targets while it has room, falls back to
+  the G:\cargo-build-cache HDD root otherwise), sccache wiring, cross-worktree concurrency
+  gate, and process-tree cleanup as build.ps1 -- see _common.ps1.
 
   Examples:
     rust\tools\test.ps1                                  # full workspace, release
