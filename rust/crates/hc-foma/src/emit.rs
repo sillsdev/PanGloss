@@ -182,6 +182,7 @@
 
 use std::collections::BTreeSet;
 
+use foma::utf8::is_combining;
 use hc_featstruct::{is_unifiable, FeatureStruct, FsId};
 use hc_grammar::chardef::{CharDefId, CharDefKind, CharDefTable};
 use hc_grammar::model::{
@@ -678,6 +679,82 @@ fn escape_lexc_text(s: &str) -> String {
             out.push('%');
         }
         out.push(c);
+    }
+    out
+}
+
+/// Whether `c` is a Unicode combining mark per `foma::utf8::is_combining` (Combining Diacritical
+/// Marks + Extended/Supplement/for-Symbols + Half Marks — the exact ranges vendored `apply.rs`
+/// checks, see that function's doc). Encodes `c` to a scratch UTF-8 buffer since `is_combining`
+/// (a literal port of foma's C `utf8iscombining`) takes a byte slice.
+fn char_is_combining(c: char) -> bool {
+    let mut buf = [0u8; 4];
+    is_combining(c.encode_utf8(&mut buf).as_bytes()) != 0
+}
+
+/// Diacritics fix (real 100%-recall bug, not a reference-grammar gap): every "base char + trailing
+/// combining mark(s)" run occurring inside any char-def's OWN [`CharDef::representations_nfd`],
+/// collected across the whole surface [`CharDefTable`] and declared as lexc `Multichar_Symbols` so
+/// BOTH sides of the propose path agree these codepoints are ONE token.
+///
+/// Root cause: [`hc_grammar::nfd::nfd`] NFD-normalizes every surface string this crate emits AND
+/// the query word [`crate::analyzer`] feeds to `apply_up` (mirroring C#'s `Normalize(FormD)`), so a
+/// precomposed accented letter like é (U+00E9, one codepoint) becomes TWO codepoints in every lexc
+/// literal this emitter writes: "e" + COMBINING ACUTE ACCENT (U+0301). `vendor/foma`'s own lexc
+/// tokenizer (`lexcread.rs::lexc_string_to_tokens`) has no special handling for this — absent a
+/// declared multichar symbol, it emits one symbol per codepoint, so the compiled network gets TWO
+/// separate arcs ("e", then the combining mark). But `vendor/foma`'s `apply.rs` (`sigmatch_array`
+/// construction) unconditionally merges any base codepoint with its immediately following run of
+/// combining codepoints into ONE query-side token and forces it to `IDENTITY` — which only ever
+/// matches a network's `?` (`UNKNOWN`) wildcard arc, never two ordinary literal arcs. A network
+/// with no declared multichar symbol for the pair therefore has no arc `IDENTITY` can match at that
+/// position at all: total non-match for ANY word containing a base+combining-mark sequence, which
+/// is every word containing a Latin diacritic under NFD — independent of affixation (this hits bare
+/// roots too), and never triggered by Cyrillic/other scripts whose letters don't NFD-decompose into
+/// base+combining pairs.
+///
+/// Fix: declare each such run (e.g. "e\u{301}") as its own `Multichar_Symbols` entry. This makes
+/// `lexcread.rs`'s `first_mc_prefix` match the WHOLE run as one symbol at compile time (one arc,
+/// not two) — and, symmetrically, makes `apply.rs`'s initial sigma-trie walk (which runs BEFORE the
+/// combining-merge check) match that same whole run as one KNOWN symbol via `lastmatch`, so the
+/// merge-check's `is_combining` probe on the un-consumed remainder finds nothing left to merge and
+/// never overwrites `signumber` to `IDENTITY`. Both sides then agree on one token for the pair.
+///
+/// Scope: only catches a combining run that lies entirely inside ONE char-def's own representation
+/// — true for every reference/edge-case grammar's convention of modeling an accented letter as a
+/// single segment (exactly how `g_dia.xml`'s `é`/`î`/`ñ`/`ö` are each one `SegmentDefinition`,
+/// mirroring how the HermitCrab `CharacterDefinitionTable` format expects diacritics to be
+/// authored). A grammar that instead modeled a combining mark as its OWN standalone char-def
+/// (a base vowel segment immediately followed by an unrelated "tone mark" segment, so the run only
+/// exists after concatenating two DIFFERENT char-defs' representations) would need a
+/// cross-boundary version of this scan too — not implemented here since no reference/edge-case
+/// grammar does this and it would show up as a recall-gate miss, at which point this is the place
+/// to extend (same convention as [`PATTERN_ITER_CAP`]'s doc).
+fn combining_run_symbols(table: &CharDefTable) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    for (_, cd) in table.iter() {
+        if cd.kind() != CharDefKind::Segment {
+            continue;
+        }
+        for rep in cd.representations_nfd() {
+            let chars: Vec<char> = rep.chars().collect();
+            let mut i = 0usize;
+            while i < chars.len() {
+                let mut j = i + 1;
+                while j < chars.len() && char_is_combining(chars[j]) {
+                    j += 1;
+                }
+                if j - i >= 2 {
+                    // Escape exactly like the surface text this run will actually appear inside
+                    // ([`write_tag_entry`] always runs [`escape_lexc_text`] over the FULL surface
+                    // string before writing it) — per-char escaping is context-free, so escaping
+                    // just this slice gives byte-identical output to what will be embedded.
+                    let run: String = chars[i..j].iter().collect();
+                    out.insert(escape_lexc_text(&run));
+                }
+                i = j;
+            }
+        }
     }
     out
 }
@@ -2040,6 +2117,17 @@ pub fn emit_with_precision(g: &Grammar, precision: PrecisionConfig) -> EmitResul
         out.push_str(sym);
         out.push('\n');
     }
+    // Diacritics fix (see `combining_run_symbols`' doc): declare every base+combining-mark run
+    // found in the surface table's own char-def representations as ONE lexc multichar symbol, so
+    // an NFD-decomposed accented letter (e.g. é -> "e" + COMBINING ACUTE ACCENT) compiles into a
+    // single arc AND matches as a single KNOWN symbol at `apply_up` time — instead of the lexc
+    // compiler's default one-symbol-per-codepoint tokenization racing against `vendor/foma`'s own
+    // apply-time combining-mark merge (which forces an undeclared pair to `IDENTITY`, matching only
+    // a `?` wildcard arc that a literal-only network never has).
+    for sym in combining_run_symbols(table) {
+        out.push_str(&sym);
+        out.push('\n');
+    }
 
     // One lexc entry line per accepted spelling of one root (module doc, "Surface spelling").
     // `pk`: `Some(r.id)` lets `crate::precision`'s ENVIRONMENT-family owner-side gate reroute a
@@ -2689,5 +2777,109 @@ mod structural_and_pattern_tests {
              compound-recategorization broadening), got {}",
             outcome.confirmed
         );
+    }
+
+    // --- Diacritics gate (unit-level, white-box on `combining_run_symbols`/`char_is_combining`) --
+    //
+    // Full end-to-end coverage (propose + confirm via `FomaAnalyzer`, against the real engine as
+    // recall oracle) lives in `tests/f5_diacritics_gate.rs`; these are the narrower white-box pins
+    // on the actual mechanism this bug's fix added, using the same `tests/fixtures/dia-hc.xml`
+    // fixture (loaded relative to THIS crate's own manifest dir, unlike `load`/`load_sample` above
+    // which reach into the sibling `machine`/`samples` checkouts).
+
+    fn load_dia_fixture() -> Grammar {
+        let full = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/dia-hc.xml");
+        let xml = std::fs::read_to_string(&full).unwrap_or_else(|e| panic!("{}: {e}", full.display()));
+        hc_grammar::load(&xml).unwrap()
+    }
+
+    /// A precomposed Latin letter is NOT itself a combining mark; NFD's COMBINING ACUTE ACCENT
+    /// (U+0301, the decomposition of é) is. Also checks a plain ASCII letter and a non-Latin
+    /// (Cyrillic) letter are never treated as combining — Cyrillic never NFD-decomposes into a
+    /// base+combining pair, which is why this bug never affected Cyrillic grammars.
+    #[test]
+    fn char_is_combining_matches_nfd_combining_marks_only() {
+        assert!(!char_is_combining('e'));
+        assert!(!char_is_combining('\u{e9}')); // é (precomposed, NFC) -- not itself combining.
+        assert!(char_is_combining('\u{301}')); // COMBINING ACUTE ACCENT (é's NFD decomposition).
+        assert!(char_is_combining('\u{303}')); // COMBINING TILDE (ñ's NFD decomposition).
+        assert!(char_is_combining('\u{308}')); // COMBINING DIAERESIS (ö's NFD decomposition).
+        assert!(!char_is_combining('а')); // Cyrillic а (U+0430) -- an ordinary base letter.
+    }
+
+    /// The actual bug: `dia-hc.xml`'s `é`/`î`/`ñ`/`ö` char-defs each have a single, precomposed
+    /// (NFC) `<Representation>`; [`CharDef::representations_nfd`] NFD-normalizes it to a 2-codepoint
+    /// base+combining-mark run. [`combining_run_symbols`] must recover exactly these four runs (and
+    /// nothing else — no plain-ASCII char-def contributes a run) so the emitter can declare them as
+    /// lexc `Multichar_Symbols`.
+    #[test]
+    fn combining_run_symbols_finds_every_decomposed_diacritic() {
+        let g = load_dia_fixture();
+        let table = surface_table(&g);
+        let mut got: Vec<String> = combining_run_symbols(table).into_iter().collect();
+        got.sort();
+        let mut want = vec![
+            "e\u{301}".to_string(), // é
+            "i\u{302}".to_string(), // î
+            "n\u{303}".to_string(), // ñ
+            "o\u{308}".to_string(), // ö
+        ];
+        want.sort();
+        assert_eq!(got, want);
+    }
+
+    /// The emitted lexc source must actually declare these runs in `Multichar_Symbols` (not just
+    /// compute them and drop them) — this is what makes `lexcread.rs`'s `first_mc_prefix` match the
+    /// whole run as one symbol at compile time instead of falling through to lexc's default
+    /// one-codepoint-per-symbol tokenization.
+    #[test]
+    fn emitted_lexc_declares_the_combining_runs() {
+        let g = load_dia_fixture();
+        let result = emit(&g);
+        let header_end = result.lexc_source.find("\nLEXICON").unwrap_or(result.lexc_source.len());
+        let header = &result.lexc_source[..header_end];
+        for run in ["e\u{301}", "i\u{302}", "n\u{303}", "o\u{308}"] {
+            assert!(
+                header.contains(run),
+                "Multichar_Symbols header must declare {run:?}; header was:\n{header}"
+            );
+        }
+    }
+
+    /// Regression-scope check for the diacritics fix, measured (not assumed) against the three
+    /// real reference grammars: Sena and Indonesian's char-def tables contain no base+combining-
+    /// mark run at all, so [`combining_run_symbols`] is EMPTY for both and the emitted lexc is
+    /// BYTE-IDENTICAL to before this fix for those two (the new `for sym in
+    /// combining_run_symbols(table)` loop body in `emit_with_precision` never executes) — the
+    /// mechanical reason `f1_sena_gate`/`f2_indonesian_gate`/`f3_parity`'s Sena+Indonesian legs/
+    /// `f4_composite_gate`/`pk1`/`pk2`/`sena_musandilesera_full_parity` above all keep passing
+    /// unperturbed. Amharic is NOT a no-op: its char-def table has exactly one such run, "a\u{308}"
+    /// (a base "a" + COMBINING DIAERESIS — a romanized-transliteration segment, not a native Ge'ez
+    /// glyph; Ge'ez's own syllabic characters are precomposed and don't NFD-decompose), so this fix
+    /// adds exactly one new `Multichar_Symbols` declaration to Amharic's emitted lexc. That this is
+    /// harmless (not just "unused symbols are harmless" per this file's own doc, but actually
+    /// exercised and correct) is what `f3_amharic_gate`'s `c_amharic_end_to_end_multiset_parity`
+    /// (100-word full multiset parity, passing with this exact code) demonstrates — see this
+    /// crate's own gate suite, not re-asserted here. Skips (rather than fails) a grammar not
+    /// present on disk, same convention as `load_sample`'s other callers.
+    #[test]
+    fn combining_run_symbols_measured_per_reference_grammar() {
+        let cases: &[(&str, &[&str])] = &[
+            ("sena-hc.xml", &[]),
+            ("indonesian-hc.xml", &[]),
+            ("amharic-hc.xml", &["a\u{308}"]),
+        ];
+        for &(name, want) in cases {
+            let Some(g) = load_sample(name) else {
+                eprintln!("skipping {name}: not present on disk");
+                continue;
+            };
+            let table = surface_table(&g);
+            let mut found: Vec<String> = combining_run_symbols(table).into_iter().collect();
+            found.sort();
+            let mut want: Vec<String> = want.iter().map(|s| s.to_string()).collect();
+            want.sort();
+            assert_eq!(found, want, "{name}: unexpected combining-run symbol set");
+        }
     }
 }
