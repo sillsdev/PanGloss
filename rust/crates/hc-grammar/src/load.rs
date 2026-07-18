@@ -2536,6 +2536,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with --include-ignored"]
     fn loads_indonesian() {
         // Independently confirmed via `grep -c` on indonesian-hc.xml:
         //   syn features = 1 POS + 1 head (empty <HeadFeatures/> still adds it) + 0 head-declared = 2
@@ -2547,6 +2548,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "needs local gitignored corpus data (samples/data/amharic-hc.xml); run with --include-ignored"]
     fn loads_amharic() {
         // Independently confirmed via `grep -c` on amharic-hc.xml:
         //   syn features = 1 POS + 1 head + 16 head-declared (11 SymbolicFeature + 5 ComplexFeature
@@ -2558,6 +2560,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
     fn loads_sena() {
         // Independently confirmed via `grep -c` on sena-hc.xml:
         //   syn features = 1 POS + 1 head + 3 head-declared = 5 ; POS symbols = 37
@@ -2568,6 +2571,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "needs local gitignored corpus data (samples/data/{indonesian,amharic,sena}-hc.xml); run with --include-ignored"]
     fn dump_grammar_is_deterministic() {
         for name in ["indonesian-hc.xml", "amharic-hc.xml", "sena-hc.xml"] {
             let Some(path) = sample_path(name) else {
@@ -2582,6 +2586,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with --include-ignored"]
     fn dump_grammar_reports_headline_counts() {
         let Some(path) = sample_path("indonesian-hc.xml") else {
             eprintln!("skipping: indonesian not present");

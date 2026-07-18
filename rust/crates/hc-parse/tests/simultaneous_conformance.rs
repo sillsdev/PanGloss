@@ -23,6 +23,12 @@ fn load_fixture(name: &str) -> hc_grammar::model::Grammar {
     load(&xml).unwrap_or_else(|e| panic!("{name}: grammar failed to load: {e}"))
 }
 
+/// Self-skip guard: `rust/conformance/` isn't a submodule yet (module doc), so `--include-ignored`
+/// runs (CI's release sweep included) must not panic on the missing directory.
+fn have_fixture(name: &str) -> bool {
+    fixture_path(name, "grammar.xml").exists()
+}
+
 /// `rust/conformance/rewrite/simultaneous-feeding/expected.tsv` — direct port of
 /// `RewriteRuleTests.MultipleApplicationRules`, tagged Simultaneous. Proves §1.1's headline
 /// algorithmic fact: a rewrite under Simultaneous computes every match's target+environment against
@@ -33,6 +39,10 @@ fn load_fixture(name: &str) -> hc_grammar::model::Grammar {
 #[test]
 #[ignore = "conformance/ not yet pulled into PanGloss as a submodule -- see docs/hermitcrab-rust-port-audit.md section 5; will start running again once it lands"]
 fn simultaneous_feeding_matches_oracle() {
+    if !have_fixture("simultaneous-feeding") {
+        eprintln!("skipping: rust/conformance/rewrite/simultaneous-feeding not present on disk");
+        return;
+    }
     let g = load_fixture("simultaneous-feeding");
     let m = Morpher::new(&g, usize::MAX);
     let cases = [("gigugu", "|gigugu"), ("gigugi", "-"), ("gigigi", "-")];
@@ -56,6 +66,12 @@ fn simultaneous_feeding_matches_oracle() {
 #[test]
 #[ignore = "conformance/ not yet pulled into PanGloss as a submodule -- see docs/hermitcrab-rust-port-audit.md section 5; will start running again once it lands"]
 fn simultaneous_feeding_control_iterative_matches_oracle() {
+    if !have_fixture("simultaneous-feeding-control-iterative") {
+        eprintln!(
+            "skipping: rust/conformance/rewrite/simultaneous-feeding-control-iterative not present on disk"
+        );
+        return;
+    }
     let g = load_fixture("simultaneous-feeding-control-iterative");
     let m = Morpher::new(&g, usize::MAX);
     let cases = [("gigugu", "-"), ("gigugi", "|gigugi"), ("gigigi", "-")];
@@ -83,6 +99,10 @@ fn simultaneous_feeding_control_iterative_matches_oracle() {
 #[test]
 #[ignore = "conformance/ not yet pulled into PanGloss as a submodule -- see docs/hermitcrab-rust-port-audit.md section 5; will start running again once it lands"]
 fn simultaneous_epenthesis_matches_oracle() {
+    if !have_fixture("simultaneous-epenthesis") {
+        eprintln!("skipping: rust/conformance/rewrite/simultaneous-epenthesis not present on disk");
+        return;
+    }
     let g = load_fixture("simultaneous-epenthesis");
     let m = Morpher::new(&g, usize::MAX);
     let cases = [("buibui", "|b+?uibui"), ("bubu", "-"), ("bibu", "-")];
@@ -117,6 +137,10 @@ fn simultaneous_epenthesis_matches_oracle() {
 #[test]
 #[ignore = "conformance/ not yet pulled into PanGloss as a submodule -- see docs/hermitcrab-rust-port-audit.md section 5; will start running again once it lands"]
 fn simultaneous_epenthesis_memo_cache_soundness_against_the_confirmed_csharp_bug_shape() {
+    if !have_fixture("simultaneous-epenthesis") {
+        eprintln!("skipping: rust/conformance/rewrite/simultaneous-epenthesis not present on disk");
+        return;
+    }
     let g = load_fixture("simultaneous-epenthesis");
     let memo_on = Morpher::new(&g, usize::MAX);
     let memo_off = Morpher::new(&g, usize::MAX).with_memo(false);
@@ -155,6 +179,10 @@ fn simultaneous_epenthesis_memo_cache_soundness_against_the_confirmed_csharp_bug
 #[test]
 #[ignore = "conformance/ not yet pulled into PanGloss as a submodule -- see docs/hermitcrab-rust-port-audit.md section 5; will start running again once it lands"]
 fn simultaneous_epenthesis_cascade_documented_scope_cut() {
+    if !have_fixture("simultaneous-epenthesis-cascade") {
+        eprintln!("skipping: rust/conformance/rewrite/simultaneous-epenthesis-cascade not present on disk");
+        return;
+    }
     let g = load_fixture("simultaneous-epenthesis-cascade");
     let m = Morpher::new(&g, usize::MAX);
     assert_eq!(

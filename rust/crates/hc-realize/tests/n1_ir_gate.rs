@@ -30,6 +30,16 @@
 //! The sidecar's `Case` mappings themselves are confirmed directly against the loaded
 //! `RealizeMap` (`amharic_sidecar_case_entries_map_as_intended` below), since no real corpus
 //! word exercises Case through `to_ir` end-to-end.
+//!
+//! ## Test-timing policy (revised 2026-07-17)
+//! The default local `cargo test --workspace --release` run must stay under ~60s and must not
+//! depend on the gitignored real-language corpus fixtures (`samples/data/*-hc.xml`,
+//! `samples/data/*-words.txt`) at all. Every test that loads a grammar XML or corpus word list is
+//! unconditionally `#[ignore = "..."]`d (the existing self-skip above already keeps
+//! `--include-ignored` green when the fixture is absent). `both_real_sidecar_files_parse_without_error`
+//! and `guessed_root_becomes_guessed_concept_and_never_panics` stay in the default run: the former
+//! only reads the two `*-realize.toml` sidecars, which ARE tracked in git (not gitignored, see
+//! `.gitignore`), and the latter uses a fully synthetic inline grammar.
 
 use std::path::{Path, PathBuf};
 
@@ -102,6 +112,7 @@ fn both_real_sidecar_files_parse_without_error() {
 // --- Amharic: the real sidecar, exercising every feature slot -------------------------------
 
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/amharic-hc.xml); run with --include-ignored"]
 fn amharic_bare_root_has_no_features_and_no_extras() {
     let Some(g) = load_grammar("amharic-hc.xml") else {
         eprintln!("skipping: amharic-hc.xml not present on disk");
@@ -118,6 +129,7 @@ fn amharic_bare_root_has_no_features_and_no_extras() {
 }
 
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/amharic-hc.xml); run with --include-ignored"]
 fn amharic_possessed_noun_maps_poss_via_sidecar() {
     let Some(g) = load_grammar("amharic-hc.xml") else {
         eprintln!("skipping: amharic-hc.xml not present on disk");
@@ -134,6 +146,7 @@ fn amharic_possessed_noun_maps_poss_via_sidecar() {
 }
 
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/amharic-hc.xml); run with --include-ignored"]
 fn amharic_plural_only_noun_maps_num() {
     let Some(g) = load_grammar("amharic-hc.xml") else {
         eprintln!("skipping: amharic-hc.xml not present on disk");
@@ -150,6 +163,7 @@ fn amharic_plural_only_noun_maps_num() {
 }
 
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/amharic-hc.xml); run with --include-ignored"]
 fn amharic_pluralized_possessed_noun_maps_both_num_and_poss() {
     let Some(g) = load_grammar("amharic-hc.xml") else {
         eprintln!("skipping: amharic-hc.xml not present on disk");
@@ -189,6 +203,7 @@ fn amharic_pluralized_possessed_noun_maps_both_num_and_poss() {
 }
 
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/amharic-hc.xml); run with --include-ignored"]
 fn amharic_unmapped_verb_agreement_glosses_land_in_extras() {
     let Some(g) = load_grammar("amharic-hc.xml") else {
         eprintln!("skipping: amharic-hc.xml not present on disk");
@@ -215,6 +230,7 @@ fn amharic_unmapped_verb_agreement_glosses_land_in_extras() {
 /// confirms the loaded sidecar produces the intended Case assignments directly via `RealizeMap`,
 /// which is what `to_ir`'s priority-chain step 2 actually consults).
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/amharic-hc.xml); run with --include-ignored"]
 fn amharic_sidecar_case_entries_map_as_intended() {
     let Some(_g) = load_grammar("amharic-hc.xml") else {
         eprintln!("skipping: amharic-hc.xml not present on disk");
@@ -242,6 +258,7 @@ fn amharic_sidecar_case_entries_map_as_intended() {
 // --- Indonesian: minimal sidecar, roots pass through, derivational affixes stay extras -------
 
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with --include-ignored"]
 fn indonesian_root_only_word_has_no_extras_through_minimal_sidecar() {
     let Some(g) = load_grammar("indonesian-hc.xml") else {
         eprintln!("skipping: indonesian-hc.xml not present on disk");
@@ -257,6 +274,7 @@ fn indonesian_root_only_word_has_no_extras_through_minimal_sidecar() {
 }
 
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with --include-ignored"]
 fn indonesian_voice_prefix_stays_in_extras_via_minimal_sidecar() {
     let Some(g) = load_grammar("indonesian-hc.xml") else {
         eprintln!("skipping: indonesian-hc.xml not present on disk");
@@ -273,6 +291,7 @@ fn indonesian_voice_prefix_stays_in_extras_via_minimal_sidecar() {
 // --- Sena: no sidecar at all -- RealizeMap::empty() must still degrade gracefully ------------
 
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
 fn sena_root_only_word_through_empty_map() {
     let Some(g) = load_grammar("sena-hc.xml") else {
         eprintln!("skipping: sena-hc.xml not present on disk");
@@ -288,6 +307,7 @@ fn sena_root_only_word_through_empty_map() {
 }
 
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
 fn sena_two_morpheme_word_everything_unmapped_goes_to_extras() {
     let Some(g) = load_grammar("sena-hc.xml") else {
         eprintln!("skipping: sena-hc.xml not present on disk");
@@ -376,6 +396,7 @@ fn guessed_root_becomes_guessed_concept_and_never_panics() {
 // panics on ordinary corpus words -- it is not a substitute for N2's gate.
 
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/*-hc.xml, *-words.txt); run with --include-ignored"]
 fn to_ir_never_panics_on_a_bounded_corpus_sample() {
     let cases: &[(&str, Option<&str>, &str)] = &[
         (

@@ -287,6 +287,7 @@ mod tests {
     /// Sena has no reduplication rules at all -- the peeler must be a true no-op (empty `redup_rules`,
     /// `peel_candidates` short-circuits to empty for any word without ever calling `propose`).
     #[test]
+    #[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
     fn sena_has_no_redup_rules() {
         let Some(g) = load_sena() else {
             eprintln!("skipping: sena-hc.xml not present on disk");
@@ -307,6 +308,7 @@ mod tests {
     /// Indonesian's redup rules recover "membagi-bagi" (a known corpus word) when the residual
     /// "membagi" is handed a stub proposer that returns one fixed base candidate.
     #[test]
+    #[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with --include-ignored"]
     fn reduplication_recovers_known_corpus_word() {
         let Some(g) = load_indonesian() else {
             eprintln!("skipping: indonesian-hc.xml not present on disk");

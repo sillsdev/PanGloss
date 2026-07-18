@@ -19,6 +19,20 @@
 //! mechanism that closes the redup gap end-to-end (`tests/f4_composite_gate.rs` test (c) already
 //! demonstrates all 7 redup words round-trip byte-for-byte) — this file's Indonesian test covers
 //! the full, unfiltered 121-word corpus in one place as the P3 gate record.
+//!
+//! ## Test-timing policy (revised 2026-07-17)
+//! The default local `cargo test --workspace --release` run must stay under ~60s and must not
+//! depend on the gitignored real-language corpus fixtures (`samples/data/*`) at all. All three
+//! tests here load a real grammar from `samples/data/`, so all three are unconditionally
+//! `#[ignore = "..."]`d (replacing the old `cfg_attr(debug_assertions, ...)` debug-only ignore),
+//! each with a self-skip guard so `--include-ignored` runs stay green where the fixture is absent
+//! (CI). Run the full set locally with
+//! `cargo test -p hc-foma --release --test f3_parity -- --include-ignored`.
+//!
+//! The Amharic leg has a KNOWN pre-existing issue (separately owned, not fixed here): it has been
+//! observed to run past 60s and to crash abnormally on `main`. That behavior is unrelated to this
+//! timing-policy change — it is exactly why the test is data-gated: CI (no fixtures) never
+//! exercises it, and a local `--include-ignored` run is where the pre-existing crash would surface.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -31,6 +45,11 @@ use hc_parse::{Morpher, ParseOptions, WordAnalysis};
 fn sample_path(name: &str) -> PathBuf {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     manifest_dir.join("../../../samples/data").join(name)
+}
+
+/// Self-skip guard: gitignored real-corpus fixtures aren't present in a fresh clone or CI.
+fn have(name: &str) -> bool {
+    sample_path(name).exists()
 }
 
 fn load_grammar(xml_name: &str) -> Grammar {
@@ -229,11 +248,12 @@ fn compare_word(
 // -------------------------------------------------------------------------------------------
 
 #[test]
-#[cfg_attr(
-    debug_assertions,
-    ignore = "engine oracle is slow unoptimized; run in --release (where this test always runs) or with --ignored"
-)]
+#[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with --include-ignored"]
 fn indonesian_121_corpus_words_multiset_parity() {
+    if !have("indonesian-hc.xml") {
+        eprintln!("skipping: indonesian-hc.xml not present on disk");
+        return;
+    }
     let g = load_grammar("indonesian-hc.xml");
     let mut analyzer = FomaAnalyzer::new(&g).expect("indonesian compiles");
     let morpher = Morpher::new(&g, usize::MAX);
@@ -259,11 +279,12 @@ fn indonesian_121_corpus_words_multiset_parity() {
 // -------------------------------------------------------------------------------------------
 
 #[test]
-#[cfg_attr(
-    debug_assertions,
-    ignore = "engine oracle is slow unoptimized; run in --release (where this test always runs) or with --ignored"
-)]
+#[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
 fn sena_sample_300_multiset_parity() {
+    if !have("sena-hc.xml") {
+        eprintln!("skipping: sena-hc.xml not present on disk");
+        return;
+    }
     let g = load_grammar("sena-hc.xml");
     let mut analyzer = FomaAnalyzer::new(&g).expect("sena compiles");
     let morpher = Morpher::new(&g, usize::MAX);
@@ -376,11 +397,12 @@ fn amharic_corpus_words_multiset_parity_impl() {
 const AMHARIC_PARITY_STACK_BYTES: usize = 1 << 30; // 1 GiB
 
 #[test]
-#[cfg_attr(
-    debug_assertions,
-    ignore = "engine oracle is slow unoptimized; run in --release (where this test always runs) or with --ignored"
-)]
+#[ignore = "needs local gitignored corpus data (samples/data/amharic-hc.xml); run with --include-ignored"]
 fn amharic_corpus_words_multiset_parity() {
+    if !have("amharic-hc.xml") {
+        eprintln!("skipping: amharic-hc.xml not present on disk");
+        return;
+    }
     std::thread::Builder::new()
         .stack_size(AMHARIC_PARITY_STACK_BYTES)
         .spawn(amharic_corpus_words_multiset_parity_impl)

@@ -99,6 +99,7 @@ fn load(name: &str) -> Option<Grammar> {
 }
 
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with --include-ignored"]
 fn compiles_all_indonesian_prule_patterns() {
     let Some(grammar) = load("indonesian-hc.xml") else {
         eprintln!("skipping: indonesian-hc.xml not present on disk");
@@ -114,6 +115,7 @@ fn compiles_all_indonesian_prule_patterns() {
 }
 
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/amharic-hc.xml); run with --include-ignored"]
 fn compiles_all_amharic_prule_patterns() {
     let Some(grammar) = load("amharic-hc.xml") else {
         eprintln!("skipping: amharic-hc.xml not present on disk");

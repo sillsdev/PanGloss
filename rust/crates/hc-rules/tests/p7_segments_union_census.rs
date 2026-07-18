@@ -155,6 +155,7 @@ fn census(g: &Grammar, xml: &str, tag: &str) {
 }
 
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/{indonesian,amharic}-hc.xml); run with --include-ignored"]
 fn p7_segments_union_census() {
     let mut ran = 0;
     for name in ["indonesian-hc.xml", "amharic-hc.xml"] {

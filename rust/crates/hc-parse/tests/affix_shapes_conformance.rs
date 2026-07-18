@@ -50,26 +50,48 @@ fn replay(name: &str) -> usize {
     checked
 }
 
+/// Self-skip guard: `rust/conformance/` isn't a submodule yet (see module doc), so `--include-ignored`
+/// runs (CI's release sweep included) must not panic on the missing directory.
+fn have_fixture(name: &str) -> bool {
+    fixture_dir(name).join("grammar.xml").exists()
+}
+
 #[test]
 #[ignore = "conformance/ not yet pulled into PanGloss as a submodule -- see docs/hermitcrab-rust-port-audit.md section 5; will start running again once it lands"]
 fn infix_matches_oracle() {
+    if !have_fixture("infix") {
+        eprintln!("skipping: rust/conformance/affix-shapes/infix not present on disk");
+        return;
+    }
     assert_eq!(replay("infix"), 6);
 }
 
 #[test]
 #[ignore = "conformance/ not yet pulled into PanGloss as a submodule -- see docs/hermitcrab-rust-port-audit.md section 5; will start running again once it lands"]
 fn circumfix_matches_oracle() {
+    if !have_fixture("circumfix") {
+        eprintln!("skipping: rust/conformance/affix-shapes/circumfix not present on disk");
+        return;
+    }
     assert_eq!(replay("circumfix"), 5);
 }
 
 #[test]
 #[ignore = "conformance/ not yet pulled into PanGloss as a submodule -- see docs/hermitcrab-rust-port-audit.md section 5; will start running again once it lands"]
 fn noncontiguous_matches_oracle() {
+    if !have_fixture("noncontiguous") {
+        eprintln!("skipping: rust/conformance/affix-shapes/noncontiguous not present on disk");
+        return;
+    }
     assert_eq!(replay("noncontiguous"), 4);
 }
 
 #[test]
 #[ignore = "conformance/ not yet pulled into PanGloss as a submodule -- see docs/hermitcrab-rust-port-audit.md section 5; will start running again once it lands"]
 fn truncate_matches_oracle() {
+    if !have_fixture("truncate") {
+        eprintln!("skipping: rust/conformance/affix-shapes/truncate not present on disk");
+        return;
+    }
     assert_eq!(replay("truncate"), 9);
 }

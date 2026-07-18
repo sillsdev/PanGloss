@@ -389,6 +389,7 @@ mod tests {
 
     /// A word with no proposed candidates at all returns an empty, non-panicking outcome.
     #[test]
+    #[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
     fn unknown_word_returns_empty_outcome() {
         let Some(g) = load_sena() else {
             eprintln!("skipping: sena-hc.xml not present on disk");
@@ -405,6 +406,7 @@ mod tests {
     /// Sanity: `mbali` confirms to a non-empty outcome whose size does not exceed
     /// `candidates_generated` (confirm only prunes, never invents).
     #[test]
+    #[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
     fn mbali_confirms_within_candidate_bound() {
         let Some(g) = load_sena() else {
             eprintln!("skipping: sena-hc.xml not present on disk");
@@ -426,6 +428,7 @@ mod tests {
     /// Includes a word with zero candidates (`"zzzqxxxnonsense"`) alongside real corpus words so the
     /// batch path's empty-outcome handling is covered too, not just the confirms-something case.
     #[test]
+    #[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
     fn analyze_words_matches_analyze_word_per_word() {
         let Some(g) = load_sena() else {
             eprintln!("skipping: sena-hc.xml not present on disk");

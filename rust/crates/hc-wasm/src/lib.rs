@@ -865,11 +865,13 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
     fn foma_path_matches_full_engine_on_sena_sample() {
         assert_foma_matches_engine("sena-hc.xml", "sena-words.txt", 40);
     }
 
     #[test]
+    #[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with --include-ignored"]
     fn foma_path_matches_full_engine_on_indonesian_corpus() {
         // Indonesian's whole corpus file is only 121 words (plan §P3: "all 121 corpus words
         // required 100%") -- small enough to run in full rather than sampling.

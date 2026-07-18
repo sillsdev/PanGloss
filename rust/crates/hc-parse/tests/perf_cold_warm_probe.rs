@@ -4,6 +4,13 @@
 //! several times in a row within one process (same `Morpher`, i.e. `RuleCache` built once at
 //! `Morpher::new` per `hc-parse/src/morpher.rs`) and comparing call 1 (cold) vs calls 2-5 (warm).
 //! Also compares `--memo=on` vs `--memo=off` on the same words to size the M6 memo's own effect.
+//!
+//! CI note: `morpher_memo_on` below is built with NO wall-clock or step cap
+//! (`Morpher::new(&g, usize::MAX)`), unlike `morpher_memo_off`'s deliberate 20s watchdog — on these
+//! genuinely pathological words this leg has been observed to run past 5 minutes on this
+//! development machine without completing. `.github/workflows/rust-ci.yml`'s
+//! `--include-ignored` step therefore `--skip`s this test by name; it is diagnostic
+//! instrumentation, not a correctness gate, so CI does not need to run it at all.
 
 use std::path::PathBuf;
 use std::time::Instant;
@@ -17,7 +24,7 @@ fn sample_path(name: &str) -> Option<PathBuf> {
 }
 
 #[test]
-#[ignore]
+#[ignore = "diagnostic instrumentation, not a correctness gate; also needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
 fn sena_cold_vs_warm_and_memo_effect() {
     let Some(gpath) = sample_path("sena-hc.xml") else {
         eprintln!("skipping: sena-hc.xml not present on disk");

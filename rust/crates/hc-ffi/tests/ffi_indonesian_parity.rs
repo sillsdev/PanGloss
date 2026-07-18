@@ -13,6 +13,10 @@
 //! Self-skips (rather than fails) if the untracked sample corpus isn't present on disk, matching
 //! the existing convention in `hc-grammar`'s tests (plan §8: "corpora stay untracked local files
 //! with self-skipping tests").
+//!
+//! Test-timing policy (revised 2026-07-17): the default local `cargo test --workspace --release`
+//! run must stay under ~60s and must not depend on this gitignored fixture at all, so both tests
+//! here are unconditionally `#[ignore = "..."]`d; run with `--include-ignored` locally.
 
 mod support;
 
@@ -41,6 +45,7 @@ fn decode_one(bytes: &[u8]) -> DecodedWord {
 }
 
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with --include-ignored"]
 fn ffi_batch_matches_in_process_for_full_indonesian_corpus() {
     let Some(xml) = support::load_xml("indonesian-hc.xml") else {
         eprintln!("skipping: indonesian-hc.xml not present on disk");
@@ -119,6 +124,7 @@ fn ffi_batch_matches_in_process_for_full_indonesian_corpus() {
 }
 
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with --include-ignored"]
 fn ffi_single_word_matches_in_process_for_full_indonesian_corpus() {
     let Some(xml) = support::load_xml("indonesian-hc.xml") else {
         eprintln!("skipping: indonesian-hc.xml not present on disk");

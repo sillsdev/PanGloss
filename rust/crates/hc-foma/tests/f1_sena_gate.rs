@@ -7,12 +7,20 @@
 //! the proposer's candidates — under-generation is a silently lost analysis. Over-generation is
 //! harmless (P2's confirm prunes it); test (d) only sanity-checks it isn't absurd.
 //!
-//! Run with `cargo test -p hc-foma --release --test f1_sena_gate`. Measured on this machine
-//! (2026-07-15): release, all four tests ~32s total (recall gate b: ~33s wall, of which ~30s is
-//! the ENGINE oracle, 0.13s the proposer); debug, ~145s total with b alone ~120s. Per the P1
-//! gate policy ("ignore-by-default only if > ~60s"), b is `#[ignore]`d in DEBUG builds only
-//! (`cfg_attr(debug_assertions, ...)`) — the release run, the configuration whose timings mean
-//! anything, always includes it. All four tests were verified green in BOTH configurations.
+//! Run with `cargo test -p hc-foma --release --test f1_sena_gate -- --include-ignored`. Measured
+//! on this machine (2026-07-15): release, all four tests ~32s total (recall gate b: ~33s wall, of
+//! which ~30s is the ENGINE oracle, 0.13s the proposer); debug, ~145s total with b alone ~120s.
+//!
+//! ## Test-timing policy (revised 2026-07-17)
+//! The default local `cargo test --workspace --release` run must stay under ~60s total and must
+//! not depend on the gitignored real-language corpus fixtures (`samples/data/*`) at all — not even
+//! a fast one. Every test in this file loads `samples/data/sena-hc.xml` (directly or via
+//! `load_sena`), so ALL FOUR are `#[ignore = "..."]`d unconditionally (not the old
+//! `cfg_attr(debug_assertions, ...)` debug-only ignore), each with a self-skip guard so
+//! `--include-ignored` runs stay green in CI where the fixture is absent (gitignored, never
+//! checked out there). Run the full set locally with
+//! `cargo test -p hc-foma --release --test f1_sena_gate -- --include-ignored`; CI runs this too,
+//! and skips gracefully rather than failing when the corpus files aren't present.
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -25,6 +33,14 @@ use hc_parse::{Morpher, ParseOptions};
 fn sample_path(name: &str) -> PathBuf {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     manifest_dir.join("../../../samples/data").join(name)
+}
+
+/// Self-skip guard (matches the convention in `hc-grammar/src/lib.rs`'s sample-grammar tests):
+/// the gitignored real-corpus fixtures aren't present in a fresh clone or in CI, so every test
+/// here checks this FIRST and returns early (rather than panicking) when absent -- required so
+/// `--include-ignored` runs stay green without the fixtures (see module doc).
+fn have(name: &str) -> bool {
+    sample_path(name).exists()
 }
 
 fn load_sena() -> Grammar {
@@ -49,7 +65,12 @@ fn morpheme_name(g: &Grammar, id: u32) -> String {
 // -------------------------------------------------------------------------------------------
 
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
 fn a_sena_emits_and_compiles() {
+    if !have("sena-hc.xml") {
+        eprintln!("skipping: sena-hc.xml not present on disk");
+        return;
+    }
     let g = load_sena();
 
     let t_emit = Instant::now();
@@ -109,11 +130,12 @@ fn a_sena_emits_and_compiles() {
 // -------------------------------------------------------------------------------------------
 
 #[test]
-#[cfg_attr(
-    debug_assertions,
-    ignore = "engine oracle takes ~120s unoptimized (33s in --release, where this test always runs); run explicitly with --ignored if needed in debug"
-)]
+#[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
 fn b_sena_recall_first_120_words() {
+    if !have("sena-hc.xml") {
+        eprintln!("skipping: sena-hc.xml not present on disk");
+        return;
+    }
     let g = load_sena();
     let mut proposer = FomaProposer::new(&g).expect("Sena compiles");
     let morpher = Morpher::new(&g, usize::MAX);
@@ -213,7 +235,12 @@ fn b_sena_recall_first_120_words() {
 // -------------------------------------------------------------------------------------------
 
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
 fn c_mbali_covers_both_engine_sequences() {
+    if !have("sena-hc.xml") {
+        eprintln!("skipping: sena-hc.xml not present on disk");
+        return;
+    }
     let g = load_sena();
     let mut proposer = FomaProposer::new(&g).expect("Sena compiles");
     let morpher = Morpher::new(&g, usize::MAX);
@@ -260,7 +287,12 @@ fn c_mbali_covers_both_engine_sequences() {
 // -------------------------------------------------------------------------------------------
 
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
 fn d_nonsense_word_proposes_nothing() {
+    if !have("sena-hc.xml") {
+        eprintln!("skipping: sena-hc.xml not present on disk");
+        return;
+    }
     let g = load_sena();
     let mut proposer = FomaProposer::new(&g).expect("Sena compiles");
     let t0 = Instant::now();

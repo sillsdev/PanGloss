@@ -8,6 +8,10 @@
 //! a person (or a future Rust/C# divergence hunt) needs to follow. This is real-corpus, not a hand-
 //! built fixture: self-skips if the untracked sample corpus isn't present (matching
 //! `indonesian_redup_gate.rs`'s existing convention).
+//!
+//! Test-timing policy (revised 2026-07-17): the default local `cargo test --workspace --release`
+//! run must stay under ~60s and must not depend on this gitignored fixture at all, so this test is
+//! unconditionally `#[ignore = "..."]`d; run with `--include-ignored` locally.
 
 use std::path::{Path, PathBuf};
 
@@ -47,6 +51,7 @@ fn successful_rule_chains(
 }
 
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with --include-ignored"]
 fn real_indonesian_word_renders_a_followable_multi_rule_sequence() {
     let Some(grammar_path) = sample_path("indonesian-hc.xml") else {
         eprintln!("skipping: indonesian-hc.xml not present on disk");

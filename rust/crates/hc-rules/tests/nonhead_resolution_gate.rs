@@ -108,6 +108,7 @@ fn find_mrule1(g: &Grammar) -> (usize, &CompoundingRuleDef) {
 }
 
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
 fn nonhead_resolution_replaces_shape_and_syntactic_fs() {
     let Some(g) = load_sena() else {
         eprintln!("skipping: sena-hc.xml not present on disk");
@@ -221,6 +222,7 @@ fn clone_def(def: &CompoundingRuleDef) -> CompoundingRuleDef {
 }
 
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
 fn synthesis_records_non_head_root_morph_in_the_final_signature() {
     let Some(g) = load_sena() else {
         eprintln!("skipping: sena-hc.xml not present on disk");
@@ -291,6 +293,7 @@ fn synthesis_records_non_head_root_morph_in_the_final_signature() {
 }
 
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
 fn synthesis_non_head_syntactic_fs_gate_rejects_a_mismatched_root() {
     let Some(g) = load_sena() else {
         eprintln!("skipping: sena-hc.xml not present on disk");

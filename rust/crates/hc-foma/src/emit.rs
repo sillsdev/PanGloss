@@ -2675,6 +2675,7 @@ mod structural_and_pattern_tests {
     /// compound-HEAD-re-categorized `é`-first analysis proposable-and-confirmable. Full parity (10)
     /// end-to-end via `FomaAnalyzer`. Skips if `samples/data/sena-hc.xml` is absent.
     #[test]
+    #[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
     fn sena_musandilesera_full_parity() {
         let Some(g) = load_sample("sena-hc.xml") else {
             eprintln!("skipping: sena-hc.xml not present on disk");

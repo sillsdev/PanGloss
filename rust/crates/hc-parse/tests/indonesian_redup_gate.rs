@@ -12,6 +12,10 @@
 //! `redup_and_free_fluctuation_gate.rs` for why: the two `Suffix`-hint real subrules are
 //! `order`-invariant under the fix, and the one `Prefix`-hint subrule is never selected by these
 //! words' winning analysis chain).
+//!
+//! Test-timing policy (revised 2026-07-17): the default local `cargo test --workspace --release`
+//! run must stay under ~60s and must not depend on this gitignored fixture at all, so this test is
+//! unconditionally `#[ignore = "..."]`d; run with `--include-ignored` locally.
 
 use std::path::{Path, PathBuf};
 
@@ -25,6 +29,7 @@ fn sample_path(name: &str) -> Option<PathBuf> {
 }
 
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with --include-ignored"]
 fn indonesian_reduplicated_words_keep_their_gold_signature() {
     let Some(grammar_path) = sample_path("indonesian-hc.xml") else {
         eprintln!("skipping: indonesian-hc.xml not present on disk");

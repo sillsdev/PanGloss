@@ -23,12 +23,22 @@ fn load_fixture(name: &str) -> hc_grammar::model::Grammar {
     load(&xml).unwrap_or_else(|e| panic!("{name}: grammar failed to load: {e}"))
 }
 
+/// Self-skip guard: `rust/conformance/` isn't a submodule yet (module doc), so `--include-ignored`
+/// runs (CI's release sweep included) must not panic on the missing directory.
+fn have_fixture(name: &str) -> bool {
+    fixture_path(name, "grammar.xml").exists()
+}
+
 /// `rust/conformance/rewrite/word-initial-epenthesis/expected.tsv` — the P1 fixture (bare-root
 /// word-initial epenthesis: `syn_epenthesis`'s site-0 gap + `compile_lane_fst`'s multi-node
 /// RtL analysis-target ordering; see the fixture README for the full dual-bug derivation).
 #[test]
 #[ignore = "conformance/ not yet pulled into PanGloss as a submodule -- see docs/hermitcrab-rust-port-audit.md section 5; will start running again once it lands"]
 fn word_initial_epenthesis_matches_oracle() {
+    if !have_fixture("word-initial-epenthesis") {
+        eprintln!("skipping: rust/conformance/rewrite/word-initial-epenthesis not present on disk");
+        return;
+    }
     let g = load_fixture("word-initial-epenthesis");
     let m = Morpher::new(&g, usize::MAX);
     let cases = [
@@ -56,6 +66,10 @@ fn word_initial_epenthesis_matches_oracle() {
 #[test]
 #[ignore = "conformance/ not yet pulled into PanGloss as a submodule -- see docs/hermitcrab-rust-port-audit.md section 5; will start running again once it lands"]
 fn deletion_reinsertion_matches_oracle() {
+    if !have_fixture("deletion-reinsertion") {
+        eprintln!("skipping: rust/conformance/rewrite/deletion-reinsertion not present on disk");
+        return;
+    }
     let g = load_fixture("deletion-reinsertion");
     let m = Morpher::new(&g, usize::MAX);
     let cases = [
@@ -86,6 +100,12 @@ fn deletion_reinsertion_matches_oracle() {
 #[test]
 #[ignore = "conformance/ not yet pulled into PanGloss as a submodule -- see docs/hermitcrab-rust-port-audit.md section 5; will start running again once it lands"]
 fn multiplesegment_deletion_composition_matches_oracle() {
+    if !have_fixture("multiplesegment-deletion-composition") {
+        eprintln!(
+            "skipping: rust/conformance/rewrite/multiplesegment-deletion-composition not present on disk"
+        );
+        return;
+    }
     let g = load_fixture("multiplesegment-deletion-composition");
     let m = Morpher::new(&g, usize::MAX);
     let cases = [
@@ -115,6 +135,10 @@ fn multiplesegment_deletion_composition_matches_oracle() {
 #[test]
 #[ignore = "conformance/ not yet pulled into PanGloss as a submodule -- see docs/hermitcrab-rust-port-audit.md section 5; will start running again once it lands"]
 fn merge_matches_oracle() {
+    if !have_fixture("merge") {
+        eprintln!("skipping: rust/conformance/rewrite/merge not present on disk");
+        return;
+    }
     let g = load_fixture("merge");
     let m = Morpher::new(&g, usize::MAX);
     let cases = [
@@ -138,6 +162,10 @@ fn merge_matches_oracle() {
 #[test]
 #[ignore = "conformance/ not yet pulled into PanGloss as a submodule -- see docs/hermitcrab-rust-port-audit.md section 5; will start running again once it lands"]
 fn multiplemerge_matches_oracle() {
+    if !have_fixture("multiplemerge") {
+        eprintln!("skipping: rust/conformance/rewrite/multiplemerge not present on disk");
+        return;
+    }
     let g = load_fixture("multiplemerge");
     let m = Morpher::new(&g, usize::MAX);
     let cases = [

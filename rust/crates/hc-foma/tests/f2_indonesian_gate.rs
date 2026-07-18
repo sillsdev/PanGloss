@@ -13,6 +13,14 @@
 //! foma-proposed analysis at all. Test (b) excludes them from the recall denominator explicitly,
 //! printing each with its reason, per the task's requirement — not because the engine has no
 //! analysis for them (it does), but because this stage doesn't attempt to cover it.
+//!
+//! ## Test-timing policy (revised 2026-07-17)
+//! The default local `cargo test --workspace --release` run must stay under ~60s and must not
+//! depend on the gitignored real-language corpus fixtures (`samples/data/*`) at all. Every test in
+//! this file loads `samples/data/indonesian-hc.xml`, so all four are unconditionally
+//! `#[ignore = "..."]`d, each with a self-skip guard so `--include-ignored` runs stay green where
+//! the fixture is absent (CI). Run the full set locally with
+//! `cargo test -p hc-foma --release --test f2_indonesian_gate -- --include-ignored`.
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -37,6 +45,11 @@ const REDUP_EXCLUDED: &[(&str, &str)] = &[
 fn sample_path(name: &str) -> PathBuf {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     manifest_dir.join("../../../samples/data").join(name)
+}
+
+/// Self-skip guard: gitignored real-corpus fixtures aren't present in a fresh clone or CI.
+fn have(name: &str) -> bool {
+    sample_path(name).exists()
 }
 
 fn load_indonesian() -> Grammar {
@@ -80,7 +93,12 @@ fn candidates_cover(candidates: &[hc_foma::tags::Candidate], seq: &[u32], root_i
 // -------------------------------------------------------------------------------------------
 
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with --include-ignored"]
 fn a_indonesian_emits_and_compiles() {
+    if !have("indonesian-hc.xml") {
+        eprintln!("skipping: indonesian-hc.xml not present on disk");
+        return;
+    }
     let g = load_indonesian();
 
     let t_emit = Instant::now();
@@ -137,7 +155,12 @@ fn a_indonesian_emits_and_compiles() {
 // -------------------------------------------------------------------------------------------
 
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with --include-ignored"]
 fn b_indonesian_recall_full_corpus_minus_redup() {
+    if !have("indonesian-hc.xml") {
+        eprintln!("skipping: indonesian-hc.xml not present on disk");
+        return;
+    }
     let g = load_indonesian();
     let mut proposer = FomaProposer::new(&g).expect("Indonesian compiles");
     let morpher = Morpher::new(&g, usize::MAX);
@@ -229,7 +252,12 @@ fn b_indonesian_recall_full_corpus_minus_redup() {
 // -------------------------------------------------------------------------------------------
 
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with --include-ignored"]
 fn c_junction_spot_checks() {
+    if !have("indonesian-hc.xml") {
+        eprintln!("skipping: indonesian-hc.xml not present on disk");
+        return;
+    }
     let g = load_indonesian();
     let mut proposer = FomaProposer::new(&g).expect("Indonesian compiles");
     let morpher = Morpher::new(&g, usize::MAX);
@@ -281,7 +309,12 @@ fn c_junction_spot_checks() {
 // -------------------------------------------------------------------------------------------
 
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with --include-ignored"]
 fn d_nonsense_word_proposes_nothing() {
+    if !have("indonesian-hc.xml") {
+        eprintln!("skipping: indonesian-hc.xml not present on disk");
+        return;
+    }
     let g = load_indonesian();
     let mut proposer = FomaProposer::new(&g).expect("Indonesian compiles");
     let t0 = Instant::now();

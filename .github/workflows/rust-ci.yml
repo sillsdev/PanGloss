@@ -42,21 +42,79 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The `machine` submodule (sillsdev/machine, `conformance-framework` branch) carries the
+          # engine-agnostic conformance fixtures under `machine/conformance/` — several fast unit
+          # tests (e.g. hc-foma's `precision::tests`/`emit::structural_and_pattern_tests` modules)
+          # load these directly and are NOT `#[ignore]`d, so they need the submodule present to
+          # pass rather than panic on a missing file. Init it here so both test steps below are
+          # green. Non-recursive: `machine` itself carries no nested `.gitmodules` (verified by
+          # inspecting a local checkout), so `true` fetches everything we consume
+          # (`machine/conformance/`) without the extra cost/risk of recursing into any of
+          # sillsdev/machine's own future submodules.
+          submodules: true
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
       - run: cargo build --workspace --all-targets
-      # Gate tests over samples/data/*-hc.xml self-skip (see hc-realize test doc
-      # comments) since those real-language grammar/corpus files are gitignored, not committed
-      # (docs/natural-glosses-plan.md purge policy) — CI exercises everything else.
+      # Default (fast, <~60s local) suite: in-crate unit tests, fixture-free integration tests,
+      # and the machine/conformance-driven tests (submodule checked out above). Every test that
+      # loads real-language corpus data from `samples/data/*` (gitignored, never committed —
+      # docs/natural-glosses-plan.md purge policy) is unconditionally `#[ignore]`d regardless of
+      # its own speed (see e.g. hc-foma/tests/f1_sena_gate.rs's module doc for the policy this
+      # follows), so this step needs no corpus data checked out at all.
       - run: cargo test --workspace
+      # Full sweep, release profile, including every `#[ignore]`d test (matches the timings the
+      # ignore reasons themselves cite — several corpus gates run 30s-3min in release). Every
+      # test gated on `samples/data/*`, a real FieldWorks project checkout (hc-cli's
+      # `fwdata_*_gate.rs`), or `rust/conformance/` (not yet pulled in as a submodule — the
+      # hc-parse `*_conformance.rs`/`loader_n*_gate.rs`/`*_gate.rs` files predating this change)
+      # self-skips gracefully here with a printed reason, since none of those are present in this
+      # CI environment — this step's real coverage gain over the step above is exercising the
+      # WSL/c-foma-oracle `pk2` battery (which itself self-skips when `wsl` is absent, true on this
+      # Ubuntu runner) and any non-corpus `#[ignore]`d test at full release timing. The gitignored
+      # corpus gates (Sena/Indonesian/Amharic/Aweti `*-hc.xml`/`*.fwdata`) remain uncovered by CI by
+      # design; they are exercised locally via `cargo test --workspace --release -- --include-ignored`
+      # with `samples/data/` populated (see docs/history/rust-conversion.md §8's "corpora stay
+      # untracked local files" rule).
+      #
+      # `--skip epenthesis_rules`: the ONE `#[ignore]`d test in the whole workspace that is ignored
+      # for a reason unrelated to timing or missing fixtures — `csharp_port_rewrite.rs`'s own
+      # `#[ignore]` message documents a real, confirmed, pre-existing `syn_epenthesis` bug (not
+      # introduced or touched by this change) that genuinely fails today. `--include-ignored` would
+      # otherwise resurrect that known failure in CI; skip it here so this step reports on NEW
+      # regressions only, not a standing, already-documented one.
+      #
+      # `--skip sena_cold_vs_warm_and_memo_effect`: `perf_cold_warm_probe.rs`'s own module doc
+      # explains why — "TEMPORARY INVESTIGATION INSTRUMENTATION... not a correctness gate", and its
+      # `--memo=on` leg has no wall-clock cap at all (unlike its `--memo=off` leg's deliberate 20s
+      # watchdog), observed to run past 5 minutes on these pathological Sena words. Not worth the
+      # CI-hang risk for a test that was never meant to be a gate.
+      #
+      # NOTE both `--skip`s are name-based and will NOT self-clear: if `epenthesis_rules` is ever
+      # fixed and un-ignored, or `perf_cold_warm_probe.rs` is ever given a wall-clock cap, this line
+      # keeps skipping it anyway until someone notices and edits this list by hand.
+      #
+      # Also note: this step's real value in the CI environment (no samples/data, no FieldWorks
+      # checkout, no wsl, no rust/conformance submodule) is mostly as a guard-rail, not broad
+      # exercise of the gated corpora — most of what it runs here is the non-ignored set rebuilt in
+      # release plus a lot of tests self-skipping as designed. What it actually catches: a future
+      # corpus/fixture-gated test added WITHOUT a self-skip guard, which would panic (not skip) here
+      # and turn CI red, versus the deliberately clean self-skips this policy requires everywhere
+      # else in the workspace.
+      - run: cargo test --workspace --release -- --include-ignored --skip epenthesis_rules --skip sena_cold_vs_warm_and_memo_effect
 
   coverage:
     name: coverage (codecov)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # See the `test` job's checkout step: `cargo llvm-cov --workspace` below also runs the
+          # default (non-ignored) suite, which includes the machine/conformance-dependent unit
+          # tests that need this submodule present to pass. Non-recursive (see that step's comment).
+          submodules: true
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: llvm-tools-preview

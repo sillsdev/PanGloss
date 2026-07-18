@@ -797,6 +797,7 @@ mod tests {
     /// allomorphs (`/ma_`/`/na_`, the dominant coverable shape here) and on one rule allomorph
     /// (`/mb_`, `msubrule60`). Everything else stays `Unsupported`.
     #[test]
+    #[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
     fn sena_catalog_finds_the_expected_left_literal_instances() {
         let Some(g) = load_sample("sena-hc.xml") else {
             eprintln!("skipping: sena-hc.xml not present on disk");
@@ -846,6 +847,7 @@ mod tests {
     /// verified) — the catalog must be empty, and `AllFlags`'s decision table is then trivially all
     /// `Strip` (nothing to cover) rather than erroring.
     #[test]
+    #[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with --include-ignored"]
     fn indonesian_catalog_is_empty() {
         let Some(g) = load_sample("indonesian-hc.xml") else {
             eprintln!("skipping: indonesian-hc.xml not present on disk");
@@ -989,6 +991,7 @@ mod tests {
     /// New finding 5: a grammar with zero phonological rules (the common case, e.g. Sena) is never
     /// at risk — the loop is a no-op.
     #[test]
+    #[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
     fn prule_tail_rewrite_risk_is_false_with_no_phonological_rules() {
         let Some(g) = load_sample("sena-hc.xml") else {
             eprintln!("skipping: sena-hc.xml not present on disk");

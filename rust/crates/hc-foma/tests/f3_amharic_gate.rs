@@ -57,6 +57,15 @@
 //! it (recall is 100% with it uncovered); the infix items are GONE from `uncovered` (asserted in
 //! test (a)). Tier stays `Partial { uncovered: 1 }` — honest, and no longer a routing decision
 //! (there is no fallback tier to route to).
+//!
+//! ## Test-timing policy (revised 2026-07-17)
+//! The default local `cargo test --workspace --release` run must stay under ~60s and must not
+//! depend on the gitignored real-language corpus fixtures (`samples/data/*`) at all. Every test in
+//! this file loads `samples/data/amharic-hc.xml`, so all four are unconditionally
+//! `#[ignore = "..."]`d (replacing the old `cfg_attr(debug_assertions, ...)` debug-only ignore),
+//! each with a self-skip guard so `--include-ignored` runs stay green where the fixture is absent
+//! (CI). Run the full set locally with
+//! `cargo test -p hc-foma --release --test f3_amharic_gate -- --include-ignored`.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -82,6 +91,11 @@ const ENGINE_TIMEOUT: Duration = Duration::from_secs(10);
 fn sample_path(name: &str) -> PathBuf {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     manifest_dir.join("../../../samples/data").join(name)
+}
+
+/// Self-skip guard: gitignored real-corpus fixtures aren't present in a fresh clone or CI.
+fn have(name: &str) -> bool {
+    sample_path(name).exists()
 }
 
 fn load_amharic() -> Grammar {
@@ -163,11 +177,12 @@ fn candidates_cover(candidates: &[hc_foma::tags::Candidate], seq: &[u32], root_i
 // -------------------------------------------------------------------------------------------
 
 #[test]
-#[cfg_attr(
-    debug_assertions,
-    ignore = "Amharic emit+compile (~35s) and the unoptimized engine oracle are impractically slow in debug (and the bounded-probe test overflows the 8 MiB debug stack); runs in --release (CI) or with --ignored --release. Matches f3_parity.rs's gate."
-)]
+#[ignore = "needs local gitignored corpus data (samples/data/amharic-hc.xml); run with --include-ignored"]
 fn a_amharic_emits_and_compiles() {
+    if !have("amharic-hc.xml") {
+        eprintln!("skipping: amharic-hc.xml not present on disk");
+        return;
+    }
     let g = load_amharic();
 
     let t_emit = Instant::now();
@@ -263,11 +278,12 @@ fn a_amharic_emits_and_compiles() {
 // -------------------------------------------------------------------------------------------
 
 #[test]
-#[cfg_attr(
-    debug_assertions,
-    ignore = "Amharic emit+compile (~35s) and the unoptimized engine oracle are impractically slow in debug; runs in --release (CI) or with --ignored --release. Matches f3_parity.rs's gate."
-)]
+#[ignore = "needs local gitignored corpus data (samples/data/amharic-hc.xml); run with --include-ignored"]
 fn b_amharic_recall_first_100_words_is_100_percent() {
+    if !have("amharic-hc.xml") {
+        eprintln!("skipping: amharic-hc.xml not present on disk");
+        return;
+    }
     let g = load_amharic();
     assert!(
         !ReduplicationPeeler::new(&g).has_redup_rules(),
@@ -364,11 +380,12 @@ fn b_amharic_recall_first_100_words_is_100_percent() {
 // -------------------------------------------------------------------------------------------
 
 #[test]
-#[cfg_attr(
-    debug_assertions,
-    ignore = "Amharic emit+compile (~35s) and the unoptimized engine oracle are impractically slow in debug; runs in --release (CI) or with --ignored --release. Matches f3_parity.rs's gate."
-)]
+#[ignore = "needs local gitignored corpus data (samples/data/amharic-hc.xml); run with --include-ignored"]
 fn c_amharic_end_to_end_multiset_parity() {
+    if !have("amharic-hc.xml") {
+        eprintln!("skipping: amharic-hc.xml not present on disk");
+        return;
+    }
     let g = load_amharic();
     let mut analyzer = FomaAnalyzer::new(&g).expect("Amharic compiles");
     let morpher = Morpher::new(&g, usize::MAX).with_word_timeout(Some(ENGINE_TIMEOUT));
@@ -445,11 +462,12 @@ fn c_amharic_end_to_end_multiset_parity() {
 // -------------------------------------------------------------------------------------------
 
 #[test]
-#[cfg_attr(
-    debug_assertions,
-    ignore = "Amharic emit+compile (~35s) is impractically slow in debug and this bounded-probe test overflows the 8 MiB debug thread stack; runs in --release (CI) or with --ignored --release. Matches f3_parity.rs's gate."
-)]
+#[ignore = "needs local gitignored corpus data (samples/data/amharic-hc.xml); run with --include-ignored"]
 fn d_nonsense_word_proposes_boundedly_and_never_panics() {
+    if !have("amharic-hc.xml") {
+        eprintln!("skipping: amharic-hc.xml not present on disk");
+        return;
+    }
     let g = load_amharic();
     let mut proposer = FomaProposer::new(&g).expect("Amharic compiles");
     let t0 = Instant::now();

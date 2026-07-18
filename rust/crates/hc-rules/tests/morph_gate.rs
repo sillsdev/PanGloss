@@ -597,6 +597,7 @@ fn sena_path() -> String {
 }
 
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
 fn sena_affix_and_compounding_rules_compile_and_run_without_panic() {
     let path = sena_path();
     let Ok(xml) = std::fs::read_to_string(&path) else {

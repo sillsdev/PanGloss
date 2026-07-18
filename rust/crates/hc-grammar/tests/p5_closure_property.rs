@@ -8,6 +8,10 @@
 //! Self-skips when the untracked sample grammar is absent (fresh clone / CI), matching this
 //! project's other bounded-corpus tests (`rust-conversion.md` §8, e.g. `hc-rules/tests/
 //! p7_segments_union_census.rs`).
+//!
+//! Test-timing policy (revised 2026-07-17): the default local `cargo test --workspace --release`
+//! run must stay under ~60s and must not depend on this gitignored fixture at all, so this test is
+//! unconditionally `#[ignore = "..."]`d; run with `--include-ignored` locally.
 
 use std::path::{Path, PathBuf};
 
@@ -33,6 +37,7 @@ fn xorshift(state: &mut u64) -> u64 {
 }
 
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/amharic-hc.xml); run with --include-ignored"]
 fn amharic_closure_matches_gate_free_lane_scan() {
     let Some(path) = sample_path("amharic-hc.xml") else {
         eprintln!("amharic-hc.xml not present locally; skipping (untracked sample corpus)");

@@ -445,6 +445,7 @@ fn sena_path() -> String {
 }
 
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
 fn sena_analysis_stratum_terminates_on_short_words() {
     let path = sena_path();
     let Ok(xml) = std::fs::read_to_string(&path) else {

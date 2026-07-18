@@ -26,6 +26,14 @@
 //! `hc_parse_batch` would return `HC_OK` — a test that only checked "the next call still works"
 //! would pass without ever exercising `catch_unwind`. So the first assertion below is on the
 //! *panicking call's own* return code, not just on a subsequent call.
+//!
+//! Test-timing policy (revised 2026-07-17): this test loads a real grammar from
+//! `samples/data/indonesian-hc.xml` (gitignored), so per policy it is unconditionally
+//! `#[ignore = "..."]`d even though it is fast and covers an important safety property — the
+//! default local `cargo test --workspace --release` run must not depend on gitignored corpus data
+//! at all. Run explicitly with `--include-ignored` (this is the one test in the crate covering
+//! rayon-worker panic safety, so it is worth running locally before a release even though it is
+//! out of the default run).
 
 mod support;
 
@@ -37,6 +45,7 @@ use hermit_crab::{
 };
 
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with --include-ignored"]
 fn batch_panic_is_caught_and_handle_stays_usable() {
     let Some(xml) = support::load_xml("indonesian-hc.xml") else {
         eprintln!("skipping: indonesian-hc.xml not present on disk");
