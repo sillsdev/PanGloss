@@ -173,6 +173,14 @@ are small (`[[build-for-full-scale-grammars]]`); design for 10⁴–10⁵ entrie
   worktrees), `--ignore-submodules=all`, copy gitignored `samples/data` + `machine/conformance`
   fixtures, run gates foreground, don't trust timing measured while siblings compile. See
   `[[worktree-agent-traps]]`.
+- **Verify the worktree base FIRST — this has bitten twice.** A freshly created worktree is
+  NOT guaranteed to sit on current main. The build agent's first action is `git merge-base
+  HEAD main`; if behind, `git merge main` (never rebase reviewed commits) BEFORE writing any
+  code or measuring anything. The reviewer independently re-checks merge-base before
+  accepting any result: a timing/parity gate measured from a stale base is invalid even when
+  the code is fine — E5's first STOP verdict came from a tree missing 28 commits of
+  confirm/propose perf work (chunk fusion, parallel confirm, arc sorting) and had to be
+  re-measured against the baseline the projection was actually made on.
 
 ## Files this skill drives
 
