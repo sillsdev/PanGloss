@@ -1,6 +1,93 @@
 # Morphotactic pruning for composite pre-expansion (Aweti scale fix)
 
-Status: GO (2026-07-17). Sizing probe done (results below); implementation in progress.
+Status: LANDED (2026-07-17). Implementation complete, all gates verified green on
+`pruning-morphotactics-wip` (merged with current `main`) — see "Final verification (2026-07-17)"
+below for the full test list, the Amharic A/B numbers, wasm32 checks, and the `f3_parity` Amharic
+finding.
+
+## Final verification (2026-07-17)
+
+`cargo test -p hc-foma --release` — every test file run (per-file, several exceed 60s), all green:
+
+| Test binary | Tests | Result | Notes |
+|---|---|---|---|
+| `--lib` (unit tests) | 54 | ok | includes all `morphotactics::tests::*`, `preexpand::pruning_tests::*` (slot-gate + Amharic A/B subset gate) |
+| `f0_viability` | 12 passed, 2 ignored | ok | unaffected by this branch |
+| `f1_sena_gate` | 4 | ok | Sena `should_run=false` path byte-for-byte unchanged (lexc bytes: 1,851,591 — same as pre-pruning) |
+| `f2_indonesian_gate` | 4 | ok | zero composites, unchanged |
+| `f3_amharic_gate` | 4 | ok | 100% recall; `composites: pairs_probed=104605` in production emit (pruned, confirms wiring is live) |
+| `f3_parity` (indonesian) | 1 | ok | 121/121, 0 mismatches |
+| `f3_parity` (sena) | 1 | ok | 300/300, 0 mismatches |
+| `f3_parity` (amharic) | 1 | ok | 613 compared (60 engine-timeout excluded), 0 mismatches, full multiset parity under pruning — see "f3_parity Amharic finding" below |
+| `f4_composite_gate` | 5 | ok | over-generation, mbali multiplicity, Indonesian redup round-trip, empty-on-miss, mini-parity |
+| `pk1_precision_recall_invariance` | 4 | ok | unaffected by this branch |
+| `pk2_eliminate_flag_oracle` | 7 | ok | unaffected by this branch (WSL/C-foma oracle available in this environment) |
+
+`cargo check -p hc-foma --target wasm32-unknown-unknown`: ok (dev profile, 18.14s).
+`cargo check -p hc-wasm --target wasm32-unknown-unknown`: ok (dev profile, 9.40s).
+
+### Amharic A/B numbers (the sizing table's real-tree confirmation)
+
+From `preexpand::pruning_tests::amharic_pruned_composites_are_a_subset_of_flat` (`--lib`, release):
+
+| | pairs_probed | wall time | composite entries |
+|---|---|---|---|
+| Flat (pre-fix behavior) | 305,621 | 7.34s | 134,539 |
+| Pruned (production) | 104,605 | 1.06s | 61,029 |
+| Shrink | **2.92x** | **6.9x** | pruned ⊆ flat (verified: 0 pruned entries missing from flat) |
+
+Production `emit()` (via `f3_amharic_gate`'s `a_amharic_emits_and_compiles`, pruned/default mode):
+`composites: pairs_probed=104605 interdigitation_entries=386 fusion_entries=22775`; full
+emit+foma-compile 11.66s (soft bar: <60s) — matches the standalone A/B number, confirming the
+production path runs pruned, not flat, by default (`HC_PREEXPAND_FLAT` unset).
+
+The realized 2.92x shrink is well below the plan's static upper-bound sizing table (which
+projected loose static ratios up to 3.9x and used dynamic-tree uncertainty as the reason to ship
+instrumentation rather than trust statics) — consistent with the plan's own framing: pruning's
+real payoff is bounded by how much of the flat recursion the DYNAMIC filters (FS unification,
+`synthesize()` failure) were already cutting before this change, which for Amharic was substantial.
+
+### `f3_parity` Amharic finding: pre-existing on `main`, load-sensitive, not introduced by pruning
+
+The task's one open problem: `cargo test -p hc-foma --release --test f3_parity amharic`
+(`amharic_corpus_words_multiset_parity`) had been reported to run >60s then die abnormally (no
+panic text, abnormal process exit) — reproduced, per that report, even under `ExploreMode::Flat`
+and even isolated single-threaded, which rules out this branch's pruning logic and rules out
+test-parallelism/thread contention as the cause.
+
+**Investigation**: checked out a throwaway branch at `main`'s tip (unmodified, no pruning code at
+all — `crate::morphotactics` doesn't exist there) and ran the identical test in this same worktree,
+in an otherwise-idle window. It completed CLEANLY: `test result: ok. 1 passed`, 673-word corpus,
+613 compared / 60 excluded (engine timeout), 986s wall time. This directly contradicts a
+deterministic in-process bug (a real stack overflow at a fixed recursion depth reproduces every
+time on the same input) — no panic text was printed either (a genuine Rust stack overflow prints
+`thread '...' has overflowed its stack` before aborting; silent abnormal termination is the
+signature of an EXTERNAL kill, not a guard-page fault). At the time of the original report, 11
+concurrent `rustc`/`cargo` processes were observed system-wide (other worktree agents building
+concurrently) — consistent with the abnormal exit being resource-contention-driven external
+termination (OOM/job-object kill), not a code defect.
+
+**Verdict**: pre-existing on `main` (not introduced by this branch — this branch's pruning can only
+ever explore a SUBSET of the flat recursion, so it drives the exact same downstream
+`Morpher::parse_word_selected` confirm work no *deeper* than `main` already does); could not be
+reproduced as a deterministic crash in a controlled run.
+
+**Fix landed** (commit "Test: dedicated large-stack thread for the Amharic f3_parity gate",
+cherry-pickable to `main` independent of the pruning feature): gave this one test the same
+dedicated 1 GiB worker-thread stack that `hc-cli`'s own `main()` and
+`hc_parse::batch::hc_parse_batch`'s rayon pool already carry for this identical recursion class
+(`Morpher::parse_word_selected`'s analysis cascade) — free insurance (Windows reserves, does not
+commit, that address space) regardless of which explanation for the original report is right. This
+branch's own pruned-mode run of the now-hardened test is fully green: 613/613 compared words at
+full multiset parity, 1117s.
+
+No soundness issues were found in the inherited `crate::morphotactics` implementation on review
+(vacuous-slot detection is the STRICT exact-match form per the module doc, not the looser
+`aweti_probe.rs` example version; stratum floor is monotone non-decreasing; template
+`required_syn_fs`/partial-root gates are re-checked exactly as the engine's own
+`synth_apply_templates`; `ProbeBudget` correctly shares one atomic counter across both composite
+builders via `emit_with_precision`'s single shared `MorphotacticIndex`/`ExploreMode`/`ProbeBudget`
+construction).
 
 ## Sizing results (aweti_probe, 2026-07-17)
 
