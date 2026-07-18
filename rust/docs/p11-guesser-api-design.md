@@ -72,7 +72,7 @@ Details that matter for parity:
   re-sort lexically, so this only matters for `AnalyzeWord` enumeration order.
 - **No dedup of `matches`** — unlike the normal path's `HashSet`/`Distinct` — duplicates from
   different analysis words survive into the output (and `result_signature` deliberately keeps
-  duplicates, `hc-parse/src/lib.rs:33-40`).
+  duplicates, `pg-parse/src/lib.rs:33-40`).
 - **`.Distinct()` on `LexicalGuess(...)`** uses default equality. `Word` does not override
   `Object.Equals` (that is what `FreezableEqualityComparer<Word>` exists for, and it is *not*
   passed here), and every yielded guess is a freshly constructed clone — so this `Distinct()` is
@@ -176,15 +176,15 @@ iterative / unification cases) — port its cases as Rust unit tests on the new 
 
 What already exists (do not rebuild):
 
-- **Pattern segmentation is fully ported** (finding N3): `hc-grammar/src/segment.rs::
+- **Pattern segmentation is fully ported** (finding N3): `pg-grammar/src/segment.rs::
   segment_with_patterns` — `[Class]`, `([Class])`, `[Class]*`, error cases — and
   `load.rs::load_root_allomorph` (line 1854) already routes every root-allomorph
   `<PhoneticShape>` through it. Pattern nodes come out as `NO_CHAR_DEF` segments carrying the
   class's member `CdSet` and class lanes, with `NodeFlags::OPTIONAL`/`ITERATIVE`
-  (`hc-shape/src/lib.rs:156-172, 402-404`).
-- **`RootAllomorphDef`** (`hc-grammar/src/model.rs:697-711`) already holds everything
+  (`pg-shape/src/lib.rs:156-172, 402-404`).
+- **`RootAllomorphDef`** (`pg-grammar/src/model.rs:697-711`) already holds everything
   `LexicalGuess` copies: `is_bound`, `environments`, `co_occurrence`, `properties`, `stem_name`.
-- **The trie already has the class-edge machinery** (`hc-parse/src/root_trie.rs` wave-4
+- **The trie already has the class-edge machinery** (`pg-parse/src/root_trie.rs` wave-4
   `CdSet` edges) for *non-pattern* class-bearing roots like `b[Vowel]t` — that stays.
 
 The one live **divergence**: `RootAllomorphTrie::build` (`root_trie.rs:113-138`) indexes ALL root
@@ -195,7 +195,7 @@ one-segment word in normal (guess-off) lexical lookup**, where C# would never su
 Any pattern-bearing FieldWorks grammar hits this. P11 step 1 fixes it as a side effect of the
 faithful partition.
 
-Plumbing facts that shape the design: `hc_rules::word::Word.root_allomorph` is
+Plumbing facts that shape the design: `pg_rules::word::Word.root_allomorph` is
 `Option<AllomorphId>`; morphs are `MorphRecord { allomorph, morpheme, order, .. }`; every
 downstream consumer resolves ids through the immutable `Grammar` (`allomorph_owners`, `entries`,
 `morphemes`) — `validity.rs::allomorphs_valid_impl:419`, `morpher.rs::morpheme_join:394`,
@@ -206,18 +206,18 @@ crux (§4.4).
 
 ## 3. P10 `StrRep`-identity lane: how it interacts (answer: it doesn't, by construction)
 
-The P10 lane (`hc-rules/src/bridge.rs:138-178`) is an **FST-compile-time** device: an extra
+The P10 lane (`pg-rules/src/bridge.rs:138-178`) is an **FST-compile-time** device: an extra
 synthetic lane holding a char-def membership bitset, opt-in per compile site, exact only for
 ≤64-def tables, with the hard pairing rule that id-lane FSTs may only receive id-lane inputs.
 
-The guess matcher must **not** go through `hc-fst` at all — C# itself refuses the Matcher here
+The guess matcher must **not** go through `pg-fst` at all — C# itself refuses the Matcher here
 because it "doesn't preserve the unifications of the nodes" (`Morpher.cs:138-140`), and the port
 should follow: a direct recursive matcher over `Shape` nodes (§4.3). On that path the identity
 dimension P10 restored for FSTs is already first-class and needs no lane:
 
 - node identity = `char_def` (the `StrRep` analog, per `root_trie.rs`'s module doc);
 - class membership = the pattern node's stored `CdSet` (`Shape::node_cd_set`), which is
-  arbitrary-width (`CdBits` = `SmallVec<[u64;1]>`, `hc-shape/src/lib.rs:53`) — so guess matching
+  arbitrary-width (`CdBits` = `SmallVec<[u64;1]>`, `pg-shape/src/lib.rs:53`) — so guess matching
   is **exact even for >64-def tables (Amharic)**, unlike the id-lane's ≤64 bound. No wholesale
   disable, no over-approximation arm;
 - phonological refinement = `flat_unifiable` on node lanes.
@@ -256,18 +256,18 @@ inventing a third identity model.
   branch — C#'s signal is "the caller passed true and got results with `RootAllomorph.Guessed`").
   Per-analysis granularity is unnecessary: the branch is all-or-nothing (`syntheses.Count == 0`
   gate), so one flag describes every returned analysis.
-- `WordAnalysis` (`hc-parse/src/lib.rs:22-26`) gains `pub guessed: bool` (the per-analysis mirror
+- `WordAnalysis` (`pg-parse/src/lib.rs:22-26`) gains `pub guessed: bool` (the per-analysis mirror
   FieldWorks will want via FFI; always equal to the outcome flag today, but the wire format
   shouldn't bake that coupling in).
 - `hc_parse_batch` / `BatchWordOutcome`: thread `ParseOptions` through (one options value for the
   whole batch run).
-- `hc-cli`: `batch` gains `--guess` (off by default; default path byte-identical). No change to
+- `pg-cli`: `batch` gains `--guess` (off by default; default path byte-identical). No change to
   the TSV columns or signature format — see §4.5.
-- `hc-ffi`: `hc_parse_word`/`hc_parse_batch` gain a `guess_root: i32` parameter (0/1) and the
+- `pg-ffi`: `hc_parse_word`/`hc_parse_batch` gain a `guess_root: i32` parameter (0/1) and the
   wire encoding of each analysis gains the `guessed` flag ⇒ **`hc_abi_version` bump**. (The
   managed facade consuming this is the same out-of-scope §4.1-C# work already noted for M8.)
 
-### 4.2 Grammar model + loader (`hc-grammar`)
+### 4.2 Grammar model + loader (`pg-grammar`)
 
 Almost nothing: the XML surface and segmentation already exist (§2). Add:
 
@@ -283,11 +283,11 @@ Almost nothing: the XML surface and segmentation already exist (§2). Add:
 No lint change: a pattern entry is valid loadable grammar (UNPORTED-SILENT stays at zero by
 *porting*, not linting).
 
-### 4.3 Where the guesser lives (`hc-parse/src/guess.rs`, new module)
+### 4.3 Where the guesser lives (`pg-parse/src/guess.rs`, new module)
 
-`hc-parse` is the right crate: the guesser is Morpher-tier orchestration (like
+`pg-parse` is the right crate: the guesser is Morpher-tier orchestration (like
 `lexical_lookup`), needs `Grammar` + `Shape` + tables + `surface::matching_str_reps`, and nothing
-in `hc-rules` may depend back on it. Contents:
+in `pg-rules` may depend back on it. Contents:
 
 - `match_nodes_with_pattern(input: &[GuessNode], pattern: &[GuessNode]) -> Vec<Vec<GuessNode>>` —
   the literal recursive port of `Morpher.MatchNodesWithPattern` (§1.3 step 2), where `GuessNode`
@@ -325,14 +325,14 @@ and for FFI consumers stability is the safer superset).
 The guessed allomorph/entry/morpheme exist in no `Grammar` table, and `Grammar` is immutable and
 shared across threads — no appending. Design: **sentinel ids + a per-word payload**.
 
-- `hc-rules/src/word.rs`: `pub struct GuessedRoot { pub pattern_allo: AllomorphId, pub
+- `pg-rules/src/word.rs`: `pub struct GuessedRoot { pub pattern_allo: AllomorphId, pub
   pattern_entry: LexEntryId, pub text: String }` and `Word.guessed_root:
   Option<Rc<GuessedRoot>>` (`Rc` — words are cloned heavily; the payload is immutable once
   fabricated; `Word` is already `!Send` per-parse). `text` doubles as the fabricated `Id`/
   `Gloss`/`MorphemeId` string (C# sets all three to `shapeString`).
 - Sentinels: `AllomorphId::GUESSED = AllomorphId(u32::MAX)`, `MorphemeId::GUESSED =
   MorphemeId(u32::MAX)` — used in `Word.root_allomorph` and the root `MorphRecord`. Constants on
-  the id types in `hc-grammar/src/model.rs`, so every match site names them.
+  the id types in `pg-grammar/src/model.rs`, so every match site names them.
 - Resolution sites, each keyed by "identity = sentinel; **content** = delegated to the pattern":
   1. `validity.rs::allomorphs_valid_impl` (line 419's `allomorph_owners` index — the one place
      that would panic today): on the sentinel, fetch `w.guessed_root` and check against the
@@ -354,7 +354,7 @@ shared across threads — no appending. Design: **sentinel ids + a per-word payl
   4. Nothing else: synthesis rules, surface rendering, `is_match`, `expand_alternatives` are all
      shape-/trail-driven and never resolve the root allomorph id.
 
-  Audit obligation for the implementer: grep `hc-rules`/`hc-parse` for `allomorph_owners\[` and
+  Audit obligation for the implementer: grep `pg-rules`/`pg-parse` for `allomorph_owners\[` and
   `\.allomorph\b.*\.0 as usize` and disposition every site against the list above (known extra
   sites: `morph.rs`'s blocking/`ChooseInflectionalStem` seeds — unreachable for a guessed root,
   which is never a lexicon entry; `generate_words` — takes real `LexEntryId`s only; document
@@ -375,16 +375,16 @@ against a guess-on oracle.
 Each lands green on the full workspace suite + Indonesian 121/121 + the standard corpus probes;
 none changes default-path output except chunk 2 (which *fixes* a divergence).
 
-1. **`hc-grammar`: `is_pattern`** — field, loader compute, unit tests (§4.2). Inert.
-2. **`hc-parse`: the partition** — exclude `is_pattern` allomorphs from `RootAllomorphTrie::
+1. **`pg-grammar`: `is_pattern`** — field, loader compute, unit tests (§4.2). Inert.
+2. **`pg-parse`: the partition** — exclude `is_pattern` allomorphs from `RootAllomorphTrie::
    build`; add `Morpher.lexical_patterns`; update `root_trie.rs`'s module doc. Gate test: a
    grammar with a `[Any]*` entry must return `-` (not a bogus root) for a one-segment word with
    guess off — red against today's engine, green after. This is the latent-divergence fix and is
    correct independently of the rest of P11.
-3. **`hc-rules`: guessed-root plumbing** — `GuessedRoot`, `Word.guessed_root`, sentinels,
+3. **`pg-rules`: guessed-root plumbing** — `GuessedRoot`, `Word.guessed_root`, sentinels,
    `validity.rs` delegation (§4.4-1), unit tests constructing guessed words by hand. Inert (no
    producer yet).
-4. **`hc-parse/src/guess.rs`: the matcher** — `match_nodes_with_pattern` + `render_match` +
+4. **`pg-parse/src/guess.rs`: the matcher** — `match_nodes_with_pattern` + `render_match` +
    the ported `TestMatchNodesWithPattern` cases + iterative/optional/unification unit tests.
    Inert.
 5. **Wire-up** — `lexical_guess`, `ParseOptions`, `parse_word_opts`, the guess branch + sort,
@@ -394,7 +394,7 @@ none changes default-path output except chunk 2 (which *fixes* a divergence).
 6. **Surfaces + conformance** — CLI `--guess`, FFI params + abi bump, fixtures (§6), gate tests
    replaying them.
 
-Estimated total: M (2 is S and standalone; 3-5 are the bulk; nothing touches the frozen `hc-fst`).
+Estimated total: M (2 is S and standalone; 3-5 are the bulk; nothing touches the frozen `pg-fst`).
 
 ---
 
@@ -412,7 +412,7 @@ shared oracle — **ask before patching** (open question #2). The Rust `--guess`
 upstream C# CLI equivalent either way; note that in the CLI help text.
 
 Fixture set, under `rust/conformance/guesser/` (each: `grammar.xml` + `words.txt` +
-`expected.tsv` + `script.txt` + README, replayed by a `hc-parse/tests/guesser_gate.rs`):
+`expected.tsv` + `script.txt` + README, replayed by a `pg-parse/tests/guesser_gate.rs`):
 
 1. **`canguess-basic`** — XML transcription of the C# unit test (`[Any]*` pattern with empty
    class FS + `-d` V suffix + a real V root as control). Words: `gag`, `gagd`, a real-root word

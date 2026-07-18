@@ -70,7 +70,7 @@ Downward approximation is impossible by construction.
 
 Reduplication: unchanged (proposer-agnostic peel; compile-replace remains a P6+ option).
 
-## 3. Main classes (`hc-foma::precision`)
+## 3. Main classes (`pg-foma::precision`)
 
 - **`ConstraintCatalog`** — walks a `Grammar`, enumerates every gate-constraint instance
   and rewrite rule, assigns stable IDs and flag-attribute names. Stable IDs ⇒
@@ -113,7 +113,7 @@ tiny map (constraint ID → action) replayable without re-measuring.
   against the C foma oracle (apply_up output set-equality on corpus words) before the
   Eliminate arm is enabled. On any mismatch, the tuner disables Eliminate — everything
   stays flagged, still exact. **The design degrades to AllFlags, never to wrong.**
-  - **Oracle-gate results (2026-07-15, `rust/crates/hc-foma/tests/pk2_eliminate_flag_oracle.rs`,
+  - **Oracle-gate results (2026-07-15, `rust/crates/pg-foma/tests/pk2_eliminate_flag_oracle.rs`,
     C foma 0.10.0alpha via WSL):** U/R/D-typed testers are equivalence-preserving and
     oracle-faithful — verified single and chained (incl. prefix-colliding attribute names),
     valueless and with-value, and alongside `<R:nnnn>` tag symbols. **E-typed (`@E@`)
@@ -192,7 +192,7 @@ tuner + budget; (4) rewrite-rule `Compose` trials joining the auction; (5) bench
 Steps 1, 2, 5 are SHIPPED; steps 3, 4 are DEFERRED WITH FINDINGS. The findings below are
 measured/verified facts, not projections; where they contradict §8's assumptions, they win.
 
-### Step 1 — SHIPPED (`hc-foma::precision`, gate PK1, worktree commit 4eec8c1)
+### Step 1 — SHIPPED (`pg-foma::precision`, gate PK1, worktree commit 4eec8c1)
 
 - **Environments were NOT the cheapest gate family — they were the wrong family for flags.**
   A left-environment is an ADJACENCY constraint; a persistent flag encodes "seen anywhere
@@ -204,7 +204,7 @@ measured/verified facts, not projections; where they contradict §8's assumption
   allomorph requires `@R.ENV{id}.y@`, empty entries preserve, and the y-test over-approximates
   upward only (`ends_with` the literal OR proper suffix of it). Anything unprovable —
   OR-lists, excludes, right contexts, anchors, non-literals, prule tail-rewrite risk —
-  declines to Strip (always recall-safe). See `hc-foma/src/precision.rs`'s module doc.
+  declines to Strip (always recall-safe). See `pg-foma/src/precision.rs`'s module doc.
 - **Flag names must be dot-free AND zero-free** (`flag_id`, 0→Z): a `.` inside a flag NAME is
   parsed as a field separator (constraints silently share one flag), and a literal `0` digit
   anywhere in a flag symbol breaks matching once the symbol is spliced next to surface text
@@ -233,7 +233,7 @@ Read-only feasibility analysis (2026-07-16), three load-bearing facts:
 
 1. **The emitter's representation is the opposite of what composition needs.** Every lexc
    entry is a boundary-stripped, phonology-PRE-RESOLVED literal surface string (the
-   `PhonologyProbe`/`preexpand` machinery drives the real `hc_rules` engine at emit time and
+   `PhonologyProbe`/`preexpand` machinery drives the real `pg_rules` engine at emit time and
    bakes the results in). Composing a rule on top would re-match already-resolved material;
    real Compose needs an underlying, boundary-preserving tape with phonology deferred — a
    rewrite of `emit.rs`'s core convention cascading into `junctions.rs`/`preexpand.rs`, whose
@@ -252,12 +252,12 @@ Read-only feasibility analysis (2026-07-16), three load-bearing facts:
 `Skip` therefore remains the only populated action — matching what the enum already says.
 foma-rs itself is NOT the blocker (`fsm_parse_regex`/`fsm_rewrite`/`fsm_compose` exist and
 pass a toy composed-rule test in `f0_viability.rs`); the blocker is the emitter architecture
-plus the translation burden for `hc_rules::rewrite`'s real semantics (~3.5k LOC: POS/MPR
+plus the translation burden for `pg_rules::rewrite`'s real semantics (~3.5k LOC: POS/MPR
 gates, alpha agreement, self-opaquing fixpoints, direction/iteration modes).
 
-### Step 5 — SHIPPED (`hc-foma/examples/precision_bench.rs`)
+### Step 5 — SHIPPED (`pg-foma/examples/precision_bench.rs`)
 
-`cargo run -p hc-foma --release --example precision_bench` prints the per-grammar,
+`cargo run -p pg-foma --release --example precision_bench` prints the per-grammar,
 per-preset matrix. Measured 2026-07-16 (100 Sena / 100 Indonesian / 40 Amharic corpus words):
 
 | grammar | env constraints (total/keep/strip) | states Strip→AllFlags | compile Strip→AllFlags | candidates/word | confirm total |

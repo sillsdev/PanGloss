@@ -1,9 +1,9 @@
 # Phase 2 sub-plan: Metathesis rules (W4) — COMPLETED
 
 > **OUTCOME (2026-07-08, landed on `rust`):** full port shipped as planned —
-> `hc-rules/src/metathesis.rs`, authored-`Group` lowering in the pattern bridge, analysis
+> `pg-rules/src/metathesis.rs`, authored-`Group` lowering in the pattern bridge, analysis
 > feature-exchange + synthesis physical splice, `RuleCache` compilation. Along the way it also
-> found and fixed a real `hc-fst` RightToLeft traversal bug. Empirical constraint discovered
+> found and fixed a real `pg-fst` RightToLeft traversal bug. Empirical constraint discovered
 > against the C# oracle: switch groups are always 1 node wide in practice — wider groups crash
 > the real C# engine, so Rust pins that rather than "fixing" it into divergence. All 3
 > MetathesisRuleTests ported and passing (`csharp_port_metathesis.rs`), 3 oracle conformance
@@ -11,10 +11,10 @@
 > All three corpora stayed byte-identical (none uses metathesis).
 > The plan below is preserved as the design rationale/C# map. Nothing remains open.
 
-**Status at planning time:** zero Rust lines exist; `hc-grammar/src/load.rs:376` hard-rejects any grammar containing
+**Status at planning time:** zero Rust lines exist; `pg-grammar/src/load.rs:376` hard-rejects any grammar containing
 `<MetathesisRule>` (whole load fails — correct stopgap, becomes wrong once this lands).
 **Effort:** L. **Dependencies:** none — the `Group`/`get_offsets` capture primitive it needs already
-exists in `hc-fst` and is production-proven by Tier-2 #12 and `morph.rs::compile_parts`.
+exists in `pg-fst` and is production-proven by Tier-2 #12 and `morph.rs::compile_parts`.
 Source: audit `rust/parity-out/audit/phase2/B-phonology-parity.md` §4 (full C# read).
 
 ## C# implementation map (.worktrees/parse-opt/src/SIL.Machine.Morphology.HermitCrab/PhonologicalRules/)
@@ -48,7 +48,7 @@ Source: audit `rust/parity-out/audit/phase2/B-phonology-parity.md` §4 (full C# 
 
 ## Rust implementation shape
 
-New module `hc-rules/src/metathesis.rs`, driven from the same stratum plumbing as `rewrite.rs`
+New module `pg-rules/src/metathesis.rs`, driven from the same stratum plumbing as `rewrite.rs`
 (analysis: iterative loop over `MutShape`; synthesis: same). Steps:
 1. **Loader:** replace the `load.rs:376` rejection with a real `MetathesisRuleDef` (pattern +
    left/right switch group names + direction) in `model.rs`. DTD: check every attribute against

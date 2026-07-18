@@ -1,16 +1,16 @@
-// .NET 10 P/Invoke harness for hc-ffi's `hermit_crab.dll` (plan §4.2, M8). Proves the C ABI is
+// .NET 10 P/Invoke harness for pg-ffi's `pangloss_ffi.dll` (plan §4.2, M8). Proves the C ABI is
 // genuinely callable from managed code with real P/Invoke marshalling — struct layout, calling
 // convention, UTF-8 string handling — not just from Rust's own test harness. See the .csproj for
 // why this stands in for the (unreachable on this machine) net48 FieldWorks-style host.
 //
-// Usage: HcFfiHarness <path-to-hermit_crab.dll> <indonesian-hc.xml> <indonesian-words.txt>
+// Usage: HcFfiHarness <path-to-pangloss_ffi.dll> <indonesian-hc.xml> <indonesian-words.txt>
 
 using System.Runtime.InteropServices;
 using System.Text;
 
 if (args.Length < 3)
 {
-    Console.Error.WriteLine("usage: HcFfiHarness <hermit_crab.dll path> <grammar.xml> <words.txt>");
+    Console.Error.WriteLine("usage: HcFfiHarness <pangloss_ffi.dll path> <grammar.xml> <words.txt>");
     return 1;
 }
 
@@ -165,7 +165,7 @@ return 0;
 
 internal static class Native
 {
-    public const string LibraryName = "hermit_crab";
+    public const string LibraryName = "pangloss_ffi";
 
     [StructLayout(LayoutKind.Sequential)]
     public struct HcResultBuf
@@ -219,7 +219,7 @@ internal static class Native
     public readonly record struct DecodedAnalysis(uint? PosId, int RootMorphemeIndex, List<uint> MorphemeIds);
     public readonly record struct DecodedWord(bool InvalidShape, bool Capped, List<DecodedAnalysis> Analyses);
 
-    /// Decodes the exact wire format documented in `hc-ffi/src/buffer.rs`'s module docs: a
+    /// Decodes the exact wire format documented in `pg-ffi/src/buffer.rs`'s module docs: a
     /// little-endian, length-prefixed buffer — magic (u32) + word_count (u32), then per word a
     /// status/capped/reserved/analysis_count header followed by analysis records
     /// (pos_id: i32, root_morpheme_index: i32, morpheme_count: u32, morpheme_ids: u32[]).

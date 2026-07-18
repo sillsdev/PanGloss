@@ -70,11 +70,11 @@ Tests to port (toy-grammar families; §9): `VerifiedFstAnalyzerTests` (880), `Ru
 ### 2.2 What exists in Rust (the substrate)
 
 The `rust` branch engine port (see `rust-conversion.md` and its progress notes): crates
-`hc-featstruct` (feature structures, unification, interner), `hc-shape` (SoA shapes),
-`hc-grammar` (XML loader + full grammar model), `hc-fst` (FSA engine: Thompson/determinize/
-traversal/registers), `hc-rules` (rewrite + morphological rules, analysis + synthesis, in-flight
-`Word`), `hc-parse` (Morpher pipeline, root-allomorph trie, memoization, batch CLI `hc-rs`),
-`hc-cli`. Engine parity scoreboard at plan-writing time: **Indonesian 121/121 byte-identical**,
+`pg-featstruct` (feature structures, unification, interner), `pg-shape` (SoA shapes),
+`pg-grammar` (XML loader + full grammar model), `pg-fst` (FSA engine: Thompson/determinize/
+traversal/registers), `pg-rules` (rewrite + morphological rules, analysis + synthesis, in-flight
+`Word`), `pg-parse` (Morpher pipeline, root-allomorph trie, memoization, batch CLI `pangloss`),
+`pg-cli`. Engine parity scoreboard at plan-writing time: **Indonesian 121/121 byte-identical**,
 Amharic 532/673, Sena tractable but cap-limited (full Sena deferred to the engine plan's M9).
 
 The hybrid port sits ON TOP of that engine: it needs the engine as (a) its **verifier** (restricted
@@ -139,7 +139,7 @@ Anything less at a gate is a blocker for that milestone, not a note.
   `C:\Users\johnm\Documents\repos\machine\samples\data\{indonesian,sena,amharic}-hc.xml` + word
   lists.
 - Kill orphaned test processes before rebuilding (DLL/exe locks — testhost on the C# side, stale
-  `hc-rs`/cargo test binaries on the Rust side).
+  `pangloss`/cargo test binaries on the Rust side).
 - **Standing per-commit gates** once the relevant subsystem exists: tier-report diff vs recorded
   numbers (catches silent compiler drift — this caught a real regression in C# I5), and the stats
   battery (state count, build time, walk p50/p95, coverage, overflow count) reported with every
@@ -311,8 +311,8 @@ cannot detect coverage drift). Normalization: `awk`-cut the comparison columns, 
 ## 7. Crate plan
 
 One new crate: **`hc-hybrid`** (name final unless review objects in F1), depending on
-`hc-grammar`, `hc-featstruct`, `hc-shape`, `hc-rules`, `hc-parse`. The FST here is NOT
-`hc-fst`'s determinized-CSR machine — the hybrid's trie/NFA is unification-arc, multi-analysis,
+`pg-grammar`, `pg-featstruct`, `pg-shape`, `pg-rules`, `pg-parse`. The FST here is NOT
+`pg-fst`'s determinized-CSR machine — the hybrid's trie/NFA is unification-arc, multi-analysis,
 walked nondeterministically with ε-closure; it gets its own module (`trie.rs`) mirroring
 `FstTemplateAnalyzer`'s structures. Module sketch:
 
@@ -338,7 +338,7 @@ hc-hybrid/
   tests/            // ported toy-grammar tests (§9), golden-gate integration tests
 ```
 
-`hc-cli` gains the mirror commands: `hc-rs fst-batch`, `hc-rs fst-candidates`, `hc-rs fst-stats` —
+`pg-cli` gains the mirror commands: `pangloss fst-batch`, `pangloss fst-candidates`, `pangloss fst-stats` —
 flag-compatible with §6.1 so gate scripts are symmetric.
 
 ### 7.0 rustfst evaluation (bounded investigation, during F1)
@@ -371,23 +371,23 @@ Outcome either way: a recorded decision with reasons, not a standing question.
 
 These are the only edits outside `hc-hybrid`; each is its own commit with its own tests:
 
-- **`hc-parse`: analysis selectors.** `Morpher` (or the analysis entry point) accepts
+- **`pg-parse`: analysis selectors.** `Morpher` (or the analysis entry point) accepts
   `lex_entry_filter` and `rule_filter` predicates threaded to where the C# selectors bite
   (lexical lookup admission; rule cascade admission). Semantics must match `Morpher.cs` exactly —
   find every C# read site of `LexEntrySelector`/`RuleSelector` first and mirror the set. Prefer
   per-call parameters over C#'s mutable instance state (Rust idiom, thread-safe by construction;
   behavioral parity is what's gated, not the mutation style — record this as an approved deviation).
-- **`hc-parse`/`hc-rules`: synthesis-for-probing.** `SurfacePhonology` and both rule compilers need
+- **`pg-parse`/`pg-rules`: synthesis-for-probing.** `SurfacePhonology` and both rule compilers need
   (a) "run this stratum's/language's synthesis cascade over this shape" and (b) "generate surface
   words for this lex entry" (`Morpher.GenerateWords` analog — bare-root surfaces, and the opt-in
   `ForwardSynthesisProposer`). The engine port's synthesize-confirm path has most of this; expose a
   probing-friendly API without cloning the pipeline.
-- **`hc-shape`: deleted-node-aware rendering.** A `render_nodes` that skips deleted nodes
+- **`pg-shape`: deleted-node-aware rendering.** A `render_nodes` that skips deleted nodes
   (`IsDeleted()` analog) matching C# `SurfacePhonology.RenderNodes`; plus whatever
   shape-construction helpers the probe assembly needs (build a probe `Shape` node-by-node from
   known FeatureStructs — the C# I1 lesson: NEVER build probe strings and re-segment; port the
   fixed design, not the buggy first draft).
-- **`hc-grammar`:** confirm every object-model surface the advisor/compilers read is loaded
+- **`pg-grammar`:** confirm every object-model surface the advisor/compilers read is loaded
   (quantifier bounds, MPR gates, `Direction`/`ApplicationMode` defaults — remember
   `XmlLanguageLoader` defaults every rule to `Iterative`; anchors; boundary char defs;
   `MaxStemCount`; `DeletionReapplications`). Grep-audit against the C# read sites; extend the
@@ -594,9 +594,9 @@ hand-authored toy grammar — `FstCoverageProbeToyGrammar.AfterRedup.xml`'s unbo
 first; the second needs the same rule with `max="1"` instead) — deferred rather than attempted here
 since it needs new fixture engineering, not a mechanical fix.
 
-**hc-cli gap, cross-milestone, not F8-specific:** the plan's §7 crate-plan text calls for `hc-rs
+**pg-cli gap, cross-milestone, not F8-specific:** the plan's §7 crate-plan text calls for `pangloss
 fst-batch`/`fst-candidates`/`fst-stats` CLI commands mirroring the C# oracle tool's flags. None of
-F1 through F8 actually wired these into `hc-cli` (it has no dependency on `hc-hybrid` at all, and no
+F1 through F8 actually wired these into `pg-cli` (it has no dependency on `hc-hybrid` at all, and no
 `fst-*` subcommand exists) — every milestone's gates run directly against library functions from
 Rust integration tests instead. This is a real, consistently-deferred gap across the WHOLE plan, not
 something introduced or newly discovered here; F9's own checklist item "Crate docs + CLI usage
@@ -643,7 +643,7 @@ numbers):
    battery). All three: green.
 3. **The Amharic "hard precondition" (§5.3, RealizationalAffixProcessRule/mrule synthesis-side
    gating)**: investigated directly rather than assumed closed or left open. Code-level, it IS
-   wired uniformly — `hc-rules::morph.rs` dispatches `synth_realizational`/`ana_realizational`
+   wired uniformly — `pg-rules::morph.rs` dispatches `synth_realizational`/`ana_realizational`
    generically for `MorphRuleDef::Realizational` (both C# `SynthesisRealizationalAffixProcessRule`/
    `AnalysisRealizationalAffixProcessRule` equivalents), and `hc-hybrid::replay.rs`'s
    `rule_filter`/`build_morpheme_owners` already treat it identically to `AffixProcess` under one
@@ -654,8 +654,8 @@ numbers):
    `KNOWN_GAPS.md` item 6 as "implemented and structurally sound by generic-dispatch symmetry, never
    empirically exercised" — NOT reported as "closed and verified," which the evidence does not
    support.
-4. **CLI gap (recorded cross-milestone at F8) partially closed:** `hc-rs fst-stats <grammar.xml>
-   [out.txt]` now exists in `hc-cli`, reusing `stats::assemble_lines` directly (verified
+4. **CLI gap (recorded cross-milestone at F8) partially closed:** `pangloss fst-stats <grammar.xml>
+   [out.txt]` now exists in `pg-cli`, reusing `stats::assemble_lines` directly (verified
    byte-identical, modulo this crate's existing CRLF-golden-vs-LF-output normalization convention,
    against `indonesian/stats.txt`). `fst-batch`/`fst-candidates` remain unwired — recorded honestly
    in `KNOWN_GAPS.md` item 4 rather than rushed; `fst-stats` was the cheapest of the three (no batch/
@@ -702,7 +702,7 @@ The C# toy tests build grammars **in code**. Rust gets them via the XML round-tr
   dangling-co-occurrence writer fix #450 is already on master) to
   `tests/fixtures/fst-advisor-toys/<TestClass>.<grammar-name>.xml` — committed (small files), NOT
   gitignored, because Rust CI needs them.
-- Each Rust test loads the fixture with `hc-grammar::load` and asserts the same expectations as
+- Each Rust test loads the fixture with `pg-grammar::load` and asserts the same expectations as
   the C# original (expected analysis sets, tier + reason, overflow behavior, live baselines).
 - Verify the round-trip on the C# side in F0: for each exported toy, load the XML back and re-run
   the original assertions against the loaded grammar (guards against writer lossiness — if a toy
@@ -720,8 +720,8 @@ dotnet hc.dll fst-batch ... --chain ...           # chain-on goldens
 dotnet hc.dll fst-candidates ... ; dotnet hc.dll fst-stats ...
 
 # Rust side (mirror flags)
-hc-rs fst-batch <grammar> <words> out.tsv [--chain] [--threads=N]
-hc-rs fst-candidates ... ; hc-rs fst-stats ...
+pangloss fst-batch <grammar> <words> out.tsv [--chain] [--threads=N]
+pangloss fst-candidates ... ; pangloss fst-stats ...
 
 # Compare (same recipe as engine goldens; last cols = status+signatures)
 awk -F'\t' 'NF>=4 {print $2"\t"$3"\t"$4}' out.tsv | sort > rust.sorted
@@ -776,7 +776,7 @@ paths; run the oracle with `DOTNET_gcServer=0`.
 2. **Amharic follow-ups**: feature-quotient probe alphabet / static pre-gate (feasibility §8.3)
    once end-to-end Amharic parity exists to gate against.
 3. **Per-grammar beam calibration** (complexity-cap plan) — both sides.
-4. Surface the hybrid through `hc-ffi`/the .NET bridge alongside the engine (engine plan M8) if
+4. Surface the hybrid through `pg-ffi`/the .NET bridge alongside the engine (engine plan M8) if
    the product wants the probe callable from FieldWorks.
 5. **Revisit rustfst for the quotiented chain (see §7.0 item 3).** If follow-up #1's chain
    optimization lands feature-quotienting, the rule-inverse transducers become concrete-alphabet

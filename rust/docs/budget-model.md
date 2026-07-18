@@ -2,10 +2,10 @@
 
 ## The bug being fixed
 
-`hc-rules::stratum::StratumAnalyzer` owns its step counter as an instance field
+`pg-rules::stratum::StratumAnalyzer` owns its step counter as an instance field
 (`steps: Cell<usize>`, `stratum.rs`), constructed fresh — `Cell::new(0)` — every time
 `analyze_stratum`/`analyze_stratum_scoped`/`analyze_stratum_scoped_filtered` is called. The
-production call site, `hc-parse::Morpher::parse_word`, calls
+production call site, `pg-parse::Morpher::parse_word`, calls
 `analyze_stratum_scoped_filtered` **once per (stratum × live candidate word)** inside a loop over
 `0..n_strata` (reversed) — and the candidate set can itself grow between strata. So a single
 `--step-cap=N` does not bound one `parse_word`'s search to `N` steps; it bounds *each* of the
@@ -28,8 +28,8 @@ regression risk with no upstream justification. Scope of this change is **analys
 
 ## The fix
 
-A new `hc_rules::stratum::StepBudget`: a small `cap`/`steps: Cell<usize>`/`capped: Cell<bool>`
-struct with `tick()`/`over_budget()`/`capped()`. `hc-parse::Morpher::parse_word` constructs **one**
+A new `pg_rules::stratum::StepBudget`: a small `cap`/`steps: Cell<usize>`/`capped: Cell<bool>`
+struct with `tick()`/`over_budget()`/`capped()`. `pg-parse::Morpher::parse_word` constructs **one**
 `StepBudget` per call and passes it, by shared reference, into every
 `analyze_stratum_scoped_filtered` invocation of that parse's stratum loop — across every stratum
 and every candidate word. `StratumAnalyzer` now borrows `&StepBudget` instead of owning its own
@@ -90,10 +90,10 @@ a *step* backstop, and the two are not interchangeable (a small step cap on a ch
 grammar cuts off search prematurely; a wall-clock cap alone still lets a cheap-but-infinite loop
 burn arbitrary step count within the time window). `--word-timeout-ms N` adds that second bound.
 
-**Mechanism.** `hc_rules::stratum::StepBudget` (the same shared, per-`parse_word` counter
+**Mechanism.** `pg_rules::stratum::StepBudget` (the same shared, per-`parse_word` counter
 `--step-cap` already uses) optionally carries an absolute deadline, armed via
 `StepBudget::with_timeout(Some(Duration))` at construction (`Morpher::with_word_timeout` threads a
-`Duration` down from `hc-cli`'s `--word-timeout-ms N` flag, ms → `Duration::from_millis(N)`).
+`Duration` down from `pg-cli`'s `--word-timeout-ms N` flag, ms → `Duration::from_millis(N)`).
 `over_budget()` — already consulted at every (un)application attempt and every recursion entry —
 checks the step cap first (unchanged), then, only if a deadline was armed, samples
 `Instant::now()` against it — on **every single call**, not periodically.
@@ -117,7 +117,7 @@ the same failure onto slower-per-tick words (at ~1s/tick, even a 16-tick interva
 deadline by ~16s). The fix: drop the step-count gate entirely and read `Instant::now()` on every
 `over_budget()` call once a deadline is armed. This is sound because `over_budget()` fires at
 rule-attempt/recursion-entry granularity (a handful of times per tick), not per innermost-loop-
-iteration of an FST traversal (that finer-grained hot loop is `hc-fst::traverse`, untouched by this
+iteration of an FST traversal (that finer-grained hot loop is `pg-fst::traverse`, untouched by this
 fix) — `Instant::now()`'s real cost (tens of nanoseconds) is negligible next to the per-call work it
 gates. No deadline (`None`, the default — the flag omitted) still never reads the clock at all: zero
 cost when unused, confirmed unchanged (Indonesian corpus, both `--threads 1` and `--threads 4`, no
@@ -125,7 +125,7 @@ cost when unused, confirmed unchanged (Indonesian corpus, both `--threads 1` and
 The `WALL_CLOCK_CHECK_INTERVAL` constant is gone from `stratum.rs`; the cadence doc below is
 historical context, not current behavior.
 
-`hc-rules/src/stratum.rs`'s `step_budget_timeout_tests::
+`pg-rules/src/stratum.rs`'s `step_budget_timeout_tests::
 wall_clock_deadline_fires_even_when_total_ticks_never_reach_the_old_check_interval` is the
 regression guard: 200 ticks (well under the old 1024 interval), each with 1ms of real sleep standing
 in for an expensive attempt, deadline at 50ms — red under the old cadence (only one clock sample, at
@@ -135,7 +135,7 @@ so the deadline fires within about one tick of the 50ms mark).
 **Two independent bounds, whichever fires first wins.** `StepBudget` now latches two separate
 `Cell<bool>` flags — `capped` (the pre-existing step-cap-exhausted flag) and `timed_out` (new) —
 and never conflates them: a word can time out with steps to spare, or hit the step cap well inside
-its deadline. `ParseOutcome` exposes both (`capped: bool`, `timed_out: bool`); `hc-cli`'s `batch`
+its deadline. `ParseOutcome` exposes both (`capped: bool`, `timed_out: bool`); `pg-cli`'s `batch`
 subcommand reports them as distinct outcomes, not folded into one "something fired" flag:
 
 - Step-cap exhausted (`capped`, unchanged): the word still gets an `ok` row with whatever partial
@@ -151,7 +151,7 @@ subcommand reports them as distinct outcomes, not folded into one "something fir
   path and the rayon-parallel buffered path) — the row shape is the same, only the surrounding
   `STARTED` sentinel (sequential-only) differs, as it already did before this flag existed.
 
-**Default and CLI surface.** `--word-timeout-ms N` (milliseconds) is optional on `hc-rs batch`;
+**Default and CLI surface.** `--word-timeout-ms N` (milliseconds) is optional on `pangloss batch`;
 omitted = `None` = no deadline, unchanged behavior (verified above). There is no default timeout —
 unlike `--step-cap`'s calibrated-default ambition (see above), no calibration work has been done
 for a default wall-clock bound, and none is implied by adding this flag; it is opt-in per

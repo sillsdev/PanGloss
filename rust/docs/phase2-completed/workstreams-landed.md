@@ -79,7 +79,7 @@ XML-expressible: StemName regions; `LexFamily` + `CheckBlocking` (implemented as
 argued equivalent to C#'s 3 inline call sites); `RealizationalAffixProcessRule` as a third
 `MorphRuleDef` variant (C# has no `MaxApplicationCount` for it — Rust uses `u16::MAX`);
 `ChooseInflectionalStem` + a `real_fs` pre-gate (previously inert); presence-only `IsBlocked`;
-`expand_alternatives` realizational-FS diff via a new `hc-featstruct::subtract`. 3 oracle fixtures
+`expand_alternatives` realizational-FS diff via a new `pg-featstruct::subtract`. 3 oracle fixtures
 MATCH (`rust/conformance/realizational/`); D-batch-3 ported (StemNames 12/12, RealizationalRule,
 ProdRestrictRule). Kept linted with scope notes: FootFeatures. **Surprise worth remembering:** the
 C# oracle accepts `RealizationalRule` directly in a stratum's `morphologicalRules` — the DTD
@@ -98,7 +98,7 @@ globally-unique `id` attrs, strict DTD element order.
 `mrule_apps: Vec<Option<MRuleId>>` for C#'s null compounding slot (proven parse-path-inert),
 left-side-reversed `PermuteOtherMorphemes` interleave (mechanically proven vs C# with a
 discriminating fixture), `hc_generate_words` FFI (WordAnalysis overload only — the 3-arg
-realizational-FS overload has no wire encoding, scoped out) + `hc-rs generate` CLI. FFI
+realizational-FS overload has no wire encoding, scoped out) + `pangloss generate` CLI. FFI
 round-trip parse→regenerate 15/15 (`generate_round_trip.rs`).
 
 **UPDATE (P8, 2026-07-10): the "5 GenerateWords assertions stay unported" scope cut below is
@@ -106,12 +106,12 @@ STALE — they were ported in a W11 batch-7 follow-up, before this note was corr
 text, kept for history: ~~**Ratified scope cut:** 5 GenerateWords assertions in
 AffixProcessRuleTests Suffix/PrefixRules stay unported (same multi-stratum grammar shape
 `csharp_port_affix_process.rs` already omits) — tracked in the finish plan's P8.~~ In fact
-`rust/crates/hc-parse/tests/csharp_port_affix_process.rs`'s `suffix_rules` test (module doc
+`rust/crates/pg-parse/tests/csharp_port_affix_process.rs`'s `suffix_rules` test (module doc
 "W11 batch-7 remainder") already ports all 5 `GenerateWords` round-trip assertions from
 `AffixProcessRuleTests.cs:418-437` (entries 32/33 × sSuffix/edSuffix, entry 34 × edSuffix),
 using `Morpher::generate_words` once it landed later in this same workstream. `PrefixRules` has
 no `GenerateWords` calls in its C# body at all, so there was never anything to port there. Verified
-2026-07-10: `cargo test -p hc-parse --test csharp_port_affix_process suffix_rules` passes. No
+2026-07-10: `cargo test -p pg-parse --test csharp_port_affix_process suffix_rules` passes. No
 outstanding GenerateWords scope cut remains for this test file; P8(b) closed with no code change.
 
 ## W8 — Budget model + narrowing (LANDED) → see `narrowing-budget-w8.md`

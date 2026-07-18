@@ -5,8 +5,8 @@
 real-grammar history purge (`561598a`). Built milestone-per-commit by sonnet subagents with
 orchestrator review-fix commits after each milestone. Shipped scope and deviations:
 
-- **N0–N2 as planned** (`hc-realize` crate; `GlossBundle` → `GlossIr` → `Realizer`/
-  `TableRealizer`; `hc-rs parse --gloss` / `--natural-gloss=eng [--realize-map=…]`). Demo:
+- **N0–N2 as planned** (`pg-realize` crate; `GlossBundle` → `GlossIr` → `Realizer`/
+  `TableRealizer`; `pangloss parse --gloss` / `--natural-gloss=eng [--realize-map=…]`). Demo:
   amharic `ቤትህ` → *"your house"*; `ልጆቹ` → *"his children"* / *"children (def.m)"*.
   Deviations: `GlossBundle` keeps the root inline (`root_index`) rather than a separate `root`
   field; `Poss` has 9 variants (amharic's real inventory gender-splits 2nd/3rd sg → 108
@@ -19,7 +19,7 @@ orchestrator review-fix commits after each milestone. Shipped scope and deviatio
 - **Perf finding (N1/N2):** Sena under an uncapped debug-build Morpher is pathological; the
   N2 robustness sweep runs step-capped (100k) + word-timeout, all of Indonesian, subsampled
   amharic/Sena (documented in the gate).
-- **N3:** GF sources in `rust/crates/hc-realize/gf/` (functor over the checked-in `Grammar`/
+- **N3:** GF sources in `rust/crates/pg-realize/gf/` (functor over the checked-in `Grammar`/
   `Constructors` RGL modules, param-record lincats) + `gen_templates.py` + crate README.
   **Compile-verification (2026-07-13):** `.github/workflows/gf-ci.yml` now runs
   `gf --make GlossEng.gf` in CI on every push/PR touching `gf/` (GF 3.12 + pinned `gf-rgl`
@@ -39,10 +39,10 @@ Architecture A (embedded PGF runtime) stays a pure upgrade.
 ## Non-negotiable constraints
 
 1. **Parity is untouchable.** `result_signature`, `ParseOutcome.analyses`, the batch TSV
-   protocol, and everything `hc-ffi` encodes stay byte-identical. All new output is additive
+   protocol, and everything `pg-ffi` encodes stay byte-identical. All new output is additive
    and behind new flags. The full existing test suite must stay green.
-2. **No changes to `hc-hybrid`** (F9 is in flight on `main`). Core crates (`hc-parse`,
-   `hc-grammar`, `hc-rules`, …) may gain at most small `pub` read-only accessors, and only if
+2. **No changes to `hc-hybrid`** (F9 is in flight on `main`). Core crates (`pg-parse`,
+   `pg-grammar`, `pg-rules`, …) may gain at most small `pub` read-only accessors, and only if
    actually needed (currently believed unnecessary: `Grammar::morphemes`,
    `MorphemeInfo::{gloss, properties}`, `ParseOutcome::structured`, `WordAnalysis` are
    already `pub`).
@@ -58,16 +58,16 @@ Architecture A (embedded PGF runtime) stays a pure upgrade.
 
 ## Repo facts the implementer needs (verified 2026-07-11)
 
-- Parse API: `hc_parse::Morpher::new(&grammar, usize::MAX)`, `.parse_word(word) ->
+- Parse API: `pg_parse::Morpher::new(&grammar, usize::MAX)`, `.parse_word(word) ->
   ParseOutcome`. `ParseOutcome.structured: Vec<WordAnalysis>` mirrors `.analyses` index-for-
   index (`morpher.rs:77-96`).
 - `WordAnalysis { morpheme_ids: Vec<u32>, root_morpheme_index: i32, pos_id: Option<u32>,
-  guessed: bool }` (`hc-parse/src/lib.rs:23`). `morpheme_ids` are **grammar-tier ordinals**
+  guessed: bool }` (`pg-parse/src/lib.rs:23`). `morpheme_ids` are **grammar-tier ordinals**
   — dense indices into `Grammar::morphemes: Vec<MorphemeInfo>` (`model.rs:1068`) — except
   `u32::MAX` = guessed root sentinel (`MorphemeId::GUESSED`).
 - `MorphemeInfo { gloss: Option<String>, properties: Vec<(String,String)>, … }`
   (`model.rs:475-487`).
-- CLI: `hc-cli/src/main.rs`, hand-rolled arg parsing (no clap), subcommands `parse` /
+- CLI: `pg-cli/src/main.rs`, hand-rolled arg parsing (no clap), subcommands `parse` /
   `batch` / `fst-*`; `run_parse` at `main.rs:164` is the wiring point.
 - Sample grammars (`samples/data/`): **amharic** (nominal demo: glosses `pl`, `poss.1s` …
   `poss.3p`, adpositions `at`/`from`/`to`, `abl`, verb features), **indonesian** (English
@@ -79,10 +79,10 @@ Architecture A (embedded PGF runtime) stays a pure upgrade.
 
 ## Milestones
 
-### N0 — `hc-realize` crate + gloss bundle layer
+### N0 — `pg-realize` crate + gloss bundle layer
 
-New workspace crate `rust/crates/hc-realize` (member + `[workspace.dependencies]` entry),
-depending on `hc-grammar` + `hc-parse` only.
+New workspace crate `rust/crates/pg-realize` (member + `[workspace.dependencies]` entry),
+depending on `pg-grammar` + `pg-parse` only.
 
 - `pub struct GlossBundle { pub root: GlossToken, pub tokens: Vec<GlossToken>, pub pos: Option<String>, pub guessed: bool }`
   where `GlossToken { pub gloss: Option<String>, pub properties: Vec<(String,String)>, pub is_root: bool }`
@@ -93,7 +93,7 @@ depending on `hc-grammar` + `hc-parse` only.
 - Leipzig rendering: `pub fn leipzig(bundle: &GlossBundle, surface_word: &str) -> String`
   → `house-pl-poss.1s` style (root gloss or `*{surface_word}*` when guessed; missing gloss
   → the morpheme's `morph_id`/`xml_key` in brackets).
-- CLI: `hc-rs parse <grammar> <word> --gloss` prints one extra tab column per analysis line
+- CLI: `pangloss parse <grammar> <word> --gloss` prints one extra tab column per analysis line
   (or per-analysis lines — match existing output style; parity line unchanged).
 - Tests: unit tests on synthetic bundles + an integration gate parsing real amharic +
   indonesian + sena words, asserting exact Leipzig strings, and asserting the parity
@@ -101,7 +101,7 @@ depending on `hc-grammar` + `hc-parse` only.
 
 ### N1 — IR + per-grammar mapping
 
-In `hc-realize`:
+In `pg-realize`:
 
 - `pub struct GlossIr { pub concept: Concept, pub num: Num, pub poss: Poss, pub case: CaseRole, pub extras: Vec<String> }`
   with `Concept::{Lex(String), Guessed(String)}`, `Num::{Unspec,Sg,Pl}`,
@@ -126,7 +126,7 @@ In `hc-realize`:
   `Realization { pub text: String, pub complete: bool, pub residue: Vec<String> }`
   (`complete=false` ⇒ caller appends/uses Leipzig fallback; `residue` = unrealized extras).
 - `TableRealizer` loading two embedded (via `include_str!`) English assets under
-  `rust/crates/hc-realize/assets/eng/`:
+  `rust/crates/pg-realize/assets/eng/`:
   - `templates.toml`: key = `(case, poss, num)` construction cell, value = template with
     `{n}` slots, e.g. `Loc.P1Sg.Pl = "in my {n:pl}"`, `None.None.Sg = "a {n:sg}"`,
     `Abl.P3Sg.Pl = "from his/her {n:pl}"`. Enumerate the **full** 4×8×3 space (~96 cells;
@@ -138,7 +138,7 @@ In `hc-realize`:
     the final token only when regular, else mark `complete=false`.
 - Verb/POS guard: N2 realizes **nominal** IRs only; a bundle whose extras look verbal or
   whose construction cell is missing → straight fallback. No verb templates in scope.
-- CLI: `hc-rs parse <grammar> <word> --natural-gloss=eng [--realize-map=<path>]` — prints
+- CLI: `pangloss parse <grammar> <word> --natural-gloss=eng [--realize-map=<path>]` — prints
   per analysis: parity signature line (unchanged) + `gloss:` line (N0) + `eng:` line. Map
   path defaults to `<grammar-path stem>-realize.toml` next to the grammar if present.
 - Tests:
@@ -152,13 +152,13 @@ In `hc-realize`:
 
 ### N3 — GF sources + regeneration path (reproducibility, not runtime)
 
-- `assets/gf/` at repo root (or `rust/crates/hc-realize/gf/` — implementer picks, document
+- `assets/gf/` at repo root (or `rust/crates/pg-realize/gf/` — implementer picks, document
   it): `Gloss.gf` (abstract: the typed construction inventory matching N1's IR exactly),
   `GlossFunctor.gf` (concrete written once over the `Syntax` interface), `GlossEng.gf`
   (functor instantiation), `LexGloss.gf`/`LexGlossEng.gf` (placeholder lexeme `n_N`).
   Must be honest GF (real RGL API — `mkNP`, `mkQuant`, `mkAdv`, `mkPrep`, `sgNum`/`plNum`);
   it cannot be compiled in this environment, so mark it clearly as "not yet CI-verified".
-- `tools/gen_templates.py` (or a `cargo run -p hc-realize --bin gen-templates` guard-railed
+- `tools/gen_templates.py` (or a `cargo run -p pg-realize --bin gen-templates` guard-railed
   stub): given a working `gf` install, enumerates the construction space, linearizes with
   the placeholder lexeme, and rewrites `templates.toml`. Documented in the crate README;
   a test asserts `templates.toml` parses and covers the full construction space (the
@@ -169,7 +169,7 @@ In `hc-realize`:
 
 ### N4 — Finishing
 
-`cargo fmt` (own files only), `cargo clippy -p hc-realize -p hc-cli`, full workspace
+`cargo fmt` (own files only), `cargo clippy -p pg-realize -p pg-cli`, full workspace
 `cargo test`, update this plan's status line with shipped scope + known gaps. Commit
 history: one commit per milestone, messages `N0: …` style, co-authored-by trailer per repo
 convention.
@@ -180,7 +180,7 @@ convention.
   the previous milestone's committed state in the worktree; orchestrator reviews the diff
   between milestones.
 - Each agent: read this plan + `docs/natural-glosses-plan.md` §6–§8 first; run
-  `cargo test -p hc-realize` plus touched-crate tests before declaring done; full-suite run
+  `cargo test -p pg-realize` plus touched-crate tests before declaring done; full-suite run
   happens at N2 and N4.
 - Anything discovered that contradicts this plan (e.g. amharic parses don't produce the
   expected bundles): stop, record the discrepancy in the milestone commit message and this

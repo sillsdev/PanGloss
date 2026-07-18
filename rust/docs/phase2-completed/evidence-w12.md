@@ -33,7 +33,7 @@ a fixture proves C#≡Rust byte-for-byte with no hand-translation loss (unlike C
 assertions against C# internals can't be shared with Rust). Layout:
 `rust/conformance/<area>/<name>/{grammar.xml, words.txt, expected.tsv, README.md}` (committed —
 these are tests, not scratch), plus a Rust conformance runner test that replays every fixture
-(`hc-rs batch` → normalize → byte-compare). Expected TSVs are generated ONLY by the oracle
+(`pangloss batch` → normalize → byte-compare). Expected TSVs are generated ONLY by the oracle
 (`DOTNET_gcServer=0 dotnet .worktrees/parse-opt/.../hc.dll -i grammar.xml -s script`), never
 hand-authored; each fixture's README records the generating command + oracle commit.
 

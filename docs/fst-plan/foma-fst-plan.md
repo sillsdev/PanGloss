@@ -10,7 +10,7 @@ propose→verify contract spec, every claim file:line-cited). Key citations inli
 
 **Goal:** Replace the custom-spun FST proposer layer (`hc-hybrid`, 12,332 lines) with a
 COTS foma network as the proposer, keep the Rust HermitCrab engine as the verifier
-(propose→confirm), wire the result into CLI and `hc-wasm`, and delete `hc-hybrid`.
+(propose→confirm), wire the result into CLI and `pg-wasm`, and delete `hc-hybrid`.
 
 **Architecture is settled (John, 2026-07-15):** "We will never do a full HC backup, we will
 always use FST to propose and HC to prune. The only question is can we move to foma completely
@@ -18,11 +18,11 @@ and sunset any of our code that implements FST's." Consequences baked into this 
 - There is NO per-grammar fallback to full engine search. A grammar whose proposer recall is
   below 100% is a **compiler capability gap** to close (see P1d), never a bypass to ship.
 - FST-only (no-verify) operation is off the table — propose+prune is the permanent shape.
-- ALL owned FST code is on the sunset trajectory: `hc-hybrid` (this plan, P5), and `hc-fst`
+- ALL owned FST code is on the sunset trajectory: `hc-hybrid` (this plan, P5), and `pg-fst`
   (2,848 lines — the acceptor substrate inside the prune engine: rewrite-rule matching in
-  `hc-rules/src/{rewrite,morph,metathesis,bridge}.rs`, root-trie lookup in
-  `hc-parse/src/root_trie.rs`) as a follow-on milestone (P6 investigation) once the proposer
-  path is done. `hc-fst` is embedded in prune-engine internals (feature-aware traversal,
+  `pg-rules/src/{rewrite,morph,metathesis,bridge}.rs`, root-trie lookup in
+  `pg-parse/src/root_trie.rs`) as a follow-on milestone (P6 investigation) once the proposer
+  path is done. `pg-fst` is embedded in prune-engine internals (feature-aware traversal,
   registers), so its replacement is a separate feasibility question — but it is IN scope of
   the goal, not exempt.
 
@@ -43,18 +43,18 @@ the feature yet, you will." Therefore:
 ## 1. Architecture
 
 ```
-HC XML ──hc-grammar::load──> Grammar
+HC XML ──pg-grammar::load──> Grammar
                                 │
-                    hc-foma::emit(Grammar)          [new crate]
+                    pg-foma::emit(Grammar)          [new crate]
                                 │  foma source: lexc lexicon + tags (+ replace rules)
                     foma compile (at grammar load)   [COTS: `foma` crate]
                                 │  Net (lexicon ∘ rules), applied UP at runtime
         word ──apply_up──> tag strings ──decode──> Candidates {morphemes, root_index}
                                 │
-              hc-foma::confirm (port of hc-hybrid replay.rs)
+              pg-foma::confirm (port of hc-hybrid replay.rs)
                                 │  Morpher::parse_word_selected — pinned re-analysis
                                 ▼
-              genuine hc_parse::WordAnalysis ──> hc-realize (unchanged)
+              genuine pg_parse::WordAnalysis ──> pg-realize (unchanged)
 ```
 
 - **Soundness** comes from confirm (the real engine re-derives every emitted analysis);
@@ -88,7 +88,7 @@ HC XML ──hc-grammar::load──> Grammar
   binary load is filename-only (no buffer API) — one more reason the Rust port wins.
 - Official Emscripten wasm build exists in-tree (CMake `if(EMSCRIPTEN)`, exports
   `_apply_up` etc.) — **fallback browser path only**; the primary path is the pure-Rust
-  crate linked directly into `hc-wasm`, no second wasm module, no JS glue.
+  crate linked directly into `pg-wasm`, no second wasm module, no JS glue.
 
 **The propose→verify contract (file:line-verified):**
 - Candidate = `{ morphemes: Vec<MorphemeId>, root_index: i32 }`
@@ -96,25 +96,25 @@ HC XML ──hc-grammar::load──> Grammar
   confirm's owner map only resolves `MorphemeId → LexEntryId | MRuleId`
   (`hc-hybrid/src/replay.rs:82-98`).
 - `confirm(g, owners, morpher, candidate, word)` (`replay.rs:118-192`) pins
-  `Morpher::parse_word_selected` (`hc-parse/src/morpher.rs:237-246`) to the candidate's
-  root(s)+rules; returns a genuine `hc_parse::WordAnalysis` or `None`. Morpher must be
+  `Morpher::parse_word_selected` (`pg-parse/src/morpher.rs:237-246`) to the candidate's
+  root(s)+rules; returns a genuine `pg_parse::WordAnalysis` or `None`. Morpher must be
   uncapped (`Morpher::new(g, usize::MAX)`, `replay.rs:106-110`).
 - **Positional match trap:** `analyses_match` (`replay.rs:200-208`) is element-wise —
   morphemes in the wrong order or wrong `root_index` = silent loss. The engine's canonical
   order is `allomorphs_in_morph_order` = ascending surface-position order
-  (`hc-parse/src/morpher.rs:725-746`); lexc's natural concatenation order matches it for
+  (`pg-parse/src/morpher.rs:725-746`); lexc's natural concatenation order matches it for
   prefix/root/suffix. Infix/interleave placement is a named verification point in P3.
-- Output type: `hc_parse::WordAnalysis { morpheme_ids, root_morpheme_index, pos_id,
-  guessed }` (`hc-parse/src/lib.rs:23-35`); glossing is downstream and unchanged
-  (`hc-realize::gloss_bundle` needs only Grammar + WordAnalysis).
+- Output type: `pg_parse::WordAnalysis { morpheme_ids, root_morpheme_index, pos_id,
+  guessed }` (`pg-parse/src/lib.rs:23-35`); glossing is downstream and unchanged
+  (`pg-realize::gloss_bundle` needs only Grammar + WordAnalysis).
 - Redup peel is proposer-agnostic: `ReduplicationProposer` (`hc-hybrid/src/proposers.rs:
   145-244`) only needs a `fn(&str) -> Vec<Candidate>` to recurse residuals into.
 - Grammar enumeration APIs for the emitter: `Grammar` flat arenas
-  (`hc-grammar/src/model.rs:1072-1103`), entries/allomorphs with concrete
+  (`pg-grammar/src/model.rs:1072-1103`), entries/allomorphs with concrete
   `shape: SegmentedText` (`model.rs:744-787`), affix `OutputAction::InsertSegments`
   concrete text (`model.rs:678-681`), templates/slots (`model.rs:720-737`),
   `allomorph_owners` reverse map (`model.rs:1062-1067`). Pre-probed surface variants come
-  from `hc_rules::surface_probe::probe_synthesize` (used today by
+  from `pg_rules::surface_probe::probe_synthesize` (used today by
   `hc-hybrid/src/surface.rs`, wired at `trie.rs:719-731`).
 - **Not compilable as strings:** `OutputAction::Modify/InsertContext` (process morphs,
   ablaut/simulfix — `model.rs:682-685`). Zero uses in the three reference grammars
@@ -156,11 +156,11 @@ HC XML ──hc-grammar::load──> Grammar
 - **D7 — Parity oracle = our own full engine** (`parse_word_opts`), because confirm IS our
   engine — the property being tested is exactly "the foma path loses nothing vs full
   search." The C# mbali divergence is tracked separately and does not gate this plan.
-- **D8 — Sunset scope:** delete crate `hc-hybrid` + `hc-cli fst-stats` subcommand
-  (`hc-cli/src/main.rs:92-157`) + its golden TSVs (`rust/parity-out/golden/fst-advisor/`)
+- **D8 — Sunset scope:** delete crate `hc-hybrid` + `pg-cli fst-stats` subcommand
+  (`pg-cli/src/main.rs:92-157`) + its golden TSVs (`rust/parity-out/golden/fst-advisor/`)
   + its 18 gate-test files, after P3 gates pass. `replay.rs`, `token.rs` decode-order
-  logic, and `proposers.rs` peel are ported into `hc-foma` first (with attribution
-  comments). `hc-fst` stays (see non-goals). Docs in `docs/fst-plan/` get a status header
+  logic, and `proposers.rs` peel are ported into `pg-foma` first (with attribution
+  comments). `pg-fst` stays (see non-goals). Docs in `docs/fst-plan/` get a status header
   pointing here.
 
 ## 4. Phases and gates
@@ -169,20 +169,20 @@ Each phase: sonnet subagent(s) implement; main session reviews every diff and ru
 gate personally before the next phase starts.
 
 ### P0 — Viability spike (gate F0) — *blocks everything*
-New crate `rust/crates/hc-foma` with `foma` pinned; smoke tests:
+New crate `rust/crates/pg-foma` with `foma` pinned; smoke tests:
 1. Compile a toy lexc string (multichar tags, 2 continuation classes) via the crate's
    lexc entry point; `apply_up` returns expected tag strings (all paths).
 2. Compile a regex replace rule; compose with the lexicon; apply up through composition.
 3. Flag diacritics: a `@P.X.Y@`/`@R.X.Y@` pair gates paths correctly under apply-up
    (needed for v2; verify now while choosing the runtime).
-4. `cargo test -p hc-foma` green on Windows (this machine).
-5. `cargo check -p hc-foma --target wasm32-unknown-unknown` green.
+4. `cargo test -p pg-foma` green on Windows (this machine).
+5. `cargo check -p pg-foma --target wasm32-unknown-unknown` green.
 6. Fidelity oracle: official C foma v0.10.0 Windows binary (GitHub release) compiles the
    same sources; `flookup` output set-equal to foma-rs `apply_up` on the toy inputs.
 **Gate F0:** all six pass → proceed. Any fail → stop, report, decide fallback (D1) with John.
 
 ### P1 — Emitter + tag codec (gate F1)
-`hc-foma::emit(Grammar) -> FomaSource` and `decode(tag_string) -> Vec<Candidate>`.
+`pg-foma::emit(Grammar) -> FomaSource` and `decode(tag_string) -> Vec<Candidate>`.
 Order of attack (easiest recall first): **Sena** (0 prules, lexc-only, but 1,369 entries +
 24 templates) → **Indonesian** (5 prules via pre-probed variants + junctions, 7 redup
 words via peel) → **Amharic** (7 prules, 417 segments).
@@ -196,7 +196,7 @@ morph boundaries (8/32).
 Close both Amharic miss classes in the emitter; 100% recall required like the others:
 1. **Interdigitation (Role::Infix rules):** rule-application pre-expansion — for each
    (root allomorph × infix-rule allomorph) pair, apply the real mrule to the root shape via
-   the engine's own rule-application machinery (`hc-rules` morph apply; the same engine code
+   the engine's own rule-application machinery (`pg-rules` morph apply; the same engine code
    `parse_word_selected` trusts) and emit the rendered composite string as ONE lexc entry
    carrying BOTH tags, in the engine's own morph order (read the engine's analysis of a
    corpus word to fix tag order + root_index — positional trap applies). Bounded O(roots ×
@@ -222,7 +222,7 @@ checked against engine analyses for 20 hand-picked words incl. prefix+suffix com
 
 ### P2 — Propose→confirm composite (gate F2)
 Port `replay.rs` (confirm, owners, analyses_match), the redup peel, and multiplicity
-recovery (D4) into `hc-foma`. Public API:
+recovery (D4) into `pg-foma`. Public API:
 `FomaAnalyzer::new(&Grammar) -> Result<Self>` and
 `analyze_word(&self, word) -> ParseOutcome`-compatible output (same `structured` +
 `analyses` shape as `parse_word_opts`, `morpher.rs:79-120`).
@@ -231,7 +231,7 @@ multiplicity on Sena `mbali` == full-engine Rust count (8, both orderings); redu
 round-trip; a `guess_root`-style miss returns empty rather than panicking.
 
 ### P3 — CLI wiring + full parity, conformance, and timing gates (gate F3) — *the go/no-go*
-`hc-cli`: `--engine=foma` flag on `batch`/`parse` (default remains full engine).
+`pg-cli`: `--engine=foma` flag on `batch`/`parse` (default remains full engine).
 
 **3a. Corpus parity.** Harness compares foma path vs `parse_word_opts` as multisets keyed
 by `(morpheme_ids sequence, root_morpheme_index)`:
@@ -240,8 +240,8 @@ by `(morpheme_ids sequence, root_morpheme_index)`:
 - Amharic: corpus words file — required 100% (after P1d closes the capability gaps).
 
 **3b. Conformance suite (machine submodule).** Run the C# conformance driver in adapter
-mode against `hc-rs batch --engine=foma` (same path as `rust/tools/run-conformance.sh`,
-which builds `hc-cli` release and drives `machine/src/SIL.Machine.Morphology.HermitCrab.
+mode against `pangloss batch --engine=foma` (same path as `rust/tools/run-conformance.sh`,
+which builds `pg-cli` release and drives `machine/src/SIL.Machine.Morphology.HermitCrab.
 Conformance`). Required: the foma engine's pass/fail set is identical to the default
 engine's — zero NEW divergences beyond `rust/tools/known-conformance-divergences.txt`.
 There is no fallback tier — every fixture runs through the foma path, so this suite is a
@@ -263,11 +263,11 @@ Targets: load < 2 s per grammar (soft); lookup+confirm p95 < 50 ms on Sena's cur
 on Sena and Indonesian. If foma is NOT faster somewhere, that is a reportable finding
 with a profile, not something to bury — the sunset case rests partly on this number.
 
-**3c measured results (2026-07-15, P3 report, release build, single-threaded `hc-rs batch
+**3c measured results (2026-07-15, P3 report, release build, single-threaded `pangloss batch
 --threads 1`).** Machine NOT fully quiet throughout — two other agents' cargo/dotnet
 processes were present in the worktree for most of this run (see the P3 report for exact
 PIDs/timing); their CPU usage was near-zero (idle/waiting on locks) except during the
-initial hc-cli release build, and the qualitative speedups below (12x-1200x) dwarf any
+initial pg-cli release build, and the qualitative speedups below (12x-1200x) dwarf any
 plausible contention effect, but the precise p50/p95 figures are not from an isolated
 machine. Sena's "full corpus" default-engine leg was abandoned after ~65 minutes (still
 ~62% done, no per-word hang, just cumulatively slow — see finding below) in favor of the
@@ -290,7 +290,7 @@ cap (unbounded default runs would be slower still); without the cap, Amharic def
 total wall time would exceed the reported 1000.2 s.
 
 **Named pathological cases (Sena, sample-300, engine ms -> foma ms, byte-identical
-signatures confirmed via the `hc-rs batch` TSV in both cases):**
+signatures confirmed via the `pangloss batch` TSV in both cases):**
 
 | word | default ms | foma ms | speedup |
 |---|---:|---:|---:|
@@ -351,7 +351,7 @@ workspace-wide (`cargo test`).
 
 **Gate F3 verdict (2026-07-16): MET.** All recall gaps found by the initial P3 report
 (below) are now closed, nothing laundered:
-- **3a parity — 100% on all three grammars** (`hc-foma/tests/f3_parity.rs`, release, empty
+- **3a parity — 100% on all three grammars** (`pg-foma/tests/f3_parity.rs`, release, empty
   known-failures ledger): Indonesian 121/121; Sena sample-300 0 mismatches (`musandilesera`
   now 10/10 — `emit.rs` `eligible_roots` admits every root to every group for grammars with
   compounding rules, so an `é`-headed-elsewhere inflected compound is reachable; upward-safe,
@@ -367,15 +367,15 @@ workspace-wide (`cargo test`).
   (prefix reduplication prepends the reduplicant morpheme + shifts root_index). Nothing added
   to `known-conformance-divergences.txt`.
 - **3c timing — met**, numbers below (foma 8×–48× faster per corpus; two named exceptions).
-- **No workspace test regressions**: `cargo test -p hc-foma --release` green (lib + f0/f1/f2/f4
-  gates + f3_parity); `hc-foma` lib grew 11 focused regression tests for the above fixes.
+- **No workspace test regressions**: `cargo test -p pg-foma --release` green (lib + f0/f1/f2/f4
+  gates + f3_parity); `pg-foma` lib grew 11 focused regression tests for the above fixes.
 
 The initial P3-snapshot verdict is retained below for the record.
 
 **Gate F3 verdict (2026-07-15, P3 report — SUPERSEDED by the 2026-07-16 MET verdict above): NOT MET.** 3a: 2 of 3 legs fail (Sena
 `musandilesera` multiplicity/root-index mismatch — engine 10 analyses vs foma 2; Amharic
 `ገለፀ` recall miss — engine finds 1 analysis via the `-pfv-` infix rule on root
-entry30/"explain", foma finds 0). Both bugs live in `hc-foma/src/**` (composite.rs
+entry30/"explain", foma finds 0). Both bugs live in `pg-foma/src/**` (composite.rs
 confirm/multiplicity and preexpand.rs interdigitation coverage respectively), which is
 outside this P3 task's editable scope (owned by concurrent P1d/P2 agents) — reported, not
 patched. Indonesian: 121/121, 100%, confirming the `--engine=foma` CLI wiring itself is
@@ -392,7 +392,7 @@ no-fallback-tier architecture (plan §0) means these fixtures have no other path
 through. 3c: targets met with two named exceptions (above). Full per-fixture detail in the
 P3 agent report.
 
-### P4 — hc-wasm integration (gate F4)
+### P4 — pg-wasm integration (gate F4)
 `PanGlossGrammar::new` builds `FomaAnalyzer` when the grammar is on the foma tier
 (compile failure → automatic fallback to full engine, logged); `analyze_text` routes
 through it. Confirm wasm32 build + a browser-side smoke run in PanGloss-demo (sibling
@@ -426,30 +426,30 @@ this plan.
 deleted in full (`src/`, `tests/` incl. all 18 gate-test files and the `fixtures/fst-advisor-toys/`
 grammars, `README.md`, `KNOWN_GAPS.md`, `Cargo.toml`); `hc-hybrid` removed from workspace
 `Cargo.toml` (`members` + `[workspace.dependencies]`), `Cargo.lock` regenerated by the build (zero
-`hc-hybrid` entries); `hc-cli`'s `hc-hybrid.workspace = true` dependency, its `fst-stats`
+`hc-hybrid` entries); `pg-cli`'s `hc-hybrid.workspace = true` dependency, its `fst-stats`
 subcommand (`run_fst_stats`, the `Some("fst-stats")` dispatch arm, and the corresponding usage/help
-line) removed — `hc-cli`'s only use of `hc-hybrid` was that one subcommand (confirmed by grep before
+line) removed — `pg-cli`'s only use of `hc-hybrid` was that one subcommand (confirmed by grep before
 editing), so `batch`/`parse`/`generate` are untouched; the stale golden dumps at
 `rust/parity-out/golden/fst-advisor/` deleted (untracked scratch, per `/parity-out/`'s own
 `.gitignore` rule) along with the now-dangling `!/crates/hc-hybrid/tests/fixtures/fst-advisor-toys/
-*.tsv` gitignore carve-out. `hc-foma`/`hc-parse`/`hc-rules` keep their `hc-hybrid`-attribution
-doc-comments (ports/citations, e.g. `hc-foma/src/{confirm,emit,junctions,peel,tags}.rs`,
-`hc-parse/src/morpher.rs:225`, `hc-rules/src/{rewrite,surface_probe}.rs`) unedited per D8 — none of
+*.tsv` gitignore carve-out. `pg-foma`/`pg-parse`/`pg-rules` keep their `hc-hybrid`-attribution
+doc-comments (ports/citations, e.g. `pg-foma/src/{confirm,emit,junctions,peel,tags}.rs`,
+`pg-parse/src/morpher.rs:225`, `pg-rules/src/{rewrite,surface_probe}.rs`) unedited per D8 — none of
 them reference deleted symbols in a way that would compile-break or mislead a reader; they read as
 historical porting notes, exactly as intended.
 - **Build:** `cd rust && cargo build --release --workspace` — green, no warnings, no dangling
   crate references.
 - **Test:** `cd rust && cargo test --workspace` — green, with a caveat on the record rather than
-  buried: the four `hc-foma` tests in `tests/f3_amharic_gate.rs` were excluded
+  buried: the four `pg-foma` tests in `tests/f3_amharic_gate.rs` were excluded
   (`-- --skip amharic --skip boundedly`) because that file — unlike its siblings
   `f1_sena_gate.rs`/`f3_parity.rs` — has no `#[cfg_attr(debug_assertions, ignore)]` gating, so an
   unfiltered debug run (a) takes long enough to be impractical for a routine check (unoptimized
   full-engine oracle calls, same reason its siblings ARE gated) and (b) its
   `d_nonsense_word_proposes_boundedly_and_never_panics` test stack-overflows on the default 8 MiB
   debug test-thread stack (confirmed fixed by `RUST_MIN_STACK=1073741824`, and confirmed orthogonal
-  to this sunset — `hc-foma` was not touched by any P5 edit). Every other crate/test in the
-  workspace passed, including `hc-cli`'s 5 tests (the crate whose source this phase actually
-  changed) and `hc-foma`'s other test files (lib unit tests, `f0_viability`, `f1_sena_gate`,
+  to this sunset — `pg-foma` was not touched by any P5 edit). Every other crate/test in the
+  workspace passed, including `pg-cli`'s 5 tests (the crate whose source this phase actually
+  changed) and `pg-foma`'s other test files (lib unit tests, `f0_viability`, `f1_sena_gate`,
   `f2_indonesian_gate`, `f4_composite_gate`, `pk2_eliminate_flag_oracle` — all green). Recommended
   orchestrator follow-up (outside D8, not fixed here per this task's scope fence): add the same
   `cfg_attr(debug_assertions, ignore)` gate to `f3_amharic_gate.rs`'s slow tests, matching its
@@ -460,8 +460,8 @@ historical porting notes, exactly as intended.
 - **Conformance, foma engine** (`./tools/run-conformance.sh --engine=foma --skip-build`): 14
   passed, 1 failed — the SAME single fixture, same reason. Zero new divergences post-sunset.
 - **Grep audit** (`grep -rn "hc.hybrid\|hc_hybrid" rust/crates --include=*.rs --include=*.toml`):
-  every remaining hit is a `//`/`///` doc-comment in `hc-foma` (attribution/porting notes),
-  `hc-parse/src/morpher.rs:225` (a doc-comment), and `hc-rules/src/{rewrite,surface_probe}.rs`
+  every remaining hit is a `//`/`///` doc-comment in `pg-foma` (attribution/porting notes),
+  `pg-parse/src/morpher.rs:225` (a doc-comment), and `pg-rules/src/{rewrite,surface_probe}.rs`
   (doc-comments, incl. the `pub`-justification comment at `rewrite.rs:181` citing
   `hc_hybrid::env_nfa`/`hc_hybrid::compiler` — harmless, historical, not a live reference). Zero
   hits in any `Cargo.toml` dependency line; zero hits in `Cargo.lock`. Zero dangling deps confirmed.
@@ -474,19 +474,19 @@ Two workstreams, both mandated by the settled architecture and scale requirement
    (junction probing, rule-application pre-expansion) grammar-by-grammar as rule
    compilation covers them. Environments/MPR/HeadFeatures→flag-diacritics emission also
    lands here (shrinks candidate overgeneration, cheaper confirm at scale).
-2. **hc-fst sunset feasibility:** determine whether foma networks can host what `hc-fst`
-   does inside the prune engine (rewrite-rule matching in hc-rules, root-trie lookup in
-   hc-parse — feature-aware traversal with registers). Deliverable: a feasibility report
+2. **pg-fst sunset feasibility:** determine whether foma networks can host what `pg-fst`
+   does inside the prune engine (rewrite-rule matching in pg-rules, root-trie lookup in
+   pg-parse — feature-aware traversal with registers). Deliverable: a feasibility report
    with a prototype on one rule family; if yes, staged replacement; if no, a precise
-   statement of what keeps hc-fst alive (that answer bounds "move to foma completely").
-Gate F6: one grammar running with compiled replace rules end-to-end at parity; hc-fst
+   statement of what keeps pg-fst alive (that answer bounds "move to foma completely").
+Gate F6: one grammar running with compiled replace rules end-to-end at parity; pg-fst
 feasibility verdict written into this plan.
 
 ## 5. Commit strategy
 
 The worktree branch (`worktree-fst-investigation`) has zero commits over main; all current
-changes (incl. the unrelated `hc-lexicon`/realize work and `reports/`) are uncommitted.
-Implementation commits are scoped: stage only `hc-foma`, `hc-cli`/`hc-wasm` touch-points,
+changes (incl. the unrelated `pg-lexicon`/realize work and `reports/`) are uncommitted.
+Implementation commits are scoped: stage only `pg-foma`, `pg-cli`/`pg-wasm` touch-points,
 and deletions — never sweep in the pre-existing uncommitted work. One commit per gate
 passed (F0…F5), so each is independently revertable.
 

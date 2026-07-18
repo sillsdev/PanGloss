@@ -1,7 +1,7 @@
 //! `pg-snapshot`: PanGloss's owned, versioned JSON project-snapshot format.
 //!
 //! This is the interchange contract between `pg-fwdata` (which reads FieldWorks `.fwdata`
-//! project files) and `hc_grammar::compile` (which turns a snapshot into a runnable `Grammar`) —
+//! project files) and `pg_grammar::compile` (which turns a snapshot into a runnable `Grammar`) —
 //! see `docs/fwdata-import-plan.md` §2-§3 for the overall architecture and §6 for how this crate
 //! (T1) fits into the task breakdown. It is deliberately **not** a mirror of FieldWorks/LCM
 //! class names: fields are named for what they mean in this pipeline, and every cross-reference
@@ -58,13 +58,13 @@ pub use feature::{
 };
 pub use lexicon::{AffixProcess, Allomorph, EntryRef, LexEntry, Lexicon, Msa, RuleMapping, Sense};
 pub use morphology::{
-    Adjacency, AdhocProhibition, AffixSlot, AffixTemplate, CompoundConstituentRequirement,
+    AdhocProhibition, Adjacency, AffixSlot, AffixTemplate, CompoundConstituentRequirement,
     CompoundOutcome, CompoundRule, CompoundRuleMaxApplications, ExceptionFeature, InflectionClass,
-    LexEntryInflType, Morphology, MorphType, ParserParameters, PartOfSpeech, StemName,
+    LexEntryInflType, MorphType, Morphology, ParserParameters, PartOfSpeech, StemName,
 };
 pub use phonology::{
     BoundaryMarker, Environment, FeatureConstraint, MetathesisRule, NaturalClass, PhonContext,
-    Phoneme, Phonology, PhonologicalRule, RewriteRhs, RewriteRule, RuleDirection,
+    Phoneme, PhonologicalRule, Phonology, RewriteRhs, RewriteRule, RuleDirection,
 };
 pub use project::Project;
 
@@ -140,7 +140,9 @@ impl Snapshot {
             return Err(SnapshotError::UnknownFormat { found: snap.format });
         }
         if snap.version != FORMAT_VERSION {
-            return Err(SnapshotError::UnsupportedVersion { found: snap.version });
+            return Err(SnapshotError::UnsupportedVersion {
+                found: snap.version,
+            });
         }
         Ok(snap)
     }
@@ -173,7 +175,7 @@ mod tests {
         FeatureValueSymbol,
     };
     use crate::lexicon::{Allomorph, LexEntry, Lexicon, Msa, Sense};
-    use crate::morphology::{Morphology, MorphType, ParserParameters, PartOfSpeech};
+    use crate::morphology::{MorphType, Morphology, ParserParameters, PartOfSpeech};
     use crate::phonology::{Phoneme, Phonology};
 
     fn ws(ws: &str, form: &str) -> WsForm {
@@ -341,7 +343,9 @@ mod tests {
         snap.format = "some-other-format".to_string();
         let json = snap.to_json();
         let err = Snapshot::from_json(&json).unwrap_err();
-        assert!(matches!(err, SnapshotError::UnknownFormat { found } if found == "some-other-format"));
+        assert!(
+            matches!(err, SnapshotError::UnknownFormat { found } if found == "some-other-format")
+        );
     }
 
     #[test]
@@ -350,7 +354,10 @@ mod tests {
         snap.version = 999;
         let json = snap.to_json();
         let err = Snapshot::from_json(&json).unwrap_err();
-        assert!(matches!(err, SnapshotError::UnsupportedVersion { found: 999 }));
+        assert!(matches!(
+            err,
+            SnapshotError::UnsupportedVersion { found: 999 }
+        ));
     }
 
     #[test]
@@ -365,7 +372,8 @@ mod tests {
         // Point the sense at a nonexistent MSA guid — mirrors the plan's motivating example of
         // a stale FieldWorks reference (§1): must produce a warning, and `from_json` must still
         // succeed on the round-tripped JSON (dangling refs are never a hard error).
-        snap.lexicon.entries[0].senses[0].msa = Some("00000000-0000-0000-0000-000000000000".to_string());
+        snap.lexicon.entries[0].senses[0].msa =
+            Some("00000000-0000-0000-0000-000000000000".to_string());
         let json = snap.to_json();
         let reparsed = Snapshot::from_json(&json).expect("dangling refs must not block parsing");
         let warnings = reparsed.validate();
@@ -395,17 +403,21 @@ mod tests {
             panic!("expected the sample entry's MSA to be Msa::Stem");
         }
         let warnings = snap.validate();
-        assert!(warnings.iter().any(|w| w.contains("no-such-exception-feature")));
+        assert!(warnings
+            .iter()
+            .any(|w| w.contains("no-such-exception-feature")));
     }
 
     #[test]
     fn validate_accepts_exception_feature_present_in_registry() {
         let mut snap = sample_snapshot();
-        snap.morphology.exception_features.push(crate::morphology::ExceptionFeature {
-            guid: "latinate-guid".to_string(),
-            name: "Latinate".to_string(),
-            abbreviation: "lat".to_string(),
-        });
+        snap.morphology
+            .exception_features
+            .push(crate::morphology::ExceptionFeature {
+                guid: "latinate-guid".to_string(),
+                name: "Latinate".to_string(),
+                abbreviation: "lat".to_string(),
+            });
         if let Msa::Stem {
             exception_features, ..
         } = &mut snap.lexicon.entries[0].msas[0]

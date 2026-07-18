@@ -9,7 +9,7 @@ for removal. Outcomes:
 
 ## T-A — `fixed_hash` module: TORN OUT (commit `9cf31048`)
 
-`crates/{hc-parse,hc-rules}/src/fixed_hash.rs` aliased HashMap/HashSet to a fixed-seed
+`crates/{pg-parse,pg-rules}/src/fixed_hash.rs` aliased HashMap/HashSet to a fixed-seed
 DefaultHasher across 8 files, solely so **step-capped** words were byte-reproducible across
 process invocations (its own doc said uncapped results are order-independent). Under parse-set
 parity a capped word is already a truncated answer; pinning the order of its incompleteness buys
@@ -33,7 +33,7 @@ test `identical_rendered_signatures_are_kept_not_deduped` + expanded doc comment
 ## T-C — FST-traversal priority trail + `ResultCompare` tiebreak: TORN OUT (commit `6642a29d`)
 
 Removed `FstResult.priorities`, `Inst.priorities`, the arc-priority push in `advance()`, and the
-zip tiebreak in `result_compare()` from `crates/hc-fst/src/traverse.rs`, plus their dedicated
+zip tiebreak in `result_compare()` from `crates/pg-fst/src/traverse.rs`, plus their dedicated
 unit tests. Verified the hard way (below); zero difference at any forced-truncation level on any
 of the three grammars — byte-identical, not merely set-equal.
 
@@ -62,7 +62,7 @@ property).
 4. **Shared-root-cause hunting.** Wave 3's char_def staleness fix flipped four "independent"
    diverging fixtures at once. When several fixtures diverge in the same region, suspect one
    cause before scheduling four fixes.
-5. **Watchdog scripts must read the right stream.** `hc-cli` emits "batch complete" and panics
+5. **Watchdog scripts must read the right stream.** `pg-cli` emits "batch complete" and panics
    via `eprintln!` (stderr); the first wrapper draft checked stdout and both its completion and
    panic detection were silently useless. Smoke-test watchdogs on a happy path AND a forced
    failure before trusting them with a 10-hour run.

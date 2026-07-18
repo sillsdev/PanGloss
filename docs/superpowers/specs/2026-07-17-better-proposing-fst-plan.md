@@ -1,7 +1,7 @@
 # Plan: the better proposing FST (precision via derivation-aware emit)
 
 Status: **Phase 0 DONE 2026-07-17** (census merged at `328b5e8`, harness
-`rust/crates/hc-foma/examples/deadend_census.rs`; verdicts below). NEXT = build E5 then E2
+`rust/crates/pg-foma/examples/deadend_census.rs`; verdicts below). NEXT = build E5 then E2
 (see verdicts); E1/E3/E4 PARKED build-ready, not dead. **This plan is now also driven by a
 repeatable skill** — `.claude/skills/dead-end-census` — run it whenever a new grammar is
 slow; it is the standing first lever for a new language, and the mechanism that promotes a
@@ -201,7 +201,7 @@ proxy), and confirm which of stratum-order vs template-slot-order carries the ma
   depth=rule-count deviation contribute NOTHING to d5 and must be left untouched.
 - Deepest-frontier reading is mechanically correct for this reason, not just a proxy choice:
   `PartialParse` requires the branch to have COMPLETED a word (`is_last_applied_rule_final`)
-  before the leftover-pinned-rule check fires (`hc-rules/src/stratum.rs:1502-1512`), i.e. it
+  before the leftover-pinned-rule check fires (`pg-rules/src/stratum.rs:1502-1512`), i.e. it
   is by definition a deep failure. Shallowest-mode collapse (d5 → 1.3%) is the documented
   shape-check-fires-first artifact.
 - **Sena: template-slot order carries the mass, via Superset 1 (group sharing).** 20/20

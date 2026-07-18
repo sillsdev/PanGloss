@@ -74,7 +74,7 @@ evolves into its broader FST-hybrid scope.
    `syn_epenthesis`'s environment check spuriously matches an internal morpheme boundary in one
    specific case, inserting an epenthetic segment the real C# oracle does not. Root cause narrowed
    to two candidate mechanisms, not yet pinned to one. See the `#[ignore]`d note on
-   `epenthesis_rules` in `rust/crates/hc-parse/tests/csharp_port_rewrite.rs`.
+   `epenthesis_rules` in `rust/crates/pg-parse/tests/csharp_port_rewrite.rs`.
 7. **A tracing-only divergence** (does not affect parse outcome): when two synthesis gates would
    both independently reject a candidate, Rust and C# can report a different *first* `FailureReason`
    because the two gates are checked in the opposite order in each engine.
@@ -84,7 +84,7 @@ Full narrative detail for all of the above (and everything already closed) lives
 `rust/docs/phase2-completed/` (the earlier, larger workstreams' archived rationale).
 
 **Housekeeping note (2026-07-10, at copy time):** 14 test files (36 test functions) under
-`rust/crates/hc-parse/tests/` and `rust/crates/hc-rules/tests/` read fixtures from
+`rust/crates/pg-parse/tests/` and `rust/crates/pg-rules/tests/` read fixtures from
 `rust/conformance/`, which was deliberately excluded from this copy (§5). Every affected test
 function was marked `#[ignore]` with a reason citing this section, rather than left to fail — they
 will start running again automatically once the conformance submodule is added, no manual
@@ -114,7 +114,7 @@ initial copy. When it's added:
 - Update this section with the submodule commit/tag pinned.
 - The adapter CLI contract it expects (`<engine-binary> batch <grammar.xml> <words.txt>
   <output.tsv>`, producing the existing order-independent signature TSV format) is already what
-  `hc-rs batch` does — no engine-side changes should be needed to start consuming it.
+  `pangloss batch` does — no engine-side changes should be needed to start consuming it.
 
 ## 6. Process for future audits
 

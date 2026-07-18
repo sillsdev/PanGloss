@@ -3,13 +3,13 @@
 **Status: implemented on branch `worktree-fwdata-import`.**
 T1 `pg-snapshot` (format + serde model + validation): done.
 T2 `pg-fwdata` (streaming `.fwdata` reader → Snapshot + import report): done.
-T3 `hc_grammar::compile` (Snapshot → Grammar, HCLoader.cs port; Phase A full, Phase B
+T3 `pg_grammar::compile` (Snapshot → Grammar, HCLoader.cs port; Phase A full, Phase B
 warn-and-skip): done.
 T4 (CLI `import` subcommand + `.json`/`.fwdata` grammar dispatch in
 `parse`/`batch`/`fst-stats`/`generate`; §5.2 oracle conformance gate in
-`rust/crates/hc-cli/tests/fwdata_conformance_gate.rs`; README/docs): done — see that test's
+`rust/crates/pg-cli/tests/fwdata_conformance_gate.rs`; README/docs): done — see that test's
 module doc for current conformance status per language.
-T5 (grammar-structural-equivalence gate, `rust/crates/hc-cli/tests/fwdata_grammar_equivalence_gate.rs`):
+T5 (grammar-structural-equivalence gate, `rust/crates/pg-cli/tests/fwdata_grammar_equivalence_gate.rs`):
 done — now the primary correctness gate (see §5.2). **Both Sena 3 and Amharic pass every
 category**: the two pipelines (`.fwdata` → `compile_project` vs. HC-XML → `load`) produce
 structurally/semantically identical `Grammar`s, modulo the id scheme (Hvo vs. GUID) and four
@@ -43,14 +43,14 @@ Why:
 **We own the internal format** (decision 2026-07-14): the snapshot is a PanGloss-defined,
 versioned **JSON** format. It is *not* a mirror of LCM/M3Dump naming; `.fwdata` is merely the
 first source that maps into it. JSON over YAML because the artifact is machine-generated,
-`serde` is already in the workspace (hc-wasm), and the browser demo can fetch it directly.
-The existing HC-XML path (`hc_grammar::load`) stays intact — conformance fixtures and the
+`serde` is already in the workspace (pg-wasm), and the browser demo can fetch it directly.
+The existing HC-XML path (`pg_grammar::load`) stays intact — conformance fixtures and the
 machine-submodule oracle still use it.
 
 ## 2. Architecture (three layers, two new crates + one new module)
 
 ```
-.fwdata  ──(1) pg-fwdata──►  Snapshot (pg-snapshot JSON)  ──(2) hc_grammar::compile──►  Grammar
+.fwdata  ──(1) pg-fwdata──►  Snapshot (pg-snapshot JSON)  ──(2) pg_grammar::compile──►  Grammar
                                        │
                                        └──(future) XAMPLE-style backends, demo gloss data
 ```
@@ -65,13 +65,13 @@ machine-submodule oracle still use it.
    validation + format documentation. Versioned (`"format": "pangloss-project"`,
    `"version": 1`). Keyed by FieldWorks GUIDs (stable across sessions — unlike the `Hvo`
    integers in the legacy XML export, which drift per load).
-3. **`hc_grammar::compile` module (new, in `rust/crates/hc-grammar`)** — compiles a
+3. **`pg_grammar::compile` module (new, in `rust/crates/pg-grammar`)** — compiles a
    `Snapshot` into the existing immutable `model::Grammar`, sibling to `load.rs` (reuses its
    internal construction machinery: interners, pattern builders, chardef/featsys/segment).
-   Public entry: `hc_grammar::compile_project(&Snapshot) -> Result<Grammar, GrammarError>`.
+   Public entry: `pg_grammar::compile_project(&Snapshot) -> Result<Grammar, GrammarError>`.
    Semantically this is a Rust port of FieldWorks' `HCLoader.cs` (see §4).
 
-CLI: `hc-rs import <project.fwdata> <out.json>` plus `parse`/`batch`/`fst-stats` accepting a
+CLI: `pangloss import <project.fwdata> <out.json>` plus `parse`/`batch`/`fst-stats` accepting a
 `.json` snapshot wherever they accept a grammar XML path (dispatch on extension).
 wasm/demo integration and an XAMPLE backend are explicit follow-ups, not in this branch.
 
@@ -124,7 +124,7 @@ Reference sources (read-only, outside this repo/worktree):
   classes 2788–2829.
 - `C:\Users\johnm\Documents\repos\PanGloss\machine\src\SIL.Machine.Morphology.HermitCrab\`
   (main checkout; the submodule is NOT populated in this worktree) — the HC object model +
-  `XmlLanguageLoader.cs` that `rust/crates/hc-grammar/src/load.rs` already ports 1:1.
+  `XmlLanguageLoader.cs` that `rust/crates/pg-grammar/src/load.rs` already ports 1:1.
 - `C:\Users\johnm\Documents\repos\FieldWorks\Localizations\LCM\src\SIL.LCModel\MasterLCModel.xml`
   — authoritative LCM schema (field names, owning vs reference, cardinality). The raw
   `.fwdata` XML does not carry this metadata; `pg-fwdata` hardcodes what it needs for the
@@ -167,9 +167,9 @@ Baseline: `cargo test --workspace` green at branch point (verified).
    (`PANGLOSS_FW_PROJECTS_DIR` env var, or the known sibling path
    `C:\Users\johnm\Documents\repos\FieldWorks\DistFiles\Projects`), import `Sena 3.fwdata` and
    `Amharic.fwdata` → snapshot → `compile_project` → `Grammar`, and independently
-   `hc_grammar::load(samples/data/{sena,amharic}-hc.xml)` → `Grammar`. Compare the two
+   `pg_grammar::load(samples/data/{sena,amharic}-hc.xml)` → `Grammar`. Compare the two
    `Grammar`s directly, category by category, via id-free canonical string signatures — **no
-   parsing, no `hc_parse::Morpher` involved at all**. This is what T2/T3/T4 are actually meant
+   parsing, no `pg_parse::Morpher` involved at all**. This is what T2/T3/T4 are actually meant
    to guarantee (the compiler produces the same grammar the legacy XML pipeline does) and it
    runs in well under a second. Both languages pass every category as of this writing; see the
    gate's own module doc for the full canonicalization scheme and the (small, per-word)
@@ -206,17 +206,17 @@ Baseline: `cargo test --workspace` green at branch point (verified).
 - **T2 `pg-fwdata`**: quick-xml `.fwdata` reader → object graph → extractor → `Snapshot` +
   import report (warnings). Synthetic fixture + self-skipping real-project tests
   (entry/phoneme/template counts against known values). Depends on T1.
-- **T3 `hc_grammar::compile`**: snapshot → `Grammar` compiler (HCLoader semantics port,
+- **T3 `pg_grammar::compile`**: snapshot → `Grammar` compiler (HCLoader semantics port,
   §4 phasing). Depends on T1 (parallel with T2).
 - **T4 integration + conformance**: CLI `import` subcommand + `.json` dispatch in
   `parse`/`batch`; the §5.2 conformance test; README/docs updates. Depends on T2+T3.
 
 ## 7. Follow-ups (not this branch)
 
-- hc-wasm: accept snapshot JSON (constructor overload), surface senses/gloss data to the
+- pg-wasm: accept snapshot JSON (constructor overload), surface senses/gloss data to the
   demo (replaces `*-lexical.json`), and an add-to-dictionary path that appends to the
   snapshot and recompiles (replacing `augment_xml` byte-surgery on the XML path).
-- Realize-map enrichment from snapshot glosses (feeds `hc-realize::infer`).
+- Realize-map enrichment from snapshot glosses (feeds `pg-realize::infer`).
 - XAMPLE-style backend over the same snapshot (reference: FieldWorks
   `M3ModelExportServices.cs` + `Src/Transforms/Application/FxtM3ParserToXAmple*.xsl`).
 - Consider `.fwbackup` (zip) input support.

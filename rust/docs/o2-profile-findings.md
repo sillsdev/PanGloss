@@ -14,19 +14,19 @@
 > Scope discipline: this document reports measurements only. No engine behavior was changed. The
 > only source edits are new, permanent, HC_STEP_STATS-style diagnostics (opt-in via env var,
 > effectively free when unread) — see "Instrumentation added" below. All numbers were gathered on
-> a release build (`cargo build --release -p hc-cli`) at `o2-fst-profile`'s branch point (`rust`
+> a release build (`cargo build --release -p pg-cli`) at `o2-fst-profile`'s branch point (`rust`
 > @ `7f46f2ad`, this branch's own tip after landing the diagnostics).
 
 ## TL;DR
 
 For both known-pathological Amharic words, **89–96% of total wall-clock time is inside a single
-function, `Transduce::run` (`hc-fst/src/traverse.rs`)** — consistent with lead #1. But the profile
+function, `Transduce::run` (`pg-fst/src/traverse.rs`)** — consistent with lead #1. But the profile
 data **relocates** the hot spot *within* that function: it is not dominated by the nondeterministic
 backtracking traversal itself (14–30% of wall-clock), but by the **`distinct()` post-processing
 step** that runs after traversal to emulate C#'s `Enumerable.Distinct` — **59–81% of total
 wall-clock**, driven by a single call processing up to ~500K raw `FstResult`s with an O(n²)-shaped
 linear-scan-plus-pairwise-equality algorithm. Lead #2 (`push_remove_duplicates`, the "keep-longer"
-dedup in `hc-rules/src/morph.rs`) is **negligible** for both words (<0.1% of wall-clock; its
+dedup in `pg-rules/src/morph.rs`) is **negligible** for both words (<0.1% of wall-clock; its
 candidate lists never exceeded length 1 before resolving). Lead #3 (template-battery interior
 memoization) could not be directly measured (no engine time went through that code for either
 profiled word) but a code-reading check found it at parity with C#'s design already.
@@ -55,22 +55,22 @@ profiled word) but a code-reading check found it at parity with C#'s design alre
 Three new counters, all thread-local `Cell`-based, all read-only snapshots (never reset — one
 word per process invocation in `batch --threads 1` mode, matching how `HC_STEP_STATS` is read):
 
-- `hc_fst::profile` (`crates/hc-fst/src/traverse.rs`): wraps `Transduce::run` (renamed the old body
+- `pg_fst::profile` (`crates/pg-fst/src/traverse.rs`): wraps `Transduce::run` (renamed the old body
   to `run_inner`) and the nondeterministic branch of `traverse_from`, plus the `distinct()` call
   site — records call counts, total/max nanoseconds, and (for the nondeterministic branch and
   `distinct()`) the max/total size of the state being processed (`traversed.len()` /
   `result_list.len()`).
-- `hc_rules::morph::dedup_profile` (`crates/hc-rules/src/morph.rs`): wraps `push_remove_duplicates`
+- `pg_rules::morph::dedup_profile` (`crates/pg-rules/src/morph.rs`): wraps `push_remove_duplicates`
   (renamed the old body to `push_remove_duplicates_inner`) — records calls, total nanoseconds, and
   the `out` list's length just before each call (to catch any combinatorial growth there).
-- `hc-cli`'s `batch` sequential loop (`crates/hc-cli/src/main.rs`) prints both snapshots to stderr
+- `pg-cli`'s `batch` sequential loop (`crates/pg-cli/src/main.rs`) prints both snapshots to stderr
   as `FSTPROF`/`DEDUPPROF` lines, gated on a new `HC_FST_PROFILE=1` env var (default off, zero
   cost), alongside the existing `HC_STEP_STATS=1`-gated `STEPS` line.
 
-Required adding `hc-fst` and `hc-rules` as direct `hc-cli` dependencies (both were already in the
-workspace; `hc-cli` previously only depended on `hc-parse`/`hc-grammar`/`hc-featstruct`). No
-existing function signatures or behavior changed. Verified: `cargo test -p hc-fst -p hc-rules
--p hc-cli --release` — all green (0 failures), and the two profiled words produced byte-identical
+Required adding `pg-fst` and `pg-rules` as direct `pg-cli` dependencies (both were already in the
+workspace; `pg-cli` previously only depended on `pg-parse`/`pg-grammar`/`pg-featstruct`). No
+existing function signatures or behavior changed. Verified: `cargo test -p pg-fst -p pg-rules
+-p pg-cli --release` — all green (0 failures), and the two profiled words produced byte-identical
 signatures across every repeated run (`+|ሌባ+?ዬ` for ሌባዬ, `-` for በመጨረሻ), so the instrumentation is
 side-effect-free.
 
@@ -81,7 +81,7 @@ moves `distinct_ms`/`nondet_ms` down.
 ## Words profiled
 
 Both from `samples/data/amharic-words.txt` (idx 32 = ሌባዬ, idx 172 = በመጨረሻ). Ran
-`hc-rs batch amharic-hc.xml <one-word-file> out.tsv --threads 1` with `HC_STEP_STATS=1
+`pangloss batch amharic-hc.xml <one-word-file> out.tsv --threads 1` with `HC_STEP_STATS=1
 HC_FST_PROFILE=1`, three times each (once step-stats-only, twice with the full instrumentation) to
 check run-to-run stability. Numbers below are from the final (fullest-instrumentation) run of each;
 earlier runs agreed within run-to-run noise (~5%) on every ratio.
@@ -156,17 +156,17 @@ exactly the mechanism lead #1 hypothesized, just now localized to a specific sub
    pathological words is inside `Transduce::run`, matching lead #1's framing exactly. But the
    internal split shows the dominant cost is the **`distinct()` dedup step that runs once per
    `run()` call after traversal** (59–81% of total wall-clock), not the nondeterministic traversal
-   loop that produces the candidates (14–30%). `distinct()` (`crates/hc-fst/src/traverse.rs`,
+   loop that produces the candidates (14–30%). `distinct()` (`crates/pg-fst/src/traverse.rs`,
    bottom of file) is a plain `Vec`-scan: for each new raw `FstResult`, linearly scan everything
    kept so far and call `result_eq` (itself an O(register_count) elementwise compare) — this is
    `O(n × kept)` in the worst case, and `n` reached 327,360 and 501,025 in the two single worst
    calls observed. C#'s `Enumerable.Distinct(IEqualityComparer)` is hash-set-backed (O(n)
-   amortized); `Register` (`crates/hc-fst/src/lib.rs`) already derives `Hash + Eq`, and its
+   amortized); `Register` (`crates/pg-fst/src/lib.rs`) already derives `Hash + Eq`, and its
    `value_eq` degenerates to plain structural equality in the cases actually constructed (`unset()`
    always produces the same bit pattern), so `FstResult` looks hashable in practice. This is a
    strong, concrete, plausible root mechanism for the ~2x-class gap — **flagging it for Fable, not
    fixing it** (out of this task's scope).
-2. **Keep-longer dedup (`push_remove_duplicates`, `hc-rules/src/morph.rs`) — REFUTED as a cost
+2. **Keep-longer dedup (`push_remove_duplicates`, `pg-rules/src/morph.rs`) — REFUTED as a cost
    driver for these two words.** `DEDUPPROF` shows negligible total time (111ms / 65ms, <0.1% of
    wall-clock on both) and `max_out_len=1` throughout — i.e. its candidate lists never grew past a
    single element before a duplicate was found and resolved, so there is no combinatorial blow-up
@@ -176,8 +176,8 @@ exactly the mechanism lead #1 hypothesized, just now localized to a specific sub
    measurement, but a code-reading check found no gap.** Neither profiled word routed measurable
    time through anything outside `Transduce::run`/`distinct()`/`push_remove_duplicates` (the
    `det_ms`/non-`run_ms` remainder is negligible for both), so this instrumentation cannot speak to
-   template-battery cost directly for these two words. Reading `hc-rules/src/stratum.rs`'s
-   `run_template_batch` (line ~775) against `hc-memo/src/lib.rs`'s `AnalysisScope` shows Rust
+   template-battery cost directly for these two words. Reading `pg-rules/src/stratum.rs`'s
+   `run_template_batch` (line ~775) against `pg-memo/src/lib.rs`'s `AnalysisScope` shows Rust
    **does** have a dedicated `template_memo` table (separate from the mrule-cascade `memo` table),
    keyed by the same `AnalysisStateKey`, memoizing the **whole battery's output for a given key**
    with replay-on-hit (`entry.results.iter().map(|stored| stored.replay_onto(...))`) — this matches

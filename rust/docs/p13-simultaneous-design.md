@@ -3,8 +3,8 @@
 Status: **design only** (plan `rust-optimizations-phase2.md` §P13, [FABLE-PLAN then SONNET]).
 Decided in scope 2026-07-10 (Open scope decisions #4): "PORT IT, fully." John: "I want complete
 grammar coverage for even hypothetical grammars that HC can parse. Create a synthetic oracle if
-needed." No engine code changes accompany this doc — `hc-rules/src/rewrite.rs` and
-`hc-grammar/src/load.rs` are read-only throughout this pass. Target implementer: a Sonnet-tier
+needed." No engine code changes accompany this doc — `pg-rules/src/rewrite.rs` and
+`pg-grammar/src/load.rs` are read-only throughout this pass. Target implementer: a Sonnet-tier
 agent working mechanically from §4-§5, using the fixtures in §6.
 
 Oracle: `.worktrees/parse-opt/src/SIL.Machine.Morphology.HermitCrab/PhonologicalRules/
@@ -96,7 +96,7 @@ selected.
 
 This matters for the Rust port specifically because **Rust's current `synthesize_with_mpr` loops
 `for sr in &rule.subrules`, running each subrule to its own completion (its own internal
-find-leftmost-then-rescan loop) before moving to the next subrule** (`hc-rules/src/rewrite.rs:
+find-leftmost-then-rescan loop) before moving to the next subrule** (`pg-rules/src/rewrite.rs:
 893-917`) — a different shape from C#'s single-scan-then-per-position-dispatch. For **Iterative**
 mode this is an accidental-but-real equivalence: subrule 1's pass only ever touches positions where
 subrule 1's own environment holds, marking them `dirty`; subrule 2's pass then only considers
@@ -187,16 +187,16 @@ time, not per parse.
 
 ### 2.1 The load-time lint
 
-`hc_grammar::load::load_rewrite_rule` (`hc-grammar/src/load.rs:1053-1076`) parses
+`pg_grammar::load::load_rewrite_rule` (`pg-grammar/src/load.rs:1053-1076`) parses
 `multipleApplicationOrder` and, if it is exactly `"simultaneous"`, immediately returns
 `GrammarError::Unsupported("PhonologicalRule multipleApplicationOrder=\"simultaneous\"")` — a
 deliberate stopgap (W1.4) chosen over silently running Simultaneous-tagged grammars as Iterative.
-`RewriteMode` (`hc-grammar/src/model.rs:339`, `Simultaneous`/`Iterative`) and `RewriteRuleDef.mode`
+`RewriteMode` (`pg-grammar/src/model.rs:339`, `Simultaneous`/`Iterative`) and `RewriteRuleDef.mode`
 already exist and already round-trip correctly for the *rejected* value (confirmed by the existing
 unit test `rewrite_mode_simultaneous_lints_unsupported`, `load.rs:2540+`) — only the lint itself
 needs removing once execution exists (§4.5).
 
-### 2.2 `hc-rules/src/rewrite.rs`'s existing shapes — narrower gap than expected
+### 2.2 `pg-rules/src/rewrite.rs`'s existing shapes — narrower gap than expected
 
 Reading every rewrite-execution function against the C# read above:
 
@@ -226,7 +226,7 @@ oracle, under **Iterative** mode, to crash with an uncaught `InfiniteLoopExcepti
 EpenthesisSynthesisRewriteSubruleSpec.cs`'s 256-node safety cap) — because Iterative's cursor
 resumes matching at the just-inserted node (§1.1), which re-satisfies the same environment, forever.
 Running the *identical* grammar (mode attribute stripped, so it loads and runs on today's Rust
-engine) through `hc-rs batch` produces a clean, instant `-` (no parse), no crash, no hang: today's
+engine) through `pangloss batch` produces a clean, instant `-` (no parse), no crash, no hang: today's
 `syn_epenthesis` cannot cascade, because it collects all sites against one snapshot before applying
 any of them (§2.2's table). This means today's default (and only) epenthesis synthesis path is
 already effectively Simultaneous-shaped, not Iterative-shaped — a latent, pre-existing divergence
@@ -356,7 +356,7 @@ let did = match (classify(rule, sr), rule.mode) {
 };
 ```
 
-`RuleCache`/`PruleCache` (`hc-rules/src/cache.rs`, referenced by `synthesize_with_mpr_cached`) needs
+`RuleCache`/`PruleCache` (`pg-rules/src/cache.rs`, referenced by `synthesize_with_mpr_cached`) needs
 no new compiled-artifact fields — `sim_feature`/`sim_narrow` reuse the exact same compiled
 `target`/`left`/`right` FSTs `syn_feature`/`syn_narrow` already use; only the *driving loop* differs
 per mode, not what gets compiled. Confirm this when implementing (no cache schema change expected).
@@ -418,7 +418,7 @@ enforces).
 
 ### 4.5 Loader change
 
-`load_rewrite_rule` (`hc-grammar/src/load.rs:1053-1076`): remove the `if mult == "simultaneous"`
+`load_rewrite_rule` (`pg-grammar/src/load.rs:1053-1076`): remove the `if mult == "simultaneous"`
 early-return block entirely; the existing `match mult { "simultaneous" => RewriteMode::Simultaneous,
 _ => RewriteMode::Iterative }` below it already does the right parse once the lint is gone. Update/
 remove `rewrite_mode_simultaneous_lints_unsupported` (`load.rs:2540+`) to instead assert the mode
@@ -430,23 +430,23 @@ acceptance of it changes).
 
 ## 5. Ordered implementation plan (landable chunks)
 
-1. **`hc-grammar`: remove the load-time lint** (§4.5). Inert by itself — `RewriteRuleDef.mode` is
+1. **`pg-grammar`: remove the load-time lint** (§4.5). Inert by itself — `RewriteRuleDef.mode` is
    already threaded everywhere it's stored; nothing downstream reads it yet, so this alone changes
    no behavior except that Simultaneous-tagged grammars now load (and then silently misexecute as
    Iterative, exactly the W1.4 stopgap's original documented risk) — **land this together with at
    least step 2**, not alone, to avoid a silent-misexecution window.
-2. **`hc-rules`: `sim_feature`/`sim_narrow`** (§4.1-4.2), dispatched by `rule.mode` in
+2. **`pg-rules`: `sim_feature`/`sim_narrow`** (§4.1-4.2), dispatched by `rule.mode` in
    `synthesize_with_mpr`/`synthesize_with_mpr_cached`. Write the multi-subrule-disjunction check
    (§4.1's warning) as a test *before* wiring the dispatch. Gate tests:
    `rewrite/simultaneous-feeding` + `simultaneous-feeding-control-iterative` (§6.1) must both pass
    byte-identically; the existing `epenthesis_rules`/`multiple_application_rules` `#[ignore]`d
-   tests (`hc-parse/tests/csharp_port_rewrite.rs`) should be re-examined (some sub-cases may still
+   tests (`pg-parse/tests/csharp_port_rewrite.rs`) should be re-examined (some sub-cases may still
    have unrelated findings — re-verify each, don't assume un-ignoring is automatic).
-3. **`hc-grammar`/`hc-rules`: `self_opaquing`** (§4.3) — computed at load or rule-cache-build time,
+3. **`pg-grammar`/`pg-rules`: `self_opaquing`** (§4.3) — computed at load or rule-cache-build time,
    stored on `RewriteSubruleDef`/wherever the cache keys per-subrule facts today. Unit-test the
    `IsUnifiable`-equivalent computation directly against hand-built patterns (mirror C#'s own
    logic, don't just eyeball agreement).
-4. **`hc-rules`: the analysis repeat-wrapper** (§4.4) in `analyze`/`analyze_cached`. Gate test:
+4. **`pg-rules`: the analysis repeat-wrapper** (§4.4) in `analyze`/`analyze_cached`. Gate test:
    `rewrite/simultaneous-epenthesis` (§6.3) — **expect this to reproduce the frozen `-` results**
    (matching the live oracle's default, memo-affected output per §3), not the "more correct" traced
    result; if Rust's own engine instead finds the parse the traced C# path finds, that is a
@@ -458,7 +458,7 @@ acceptance of it changes).
    specifically. Re-check each sub-case against its own doc comment — some (e.g. `anchor_rules`'s
    sub-case (1)) have unrelated, still-open findings layered on top; do not assume a green run
    means every historical note is now moot.
-6. **Wire the 4 fixtures from this pass** into `hc-parse/tests/rewrite_conformance.rs` (same
+6. **Wire the 4 fixtures from this pass** into `pg-parse/tests/rewrite_conformance.rs` (same
    convention as `merge_matches_oracle` etc.) — `simultaneous-feeding-control-iterative` can be
    wired **immediately, independent of steps 1-5** (it's a plain Iterative grammar, loads today).
 7. **Corpus regression**: full Indonesian/Sena/Amharic runs before/after must be byte-identical —
@@ -556,6 +556,6 @@ oracle fixture there would confirm the loader-lint removal alone, not any new ex
    `simultaneous-epenthesis` fixture's README documents the exact reproduction and the diagnostic
    harness approach (a standalone project referencing the built oracle library, not modifying it).
 5. **`RewriteSubruleDef.self_opaquing` storage location** (§4.3) — this doc assumes it's computed
-   once (load or cache-build time) and stored per-subrule; confirm against `hc-grammar`'s existing
+   once (load or cache-build time) and stored per-subrule; confirm against `pg-grammar`'s existing
    convention for similar per-subrule derived facts (e.g. how `required_pos`/`required_mpr` are
    already stored) rather than inventing a new pattern.

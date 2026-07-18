@@ -42,7 +42,7 @@ path is taken:
 ### Direct FieldWorks import (`.fwdata`)
 
 ```
-.fwdata ──pg-fwdata──► Snapshot (pg-snapshot JSON) ──hc_grammar::compile_project──► Grammar
+.fwdata ──pg-fwdata──► Snapshot (pg-snapshot JSON) ──pg_grammar::compile_project──► Grammar
 ```
 
 - `pg-fwdata` streams the `.fwdata` XML (real projects run tens of MB — no whole-file DOM)
@@ -50,7 +50,7 @@ path is taken:
   unrecognized morph types, and stale ad-hoc rules become `ImportReport` warnings, never a
   panic (FieldWorks' own C# HC exporter crashes on a stale `MoMorphAdhocProhib` that this
   importer logs and skips).
-- `hc_grammar::compile_project` compiles a snapshot into the same `Grammar` the legacy XML
+- `pg_grammar::compile_project` compiles a snapshot into the same `Grammar` the legacy XML
   loader produces — a Rust port of FieldWorks' `HCLoader.cs` compilation semantics.
 - Import/compile warnings go to stderr, labeled, never stdout (batch TSV output is
   parity-sensitive).
@@ -58,7 +58,7 @@ path is taken:
 To materialize the intermediate snapshot for inspection or faster reloads:
 
 ```
-hc-rs import <project.fwdata> <out.json>
+pangloss import <project.fwdata> <out.json>
 ```
 
 See [`docs/fwdata-import-plan.md`](docs/fwdata-import-plan.md) for the architecture and the
@@ -76,25 +76,25 @@ milliseconds to a few seconds on the reference grammars.
 Parse one word:
 
 ```
-hc-rs parse <grammar> <word> --engine=foma [--gloss] [--natural-gloss=eng] [--realize-map=<path>]
+pangloss parse <grammar> <word> --engine=foma [--gloss] [--natural-gloss=eng] [--realize-map=<path>]
 ```
 
 Batch a word list to TSV:
 
 ```
-hc-rs batch <grammar> <words.txt> <out.tsv> --engine=foma [--word-timeout-ms N] [--threads N]
+pangloss batch <grammar> <words.txt> <out.tsv> --engine=foma [--word-timeout-ms N] [--threads N]
 ```
 
 Generate a surface form from morpheme ids (default engine):
 
 ```
-hc-rs generate <grammar> <root-morpheme-id> [other-morpheme-id ...]
+pangloss generate <grammar> <root-morpheme-id> [other-morpheme-id ...]
 ```
 
-From Rust, the same path is `hc_foma::composite::FomaAnalyzer`:
+From Rust, the same path is `pg_foma::composite::FomaAnalyzer`:
 
 ```rust
-let grammar = hc_grammar::load(&xml)?;                  // or compile_project(&snapshot)
+let grammar = pg_grammar::load(&xml)?;                  // or compile_project(&snapshot)
 let mut analyzer = FomaAnalyzer::new(&grammar)?;        // emits lexc + compiles the FST
 let outcome = analyzer.analyze_word("kufuna");          // propose + confirm
 let outcomes = analyzer.analyze_words(&words);          // parallel confirm across words
@@ -104,16 +104,16 @@ Representative timings (2026-07-17, all landed optimizations, one desktop machin
 Indonesian compiles in ~85 ms and averages ~0.7 ms/word; Sena compiles in ~225 ms and
 averages ~29 ms/word; Amharic compiles in ~5.7 s and averages ~41 ms/word (median ~1 µs —
 most words are rejected by the proposer outright — with a heavy tail). The whole pipeline
-also runs on `wasm32-unknown-unknown` (`hc-wasm`, ~1.6 MB bundle; runtime smoke test at
+also runs on `wasm32-unknown-unknown` (`pg-wasm`, ~1.6 MB bundle; runtime smoke test at
 `rust/tools/f4-wasm-smoke.js`).
 
 ## Layout
 
 - `rust/` — the engine workspace (crate map in [`rust/README.md`](rust/README.md)). Key crates:
-  `hc-grammar` (XML/snapshot → `Grammar`), `pg-fwdata` + `pg-snapshot` (FieldWorks import),
-  `hc-foma` (lexc emit, FST propose, confirm orchestration), `hc-parse`/`hc-rules`/`hc-fst`
-  (the HermitCrab engine, used both standalone and as the confirmer), `hc-cli` (the `hc-rs`
-  binary), `hc-wasm` (browser build), `rust/vendor/foma` (vendored foma-rs with a wasm32 fix,
+  `pg-grammar` (XML/snapshot → `Grammar`), `pg-fwdata` + `pg-snapshot` (FieldWorks import),
+  `pg-foma` (lexc emit, FST propose, confirm orchestration), `pg-parse`/`pg-rules`/`pg-fst`
+  (the HermitCrab engine, used both standalone and as the confirmer), `pg-cli` (the `pangloss`
+  binary), `pg-wasm` (browser build), `rust/vendor/foma` (vendored foma-rs with a wasm32 fix,
   pinned until [divvun/foma-rs#1](https://github.com/divvun/foma-rs/pull/1) is released).
 - `machine/` — the `sillsdev/machine` conformance oracle (submodule); the binding correctness
   gate as HermitCrab evolves upstream.

@@ -290,9 +290,8 @@ impl CompoundRule {
 
     pub fn disabled(&self) -> bool {
         match self {
-            CompoundRule::Endocentric { disabled, .. } | CompoundRule::Exocentric { disabled, .. } => {
-                *disabled
-            }
+            CompoundRule::Endocentric { disabled, .. }
+            | CompoundRule::Exocentric { disabled, .. } => *disabled,
         }
     }
 }

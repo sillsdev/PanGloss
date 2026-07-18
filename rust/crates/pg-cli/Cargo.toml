@@ -1,0 +1,24 @@
+[package]
+name = "pg-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "pangloss"
+path = "src/main.rs"
+
+[dependencies]
+pg-parse.workspace = true
+pg-grammar.workspace = true
+pg-realize.workspace = true
+pg-featstruct.workspace = true
+pg-fst.workspace = true
+pg-rules.workspace = true
+pg-snapshot.workspace = true
+pg-fwdata.workspace = true
+# P3 (docs/fst-plan/foma-fst-plan.md): `--engine=foma` on `batch`/`parse` routes through
+# `pg_foma::composite::FomaAnalyzer` instead of the default `pg_parse::Morpher` path.
+pg-foma.workspace = true
+rayon.workspace = true

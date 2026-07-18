@@ -1,6 +1,6 @@
 //! `pg-fwdata`: reads a FieldWorks `.fwdata` project file directly into a
 //! [`pg_snapshot::Snapshot`] — layer 1 of `docs/fwdata-import-plan.md`'s three-layer pipeline
-//! (`.fwdata → pg-fwdata → Snapshot → hc_grammar::compile → Grammar`). See that plan's §2 for the
+//! (`.fwdata → pg-fwdata → Snapshot → pg_grammar::compile → Grammar`). See that plan's §2 for the
 //! overall architecture and §6 (task T2) for this crate's scope.
 //!
 //! # Two layers, one crate

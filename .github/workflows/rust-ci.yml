@@ -47,7 +47,7 @@ jobs:
         with:
           workspaces: rust
       - run: cargo build --workspace --all-targets
-      # Gate tests over samples/data/*-hc.xml self-skip (see hc-realize test doc
+      # Gate tests over samples/data/*-hc.xml self-skip (see pg-realize test doc
       # comments) since those real-language grammar/corpus files are gitignored, not committed
       # (docs/natural-glosses-plan.md purge policy) — CI exercises everything else.
       - run: cargo test --workspace

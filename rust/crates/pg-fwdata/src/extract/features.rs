@@ -48,7 +48,9 @@ fn extract_feature_system(ctx: &mut Ctx, guid: &str, label: &str) -> FeatureSyst
                 "{label}: feature {feature_guid} has unexpected class {}",
                 r.class
             )),
-            None => ctx.warn(format!("{label}: dangling feature reference {feature_guid}")),
+            None => ctx.warn(format!(
+                "{label}: dangling feature reference {feature_guid}"
+            )),
         }
     }
     FeatureSystem {
@@ -92,7 +94,11 @@ fn extract_complex_feature(ctx: &mut Ctx, rec: &Record) -> ComplexFeature {
 /// structure) when `guid` doesn't resolve at all, so callers can distinguish "no feature
 /// structure was ever attached" (`None` on the owning field) from "the referenced one was empty"
 /// (`Some(FeatureStructure { values: vec![] })`).
-pub fn extract_feature_structure(ctx: &mut Ctx, guid: &str, label: &str) -> Option<FeatureStructure> {
+pub fn extract_feature_structure(
+    ctx: &mut Ctx,
+    guid: &str,
+    label: &str,
+) -> Option<FeatureStructure> {
     let rec = ctx.require(guid, "FsFeatStruc", label)?;
     Some(extract_feature_struct_node(ctx, rec, label))
 }
@@ -101,18 +107,24 @@ fn extract_feature_struct_node(ctx: &mut Ctx, rec: &Record, label: &str) -> Feat
     let mut values = Vec::new();
     for spec_guid in rec.node.objsur_list("FeatureSpecs") {
         let Some(spec) = ctx.get(&spec_guid) else {
-            ctx.warn(format!("{label}: dangling feature-spec reference {spec_guid}"));
+            ctx.warn(format!(
+                "{label}: dangling feature-spec reference {spec_guid}"
+            ));
             continue;
         };
         let Some(feature) = spec.node.objsur_one("Feature") else {
-            ctx.warn(format!("{label}: feature spec {spec_guid} has no Feature reference"));
+            ctx.warn(format!(
+                "{label}: feature spec {spec_guid} has no Feature reference"
+            ));
             continue;
         };
         let value = match spec.class.as_str() {
             "FsClosedValue" => match spec.node.objsur_one("Value") {
                 Some(v) => FeatureValueKind::Closed { value: v },
                 None => {
-                    ctx.warn(format!("{label}: closed feature value {spec_guid} has no Value"));
+                    ctx.warn(format!(
+                        "{label}: closed feature value {spec_guid} has no Value"
+                    ));
                     continue;
                 }
             },
@@ -129,7 +141,9 @@ fn extract_feature_struct_node(ctx: &mut Ctx, rec: &Record, label: &str) -> Feat
                     }
                 },
                 None => {
-                    ctx.warn(format!("{label}: complex feature value {spec_guid} has no Value"));
+                    ctx.warn(format!(
+                        "{label}: complex feature value {spec_guid} has no Value"
+                    ));
                     continue;
                 }
             },

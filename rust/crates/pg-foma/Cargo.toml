@@ -1,0 +1,35 @@
+[package]
+name = "pg-foma"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+# Pinned exact — gate F0 (docs/fst-plan/foma-fst-plan.md) is validating this specific version of
+# a 3-day-old, 0-star, ubuntu-only-CI crate. Do not let cargo silently float us onto a newer
+# release until the gate has been re-run against it.
+foma = "=0.1.1"
+pg-grammar.workspace = true
+pg-featstruct.workspace = true
+# P1 stage 2 (docs/fst-plan/foma-fst-plan.md, Indonesian): the junction-aware emitter
+# (`src/junctions.rs`) drives the real synthesis machinery to pre-probe surface variants, exactly
+# like `hc-hybrid/src/surface.rs` does today. Both are already wasm-safe (pg-rules is in pg-wasm's
+# dependency graph via pg-parse; see that crate's `web-time` use for the same `Instant`-on-wasm32
+# fix pg-fst needed) -- `cargo check -p pg-foma --target wasm32-unknown-unknown` covers this.
+pg-rules.workspace = true
+pg-shape.workspace = true
+rustc-hash.workspace = true
+# junctions.rs's alphabet probe loops (compute_variants/compute_deletion_junctions): parallelized
+# across CPU cores on non-wasm32 targets via a dedicated large-stack pool (see
+# `PhonologyProbe::new`'s doc) -- NOT used on wasm32-unknown-unknown, where `thread::spawn` (which
+# a rayon pool needs to build) aborts at runtime; that path stays the original sequential loop
+# (`#[cfg(target_arch = "wasm32")]`), mirroring `pg-parse/src/batch.rs`'s own scoped-pool pattern.
+rayon.workspace = true
+# P2 (docs/fst-plan/foma-fst-plan.md): confirm (`src/confirm.rs`) pins `Morpher::parse_word_selected`
+# to a proposed candidate's root(s)/rules — this crate's whole propose->CONFIRM point — so pg-parse
+# is now a normal (not dev-only) dependency. Not a new wasm32 risk: pg-wasm already links pg-parse
+# directly (it IS the verifier engine pg-wasm's demo runs today), so pg-foma depending on it too adds
+# no new transitive dependency to that build. `cargo check -p pg-foma --target wasm32-unknown-unknown`
+# and the same for pg-wasm both stay part of this crate's gate.
+pg-parse.workspace = true

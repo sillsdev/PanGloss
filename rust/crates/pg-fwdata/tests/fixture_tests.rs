@@ -47,7 +47,12 @@ fn extracts_feature_system() {
 fn extracts_phonemes_and_boundary_markers() {
     let (snap, _) = pg_fwdata::import_file(&fixture_path()).unwrap();
     assert_eq!(snap.phonology.phonemes.len(), 3);
-    let names: Vec<_> = snap.phonology.phonemes.iter().map(|p| p.name.as_str()).collect();
+    let names: Vec<_> = snap
+        .phonology
+        .phonemes
+        .iter()
+        .map(|p| p.name.as_str())
+        .collect();
     assert!(names.contains(&"a"));
     assert!(names.contains(&"t"));
     assert!(names.contains(&"d"));
@@ -101,7 +106,10 @@ fn extracts_affix_template_with_slot() {
     assert_eq!(verb.affix_slots.len(), 1);
     assert_eq!(verb.affix_templates.len(), 1);
     let template = &verb.affix_templates[0];
-    assert_eq!(template.suffix_slots, vec![verb.affix_slots[0].guid.clone()]);
+    assert_eq!(
+        template.suffix_slots,
+        vec![verb.affix_slots[0].guid.clone()]
+    );
     assert!(template.is_final);
 }
 
@@ -116,7 +124,9 @@ fn extracts_inflectional_affix_msa_filling_the_slot() {
         .expect("the -s entry must be present");
     assert_eq!(suffix_entry.msas.len(), 1);
     match &suffix_entry.msas[0] {
-        Msa::Inflectional { slots, features, .. } => {
+        Msa::Inflectional {
+            slots, features, ..
+        } => {
             assert_eq!(slots.len(), 1);
             assert!(features.is_some());
         }

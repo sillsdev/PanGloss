@@ -4,7 +4,7 @@ Status: **design only** (plan `rust/rust-optimizations-phase2.md` §P5, [FABLE-P
 code changes accompany this doc. Target implementer: a Sonnet-tier agent working mechanically
 from §6-§8.
 
-Driving fixture: `rust/crates/hc-parse/tests/csharp_port_rewrite.rs` ignored test `anchor_rules`,
+Driving fixture: `rust/crates/pg-parse/tests/csharp_port_rewrite.rs` ignored test `anchor_rules`,
 sub-case (1): `parse_word("gap")` must yield roots `{"10","11","12"}`; Rust yields `{"11","12"}`,
 missing root "10" (`"ga̘p"`). The test's doc comment (lines 81-117) contains the verified
 root-cause diagnosis; this doc designs the fix.
@@ -15,7 +15,7 @@ root-cause diagnosis; this doc designs the fix.
 
 Root "10"'s stored vowel is the concrete char-def `cAUnderdot` (ATR-). Surface "gap" segments its
 vowel as the concrete char-def `cA`. `RootAllomorphTrie::search_segs_opt` →
-`edge_matches` (`rust/crates/hc-parse/src/root_trie.rs:215-224`) requires **literal char_def
+`edge_matches` (`rust/crates/pg-parse/src/root_trie.rs:215-224`) requires **literal char_def
 equality** between a concrete query segment and a concrete trie edge before feature lanes are ever
 consulted, so two different concrete char-defs can never match — regardless of whether their
 feature structs unify. Wave 4's `CdSet` membership arm only exists for `NO_CHAR_DEF` (pattern)
@@ -60,7 +60,7 @@ pure **under-generation** (missing parses), never over-generation.
 
 The same over-extended identity model gates synthesis-confirm. Even with the trie fixed, candidate
 root "10" would still be rejected: synthesis leaves the vowel node's `char_def == cAUnderdot`
-(no rule touches it), and `hc-parse/src/surface.rs::matching_str_reps` restricts a concrete node's
+(no rule touches it), and `pg-parse/src/surface.rs::matching_str_reps` restricts a concrete node's
 matching representations to `EffectiveCdSet::Singleton(own char_def)` — so `is_match("gap", shape)`
 fails (`"ga̘p" ≠ "gap"`). In C#, `GetMatchingStrReps` (`CharacterDefinitionTable.cs:96-106`) is
 pure `IsUnifiable` — the ATR- node matches Table1's "a" and the word confirms. The `anchor_rules`
@@ -68,7 +68,7 @@ doc comment diagnoses only the trie gate; flipping the test requires relaxing **
 share the one root cause (§1.1), so one shared mechanism fixes both.
 
 No third site exists: `grep` for concrete `char_def ==` gates in matching logic finds only
-`root_trie.rs:217`; rewrite/morph rule matching goes through `hc-fst`, which is lanes-only (no
+`root_trie.rs:217`; rewrite/morph rule matching goes through `pg-fst`, which is lanes-only (no
 char-def dimension — already at-least-as-permissive as C#, and a frozen contract untouched here).
 
 ---
@@ -142,15 +142,15 @@ stay flagged in `root_trie.rs`'s "M5b invariants" doc block.
 
 ### Design B — genuine per-table identity model (REJECTED for now)
 
-Make node identity table-qualified — `(TableId, CharDefId)` throughout `hc-shape` (or drop
+Make node identity table-qualified — `(TableId, CharDefId)` throughout `pg-shape` (or drop
 char_def identity from `Shape` entirely and carry FS + optional StrRep-set, C#'s literal model) —
 build tries per stratum-table, and unify across tables via pairwise closure matrices; extend
 `CdSet`/`EffectiveCdSet` id spaces to match.
 
 Correct and fully general (covers true multi-table grammars, including the C# test base without
 the merged-table fixture approximation), but it is exactly "the root-trie identity model that
-wave 4 just stabilized": `char_def`/`CdSet` columns thread through `hc-shape`, `hc-rules`
-(`morph.rs` `OutNode.cd_set`/`ctx_cd_set`, `rewrite.rs` wave-3 clearing), `hc-parse` (trie,
+wave 4 just stabilized": `char_def`/`CdSet` columns thread through `pg-shape`, `pg-rules`
+(`morph.rs` `OutNode.cd_set`/`ctx_cd_set`, `rewrite.rs` wave-3 clearing), `pg-parse` (trie,
 surface, dedup comparator per audit fix `bbe3fa6d`). High regression surface, and §2 shows the
 only beneficiary is a test-base topology no real grammar uses. Revisit only if a real multi-table
 grammar ever appears.
@@ -178,7 +178,7 @@ mechanically (§6). Design B solves a problem no real grammar has; Design C is A
 
 ## 5. Fixture correction (required to flip `anchor_rules`)
 
-The shared merged-table fixture (`crates/hc-parse/tests/csharp_port_common/mod.rs`) pins
+The shared merged-table fixture (`crates/pg-parse/tests/csharp_port_common/mod.rs`) pins
 `cA` = ATR+ — emulating Table3's "a". But every ported test *segments surface words* the way C#
 segments against **Table1**, whose "a" has **no ATR feature**. Correction: **drop `cA`'s
 `fAtr` pin** (leave `cAUnderdot` = ATR-). Verified safe: `fAtr` is referenced nowhere else in the
@@ -197,11 +197,11 @@ simultaneously — acceptable while nothing tests ATR-conditioned rules.
 
 ## 6. Implementation sketch (for the follow-up code task)
 
-No `hc-fst` changes (frozen). Two crates touched: `hc-grammar` (closure storage), `hc-parse`
-(two consumers). `hc-grammar` already depends on `hc-shape` (`segment.rs` uses `CdBits`), so
+No `pg-fst` changes (frozen). Two crates touched: `pg-grammar` (closure storage), `pg-parse`
+(two consumers). `pg-grammar` already depends on `pg-shape` (`segment.rs` uses `CdBits`), so
 `CdBits` is available.
 
-### 6.1 `hc-grammar/src/chardef.rs`
+### 6.1 `pg-grammar/src/chardef.rs`
 
 ```rust
 pub struct CharDefTable {
@@ -223,10 +223,10 @@ impl CharDefTable {
 
 Populate at the end of table construction (where `feature_lanes` are already resolved), gated on
 `!feat_sys.is_empty()`. Only `CharDefKind::Segment`×`Segment` pairs; use the existing
-`hc_featstruct::flat_unifiable`. (The synthetic `Type` lane is identical across segments, so it
+`pg_featstruct::flat_unifiable`. (The synthetic `Type` lane is identical across segments, so it
 never blocks a pair — no special-casing needed.)
 
-### 6.2 `hc-parse/src/root_trie.rs`
+### 6.2 `pg-parse/src/root_trie.rs`
 
 - `RootAllomorphTrie::search` already resolves `table_ref`; thread the closure down:
   `search_segs_opt(&self, segs: &[...], closure: Option<&[CdBits]>)` and
@@ -247,7 +247,7 @@ let cd_ok = cd == NO_CHAR_DEF
 - Do NOT touch: `add_path` grouping, the `CdSet` pattern arm, the optional-skip branch, the
   `NO_CHAR_DEF`-query wildcard arm.
 
-### 6.3 `hc-parse/src/surface.rs`
+### 6.3 `pg-parse/src/surface.rs`
 
 In `matching_str_reps`, the segment-loop membership gate becomes closure-aware only for the
 `Singleton` case:
@@ -288,7 +288,7 @@ branch, commit incrementally.
    on random (edge cd, query cd) pairs — the closure is exactly a memo.
 4. **The driving test:** `anchor_rules` un-ignored; sub-case (1) = `{"10","11","12"}`;
    sub-cases (2)-(4) stay green.
-5. **Wave-4 regression guard (the stabilized identity model):** full `hc-parse`/`hc-rules` suite +
+5. **Wave-4 regression guard (the stabilized identity model):** full `pg-parse`/`pg-rules` suite +
    `loader_n3_*_gate.rs` + `affix_shapes_conformance.rs` + the root_trie pattern-edge tests —
    all must stay green with zero expectation edits outside `anchor_rules`. Any OTHER test whose
    expectation moves is a red flag: it was passing under the too-strict gate for the wrong reason;

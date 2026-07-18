@@ -8,15 +8,15 @@ managed engine. See [`../docs/history/rust-conversion.md`](../docs/history/rust-
 
 | Crate | Role |
 |---|---|
-| `hc-grammar` | HC XML load + lint + compile → immutable `GrammarTables` |
-| `hc-featstruct` | bit-vector feature structures, interner, DAG unifier, variable bindings |
-| `hc-shape` | shapes (struct-of-arrays), annotation spans, builders |
-| `hc-fst` | pattern compile, FSA traversal, registers (CSR arc storage) |
-| `hc-rules` | phonological + morphological rules, templates, strata, cascades |
-| `hc-memo` | `AnalysisStateKey`, nogood + template memo, trail replay |
-| `hc-parse` | Morpher pipeline: segment → analyze → lookup → synthesize → dedup |
-| `hc-ffi` | C ABI (`cdylib`) with `catch_unwind` boundary |
-| `hc-cli` | `hc-rs` binary: batch, parity-diff, bench (mirrors C# `hc batch` TSV) |
+| `pg-grammar` | HC XML load + lint + compile → immutable `GrammarTables` |
+| `pg-featstruct` | bit-vector feature structures, interner, DAG unifier, variable bindings |
+| `pg-shape` | shapes (struct-of-arrays), annotation spans, builders |
+| `pg-fst` | pattern compile, FSA traversal, registers (CSR arc storage) |
+| `pg-rules` | phonological + morphological rules, templates, strata, cascades |
+| `pg-memo` | `AnalysisStateKey`, nogood + template memo, trail replay |
+| `pg-parse` | Morpher pipeline: segment → analyze → lookup → synthesize → dedup |
+| `pg-ffi` | C ABI (`cdylib`) with `catch_unwind` boundary |
+| `pg-cli` | `pangloss` binary: batch, parity-diff, bench (mirrors C# `hc batch` TSV) |
 | `pg-snapshot` | PanGloss's owned, versioned JSON project-snapshot format (serde model + IO + validation) |
 | `pg-fwdata` | streaming `.fwdata` (FieldWorks project file) reader → `pg-snapshot::Snapshot` |
 
@@ -26,7 +26,7 @@ Alongside the legacy HermitCrab-XML-export path, PanGloss can ingest a FieldWork
 (`.fwdata`) directly — no FieldWorks-side export tooling involved:
 
 ```
-.fwdata  ──pg-fwdata──►  Snapshot (pg-snapshot JSON)  ──hc_grammar::compile_project──►  Grammar
+.fwdata  ──pg-fwdata──►  Snapshot (pg-snapshot JSON)  ──pg_grammar::compile_project──►  Grammar
 ```
 
 - `pg-fwdata::import_file(path) -> Result<(Snapshot, ImportReport), ImportError>` streams the
@@ -36,12 +36,12 @@ Alongside the legacy HermitCrab-XML-export path, PanGloss can ingest a FieldWork
   references, unrecognized morph types, and stale ad-hoc rules become `ImportReport` warnings,
   never a hard error or a panic (a real motivating case: FieldWorks' own C# HC exporter crashes on
   a stale `MoMorphAdhocProhib` that this importer just logs and skips).
-- `hc_grammar::compile_project(&Snapshot) -> Result<(Grammar, Vec<String>), GrammarError>` compiles
-  a snapshot into the same `Grammar` the legacy XML loader (`hc_grammar::load`) produces — a Rust
+- `pg_grammar::compile_project(&Snapshot) -> Result<(Grammar, Vec<String>), GrammarError>` compiles
+  a snapshot into the same `Grammar` the legacy XML loader (`pg_grammar::load`) produces — a Rust
   port of FieldWorks' `HCLoader.cs` (LCM → HermitCrab semantics), sibling to `load.rs` and reusing
   its char-def/feature-system/segment machinery.
-- `hc-rs import <project.fwdata> <out.json>` runs the importer and writes `Snapshot::to_json()`;
-  `hc-rs parse|batch|fst-stats|generate` all accept a grammar path of any of three shapes,
+- `pangloss import <project.fwdata> <out.json>` runs the importer and writes `Snapshot::to_json()`;
+  `pangloss parse|batch|fst-stats|generate` all accept a grammar path of any of three shapes,
   dispatched by extension: `.xml` (legacy HC-XML), `.json` (a `pg-snapshot` Snapshot,
   `from_json` + `compile_project`), or `.fwdata` (imported in-memory and compiled on the fly, no
   intermediate file). Import/compile warnings print to stderr, labeled, never to stdout (`batch`'s
@@ -49,7 +49,7 @@ Alongside the legacy HermitCrab-XML-export path, PanGloss can ingest a FieldWork
 
 See [`../docs/fwdata-import-plan.md`](../docs/fwdata-import-plan.md) for the full architecture,
 the `HCLoader.cs` compilation-semantics mapping, and the oracle conformance gate
-(`hc-cli/tests/fwdata_conformance_gate.rs`) that checks the new pipeline's parse results against
+(`pg-cli/tests/fwdata_conformance_gate.rs`) that checks the new pipeline's parse results against
 the legacy XML oracle behaviorally (morpheme-gloss sequences + surface forms; ids aren't
 comparable across the two paths since the legacy export keys morphemes by session-scoped `Hvo`
 while the new pipeline keys everything by FieldWorks GUID).

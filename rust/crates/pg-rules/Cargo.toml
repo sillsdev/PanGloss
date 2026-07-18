@@ -1,0 +1,17 @@
+[package]
+name = "pg-rules"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+pg-featstruct.workspace = true
+pg-shape.workspace = true
+pg-fst.workspace = true
+pg-grammar.workspace = true
+pg-memo.workspace = true
+smallvec.workspace = true
+hashbrown.workspace = true
+rustc-hash.workspace = true
+web-time.workspace = true

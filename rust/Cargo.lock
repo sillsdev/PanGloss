@@ -238,162 +238,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hc-cli"
-version = "0.1.0"
-dependencies = [
- "hc-featstruct",
- "hc-foma",
- "hc-fst",
- "hc-grammar",
- "hc-parse",
- "hc-realize",
- "hc-rules",
- "pg-fwdata",
- "pg-snapshot",
- "rayon",
-]
-
-[[package]]
-name = "hc-featstruct"
-version = "0.1.0"
-dependencies = [
- "hashbrown",
- "smallvec",
-]
-
-[[package]]
-name = "hc-ffi"
-version = "0.1.0"
-dependencies = [
- "hc-grammar",
- "hc-parse",
-]
-
-[[package]]
-name = "hc-foma"
-version = "0.1.0"
-dependencies = [
- "foma",
- "hc-featstruct",
- "hc-grammar",
- "hc-parse",
- "hc-rules",
- "hc-shape",
- "rayon",
- "rustc-hash",
-]
-
-[[package]]
-name = "hc-fst"
-version = "0.1.0"
-dependencies = [
- "hc-featstruct",
- "hc-shape",
- "smallvec",
- "web-time",
-]
-
-[[package]]
-name = "hc-grammar"
-version = "0.1.0"
-dependencies = [
- "hashbrown",
- "hc-featstruct",
- "hc-shape",
- "pg-snapshot",
- "quick-xml",
- "smallvec",
- "thiserror",
- "unicode-normalization",
-]
-
-[[package]]
-name = "hc-lexicon"
-version = "0.1.0"
-dependencies = [
- "hc-featstruct",
- "hc-grammar",
- "hc-parse",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "hc-memo"
-version = "0.1.0"
-dependencies = [
- "hc-featstruct",
- "hc-grammar",
- "hc-shape",
-]
-
-[[package]]
-name = "hc-parse"
-version = "0.1.0"
-dependencies = [
- "bumpalo",
- "hc-featstruct",
- "hc-fst",
- "hc-grammar",
- "hc-memo",
- "hc-rules",
- "hc-shape",
- "rayon",
- "rustc-hash",
- "smallvec",
- "unicode-normalization",
-]
-
-[[package]]
-name = "hc-realize"
-version = "0.1.0"
-dependencies = [
- "hc-grammar",
- "hc-parse",
-]
-
-[[package]]
-name = "hc-rules"
-version = "0.1.0"
-dependencies = [
- "hashbrown",
- "hc-featstruct",
- "hc-fst",
- "hc-grammar",
- "hc-memo",
- "hc-shape",
- "rustc-hash",
- "smallvec",
- "web-time",
-]
-
-[[package]]
-name = "hc-shape"
-version = "0.1.0"
-dependencies = [
- "hashbrown",
- "hc-featstruct",
- "smallvec",
-]
-
-[[package]]
-name = "hc-wasm"
-version = "0.1.0"
-dependencies = [
- "console_error_panic_hook",
- "hc-foma",
- "hc-grammar",
- "hc-lexicon",
- "hc-parse",
- "hc-realize",
- "serde",
- "serde-wasm-bindgen",
- "wasm-bindgen",
- "web-sys",
- "web-time",
-]
-
-[[package]]
 name = "itoa"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -534,6 +378,62 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
+name = "pg-cli"
+version = "0.1.0"
+dependencies = [
+ "pg-featstruct",
+ "pg-foma",
+ "pg-fst",
+ "pg-fwdata",
+ "pg-grammar",
+ "pg-parse",
+ "pg-realize",
+ "pg-rules",
+ "pg-snapshot",
+ "rayon",
+]
+
+[[package]]
+name = "pg-featstruct"
+version = "0.1.0"
+dependencies = [
+ "hashbrown",
+ "smallvec",
+]
+
+[[package]]
+name = "pg-ffi"
+version = "0.1.0"
+dependencies = [
+ "pg-grammar",
+ "pg-parse",
+]
+
+[[package]]
+name = "pg-foma"
+version = "0.1.0"
+dependencies = [
+ "foma",
+ "pg-featstruct",
+ "pg-grammar",
+ "pg-parse",
+ "pg-rules",
+ "pg-shape",
+ "rayon",
+ "rustc-hash",
+]
+
+[[package]]
+name = "pg-fst"
+version = "0.1.0"
+dependencies = [
+ "pg-featstruct",
+ "pg-shape",
+ "smallvec",
+ "web-time",
+]
+
+[[package]]
 name = "pg-fwdata"
 version = "0.1.0"
 dependencies = [
@@ -545,12 +445,112 @@ dependencies = [
 ]
 
 [[package]]
+name = "pg-grammar"
+version = "0.1.0"
+dependencies = [
+ "hashbrown",
+ "pg-featstruct",
+ "pg-shape",
+ "pg-snapshot",
+ "quick-xml",
+ "smallvec",
+ "thiserror",
+ "unicode-normalization",
+]
+
+[[package]]
+name = "pg-lexicon"
+version = "0.1.0"
+dependencies = [
+ "pg-featstruct",
+ "pg-grammar",
+ "pg-parse",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "pg-memo"
+version = "0.1.0"
+dependencies = [
+ "pg-featstruct",
+ "pg-grammar",
+ "pg-shape",
+]
+
+[[package]]
+name = "pg-parse"
+version = "0.1.0"
+dependencies = [
+ "bumpalo",
+ "pg-featstruct",
+ "pg-fst",
+ "pg-grammar",
+ "pg-memo",
+ "pg-rules",
+ "pg-shape",
+ "rayon",
+ "rustc-hash",
+ "smallvec",
+ "unicode-normalization",
+]
+
+[[package]]
+name = "pg-realize"
+version = "0.1.0"
+dependencies = [
+ "pg-grammar",
+ "pg-parse",
+]
+
+[[package]]
+name = "pg-rules"
+version = "0.1.0"
+dependencies = [
+ "hashbrown",
+ "pg-featstruct",
+ "pg-fst",
+ "pg-grammar",
+ "pg-memo",
+ "pg-shape",
+ "rustc-hash",
+ "smallvec",
+ "web-time",
+]
+
+[[package]]
+name = "pg-shape"
+version = "0.1.0"
+dependencies = [
+ "hashbrown",
+ "pg-featstruct",
+ "smallvec",
+]
+
+[[package]]
 name = "pg-snapshot"
 version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
  "thiserror",
+]
+
+[[package]]
+name = "pg-wasm"
+version = "0.1.0"
+dependencies = [
+ "console_error_panic_hook",
+ "pg-foma",
+ "pg-grammar",
+ "pg-lexicon",
+ "pg-parse",
+ "pg-realize",
+ "serde",
+ "serde-wasm-bindgen",
+ "wasm-bindgen",
+ "web-sys",
+ "web-time",
 ]
 
 [[package]]

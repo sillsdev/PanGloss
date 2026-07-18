@@ -243,17 +243,27 @@ fn parse_rt_body(reader: &mut Reader<BufReader<File>>) -> Result<Node, ImportErr
             Event::Start(e) => stack.push(node_from_start(&e)?),
             Event::Empty(e) => {
                 let node = node_from_start(&e)?;
-                stack.last_mut().expect("root never popped here").children.push(node);
+                stack
+                    .last_mut()
+                    .expect("root never popped here")
+                    .children
+                    .push(node);
             }
             Event::Text(t) => {
-                let s = t
-                    .unescape()
-                    .map_err(|e| ImportError::Xml(e.to_string()))?;
-                stack.last_mut().expect("root never popped here").text.push_str(&s);
+                let s = t.unescape().map_err(|e| ImportError::Xml(e.to_string()))?;
+                stack
+                    .last_mut()
+                    .expect("root never popped here")
+                    .text
+                    .push_str(&s);
             }
             Event::CData(t) => {
                 let s = String::from_utf8_lossy(t.as_ref()).into_owned();
-                stack.last_mut().expect("root never popped here").text.push_str(&s);
+                stack
+                    .last_mut()
+                    .expect("root never popped here")
+                    .text
+                    .push_str(&s);
             }
             Event::End(_) => {
                 if stack.len() == 1 {
