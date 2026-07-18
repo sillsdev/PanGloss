@@ -42,15 +42,38 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The `machine` submodule (sillsdev/machine, `conformance-framework` branch) carries the
+          # engine-agnostic conformance fixtures under `machine/conformance/` — several fast unit
+          # tests (e.g. hc-foma's `precision::tests`/`emit::structural_and_pattern_tests` modules)
+          # load these directly and are NOT `#[ignore]`d, so they need the submodule present to
+          # pass rather than panic on a missing file. Init it here so both test steps below are
+          # green.
+          submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
       - run: cargo build --workspace --all-targets
-      # Gate tests over samples/data/*-hc.xml self-skip (see hc-realize test doc
-      # comments) since those real-language grammar/corpus files are gitignored, not committed
-      # (docs/natural-glosses-plan.md purge policy) — CI exercises everything else.
+      # Default (fast, <~60s local) suite: in-crate unit tests, fixture-free integration tests,
+      # and the machine/conformance-driven tests (submodule checked out above). Every test that
+      # loads real-language corpus data from `samples/data/*` (gitignored, never committed —
+      # docs/natural-glosses-plan.md purge policy) is unconditionally `#[ignore]`d regardless of
+      # its own speed (see e.g. hc-foma/tests/f1_sena_gate.rs's module doc for the policy this
+      # follows), so this step needs no corpus data checked out at all.
       - run: cargo test --workspace
+      # Full sweep, release profile, including every `#[ignore]`d test (matches the timings the
+      # ignore reasons themselves cite — several corpus gates run 30s-3min in release). Every
+      # test gated on `samples/data/*` or a real FieldWorks project checkout (hc-cli's
+      # `fwdata_*_gate.rs`) self-skips gracefully here with a printed reason, since neither is
+      # present in this CI environment — this step's real coverage gain over the step above is
+      # exercising the WSL/c-foma-oracle `pk2` battery (which itself self-skips when `wsl` is
+      # absent, true on this Ubuntu runner) and any non-corpus `#[ignore]`d test at full release
+      # timing. The gitignored corpus gates (Sena/Indonesian/Amharic/Aweti `*-hc.xml`/`*.fwdata`)
+      # remain uncovered by CI by design; they are exercised locally via
+      # `cargo test --workspace --release -- --include-ignored` with `samples/data/` populated
+      # (see docs/history/rust-conversion.md §8's "corpora stay untracked local files" rule).
+      - run: cargo test --workspace --release -- --include-ignored
 
   coverage:
     name: coverage (codecov)
