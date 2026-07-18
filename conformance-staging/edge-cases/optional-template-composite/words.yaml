@@ -1,0 +1,129 @@
+# Aweti-shaped pathology mimic -- see STAGING.md and grammar.xml's own header comment (and
+# docs/fst-plan/morphotactic-composite-pruning.md's 2026-07-18 Aweti end-to-end result section for
+# the measured finding this pins). Oracle: hc-rs (`hc_parse::Morpher`, driven directly -- see
+# STAGING.md's "Verification" section), NOT the C# founding oracle -- authored and verified against
+# this repo's own Rust engine only. Signatures below are transcribed verbatim from that run, not
+# hand-derived.
+#
+# Authoring note: the "vacuous mandatory slot creates a second, silent analysis" pin turned out to
+# generalize further than first assumed -- EVERY root on posAweti (not just "monu") gets this extra
+# silent analysis via template2 alone, since all three templates share one requiredPartsOfSpeech.
+# Bare-root words below (sipu/monu/waru/toʼa) each carry two analyses accordingly. A separate, related
+# issue this same authoring pass found and fixed: template rules ALSO listed in the Stratum's own
+# morphologicalRules= attribute let templates recursively cross-compose (e.g. template1's rules
+# combining with template2's mrVacuous in more than one internal order, producing several
+# textually-identical duplicate signatures for one word) -- fixed by omitting that attribute
+# entirely (see grammar.xml's own Stratum comment, and template-category-sharing/words.yaml's header
+# for the same underlying engine behavior found independently while authoring that fixture). Once
+# templates are self-contained, every AFFIXED word below (kasiputa/pimonu/monuki/pimonuki/warmo/
+# warmolu/katoʼata) carries exactly one clean signature.
+
+language: Awetimic
+inspired_by: ["synthetic Aweti-shaped composite-template + vacuous-mandatory-slot probe (not modeling any real language)"]
+sources:
+  - "docs/conformance-staging-plan.md pathology catalog (Aweti-shaped row)"
+  - "docs/fst-plan/morphotactic-composite-pruning.md 2026-07-18 Aweti end-to-end result"
+requires: []
+words:
+  - word: sipu
+    note: >-
+      SIPU bare root -- carries TWO analyses: the plain bare root, and template2's mandatory-but-
+      silent mrVacuous slot applied alone (both of template2's own optional slots skipped), which
+      produces the surface-identical string "sipu". See this file's header note.
+    parses:
+      - signature: "SIPU+VAC|sipu"
+        rules: [mrVacuous]
+      - signature: "SIPU|sipu"
+        rules: []
+
+  - word: kasiputa
+    note: SIPU + template1 applied fully (mrOpt1 prefix "ka-" + mrOpt2 suffix "-ta").
+    provenance: "docs/conformance-staging-plan.md pathology catalog (Aweti-shaped row): composite-explosion structure (several mostly-optional templates)"
+    parses:
+      - signature: "OPT1+SIPU+OPT2|kasiputa"
+        rules: [mrOpt1, mrOpt2]
+
+  - word: monu
+    note: >-
+      THE vacuous-mandatory-slot row: MONU bare (no rules at all) is ONE valid analysis; template2's
+      mandatory-but-silent mrVacuous slot, applied ALONE (both of template2's own optional slots
+      skipped), produces the SURFACE-IDENTICAL string "monu" as a SECOND, distinct analysis (a real
+      morpheme, mrVacuous/VAC, that changes nothing visible). An engine whose composite-pruning
+      automaton treats a silent-output rule as prunable loses this second analysis -- the recall
+      trap docs/fst-plan/morphotactic-composite-pruning.md's "vacuous rules in mandatory slots"
+      finding names.
+    provenance: "docs/conformance-staging-plan.md pathology catalog (Aweti-shaped row): vacuous zero-morph rules in mandatory slots"
+    parses:
+      - signature: "MONU+VAC|monu"
+        rules: [mrVacuous]
+      - signature: "MONU|monu"
+        rules: []
+
+  - word: pimonu
+    note: MONU + template2 (mrOpt3 prefix "pi-" + mandatory mrVacuous, suffix slot skipped).
+    provenance: "docs/conformance-staging-plan.md pathology catalog (Aweti-shaped row): vacuous zero-morph rules in mandatory slots"
+    parses:
+      - signature: "OPT3+MONU+VAC|pimonu"
+        rules: [mrOpt3, mrVacuous]
+
+  - word: monuki
+    note: MONU + template2 (mandatory mrVacuous + mrOpt4 suffix "-ki", prefix slot skipped).
+    provenance: "docs/conformance-staging-plan.md pathology catalog (Aweti-shaped row): vacuous zero-morph rules in mandatory slots"
+    parses:
+      - signature: "MONU+VAC+OPT4|monuki"
+        rules: [mrVacuous, mrOpt4]
+
+  - word: pimonuki
+    note: MONU + template2 fully applied (all three slots).
+    provenance: "docs/conformance-staging-plan.md pathology catalog (Aweti-shaped row): vacuous zero-morph rules in mandatory slots"
+    parses:
+      - signature: "OPT3+MONU+VAC+OPT4|pimonuki"
+        rules: [mrOpt3, mrVacuous, mrOpt4]
+
+  - word: waru
+    note: >-
+      WARU bare root -- carries TWO analyses for the same reason as "sipu" above (bare, and
+      template2's mandatory-but-silent mrVacuous applied alone).
+    parses:
+      - signature: "WARU+VAC|waru"
+        rules: [mrVacuous]
+      - signature: "WARU|waru"
+        rules: []
+
+  - word: warmo
+    note: >-
+      WARU + mrTrunc: the trailing literal segment "u" is dropped from the copied stem (not
+      appended-to), then "mo" is inserted -- "waru" -> "war" + "mo" = "warmo". The
+      truncation-shaped, structural-composite-path rule (same mechanism as
+      edge-cases/truncate-morphotactic's mruleTruncTrail).
+    provenance: "docs/conformance-staging-plan.md pathology catalog (Aweti-shaped row): truncation-shaped rules (structural-composite path)"
+    parses:
+      - signature: "WARU+TRUNC|warmo"
+        rules: [mrTrunc]
+
+  - word: warmolu
+    note: WARU + template3 fully applied (mrTrunc + mrOpt5 suffix "-lu").
+    provenance: "docs/conformance-staging-plan.md pathology catalog (Aweti-shaped row): truncation-shaped rules (structural-composite path)"
+    parses:
+      - signature: "WARU+TRUNC+OPT5|warmolu"
+        rules: [mrTrunc, mrOpt5]
+
+  - word: toʼa
+    note: >-
+      TOA bare root, spelled with U+02BC MODIFIER LETTER APOSTROPHE (Aweti's own non-ASCII
+      root-spelling glyph family) -- carries TWO analyses for the same reason as "sipu"/"waru" above.
+    provenance: "docs/conformance-staging-plan.md pathology catalog (Aweti-shaped row): non-ASCII multi-codepoint glyphs in root spellings"
+    parses:
+      - signature: "TOA+VAC|toʼa"
+        rules: [mrVacuous]
+      - signature: "TOA|toʼa"
+        rules: []
+
+  - word: katoʼata
+    note: >-
+      TOA + template1 applied fully -- the exotic glyph survives through a REAL derivation
+      (prefix+root+suffix), not just a bare-tokenization smoke test.
+    provenance: "docs/conformance-staging-plan.md pathology catalog (Aweti-shaped row): non-ASCII multi-codepoint glyphs in root spellings"
+    parses:
+      - signature: "OPT1+TOA+OPT2|katoʼata"
+        rules: [mrOpt1, mrOpt2]

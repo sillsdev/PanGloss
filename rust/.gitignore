@@ -1,4 +1,7 @@
 /target
+# Personal, machine-local build-output redirect (e.g. when the default drive is full) -- never
+# committed; each dev/agent's own path is their own business.
+/.cargo/config.toml
 **/*.rs.bk
 Cargo.lock.orig
 # GF compiler build artifacts (rust/crates/hc-realize/gf/ — gen_templates.py / gf --make output).

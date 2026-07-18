@@ -1,0 +1,78 @@
+# Sena-shaped pathology mimic -- see STAGING.md and grammar.xml's own header comment for the full
+# rationale. Oracle: hc-rs (`hc_parse::Morpher`, driven directly rather than via the `hc-cli batch`
+# binary -- see STAGING.md's "Verification" section), NOT the C# founding oracle -- this fixture was
+# authored and verified against this repo's own Rust engine only.
+#
+# IMPORTANT finding from authoring this fixture: an AffixTemplate's Slot membership alone does NOT
+# make a rule template-exclusive in this engine (a faithful port of real HermitCrab,
+# `SynthesisStratumRule.cs`/`AnalysisStratumRule.cs`'s `ApplyMorphologicalRules(input).Concat(
+# ApplyTemplates(input))`, with the two halves RECURSIVELY interleaved) -- a rule ALSO listed in the
+# Stratum's own `morphologicalRules=` attribute remains freely combinable with any other such rule,
+# template membership notwithstanding (`AffixProcessRuleDef.is_template_rule` only gates a narrow
+# "rule after a just-finished template" synthesis check, not general free-standing eligibility; the
+# analysis-side free-standing battery, `hc_rules::stratum`'s `run_mrule_cascade`, does not consult it
+# at all). An earlier draft of this grammar listed all four rules in the Stratum's own
+# `morphologicalRules=` attribute and measured "pakolola" (the cross-template mix) parsing
+# successfully -- the opposite of the intended pin. The fix (see grammar.xml's own Stratum comment):
+# omit the attribute entirely, so mrPfxA/mrSfxA/mrPfxB/mrSfxB are reachable ONLY through their own
+# template's Slot. Re-verified after the fix: cross-template mixes now correctly fail (below).
+
+language: Mbalantic
+inspired_by: ["synthetic Sena/Bantu-shaped cross-template + free-fluctuation probe (not modeling any real language)"]
+sources:
+  - "docs/conformance-staging-plan.md pathology catalog (Sena-shaped row)"
+  - "docs/fst-plan/foma-fst-plan.md Phase 0 census (d5 ordering dead-end class)"
+requires: []
+words:
+  - word: kolo
+    note: KOLO bare root, no affixes -- a plain control.
+    parses:
+      - signature: "KOLO|kolo"
+        rules: []
+
+  - word: pakolosa
+    note: KOLO + template A applied fully (mrPfxA prefix "pa-" + mrSfxA suffix "-sa").
+    provenance: "docs/conformance-staging-plan.md pathology catalog (Sena-shaped row): template-internal combination, the NON-mixed control"
+    parses:
+      - signature: "PFXA+KOLO+SFXA|pakolosa"
+        rules: [mrPfxA, mrSfxA]
+
+  - word: takolola
+    note: KOLO + template B applied fully (mrPfxB prefix "ta-" + mrSfxB suffix "-la").
+    provenance: "docs/conformance-staging-plan.md pathology catalog (Sena-shaped row): template-internal combination, the NON-mixed control"
+    parses:
+      - signature: "PFXB+KOLO+SFXB|takolola"
+        rules: [mrPfxB, mrSfxB]
+
+  - word: pakolola
+    note: >-
+      THE distinguishing row: template A's prefix ("pa-") + template B's suffix ("-la") -- the
+      cross-template join mixing a naive foma-lexc encoding (one shared per-category continuation
+      class instead of per-template exclusivity) can synthesize as a candidate. No single
+      AffixTemplate contains both mrPfxA and mrSfxB, so this has NO valid derivation at all. A
+      conforming engine must reject it; this is the fixture's actual pathology pin (and required a
+      real grammar fix to hold -- see this file's header note).
+    provenance: "docs/conformance-staging-plan.md pathology catalog (Sena-shaped row): the d5 ordering dead-end class"
+    expect_fail: true
+    blocked_by: [mrPfxA, mrSfxB]
+
+  - word: takolosa
+    note: The mirror-image cross-template mix (template B's prefix + template A's suffix) -- also structurally impossible, a second negative control.
+    provenance: "docs/conformance-staging-plan.md pathology catalog (Sena-shaped row): the d5 ordering dead-end class"
+    expect_fail: true
+    blocked_by: [mrPfxB, mrSfxA]
+
+  - word: mbili
+    note: >-
+      Free-fluctuation multiplicity ("the mbali shape"): two lexically distinct posV roots
+      (eMbiliA "arrive", eMbiliB "count") happen to share the identical phonetic shape "mbili", so
+      the bare surface is genuinely ambiguous between them -- a real multi-entry analysis multiset
+      for one surface string, not a single unambiguous parse.
+    provenance: "docs/conformance-staging-plan.md pathology catalog (Sena-shaped row): free-fluctuation multiplicity"
+    parses:
+      - signature: "MBILIA|mbili"
+        gloss: arrive
+        rules: []
+      - signature: "MBILIB|mbili"
+        gloss: count
+        rules: []

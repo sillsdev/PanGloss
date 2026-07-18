@@ -18,6 +18,9 @@ bumpalo.workspace = true
 smallvec.workspace = true
 rayon.workspace = true
 
+[dev-dependencies]
+hc-conformance-fixtures.workspace = true
+
 [features]
 # OFF by default — never part of a normal `cargo build`. `hc-ffi`'s abort-safety test (plan §8
 # layer 7, M8) enables this only via its own `[dev-dependencies]` entry, so it is compiled in for
