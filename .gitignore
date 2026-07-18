@@ -3,3 +3,5 @@
 # Toy/synthetic fixtures under rust/crates/hc-hybrid/tests/fixtures/ ARE committed.
 /samples/data/*-hc.xml
 /samples/data/*-words.txt
+/samples/data/*.fwdata
+/samples/data/*.json
