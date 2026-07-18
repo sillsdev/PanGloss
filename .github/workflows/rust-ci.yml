@@ -48,8 +48,11 @@ jobs:
           # tests (e.g. hc-foma's `precision::tests`/`emit::structural_and_pattern_tests` modules)
           # load these directly and are NOT `#[ignore]`d, so they need the submodule present to
           # pass rather than panic on a missing file. Init it here so both test steps below are
-          # green.
-          submodules: recursive
+          # green. Non-recursive: `machine` itself carries no nested `.gitmodules` (verified by
+          # inspecting a local checkout), so `true` fetches everything we consume
+          # (`machine/conformance/`) without the extra cost/risk of recursing into any of
+          # sillsdev/machine's own future submodules.
+          submodules: true
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -88,6 +91,18 @@ jobs:
       # `--memo=on` leg has no wall-clock cap at all (unlike its `--memo=off` leg's deliberate 20s
       # watchdog), observed to run past 5 minutes on these pathological Sena words. Not worth the
       # CI-hang risk for a test that was never meant to be a gate.
+      #
+      # NOTE both `--skip`s are name-based and will NOT self-clear: if `epenthesis_rules` is ever
+      # fixed and un-ignored, or `perf_cold_warm_probe.rs` is ever given a wall-clock cap, this line
+      # keeps skipping it anyway until someone notices and edits this list by hand.
+      #
+      # Also note: this step's real value in the CI environment (no samples/data, no FieldWorks
+      # checkout, no wsl, no rust/conformance submodule) is mostly as a guard-rail, not broad
+      # exercise of the gated corpora — most of what it runs here is the non-ignored set rebuilt in
+      # release plus a lot of tests self-skipping as designed. What it actually catches: a future
+      # corpus/fixture-gated test added WITHOUT a self-skip guard, which would panic (not skip) here
+      # and turn CI red, versus the deliberately clean self-skips this policy requires everywhere
+      # else in the workspace.
       - run: cargo test --workspace --release -- --include-ignored --skip epenthesis_rules --skip sena_cold_vs_warm_and_memo_effect
 
   coverage:
@@ -98,8 +113,8 @@ jobs:
         with:
           # See the `test` job's checkout step: `cargo llvm-cov --workspace` below also runs the
           # default (non-ignored) suite, which includes the machine/conformance-dependent unit
-          # tests that need this submodule present to pass.
-          submodules: recursive
+          # tests that need this submodule present to pass. Non-recursive (see that step's comment).
+          submodules: true
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: llvm-tools-preview
