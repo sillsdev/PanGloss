@@ -135,6 +135,12 @@ cargo clippy --workspace --all-targets
 
 On Windows the MSVC toolchain (`x86_64-pc-windows-msvc`) is required.
 
+On a machine running many parallel worktrees (e.g. `.claude/worktrees/*`), prefer
+`rust/tools/build.ps1` and `rust/tools/test.ps1` (PowerShell) over calling `cargo` directly:
+they redirect `CARGO_TARGET_DIR` off the system drive, wire in `sccache`/`cargo-nextest` when
+installed, and gate concurrent builds across worktrees so many agents building at once don't
+thrash the machine. See the doc comment at the top of each script.
+
 ## Origin and parity
 
 `rust/` began as a from-scratch Rust reimplementation of

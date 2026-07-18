@@ -65,6 +65,11 @@ cargo clippy -- -D warnings
 Requires the MSVC toolchain (`x86_64-pc-windows-msvc`); the linker is auto-located via
 Visual Studio's vswhere.
 
+On a machine running many parallel worktrees (e.g. `.claude/worktrees/*`), prefer
+`rust/tools/build.ps1` and `rust/tools/test.ps1` over calling `cargo` directly: they redirect
+`CARGO_TARGET_DIR` off the system drive, wire in `sccache`/`cargo-nextest` when installed, and
+gate concurrent builds across worktrees. See the doc comment at the top of each script.
+
 ## Status
 
 Under active construction per the milestone plan. See `../docs/history/rust-conversion.md` §10 and the
