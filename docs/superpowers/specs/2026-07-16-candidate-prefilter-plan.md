@@ -1,10 +1,21 @@
 # Plan: deterministic candidate pre-filter between FST propose and HC confirm
 
-Status: PLANNED 2026-07-16 (John's direction: "pre-prune deterministically after the FST
+Status: **Phase 0 DONE 2026-07-17 — NO-GO** (census merged at `571b8a3`, harness
+`rust/crates/hc-foma/examples/prefilter_census.rs`; verdict below). Originally PLANNED
+2026-07-16 (John's direction: "pre-prune deterministically after the FST
 finds candidates, but not embedded in the FST itself" — or constrain candidates so the HC
 check gets faster). Execute AFTER round-2 perf commits land AND after the knob teardown
 (`2026-07-16-knob-teardown-plan.md`) — the teardown preserves `ConstraintCatalog`, which
 this plan consumes, and the parallel-confirm work touches the same seam.
+
+## Phase 0 RESULT (2026-07-17, merged `571b8a3`) — NO-GO, do not build Phase 1/2
+
+Category (a) validity-gate rejections (the class this plan's Rust-side predicate would
+target) are 1.5–8.1% (median ~3%) of Sena's failing-candidate time, and ~2% of
+Indonesian's/Amharic's at comparable scale — decisively under the plan's own ~10%
+go/no-go bar on every grammar. No production code path was touched; only the census
+harness and two additive tracing hooks (`Morpher::parse_word_selected_traced`,
+`confirm::confirm_one_traced`) landed.
 
 ## Why this exists (the money)
 
