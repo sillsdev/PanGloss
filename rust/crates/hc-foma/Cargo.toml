@@ -33,3 +33,10 @@ rayon.workspace = true
 # no new transitive dependency to that build. `cargo check -p hc-foma --target wasm32-unknown-unknown`
 # and the same for hc-wasm both stay part of this crate's gate.
 hc-parse.workspace = true
+
+[dev-dependencies]
+# Only used by the aweti_probe/precision_bench/deadend_census examples' `.json`/`.fwdata` grammar
+# dispatch (mirrors `hc-cli`'s `load_grammar`) -- Aweti has no legacy `-hc.xml` export, so those
+# examples load it via the direct fwdata-import path instead.
+pg-snapshot.workspace = true
+pg-fwdata.workspace = true

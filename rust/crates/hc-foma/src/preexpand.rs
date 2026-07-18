@@ -106,6 +106,21 @@
 //! patterns, composed directly into the network instead of enumerated per root and per chain --
 //! exactly the same successor already named for [`crate::junctions::PhonologyProbe`]'s own
 //! enumeration bridge.
+//!
+//! ## Morphotactic pruning (`docs/fst-plan/morphotactic-composite-pruning.md`, the Aweti scale fix)
+//! [`extend`]'s flat recursion above chains **every** candidate rule onto every root at every
+//! depth, gated only by the cheap `required_syn_fs` pre-filter -- workable at Amharic's scale
+//! (module doc, "SCALE BRIDGE") but not at Aweti's (855 roots x 123 candidate rules): the flat
+//! recursion explores rule orders the engine's own morphotactics (`hc-rules/src/stratum.rs`:
+//! `synth_apply_mrules`/`synth_apply_templates`/`synth_slots_generic`) can never produce in
+//! synthesis. [`crate::morphotactics::MorphotacticIndex`] builds a subset-construction automaton
+//! over those exact engine functions once per grammar; [`extend`] consults
+//! [`crate::morphotactics::MorphotacticIndex::next_state`] immediately before recursing on a
+//! candidate rule, restricting the recursion to a STRICT SUBSET of what the flat version explored
+//! (pruned exploration subset-of flat exploration by construction, so emitted composites are a
+//! subset in the same relative order -- recall-preserving, never widening). See that module's own
+//! doc for the full automaton design (loose-rule strata / template-slot sites / the vacuous-slot
+//! recall trap) and the plan doc for the sizing investigation that motivated it.
 
 use hc_featstruct::{flat_unifiable, is_unifiable, FsId};
 use hc_grammar::chardef::{CharDefId, CharDefKind, CharDefTable};
@@ -122,6 +137,7 @@ use rayon::prelude::*;
 
 use crate::emit::{rule_role, stripped_variants, surface_variants, Role};
 use crate::junctions::PhonologyProbe;
+use crate::morphotactics::{ChainState, ExploreMode, MorphotacticIndex, ProbeBudget};
 use crate::tags;
 
 /// One rule-application/fusion composite: an extra "root-like" lexc entry whose upper tape carries
@@ -156,6 +172,13 @@ pub struct CompositeReport {
     /// (root allomorph, candidate rule) pairs actually attempted (after the cheap required-FS
     /// pre-filter) -- the module doc's scale-bridge number.
     pub pairs_probed: usize,
+    /// Same count, broken down by recursion depth (0-indexed) -- morphotactic-pruning-plan doc
+    /// "Instrumentation": the dynamic tree is the real unknown pruning must be measured against,
+    /// and a flat total alone can't show WHERE the cost concentrates.
+    pub pairs_probed_by_depth: [usize; MAX_EXTRA_RULES],
+    /// Number of probed pairs where `synthesize_cached` returned at least one word (morphotactic-
+    /// pruning-plan doc "Instrumentation") -- the dynamic-filter yield counterpart to `pairs_probed`.
+    pub synth_successes: usize,
     /// Composite entries emitted for `Role::Infix` rules (miss class 5a).
     pub interdigitation_entries: usize,
     /// Composite entries emitted for `Role::Prefix`/`Role::Suffix` rules whose fused surface differs
@@ -185,6 +208,13 @@ fn any_infix_rule(g: &Grammar) -> bool {
 /// `Reduplication` (peel's job, D6), `CircumfixPrefix`/`CircumfixSuffix` (P1d item 3, not exercised
 /// by any reference-grammar corpus fixture at this stage), `Process`, and `None` are out of this
 /// stage's scope.
+/// Diagnostic-only: `candidate_rules(g).len()` without exposing the `Role` classification itself
+/// outside the crate (`crate::emit`'s `composite_scale_hint` is the one external caller — see that
+/// function's doc for why this exists).
+pub(crate) fn candidate_rule_count(g: &Grammar) -> usize {
+    candidate_rules(g).len()
+}
+
 fn candidate_rules(g: &Grammar) -> Vec<(MRuleId, Role)> {
     let mut out = Vec::new();
     for (i, r) in g.mrules.iter().enumerate() {
@@ -455,6 +485,15 @@ struct ExtendCtx<'a> {
     /// needed here anymore.
     rule_variants: &'a [Vec<AllomorphVariants>],
     cache: &'a RuleCache,
+    /// Morphotactic pruning (module doc addendum): the automaton [`extend`] consults immediately
+    /// before recursing on a candidate rule, and the flat/pruned escape hatch that lets it be
+    /// bypassed for A/B measurement (`crate::morphotactics::ExploreMode`'s own doc).
+    mt: &'a MorphotacticIndex,
+    mode: ExploreMode,
+    /// `HC_PREEXPAND_PROBE_CAP` measurement-only safety valve (`crate::morphotactics::ProbeBudget`'s
+    /// own doc) -- `None` in production (the env var unset), so every `ctx.probe_budget` read below
+    /// is a single branch on a `None` with zero further cost.
+    probe_budget: Option<ProbeBudget<'a>>,
 }
 
 /// [`extend`]'s output accumulator: the composite records, a `(tag_lexc, spelling)` dedup set
@@ -492,6 +531,7 @@ fn extend(
     redundancy_stripped: &[String],
     depth: usize,
     width: usize,
+    state: &ChainState,
     acc: &mut Acc,
 ) {
     if depth >= MAX_EXTRA_RULES {
@@ -507,6 +547,20 @@ fn extend(
         if chain.iter().any(|(m, _)| *m == rule_morpheme) {
             continue;
         }
+        // Morphotactic pruning (module doc addendum, `crate::morphotactics`): restricts the
+        // recursion to a rule adjacency the engine's own stratum/template machinery can actually
+        // produce. `ExploreMode::Flat` is the pre-fix escape hatch (`Some(state.clone())`
+        // unconditionally) kept for A/B measurement; production always runs `Pruned`. This sits
+        // BEFORE the FS pre-filter below (plan doc "Wiring") -- a pure subset restriction, so
+        // dirty/clean logic, redundancy baselines, dedup, rendering, and emitted order below are
+        // completely unaffected; pruning can only skip a candidate the flat version would also have
+        // tried.
+        let Some(next_state) = (match ctx.mode {
+            ExploreMode::Flat => Some(state.clone()),
+            ExploreMode::Pruned => ctx.mt.next_state(state, mid, &base_fs, &ctx.g.fs_interner),
+        }) else {
+            continue;
+        };
         let req_fs = ctx.g.fs_interner.get(req);
         // Cheap pre-filter (module doc): the SAME unifiability check `hc_rules::morph::synth_syn_fs`
         // makes internally -- skip building/compiling for a pair that provably cannot match.
@@ -514,8 +568,16 @@ fn extend(
             continue;
         }
         acc.report.pairs_probed += 1;
+        acc.report.pairs_probed_by_depth[depth] += 1;
+        if let Some(budget) = &ctx.probe_budget {
+            budget.tick();
+        }
 
-        for w in synthesize_cached(ctx.g, mid, base_word, rule, ctx.cache) {
+        let synth_out = synthesize_cached(ctx.g, mid, base_word, rule, ctx.cache);
+        if !synth_out.is_empty() {
+            acc.report.synth_successes += 1;
+        }
+        for w in synth_out {
             let Some(segs) = surface_probe::probe_synthesize(ctx.g, &w.shape, ctx.cache) else {
                 continue;
             };
@@ -626,6 +688,7 @@ fn extend(
                 &deeper_stripped,
                 depth + 1,
                 width,
+                &next_state,
                 acc,
             );
         }
@@ -704,12 +767,16 @@ struct RootWork {
 /// old sequential `for entry_id in &sd.entries { for allo in &entry.allomorphs { .. } }` loop
 /// exactly, just scoped to one entry and returning its own accumulator instead of writing into a
 /// grammar-wide shared one.
+#[allow(clippy::too_many_arguments)]
 fn process_root_work(
     g: &Grammar,
     width: usize,
     rules: &[(MRuleId, Role)],
     cache: &RuleCache,
     rule_variants_by_table: &rustc_hash::FxHashMap<u16, Vec<Vec<AllomorphVariants>>>,
+    mt: &MorphotacticIndex,
+    mode: ExploreMode,
+    probe_budget: Option<ProbeBudget<'_>>,
     work: &RootWork,
 ) -> (Vec<CompositeRec>, CompositeReport) {
     let mut acc = Acc {
@@ -758,7 +825,14 @@ fn process_root_work(
             rules,
             rule_variants,
             cache,
+            mt,
+            mode,
+            probe_budget,
         };
+        // Morphotactic pruning (module doc addendum): seed the chain's automaton state at the
+        // root's own stratum, disabling template entry forever if the root is partial (engine fact
+        // 5, `crate::morphotactics::ChainState::seed`'s own doc).
+        let seed_state = ChainState::seed(g, root_stratum.0, entry.partial);
         extend(
             &root_ctx,
             &word,
@@ -767,6 +841,7 @@ fn process_root_work(
             &root_stripped,
             0,
             width,
+            &seed_state,
             &mut acc,
         );
     }
@@ -774,10 +849,42 @@ fn process_root_work(
     (acc.recs, acc.report)
 }
 
+/// [`build_composites`]'s thin, env-driven wrapper: builds its own [`MorphotacticIndex`] (grammar-
+/// cheap -- linear in rules/templates/slots, never the expensive recursive probe), resolves
+/// [`ExploreMode`] from `HC_PREEXPAND_FLAT`, and an optional [`ProbeBudget`] from
+/// `HC_PREEXPAND_PROBE_CAP`, purely for callers/tests that don't already have their own (the
+/// PRODUCTION path -- `crate::emit::emit_with_precision` -- builds ONE shared
+/// [`MorphotacticIndex`]/[`ProbeBudget`] for BOTH composite builders instead and calls
+/// [`build_composites_with_mode`] directly; see that function's doc). `#[allow(dead_code)]`: no
+/// non-test caller needs this convenience wrapper today (only `pruning_tests::
+/// build_composites_thin_wrapper_defaults_to_pruned` exercises it) -- kept per the plan doc's own
+/// "keep `build_composites` as thin wrapper... for any other callers/tests" instruction, same as
+/// `#[cfg(test)]`-only accessors elsewhere in this crate.
+#[allow(dead_code)]
+pub(crate) fn build_composites(
+    g: &Grammar,
+    width: usize,
+    phon: Option<&PhonologyProbe>,
+) -> (Vec<CompositeRec>, CompositeReport) {
+    let mt = MorphotacticIndex::build(g);
+    let mode = crate::morphotactics::explore_mode_from_env();
+    let cap = crate::morphotactics::probe_cap_from_env();
+    let counter = std::sync::atomic::AtomicUsize::new(0);
+    let probe_budget = cap.map(|cap| ProbeBudget {
+        cap,
+        counter: &counter,
+    });
+    build_composites_with_mode(g, width, phon, &mt, mode, probe_budget)
+}
+
 /// Build every rule-application/fusion composite for `g` (module doc). `width` is the same tag
 /// digit width [`crate::emit::emit`] computes; `phon` is the SAME [`PhonologyProbe`] instance
 /// `emit.rs` already builds once per grammar (`None` for a grammar with no phonological rules at
-/// all).
+/// all). `mt`/`mode` are the morphotactic-pruning automaton and its flat/pruned escape hatch
+/// (module doc addendum, `crate::morphotactics`) -- `crate::emit::emit_with_precision` builds `mt`
+/// ONCE and shares it with `crate::emit::build_structural_composites` too. `probe_budget` is the
+/// `HC_PREEXPAND_PROBE_CAP` measurement-only safety valve (`crate::morphotactics::ProbeBudget`'s own
+/// doc), also shared across both builders by the same caller -- `None` in production.
 ///
 /// **Parallelized across roots** (perf: this function's own `extend`-driven `probe_synthesize`
 /// fan-out was measured at 53% of Amharic's emit wall time, `HC_EMIT_PROFILE`): the outer
@@ -801,10 +908,13 @@ fn process_root_work(
 /// and already safe under concurrent access (its own doc) -- pre-warmed by
 /// [`build_rule_variants_all_tables`] below so the parallel root workers never race a first-touch
 /// compute into them.
-pub(crate) fn build_composites(
+pub(crate) fn build_composites_with_mode(
     g: &Grammar,
     width: usize,
     phon: Option<&PhonologyProbe>,
+    mt: &MorphotacticIndex,
+    mode: ExploreMode,
+    probe_budget: Option<ProbeBudget<'_>>,
 ) -> (Vec<CompositeRec>, CompositeReport) {
     if !should_run(g, phon) {
         return (Vec::new(), CompositeReport::default());
@@ -844,12 +954,36 @@ pub(crate) fn build_composites(
     #[cfg(target_arch = "wasm32")]
     let per_entry: Vec<(Vec<CompositeRec>, CompositeReport)> = work
         .iter()
-        .map(|w| process_root_work(g, width, &rules, &cache, &rule_variants_by_table, w))
+        .map(|w| {
+            process_root_work(
+                g,
+                width,
+                &rules,
+                &cache,
+                &rule_variants_by_table,
+                mt,
+                mode,
+                probe_budget,
+                w,
+            )
+        })
         .collect();
     #[cfg(not(target_arch = "wasm32"))]
     let per_entry: Vec<(Vec<CompositeRec>, CompositeReport)> = pool.install(|| {
         work.par_iter()
-            .map(|w| process_root_work(g, width, &rules, &cache, &rule_variants_by_table, w))
+            .map(|w| {
+                process_root_work(
+                    g,
+                    width,
+                    &rules,
+                    &cache,
+                    &rule_variants_by_table,
+                    mt,
+                    mode,
+                    probe_budget,
+                    w,
+                )
+            })
             .collect()
     });
 
@@ -858,10 +992,272 @@ pub(crate) fn build_composites(
     for (r, rep) in per_entry {
         recs.extend(r);
         report.pairs_probed += rep.pairs_probed;
+        for d in 0..MAX_EXTRA_RULES {
+            report.pairs_probed_by_depth[d] += rep.pairs_probed_by_depth[d];
+        }
+        report.synth_successes += rep.synth_successes;
         report.interdigitation_entries += rep.interdigitation_entries;
         report.fusion_entries += rep.fusion_entries;
         report.covered_infix_rules.extend(rep.covered_infix_rules);
     }
 
     (recs, report)
+}
+
+#[cfg(test)]
+mod pruning_tests {
+    use super::*;
+    use crate::morphotactics::ExploreMode;
+
+    fn load(xml: &str) -> Grammar {
+        hc_grammar::load(xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}"))
+    }
+
+    /// One stratum, one template `[slot0: mrA (mandatory); slot1: mrB (mandatory)]`, plus a trivial
+    /// phonological rule so [`should_run`] is true (module doc's morphotactic-pruning addendum
+    /// requires exercising the REAL `should_run`-gated pipeline, not a synthetic bypass). `vacuous`
+    /// selects slot0's rule shape: `false` -> `mrA`'s rhs is `[InsertSegments("a"), Copy(0)]` (real
+    /// surface material, NOT skippable); `true` -> rhs is a bare `CopyFromInput` (module doc's
+    /// vacuous-slot recall trap -- skippable).
+    fn slot_gate_fixture(vacuous: bool) -> String {
+        let slot0_output = if vacuous {
+            r#"<CopyFromInput index="stemA" />"#.to_string()
+        } else {
+            r#"<InsertSegments><PhoneticShape>a</PhoneticShape></InsertSegments><CopyFromInput index="stemA" />"#.to_string()
+        };
+        format!(
+            r#"<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
+<HermitCrabInput>
+  <Language>
+    <Name>PruningDepth0Gate</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cK"><Representations><Representation>k</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cB"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+    </NaturalClasses>
+    <PhonologicalRuleDefinitions>
+      <PhonologicalRule id="pr1">
+        <Name>PR</Name>
+        <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncAny" /></PhoneticSequence></PhoneticInput>
+        <PhonologicalSubrules>
+          <PhonologicalSubrule>
+            <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncAny" /></PhoneticSequence></PhoneticOutput>
+          </PhonologicalSubrule>
+        </PhonologicalSubrules>
+      </PhonologicalRule>
+    </PhonologicalRuleDefinitions>
+    <Strata>
+      <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" phonologicalRules="pr1">
+        <Name>Main</Name>
+        <MorphologicalRuleDefinitions>
+          <MorphologicalRule id="mrA" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
+            <Name>a</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subA">
+                <MorphologicalInput><PhoneticSequence id="stemA"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput>{slot0_output}</MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>A</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="mrB" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
+            <Name>b</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subB">
+                <MorphologicalInput><PhoneticSequence id="stemB"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><InsertSegments><PhoneticShape>b</PhoneticShape></InsertSegments><CopyFromInput index="stemB" /></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>B</MorphemeId>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <AffixTemplates>
+          <AffixTemplate requiredPartsOfSpeech="posV">
+            <Name>T</Name>
+            <Slot morphologicalRules="mrA"><Name>s0</Name></Slot>
+            <Slot morphologicalRules="mrB"><Name>s1</Name></Slot>
+          </AffixTemplate>
+        </AffixTemplates>
+        <LexicalEntries>
+          <LexicalEntry id="eK" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="aK"><PhoneticShape>k</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>K</MorphemeId>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>"#
+        )
+    }
+
+    /// New tests item 2 (plan doc): a slot-only rule not first-reachable must not be probed at
+    /// depth 0 under `Pruned` -- but IS probed at depth 0 under `Flat` (the pre-fix behavior, kept
+    /// only as the A/B baseline) -- proving the wiring in [`extend`] actually consults
+    /// [`crate::morphotactics::MorphotacticIndex::next_state`], not just that the automaton itself
+    /// (covered by `crate::morphotactics`'s own unit tests) computes the right answer in isolation.
+    #[test]
+    fn mandatory_non_vacuous_slot0_blocks_slot1_probe_at_depth0() {
+        let g = load(&slot_gate_fixture(false));
+        assert!(should_run(&g, PhonologyProbe::new(&g).as_ref()), "fixture must exercise should_run");
+        let width = tags::tag_width(g.morphemes.len());
+        let phon = PhonologyProbe::new(&g);
+        let mt = MorphotacticIndex::build(&g);
+
+        let (_, flat) =
+            build_composites_with_mode(&g, width, phon.as_ref(), &mt, ExploreMode::Flat, None);
+        let (_, pruned) =
+            build_composites_with_mode(&g, width, phon.as_ref(), &mt, ExploreMode::Pruned, None);
+
+        // Depth 0: mrA (slot 0, first-reachable) plus mrB under FLAT (which ignores morphotactics
+        // entirely) -- 2 candidates probed. Under PRUNED, mrB (slot 1, blocked by the mandatory
+        // non-vacuous slot 0) must NOT be probed at depth 0.
+        assert_eq!(flat.pairs_probed_by_depth[0], 2, "flat mode probes both candidates at depth 0");
+        assert_eq!(
+            pruned.pairs_probed_by_depth[0], 1,
+            "pruned mode must not probe slot 1's rule at depth 0 while slot 0 is mandatory/non-vacuous"
+        );
+    }
+
+    /// New tests item 2's variant: when slot0's rule is instead VACUOUS (module doc's recall trap:
+    /// its rhs is a bare `CopyFromInput`, no `InsertSegments` at all), it necessarily classifies
+    /// `Role::None` ([`crate::emit::classify_affix`] -- no leading/trailing insert) and so is NEVER
+    /// itself a `crate::preexpand` candidate rule, in EITHER mode (this is expected and correct:
+    /// `classify_affix`/`candidate_rules` are unaffected by morphotactic pruning). What pruning must
+    /// get right is slot 1's rule (`mrB`, a real `Role::Suffix` candidate): it must still be probed
+    /// at depth 0 under `Pruned` (skippable slot 0 makes slot 1 first-reachable) -- the automaton
+    /// must not lose recall by treating a surface-vacuous mandatory slot as a hard barrier. Contrast
+    /// with `mandatory_non_vacuous_slot0_blocks_slot1_probe_at_depth0`, where the SAME slot 1 rule is
+    /// correctly blocked when slot 0 is NOT vacuous.
+    #[test]
+    fn vacuous_slot0_lets_slot1_be_probed_at_depth0_under_pruning() {
+        let g = load(&slot_gate_fixture(true));
+        assert!(should_run(&g, PhonologyProbe::new(&g).as_ref()), "fixture must exercise should_run");
+        let width = tags::tag_width(g.morphemes.len());
+        let phon = PhonologyProbe::new(&g);
+        let mt = MorphotacticIndex::build(&g);
+
+        let (_, flat) =
+            build_composites_with_mode(&g, width, phon.as_ref(), &mt, ExploreMode::Flat, None);
+        let (_, pruned) =
+            build_composites_with_mode(&g, width, phon.as_ref(), &mt, ExploreMode::Pruned, None);
+
+        // mrA (vacuous) is `Role::None` -- never a candidate rule at all, in either mode -- so only
+        // mrB is ever attempted at depth 0. The point of this test is that pruning does NOT lose
+        // that attempt (unlike the non-vacuous fixture, where it correctly does).
+        assert_eq!(flat.pairs_probed_by_depth[0], 1, "only mrB is a candidate rule in this fixture");
+        assert_eq!(
+            pruned.pairs_probed_by_depth[0], 1,
+            "a vacuous mandatory slot 0 must not block slot 1's rule from depth-0 probing"
+        );
+    }
+
+    /// [`build_composites`] (the thin, env-driven wrapper -- module doc addendum) must still behave
+    /// like [`build_composites_with_mode`] under the default (unset `HC_PREEXPAND_FLAT`) production
+    /// path: `Pruned` mode, so the same depth-0 gating as
+    /// `mandatory_non_vacuous_slot0_blocks_slot1_probe_at_depth0` applies.
+    #[test]
+    fn build_composites_thin_wrapper_defaults_to_pruned() {
+        assert!(
+            std::env::var("HC_PREEXPAND_FLAT").is_err(),
+            "this test assumes the env var is unset in the test process; do not set it globally"
+        );
+        let g = load(&slot_gate_fixture(false));
+        let width = tags::tag_width(g.morphemes.len());
+        let phon = PhonologyProbe::new(&g);
+        let (_, report) = build_composites(&g, width, phon.as_ref());
+        assert_eq!(
+            report.pairs_probed_by_depth[0], 1,
+            "build_composites must default to Pruned mode (mrB blocked at depth 0)"
+        );
+    }
+
+    fn sample_path(name: &str) -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../samples/data")
+            .join(name)
+    }
+
+    fn load_amharic() -> Grammar {
+        let path = sample_path("amharic-hc.xml");
+        let xml = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+        hc_grammar::load(&xml).unwrap_or_else(|e| panic!("failed to load amharic-hc.xml: {e}"))
+    }
+
+    /// New tests item 2 (plan doc): the Amharic A/B subset gate -- pruned exploration must be a
+    /// STRICT SUBSET of flat exploration (recall-preserving by construction: pruning only removes
+    /// rule adjacencies the engine's own morphotactics could never produce, module doc). Mirrors
+    /// `tests/f3_amharic_gate.rs`'s `#[cfg_attr(debug_assertions, ignore)]` convention (the same
+    /// gate's own "ignore-by-default only if > ~60s" policy) since Amharic's flat depth-3 recursion
+    /// alone was measured at ~30-47s (module doc "SCALE BRIDGE"); running BOTH modes back-to-back is
+    /// correspondingly slower still, so this only runs unconditionally in `--release`.
+    #[test]
+    #[cfg_attr(
+        debug_assertions,
+        ignore = "runs the flat AND pruned recursion back-to-back on Amharic (~30-47s each in \
+                   release, much slower in debug); run explicitly with --ignored in debug, always \
+                   included in --release"
+    )]
+    fn amharic_pruned_composites_are_a_subset_of_flat() {
+        let g = load_amharic();
+        let width = tags::tag_width(g.morphemes.len());
+        let phon = PhonologyProbe::new(&g);
+        let mt = MorphotacticIndex::build(&g);
+
+        let t_flat = std::time::Instant::now();
+        let (flat_recs, flat_report) =
+            build_composites_with_mode(&g, width, phon.as_ref(), &mt, ExploreMode::Flat, None);
+        let flat_elapsed = t_flat.elapsed();
+
+        let t_pruned = std::time::Instant::now();
+        let (pruned_recs, pruned_report) =
+            build_composites_with_mode(&g, width, phon.as_ref(), &mt, ExploreMode::Pruned, None);
+        let pruned_elapsed = t_pruned.elapsed();
+
+        let flat_set: rustc_hash::FxHashSet<(String, String)> = flat_recs
+            .iter()
+            .flat_map(|r| r.variants.iter().map(move |v| (r.tag_lexc.clone(), v.clone())))
+            .collect();
+        let pruned_set: rustc_hash::FxHashSet<(String, String)> = pruned_recs
+            .iter()
+            .flat_map(|r| r.variants.iter().map(move |v| (r.tag_lexc.clone(), v.clone())))
+            .collect();
+
+        let missing: Vec<&(String, String)> = pruned_set.difference(&flat_set).collect();
+        assert!(
+            missing.is_empty(),
+            "pruned composites must be a SUBSET of flat -- {} pruned entries are NOT in the flat \
+             set (pruning must only ever REMOVE candidates, never add): {:?}",
+            missing.len(),
+            missing.iter().take(5).collect::<Vec<_>>()
+        );
+
+        let shrink_ratio = if pruned_report.pairs_probed > 0 {
+            flat_report.pairs_probed as f64 / pruned_report.pairs_probed as f64
+        } else {
+            f64::INFINITY
+        };
+        println!(
+            "Amharic pruning A/B: flat pairs_probed={} ({:?}), pruned pairs_probed={} ({:?}), \
+             shrink={shrink_ratio:.2}x; flat entries={}, pruned entries={} (subset={})",
+            flat_report.pairs_probed,
+            flat_elapsed,
+            pruned_report.pairs_probed,
+            pruned_elapsed,
+            flat_set.len(),
+            pruned_set.len(),
+            pruned_set.len() <= flat_set.len(),
+        );
+    }
 }
