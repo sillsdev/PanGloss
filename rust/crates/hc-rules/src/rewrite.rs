@@ -911,7 +911,15 @@ fn classify(rule: &RewriteRuleDef, sr: &RewriteSubruleDef) -> Kind {
 /// unconditionally, RewriteSubruleSpec.cs:46-49) — so unapplication is never MPR/POS-gated. This
 /// port's `analyze()` correctly never calls `subrule_applicable` at all; this gate is
 /// synthesis-only, matching that asymmetry.
-fn subrule_applicable(
+///
+/// `pub` (not `pub(crate)`): `hc_foma`'s P6 MPR/POS flag-diacritics prototype
+/// (`hc-foma/src/gate.rs`) calls this DIRECTLY, at grammar-compile time, once per (lexical entry,
+/// gated subrule) pair, to partition entries into groups that agree on every gated subrule's
+/// applicability — the compiled foma network is then built per-group with each group's
+/// inapplicable subrules dropped, rather than re-deriving this predicate's semantics (MPR groups'
+/// All/Any match-type, the POS "unset = vacuous pass" rule) a second time in a different crate.
+/// Reusing the engine's own function is what makes the two paths provably agree.
+pub fn subrule_applicable(
     g: &Grammar,
     sr: &RewriteSubruleDef,
     syn_fs: &FeatureStruct,

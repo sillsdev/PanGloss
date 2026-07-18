@@ -60,6 +60,10 @@ pub mod analyzer;
 pub mod composite;
 pub mod confirm;
 pub mod emit;
+/// P6 feasibility prototype sibling of [`replace`]/[`uflexc`]: static MPR/POS subrule gating (the
+/// `docs/fst-plan/p6-prototype-report.md` §6 item 4 gap). See that module's doc for the design and
+/// why it is a flag-free static partition rather than a flag-diacritics encoding.
+pub mod gate;
 pub mod junctions;
 pub(crate) mod morphotactics;
 pub mod peel;

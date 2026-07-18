@@ -487,12 +487,27 @@ half is met on Indonesian: replace-rule compilation end-to-end at 97/97 recall p
 (`docs/fst-plan/p6-prototype-report.md`), Amharic's 20-α-variable CV-merger compiles to 312
 tuples (tuple-indexed model held), all 18 Aweti prules compose in ~27ms. Remaining mainline
 items, costed in the report §6 — headline ones:
-- **MPR/POS rule-exception gating via flag diacritics (RECALL-critical, tasked):** composed
-  rules apply obligatorily, so an ignored `excludedMPRFeatures`/`requiredPartsOfSpeech` can
-  delete the un-applied surface path (under-generation). Test cases exist today: Indonesian
-  prule5, Amharic prule1/prule2. Must land before any grammar with rule exceptions rides P6.
+- **MPR/POS rule-exception gating — DONE (2026-07-18, branch `p6-mpr-pos-flags`, not yet
+  merged): closed, but NOT via flag diacritics.** A prototype build of the obvious flag-diacritic
+  encoding hit three separate toolkit issues in this vendored foma-rs (flags corrupt/crash inside
+  a replace rule's own `||` context; `fsm_compose` doesn't treat flags as epsilon-transparent by
+  default; a Kleene-star flag-gated workaround built to route around the first finding was itself
+  order-fragile) — three surprises deep on one technique was treated as the signal to stop, not
+  keep debugging blind. The shipped fix is a **static, flag-free partition**: lexical entries are
+  grouped by which gated subrules they satisfy (computed by calling `hc_rules::rewrite::
+  subrule_applicable` — the real engine's own predicate, now `pub` — directly, so the two paths
+  cannot disagree), one lexc+rule-cascade network is compiled PER GROUP with each group's
+  inapplicable subrules simply omitted, and the per-group networks are unioned (safe: the groups
+  are lexically disjoint by construction, so this isn't the §2.2 union hazard). Full findings,
+  design, and both acceptance tests (Indonesian's real `prule5`/`excludedMPRFeatures="mpr1"`,
+  synthetically augmented since the real corpus can't reach it; a hand-authored fixture
+  reproducing Amharic `prule1`'s `requiredPartsOfSpeech` shape 1:1) are in `hc-foma/src/gate.rs`'s
+  module doc and `p6-prototype-report.md` §7. Regression-verified: Indonesian 97/97 unchanged,
+  Amharic's 82-state/1,110,358-arc composed cascade byte-identical through the untouched
+  (unedited) `compile_and_compose_rules` entry point.
 - **Templated morphotactics in the underlying-form emitter** (refit emit.rs's skeleton with an
-  underlying-text source, not a uflexc rewrite).
+  underlying-text source, not a uflexc rewrite) — still open; this is what keeps the POS-gating
+  acceptance test above scoped to a hand-authored fixture rather than Amharic's own corpus.
 - RTL direction, Simultaneous-mode fidelity, Quantifier patterns, metathesis (report §6).
 
 **Keep-old-paths directive (John 2026-07-17):** the enumeration bridges are NOT retired when

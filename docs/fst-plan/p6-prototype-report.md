@@ -338,3 +338,193 @@ composition scale — is now empirically answered YES, at three different gramma
 remains is substantial but comparatively mechanical engineering (templated morphotactics, flag
 diacritics, a couple of pattern-node kinds) against a foundation that has already been stress-
 tested past the point that mattered most.
+
+---
+
+## 7. Addendum (2026-07-18, branch `p6-mpr-pos-flags`): MPR/POS subrule gating — closed, NOT via flags
+
+§6 item 4 named this the recall-critical gap: a `RewriteSubruleDef` carrying
+`requiredPartsOfSpeech`/`requiredMPRFeatures`/`excludedMPRFeatures` was compiled as if
+unconditional, so composed rules could either wrongly fire (over-generation, confirm-prunable,
+survivable) or — the dangerous direction — wrongly SUPPRESS a rule that should have fired for a
+different root, if the encoding were too coarse. This addendum records the design, the toolkit
+findings that ruled out the obvious encoding, the implementation, and the acceptance evidence.
+Code: `hc-foma/src/gate.rs` (new module, own doc comment carries the same findings in more
+implementation-adjacent detail), `hc-foma/src/replace.rs` (`compile_rewrite_rule_subset`/
+`compile_and_compose_rules_gated`, additive — the pre-existing `compile_rewrite_rule`/
+`compile_and_compose_rules` are unedited thin wrappers), `hc-foma/src/uflexc.rs`
+(`emit_underlying_filtered`, same pattern), `hc-rules/src/rewrite.rs` (`subrule_applicable` widened
+from private to `pub` — no behavior change, just visibility, so `hc-foma` can call the real engine's
+own gating predicate directly instead of re-deriving it). Tests: `hc-foma/tests/p6_gate_parity.rs`
+(4 tests + 1 `#[ignore]`d Amharic regression, all green); investigation trail:
+`hc-foma/examples/p6_gate_explore_mpr.rs`, `p6_gate_explore_pos.rs`, `p6_gate_regress_amharic.rs`.
+
+### 7.1 Why this is NOT a flag-diacritics encoding
+
+The task brief (and this report's own §6 item 4) named flag diacritics as the standard technique.
+A prototype build of exactly that — set `@P.MPR1.1@` on an excluded root's lexc entry, test
+`@D.MPR1@`/`@R.POS.<sym>@` in the gated subrule's own environment — hit three separate issues in
+this vendored foma-rs (`=0.1.1`), each isolated by direct bisection (throwaway probes, not
+committed; the trail is recorded here since it is itself the load-bearing finding):
+
+1. **A flag literal embedded in a replace rule's `||` context corrupts the compiled network.**
+   `t -> 0 || a "@D.MPR1@" _` compiles cleanly but `apply_up`/`apply_down` return a
+   NONDETERMINISTIC mix of "rule fired" and "rule didn't fire" paths for the SAME input, REGARDLESS
+   of whether the flag was ever set — i.e. even the vacuous-pass case (flag never set anywhere)
+   comes back wrong. A context consisting of JUST a flag literal (no real segment,
+   `t -> 0 || "@D.MPR1@" _`) additionally **crashed** on `apply_up`
+   (`STATUS_STACK_BUFFER_OVERRUN` inside `vendor/foma/src/minimize.rs`). Moving the flag to the
+   LHS/RHS instead of the context doesn't help. `f0_viability.rs`'s F0.3 and
+   `pk2_eliminate_flag_oracle.rs` both only ever test flags in a PLAIN concatenation regex, never
+   inside a `->` construct — so this gap was real and previously unexercised by this codebase.
+2. **`fsm_compose` does not treat flag symbols as epsilon-transparent by default.**
+   `FomaOptions::default().flag_is_epsilon == false`
+   (`vendor/foma/src/options.rs`); `fsm_compose`'s own doc comment
+   (`vendor/foma/src/constructions/products.rs`) explains why — with it off, a flag symbol present
+   in one net's sigma but absent from the other's is NOT treated as invisible during the sigma
+   merge, and the composed result is simply empty. Minimal repro:
+   `compose([a], [a "@D.MPR1@"])` (a flag-free net composed with a flag-bearing one, the flag never
+   even set) returns **empty**, not `{a}` (the vacuous-pass answer both nets alone happily give).
+   Setting `flag_is_epsilon = true` fixes this specific case (verified) — but does NOT fix finding
+   1 (flags inside a replace rule's `||` context still misbehave/crash either way).
+3. **Ordering is unforgiving, and a Kleene-star "shadow the trigger character if flagged" repair**
+   (built specifically to route AROUND finding 1 by keeping flags out of any `->` construct: set a
+   flag at the root, then a small composed PLAIN transducer
+   `[[c "@D.F@"] | [c:c_shadow "@R.F@"] | \c]*` rewrites the trigger segment to a shadow codepoint
+   the (unmodified, flag-free) gated rule can't see) **is itself fragile.** A flag must be set
+   strictly BEFORE the tape position it's tested at (tape traversal is left-to-right; flag state is
+   exactly "whatever the last `@P@` on this path assigned" — unsurprising once stated, but a first
+   draft appended the flag AFTER the gated segment, mirroring `precision.rs`'s own y/n convention —
+   which appends because ITS test is a lookahead for the NEXT lexc entry, a different adjacency
+   question — and silently gated nothing). Prepending fixed that half; the Kleene-star construction
+   itself then gave wrong answers once composed with a REAL lexc net (right in isolation against a
+   bare hand-built setter net, wrong once lexc-compiled entries were substituted) for a reason not
+   fully isolated before the scope call below was made.
+
+Three toolkit surprises deep on one technique, each independently confirmed, was treated as the
+signal to stop rather than keep debugging blind (matching this codebase's own established practice
+of reporting a toolkit limitation precisely rather than forcing a fix past it — see §2.2/§2.3
+above, both discovered the same way). All three findings are independently reproducible and worth
+carrying forward as hard invariants for any future flag-diacritics work against this exact vendored
+crate: **never put a flag literal inside a replace rule's `->`/`||` syntax; always set
+`flag_is_epsilon = true` before any `fsm_compose` call where either side may carry flags; a flag
+must be set strictly before its test, tape-position-wise.**
+
+### 7.2 The shipped design: a static, flag-free partition
+
+MPR/POS gating in this prototype's scope is root-only (see caveat below): a lexical entry's own
+declared MPR features and part of speech are fixed at grammar-load time and never change before
+the trailing per-stratum phonological-rule cascade runs (the only place
+`hc_rules::rewrite::subrule_applicable` is ever consulted, `hc-rules/src/stratum.rs`'s
+`synth_apply_stratum`). So the gate/no-gate decision for every (entry, gated subrule) pair is fully
+static and needs NO runtime FST mechanism at all:
+
+1. Scan every compiled `RewriteRuleDef`'s subrules for a nontrivial `required_pos`/`required_mpr`/
+   `excluded_mpr` (`gate::find_gated_subrules`) — Indonesian: exactly 1 (`prule5`'s own subrule);
+   the synthetic POS fixture: exactly 1; Amharic (regression-checked, not end-to-end recall-gated —
+   see caveat): exactly 3 (`prule1`/`prule2`/`prule3`).
+2. For every lexical entry, compute the vector of booleans "is this gated subrule applicable to
+   this entry" by calling `hc_rules::rewrite::subrule_applicable` DIRECTLY (widened from private to
+   `pub` in `hc-rules/src/rewrite.rs` for exactly this caller) — the SAME function the real
+   engine's own trailing-prule cascade calls, so the partition can never disagree with the oracle
+   about which entries are gated: it doesn't re-derive MPR-group All/Any semantics or the POS
+   "unset syntactic FS = vacuous pass" rule, it calls the one true implementation of both.
+3. Partition all entries by that key (`gate::partition_entries`). Two groups for both acceptance
+   tests here; worst case `2^(#gated subrules)`, but bounded in practice by the number of DISTINCT
+   gating vectors the grammar's own entries actually realize (≤ entry count) — an honest,
+   measurable per-grammar quantity, not a blind assumption it stays small (matches this plan's own
+   keep-old-paths/measure-don't-guess directive).
+4. Compile ONE network PER GROUP: `uflexc::emit_underlying_filtered` restricted to that group's
+   entries (affix chains unfiltered — root-only scope, see caveat), `replace::
+   compile_and_compose_rules_gated` with each rule's inapplicable subrules omitted for that group,
+   `lexc_group .o. rules_group`. Union the per-group networks (`gate::compile_gated_grammar`).
+
+**Why the union is safe** (this is NOT the §2.2 union-of-complete-replace-nets hazard): that
+hazard was about unioning several replace-rule nets that all accept the SAME underlying alphabet,
+each supplying a spurious "elsewhere identity" path for a position some OTHER branch's context
+legitimately owns. Here every group's WHOLE network (lexc included) only accepts underlying
+strings built from THAT group's own entries — groups are lexically disjoint by construction, every
+entry lands in exactly one partition — so there is no shared input two groups' nets could disagree
+on; the union is an ordinary disjoint union of languages.
+
+**Why prule4-then-prule5 feeding still works**: unlike the abandoned shadow-token idea, prule4
+compiles UNCHANGED, over the real alphabet, in EVERY group (it has no gating at all) — nothing
+about a root's underlying spelling is altered before it reaches prule4, so nasal-place assimilation
+fires identically in both groups; only prule5's own (sole, gated) subrule is absent from the
+excluded group's cascade.
+
+### 7.3 Acceptance evidence
+
+**Case 1 — Indonesian, MPR exclusion.** The real `indonesian-hc.xml` declares `prule5`
+(`excludedMPRFeatures="mpr1"`) and 4 lexical entries carrying `ruleFeatures="mpr1"` — but every one
+of those 4 roots (`proklamasi`/`klasifikasi`/`swadaya`/`traktir`) begins with a consonant CLUSTER,
+so `prule5`'s own right-environment (`nc3`, a vowel class) never matches at the cluster's second
+consonant regardless of the MPR gate. Independently re-derived here, not taken on the prior
+investigation's word: confirmed both by reading `nc3`/`nc13`/`nc14`'s natural-class membership
+directly from the XML and by grepping `indonesian-words.txt` for all 4 roots (zero hits) — the real
+corpus structurally cannot exercise the critical juncture. So `hc-foma/tests/p6_gate_parity.rs`
+augments a COPY of the real grammar with two synthetic lexical entries built to the SAME shape two
+REAL corpus roots (`tulis`, `pukul`) already attest (`t`/`p` + vowel, the `meN-` prefix's nasal
+assimilation + deletion environment): `tanam` (no MPR restriction, control) and `tabur` (carries
+`ruleFeatures="mpr1"`). The real oracle (`hc_parse::Morpher`), queried first and its answers taken
+as ground truth rather than predicted:
+
+| word | oracle (real engine) | gated network (this fix) | ungated cascade (pre-existing, unedited) |
+|---|---|---|---|
+| `menanam` (t deleted) | analyzes (root `tanam`) | matches oracle | matches oracle |
+| `mentanam` (t retained) | **no analysis** | matches oracle (empty) | matches oracle (empty) |
+| `menabur` (t deleted) | **no analysis** | matches oracle (empty) | **WRONG: 1 candidate** (over-generates the invalid deleted form) |
+| `mentabur` (t retained) | analyzes (root `tabur`) | matches oracle | **WRONG: 0 candidates (misses it)** |
+
+The `mentabur` row is the recall-critical direction the task named: the ungated (pre-existing)
+cascade, run directly against the same augmented grammar, produces ZERO candidates for a word the
+real engine accepts — a genuine proposer recall loss, not merely over-generation. The gated network
+recovers it exactly. (`ungated_cascade_would_have_missed_the_excluded_root` asserts this row
+directly; the full table's other three rows are asserted implicitly via the recall-parity checks
+around it.)
+
+**Case 2 — POS gating.** Amharic's own `prule1`/`prule2`/`prule3` are `requiredPartsOfSpeech`-gated
+in exactly this shape (3 fixed segments → 1, no environment), but Amharic's morphotactics use
+`<AffixTemplate>` slots this prototype's `uflexc` emitter cannot emit (§6 item 2, still open) — so
+an end-to-end Amharic corpus recall gate is out of reach for this step specifically. Instead, a
+minimal hand-authored, template-less grammar reproduces `prule1`'s rule shape 1:1 (LHS `x y x` → RHS
+`w`, no environment, `requiredPartsOfSpeech="posV"`), with two lexical entries sharing the identical
+underlying shape `xyx` and differing ONLY in part of speech:
+
+| query | oracle | gated network |
+|---|---|---|
+| `xyx` (unmerged) | analyzes as the NOUN entry only (verb's rule is obligatory once applicable, so a verb root can never surface unmerged) | matches |
+| `w` (merged) | analyzes as the VERB entry only | matches |
+
+**Regression checks (both green, `cargo test -p hc-foma --release`, `--test p6_gate_parity`
+including the `#[ignore]`d Amharic one):**
+- Indonesian full-corpus parity (`f2_indonesian_gate.rs`'s own 97/97 predicate), rerun through the
+  augmented grammar + gated compile path: **97/97, zero misses** (2 synthetic entries verified to
+  neither collide with nor be reachable by any real corpus word).
+- Amharic: `gate::find_gated_subrules` finds exactly `prule1`/`prule2`/`prule3` and
+  `gate::partition_entries` partitions all 76 entries without crashing (3 groups: 2/10/64 entries);
+  the UNTOUCHED `compile_and_compose_rules` entry point reproduces this report's §5.1 numbers
+  BYTE-IDENTICALLY (82 states, 1,110,358 arcs, zero newly-skipped rules) — confirming this change
+  doesn't disturb the pre-existing (ungated) compile path at all.
+- Full `cargo test -p hc-foma --release` (every other gate: f0–f4, pk1, pk2): unchanged, all green.
+
+### 7.4 Known gaps (named, not hidden)
+
+- **Root-only.** `AffixAllomorphDef::out_mpr` (an affix DYNAMICALLY adding an MPR feature mid-
+  derivation, e.g. Indonesian's own `mrule3` "per-" prefix, `MorphologicalOutput
+  MPRFeatures="mpr1"`) is not threaded into the partition key. Verified zero-impact for this
+  prototype's own test cases: `mrule3`'s "per-" attachment never produces the preceding-nasal
+  context `prule5`'s left-environment requires, so that specific dynamic-MPR path is dead for
+  Indonesian's own rule shapes (re-derived independently, not assumed). A grammar whose recall
+  genuinely depends on affix-time MPR propagation into a gated prule is a real, uncovered gap,
+  costed the same as this report's own pre-existing §6 item 4 estimate.
+- Similarly, only a root's OWN declared POS is read — not any mid-cascade `outputPartOfSpeech` an
+  mrule may have assigned before the trailing prule cascade runs.
+- `MprGroupMatchType::Any`-typed MPR groups are excluded from partitioning (treated as always-
+  ungated) — every MPR group either acceptance grammar declares is `All`-type or ungrouped, so
+  `Any` semantics remain unexercised; folding them in without a real test would risk silently
+  mis-gating an unverified shape.
+- Amharic's own corpus is not end-to-end recall-gated by this change (needs §6 item 2's templated
+  emitter first) — the POS-gating mechanism itself is proven via the equivalent hand-authored
+  fixture, and Amharic's compile-only path is regression-checked, but that is a narrower claim than
+  "Amharic corpus recall improved," which this step does not attempt.

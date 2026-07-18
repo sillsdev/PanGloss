@@ -41,7 +41,9 @@
 //!   `CompoundingRuleDef` allomorph is even visible through [`crate::emit::allomorphs_of`], so
 //!   there is nothing to enumerate wrongly, only something absent).
 
-use hc_grammar::model::{Grammar, MorphRuleDef, OutputAction, SegmentedText};
+use std::collections::HashSet;
+
+use hc_grammar::model::{Grammar, LexEntryId, MorphRuleDef, OutputAction, SegmentedText};
 
 use crate::emit::{classify_affix, Role};
 use crate::replace::SegAlphabet;
@@ -92,7 +94,25 @@ fn affix_insert_shape(rhs: &[OutputAction], leading: bool) -> Option<&SegmentedT
 }
 
 /// Emit the underlying-form lexc source for `g` (Indonesian-scoped design, module doc).
+///
+/// Thin wrapper over [`emit_underlying_filtered`] with every lexical entry included (the
+/// pre-gating behavior, unchanged for every existing caller).
 pub fn emit_underlying(g: &Grammar, alphabet: &SegAlphabet) -> UEmitReport {
+    emit_underlying_filtered(g, alphabet, None)
+}
+
+/// Identical to [`emit_underlying`], but when `allowed_entries` is `Some`, ONLY [`LexEntryId`]s in
+/// that set get root lexc lines emitted — every other entry is silently omitted (NOT reported in
+/// `skipped`: this is `crate::gate`'s static-partition design, where an entry excluded from THIS
+/// group's lexicon is included in a DIFFERENT group's, so it is not a coverage gap here, unlike a
+/// genuinely uncovered construct). Affix (prefix/suffix) chains are never filtered — MPR/POS gating
+/// in this prototype's scope is root-only (`crate::gate`'s module doc), so every group shares the
+/// identical affix lexicons.
+pub fn emit_underlying_filtered(
+    g: &Grammar,
+    alphabet: &SegAlphabet,
+    allowed_entries: Option<&HashSet<LexEntryId>>,
+) -> UEmitReport {
     let width = tags::tag_width(g.morphemes.len());
     let mut skipped = Vec::new();
     let mut multichar: Vec<String> = Vec::new();
@@ -101,6 +121,11 @@ pub fn emit_underlying(g: &Grammar, alphabet: &SegAlphabet) -> UEmitReport {
     let mut suffix_lines: Vec<String> = Vec::new();
 
     for (ei, entry) in g.entries.iter().enumerate() {
+        if let Some(allowed) = allowed_entries {
+            if !allowed.contains(&LexEntryId(ei as u32)) {
+                continue;
+            }
+        }
         let tag = tags::root_tag_lexc(entry.morpheme, width);
         let mut declared = false;
         for (ai, allo) in entry.allomorphs.iter().enumerate() {
