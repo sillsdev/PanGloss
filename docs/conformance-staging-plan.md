@@ -68,6 +68,45 @@ delete the dead tests), un-ignoring whatever survives.
 - **Graduate**: open the machine PR (conformance-framework branch), on acceptance bump the
   submodule and DELETE the staged copy in the same commit; the graduation guard enforces it.
 
+## Pathology-mimic fixtures (John's directive, 2026-07-17)
+
+Author staged fixtures that MIMIC what is pathological in each real grammar (Sena, Amharic,
+Indonesian, Aweti) using fresh synthetic words/morphemes — NEVER copies of the real data
+(that's what makes them committable where `samples/data` is not). Existing machine fixtures
+may be hijacked as starting points (e.g. `languages/templatic-semitic` for interdigitation).
+The pathology catalog, from this repo's own measured findings (dead-end census, E5
+investigation, P6 prototype, Aweti scale work):
+
+- **Sena-shaped**: many templates collapsed into shared category groups so cross-template
+  join mixing is possible (template A's prefix slots + template B's suffix slots — the d5
+  ordering dead-end class that dominates Sena's confirm cost); free-fluctuation multiplicity
+  (one surface with a large analysis multiset, the mbali shape); zero phonological rules
+  (exercises the `should_run` short-circuit).
+- **Amharic-shaped**: infix interdigitation rules (InsertSegments around a root Copy);
+  boundary fusion (root-final + affix-initial glyphs coalescing via the phon cascade,
+  including a chain that fuses TWICE and one that fuses after a clean step); a merged
+  letter-series (two unifiable CharDefs sharing a phoneme — the ጸ/ፀ render-variant trap); a
+  high-α-variable rewrite rule (many variables jointly constrained to a small tuple set — the
+  tuple-indexed-expansion stressor); a deep-recursion cascade (the probe stack-depth class
+  behind the f3_parity crash).
+- **Indonesian-shaped**: placeholder-nasal assimilation + junction deletion (deletion-junction
+  model); an MPR-gated rule exception (`excludedMPRFeatures`) where a corpus word's correct
+  parse REQUIRES the exception to be honored (the P6 flag-diacritics recall case — Indonesian's
+  own corpus happens not to exercise it; the mimic must); reduplication (peel multiplicity
+  dead-ends, Indonesian's d5 class).
+- **Aweti-shaped**: the composite-explosion structure at miniature scale — dozens of roots ×
+  many slot-only rules across several mostly-optional templates on an Unordered stratum, plus
+  vacuous (zero-morph) rules in MANDATORY slots (the recall trap in the morphotactic-pruning
+  automaton), truncation-shaped rules (structural-composite path), and non-ASCII multi-codepoint
+  glyphs (ʼ) in root spellings (the tokenization bug family). Small enough for the <60s suite —
+  the point is exercising the code paths (pruning automaton, struct composites, fusion classes),
+  not reproducing the blow-up; a deliberately larger stress variant may exist as
+  ignored-by-default.
+
+Fixture words/morphemes must be invented (or borrowed from existing machine fixtures), with
+each fixture's `STAGING.md` naming which real-grammar pathology it mimics and which measured
+finding motivated it.
+
 ## Acceptance
 
 - Graduation guard test exists, runs in the default suite, and is exercised by a deliberate
