@@ -35,8 +35,9 @@ rayon.workspace = true
 hc-parse.workspace = true
 
 [dev-dependencies]
-# P6 prototype (examples/p6_aweti_probe.rs): Aweti's fixture ships as a pg-snapshot JSON, loaded
-# via `pg_snapshot::Snapshot::from_json` + `hc_grammar::compile_project` — the same loader
-# `examples/aweti_probe.rs` (untracked, main-tree-only) already established for this fixture.
-# Dev-only: no non-test/example code in this crate needs the snapshot format.
+# Only used by the aweti_probe/precision_bench/deadend_census/p6_aweti_probe examples' `.json`/
+# `.fwdata` grammar dispatch (mirrors `hc-cli`'s `load_grammar`) -- Aweti has no legacy `-hc.xml`
+# export, so those examples load it via the direct fwdata-import path or pg-snapshot JSON instead
+# (`pg_snapshot::Snapshot::from_json` + `hc_grammar::compile_project`).
 pg-snapshot.workspace = true
+pg-fwdata.workspace = true

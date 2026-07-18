@@ -194,6 +194,7 @@ use hc_rules::word::{MorphRecord, Word};
 use hc_shape::{EffectiveCdSet, NodeKind, Shape};
 
 use crate::junctions::PhonologyProbe;
+use crate::morphotactics::{ChainState, ExploreMode, MorphotacticIndex, ProbeBudget};
 use crate::precision::{ConstraintCatalog, PrecisionConfig, PrecisionEmit};
 use crate::tags;
 
@@ -1261,6 +1262,12 @@ fn build_slot_chain(
 // [`build_structural_composites`] returns immediately, preserving every existing gate byte-for-byte
 // in the sense that matters (`crate::preexpand`'s own composites, and everything else this emitter
 // already produced, are completely unchanged; this section only ever ADDS entries).
+//
+// Morphotactic pruning (`crate::morphotactics`, `docs/fst-plan/morphotactic-composite-pruning.md` --
+// the Aweti scale fix): [`struct_extend`]'s flat depth-3 recursion below is pruned by the SAME
+// automaton `crate::preexpand::extend` consults (`crate::morphotactics::MorphotacticIndex::
+// next_state`), built once by [`emit_with_precision`] and shared across both builders — see
+// `crate::preexpand`'s own module-doc addendum for the full design.
 
 /// Bound on a structural composite chain's length beyond the root — same rationale as
 /// `crate::preexpand::MAX_EXTRA_RULES` (module doc there): `edge-cases/truncate-morphotactic`'s
@@ -1491,6 +1498,13 @@ struct StructCtx<'a> {
     /// to `generate_words`-fallback surfaces, where a metathesis may have moved a boundary into the
     /// surface word. Empty for a grammar with no boundary definitions.
     boundary_reps: &'a [String],
+    /// Morphotactic pruning (`crate::morphotactics`, mirrors `crate::preexpand::ExtendCtx`'s own
+    /// fields for the same "can't edit preexpand.rs" reason): the automaton [`struct_extend`]
+    /// consults before recursing, its flat/pruned escape hatch, and the shared
+    /// `HC_PREEXPAND_PROBE_CAP` safety valve.
+    mt: &'a MorphotacticIndex,
+    mode: ExploreMode,
+    probe_budget: Option<ProbeBudget<'a>>,
 }
 
 /// [`struct_extend`]'s output accumulator: the composite records plus a `(tag_lexc, spelling)`
@@ -1521,6 +1535,7 @@ fn struct_extend(
     rule_chain: &[MRuleId],
     depth: usize,
     width: usize,
+    state: &ChainState,
     acc: &mut StructAcc,
 ) {
     if depth >= STRUCT_MAX_EXTRA_RULES {
@@ -1540,9 +1555,21 @@ fn struct_extend(
         if chain.iter().any(|(m, _)| *m == rule_morpheme) {
             continue;
         }
+        // Morphotactic pruning (`crate::morphotactics`, mirrors `crate::preexpand::extend`'s own
+        // insertion point exactly -- module doc there): sits BEFORE the FS pre-filter below, a pure
+        // subset restriction over the same automaton `crate::preexpand::extend` consults.
+        let Some(next_state) = (match ctx.mode {
+            ExploreMode::Flat => Some(state.clone()),
+            ExploreMode::Pruned => ctx.mt.next_state(state, mid, &base_fs, &ctx.g.fs_interner),
+        }) else {
+            continue;
+        };
         let req_fs = ctx.g.fs_interner.get(req);
         if !req_fs.is_empty() && !is_unifiable(req_fs, &base_fs) {
             continue;
+        }
+        if let Some(budget) = &ctx.probe_budget {
+            budget.tick();
         }
 
         let mut next_rule_chain = rule_chain.to_vec();
@@ -1552,7 +1579,16 @@ fn struct_extend(
             let mut next_chain = chain.to_vec();
             next_chain.push((rule_morpheme, tags::morph_tag_lexc(rule_morpheme, width)));
             let Some(tag_lexc) = struct_morph_order_tags(&w, &next_chain) else {
-                struct_extend(ctx, &w, &next_chain, &next_rule_chain, depth + 1, width, acc);
+                struct_extend(
+                    ctx,
+                    &w,
+                    &next_chain,
+                    &next_rule_chain,
+                    depth + 1,
+                    width,
+                    &next_state,
+                    acc,
+                );
                 continue;
             };
 
@@ -1597,7 +1633,16 @@ fn struct_extend(
                 }
             }
 
-            struct_extend(ctx, &w, &next_chain, &next_rule_chain, depth + 1, width, acc);
+            struct_extend(
+                ctx,
+                &w,
+                &next_chain,
+                &next_rule_chain,
+                depth + 1,
+                width,
+                &next_state,
+                acc,
+            );
         }
     }
 }
@@ -1609,13 +1654,20 @@ fn struct_extend(
 /// grammar. Returns immediately (no-op) when `rules` is empty. The second return value is every
 /// rule id ([`StructAcc::covered_rules`]) that produced at least one composite entry — `emit` uses
 /// it to drop that rule's now-stale `uncovered` items (mirrors `crate::preexpand`'s own
-/// `covered_infix_rules` convention).
+/// `covered_infix_rules` convention). `mt`/`mode`/`probe_budget` are the SAME morphotactic-pruning
+/// automaton, escape hatch, and probe-cap budget `crate::preexpand::build_composites_with_mode`
+/// uses — `crate::emit::emit_with_precision` builds `mt`/`probe_budget` once and shares them across
+/// both composite builders (module doc addendum on `crate::preexpand`).
+#[allow(clippy::too_many_arguments)]
 fn build_structural_composites(
     g: &Grammar,
     width: usize,
     rules: &[MRuleId],
     cache: &RuleCache,
     morpher: &Morpher,
+    mt: &MorphotacticIndex,
+    mode: ExploreMode,
+    probe_budget: Option<ProbeBudget<'_>>,
 ) -> (Vec<crate::preexpand::CompositeRec>, BTreeSet<u32>) {
     if rules.is_empty() {
         return (Vec::new(), BTreeSet::new());
@@ -1661,8 +1713,15 @@ fn build_structural_composites(
                     cache,
                     morpher,
                     boundary_reps: &bnd_reps,
+                    mt,
+                    mode,
+                    probe_budget,
                 };
-                struct_extend(&ctx, &word, &chain0, &[], 0, width, &mut acc);
+                // Morphotactic pruning (module doc addendum): seed the same way
+                // `crate::preexpand::process_root_work` does (root's own stratum, disabled template
+                // entry iff `entry.partial` — engine fact 5).
+                let seed_state = ChainState::seed(g, root_stratum.0, entry.partial);
+                struct_extend(&ctx, &word, &chain0, &[], 0, width, &seed_state, &mut acc);
             }
         }
     }
@@ -1670,6 +1729,66 @@ fn build_structural_composites(
 }
 
 // --- Top-level emit ---------------------------------------------------------------------------
+
+/// Cheap pre-flight scale estimate for [`crate::preexpand::build_composites`] (`should_run`,
+/// candidate `Infix`/`Prefix`/`Suffix` rule count, root count) WITHOUT running that module's
+/// expensive `O(roots × rules^depth)` recursive probe (its own doc: "workable at Amharic's 76
+/// entries × 87 rules × depth 3 ... but decidedly NOT at FLEx scale") — for triaging whether a very
+/// large grammar is worth attempting `emit`/`emit_with_precision` on at all.
+pub fn composite_scale_hint(g: &Grammar) -> (bool, usize, usize) {
+    let phon = PhonologyProbe::new(g);
+    let should_run = crate::preexpand::should_run(g, phon.as_ref());
+    let candidate_rule_count = crate::preexpand::candidate_rule_count(g);
+    let root_count: usize = g.strata.iter().map(|s| s.entries.len()).sum();
+    (should_run, candidate_rule_count, root_count)
+}
+
+/// Diagnostic-only, alongside [`composite_scale_hint`] (used by `crates/hc-foma/examples/
+/// aweti_probe.rs` to size the payoff of template-slot pruning for
+/// [`crate::preexpand::build_composites`]/[`build_structural_composites`] on a large grammar
+/// without ever running either's expensive recursive probe): every rule this crate's two
+/// rule-application composite mechanisms consider as a candidate, plus the same per-grammar
+/// structural-widening facts [`build_structural_composites`] itself gates on.
+///
+/// `preexpand_candidates`: every [`crate::preexpand::build_composites`] candidate rule id paired
+/// with its role label ("Infix"/"Prefix"/"Suffix") — mirrors that module's own private
+/// `candidate_rules` (same [`rule_role`] classification, same `Compounding` exclusion), re-derived
+/// here rather than exposing that sibling module's helper (this crate's diagnostic surface must not
+/// touch `preexpand.rs`).
+///
+/// `structural_probe_would_refuse`/`structural_candidate_count`: [`probe_would_refuse`]'s verdict
+/// and [`structural_candidate_rules`]'s count for [`build_structural_composites`]'s OWN flat
+/// depth-3 candidate set — that set widens dramatically (every ordinary Prefix/Suffix/Infix rule
+/// joins it, on top of the always-on structural/circumfix rules) exactly when
+/// `structural_probe_would_refuse` is true.
+pub struct CompositeCandidateDiagnostics {
+    pub preexpand_candidates: Vec<(u32, &'static str)>,
+    pub structural_probe_would_refuse: bool,
+    pub structural_candidate_count: usize,
+}
+
+/// See [`CompositeCandidateDiagnostics`].
+pub fn composite_candidate_rules(g: &Grammar) -> CompositeCandidateDiagnostics {
+    let preexpand_candidates = (0..g.mrules.len() as u32)
+        .filter_map(|i| {
+            if matches!(g.mrules[i as usize], MorphRuleDef::Compounding(_)) {
+                return None;
+            }
+            let mid = MRuleId(i);
+            match rule_role(g, mid) {
+                Role::Infix => Some((i, "Infix")),
+                Role::Prefix => Some((i, "Prefix")),
+                Role::Suffix => Some((i, "Suffix")),
+                _ => None,
+            }
+        })
+        .collect();
+    CompositeCandidateDiagnostics {
+        preexpand_candidates,
+        structural_probe_would_refuse: probe_would_refuse(g),
+        structural_candidate_count: structural_candidate_rules(g).len(),
+    }
+}
 
 /// `emit_with_precision(g, PrecisionConfig::Strip)` — v1's original, unconditional behavior.
 /// Callers that don't need the FST precision knob (`crate::precision`) keep using this; its output
@@ -1735,12 +1854,35 @@ pub fn emit_with_precision(g: &Grammar, precision: PrecisionConfig) -> EmitResul
         morpher.as_ref(),
     );
 
+    // Morphotactic pruning (`crate::morphotactics`, `docs/fst-plan/morphotactic-composite-pruning.md`
+    // -- the Aweti scale fix): built ONCE here and shared by BOTH composite builders below, so
+    // `crate::preexpand::build_composites_with_mode` and `build_structural_composites` prune against
+    // the identical automaton/instrumentation rather than each building (and each independently
+    // reading env vars for) their own. `HC_PREEXPAND_FLAT`/`HC_PREEXPAND_PROBE_CAP` are read exactly
+    // ONCE here, in the production path -- tests construct `ExploreMode`/`ProbeBudget` directly and
+    // never touch these env vars, so parallel test processes never race process-global env state
+    // (`crate::morphotactics::explore_mode_from_env`'s own doc).
+    let morphotactic_index = crate::morphotactics::MorphotacticIndex::build(g);
+    let explore_mode = crate::morphotactics::explore_mode_from_env();
+    let probe_cap = crate::morphotactics::probe_cap_from_env();
+    let probe_counter = std::sync::atomic::AtomicUsize::new(0);
+    let probe_budget = probe_cap.map(|cap| crate::morphotactics::ProbeBudget {
+        cap,
+        counter: &probe_counter,
+    });
+
     // P1d (`crate::preexpand`, plan's Amharic capability stage): rule-application pre-expansion
     // (interdigitation) + boundary-fusion composite probing. `should_run` short-circuits to zero
     // pairs/zero composites for a grammar with no phonological rules AND no `Role::Infix` rule at
     // all (Sena) — see that module's doc for why this keeps Sena's emitted lexc byte-for-byte.
-    let (mut composites, composite_report) =
-        crate::preexpand::build_composites(g, width, phon.as_ref());
+    let (mut composites, composite_report) = crate::preexpand::build_composites_with_mode(
+        g,
+        width,
+        phon.as_ref(),
+        &morphotactic_index,
+        explore_mode,
+        probe_budget,
+    );
     counts.composite_pairs_probed = composite_report.pairs_probed;
     counts.composite_interdigitation_entries = composite_report.interdigitation_entries;
     counts.composite_fusion_entries = composite_report.fusion_entries;
@@ -1754,8 +1896,16 @@ pub fn emit_with_precision(g: &Grammar, precision: PrecisionConfig) -> EmitResul
         let m = morpher
             .as_ref()
             .expect("morpher is built whenever struct_rules is non-empty");
-        let (struct_composites, covered) =
-            build_structural_composites(g, width, &struct_rules, &rule_cache, m);
+        let (struct_composites, covered) = build_structural_composites(
+            g,
+            width,
+            &struct_rules,
+            &rule_cache,
+            m,
+            &morphotactic_index,
+            explore_mode,
+            probe_budget,
+        );
         counts.composite_structural_entries = struct_composites.len();
         composites.extend(struct_composites);
         struct_covered_rules = covered;

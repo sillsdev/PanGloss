@@ -9,6 +9,11 @@
 //! - [`junctions`]: [`junctions::PhonologyProbe`], the pre-probed surface-variant/deletion-junction
 //!   machinery `emit` drives for a grammar with real phonological rules (stage 2) — a `None`-safe
 //!   no-op for a grammar without any (stage 1's Sena stays byte-identical).
+//! - [`morphotactics`] (crate-internal, `docs/fst-plan/morphotactic-composite-pruning.md`): the
+//!   `MorphotacticIndex`/`ChainState` subset-construction automaton over the engine's own
+//!   `hc-rules/src/stratum.rs` morphotactics, shared by `preexpand::extend`/`emit::struct_extend`
+//!   to prune their composite-chain recursion to engine-legal rule adjacencies (the Aweti scale
+//!   fix — see that module's doc for the full design).
 //! - [`preexpand`] (P1d, crate-internal): rule-application pre-expansion (interdigitation —
 //!   `Role::Infix` rules applied to each root via the engine's own `hc_rules::morph::synthesize`)
 //!   and boundary-fusion composite probing (Ge'ez glyph coalescence), emitted as multi-tag
@@ -56,6 +61,7 @@ pub mod composite;
 pub mod confirm;
 pub mod emit;
 pub mod junctions;
+pub(crate) mod morphotactics;
 pub mod peel;
 pub(crate) mod preexpand;
 pub mod precision;
