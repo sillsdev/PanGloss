@@ -1,11 +1,11 @@
-# `hc-cli verify` — grammar regression report
+# `pg-cli verify` — grammar regression report
 
 **Goal.** One command that answers "is the candidate grammar better?" so editing tools
 (flexicon/GramTrans change-set pipelines) can gate a change on a machine-readable verdict.
 PanGloss stays a pure function: it consumes two grammars and a word list, never change-sets.
 
 ```
-hc-cli verify <baseline> <candidate> <words.txt> [--report out.json] [--all-words]
+pg-cli verify <baseline> <candidate> <words.txt> [--report out.json] [--all-words]
 ```
 
 `<baseline>` / `<candidate>` accept anything `load_grammar` accepts (`.fwdata`, snapshot `.json`;
@@ -13,7 +13,7 @@ hc-cli verify <baseline> <candidate> <words.txt> [--report out.json] [--all-word
 
 ## Semantics
 
-1. Load both grammars via the existing `load_grammar` dispatch (hc-cli/src/main.rs).
+1. Load both grammars via the existing `load_grammar` dispatch (pg-cli/src/main.rs).
 2. Parse every word with both `Morpher`s, honoring the existing `word_timeout`, and compute the
    PROTOCOL.md signature multiset per word (same algorithm `batch` already uses — reuse, don't
    duplicate).
@@ -31,7 +31,7 @@ hc-cli verify <baseline> <candidate> <words.txt> [--report out.json] [--all-word
 ```json
 {
   "reportVersion": 1,
-  "tool": {"name": "hc-cli", "version": "..."},
+  "tool": {"name": "pg-cli", "version": "..."},
   "baseline": {"path": "...", "sha256": "..."},
   "candidate": {"path": "...", "sha256": "..."},
   "summary": {
@@ -54,7 +54,7 @@ hc-cli verify <baseline> <candidate> <words.txt> [--report out.json] [--all-word
 
 ## Implementation
 
-- One new module `hc-cli/src/verify.rs` plus a subcommand arm in `main.rs`. Extract the
+- One new module `pg-cli/src/verify.rs` plus a subcommand arm in `main.rs`. Extract the
   signature-building used by `batch` into a shared helper if it isn't already.
 - Deterministic output (sorted words in report), so reports themselves are diffable.
 - Estimated size: ~300–400 lines including the report serializer. No new crates

@@ -2,7 +2,7 @@
 name: dead-end-census
 description: >-
   Run this FIRST when a new or existing grammar is slow through the foma-propose + HC-confirm
-  pipeline (hc-rs --engine=foma / FomaAnalyzer). It systematically finds WHY confirm is slow,
+  pipeline (pangloss --engine=foma / FomaAnalyzer). It systematically finds WHY confirm is slow,
   attributes the cost to a dead-end class, and tells you which proposing-FST encoding (if any)
   to build to make that grammar faster — at 100% recall. This is the standing last-meaningful
   lever for per-grammar propose+confirm speed; reach for it whenever "language X is too slow."
@@ -45,7 +45,7 @@ live in the tail (Amharic's single worst word is nowhere near line 1, and its de
 40). So pin them:
 
 ```
-cargo run -p hc-foma --release --example worst_words      # add the grammar to its GRAMMARS list
+cargo run -p pg-foma --release --example worst_words      # add the grammar to its GRAMMARS list
 ```
 
 It runs the full corpus 3× and ranks words by **median** per-word (propose+confirm) ms
@@ -66,7 +66,7 @@ slice; `#`-comment lines carry provenance.
 ### 2. Run the census
 
 ```
-cargo run -p hc-foma --release --example deadend_census <grammar> [cap]
+cargo run -p pg-foma --release --example deadend_census <grammar> [cap]
 # caps also via env: CENSUS_SENA_CAP / CENSUS_AMHARIC_CAP / CENSUS_INDONESIAN_CAP
 ```
 
@@ -184,11 +184,11 @@ are small (`[[build-for-full-scale-grammars]]`); design for 10⁴–10⁵ entrie
 
 ## Files this skill drives
 
-- `rust/crates/hc-foma/examples/worst_words.rs` — the pinned-set generator (step 1).
+- `rust/crates/pg-foma/examples/worst_words.rs` — the pinned-set generator (step 1).
 - `samples/data/<grammar>-worst-words.txt` — gitignored pinned fixtures (step 1 output).
-- `rust/crates/hc-foma/examples/deadend_census.rs` — the census harness (steps 2–3); reads the
+- `rust/crates/pg-foma/examples/deadend_census.rs` — the census harness (steps 2–3); reads the
   pinned set via `read_pinned`, unions with `take(cap)`.
-- `rust/crates/hc-foma/examples/propose_parity.rs` — candidate-set dumps for the monotonicity
+- `rust/crates/pg-foma/examples/propose_parity.rs` — candidate-set dumps for the monotonicity
   gate (step 6.2).
 - `docs/superpowers/specs/2026-07-17-better-proposing-fst-plan.md` — the encodings (E1–E5),
   the build-time encoding registry, budgets, and the parked designs this skill promotes.

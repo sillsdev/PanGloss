@@ -71,14 +71,14 @@ picked up later unrelated mainline C# fixes parse-opt never received):
    NOT belong in Bucket E (no product surface would be wrong for one of them — see split below).
    Two of the four (`AnalyzeWord_SingleThreaded_MatchesParallel`,
    `ParseWord_SingleThreaded_MatchesParallel_With{Compounding,AffixTemplate}`) test C#'s
-   `maxDegreeOfParallelism`/`Parallel*` intra-word rule-cascade variants; `hc-rules/src/cascade.rs`'s
+   `maxDegreeOfParallelism`/`Parallel*` intra-word rule-cascade variants; `pg-rules/src/cascade.rs`'s
    own module doc independently ratifies "the `Parallel*` variants are NOT ported (plan §7:
    within-word parallelism has no Rust descendant)" — Rust's only parallelism is ACROSS words
-   (`hc-parse/src/batch.rs`'s rayon pool), so there is no intra-word parallel cascade for these 3
+   (`pg-parse/src/batch.rs`'s rayon pool), so there is no intra-word parallel cascade for these 3
    tests to compare a single-threaded run against. Genuinely Bucket D (blocked on an unported
    feature), staying that way until/unless within-word parallelism is ever ported.
    The 4th, `AnalyzeWord_ConcurrentRepeatedParsing_IsDeterministic`, is **not** a "no surface" case
-   — Rust does have concurrent parsing against one shared grammar (`hc-parse/src/batch.rs`'s rayon
+   — Rust does have concurrent parsing against one shared grammar (`pg-parse/src/batch.rs`'s rayon
    pool over multiple words). Its correct out-of-scope reason is narrower: the C# test is a
    regression net for a specific copy-on-write RACE (per-parse `FeatureStruct` clones sharing
    structure with a mutable frozen grammar); Rust's ownership model has no per-parse mutation of
@@ -137,11 +137,11 @@ scope status of the 4 newly-named concurrency tests (3 Bucket-D "no Rust descend
   `AnalyzeWord_SingleThreaded_MatchesParallel`,
   `ParseWord_SingleThreaded_MatchesParallel_WithCompounding`,
   `ParseWord_SingleThreaded_MatchesParallel_WithAffixTemplate` — blocked on C#'s unported
-  `Parallel*`/`maxDegreeOfParallelism` intra-word rule-cascade variants (`hc-rules/src/cascade.rs`:
+  `Parallel*`/`maxDegreeOfParallelism` intra-word rule-cascade variants (`pg-rules/src/cascade.rs`:
   "within-word parallelism has no Rust descendant"). `AnalyzeWord_ConcurrentRepeatedParsing_
   IsDeterministic` — also Bucket D, but for a distinct reason: Rust's shared-immutable-grammar
   ownership model has no per-parse mutation for the copy-on-write race this test guards against to
-  occur on, even though cross-word concurrent parsing itself exists (`hc-parse/src/batch.rs`).
+  occur on, even though cross-word concurrent parsing itself exists (`pg-parse/src/batch.rs`).
 
 ## Verification per batch
 Standard protocol; additionally each ported test's expected values must come from the C# oracle

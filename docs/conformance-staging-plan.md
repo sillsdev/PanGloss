@@ -38,14 +38,14 @@ pins, which engine generated `expected.tsv`, upstream PR link once opened).
    default <60s suite and in CI (unlike the `samples/data`-gated tests). This gives every
    bug-fix-with-fixture immediate CI coverage on every push, pre-machine, pre-merge-to-master.
 4. **Oracle discipline**: `expected.tsv` ground truth should come from the C# founding oracle
-   (machine's own tooling) when available; when a fixture is authored against hc-rs instead
-   (e.g. pinning a foma-proposer bug where hc-rs full engine IS the oracle), `STAGING.md` must
+   (machine's own tooling) when available; when a fixture is authored against pangloss instead
+   (e.g. pinning a foma-proposer bug where pangloss full engine IS the oracle), `STAGING.md` must
    say so — machine acceptance re-verifies against the founding oracle, and any divergence
    found there is itself a finding.
 
 ### Debt this absorbs
 
-`crates/hc-parse/tests/affix_shapes_conformance.rs` has 4 tests permanently `#[ignore]`d
+`crates/pg-parse/tests/affix_shapes_conformance.rs` has 4 tests permanently `#[ignore]`d
 ("conformance/ not yet pulled into PanGloss as a submodule — see
 docs/hermitcrab-rust-port-audit.md section 5") pointing at a `rust/conformance/affix-shapes/`
 directory that never landed. Implementation must resolve them: recover/re-author those four

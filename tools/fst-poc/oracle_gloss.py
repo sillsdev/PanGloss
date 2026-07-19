@@ -1,12 +1,12 @@
 #!/usr/bin/env python
-"""Build a gloss-based oracle TSV by shelling out to the Rust hc-rs `parse --gloss` command,
+"""Build a gloss-based oracle TSV by shelling out to the Rust pangloss `parse --gloss` command,
 one word at a time. This is slower than `batch` (reloads/recompiles the grammar per word) but
 gives a clean, human-readable ground truth (root gloss + affix glosses per analysis) that is
-far easier to diff against a from-scratch FST's tagged output than hc-rs batch's internal
+far easier to diff against a from-scratch FST's tagged output than pangloss batch's internal
 morpheme-id/surface-shape signature format.
 
 Usage:
-    python oracle_gloss.py <hc-rs.exe> <grammar.xml> <words.txt> <out.tsv> [--timeout-sec N] [--skip word1,word2,...]
+    python oracle_gloss.py <pangloss.exe> <grammar.xml> <words.txt> <out.tsv> [--timeout-sec N] [--skip word1,word2,...]
 
 Output TSV columns: word \t status \t gloss1;gloss2;...  (status: ok|no-parse|timeout)
 """

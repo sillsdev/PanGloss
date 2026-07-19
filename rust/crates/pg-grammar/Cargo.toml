@@ -1,0 +1,16 @@
+[package]
+name = "pg-grammar"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+pg-featstruct.workspace = true
+pg-shape.workspace = true
+pg-snapshot.workspace = true
+quick-xml.workspace = true
+unicode-normalization.workspace = true
+smallvec.workspace = true
+hashbrown.workspace = true
+thiserror.workspace = true

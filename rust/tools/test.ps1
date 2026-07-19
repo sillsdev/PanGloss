@@ -13,7 +13,7 @@
 
   Examples:
     rust\tools\test.ps1                                  # full workspace, release
-    rust\tools\test.ps1 -Package hc-foma -Filter f5_diacritics
+    rust\tools\test.ps1 -Package pg-foma -Filter f5_diacritics
     rust\tools\test.ps1 -NoNextest                        # force plain `cargo test`
     rust\tools\test.ps1 -Gc
 #>

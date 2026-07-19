@@ -7,18 +7,18 @@
 // hazards are gone.
 //
 // Usage: from rust/, first build the package, then run:
-//   wasm-pack build crates/hc-wasm --target nodejs --dev --out-dir pkg
+//   wasm-pack build crates/pg-wasm --target nodejs --dev --out-dir pkg
 //   node tools/f4-wasm-smoke.js
 // (Expects the reference grammars under ../samples/data — skips a grammar if absent.)
 const fs = require("fs");
 const path = require("path");
 
 const ROOT = path.resolve(__dirname, "..");
-const PKG = path.join(ROOT, "crates/hc-wasm/pkg/hc_wasm.js");
+const PKG = path.join(ROOT, "crates/pg-wasm/pkg/pg_wasm.js");
 const DATA = path.resolve(ROOT, "../samples/data");
 
 if (!fs.existsSync(PKG)) {
-  console.error(`missing ${PKG}\nbuild first: wasm-pack build crates/hc-wasm --target nodejs --dev --out-dir pkg`);
+  console.error(`missing ${PKG}\nbuild first: wasm-pack build crates/pg-wasm --target nodejs --dev --out-dir pkg`);
   process.exit(2);
 }
 const pkg = require(PKG);

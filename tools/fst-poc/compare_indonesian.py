@@ -1,9 +1,9 @@
 #!/usr/bin/env python
-"""Full coverage/parity comparison: derive_and_realize() vs. the Rust hc-rs engine oracle
+"""Full coverage/parity comparison: derive_and_realize() vs. the Rust pangloss engine oracle
 (reports/oracle/indonesian-oracle-gloss.tsv), over the full 121-word corpus.
 
 Ground truth caveat (recorded honestly, not hidden): both reference grammars leave the optional
-`<MorphemeId>` XML element unset on every morpheme, so hc-rs's own raw batch signature
+`<MorphemeId>` XML element unset on every morpheme, so pangloss's own raw batch signature
 (morpheme-id join + surface) degenerates to blank ids -- there is no *populated* id-level oracle
 to diff against mechanically. We therefore compare against `--gloss` text (populated distinctly
 for every rule/entry in this grammar), which is a faithful proxy for entry/rule identity as long
@@ -49,7 +49,7 @@ def main():
     # gloss + each rule's gloss, in the ORDER the derivation applied them (root first) -- HC's
     # own --gloss rendering is root + affixes inside-out; since gloss text (not order) is what we
     # compare, we compare as a SORTED SET of individual gloss tokens per analysis, sidestepping
-    # any ordering-convention mismatch between our tag order and hc-rs's internal rendering order.
+    # any ordering-convention mismatch between our tag order and pangloss's internal rendering order.
     def render(tags):
         return tuple(sorted(gloss_of(g, t) for t in tags))
 

@@ -38,8 +38,8 @@ artifact to fix.
 
 ## Oracle discipline
 
-**Oracle: `hc-rs` (this repo's own Rust engine), NOT the C# founding oracle.** Authored fresh for
-this task; `words.yaml` signatures captured by driving `hc_parse::Morpher::parse_word` directly (a
+**Oracle: `pangloss` (this repo's own Rust engine), NOT the C# founding oracle.** Authored fresh for
+this task; `words.yaml` signatures captured by driving `pg_parse::Morpher::parse_word` directly (a
 throwaway in-repo test — see "Verification" below), no C# tool run available in this environment.
 Per `docs/conformance-staging-plan.md`'s oracle-discipline note, machine acceptance must re-verify
 against the C# founding oracle before graduation — the Unicode-representation-merge behavior in
@@ -48,12 +48,12 @@ area where engine-specific implementation choices could plausibly diverge.
 
 ## Verification
 
-Signatures were captured via a throwaway test driving `hc_parse::Morpher::parse_word` directly over
-every word in `words.yaml` (equivalent to `hc-rs batch grammar.xml words.txt out.tsv`'s signature
-column, without needing a release build of the `hc-cli` binary — a from-scratch release build in
+Signatures were captured via a throwaway test driving `pg_parse::Morpher::parse_word` directly over
+every word in `words.yaml` (equivalent to `pangloss batch grammar.xml words.txt out.tsv`'s signature
+column, without needing a release build of the `pg-cli` binary — a from-scratch release build in
 this task's environment took over 30 minutes under heavy concurrent load and was abandoned in favor
-of a debug-profile `hc-parse` test driving the same engine). Output transcribed into `words.yaml`
-above. Cross-checked in-repo by `rust/crates/hc-parse/tests/conformance_fixtures_gate.rs`'s
+of a debug-profile `pg-parse` test driving the same engine). Output transcribed into `words.yaml`
+above. Cross-checked in-repo by `rust/crates/pg-parse/tests/conformance_fixtures_gate.rs`'s
 `all_discovered_fixtures_match_oracle` test (dual-root discovery, default `cargo test --workspace`
 suite) — that test is what actually gates CI; the throwaway dump test was deleted after transcription.
 

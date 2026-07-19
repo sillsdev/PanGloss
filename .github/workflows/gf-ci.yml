@@ -1,8 +1,8 @@
 name: GF Compile Check
 
-# Compile-verifies rust/crates/hc-realize/gf/*.gf against the real gf-rgl (Grammatical
+# Compile-verifies rust/crates/pg-realize/gf/*.gf against the real gf-rgl (Grammatical
 # Framework Resource Grammar Library) sources. This closes the gap flagged throughout
-# hc-realize's N3 milestone (see rust/crates/hc-realize/README.md and the header comments in
+# pg-realize's N3 milestone (see rust/crates/pg-realize/README.md and the header comments in
 # GlossFunctor.gf/GlossEng.gf): those sources were hand-written against gf-rgl by reading its
 # source, never compiled, because no `gf` install existed on the authoring machine. A failure
 # here may be a genuine bug in the grammar sources, not a workflow bug — see this workflow's
@@ -12,12 +12,12 @@ on:
   push:
     branches: [main]
     paths:
-      - "rust/crates/hc-realize/gf/**"
+      - "rust/crates/pg-realize/gf/**"
       - ".github/workflows/gf-ci.yml"
   pull_request:
     branches: [main]
     paths:
-      - "rust/crates/hc-realize/gf/**"
+      - "rust/crates/pg-realize/gf/**"
       - ".github/workflows/gf-ci.yml"
   workflow_dispatch:
 
@@ -62,7 +62,7 @@ jobs:
           git checkout
 
       - name: Compile GlossEng.gf
-        working-directory: rust/crates/hc-realize/gf
+        working-directory: rust/crates/pg-realize/gf
         run: |
           gf --make \
             --path=.:/tmp/gf-rgl/src/abstract:/tmp/gf-rgl/src/api:/tmp/gf-rgl/src/common:/tmp/gf-rgl/src/english:/tmp/gf-rgl/src/prelude \

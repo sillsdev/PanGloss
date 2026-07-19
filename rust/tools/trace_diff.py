@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """P12 chunk 9 -- cross-engine trace-diff harness.
 
-Compares a Rust `hc-rs parse <grammar> <word> --trace=<file> --trace-format=json` trace against a
+Compares a Rust `pangloss parse <grammar> <word> --trace=<file> --trace-format=json` trace against a
 live C# oracle trace for the SAME grammar+word, produced by the C# HermitCrab.Tool's own `parse`
 command while tracing is on (`SIL.Machine.Morphology.HermitCrab.Tool`, NOT FieldWorks -- confirmed
 buildable in this sandbox, `dotnet build src/SIL.Machine.Morphology.HermitCrab.Tool/...`). See
@@ -18,7 +18,7 @@ How to produce the C# side (no new C# project needed -- the Tool project already
 Then, from the Rust side:
 
     cd rust
-    ./target/release/hc-rs parse <path/to/grammar.xml> <word> --trace=rust_trace.json --trace-format=json
+    ./target/release/pangloss parse <path/to/grammar.xml> <word> --trace=rust_trace.json --trace-format=json
 
 Then:
 
@@ -172,7 +172,7 @@ def tuple_key(node):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("cs_trace", help="C# Tool's -o output file from a `tracing on` + `parse <word>` script")
-    ap.add_argument("rust_trace", help="Rust hc-rs parse --trace=<file> --trace-format=json output")
+    ap.add_argument("rust_trace", help="Rust pangloss parse --trace=<file> --trace-format=json output")
     ap.add_argument(
         "--include-analysis-side",
         action="store_true",

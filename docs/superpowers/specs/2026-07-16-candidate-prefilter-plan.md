@@ -1,7 +1,7 @@
 # Plan: deterministic candidate pre-filter between FST propose and HC confirm
 
 Status: **Phase 0 DONE 2026-07-17 — NO-GO** (census merged at `571b8a3`, harness
-`rust/crates/hc-foma/examples/prefilter_census.rs`; verdict below). Originally PLANNED
+`rust/crates/pg-foma/examples/prefilter_census.rs`; verdict below). Originally PLANNED
 2026-07-16 (John's direction: "pre-prune deterministically after the FST
 finds candidates, but not embedded in the FST itself" — or constrain candidates so the HC
 check gets faster). Execute AFTER round-2 perf commits land AND after the knob teardown
@@ -41,13 +41,13 @@ for this candidate. Recall is the one invariant this pipeline may never break
   with a hard assertion that no `Reject`ed candidate is HC-confirmed. Only after
   shadow-clean runs over all three grammar corpora AND the conformance suites does the
   filter flip to ENFORCE.
-- Semantics must be REUSED from `hc_rules::validity` (compiled matchers via `RuleCache`),
+- Semantics must be REUSED from `pg_rules::validity` (compiled matchers via `RuleCache`),
   never re-implemented ad hoc. Divergent reimplementation is how recall bugs happen
   (see the miseru under-generation trap in the knob design doc).
 
 ## What a candidate is (the filter's input)
 
-`hc_foma::confirm::Candidate` = morpheme sequence (`Vec<MorphemeId>`) + designated
+`pg_foma::confirm::Candidate` = morpheme sequence (`Vec<MorphemeId>`) + designated
 `root_index`; `build_morpheme_owners` maps each morpheme to its `LexEntry` or `MRule`
 (`resolve_pins`, confirm.rs). The candidate has LINEAR ORDER and (from the FST match)
 implicitly a surface segmentation. Note: environments/co-occurrence attach to ALLOMORPHS;
@@ -76,7 +76,7 @@ target, and that is a different plan). Do not build the framework speculatively.
 
 ## Phase 1 — filter framework (shadow mode)
 
-Insertion point: in `hc_foma::analyzer` between candidate dedup and `confirm_batch` — one
+Insertion point: in `pg_foma::analyzer` between candidate dedup and `confirm_batch` — one
 place, before chunking, so chunk fusion sees the thinned set.
 
 - `CandidateVerdict { Keep, Reject { reason } }`; a filter is
@@ -94,7 +94,7 @@ place, before chunking, so chunk fusion sees the thinned set.
 1. **Exact adjacency environment check** (flagship; Sena has 144 REQUIRED envs, 0 excludes,
    and — decisive — ZERO phonological rules).
    - Test each candidate morpheme's allomorph `RequiredEnvironments`/`ExcludedEnvironments`
-     against the candidate's own surface segmentation, using `hc_rules::validity`'s
+     against the candidate's own surface segmentation, using `pg_rules::validity`'s
      compiled environment matchers (OR over the env list, anchors, natural classes — exact
      `environments_ok` semantics).
    - **Static soundness precondition, per grammar (or per constraint):** no phonological
@@ -127,7 +127,7 @@ its own design pass; do not attempt as a rider on Phases 1–2.
 ## Phase 4 — enforce + measure
 
 - Flip Shadow → Enforce only after: shadow-clean on all three corpora (zero soundness-assert
-  hits) + `cargo test -p hc-foma -p hc-rules -p hc-parse --release` + conformance/parity
+  hits) + `cargo test -p pg-foma -p pg-rules -p pg-parse --release` + conformance/parity
   suites green.
 - Identity bar: confirmed-analysis multiset byte-identical per word, all grammars, Enforce
   vs Off.

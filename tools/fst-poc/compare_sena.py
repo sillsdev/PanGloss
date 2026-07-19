@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """Coverage/parity comparison for Sena: derive_sena.py's templated enumeration vs. the Rust
-hc-rs engine oracle (reports/oracle/sena-sample-300-oracle-gloss.tsv).
+pangloss engine oracle (reports/oracle/sena-sample-300-oracle-gloss.tsv).
 
 Root-set reduction (explicit, honest, per the task's "reduced but honest experiment" rule):
 Sena's templates enumerate ~36,500 derivations PER ROOT on average (measured on a 20-root probe;

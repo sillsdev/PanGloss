@@ -1,0 +1,44 @@
+[package]
+name = "pg-foma"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+# Pinned exact so a version bump is always deliberate and re-gated, not a silent float.
+# Originally validated at 0.1.1 by gate F0 (docs/fst-plan/foma-fst-plan.md); re-validated at
+# 0.4.0 (upstream's own wasm32 fix landed, retiring this repo's vendored patch — see the
+# pg-foma test suite, especially tests/f5_diacritics_gate.rs, and the wasm32 checks in that gate).
+foma = "=0.4.0"
+pg-grammar.workspace = true
+pg-featstruct.workspace = true
+# P1 stage 2 (docs/fst-plan/foma-fst-plan.md, Indonesian): the junction-aware emitter
+# (`src/junctions.rs`) drives the real synthesis machinery to pre-probe surface variants, exactly
+# like `hc-hybrid/src/surface.rs` does today. Both are already wasm-safe (pg-rules is in pg-wasm's
+# dependency graph via pg-parse; see that crate's `web-time` use for the same `Instant`-on-wasm32
+# fix pg-fst needed) -- `cargo check -p pg-foma --target wasm32-unknown-unknown` covers this.
+pg-rules.workspace = true
+pg-shape.workspace = true
+rustc-hash.workspace = true
+# junctions.rs's alphabet probe loops (compute_variants/compute_deletion_junctions): parallelized
+# across CPU cores on non-wasm32 targets via a dedicated large-stack pool (see
+# `PhonologyProbe::new`'s doc) -- NOT used on wasm32-unknown-unknown, where `thread::spawn` (which
+# a rayon pool needs to build) aborts at runtime; that path stays the original sequential loop
+# (`#[cfg(target_arch = "wasm32")]`), mirroring `pg-parse/src/batch.rs`'s own scoped-pool pattern.
+rayon.workspace = true
+# P2 (docs/fst-plan/foma-fst-plan.md): confirm (`src/confirm.rs`) pins `Morpher::parse_word_selected`
+# to a proposed candidate's root(s)/rules — this crate's whole propose->CONFIRM point — so pg-parse
+# is now a normal (not dev-only) dependency. Not a new wasm32 risk: pg-wasm already links pg-parse
+# directly (it IS the verifier engine pg-wasm's demo runs today), so pg-foma depending on it too adds
+# no new transitive dependency to that build. `cargo check -p pg-foma --target wasm32-unknown-unknown`
+# and the same for pg-wasm both stay part of this crate's gate.
+pg-parse.workspace = true
+
+[dev-dependencies]
+# Only used by the aweti_probe/precision_bench/deadend_census/p6_aweti_probe examples' `.json`/
+# `.fwdata` grammar dispatch (mirrors `pg-cli`'s `load_grammar`) -- Aweti has no legacy `-hc.xml`
+# export, so those examples load it via the direct fwdata-import path or pg-snapshot JSON instead
+# (`pg_snapshot::Snapshot::from_json` + `pg_grammar::compile_project`).
+pg-snapshot.workspace = true
+pg-fwdata.workspace = true

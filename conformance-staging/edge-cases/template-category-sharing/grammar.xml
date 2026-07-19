@@ -17,7 +17,7 @@
          prefix with template B's suffix -- exactly Sena's real d5 ordering dead-end shape. This
          fixture pins the GROUND TRUTH such a candidate must be checked against: no single
          AffixTemplate contains both rules, so the mixed word has no valid derivation and a
-         conforming engine (hc-rs's Morpher, or any future improved proposer) must reject it. -->
+         conforming engine (pangloss's Morpher, or any future improved proposer) must reject it. -->
     <PartsOfSpeech>
       <PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech>
     </PartsOfSpeech>
@@ -46,7 +46,7 @@
       <!-- Deliberately NO morphologicalRules= attribute here: all four rules (mrPfxA/mrSfxA/
            mrPfxB/mrSfxB) are referenced ONLY from their own AffixTemplate's Slot, never listed as
            free-standing stratum rules. This is load-bearing, not stylistic -- confirmed empirically
-           against this repo's own engine (`hc_rules::stratum`'s `run_mrule_cascade`, the free-
+           against this repo's own engine (`pg_rules::stratum`'s `run_mrule_cascade`, the free-
            standing/un-templated rule battery, iterates only the stratum's own `morphologicalRules`
            id-list; `AffixProcessRuleDef::is_template_rule` does NOT gate that list on the analysis
            side at all, so a rule listed there is combinable with ANY other listed rule regardless

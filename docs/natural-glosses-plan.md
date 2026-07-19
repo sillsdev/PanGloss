@@ -5,13 +5,13 @@
 **Update (2026-07-11):** N0–N3 of the revised plan below shipped on branch `worktree-natural-phrases`
 (`docs/natural-phrases-plan.md` tracks the milestone-by-milestone build). Architecture B ("GF as
 build tool", §8) was chosen as the ship-first target, exactly as this document recommends: a new
-`hc-realize` crate maps parsed word analyses to a typed IR and renders English phrases from a
-compile-time construction table (`rust/crates/hc-realize/assets/eng/templates.toml`), with zero
+`pg-realize` crate maps parsed word analyses to a typed IR and renders English phrases from a
+compile-time construction table (`rust/crates/pg-realize/assets/eng/templates.toml`), with zero
 runtime GF dependency. `templates.toml` is still hand-authored, not yet GF-generated — N3 wrote
-the GF grammar sources (`rust/crates/hc-realize/gf/`) that are meant to define it and the
+the GF grammar sources (`rust/crates/pg-realize/gf/`) that are meant to define it and the
 regeneration script that would rewrite it, but the GF compiler was never available on the
 development machine to run either, so the table remains the committed source of truth pending a
-first real `gf` install and regeneration pass. See `rust/crates/hc-realize/README.md` for the
+first real `gf` install and regeneration pass. See `rust/crates/pg-realize/README.md` for the
 current pipeline and regeneration loop.
 
 The proposal: use PanGloss as the "decompiler" (LRL surface word → structural feature bundle)
@@ -59,11 +59,11 @@ these unified tags." Reality:
 
 - The parser's output is **morpheme-ID sequences plus a phonological surface**, not gloss
   tags. Per analysis it is `join("+", MorphemeId strings) + "|" + surface`
-  (`rust/crates/hc-parse/src/lib.rs`, `result_signature`), e.g. Sena `++|[mn]+?bal+?i`.
+  (`rust/crates/pg-parse/src/lib.rs`, `result_signature`), e.g. Sena `++|[mn]+?bal+?i`.
   The `<MorphemeId>` element is *empty* for every Indonesian morpheme, so the left half is
   often blank.
 - Leipzig-style glosses **do exist**, but as free-form per-grammar strings on
-  `MorphemeInfo.gloss` (`hc-grammar/src/model.rs:478`) sourced from `<Gloss>` in the
+  `MorphemeInfo.gloss` (`pg-grammar/src/model.rs:478`) sourced from `<Gloss>` in the
   HermitCrab XML — Indonesian uses `Caus`, `NMLZR`, `LOC`, `APPL`, `AV`, `pl`, `RECIP`,
   plus lexical glosses like `read`, `sell`, `use`. They are display data, **not part of the
   parity output**.
@@ -72,8 +72,8 @@ these unified tags." Reality:
   a **new, additive layer** that reads `WordAnalysis.morpheme_ids` →
   `Grammar::morphemes[i].gloss`, leaving the parity string untouched.
 - There is no `PanGloss::load_from_config("cherokee_rules.json")` and no JSON grammar config
-  anywhere. Grammars are HermitCrab XML (`samples/data/*-hc.xml`) loaded by `hc_grammar::load`;
-  the parse API is `hc_parse::Morpher::parse_word`.
+  anywhere. Grammars are HermitCrab XML (`samples/data/*-hc.xml`) loaded by `pg_grammar::load`;
+  the parse API is `pg_parse::Morpher::parse_word`.
 
 **Consequence:** Step 1 is not "establish a token template" — it is *build a mapping layer*
 from per-grammar free-form gloss strings to a controlled concept/feature vocabulary. Glosses
@@ -163,14 +163,14 @@ repo's MIT licensing before shipping embedded assets.
 
 ### 2.5 Repo-fit corrections
 
-- New code goes in a **new workspace crate** (suggested: `rust/crates/hc-realize`), consumed
-  by `hc-cli` (and optionally `hc-ffi`), feature-gated so the parity toolchain is unaffected.
-  Core crates (`hc-parse`, `hc-grammar`) gain at most a small read-only accessor.
+- New code goes in a **new workspace crate** (suggested: `rust/crates/pg-realize`), consumed
+  by `pg-cli` (and optionally `pg-ffi`), feature-gated so the parity toolchain is unaffected.
+  Core crates (`pg-parse`, `pg-grammar`) gain at most a small read-only accessor.
 - Timing: the workspace is mid-hybrid-FST plan (F8 in flight, F9 next). This work is
   independent of that plan and should be sequenced **after F9** or on a parallel branch that
-  touches no `hc-hybrid`/`hc-parse` internals.
+  touches no `hc-hybrid`/`pg-parse` internals.
 - The plan's `main()` sketch (single-word demo loop) doesn't match the real entry points;
-  wiring is a `hc-rs parse --natural-gloss=<lang>` flag and/or a `hc-rs gloss` subcommand on
+  wiring is a `pangloss parse --natural-gloss=<lang>` flag and/or a `pangloss gloss` subcommand on
   top of `ParseOutcome`.
 
 ---
@@ -179,7 +179,7 @@ repo's MIT licensing before shipping embedded assets.
 
 ### Phase 0 — Gloss extraction layer *(valuable regardless of GF)*
 
-Add to `hc-parse` (or the new crate) a function
+Add to `pg-parse` (or the new crate) a function
 `gloss_bundle(&Grammar, &WordAnalysis) -> GlossBundle` where
 
 ```rust
@@ -191,7 +191,7 @@ pub struct GlossBundle {
 ```
 
 Resolves `morpheme_ids` → `Grammar::morphemes[i].gloss`, special-casing
-`MorphemeId::GUESSED`. Expose as `hc-rs parse --gloss` (Leipzig-style `read-AV-APPL` output).
+`MorphemeId::GUESSED`. Expose as `pangloss parse --gloss` (Leipzig-style `read-AV-APPL` output).
 This is small, additive, immediately useful for field display, and is the input contract for
 everything below. **~1–2 agent-days.**
 
@@ -227,7 +227,7 @@ sheet; diff against GF-shell output. Decision gate:
 - Structurally broken → fall back to **Alternative B** (pre-generated tables, §4).
   **~2–3 agent-days. Do this before committing to Phases 4–5.**
 
-### Phase 4 — `hc-realize` crate
+### Phase 4 — `pg-realize` crate
 
 - `trait Realizer { fn realize(&self, ir: &GlossIr, lang: LwcId) -> Realization; }` so the
   PGF backend is swappable (table backend, future NN backend).
@@ -240,7 +240,7 @@ sheet; diff against GF-shell output. Decision gate:
 
 ### Phase 5 — Wiring & authoring loop
 
-- `hc-rs parse --natural-gloss=eng,hin` and batch equivalent; optional `hc-ffi` export.
+- `pangloss parse --natural-gloss=eng,hin` and batch equivalent; optional `pg-ffi` export.
 - Document the project-authoring loop: edit FLEx grammar → export XML → run lexicon generator
   → `gf -make` → drop `.pgf` next to the grammar. Decide who runs the GF compiler (field
   laptop install vs. hosted build).
@@ -312,7 +312,7 @@ affix glosses (`Caus`, `APPL`, `RECIP`), so glosses remain a required second cha
 
 ### 6.2 Morpheme properties (an unused explicit channel)
 
-`MorphemeInfo.properties: Vec<(String, String)>` (`hc-grammar/src/model.rs:481`) is loaded
+`MorphemeInfo.properties: Vec<(String, String)>` (`pg-grammar/src/model.rs:481`) is loaded
 from the XML's `<Properties>` and currently unused for output. A documented convention —
 e.g. a `realize` property holding an explicit IR tag (`realize = "Case:Loc"`) — lets grammar
 authors opt specific morphemes into precise realization **inside the grammar file itself**,
@@ -321,7 +321,7 @@ override/retrofit mechanism for grammars we don't control.
 
 ### 6.3 Proposed record
 
-Emit per analysis (behind `hc-rs parse --analysis-json` or similar; additive, parity string
+Emit per analysis (behind `pangloss parse --analysis-json` or similar; additive, parity string
 untouched):
 
 ```jsonc
@@ -394,7 +394,7 @@ grammar source too, so the choice between them can be deferred to the Phase 3 sp
 
 Own small `Gloss` abstract (typed constructions, §2.3 shape) written as a **functor over
 `Syntax`** (§7.2); per-project lexicon module generated from the grammar XML (WordNet-assisted
-where possible, §7.4); compiled to a per-project `.pgf`; `hc-realize` loads it at runtime via
+where possible, §7.4); compiled to a per-project `.pgf`; `pg-realize` loads it at runtime via
 `gf-core` (fallback: bindgen over C `libpgf`).
 
 - **Strengths:** full generality — construction inventory can grow without redesign; handles

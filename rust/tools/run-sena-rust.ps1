@@ -14,11 +14,11 @@ $ErrorActionPreference = 'Stop'
 # Rust equivalent of the C# master-baseline wrapper used to generate
 # parity-out/golden/master/sena-full.tsv. Same design: per-word STARTED sentinel + TSV growth
 # as the liveness signal, kill+relaunch on stall, --start=N to resume, time-budget deadline.
-# hc-rs batch's --threads 1 path is required for this to work -- it's the only mode with
-# per-word flush/STARTED (see hc-cli/src/main.rs's module doc); --threads>1 buffers the whole
+# pangloss batch's --threads 1 path is required for this to work -- it's the only mode with
+# per-word flush/STARTED (see pg-cli/src/main.rs's module doc); --threads>1 buffers the whole
 # file until the end and would look permanently stalled.
 
-$Bin      = Join-Path $Repo 'rust\target\release\hc-rs.exe'
+$Bin      = Join-Path $Repo 'rust\target\release\pangloss.exe'
 $Grammar  = if ($GrammarPath -ne '') { $GrammarPath } else { Join-Path $Repo 'samples\data\sena-hc.xml' }
 $Words    = if ($WordsPath -ne '') { $WordsPath } else { Join-Path $Repo 'samples\data\sena-words.txt' }
 $OutDir   = Join-Path $Repo "rust\parity-out\golden\$OutSubdir"
@@ -142,7 +142,7 @@ To resume, either re-run this wrapper (it auto-detects the index from $OutTsv), 
         Log "Process PID=$($proc.Id) exited on its own with code $($proc.ExitCode)."
     }
 
-    # hc-cli writes "batch complete"/"CAP ..." and panic messages to STDERR (eprintln!), not
+    # pg-cli writes "batch complete"/"CAP ..." and panic messages to STDERR (eprintln!), not
     # stdout -- check $stderrLog, not $stdoutLog (a bug caught in the smoke test: the marker
     # check was silently useless against the wrong stream, and worse, so was the panic check).
     $completeFound = $false
@@ -150,10 +150,10 @@ To resume, either re-run this wrapper (it auto-detects the index from $OutTsv), 
         $m1 = Select-String -LiteralPath $stderrLog -Pattern 'batch complete' -Encoding Unicode -Quiet -ErrorAction SilentlyContinue
         $m2 = Select-String -LiteralPath $stderrLog -Pattern 'batch complete' -Quiet -ErrorAction SilentlyContinue
         $completeFound = [bool]$m1 -or [bool]$m2
-        # 'panicked' catches a Rust panic; 'hc-rs batch:' catches run_batch's own Err(e) path
-        # (main.rs: `eprintln!("hc-rs batch: {e}")` then ExitCode::FAILURE).
-        $err1 = Select-String -LiteralPath $stderrLog -Pattern 'panicked|hc-rs batch:' -Encoding Unicode -Quiet -ErrorAction SilentlyContinue
-        $err2 = Select-String -LiteralPath $stderrLog -Pattern 'panicked|hc-rs batch:' -Quiet -ErrorAction SilentlyContinue
+        # 'panicked' catches a Rust panic; 'pangloss batch:' catches run_batch's own Err(e) path
+        # (main.rs: `eprintln!("pangloss batch: {e}")` then ExitCode::FAILURE).
+        $err1 = Select-String -LiteralPath $stderrLog -Pattern 'panicked|pangloss batch:' -Encoding Unicode -Quiet -ErrorAction SilentlyContinue
+        $err2 = Select-String -LiteralPath $stderrLog -Pattern 'panicked|pangloss batch:' -Quiet -ErrorAction SilentlyContinue
         if ($err1 -or $err2) {
             Log "FATAL: panic/error detected in $stderrLog. Stopping wrapper."
             $fatal = $true

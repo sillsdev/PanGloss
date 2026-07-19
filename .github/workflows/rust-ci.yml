@@ -45,7 +45,7 @@ jobs:
         with:
           # The `machine` submodule (sillsdev/machine, `conformance-framework` branch) carries the
           # engine-agnostic conformance fixtures under `machine/conformance/` — several fast unit
-          # tests (e.g. hc-foma's `precision::tests`/`emit::structural_and_pattern_tests` modules)
+          # tests (e.g. pg-foma's `precision::tests`/`emit::structural_and_pattern_tests` modules)
           # load these directly and are NOT `#[ignore]`d, so they need the submodule present to
           # pass rather than panic on a missing file. Init it here so both test steps below are
           # green. Non-recursive: `machine` itself carries no nested `.gitmodules` (verified by
@@ -62,14 +62,14 @@ jobs:
       # and the machine/conformance-driven tests (submodule checked out above). Every test that
       # loads real-language corpus data from `samples/data/*` (gitignored, never committed —
       # docs/natural-glosses-plan.md purge policy) is unconditionally `#[ignore]`d regardless of
-      # its own speed (see e.g. hc-foma/tests/f1_sena_gate.rs's module doc for the policy this
+      # its own speed (see e.g. pg-foma/tests/f1_sena_gate.rs's module doc for the policy this
       # follows), so this step needs no corpus data checked out at all.
       - run: cargo test --workspace
       # Full sweep, release profile, including every `#[ignore]`d test (matches the timings the
       # ignore reasons themselves cite — several corpus gates run 30s-3min in release). Every
-      # test gated on `samples/data/*`, a real FieldWorks project checkout (hc-cli's
+      # test gated on `samples/data/*`, a real FieldWorks project checkout (pg-cli's
       # `fwdata_*_gate.rs`), or `rust/conformance/` (not yet pulled in as a submodule — the
-      # hc-parse `*_conformance.rs`/`loader_n*_gate.rs`/`*_gate.rs` files predating this change)
+      # pg-parse `*_conformance.rs`/`loader_n*_gate.rs`/`*_gate.rs` files predating this change)
       # self-skips gracefully here with a printed reason, since none of those are present in this
       # CI environment — this step's real coverage gain over the step above is exercising the
       # WSL/c-foma-oracle `pk2` battery (which itself self-skips when `wsl` is absent, true on this

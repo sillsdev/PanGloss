@@ -15,7 +15,7 @@
 
   Examples:
     rust\tools\build.ps1                       # full workspace, release
-    rust\tools\build.ps1 -Package hc-foma       # single crate
+    rust\tools\build.ps1 -Package pg-foma       # single crate
     rust\tools\build.ps1 -DebugProfile
     rust\tools\build.ps1 -Gc                    # reap orphans + stale caches first
     rust\tools\build.ps1 -- --features foo      # extra args passed through to cargo

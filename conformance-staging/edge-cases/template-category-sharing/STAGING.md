@@ -35,7 +35,7 @@ do.
 
 Authoring this fixture surfaced a real, hard-won point about how this engine (a faithful port of
 real HermitCrab) actually works: putting a rule inside an `AffixTemplate`'s `Slot` does **not**, by
-itself, stop that rule from being applied free-standing. `hc_rules::stratum`'s
+itself, stop that rule from being applied free-standing. `pg_rules::stratum`'s
 `ApplyMorphologicalRules(input).Concat(ApplyTemplates(input))` (`SynthesisStratumRule.cs`/
 `AnalysisStratumRule.cs`, ported faithfully) recursively interleaves the two halves — a rule that is
 ALSO listed in the Stratum's own `morphologicalRules=` attribute stays freely combinable with any
@@ -53,11 +53,11 @@ constructed, it is not a free side effect of `AffixTemplate` usage.
 
 ## Oracle discipline
 
-**Oracle: `hc-rs` (this repo's own Rust engine), NOT the C# founding oracle.** This fixture was
+**Oracle: `pangloss` (this repo's own Rust engine), NOT the C# founding oracle.** This fixture was
 authored fresh for this task; its `words.yaml` signatures were captured by driving
-`hc_parse::Morpher::parse_word` directly (a throwaway in-repo test, since a from-scratch release
-build of the `hc-cli`/`hc-rs` binary in this task's environment took long enough — over 30 minutes,
-under heavy concurrent load from other agents on the same machine — that a debug-profile `hc-parse`
+`pg_parse::Morpher::parse_word` directly (a throwaway in-repo test, since a from-scratch release
+build of the `pg-cli`/`pangloss` binary in this task's environment took long enough — over 30 minutes,
+under heavy concurrent load from other agents on the same machine — that a debug-profile `pg-parse`
 test was used instead; the two are the same engine, just a different binary) and transcribing the
 output verbatim — no `SIL.Machine.Morphology.HermitCrab.Tool` run was available in this environment.
 Per `docs/conformance-staging-plan.md`'s oracle-discipline note, this is an accepted staging-time
@@ -66,11 +66,11 @@ found there is itself a finding (not assumed to match by construction).
 
 ## Verification
 
-Signatures were captured via a throwaway test driving `hc_parse::Morpher::parse_word` directly over
+Signatures were captured via a throwaway test driving `pg_parse::Morpher::parse_word` directly over
 every word in `words.yaml`, printing `word`, `invalid_shape`, and `outcome.signature()` — equivalent
-to `hc-rs batch grammar.xml words.txt out.tsv`'s signature column, without needing a release build of
-the `hc-cli` binary (see "Oracle discipline" above). The output was transcribed into `words.yaml`
-above. Cross-checked in-repo by `rust/crates/hc-parse/tests/conformance_fixtures_gate.rs`'s
+to `pangloss batch grammar.xml words.txt out.tsv`'s signature column, without needing a release build of
+the `pg-cli` binary (see "Oracle discipline" above). The output was transcribed into `words.yaml`
+above. Cross-checked in-repo by `rust/crates/pg-parse/tests/conformance_fixtures_gate.rs`'s
 `all_discovered_fixtures_match_oracle` test (dual-root discovery, runs in the default
 `cargo test --workspace` suite) — that test is the one that actually gates CI; the throwaway dump
 test was deleted once transcription was done.

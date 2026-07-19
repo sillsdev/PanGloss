@@ -1,0 +1,22 @@
+[package]
+name = "pg-ffi"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "pangloss_ffi"
+# cdylib for P/Invoke from net48; rlib so hc integration tests can link it too.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+pg-parse.workspace = true
+pg-grammar.workspace = true
+
+[dev-dependencies]
+# Enables `pg_parse::batch::TEST_PANIC_WORD` for the abort-safety test only (Cargo feature
+# unification means this activates `test-panic-hook` for `cargo test`'s build of pg-parse, but
+# NEVER for a plain `cargo build`/`cargo build --release`, which does not build
+# `[dev-dependencies]` at all — see pg-parse/Cargo.toml and `tests/abort_safety.rs`).
+pg-parse = { workspace = true, features = ["test-panic-hook"] }

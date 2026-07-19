@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 # Runs the engine-agnostic morphological-parser conformance suite (the `machine` submodule,
 # pinned to its `conformance-framework` branch — see docs/hermitcrab-rust-port-audit.md section 5
-# and machine/conformance/PROTOCOL.md) against this repo's own `hc-rs` engine, via the suite's own
+# and machine/conformance/PROTOCOL.md) against this repo's own `pangloss` engine, via the suite's own
 # C# driver in "adapter" mode (no fixture-parsing/comparison logic duplicated here — that's exactly
 # what the driver already does, correctly, for every engine that implements the adapter contract).
 #
-# `hc-rs batch <grammar> <words> <output>` already speaks that exact contract (5-column
+# `pangloss batch <grammar> <words> <output>` already speaks that exact contract (5-column
 # idx/word/ms/status/signature TSV, `--start` resumption) — nothing engine-side needed to run this.
 #
 # Usage: rust/tools/run-conformance.sh [--include-pathological] [--skip-build] [--engine=default|foma]
 #
 # `--engine=foma` (P3, docs/fst-plan/foma-fst-plan.md 3b): passes `--engine=foma` through to every
-# `hc-rs batch` invocation the driver makes, so the SAME script runs the conformance suite against
+# `pangloss batch` invocation the driver makes, so the SAME script runs the conformance suite against
 # either the default full-search engine (the pre-existing behavior, unchanged) or the
-# `hc_foma::composite::FomaAnalyzer` propose->confirm path -- run it twice (once per engine) to
+# `pg_foma::composite::FomaAnalyzer` propose->confirm path -- run it twice (once per engine) to
 # compare pass/fail sets; the gate requires them identical (zero NEW divergences on the foma run
 # beyond known-conformance-divergences.txt).
 #
@@ -60,22 +60,22 @@ if [ ! -f "$machine_dir/conformance/PROTOCOL.md" ]; then
 fi
 
 if [ "$skip_build" != "1" ]; then
-  echo "[run-conformance] building hc-rs (release)..." >&2
-  (cd "$repo_root/rust" && cargo build --release -p hc-cli)
+  echo "[run-conformance] building pangloss (release)..." >&2
+  (cd "$repo_root/rust" && cargo build --release -p pg-cli)
   echo "[run-conformance] building the conformance driver..." >&2
   dotnet build "$conformance_project" -v quiet
 fi
 
-hc_rs="$repo_root/rust/target/release/hc-rs"
-if [ ! -x "$hc_rs" ] && [ -x "$hc_rs.exe" ]; then
-  hc_rs="$hc_rs.exe"
+pangloss_bin="$repo_root/rust/target/release/pangloss"
+if [ ! -x "$pangloss_bin" ] && [ -x "$pangloss_bin.exe" ]; then
+  pangloss_bin="$pangloss_bin.exe"
 fi
-if [ ! -x "$hc_rs" ]; then
-  echo "error: hc-rs binary not found at $hc_rs(.exe) -- build it first or drop --skip-build" >&2
+if [ ! -x "$pangloss_bin" ]; then
+  echo "error: pangloss binary not found at $pangloss_bin(.exe) -- build it first or drop --skip-build" >&2
   exit 2
 fi
 
-# Capabilities hc-rs declares: every `requires:` value used anywhere under machine/conformance/ is
+# Capabilities pangloss declares: every `requires:` value used anywhere under machine/conformance/ is
 # "phonology" (or empty) as of the pinned commit (see docs/hermitcrab-rust-port-audit.md section 5)
 # -- phonological rewrite rules (both Iterative and Simultaneous) are fully ported, so declaring it
 # means no fixture is skipped for a capability PanGloss actually has.
@@ -85,7 +85,7 @@ set +e
 echo "[run-conformance] engine=$engine" >&2
 dotnet run --no-build --project "$conformance_project" -- \
   --fixtures "$machine_dir/conformance" \
-  --adapter "$hc_rs batch {grammar} {words} {output} $engine_flag" \
+  --adapter "$pangloss_bin batch {grammar} {words} {output} $engine_flag" \
   --capabilities phonology \
   $include_pathological | tee "$out"
 driver_exit="${PIPESTATUS[0]}"

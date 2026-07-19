@@ -1,5 +1,5 @@
 # Sena-shaped pathology mimic -- see STAGING.md and grammar.xml's own header comment for the full
-# rationale. Oracle: hc-rs (`hc_parse::Morpher`, driven directly rather than via the `hc-cli batch`
+# rationale. Oracle: pangloss (`pg_parse::Morpher`, driven directly rather than via the `pg-cli batch`
 # binary -- see STAGING.md's "Verification" section), NOT the C# founding oracle -- this fixture was
 # authored and verified against this repo's own Rust engine only.
 #
@@ -10,7 +10,7 @@
 # Stratum's own `morphologicalRules=` attribute remains freely combinable with any other such rule,
 # template membership notwithstanding (`AffixProcessRuleDef.is_template_rule` only gates a narrow
 # "rule after a just-finished template" synthesis check, not general free-standing eligibility; the
-# analysis-side free-standing battery, `hc_rules::stratum`'s `run_mrule_cascade`, does not consult it
+# analysis-side free-standing battery, `pg_rules::stratum`'s `run_mrule_cascade`, does not consult it
 # at all). An earlier draft of this grammar listed all four rules in the Stratum's own
 # `morphologicalRules=` attribute and measured "pakolola" (the cross-template mix) parsing
 # successfully -- the opposite of the intended pin. The fix (see grammar.xml's own Stratum comment):

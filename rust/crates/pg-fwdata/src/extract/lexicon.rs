@@ -65,7 +65,7 @@ fn extract_entry(ctx: &mut Ctx, guid: &str) -> Option<LexEntry> {
     // whose own `<Senses>` list owns a subsense glossed "consult"/"consultar" pointing at a
     // *different*, POS-less MSA on the same entry) — flattening the whole tree here (rather than
     // just the entry's direct `Senses` list) is required so [`sense_gloss`]'s per-MSA lookup in
-    // `hc-grammar::compile::lexicon` can find a subsense's gloss for its own MSA, exactly like
+    // `pg-grammar::compile::lexicon` can find a subsense's gloss for its own MSA, exactly like
     // legacy's `AllSenses`-based search does. Order is preserved (pre-order, parent before its
     // subsenses) to mirror `AllSenses`, though `sense_gloss` itself doesn't depend on order.
     let senses: Vec<Sense> = extract_senses_recursive(ctx, &rec.node.objsur_list("Senses"));

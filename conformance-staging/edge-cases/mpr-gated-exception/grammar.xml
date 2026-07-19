@@ -48,7 +48,7 @@
            bracketed alternates class (e.g. "[aeiuo]") instead of the literal input string -- an
            early draft of this fixture gave every vowel an identical bundle (differing only in
            `featPlace=vocalic`, shared by all five) and let `l`/`k`/`s`/`v`/`d` all share
-           `featPlace=fPlaceOther`, and both `hc-rs batch` runs confirmed the bracket-collapse
+           `featPlace=fPlaceOther`, and both `pangloss batch` runs confirmed the bracket-collapse
            empirically. featHigh/featBack below exist ONLY to fully distinguish the 5 vowels (no
            rule/environment in this grammar ever inspects them) -- consonants get an explicit but
            semantically-null "NA" filler for both, matching this grammar's existing filler-value

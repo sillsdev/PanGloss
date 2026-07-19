@@ -1,6 +1,6 @@
 //! Self-skipping conformance tests against real FieldWorks sample projects (Sena 3, Amharic).
 //! These are untracked corpus files present on this development machine but not guaranteed
-//! present elsewhere (CI, a fresh clone) — the same self-skip process rule `hc-grammar`'s
+//! present elsewhere (CI, a fresh clone) — the same self-skip process rule `pg-grammar`'s
 //! `sample_path()` tests follow. Located via `PANGLOSS_FW_PROJECTS_DIR`, falling back to the
 //! known sibling checkout path.
 

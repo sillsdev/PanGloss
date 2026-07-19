@@ -1,16 +1,16 @@
 # Natural-phrases N1 (docs/natural-phrases-plan.md N1) sidecar for samples/data/amharic-hc.xml.
 #
-# Maps every nominal-relevant <Gloss> string in the grammar to a hc_realize::ir feature
+# Maps every nominal-relevant <Gloss> string in the grammar to a pg_realize::ir feature
 # assignment. Verb-related glosses (aspect/agreement markers like ipfv.*, pfv.*, juss.*,
 # conv.*, *.npst, plus neg/obj/caus/def.m/-pfv-/-ipfv-/-conv-) intentionally have NO entry here
-# -- they are correctly left for hc_realize::ir::GlossIr::extras (N1's documented "unmapped ->
+# -- they are correctly left for pg_realize::ir::GlossIr::extras (N1's documented "unmapped ->
 # extras" fallback), since N1/N2 scope is nominal realization only.
 #
 # Inventory method: every <Gloss>...</Gloss> in amharic-hc.xml was grepped and cross-checked
 # against its <MorphologicalRule>/<AffixTemplate> context before mapping (see the N1 commit
 # message for the full list). Two notes on that inventory:
 #   - "poss.*" has exactly eight distinguished forms in this grammar (no bare poss.2/poss.3,
-#     no poss.1f/poss.1m) -- see hc_realize::ir::Poss's doc comment for the full correspondence
+#     no poss.1f/poss.1m) -- see pg_realize::ir::Poss's doc comment for the full correspondence
 #     table this file's poss.* lines implement.
 #   - "abl" and "from" are two separate MorphologicalRule definitions (different rule ids,
 #     appear both in the unordered stratum-1 rule set and again in stratum 2) but both realize

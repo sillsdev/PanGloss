@@ -28,7 +28,7 @@ $ErrorActionPreference = 'Stop'
 # worth flagging as a possible gap in O1b's fix, and it captures the actual idx/word directly
 # from the process's own STARTED line rather than re-deriving it later.
 
-$Bin      = Join-Path $Repo 'rust\target\release\hc-rs.exe'
+$Bin      = Join-Path $Repo 'rust\target\release\pangloss.exe'
 $Grammar  = Join-Path $Repo 'samples\data\amharic-hc.xml'
 $Words    = Join-Path $Repo 'samples\data\amharic-words.txt'
 $OutDir   = Join-Path $Repo 'rust\parity-out\work'
@@ -167,8 +167,8 @@ To resume: & "$Bin" batch "$Grammar" "$Words" "$OutTsv" --word-timeout-ms $WordT
         $m1 = Select-String -LiteralPath $stderrLog -Pattern 'batch complete' -Encoding Unicode -Quiet -ErrorAction SilentlyContinue
         $m2 = Select-String -LiteralPath $stderrLog -Pattern 'batch complete' -Quiet -ErrorAction SilentlyContinue
         $completeFound = [bool]$m1 -or [bool]$m2
-        $err1 = Select-String -LiteralPath $stderrLog -Pattern 'panicked|hc-rs batch:' -Encoding Unicode -Quiet -ErrorAction SilentlyContinue
-        $err2 = Select-String -LiteralPath $stderrLog -Pattern 'panicked|hc-rs batch:' -Quiet -ErrorAction SilentlyContinue
+        $err1 = Select-String -LiteralPath $stderrLog -Pattern 'panicked|pangloss batch:' -Encoding Unicode -Quiet -ErrorAction SilentlyContinue
+        $err2 = Select-String -LiteralPath $stderrLog -Pattern 'panicked|pangloss batch:' -Quiet -ErrorAction SilentlyContinue
         if ($err1 -or $err2) {
             Log "FATAL: panic/error detected in $stderrLog. Stopping wrapper."
             $fatal = $true

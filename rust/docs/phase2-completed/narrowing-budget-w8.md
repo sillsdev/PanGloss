@@ -58,7 +58,7 @@ Sources: `NARROWING-FINDINGS.md` (worktree `../.worktrees/tier6b-rebase`), audit
      wall-clock watchdog like C# (batch already has per-word timing; the complexity-cap work
      [[complexity_cap_plan]] wants caps for pathological grammars — reconcile: cap stays as a
      configurable safety, default sized from calibration, NOT tuned to make slow words fail).
-   - Re-calibrate `--step-cap` semantics in hc-cli docs and any tests pinning step counts.
+   - Re-calibrate `--step-cap` semantics in pg-cli docs and any tests pinning step counts.
 2. **Land the width-guard consolidation first** (it's W1.1, independent, pays for itself).
 3. **Rebase + land narrowing** (`97504528` content) under the new budget:
    - Re-measure full Amharic: expect ≥532 with zero regressions AND quantify gains (which of the
@@ -73,7 +73,7 @@ Sources: `NARROWING-FINDINGS.md` (worktree `../.worktrees/tier6b-rebase`), audit
    b. keep-longer dedup preferring Optional-flooded shapes (correct per C#; interaction cost —
       compare candidate counts per stratum against a C# trace);
    c. affix-matcher cost over flooded shapes — C# compiles matchers once AND its traversal may
-      prune Optional branches differently; instrument branch counts in `hc-fst` traversal on ሌባዬ
+      prune Optional branches differently; instrument branch counts in `pg-fst` traversal on ሌባዬ
       vs the same word's C# trace.
 5. **Acceptance:** `RewriteRuleTests.MergeRules`/`MultipleMergeRules`/`ExpandRules` ported and
    passing (D-batch-5 unlocks); Amharic ≥532 with quantified gains; no Sena regression; worst-word

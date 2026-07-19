@@ -3,22 +3,22 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/hc-grammar",
-    "crates/hc-featstruct",
-    "crates/hc-shape",
-    "crates/hc-foma",
-    "crates/hc-fst",
-    "crates/hc-rules",
-    "crates/hc-memo",
-    "crates/hc-parse",
-    "crates/hc-ffi",
-    "crates/hc-cli",
-    "crates/hc-realize",
-    "crates/hc-lexicon",
-    "crates/hc-wasm",
+    "crates/pg-grammar",
+    "crates/pg-featstruct",
+    "crates/pg-shape",
+    "crates/pg-foma",
+    "crates/pg-fst",
+    "crates/pg-rules",
+    "crates/pg-memo",
+    "crates/pg-parse",
+    "crates/pg-ffi",
+    "crates/pg-cli",
+    "crates/pg-realize",
+    "crates/pg-lexicon",
+    "crates/pg-wasm",
     "crates/pg-snapshot",
     "crates/pg-fwdata",
-    "crates/hc-conformance-fixtures",
+    "crates/pg-conformance-fixtures",
 ]
 
 [workspace.package]
@@ -40,34 +40,34 @@ rayon = "1"
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# Only used by hc-conformance-fixtures to parse `words.yaml` (conformance fixture ground truth) —
+# Only used by pg-conformance-fixtures to parse `words.yaml` (conformance fixture ground truth) —
 # block-scalar-heavy hand-authored YAML that a hand-rolled parser would mishandle.
 serde_yaml = "0.9"
 # std::time::Instant is unimplemented (panics) on wasm32-unknown-unknown; web-time is a drop-in
 # replacement (Performance.now()-backed there, a plain re-export of std elsewhere) for the two
-# always-on O2 profiling counters (hc-fst::traverse, hc-rules::morph) that call Instant::now()
-# unconditionally on every parse, not just when a profiling env var is read (see hc-wasm).
+# always-on O2 profiling counters (pg-fst::traverse, pg-rules::morph) that call Instant::now()
+# unconditionally on every parse, not just when a profiling env var is read (see pg-wasm).
 web-time = "1"
 # internal crates
-hc-grammar = { path = "crates/hc-grammar" }
-hc-featstruct = { path = "crates/hc-featstruct" }
-hc-shape = { path = "crates/hc-shape" }
-hc-foma = { path = "crates/hc-foma" }
-hc-fst = { path = "crates/hc-fst" }
-hc-rules = { path = "crates/hc-rules" }
-hc-memo = { path = "crates/hc-memo" }
-hc-parse = { path = "crates/hc-parse" }
-hc-realize = { path = "crates/hc-realize" }
-hc-lexicon = { path = "crates/hc-lexicon" }
+pg-grammar = { path = "crates/pg-grammar" }
+pg-featstruct = { path = "crates/pg-featstruct" }
+pg-shape = { path = "crates/pg-shape" }
+pg-foma = { path = "crates/pg-foma" }
+pg-fst = { path = "crates/pg-fst" }
+pg-rules = { path = "crates/pg-rules" }
+pg-memo = { path = "crates/pg-memo" }
+pg-parse = { path = "crates/pg-parse" }
+pg-realize = { path = "crates/pg-realize" }
+pg-lexicon = { path = "crates/pg-lexicon" }
 pg-snapshot = { path = "crates/pg-snapshot" }
 pg-fwdata = { path = "crates/pg-fwdata" }
-hc-conformance-fixtures = { path = "crates/hc-conformance-fixtures" }
+pg-conformance-fixtures = { path = "crates/pg-conformance-fixtures" }
 # dev
 criterion = "0.5"
 proptest = "1"
 
 # Release profile tuned for the FFI cdylib and CLI: max optimization, single codegen unit,
-# fat LTO. panic = "unwind" is REQUIRED — hc-ffi relies on catch_unwind at the C boundary
+# fat LTO. panic = "unwind" is REQUIRED — pg-ffi relies on catch_unwind at the C boundary
 # (rust-conversion.md §4.2, §8 layer 7); "abort" would break abort-safety.
 [profile.release]
 opt-level = 3

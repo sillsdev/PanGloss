@@ -1,0 +1,24 @@
+# Natural-phrases N2 (docs/natural-phrases-plan.md N2) embedded English plural-exception table
+# for pg_realize::table::TableRealizer, loaded via include_str!.
+#
+# `[plural_exceptions]`: singular citation form -> irregular plural, consulted BEFORE the regular
+# `-s`/`-es`/`-ies` mechanical rules (pg_realize::table's `regular_plural`) for any concept whose
+# final word (after `Concept::Lex`'s dots-to-spaces split) matches a key here exactly. Not
+# exhaustive English morphology -- the standard irregulars plus the handful of English nouns whose
+# plural equals their singular (unchanged-plural nouns still need an entry here so the regular
+# rules, which would otherwise append "-s", never touch them).
+
+[plural_exceptions]
+
+"man" = "men"
+"woman" = "women"
+"child" = "children"
+"person" = "people"
+"foot" = "feet"
+"tooth" = "teeth"
+"goose" = "geese"
+"mouse" = "mice"
+"ox" = "oxen"
+"sheep" = "sheep"
+"fish" = "fish"
+"deer" = "deer"

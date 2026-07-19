@@ -47,7 +47,7 @@ class CharTable:
 
     def tokenize(self, text):
         """Greedy longest-match tokenization of literal text into a list of charids,
-        mirroring hc-grammar's segment.rs. Boundary '+' chars and the archiphoneme boundary
+        mirroring pg-grammar's segment.rs. Boundary '+' chars and the archiphoneme boundary
         reps ('^0','*0','&0','∅') are matched the same way as segments."""
         text = nfd(text)
         out = []

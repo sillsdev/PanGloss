@@ -2,7 +2,7 @@
 
 **Crate:** `rust/crates/pg-snapshot`. **Status:** implemented (T1 of `docs/fwdata-import-plan.md`
 §6). This document is the field-by-field specification; see that plan for the surrounding
-architecture (`.fwdata → pg-fwdata → Snapshot → hc_grammar::compile → Grammar`).
+architecture (`.fwdata → pg-fwdata → Snapshot → pg_grammar::compile → Grammar`).
 
 ## 0. Conventions
 
@@ -523,10 +523,10 @@ against):
   Building and maintaining that mapping table is `pg-fwdata`'s (T2's) job — it's the component
   that actually reads raw `.fwdata` XML `class="MoMorphType"` records and their GUIDs.
 - **Parsing/validating `Environment.representation` strings and reduplication bracket notation in
-  `Allomorph.forms`.** Both are kept as opaque, FieldWorks-native syntax; `hc_grammar::compile`
+  `Allomorph.forms`.** Both are kept as opaque, FieldWorks-native syntax; `pg_grammar::compile`
   (T3) is the intended consumer and owns the tokenizer/parser for them, mirroring `HCLoader`'s own
   lazy, tolerant parsing (HCLoader.cs:2260-2457, 2532-2571).
 - **`.fwdata` XML parsing itself, and everything in `HCLoader.cs` that constructs a HermitCrab
   runtime object graph (`Language`, `Stratum`, `Pattern<Word, ShapeNode>`, ...).** That belongs to
-  `pg-fwdata` (T2, the extractor) and `hc_grammar::compile` (T3, the compiler) respectively; this
+  `pg-fwdata` (T2, the extractor) and `pg_grammar::compile` (T3, the compiler) respectively; this
   crate only defines and (de)serializes the data contract between them.

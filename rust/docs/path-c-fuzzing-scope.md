@@ -48,17 +48,17 @@ rules, MPR groups, pattern-shape allomorphs, metathesis).
 Two structurally different ways to mutate an XML grammar, with different cost/validity trade-offs
 (Opus must pick, see §5.1):
 - **Text/DOM-level mutation**: parse with any XML tree library (quick-xml, already a workspace
-  dependency via `hc-grammar`), do tree-shape edits (swap attribute values from the DTD's own
+  dependency via `pg-grammar`), do tree-shape edits (swap attribute values from the DTD's own
   enumerated value lists, e.g. `morphologicalRuleOrder="unordered"` ↔ `"linear"`; duplicate/reorder
   child elements; toggle optional attributes on/off), re-serialize. Cheap to build, but produces
   more DTD-invalid or nonsensical grammars that both engines will reject identically (a "finding"
   that isn't one — wasted cycles, needs a fast pre-filter).
-- **Typed-AST mutation**: `hc-grammar`'s loader (`rust/crates/hc-grammar/src/load.rs`) already
+- **Typed-AST mutation**: `pg-grammar`'s loader (`rust/crates/pg-grammar/src/load.rs`) already
   parses XML into a typed `Grammar`/`*Def` model — this is the natural mutation substrate (mutate
   the typed tree, which can enforce structural invariants the DTD implies, e.g. "every
   `naturalClass` attribute value must reference a declared `NaturalClass` id"). **Gap found this
-  session: there is no XML writer/serializer anywhere in `hc-grammar`** (`grep` for
-  `write|Writer|to_xml|serialize` in `crates/hc-grammar/src/` returns nothing) — C# has
+  session: there is no XML writer/serializer anywhere in `pg-grammar`** (`grep` for
+  `write|Writer|to_xml|serialize` in `crates/pg-grammar/src/` returns nothing) — C# has
   `XmlLanguageWriter` (94% branch-covered per this task's part (b) measurement, so a well-exercised
   reference implementation exists) but Rust has never needed one, since the port only ever
   *consumes* grammars. Building one is real, scoped work Opus should size explicitly, not assume.
@@ -87,7 +87,7 @@ DOTNET_gcServer=0 dotnet <parse-opt>/SIL.Machine.Morphology.HermitCrab.Tool/bin/
   -i grammar.xml -s <script with: batch words.txt out_csharp.tsv>
 
 # Rust
-hc-rs.exe batch grammar.xml words.txt out_rust.tsv --step-cap=<N>
+pangloss.exe batch grammar.xml words.txt out_rust.tsv --step-cap=<N>
 ```
 
 Normalization (established convention, used verbatim across every fixture's README this session
@@ -175,7 +175,7 @@ once the design below is fixed:
 5. **Determinism / reproducibility contract.** The plan specifies "seeded RNG." Needs a concrete
    decision on: the seed format/CLI surface (a single u64? a seed file capturing grammar-gen +
    word-gen streams separately for independent replay?); whether both engines are forced
-   single-threaded (`--sequential` on `hc-rs`/`hc.dll`, both already support this flag) to eliminate
+   single-threaded (`--sequential` on `pangloss`/`hc.dll`, both already support this flag) to eliminate
    a whole class of non-reproducible non-findings (C#'s own historical `ConcurrentQueue`/thread-
    safety commits, rows 52-53, suggest parallel-mode nondeterminism is a real risk here, not
    theoretical); and how a "replay this exact fuzz run" command is exposed for debugging a harness

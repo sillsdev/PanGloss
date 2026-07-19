@@ -11,7 +11,7 @@ see `docs/fst-plan/foma-fst-plan.md`'s P6 section for the intended successor.
 
 ## Aweti end-to-end result (2026-07-18): pruning is necessary but not sufficient
 
-Ran `hc-rs batch aweti.json aweti-words.txt out.tsv --engine=foma` (real corpus, real CLI, on
+Ran `pangloss batch aweti.json aweti-words.txt out.tsv --engine=foma` (real corpus, real CLI, on
 `pruning-morphotactics-wip` merged with `main`) for the first time since the pruning fix landed —
 the "Final verification" gates below never actually exercise Aweti itself, only the 4 reference
 grammars' gates plus the pruning mechanism's own unit/A-B tests. Findings, most important first:
@@ -20,7 +20,7 @@ grammars' gates plus the pruning mechanism's own unit/A-B tests. Findings, most 
    recursion this doc's fix targets) now completes, bounded, in `emit()`'s own ~551s — down from
    "OOMs past 4.9GB without finishing" on `main` pre-fix. `HC_PREEXPAND_PROBE_CAP=20000000` never
    fired (actual: 8,365,763 pairs probed) — the recursion is genuinely bounded, not just lucky.
-2. **But the emitted network is still enormous.** `hc_foma::emit::emit`'s own `EmitCounts` for
+2. **But the emitted network is still enormous.** `pg_foma::emit::emit`'s own `EmitCounts` for
    Aweti: `lexc_source` = **691,184,759 bytes** (9,720,129 lines), `composite_fusion_entries` =
    **2,833,559**, `composite_structural_entries` = **230,476** — compare Amharic's production
    numbers from the same day (`interdigitation_entries=386 fusion_entries=22775`): Aweti's fusion
@@ -35,7 +35,7 @@ grammars' gates plus the pruning mechanism's own unit/A-B tests. Findings, most 
    but not a crash.
 4. **`analyze_word` (propose+confirm) crashes on the very first corpus word, deterministically,
    every time** — `cargo run --example aweti_confirm_probe`, wrapped in the same dedicated 1 GiB
-   stack `hc-cli`'s own `main()` uses (needed even to get past compile without a plain stack
+   stack `pg-cli`'s own `main()` uses (needed even to get past compile without a plain stack
    overflow — compile itself is recursion-heavy). Localized to inside `propose_candidates`
    (`crate::composite::FomaAnalyzer::propose_candidates`, calling `FomaProposer::propose` UNION
    `ReduplicationPeeler::peel_candidates`) — a debug print placed immediately after that call,
@@ -77,16 +77,16 @@ strategy selector needs a much cheaper predictor than "run the 9-minute emit and
 sampling rep-variant-overflow rate or fusion-eligible-rule-count against slot/stratum optionality
 structure on a handful of roots.
 
-Diagnostics used (throwaway examples, `rust/crates/hc-foma/examples/`): `aweti_emit_only.rs` (calls
+Diagnostics used (throwaway examples, `rust/crates/pg-foma/examples/`): `aweti_emit_only.rs` (calls
 `emit()` alone, no foma compile, to separate emit-time from compile-time cost and print
 `EmitCounts`/`EmitReport` directly) and `aweti_confirm_probe.rs` (builds `FomaAnalyzer` once, then
 calls `analyze_word` on each corpus word in sequence with a flush before each, so the last-printed
 word localizes an abort without needing a rebuild per word — both wrapped in a dedicated 1 GiB
-stack thread, matching `hc-cli`'s own `main()`, since compile itself needs it).
+stack thread, matching `pg-cli`'s own `main()`, since compile itself needs it).
 
 ## Final verification (2026-07-17)
 
-`cargo test -p hc-foma --release` — every test file run (per-file, several exceed 60s), all green:
+`cargo test -p pg-foma --release` — every test file run (per-file, several exceed 60s), all green:
 
 | Test binary | Tests | Result | Notes |
 |---|---|---|---|
@@ -102,8 +102,8 @@ stack thread, matching `hc-cli`'s own `main()`, since compile itself needs it).
 | `pk1_precision_recall_invariance` | 4 | ok | unaffected by this branch |
 | `pk2_eliminate_flag_oracle` | 7 | ok | unaffected by this branch (WSL/C-foma oracle available in this environment) |
 
-`cargo check -p hc-foma --target wasm32-unknown-unknown`: ok (dev profile, 18.14s).
-`cargo check -p hc-wasm --target wasm32-unknown-unknown`: ok (dev profile, 9.40s).
+`cargo check -p pg-foma --target wasm32-unknown-unknown`: ok (dev profile, 18.14s).
+`cargo check -p pg-wasm --target wasm32-unknown-unknown`: ok (dev profile, 9.40s).
 
 ### Amharic A/B numbers (the sizing table's real-tree confirmation)
 
@@ -128,7 +128,7 @@ real payoff is bounded by how much of the flat recursion the DYNAMIC filters (FS
 
 ### `f3_parity` Amharic finding: pre-existing on `main`, load-sensitive, not introduced by pruning
 
-The task's one open problem: `cargo test -p hc-foma --release --test f3_parity amharic`
+The task's one open problem: `cargo test -p pg-foma --release --test f3_parity amharic`
 (`amharic_corpus_words_multiset_parity`) had been reported to run >60s then die abnormally (no
 panic text, abnormal process exit) — reproduced, per that report, even under `ExploreMode::Flat`
 and even isolated single-threaded, which rules out this branch's pruning logic and rules out
@@ -153,8 +153,8 @@ reproduced as a deterministic crash in a controlled run.
 
 **Fix landed** (commit "Test: dedicated large-stack thread for the Amharic f3_parity gate",
 cherry-pickable to `main` independent of the pruning feature): gave this one test the same
-dedicated 1 GiB worker-thread stack that `hc-cli`'s own `main()` and
-`hc_parse::batch::hc_parse_batch`'s rayon pool already carry for this identical recursion class
+dedicated 1 GiB worker-thread stack that `pg-cli`'s own `main()` and
+`pg_parse::batch::hc_parse_batch`'s rayon pool already carry for this identical recursion class
 (`Morpher::parse_word_selected`'s analysis cascade) — free insurance (Windows reserves, does not
 commit, that address space) regardless of which explanation for the original report is right. This
 branch's own pruned-mode run of the now-hardened test is fully green: 613/613 compared words at
@@ -195,7 +195,7 @@ may be tiny; the cost to tame is the probing itself.
 
 ## Problem
 
-`hc-foma`'s two composite chain builders — `crate::preexpand::extend` (interdigitation +
+`pg-foma`'s two composite chain builders — `crate::preexpand::extend` (interdigitation +
 boundary-fusion composites) and `crate::emit::struct_extend` (truncation/circumfix/probe-refusal
 composites) — both recursively chain **every** candidate rule onto every root at every depth
 (≤ 3), gated only by the cheap `required_syn_fs` unifiability pre-filter. Neither consults
@@ -213,10 +213,10 @@ the engine can never produce.
 
 ## Fix: prune chains to engine-legal rule adjacencies
 
-The engine's synthesis morphotactics (`hc-rules/src/stratum.rs`, ports of
+The engine's synthesis morphotactics (`pg-rules/src/stratum.rs`, ports of
 `SynthesisStratumRule.cs` / `SynthesisAffixTemplatesRule.cs` / `SynthesisAffixTemplateRule.cs`):
 
-1. Strata fold in document order 0→n (`hc-parse/src/morpher.rs::synthesis_pipeline_selected`);
+1. Strata fold in document order 0→n (`pg-parse/src/morpher.rs::synthesis_pipeline_selected`);
    a stratum applies only to words whose root stratum is not deeper. So a chain's rules must
    come from a **non-decreasing stratum sequence** starting at the root's stratum.
 2. Loose rules (`sd.mrules`) run in a Linear or Unordered (combination) cascade
@@ -254,7 +254,7 @@ over-approximation of the engine (recall-safe; only costs extra exploration).
 
 ### The automaton
 
-Per grammar, build once (new module `crates/hc-foma/src/morphotactics.rs`, shared by both
+Per grammar, build once (new module `crates/pg-foma/src/morphotactics.rs`, shared by both
 builders):
 
 - `MorphotacticIndex`: per rule → loose strata + slot sites `(template, slot)`; per template →
@@ -300,7 +300,7 @@ never race process-global env state.
 
 ## What must stay green
 
-- `cargo test -p hc-foma --release` — all gates. Specifically:
+- `cargo test -p pg-foma --release` — all gates. Specifically:
   - `f3_amharic_gate` (100% recall, engine oracle) — the real soundness check: Amharic's
     composites are load-bearing for recall. If pruning breaks it, the automaton is wrong
     (most likely the vacuous/skippable model) — fix the model, never widen it ad hoc without
@@ -310,7 +310,7 @@ never race process-global env state.
   - `f4_composite_gate`, `f3_parity`, `pk1`, `pk2`.
   - Any test asserting exact `pairs_probed`/entry counts may be updated (they are diagnostics),
     with the new numbers recorded; recall assertions may not.
-- `cargo check -p hc-foma --target wasm32-unknown-unknown` (crate gate per Cargo.toml note).
+- `cargo check -p pg-foma --target wasm32-unknown-unknown` (crate gate per Cargo.toml note).
 
 ## New tests
 
@@ -331,7 +331,7 @@ never race process-global env state.
    lexc size; foma compiles it. Soft time bar: emit ≤ ~60 s. If the instrumented run shows the
    dynamic tree is still intractable, STOP and report — next levers (honest-failure plumbing,
    bounded P6) are a design decision, not something to improvise.
-2. `hc-rs batch` aweti-words.txt `--engine=foma` vs. full-engine parity (recall = 100%).
+2. `pangloss batch` aweti-words.txt `--engine=foma` vs. full-engine parity (recall = 100%).
 3. Four-language timing table (the original ask, README format).
 
 ## Explicitly out of scope

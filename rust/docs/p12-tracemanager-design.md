@@ -203,7 +203,7 @@ per-file work breakdown §5's implementation chunks follow:
 ## 2. Current Rust state
 
 Confirmed absent by direct grep: no `Trace`, `TraceManager`, `ITraceManager`, or `FailureReason` type
-anywhere in `rust/crates/`. `hc-parse/src/morpher.rs`'s own doc comment already flags this
+anywhere in `rust/crates/`. `pg-parse/src/morpher.rs`'s own doc comment already flags this
 explicitly: *"the trace-less overload; this port has no `ITraceManager`, plan rust-conversion.md
 §7"* (on `Morpher::generate_words`'s doc). Every C#-side control-flow interaction tracing has
 (disabling `mergeEquivalentAnalyses`, disabling the Phase-5 lexical gate, bypassing the
@@ -214,15 +214,15 @@ the *unmemoized, unshortcut* code path exactly as C# does, or trace output would
 parse behavior in exactly the cases where a human most wants to trust it).
 
 The Rust engine's architecture is a chain of free functions returning `Vec<Word>`
-(`hc_rules::morph::{synthesize, analyze}`, `hc_rules::rewrite::{synthesize, analyze}`,
-`hc_rules::metathesis::{synthesize, analyze}`, `hc_rules::stratum::{StratumAnalyzer,
+(`pg_rules::morph::{synthesize, analyze}`, `pg_rules::rewrite::{synthesize, analyze}`,
+`pg_rules::metathesis::{synthesize, analyze}`, `pg_rules::stratum::{StratumAnalyzer,
 synthesize_stratum}`), not C#'s per-rule object graph where every rule is an `IRule<Word,int>`
 instance holding a `Morpher` reference it can call back into at will. This has one deep structural
 consequence for tracing: **C# fires a "not applied" trace event from inside the exact rule instance
 that tried and failed; Rust's functions return an empty `Vec<Word>` (or omit a candidate) with no
 side channel at all for *why*.** Concretely:
 
-- `hc_rules::morph::synth_affix`/`synth_affix_cached` (`morph.rs:1138-1304`) already has **explicit,
+- `pg_rules::morph::synth_affix`/`synth_affix_cached` (`morph.rs:1138-1304`) already has **explicit,
   individually early-returning gates** with doc comments that cite the exact C# line numbers each one
   ports (`RequiredSyntacticFeatureStruct`-adjacent `synth_syn_fs` gate, the
   `NonPartialRuleProhibitedAfterFinalTemplate`/`NonPartialRuleRequiredAfterNonFinalTemplate` pair at
@@ -231,16 +231,16 @@ side channel at all for *why*.** Concretely:
   event needs. This is the best-positioned code in the whole engine for tracing: the gates already
   exist, are already individually identified, and already cite their C# `FailureReason` by name in
   comments — they just don't *emit* anything today.
-- `hc_rules::stratum::apply_one_mrule` (`stratum.rs:546-603`) has the `MaxStemCount`/
+- `pg_rules::stratum::apply_one_mrule` (`stratum.rs:546-603`) has the `MaxStemCount`/
   `MaxApplicationCount` analysis-side gates as explicit early returns, same shape.
-- `hc_rules::validity::allomorphs_valid_impl` (`validity.rs:390-518`) is the **direct** Rust
+- `pg_rules::validity::allomorphs_valid_impl` (`validity.rs:390-518`) is the **direct** Rust
   counterpart of C#'s `Allomorph.IsWordValid` — same function, same gates, same order
   (bound-root → stem-name → allomorph-co-occurrence → morpheme-co-occurrence → environments →
   disjunctive-recheck), confirmed by the module's own doc comment citing `Allomorph.cs:105-156` line
   for line. This is the single most direct 1:1 mapping in the entire codebase between a C# trace
   call-site cluster (`Allomorph.cs`'s four `Failed(...)` sites plus `RootAllomorph.cs`'s three) and
   one Rust function's control flow.
-- `hc_rules::stratum::synth_apply_templates` (`stratum.rs:1325-1401`) already has an explicit doc
+- `pg_rules::stratum::synth_apply_templates` (`stratum.rs:1325-1401`) already has an explicit doc
   comment ("Tier-2 #13, gate 1") distinguishing the exact C# branch that decides between
   `NonFinalTemplateAppliedLast` and `ApplicableTemplatesNotApplied` — both currently collapse to the
   same Rust `if out.is_empty() && ...` passthrough with no distinguishing signal emitted.
@@ -249,8 +249,8 @@ side channel at all for *why*.** Concretely:
   **no distinguishing signal at all today** between "gate N failed" and "no allomorph/subrule's
   pattern matched" — an empty return is just an empty return.
 
-`hc-cli`'s existing diagnostics (`HC_STEP_STATS`, `HC_FST_PROFILE`) are unconditional numeric
-accumulators bumped inside `hc_fst::traverse` and `hc_rules::morph::push_remove_duplicates` — see §4
+`pg-cli`'s existing diagnostics (`HC_STEP_STATS`, `HC_FST_PROFILE`) are unconditional numeric
+accumulators bumped inside `pg_fst::traverse` and `pg_rules::morph::push_remove_duplicates` — see §4
 for why these are a genuinely different concern from tracing and must stay separate mechanisms.
 
 ---
@@ -291,7 +291,7 @@ This is the heart of "flag rather than force a 1:1." Three buckets:
 | C# site | Why it's different |
 |---|---|
 | `SynthesisRewriteRule.cs`'s `PhonologicalRuleApplied`/`NotApplied` (§1.5's last bullet) | The reason comes from a **per-subrule-index side channel** (`Word.CurrentRuleResults: Dictionary<int, Tuple<FailureReason,object>>`) populated *during* the underlying `IPatternRule.Apply` matcher's own internal evaluation (in `SynthesisRewriteSubruleSpec.cs`), then read back by the wrapping rule after the whole call returns. Rust's `rewrite::synthesize_with_mpr(_cached)` (`rewrite.rs:881-989`) has no equivalent side channel today — subrule-level rejection reasons (`RequiredSyntacticFeatureStruct`/`RequiredMprFeatures`/`ExcludedMprFeatures` gates inside `subrule_applicable`, `rewrite.rs:820-840`) are checked and discarded inline, per subrule, during the FST-based matching walk, not accumulated into a per-index map for a caller to inspect afterward. Wiring this for tracing means adding an analogous per-subrule accumulator to `rewrite.rs`'s synthesis path — the single largest structural change in this whole design, not a reason-upgrade of an existing bool. |
-| Compiled-FST-based matching generally (`rewrite.rs`, `morph.rs`'s pattern-compile paths, `hc-fst`) | These operate over compiled nondeterministic/deterministic automata (`Fst`, `traverse.rs`) rather than a step-by-step interpreted pattern walk the way C#'s `Matcher<Word,int>`/`PatternRule` machinery does. C# can trace "which specific pattern element failed to match at which position" because its matcher is a direct AST walk; Rust's FST-compiled matchers report only match/no-match for the whole compiled automaton, with no intermediate position-level failure signal surfacing today. This means the Rust `Pattern` reason (§3.2) is realistically the *finest* granularity available for rewrite/metathesis rule tracing without deeper FST-internals surgery — flagged as a known, permanent granularity gap versus C#, not a temporary omission to "fix" in a later chunk. |
+| Compiled-FST-based matching generally (`rewrite.rs`, `morph.rs`'s pattern-compile paths, `pg-fst`) | These operate over compiled nondeterministic/deterministic automata (`Fst`, `traverse.rs`) rather than a step-by-step interpreted pattern walk the way C#'s `Matcher<Word,int>`/`PatternRule` machinery does. C# can trace "which specific pattern element failed to match at which position" because its matcher is a direct AST walk; Rust's FST-compiled matchers report only match/no-match for the whole compiled automaton, with no intermediate position-level failure signal surfacing today. This means the Rust `Pattern` reason (§3.2) is realistically the *finest* granularity available for rewrite/metathesis rule tracing without deeper FST-internals surgery — flagged as a known, permanent granularity gap versus C#, not a temporary omission to "fix" in a later chunk. |
 | Analysis-side "not unapplied" events carry no reason in C# either | `PhonologicalRuleNotUnapplied`/`MorphologicalRuleNotUnapplied` take no `FailureReason` parameter at all (§1.1) — so there is nothing to port here beyond the bare event; Rust's analysis-side functions already return `Vec::new()`/omit candidates exactly as opaquely as C# itself treats this case. No mismatch — both engines are equally silent on *why* an unapplication didn't fire. |
 
 **Summary for §4.2**: of the 24 real `FailureReason` values, 11 are already exact 1:1 gates in Rust
@@ -318,7 +318,7 @@ Rejected alternatives and why:
   implement (append to a `Vec<TraceEvent>` inside a `RefCell`, no threading needed beyond one shared
   handle) but fails the *zero-cost-when-off* requirement outright: the accumulation cost (allocating
   and cloning a `Word` snapshot into every event) would be paid on every single rule-application
-  attempt of every parse, always, whether or not anyone ever reads the log. Given `hc-cli batch`
+  attempt of every parse, always, whether or not anyone ever reads the log. Given `pg-cli batch`
   parses tens of thousands of words per run and the analysis cascade alone can attempt hundreds of
   thousands of rule applications per pathological word (`docs/budget-model.md`), this is not a
   tolerable default-on cost, and gating the *accumulation* itself behind a runtime flag just
@@ -353,7 +353,7 @@ Rejected alternatives and why:
 **Concrete shape:**
 
 ```rust
-// hc-rules/src/trace.rs (new module; hc-parse re-exports for CLI/FFI convenience)
+// pg-rules/src/trace.rs (new module; pg-parse re-exports for CLI/FFI convenience)
 
 /// A stable handle into the trace tree the sink is building — the Rust analog of C#'s
 /// `Word.CurrentTrace`, but carried as an explicit value (a small `Copy` index into the sink's
@@ -413,10 +413,10 @@ already exist as the clone points to update).
 `if (_traceManager.IsTracing)` guard, since it wraps the hot per-word parse path. Two complementary
 techniques, both already precedented elsewhere in this codebase:
 
-1. **Generic monomorphization over `TraceSink`, not `dyn TraceSink`.** `hc-parse::Morpher::parse_word`
+1. **Generic monomorphization over `TraceSink`, not `dyn TraceSink`.** `pg-parse::Morpher::parse_word`
    becomes generic over `T: TraceSink` (or gains a sibling `parse_word_traced<T: TraceSink>`,
    keeping the existing `parse_word` as a thin `parse_word_traced::<NoopSink>` wrapper — the latter
-   is simpler and keeps every existing call site, including `hc-ffi` and every test, byte-for-byte
+   is simpler and keeps every existing call site, including `pg-ffi` and every test, byte-for-byte
    unchanged). With `T = NoopSink`, `is_tracing()` inlines to a compile-time `false`, and every
    guarded block (`if trace.is_tracing() { ... }`) becomes dead code the compiler removes entirely
    — including the argument *computation* inside the block (e.g. cloning a `Word`, building a
@@ -424,7 +424,7 @@ techniques, both already precedented elsewhere in this codebase:
    pays a runtime branch even when consistently false) and costs nothing beyond one extra type
    parameter threaded through the same functions that already thread `&RuleCache`/`&StepBudget`
    generically-by-reference.
-2. Where full monomorphization through every `hc-rules` function is judged too invasive for a first
+2. Where full monomorphization through every `pg-rules` function is judged too invasive for a first
    landing (a real risk given the fan-out — dozens of functions across 6 files, §5's chunking
    reflects this), a `&dyn TraceSink` trait object is an acceptable fallback with a small, bounded
    cost (one vtable-dispatched `is_tracing()` bool check per call site, then early-return) — still
@@ -533,7 +533,7 @@ human, or a Sonnet agent, diagnosing a specific word) actually lives, and FFI ha
 today (FieldWorks can't be compiled in this environment per prior memory) so building it out fully
 now would be speculative.
 
-- **New `hc-rs parse <grammar.xml> <word> [--trace[=<file>]] [--trace-format=text|json]` subcommand**
+- **New `pangloss parse <grammar.xml> <word> [--trace[=<file>]] [--trace-format=text|json]` subcommand**
   (today's CLI only has `batch`/`generate` — neither is the right shape for "trace exactly one
   word": `batch` is optimized for throughput over a word list with no per-word rich output, and
   adding `--trace` to it would mean either tracing every word in the batch — usually not what's
@@ -558,7 +558,7 @@ now would be speculative.
   points (text optimizes for `diff -u` against a transcribed C# trace read by eye; JSON optimizes
   for a script asserting "these two trees have the same sequence of `(TraceType, rule_name,
   subrule_index, failure_reason)` tuples" without caring about exact indentation/whitespace).
-- **FFI**: stub only in this design — `hc_parse_word`'s existing signature (`hc-ffi/src/parse.rs`)
+- **FFI**: stub only in this design — `hc_parse_word`'s existing signature (`pg-ffi/src/parse.rs`)
   gains no new parameter yet; a future `hc_parse_word_traced` variant (or a flag bit on the existing
   call) would return a second buffer encoding the same JSON tree, gated the same way the CLI's
   `--trace` gate is (compute nothing extra unless requested). Left for a later, separately-scoped
@@ -569,12 +569,12 @@ now would be speculative.
 Read both mechanisms' actual implementation (not just their env-var names) to confirm the "different
 concern" framing:
 
-- **`HC_STEP_STATS`** (`hc-cli/src/main.rs:240-242`): reads `outcome.steps`, a single `usize` counter
-  already accumulated on `hc_rules::stratum::StepBudget` (`stratum.rs`'s `tick()`/`steps()`) — the
+- **`HC_STEP_STATS`** (`pg-cli/src/main.rs:240-242`): reads `outcome.steps`, a single `usize` counter
+  already accumulated on `pg_rules::stratum::StepBudget` (`stratum.rs`'s `tick()`/`steps()`) — the
   *count* of (un)application attempts across the whole `parse_word` call, with zero information
   about which rule or why. Printed once per word as one `STEPS\t{i}\t{word}\t{steps}` stderr line.
-- **`HC_FST_PROFILE`** (`hc-cli/src/main.rs:247-281`, backed by `hc_fst::traverse`'s and
-  `hc_rules::morph`'s module-level atomic counters, per those modules' own doc comments: *"a
+- **`HC_FST_PROFILE`** (`pg-cli/src/main.rs:247-281`, backed by `pg_fst::traverse`'s and
+  `pg_rules::morph`'s module-level atomic counters, per those modules' own doc comments: *"a
   permanent diagnostic in the `HC_STEP_STATS` style (near-zero cost when unread: a few...)"*):
   accumulates call counts, total/max nanoseconds, and traversal-size sums for FST `run`/nondeterministic
   traversal/`distinct()`/dedup operations, globally, across the *entire process*, snapshotted and
@@ -603,39 +603,39 @@ did the engine do," profiling answers "how long/how much did it cost").
 Each chunk should land as its own PR/commit, independently testable, mirroring the granularity of
 `docs/p11-guesser-api-design.md`'s own §5. Earlier chunks deliberately touch the fewest call sites so
 the plumbing (handle threading, sink trait, `NoopSink` no-op path) is validated end-to-end before
-fanning out into `hc-rules`' dozens of sites.
+fanning out into `pg-rules`' dozens of sites.
 
-0. **`hc-rules/src/trace.rs`: pure data types, no call sites.** `TraceType`, `FailureReason`,
+0. **`pg-rules/src/trace.rs`: pure data types, no call sites.** `TraceType`, `FailureReason`,
    `TraceNode`/`TraceSource`, `TraceHandle`, the `TraceSink` trait (§4.1/§4.2/§4.3), `NoopSink`, and
    `TreeTraceSink` (the concrete tree-builder). Unit-testable in isolation: build a small tree by
    hand through the trait, assert the resulting `TreeTraceSink`'s structure. No `Word`/`Morpher`
    changes yet.
-1. **`Word` gains `trace: Option<TraceHandle>` (`hc_rules::word::Word`).** Threaded through every
+1. **`Word` gains `trace: Option<TraceHandle>` (`pg_rules::word::Word`).** Threaded through every
    existing clone point (`Word::clone`, `clone_without_alternatives`) exactly as C#'s `CurrentTrace`
    is threaded through `Word.Clone()` (`Word.cs:110`). `None` by default — every existing test's
    `Word` construction is unaffected (the field defaults via `Default`/explicit `None` at each
    construction site touched).
-2. **Top-level plumbing: `hc-parse::Morpher::parse_word_traced<T: TraceSink>` (or `&dyn TraceSink`
+2. **Top-level plumbing: `pg-parse::Morpher::parse_word_traced<T: TraceSink>` (or `&dyn TraceSink`
    per §4.1's fallback), wired only at the outermost gates already in `morpher.rs` itself**:
    `analyze_word` (once, at entry — mints the root handle), `is_word_valid`'s three `Failed(...)`
    sites (`PartialParse`/`ObligatorySyntacticFeatures`, §3.1 direct matches), `is_match`'s
    `Successful`/`Failed(SurfaceFormMismatch)`. Deliberately the smallest possible end-to-end slice:
    proves the handle threads correctly from `parse_word`'s entry through to its exit without
-   touching `hc-rules` at all. Existing `parse_word` becomes a thin wrapper calling this with
-   `NoopSink`; every existing test and caller (`hc-ffi`, `hc-cli batch`) is unaffected.
-   **Acceptance**: a new `hc-parse/tests/trace_gate.rs` fixture parses one trivially-valid word and
+   touching `pg-rules` at all. Existing `parse_word` becomes a thin wrapper calling this with
+   `NoopSink`; every existing test and caller (`pg-ffi`, `pg-cli batch`) is unaffected.
+   **Acceptance**: a new `pg-parse/tests/trace_gate.rs` fixture parses one trivially-valid word and
    one word that fails each of the three wired reasons, asserting the resulting tree's root + one
    child match the expected `(TraceType, FailureReason)` shape.
-3. **`hc_rules::validity::allomorphs_valid_impl`** — the direct 1:1 cluster (§3.1): bound-root,
+3. **`pg_rules::validity::allomorphs_valid_impl`** — the direct 1:1 cluster (§3.1): bound-root,
    stem-name (required/excluded), allomorph/morpheme co-occurrence, environments, disjunctive-recheck.
    This function's control flow already matches C#'s exactly line-for-line (per its own module doc),
    so this chunk is pure "add a `trace` parameter and call the right `TraceSink` method at each
    existing early return" — no logic changes. **Acceptance**: extend
-   `hc-parse/tests/disjunctive_recheck_gate.rs`/`discontinuous_env_gate.rs`'s existing oracle-diffed
+   `pg-parse/tests/disjunctive_recheck_gate.rs`/`discontinuous_env_gate.rs`'s existing oracle-diffed
    fixtures to also assert the trace's `FailureReason` at the rejection point matches what a
    hand-inspection of the C# oracle's equivalent run would show (these fixtures already know the
    *outcome*; this chunk adds a same-fixture assertion on *why*).
-4. **`hc_rules::morph::synth_affix`/`synth_affix_cached`/`ana_affix`/`ana_affix_cached`,
+4. **`pg_rules::morph::synth_affix`/`synth_affix_cached`/`ana_affix`/`ana_affix_cached`,
    `synth_realizational`/`ana_realizational`, `synth_compound`/`ana_compound` families** — the
    busiest chunk (§1.5's `SynthesisAffixProcessRule.cs`/`SynthesisCompoundingRule.cs`, ~27 combined
    call sites). Each already-identified early-return gate (§3.1/§3.2's tables) gains its
@@ -648,7 +648,7 @@ fanning out into `hc-rules`' dozens of sites.
    disjunctive loop), it just stops being the *only* place the reason can be observed. **Acceptance**:
    a same-shape trace-assertion extension to the existing `morph_gate.rs`/`redup_and_free_fluctuation_gate.rs`/
    `nonhead_resolution_gate.rs` oracle-diffed fixtures.
-5. **`hc_rules::stratum.rs`** — stratum/template bookends (`BeginUnapplyStratum`/`EndUnapplyStratum`/
+5. **`pg_rules::stratum.rs`** — stratum/template bookends (`BeginUnapplyStratum`/`EndUnapplyStratum`/
    `BeginApplyStratum`/`EndApplyStratum`, template begin/end, `Blocked`,
    `NonFinalTemplateAppliedLast`/`ApplicableTemplatesNotApplied` split per §3.2's last row), plus
    `apply_one_mrule`'s `MaxApplicationCount`/`MaxStemCount` gates. **Also**: mirror C#'s two
@@ -662,21 +662,21 @@ fanning out into `hc-rules`' dozens of sites.
    when tracing is off. **Acceptance**: new fixture asserting `--trace` output stays identical with
    `--memo=on`/`--memo=off` (the memo must never change trace content, only whether the *live* code
    path used a replay) — a strong regression guard for exactly this hazard.
-6. **`hc_rules::rewrite.rs`/`metathesis.rs`** — phonological rule tracing, including the per-subrule
+6. **`pg_rules::rewrite.rs`/`metathesis.rs`** — phonological rule tracing, including the per-subrule
    side channel (§3.3) `rewrite.rs`'s synthesis path needs for `SynthesisRewriteRule`-equivalent
    reason reporting. The largest net-new mechanism in this plan (not just adding parameters to
    existing early returns). **Acceptance**: extend `rewrite_gate.rs`'s oracle-diffed fixtures with
    subrule-level reason assertions; explicitly document (in-code, matching §3.3) the FST-granularity
    ceiling — a fixture asserting the `Pattern` fallback fires correctly for a total-mismatch case is
    sufficient; no fixture should assert position-level detail Rust cannot produce.
-7. **CLI surface**: `hc-rs parse` subcommand (§4.3), text + JSON renderers. **Acceptance**: golden
+7. **CLI surface**: `pangloss parse` subcommand (§4.3), text + JSON renderers. **Acceptance**: golden
    test comparing the fixed text-tree output for a small hand-built grammar/word against a checked-in
-   expected string (a straightforward snapshot test, the same style `hc-cli`'s existing TSV tests
+   expected string (a straightforward snapshot test, the same style `pg-cli`'s existing TSV tests
    use).
 8. **(Deferred, not blocking) FFI stub** — `hc_parse_word_traced` or a flag bit, per §4.3's stub note.
 9. **Conformance: a side-by-side trace-diff harness.** A script (Python or PowerShell, matching this
    repo's existing `parse_compare.py`/`tools/*.ps1` conventions) that runs a word through both
-   `hc-rs parse --trace=json` and the live C# oracle's own trace output (C# already has a working
+   `pangloss parse --trace=json` and the live C# oracle's own trace output (C# already has a working
    `TraceManager` — this harness's job is extracting its tree into the same JSON shape, likely via a
    small oracle-side driver reusing the existing `hc.dll` harness this project already has for
    conformance fixtures), then diffs the two trees at the `(TraceType, rule/subrule identity,
@@ -686,7 +686,7 @@ fanning out into `hc-rules`' dozens of sites.
    against a P10-shaped repro would have shown.
 
 Max ~2 implementation agents at once per this project's existing convention (chunks 3-6 all touch
-`hc-rules` and would collide on shared files; land sequentially or split by file ownership within a
+`pg-rules` and would collide on shared files; land sequentially or split by file ownership within a
 wave, same as the plan doc's own "Sequencing" section for P1-P13).
 
 ---

@@ -4,7 +4,7 @@
 /.cargo/config.toml
 **/*.rs.bk
 Cargo.lock.orig
-# GF compiler build artifacts (rust/crates/hc-realize/gf/ — gen_templates.py / gf --make output).
+# GF compiler build artifacts (rust/crates/pg-realize/gf/ — gen_templates.py / gf --make output).
 *.gfo
 # .NET build artifacts for the dotnet-harness project (not Rust, but shares this repo).
 dotnet-harness/**/obj/

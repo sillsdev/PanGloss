@@ -1,7 +1,7 @@
 //! `pg-snapshot`: PanGloss's owned, versioned JSON project-snapshot format.
 //!
 //! This is the interchange contract between `pg-fwdata` (which reads FieldWorks `.fwdata`
-//! project files) and `hc_grammar::compile` (which turns a snapshot into a runnable `Grammar`) —
+//! project files) and `pg_grammar::compile` (which turns a snapshot into a runnable `Grammar`) —
 //! see `docs/fwdata-import-plan.md` §2-§3 for the overall architecture and §6 for how this crate
 //! (T1) fits into the task breakdown. It is deliberately **not** a mirror of FieldWorks/LCM
 //! class names: fields are named for what they mean in this pipeline, and every cross-reference

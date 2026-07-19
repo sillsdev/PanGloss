@@ -31,7 +31,7 @@ Two roots exist, discovered identically by this repo's own tests:
   for fixtures that need to land with a bug fix immediately, ahead of upstream review. See
   `docs/conformance-staging-plan.md` for the full design rationale.
 
-`rust/crates/hc-conformance-fixtures` is the ONE shared Rust helper both roots' discovery, parsing,
+`rust/crates/pg-conformance-fixtures` is the ONE shared Rust helper both roots' discovery, parsing,
 and oracle-replay logic goes through (`discover()`, `WordsYaml`/`WordEntry`/`ParseEntry`,
 `assert_matches_oracle`, `graduation_guard_violations`). Never hand-roll a second fixture-path-walker
 or a second `words.yaml` parser — extend that crate instead.
@@ -84,20 +84,20 @@ or a second `words.yaml` parser — extend that crate instead.
    and transcribe its output — this repo's own engine is fast enough that guessing is both slower
    and riskier than measuring:
    ```
-   cargo build -p hc-cli --release
-   target/release/hc-rs batch <grammar.xml> <words.txt> out.tsv
+   cargo build -p pg-cli --release
+   target/release/pangloss batch <grammar.xml> <words.txt> out.tsv
    ```
    `out.tsv`'s 5th column (`signature`) is what `words.yaml`'s `parses[].signature` values must
    equal, per fixture word. `words.yaml`'s `expected_signature()` (sorted, `;`-joined,
-   `guess: true` parses excluded) is what `hc-conformance-fixtures::assert_matches_oracle` compares
+   `guess: true` parses excluded) is what `pg-conformance-fixtures::assert_matches_oracle` compares
    against — see `PROTOCOL.md` §2–3 for the exact algorithm if you need to reason about it by hand
    (multi-character segment representations render individually parenthesized; guess-only parses
-   never appear in adapter/batch output at all). If a from-scratch `hc-cli` release build isn't
-   practical (it depends on `hc-foma`, which drags in the vendored `foma` C library — slow to build
+   never appear in adapter/batch output at all). If a from-scratch `pg-cli` release build isn't
+   practical (it depends on `pg-foma`, which drags in the vendored `foma` C library — slow to build
    from cold, and slower still under concurrent load from other agents on a shared machine), a
-   throwaway `hc-parse` test driving `hc_parse::Morpher::parse_word` directly over every word and
+   throwaway `pg-parse` test driving `pg_parse::Morpher::parse_word` directly over every word and
    printing `word`/`invalid_shape`/`outcome.signature()` is equivalent and needs only a debug build
-   of a much smaller dependency chain (no `hc-foma`, no wasm, no `foma` C library) — delete the
+   of a much smaller dependency chain (no `pg-foma`, no wasm, no `foma` C library) — delete the
    throwaway test once transcription is done.
    - **A duplicated identical signature string in the raw dump is not a typo to collapse.**
      `expected_signature()` sorts but does NOT dedup; if the engine's own `signature()` output
@@ -108,9 +108,9 @@ or a second `words.yaml` parser — extend that crate instead.
      triplicated identical entries is hard for a future reader to trust).
 4. **Oracle discipline** (`docs/conformance-staging-plan.md`): ground truth SHOULD come from the C#
    founding oracle (`SIL.Machine.Morphology.HermitCrab.Tool`) when available. When you author against
-   `hc-rs` instead (the common case in this environment, where no `dotnet`/C# toolchain is set up),
+   `pangloss` instead (the common case in this environment, where no `dotnet`/C# toolchain is set up),
    **say so explicitly** in the fixture's `STAGING.md` (staged fixtures) or PR description (direct
-   upstream contributions) — `hc-rs` IS the oracle for that fixture until re-verified. Never claim
+   upstream contributions) — `pangloss` IS the oracle for that fixture until re-verified. Never claim
    C#-oracle provenance you didn't actually run.
 5. **Write a red-on-revert case, not just a passing signature.** A fixture that only pins "the
    correct signature" is vacuous if the grammar doesn't actually exercise the pathology it claims —
@@ -129,7 +129,7 @@ or a second `words.yaml` parser — extend that crate instead.
    oracle generated `words.yaml`'s signatures (§ "Oracle discipline" above), and an (initially empty)
    upstream-PR-link line to fill in once one is opened. Use an existing staged fixture's
    `STAGING.md` as the template for structure.
-3. Verify it runs in the default suite: `cargo test -p hc-parse --test conformance_fixtures_gate`
+3. Verify it runs in the default suite: `cargo test -p pg-parse --test conformance_fixtures_gate`
    should discover it, replay every word, and report it in the `total_checked` count (run with
    `-- --nocapture` to see the per-fixture skip/count lines). No `#[ignore]`, no self-skip guard
    needed — staged fixtures are small and committed, so they run unconditionally.
@@ -140,7 +140,7 @@ or a second `words.yaml` parser — extend that crate instead.
 ## Update: editing an existing fixture
 
 - **Staged fixtures** (`conformance-staging/`): edit `grammar.xml`/`words.yaml` in place, re-run
-  `hc-rs batch` if the grammar changed, update `STAGING.md` if the rationale changed. Straightforward
+  `pangloss batch` if the grammar changed, update `STAGING.md` if the rationale changed. Straightforward
   — this repo owns the file.
 - **Upstream fixtures** (`machine/conformance/`, i.e. inside the submodule): NEVER hand-edit the
   submodule checkout directly. Changes to an already-graduated fixture go through a
@@ -152,12 +152,12 @@ or a second `words.yaml` parser — extend that crate instead.
 1. Open a PR against `sillsdev/machine` (`conformance-framework` branch) that adds
    `conformance/<edge-cases|languages>/<name>/{grammar.xml,words.yaml}` — a direct copy of the staged
    files (re-verify signatures against the C# founding oracle if the staged version was authored
-   against `hc-rs` only; note any divergence found as its own finding, don't silently paper over it).
+   against `pangloss` only; note any divergence found as its own finding, don't silently paper over it).
 2. Record the PR link in the staged fixture's `STAGING.md`.
 3. On acceptance: bump the `machine` submodule pointer AND delete the staged copy
    (`conformance-staging/<category>/<name>/`) in the **same commit**. This is not optional — the
    graduation guard (`graduation_guard_no_duplicate_fixture_names` in
-   `rust/crates/hc-parse/tests/conformance_fixtures_gate.rs`) FAILS the default test suite the moment
+   `rust/crates/pg-parse/tests/conformance_fixtures_gate.rs`) FAILS the default test suite the moment
    the same `(category, name)` exists under both roots, with the message "accepted upstream — delete
    the staged copy". If you see that failure after a routine submodule bump, this is why: find the
    newly-dual-homed fixture name in the failure output and delete its `conformance-staging/` copy.
@@ -168,5 +168,5 @@ This skill's Author→Stage flow was followed end-to-end while writing it, for f
 pathology-mimic fixtures (`conformance-staging/edge-cases/{template-category-sharing,
 infix-interdigitation, mpr-gated-exception, optional-template-composite}/`) — each authored per
 step 1–5 above, staged per the Stage section, and confirmed to run in
-`cargo test -p hc-parse --test conformance_fixtures_gate`. See each fixture's own `STAGING.md` for
+`cargo test -p pg-parse --test conformance_fixtures_gate`. See each fixture's own `STAGING.md` for
 what it pins.

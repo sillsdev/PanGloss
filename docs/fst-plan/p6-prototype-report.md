@@ -4,7 +4,7 @@ Date: 2026-07-17. Branch: `worktree-agent-a336a52bd7228731b`. Scope: `docs/fst-p
 §P6 item 1 ("Replace-rule compilation": compile HC phonological rules as real foma
 replace-calculus rules, build lexc-over-underlying-forms, compose, retire enumeration bridges
 grammar-by-grammar). This is a feasibility prototype, not mainline code — nothing here is wired
-into `hc_foma::emit`/`analyzer`; it lives beside them as new modules and standalone examples.
+into `pg_foma::emit`/`analyzer`; it lives beside them as new modules and standalone examples.
 
 **Verdict: GO for Indonesian at 100% recall. GO-with-caveats for the general P6 approach** — the
 rule-compiler and its α-variable cost model both hold up under Amharic's 20-variable CV-merger and
@@ -17,17 +17,17 @@ current scope (Indonesian-only, template-less), not the replace-rule compiler.
 
 Three new modules/examples, all additive:
 
-- `rust/crates/hc-foma/src/replace.rs` — `RewriteRuleDef -> foma xre regex -> compiled Fsm`,
+- `rust/crates/pg-foma/src/replace.rs` — `RewriteRuleDef -> foma xre regex -> compiled Fsm`,
   plus the tuple-indexed α-variable resolver and the stratum-order rule-cascade composer.
-- `rust/crates/hc-foma/src/uflexc.rs` — a fresh, deliberately minimal `Grammar -> lexc` emitter
+- `rust/crates/pg-foma/src/uflexc.rs` — a fresh, deliberately minimal `Grammar -> lexc` emitter
   whose lower tape is UNDERLYING morph spellings (self-looping prefix/suffix chains), not a refit
   of `emit.rs`.
-- `rust/crates/hc-foma/examples/p6_replace_prototype.rs` — the end-to-end Indonesian driver: rule
+- `rust/crates/pg-foma/examples/p6_replace_prototype.rs` — the end-to-end Indonesian driver: rule
   compile, lexc compile, `lexc .o. rules .o. boundary-cleanup`, minimize, smoke test, full corpus
   parity gate, timing.
-- `rust/crates/hc-foma/examples/p6_bisect.rs` — the bisection harness that isolated the two
+- `rust/crates/pg-foma/examples/p6_bisect.rs` — the bisection harness that isolated the two
   foma-rs findings in §2.
-- `rust/crates/hc-foma/examples/p6_amharic_probe.rs`, `p6_aweti_probe.rs` — stretch-goal probes
+- `rust/crates/pg-foma/examples/p6_amharic_probe.rs`, `p6_aweti_probe.rs` — stretch-goal probes
   (compile-only, no lexc/emit).
 
 ### The symbol alphabet: char-def identity, not literal spelling
@@ -41,7 +41,7 @@ This sidesteps, for free, exactly the two footguns `emit.rs`'s literal-string ap
 around:
 
 - **Multi-representation segments** (Indonesian's `char28` = {"g", "G"}) need no cartesian
-  product: both spellings segment to the same char-def id via `hc_grammar::segment::
+  product: both spellings segment to the same char-def id via `pg_grammar::segment::
   segment_phonemes_only`, hence the same token, automatically.
 - **Multi-character graphemes** ("ng"/"ny"/"sy"/"kh") need no lexc `Multichar_Symbols`
   registration/lookup bookkeeping to keep in sync between separately-compiled lexc and rule nets —
@@ -52,7 +52,7 @@ around:
 The price: the composed network's own lower tape is not human-legible. That's fine — the
 propose→confirm contract (`foma-fst-plan.md` §1) only needs the UPPER tape's tag sequence. A query
 word is transliterated into token space before `apply_up`
-(`SegAlphabet::encode_query`, reusing `hc_grammar::segment::segment_phonemes_only`, the same
+(`SegAlphabet::encode_query`, reusing `pg_grammar::segment::segment_phonemes_only`, the same
 greedy-longest-match the engine's own segmentation uses), and the network's own output is decoded
 via `crate::tags::decode_path` exactly like the mainline `FomaProposer`.
 
@@ -178,7 +178,7 @@ needs recall."
 ---
 
 ## 4. Indonesian parity numbers (all figures from an actual executed run, `cargo run --release -p
-hc-foma --example p6_replace_prototype`)
+pg-foma --example p6_replace_prototype`)
 
 - **Rules**: 5 phonological rules, all `Iterative`/`LeftToRight`. 4 compiled (prule1, prule2,
   prule4, prule5); prule3 skipped (`Quantifier`, redup-only, §3).
@@ -196,7 +196,7 @@ hc-foma --example p6_replace_prototype`)
 - **Lexc compile**: ~500–900µs; 210 states, 281 arcs.
 - **Full composition (`lexc .o. rules .o. boundary-cleanup`) + minimize**: ~0.9–2ms; **final net:
   213 states, 350 arcs.**
-- **Parity gate** (same oracle/predicate/exclusion list as `tests/f2_indonesian_gate.rs`: `hc_parse
+- **Parity gate** (same oracle/predicate/exclusion list as `tests/f2_indonesian_gate.rs`: `pg_parse
   ::Morpher`, `ParseOptions::default()`, the 7 reduplication-word exclusions): **97/97 engine
   analyses covered across 96 analyzed words** (of 121 corpus words, 7 excluded) — **100% recall,
   byte-identical to the mainline `emit.rs` proposer's own result on this corpus** (independently
@@ -244,9 +244,9 @@ would exercise the (unbuilt) templated lexc emitter, not the rule compiler itsel
 
 ### 5.2 Aweti (855 lexical entries, 135 mrules, 18 prules, 3 strata, 1 char table, 41 segments)
 
-Loaded via `pg_snapshot::Snapshot::from_json` + `hc_grammar::compile_project` (same loader
+Loaded via `pg_snapshot::Snapshot::from_json` + `pg_grammar::compile_project` (same loader
 `examples/aweti_probe.rs`, main-tree-only/untracked, already established for this fixture).
-`hc_foma::emit::emit()` was never called (that is precisely the 4.9GB-RSS, unfinished-after-OOM
+`pg_foma::emit::emit()` was never called (that is precisely the 4.9GB-RSS, unfinished-after-OOM
 path this whole effort routes around, per that example's own module doc).
 
 All 18 rules compiled individually (typical: 1–2ms each, 1–6 states, 15–104 arcs — none approach
@@ -349,15 +349,15 @@ unconditional, so composed rules could either wrongly fire (over-generation, con
 survivable) or — the dangerous direction — wrongly SUPPRESS a rule that should have fired for a
 different root, if the encoding were too coarse. This addendum records the design, the toolkit
 findings that ruled out the obvious encoding, the implementation, and the acceptance evidence.
-Code: `hc-foma/src/gate.rs` (new module, own doc comment carries the same findings in more
-implementation-adjacent detail), `hc-foma/src/replace.rs` (`compile_rewrite_rule_subset`/
+Code: `pg-foma/src/gate.rs` (new module, own doc comment carries the same findings in more
+implementation-adjacent detail), `pg-foma/src/replace.rs` (`compile_rewrite_rule_subset`/
 `compile_and_compose_rules_gated`, additive — the pre-existing `compile_rewrite_rule`/
-`compile_and_compose_rules` are unedited thin wrappers), `hc-foma/src/uflexc.rs`
-(`emit_underlying_filtered`, same pattern), `hc-rules/src/rewrite.rs` (`subrule_applicable` widened
-from private to `pub` — no behavior change, just visibility, so `hc-foma` can call the real engine's
-own gating predicate directly instead of re-deriving it). Tests: `hc-foma/tests/p6_gate_parity.rs`
+`compile_and_compose_rules` are unedited thin wrappers), `pg-foma/src/uflexc.rs`
+(`emit_underlying_filtered`, same pattern), `pg-rules/src/rewrite.rs` (`subrule_applicable` widened
+from private to `pub` — no behavior change, just visibility, so `pg-foma` can call the real engine's
+own gating predicate directly instead of re-deriving it). Tests: `pg-foma/tests/p6_gate_parity.rs`
 (4 tests + 1 `#[ignore]`d Amharic regression, all green); investigation trail:
-`hc-foma/examples/p6_gate_explore_mpr.rs`, `p6_gate_explore_pos.rs`, `p6_gate_regress_amharic.rs`.
+`pg-foma/examples/p6_gate_explore_mpr.rs`, `p6_gate_explore_pos.rs`, `p6_gate_regress_amharic.rs`.
 
 ### 7.1 Why this is NOT a flag-diacritics encoding
 
@@ -415,7 +415,7 @@ must be set strictly before its test, tape-position-wise.**
 MPR/POS gating in this prototype's scope is root-only (see caveat below): a lexical entry's own
 declared MPR features and part of speech are fixed at grammar-load time and never change before
 the trailing per-stratum phonological-rule cascade runs (the only place
-`hc_rules::rewrite::subrule_applicable` is ever consulted, `hc-rules/src/stratum.rs`'s
+`pg_rules::rewrite::subrule_applicable` is ever consulted, `pg-rules/src/stratum.rs`'s
 `synth_apply_stratum`). So the gate/no-gate decision for every (entry, gated subrule) pair is fully
 static and needs NO runtime FST mechanism at all:
 
@@ -424,8 +424,8 @@ static and needs NO runtime FST mechanism at all:
    the synthetic POS fixture: exactly 1; Amharic (regression-checked, not end-to-end recall-gated —
    see caveat): exactly 3 (`prule1`/`prule2`/`prule3`).
 2. For every lexical entry, compute the vector of booleans "is this gated subrule applicable to
-   this entry" by calling `hc_rules::rewrite::subrule_applicable` DIRECTLY (widened from private to
-   `pub` in `hc-rules/src/rewrite.rs` for exactly this caller) — the SAME function the real
+   this entry" by calling `pg_rules::rewrite::subrule_applicable` DIRECTLY (widened from private to
+   `pub` in `pg-rules/src/rewrite.rs` for exactly this caller) — the SAME function the real
    engine's own trailing-prule cascade calls, so the partition can never disagree with the oracle
    about which entries are gated: it doesn't re-derive MPR-group All/Any semantics or the POS
    "unset syntactic FS = vacuous pass" rule, it calls the one true implementation of both.
@@ -462,11 +462,11 @@ so `prule5`'s own right-environment (`nc3`, a vowel class) never matches at the 
 consonant regardless of the MPR gate. Independently re-derived here, not taken on the prior
 investigation's word: confirmed both by reading `nc3`/`nc13`/`nc14`'s natural-class membership
 directly from the XML and by grepping `indonesian-words.txt` for all 4 roots (zero hits) — the real
-corpus structurally cannot exercise the critical juncture. So `hc-foma/tests/p6_gate_parity.rs`
+corpus structurally cannot exercise the critical juncture. So `pg-foma/tests/p6_gate_parity.rs`
 augments a COPY of the real grammar with two synthetic lexical entries built to the SAME shape two
 REAL corpus roots (`tulis`, `pukul`) already attest (`t`/`p` + vowel, the `meN-` prefix's nasal
 assimilation + deletion environment): `tanam` (no MPR restriction, control) and `tabur` (carries
-`ruleFeatures="mpr1"`). The real oracle (`hc_parse::Morpher`), queried first and its answers taken
+`ruleFeatures="mpr1"`). The real oracle (`pg_parse::Morpher`), queried first and its answers taken
 as ground truth rather than predicted:
 
 | word | oracle (real engine) | gated network (this fix) | ungated cascade (pre-existing, unedited) |
@@ -496,7 +496,7 @@ underlying shape `xyx` and differing ONLY in part of speech:
 | `xyx` (unmerged) | analyzes as the NOUN entry only (verb's rule is obligatory once applicable, so a verb root can never surface unmerged) | matches |
 | `w` (merged) | analyzes as the VERB entry only | matches |
 
-**Regression checks (both green, `cargo test -p hc-foma --release`, `--test p6_gate_parity`
+**Regression checks (both green, `cargo test -p pg-foma --release`, `--test p6_gate_parity`
 including the `#[ignore]`d Amharic one):**
 - Indonesian full-corpus parity (`f2_indonesian_gate.rs`'s own 97/97 predicate), rerun through the
   augmented grammar + gated compile path: **97/97, zero misses** (2 synthetic entries verified to
@@ -506,7 +506,7 @@ including the `#[ignore]`d Amharic one):**
   the UNTOUCHED `compile_and_compose_rules` entry point reproduces this report's §5.1 numbers
   BYTE-IDENTICALLY (82 states, 1,110,358 arcs, zero newly-skipped rules) — confirming this change
   doesn't disturb the pre-existing (ungated) compile path at all.
-- Full `cargo test -p hc-foma --release` (every other gate: f0–f4, pk1, pk2): unchanged, all green.
+- Full `cargo test -p pg-foma --release` (every other gate: f0–f4, pk1, pk2): unchanged, all green.
 
 ### 7.4 Known gaps (named, not hidden)
 
