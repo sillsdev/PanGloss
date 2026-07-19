@@ -5,13 +5,13 @@
 Pins a dormant bug in `vendor`/crates.io `foma`'s apply-time tokenizer: it merges a base
 character's trailing combining marks not only WITHIN one lexc char-def's own representation (the
 ordinary "é as one `SegmentDefinition`" case every existing diacritic-bearing fixture, e.g.
-`languages/*`'s `g_dia.xml`-style grammars, already exercises and `hc_foma::emit::combining_run_symbols`
+`languages/*`'s `g_dia.xml`-style grammars, already exercises and `pg_foma::emit::combining_run_symbols`
 already fixes) but also ACROSS the boundary between two DIFFERENT adjacent char-defs. A grammar
 that models a standalone combining mark as its own char-def — e.g. an autosegmental tone mark, as
 opposed to folding a diacritic into its base letter's own segment — would have that mark silently
 swallowed into whatever base char-def precedes it in the emitted lexc surface text, forcing
-`IDENTITY` and a silent zero-parse. The fix, `hc_foma::emit::boundary_combining_run_symbols`
-(`rust/crates/hc-foma/src/emit.rs`), declares every such cross-boundary run in `Multichar_Symbols`
+`IDENTITY` and a silent zero-parse. The fix, `pg_foma::emit::boundary_combining_run_symbols`
+(`rust/crates/pg-foma/src/emit.rs`), declares every such cross-boundary run in `Multichar_Symbols`
 so foma's tokenizer sees it as one atomic unit instead of merging across the boundary unasked.
 
 This fixture is not one of the four named language-shaped pathology mimics in
@@ -34,7 +34,7 @@ NFC vs NFD inputs, as a named future-fixture target).
   header warning against accidentally substituting a precomposed character there): both parse to a
   SINGLE, DIFFERENT analysis each. Without the boundary fix, `pá` foma-fails to parse at all
   (the merged token has no arc in the compiled network), which the pre-fix engine's
-  `hc_foma::emit`-based path would have shown as a recall loss on this word specifically — the
+  `pg_foma::emit`-based path would have shown as a recall loss on this word specifically — the
   bare-root case already exercises the boundary merge (no rule/affix involved), and
   `pán`/`"pán"` (PAH + the `mrSuf` "-n" suffix) additionally confirms the fix survives when
   more surface text (`mrSuf`'s own inserted segment) follows the boundary run, not just when the
@@ -44,30 +44,30 @@ NFC vs NFD inputs, as a named future-fixture target).
 
 ## Oracle discipline
 
-**Oracle: `hc-rs` (this repo's own Rust engine), NOT the C# founding oracle.** `words.yaml`
-signatures were captured by driving `hc_parse::Morpher::parse_word` directly (a throwaway in-repo
-test — see "Verification" below) rather than a release build of `hc-cli`/`hc-rs`, or a
+**Oracle: `pangloss` (this repo's own Rust engine), NOT the C# founding oracle.** `words.yaml`
+signatures were captured by driving `pg_parse::Morpher::parse_word` directly (a throwaway in-repo
+test — see "Verification" below) rather than a release build of `pg-cli`/`pangloss`, or a
 `SIL.Machine.Morphology.HermitCrab.Tool` run (no `dotnet` toolchain set up in this environment). Per
 `docs/conformance-staging-plan.md`'s oracle-discipline note, this is an accepted staging-time
 substitute; **machine acceptance must re-verify against the C# founding oracle**, and any divergence
 found there is itself a finding, not assumed to match by construction.
 
-Note also that `hc_parse::Morpher` (the engine driven here) is the STRUCTURAL/HC-native parser, not
-the `hc_foma`/`FomaAnalyzer` propose+confirm path the boundary bug actually lives in — the signatures
+Note also that `pg_parse::Morpher` (the engine driven here) is the STRUCTURAL/HC-native parser, not
+the `pg_foma`/`FomaAnalyzer` propose+confirm path the boundary bug actually lives in — the signatures
 below describe what a CORRECT engine must return for these words; the separate end-to-end regression
 coverage that the `boundary_combining_run_symbols` fix actually closed a real (foma-path) recall gap
-lives in `rust/crates/hc-foma/tests/f5_diacritics_gate.rs` (which drives `FomaAnalyzer` and diffs it
-against `hc_parse::Morpher` directly on `boundary-mark-affix-hc.xml`, a near-identical but separate
+lives in `rust/crates/pg-foma/tests/f5_diacritics_gate.rs` (which drives `FomaAnalyzer` and diffs it
+against `pg_parse::Morpher` directly on `boundary-mark-affix-hc.xml`, a near-identical but separate
 fixture used only by that crate's own test suite — this `conformance-staging` fixture is the
 committed, dual-root-discovered pin; that crate-local one is the closer-to-the-bug regression test).
 
 ## Verification
 
-Signatures were captured via a throwaway test (`rust/crates/hc-parse/tests/zz_throwaway_standalone_mark.rs`,
-deleted after use) driving `hc_parse::Morpher::parse_word` directly over `pa`, `pá`, `pan`,
+Signatures were captured via a throwaway test (`rust/crates/pg-parse/tests/zz_throwaway_standalone_mark.rs`,
+deleted after use) driving `pg_parse::Morpher::parse_word` directly over `pa`, `pá`, `pan`,
 `pán`, printing `word`/`invalid_shape`/`outcome.signature()` — equivalent to
-`hc-rs batch grammar.xml words.txt out.tsv`'s signature column without needing a release build of
-the `hc-cli` binary (which depends on `hc-foma`, which drags in the vendored `foma` C library).
+`pangloss batch grammar.xml words.txt out.tsv`'s signature column without needing a release build of
+the `pg-cli` binary (which depends on `pg-foma`, which drags in the vendored `foma` C library).
 Output:
 
 ```
@@ -78,7 +78,7 @@ word="pa\u{301}n" invalid_shape=false signature="PAH+SUF|pa\u{301}n"
 ```
 
 Transcribed into `words.yaml` above verbatim. Cross-checked in-repo by
-`rust/crates/hc-parse/tests/conformance_fixtures_gate.rs`'s `all_discovered_fixtures_match_oracle`
+`rust/crates/pg-parse/tests/conformance_fixtures_gate.rs`'s `all_discovered_fixtures_match_oracle`
 test (dual-root discovery, runs in the default `cargo test --workspace` suite) — that test is what
 actually gates CI; the throwaway dump test was deleted once transcription was done.
 
