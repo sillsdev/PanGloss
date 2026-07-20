@@ -195,7 +195,9 @@ use pg_rules::word::{MorphRecord, Word};
 use pg_shape::{EffectiveCdSet, NodeKind, Shape};
 
 use crate::junctions::PhonologyProbe;
-use crate::morphotactics::{ChainState, ExploreMode, MorphotacticIndex, ProbeBudget};
+use crate::morphotactics::{
+    ChainState, EnumerationBudget, ExploreMode, MorphotacticIndex, ProbeBudget,
+};
 use crate::precision::{ConstraintCatalog, PrecisionConfig, PrecisionEmit};
 use crate::tags;
 
@@ -275,11 +277,35 @@ pub enum FomaTier {
     Unsupported { reason: String },
 }
 
+/// Fix 1 (fail-fast enumeration budget, `crate::morphotactics::EnumerationBudget`'s own doc): set
+/// on [`EmitReport`] iff the default-on budget tripped during this `emit`/`emit_with_precision`
+/// call. Carries the exact numbers needed to build an honest, specific error message —
+/// [`crate::analyzer::FomaError::EnumerationBudgetExceeded`] is constructed directly from this
+/// struct's fields, so the message `FomaProposer::new`'s caller sees always matches what actually
+/// tripped, never a generic/stale string.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnumBudgetExceeded {
+    /// Human-readable label for which measure tripped (`crate::morphotactics::EnumMeasure::label`) —
+    /// e.g. "composite lexc entries (fusion + interdigitation + structural)" or "(root, rule) pairs
+    /// probed".
+    pub measure: &'static str,
+    /// The measured value at the moment the budget tripped (may be a little past `limit` — the
+    /// check is cooperative/relaxed across parallel workers, module doc).
+    pub value: usize,
+    /// The threshold that was exceeded (the default, or `HC_ENUM_ENTRY_BUDGET`/
+    /// `HC_ENUM_PROBE_BUDGET` if set).
+    pub limit: usize,
+}
+
 #[derive(Debug, Clone)]
 pub struct EmitReport {
     pub uncovered: Vec<UncoveredItem>,
     pub counts: EmitCounts,
     pub tier: FomaTier,
+    /// `Some` iff the default-on enumeration budget (Fix 1) aborted this build — always paired
+    /// with `tier: FomaTier::Unsupported { .. }` when set. `None` for every ordinary
+    /// `Full`/`Partial`/`Unsupported`-for-some-other-reason report.
+    pub enum_budget_exceeded: Option<EnumBudgetExceeded>,
 }
 
 pub struct EmitResult {
@@ -1677,6 +1703,10 @@ struct StructCtx<'a> {
     mt: &'a MorphotacticIndex,
     mode: ExploreMode,
     probe_budget: Option<ProbeBudget<'a>>,
+    /// Default-ON fail-fast enumeration budget (mirrors `crate::preexpand::ExtendCtx`'s own field,
+    /// same "can't edit preexpand.rs" reason [`struct_morph_order_tags`] is re-derived here rather
+    /// than shared) -- `crate::morphotactics::EnumerationBudget`'s own doc, Fix 1.
+    enum_budget: &'a EnumerationBudget,
 }
 
 /// [`struct_extend`]'s output accumulator: the composite records plus a `(tag_lexc, spelling)`
@@ -1713,6 +1743,11 @@ fn struct_extend(
     if depth >= STRUCT_MAX_EXTRA_RULES {
         return;
     }
+    // Fail-fast enumeration budget (Fix 1): same "check once at the top, bail early" shape as
+    // `crate::preexpand::extend`'s own guard -- see `crate::morphotactics::EnumerationBudget`'s doc.
+    if ctx.enum_budget.is_tripped() {
+        return;
+    }
     let base_fs = base_word.syn_fs.clone();
     for &mid in ctx.rules {
         let rule = &ctx.g.mrules[mid.0 as usize];
@@ -1743,6 +1778,7 @@ fn struct_extend(
         if let Some(budget) = &ctx.probe_budget {
             budget.tick();
         }
+        ctx.enum_budget.tick_probe();
 
         let mut next_rule_chain = rule_chain.to_vec();
         next_rule_chain.push(mid);
@@ -1802,6 +1838,10 @@ fn struct_extend(
                         tag_lexc: tag_lexc.clone(),
                         variants: vec![s.clone()],
                     });
+                    // Fail-fast enumeration budget: one structural composite entry recorded
+                    // (`crate::morphotactics::EnumerationBudget`'s doc -- same measure
+                    // `crate::preexpand::extend`'s fusion/interdigitation entries feed).
+                    ctx.enum_budget.add_entries(1);
                 }
             }
 
@@ -1840,6 +1880,7 @@ fn build_structural_composites(
     mt: &MorphotacticIndex,
     mode: ExploreMode,
     probe_budget: Option<ProbeBudget<'_>>,
+    enum_budget: &EnumerationBudget,
 ) -> (Vec<crate::preexpand::CompositeRec>, BTreeSet<u32>) {
     if rules.is_empty() {
         return (Vec::new(), BTreeSet::new());
@@ -1888,6 +1929,7 @@ fn build_structural_composites(
                     mt,
                     mode,
                     probe_budget,
+                    enum_budget,
                 };
                 // Morphotactic pruning (module doc addendum): seed the same way
                 // `crate::preexpand::process_root_work` does (root's own stratum, disabled template
@@ -1977,7 +2019,29 @@ pub fn emit(g: &Grammar) -> EmitResult {
 /// emitted as a real `@R@`+`@P@` flag scheme (require-only — exclude is declined this step, see
 /// `crate::precision`'s module doc finding 4) so `apply_up` refuses the illegal-environment
 /// paths those instances cover at lookup time.
+///
+/// Thin, env-driven wrapper over [`emit_with_budget`] (Fix 1's fail-fast enumeration budget,
+/// `crate::morphotactics::EnumerationBudget`'s own doc): builds the production budget from
+/// `HC_ENUM_ENTRY_BUDGET`/`HC_ENUM_PROBE_BUDGET` (or the documented defaults) exactly once, same
+/// "read the env var in the production entry point only" convention this crate already uses for
+/// `HC_PREEXPAND_FLAT`/`HC_PREEXPAND_PROBE_CAP` (`crate::morphotactics::explore_mode_from_env`'s
+/// own doc) — so parallel test processes never race process-global env state; tests that need to
+/// exercise the budget deterministically call [`emit_with_budget`] directly with an explicit,
+/// tiny [`crate::morphotactics::EnumerationBudget`] instead.
 pub fn emit_with_precision(g: &Grammar, precision: PrecisionConfig) -> EmitResult {
+    let enum_budget = crate::morphotactics::EnumerationBudget::from_env();
+    emit_with_budget(g, precision, &enum_budget)
+}
+
+/// [`emit_with_precision`]'s core, with the Fix 1 enumeration budget threaded in explicitly rather
+/// than read from env — see [`emit_with_precision`]'s own doc for why tests should call this
+/// directly (with a small [`crate::morphotactics::EnumerationBudget::with_caps`]) instead of
+/// setting `HC_ENUM_ENTRY_BUDGET`/`HC_ENUM_PROBE_BUDGET`.
+pub(crate) fn emit_with_budget(
+    g: &Grammar,
+    precision: PrecisionConfig,
+    enum_budget: &crate::morphotactics::EnumerationBudget,
+) -> EmitResult {
     let width = tags::tag_width(g.morphemes.len());
     let table = surface_table(g);
 
@@ -2042,6 +2106,11 @@ pub fn emit_with_precision(g: &Grammar, precision: PrecisionConfig) -> EmitResul
         cap,
         counter: &probe_counter,
     });
+    // Fix 1's default-on, non-panicking enumeration budget (`crate::morphotactics::
+    // EnumerationBudget`'s own doc): threaded in by the caller ([`emit_with_precision`]'s env-driven
+    // wrapper in production, an explicit small budget in tests), shared by BOTH composite builders
+    // below so a grammar shaped like Aweti trips a single shared cross-thread total rather than each
+    // builder tracking (and independently overrunning) its own.
 
     // P1d (`crate::preexpand`, plan's Amharic capability stage): rule-application pre-expansion
     // (interdigitation) + boundary-fusion composite probing. `should_run` short-circuits to zero
@@ -2054,6 +2123,7 @@ pub fn emit_with_precision(g: &Grammar, precision: PrecisionConfig) -> EmitResul
         &morphotactic_index,
         explore_mode,
         probe_budget,
+        &enum_budget,
     );
     counts.composite_pairs_probed = composite_report.pairs_probed;
     counts.composite_interdigitation_entries = composite_report.interdigitation_entries;
@@ -2077,10 +2147,50 @@ pub fn emit_with_precision(g: &Grammar, precision: PrecisionConfig) -> EmitResul
             &morphotactic_index,
             explore_mode,
             probe_budget,
+            &enum_budget,
         );
         counts.composite_structural_entries = struct_composites.len();
         composites.extend(struct_composites);
         struct_covered_rules = covered;
+    }
+
+    // Fix 1 (fail-fast enumeration budget): both composite builders above check `enum_budget`
+    // cooperatively DURING their own recursion (module doc), but the grammar-level verdict is
+    // decided HERE, once, before any of the expensive derivation-layer/lexc-string-writing work
+    // below runs. A trip means the grammar exceeds the foma-engine's eager-enumeration compiler —
+    // never a partial/best-effort lexc source (that could silently under-cover a grammar that
+    // otherwise emits fine), always an honest `Unsupported` verdict with the specific measure,
+    // value, and limit that tripped, mirroring the `roots.is_empty()` early-return just below in
+    // shape (same `EmitResult { lexc_source: String::new(), report: .. }` early exit).
+    if let Some((measure, value, limit)) = enum_budget.trip_reason() {
+        let reason = format!(
+            "grammar exceeds the foma-engine's eager-enumeration budget: {} = {value} (limit {limit}). \
+             This grammar's morphotactics produce more composite lexc material than the eager \
+             Rust-side enumerator (`pg_foma::preexpand`/`pg_foma::emit::build_structural_composites`) \
+             can safely expand into a literal lexc source without risking a multi-GB `.lexc` file and \
+             an out-of-memory crash in foma's own `apply_up` (the Aweti grammar -- 855 roots, 123 \
+             rules, 3 strata -- is the motivating case: 2,833,559 fusion entries, a 691MB/9.7M-line \
+             lexc, and an ~8.8GB `apply_up` allocation that killed the process outright). Use the \
+             default (full) morphological-parser engine for this grammar instead of the foma-composite \
+             engine, or -- only if you understand why this grammar's dynamic enumeration tree is this \
+             large -- raise the budget via HC_ENUM_ENTRY_BUDGET/HC_ENUM_PROBE_BUDGET and re-run.",
+            measure.label()
+        );
+        return EmitResult {
+            lexc_source: String::new(),
+            report: EmitReport {
+                uncovered,
+                counts,
+                tier: FomaTier::Unsupported {
+                    reason: reason.clone(),
+                },
+                enum_budget_exceeded: Some(EnumBudgetExceeded {
+                    measure: measure.label(),
+                    value,
+                    limit,
+                }),
+            },
+        };
     }
 
     // Standalone (stratum-attached) derivation rules, classified by primary role — mirrors
@@ -2158,6 +2268,7 @@ pub fn emit_with_precision(g: &Grammar, precision: PrecisionConfig) -> EmitResul
                 reason: "no root allomorph in this grammar produced any literal lexc text"
                     .to_string(),
             },
+            enum_budget_exceeded: None,
         };
         return EmitResult {
             lexc_source: String::new(),
@@ -2621,6 +2732,7 @@ pub fn emit_with_precision(g: &Grammar, precision: PrecisionConfig) -> EmitResul
             uncovered,
             counts,
             tier,
+            enum_budget_exceeded: None,
         },
     }
 }

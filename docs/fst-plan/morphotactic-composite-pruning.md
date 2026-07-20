@@ -341,3 +341,117 @@ never race process-global env state.
 - Linear-order pruning for loose rules (over-approximated as Unordered in v1).
 - `MAX_RENDER_VARIANTS` / foma lexc-size limits (unchanged; if Aweti still overflows foma's
   parser after pruning, that is a separate finding).
+
+## Addendum: Fix 1 — default-on fail-fast enumeration budget (2026-07-20)
+
+The "Aweti end-to-end result" section above establishes that pruning bounds the *search*
+(bounded, deterministic recursion — the original OOM-past-4.9GB crash is fixed) but not the
+*emitted output size*: Aweti's composite enumeration still completes, just slowly (~551s emit)
+and into an unusably large network (2,833,559 fusion entries + 230,476 structural entries,
+691MB/9.7M-line lexc), which then makes `foma`'s own compile (~223s) and `apply_up` (an
+~8.8GB allocation) fail outright — the process dies on the very first word, with no typed error
+at all. P6 (replace-rule compilation) is the real fix for Aweti-*shaped* grammars, but until it
+exists, this crate needs an honest, IMMEDIATE, non-panicking way to refuse a grammar shaped like
+this rather than silently spending 13 minutes to crash. That is Fix 1, implemented directly on
+top of this doc's pruning mechanism (same module, `crate::morphotactics`).
+
+### What it measures
+
+A pure "pairs probed" cap (like the existing `HC_PREEXPAND_PROBE_CAP` diagnostic above) does NOT
+catch Aweti early enough: Aweti probes "only" ~8.37 million pairs — large, but not obviously
+catastrophic in isolation — before its composite-entry count explodes. The number that actually
+predicts the disaster is the RESULT of those probes: composite lexc entries emitted. So
+`crate::morphotactics::EnumerationBudget` tracks **two** cumulative, cross-thread-shared measures
+during `crate::preexpand::build_composites_with_mode` + `crate::emit::build_structural_composites`
+(the same two builders `ProbeBudget`/`MorphotacticIndex` are already shared across):
+
+1. **Composite lexc entries** (fusion + interdigitation + structural combined — the same three
+   counters `EmitCounts` already reports) — the primary, disaster-predicting measure. Ticked once
+   per `CompositeRec` actually pushed, in `crate::preexpand::extend` and `crate::emit::
+   struct_extend` alike.
+2. **(root, rule) pairs probed** — a secondary backstop for a grammar whose search runs away
+   without (yet) producing many entries; a lower-hit-rate cousin of Aweti's shape could otherwise
+   run a very long time before crossing the entry cap. Ticked at the same sites the existing
+   `ProbeBudget` measurement-only counter already is.
+
+### Mechanism: cooperative, non-panicking, checked during enumeration (not just after)
+
+Unlike `ProbeBudget` (measurement-only, off by default, panics when tripped — a fine shape for a
+diagnostic a developer runs by hand), `EnumerationBudget` is **default-ON in production** and
+**never panics**. It is built once per `emit`/`emit_with_precision` call and shared by reference
+across both composite builders and every one of their parallel per-root rayon workers. Crossing
+either threshold sets a shared, latched flag (an `AtomicUsize`, `compare_exchange`d once); every
+recursive enumeration call (`extend`, `struct_extend`) checks that flag at the top of the function
+— the same "check once, bail early" shape those functions already use for their own
+`depth >= MAX_EXTRA_RULES`/`STRUCT_MAX_EXTRA_RULES` guards — and returns immediately if it is set.
+This is what makes the fix **fail-fast**: enumeration is aborted DURING the recursion, not
+measured after the fact and rejected only once the full (expensive) build already happened. In
+practice, tripping on Aweti with the production default costs on the order of a couple of seconds
+(measured via the regression test below with an artificially tiny injected cap — see that test's
+own doc for why the exact numbers aren't directly comparable to a production-threshold run, but
+the mechanism itself is the same code path), not 551s.
+
+Once `emit_with_precision` observes the budget tripped (checked once, right after both composite
+builders return, before any of the expensive derivation-layer/lexc-string-writing work below runs
+— never a partial/best-effort lexc source, which could silently under-cover a grammar that
+otherwise emits fine), it returns `EmitReport { tier: FomaTier::Unsupported { reason }, 
+enum_budget_exceeded: Some(EnumBudgetExceeded { measure, value, limit }), .. }` with an EMPTY lexc
+source. `FomaProposer::new` checks `enum_budget_exceeded` FIRST, before ever handing the (empty)
+lexc source to `fsm_lexc_parse_string` — so a tripped budget never reaches the foma compiler at
+all — and returns `Err(FomaError::EnumerationBudgetExceeded { measure, value, limit })`. This
+propagates through `FomaAnalyzer::new` via the existing `?` (no change needed there: it already
+propagates `FomaProposer::new`'s `Result`). The error message states which measure tripped, its
+value, its limit, and points the caller at the default engine (or the env override, for a user who
+understands the grammar's shape).
+
+### Default thresholds and why
+
+- **`DEFAULT_ENTRY_BUDGET = 200_000`** composite entries (fusion + interdigitation + structural,
+  combined). Amharic — the largest reference grammar that must keep working — produces 22,775
+  fusion entries and (in the current reference grammars) zero interdigitation/structural entries:
+  comfortably under this cap by **~8.8x**. Aweti's 2,833,559 crosses it after roughly **7%** of
+  its own full enumeration — well before the 691MB lexc / 8.8GB `apply_up` allocation.
+- **`DEFAULT_PROBE_BUDGET = 3_000_000`** (root, rule) pairs probed. Amharic probes ~305k pairs for
+  `build_composites`'s own mechanism (structural composites add zero for it today) — **~9.8x**
+  margin. Aweti probes ~8.37M — comfortably over this cap — so a grammar shaped like Aweti but
+  with a lower composite-entry yield per probe (so the entry cap alone would not catch it quickly)
+  still trips fast on pure search-tree size.
+
+Both constants (and their justification) live as doc comments directly on
+`crate::morphotactics::EnumerationBudget` — see that module for the authoritative numbers if this
+doc and the code ever drift.
+
+### Env override
+
+`HC_ENUM_ENTRY_BUDGET=<n>` / `HC_ENUM_PROBE_BUDGET=<n>` (parsed as `usize`; unset or unparsable
+falls back to the default above) — the same convention `HC_PREEXPAND_PROBE_CAP` already
+established: a power user who understands the grammar's shape can raise either cap (or set it to
+a very large value to effectively disable that measure) and re-run. Read exactly once, in
+`crate::emit::emit_with_precision`'s thin wrapper (`emit_with_precision` reads env and delegates
+to the explicit-parameter `emit_with_budget`; `FomaProposer::new` does the same, delegating to
+`new_with_budget`) — mirroring `explore_mode_from_env`'s own "read once in the production entry
+point, tests construct directly" convention, so parallel test processes never race process-global
+env state.
+
+### Regression test
+
+`rust/crates/pg-foma/src/analyzer.rs`'s `budget_tests` module (unit tests, so they can reach the
+`pub(crate)` `FomaProposer::new_with_budget`/`EnumerationBudget::with_caps` test-injection points)
+loads the real Aweti grammar and calls `FomaProposer::new_with_budget` with an artificially tiny
+injected cap (10 entries, or 5 probes in a second test) rather than setting
+`HC_ENUM_ENTRY_BUDGET`/`HC_ENUM_PROBE_BUDGET` — same reasoning as `explore_mode_from_env`'s doc:
+tests must never touch that shared env var. This decouples the test from the exact default
+threshold numbers (justified separately above) and keeps it fast: both trip in ~1.9s, not 551s.
+A third test asserts a tiny, hand-built, non-composite grammar never trips an unbounded budget
+(guards against an over-eager wiring bug that would spuriously reject every grammar).
+
+### 100% recall preserved for grammars that fit
+
+The budget is a pure pre-flight guard: for any grammar whose composite/probe counts stay under
+threshold, `EnumerationBudget`'s counters never latch, `is_tripped()` never returns `true`, and
+every code path this fix touches (`extend`, `struct_extend`, `build_composites_with_mode`,
+`build_structural_composites`, `emit_with_precision`) is otherwise **completely unchanged** —
+verified by the existing `f1_sena_gate`/`f2_indonesian_gate`/`f3_amharic_gate`/`f3_parity`/
+`pk1`/`pk2` gates and `preexpand::pruning_tests::amharic_pruned_composites_are_a_subset_of_flat`
+all staying green with this change in place (byte-for-byte on Sena/Indonesian since neither
+approaches either threshold; 100% recall on Amharic).

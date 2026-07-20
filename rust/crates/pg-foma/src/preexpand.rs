@@ -137,7 +137,7 @@ use rayon::prelude::*;
 
 use crate::emit::{rule_role, stripped_variants, surface_variants, Role};
 use crate::junctions::PhonologyProbe;
-use crate::morphotactics::{ChainState, ExploreMode, MorphotacticIndex, ProbeBudget};
+use crate::morphotactics::{ChainState, EnumerationBudget, ExploreMode, MorphotacticIndex, ProbeBudget};
 use crate::tags;
 
 /// One rule-application/fusion composite: an extra "root-like" lexc entry whose upper tape carries
@@ -494,6 +494,11 @@ struct ExtendCtx<'a> {
     /// own doc) -- `None` in production (the env var unset), so every `ctx.probe_budget` read below
     /// is a single branch on a `None` with zero further cost.
     probe_budget: Option<ProbeBudget<'a>>,
+    /// Default-ON fail-fast enumeration budget (`crate::morphotactics::EnumerationBudget`'s own
+    /// doc, Fix 1 for the Aweti-scale blow-up) -- unlike `probe_budget` above, this is ALWAYS live
+    /// and never panics; `extend` checks it before every recursive step and ticks it alongside the
+    /// existing counters.
+    enum_budget: &'a EnumerationBudget,
 }
 
 /// [`extend`]'s output accumulator: the composite records, a `(tag_lexc, spelling)` dedup set
@@ -537,6 +542,14 @@ fn extend(
     if depth >= MAX_EXTRA_RULES {
         return;
     }
+    // Fail-fast enumeration budget (Fix 1, `crate::morphotactics::EnumerationBudget`'s own doc):
+    // checked once at the top of every call, same shape as the `depth >= MAX_EXTRA_RULES` guard
+    // just above -- once ANY parallel root worker trips either measure, every other in-flight or
+    // subsequent call (this grammar's remaining roots, and this call's own remaining recursion)
+    // bails out here almost immediately instead of continuing to burn CPU toward the blow-up.
+    if ctx.enum_budget.is_tripped() {
+        return;
+    }
     let base_fs = base_word.syn_fs.clone();
     for (ridx, &(mid, role)) in ctx.rules.iter().enumerate() {
         let rule = &ctx.g.mrules[mid.0 as usize];
@@ -572,6 +585,7 @@ fn extend(
         if let Some(budget) = &ctx.probe_budget {
             budget.tick();
         }
+        ctx.enum_budget.tick_probe();
 
         let synth_out = synthesize_cached(ctx.g, mid, base_word, rule, ctx.cache);
         if !synth_out.is_empty() {
@@ -646,6 +660,10 @@ fn extend(
                     } else {
                         acc.report.fusion_entries += 1;
                     }
+                    // Fail-fast enumeration budget: one composite lexc entry was just recorded
+                    // (module doc's "composite entries" measure, the one that actually predicts the
+                    // Aweti-scale blow-up -- see `crate::morphotactics::EnumerationBudget`'s doc).
+                    ctx.enum_budget.add_entries(1);
                 }
                 if is_infix {
                     acc.report.covered_infix_rules.insert(mid.0);
@@ -777,6 +795,7 @@ fn process_root_work(
     mt: &MorphotacticIndex,
     mode: ExploreMode,
     probe_budget: Option<ProbeBudget<'_>>,
+    enum_budget: &EnumerationBudget,
     work: &RootWork,
 ) -> (Vec<CompositeRec>, CompositeReport) {
     let mut acc = Acc {
@@ -784,6 +803,13 @@ fn process_root_work(
         seen: rustc_hash::FxHashSet::default(),
         report: CompositeReport::default(),
     };
+
+    // Fail-fast enumeration budget: skip this root entirely once tripped -- cheaper than even
+    // entering the allomorph loop below (each `extend` call would bail near-instantly anyway, but
+    // this avoids the per-allomorph setup work too).
+    if enum_budget.is_tripped() {
+        return (acc.recs, acc.report);
+    }
 
     let entry = &g.entries[work.entry_id.0 as usize];
     let root_stratum = g.morphemes[entry.morpheme.0 as usize].stratum;
@@ -828,6 +854,7 @@ fn process_root_work(
             mt,
             mode,
             probe_budget,
+            enum_budget,
         };
         // Morphotactic pruning (module doc addendum): seed the chain's automaton state at the
         // root's own stratum, disabling template entry forever if the root is partial (engine fact
@@ -874,7 +901,11 @@ pub(crate) fn build_composites(
         cap,
         counter: &counter,
     });
-    build_composites_with_mode(g, width, phon, &mt, mode, probe_budget)
+    // Fix 1's default-on budget, env-driven like everything else in this thin wrapper (production
+    // callers never hit this path -- `crate::emit::emit_with_precision` builds its own
+    // `EnumerationBudget` once and calls `build_composites_with_mode` directly, module doc above).
+    let enum_budget = EnumerationBudget::from_env();
+    build_composites_with_mode(g, width, phon, &mt, mode, probe_budget, &enum_budget)
 }
 
 /// Build every rule-application/fusion composite for `g` (module doc). `width` is the same tag
@@ -915,6 +946,7 @@ pub(crate) fn build_composites_with_mode(
     mt: &MorphotacticIndex,
     mode: ExploreMode,
     probe_budget: Option<ProbeBudget<'_>>,
+    enum_budget: &EnumerationBudget,
 ) -> (Vec<CompositeRec>, CompositeReport) {
     if !should_run(g, phon) {
         return (Vec::new(), CompositeReport::default());
@@ -964,6 +996,7 @@ pub(crate) fn build_composites_with_mode(
                 mt,
                 mode,
                 probe_budget,
+                enum_budget,
                 w,
             )
         })
@@ -981,6 +1014,7 @@ pub(crate) fn build_composites_with_mode(
                     mt,
                     mode,
                     probe_budget,
+                    enum_budget,
                     w,
                 )
             })
@@ -1115,9 +1149,25 @@ mod pruning_tests {
         let mt = MorphotacticIndex::build(&g);
 
         let (_, flat) =
-            build_composites_with_mode(&g, width, phon.as_ref(), &mt, ExploreMode::Flat, None);
+            build_composites_with_mode(
+                &g,
+                width,
+                phon.as_ref(),
+                &mt,
+                ExploreMode::Flat,
+                None,
+                &EnumerationBudget::unbounded(),
+            );
         let (_, pruned) =
-            build_composites_with_mode(&g, width, phon.as_ref(), &mt, ExploreMode::Pruned, None);
+            build_composites_with_mode(
+                &g,
+                width,
+                phon.as_ref(),
+                &mt,
+                ExploreMode::Pruned,
+                None,
+                &EnumerationBudget::unbounded(),
+            );
 
         // Depth 0: mrA (slot 0, first-reachable) plus mrB under FLAT (which ignores morphotactics
         // entirely) -- 2 candidates probed. Under PRUNED, mrB (slot 1, blocked by the mandatory
@@ -1148,9 +1198,25 @@ mod pruning_tests {
         let mt = MorphotacticIndex::build(&g);
 
         let (_, flat) =
-            build_composites_with_mode(&g, width, phon.as_ref(), &mt, ExploreMode::Flat, None);
+            build_composites_with_mode(
+                &g,
+                width,
+                phon.as_ref(),
+                &mt,
+                ExploreMode::Flat,
+                None,
+                &EnumerationBudget::unbounded(),
+            );
         let (_, pruned) =
-            build_composites_with_mode(&g, width, phon.as_ref(), &mt, ExploreMode::Pruned, None);
+            build_composites_with_mode(
+                &g,
+                width,
+                phon.as_ref(),
+                &mt,
+                ExploreMode::Pruned,
+                None,
+                &EnumerationBudget::unbounded(),
+            );
 
         // mrA (vacuous) is `Role::None` -- never a candidate rule at all, in either mode -- so only
         // mrB is ever attempted at depth 0. The point of this test is that pruning does NOT lose
@@ -1213,12 +1279,28 @@ mod pruning_tests {
 
         let t_flat = std::time::Instant::now();
         let (flat_recs, flat_report) =
-            build_composites_with_mode(&g, width, phon.as_ref(), &mt, ExploreMode::Flat, None);
+            build_composites_with_mode(
+                &g,
+                width,
+                phon.as_ref(),
+                &mt,
+                ExploreMode::Flat,
+                None,
+                &EnumerationBudget::unbounded(),
+            );
         let flat_elapsed = t_flat.elapsed();
 
         let t_pruned = std::time::Instant::now();
         let (pruned_recs, pruned_report) =
-            build_composites_with_mode(&g, width, phon.as_ref(), &mt, ExploreMode::Pruned, None);
+            build_composites_with_mode(
+                &g,
+                width,
+                phon.as_ref(),
+                &mt,
+                ExploreMode::Pruned,
+                None,
+                &EnumerationBudget::unbounded(),
+            );
         let pruned_elapsed = t_pruned.elapsed();
 
         let flat_set: rustc_hash::FxHashSet<(String, String)> = flat_recs

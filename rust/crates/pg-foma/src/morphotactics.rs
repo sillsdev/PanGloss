@@ -134,6 +134,194 @@ impl<'a> ProbeBudget<'a> {
     }
 }
 
+// --- Default-on enumeration budget (Fix 1: fail-fast on the Aweti-scale blow-up) ----------------
+//
+// `ProbeBudget` above is measurement-only: off by default (`HC_PREEXPAND_PROBE_CAP` unset), and it
+// PANICS when tripped -- a deliberate choice for a diagnostic tool a developer runs by hand, but
+// wrong for production, where a caller needs a typed `Result`, never an unwind. `EnumerationBudget`
+// is its default-ON, non-panicking sibling: always live in `crate::emit::emit`/`emit_with_precision`,
+// it just sets a shared, cross-thread latch the instant either of its two measures crosses its
+// threshold; every recursive enumeration call (`crate::preexpand::extend`, `crate::emit::
+// struct_extend`) checks that latch before doing further work and bails out immediately if it is
+// set -- the same "check once, return early" shape those functions already use for their own
+// `depth >= MAX_EXTRA_RULES`/`STRUCT_MAX_EXTRA_RULES` guards. `crate::emit::emit_with_precision`
+// reads the latch once both composite builders return and turns a trip into `FomaTier::Unsupported`
+// plus a structured `EnumBudgetExceeded`, which `FomaProposer::new` (crate::analyzer) turns into a
+// typed `FomaError::EnumerationBudgetExceeded` -- an honest, specific error, never a panic, never a
+// silent OOM.
+//
+// ## Why two measures, not one
+// A "pairs probed" cap alone does not catch every blow-up shape. The investigation that motivated
+// this fix found the Aweti grammar (855 roots, 123 rules, 3 strata, 14 templates) probes "only"
+// ~8.37 million (root, rule) pairs -- a number that looks merely large in isolation -- before
+// producing 2,833,559 composite (fusion) entries, a 691 MB / 9.7M-line `.lexc`, and eventually an
+// ~8.8 GB `apply_up` allocation that kills the process on the very first word. The number that
+// actually predicts the disaster is the RESULT of those probes -- composite lexc entries emitted
+// (fusion + interdigitation + structural) -- not the probe count itself. So this budgets on BOTH:
+// composite entries (the primary, disaster-predicting measure) and pairs probed (a cheap secondary
+// backstop for a grammar whose search runs away without yet producing many entries).
+//
+// ## Default thresholds
+// - `DEFAULT_ENTRY_BUDGET = 200_000` composite entries (fusion + interdigitation + structural,
+//   combined -- the same three counters `EmitCounts` already reports). Amharic, the largest
+//   reference grammar that must keep working, produces 22,775 fusion entries and zero
+//   interdigitation/structural entries at this writing -- comfortably under this cap by ~8.8x.
+//   Aweti's 2,833,559 crosses it after roughly 7% of its own full enumeration -- well before the
+//   691 MB lexc / 8.8 GB allocation, and (empirically) in low tens of seconds rather than 551s.
+// - `DEFAULT_PROBE_BUDGET = 3_000_000` (root, rule) pairs probed. Amharic probes ~305k pairs for
+//   `build_composites`'s own mechanism (structural composites add zero for it) -- ~9.8x margin.
+//   Aweti probes ~8.37M -- comfortably over this cap -- so a grammar shaped like Aweti but with a
+//   lower composite-entry yield per probe (so the entry cap alone would not catch it quickly) still
+//   trips fast on pure search-tree size.
+//
+// ## Env override
+// `HC_ENUM_ENTRY_BUDGET=<n>` / `HC_ENUM_PROBE_BUDGET=<n>` (parsed as `usize`; unset or unparsable
+// falls back to the default above), mirroring the existing `HC_PREEXPAND_PROBE_CAP` convention: a
+// power user who understands the grammar's shape can raise either cap (or set it to a huge value to
+// effectively disable that measure) and re-run.
+pub(crate) const DEFAULT_ENTRY_BUDGET: usize = 200_000;
+pub(crate) const DEFAULT_PROBE_BUDGET: usize = 3_000_000;
+
+pub(crate) fn entry_budget_from_env() -> usize {
+    std::env::var("HC_ENUM_ENTRY_BUDGET")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(DEFAULT_ENTRY_BUDGET)
+}
+
+pub(crate) fn probe_budget_from_env() -> usize {
+    std::env::var("HC_ENUM_PROBE_BUDGET")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(DEFAULT_PROBE_BUDGET)
+}
+
+/// Which measure tripped [`EnumerationBudget`] -- surfaced through
+/// `crate::analyzer::FomaError::EnumerationBudgetExceeded`'s error message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EnumMeasure {
+    CompositeEntries,
+    PairsProbed,
+}
+
+impl EnumMeasure {
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            EnumMeasure::CompositeEntries => {
+                "composite lexc entries (fusion + interdigitation + structural)"
+            }
+            EnumMeasure::PairsProbed => "(root, rule) pairs probed",
+        }
+    }
+}
+
+/// Shared, cross-thread-safe, ALWAYS-ON budget state (module doc above). Built ONCE per
+/// `crate::emit::emit_with_precision` call and shared by reference across both composite builders
+/// (`crate::preexpand::build_composites_with_mode`, `crate::emit::build_structural_composites`) and
+/// every one of their parallel per-root workers -- mirrors [`ProbeBudget`]'s own sharing shape, but
+/// every field here is a plain `AtomicUsize` (no `Mutex`, no interior `Cell`), so the whole struct is
+/// `Sync` for free and needs no `unsafe` to share across rayon's pool.
+pub(crate) struct EnumerationBudget {
+    entry_cap: usize,
+    entry_count: AtomicUsize,
+    probe_cap: usize,
+    probe_count: AtomicUsize,
+    /// Latch: `0` = untripped; `1` = tripped by [`EnumMeasure::CompositeEntries`]; `2` = tripped by
+    /// [`EnumMeasure::PairsProbed`]. Whichever thread's `compare_exchange` wins first "owns" the
+    /// recorded reason -- purely a diagnostic tie-break (both measures are checked at both call
+    /// sites, so a grammar that crosses both thresholds in the same instant could latch either);
+    /// every checker treats "tripped" as one boolean regardless of which measure caused it.
+    tripped: AtomicUsize,
+}
+
+impl EnumerationBudget {
+    /// Production entry point: thresholds from `HC_ENUM_ENTRY_BUDGET`/`HC_ENUM_PROBE_BUDGET` (module
+    /// doc), or the documented defaults when unset/unparsable.
+    pub(crate) fn from_env() -> Self {
+        Self::with_caps(entry_budget_from_env(), probe_budget_from_env())
+    }
+
+    /// Explicit-caps constructor -- what tests use (mirroring this crate's existing convention,
+    /// `crate::morphotactics::ExploreMode`'s own doc: "tests must construct ... directly, never call
+    /// [the env-reading fn], so parallel test threads/processes never race process-global env
+    /// state"). Also used internally by [`Self::from_env`].
+    pub(crate) fn with_caps(entry_cap: usize, probe_cap: usize) -> Self {
+        EnumerationBudget {
+            entry_cap,
+            entry_count: AtomicUsize::new(0),
+            probe_cap,
+            probe_count: AtomicUsize::new(0),
+            tripped: AtomicUsize::new(0),
+        }
+    }
+
+    /// A budget that can never trip (`usize::MAX` on both measures) -- for callers/tests that need
+    /// an `&EnumerationBudget` to satisfy a function signature but aren't exercising this mechanism
+    /// (mirrors passing `None` for the sibling [`ProbeBudget`] parameter). Test-only today (the
+    /// `pruning_tests`/`budget_tests` modules); production callers always go through
+    /// [`Self::from_env`].
+    #[cfg(test)]
+    pub(crate) fn unbounded() -> Self {
+        Self::with_caps(usize::MAX, usize::MAX)
+    }
+
+    /// Record `n` more composite entries (fusion + interdigitation + structural, combined -- module
+    /// doc); latches the budget if the running total now exceeds `entry_cap`.
+    pub(crate) fn add_entries(&self, n: usize) {
+        let total = self.entry_count.fetch_add(n, Ordering::Relaxed) + n;
+        if total > self.entry_cap {
+            let _ = self.tripped.compare_exchange(
+                0,
+                EnumMeasure::CompositeEntries as usize + 1,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            );
+        }
+    }
+
+    /// Record one more (root, rule) pair probed; latches the budget if the running total now
+    /// exceeds `probe_cap`.
+    pub(crate) fn tick_probe(&self) {
+        let total = self.probe_count.fetch_add(1, Ordering::Relaxed) + 1;
+        if total > self.probe_cap {
+            let _ = self.tripped.compare_exchange(
+                0,
+                EnumMeasure::PairsProbed as usize + 1,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            );
+        }
+    }
+
+    /// Cheap check every recursive enumeration call makes before doing further work.
+    /// `Ordering::Relaxed`: a stale "not yet tripped" read costs at most a little extra harmless
+    /// work before the next check catches it (same tolerance this crate's `ProbeBudget` already
+    /// accepts) -- this is a fail-fast guard, not a correctness-critical synchronization point.
+    pub(crate) fn is_tripped(&self) -> bool {
+        self.tripped.load(Ordering::Relaxed) != 0
+    }
+
+    /// `Some((measure, value, limit))` once tripped -- exactly the numbers
+    /// `crate::analyzer::FomaError::EnumerationBudgetExceeded`'s message reports. `None` while
+    /// untripped.
+    pub(crate) fn trip_reason(&self) -> Option<(EnumMeasure, usize, usize)> {
+        match self.tripped.load(Ordering::Relaxed) {
+            0 => None,
+            1 => Some((
+                EnumMeasure::CompositeEntries,
+                self.entry_count.load(Ordering::Relaxed),
+                self.entry_cap,
+            )),
+            2 => Some((
+                EnumMeasure::PairsProbed,
+                self.probe_count.load(Ordering::Relaxed),
+                self.probe_cap,
+            )),
+            _ => unreachable!("tripped latch is only ever set to 0, 1, or 2"),
+        }
+    }
+}
+
 /// Subset-construction state for one in-progress composite chain (module doc). `free`/`mid` mirror
 /// the plan doc's `ChainState` exactly; `template_entry_disabled` is the "carry a bool in the
 /// state" option the plan doc names for the partial-root gate (module doc, engine fact 5) -- baked
