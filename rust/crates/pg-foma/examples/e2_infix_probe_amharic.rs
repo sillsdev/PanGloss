@@ -195,7 +195,8 @@ fn run() {
     let t_rules = Instant::now();
     let mut skipped_rules: Vec<String> = Vec::new();
     let mut tuple_reports: Vec<(String, Vec<pg_foma::replace::TupleReport>)> = Vec::new();
-    let rule_net = compile_and_compose_rules(&opts, &g, &alphabet, &rules_in_order, &mut skipped_rules, &mut tuple_reports);
+    let rule_net = compile_and_compose_rules(&opts, &g, &alphabet, &rules_in_order, &mut skipped_rules, &mut tuple_reports)
+        .expect("compose budget ok");
     let rules_elapsed = t_rules.elapsed();
     println!("\nrule compile+compose: {rules_elapsed:?}; skipped: {skipped_rules:?}");
     let rule_net = rule_net.expect("Amharic's 7 rules must compile (see skipped_rules if not)");

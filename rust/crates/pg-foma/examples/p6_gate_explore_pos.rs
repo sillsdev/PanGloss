@@ -109,7 +109,8 @@ fn main() {
             rules_in_order.push(&g.prules[prid.0 as usize]);
         }
     }
-    let result = compile_gated_grammar(&opts, &g, &alphabet, &rules_in_order);
+    let result = compile_gated_grammar(&opts, &g, &alphabet, &rules_in_order)
+        .expect("compose budget ok");
     println!("groups: {}", result.groups);
     for (key, roots, prefixes, suffixes) in &result.group_reports {
         println!("  group key={key:?} root_entries={roots} prefix_entries={prefixes} suffix_entries={suffixes}");

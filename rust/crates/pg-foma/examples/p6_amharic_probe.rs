@@ -67,7 +67,7 @@ fn run() {
         let result = compile_rewrite_rule(&opts, &g, &alphabet, r);
         let elapsed = t0.elapsed();
         match result {
-            Some((net, reports)) => {
+            Ok(Some((net, reports))) => {
                 println!(
                     "{} {:?} mode={:?} dir={:?} fully-supported-shape={}: COMPILED in {elapsed:?} \
                      -> {} states, {} arcs",
@@ -84,10 +84,11 @@ fn run() {
                     }
                 }
             }
-            None => println!(
+            Ok(None) => println!(
                 "{} {:?}: NOT COMPILED (unsupported construct — see prototype report for which) in {elapsed:?}",
                 r.xml_id, r.name
             ),
+            Err(budget_err) => println!("{} {:?}: COMPOSE BUDGET EXCEEDED: {budget_err} in {elapsed:?}", r.xml_id, r.name),
         }
     }
 
@@ -96,7 +97,8 @@ fn run() {
     let t_all = Instant::now();
     let mut skipped: Vec<String> = Vec::new();
     let mut tuple_reports: Vec<(String, Vec<pg_foma::replace::TupleReport>)> = Vec::new();
-    let composed = compile_and_compose_rules(&opts, &g, &alphabet, &rules_in_order, &mut skipped, &mut tuple_reports);
+    let composed = compile_and_compose_rules(&opts, &g, &alphabet, &rules_in_order, &mut skipped, &mut tuple_reports)
+        .expect("compose budget ok");
     let all_elapsed = t_all.elapsed();
     println!("cascade compile+compose: {all_elapsed:?}");
     println!("skipped: {skipped:?}");

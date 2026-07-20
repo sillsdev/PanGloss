@@ -88,7 +88,7 @@ fn run() {
         }));
         let elapsed = t0.elapsed();
         match result {
-            Ok(Some((net, reports))) => {
+            Ok(Ok(Some((net, reports)))) => {
                 println!(
                     "{} {:?}: COMPILED in {elapsed:?} -> {} states, {} arcs",
                     r.xml_id, r.name, net.statecount, net.arccount
@@ -102,7 +102,8 @@ fn run() {
                     }
                 }
             }
-            Ok(None) => println!("{} {:?}: NOT COMPILED (unsupported construct) in {elapsed:?}", r.xml_id, r.name),
+            Ok(Ok(None)) => println!("{} {:?}: NOT COMPILED (unsupported construct) in {elapsed:?}", r.xml_id, r.name),
+            Ok(Err(budget_err)) => println!("{} {:?}: COMPOSE BUDGET EXCEEDED: {budget_err} (in {elapsed:?})", r.xml_id, r.name),
             Err(_) => println!("{} {:?}: PANICKED during compile (in {elapsed:?})", r.xml_id, r.name),
         }
     }
@@ -117,13 +118,14 @@ fn run() {
     let all_elapsed = t_all.elapsed();
     println!("cascade compile+compose: {all_elapsed:?}");
     match result {
-        Ok(composed) => {
+        Ok(Ok(composed)) => {
             println!("skipped: {skipped:?}");
             match composed {
                 Some(net) => println!("composed net: {} states, {} arcs", net.statecount, net.arccount),
                 None => println!("composed net: NONE"),
             }
         }
+        Ok(Err(budget_err)) => println!("COMPOSE BUDGET EXCEEDED: {budget_err} (after {all_elapsed:?})"),
         Err(_) => println!("PANICKED during full-cascade compose (after {all_elapsed:?})"),
     }
 

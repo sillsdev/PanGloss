@@ -59,6 +59,11 @@
 pub mod analyzer;
 pub mod composite;
 pub mod confirm;
+/// Phase B composition-path budget guards (`docs/fst-plan/phase-b-compose-budget-design.md`):
+/// [`morphotactics::EnumerationBudget`]'s sibling for the P6 composition path ([`replace`],
+/// [`gate`], [`uflexc`]) -- size/count caps plus an opt-in wall-clock deadline for every
+/// compose/union/minimize call on that path. See that module's own doc for the full design.
+pub mod compose_budget;
 /// E2 feasibility probe (not mainline; see that module's doc): does token-space Infix-rule
 /// splicing (Amharic root-and-pattern interdigitation) reach 100% recall composed with
 /// [`replace`]'s rule cascade? Standalone, additive, same status as [`replace`]/[`uflexc`].

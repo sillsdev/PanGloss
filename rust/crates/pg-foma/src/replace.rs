@@ -58,7 +58,6 @@
 
 use std::collections::HashSet;
 
-use foma::constructions::fsm_compose;
 use foma::options::FomaOptions;
 use foma::regex::fsm_parse_regex;
 use foma::types::Fsm;
@@ -68,6 +67,8 @@ use pg_grammar::model::{
     Dir, Grammar, NaturalClassKind, Pattern, PatternNode, PhonRuleDef, RewriteMode,
     RewriteRuleDef, RewriteSubruleDef, VarId,
 };
+
+use crate::compose_budget::{compose_checked, ComposeBudget, ComposeError};
 
 /// Private-Use-Area base codepoint every [`CharDefId`] is offset from. `CharDefId`s in every
 /// reference grammar are far below `0xF8FF - 0xE000` (6400) entries, so no grammar in scope can
@@ -450,14 +451,19 @@ fn render_slots(alphabet: &SegAlphabet, slots: &[Slot], assignment: &AlphaAssign
 /// this prototype's driver skips and reports.
 ///
 /// Thin wrapper over [`compile_rewrite_rule_subset`] that includes every subrule (the pre-gating
-/// behavior, unchanged for every existing caller).
+/// behavior, unchanged for every existing caller). Builds a production [`ComposeBudget`] from
+/// `HC_COMPOSE_*` env vars exactly once (mirrors `crate::emit::emit_with_precision`'s own
+/// "read env in the production entry point only" convention) -- tests that need a deterministic,
+/// tiny budget should call [`compile_rewrite_rule_subset`] directly with an explicit
+/// [`ComposeBudget::with_caps`] instead.
 pub fn compile_rewrite_rule(
     opts: &FomaOptions,
     g: &Grammar,
     alphabet: &SegAlphabet,
     rule: &RewriteRuleDef,
-) -> Option<(Fsm, Vec<TupleReport>)> {
-    compile_rewrite_rule_subset(opts, g, alphabet, rule, &|_| true)
+) -> Result<Option<(Fsm, Vec<TupleReport>)>, ComposeError> {
+    let budget = ComposeBudget::from_env();
+    compile_rewrite_rule_subset(opts, g, alphabet, rule, &|_| true, &budget)
 }
 
 /// Identical to [`compile_rewrite_rule`], but SKIPS any subrule for which `allowed(subrule_index)`
@@ -473,13 +479,21 @@ pub fn compile_rewrite_rule(
 /// known imprecision this shares with the ungated path (a rule with one unsupported subrule and one
 /// supported-but-gated subrule reports the WHOLE rule uncovered for every group, matching
 /// [`compile_rewrite_rule`]'s own pre-existing all-or-nothing `?` short-circuit — not a regression).
+///
+/// `budget`: checked at two points (design doc `phase-b-compose-budget-design.md` §4) -- V3
+/// immediately after [`resolve_alpha_tuples`] returns, BEFORE the (potentially expensive) per-tuple
+/// compile loop runs (`AlphaTupleBudgetExceeded` if `report.surviving` exceeds
+/// [`ComposeBudget::tuple_cap`]'s value, the cheapest-possible-predictor principle Fix 1's own
+/// `EnumerationBudget` already uses); and V1, via [`compose_checked`], on every fold step of the
+/// per-alpha-tuple union-by-composition below.
 pub fn compile_rewrite_rule_subset(
     opts: &FomaOptions,
     g: &Grammar,
     alphabet: &SegAlphabet,
     rule: &RewriteRuleDef,
     allowed: &dyn Fn(usize) -> bool,
-) -> Option<(Fsm, Vec<TupleReport>)> {
+    budget: &ComposeBudget,
+) -> Result<Option<(Fsm, Vec<TupleReport>)>, ComposeError> {
     let mut net: Option<Fsm> = None;
     let mut reports: Vec<TupleReport> = Vec::new();
 
@@ -492,14 +506,24 @@ pub fn compile_rewrite_rule_subset(
         // scoping is per-subrule, module doc), so `lhs_slots` is (re)computed here, not hoisted
         // above the loop.
         let mut next_occurrence = 0usize;
-        let lhs_slots = pattern_slots(g, &rule.lhs, &mut next_occurrence)?;
-        let rhs_slots = pattern_slots(g, &subrule.rhs, &mut next_occurrence)?;
+        let Some(lhs_slots) = pattern_slots(g, &rule.lhs, &mut next_occurrence) else {
+            return Ok(None);
+        };
+        let Some(rhs_slots) = pattern_slots(g, &subrule.rhs, &mut next_occurrence) else {
+            return Ok(None);
+        };
         let left_slots = match &subrule.left_env {
-            Some(p) => pattern_slots(g, p, &mut next_occurrence)?,
+            Some(p) => match pattern_slots(g, p, &mut next_occurrence) {
+                Some(s) => s,
+                None => return Ok(None),
+            },
             None => Vec::new(),
         };
         let right_slots = match &subrule.right_env {
-            Some(p) => pattern_slots(g, p, &mut next_occurrence)?,
+            Some(p) => match pattern_slots(g, p, &mut next_occurrence) {
+                Some(s) => s,
+                None => return Ok(None),
+            },
             None => Vec::new(),
         };
 
@@ -509,6 +533,16 @@ pub fn compile_rewrite_rule_subset(
             left_slots.as_slice(),
             right_slots.as_slice(),
         ]);
+        // V3 (design doc §4): checked BEFORE the per-tuple compile loop -- the cheapest-possible
+        // predictor, same principle as `EnumerationBudget`'s own "check the search result before
+        // the expensive part".
+        if report.surviving > budget.tuple_cap() {
+            return Err(ComposeError::AlphaTupleBudgetExceeded {
+                surviving: report.surviving,
+                limit: budget.tuple_cap(),
+                rule_xml_id: rule.xml_id.clone(),
+            });
+        }
         reports.push(report);
 
         for asg in &assignments {
@@ -541,12 +575,18 @@ pub fn compile_rewrite_rule_subset(
                 None => branch_net,
                 // Sequential composition, NOT union — see the module-level doc above this
                 // function for why union is wrong here.
-                Some(prev) => fsm_compose(opts, prev, branch_net),
+                Some(prev) => compose_checked(
+                    opts,
+                    prev,
+                    branch_net,
+                    budget,
+                    "compile_rewrite_rule_subset alpha-tuple fold",
+                )?,
             });
         }
     }
 
-    net.map(|n| (n, reports))
+    Ok(net.map(|n| (n, reports)))
 }
 
 /// Compile every `Rewrite`-kind [`PhonRuleDef`] in `stratum_prules` order into individual foma
@@ -558,6 +598,23 @@ pub fn compile_rewrite_rule_subset(
 ///
 /// Returns `None` if there are zero compilable rules at all (the composition would be a no-op —
 /// callers should compose with an identity net instead of calling this).
+///
+/// Builds a production [`ComposeBudget`] from `HC_COMPOSE_*` env vars exactly once (mirrors
+/// `crate::emit::emit_with_precision`'s own convention). Tests that need a deterministic, tiny
+/// budget should call [`compile_and_compose_rules_with_budget`] directly instead.
+///
+/// Deliberately NOT given a final `minimize_checked` call (unlike `crate::gate::
+/// compile_gated_grammar`, design doc §4 V2): `tests/p6_gate_parity.rs`'s
+/// `amharic_gated_subrules_and_tuple_counts_unregressed` hard-asserts this function's return value
+/// is BYTE IDENTICAL to the pre-Phase-B numbers (82 states / 1,110,358 arcs) with no minimize
+/// applied by this function itself -- adding one here would change those counts (composing minimal
+/// nets is not itself guaranteed minimal) and break that regression guard. This is a deliberate
+/// deviation from the design doc's V2 text, which named this function alongside
+/// `compile_gated_grammar` for the final-minimize-ownership change; see this crate's own task report
+/// for the full reasoning. Callers that want a minimal composed rule net should call
+/// `crate::compose_budget::minimize_checked` themselves (every example driver already does, via
+/// `foma::minimize::fsm_minimize`, on the FULL `lexc .o. rules .o. cleanup` composition, not on this
+/// function's return value alone).
 pub fn compile_and_compose_rules(
     opts: &FomaOptions,
     g: &Grammar,
@@ -565,7 +622,32 @@ pub fn compile_and_compose_rules(
     prules_in_order: &[&PhonRuleDef],
     skipped: &mut Vec<String>,
     tuple_reports: &mut Vec<(String, Vec<TupleReport>)>,
-) -> Option<Fsm> {
+) -> Result<Option<Fsm>, ComposeError> {
+    let budget = ComposeBudget::from_env();
+    compile_and_compose_rules_with_budget(
+        opts,
+        g,
+        alphabet,
+        prules_in_order,
+        skipped,
+        tuple_reports,
+        &budget,
+    )
+}
+
+/// [`compile_and_compose_rules`]'s core, with the [`ComposeBudget`] threaded in explicitly rather
+/// than read from env -- what tests call directly (design doc §6: "explicit-caps constructors,
+/// never env vars").
+#[allow(clippy::too_many_arguments)]
+pub fn compile_and_compose_rules_with_budget(
+    opts: &FomaOptions,
+    g: &Grammar,
+    alphabet: &SegAlphabet,
+    prules_in_order: &[&PhonRuleDef],
+    skipped: &mut Vec<String>,
+    tuple_reports: &mut Vec<(String, Vec<TupleReport>)>,
+    budget: &ComposeBudget,
+) -> Result<Option<Fsm>, ComposeError> {
     let mut composed: Option<Fsm> = None;
     for pr in prules_in_order {
         let PhonRuleDef::Rewrite(rule) = pr else {
@@ -581,18 +663,20 @@ pub fn compile_and_compose_rules(
         // rule is silently mis-mapped rather than rejected here — a real gap, called out in the
         // prototype report, not hidden.
         let _ = (rule.mode, rule.dir); // read for the record; not branched on (see doc above)
-        match compile_rewrite_rule(opts, g, alphabet, rule) {
+        match compile_rewrite_rule_subset(opts, g, alphabet, rule, &|_| true, budget)? {
             Some((net, reports)) => {
                 tuple_reports.push((rule.xml_id.clone(), reports));
                 composed = Some(match composed {
                     None => net,
-                    Some(prev) => fsm_compose(opts, prev, net),
+                    Some(prev) => {
+                        compose_checked(opts, prev, net, budget, "compile_and_compose_rules cascade fold")?
+                    }
                 });
             }
             None => skipped.push(rule.xml_id.clone()),
         }
     }
-    composed
+    Ok(composed)
 }
 
 /// Identical to [`compile_and_compose_rules`], but for ONE GATING GROUP (`crate::gate`): for every
@@ -603,6 +687,10 @@ pub fn compile_and_compose_rules(
 /// `false`). A rule whose every subrule is filtered out for this group is skipped exactly like an
 /// unsupported-construct rule (absent from the group's cascade, i.e. identity for this group) —
 /// see [`compile_rewrite_rule_subset`]'s doc.
+///
+/// Builds a production [`ComposeBudget`] from `HC_COMPOSE_*` env vars exactly once -- same
+/// convention as [`compile_and_compose_rules`]. Tests should call
+/// [`compile_and_compose_rules_gated_with_budget`] directly instead.
 #[allow(clippy::too_many_arguments)]
 pub fn compile_and_compose_rules_gated(
     opts: &FomaOptions,
@@ -612,7 +700,34 @@ pub fn compile_and_compose_rules_gated(
     subrule_ok: &dyn Fn(usize, usize) -> bool,
     skipped: &mut Vec<String>,
     tuple_reports: &mut Vec<(String, Vec<TupleReport>)>,
-) -> Option<Fsm> {
+) -> Result<Option<Fsm>, ComposeError> {
+    let budget = ComposeBudget::from_env();
+    compile_and_compose_rules_gated_with_budget(
+        opts,
+        g,
+        alphabet,
+        prules_in_order,
+        subrule_ok,
+        skipped,
+        tuple_reports,
+        &budget,
+    )
+}
+
+/// [`compile_and_compose_rules_gated`]'s core, with the [`ComposeBudget`] threaded in explicitly
+/// rather than read from env -- what `crate::gate::compile_gated_grammar_with_budget` and tests
+/// call directly, so a whole gated-grammar compile shares ONE budget across every group's cascade.
+#[allow(clippy::too_many_arguments)]
+pub fn compile_and_compose_rules_gated_with_budget(
+    opts: &FomaOptions,
+    g: &Grammar,
+    alphabet: &SegAlphabet,
+    prules_in_order: &[&PhonRuleDef],
+    subrule_ok: &dyn Fn(usize, usize) -> bool,
+    skipped: &mut Vec<String>,
+    tuple_reports: &mut Vec<(String, Vec<TupleReport>)>,
+    budget: &ComposeBudget,
+) -> Result<Option<Fsm>, ComposeError> {
     let mut composed: Option<Fsm> = None;
     for (rule_pos, pr) in prules_in_order.iter().enumerate() {
         let PhonRuleDef::Rewrite(rule) = pr else {
@@ -624,18 +739,24 @@ pub fn compile_and_compose_rules_gated(
         };
         let _ = (rule.mode, rule.dir); // see compile_and_compose_rules's own doc on this
         let allowed = |sub_idx: usize| subrule_ok(rule_pos, sub_idx);
-        match compile_rewrite_rule_subset(opts, g, alphabet, rule, &allowed) {
+        match compile_rewrite_rule_subset(opts, g, alphabet, rule, &allowed, budget)? {
             Some((net, reports)) => {
                 tuple_reports.push((rule.xml_id.clone(), reports));
                 composed = Some(match composed {
                     None => net,
-                    Some(prev) => fsm_compose(opts, prev, net),
+                    Some(prev) => compose_checked(
+                        opts,
+                        prev,
+                        net,
+                        budget,
+                        "compile_and_compose_rules_gated cascade fold",
+                    )?,
                 });
             }
             None => skipped.push(rule.xml_id.clone()),
         }
     }
-    composed
+    Ok(composed)
 }
 
 /// `true` iff `rule.mode`/`rule.dir` are the only combination this prototype claims fidelity for.
@@ -646,3 +767,184 @@ pub fn is_fully_supported_shape(rule: &RewriteRuleDef) -> bool {
 /// Convenience re-export so the driver doesn't need a second `use` line for the one subrule field
 /// this module reads directly (`mode`/`dir` are read via [`is_fully_supported_shape`] instead).
 pub type Subrule = RewriteSubruleDef;
+
+#[cfg(test)]
+mod compose_budget_tests {
+    //! `docs/fst-plan/phase-b-compose-budget-design.md` §6's own test plan for this module: a
+    //! hand-authored, minimal grammar with ONE alpha-bound rewrite rule whose RHS occurrence draws
+    //! from a natural class with a KNOWN, exact member count (6 -- an "Any"-style
+    //! `FeatureNaturalClass` with zero explicit `FeatureValue` constraints of its own, so
+    //! `class_members` returns every segment in the table; see [`compile_rewrite_rule_subset`]'s
+    //! alpha-resolution doc). This gives [`resolve_alpha_tuples`] a `raw_product`/`surviving` of
+    //! EXACTLY 6 by construction (a single occurrence trivially agrees with itself, module doc on
+    //! [`AlphaAssignment`]), which every test below relies on.
+    use super::*;
+    use crate::compose_budget::NetSizeMeasure;
+
+    /// 6 segments (`c1`..`c6`), all matching the sole natural class `ncBig` (zero explicit
+    /// `FeatureValue`s -- an "Any" class, same shape as the real Indonesian grammar's own `nc1`),
+    /// each also carrying a nonzero `featA` bit (required for `resolve_alpha_tuples`'s own
+    /// self-agreement check to pass: a segment whose alpha-bound feature lane is entirely UNSET
+    /// would fail `lane_value(cd, feat) & lane_value(cd, feat) != 0` against itself). One
+    /// `PhonologicalRule` (`prule_alpha`): LHS = fixed `c1`, RHS = `ncBig` alpha-bound to `var1`, no
+    /// environment -- the minimal shape that produces >1 alpha assignment without needing a second
+    /// occurrence.
+    const SYNTH_ALPHA_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+<HermitCrabInput>
+  <Language>
+    <Name>ComposeBudgetAlphaFixture</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <PhonologicalFeatureSystem>
+      <SymbolicFeature id="featA">
+        <Name>dummy</Name>
+        <Symbols>
+          <Symbol id="symA1">a</Symbol>
+          <Symbol id="symA2">b</Symbol>
+        </Symbols>
+      </SymbolicFeature>
+    </PhonologicalFeatureSystem>
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="c1"><Representations><Representation>p</Representation></Representations><FeatureValue feature="featA" symbolValues="symA1" /></SegmentDefinition>
+        <SegmentDefinition id="c2"><Representations><Representation>a</Representation></Representations><FeatureValue feature="featA" symbolValues="symA1" /></SegmentDefinition>
+        <SegmentDefinition id="c3"><Representations><Representation>b</Representation></Representations><FeatureValue feature="featA" symbolValues="symA1" /></SegmentDefinition>
+        <SegmentDefinition id="c4"><Representations><Representation>d</Representation></Representations><FeatureValue feature="featA" symbolValues="symA1" /></SegmentDefinition>
+        <SegmentDefinition id="c5"><Representations><Representation>e</Representation></Representations><FeatureValue feature="featA" symbolValues="symA1" /></SegmentDefinition>
+        <SegmentDefinition id="c6"><Representations><Representation>f</Representation></Representations><FeatureValue feature="featA" symbolValues="symA1" /></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncBig">
+        <Name>Any</Name>
+      </FeatureNaturalClass>
+    </NaturalClasses>
+    <PhonologicalRuleDefinitions>
+      <PhonologicalRule id="prule_alpha">
+        <Name>synthetic alpha rule</Name>
+        <VariableFeatures>
+          <VariableFeature id="var1" name="a" phonologicalFeature="featA" />
+        </VariableFeatures>
+        <PhoneticInput>
+          <PhoneticSequence>
+            <Segment segment="c1" />
+          </PhoneticSequence>
+        </PhoneticInput>
+        <PhonologicalSubrules>
+          <PhonologicalSubrule>
+            <PhoneticOutput>
+              <PhoneticSequence>
+                <SimpleContext naturalClass="ncBig">
+                  <AlphaVariables>
+                    <AlphaVariable variableFeature="var1" />
+                  </AlphaVariables>
+                </SimpleContext>
+              </PhoneticSequence>
+            </PhoneticOutput>
+          </PhonologicalSubrule>
+        </PhonologicalSubrules>
+      </PhonologicalRule>
+    </PhonologicalRuleDefinitions>
+    <Strata>
+      <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" phonologicalRules="prule_alpha">
+        <Name>S</Name>
+        <LexicalEntries>
+          <LexicalEntry id="entry1" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="allo1"><PhoneticShape>p</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>dummy</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>
+"#;
+
+    fn synth_alpha_grammar() -> Grammar {
+        pg_grammar::load(SYNTH_ALPHA_XML)
+            .unwrap_or_else(|e| panic!("failed to load synthetic alpha fixture: {e}\n{SYNTH_ALPHA_XML}"))
+    }
+
+    fn synth_alpha_rule(g: &Grammar) -> &RewriteRuleDef {
+        for pr in &g.prules {
+            if let PhonRuleDef::Rewrite(r) = pr {
+                if r.xml_id == "prule_alpha" {
+                    return r;
+                }
+            }
+        }
+        panic!("prule_alpha not found in synthetic fixture");
+    }
+
+    /// V3 (design doc §4): `resolve_alpha_tuples` for `prule_alpha` surfaces EXACTLY 6 surviving
+    /// assignments (module doc); a `tuple_cap` below that must trip `AlphaTupleBudgetExceeded`
+    /// BEFORE any per-tuple compile work happens.
+    #[test]
+    fn alpha_tuple_budget_trips_on_synthetic_rule() {
+        let g = synth_alpha_grammar();
+        let table = &g.char_tables[0];
+        let alphabet = SegAlphabet::new(table);
+        let opts = FomaOptions::default();
+        let rule = synth_alpha_rule(&g);
+
+        let budget = ComposeBudget::with_caps(usize::MAX, usize::MAX, 3, usize::MAX, usize::MAX, None);
+        let err = compile_rewrite_rule_subset(&opts, &g, &alphabet, rule, &|_| true, &budget)
+            .expect_err("6 surviving tuples must exceed a tuple_cap of 3");
+        match err {
+            ComposeError::AlphaTupleBudgetExceeded { surviving, limit, rule_xml_id } => {
+                assert_eq!(surviving, 6, "synthetic fixture's ncBig class must have exactly 6 members");
+                assert_eq!(limit, 3);
+                assert_eq!(rule_xml_id, "prule_alpha");
+            }
+            other => panic!("expected AlphaTupleBudgetExceeded, got {other:?}"),
+        }
+    }
+
+    /// V1 (design doc §4): composing the 6 per-tuple branch nets left-to-right must trip
+    /// `NetSizeExceeded` on the second fold (`compose_checked`'s own site inside
+    /// `compile_rewrite_rule_subset`) once `state_cap` is small enough -- the tuple budget itself
+    /// stays unbounded here so this test isolates the state-size check specifically.
+    #[test]
+    fn state_budget_trips_on_tiny_cascade() {
+        let g = synth_alpha_grammar();
+        let table = &g.char_tables[0];
+        let alphabet = SegAlphabet::new(table);
+        let opts = FomaOptions::default();
+        let rule = synth_alpha_rule(&g);
+
+        // NOTE: these single-occurrence branch nets ("c1 -> cK" for varying K) each compile/compose
+        // to a tiny (often single-state, self-looping) automaton -- composing them sequentially
+        // does not grow the state count the way a real multi-rule cascade would, so this test uses
+        // `state_cap=0` (guaranteed to trip on ANY non-empty composed net) rather than the design
+        // doc's illustrative "cap=2", which this specific hand-authored fixture's nets are too
+        // small to cross.
+        let budget = ComposeBudget::with_caps(0, usize::MAX, usize::MAX, usize::MAX, usize::MAX, None);
+        let err = compile_rewrite_rule_subset(&opts, &g, &alphabet, rule, &|_| true, &budget)
+            .expect_err("composing 6 branch nets must exceed a state_cap of 0");
+        assert!(
+            matches!(err, ComposeError::NetSizeExceeded { measure: NetSizeMeasure::States, .. }),
+            "expected NetSizeExceeded(States), got {err:?}"
+        );
+    }
+
+    /// [`ComposeBudget::unbounded`] must never trip on this small fixture -- proves the checked
+    /// wrappers are pure passthrough when every cap is `usize::MAX` and `step_timeout` is `None`.
+    #[test]
+    fn unbounded_budget_never_trips_on_small_fixture() {
+        let g = synth_alpha_grammar();
+        let table = &g.char_tables[0];
+        let alphabet = SegAlphabet::new(table);
+        let opts = FomaOptions::default();
+        let rule = synth_alpha_rule(&g);
+
+        let budget = ComposeBudget::unbounded();
+        let (net, reports) = compile_rewrite_rule_subset(&opts, &g, &alphabet, rule, &|_| true, &budget)
+            .expect("unbounded budget must never trip")
+            .expect("synthetic rule must compile");
+        assert!(net.statecount > 0);
+        assert_eq!(reports.len(), 1);
+        assert_eq!(reports[0].surviving, 6);
+    }
+}

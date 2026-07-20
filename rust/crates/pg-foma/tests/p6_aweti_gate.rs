@@ -196,6 +196,7 @@ fn run_emit_compile_compose() {
         &mut skipped_rules,
         &mut tuple_reports,
     )
+    .expect("compose budget ok")
     .expect("Aweti's 18 rules must compile");
     println!("rule compile+compose: {:?}; skipped={skipped_rules:?}", t_rules.elapsed());
     assert!(skipped_rules.is_empty(), "no Aweti rule should be skipped: {skipped_rules:?}");
@@ -270,6 +271,7 @@ fn run_spot_check() {
         &mut skipped_rules,
         &mut tuple_reports,
     )
+    .expect("compose budget ok")
     .expect("Aweti's 18 rules must compile");
 
     let boundary_tokens: Vec<char> = table

@@ -253,7 +253,7 @@ fn indonesian_mpr_exclusion_matches_oracle() {
     let opts = FomaOptions::default();
     let ro = rules_in_order(&g);
 
-    let result = compile_gated_grammar(&opts, &g, &alphabet, &ro);
+    let result = compile_gated_grammar(&opts, &g, &alphabet, &ro).expect("compose budget ok");
     assert_eq!(result.groups, 2, "exactly 2 gating groups expected: {:?}", result.group_reports);
     let mut net = result.net.expect("gated network must be non-empty");
     if let Some(cleanup) = boundary_cleanup(&opts, table, &alphabet) {
@@ -289,8 +289,9 @@ fn ungated_cascade_would_have_missed_the_excluded_root() {
     let mut skipped = Vec::new();
     let mut tuple_reports = Vec::new();
     let rules_net = compile_and_compose_rules(&opts, &g, &alphabet, &ro, &mut skipped, &mut tuple_reports)
+        .expect("compose budget ok")
         .expect("ungated cascade must still compile (prule5's shape is supported, just ungated)");
-    let ureport = emit_underlying(&g, &alphabet);
+    let ureport = emit_underlying(&g, &alphabet).expect("compose budget ok");
     let lexc_net = foma::lexcread::fsm_lexc_parse_string(&opts, None, &ureport.lexc_source)
         .expect("underlying lexc must compile");
     let mut net = foma::constructions::fsm_compose(&opts, lexc_net, rules_net);
@@ -327,7 +328,7 @@ fn synthetic_pos_gate_matches_oracle() {
     let opts = FomaOptions::default();
     let ro = rules_in_order(&g);
 
-    let result = compile_gated_grammar(&opts, &g, &alphabet, &ro);
+    let result = compile_gated_grammar(&opts, &g, &alphabet, &ro).expect("compose budget ok");
     assert_eq!(result.groups, 2, "exactly 2 gating groups (verb/noun) expected: {:?}", result.group_reports);
     let mut net = result.net.expect("gated network must be non-empty");
     if let Some(cleanup) = boundary_cleanup(&opts, table, &alphabet) {
@@ -361,8 +362,9 @@ fn ungated_cascade_would_have_missed_the_noun_entry() {
     let mut skipped = Vec::new();
     let mut tuple_reports = Vec::new();
     let rules_net = compile_and_compose_rules(&opts, &g, &alphabet, &ro, &mut skipped, &mut tuple_reports)
+        .expect("compose budget ok")
         .expect("ungated cascade must still compile (prule1's shape is supported, just ungated)");
-    let ureport = emit_underlying(&g, &alphabet);
+    let ureport = emit_underlying(&g, &alphabet).expect("compose budget ok");
     let lexc_net = foma::lexcread::fsm_lexc_parse_string(&opts, None, &ureport.lexc_source)
         .expect("underlying lexc must compile");
     let mut net = foma::constructions::fsm_compose(&opts, lexc_net, rules_net);
@@ -399,7 +401,7 @@ fn indonesian_full_corpus_parity_unregressed() {
     let opts = FomaOptions::default();
     let ro = rules_in_order(&g);
 
-    let result = compile_gated_grammar(&opts, &g, &alphabet, &ro);
+    let result = compile_gated_grammar(&opts, &g, &alphabet, &ro).expect("compose budget ok");
     let mut net = result.net.expect("gated network must be non-empty");
     if let Some(cleanup) = boundary_cleanup(&opts, table, &alphabet) {
         net = foma::constructions::fsm_compose(&opts, net, cleanup);
@@ -500,6 +502,7 @@ fn amharic_gated_subrules_and_tuple_counts_unregressed() {
             let mut skipped = Vec::new();
             let mut tuple_reports = Vec::new();
             let composed = compile_and_compose_rules(&opts, &g, &alphabet, &ro, &mut skipped, &mut tuple_reports)
+                .expect("compose budget ok")
                 .expect("Amharic's 7 rules must still compile via the untouched entry point");
             assert!(skipped.is_empty(), "no Amharic rule should be newly skipped: {skipped:?}");
             assert_eq!(composed.statecount, 82, "Amharic composed net state count must be unchanged");

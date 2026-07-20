@@ -194,6 +194,7 @@ use pg_rules::cache::RuleCache;
 use pg_rules::word::{MorphRecord, Word};
 use pg_shape::{EffectiveCdSet, NodeKind, Shape};
 
+use crate::compose_budget::ComposeBudget;
 use crate::junctions::PhonologyProbe;
 use crate::morphotactics::{
     ChainState, EnumerationBudget, ExploreMode, MorphotacticIndex, ProbeBudget,
@@ -2884,12 +2885,48 @@ pub(crate) fn emit_with_budget(
 ///   `docs/fst-plan/p6-prototype-report.md`'s own §6 item 2 costing for the general shape of the
 ///   fix: representing a structural allomorph via its OWN alternative underlying forms rather than
 ///   the surface-probe composite path).
+/// V4 breach constructor for [`emit_underlying_templated`] (design doc §8 item 1): builds the same
+/// `EmitResult` shape every other breach in this module uses (`lexc_source` empty,
+/// `tier: FomaTier::Unsupported`), never `Result`-ifying this function's own signature (task brief:
+/// "INSTEAD of Result-ifying emit.rs").
+fn emit_line_budget_breach(uncovered: Vec<UncoveredItem>, counts: EmitCounts, lines: usize, limit: usize) -> EmitResult {
+    let reason = format!(
+        "templated lexc emission exceeds this path's line budget: {lines} lexc lines written (limit \
+         {limit}). This grammar's templated morphotactics produce more literal lexc material than \
+         `emit_underlying_templated`'s line budget allows; raise HC_COMPOSE_LINE_BUDGET only if you \
+         understand why this grammar's templated emission is this large, or fall back to another \
+         engine for this grammar."
+    );
+    EmitResult {
+        lexc_source: String::new(),
+        report: EmitReport {
+            uncovered,
+            counts,
+            tier: FomaTier::Unsupported { reason },
+            enum_budget_exceeded: None,
+        },
+    }
+}
+
 pub fn emit_underlying_templated(
     g: &Grammar,
     alphabet: &SegAlphabet,
     allowed_entries: Option<&HashSet<LexEntryId>>,
 ) -> EmitResult {
     let enum_budget = crate::morphotactics::EnumerationBudget::from_env();
+    // V4 (design doc §4 + §8 item 1): the templated emitter's own line-count guard. Reuses
+    // `EmitCounts::lexc_lines` (already incremented by `write_tag_entry`/`write_bare`, the number
+    // that most directly predicts foma compile cost, module doc on `EmitCounts`) rather than adding
+    // a second counter. Checked at a handful of natural checkpoints between this function's own
+    // major emission blocks (Root section, outer-template dispatch, template-less section, and
+    // once per group in the main per-group loop) -- not literally after every single line (that
+    // would require threading a fallible check through `build_deriv_chain`/`build_slot_chain`,
+    // which are SHARED with `emit_with_budget`'s `TextMode::SurfaceProbed` path and must stay
+    // byte-identical/unchanged for it, task brief's own leaf-site rule) -- but still incremental
+    // enough that a pathological templated grammar bails during its own emission rather than after
+    // building a possibly-multi-GB `lexc_source` string in full.
+    let compose_budget = ComposeBudget::from_env();
+    let line_cap = compose_budget.line_cap();
     let width = tags::tag_width(g.morphemes.len());
     let table = alphabet.table();
 
@@ -3094,6 +3131,9 @@ pub fn emit_underlying_templated(
     if has_templates {
         write_bare(&mut out, "OuterPfx0", &mut counts);
     }
+    if counts.lexc_lines > line_cap {
+        return emit_line_budget_breach(uncovered.clone(), counts.clone(), counts.lexc_lines, line_cap);
+    }
 
     if has_templates {
         build_deriv_chain(
@@ -3119,6 +3159,9 @@ pub fn emit_underlying_templated(
             &mut out, g, table, "OuterSfx", Role::Suffix, &deriv_suffix, width, "#",
             &mut uncovered, &mut counts, phon, false, &mut pk, mode,
         );
+    }
+    if counts.lexc_lines > line_cap {
+        return emit_line_budget_breach(uncovered.clone(), counts.clone(), counts.lexc_lines, line_cap);
     }
 
     // ---- Template-less derivation section ----
@@ -3146,6 +3189,9 @@ pub fn emit_underlying_templated(
             &mut out, g, table, "TLSfx", Role::Suffix, &deriv_suffix, width, "#",
             &mut uncovered, &mut counts, phon, false, &mut pk, mode,
         );
+    }
+    if counts.lexc_lines > line_cap {
+        return emit_line_budget_breach(uncovered.clone(), counts.clone(), counts.lexc_lines, line_cap);
     }
 
     // ---- Per-group root sections + per-template slot chains ----
@@ -3274,6 +3320,13 @@ pub fn emit_underlying_templated(
                 &mut pk,
                 mode,
             );
+        }
+
+        // V4 (design doc §4 + §8 item 1): checked at the END of each group's own emission -- a
+        // pathological templated grammar (many groups/slots) bails during the group whose own
+        // writes crossed the cap, not several groups later.
+        if counts.lexc_lines > line_cap {
+            return emit_line_budget_breach(uncovered.clone(), counts.clone(), counts.lexc_lines, line_cap);
         }
     }
 

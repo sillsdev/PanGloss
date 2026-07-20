@@ -123,7 +123,6 @@
 
 use std::collections::{HashMap, HashSet};
 
-use foma::constructions::{fsm_compose, fsm_union};
 use foma::options::FomaOptions;
 use foma::types::Fsm;
 
@@ -131,8 +130,9 @@ use pg_grammar::model::{
     Grammar, LexEntryId, MprGroupMatchType, PhonRuleDef, RewriteSubruleDef,
 };
 
-use crate::replace::{compile_and_compose_rules_gated, SegAlphabet, TupleReport};
-use crate::uflexc::{emit_underlying_filtered, UEmitReport};
+use crate::compose_budget::{compose_checked, minimize_checked, union_checked, ComposeBudget, ComposeError};
+use crate::replace::{compile_and_compose_rules_gated_with_budget, SegAlphabet, TupleReport};
+use crate::uflexc::{emit_underlying_filtered_with_budget, UEmitReport};
 
 /// One (rule position in `prules_in_order`, subrule index within that rule) pair whose
 /// `RewriteSubruleDef` declares a nontrivial `required_pos`/`required_mpr`/`excluded_mpr` (module
@@ -236,6 +236,7 @@ pub fn partition_entries(
 /// Full result of the gated compile (module doc step 4): the final unioned network, plus
 /// diagnostics pooled across every group (skipped rules/allomorphs, alpha-tuple reports, per-group
 /// entry/root counts) so a caller can report exactly what this prototype covers.
+#[derive(Debug)]
 pub struct GatedCompileResult {
     pub net: Option<Fsm>,
     pub groups: usize,
@@ -251,14 +252,57 @@ pub struct GatedCompileResult {
 /// Orchestrates module doc steps 1-4: find the gated subrules, partition entries, compile one
 /// lexc+rules network PER GROUP, union them. `prules_in_order` is the same stratum-cascade-order
 /// slice every other `replace`/`uflexc` entry point takes.
+///
+/// Builds a production [`ComposeBudget`] from `HC_COMPOSE_*` env vars exactly once (mirrors
+/// `crate::emit::emit_with_precision`'s own convention). Tests should call
+/// [`compile_gated_grammar_with_budget`] directly instead.
 pub fn compile_gated_grammar(
     opts: &FomaOptions,
     g: &Grammar,
     alphabet: &SegAlphabet,
     prules_in_order: &[&PhonRuleDef],
-) -> GatedCompileResult {
+) -> Result<GatedCompileResult, ComposeError> {
+    let budget = ComposeBudget::from_env();
+    compile_gated_grammar_with_budget(opts, g, alphabet, prules_in_order, &budget)
+}
+
+/// [`compile_gated_grammar`]'s core, with the [`ComposeBudget`] threaded in explicitly rather than
+/// read from env -- what tests call directly (design doc §6).
+///
+/// `budget` is checked at three points (design doc §4):
+/// - **V6**, immediately after [`partition_entries`] returns, BEFORE any per-group compile work
+///   runs (`GroupBudgetExceeded` if the group count exceeds [`ComposeBudget::group_cap`] -- the
+///   single highest-leverage check here, since it gates every downstream V1/V4 cost below).
+/// - **V1**, via [`compose_checked`]/[`union_checked`], on the per-group `lexc .o. rules` compose
+///   and the per-group union fold.
+/// - **V2**, via [`minimize_checked`], as this function's own FINAL step on the fully unioned
+///   network -- design doc §4: "`compile_gated_grammar` take[s] ownership of their own FINAL
+///   `minimize_checked` instead of leaving it to example drivers", turning a convention (every
+///   example driver already minimizes its own further-composed network) into an enforced
+///   invariant at this layer. Callers that further compose this result (every example/test driver
+///   does, with a boundary-cleanup net) still need their OWN final minimize afterward -- minimizing
+///   here does not make a LATER compose's result minimal.
+pub fn compile_gated_grammar_with_budget(
+    opts: &FomaOptions,
+    g: &Grammar,
+    alphabet: &SegAlphabet,
+    prules_in_order: &[&PhonRuleDef],
+    budget: &ComposeBudget,
+) -> Result<GatedCompileResult, ComposeError> {
     let gated = find_gated_subrules(g, prules_in_order);
     let groups = partition_entries(g, &gated, prules_in_order);
+
+    // V6 (design doc §4): checked BEFORE any per-group compile work runs. No graceful fallback by
+    // design (module doc "why the union is safe here" / `ComposeError::GroupBudgetExceeded`'s own
+    // doc): merging/dropping groups would be unsound, so a breach here always means "use another
+    // engine for this grammar", never a partial group set.
+    if groups.len() > budget.group_cap() {
+        return Err(ComposeError::GroupBudgetExceeded {
+            groups: groups.len(),
+            limit: budget.group_cap(),
+            gated_subrules: gated.len(),
+        });
+    }
 
     let mut final_net: Option<Fsm> = None;
     let mut skipped_rules: Vec<String> = Vec::new();
@@ -274,7 +318,7 @@ pub fn compile_gated_grammar(
             prefix_entries,
             suffix_entries,
             ..
-        } = emit_underlying_filtered(g, alphabet, Some(&group.entries));
+        } = emit_underlying_filtered_with_budget(g, alphabet, Some(&group.entries), budget)?;
         skipped_allomorphs.extend(uskipped);
         group_reports.push((group.key.clone(), root_entries, prefix_entries, suffix_entries));
 
@@ -295,7 +339,7 @@ pub fn compile_gated_grammar(
             }
         };
         let mut group_skipped_rules = Vec::new();
-        let rules_net = compile_and_compose_rules_gated(
+        let rules_net = compile_and_compose_rules_gated_with_budget(
             opts,
             g,
             alphabet,
@@ -303,7 +347,8 @@ pub fn compile_gated_grammar(
             &subrule_ok,
             &mut group_skipped_rules,
             &mut tuple_reports,
-        );
+            budget,
+        )?;
         // Only report a rule as skipped once (every group would otherwise re-report the same
         // unsupported-construct rule) -- dedupe against what's already recorded.
         for s in group_skipped_rules {
@@ -313,22 +358,195 @@ pub fn compile_gated_grammar(
         }
 
         let group_net = match rules_net {
-            Some(rules) => fsm_compose(opts, lexc_net, rules),
+            Some(rules) => compose_checked(opts, lexc_net, rules, budget, "compile_gated_grammar lexc.o.rules")?,
             None => lexc_net,
         };
         final_net = Some(match final_net {
             None => group_net,
             // Safe union: groups are lexically disjoint (module doc "why the union is safe here").
-            Some(prev) => fsm_union(opts, prev, group_net),
+            Some(prev) => union_checked(opts, prev, group_net, budget, "compile_gated_grammar group union fold")?,
         });
     }
 
-    GatedCompileResult {
+    // V2 (design doc §4): this function's own final minimize, taking ownership of the invariant
+    // instead of leaving it to every caller (see this function's own doc above).
+    let final_net = match final_net {
+        Some(net) => Some(minimize_checked(opts, net, budget, "compile_gated_grammar final minimize")?),
+        None => None,
+    };
+
+    Ok(GatedCompileResult {
         net: final_net,
         groups: groups.len(),
         skipped_rules,
         skipped_allomorphs,
         tuple_reports,
         group_reports,
+    })
+}
+
+#[cfg(test)]
+mod group_budget_tests {
+    //! `docs/fst-plan/phase-b-compose-budget-design.md` §6's own test plan for this module: a
+    //! hand-authored grammar with 4 INDEPENDENT ungrouped-MPR-gated subrules (`prule1`..`prule4`,
+    //! each `requiredMPRFeatures="mprN"`) and 16 lexical entries whose own `ruleFeatures` realize
+    //! every one of the 2^4 = 16 possible gating-key combinations (entry `i`'s `ruleFeatures` is
+    //! exactly the subset of `{mpr1,mpr2,mpr3,mpr4}` corresponding to `i`'s own bits, `i` in
+    //! `0..16`) -- confirmed against `pg_grammar::mpr_group_ok`'s own ungrouped-bit semantics
+    //! (`required & have == required`, no `MprGroup` declared here at all, so every bit stays
+    //! ungrouped). `partition_entries` must therefore find exactly 16 distinct groups.
+    use std::fmt::Write as _;
+
+    use foma::options::FomaOptions;
+
+    use super::*;
+    use crate::compose_budget::ComposeBudget;
+    use crate::replace::SegAlphabet;
+
+    fn sixteen_group_fixture_xml() -> String {
+        let mut entries = String::new();
+        for i in 0..16u32 {
+            let bits: Vec<&str> = (1..=4)
+                .filter(|k| i & (1 << (k - 1)) != 0)
+                .map(|k| match k {
+                    1 => "mpr1",
+                    2 => "mpr2",
+                    3 => "mpr3",
+                    _ => "mpr4",
+                })
+                .collect();
+            let rule_features_attr = if bits.is_empty() {
+                String::new()
+            } else {
+                format!(" ruleFeatures=\"{}\"", bits.join(" "))
+            };
+            write!(
+                entries,
+                r#"
+          <LexicalEntry id="entry{i}" partOfSpeech="posV"{rule_features_attr}>
+            <Allomorphs><Allomorph id="allo{i}"><PhoneticShape>p</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>e{i}</Gloss>
+          </LexicalEntry>"#
+            )
+            .unwrap();
+        }
+
+        let mut rules = String::new();
+        for n in 1..=4u32 {
+            write!(
+                rules,
+                r#"
+      <PhonologicalRule id="prule{n}">
+        <Name>gate{n}</Name>
+        <PhoneticInput><PhoneticSequence><Segment segment="c1" /></PhoneticSequence></PhoneticInput>
+        <PhonologicalSubrules>
+          <PhonologicalSubrule requiredMPRFeatures="mpr{n}">
+            <PhoneticOutput><PhoneticSequence><Segment segment="c2" /></PhoneticSequence></PhoneticOutput>
+          </PhonologicalSubrule>
+        </PhonologicalSubrules>
+      </PhonologicalRule>"#
+            )
+            .unwrap();
+        }
+
+        format!(
+            r#"<?xml version="1.0" encoding="utf-8"?>
+<HermitCrabInput>
+  <Language>
+    <Name>GroupBudgetFixture</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <MorphologicalPhonologicalRuleFeatures>
+      <MorphologicalPhonologicalRuleFeature id="mpr1">f1</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="mpr2">f2</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="mpr3">f3</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="mpr4">f4</MorphologicalPhonologicalRuleFeature>
+    </MorphologicalPhonologicalRuleFeatures>
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="c1"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="c2"><Representations><Representation>q</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <PhonologicalRuleDefinitions>{rules}
+    </PhonologicalRuleDefinitions>
+    <Strata>
+      <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" phonologicalRules="prule1 prule2 prule3 prule4">
+        <Name>S</Name>
+        <LexicalEntries>{entries}
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>
+"#
+        )
+    }
+
+    fn sixteen_group_fixture() -> Grammar {
+        let xml = sixteen_group_fixture_xml();
+        pg_grammar::load(&xml).unwrap_or_else(|e| panic!("failed to load 16-group fixture: {e}\n{xml}"))
+    }
+
+    /// V6 (design doc §4): 16 realized groups against `group_cap=8` must trip
+    /// `GroupBudgetExceeded` BEFORE any per-group lexc/rules compile work runs -- asserted both by
+    /// the typed error AND by elapsed wall time staying well under 200ms (proving fail-fast: if
+    /// this test regressed to checking the cap only AFTER compiling every group, 16 real
+    /// lexc+rules compiles would take far longer).
+    #[test]
+    fn group_budget_trips_before_any_group_work_runs() {
+        let g = sixteen_group_fixture();
+        let table = &g.char_tables[0];
+        let alphabet = SegAlphabet::new(table);
+        let opts = FomaOptions::default();
+        let ro: Vec<&PhonRuleDef> = g.strata.iter().flat_map(|s| &s.prules).map(|&id| &g.prules[id.0 as usize]).collect();
+
+        let gated = find_gated_subrules(&g, &ro);
+        assert_eq!(gated.len(), 4, "expected exactly 4 gated subrules (prule1..prule4)");
+        let groups = partition_entries(&g, &gated, &ro);
+        assert_eq!(groups.len(), 16, "16 entries realizing every 2^4 combination must yield 16 groups");
+
+        let budget = ComposeBudget::with_caps(usize::MAX, usize::MAX, usize::MAX, 8, usize::MAX, None);
+        let start = std::time::Instant::now();
+        let err = compile_gated_grammar_with_budget(&opts, &g, &alphabet, &ro, &budget)
+            .expect_err("16 groups must exceed a group_cap of 8");
+        let elapsed = start.elapsed();
+        match err {
+            ComposeError::GroupBudgetExceeded { groups, limit, gated_subrules } => {
+                assert_eq!(groups, 16);
+                assert_eq!(limit, 8);
+                assert_eq!(gated_subrules, 4);
+            }
+            other => panic!("expected GroupBudgetExceeded, got {other:?}"),
+        }
+        assert!(
+            elapsed < std::time::Duration::from_millis(200),
+            "group budget must trip BEFORE any per-group compile work runs (took {elapsed:?})"
+        );
+    }
+
+    /// A grammar with zero gated subrules collapses to exactly ONE group (`partition_entries`'s
+    /// own doc) -- even a maximally strict `group_cap=1` must still pass (1 is not `> 1`), proving
+    /// the ungated/no-op case never falsely trips.
+    #[test]
+    fn zero_gated_subrules_collapses_to_one_group_still_passes_strict_cap() {
+        let g = sixteen_group_fixture();
+        let table = &g.char_tables[0];
+        let alphabet = SegAlphabet::new(table);
+        let opts = FomaOptions::default();
+        // Empty rule slice: identical to "this grammar declares no phonological rules at all" from
+        // `find_gated_subrules`'s own point of view -- `gated` is empty, so `partition_entries`
+        // collapses every entry into one group (module doc).
+        let ro: Vec<&PhonRuleDef> = Vec::new();
+
+        let gated = find_gated_subrules(&g, &ro);
+        assert!(gated.is_empty());
+
+        let budget = ComposeBudget::with_caps(usize::MAX, usize::MAX, usize::MAX, 1, usize::MAX, None);
+        let result = compile_gated_grammar_with_budget(&opts, &g, &alphabet, &ro, &budget)
+            .expect("exactly 1 group must not exceed a group_cap of 1");
+        assert_eq!(result.groups, 1);
     }
 }

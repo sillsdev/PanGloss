@@ -60,7 +60,8 @@ fn check(label: &str, g: &Grammar) {
     // replace.rs's pre-existing code path, not gate.rs's own new one).
     let mut skipped: Vec<String> = Vec::new();
     let mut tuple_reports: Vec<(String, Vec<pg_foma::replace::TupleReport>)> = Vec::new();
-    let composed = compile_and_compose_rules(&opts, g, &alphabet, &rules_in_order, &mut skipped, &mut tuple_reports);
+    let composed = compile_and_compose_rules(&opts, g, &alphabet, &rules_in_order, &mut skipped, &mut tuple_reports)
+        .expect("compose budget ok");
     println!("original compile_and_compose_rules: skipped={skipped:?}");
     match composed {
         Some(net) => println!("composed net: {} states, {} arcs", net.statecount, net.arccount),

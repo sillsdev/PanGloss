@@ -121,7 +121,8 @@ fn run() {
         &rules_in_order,
         &mut skipped_rules,
         &mut tuple_reports,
-    );
+    )
+    .expect("compose budget ok");
     let rules_elapsed = t_rules.elapsed();
     println!("\nrule compile+compose: {rules_elapsed:?}");
     println!("skipped rules: {skipped_rules:?}");
@@ -184,7 +185,7 @@ fn run() {
     // 3. Underlying-form lexc emitter + compile.
     // ---------------------------------------------------------------------------------------
     let t_emit = Instant::now();
-    let ureport = emit_underlying(&g, &alphabet);
+    let ureport = emit_underlying(&g, &alphabet).expect("compose budget ok");
     let emit_elapsed = t_emit.elapsed();
     println!(
         "\nunderlying lexc emit: {emit_elapsed:?}; root_entries={} prefix_entries={} suffix_entries={}",

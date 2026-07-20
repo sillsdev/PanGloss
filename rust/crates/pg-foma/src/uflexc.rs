@@ -45,10 +45,12 @@ use std::collections::HashSet;
 
 use pg_grammar::model::{Grammar, LexEntryId, MorphRuleDef, OutputAction, SegmentedText};
 
+use crate::compose_budget::{ComposeBudget, ComposeError};
 use crate::emit::{classify_affix, Role};
 use crate::replace::SegAlphabet;
 use crate::tags;
 
+#[derive(Debug)]
 pub struct UEmitReport {
     pub lexc_source: String,
     /// One line per skipped allomorph, e.g. `"mrule14#allo1 role=reduplication"` — never a silent
@@ -97,7 +99,7 @@ fn affix_insert_shape(rhs: &[OutputAction], leading: bool) -> Option<&SegmentedT
 ///
 /// Thin wrapper over [`emit_underlying_filtered`] with every lexical entry included (the
 /// pre-gating behavior, unchanged for every existing caller).
-pub fn emit_underlying(g: &Grammar, alphabet: &SegAlphabet) -> UEmitReport {
+pub fn emit_underlying(g: &Grammar, alphabet: &SegAlphabet) -> Result<UEmitReport, ComposeError> {
     emit_underlying_filtered(g, alphabet, None)
 }
 
@@ -108,17 +110,46 @@ pub fn emit_underlying(g: &Grammar, alphabet: &SegAlphabet) -> UEmitReport {
 /// genuinely uncovered construct). Affix (prefix/suffix) chains are never filtered — MPR/POS gating
 /// in this prototype's scope is root-only (`crate::gate`'s module doc), so every group shares the
 /// identical affix lexicons.
+///
+/// Builds a production [`ComposeBudget`] from `HC_COMPOSE_*` env vars exactly once (mirrors
+/// `crate::emit::emit_with_precision`'s own convention). Tests should call
+/// [`emit_underlying_filtered_with_budget`] directly instead.
 pub fn emit_underlying_filtered(
     g: &Grammar,
     alphabet: &SegAlphabet,
     allowed_entries: Option<&HashSet<LexEntryId>>,
-) -> UEmitReport {
+) -> Result<UEmitReport, ComposeError> {
+    let budget = ComposeBudget::from_env();
+    emit_underlying_filtered_with_budget(g, alphabet, allowed_entries, &budget)
+}
+
+/// [`emit_underlying_filtered`]'s core, with the [`ComposeBudget`] threaded in explicitly rather
+/// than read from env -- what `crate::gate::compile_gated_grammar_with_budget` and tests call
+/// directly, so a whole gated-grammar compile shares ONE budget across every group's emission.
+///
+/// V4 (design doc §4 + §8 item 1): `budget.line_cap` is checked INCREMENTALLY, at each of the three
+/// line-push sites below (root/prefix/suffix), so a pathological grammar bails during the very
+/// first line that crosses the cap rather than after building a possibly-multi-GB `lexc_source`
+/// string in full.
+pub fn emit_underlying_filtered_with_budget(
+    g: &Grammar,
+    alphabet: &SegAlphabet,
+    allowed_entries: Option<&HashSet<LexEntryId>>,
+    budget: &ComposeBudget,
+) -> Result<UEmitReport, ComposeError> {
     let width = tags::tag_width(g.morphemes.len());
     let mut skipped = Vec::new();
     let mut multichar: Vec<String> = Vec::new();
     let mut root_lines: Vec<String> = Vec::new();
     let mut prefix_lines: Vec<String> = Vec::new();
     let mut suffix_lines: Vec<String> = Vec::new();
+    let line_cap = budget.line_cap();
+    let check_line_budget = |lines: usize| -> Result<(), ComposeError> {
+        if lines > line_cap {
+            return Err(ComposeError::EmitLineBudgetExceeded { lines, limit: line_cap });
+        }
+        Ok(())
+    };
 
     for (ei, entry) in g.entries.iter().enumerate() {
         if let Some(allowed) = allowed_entries {
@@ -139,6 +170,7 @@ pub fn emit_underlying_filtered(
             }
             let underlying = alphabet.encode_shape(&allo.shape.shape);
             root_lines.push(format!("{tag}:{underlying} SuffixOrEnd ;"));
+            check_line_budget(root_lines.len() + prefix_lines.len() + suffix_lines.len())?;
         }
     }
 
@@ -172,6 +204,7 @@ pub fn emit_underlying_filtered(
                     }
                     let underlying = alphabet.encode_shape(&shape.shape);
                     prefix_lines.push(format!("{tag}:{underlying} PrefixOrRoot ;"));
+                    check_line_budget(root_lines.len() + prefix_lines.len() + suffix_lines.len())?;
                 }
                 Role::Suffix => {
                     let Some(shape) = affix_insert_shape(&allo.rhs, false) else {
@@ -184,6 +217,7 @@ pub fn emit_underlying_filtered(
                     }
                     let underlying = alphabet.encode_shape(&shape.shape);
                     suffix_lines.push(format!("{tag}:{underlying} SuffixOrEnd ;"));
+                    check_line_budget(root_lines.len() + prefix_lines.len() + suffix_lines.len())?;
                 }
                 other => {
                     skipped.push(format!("{morph_name}#allo{ai} role={other_label}", other_label = role_label(other)));
@@ -222,14 +256,14 @@ pub fn emit_underlying_filtered(
         out.push('\n');
     }
 
-    UEmitReport {
+    Ok(UEmitReport {
         lexc_source: out,
         root_entries: root_lines.len(),
         prefix_entries: prefix_lines.len(),
         suffix_entries: suffix_lines.len(),
         tag_width: width,
         skipped,
-    }
+    })
 }
 
 fn role_label(r: Role) -> &'static str {
@@ -242,5 +276,89 @@ fn role_label(r: Role) -> &'static str {
         Role::CircumfixPrefix => "circumfix-prefix",
         Role::CircumfixSuffix => "circumfix-suffix",
         Role::Process => "process",
+    }
+}
+
+#[cfg(test)]
+mod emit_budget_tests {
+    //! `docs/fst-plan/phase-b-compose-budget-design.md` §6's own test plan for this module: 20
+    //! lexical entries (one allomorph each -- one root lexc line per entry, no prefixes/suffixes at
+    //! all), `line_cap=5`, must trip `EmitLineBudgetExceeded` reporting `lines: 6` -- the FIRST
+    //! line count that crosses the cap (proving incremental, first-crossing detection rather than a
+    //! check only after the whole lexc source is built).
+    use std::fmt::Write as _;
+
+    use super::*;
+    use crate::compose_budget::ComposeBudget;
+    use crate::replace::SegAlphabet;
+
+    fn twenty_entries_fixture() -> Grammar {
+        let mut entries = String::new();
+        for i in 0..20u32 {
+            write!(
+                entries,
+                r#"
+          <LexicalEntry id="entry{i}" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="allo{i}"><PhoneticShape>p</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>e{i}</Gloss>
+          </LexicalEntry>"#
+            )
+            .unwrap();
+        }
+        let xml = format!(
+            r#"<?xml version="1.0" encoding="utf-8"?>
+<HermitCrabInput>
+  <Language>
+    <Name>EmitLineBudgetFixture</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="c1"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <Strata>
+      <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered">
+        <Name>S</Name>
+        <LexicalEntries>{entries}
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>
+"#
+        );
+        pg_grammar::load(&xml).unwrap_or_else(|e| panic!("failed to load 20-entry fixture: {e}\n{xml}"))
+    }
+
+    #[test]
+    fn line_budget_trips_incrementally() {
+        let g = twenty_entries_fixture();
+        let table = &g.char_tables[0];
+        let alphabet = SegAlphabet::new(table);
+        let budget = ComposeBudget::with_caps(usize::MAX, usize::MAX, usize::MAX, usize::MAX, 5, None);
+
+        let err = emit_underlying_filtered_with_budget(&g, &alphabet, None, &budget)
+            .expect_err("20 root lines must exceed a line_cap of 5");
+        match err {
+            ComposeError::EmitLineBudgetExceeded { lines, limit } => {
+                assert_eq!(lines, 6, "must bail on the FIRST line count crossing the cap, not the final total");
+                assert_eq!(limit, 5);
+            }
+            other => panic!("expected EmitLineBudgetExceeded, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn unbounded_budget_never_trips_on_twenty_entries() {
+        let g = twenty_entries_fixture();
+        let table = &g.char_tables[0];
+        let alphabet = SegAlphabet::new(table);
+        let budget = ComposeBudget::unbounded();
+        let report = emit_underlying_filtered_with_budget(&g, &alphabet, None, &budget)
+            .expect("unbounded budget must never trip");
+        assert_eq!(report.root_entries, 20);
     }
 }
