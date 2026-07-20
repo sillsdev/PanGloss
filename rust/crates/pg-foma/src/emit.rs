@@ -231,6 +231,16 @@ pub(crate) enum TextMode<'a> {
 /// not 2, is the engine-faithful bound).
 pub const DERIV_DEPTH_MIN: usize = 2;
 
+/// Cap on how many CONSECUTIVE dedicated levels [`build_deriv_chain`]'s `TextMode::
+/// UnderlyingTokens` strategy gives one rule (`rule.max_apps()` clamped to this). Every Aweti rule
+/// declares `max_apps() == 1` (P6-Aweti investigation, Q3) so this never actually binds there —
+/// it exists purely to keep a hypothetical `max_apps() > 4` rule (or an uncapped `Realizational`
+/// rule, which reports `u16::MAX`, `MorphRuleDef::max_apps`'s own doc) from inflating one chain
+/// instance's depth unboundedly; a grammar that needs more real repetitions of one rule than this
+/// is a documented gap of the dedicated strategy, not silently mis-emitted (the rule still gets
+/// its full `max_apps()` worth of chances under the legacy `SurfaceProbed` strategy, unaffected).
+const MAX_DEDICATED_LEVELS_PER_RULE: usize = 4;
+
 /// Cap on the representation-variant cartesian product per emitted morph surface (module doc,
 /// "Surface spelling"). Overflow is reported as an uncovered item, never silent.
 pub const REP_VARIANT_CAP: usize = 64;
@@ -1304,13 +1314,34 @@ fn emit_rule_allomorphs(
 
 // --- Derivation layer chain (trie.rs::build_derivation_layer) -------------------------------------
 
-/// Emit a chain of optional derivation layers named `{prefix}0` .. `{prefix}{depth-1}`, each
-/// offering every rule in `rules` once, ending at `exit`. Depth = `rules.len()` floored at
-/// [`DERIV_DEPTH_MIN`] (module doc: the engine-faithful bound for `multipleApplication = 1` —
-/// each rule can apply at most once, so no derivation chain is longer than the rule count).
-/// Mirrors `trie.rs::build_derivation_layer` (each level: an epsilon skip to the next level plus
-/// one token+arc path per rule allomorph). Always defines `{prefix}0`, even when `rules` is
-/// empty (a plain passthrough), so callers can reference it unconditionally.
+/// Emit a chain of optional derivation layers named `{prefix}0` .. `{prefix}{depth-1}`, ending at
+/// `exit`. Mirrors `trie.rs::build_derivation_layer` (each level: an epsilon skip to the next
+/// level plus one token+arc path per rule allomorph). Always defines `{prefix}0`, even when
+/// `rules` is empty (a plain passthrough), so callers can reference it unconditionally.
+///
+/// Two distinct level-assignment strategies, gated on `mode` (P6-Aweti chain-restriction finding,
+/// `docs/fst-plan/p6-aweti-truncation-chain-report.md`):
+/// - [`TextMode::SurfaceProbed`] (legacy, unchanged): EVERY level offers EVERY rule in `rules`;
+///   depth = `rules.len()` floored at [`DERIV_DEPTH_MIN`] (module doc: the engine-faithful bound
+///   for `multipleApplication = 1` — each rule can apply at most once, so no derivation chain is
+///   longer than the rule count).
+/// - [`TextMode::UnderlyingTokens`] ("dedicated-level-per-rule"): level `i` offers ONLY
+///   `rules_expanded[i]` (a rule with `max_apps() == k > 1` gets `k` CONSECUTIVE dedicated levels,
+///   capped at [`MAX_DEDICATED_LEVELS_PER_RULE`] — every Aweti rule has `max_apps() == 1`, so this
+///   cap is never exercised there; it exists only to bound a hypothetical uncapped/Realizational
+///   rule, which this codebase's dedicated mode does not attempt to represent faithfully beyond
+///   the cap). This eliminates the "same rule chosen at any of N levels, N times independently"
+///   nondeterminism the legacy strategy has — measured on Aweti (P6-Aweti investigation, Q2/Q3):
+///   a single epsilon-yielding rule could have its tag chosen up to 22x (prefix) / 48x (suffix)
+///   along one path under the legacy strategy; dedicated levels bound that to (at most) the
+///   number of independent chain INSTANCES a path crosses (2, for a template-taking word: this
+///   chain instance once, the OTHER same-zone instance — e.g. `OuterPfx` vs `G{gi}PfxD` — once).
+///   COST: this fixes the RELATIVE SURFACE ORDER of any two standalone rules chosen within the
+///   SAME chain instance to `rules`' own document order (previously free at any two of the
+///   `rules.len()` levels) — a real recall risk if some oracle analysis needs two standalone rules
+///   in the OTHER order; the corpus recall gate is the judge (`docs/fst-plan/
+///   p6-aweti-truncation-chain-report.md` documents the measurement for Aweti specifically — no
+///   regression observed).
 ///
 /// `phon`/`exit_is_roots` (module doc, "Junction-aware affix/root emission"): `phon` is unioned
 /// into every affix spelling at EVERY level (harmless anywhere). Deletion-junction routing to a
@@ -1343,12 +1374,33 @@ fn build_deriv_chain(
         write_bare(out, exit, counts);
         return entry_name;
     }
-    let depth = rules.len().max(DERIV_DEPTH_MIN);
     let junction_target = if zone_role == Role::Prefix && exit_is_roots && phon.is_some() {
         Some(format!("{exit}Stripped"))
     } else {
         None
     };
+
+    // `dedicated` is `Some(expanded)` under the dedicated strategy (one rule per level) or `None`
+    // under the legacy strategy (every level's per-rule loop below runs the full `rules` slice
+    // instead) — a single shared level-emission loop follows so the two strategies can never
+    // diverge in how they write lexicon headers/epsilon-skip arcs/junction routing.
+    let dedicated: Option<Vec<MRuleId>> = match mode {
+        TextMode::UnderlyingTokens(_) => {
+            let mut expanded = Vec::with_capacity(rules.len());
+            for &mid in rules {
+                let reps = (g.mrules[mid.0 as usize].max_apps() as usize)
+                    .clamp(1, MAX_DEDICATED_LEVELS_PER_RULE);
+                expanded.extend(std::iter::repeat(mid).take(reps));
+            }
+            Some(expanded)
+        }
+        TextMode::SurfaceProbed => None,
+    };
+    let depth = match &dedicated {
+        Some(expanded) => expanded.len().max(DERIV_DEPTH_MIN),
+        None => rules.len().max(DERIV_DEPTH_MIN),
+    };
+
     for level in 0..depth {
         let name = format!("{prefix}{level}");
         write_lexicon_header(out, &name);
@@ -1359,24 +1411,30 @@ fn build_deriv_chain(
             format!("{prefix}{}", level + 1)
         };
         // The whole level is optional (trie: `add_epsilon(current, after)` before the per-rule
-        // arcs, trie.rs:807-808).
+        // arcs, trie.rs:807-808) — kept identically for BOTH strategies.
         write_bare(out, &next, counts);
-        for &mid in rules {
-            emit_rule_allomorphs(
-                out,
-                g,
-                table,
-                mid,
-                zone_role,
-                width,
-                &next,
-                uncovered,
-                counts,
-                phon,
-                if is_final { junction_target.as_deref() } else { None },
-                pk,
-                mode,
-            );
+        let junction_here = if is_final { junction_target.as_deref() } else { None };
+        match &dedicated {
+            Some(expanded) => {
+                // Dedicated-level-per-rule: this level offers AT MOST one rule (a level past the
+                // end of `expanded`, from the `DERIV_DEPTH_MIN` floor on a short `rules`, offers
+                // none — a harmless extra optional hop).
+                if let Some(&mid) = expanded.get(level) {
+                    emit_rule_allomorphs(
+                        out, g, table, mid, zone_role, width, &next, uncovered, counts, phon,
+                        junction_here, pk, mode,
+                    );
+                }
+            }
+            None => {
+                // Legacy strategy: every level offers every rule (unchanged).
+                for &mid in rules {
+                    emit_rule_allomorphs(
+                        out, g, table, mid, zone_role, width, &next, uncovered, counts, phon,
+                        junction_here, pk, mode,
+                    );
+                }
+            }
         }
     }
     entry_name
