@@ -236,6 +236,32 @@ impl StepBudget {
         false
     }
 
+    /// Fix 2 (synthesis-side `--word-timeout-ms` enforcement, `docs/budget-model.md`): the
+    /// **wall-clock-only** half of [`Self::over_budget`], deliberately WITHOUT the step-cap branch.
+    /// Synthesis (`synthesize_stratum`/`synth_apply_mrules`/`synth_apply_templates`/
+    /// `guided_template_apply`/`synth_slots_generic`) keeps its own local `cap: usize` + `Cell<usize>`
+    /// step counter, entirely separate from this budget's `cap`/`steps` (see this struct's own doc,
+    /// "Synthesis ... deliberately does NOT share this budget") — that step-count semantics must stay
+    /// byte-identical (the Sena `--step-cap 500000` goldens), so synthesis must never call
+    /// [`Self::over_budget`] itself (its step-cap branch reads THIS budget's `steps`/`cap`, which
+    /// belong to the analysis phase of the same `parse_word` call and could already be exhausted by
+    /// analysis alone, tripping a cap-shaped bail at a point synthesis never checked before). This
+    /// method only ever reads `deadline`, exactly like [`Self::over_budget`]'s own deadline branch,
+    /// and sets `timed_out` the same way (so the CLI's existing `TIMEOUT` row plumbing, gated on
+    /// `timed_out()`, fires regardless of which phase actually caught the deadline). When `deadline`
+    /// is `None` (`--word-timeout-ms` omitted — the Sena golden runs, which pass only `--step-cap`)
+    /// this is `false` unconditionally, a complete no-op: every step-cap-only synthesis call site
+    /// that gains a check against this method behaves exactly as before this fix.
+    fn deadline_expired(&self) -> bool {
+        if let Some(deadline) = self.deadline {
+            if Instant::now() >= deadline {
+                self.timed_out.set(true);
+                return true;
+            }
+        }
+        false
+    }
+
     fn tick(&self) {
         self.steps.set(self.steps.get() + 1);
     }
@@ -1159,6 +1185,15 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         // unchanged for every prule in this loop) — see `deadend_census.rs`'s frontier-definition
         // doc for why that coarser depth is an accepted simplification here.
         for &pid in self.stratum.prules.iter().rev() {
+            // Fix 2 follow-up: this loop had no budget check at all (unlike every other
+            // (un)application site in this module). A deadline-only check (never the step cap --
+            // see `StepBudget::deadline_expired`'s doc for why conflating the two here would risk
+            // golden parity) closes the same class of gap synthesis's own unguarded prule loop had.
+            // `deadline_expired()` is a no-op when `--word-timeout-ms` is not set, so every
+            // step-cap-only run (the Sena goldens) takes this loop to completion exactly as before.
+            if self.budget.deadline_expired() {
+                break;
+            }
             let result = match &self.g.prules[pid.0 as usize] {
                 pg_grammar::model::PhonRuleDef::Rewrite(r) => match self.cache {
                     Some(cache) => rewrite::analyze_cached_traced(
@@ -1260,6 +1295,12 @@ pub fn synthesize_template(g: &Grammar, tid: TemplateId, input: &Word, cap: usiz
     let mut out: HashMap<WordKey, Word> = HashMap::default();
     let apply =
         |g: &Grammar, rid: MRuleId, w: &Word| morph::synthesize(g, w, &g.mrules[rid.0 as usize]);
+    // Fix 2: `synth_slots_generic` now also takes a `&StepBudget` for the wall-clock deadline
+    // check (see that function's doc). This standalone/round-trip-test entry point has no natural
+    // `parse_word`-scoped deadline to thread in, so it builds its own budget with no timeout armed
+    // -- `deadline_expired()` is then a complete no-op, exactly reproducing this function's
+    // pre-existing (cap-only) behavior byte-for-byte.
+    let budget = StepBudget::new(cap);
     synth_slots_generic(
         g,
         tmpl,
@@ -1272,6 +1313,7 @@ pub fn synthesize_template(g: &Grammar, tid: TemplateId, input: &Word, cap: usiz
         &crate::trace::NoopSink,
         tid,
         TraceHandle::DUMMY,
+        &budget,
     );
     out.into_values().collect()
 }
@@ -1295,6 +1337,7 @@ fn guided_template_apply(
     cache: &RuleCache,
     trace: &dyn TraceSink,
     parent: TraceHandle,
+    budget: &StepBudget,
 ) -> Vec<Word> {
     let tmpl = &g.templates[tid.0 as usize];
     let mut out: HashMap<WordKey, Word> = HashMap::default();
@@ -1304,7 +1347,7 @@ fn guided_template_apply(
         trace.begin_apply_template(node_parent, tid, input);
     }
     synth_slots_generic(
-        g, tmpl, input, 0, &mut out, cap, steps, &apply, trace, tid, parent,
+        g, tmpl, input, 0, &mut out, cap, steps, &apply, trace, tid, parent, budget,
     );
     out.into_values().collect()
 }
@@ -1323,6 +1366,14 @@ fn guided_template_apply(
 /// SAME resolved fallback idiom used throughout this module) is exactly right at every depth.
 /// [`synthesize_template`] (the untraced, standalone-fixture caller) passes [`crate::trace::NoopSink`]
 /// and [`TraceHandle::DUMMY`] -- `tid` is passed for real (harmless; `NoopSink` never reads it).
+///
+/// Fix 2 (synthesis-side `--word-timeout-ms` enforcement): `budget` is consulted via
+/// [`StepBudget::deadline_expired`] -- the wall-clock-only half of the budget, never its step-cap
+/// (this walk's own `cap`/`steps` remain the sole step-count authority, unchanged from before this
+/// fix -- see `deadline_expired`'s doc for why conflating the two would risk golden parity). A
+/// `None`-deadline budget (every step-cap-only caller, including [`synthesize_template`]'s own
+/// freshly-built one) makes every one of these checks a no-op, so this walk's behavior is
+/// byte-for-byte unchanged when `--word-timeout-ms` is not set.
 #[allow(clippy::too_many_arguments)]
 fn synth_slots_generic<F>(
     g: &Grammar,
@@ -1336,10 +1387,14 @@ fn synth_slots_generic<F>(
     trace: &dyn TraceSink,
     tid: TemplateId,
     parent: TraceHandle,
+    budget: &StepBudget,
 ) where
     F: Fn(&Grammar, MRuleId, &Word) -> Vec<Word>,
 {
     if steps.get() >= cap {
+        return;
+    }
+    if budget.deadline_expired() {
         return;
     }
     let mut i = index;
@@ -1349,6 +1404,9 @@ fn synth_slots_generic<F>(
         let mut seen: HashMap<WordKey, ()> = HashMap::default();
         for &rid in &slot.rules {
             if steps.get() >= cap {
+                return;
+            }
+            if budget.deadline_expired() {
                 return;
             }
             steps.set(steps.get() + 1);
@@ -1366,6 +1424,7 @@ fn synth_slots_generic<F>(
                         trace,
                         tid,
                         parent,
+                        budget,
                     );
                 }
             }
@@ -1532,12 +1591,21 @@ pub fn synthesize_stratum(
     cap: usize,
     cache: &RuleCache,
 ) -> Vec<Word> {
+    // Fix 2: `synthesize_stratum_traced` now also takes a `&StepBudget` for the wall-clock
+    // deadline check. This untraced entry point has no production call site (only
+    // `pg-parse::Morpher`'s synthesis pipeline, which threads its own real per-`parse_word`
+    // budget through `synthesize_stratum_traced` directly, calls this path in production) --
+    // every existing (test) call site of THIS function builds no timeout, so a freshly
+    // constructed no-timeout budget reproduces the pre-fix behavior byte-for-byte
+    // (`deadline_expired()` is a no-op when `deadline` is `None`).
+    let budget = StepBudget::new(cap);
     synthesize_stratum_traced(
         g,
         stratum,
         input,
         cap,
         cache,
+        &budget,
         &crate::trace::NoopSink,
         TraceHandle::DUMMY,
     )
@@ -1565,6 +1633,7 @@ pub fn synthesize_stratum_traced(
     input: Word,
     cap: usize,
     cache: &RuleCache,
+    budget: &StepBudget,
     trace: &dyn TraceSink,
     parent: TraceHandle,
 ) -> Vec<Word> {
@@ -1593,6 +1662,7 @@ pub fn synthesize_stratum_traced(
         cache,
         trace,
         node_parent,
+        budget,
     );
     candidates.extend(synth_apply_templates(
         g,
@@ -1604,6 +1674,7 @@ pub fn synthesize_stratum_traced(
         cache,
         trace,
         node_parent,
+        budget,
     ));
 
     let mut out: HashMap<WordKey, Word> = HashMap::default();
@@ -1638,7 +1709,20 @@ pub fn synthesize_stratum_traced(
         // state, mirroring every other traced call site in this function (`w_parent` is already the
         // resolved cursor for this candidate). Each function's own `!trace.is_tracing()` fast path
         // delegates straight back to the untraced body, so this is a no-op when tracing is off.
+        //
+        // Fix 2: this loop previously had NO budget check at all -- the exact gap the bug report
+        // ("synthesis never checks the deadline") describes, since every synthesis (un)application
+        // above it (`synth_apply_mrules`/`synth_apply_templates`/`guided_template_apply`/
+        // `synth_slots_generic`) now consults `budget.deadline_expired()` but this trailing
+        // in-place prule fold did not. `break` (not `return`) mirrors the analysis-side sibling
+        // gap's fix just above `StratumAnalyzer::analyze`'s own prule loop: leave `nw.shape`
+        // however far the fold got and fall through to this candidate's existing bookkeeping,
+        // rather than unwinding the whole function. A `None` deadline (`--word-timeout-ms` unset)
+        // makes this a no-op, so every step-cap-only run is unaffected.
         for &pid in &sd.prules {
+            if budget.deadline_expired() {
+                break;
+            }
             let result = match &g.prules[pid.0 as usize] {
                 pg_grammar::model::PhonRuleDef::Rewrite(r) => {
                     rewrite::synthesize_with_mpr_cached_traced(
@@ -1683,8 +1767,12 @@ fn synth_apply_mrules(
     cache: &RuleCache,
     trace: &dyn TraceSink,
     parent: TraceHandle,
+    budget: &StepBudget,
 ) -> Vec<Word> {
     if steps.get() >= cap {
+        return Vec::new();
+    }
+    if budget.deadline_expired() {
         return Vec::new();
     }
     let key = |w: &Word| w.dedup_key();
@@ -1696,8 +1784,18 @@ fn synth_apply_mrules(
     // `trace`/`parent` are `Copy` (a fat-pointer shared reference and a small handle,
     // respectively), so capturing them here costs nothing and does not fight the cascade's `Fn`
     // (not `FnMut`) bound — see `crate::trace`'s module doc for why `TraceSink` takes `&self`.
+    //
+    // Fix 2: `budget.deadline_expired()` (wall-clock-only, see that method's doc) is consulted
+    // alongside the pre-existing `steps.get() >= cap` local-cap check, at the same granularity --
+    // every single-rule application attempt. This is the loop the "kaminuʼatpuza ran 70+s past a
+    // 10s --word-timeout-ms" bug report traced to: a `--word-timeout-ms` deadline could elapse here
+    // and this closure would keep being called by the cascade regardless, since neither `cap` (a
+    // step COUNT) nor the cascade's own internal `usize::MAX` cap had any wall-clock notion at all.
     let apply_rule = |i: usize, w: &Word| -> Vec<Word> {
         if steps.get() >= cap {
+            return Vec::new();
+        }
+        if budget.deadline_expired() {
             return Vec::new();
         }
         steps.set(steps.get() + 1);
@@ -1718,7 +1816,7 @@ fn synth_apply_mrules(
             result.push(w);
         } else {
             result.extend(synth_apply_templates(
-                g, stratum, sd, &w, cap, steps, cache, trace, parent,
+                g, stratum, sd, &w, cap, steps, cache, trace, parent, budget,
             ));
         }
     }
@@ -1828,8 +1926,12 @@ fn synth_apply_templates(
     cache: &RuleCache,
     trace: &dyn TraceSink,
     parent: TraceHandle,
+    budget: &StepBudget,
 ) -> Vec<Word> {
     if steps.get() >= cap {
+        return Vec::new();
+    }
+    if budget.deadline_expired() {
         return Vec::new();
     }
     // SynthesisAffixTemplatesRule.Apply (cs:35-77): try each applicable template; mark each output
@@ -1862,7 +1964,7 @@ fn synth_apply_templates(
             continue;
         }
         applicable = true;
-        for w in guided_template_apply(g, tid, input, cap, steps, cache, trace, parent) {
+        for w in guided_template_apply(g, tid, input, cap, steps, cache, trace, parent, budget) {
             let final_flag = w.flags.is_partial || tmpl.is_final;
             let mut w = w;
             w.flags.is_last_applied_rule_final = Some(final_flag);
@@ -1928,9 +2030,9 @@ fn synth_apply_templates(
             let templated: Vec<Word> = out.values().cloned().collect();
             for t in templated {
                 if t.dedup_key() != in_key {
-                    for m in
-                        synth_apply_mrules(g, stratum, sd, &t, cap, steps, cache, trace, parent)
-                    {
+                    for m in synth_apply_mrules(
+                        g, stratum, sd, &t, cap, steps, cache, trace, parent, budget,
+                    ) {
                         out.entry(m.dedup_key()).or_insert(m);
                     }
                 }

@@ -18,14 +18,19 @@ mod common;
 use common::load_alpha_grammar;
 use pg_grammar::chardef::CharDefId;
 use pg_grammar::model::{
-    AffixAllomorphDef, AffixProcessRuleDef, AffixTemplateDef, AllomorphId, Grammar, MRuleId,
-    MorphRuleDef, MorphRuleOrder, MorphemeId, MprSet, OutputAction, PartRef, Pattern, PatternNode,
-    ReduplicationHint, SegmentedText, SimpleContext, SlotDef, StratumDef, StratumId, TableId,
-    TemplateId, VarTable,
+    AffixAllomorphDef, AffixProcessRuleDef, AffixTemplateDef, AllomorphId, AllomorphOwner, Grammar,
+    MRuleId, MorphRuleDef, MorphRuleOrder, MorphemeId, MprSet, OutputAction, PartRef, Pattern,
+    PatternNode, ReduplicationHint, SegmentedText, SimpleContext, SlotDef, StratumDef, StratumId,
+    TableId, TemplateId, VarTable,
 };
-use pg_rules::stratum::{analyze_stratum, synthesize_template, AnalyzerConfig, StepBudget};
+use pg_rules::cache::RuleCache;
+use pg_rules::stratum::{
+    analyze_stratum, synthesize_stratum_traced, synthesize_template, AnalyzerConfig, StepBudget,
+};
+use pg_rules::trace::{NoopSink, TraceHandle};
 use pg_rules::{MorphRecord, Word};
 use pg_shape::{NodeKind, Shape, ShapeBuilder};
+use std::time::Duration;
 
 // ---- shape / word builders (mirrors morph_gate.rs) -----------------------------------------
 
@@ -114,6 +119,52 @@ fn suffix_rule(g: &Grammar, morpheme: u32, seg: &str) -> MorphRuleDef {
         is_template_rule: false,
         allomorphs: vec![allomorph(
             morpheme,
+            vec![one_or_more("nc_any", g)],
+            vec![
+                OutputAction::Copy(PartRef::Input(0)),
+                insert_segments(g, seg),
+            ],
+        )],
+    })
+}
+
+/// A single-allomorph suffix rule that ALSO registers its allomorph in `g.allomorph_owners`, the
+/// way `pg_grammar::load` would (`AllomorphOwner::Affix(mrule_id, 0)` at the next sequential
+/// `AllomorphId`) -- required for `RuleCache::build`/`synthesize_stratum_traced`'s cached
+/// production path (`guided_synth` -> `synthesize_cached_traced` -> `synth_affix_cached`), which
+/// indexes allomorphs through that registry. Plain `suffix_rule`/`push_mrule` above (used by every
+/// other test in this file) mint an `AllomorphId` out of thin air (the `morpheme` number) and are
+/// only ever exercised through the UNCACHED `analyze_stratum`/`synthesize_template` entry points,
+/// which never consult `g.allomorph_owners` at all -- see `pg-rules/tests/template_partial_gate.rs`'s
+/// `push_suffix_rule`, whose doc comment spells out this exact distinction; this is that same helper.
+fn push_cache_suffix_rule(g: &mut Grammar, morpheme: u32, seg: &str) -> MRuleId {
+    let mrule_id = MRuleId(g.mrules.len() as u32);
+    let allo_id = AllomorphId(g.allomorph_owners.len() as u32);
+    g.allomorph_owners.push(AllomorphOwner::Affix(mrule_id, 0));
+    let rule = suffix_rule_with_allomorph(g, morpheme, seg, allo_id);
+    g.mrules.push(rule);
+    mrule_id
+}
+
+fn suffix_rule_with_allomorph(
+    g: &Grammar,
+    morpheme: u32,
+    seg: &str,
+    allo_id: AllomorphId,
+) -> MorphRuleDef {
+    MorphRuleDef::AffixProcess(AffixProcessRuleDef {
+        morpheme: MorphemeId(morpheme),
+        name: None,
+        blockable: false,
+        partial: false,
+        max_apps: 1,
+        required_syn_fs: pg_featstruct::FsId(0),
+        out_syn_fs: pg_featstruct::FsId(0),
+        obligatory_features: vec![],
+        required_stem_name: None,
+        is_template_rule: false,
+        allomorphs: vec![allomorph(
+            allo_id.0,
             vec![one_or_more("nc_any", g)],
             vec![
                 OutputAction::Copy(PartRef::Input(0)),
@@ -601,6 +652,143 @@ fn merge_equivalent_analyses_folds_homophonous_suffixes_and_expand_recovers_both
             char_defs(&w.shape),
             a_shape,
             "every expanded alternative shares the final shape"
+        );
+    }
+}
+
+// =================================================================================================
+// Fix 2 regression gate — `--word-timeout-ms` must be enforced during SYNTHESIS, not just analysis.
+// =================================================================================================
+//
+// WHY THIS IS DETERMINISTIC (and why a wall-clock-race version was tried and rejected): an earlier
+// version of this regression guard (`pg-parse/tests/word_timeout_synthesis_gate.rs`, since deleted)
+// tried to prove the bug via a real corpus word, racing a wall-clock `--word-timeout-ms` deadline
+// against the boundary between a word's analysis phase and its synthesis phase — banking on analysis
+// alone finishing (or step-capping) well inside the deadline, so the deadline was still "live" once
+// synthesis began. That boundary's timing is machine-dependent: on the test machine analysis alone
+// took LONGER than the configured deadline, so the deadline fired DURING analysis, the test's
+// `capped` assertion failed, and even when it didn't fail, a deadline caught during analysis proves
+// nothing about synthesis at all. There is no wall-clock deadline that can be placed reliably inside
+// a `[analysis_time, analysis_time + synthesis_time]` window whose two ends both vary by machine.
+//
+// `synthesize_stratum_traced` (`pg_rules::stratum`) is pure synthesis — no analysis, no corpus, no
+// I/O — and takes a `&StepBudget` directly. Instead of racing the clock, drive it with a budget whose
+// deadline has ALREADY elapsed at construction (`with_timeout(Some(Duration::ZERO))`: the deadline
+// instant equals the constructing `Instant::now()`, so by the time any code runs,
+// `Instant::now() >= deadline` is unconditionally true). Every synthesis entry point this fix touches
+// (`synth_apply_mrules`/`synth_apply_templates`/`guided_template_apply`/`synth_slots_generic`, plus
+// `synthesize_stratum_traced`'s own trailing prule fold) calls `budget.deadline_expired()` before
+// doing any work, so a pre-expired budget makes the very first check bail out AND latch
+// `timed_out() == true` — deterministically, on every machine, with no timing window at all. Pre-fix,
+// `synthesize_stratum_traced` had no `&StepBudget` parameter whatsoever, so this exact test could not
+// even compile against the old signature: it is inherently a post-fix-only proof, unlike the deleted
+// wall-clock version, which could "pass" (via `timed_out` set during analysis) without ever having
+// exercised the synthesis code path the fix actually changed.
+//
+// Do NOT restore the wall-clock-race version if this one is ever found "less realistic" — the whole
+// point is that this one cannot flake by construction, while that one already flaked once.
+#[test]
+fn synth_stratum_traced_pre_expired_deadline_times_out_and_cuts_the_walk_short() {
+    // `synthesize_stratum_traced` is GUIDED synthesis: `guided_synth` (this crate's `stratum.rs`)
+    // only reapplies a rule that the word's OWN `mrule_apps`/`mrule_app_index` trail says is next --
+    // a hand-built `Word` with no trail (`mrule_app_index == -1`, `Word::new`'s default) synthesizes
+    // zero candidates unconditionally, deadline or not, which would prove nothing. So this fixture
+    // hand-sets a two-step confirmed unapplication trail -- root "a" + suffix A "p" + suffix B "k"
+    // -> surface "apk", applied in DECLARATION order (`SynthesisStratumRule.cs:27-40`: synthesis
+    // does NOT reverse mrule order the way analysis does) -- exactly the same "confirmed trail"
+    // shape `template_partial_gate.rs`'s gate 3/4 tests use to drive the real cached production
+    // path (`synth_apply_mrules` -> `guided_synth` -> `synthesize_cached_traced` ->
+    // `synth_affix_cached`) without needing a prior analysis call.
+    //
+    // `RuleCache::build`/`synth_affix_cached` resolve allomorphs through `g.allomorph_owners`, so
+    // this uses `push_cache_suffix_rule` (registers there), NOT this file's plain `suffix_rule`/
+    // `push_mrule` (used by every other test above, all of which stay on the UNCACHED
+    // `analyze_stratum`/`synthesize_template` entry points and never touch `allomorph_owners`).
+    let mut g = load_alpha_grammar();
+    let a = push_cache_suffix_rule(&mut g, 200, "p");
+    let b = push_cache_suffix_rule(&mut g, 300, "k");
+    let s = push_stratum(&mut g, MorphRuleOrder::Linear, vec![a, b], vec![]);
+
+    let mut root = word(&g, "a", s);
+    // The trail a real analysis of "apk" would have produced: outer suffix "k" (rule B) unapplied
+    // first (pushed at index 0), then inner suffix "p" (rule A) unapplied second (pushed at index
+    // 1, hence `mrule_app_index == 1` -- `Word::morphological_rule_unapplied`'s "index = len - 1"
+    // invariant). Guided synthesis walks the trail back off the end: rule A (index 1) first,
+    // decrementing to index 0, then rule B.
+    root.mrule_apps = vec![Some(b), Some(a)];
+    root.mrule_app_index = 1;
+
+    let cache = RuleCache::build(&g);
+    const CAP: usize = 10_000;
+
+    // STEP A -- baseline: no deadline armed at all (`StepBudget::new(usize::MAX)`, matching every
+    // other step-cap-only call site in this file). Establishes empirically that this trail
+    // genuinely drives synthesis back toward the original surface, and records the uninterrupted
+    // output count N.
+    let full_budget = StepBudget::new(usize::MAX);
+    let full = synthesize_stratum_traced(
+        &g,
+        s,
+        root.clone(),
+        CAP,
+        &cache,
+        &full_budget,
+        &NoopSink,
+        TraceHandle::DUMMY,
+    );
+    assert!(
+        !full_budget.timed_out(),
+        "no --word-timeout-ms deadline was armed -- must never time out"
+    );
+    let n = full.len();
+    eprintln!(
+        "baseline (no deadline) synthesis produced {n} word(s), shapes={:?}",
+        candidate_shapes(&full)
+    );
+    assert!(
+        n >= 1,
+        "the analysis root must genuinely drive synthesis to at least one output; got {n}"
+    );
+    let surface_shape = vec![cd(&g, "char_a"), cd(&g, "char_p"), cd(&g, "char_k")];
+    assert!(
+        candidate_shapes(&full).contains(&surface_shape),
+        "the uninterrupted synthesis walk must reconstruct the original surface [a,p,k]; got {:?}",
+        candidate_shapes(&full)
+    );
+
+    // STEP B -- the guard: an otherwise-identical call, but with a budget whose deadline already
+    // elapsed at construction. The load-bearing assertion is `timed_out() == true` coming out of a
+    // pure-synthesis call -- proof synthesis itself now consults the wall-clock deadline.
+    let expired_budget = StepBudget::new(usize::MAX).with_timeout(Some(Duration::ZERO));
+    let capped = synthesize_stratum_traced(
+        &g,
+        s,
+        root,
+        CAP,
+        &cache,
+        &expired_budget,
+        &NoopSink,
+        TraceHandle::DUMMY,
+    );
+    assert!(
+        expired_budget.timed_out(),
+        "a pre-expired --word-timeout-ms deadline must be caught by synthesis's own \
+         `budget.deadline_expired()` checks (synth_apply_mrules/synth_apply_templates/\
+         guided_template_apply/synth_slots_generic) -- pre-fix, `synthesize_stratum_traced` took no \
+         `&StepBudget` parameter at all and could not observe any deadline during synthesis"
+    );
+    assert!(
+        !expired_budget.capped(),
+        "the step cap (usize::MAX) must never fire -- this budget's `timed_out` must come from the \
+         deadline, not the step count"
+    );
+    if n > 1 {
+        assert!(
+            capped.len() < n,
+            "a pre-expired deadline must cut the synthesis walk short of its full uninterrupted \
+             output ({n} word(s)); got {} word(s) -- the deadline doesn't appear to have shortened \
+             the walk at all",
+            capped.len()
         );
     }
 }

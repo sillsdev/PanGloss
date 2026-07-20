@@ -444,7 +444,9 @@ impl<'g> Morpher<'g> {
                 // candidates `MergeEquivalentAnalyses` folded away, each with the deeper strata's
                 // rules replayed, then synthesize every one of them.
                 for alt in syn_word.expand_alternatives() {
-                    for vw in self.synthesis_pipeline_selected(alt, trace, root, rule_filter) {
+                    for vw in
+                        self.synthesis_pipeline_selected(alt, trace, root, rule_filter, &budget)
+                    {
                         candidates_generated += 1;
                         if self.is_word_valid_traced(&vw, trace, root)
                             && self.is_match_traced(&vw, word, trace, root)
@@ -468,7 +470,7 @@ impl<'g> Morpher<'g> {
                 // so consuming `guess::lexical_guess`'s `Vec<Word>` directly is faithful.
                 for synthesis_word in guess::lexical_guess(g, &self.lexical_patterns, aw) {
                     for alt in synthesis_word.expand_alternatives() {
-                        for vw in self.synthesis_pipeline_traced(alt, trace, root) {
+                        for vw in self.synthesis_pipeline_traced(alt, trace, root, &budget) {
                             candidates_generated += 1;
                             if self.is_word_valid_traced(&vw, trace, root)
                                 && self.is_match_traced(&vw, word, trace, root)
@@ -600,9 +602,18 @@ impl<'g> Morpher<'g> {
     /// Language.cs:145-151 + PipelineRuleCascade.cs:15-33): fold the candidate through every stratum's
     /// `synthesize_stratum` in document order, deduping by `WordKey` between strata. A thin
     /// NoopSink wrapper over [`Self::synthesis_pipeline_traced`] — see that method's doc.
+    ///
+    /// Fix 2 (synthesis-side `--word-timeout-ms` enforcement): this convenience entry point is used
+    /// only by [`Self::generate_words`]/[`Self::synthesize_guessed_stem`] — standalone generation
+    /// APIs with no per-`parse_word` deadline to thread in (unlike [`Self::parse_word_core_selected`],
+    /// which owns a real shared `StepBudget` for the whole call and passes it through
+    /// [`Self::synthesis_pipeline_selected`] directly, never through this wrapper). Builds a
+    /// freshly-armed, timeout-less `StepBudget` so `deadline_expired()` is a no-op throughout —
+    /// byte-for-byte the pre-fix behavior for both of this wrapper's callers.
     fn synthesis_pipeline(&self, syn_word: Word) -> Vec<Word> {
         let sink = NoopSink;
-        self.synthesis_pipeline_traced(syn_word, &sink, TraceHandle::DUMMY)
+        let budget = pg_rules::stratum::StepBudget::new(self.cap);
+        self.synthesis_pipeline_selected(syn_word, &sink, TraceHandle::DUMMY, None, &budget)
     }
 
     /// P12 chunks 4/5 (the applied-event spine): [`Self::synthesis_pipeline`]'s traced sibling.
@@ -611,13 +622,17 @@ impl<'g> Morpher<'g> {
     /// reassigns each output word's trace cursor -- the mechanism that makes a traced multi-rule
     /// synthesis render as a followable rule sequence (design doc §6's acceptance bar) rather than
     /// a single `Successful` leaf under the root.
+    ///
+    /// Only reached from [`Self::parse_word_core_selected`]'s guess branch, which already owns a
+    /// real per-`parse_word` `StepBudget` — threaded straight through here (Fix 2).
     fn synthesis_pipeline_traced(
         &self,
         syn_word: Word,
         trace: &dyn TraceSink,
         parent: TraceHandle,
+        budget: &pg_rules::stratum::StepBudget,
     ) -> Vec<Word> {
-        self.synthesis_pipeline_selected(syn_word, trace, parent, None)
+        self.synthesis_pipeline_selected(syn_word, trace, parent, None, budget)
     }
 
     /// F1 (§7.1 item 1): [`Self::synthesis_pipeline_traced`]'s selector-restricted sibling — adds
@@ -629,12 +644,18 @@ impl<'g> Morpher<'g> {
     /// dropped — mirrored here by inserting `w.clone()` into `next` directly instead of calling
     /// `synthesize_stratum_traced`. `None` reproduces [`Self::synthesis_pipeline_traced`]
     /// byte-for-byte (both bottom out here).
+    ///
+    /// Fix 2: `budget` is threaded straight into `synthesize_stratum_traced` so the per-word wall-
+    /// clock deadline (`--word-timeout-ms`) is consulted during synthesis, not just analysis — see
+    /// `pg_rules::stratum::StepBudget::deadline_expired`'s doc for why this is deadline-only (never
+    /// the step cap) and therefore a no-op whenever `--word-timeout-ms` is not set.
     fn synthesis_pipeline_selected(
         &self,
         syn_word: Word,
         trace: &dyn TraceSink,
         parent: TraceHandle,
         rule_filter: Option<pg_rules::stratum::RuleFilter>,
+        budget: &pg_rules::stratum::StepBudget,
     ) -> Vec<Word> {
         let g = self.g;
         let n = g.strata.len();
@@ -660,6 +681,7 @@ impl<'g> Morpher<'g> {
                     w.clone(),
                     self.cap,
                     &self.cache,
+                    budget,
                     trace,
                     node_parent,
                 ) {
