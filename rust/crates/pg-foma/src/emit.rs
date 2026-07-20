@@ -180,7 +180,7 @@
 //! - Text that fails to re-segment against the surface table (defensive; the loader already
 //!   accepted it once).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 
 use foma::utf8::is_combining;
 use pg_featstruct::{is_unifiable, FeatureStruct, FsId};
@@ -199,7 +199,30 @@ use crate::morphotactics::{
     ChainState, EnumerationBudget, ExploreMode, MorphotacticIndex, ProbeBudget,
 };
 use crate::precision::{ConstraintCatalog, PrecisionConfig, PrecisionEmit};
+use crate::replace::SegAlphabet;
 use crate::tags;
+
+/// Mode switch for every LEAF text-producing site this module threads it through
+/// ([`collect_roots`], [`first_insert_text`]/[`emit_rule_allomorphs`]) and the purely-structural
+/// functions that call them ([`build_deriv_chain`], [`build_slot_chain`]) — the P6 templated-
+/// morphotactics emitter (`docs/fst-plan/foma-fst-plan.md` §P6, `docs/fst-plan/
+/// p6-prototype-report.md` §6 item 2 / §7's refit note).
+///
+/// `SurfaceProbed` MUST stay byte-identical to this module's pre-existing (pre-P6) behavior —
+/// every structural function's own logic is UNCHANGED by this parameter's existence, only the
+/// leaf text sites branch on it, and only the leaf sites are touched by `UnderlyingTokens` at
+/// all. Every recall gate this crate already has (`f1_sena_gate`, `f2_indonesian_gate`,
+/// `f3_amharic_gate`, `f4_composite_gate`, `p6_gate_parity`) depends on this.
+///
+/// `UnderlyingTokens` is [`emit_underlying_templated`]'s mode: every leaf site emits plain
+/// UNDERLYING text in [`SegAlphabet`] token space (one string per allomorph — no surface-probed
+/// junction-variant union, no representation cartesian product; char-def identity already
+/// collapses that, `SegAlphabet`'s own module doc) instead of literal, surface-spelled text.
+#[derive(Clone, Copy)]
+pub(crate) enum TextMode<'a> {
+    SurfaceProbed,
+    UnderlyingTokens(&'a SegAlphabet<'a>),
+}
 
 /// Floor for a derivation layer chain's depth (the actual depth is the rule count routed to that
 /// side, but never less than trie's `deriv_depth = 2` — staying >= trie's language is the
@@ -417,7 +440,12 @@ fn has_unemittable_action(rhs: &[OutputAction]) -> bool {
 enum InsertText<'a> {
     /// No `InsertSegments` action at all — a pure zero/null morph (token only, epsilon text).
     None,
-    Text(&'a str),
+    /// `text`: the literal authored surface text (SurfaceProbed mode's own input, unchanged).
+    /// `shape`: that SAME `InsertSegments` action's already-segmented [`Shape`] (P6:
+    /// `TextMode::UnderlyingTokens`'s input — mirrors `uflexc::affix_insert_shape`, which exposes
+    /// the identical field for the SAME reason: [`SegAlphabet::encode_shape`] needs the `Shape`,
+    /// not the raw text, to render char-def-identity tokens).
+    Text { text: &'a str, shape: &'a Shape },
 }
 
 /// The first `InsertSegments` action's underlying text (`hc-hybrid/src/trie.rs::first_insert`,
@@ -425,7 +453,10 @@ enum InsertText<'a> {
 fn first_insert_text(rhs: &[OutputAction]) -> InsertText<'_> {
     for a in rhs {
         if let OutputAction::InsertSegments { shape, .. } = a {
-            return InsertText::Text(shape.text.as_str());
+            return InsertText::Text {
+                text: shape.text.as_str(),
+                shape: &shape.shape,
+            };
         }
     }
     InsertText::None
@@ -950,6 +981,7 @@ struct RootRec {
     stripped: Vec<String>,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn collect_roots(
     g: &Grammar,
     table: &CharDefTable,
@@ -958,12 +990,23 @@ fn collect_roots(
     phon: Option<&PhonologyProbe>,
     cache: &RuleCache,
     morpher: Option<&Morpher>,
+    allowed_entries: Option<&HashSet<LexEntryId>>,
+    mode: TextMode<'_>,
 ) -> Vec<RootRec> {
     let mut roots = Vec::new();
     // Stratum order then entry order, mirroring trie.rs's own roots collection (`run()`,
     // trie.rs:966-981) — deterministic Vec walks only.
     for sd in &g.strata {
         for &entry_id in &sd.entries {
+            // `allowed_entries` (P6's `emit_underlying_templated`, mirrors `uflexc::
+            // emit_underlying_filtered`'s own convention exactly — same "not a coverage gap, a
+            // DIFFERENT group's lexicon has it" doc): every existing caller passes `None`
+            // (unfiltered), so this is a pure no-op there.
+            if let Some(allowed) = allowed_entries {
+                if !allowed.contains(&entry_id) {
+                    continue;
+                }
+            }
             let entry = &g.entries[entry_id.0 as usize];
             let morpheme_name = g
                 .morphemes
@@ -975,6 +1018,40 @@ fn collect_roots(
                     "entry{}(morpheme={morpheme_name})#allo{allo_idx}",
                     entry_id.0
                 );
+                // P6 (`TextMode::UnderlyingTokens`, `emit_underlying_templated`): ONE token string
+                // via `SegAlphabet::encode_shape` — char-def identity already collapses the
+                // representation cartesian product [`pattern_variants`] exists for, so that
+                // machinery (and the bare-root-phonology enrichment below, which needs a real
+                // `Morpher`/surface probe — meaningless in token space) is skipped outright. A
+                // lexical PATTERN allomorph (`allo.is_pattern`, a `[ClassName]` bracket shape) is
+                // NOT representable here: its `Shape` carries `NO_CHAR_DEF`/class-reference interior
+                // nodes `encode_shape` cannot token (module doc, "Not emittable as literal lexc" —
+                // same convention, reported not silently dropped); zero occurrences in Aweti
+                // (verified: `p6_aweti_diagnostics.rs`'s pattern-root-allomorph count is 0), kept
+                // defensive for any future grammar this path is pointed at.
+                if let TextMode::UnderlyingTokens(alphabet) = mode {
+                    if allo.is_pattern {
+                        uncovered.push(UncoveredItem {
+                            kind: "pattern-allomorph".to_string(),
+                            id: label,
+                            reason: "lexical pattern root shapes are not representable as a single \
+                                     underlying token string (P6 templated emitter, v1)"
+                                .to_string(),
+                        });
+                        counts.allomorphs_skipped += 1;
+                        continue;
+                    }
+                    let underlying = alphabet.encode_shape(&allo.shape.shape);
+                    roots.push(RootRec {
+                        id: allo.id,
+                        morpheme: entry.morpheme,
+                        category: entry.syn_fs,
+                        variants: vec![underlying],
+                        stripped: Vec::new(),
+                    });
+                    counts.allomorphs_emitted += 1;
+                    continue;
+                }
                 // [`pattern_variants`] walks the allomorph's own already-parsed `Shape` (built at
                 // grammar load by `pg_grammar::segment::segment_with_patterns` for EVERY root
                 // allomorph, pattern or not — that module's own doc). For an ordinary literal-text
@@ -1126,6 +1203,7 @@ fn emit_rule_allomorphs(
     phon: Option<&PhonologyProbe>,
     junction_target: Option<&str>,
     pk: &mut PrecisionEmit,
+    mode: TextMode<'_>,
 ) {
     let morpheme = owning_morpheme(g, mid);
     let tag_lexc = tags::morph_tag_lexc(morpheme, width);
@@ -1158,7 +1236,19 @@ fn emit_rule_allomorphs(
                 write_tag_entry(out, &tag_lexc, "", next, counts, pk, owner);
                 counts.allomorphs_emitted += 1;
             }
-            InsertText::Text(t) => {
+            // P6 (`TextMode::UnderlyingTokens`): ONE token string via `SegAlphabet::encode_shape`
+            // — no surface_variants cartesian product, no `phon`/junction-probe consultation at
+            // all (module doc on `TextMode`; the affix's own underlying spelling is exactly what
+            // `shape` already is, char-def identity collapsing the representation question the
+            // SurfaceProbed arm below exists to solve). `encode_shape` keeps Boundary nodes (e.g.
+            // the affix's own trailing `+`) — the rule cascade's own environments need them.
+            InsertText::Text { shape, .. } if matches!(mode, TextMode::UnderlyingTokens(_)) => {
+                let TextMode::UnderlyingTokens(alphabet) = mode else { unreachable!() };
+                let underlying = alphabet.encode_shape(shape);
+                write_tag_entry(out, &tag_lexc, &underlying, next, counts, pk, owner);
+                counts.allomorphs_emitted += 1;
+            }
+            InsertText::Text { text: t, .. } => {
                 let mut emitted_any = false;
                 match surface_variants(table, t) {
                     Some((variants, overflowed)) => {
@@ -1244,6 +1334,7 @@ fn build_deriv_chain(
     phon: Option<&PhonologyProbe>,
     exit_is_roots: bool,
     pk: &mut PrecisionEmit,
+    mode: TextMode<'_>,
 ) -> String {
     let entry_name = format!("{prefix}0");
     if rules.is_empty() {
@@ -1283,6 +1374,7 @@ fn build_deriv_chain(
                 phon,
                 if is_final { junction_target.as_deref() } else { None },
                 pk,
+                mode,
             );
         }
     }
@@ -1368,6 +1460,7 @@ fn build_slot_chain(
     counts: &mut EmitCounts,
     phon: Option<&PhonologyProbe>,
     pk: &mut PrecisionEmit,
+    mode: TextMode<'_>,
 ) -> String {
     let entry_name = format!("{prefix}0");
     if slots.is_empty() {
@@ -1399,6 +1492,7 @@ fn build_slot_chain(
             }
             emit_rule_allomorphs(
                 out, g, table, mid, zone_role, width, &next, uncovered, counts, phon, None, pk,
+                mode,
             );
         }
     }
@@ -2088,6 +2182,8 @@ pub(crate) fn emit_with_budget(
         phon.as_ref(),
         &rule_cache,
         morpher.as_ref(),
+        None,
+        TextMode::SurfaceProbed,
     );
 
     // Morphotactic pruning (`crate::morphotactics`, `docs/fst-plan/morphotactic-composite-pruning.md`
@@ -2419,7 +2515,7 @@ pub(crate) fn emit_with_budget(
     if has_templates {
         build_deriv_chain(
             &mut out, g, table, "OuterPfx", Role::Prefix, &deriv_prefix, width, "TmplDispatch",
-            &mut uncovered, &mut counts, phon.as_ref(), false, &mut pk,
+            &mut uncovered, &mut counts, phon.as_ref(), false, &mut pk, TextMode::SurfaceProbed,
         );
         // One line per template's prefix-chain entry, deduped (templates with no prefix slots
         // all point straight at their group's prefix-derivation entry). `classify_template` here
@@ -2444,7 +2540,7 @@ pub(crate) fn emit_with_budget(
         // later-stratum rules apply outside a completed template — see module doc).
         build_deriv_chain(
             &mut out, g, table, "OuterSfx", Role::Suffix, &deriv_suffix, width, "#",
-            &mut uncovered, &mut counts, phon.as_ref(), false, &mut pk,
+            &mut uncovered, &mut counts, phon.as_ref(), false, &mut pk, TextMode::SurfaceProbed,
         );
     }
 
@@ -2452,7 +2548,7 @@ pub(crate) fn emit_with_budget(
     if has_template_less_section {
         build_deriv_chain(
             &mut out, g, table, "TLPfx", Role::Prefix, &deriv_prefix, width, "TLRoots",
-            &mut uncovered, &mut counts, phon.as_ref(), true, &mut pk,
+            &mut uncovered, &mut counts, phon.as_ref(), true, &mut pk, TextMode::SurfaceProbed,
         );
         write_lexicon_header(&mut out, "TLRoots");
         write_root_entries(&mut out, &all_roots, "TLPost", &mut counts, &mut pk);
@@ -2481,7 +2577,7 @@ pub(crate) fn emit_with_budget(
             write_bare(&mut out, "TLCmpPfx0", &mut counts);
             build_deriv_chain(
                 &mut out, g, table, "TLCmpPfx", Role::Prefix, &deriv_prefix, width, "TLCmpRoots",
-                &mut uncovered, &mut counts, phon.as_ref(), true, &mut pk,
+                &mut uncovered, &mut counts, phon.as_ref(), true, &mut pk, TextMode::SurfaceProbed,
             );
             write_lexicon_header(&mut out, "TLCmpRoots");
             write_root_entries(&mut out, &all_roots, "TLSfx0", &mut counts, &mut pk);
@@ -2494,7 +2590,7 @@ pub(crate) fn emit_with_budget(
         }
         build_deriv_chain(
             &mut out, g, table, "TLSfx", Role::Suffix, &deriv_suffix, width, "#",
-            &mut uncovered, &mut counts, phon.as_ref(), false, &mut pk,
+            &mut uncovered, &mut counts, phon.as_ref(), false, &mut pk, TextMode::SurfaceProbed,
         );
     }
 
@@ -2523,6 +2619,7 @@ pub(crate) fn emit_with_budget(
                     &mut counts,
                     phon.as_ref(),
                     &mut pk,
+                    TextMode::SurfaceProbed,
                 );
                 join_lines.insert(entry);
             }
@@ -2547,6 +2644,7 @@ pub(crate) fn emit_with_budget(
             phon.as_ref(),
             false,
             &mut pk,
+            TextMode::SurfaceProbed,
         );
 
         let post_name = format!("G{gi}Post");
@@ -2565,7 +2663,7 @@ pub(crate) fn emit_with_budget(
             write_bare(&mut out, &format!("{cmp_pfx}0"), &mut counts);
             build_deriv_chain(
                 &mut out, g, table, &cmp_pfx, Role::Prefix, &deriv_prefix, width, &cmp_roots,
-                &mut uncovered, &mut counts, phon.as_ref(), true, &mut pk,
+                &mut uncovered, &mut counts, phon.as_ref(), true, &mut pk, TextMode::SurfaceProbed,
             );
             write_lexicon_header(&mut out, &cmp_roots);
             write_root_entries(&mut out, &all_roots, &sfx_deriv_entry, &mut counts, &mut pk);
@@ -2645,6 +2743,7 @@ pub(crate) fn emit_with_budget(
             phon.as_ref(),
             true,
             &mut pk,
+            TextMode::SurfaceProbed,
         );
 
         for &ti in &group_templates[gi] {
@@ -2667,6 +2766,7 @@ pub(crate) fn emit_with_budget(
                 &mut counts,
                 phon.as_ref(),
                 &mut pk,
+                TextMode::SurfaceProbed,
             );
         }
     }
@@ -2737,6 +2837,469 @@ pub(crate) fn emit_with_budget(
     }
 }
 
+/// P6 templated-morphotactics emitter (`docs/fst-plan/foma-fst-plan.md` §P6 item 1's costed gap 2,
+/// `docs/fst-plan/p6-prototype-report.md` §6 item 2 / §7's own refit note): [`emit_with_budget`]'s
+/// structural skeleton (template grouping, slot chains, derivation layers) refitted with
+/// [`TextMode::UnderlyingTokens`] instead of [`TextMode::SurfaceProbed`] — every leaf text site
+/// emits plain UNDERLYING text in `alphabet`'s token space, meant to be composed with
+/// [`crate::replace::compile_and_compose_rules`]'s rule cascade rather than this crate's own
+/// surface-junction machinery. Returns the SAME [`EmitResult`] shape [`emit_with_budget`] does, so
+/// a caller can inspect `report.tier`/`report.counts`/`report.uncovered` identically.
+///
+/// `allowed_entries`: mirrors `uflexc::emit_underlying_filtered`'s own convention exactly (that
+/// module's doc: "not a coverage gap — a DIFFERENT group's lexicon has it") — `crate::gate`'s
+/// static MPR/POS partition design, for whenever a templated grammar needs it. `None` (every
+/// caller today; Aweti has zero gated subrules — `crate::gate::find_gated_subrules` returns empty
+/// for it) includes every entry, unfiltered.
+///
+/// What this function deliberately does NOT do, and why (module doc / task brief, both point the
+/// same way):
+/// - **No FST precision knob.** [`PrecisionConfig::Strip`] only, hardcoded — every `write_tag_entry`/
+///   `build_deriv_chain`/`build_slot_chain` call below still takes a [`PrecisionEmit`] (unchanged
+///   function signatures), but it is always the pure-passthrough one (`crate::precision`'s own
+///   doc: "under `Strip` this is byte-identical to the pre-knob emitter").
+/// - **No junction probing, no bare-root phonology enrichment.** `phon` is `None` at every call
+///   site — the affix/root's own underlying spelling already IS the token text
+///   ([`TextMode::UnderlyingTokens`]'s whole point); this ALSO means every `{name}Stripped`
+///   sibling lexicon [`emit_with_budget`] writes (module doc, "Junction-aware affix/root
+///   emission") is skipped outright here, since nothing ever tests `phon.is_some()` true.
+/// - **No composite pipeline at all** (`crate::preexpand::build_composites_with_mode`,
+///   [`build_structural_composites`]) — this is the mechanism whose `O(roots × rules^depth)`
+///   eager Rust-side enumeration is exactly what OOMs on Aweti (855 roots × 135 mrules;
+///   `EmitReport::enum_budget_exceeded`'s own error text cites 2,833,559 fusion entries / 691MB
+///   lexc / ~8.8GB `apply_up` allocation for this grammar specifically), so skipping it
+///   unconditionally is the scale fix this function exists for. Fix 1's [`EnumerationBudget`]
+///   plumbing is still threaded in and checked below regardless — defensive parity with
+///   [`emit_with_budget`]'s own shape, even though nothing in this function's own call graph
+///   (`collect_roots`/`build_deriv_chain`/`build_slot_chain` under this mode never recurse the way
+///   `struct_extend` does) can actually trip it today.
+/// - **Aweti's 41 single-sided-truncation `is_structural_rule` mrules are NOT specially handled.**
+///   Under [`TextMode::SurfaceProbed`], [`build_structural_composites`] is what gives these rules
+///   their CORRECT (LHS-material-dropped) surface; the ordinary two-entry `emit_rule_allomorphs`
+///   path this function DOES use emits each such allomorph's literal `InsertSegments` text
+///   verbatim, with no drop applied — upward-safe in the sense that it never emits LESS than a
+///   correct entry would (module doc convention throughout this crate), but it can genuinely MISS
+///   the correct underlying form for a root that needs the drop, if no OTHER allomorph of the same
+///   rule happens to cover it unconditionally (see the P6 driver/gate's own recall numbers and
+///   `docs/fst-plan/p6-prototype-report.md`'s own §6 item 2 costing for the general shape of the
+///   fix: representing a structural allomorph via its OWN alternative underlying forms rather than
+///   the surface-probe composite path).
+pub fn emit_underlying_templated(
+    g: &Grammar,
+    alphabet: &SegAlphabet,
+    allowed_entries: Option<&HashSet<LexEntryId>>,
+) -> EmitResult {
+    let enum_budget = crate::morphotactics::EnumerationBudget::from_env();
+    let width = tags::tag_width(g.morphemes.len());
+    let table = alphabet.table();
+
+    let mut uncovered: Vec<UncoveredItem> = Vec::new();
+    let mut counts = EmitCounts {
+        entries: g.entries.len(),
+        rules: g.mrules.len(),
+        ..Default::default()
+    };
+
+    // No FST precision knob (module doc): built once, always `Strip` -- pure passthrough, see
+    // `crate::precision`'s own doc.
+    let catalog = ConstraintCatalog::build(g);
+    let mut pk = PrecisionEmit::build(&catalog, PrecisionConfig::Strip);
+
+    // No junction probing / bare-root phonology enrichment under this mode (module doc): `phon`
+    // stays `None` at every downstream call site below.
+    let phon: Option<&PhonologyProbe> = None;
+    let rule_cache = RuleCache::build(g);
+    let morpher: Option<&Morpher> = None;
+
+    let mode = TextMode::UnderlyingTokens(alphabet);
+    let roots = collect_roots(
+        g,
+        table,
+        &mut uncovered,
+        &mut counts,
+        phon,
+        &rule_cache,
+        morpher,
+        allowed_entries,
+        mode,
+    );
+
+    // Fix 1 (fail-fast enumeration budget): checked here for parity with `emit_with_budget`'s own
+    // shape (module doc) -- see that function's own comment for the full rationale; nothing in
+    // THIS function's call graph increments it today (no composite builder ever runs here), so
+    // this is defensive, not load-bearing, for the grammars this function is pointed at so far.
+    if let Some((measure, value, limit)) = enum_budget.trip_reason() {
+        let reason = format!(
+            "grammar exceeds the foma-engine's eager-enumeration budget: {} = {value} (limit {limit}).",
+            measure.label()
+        );
+        return EmitResult {
+            lexc_source: String::new(),
+            report: EmitReport {
+                uncovered,
+                counts,
+                tier: FomaTier::Unsupported {
+                    reason: reason.clone(),
+                },
+                enum_budget_exceeded: Some(EnumBudgetExceeded {
+                    measure: measure.label(),
+                    value,
+                    limit,
+                }),
+            },
+        };
+    }
+
+    if roots.is_empty() {
+        return EmitResult {
+            lexc_source: String::new(),
+            report: EmitReport {
+                uncovered,
+                counts,
+                tier: FomaTier::Unsupported {
+                    reason: "no root allomorph in this grammar produced any literal lexc text"
+                        .to_string(),
+                },
+                enum_budget_exceeded: None,
+            },
+        };
+    }
+
+    // Standalone (stratum-attached) derivation rules, classified by primary role — identical
+    // classification logic to `emit_with_budget`'s own loop (module doc, "Deliberate supersets"
+    // item 3: `Role::None` included in BOTH zones rather than skipped).
+    let mut deriv_prefix: Vec<MRuleId> = Vec::new();
+    let mut deriv_suffix: Vec<MRuleId> = Vec::new();
+    let mut has_compounding_rules = false;
+    let mut category_changing_out: Vec<FsId> = Vec::new();
+    for sd in &g.strata {
+        for &mid in &sd.mrules {
+            match &g.mrules[mid.0 as usize] {
+                MorphRuleDef::Compounding(_) => {
+                    has_compounding_rules = true;
+                    continue;
+                }
+                MorphRuleDef::AffixProcess(def) => {
+                    if !g.fs_interner.get(def.out_syn_fs).is_empty() {
+                        category_changing_out.push(def.out_syn_fs);
+                    }
+                }
+                MorphRuleDef::Realizational(_) => {}
+            }
+            match rule_role(g, mid) {
+                Role::Prefix => deriv_prefix.push(mid),
+                Role::Suffix => deriv_suffix.push(mid),
+                Role::None => {
+                    deriv_prefix.push(mid);
+                    deriv_suffix.push(mid);
+                }
+                other => uncovered.push(UncoveredItem {
+                    kind: other.label().to_string(),
+                    id: format!("mrule{}", mid.0),
+                    reason: format!(
+                        "standalone rule's primary allomorph classifies as {other:?}; not representable (v1)"
+                    ),
+                }),
+            }
+        }
+    }
+
+    // Template groups: one per distinct `required_syn_fs`, first-seen template document order —
+    // identical to `emit_with_budget`'s own grouping (purely structural, no leaf text involved).
+    let mut group_keys: Vec<FsId> = Vec::new();
+    let mut group_templates: Vec<Vec<usize>> = Vec::new();
+    for (ti, t) in g.templates.iter().enumerate() {
+        counts.slots += t.slots.len();
+        match group_keys.iter().position(|&k| k == t.required_syn_fs) {
+            Some(gi) => group_templates[gi].push(ti),
+            None => {
+                group_keys.push(t.required_syn_fs);
+                group_templates.push(vec![ti]);
+            }
+        }
+    }
+    counts.groups = group_keys.len();
+
+    let permissive: Vec<bool> = group_keys
+        .iter()
+        .map(|&key| {
+            let key_fs = g.fs_interner.get(key);
+            category_changing_out
+                .iter()
+                .any(|&ocat| is_unifiable(g.fs_interner.get(ocat), key_fs))
+        })
+        .collect();
+
+    let has_template_less_section =
+        !deriv_prefix.is_empty() || !deriv_suffix.is_empty() || has_compounding_rules;
+    let has_templates = !g.templates.is_empty();
+
+    let mut out = String::new();
+
+    // Multichar_Symbols: every root morpheme + every rule morpheme reachable from any emission
+    // site — identical set-construction logic to `emit_with_budget`'s own (no composites/flag/
+    // combining-mark symbols here: no composite pipeline, no FST precision knob, and token space
+    // is PUA codepoints, never Unicode combining marks).
+    let mut symbols: BTreeSet<(bool, u32)> = BTreeSet::new();
+    for r in &roots {
+        symbols.insert((true, r.morpheme.0));
+    }
+    for &mid in deriv_prefix.iter().chain(deriv_suffix.iter()) {
+        symbols.insert((false, owning_morpheme(g, mid).0));
+    }
+    for t in &g.templates {
+        for slot in &t.slots {
+            for &mid in &slot.rules {
+                if !matches!(g.mrules[mid.0 as usize], MorphRuleDef::Compounding(_)) {
+                    symbols.insert((false, owning_morpheme(g, mid).0));
+                }
+            }
+        }
+    }
+    out.push_str("Multichar_Symbols\n");
+    for &(is_root, id) in &symbols {
+        let lexc = if is_root {
+            tags::root_tag_lexc(MorphemeId(id), width)
+        } else {
+            tags::morph_tag_lexc(MorphemeId(id), width)
+        };
+        out.push_str(&lexc);
+        out.push('\n');
+    }
+
+    // Root-entry writer: mirrors `emit_with_budget`'s own `write_root_entries` closure exactly (no
+    // `write_stripped_root_entries` equivalent here — `phon` is always `None`, so no
+    // `{name}Stripped` lexicon is ever referenced, module doc).
+    let write_root_entries = |out: &mut String,
+                              roots: &[&RootRec],
+                              continuation: &str,
+                              counts: &mut EmitCounts,
+                              pk: &mut PrecisionEmit| {
+        for r in roots {
+            let tag_lexc = tags::root_tag_lexc(r.morpheme, width);
+            for v in &r.variants {
+                write_tag_entry(out, &tag_lexc, v, continuation, counts, pk, Some(r.id));
+            }
+        }
+    };
+    let all_roots: Vec<&RootRec> = roots.iter().collect();
+
+    // ---- LEXICON Root: bare roots, the template-less section, the outer-prefix hop into the
+    // per-template dispatch (no `Composites` bare-redirect: no composite pipeline here) ----
+    write_lexicon_header(&mut out, "Root");
+    write_root_entries(&mut out, &all_roots, "#", &mut counts, &mut pk);
+    if has_template_less_section {
+        write_bare(&mut out, "TLPfx0", &mut counts);
+    }
+    if has_templates {
+        write_bare(&mut out, "OuterPfx0", &mut counts);
+    }
+
+    if has_templates {
+        build_deriv_chain(
+            &mut out, g, table, "OuterPfx", Role::Prefix, &deriv_prefix, width, "TmplDispatch",
+            &mut uncovered, &mut counts, phon, false, &mut pk, mode,
+        );
+        write_lexicon_header(&mut out, "TmplDispatch");
+        let mut dispatch_lines: BTreeSet<String> = BTreeSet::new();
+        for (gi, tis) in group_templates.iter().enumerate() {
+            for &ti in tis {
+                let (prefix_slots, _) = classify_template(g, &g.templates[ti], &mut Vec::new());
+                if prefix_slots.is_empty() {
+                    dispatch_lines.insert(format!("G{gi}PfxD0"));
+                } else {
+                    dispatch_lines.insert(format!("T{ti}P0"));
+                }
+            }
+        }
+        for line in &dispatch_lines {
+            write_bare(&mut out, line, &mut counts);
+        }
+        build_deriv_chain(
+            &mut out, g, table, "OuterSfx", Role::Suffix, &deriv_suffix, width, "#",
+            &mut uncovered, &mut counts, phon, false, &mut pk, mode,
+        );
+    }
+
+    // ---- Template-less derivation section ----
+    if has_template_less_section {
+        build_deriv_chain(
+            &mut out, g, table, "TLPfx", Role::Prefix, &deriv_prefix, width, "TLRoots",
+            &mut uncovered, &mut counts, phon, true, &mut pk, mode,
+        );
+        write_lexicon_header(&mut out, "TLRoots");
+        write_root_entries(&mut out, &all_roots, "TLPost", &mut counts, &mut pk);
+        write_lexicon_header(&mut out, "TLPost");
+        write_bare(&mut out, "TLSfx0", &mut counts);
+        if has_compounding_rules {
+            write_bare(&mut out, "TLCmp", &mut counts);
+            write_lexicon_header(&mut out, "TLCmp");
+            write_bare(&mut out, "TLCmpPfx0", &mut counts);
+            build_deriv_chain(
+                &mut out, g, table, "TLCmpPfx", Role::Prefix, &deriv_prefix, width, "TLCmpRoots",
+                &mut uncovered, &mut counts, phon, true, &mut pk, mode,
+            );
+            write_lexicon_header(&mut out, "TLCmpRoots");
+            write_root_entries(&mut out, &all_roots, "TLSfx0", &mut counts, &mut pk);
+        }
+        build_deriv_chain(
+            &mut out, g, table, "TLSfx", Role::Suffix, &deriv_suffix, width, "#",
+            &mut uncovered, &mut counts, phon, false, &mut pk, mode,
+        );
+    }
+
+    // ---- Per-group root sections + per-template slot chains ----
+    for (gi, &key) in group_keys.iter().enumerate() {
+        let mut join_lines: BTreeSet<String> = BTreeSet::new();
+        for &ti in &group_templates[gi] {
+            let template = &g.templates[ti];
+            let (_, suffix_slots) = classify_template(g, template, &mut uncovered);
+            if suffix_slots.is_empty() {
+                join_lines.insert("OuterSfx0".to_string());
+            } else {
+                let entry = build_slot_chain(
+                    &mut out,
+                    g,
+                    table,
+                    &format!("T{ti}Z"),
+                    &suffix_slots,
+                    Role::Suffix,
+                    template.required_syn_fs,
+                    width,
+                    "OuterSfx0",
+                    &mut uncovered,
+                    &mut counts,
+                    phon,
+                    &mut pk,
+                    mode,
+                );
+                join_lines.insert(entry);
+            }
+        }
+        let join_name = format!("G{gi}Join");
+        write_lexicon_header(&mut out, &join_name);
+        for line in &join_lines {
+            write_bare(&mut out, line, &mut counts);
+        }
+
+        let sfx_deriv_entry = build_deriv_chain(
+            &mut out,
+            g,
+            table,
+            &format!("G{gi}SfxD"),
+            Role::Suffix,
+            &deriv_suffix,
+            width,
+            &join_name,
+            &mut uncovered,
+            &mut counts,
+            phon,
+            false,
+            &mut pk,
+            mode,
+        );
+
+        let post_name = format!("G{gi}Post");
+        write_lexicon_header(&mut out, &post_name);
+        write_bare(&mut out, &sfx_deriv_entry, &mut counts);
+        if has_compounding_rules {
+            let cmp_name = format!("G{gi}Cmp");
+            write_bare(&mut out, &cmp_name, &mut counts);
+            let cmp_pfx = format!("G{gi}CmpPfx");
+            let cmp_roots = format!("G{gi}CmpRoots");
+            write_lexicon_header(&mut out, &cmp_name);
+            write_bare(&mut out, &format!("{cmp_pfx}0"), &mut counts);
+            build_deriv_chain(
+                &mut out, g, table, &cmp_pfx, Role::Prefix, &deriv_prefix, width, &cmp_roots,
+                &mut uncovered, &mut counts, phon, true, &mut pk, mode,
+            );
+            write_lexicon_header(&mut out, &cmp_roots);
+            write_root_entries(&mut out, &all_roots, &sfx_deriv_entry, &mut counts, &mut pk);
+        }
+
+        let roots_name = format!("G{gi}Roots");
+        write_lexicon_header(&mut out, &roots_name);
+        let key_fs = g.fs_interner.get(key);
+        let eligible_roots: Vec<&RootRec> = roots
+            .iter()
+            .filter(|r| {
+                has_compounding_rules
+                    || permissive[gi]
+                    || key_fs.is_empty()
+                    || is_unifiable(g.fs_interner.get(r.category), key_fs)
+            })
+            .collect();
+        if eligible_roots.is_empty() {
+            write_bare(&mut out, &post_name, &mut counts);
+        } else {
+            write_root_entries(&mut out, &eligible_roots, &post_name, &mut counts, &mut pk);
+        }
+
+        build_deriv_chain(
+            &mut out,
+            g,
+            table,
+            &format!("G{gi}PfxD"),
+            Role::Prefix,
+            &deriv_prefix,
+            width,
+            &roots_name,
+            &mut uncovered,
+            &mut counts,
+            phon,
+            true,
+            &mut pk,
+            mode,
+        );
+
+        for &ti in &group_templates[gi] {
+            let template = &g.templates[ti];
+            let (prefix_slots, _) = classify_template(g, template, &mut Vec::new());
+            if prefix_slots.is_empty() {
+                continue;
+            }
+            build_slot_chain(
+                &mut out,
+                g,
+                table,
+                &format!("T{ti}P"),
+                &prefix_slots,
+                Role::Prefix,
+                template.required_syn_fs,
+                width,
+                &format!("G{gi}PfxD0"),
+                &mut uncovered,
+                &mut counts,
+                phon,
+                &mut pk,
+                mode,
+            );
+        }
+    }
+
+    // Dedup uncovered reports (the same rule/allomorph can be visited from multiple slots/groups/
+    // levels) — same convention as `emit_with_budget`.
+    let mut seen_uncovered: BTreeSet<(String, String, String)> = BTreeSet::new();
+    uncovered.retain(|u| seen_uncovered.insert((u.kind.clone(), u.id.clone(), u.reason.clone())));
+
+    let tier = if uncovered.is_empty() {
+        FomaTier::Full
+    } else {
+        FomaTier::Partial {
+            uncovered: uncovered.len(),
+        }
+    };
+
+    EmitResult {
+        lexc_source: out,
+        report: EmitReport {
+            uncovered,
+            counts,
+            tier,
+            enum_budget_exceeded: None,
+        },
+    }
+}
 
 #[cfg(test)]
 mod structural_and_pattern_tests {
