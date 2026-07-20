@@ -39,10 +39,10 @@ From `pg-grammar/src/model.rs` (the closed world):
 | AffixTemplate morphotactics | IN FLIGHT (this milestone, Aweti gate) | YES — depth/slot/optionality scaling |
 | One-sided truncation mrules | UNDER TEST (Aweti's 41, this milestone) | Only if the Aweti gate shows loss |
 | Circumfix / null-morph roles | UNPROVEN, dormant for Aweti (census: 0) | YES — codec assumes 1 tag = 1 morpheme |
-| Multi CharacterDefinitionTable | UNPROVEN (`replace.rs table_of` hardcodes table 0) | YES — small cost, small grammar |
-| RewriteMode::Simultaneous | UNPROVEN, zero reference uses | YES — report §6.5 says it *needs* one to validate at all |
-| Dir::RightToLeft | UNPROVEN, zero reference uses | YES — small, `fsm_reverse` |
-| Quantifier / OptionalSegmentSequence | Bails to uncovered today | YES — foma native `a^{2,4}` may beat PATTERN_ITER_CAP |
+| Multi CharacterDefinitionTable | SILENT WRONG (TWO hardcoded table-0 sites: `table_of` AND `resolve_alpha_tuples`; no stratum/table threading exists) | YES — initial gate mode: detect-wrong, not parity |
+| RewriteMode::Simultaneous | SILENT MIS-MAP (`replace.rs` reads & discards mode — compiles a wrong network, no error; `is_fully_supported_shape` exists but is UNWIRED) | YES — gate asserts detection; needs detection wiring first |
+| Dir::RightToLeft | SILENT MIS-MAP (same discard; `fsm_reverse` used nowhere) | YES — same as Simultaneous |
+| Quantifier / OptionalSegmentSequence | Honest skip (`pattern_slots` → None → reported in `skipped`) | YES — gate asserts documented skip until compiled |
 | MetathesisRuleDef | UNPROVEN, zero occurrences anywhere | YES — Kaplan-Kay marker technique, medium-large |
 | CompoundingRuleDef | Dormant for Aweti (census: 0) | YES — two-root products are a scale vector, V4 |
 | AffixProcessRuleDef w/ CopyFromInput (reduplication) | OUT of the network by design — `peel::ReduplicationPeeler` pre-peels | YES, but tests the *peeler contract*, not the FST |
@@ -80,9 +80,13 @@ composition path is not yet**.
 
 ## 4. The generator
 
-A dev-only tool (`rust/crates/pg-foma/examples/` graduate to a small `tools/grammar-gen` crate
-if it grows) that emits **snapshot JSON** — the same `pg_snapshot::Snapshot::from_json` loader
-path the Aweti probe uses, so zero new loader surface. Parameterized:
+A dev-only workspace crate (`rust/crates/pg-grammar-gen`) that emits **HermitCrab XML fed
+through the production loader `pg_grammar::load`**. (CORRECTED 2026-07-20 by the Phase C design
+investigation, `phase-c-generator-design.md`: the originally-planned snapshot-JSON path CANNOT
+express half the checklist — `compile_project` always synthesizes exactly one char table,
+explicitly drops circumfix and metathesis entries, and hardcodes exactly 3 strata regardless of
+input. XML loads every §2 construct and has working string-built fixture precedents, e.g.
+`gate.rs`'s `sixteen_group_fixture_xml`.) Parameterized:
 
 - **Construct knobs** (one per §2 row): template depth d, slots per template s, optional-slot
   fraction, circumfix count, gated-subrule count k, α-variable count v × class size c,
