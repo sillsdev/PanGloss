@@ -1,0 +1,29 @@
+[package]
+name = "pg-grammar-gen"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+# Design doc §2: "Dep: pg-grammar only" for the render/recipe surface. `pg-parse` is added below,
+# but ONLY behind the `oracle` feature (default off) -- see that dependency's own comment for why
+# it can't just be a dev-dependency of THIS crate the way the design doc's first option suggested.
+pg-grammar.workspace = true
+
+# The Morpher-as-generator oracle (`src/oracle.rs`, design doc §3) needs `pg_parse::Morpher`. A
+# plain dev-dependency would only be visible to THIS crate's own `tests/`/`examples/` -- but
+# `pg-foma`'s gate files (`tests/phase_c_*.rs`) are a DIFFERENT crate that depends on
+# `pg-grammar-gen` itself as a dev-dependency, and need to call the oracle too. Gating `pg-parse`
+# behind a feature (rather than making `oracle` a dev-only module) is the design doc's own named
+# alternative ("if a lib dep is cleaner, use a feature") and is what this crate does: `pg-foma`
+# enables `features = ["oracle"]` on its own `pg-grammar-gen` dev-dependency (see that Cargo.toml).
+# Precedent for a non-dev `pg-parse` dependency inside this same workspace: `pg-foma` itself takes
+# it as an ordinary dependency (P2, that crate's own Cargo.toml comment) for `confirm.rs`.
+pg-parse = { workspace = true, optional = true }
+# `oracle.rs`'s `FeatureStruct::EMPTY` (the `generate_words` `real_fs` argument) -- gated the same
+# way as `pg-parse` itself, for the same reason (this comment above).
+pg-featstruct = { workspace = true, optional = true }
+
+[features]
+oracle = ["dep:pg-parse", "dep:pg-featstruct"]

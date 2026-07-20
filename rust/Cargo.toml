@@ -19,6 +19,7 @@ members = [
     "crates/pg-snapshot",
     "crates/pg-fwdata",
     "crates/pg-conformance-fixtures",
+    "crates/pg-grammar-gen",
 ]
 
 [workspace.package]
@@ -62,6 +63,7 @@ pg-lexicon = { path = "crates/pg-lexicon" }
 pg-snapshot = { path = "crates/pg-snapshot" }
 pg-fwdata = { path = "crates/pg-fwdata" }
 pg-conformance-fixtures = { path = "crates/pg-conformance-fixtures" }
+pg-grammar-gen = { path = "crates/pg-grammar-gen" }
 # dev
 criterion = "0.5"
 proptest = "1"

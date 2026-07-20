@@ -42,3 +42,8 @@ pg-parse.workspace = true
 # (`pg_snapshot::Snapshot::from_json` + `pg_grammar::compile_project`).
 pg-snapshot.workspace = true
 pg-fwdata.workspace = true
+# Phase C (docs/fst-plan/phase-c-generator-design.md): the synthetic-grammar generator + its
+# Morpher-as-generator oracle, used by tests/phase_c_*.rs (and tests/common/gate_template.rs).
+# `features = ["oracle"]` because `pg-grammar-gen`'s own `pg-parse` dependency is feature-gated
+# (see that crate's Cargo.toml) -- its default features alone don't build the oracle module.
+pg-grammar-gen = { workspace = true, features = ["oracle"] }

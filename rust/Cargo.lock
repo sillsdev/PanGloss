@@ -452,6 +452,7 @@ dependencies = [
  "pg-featstruct",
  "pg-fwdata",
  "pg-grammar",
+ "pg-grammar-gen",
  "pg-parse",
  "pg-rules",
  "pg-shape",
@@ -493,6 +494,15 @@ dependencies = [
  "smallvec",
  "thiserror",
  "unicode-normalization",
+]
+
+[[package]]
+name = "pg-grammar-gen"
+version = "0.1.0"
+dependencies = [
+ "pg-featstruct",
+ "pg-grammar",
+ "pg-parse",
 ]
 
 [[package]]
