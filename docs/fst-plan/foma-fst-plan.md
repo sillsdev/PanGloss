@@ -505,10 +505,23 @@ items, costed in the report §6 — headline ones:
   module doc and `p6-prototype-report.md` §7. Regression-verified: Indonesian 97/97 unchanged,
   Amharic's 82-state/1,110,358-arc composed cascade byte-identical through the untouched
   (unedited) `compile_and_compose_rules` entry point.
-- **Templated morphotactics in the underlying-form emitter** (refit emit.rs's skeleton with an
-  underlying-text source, not a uflexc rewrite) — still open; this is what keeps the POS-gating
-  acceptance test above scoped to a hand-authored fixture rather than Amharic's own corpus.
-- RTL direction, Simultaneous-mode fidelity, Quantifier patterns, metathesis (report §6).
+- **Templated morphotactics in the underlying-form emitter — SHIPPED (2026-07-20, main
+  dfb5025):** `emit.rs` refitted with a `TextMode` leaf-text switch (SurfaceProbed = existing
+  path, regression-verified byte-identical: lib 64/64, Sena/Indonesian/parity gates all green)
+  plus the new `emit_underlying_templated` entry point. Aweti — the grammar the enumeration
+  path OOMs on at 691MB/8.8GB — now emits, foma-compiles, and composes with its 18-rule cascade
+  + boundary cleanup in <3s to a 35,846-state/800,354-arc minimized net
+  (`tests/p6_aweti_gate.rs`). **Open follow-on blocker (in design investigation):** `apply_up`
+  against the composed net explodes on some words ("an": 250k raw results, oracle analysis not
+  found; "ti": effectively unbounded) — ~41 single-sided-truncation structural mrules carry
+  boundary-only (epsilon-after-cleanup) elsewhere allomorphs × `build_deriv_chain` re-offering
+  the full rule set at every level; the truncation-drop semantics themselves (SurfaceProbed
+  gets them via `build_structural_composites`) are also not yet applied on this path, so
+  drop-requiring words can genuinely miss. Full write-up in the gate's module doc.
+- RTL direction, Simultaneous-mode fidelity, Quantifier patterns, metathesis (report §6) —
+  now systematically scheduled via `synthetic-stress-grammar-plan.md` (Phase C recipes);
+  composition-side budget guards (the "never blow up" analog of Fix 1 for this path) are
+  designed in `phase-b-compose-budget-design.md` and in implementation.
 
 **Keep-old-paths directive (John 2026-07-17):** the enumeration bridges are NOT retired when
 P6 mainlines — both paths stay selectable for months, chosen per grammar by a measured
