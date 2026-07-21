@@ -92,7 +92,8 @@ fn load_indonesian_augmented() -> Option<Grammar> {
     if !path.exists() {
         return None;
     }
-    let xml = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let xml =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     let inject = r#"
           <LexicalEntry id="entry67" partOfSpeech="pos2014">
             <Allomorphs>
@@ -112,7 +113,10 @@ fn load_indonesian_augmented() -> Option<Grammar> {
           </LexicalEntry>
         </LexicalEntries>"#;
     let count = xml.matches("</LexicalEntries>").count();
-    assert_eq!(count, 1, "expected exactly one </LexicalEntries> to splice before, found {count}");
+    assert_eq!(
+        count, 1,
+        "expected exactly one </LexicalEntries> to splice before, found {count}"
+    );
     let xml = xml.replacen("</LexicalEntries>", inject, 1);
     Some(pg_grammar::load(&xml).unwrap_or_else(|e| panic!("failed to load augmented grammar: {e}")))
 }
@@ -187,7 +191,11 @@ fn rules_in_order(g: &Grammar) -> Vec<&PhonRuleDef> {
     out
 }
 
-fn boundary_cleanup(opts: &FomaOptions, table: &pg_grammar::chardef::CharDefTable, alphabet: &SegAlphabet) -> Option<foma::types::Fsm> {
+fn boundary_cleanup(
+    opts: &FomaOptions,
+    table: &pg_grammar::chardef::CharDefTable,
+    alphabet: &SegAlphabet,
+) -> Option<foma::types::Fsm> {
     let boundary_tokens: Vec<char> = table
         .iter()
         .filter(|(_, cd)| cd.kind() == CharDefKind::Boundary)
@@ -196,15 +204,25 @@ fn boundary_cleanup(opts: &FomaOptions, table: &pg_grammar::chardef::CharDefTabl
     if boundary_tokens.is_empty() {
         return None;
     }
-    let cleanup_regex = boundary_tokens.iter().map(|c| format!("{c} -> 0")).collect::<Vec<_>>().join(", ");
+    let cleanup_regex = boundary_tokens
+        .iter()
+        .map(|c| format!("{c} -> 0"))
+        .collect::<Vec<_>>()
+        .join(", ");
     Some(fsm_parse_regex(opts, &cleanup_regex, None, None).expect("boundary cleanup regex"))
 }
 
 /// Query `net` and decode every candidate, as `(morpheme_ids, root_index)` sets — the same
 /// positional-multiset key `p6_replace_prototype.rs`'s own parity gate compares against.
-fn query_candidates(net: &foma::types::Fsm, alphabet: &SegAlphabet, word: &str) -> HashSet<(Vec<u32>, i32)> {
+fn query_candidates(
+    net: &foma::types::Fsm,
+    alphabet: &SegAlphabet,
+    word: &str,
+) -> HashSet<(Vec<u32>, i32)> {
     let mut out = HashSet::new();
-    let Some(query) = alphabet.encode_query(word) else { return out };
+    let Some(query) = alphabet.encode_query(word) else {
+        return out;
+    };
     let mut h = apply_init(net);
     for s in h.up(&query) {
         if let Some(path) = tags::decode_path(&s) {
@@ -243,10 +261,22 @@ fn indonesian_mpr_exclusion_matches_oracle() {
     // mentanam (undeleted -- WRONG for the control root) -> empty.
     // menabur (deleted -- WRONG for the mpr1-excluded root) -> empty.
     // mentabur (undeleted -- CORRECT for the excluded root) -> analyzes.
-    assert!(!oracle_analyses(&morpher, "menanam").is_empty(), "oracle sanity: menanam must analyze");
-    assert!(oracle_analyses(&morpher, "mentanam").is_empty(), "oracle sanity: mentanam must NOT analyze");
-    assert!(oracle_analyses(&morpher, "menabur").is_empty(), "oracle sanity: menabur must NOT analyze");
-    assert!(!oracle_analyses(&morpher, "mentabur").is_empty(), "oracle sanity: mentabur must analyze");
+    assert!(
+        !oracle_analyses(&morpher, "menanam").is_empty(),
+        "oracle sanity: menanam must analyze"
+    );
+    assert!(
+        oracle_analyses(&morpher, "mentanam").is_empty(),
+        "oracle sanity: mentanam must NOT analyze"
+    );
+    assert!(
+        oracle_analyses(&morpher, "menabur").is_empty(),
+        "oracle sanity: menabur must NOT analyze"
+    );
+    assert!(
+        !oracle_analyses(&morpher, "mentabur").is_empty(),
+        "oracle sanity: mentabur must analyze"
+    );
 
     let table = &g.char_tables[0];
     let alphabet = SegAlphabet::new(table);
@@ -254,7 +284,11 @@ fn indonesian_mpr_exclusion_matches_oracle() {
     let ro = rules_in_order(&g);
 
     let result = compile_gated_grammar(&opts, &g, &alphabet, &ro).expect("compose budget ok");
-    assert_eq!(result.groups, 2, "exactly 2 gating groups expected: {:?}", result.group_reports);
+    assert_eq!(
+        result.groups, 2,
+        "exactly 2 gating groups expected: {:?}",
+        result.group_reports
+    );
     let mut net = result.net.expect("gated network must be non-empty");
     if let Some(cleanup) = boundary_cleanup(&opts, table, &alphabet) {
         net = foma::constructions::fsm_compose(&opts, net, cleanup);
@@ -264,7 +298,10 @@ fn indonesian_mpr_exclusion_matches_oracle() {
     for word in ["menanam", "mentanam", "menabur", "mentabur"] {
         let want = oracle_analyses(&morpher, word);
         let got = query_candidates(&net, &alphabet, word);
-        assert_eq!(got, want, "gated network must match the oracle exactly for {word:?}");
+        assert_eq!(
+            got, want,
+            "gated network must match the oracle exactly for {word:?}"
+        );
     }
 }
 
@@ -279,7 +316,10 @@ fn ungated_cascade_would_have_missed_the_excluded_root() {
         return;
     };
     let morpher = Morpher::new(&g, usize::MAX);
-    assert!(!oracle_analyses(&morpher, "mentabur").is_empty(), "oracle sanity");
+    assert!(
+        !oracle_analyses(&morpher, "mentabur").is_empty(),
+        "oracle sanity"
+    );
 
     let table = &g.char_tables[0];
     let alphabet = SegAlphabet::new(table);
@@ -288,9 +328,12 @@ fn ungated_cascade_would_have_missed_the_excluded_root() {
 
     let mut skipped = Vec::new();
     let mut tuple_reports = Vec::new();
-    let rules_net = compile_and_compose_rules(&opts, &g, &alphabet, &ro, &mut skipped, &mut tuple_reports)
-        .expect("compose budget ok")
-        .expect("ungated cascade must still compile (prule5's shape is supported, just ungated)");
+    let rules_net =
+        compile_and_compose_rules(&opts, &g, &alphabet, &ro, &mut skipped, &mut tuple_reports)
+            .expect("compose budget ok")
+            .expect(
+                "ungated cascade must still compile (prule5's shape is supported, just ungated)",
+            );
     let ureport = emit_underlying(&g, &alphabet).expect("compose budget ok");
     let lexc_net = foma::lexcread::fsm_lexc_parse_string(&opts, None, &ureport.lexc_source)
         .expect("underlying lexc must compile");
@@ -319,9 +362,19 @@ fn synthetic_pos_gate_matches_oracle() {
     // Oracle ground truth (module doc): "xyx" (undeleted/unmerged) can only be the NOUN entry
     // (verb's rule is obligatory once applicable, so a verb root can never surface as raw "xyx");
     // "w" (merged) can only be the VERB entry.
-    assert!(!oracle_analyses(&morpher, "xyx").is_empty(), "oracle sanity: xyx must analyze (noun)");
-    assert!(!oracle_analyses(&morpher, "w").is_empty(), "oracle sanity: w must analyze (verb)");
-    assert_ne!(oracle_analyses(&morpher, "xyx"), oracle_analyses(&morpher, "w"), "must be distinct roots");
+    assert!(
+        !oracle_analyses(&morpher, "xyx").is_empty(),
+        "oracle sanity: xyx must analyze (noun)"
+    );
+    assert!(
+        !oracle_analyses(&morpher, "w").is_empty(),
+        "oracle sanity: w must analyze (verb)"
+    );
+    assert_ne!(
+        oracle_analyses(&morpher, "xyx"),
+        oracle_analyses(&morpher, "w"),
+        "must be distinct roots"
+    );
 
     let table = &g.char_tables[0];
     let alphabet = SegAlphabet::new(table);
@@ -329,7 +382,11 @@ fn synthetic_pos_gate_matches_oracle() {
     let ro = rules_in_order(&g);
 
     let result = compile_gated_grammar(&opts, &g, &alphabet, &ro).expect("compose budget ok");
-    assert_eq!(result.groups, 2, "exactly 2 gating groups (verb/noun) expected: {:?}", result.group_reports);
+    assert_eq!(
+        result.groups, 2,
+        "exactly 2 gating groups (verb/noun) expected: {:?}",
+        result.group_reports
+    );
     let mut net = result.net.expect("gated network must be non-empty");
     if let Some(cleanup) = boundary_cleanup(&opts, table, &alphabet) {
         net = foma::constructions::fsm_compose(&opts, net, cleanup);
@@ -339,7 +396,10 @@ fn synthetic_pos_gate_matches_oracle() {
     for word in ["xyx", "w"] {
         let want = oracle_analyses(&morpher, word);
         let got = query_candidates(&net, &alphabet, word);
-        assert_eq!(got, want, "gated network must match the oracle exactly for {word:?}");
+        assert_eq!(
+            got, want,
+            "gated network must match the oracle exactly for {word:?}"
+        );
     }
 }
 
@@ -352,7 +412,10 @@ fn ungated_cascade_would_have_missed_the_noun_entry() {
     let g = pg_grammar::load(POS_FIXTURE_XML)
         .unwrap_or_else(|e| panic!("failed to load POS fixture: {e}\n{POS_FIXTURE_XML}"));
     let morpher = Morpher::new(&g, usize::MAX);
-    assert!(!oracle_analyses(&morpher, "xyx").is_empty(), "oracle sanity: xyx must analyze (noun)");
+    assert!(
+        !oracle_analyses(&morpher, "xyx").is_empty(),
+        "oracle sanity: xyx must analyze (noun)"
+    );
 
     let table = &g.char_tables[0];
     let alphabet = SegAlphabet::new(table);
@@ -361,9 +424,12 @@ fn ungated_cascade_would_have_missed_the_noun_entry() {
 
     let mut skipped = Vec::new();
     let mut tuple_reports = Vec::new();
-    let rules_net = compile_and_compose_rules(&opts, &g, &alphabet, &ro, &mut skipped, &mut tuple_reports)
-        .expect("compose budget ok")
-        .expect("ungated cascade must still compile (prule1's shape is supported, just ungated)");
+    let rules_net =
+        compile_and_compose_rules(&opts, &g, &alphabet, &ro, &mut skipped, &mut tuple_reports)
+            .expect("compose budget ok")
+            .expect(
+                "ungated cascade must still compile (prule1's shape is supported, just ungated)",
+            );
     let ureport = emit_underlying(&g, &alphabet).expect("compose budget ok");
     let lexc_net = foma::lexcread::fsm_lexc_parse_string(&opts, None, &ureport.lexc_source)
         .expect("underlying lexc must compile");
@@ -408,8 +474,13 @@ fn indonesian_full_corpus_parity_unregressed() {
     }
     net = foma::minimize::fsm_minimize(&opts, net);
 
-    let words_text = std::fs::read_to_string(sample_path("indonesian-words.txt")).expect("read words");
-    let words: Vec<&str> = words_text.lines().map(str::trim).filter(|w| !w.is_empty()).collect();
+    let words_text =
+        std::fs::read_to_string(sample_path("indonesian-words.txt")).expect("read words");
+    let words: Vec<&str> = words_text
+        .lines()
+        .map(str::trim)
+        .filter(|w| !w.is_empty())
+        .collect();
     assert!(
         !words.iter().any(|&w| w == "tanam" || w == "tabur"),
         "synthetic roots must not collide with the real corpus"
@@ -452,8 +523,14 @@ fn indonesian_full_corpus_parity_unregressed() {
         n_covered, n_total,
         "gated compile path must preserve 100% recall on the Indonesian corpus (misses: {misses:?})"
     );
-    assert_eq!(n_words_analyzed, 96, "sanity: same analyzed-word denominator p6_replace_prototype.rs reports");
-    assert_eq!(n_total, 97, "sanity: same engine-analysis count p6_replace_prototype.rs reports");
+    assert_eq!(
+        n_words_analyzed, 96,
+        "sanity: same analyzed-word denominator p6_replace_prototype.rs reports"
+    );
+    assert_eq!(
+        n_total, 97,
+        "sanity: same engine-analysis count p6_replace_prototype.rs reports"
+    );
 }
 
 /// Regression: Amharic's 3 real POS-gated subrules (`prule1`/`prule2`/`prule3`) are found and
@@ -471,8 +548,10 @@ fn amharic_gated_subrules_and_tuple_counts_unregressed() {
         .stack_size(STACK_BYTES)
         .spawn(|| {
             let path = sample_path("amharic-hc.xml");
-            let xml = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
-            let g = pg_grammar::load(&xml).unwrap_or_else(|e| panic!("failed to load amharic-hc.xml: {e}"));
+            let xml = std::fs::read_to_string(&path)
+                .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+            let g = pg_grammar::load(&xml)
+                .unwrap_or_else(|e| panic!("failed to load amharic-hc.xml: {e}"));
 
             let table = &g.char_tables[0];
             let alphabet = SegAlphabet::new(table);
@@ -480,11 +559,17 @@ fn amharic_gated_subrules_and_tuple_counts_unregressed() {
             let ro = rules_in_order(&g);
 
             let gated = find_gated_subrules(&g, &ro);
-            assert_eq!(gated.len(), 3, "expected prule1/prule2/prule3's own subrule, got {gated:?}");
+            assert_eq!(
+                gated.len(),
+                3,
+                "expected prule1/prule2/prule3's own subrule, got {gated:?}"
+            );
             let names: HashSet<&str> = gated
                 .iter()
                 .map(|gs| {
-                    let PhonRuleDef::Rewrite(r) = ro[gs.rule_pos] else { unreachable!() };
+                    let PhonRuleDef::Rewrite(r) = ro[gs.rule_pos] else {
+                        unreachable!()
+                    };
                     r.xml_id.as_str()
                 })
                 .collect();
@@ -495,18 +580,41 @@ fn amharic_gated_subrules_and_tuple_counts_unregressed() {
             );
 
             let groups = partition_entries(&g, &gated, &ro);
-            assert!(!groups.is_empty(), "partitioning must not crash and must produce >=1 group");
+            assert!(
+                !groups.is_empty(),
+                "partitioning must not crash and must produce >=1 group"
+            );
             let total: usize = groups.iter().map(|grp| grp.entries.len()).sum();
-            assert_eq!(total, g.entries.len(), "every entry must land in exactly one group");
+            assert_eq!(
+                total,
+                g.entries.len(),
+                "every entry must land in exactly one group"
+            );
 
             let mut skipped = Vec::new();
             let mut tuple_reports = Vec::new();
-            let composed = compile_and_compose_rules(&opts, &g, &alphabet, &ro, &mut skipped, &mut tuple_reports)
-                .expect("compose budget ok")
-                .expect("Amharic's 7 rules must still compile via the untouched entry point");
-            assert!(skipped.is_empty(), "no Amharic rule should be newly skipped: {skipped:?}");
-            assert_eq!(composed.statecount, 82, "Amharic composed net state count must be unchanged");
-            assert_eq!(composed.arccount, 1_110_358, "Amharic composed net arc count must be unchanged");
+            let composed = compile_and_compose_rules(
+                &opts,
+                &g,
+                &alphabet,
+                &ro,
+                &mut skipped,
+                &mut tuple_reports,
+            )
+            .expect("compose budget ok")
+            .expect("Amharic's 7 rules must still compile via the untouched entry point");
+            assert!(
+                skipped.is_empty(),
+                "no Amharic rule should be newly skipped: {skipped:?}"
+            );
+            assert_eq!(
+                composed.statecount, 82,
+                "Amharic composed net state count must be unchanged"
+            );
+            assert_eq!(
+                composed.arccount, 1_110_358,
+                "Amharic composed net arc count must be unchanged"
+            );
         })
         .expect("spawn large-stack worker thread");
     handle.join().expect("amharic worker thread panicked");

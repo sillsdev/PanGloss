@@ -1,10 +1,11 @@
 //! One module per synthetic-stress-grammar-plan.md §2 construct row (design doc §2's crate
-//! layout). Stage 1 implements [`tables`], [`circumfix`], and [`template`] -- what GATE 1
+//! layout). Stage 1 implemented [`tables`], [`circumfix`], and [`template`] -- what GATE 1
 //! (multi-table) and GATE 2 (circumfix) need. The minimal root/segment scaffolding every grammar
 //! requires regardless of construct lives in [`crate::render`] itself, not a separate module here
-//! (it's generic glue, not a construct-specific builder). Every other module below is a
-//! compile-clean, empty stub: its own doc names the stage-2 gate (design doc §6's priority order)
-//! that will fill it in.
+//! (it's generic glue, not a construct-specific builder). Stage 2 (design doc §6's priority order)
+//! fills in every remaining module: [`gating`] (partition-k), [`alpha`] (alpha-variable scale),
+//! [`strata`] (stratum-depth scale), [`compounding`] (compounding-rule scale), [`quantifier`]/
+//! [`metathesis`]/[`simultaneous`]/[`right_to_left`] (the four HONEST-SKIP bail gates).
 
 pub mod circumfix;
 pub mod tables;

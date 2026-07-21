@@ -36,28 +36,39 @@
 //! `docs/fst-plan/p6-aweti-truncation-chain-report.md`'s own Q3 finding: the corpus word
 //! `"tomoʼatu"` ran the HC engine itself for >10 minutes uncapped).
 //!
-//! **Measured: 68/104 = 65.4%.** The original investigation's own diagnostic (a throwaway example,
-//! since deleted) reported "65/101": it excluded its own 3 hand-picked safety-check probe words
-//! (`"parua"`/`"an"`/`"ti"`) from its totals (tested separately, not folded into the corpus-sweep
-//! counters) — all 3 are themselves recalled, so 65/101 and this gate's 68/104 are the SAME
-//! underlying result (101+3=104, 65+3=68); this gate counts every corpus word uniformly, with no
-//! such exclusion. A companion investigation into a marker-token truncation mechanism for the 36
-//! misses attributed to "structural" (LHS-material-dropping) rules found the mechanism sound in
-//! isolation but its premise REFUTED for Aweti specifically: 0/16 anticipated recall gain, and it
-//! separately regressed `apply_up` usability (`"parua"` no longer completing even one raw result
-//! within 280s once composed in) — NOT shipped; see the report's §2 for the full root-cause trace
-//! (the 41 flagged rules turned out to be floating-consonant phonological realization, not
-//! genuine root-material truncation). A separate, still-unexplained gap (a bare root with zero
-//! affixes, `"mã"`, also misses this recall check even with the entire phonological cascade
-//! removed from the composition) is documented in the report's §3 as an open, unresolved finding.
-//! The gate below therefore asserts the ACHIEVED figure (68/104), not a higher anticipated one,
-//! and separately asserts no regression against the documented 36-word baseline miss list.
+//! **Measured: 32/104 = 30.8% (honest, post-detection).** History of this number:
+//! - A chain-restriction-era diagnostic measured 68/104 (equivalently 65/101 with 3 probe words
+//!   excluded). That figure was inflated: it was reachability inside a network in which Aweti's
+//!   two non-`Iterative`/`LeftToRight` rules were SILENTLY MIS-COMPILED as plain foma `->` (the
+//!   old `replace.rs` read and discarded `rule.mode`/`rule.dir`), i.e. a wrong-but-permissive net.
+//! - Phase C (`docs/fst-plan/phase-c-generator-design.md` §5/§6) wired
+//!   `pg_foma::replace::is_fully_supported_shape` into `compile_rewrite_rule_subset`: a rule
+//!   outside `Iterative`/`LeftToRight` is now DETECTED and honestly reported `skipped` rather than
+//!   silently mis-mapped. Aweti has exactly two such rules —
+//!   `e41e45d9-6eb8-45f1-a16b-a6a05fa6bb6c` (`Dir::RightToLeft`) and
+//!   `2996dcb3-2e00-4d41-926e-fe5ed11f0753` (`RewriteMode::Simultaneous`) — so composing only the
+//!   16 correctly-compilable rules drops recall to the honest 32/104. This is the INTENDED
+//!   consequence of the fix (design doc §5: "recall drops honestly; never silently wrong"), chosen
+//!   deliberately (John, 2026-07-20) over keeping the silent-but-lucky 68.
+//! - **Recovering the ~36 skipped-rule-dependent words is the job of a real `RightToLeft`
+//!   (`fsm_reverse`) + `Simultaneous` compiler — scheduled follow-on work, not a defect in this
+//!   gate.** When it lands, this gate's floor rises and `BASELINE_MISSES` shrinks accordingly.
 //!
-//! ## `apply_up` spot-check (test (c))
-//! With the chain restriction alone (no truncation cascade composed in), `apply_up` on `"parua"`
-//! resolves its single oracle analysis at the very first raw result, in well under 1ms — kept as
-//! a fast, precise regression check alongside the broader compose-based gate above. Uses
-//! [`ORACLE_STEP_CAP`] (not `usize::MAX`) for the oracle `Morpher`, same rationale as (b).
+//! A separate, still-unexplained gap (a bare root with zero affixes, `"mã"`, also misses this
+//! recall check even with the entire phonological cascade removed from the composition) is
+//! documented in `docs/fst-plan/p6-aweti-truncation-chain-report.md` §3 as an open finding.
+//! (A companion marker-token truncation mechanism was designed and validated sound but NOT shipped
+//! — premise refuted for Aweti, 0/16 recall gain; report §2.) The gate below asserts the ACHIEVED
+//! honest figure (`>= 32`), and separately asserts no regression against the documented 72-word
+//! post-detection miss list (`BASELINE_MISSES`).
+//!
+//! ## `apply_up` termination spot-check (test (c))
+//! `"parua"` is now itself among the skipped-rule-dependent misses (its single oracle analysis
+//! needs one of the two skipped rules), so test (c) no longer asserts recall. Its durable value is
+//! the chain restriction's real guarantee: `apply_up` on the composed net TERMINATES promptly and
+//! does not explode (pre-restriction, `"ti"`/`"parua"` hung indefinitely). It enumerates up to
+//! [`SAFE_WORD_RAW_CAP`] raw results and asserts the enumeration completes well within a generous
+//! wall-clock bound. Uses [`ORACLE_STEP_CAP`] (not `usize::MAX`) for the oracle `Morpher`.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -90,9 +101,11 @@ use pg_parse::{Morpher, ParseOptions};
 /// recurse deeply enough to overflow the default thread stack.
 const STACK_BYTES: usize = 512 * 1024 * 1024;
 
-/// Verified-safe-AND-correct query for test (c) — module doc. A bounded, generous raw-result cap
-/// (module doc: "parua" resolves in <1ms, nowhere near this) is kept as a defensive backstop, not
-/// because it is expected to bind.
+/// `apply_up` termination-probe query for test (c) — module doc. `"parua"` is now a
+/// skipped-rule-dependent miss (its analysis needs one of Aweti's two honestly-skipped
+/// RightToLeft/Simultaneous rules), so test (c) probes that `apply_up` enumerates up to this
+/// bounded raw-result cap and TERMINATES promptly (the chain restriction's guarantee), not that
+/// the word is recalled.
 const SAFE_WORD: &str = "parua";
 const SAFE_WORD_RAW_CAP: usize = 50_000;
 
@@ -103,14 +116,85 @@ const SAFE_WORD_RAW_CAP: usize = 50_000;
 /// tripping).
 const ORACLE_STEP_CAP: usize = 20_000;
 
-/// The 36-word baseline miss list this gate's recall figure must never regress below (module doc:
-/// unchanged by the chain-restriction change — this is the SAME miss list the report's original
-/// investigation documented before the restriction shipped).
+/// The 72-word POST-DETECTION baseline miss list — every corpus word with an oracle analysis that
+/// the honest 16-rule composed net (Aweti's two RightToLeft/Simultaneous rules skipped, module doc)
+/// does NOT recall. The no-regression assertion in (b) requires every word NOT in this list to keep
+/// recalling. When a real RightToLeft/Simultaneous compiler lands (scheduled follow-on), the ~36
+/// skipped-rule-dependent words here start recalling and this list must SHRINK (and the `>= 32`
+/// floor rise) in the same change — a word leaving the recalled set is a real regression, a word
+/// joining it is the expected win.
 const BASELINE_MISSES: &[&str] = &[
-    "muʼazan", "ʼyto", "kỹjtaw", "uʼwywywot", "utu", "otokỹj", "kajekozokotu", "wemulujaʼjawype",
-    "nãtsu", "tsãnupu", "ekyty", "warajuzan", "nutu", "ete", "tsãmopypu", "tonoly", "mian",
-    "moʼazan", "tsãn", "nãti", "moʼaza", "kỹjokwaw", "mã", "oteʼayka", "nekozokotu", "otiʼing",
-    "oto", "wekozoko", "tiretu", "nupu", "tsãnekozokotu", "wemuluja", "ma", "epykaw", "outaw",
+    "parua",
+    "tomoʼatu",
+    "muʼazan",
+    "an",
+    "Paruape",
+    "atozoko",
+    "nuhijupe",
+    "ʼyto",
+    "kỹjtaw",
+    "jatanete",
+    "atoju",
+    "mote",
+    "uʼwywywot",
+    "utu",
+    "otokỹj",
+    "kajekozokotu",
+    "wemulujaʼjawype",
+    "nãtsu",
+    "wezanu",
+    "tsãnupu",
+    "ekyty",
+    "warajuzan",
+    "nutu",
+    "enumania",
+    "Awytyza",
+    "ete",
+    "tsãmopypu",
+    "tonoly",
+    "mian",
+    "moʼazan",
+    "Ywirytywype",
+    "ozoamũjza",
+    "tsãn",
+    "nãti",
+    "ʼetuti",
+    "moʼaza",
+    "kỹjokwaw",
+    "wian",
+    "nuhiju",
+    "pokỹjokotu",
+    "ʼypy",
+    "karaʼiwa",
+    "mã",
+    "oteʼayka",
+    "wijan",
+    "ekozokotu",
+    "wene",
+    "ajkulula",
+    "nekozokotu",
+    "Ajkululape",
+    "otiʼing",
+    "nanype",
+    "aʼyn",
+    "oto",
+    "itemimiʼing",
+    "in",
+    "wekozoko",
+    "azoza",
+    "tiretu",
+    "awytyza",
+    "azoamũjza",
+    "nupu",
+    "temimiʼing",
+    "ʼYtoto",
+    "tsãnekozokotu",
+    "wemuluja",
+    "mopypu",
+    "ato",
+    "ma",
+    "epykaw",
+    "outaw",
     "tsãnutu",
 ];
 
@@ -127,7 +211,8 @@ fn have(name: &str) -> bool {
 
 fn load_aweti() -> Grammar {
     let path = sample_path("aweti.json");
-    let json = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let json =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     let snapshot = pg_snapshot::Snapshot::from_json(&json)
         .unwrap_or_else(|e| panic!("parse snapshot {}: {e}", path.display()));
     let (grammar, _warnings) = pg_grammar::compile_project(&snapshot)
@@ -152,7 +237,9 @@ fn a_aweti_templated_emit_compile_and_compose() {
         .stack_size(STACK_BYTES)
         .spawn(run_emit_compile_compose)
         .expect("spawn large-stack worker thread");
-    handle.join().expect("aweti emit/compile/compose worker thread panicked");
+    handle
+        .join()
+        .expect("aweti emit/compile/compose worker thread panicked");
 }
 
 fn run_emit_compile_compose() {
@@ -194,7 +281,10 @@ fn run_emit_compile_compose() {
         "counts.rules={} looks too small for the real Aweti grammar (expected >= 135)",
         result.report.counts.rules
     );
-    assert!(result.report.counts.lexc_lines > 0, "expected at least one lexc line");
+    assert!(
+        result.report.counts.lexc_lines > 0,
+        "expected at least one lexc line"
+    );
 
     let t_lexc = Instant::now();
     let lexc_net = fsm_lexc_parse_string(&opts, None, &result.lexc_source)
@@ -211,7 +301,11 @@ fn run_emit_compile_compose() {
             rules_in_order.push(&g.prules[prid.0 as usize]);
         }
     }
-    assert_eq!(rules_in_order.len(), 18, "Aweti declares exactly 18 phonological rules");
+    assert_eq!(
+        rules_in_order.len(),
+        18,
+        "Aweti declares exactly 18 phonological rules"
+    );
 
     let mut skipped_rules: Vec<String> = Vec::new();
     let mut tuple_reports = Vec::new();
@@ -226,8 +320,26 @@ fn run_emit_compile_compose() {
     )
     .expect("compose budget ok")
     .expect("Aweti's 18 rules must compile");
-    println!("rule compile+compose: {:?}; skipped={skipped_rules:?}", t_rules.elapsed());
-    assert!(skipped_rules.is_empty(), "no Aweti rule should be skipped: {skipped_rules:?}");
+    println!(
+        "rule compile+compose: {:?}; skipped={skipped_rules:?}",
+        t_rules.elapsed()
+    );
+    // Post-detection (Phase C, `replace.rs::is_fully_supported_shape`): exactly Aweti's two
+    // non-Iterative/LeftToRight rules are honestly reported skipped (RightToLeft + Simultaneous),
+    // instead of being silently mis-compiled as plain `->`. Pinning the exact set (not just "some
+    // are skipped") is the meaningful guard: if a THIRD rule ever starts being skipped, or if a
+    // real RTL/Simultaneous compiler lands and either of these stops being skipped, this fails and
+    // forces this gate's recall floor / miss list to be revisited (module doc).
+    let mut skipped_sorted = skipped_rules.clone();
+    skipped_sorted.sort();
+    assert_eq!(
+        skipped_sorted,
+        vec![
+            "2996dcb3-2e00-4d41-926e-fe5ed11f0753".to_string(), // RewriteMode::Simultaneous
+            "e41e45d9-6eb8-45f1-a16b-a6a05fa6bb6c".to_string(), // Dir::RightToLeft
+        ],
+        "expected exactly Aweti's RightToLeft + Simultaneous rules to be honestly skipped; got {skipped_rules:?}"
+    );
 
     let boundary_tokens: Vec<char> = table
         .iter()
@@ -252,7 +364,10 @@ fn run_emit_compile_compose() {
         composed.statecount,
         composed.arccount
     );
-    assert!(composed.statecount > 0, "composed network must be non-empty");
+    assert!(
+        composed.statecount > 0,
+        "composed network must be non-empty"
+    );
 }
 
 /// One arc per character of `token_string` (already single-codepoint tokens in `SegAlphabet`'s PUA
@@ -286,7 +401,8 @@ fn tag_string_fsm(name: &str, tags: &[String]) -> Fsm {
 /// analysis, restricts the composed net to exactly that word's own token string (`fsm_compose`
 /// with a linear identity transducer), projects the UPPER (tag) tape, and checks whether ANY
 /// oracle analysis's own tag sequence intersects it non-emptily. Prints the full recall figure and
-/// the miss list; asserts the ACHIEVED recall (68/104 — module doc explains why) and that no
+/// the miss list; asserts the ACHIEVED honest recall (`>= 32/104` — module doc explains the
+/// 68→32 drop from honestly skipping Aweti's two RightToLeft/Simultaneous rules) and that no
 /// previously-recalled word has regressed (every corpus word NOT in [`BASELINE_MISSES`] must
 /// still recall).
 #[test]
@@ -300,7 +416,9 @@ fn b_aweti_full_corpus_recall_via_compose() {
         .stack_size(STACK_BYTES)
         .spawn(run_full_corpus_recall)
         .expect("spawn large-stack worker thread");
-    handle.join().expect("aweti full-corpus recall worker thread panicked");
+    handle
+        .join()
+        .expect("aweti full-corpus recall worker thread panicked");
 }
 
 fn run_full_corpus_recall() {
@@ -313,7 +431,10 @@ fn run_full_corpus_recall() {
     let result = emit_underlying_templated(&g, &alphabet, None);
     let lexc_net = fsm_lexc_parse_string(&opts, None, &result.lexc_source)
         .unwrap_or_else(|| panic!("Aweti templated lexc failed to foma-compile"));
-    println!("lexc net: {} states, {} arcs", lexc_net.statecount, lexc_net.arccount);
+    println!(
+        "lexc net: {} states, {} arcs",
+        lexc_net.statecount, lexc_net.arccount
+    );
 
     let mut rules_in_order: Vec<&PhonRuleDef> = Vec::new();
     for st in &g.strata {
@@ -359,8 +480,13 @@ fn run_full_corpus_recall() {
     let popts = ParseOptions::default();
 
     let words_path = sample_path("aweti-words.txt");
-    let words_raw = std::fs::read_to_string(&words_path).unwrap_or_else(|e| panic!("read {}: {e}", words_path.display()));
-    let words: Vec<&str> = words_raw.lines().map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
+    let words_raw = std::fs::read_to_string(&words_path)
+        .unwrap_or_else(|e| panic!("read {}: {e}", words_path.display()));
+    let words: Vec<&str> = words_raw
+        .lines()
+        .map(|l| l.trim())
+        .filter(|l| !l.is_empty())
+        .collect();
 
     let mut n_with_oracle = 0usize;
     let mut n_recalled = 0usize;
@@ -413,18 +539,23 @@ fn run_full_corpus_recall() {
     );
     println!("miss list ({}): {missed_words:?}", missed_words.len());
 
-    // Achieved-figure assertion (module doc: NOT a higher anticipated figure -- see the module
-    // doc's own summary and the crate's own P6-Aweti task report for the full writeup).
+    // Honest achieved-figure floor (module doc): 32/104 with Aweti's two RightToLeft/Simultaneous
+    // rules honestly skipped rather than silently mis-compiled. A `>=` floor (not `==`) so a real
+    // RTL/Simultaneous compiler landing later RAISES recall without tripping this line — but such a
+    // win must also shrink BASELINE_MISSES (the no-regression check below), so the two move together.
     assert!(
-        n_recalled >= 68,
-        "recall regressed below the documented baseline: {n_recalled}/{n_with_oracle} (miss list: {missed_words:?})"
+        n_recalled >= 32,
+        "recall regressed below the honest post-detection baseline (32/104): {n_recalled}/{n_with_oracle} (miss list: {missed_words:?})"
     );
 
     // No-regression assertion: every corpus word with an oracle analysis NOT in the documented
     // baseline miss list must still recall now.
     let missed_set: HashSet<&str> = missed_words.iter().map(|s| s.as_str()).collect();
-    let mut newly_missed: Vec<&str> =
-        missed_set.iter().filter(|w| !BASELINE_MISSES.contains(w)).copied().collect();
+    let mut newly_missed: Vec<&str> = missed_set
+        .iter()
+        .filter(|w| !BASELINE_MISSES.contains(w))
+        .copied()
+        .collect();
     newly_missed.sort_unstable();
     assert!(
         newly_missed.is_empty(),
@@ -432,11 +563,13 @@ fn run_full_corpus_recall() {
     );
 }
 
-/// (c) SPOT-CHECK RECALL on the one word verified both safe AND correct (module doc). `"parua"`
-/// decodes its single oracle analysis at the very first `apply_up` result.
+/// (c) `apply_up` TERMINATION spot-check (module doc). `"parua"`'s single oracle analysis now needs
+/// one of Aweti's two honestly-skipped RightToLeft/Simultaneous rules, so it is NOT recalled — but
+/// the durable property under test is the chain restriction's guarantee that `apply_up` on the
+/// composed net TERMINATES promptly and does not explode (pre-restriction it hung indefinitely).
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/aweti.json); run with --include-ignored"]
-fn c_aweti_spot_check_recall_parua() {
+fn c_aweti_apply_up_terminates_parua() {
     if !have("aweti.json") {
         eprintln!("skipping: aweti.json not present on disk");
         return;
@@ -445,7 +578,9 @@ fn c_aweti_spot_check_recall_parua() {
         .stack_size(STACK_BYTES)
         .spawn(run_spot_check)
         .expect("spawn large-stack worker thread");
-    handle.join().expect("aweti spot-check worker thread panicked");
+    handle
+        .join()
+        .expect("aweti spot-check worker thread panicked");
 }
 
 fn run_spot_check() {
@@ -523,7 +658,8 @@ fn run_spot_check() {
         raw_n += 1;
         if let Some(path) = tags::decode_path(&s) {
             for c in tags::to_candidates(&path) {
-                let key: (Vec<u32>, i32) = (c.morphemes.iter().map(|m| m.0).collect(), c.root_index);
+                let key: (Vec<u32>, i32) =
+                    (c.morphemes.iter().map(|m| m.0).collect(), c.root_index);
                 if engine_seqs.contains(&key) {
                     covered = true;
                 }
@@ -533,12 +669,18 @@ fn run_spot_check() {
             break;
         }
     }
-    println!("{SAFE_WORD:?}: covered={covered} raw_n={raw_n} elapsed={:?}", t0.elapsed());
+    let elapsed = t0.elapsed();
+    println!("{SAFE_WORD:?}: covered={covered} raw_n={raw_n} elapsed={elapsed:?}");
+    // parua is a skipped-rule-dependent miss now (module doc), so `covered` is expected false — we
+    // intentionally do NOT assert on it (that would be brittle against a future RTL/Simultaneous
+    // compiler flipping it true). The durable guarantee is termination/latency: the chain
+    // restriction bounds apply_up so enumerating up to SAFE_WORD_RAW_CAP results completes quickly
+    // (pre-restriction this hung indefinitely and had to be killed externally). 30s is a generous
+    // machine-independent ceiling; the real figure is well under a few seconds.
     assert!(
-        covered,
-        "{SAFE_WORD:?}'s single oracle analysis {:?} was not found within {SAFE_WORD_RAW_CAP} \
-         raw apply_up results (raw_n={raw_n}) -- this word was previously verified to resolve at \
-         raw result #1 in well under 1ms; a regression here is a real finding",
-        engine_seqs[0]
+        elapsed < std::time::Duration::from_secs(30),
+        "apply_up on {SAFE_WORD:?} took {elapsed:?} to enumerate {raw_n} raw results (cap \
+         {SAFE_WORD_RAW_CAP}) -- the chain restriction is supposed to keep this prompt; a hang or \
+         blowup regression is a real finding"
     );
 }

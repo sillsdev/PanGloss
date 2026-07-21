@@ -60,7 +60,13 @@ impl TableSpec {
         self.segments
             .iter()
             .find(|s| s.voice_plus == voice_plus)
-            .unwrap_or_else(|| panic!("table {} has no voice{} segment", self.xml_id, if voice_plus { "+" } else { "-" }))
+            .unwrap_or_else(|| {
+                panic!(
+                    "table {} has no voice{} segment",
+                    self.xml_id,
+                    if voice_plus { "+" } else { "-" }
+                )
+            })
     }
 }
 
@@ -83,6 +89,10 @@ pub struct TablesBuild {
     /// single-table recipes (GATE 2) -- there is nothing to demonstrate the bug with.
     pub devoice_rule_xml: Option<String>,
     pub devoice_rule_xml_id: Option<String>,
+    /// Present iff `build` was called with `needs_boundary = true` -- table 0's own
+    /// `<BoundaryDefinition>` xml id ([`crate::build::compounding`]'s compound-seam marker; see
+    /// `build`'s own doc for why this must be a boundary, not a plain segment).
+    pub boundary_xml_id: Option<String>,
 }
 
 const NC_ANY_XML_ID: &str = "ncAny";
@@ -107,9 +117,24 @@ const FEAT_ID_XML_ID: &str = "featId";
 /// (module doc's "out of phase" reasoning) -- callers building a single-table recipe (GATE 2) or a
 /// same-phase multi-table sanity check should pass `false`.
 ///
+/// `needs_boundary`: when `true`, table 0 also declares a single `<BoundaryDefinition>` (xml id
+/// returned as [`TablesBuild::boundary_xml_id`]) whose representation is the literal `"+"`
+/// character -- [`crate::build::compounding`]'s own compound-seam marker. Found empirically by
+/// reading `machine/conformance/languages/fusional-latin/grammar.xml`'s own header comment on its
+/// `cBnd` declaration: a compounding rule's `InsertSegments` boundary text must be declared as a
+/// `<BoundaryDefinition>`, NOT a plain `<SegmentDefinition>` -- that file's own comment records that
+/// declaring it as a plain segment "produced zero parses for every compound word (confirmed by
+/// isolated probing)", i.e. this is load-bearing, not stylistic.
+///
 /// Panics if `table_count * segment_inventory` exceeds the 26 available disjoint ASCII letters --
 /// stage-1 recipes stay far under this (design doc §3's "oracle-cheap-by-construction" sizing).
-pub fn build(table_count: usize, segment_inventory: usize, misaligned: bool, ids: &mut IdMinter) -> TablesBuild {
+pub fn build(
+    table_count: usize,
+    segment_inventory: usize,
+    misaligned: bool,
+    needs_boundary: bool,
+    ids: &mut IdMinter,
+) -> TablesBuild {
     let table_count = table_count.max(1);
     let segment_inventory = segment_inventory.max(2);
     assert!(
@@ -131,6 +156,7 @@ pub fn build(table_count: usize, segment_inventory: usize, misaligned: bool, ids
     let mut tables_xml = String::new();
     let mut letter = b'a';
     let mut global_seg_index = 0usize;
+    let mut boundary_xml_id: Option<String> = None;
     for t in 0..table_count {
         let table_xml_id = ids.next("tbl");
         // Table 0 always starts index 0 at voice+; later tables start at voice- when misaligned
@@ -144,21 +170,49 @@ pub fn build(table_count: usize, segment_inventory: usize, misaligned: bool, ids
             let ch = letter as char;
             letter += 1;
             let voice_plus = if i % 2 == 0 { start_plus } else { !start_plus };
-            let sym = if voice_plus { SYM_VOICE_PLUS_XML_ID } else { SYM_VOICE_MINUS_XML_ID };
+            let sym = if voice_plus {
+                SYM_VOICE_PLUS_XML_ID
+            } else {
+                SYM_VOICE_MINUS_XML_ID
+            };
             segment_defs_xml.push_str(&format!(
                 "\n        <SegmentDefinition id=\"{seg_xml_id}\"><Representations><Representation>{ch}</Representation></Representations>\
                  <FeatureValue feature=\"{FEAT_VOICE_XML_ID}\" symbolValues=\"{sym}\" />\
                  <FeatureValue feature=\"{FEAT_ID_XML_ID}\" symbolValues=\"symId{global_seg_index}\" /></SegmentDefinition>"
             ));
-            segments.push(SegmentSpec { xml_id: seg_xml_id, ch, voice_plus });
+            segments.push(SegmentSpec {
+                xml_id: seg_xml_id,
+                ch,
+                voice_plus,
+            });
             global_seg_index += 1;
+        }
+
+        let (boundary_block, this_table_boundary_id) = if needs_boundary && t == 0 {
+            let bnd_xml_id = ids.next("bnd");
+            (
+                format!(
+                    "\n      <BoundaryDefinitions>\n        <BoundaryDefinition id=\"{bnd_xml_id}\">\
+                     <Representations><Representation>+</Representation></Representations></BoundaryDefinition>\n      \
+                     </BoundaryDefinitions>"
+                ),
+                Some(bnd_xml_id),
+            )
+        } else {
+            (String::new(), None)
+        };
+        if let Some(id) = this_table_boundary_id {
+            boundary_xml_id = Some(id);
         }
 
         tables_xml.push_str(&format!(
             "\n    <CharacterDefinitionTable id=\"{table_xml_id}\">\n      <Name>{table_xml_id}</Name>\n      \
-             <SegmentDefinitions>{segment_defs_xml}\n      </SegmentDefinitions>\n    </CharacterDefinitionTable>"
+             <SegmentDefinitions>{segment_defs_xml}\n      </SegmentDefinitions>{boundary_block}\n    </CharacterDefinitionTable>"
         ));
-        tables.push(TableSpec { xml_id: table_xml_id, segments });
+        tables.push(TableSpec {
+            xml_id: table_xml_id,
+            segments,
+        });
     }
 
     let feature_system_xml = format!(
@@ -202,6 +256,7 @@ pub fn build(table_count: usize, segment_inventory: usize, misaligned: bool, ids
         nc_voiceless_xml_id,
         devoice_rule_xml,
         devoice_rule_xml_id,
+        boundary_xml_id,
     }
 }
 
@@ -214,6 +269,16 @@ pub fn nc_any_xml_id() -> &'static str {
     NC_ANY_XML_ID
 }
 
+/// Xml id of the per-segment-unique `featId` `SymbolicFeature` [`build`] always declares (module
+/// doc addendum) -- [`crate::build::alpha`] reuses this existing feature as the phonological
+/// feature every alpha variable it declares binds to (module doc: since `ncAny` matches every
+/// segment in the table regardless of feature, and each segment's own `featId` value is unique and
+/// always set, this gives alpha-tuple resolution exactly `segment_inventory`-many self-agreeing
+/// candidates per occurrence with no need for a second, alpha-specific feature system).
+pub fn feat_id_xml_id() -> &'static str {
+    FEAT_ID_XML_ID
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -221,25 +286,35 @@ mod tests {
     #[test]
     fn aligned_tables_share_polarity_per_index() {
         let mut ids = IdMinter::new();
-        let tb = build(2, 2, false, &mut ids);
-        assert_eq!(tb.tables[0].segments[0].voice_plus, tb.tables[1].segments[0].voice_plus);
+        let tb = build(2, 2, false, false, &mut ids);
+        assert_eq!(
+            tb.tables[0].segments[0].voice_plus,
+            tb.tables[1].segments[0].voice_plus
+        );
     }
 
     #[test]
     fn misaligned_tables_flip_polarity_per_index_after_the_first() {
         let mut ids = IdMinter::new();
-        let tb = build(2, 2, true, &mut ids);
-        assert_ne!(tb.tables[0].segments[0].voice_plus, tb.tables[1].segments[0].voice_plus);
+        let tb = build(2, 2, true, false, &mut ids);
+        assert_ne!(
+            tb.tables[0].segments[0].voice_plus,
+            tb.tables[1].segments[0].voice_plus
+        );
     }
 
     #[test]
     fn tables_never_share_a_character() {
         let mut ids = IdMinter::new();
-        let tb = build(3, 2, true, &mut ids);
+        let tb = build(3, 2, true, false, &mut ids);
         let mut seen = std::collections::HashSet::new();
         for t in &tb.tables {
             for s in &t.segments {
-                assert!(seen.insert(s.ch), "character {:?} reused across tables", s.ch);
+                assert!(
+                    seen.insert(s.ch),
+                    "character {:?} reused across tables",
+                    s.ch
+                );
             }
         }
     }
@@ -247,7 +322,7 @@ mod tests {
     #[test]
     fn single_table_has_no_devoice_demo_rule() {
         let mut ids = IdMinter::new();
-        let tb = build(1, 2, false, &mut ids);
+        let tb = build(1, 2, false, false, &mut ids);
         assert!(tb.devoice_rule_xml.is_none());
         assert!(tb.devoice_rule_xml_id.is_none());
     }

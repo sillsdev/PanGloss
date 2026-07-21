@@ -52,7 +52,12 @@
 //! - `RewriteMode::Simultaneous` vs `Iterative` distinction, and `Dir::RightToLeft` — Indonesian's
 //!   5 rules are all `Iterative`/`LeftToRight`; every subrule is compiled with plain foma `->`
 //!   (see the report for the mapping-fidelity discussion; the `foma` crate's `src/reverse.rs`'s
-//!   `fsm_reverse` is the standard primitive `RightToLeft` would need, unexercised here).
+//!   `fsm_reverse` is the standard primitive `RightToLeft` would need, unexercised here). Phase C
+//!   (`docs/fst-plan/phase-c-generator-design.md` §5/§6) wired [`is_fully_supported_shape`] into
+//!   [`compile_rewrite_rule_subset`] so a rule outside this shape is now DETECTED and reported
+//!   `skipped` (module doc's "None -> caller reports it" contract), rather than silently
+//!   compiled as if it were Iterative/LeftToRight — the mapping itself (an actual `Simultaneous`/
+//!   `RightToLeft` compiler) remains future work.
 //! - MPR gating (`required_mpr`/`excluded_mpr` on a subrule) — flag-diacritic emission is P6
 //!   mainline work per the plan (`§P6` item 1's own text), not attempted in this slice.
 
@@ -64,8 +69,8 @@ use foma::types::Fsm;
 
 use pg_grammar::chardef::{CharDefId, CharDefKind, CharDefTable};
 use pg_grammar::model::{
-    Dir, Grammar, NaturalClassKind, Pattern, PatternNode, PhonRuleDef, RewriteMode,
-    RewriteRuleDef, RewriteSubruleDef, VarId,
+    Dir, Grammar, NaturalClassKind, Pattern, PatternNode, PhonRuleDef, RewriteMode, RewriteRuleDef,
+    RewriteSubruleDef, VarId,
 };
 
 use crate::compose_budget::{compose_checked, ComposeBudget, ComposeError};
@@ -219,7 +224,9 @@ fn pattern_slots(g: &Grammar, pattern: &Pattern, next_occurrence: &mut usize) ->
                     });
                 }
             }
-            PatternNode::Quantifier { .. } | PatternNode::Segments { .. } | PatternNode::Anchor(_) => {
+            PatternNode::Quantifier { .. }
+            | PatternNode::Segments { .. }
+            | PatternNode::Anchor(_) => {
                 return None;
             }
         }
@@ -272,7 +279,10 @@ pub struct TupleReport {
 /// implemented generically over N variables and N occurrences per variable. Returns
 /// `(assignments, report)`; a rule with zero alpha slots returns one trivial
 /// `AlphaAssignment { values: {} }` and a `raw_product`/`surviving` of 1 (nothing to expand).
-fn resolve_alpha_tuples(g: &Grammar, slot_lists: &[&[Slot]]) -> (Vec<AlphaAssignment>, TupleReport) {
+fn resolve_alpha_tuples(
+    g: &Grammar,
+    slot_lists: &[&[Slot]],
+) -> (Vec<AlphaAssignment>, TupleReport) {
     let table = &g.char_tables[0];
     // Flatten to (occurrence, vars, members), document order (deterministic, not semantically
     // load-bearing), plus the var-group membership needed for the filter step. One occurrence may
@@ -334,8 +344,10 @@ fn resolve_alpha_tuples(g: &Grammar, slot_lists: &[&[Slot]]) -> (Vec<AlphaAssign
     // Joint-agreement filter: for every pair of occurrences sharing a VarId, the two chosen
     // segments must unify (bitwise overlap) at that variable's feature lane. An occurrence with
     // MULTIPLE vars contributes one entry per var it carries.
-    let mut var_pairs: std::collections::HashMap<VarId, Vec<(usize, pg_grammar::featsys::FlatIndex)>> =
-        std::collections::HashMap::new();
+    let mut var_pairs: std::collections::HashMap<
+        VarId,
+        Vec<(usize, pg_grammar::featsys::FlatIndex)>,
+    > = std::collections::HashMap::new();
     for occ in &occs {
         for &(var, feature) in &occ.vars {
             var_pairs.entry(var).or_default().push((occ.id, feature));
@@ -398,8 +410,10 @@ fn render_slots(alphabet: &SegAlphabet, slots: &[Slot], assignment: &AlphaAssign
                 if members.len() == 1 {
                     alphabet.token(members[0]).to_string()
                 } else {
-                    let inner: Vec<String> =
-                        members.iter().map(|m| alphabet.token(*m).to_string()).collect();
+                    let inner: Vec<String> = members
+                        .iter()
+                        .map(|m| alphabet.token(*m).to_string())
+                        .collect();
                     format!("[{}]", inner.join(" | "))
                 }
             }
@@ -486,6 +500,18 @@ pub fn compile_rewrite_rule(
 /// [`ComposeBudget::tuple_cap`]'s value, the cheapest-possible-predictor principle Fix 1's own
 /// `EnumerationBudget` already uses); and V1, via [`compose_checked`], on every fold step of the
 /// per-alpha-tuple union-by-composition below.
+///
+/// **Mode/dir detection (Phase C, `docs/fst-plan/phase-c-generator-design.md` §5/§6):**
+/// `rule.mode`/`rule.dir` are checked FIRST, via [`is_fully_supported_shape`] -- a rule outside
+/// that shape (`RewriteMode::Simultaneous`, or `Dir::RightToLeft`) returns `Ok(None)` immediately,
+/// exactly the same "uncovered, caller reports it `skipped`" contract [`pattern_slots`] already
+/// uses for an unsupported PATTERN construct (Quantifier/Segments/Anchor). Before this check
+/// existed, an unsupported mode/dir was silently compiled via plain foma `->` as if it were
+/// Iterative/LeftToRight -- a WRONG network with no signal (design doc §5's "SILENT MIS-MAP" row).
+/// Every reference-grammar rule (Indonesian/Amharic/Sena) is already `Iterative`/`LeftToRight`
+/// (this function's own prior module-level doc), so this check changes no existing grammar's
+/// compiled output -- verified by `tests/p6_gate_parity.rs`'s byte-exact Amharic state/arc-count
+/// regression guard and `tests/f3_parity.rs`'s multiset parity gates staying green.
 pub fn compile_rewrite_rule_subset(
     opts: &FomaOptions,
     g: &Grammar,
@@ -494,6 +520,9 @@ pub fn compile_rewrite_rule_subset(
     allowed: &dyn Fn(usize) -> bool,
     budget: &ComposeBudget,
 ) -> Result<Option<(Fsm, Vec<TupleReport>)>, ComposeError> {
+    if !is_fully_supported_shape(rule) {
+        return Ok(None);
+    }
     let mut net: Option<Fsm> = None;
     let mut reports: Vec<TupleReport> = Vec::new();
 
@@ -527,12 +556,15 @@ pub fn compile_rewrite_rule_subset(
             None => Vec::new(),
         };
 
-        let (assignments, report) = resolve_alpha_tuples(g, &[
-            lhs_slots.as_slice(),
-            rhs_slots.as_slice(),
-            left_slots.as_slice(),
-            right_slots.as_slice(),
-        ]);
+        let (assignments, report) = resolve_alpha_tuples(
+            g,
+            &[
+                lhs_slots.as_slice(),
+                rhs_slots.as_slice(),
+                left_slots.as_slice(),
+                right_slots.as_slice(),
+            ],
+        );
         // V3 (design doc §4): checked BEFORE the per-tuple compile loop -- the cheapest-possible
         // predictor, same principle as `EnumerationBudget`'s own "check the search result before
         // the expensive part".
@@ -562,15 +594,21 @@ pub fn compile_rewrite_rule_subset(
                 let left_text = render_slots(alphabet, &left_slots, asg);
                 let right_text = render_slots(alphabet, &right_slots, asg);
                 match (has_left, has_right) {
-                    (true, true) => format!("{lhs_text} -> {rhs_text} || {left_text} _ {right_text}"),
+                    (true, true) => {
+                        format!("{lhs_text} -> {rhs_text} || {left_text} _ {right_text}")
+                    }
                     (true, false) => format!("{lhs_text} -> {rhs_text} || {left_text} _"),
                     (false, true) => format!("{lhs_text} -> {rhs_text} || _ {right_text}"),
                     (false, false) => unreachable!(),
                 }
             };
-            let branch_net = fsm_parse_regex(opts, &branch_regex, None, None).unwrap_or_else(|| {
-                panic!("foma rejected compiled regex for rule {}: {branch_regex:?}", rule.xml_id)
-            });
+            let branch_net =
+                fsm_parse_regex(opts, &branch_regex, None, None).unwrap_or_else(|| {
+                    panic!(
+                        "foma rejected compiled regex for rule {}: {branch_regex:?}",
+                        rule.xml_id
+                    )
+                });
             net = Some(match net {
                 None => branch_net,
                 // Sequential composition, NOT union — see the module-level doc above this
@@ -657,20 +695,24 @@ pub fn compile_and_compose_rules_with_budget(
             });
             continue;
         };
-        // Direction/mode fidelity note (module doc): every reference-grammar rule this prototype
-        // has seen is `Iterative`/`LeftToRight`; both are compiled identically via plain foma
-        // `->` (unioned per alpha-tuple, see [`compile_rewrite_rule`]'s doc). A `RightToLeft`
-        // rule is silently mis-mapped rather than rejected here — a real gap, called out in the
-        // prototype report, not hidden.
-        let _ = (rule.mode, rule.dir); // read for the record; not branched on (see doc above)
+        // Direction/mode fidelity (module doc): every reference-grammar rule this prototype has
+        // seen is `Iterative`/`LeftToRight`, compiled via plain foma `->` (unioned per alpha-tuple,
+        // see [`compile_rewrite_rule`]'s doc). A `RightToLeft` or `Simultaneous` rule is honestly
+        // reported `skipped` instead -- [`compile_rewrite_rule_subset`]'s own `is_fully_supported_
+        // shape` check (Phase C, that function's doc) makes this a detected, reported gap rather
+        // than a silent mis-map.
         match compile_rewrite_rule_subset(opts, g, alphabet, rule, &|_| true, budget)? {
             Some((net, reports)) => {
                 tuple_reports.push((rule.xml_id.clone(), reports));
                 composed = Some(match composed {
                     None => net,
-                    Some(prev) => {
-                        compose_checked(opts, prev, net, budget, "compile_and_compose_rules cascade fold")?
-                    }
+                    Some(prev) => compose_checked(
+                        opts,
+                        prev,
+                        net,
+                        budget,
+                        "compile_and_compose_rules cascade fold",
+                    )?,
                 });
             }
             None => skipped.push(rule.xml_id.clone()),
@@ -737,7 +779,9 @@ pub fn compile_and_compose_rules_gated_with_budget(
             });
             continue;
         };
-        let _ = (rule.mode, rule.dir); // see compile_and_compose_rules's own doc on this
+        // See `compile_and_compose_rules_with_budget`'s own doc: mode/dir detection now lives in
+        // `compile_rewrite_rule_subset` itself (`is_fully_supported_shape`), so an unsupported
+        // shape is reported `skipped` for every group, never silently mis-compiled.
         let allowed = |sub_idx: usize| subrule_ok(rule_pos, sub_idx);
         match compile_rewrite_rule_subset(opts, g, alphabet, rule, &allowed, budget)? {
             Some((net, reports)) => {
@@ -863,8 +907,9 @@ mod compose_budget_tests {
 "#;
 
     fn synth_alpha_grammar() -> Grammar {
-        pg_grammar::load(SYNTH_ALPHA_XML)
-            .unwrap_or_else(|e| panic!("failed to load synthetic alpha fixture: {e}\n{SYNTH_ALPHA_XML}"))
+        pg_grammar::load(SYNTH_ALPHA_XML).unwrap_or_else(|e| {
+            panic!("failed to load synthetic alpha fixture: {e}\n{SYNTH_ALPHA_XML}")
+        })
     }
 
     fn synth_alpha_rule(g: &Grammar) -> &RewriteRuleDef {
@@ -889,12 +934,20 @@ mod compose_budget_tests {
         let opts = FomaOptions::default();
         let rule = synth_alpha_rule(&g);
 
-        let budget = ComposeBudget::with_caps(usize::MAX, usize::MAX, 3, usize::MAX, usize::MAX, None);
+        let budget =
+            ComposeBudget::with_caps(usize::MAX, usize::MAX, 3, usize::MAX, usize::MAX, None);
         let err = compile_rewrite_rule_subset(&opts, &g, &alphabet, rule, &|_| true, &budget)
             .expect_err("6 surviving tuples must exceed a tuple_cap of 3");
         match err {
-            ComposeError::AlphaTupleBudgetExceeded { surviving, limit, rule_xml_id } => {
-                assert_eq!(surviving, 6, "synthetic fixture's ncBig class must have exactly 6 members");
+            ComposeError::AlphaTupleBudgetExceeded {
+                surviving,
+                limit,
+                rule_xml_id,
+            } => {
+                assert_eq!(
+                    surviving, 6,
+                    "synthetic fixture's ncBig class must have exactly 6 members"
+                );
                 assert_eq!(limit, 3);
                 assert_eq!(rule_xml_id, "prule_alpha");
             }
@@ -920,11 +973,18 @@ mod compose_budget_tests {
         // `state_cap=0` (guaranteed to trip on ANY non-empty composed net) rather than the design
         // doc's illustrative "cap=2", which this specific hand-authored fixture's nets are too
         // small to cross.
-        let budget = ComposeBudget::with_caps(0, usize::MAX, usize::MAX, usize::MAX, usize::MAX, None);
+        let budget =
+            ComposeBudget::with_caps(0, usize::MAX, usize::MAX, usize::MAX, usize::MAX, None);
         let err = compile_rewrite_rule_subset(&opts, &g, &alphabet, rule, &|_| true, &budget)
             .expect_err("composing 6 branch nets must exceed a state_cap of 0");
         assert!(
-            matches!(err, ComposeError::NetSizeExceeded { measure: NetSizeMeasure::States, .. }),
+            matches!(
+                err,
+                ComposeError::NetSizeExceeded {
+                    measure: NetSizeMeasure::States,
+                    ..
+                }
+            ),
             "expected NetSizeExceeded(States), got {err:?}"
         );
     }
@@ -940,9 +1000,10 @@ mod compose_budget_tests {
         let rule = synth_alpha_rule(&g);
 
         let budget = ComposeBudget::unbounded();
-        let (net, reports) = compile_rewrite_rule_subset(&opts, &g, &alphabet, rule, &|_| true, &budget)
-            .expect("unbounded budget must never trip")
-            .expect("synthetic rule must compile");
+        let (net, reports) =
+            compile_rewrite_rule_subset(&opts, &g, &alphabet, rule, &|_| true, &budget)
+                .expect("unbounded budget must never trip")
+                .expect("synthetic rule must compile");
         assert!(net.statecount > 0);
         assert_eq!(reports.len(), 1);
         assert_eq!(reports[0].surviving, 6);

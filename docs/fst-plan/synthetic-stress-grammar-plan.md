@@ -34,20 +34,20 @@ From `pg-grammar/src/model.rs` (the closed world):
 | Construct | Status on FST path | Synthetic grammar needed? |
 |---|---|---|
 | RewriteRuleDef, plain literal/feature-class | PROVEN (Indonesian/Amharic/Aweti, report §3–5) | Scale variants only |
-| α-variables (tuple expansion) | PROVEN to Amharic scale (20 vars, 312 survivors) | YES — push var count × class size to the cliff |
-| MPR/POS subrule gating | CLOSED via static partition (report §7) | YES — partition-count blowup (see §3, V6) |
+| α-variables (tuple expansion) | PROVEN to Amharic scale (20 vars, 312 survivors) + GATED recall-parity + `AlphaTupleBudgetExceeded` overbudget (`phase_c_alpha_scale`) | Push var count × class size to the cliff (Phase D) |
+| MPR/POS subrule gating | CLOSED via static partition (report §7) + GATED recall-parity + `GroupBudgetExceeded` overbudget (`phase_c_partition_k`) | Partition-count blowup (see §3, V6) is Phase D |
 | AffixTemplate morphotactics | IN FLIGHT (this milestone, Aweti gate) | YES — depth/slot/optionality scaling |
 | One-sided truncation mrules | UNDER TEST (Aweti's 41, this milestone) | Only if the Aweti gate shows loss |
 | Circumfix / null-morph roles | UNPROVEN, dormant for Aweti (census: 0) | YES — codec assumes 1 tag = 1 morpheme |
-| Multi CharacterDefinitionTable | SILENT WRONG (TWO hardcoded table-0 sites: `table_of` AND `resolve_alpha_tuples`; no stratum/table threading exists) | YES — initial gate mode: detect-wrong, not parity |
-| RewriteMode::Simultaneous | SILENT MIS-MAP (`replace.rs` reads & discards mode — compiles a wrong network, no error; `is_fully_supported_shape` exists but is UNWIRED) | YES — gate asserts detection; needs detection wiring first |
-| Dir::RightToLeft | SILENT MIS-MAP (same discard; `fsm_reverse` used nowhere) | YES — same as Simultaneous |
-| Quantifier / OptionalSegmentSequence | Honest skip (`pattern_slots` → None → reported in `skipped`) | YES — gate asserts documented skip until compiled |
-| MetathesisRuleDef | UNPROVEN, zero occurrences anywhere | YES — Kaplan-Kay marker technique, medium-large |
-| CompoundingRuleDef | Dormant for Aweti (census: 0) | YES — two-root products are a scale vector, V4 |
+| Multi CharacterDefinitionTable | SILENT WRONG — now DETECTED by gate (`phase_c_multi_table`, stage 1: pins the wrong-root rewrite; assertions invert when fixed). The two-site threading fix (`table_of` + `resolve_alpha_tuples`) is scheduled follow-on. | Gate mode: detect-wrong, not parity |
+| RewriteMode::Simultaneous | **FIXED to honest-skip (Phase C stage 2, main 2026-07-20):** `is_fully_supported_shape` now wired into `compile_rewrite_rule_subset` — Simultaneous is DETECTED and reported `skipped`, no longer silently mis-mapped. Gated `phase_c_simultaneous`. A real Simultaneous compiler = follow-on. | DONE (detection); scale N/A until compiler exists |
+| Dir::RightToLeft | **FIXED to honest-skip (same change):** DETECTED + `skipped`; `fsm_reverse`-based real compiler = follow-on. Gated `phase_c_right_to_left`. | DONE (detection) |
+| Quantifier / OptionalSegmentSequence | GATED honest-skip (`phase_c_quantifier`; `pattern_slots` → None → `skipped`) | Gate asserts documented skip until compiled |
+| MetathesisRuleDef | GATED honest-skip (`phase_c_metathesis`) | Real Kaplan-Kay compiler = follow-on |
+| CompoundingRuleDef | GATED recall-parity + `EmitLineBudgetExceeded` overbudget (`phase_c_compounding`; first emit-scale exerciser) | Two-root products are scale vector V4 |
 | AffixProcessRuleDef w/ CopyFromInput (reduplication) | OUT of the network by design — `peel::ReduplicationPeeler` pre-peels | YES, but tests the *peeler contract*, not the FST |
 | Realizational / co-occurrence rules | Constraint-side (ConstraintCatalog), not spelling | Covered by existing pk1/pk2 gates; extend if census says otherwise |
-| Strata (multi-stratum cascades) | 3 strata proven (Aweti rules half) | YES — stratum count × per-stratum table scaling |
+| Strata (multi-stratum cascades) | 3 strata proven (Aweti rules half) + GATED recall-parity (`phase_c_strata_depth`, extra strata cascading over table 0) | Stratum count × per-stratum table scaling is Phase D |
 
 ## 3. Blowup-vector catalog (the "what could possibly explode" list)
 
@@ -114,13 +114,23 @@ self-skip-guarded, non-vacuous gate style:
 
 ## 5. Phasing
 
-- **Phase A (now, in flight):** Aweti templated-emitter milestone + its gate. Answers the
-  truncation-rule question for free.
-- **Phase B (next, small):** budget guards on the *composition* path (V1–V4, V6) — the
-  composition analog of Fix 1. Do this BEFORE scale sweeps so sweeps fail honestly.
-- **Phase C (generator MVP):** recipes for the unproven-construct checklist, minimal sizes:
-  multi-table, circumfix, Simultaneous, RTL, quantifiers, metathesis, partition-k. One gate
-  each. This retires every remaining §6 correctness item with a permanent regression test.
+- **Phase A (DONE, main 2026-07-20):** Aweti templated-emitter milestone + its gate (`dfb5025`),
+  plus the chain restriction (`fa81ec8`). Truncation mechanism designed but NOT shipped (premise
+  refuted; report §2).
+- **Phase B (DONE, main `8cfa5df`):** default-on `ComposeBudget` guards on the composition path
+  (V1–V6) — the composition analog of Fix 1.
+- **Phase C (DONE — stage 1 `84ca152`, stage 2 2026-07-20):** generator (`pg-grammar-gen`, XML via
+  `pg_grammar::load`) + one gate per construct. Stage 2 shipped the six remaining recipes
+  (partition-k, alpha-scale, strata-depth, compounding + overbudget variants; quantifier/metathesis
+  honest-skip gates) and the **Simultaneous/RTL silent-mis-map fix** (`is_fully_supported_shape`
+  wired → honest `skipped`).
+  - **Consequence, accepted by John 2026-07-20:** honestly skipping Aweti's own two
+    RightToLeft/Simultaneous rules dropped Aweti's compose-recall from a silent-but-lucky 68/104 to
+    the honest **32/104** (`p6_aweti_gate` floor updated to `>= 32` + 72-word `BASELINE_MISSES`).
+    Recovering the ~36 skipped-rule-dependent words is the job of a **real RightToLeft (`fsm_reverse`)
+    + Simultaneous compiler — the top follow-on**, and is the single largest remaining §2 correctness
+    item. Multi-table's two-site table-threading fix is the other scheduled follow-on (gate detects
+    the wrongness today).
 - **Phase D (scale sweeps):** grid E × d × s × v×c × k × strata on the constructs that passed
   Phase C; binary-search each vector to its cliff; record per-vector go-bars in the pre-flight
   census (extends the dead-end-census skill's go-bar concept from per-language to

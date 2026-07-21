@@ -33,4 +33,8 @@ pub mod rng;
 pub mod oracle;
 
 pub use recipe::{ConstructKnobs, Recipe, ScaleKnobs};
-pub use render::{render, render_indexed, RenderedGrammar, RootIndex, TableIndex};
+pub use render::{
+    render, render_indexed, AlphaIndex, CompoundingIndex, ExtraStratumIndex, GatingIndex,
+    MetathesisIndex, QuantifierIndex, RenderedGrammar, RightToLeftIndex, RootIndex,
+    SimultaneousIndex, TableIndex,
+};
