@@ -118,7 +118,10 @@ fn extract_allomorph(ctx: &mut Ctx, guid: &str) -> Option<Allomorph> {
         rec.class.as_str(),
         "MoStemAllomorph" | "MoAffixAllomorph" | "MoAffixProcess"
     ) {
-        ctx.warn(format!("{label}: {guid} has unexpected class {}", rec.class));
+        ctx.warn(format!(
+            "{label}: {guid} has unexpected class {}",
+            rec.class
+        ));
         return None;
     }
     let morph_type = resolve_morph_type(ctx, rec, label)?;
@@ -238,7 +241,10 @@ fn extract_rule_mapping(
             let content_guid = rec.node.objsur_one("Content")?;
             let part = part_index(ctx, &content_guid)?;
             let natural_class = rec.node.objsur_one("Modification")?;
-            Some(RuleMapping::ModifyFromInput { part, natural_class })
+            Some(RuleMapping::ModifyFromInput {
+                part,
+                natural_class,
+            })
         }
         other => {
             ctx.warn(format!("{label}: {guid} has unexpected class {other}"));

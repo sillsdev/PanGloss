@@ -16,7 +16,9 @@
 
 use foma::apply::apply_init;
 use foma::constructions::fsm_compose;
-use foma::io::{fsm_read_binary_file, fsm_read_binary_mem, fsm_write_binary, fsm_write_binary_file};
+use foma::io::{
+    fsm_read_binary_file, fsm_read_binary_mem, fsm_write_binary, fsm_write_binary_file,
+};
 use foma::lexcread::fsm_lexc_parse_string;
 use foma::options::FomaOptions;
 use foma::regex::fsm_parse_regex;
@@ -83,7 +85,8 @@ s{m10}:s # ;
 
 fn compile_toy_lexc() -> Fsm {
     let src = toy_lexc();
-    fsm_lexc_parse_string(&opts(), None, &src).unwrap_or_else(|| panic!("toy lexc failed to compile:\n{src}"))
+    fsm_lexc_parse_string(&opts(), None, &src)
+        .unwrap_or_else(|| panic!("toy lexc failed to compile:\n{src}"))
 }
 
 #[test]
@@ -153,9 +156,16 @@ b{r10}:b # ;
         r1 = lexc_tag("R", 1),
         r10 = lexc_tag("R", 10),
     );
-    let net = fsm_lexc_parse_string(&opts(), None, &src).unwrap_or_else(|| panic!("lexc failed:\n{src}"));
-    assert_eq!(up_all(&net, "a"), [format!("a{}", tag_text("R", 1))].into_iter().collect());
-    assert_eq!(up_all(&net, "b"), [format!("b{}", tag_text("R", 10))].into_iter().collect());
+    let net =
+        fsm_lexc_parse_string(&opts(), None, &src).unwrap_or_else(|| panic!("lexc failed:\n{src}"));
+    assert_eq!(
+        up_all(&net, "a"),
+        [format!("a{}", tag_text("R", 1))].into_iter().collect()
+    );
+    assert_eq!(
+        up_all(&net, "b"),
+        [format!("b{}", tag_text("R", 10))].into_iter().collect()
+    );
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -174,9 +184,10 @@ fn lexc_unicode_entry_round_trips() {
     assert_eq!(got, expected);
 
     let got_plural = up_all(&net, "kəŋs");
-    let expected_plural: BTreeSet<String> = [format!("kəŋ{}s{}", tag_text("R", 4), tag_text("M", 10))]
-        .into_iter()
-        .collect();
+    let expected_plural: BTreeSet<String> =
+        [format!("kəŋ{}s{}", tag_text("R", 4), tag_text("M", 10))]
+            .into_iter()
+            .collect();
     assert_eq!(got_plural, expected_plural);
 }
 
@@ -209,9 +220,10 @@ pa{m}:pa # ;
 fn compile_rule_composition() -> Fsm {
     let o = opts();
     let src = rule_lexc();
-    let lexicon =
-        fsm_lexc_parse_string(&o, None, &src).unwrap_or_else(|| panic!("rule-composition lexc failed to compile:\n{src}"));
-    let rule = fsm_parse_regex(&o, "N -> m || _ [p|b]", None, None).expect("replace rule failed to compile");
+    let lexicon = fsm_lexc_parse_string(&o, None, &src)
+        .unwrap_or_else(|| panic!("rule-composition lexc failed to compile:\n{src}"));
+    let rule = fsm_parse_regex(&o, "N -> m || _ [p|b]", None, None)
+        .expect("replace rule failed to compile");
     fsm_compose(&o, lexicon, rule)
 }
 
@@ -223,10 +235,17 @@ fn regex_compose_recovers_underlying_form() {
     // p, so the true surface is "kampa". Applying up the assimilated surface must recover the
     // tags (and, incidentally, the un-assimilated underlying "kaN" spelling on the upper tape).
     let got = up_all(&net, "kampa");
-    let expected: BTreeSet<String> = [format!("kaN{}pa{}", tag_text("R", 3001), tag_text("M", 4001))]
-        .into_iter()
-        .collect();
-    assert_eq!(got, expected, "composition must recover the underlying analysis");
+    let expected: BTreeSet<String> = [format!(
+        "kaN{}pa{}",
+        tag_text("R", 3001),
+        tag_text("M", 4001)
+    )]
+    .into_iter()
+    .collect();
+    assert_eq!(
+        got, expected,
+        "composition must recover the underlying analysis"
+    );
 
     // The un-assimilated surface must NOT be accepted post-composition -- proves the rule was
     // actually applied (composition changed the surface-side requirement), not a no-op.
@@ -284,7 +303,8 @@ fn flags_gate_paths_under_apply_up() {
 #[test]
 fn flags_hidden_by_default_shown_when_enabled() {
     let o = opts();
-    let net = fsm_parse_regex(&o, r#"[a "@U.F.1@"] [c "@R.F.1@"]"#, None, None).expect("flag regex failed to compile");
+    let net = fsm_parse_regex(&o, r#"[a "@U.F.1@"] [c "@R.F.1@"]"#, None, None)
+        .expect("flag regex failed to compile");
 
     // Default: show_flags = false -> flag symbols do not appear in the output string.
     let mut h = apply_init(&net);
@@ -293,7 +313,10 @@ fn flags_hidden_by_default_shown_when_enabled() {
     // Explicitly enabled: flag symbols render literally.
     let mut h2 = apply_init(&net);
     foma::apply::apply_set_show_flags(&mut h2, 1);
-    assert_eq!(h2.up("ac").collect::<Vec<_>>(), vec!["a@U.F.1@c@R.F.1@".to_string()]);
+    assert_eq!(
+        h2.up("ac").collect::<Vec<_>>(),
+        vec!["a@U.F.1@c@R.F.1@".to_string()]
+    );
 }
 
 #[test]
@@ -330,7 +353,10 @@ fn binary_round_trip_via_file() {
     let _ = std::fs::remove_file(&path);
 
     let after = up_all(&reloaded, "kats");
-    assert_eq!(before, after, "file round-trip must reproduce identical apply_up results");
+    assert_eq!(
+        before, after,
+        "file round-trip must reproduce identical apply_up results"
+    );
 }
 
 #[test]
@@ -344,7 +370,10 @@ fn binary_round_trip_via_memory() {
     let reloaded = fsm_read_binary_mem(&buf).expect("read binary from memory buffer");
 
     let after = up_all(&reloaded, "kats");
-    assert_eq!(before, after, "in-memory round-trip must reproduce identical apply_up results");
+    assert_eq!(
+        before, after,
+        "in-memory round-trip must reproduce identical apply_up results"
+    );
 
     // Also verify the ambiguous-word full set survives, not just non-emptiness.
     let expected: BTreeSet<String> = [

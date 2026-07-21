@@ -34,12 +34,15 @@ use pg_grammar::model::Grammar;
 use pg_parse::{Morpher, ParseOptions};
 
 fn sample_path(name: &str) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../samples/data").join(name)
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../samples/data")
+        .join(name)
 }
 
 fn load_aweti() -> Grammar {
     let path = sample_path("aweti.json");
-    let json = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let json =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     let snapshot = pg_snapshot::Snapshot::from_json(&json)
         .unwrap_or_else(|e| panic!("parse snapshot {}: {e}", path.display()));
     let (grammar, _warnings) = pg_grammar::compile_project(&snapshot)
@@ -73,8 +76,13 @@ fn main() {
 
     // --- Corpus sweep ---------------------------------------------------------------------------
     let words_path = sample_path("aweti-words.txt");
-    let words_raw = std::fs::read_to_string(&words_path).unwrap_or_else(|e| panic!("read {}: {e}", words_path.display()));
-    let words: Vec<&str> = words_raw.lines().map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
+    let words_raw = std::fs::read_to_string(&words_path)
+        .unwrap_or_else(|e| panic!("read {}: {e}", words_path.display()));
+    let words: Vec<&str> = words_raw
+        .lines()
+        .map(|l| l.trim())
+        .filter(|l| !l.is_empty())
+        .collect();
     println!("corpus words: {}", words.len());
 
     // DEVIATION FROM THE TASK BRIEF, DISCOVERED EMPIRICALLY (documented in the write-up):
@@ -104,14 +112,22 @@ fn main() {
         std::io::stderr().flush().ok();
         let t_word = std::time::Instant::now();
         let outcome = morpher.parse_word_opts(word, &popts);
-        eprintln!("{} analyses in {:?}", outcome.structured.len(), t_word.elapsed());
+        eprintln!(
+            "{} analyses in {:?}",
+            outcome.structured.len(),
+            t_word.elapsed()
+        );
         if outcome.structured.is_empty() {
             words_with_no_analysis += 1;
             continue;
         }
         for a in &outcome.structured {
             total_analyses += 1;
-            let root_idx = if a.root_morpheme_index >= 0 { a.root_morpheme_index as usize } else { 0 };
+            let root_idx = if a.root_morpheme_index >= 0 {
+                a.root_morpheme_index as usize
+            } else {
+                0
+            };
             let total_affixes = a.morpheme_ids.len().saturating_sub(1);
             if total_affixes > max_total_affixes {
                 max_total_affixes = total_affixes;
@@ -139,7 +155,11 @@ fn main() {
     }
 
     println!("\n--- Results ---");
-    println!("words with >=1 analysis: {}/{}", words.len() - words_with_no_analysis, words.len());
+    println!(
+        "words with >=1 analysis: {}/{}",
+        words.len() - words_with_no_analysis,
+        words.len()
+    );
     println!("total analyses across corpus: {total_analyses}");
     println!(
         "MAX total affix-morpheme count in any single analysis: {max_total_affixes} (word {:?})",

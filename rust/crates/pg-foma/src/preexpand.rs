@@ -137,7 +137,9 @@ use rayon::prelude::*;
 
 use crate::emit::{rule_role, stripped_variants, surface_variants, Role};
 use crate::junctions::PhonologyProbe;
-use crate::morphotactics::{ChainState, EnumerationBudget, ExploreMode, MorphotacticIndex, ProbeBudget};
+use crate::morphotactics::{
+    ChainState, EnumerationBudget, ExploreMode, MorphotacticIndex, ProbeBudget,
+};
 use crate::tags;
 
 /// One rule-application/fusion composite: an extra "root-like" lexc entry whose upper tape carries
@@ -199,8 +201,7 @@ pub(crate) fn should_run(g: &Grammar, phon: Option<&PhonologyProbe>) -> bool {
 }
 
 fn any_infix_rule(g: &Grammar) -> bool {
-    (0..g.mrules.len())
-        .any(|i| rule_role(g, MRuleId(i as u32)) == Role::Infix)
+    (0..g.mrules.len()).any(|i| rule_role(g, MRuleId(i as u32)) == Role::Infix)
 }
 
 /// Every rule id whose PRIMARY allomorph classifies `Infix`/`Prefix`/`Suffix` (mirrors `emit.rs`'s
@@ -306,7 +307,9 @@ fn build_allomorph_variants(
                 OutputAction::InsertSegments { shape, .. } => Some(shape.text.as_str()),
                 _ => None,
             })?;
-            let mut ordinary: Vec<String> = surface_variants(table, text).map(|(v, _)| v).unwrap_or_default();
+            let mut ordinary: Vec<String> = surface_variants(table, text)
+                .map(|(v, _)| v)
+                .unwrap_or_default();
             if let Some(p) = phon {
                 ordinary.extend(p.variants(text));
             }
@@ -335,7 +338,11 @@ fn reachable_via_ordinary_emission(
     for av in allo_variants {
         for a in &av.ordinary {
             for r in root_variants {
-                let concat = if is_prefix { format!("{a}{r}") } else { format!("{r}{a}") };
+                let concat = if is_prefix {
+                    format!("{a}{r}")
+                } else {
+                    format!("{r}{a}")
+                };
                 if concat == fused {
                     return true;
                 }
@@ -405,7 +412,9 @@ fn matching_reps_local(table: &CharDefTable, char_def: u32, lanes: &[u64]) -> Ve
         }
         let member = if char_def != NO_CHAR_DEF {
             id.0 == char_def
-                || table.unifiable_cds(CharDefId(char_def)).is_some_and(|b| b.contains(id.0))
+                || table
+                    .unifiable_cds(CharDefId(char_def))
+                    .is_some_and(|b| b.contains(id.0))
         } else {
             true // NO_CHAR_DEF (post-rewrite abstract node): pure lane unification, no identity gate.
         };
@@ -637,7 +646,10 @@ fn extend(
             // (module doc, "Chaining": a dirty step is emitted; a clean step is NOT emitted — the
             // ordinary lexc entries already realize it correctly — but is still recursed through
             // below, see the recursion comment further down).
-            if let Some(tag_lexc) = (!dirty_posts.is_empty()).then(|| morph_order_tags(&w, &next_chain)).flatten() {
+            if let Some(tag_lexc) = (!dirty_posts.is_empty())
+                .then(|| morph_order_tags(&w, &next_chain))
+                .flatten()
+            {
                 let new_variants: Vec<String> = dirty_posts
                     .iter()
                     .filter(|post| acc.seen.insert((tag_lexc.clone(), (***post).clone())))
@@ -829,7 +841,8 @@ fn process_root_work(
             .map(|(v, _)| v)
             .unwrap_or_default();
 
-        let Ok(shape) = pg_rules::shape_feat::segment_with_features(g, root_table, &allo.shape.text)
+        let Ok(shape) =
+            pg_rules::shape_feat::segment_with_features(g, root_table, &allo.shape.text)
         else {
             continue;
         };
@@ -1143,36 +1156,40 @@ mod pruning_tests {
     #[test]
     fn mandatory_non_vacuous_slot0_blocks_slot1_probe_at_depth0() {
         let g = load(&slot_gate_fixture(false));
-        assert!(should_run(&g, PhonologyProbe::new(&g).as_ref()), "fixture must exercise should_run");
+        assert!(
+            should_run(&g, PhonologyProbe::new(&g).as_ref()),
+            "fixture must exercise should_run"
+        );
         let width = tags::tag_width(g.morphemes.len());
         let phon = PhonologyProbe::new(&g);
         let mt = MorphotacticIndex::build(&g);
 
-        let (_, flat) =
-            build_composites_with_mode(
-                &g,
-                width,
-                phon.as_ref(),
-                &mt,
-                ExploreMode::Flat,
-                None,
-                &EnumerationBudget::unbounded(),
-            );
-        let (_, pruned) =
-            build_composites_with_mode(
-                &g,
-                width,
-                phon.as_ref(),
-                &mt,
-                ExploreMode::Pruned,
-                None,
-                &EnumerationBudget::unbounded(),
-            );
+        let (_, flat) = build_composites_with_mode(
+            &g,
+            width,
+            phon.as_ref(),
+            &mt,
+            ExploreMode::Flat,
+            None,
+            &EnumerationBudget::unbounded(),
+        );
+        let (_, pruned) = build_composites_with_mode(
+            &g,
+            width,
+            phon.as_ref(),
+            &mt,
+            ExploreMode::Pruned,
+            None,
+            &EnumerationBudget::unbounded(),
+        );
 
         // Depth 0: mrA (slot 0, first-reachable) plus mrB under FLAT (which ignores morphotactics
         // entirely) -- 2 candidates probed. Under PRUNED, mrB (slot 1, blocked by the mandatory
         // non-vacuous slot 0) must NOT be probed at depth 0.
-        assert_eq!(flat.pairs_probed_by_depth[0], 2, "flat mode probes both candidates at depth 0");
+        assert_eq!(
+            flat.pairs_probed_by_depth[0], 2,
+            "flat mode probes both candidates at depth 0"
+        );
         assert_eq!(
             pruned.pairs_probed_by_depth[0], 1,
             "pruned mode must not probe slot 1's rule at depth 0 while slot 0 is mandatory/non-vacuous"
@@ -1192,36 +1209,40 @@ mod pruning_tests {
     #[test]
     fn vacuous_slot0_lets_slot1_be_probed_at_depth0_under_pruning() {
         let g = load(&slot_gate_fixture(true));
-        assert!(should_run(&g, PhonologyProbe::new(&g).as_ref()), "fixture must exercise should_run");
+        assert!(
+            should_run(&g, PhonologyProbe::new(&g).as_ref()),
+            "fixture must exercise should_run"
+        );
         let width = tags::tag_width(g.morphemes.len());
         let phon = PhonologyProbe::new(&g);
         let mt = MorphotacticIndex::build(&g);
 
-        let (_, flat) =
-            build_composites_with_mode(
-                &g,
-                width,
-                phon.as_ref(),
-                &mt,
-                ExploreMode::Flat,
-                None,
-                &EnumerationBudget::unbounded(),
-            );
-        let (_, pruned) =
-            build_composites_with_mode(
-                &g,
-                width,
-                phon.as_ref(),
-                &mt,
-                ExploreMode::Pruned,
-                None,
-                &EnumerationBudget::unbounded(),
-            );
+        let (_, flat) = build_composites_with_mode(
+            &g,
+            width,
+            phon.as_ref(),
+            &mt,
+            ExploreMode::Flat,
+            None,
+            &EnumerationBudget::unbounded(),
+        );
+        let (_, pruned) = build_composites_with_mode(
+            &g,
+            width,
+            phon.as_ref(),
+            &mt,
+            ExploreMode::Pruned,
+            None,
+            &EnumerationBudget::unbounded(),
+        );
 
         // mrA (vacuous) is `Role::None` -- never a candidate rule at all, in either mode -- so only
         // mrB is ever attempted at depth 0. The point of this test is that pruning does NOT lose
         // that attempt (unlike the non-vacuous fixture, where it correctly does).
-        assert_eq!(flat.pairs_probed_by_depth[0], 1, "only mrB is a candidate rule in this fixture");
+        assert_eq!(
+            flat.pairs_probed_by_depth[0], 1,
+            "only mrB is a candidate rule in this fixture"
+        );
         assert_eq!(
             pruned.pairs_probed_by_depth[0], 1,
             "a vacuous mandatory slot 0 must not block slot 1's rule from depth-0 probing"
@@ -1259,7 +1280,9 @@ mod pruning_tests {
         let path = sample_path("amharic-hc.xml")?;
         let xml = std::fs::read_to_string(&path)
             .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
-        Some(pg_grammar::load(&xml).unwrap_or_else(|e| panic!("failed to load amharic-hc.xml: {e}")))
+        Some(
+            pg_grammar::load(&xml).unwrap_or_else(|e| panic!("failed to load amharic-hc.xml: {e}")),
+        )
     }
 
     /// New tests item 2 (plan doc): the Amharic A/B subset gate -- pruned exploration must be a
@@ -1278,38 +1301,44 @@ mod pruning_tests {
         let mt = MorphotacticIndex::build(&g);
 
         let t_flat = std::time::Instant::now();
-        let (flat_recs, flat_report) =
-            build_composites_with_mode(
-                &g,
-                width,
-                phon.as_ref(),
-                &mt,
-                ExploreMode::Flat,
-                None,
-                &EnumerationBudget::unbounded(),
-            );
+        let (flat_recs, flat_report) = build_composites_with_mode(
+            &g,
+            width,
+            phon.as_ref(),
+            &mt,
+            ExploreMode::Flat,
+            None,
+            &EnumerationBudget::unbounded(),
+        );
         let flat_elapsed = t_flat.elapsed();
 
         let t_pruned = std::time::Instant::now();
-        let (pruned_recs, pruned_report) =
-            build_composites_with_mode(
-                &g,
-                width,
-                phon.as_ref(),
-                &mt,
-                ExploreMode::Pruned,
-                None,
-                &EnumerationBudget::unbounded(),
-            );
+        let (pruned_recs, pruned_report) = build_composites_with_mode(
+            &g,
+            width,
+            phon.as_ref(),
+            &mt,
+            ExploreMode::Pruned,
+            None,
+            &EnumerationBudget::unbounded(),
+        );
         let pruned_elapsed = t_pruned.elapsed();
 
         let flat_set: rustc_hash::FxHashSet<(String, String)> = flat_recs
             .iter()
-            .flat_map(|r| r.variants.iter().map(move |v| (r.tag_lexc.clone(), v.clone())))
+            .flat_map(|r| {
+                r.variants
+                    .iter()
+                    .map(move |v| (r.tag_lexc.clone(), v.clone()))
+            })
             .collect();
         let pruned_set: rustc_hash::FxHashSet<(String, String)> = pruned_recs
             .iter()
-            .flat_map(|r| r.variants.iter().map(move |v| (r.tag_lexc.clone(), v.clone())))
+            .flat_map(|r| {
+                r.variants
+                    .iter()
+                    .map(move |v| (r.tag_lexc.clone(), v.clone()))
+            })
             .collect();
 
         let missing: Vec<&(String, String)> = pruned_set.difference(&flat_set).collect();

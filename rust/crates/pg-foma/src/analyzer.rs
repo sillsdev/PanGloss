@@ -139,7 +139,8 @@ impl FomaProposer {
         g: &Grammar,
         enum_budget: &crate::morphotactics::EnumerationBudget,
     ) -> Result<Self> {
-        let result = emit::emit_with_budget(g, crate::precision::PrecisionConfig::Strip, enum_budget);
+        let result =
+            emit::emit_with_budget(g, crate::precision::PrecisionConfig::Strip, enum_budget);
         // Fix 1 (fail-fast enumeration budget): checked FIRST, before ever handing `result.lexc_source`
         // to `fsm_lexc_parse_string` -- when this is `Some`, `emit::emit_with_budget` already bailed
         // out early (its own doc: the budget check sits before the expensive derivation-layer/
@@ -198,7 +199,8 @@ impl FomaProposer {
                 continue;
             };
             for c in tags::to_candidates(&path) {
-                let key: (Vec<u32>, i32) = (c.morphemes.iter().map(|m| m.0).collect(), c.root_index);
+                let key: (Vec<u32>, i32) =
+                    (c.morphemes.iter().map(|m| m.0).collect(), c.root_index);
                 if seen.insert(key) {
                     out.push(c);
                 }
@@ -277,10 +279,12 @@ mod budget_tests {
                 limit,
             }) => {
                 assert_eq!(limit, 10, "limit must echo back the injected cap");
-                assert!(value > limit, "tripped value {value} must exceed the limit {limit}");
+                assert!(
+                    value > limit,
+                    "tripped value {value} must exceed the limit {limit}"
+                );
                 assert_eq!(
-                    measure,
-                    "composite lexc entries (fusion + interdigitation + structural)",
+                    measure, "composite lexc entries (fusion + interdigitation + structural)",
                     "a tiny entry cap (probe cap unbounded) must trip on the ENTRY measure"
                 );
             }

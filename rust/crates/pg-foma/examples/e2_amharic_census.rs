@@ -18,7 +18,8 @@ fn sample_path(name: &str) -> PathBuf {
 
 fn load_amharic() -> Grammar {
     let path = sample_path("amharic-hc.xml");
-    let xml = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let xml =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     pg_grammar::load(&xml).unwrap_or_else(|e| panic!("failed to load amharic-hc.xml: {e}"))
 }
 
@@ -36,7 +37,13 @@ enum Role {
 fn classify_affix(rhs: &[OutputAction]) -> Role {
     let copy_parts: Vec<PartRef> = rhs
         .iter()
-        .filter_map(|a| if let OutputAction::Copy(p) = a { Some(*p) } else { None })
+        .filter_map(|a| {
+            if let OutputAction::Copy(p) = a {
+                Some(*p)
+            } else {
+                None
+            }
+        })
         .collect();
     if copy_parts
         .iter()
@@ -159,7 +166,10 @@ fn main() {
         println!("  {r}");
     }
     println!("\ninfix morphemes: {} distinct", infix_morphemes.len());
-    println!("circumfix-prefix morphemes: {} distinct", circumfix_morphemes.len());
+    println!(
+        "circumfix-prefix morphemes: {} distinct",
+        circumfix_morphemes.len()
+    );
     println!("process morphemes: {} distinct", process_morphemes.len());
 
     // 2. Templates: does any template slot route to an infix/circumfix rule?
@@ -185,11 +195,15 @@ fn main() {
     // distinct analysis, check whether ANY of its morpheme ids is an infix/circumfix/process
     // morpheme. This is the number that actually matters for the go/no-go call.
     let words_text = std::fs::read_to_string(sample_path("amharic-words.txt")).expect("read words");
-    let words: Vec<&str> = words_text.lines().map(str::trim).filter(|w| !w.is_empty()).collect();
+    let words: Vec<&str> = words_text
+        .lines()
+        .map(str::trim)
+        .filter(|w| !w.is_empty())
+        .collect();
     println!("\ncorpus words: {}", words.len());
 
-    let morpher = Morpher::new(&g, usize::MAX)
-        .with_word_timeout(Some(std::time::Duration::from_secs(5)));
+    let morpher =
+        Morpher::new(&g, usize::MAX).with_word_timeout(Some(std::time::Duration::from_secs(5)));
     let opts = ParseOptions::default();
 
     let mut n_words_analyzed = 0usize;

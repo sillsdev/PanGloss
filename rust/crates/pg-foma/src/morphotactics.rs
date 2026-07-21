@@ -487,7 +487,10 @@ impl MorphotacticIndex {
             );
             for (k, slot) in t.slots.iter().enumerate() {
                 for &mid in &slot.rules {
-                    rule_slot_sites.entry(mid).or_default().push((ti as u16, k as u8));
+                    rule_slot_sites
+                        .entry(mid)
+                        .or_default()
+                        .push((ti as u16, k as u8));
                 }
             }
         }
@@ -502,8 +505,9 @@ impl MorphotacticIndex {
                 let completable: Vec<bool> =
                     (0..n).map(|k| (k + 1..n).all(|i| skippable[i])).collect();
                 let first_reachable = reachable_forward(0, &skippable);
-                let reach_from: Vec<Vec<u8>> =
-                    (0..n).map(|k| reachable_forward(k + 1, &skippable)).collect();
+                let reach_from: Vec<Vec<u8>> = (0..n)
+                    .map(|k| reachable_forward(k + 1, &skippable))
+                    .collect();
                 TemplateInfo {
                     owning_stratum: template_owner[ti],
                     required_syn_fs: t.required_syn_fs,
@@ -921,7 +925,10 @@ mod tests {
             .next_state(&seed, a, fs, &g.fs_interner)
             .expect("slot 0's rule must be reachable from the seed state");
         assert_eq!(after_a.mid, vec![(0, 0)]);
-        assert_eq!(after_a.free, None, "slot 0 alone does not complete the template");
+        assert_eq!(
+            after_a.free, None,
+            "slot 0 alone does not complete the template"
+        );
     }
 
     #[test]
@@ -958,7 +965,10 @@ mod tests {
             .next_state(&after_b, v, fs, &g.fs_interner)
             .expect("must be able to jump the optional slot 2");
         assert_eq!(next.mid, vec![(0, 3)]);
-        assert_eq!(next.free, None, "slot 4 remains mandatory/non-vacuous -- not yet completable");
+        assert_eq!(
+            next.free, None,
+            "slot 4 remains mandatory/non-vacuous -- not yet completable"
+        );
     }
 
     #[test]
@@ -1010,7 +1020,11 @@ mod tests {
         assert_eq!(after_l0.free, Some(0));
 
         let after_l1 = mt.next_state(&after_l0, l1, fs, &g.fs_interner).unwrap();
-        assert_eq!(after_l1.free, Some(1), "stratum 1's loose rule advances the floor");
+        assert_eq!(
+            after_l1.free,
+            Some(1),
+            "stratum 1's loose rule advances the floor"
+        );
 
         // Once the floor has advanced to stratum 1, stratum 0's loose rule must no longer be legal
         // (the floor can only move forward, never back).
@@ -1035,7 +1049,8 @@ mod tests {
 
         let seed_partial = ChainState::seed(&g, 0, true);
         assert!(
-            mt.next_state(&seed_partial, p, fs, &g.fs_interner).is_none(),
+            mt.next_state(&seed_partial, p, fs, &g.fs_interner)
+                .is_none(),
             "a partial root must never enter any template"
         );
     }
@@ -1052,7 +1067,8 @@ mod tests {
             template_entry_disabled: false,
         };
         assert!(
-            mt.next_state(&at_stratum1, gr, fs, &g.fs_interner).is_none(),
+            mt.next_state(&at_stratum1, gr, fs, &g.fs_interner)
+                .is_none(),
             "a posV word must not enter a template requiring posN"
         );
     }
@@ -1071,7 +1087,9 @@ mod tests {
             mid: vec![(0, 1)],
             template_entry_disabled: false,
         };
-        assert!(mt.next_state(&mid_state, orphan, fs, &g.fs_interner).is_none());
+        assert!(mt
+            .next_state(&mid_state, orphan, fs, &g.fs_interner)
+            .is_none());
     }
 
     #[test]
@@ -1090,7 +1108,11 @@ mod tests {
         let x = mrule_id_of(&g, "mrX");
         let next = mt.next_state(&after_b, x, fs, &g.fs_interner).unwrap();
         assert_eq!(next.mid, vec![(0, 2), (0, 4)]);
-        assert_eq!(next.free, Some(0), "slot 4's completion still grants a fresh floor");
+        assert_eq!(
+            next.free,
+            Some(0),
+            "slot 4's completion still grants a fresh floor"
+        );
 
         // Calling again from the same input must be byte-for-byte identical (pure function).
         let next2 = mt.next_state(&after_b, x, fs, &g.fs_interner).unwrap();

@@ -389,7 +389,13 @@ fn ana_affix_cached_traced(
             output.push(w);
         }
         if output.len() == before {
-            trace.morphological_rule_not_unapplied(parent, mrid, i as i32, word, FailureReason::Pattern);
+            trace.morphological_rule_not_unapplied(
+                parent,
+                mrid,
+                i as i32,
+                word,
+                FailureReason::Pattern,
+            );
         }
     }
     output
@@ -422,12 +428,19 @@ fn ana_realizational_cached_traced(
             continue;
         };
         let before = output.len();
-        for mut w in ana_realizational_allomorph(g, word, allo, lhs, fst, &segs, &node_of, &real_fs) {
+        for mut w in ana_realizational_allomorph(g, word, allo, lhs, fst, &segs, &node_of, &real_fs)
+        {
             w.trace = Some(trace.morphological_rule_unapplied(parent, mrid, i as i32, &w));
             output.push(w);
         }
         if output.len() == before {
-            trace.morphological_rule_not_unapplied(parent, mrid, i as i32, word, FailureReason::Pattern);
+            trace.morphological_rule_not_unapplied(
+                parent,
+                mrid,
+                i as i32,
+                word,
+                FailureReason::Pattern,
+            );
         }
     }
     output
@@ -463,13 +476,28 @@ fn ana_compound_cached_traced(
         };
         let before = output.len();
         for mut w in ana_compound_subrule(
-            g, word, rule, sr, lhs, fst, &segs, &node_of, &new_syn, root_filter,
+            g,
+            word,
+            rule,
+            sr,
+            lhs,
+            fst,
+            &segs,
+            &node_of,
+            &new_syn,
+            root_filter,
         ) {
             w.trace = Some(trace.morphological_rule_unapplied(parent, mrid, i as i32, &w));
             output.push(w);
         }
         if output.len() == before {
-            trace.morphological_rule_not_unapplied(parent, mrid, i as i32, word, FailureReason::Pattern);
+            trace.morphological_rule_not_unapplied(
+                parent,
+                mrid,
+                i as i32,
+                word,
+                FailureReason::Pattern,
+            );
         }
     }
     output

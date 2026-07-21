@@ -101,9 +101,9 @@ pub(crate) fn compact_mrules(grammar: &mut Grammar, warnings: &mut Vec<String>) 
     for t in &mut grammar.templates {
         for slot in &mut t.slots {
             for r in &mut slot.rules {
-                r.0 = *old_to_new_mrule
-                    .get(&r.0)
-                    .expect("template slot mrule referenced but not marked used -- compaction sweep bug");
+                r.0 = *old_to_new_mrule.get(&r.0).expect(
+                    "template slot mrule referenced but not marked used -- compaction sweep bug",
+                );
             }
         }
     }
@@ -134,7 +134,12 @@ pub(crate) fn compact_mrules(grammar: &mut Grammar, warnings: &mut Vec<String>) 
     // own allomorphs vanished along with it in step 2, so only surviving allomorphs need visiting.
     for e in &mut grammar.entries {
         for a in &mut e.allomorphs {
-            remap_allomorph_id_and_coocc(&mut a.id, &mut a.co_occurrence, &old_to_new_allo, warnings);
+            remap_allomorph_id_and_coocc(
+                &mut a.id,
+                &mut a.co_occurrence,
+                &old_to_new_allo,
+                warnings,
+            );
         }
     }
     for r in &mut grammar.mrules {
@@ -144,7 +149,12 @@ pub(crate) fn compact_mrules(grammar: &mut Grammar, warnings: &mut Vec<String>) 
             MorphRuleDef::Compounding(_) => continue,
         };
         for a in allos {
-            remap_allomorph_id_and_coocc(&mut a.id, &mut a.co_occurrence, &old_to_new_allo, warnings);
+            remap_allomorph_id_and_coocc(
+                &mut a.id,
+                &mut a.co_occurrence,
+                &old_to_new_allo,
+                warnings,
+            );
         }
     }
 }
@@ -203,7 +213,8 @@ pub(crate) fn trim_unreachable_morpheme_coocurrence(grammar: &mut Grammar) {
         if !reachable.contains(&(i as u32)) {
             m.co_occurrence.clear();
         } else {
-            m.co_occurrence.retain(|rule| rule.others.iter().all(|o| reachable.contains(&o.0)));
+            m.co_occurrence
+                .retain(|rule| rule.others.iter().all(|o| reachable.contains(&o.0)));
         }
     }
 }

@@ -15,7 +15,11 @@ use crate::ids::IdMinter;
 /// template xml id (unused by GATE 2 today but returned for symmetry with every other builder
 /// here, and so a future caller can reference the template itself, e.g. via
 /// `requiredPartsOfSpeech`).
-pub fn build_single_slot_template(rule_xml_ids: &[&str], optional: bool, ids: &mut IdMinter) -> (String, String) {
+pub fn build_single_slot_template(
+    rule_xml_ids: &[&str],
+    optional: bool,
+    ids: &mut IdMinter,
+) -> (String, String) {
     let template_xml_id = ids.next("tmpl");
     let slot_xml_id = ids.next("slot");
     let optional_attr = if optional { " optional=\"true\"" } else { "" };

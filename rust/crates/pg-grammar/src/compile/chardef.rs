@@ -17,7 +17,7 @@ use hashbrown::HashMap;
 use pg_snapshot::phonology::{BoundaryMarker, Phoneme};
 use pg_snapshot::Snapshot;
 
-use crate::chardef::{CharDefKind, CharDefTable, CharDefId, RawCharDef, RawFeatureValue};
+use crate::chardef::{CharDefId, CharDefKind, CharDefTable, RawCharDef, RawFeatureValue};
 use crate::featsys::PhonFeatureSystem;
 use crate::nfd::nfd;
 use crate::GrammarError;
@@ -37,7 +37,11 @@ pub(crate) fn build(
     phon: &PhonFeatureSystem,
     warnings: &mut Vec<String>,
 ) -> Result<CharDefBuild, GrammarError> {
-    let default_ws = snapshot.project.vernacular_writing_systems.first().map(String::as_str);
+    let default_ws = snapshot
+        .project
+        .vernacular_writing_systems
+        .first()
+        .map(String::as_str);
 
     let mut raw_defs: Vec<RawCharDef> = Vec::new();
     let mut seen_nfd: hashbrown::HashSet<String> = hashbrown::HashSet::new();
@@ -49,7 +53,10 @@ pub(crate) fn build(
     for ph in &snapshot.phonology.phonemes {
         let reps = ws_forms(&ph.representations, default_ws);
         if reps.is_empty() {
-            warnings.push(format!("phoneme {:?} has no grapheme representation; skipped", ph.guid));
+            warnings.push(format!(
+                "phoneme {:?} has no grapheme representation; skipped",
+                ph.guid
+            ));
             continue;
         }
         let norm: Vec<String> = reps.iter().map(|r| nfd(r)).collect();
@@ -105,22 +112,26 @@ pub(crate) fn build(
 
     // Synthetic boundaries HCLoader always appends (HCLoader.cs:2710-2712).
     let null_idx = raw_defs.len();
-    push_synthetic_boundary(&mut raw_defs, &mut seen_nfd, "__null__", &["^0", "*0", "&0", "\u{2205}"], warnings);
+    push_synthetic_boundary(
+        &mut raw_defs,
+        &mut seen_nfd,
+        "__null__",
+        &["^0", "*0", "&0", "\u{2205}"],
+        warnings,
+    );
     let null_bdry = CharDefId(null_idx as u32);
     push_synthetic_boundary(&mut raw_defs, &mut seen_nfd, "__dot__", &["."], warnings);
 
     let table = CharDefTable::from_raw("main".to_string(), None, raw_defs, phon)?;
 
-    let morph_bdry = table
-        .lookup_nfd(&nfd("+"))
-        .unwrap_or_else(|| {
-            warnings.push(
-                "no boundary marker representation '+' found; morpheme-boundary matching will \
+    let morph_bdry = table.lookup_nfd(&nfd("+")).unwrap_or_else(|| {
+        warnings.push(
+            "no boundary marker representation '+' found; morpheme-boundary matching will \
                  fall back to the null boundary"
-                    .to_string(),
-            );
-            null_bdry
-        });
+                .to_string(),
+        );
+        null_bdry
+    });
 
     Ok(CharDefBuild {
         table,

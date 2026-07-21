@@ -25,7 +25,8 @@ fn sample_path(name: &str) -> PathBuf {
 
 fn load_amharic() -> Grammar {
     let path = sample_path("amharic-hc.xml");
-    let xml = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let xml =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     pg_grammar::load(&xml).unwrap_or_else(|e| panic!("failed to load amharic-hc.xml: {e}"))
 }
 
@@ -34,7 +35,14 @@ fn seq_names(g: &Grammar, seq: &[u32]) -> String {
         .map(|&id| {
             g.morphemes
                 .get(id as usize)
-                .map(|mi| format!("{}({}/{})", id, mi.xml_key, mi.gloss.as_deref().unwrap_or("-")))
+                .map(|mi| {
+                    format!(
+                        "{}({}/{})",
+                        id,
+                        mi.xml_key,
+                        mi.gloss.as_deref().unwrap_or("-")
+                    )
+                })
                 .unwrap_or_else(|| format!("{id}(?)"))
         })
         .collect::<Vec<_>>()
@@ -84,11 +92,22 @@ fn run() {
             .map(|m| {
                 g.morphemes
                     .get(m.0 as usize)
-                    .map(|mi| format!("{}({}/{})", m.0, mi.xml_key, mi.gloss.as_deref().unwrap_or("-")))
+                    .map(|mi| {
+                        format!(
+                            "{}({}/{})",
+                            m.0,
+                            mi.xml_key,
+                            mi.gloss.as_deref().unwrap_or("-")
+                        )
+                    })
                     .unwrap_or_else(|| format!("{}(?)", m.0))
             })
             .collect();
-        println!("  root_index={} morphemes=[{}]", c.root_index, names.join(", "));
+        println!(
+            "  root_index={} morphemes=[{}]",
+            c.root_index,
+            names.join(", ")
+        );
     }
 
     let mut covered_by_propose = false;
@@ -109,22 +128,46 @@ fn run() {
     println!("\n--- FomaAnalyzer (propose -> confirm, the real product API) ---");
     let mut analyzer = FomaAnalyzer::new(&g).expect("Amharic compiles (mainline)");
     let foma_outcome = analyzer.analyze_word(word);
-    println!("analyze_word: {} structured analyses", foma_outcome.structured.len());
+    println!(
+        "analyze_word: {} structured analyses",
+        foma_outcome.structured.len()
+    );
     for a in &foma_outcome.structured {
-        println!("  root_index={} morphemes=[{}]", a.root_morpheme_index, seq_names(&g, &a.morpheme_ids));
+        println!(
+            "  root_index={} morphemes=[{}]",
+            a.root_morpheme_index,
+            seq_names(&g, &a.morpheme_ids)
+        );
     }
     let engine_ms: Vec<(Vec<u32>, i32)> = {
-        let mut m: Vec<(Vec<u32>, i32)> = outcome.structured.iter().map(|a| (a.morpheme_ids.clone(), a.root_morpheme_index)).collect();
+        let mut m: Vec<(Vec<u32>, i32)> = outcome
+            .structured
+            .iter()
+            .map(|a| (a.morpheme_ids.clone(), a.root_morpheme_index))
+            .collect();
         m.sort();
         m
     };
     let foma_ms: Vec<(Vec<u32>, i32)> = {
-        let mut m: Vec<(Vec<u32>, i32)> = foma_outcome.structured.iter().map(|a| (a.morpheme_ids.clone(), a.root_morpheme_index)).collect();
+        let mut m: Vec<(Vec<u32>, i32)> = foma_outcome
+            .structured
+            .iter()
+            .map(|a| (a.morpheme_ids.clone(), a.root_morpheme_index))
+            .collect();
         m.sort();
         m
     };
-    println!("\nengine multiset == foma multiset: {}", engine_ms == foma_ms);
+    println!(
+        "\nengine multiset == foma multiset: {}",
+        engine_ms == foma_ms
+    );
 
-    println!("\n=== VERDICT: mainline (preexpand ON) {} on {word:?} ===",
-        if covered_by_propose { "COVERS (propose finds it)" } else { "MISSES (propose does NOT find it)" });
+    println!(
+        "\n=== VERDICT: mainline (preexpand ON) {} on {word:?} ===",
+        if covered_by_propose {
+            "COVERS (propose finds it)"
+        } else {
+            "MISSES (propose does NOT find it)"
+        }
+    );
 }

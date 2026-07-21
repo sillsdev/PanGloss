@@ -113,10 +113,7 @@ struct CandidatePins {
     extra_roots: HashSet<LexEntryId>,
 }
 
-fn resolve_pins(
-    owners: &[Option<MorphemeOwner>],
-    candidate: &Candidate,
-) -> Option<CandidatePins> {
+fn resolve_pins(owners: &[Option<MorphemeOwner>], candidate: &Candidate) -> Option<CandidatePins> {
     if candidate.root_index < 0 || candidate.root_index as usize >= candidate.morphemes.len() {
         return None;
     }
@@ -177,7 +174,8 @@ pub fn confirm_one_traced(
         RuleRef::Stratum(_) | RuleRef::Template(_) => true,
         RuleRef::MRule(id) => {
             pins.rules.contains(&id)
-                || (any_extra_roots && matches!(g.mrules[id.0 as usize], MorphRuleDef::Compounding(_)))
+                || (any_extra_roots
+                    && matches!(g.mrules[id.0 as usize], MorphRuleDef::Compounding(_)))
         }
     };
     Some(morpher.parse_word_selected_traced(
@@ -456,7 +454,10 @@ mod tests {
             root_index: 0,
         };
         let matches = confirm_all(&g, &owners, &morpher, &candidate, "ajar");
-        assert!(!matches.is_empty(), "\"ajar\" must confirm to at least one analysis");
+        assert!(
+            !matches.is_empty(),
+            "\"ajar\" must confirm to at least one analysis"
+        );
         for (wa, _, _) in &matches {
             assert_eq!(wa.root_morpheme_index, 0);
             assert_eq!(wa.morpheme_ids, vec![morpheme.0]);

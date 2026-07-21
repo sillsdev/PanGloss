@@ -80,7 +80,9 @@ fn candidate_rules(g: &Grammar, opts: &OracleOpts) -> Vec<MRuleId> {
     g.mrules
         .iter()
         .enumerate()
-        .filter_map(|(i, r)| matches!(r, MorphRuleDef::AffixProcess(_)).then_some(MRuleId(i as u32)))
+        .filter_map(|(i, r)| {
+            matches!(r, MorphRuleDef::AffixProcess(_)).then_some(MRuleId(i as u32))
+        })
         .take(opts.max_rules_per_root)
         .collect()
 }
@@ -94,17 +96,34 @@ fn candidate_rules(g: &Grammar, opts: &OracleOpts) -> Vec<MRuleId> {
 /// (already capped by [`candidate_rules`] if the caller wants the "every `AffixProcess` rule"
 /// default) -- callers that already know exactly which rule(s) their recipe cares about (GATE 2:
 /// its own circumfix rules) should pass those directly rather than re-deriving them.
-pub fn sweep(g: &Grammar, roots: &[LexEntryId], rules: &[MRuleId], opts: &OracleOpts) -> Vec<OracleWord> {
+pub fn sweep(
+    g: &Grammar,
+    roots: &[LexEntryId],
+    rules: &[MRuleId],
+    opts: &OracleOpts,
+) -> Vec<OracleWord> {
     let morpher = Morpher::new(g, opts.step_cap).with_word_timeout(opts.word_timeout);
 
     let mut out: Vec<OracleWord> = Vec::new();
     for &root in roots {
         for surface in morpher.generate_words(root, &[], pg_featstruct::FeatureStruct::EMPTY) {
-            out.push(OracleWord { root, mrule: None, surface });
+            out.push(OracleWord {
+                root,
+                mrule: None,
+                surface,
+            });
         }
         for &mrule in rules {
-            for surface in morpher.generate_words(root, &[GenMorpheme::Rule(mrule)], pg_featstruct::FeatureStruct::EMPTY) {
-                out.push(OracleWord { root, mrule: Some(mrule), surface });
+            for surface in morpher.generate_words(
+                root,
+                &[GenMorpheme::Rule(mrule)],
+                pg_featstruct::FeatureStruct::EMPTY,
+            ) {
+                out.push(OracleWord {
+                    root,
+                    mrule: Some(mrule),
+                    surface,
+                });
             }
         }
     }

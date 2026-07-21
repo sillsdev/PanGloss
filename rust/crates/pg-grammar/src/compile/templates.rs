@@ -64,11 +64,21 @@ fn build_pos(
             if tmpl.disabled {
                 continue;
             }
-            if let Some(id) = build_template(pos, tmpl, snapshot, ctx, acc, slot_registry, warnings)? {
+            if let Some(id) =
+                build_template(pos, tmpl, snapshot, ctx, acc, slot_registry, warnings)?
+            {
                 out.push(id);
             }
         }
-        build_pos(&pos.children, snapshot, ctx, acc, slot_registry, out, warnings)?;
+        build_pos(
+            &pos.children,
+            snapshot,
+            ctx,
+            acc,
+            slot_registry,
+            out,
+            warnings,
+        )?;
     }
     Ok(())
 }
@@ -84,7 +94,11 @@ fn build_template(
 ) -> Result<Option<TemplateId>, GrammarError> {
     // Combined slot order: suffix slots as declared, then prefix slots reversed
     // (`SuffixSlotsRS.Concat(PrefixSlotsRS.Reverse())`, HCLoader.cs:297).
-    let mut combined: Vec<(&str, bool)> = tmpl.suffix_slots.iter().map(|g| (g.as_str(), false)).collect();
+    let mut combined: Vec<(&str, bool)> = tmpl
+        .suffix_slots
+        .iter()
+        .map(|g| (g.as_str(), false))
+        .collect();
     combined.extend(tmpl.prefix_slots.iter().rev().map(|g| (g.as_str(), true)));
 
     let mut slot_defs = Vec::new();
@@ -142,7 +156,9 @@ fn build_template(
         return Ok(None);
     }
 
-    let pos_bits = ctx.pos.bits_with_descendants(std::iter::once(pos.guid.as_str()));
+    let pos_bits = ctx
+        .pos
+        .bits_with_descendants(std::iter::once(pos.guid.as_str()));
     let required_syn_fs = match super::features::build_syn_fs(ctx.syn, Some(pos_bits), None) {
         Ok(fs) => acc.fs_interner.intern(fs),
         Err(e) => {
@@ -190,13 +206,18 @@ fn build_null_affix_rule(
     };
 
     let out_syn_fs = match &it.inflection_features {
-        Some(fs) if !fs.values.is_empty() => match super::features::build_syn_fs(ctx.syn, None, Some(fs)) {
-            Ok(v) => acc.fs_interner.intern(v),
-            Err(e) => {
-                warnings.push(format!("lexEntryInflType {:?}: {e}; null-affix rule skipped", it.guid));
-                return None;
+        Some(fs) if !fs.values.is_empty() => {
+            match super::features::build_syn_fs(ctx.syn, None, Some(fs)) {
+                Ok(v) => acc.fs_interner.intern(v),
+                Err(e) => {
+                    warnings.push(format!(
+                        "lexEntryInflType {:?}: {e}; null-affix rule skipped",
+                        it.guid
+                    ));
+                    return None;
+                }
             }
-        },
+        }
         _ => acc.fs_interner.intern(pg_featstruct::FeatureStruct::EMPTY),
     };
 
@@ -219,7 +240,8 @@ fn build_null_affix_rule(
 
     let mrule_id = MRuleId(acc.mrules.len() as u32);
     let allo_id = AllomorphId(acc.allomorph_owners.len() as u32);
-    acc.allomorph_owners.push(AllomorphOwner::Affix(mrule_id, 0));
+    acc.allomorph_owners
+        .push(AllomorphOwner::Affix(mrule_id, 0));
 
     let allo = crate::model::AffixAllomorphDef {
         id: allo_id,
@@ -246,24 +268,27 @@ fn build_null_affix_rule(
         co_occurrence: Vec::new(),
     });
 
-    acc.mrules.push(MorphRuleDef::AffixProcess(crate::model::AffixProcessRuleDef {
-        morpheme,
-        name: Some("Null".to_string()),
-        blockable: true,
-        partial: false,
-        max_apps: 1,
-        required_syn_fs: acc.fs_interner.intern(pg_featstruct::FeatureStruct::EMPTY),
-        out_syn_fs,
-        obligatory_features: Vec::new(),
-        required_stem_name: None,
-        allomorphs: vec![allo],
-        is_template_rule: false,
-    }));
+    acc.mrules.push(MorphRuleDef::AffixProcess(
+        crate::model::AffixProcessRuleDef {
+            morpheme,
+            name: Some("Null".to_string()),
+            blockable: true,
+            partial: false,
+            max_apps: 1,
+            required_syn_fs: acc.fs_interner.intern(pg_featstruct::FeatureStruct::EMPTY),
+            out_syn_fs,
+            obligatory_features: Vec::new(),
+            required_stem_name: None,
+            allomorphs: vec![allo],
+            is_template_rule: false,
+        },
+    ));
     Some(mrule_id)
 }
 
 fn insert_segments(text: &str, ctx: &Ctx) -> Result<OutputAction, String> {
-    let shape = crate::segment::segment(ctx.table, text).map_err(|e| format!("cannot segment {text:?}: {e}"))?;
+    let shape = crate::segment::segment(ctx.table, text)
+        .map_err(|e| format!("cannot segment {text:?}: {e}"))?;
     Ok(OutputAction::InsertSegments {
         table: ctx.table_id,
         shape: crate::model::SegmentedText {

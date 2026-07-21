@@ -141,13 +141,18 @@ fn propose(net: &Fsm, word: &str) -> Vec<Candidate> {
     out
 }
 
-fn propose_and_peel(net: &Fsm, g: &Grammar, peeler: &ReduplicationPeeler, word: &str) -> Vec<Candidate> {
+fn propose_and_peel(
+    net: &Fsm,
+    g: &Grammar,
+    peeler: &ReduplicationPeeler,
+    word: &str,
+) -> Vec<Candidate> {
     let mut candidates = propose(net, word);
     let peeled = peeler.peel_candidates(g, word, &mut |r: &str| propose(net, r));
     for c in peeled {
-        let already = candidates
-            .iter()
-            .any(|existing| existing.root_index == c.root_index && existing.morphemes == c.morphemes);
+        let already = candidates.iter().any(|existing| {
+            existing.root_index == c.root_index && existing.morphemes == c.morphemes
+        });
         if !already {
             candidates.push(c);
         }
@@ -321,8 +326,10 @@ fn print_grammar_table(spec: &GrammarSpec, rows: &[PresetRow]) {
     }
 
     if let (Some(strip), Some(allflags)) = (
-        rows.iter().find(|r| matches!(r.preset, PrecisionConfig::Strip)),
-        rows.iter().find(|r| matches!(r.preset, PrecisionConfig::AllFlags)),
+        rows.iter()
+            .find(|r| matches!(r.preset, PrecisionConfig::Strip)),
+        rows.iter()
+            .find(|r| matches!(r.preset, PrecisionConfig::AllFlags)),
     ) {
         println!();
         println!("Deltas (AllFlags vs Strip):");
@@ -330,7 +337,10 @@ fn print_grammar_table(spec: &GrammarSpec, rows: &[PresetRow]) {
             "- candidates/word: {:.3} -> {:.3} ({} of Strip; the precision win)",
             strip.avg_candidates_per_word,
             allflags.avg_candidates_per_word,
-            fmt_ratio(allflags.avg_candidates_per_word, strip.avg_candidates_per_word)
+            fmt_ratio(
+                allflags.avg_candidates_per_word,
+                strip.avg_candidates_per_word
+            )
         );
         println!(
             "- compile time: {:.1}ms -> {:.1}ms ({} of Strip; the size cost)",

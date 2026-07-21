@@ -159,7 +159,13 @@ pub fn compile_project(snapshot: &Snapshot) -> Result<(Grammar, Vec<String>), Gr
 
     // --- compound rules (defaults if none authored) ----------------------------------------------
     let mut morphology_mrules: Vec<MRuleId> = Vec::new();
-    compounding::build(snapshot, &ctx, &mut acc, &mut morphology_mrules, &mut warnings)?;
+    compounding::build(
+        snapshot,
+        &ctx,
+        &mut acc,
+        &mut morphology_mrules,
+        &mut warnings,
+    )?;
 
     // --- lexicon: stems + variants + affix rules -------------------------------------------------
     let mut clitic_mrules: Vec<MRuleId> = Vec::new();
@@ -177,8 +183,7 @@ pub fn compile_project(snapshot: &Snapshot) -> Result<(Grammar, Vec<String>), Gr
     )?;
 
     // --- affix templates (+ null-affix synthesis for irregular-form slots) ---------------------
-    let morphology_templates =
-        templates::build(snapshot, &ctx, &mut acc, &mut warnings)?;
+    let morphology_templates = templates::build(snapshot, &ctx, &mut acc, &mut warnings)?;
 
     // --- phonological rules ----------------------------------------------------------------------
     let (prules, morphology_prules, clitic_prules) = rules::build(snapshot, &ctx, &mut warnings)?;
@@ -189,7 +194,8 @@ pub fn compile_project(snapshot: &Snapshot) -> Result<(Grammar, Vec<String>), Gr
     // `xml_key` doubles as the MSA/entry guid this morpheme was built from (see lexicon.rs /
     // affixes.rs, which set it to exactly that guid).
     for (i, m) in acc.morphemes.iter().enumerate() {
-        acc.msa_guid_index.insert(m.xml_key.clone(), MorphemeId(i as u32));
+        acc.msa_guid_index
+            .insert(m.xml_key.clone(), MorphemeId(i as u32));
     }
     strata_assign_co_occurrence(snapshot, &mut acc, &mut warnings);
 
@@ -346,8 +352,12 @@ fn strata_assign_co_occurrence(snapshot: &Snapshot, acc: &mut Acc, warnings: &mu
                             .push(def);
                     }
                     AllomorphOwner::Affix(mr, idx) => match &mut acc.mrules[mr.0 as usize] {
-                        MorphRuleDef::AffixProcess(d) => d.allomorphs[idx as usize].co_occurrence.push(def),
-                        MorphRuleDef::Realizational(d) => d.allomorphs[idx as usize].co_occurrence.push(def),
+                        MorphRuleDef::AffixProcess(d) => {
+                            d.allomorphs[idx as usize].co_occurrence.push(def)
+                        }
+                        MorphRuleDef::Realizational(d) => {
+                            d.allomorphs[idx as usize].co_occurrence.push(def)
+                        }
                         MorphRuleDef::Compounding(_) => {}
                     },
                 }
@@ -386,13 +396,13 @@ fn strata_assign_co_occurrence(snapshot: &Snapshot, acc: &mut Acc, warnings: &mu
                 if !ok || other_ids.is_empty() {
                     continue;
                 }
-                acc.morphemes[primary_id.0 as usize]
-                    .co_occurrence
-                    .push(MorphemeCoOccurrenceRuleDef {
+                acc.morphemes[primary_id.0 as usize].co_occurrence.push(
+                    MorphemeCoOccurrenceRuleDef {
                         require: false,
                         others: other_ids,
                         adjacency: adjacency(*adj),
-                    });
+                    },
+                );
             }
         }
     }
@@ -452,7 +462,10 @@ pub(crate) struct Acc {
 /// Mirrors HCLoader's `BestAnalysisAlternative`/`VernacularDefaultWritingSystem`/
 /// `BestVernacularAlternative` fallback conventions, which this snapshot format flattens to "the
 /// writing system the project declared as default, else whatever's there" (`docs/snapshot-format.md`).
-pub(crate) fn best_ws<'a>(forms: &'a [pg_snapshot::WsForm], preferred_ws: Option<&str>) -> Option<&'a str> {
+pub(crate) fn best_ws<'a>(
+    forms: &'a [pg_snapshot::WsForm],
+    preferred_ws: Option<&str>,
+) -> Option<&'a str> {
     if let Some(ws) = preferred_ws {
         if let Some(f) = forms.iter().find(|f| f.ws == ws) {
             return Some(&f.form);
@@ -464,7 +477,10 @@ pub(crate) fn best_ws<'a>(forms: &'a [pg_snapshot::WsForm], preferred_ws: Option
 /// Every representation tagged with `preferred_ws` (there may be several — multiple `PhCode`s in
 /// the same writing system, e.g. Sena's `m`/`n` phoneme). Falls back to every representation if
 /// none matches (tolerant — see [`Ctx::default_vernacular_ws`]'s doc).
-pub(crate) fn ws_forms<'a>(forms: &'a [pg_snapshot::WsForm], preferred_ws: Option<&str>) -> Vec<&'a str> {
+pub(crate) fn ws_forms<'a>(
+    forms: &'a [pg_snapshot::WsForm],
+    preferred_ws: Option<&str>,
+) -> Vec<&'a str> {
     if let Some(ws) = preferred_ws {
         let matched: Vec<&str> = forms
             .iter()

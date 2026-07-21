@@ -53,7 +53,12 @@ fn feature_system_registry(fs: &FeatureSystem) -> (Vec<(Guid, HashSet<Guid>)>, H
     let closed = fs
         .closed_features
         .iter()
-        .map(|f| (f.guid.clone(), f.values.iter().map(|v| v.guid.clone()).collect()))
+        .map(|f| {
+            (
+                f.guid.clone(),
+                f.values.iter().map(|v| v.guid.clone()).collect(),
+            )
+        })
         .collect();
     let complex = fs.complex_features.iter().map(|f| f.guid.clone()).collect();
     (closed, complex)
@@ -90,7 +95,12 @@ fn build_registries(snap: &Snapshot) -> Registries {
     let (phon_closed, phon_complex) = feature_system_registry(&snap.feature_systems.phonological);
     let (syn_closed, syn_complex) = feature_system_registry(&snap.feature_systems.morphosyntactic);
 
-    let phonemes = snap.phonology.phonemes.iter().map(|p| p.guid.clone()).collect();
+    let phonemes = snap
+        .phonology
+        .phonemes
+        .iter()
+        .map(|p| p.guid.clone())
+        .collect();
     let boundary_markers = snap
         .phonology
         .boundary_markers
@@ -106,7 +116,12 @@ fn build_registries(snap: &Snapshot) -> Registries {
             crate::phonology::NaturalClass::Features { guid, .. } => guid.clone(),
         })
         .collect();
-    let environments = snap.phonology.environments.iter().map(|e| e.guid.clone()).collect();
+    let environments = snap
+        .phonology
+        .environments
+        .iter()
+        .map(|e| e.guid.clone())
+        .collect();
     let feature_constraints = snap
         .phonology
         .feature_constraints
@@ -126,7 +141,12 @@ fn build_registries(snap: &Snapshot) -> Registries {
         &mut affix_slots,
     );
 
-    let entries = snap.lexicon.entries.iter().map(|e| e.guid.clone()).collect();
+    let entries = snap
+        .lexicon
+        .entries
+        .iter()
+        .map(|e| e.guid.clone())
+        .collect();
     let mut senses = HashSet::new();
     let mut allomorphs = HashSet::new();
     let mut msas = HashSet::new();
@@ -175,7 +195,12 @@ fn build_registries(snap: &Snapshot) -> Registries {
 /// [`crate::morphology::InflectionClass`] guid or an
 /// [`crate::morphology::ExceptionFeature`] guid (see `HCLoader.LoadMprFeatures`,
 /// HCLoader.cs:2610-2623, and `Morphology::exception_features`'s doc for why both are valid).
-fn check_rule_feature_ref(guid: &Guid, reg: &Registries, context: &str, warnings: &mut Vec<String>) {
+fn check_rule_feature_ref(
+    guid: &Guid,
+    reg: &Registries,
+    context: &str,
+    warnings: &mut Vec<String>,
+) {
     if !reg.inflection_classes.contains(guid) && !reg.exception_features.contains(guid) {
         warnings.push(format!(
             "{context}: rule/exception feature {guid:?} does not resolve to a known inflection class or exception feature"
@@ -220,7 +245,12 @@ fn check_feature_structure(
     }
 }
 
-fn check_phon_context(ctx: &PhonContext, reg: &Registries, context: &str, warnings: &mut Vec<String>) {
+fn check_phon_context(
+    ctx: &PhonContext,
+    reg: &Registries,
+    context: &str,
+    warnings: &mut Vec<String>,
+) {
     match ctx {
         PhonContext::Sequence { members } => {
             for m in members {
@@ -239,17 +269,23 @@ fn check_phon_context(ctx: &PhonContext, reg: &Registries, context: &str, warnin
             minus_variables,
         } => {
             if !reg.natural_classes.contains(natural_class) {
-                warnings.push(format!("{context}: natural class {natural_class:?} does not resolve"));
+                warnings.push(format!(
+                    "{context}: natural class {natural_class:?} does not resolve"
+                ));
             }
             for v in plus_variables.iter().chain(minus_variables) {
                 if !reg.feature_constraints.contains(v) {
-                    warnings.push(format!("{context}: feature constraint {v:?} does not resolve"));
+                    warnings.push(format!(
+                        "{context}: feature constraint {v:?} does not resolve"
+                    ));
                 }
             }
         }
         PhonContext::Boundary { marker } => {
             if !reg.boundary_markers.contains(marker) {
-                warnings.push(format!("{context}: boundary marker {marker:?} does not resolve"));
+                warnings.push(format!(
+                    "{context}: boundary marker {marker:?} does not resolve"
+                ));
             }
         }
         PhonContext::WordBoundary | PhonContext::Variable => {}
@@ -258,13 +294,17 @@ fn check_phon_context(ctx: &PhonContext, reg: &Registries, context: &str, warnin
 
 fn check_pos_ref(guid: &Guid, reg: &Registries, context: &str, warnings: &mut Vec<String>) {
     if !reg.parts_of_speech.contains(guid) {
-        warnings.push(format!("{context}: part of speech {guid:?} does not resolve"));
+        warnings.push(format!(
+            "{context}: part of speech {guid:?} does not resolve"
+        ));
     }
 }
 
 fn check_infl_class_ref(guid: &Guid, reg: &Registries, context: &str, warnings: &mut Vec<String>) {
     if !reg.inflection_classes.contains(guid) {
-        warnings.push(format!("{context}: inflection class {guid:?} does not resolve"));
+        warnings.push(format!(
+            "{context}: inflection class {guid:?} does not resolve"
+        ));
     }
 }
 
@@ -318,7 +358,9 @@ pub fn validate(snap: &Snapshot) -> Vec<String> {
                 }
                 for v in &r.feature_constraint_variables {
                     if !reg.feature_constraints.contains(v) {
-                        warnings.push(format!("{ctx}: feature constraint variable {v:?} does not resolve"));
+                        warnings.push(format!(
+                            "{ctx}: feature constraint variable {v:?} does not resolve"
+                        ));
                     }
                 }
                 for rhs in &r.right_hand_sides {
@@ -334,7 +376,11 @@ pub fn validate(snap: &Snapshot) -> Vec<String> {
                     for p in &rhs.required_parts_of_speech {
                         check_pos_ref(p, &reg, &ctx, &mut warnings);
                     }
-                    for f in rhs.required_rule_features.iter().chain(&rhs.excluded_rule_features) {
+                    for f in rhs
+                        .required_rule_features
+                        .iter()
+                        .chain(&rhs.excluded_rule_features)
+                    {
                         check_rule_feature_ref(f, &reg, &ctx, &mut warnings);
                     }
                 }
@@ -356,7 +402,8 @@ pub fn validate(snap: &Snapshot) -> Vec<String> {
                 check_infl_class_ref(dic, reg, &ctx, warnings);
             }
             for f in &p.inflectable_features {
-                let known = reg.syn_closed.iter().any(|(g, _)| g == f) || reg.syn_complex.contains(f);
+                let known =
+                    reg.syn_closed.iter().any(|(g, _)| g == f) || reg.syn_complex.contains(f);
                 if !known {
                     warnings.push(format!("{ctx}: inflectable feature {f:?} does not resolve"));
                 }
@@ -382,10 +429,15 @@ pub fn validate(snap: &Snapshot) -> Vec<String> {
                 right,
                 overriding,
                 ..
-            } => (left, right, &overriding.part_of_speech, &overriding.inflection_class),
-            crate::morphology::CompoundRule::Exocentric { left, right, to, .. } => {
-                (left, right, &to.part_of_speech, &to.inflection_class)
-            }
+            } => (
+                left,
+                right,
+                &overriding.part_of_speech,
+                &overriding.inflection_class,
+            ),
+            crate::morphology::CompoundRule::Exocentric {
+                left, right, to, ..
+            } => (left, right, &to.part_of_speech, &to.inflection_class),
         };
         for side in [left, right] {
             if let Some(p) = &side.part_of_speech {
@@ -408,11 +460,16 @@ pub fn validate(snap: &Snapshot) -> Vec<String> {
     for adhoc in &snap.morphology.adhoc_prohibitions {
         match adhoc {
             crate::morphology::AdhocProhibition::Allomorph {
-                guid, primary, others, ..
+                guid,
+                primary,
+                others,
+                ..
             } => {
                 let ctx = format!("ad-hoc allomorph prohibition {guid:?}");
                 if !reg.allomorphs.contains(primary) {
-                    warnings.push(format!("{ctx}: primary allomorph {primary:?} does not resolve"));
+                    warnings.push(format!(
+                        "{ctx}: primary allomorph {primary:?} does not resolve"
+                    ));
                 }
                 for o in others {
                     if !reg.allomorphs.contains(o) {
@@ -421,11 +478,16 @@ pub fn validate(snap: &Snapshot) -> Vec<String> {
                 }
             }
             crate::morphology::AdhocProhibition::Morpheme {
-                guid, primary, others, ..
+                guid,
+                primary,
+                others,
+                ..
             } => {
                 let ctx = format!("ad-hoc morpheme prohibition {guid:?}");
                 if !reg.msas.contains(primary) {
-                    warnings.push(format!("{ctx}: primary morpheme {primary:?} does not resolve"));
+                    warnings.push(format!(
+                        "{ctx}: primary morpheme {primary:?} does not resolve"
+                    ));
                 }
                 for o in others {
                     if !reg.msas.contains(o) {
@@ -446,7 +508,11 @@ pub fn validate(snap: &Snapshot) -> Vec<String> {
             }
         }
     }
-    for m in &snap.morphology.parser_parameters.compound_rule_max_applications {
+    for m in &snap
+        .morphology
+        .parser_parameters
+        .compound_rule_max_applications
+    {
         let known = snap
             .morphology
             .compound_rules
@@ -521,11 +587,18 @@ pub fn validate(snap: &Snapshot) -> Vec<String> {
                         check_infl_class_ref(ic, &reg, &ctx, &mut warnings);
                     }
                     if let Some(fs) = features {
-                        check_feature_structure(fs, &reg.syn_closed, &reg.syn_complex, &ctx, &mut warnings);
+                        check_feature_structure(
+                            fs,
+                            &reg.syn_closed,
+                            &reg.syn_complex,
+                            &ctx,
+                            &mut warnings,
+                        );
                     }
                     for f in exception_features {
                         if !reg.exception_features.contains(f) {
-                            warnings.push(format!("{ctx}: exception feature {f:?} does not resolve"));
+                            warnings
+                                .push(format!("{ctx}: exception feature {f:?} does not resolve"));
                         }
                     }
                     for s in slots {
@@ -550,11 +623,18 @@ pub fn validate(snap: &Snapshot) -> Vec<String> {
                         }
                     }
                     if let Some(fs) = features {
-                        check_feature_structure(fs, &reg.syn_closed, &reg.syn_complex, &ctx, &mut warnings);
+                        check_feature_structure(
+                            fs,
+                            &reg.syn_closed,
+                            &reg.syn_complex,
+                            &ctx,
+                            &mut warnings,
+                        );
                     }
                     for f in exception_features {
                         if !reg.exception_features.contains(f) {
-                            warnings.push(format!("{ctx}: exception feature {f:?} does not resolve"));
+                            warnings
+                                .push(format!("{ctx}: exception feature {f:?} does not resolve"));
                         }
                     }
                 }
@@ -570,18 +650,31 @@ pub fn validate(snap: &Snapshot) -> Vec<String> {
                     from_stem_name,
                     ..
                 } => {
-                    for p in [from_part_of_speech, to_part_of_speech].into_iter().flatten() {
+                    for p in [from_part_of_speech, to_part_of_speech]
+                        .into_iter()
+                        .flatten()
+                    {
                         check_pos_ref(p, &reg, &ctx, &mut warnings);
                     }
                     for fs in [from_features, to_features].into_iter().flatten() {
-                        check_feature_structure(fs, &reg.syn_closed, &reg.syn_complex, &ctx, &mut warnings);
+                        check_feature_structure(
+                            fs,
+                            &reg.syn_closed,
+                            &reg.syn_complex,
+                            &ctx,
+                            &mut warnings,
+                        );
                     }
-                    for ic in [from_inflection_class, to_inflection_class].into_iter().flatten() {
+                    for ic in [from_inflection_class, to_inflection_class]
+                        .into_iter()
+                        .flatten()
+                    {
                         check_infl_class_ref(ic, &reg, &ctx, &mut warnings);
                     }
                     for f in from_exception_features.iter().chain(to_exception_features) {
                         if !reg.exception_features.contains(f) {
-                            warnings.push(format!("{ctx}: exception feature {f:?} does not resolve"));
+                            warnings
+                                .push(format!("{ctx}: exception feature {f:?} does not resolve"));
                         }
                     }
                     if let Some(sn) = from_stem_name {
@@ -624,7 +717,9 @@ pub fn validate(snap: &Snapshot) -> Vec<String> {
             let ctx = format!("{entry_ctx} {ctx_kind} ref {guid:?}");
             for c in components {
                 if !reg.entries.contains(c) && !reg.senses.contains(c) {
-                    warnings.push(format!("{ctx}: component {c:?} does not resolve to an entry or sense"));
+                    warnings.push(format!(
+                        "{ctx}: component {c:?} does not resolve to an entry or sense"
+                    ));
                 }
             }
             // `variant_entry_types`/`complex_entry_types` may reference either a

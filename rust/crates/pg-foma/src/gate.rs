@@ -126,11 +126,11 @@ use std::collections::{HashMap, HashSet};
 use foma::options::FomaOptions;
 use foma::types::Fsm;
 
-use pg_grammar::model::{
-    Grammar, LexEntryId, MprGroupMatchType, PhonRuleDef, RewriteSubruleDef,
-};
+use pg_grammar::model::{Grammar, LexEntryId, MprGroupMatchType, PhonRuleDef, RewriteSubruleDef};
 
-use crate::compose_budget::{compose_checked, minimize_checked, union_checked, ComposeBudget, ComposeError};
+use crate::compose_budget::{
+    compose_checked, minimize_checked, union_checked, ComposeBudget, ComposeError,
+};
 use crate::replace::{compile_and_compose_rules_gated_with_budget, SegAlphabet, TupleReport};
 use crate::uflexc::{emit_underlying_filtered_with_budget, UEmitReport};
 
@@ -173,7 +173,9 @@ fn ungrouped_or_all(g: &Grammar, mpr: pg_grammar::model::MprSet) -> pg_grammar::
 pub fn find_gated_subrules(g: &Grammar, prules_in_order: &[&PhonRuleDef]) -> Vec<GatedSubrule> {
     let mut out = Vec::new();
     for (rule_pos, pr) in prules_in_order.iter().enumerate() {
-        let PhonRuleDef::Rewrite(rule) = pr else { continue };
+        let PhonRuleDef::Rewrite(rule) = pr else {
+            continue;
+        };
         for (sub_idx, sr) in rule.subrules.iter().enumerate() {
             if is_gated(g, sr) {
                 out.push(GatedSubrule { rule_pos, sub_idx });
@@ -198,7 +200,9 @@ pub fn entry_gate_key(
         .iter()
         .map(|gs| {
             let PhonRuleDef::Rewrite(rule) = prules_in_order[gs.rule_pos] else {
-                unreachable!("GatedSubrule only ever indexes a Rewrite rule, see find_gated_subrules")
+                unreachable!(
+                    "GatedSubrule only ever indexes a Rewrite rule, see find_gated_subrules"
+                )
             };
             let sr = &rule.subrules[gs.sub_idx];
             pg_rules::rewrite::subrule_applicable(g, sr, syn_fs, entry.mpr)
@@ -225,7 +229,10 @@ pub fn partition_entries(
     let mut buckets: HashMap<Vec<bool>, HashSet<LexEntryId>> = HashMap::new();
     for (ei, entry) in g.entries.iter().enumerate() {
         let key = entry_gate_key(g, entry, gated, prules_in_order);
-        buckets.entry(key).or_default().insert(LexEntryId(ei as u32));
+        buckets
+            .entry(key)
+            .or_default()
+            .insert(LexEntryId(ei as u32));
     }
     buckets
         .into_iter()
@@ -320,7 +327,12 @@ pub fn compile_gated_grammar_with_budget(
             ..
         } = emit_underlying_filtered_with_budget(g, alphabet, Some(&group.entries), budget)?;
         skipped_allomorphs.extend(uskipped);
-        group_reports.push((group.key.clone(), root_entries, prefix_entries, suffix_entries));
+        group_reports.push((
+            group.key.clone(),
+            root_entries,
+            prefix_entries,
+            suffix_entries,
+        ));
 
         if root_entries == 0 {
             // An empty group (can happen if a gating key combination matches zero entries, e.g. a
@@ -333,7 +345,10 @@ pub fn compile_gated_grammar_with_budget(
             .unwrap_or_else(|| panic!("gated group lexc failed to compile:\n{lexc_source}"));
 
         let subrule_ok = |rule_pos: usize, sub_idx: usize| -> bool {
-            match gated.iter().position(|gs| gs.rule_pos == rule_pos && gs.sub_idx == sub_idx) {
+            match gated
+                .iter()
+                .position(|gs| gs.rule_pos == rule_pos && gs.sub_idx == sub_idx)
+            {
                 None => true, // ungated subrule: always included
                 Some(gate_index) => group.key[gate_index],
             }
@@ -358,20 +373,37 @@ pub fn compile_gated_grammar_with_budget(
         }
 
         let group_net = match rules_net {
-            Some(rules) => compose_checked(opts, lexc_net, rules, budget, "compile_gated_grammar lexc.o.rules")?,
+            Some(rules) => compose_checked(
+                opts,
+                lexc_net,
+                rules,
+                budget,
+                "compile_gated_grammar lexc.o.rules",
+            )?,
             None => lexc_net,
         };
         final_net = Some(match final_net {
             None => group_net,
             // Safe union: groups are lexically disjoint (module doc "why the union is safe here").
-            Some(prev) => union_checked(opts, prev, group_net, budget, "compile_gated_grammar group union fold")?,
+            Some(prev) => union_checked(
+                opts,
+                prev,
+                group_net,
+                budget,
+                "compile_gated_grammar group union fold",
+            )?,
         });
     }
 
     // V2 (design doc §4): this function's own final minimize, taking ownership of the invariant
     // instead of leaving it to every caller (see this function's own doc above).
     let final_net = match final_net {
-        Some(net) => Some(minimize_checked(opts, net, budget, "compile_gated_grammar final minimize")?),
+        Some(net) => Some(minimize_checked(
+            opts,
+            net,
+            budget,
+            "compile_gated_grammar final minimize",
+        )?),
         None => None,
     };
 
@@ -487,7 +519,8 @@ mod group_budget_tests {
 
     fn sixteen_group_fixture() -> Grammar {
         let xml = sixteen_group_fixture_xml();
-        pg_grammar::load(&xml).unwrap_or_else(|e| panic!("failed to load 16-group fixture: {e}\n{xml}"))
+        pg_grammar::load(&xml)
+            .unwrap_or_else(|e| panic!("failed to load 16-group fixture: {e}\n{xml}"))
     }
 
     /// V6 (design doc §4): 16 realized groups against `group_cap=8` must trip
@@ -501,20 +534,38 @@ mod group_budget_tests {
         let table = &g.char_tables[0];
         let alphabet = SegAlphabet::new(table);
         let opts = FomaOptions::default();
-        let ro: Vec<&PhonRuleDef> = g.strata.iter().flat_map(|s| &s.prules).map(|&id| &g.prules[id.0 as usize]).collect();
+        let ro: Vec<&PhonRuleDef> = g
+            .strata
+            .iter()
+            .flat_map(|s| &s.prules)
+            .map(|&id| &g.prules[id.0 as usize])
+            .collect();
 
         let gated = find_gated_subrules(&g, &ro);
-        assert_eq!(gated.len(), 4, "expected exactly 4 gated subrules (prule1..prule4)");
+        assert_eq!(
+            gated.len(),
+            4,
+            "expected exactly 4 gated subrules (prule1..prule4)"
+        );
         let groups = partition_entries(&g, &gated, &ro);
-        assert_eq!(groups.len(), 16, "16 entries realizing every 2^4 combination must yield 16 groups");
+        assert_eq!(
+            groups.len(),
+            16,
+            "16 entries realizing every 2^4 combination must yield 16 groups"
+        );
 
-        let budget = ComposeBudget::with_caps(usize::MAX, usize::MAX, usize::MAX, 8, usize::MAX, None);
+        let budget =
+            ComposeBudget::with_caps(usize::MAX, usize::MAX, usize::MAX, 8, usize::MAX, None);
         let start = std::time::Instant::now();
         let err = compile_gated_grammar_with_budget(&opts, &g, &alphabet, &ro, &budget)
             .expect_err("16 groups must exceed a group_cap of 8");
         let elapsed = start.elapsed();
         match err {
-            ComposeError::GroupBudgetExceeded { groups, limit, gated_subrules } => {
+            ComposeError::GroupBudgetExceeded {
+                groups,
+                limit,
+                gated_subrules,
+            } => {
                 assert_eq!(groups, 16);
                 assert_eq!(limit, 8);
                 assert_eq!(gated_subrules, 4);
@@ -544,7 +595,8 @@ mod group_budget_tests {
         let gated = find_gated_subrules(&g, &ro);
         assert!(gated.is_empty());
 
-        let budget = ComposeBudget::with_caps(usize::MAX, usize::MAX, usize::MAX, 1, usize::MAX, None);
+        let budget =
+            ComposeBudget::with_caps(usize::MAX, usize::MAX, usize::MAX, 1, usize::MAX, None);
         let result = compile_gated_grammar_with_budget(&opts, &g, &alphabet, &ro, &budget)
             .expect("exactly 1 group must not exceed a group_cap of 1");
         assert_eq!(result.groups, 1);

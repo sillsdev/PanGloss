@@ -136,7 +136,10 @@ struct Morphotactics {
     slot_candidates: Vec<Vec<Vec<u32>>>,
 }
 
-fn build_morphotactics(g: &Grammar, candidate_set: &std::collections::HashSet<u32>) -> Morphotactics {
+fn build_morphotactics(
+    g: &Grammar,
+    candidate_set: &std::collections::HashSet<u32>,
+) -> Morphotactics {
     let num_strata = g.strata.len();
     let mut loose_by_stratum = vec![Vec::new(); num_strata];
     let mut templates_by_stratum = vec![Vec::new(); num_strata];
@@ -168,7 +171,13 @@ fn build_morphotactics(g: &Grammar, candidate_set: &std::collections::HashSet<u3
         let sc: Vec<Vec<u32>> = t
             .slots
             .iter()
-            .map(|s| s.rules.iter().map(|r| r.0).filter(|id| candidate_set.contains(id)).collect())
+            .map(|s| {
+                s.rules
+                    .iter()
+                    .map(|r| r.0)
+                    .filter(|id| candidate_set.contains(id))
+                    .collect()
+            })
             .collect();
         completable.push(comp);
         first_reachable.push(fr);
@@ -311,7 +320,10 @@ fn main() {
     step(&format!("loading grammar from {}", path.display()));
     let t0 = Instant::now();
     let grammar = load_grammar(&path);
-    step(&format!("grammar loaded+compiled in {:.1}ms", t0.elapsed().as_secs_f64() * 1000.0));
+    step(&format!(
+        "grammar loaded+compiled in {:.1}ms",
+        t0.elapsed().as_secs_f64() * 1000.0
+    ));
     let g = &grammar;
 
     let t2 = Instant::now();
@@ -363,8 +375,15 @@ fn main() {
             count(&|i| !loose[i] && !slotted[i]),
         ));
         for (i, t) in grammar.templates.iter().enumerate() {
-            let opt: Vec<bool> = t.slots.iter().map(|s| s.rules.is_empty() || s.optional).collect();
-            step(&format!("  template {i} optional_slots={opt:?} is_final={}", t.is_final));
+            let opt: Vec<bool> = t
+                .slots
+                .iter()
+                .map(|s| s.rules.is_empty() || s.optional)
+                .collect();
+            step(&format!(
+                "  template {i} optional_slots={opt:?} is_final={}",
+                t.is_final
+            ));
         }
     }
     step(&format!("templates: {}", grammar.templates.len()));
@@ -390,9 +409,11 @@ fn main() {
         candidates.len()
     ));
 
-    let candidate_set: std::collections::HashSet<u32> = candidates.iter().map(|(id, _)| *id).collect();
+    let candidate_set: std::collections::HashSet<u32> =
+        candidates.iter().map(|(id, _)| *id).collect();
 
-    let (mut empty_loose_only, mut empty_slot_only, mut empty_both, mut empty_neither) = (0, 0, 0, 0);
+    let (mut empty_loose_only, mut empty_slot_only, mut empty_both, mut empty_neither) =
+        (0, 0, 0, 0);
     let (mut nonempty_loose_only, mut nonempty_slot_only, mut nonempty_both, mut nonempty_neither) =
         (0, 0, 0, 0);
     for &(id, _) in candidates {
@@ -442,7 +463,11 @@ fn main() {
     step(&format!(
         "depth-0 FS selectivity ({:.1}ms): raw={raw_pairs} passing={passing_pairs} ratio={:.4}",
         t3.elapsed().as_secs_f64() * 1000.0,
-        if raw_pairs > 0 { passing_pairs as f64 / raw_pairs as f64 } else { 0.0 }
+        if raw_pairs > 0 {
+            passing_pairs as f64 / raw_pairs as f64
+        } else {
+            0.0
+        }
     ));
 
     // --- Task 3d: FLAT vs PRUNED structural chain counts ----------------------------------------
@@ -486,7 +511,11 @@ fn main() {
     ));
     step(&format!(
         "FLAT/PRUNED ratio: {:.1}x (FLAT={flat_total} PRUNED={pruned_total})",
-        if pruned_total > 0 { flat_total as f64 / pruned_total as f64 } else { f64::INFINITY }
+        if pruned_total > 0 {
+            flat_total as f64 / pruned_total as f64
+        } else {
+            f64::INFINITY
+        }
     ));
 
     // --- Task 3e: PRUNED+FS hybrid (grouped by (stratum, entry syn_fs FsId)) --------------------
@@ -498,7 +527,10 @@ fn main() {
             *groups.entry((s0, entry.syn_fs.0)).or_insert(0) += 1;
         }
     }
-    step(&format!("PRUNED+FS: {} distinct (stratum, root-FS) groups", groups.len()));
+    step(&format!(
+        "PRUNED+FS: {} distinct (stratum, root-FS) groups",
+        groups.len()
+    ));
     let mut memo_fs: HashMap<(u32, Option<usize>, MidSet, usize), u64> = HashMap::new();
     let mut hybrid_total: u64 = 0;
     let mut hybrid_by_depth = [0u64; 3];
@@ -530,7 +562,9 @@ fn main() {
     let n_epenthesis_rewrite = grammar
         .prules
         .iter()
-        .filter(|pr| matches!(pr, pg_grammar::model::PhonRuleDef::Rewrite(r) if r.lhs.nodes.is_empty()))
+        .filter(
+            |pr| matches!(pr, pg_grammar::model::PhonRuleDef::Rewrite(r) if r.lhs.nodes.is_empty()),
+        )
         .count();
     let n_ordinary_rewrite = grammar
         .prules
@@ -560,5 +594,8 @@ fn main() {
         step("  >>> probe_would_refuse=false (no widening triggered), but the structural FLAT total above is still large -- a real secondary cost floor, even without widening.");
     }
 
-    step(&format!("TOTAL: {:.1}ms", t0.elapsed().as_secs_f64() * 1000.0));
+    step(&format!(
+        "TOTAL: {:.1}ms",
+        t0.elapsed().as_secs_f64() * 1000.0
+    ));
 }

@@ -4,9 +4,13 @@
 
 use hashbrown::HashMap;
 
-use pg_featstruct::{FeatId, FeatureStruct, FeatureStructBuilder, FeatureValue, Interner, SymbolBits};
+use pg_featstruct::{
+    FeatId, FeatureStruct, FeatureStructBuilder, FeatureValue, Interner, SymbolBits,
+};
 
-use pg_snapshot::feature::{ClosedFeature, ComplexFeature, FeatureStructure, FeatureSystem, FeatureValueKind};
+use pg_snapshot::feature::{
+    ClosedFeature, ComplexFeature, FeatureStructure, FeatureSystem, FeatureValueKind,
+};
 use pg_snapshot::morphology::PartOfSpeech;
 use pg_snapshot::Snapshot;
 
@@ -40,7 +44,10 @@ impl PosTable {
 
     /// A POS plus every descendant — the "required" convention (`LoadAllPartsOfSpeech`) used by
     /// every affix-rule/compound-side/rewrite-subrule POS *requirement*.
-    pub fn bits_with_descendants<'a>(&self, guids: impl IntoIterator<Item = &'a str>) -> SymbolBits {
+    pub fn bits_with_descendants<'a>(
+        &self,
+        guids: impl IntoIterator<Item = &'a str>,
+    ) -> SymbolBits {
         let mut out = SymbolBits::EMPTY;
         for g in guids {
             self.add_with_descendants(g, &mut out);
@@ -182,7 +189,10 @@ pub(crate) fn build_syn_features(
     ))
 }
 
-fn load_feature_system_into(fs: &FeatureSystem, features: &mut Vec<SynFeature>) -> Result<(), GrammarError> {
+fn load_feature_system_into(
+    fs: &FeatureSystem,
+    features: &mut Vec<SynFeature>,
+) -> Result<(), GrammarError> {
     for cf in &fs.closed_features {
         push_closed(cf, features)?;
     }
@@ -281,7 +291,10 @@ pub(crate) fn build_syn_fs(
     }
     if let (Some(head), Some(fs)) = (syn.head, ms_features) {
         if !fs.values.is_empty() {
-            b.add(head, FeatureValue::Complex(load_syn_feature_structure(fs, syn)?));
+            b.add(
+                head,
+                FeatureValue::Complex(load_syn_feature_structure(fs, syn)?),
+            );
         }
     }
     Ok(b.build())
@@ -299,9 +312,9 @@ pub(crate) fn load_syn_feature_structure(
             .ok_or_else(|| format!("unknown morphosyntactic feature {:?}", v.feature))?;
         match &v.value {
             FeatureValueKind::Closed { value } => {
-                let idx = syn
-                    .symbol_index(feat_id, value)
-                    .ok_or_else(|| format!("unknown feature value {value:?} on feature {:?}", v.feature))?;
+                let idx = syn.symbol_index(feat_id, value).ok_or_else(|| {
+                    format!("unknown feature value {value:?} on feature {:?}", v.feature)
+                })?;
                 let mut bits = SymbolBits::EMPTY;
                 bits.set(idx);
                 b.add(feat_id, FeatureValue::Symbolic(bits));
@@ -339,11 +352,7 @@ pub(crate) fn build_stem_names(
     ) {
         for p in items {
             for sn in &p.stem_names {
-                let regions: Vec<_> = sn
-                    .regions
-                    .iter()
-                    .filter(|r| !r.values.is_empty())
-                    .collect();
+                let regions: Vec<_> = sn.regions.iter().filter(|r| !r.values.is_empty()).collect();
                 if regions.is_empty() {
                     continue;
                 }

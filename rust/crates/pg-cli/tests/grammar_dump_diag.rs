@@ -31,7 +31,10 @@ fn sample_path(name: &str) -> Option<PathBuf> {
 fn rule_label(g: &Grammar, mid: pg_grammar::model::MRuleId) -> String {
     match &g.mrules[mid.0 as usize] {
         MorphRuleDef::AffixProcess(d) => {
-            let gloss = g.morphemes[d.morpheme.0 as usize].gloss.as_deref().unwrap_or("-");
+            let gloss = g.morphemes[d.morpheme.0 as usize]
+                .gloss
+                .as_deref()
+                .unwrap_or("-");
             format!(
                 "affix name={:?} gloss={:?} subrules={} partial={} template_rule={}",
                 d.name.as_deref().unwrap_or(""),
@@ -42,7 +45,10 @@ fn rule_label(g: &Grammar, mid: pg_grammar::model::MRuleId) -> String {
             )
         }
         MorphRuleDef::Realizational(d) => {
-            let gloss = g.morphemes[d.morpheme.0 as usize].gloss.as_deref().unwrap_or("-");
+            let gloss = g.morphemes[d.morpheme.0 as usize]
+                .gloss
+                .as_deref()
+                .unwrap_or("-");
             format!("realizational gloss={gloss:?}")
         }
         MorphRuleDef::Compounding(d) => format!("compounding name={:?}", d.name),
@@ -50,17 +56,33 @@ fn rule_label(g: &Grammar, mid: pg_grammar::model::MRuleId) -> String {
 }
 
 fn dump(tag: &str, g: &Grammar) {
-    eprintln!("##### {tag}: {} mrules, {} templates, {} entries, {} morphemes",
-        g.mrules.len(), g.templates.len(), g.entries.len(), g.morphemes.len());
+    eprintln!(
+        "##### {tag}: {} mrules, {} templates, {} entries, {} morphemes",
+        g.mrules.len(),
+        g.templates.len(),
+        g.entries.len(),
+        g.morphemes.len()
+    );
     for (si, s) in g.strata.iter().enumerate() {
-        eprintln!("--- stratum {si} {:?}: {} mrules, {} templates, {} entries, {} prules",
-            s.name, s.mrules.len(), s.templates.len(), s.entries.len(), s.prules.len());
+        eprintln!(
+            "--- stratum {si} {:?}: {} mrules, {} templates, {} entries, {} prules",
+            s.name,
+            s.mrules.len(),
+            s.templates.len(),
+            s.entries.len(),
+            s.prules.len()
+        );
         for &mid in &s.mrules {
             eprintln!("  rule: {}", rule_label(g, mid));
         }
         for &tid in &s.templates {
             let t = &g.templates[tid.0 as usize];
-            eprintln!("  template {:?} final={} slots={}", t.name, t.is_final, t.slots.len());
+            eprintln!(
+                "  template {:?} final={} slots={}",
+                t.name,
+                t.is_final,
+                t.slots.len()
+            );
             for slot in &t.slots {
                 eprintln!("    slot {:?} optional={}", slot.name, slot.optional);
                 for &mid in &slot.rules {

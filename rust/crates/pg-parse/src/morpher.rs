@@ -1230,7 +1230,11 @@ impl<'g> Morpher<'g> {
             pattern_entry: exemplar,
             text: shape_text.to_string(),
         }));
-        w.morphs = vec![MorphRecord::new(AllomorphId::GUESSED, MorphemeId::GUESSED, 0)];
+        w.morphs = vec![MorphRecord::new(
+            AllomorphId::GUESSED,
+            MorphemeId::GUESSED,
+            0,
+        )];
 
         if let Some(rid) = rule {
             w.morphological_rule_unapplied(is_realizational_rule(g, rid), Some(rid));

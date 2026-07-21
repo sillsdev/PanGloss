@@ -41,7 +41,8 @@ fn sample_path(name: &str) -> PathBuf {
 
 fn load_indonesian() -> Grammar {
     let path = sample_path("indonesian-hc.xml");
-    let xml = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let xml =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     pg_grammar::load(&xml).unwrap_or_else(|e| panic!("failed to load indonesian-hc.xml: {e}"))
 }
 
@@ -96,7 +97,10 @@ fn run() {
             rules_in_order.push(&g.prules[prid.0 as usize]);
         }
     }
-    println!("phonological rules in stratum order: {}", rules_in_order.len());
+    println!(
+        "phonological rules in stratum order: {}",
+        rules_in_order.len()
+    );
     for pr in &rules_in_order {
         match pr {
             PhonRuleDef::Rewrite(r) => println!(
@@ -141,7 +145,9 @@ fn run() {
     {
         let m = table.lookup_nfd("m").expect("m in table");
         let e = table.lookup_nfd("e").expect("e in table");
-        let placeholder = table.lookup_nfd("\u{207f}").expect("placeholder nasal in table");
+        let placeholder = table
+            .lookup_nfd("\u{207f}")
+            .expect("placeholder nasal in table");
         let bound = table.lookup_nfd("+").expect("+ boundary in table");
         let mut h = apply_init(&rule_net);
         for root in ["baca", "tulis", "pukul", "ambil"] {
@@ -243,11 +249,22 @@ fn run() {
                 .map(|m| {
                     g.morphemes
                         .get(m.0 as usize)
-                        .map(|mi| format!("{}({}/{})", m.0, mi.xml_key, mi.gloss.as_deref().unwrap_or("-")))
+                        .map(|mi| {
+                            format!(
+                                "{}({}/{})",
+                                m.0,
+                                mi.xml_key,
+                                mi.gloss.as_deref().unwrap_or("-")
+                            )
+                        })
                         .unwrap_or_else(|| format!("{}(?)", m.0))
                 })
                 .collect();
-            println!("    root_index={} morphemes=[{}]", c.root_index, names.join(", "));
+            println!(
+                "    root_index={} morphemes=[{}]",
+                c.root_index,
+                names.join(", ")
+            );
         }
     }
 
@@ -259,7 +276,11 @@ fn run() {
     let popts = ParseOptions::default();
     let words_text = std::fs::read_to_string(sample_path("indonesian-words.txt"))
         .expect("read indonesian-words.txt");
-    let words: Vec<&str> = words_text.lines().map(str::trim).filter(|w| !w.is_empty()).collect();
+    let words: Vec<&str> = words_text
+        .lines()
+        .map(str::trim)
+        .filter(|w| !w.is_empty())
+        .collect();
 
     let mut n_total = 0usize;
     let mut n_covered = 0usize;
@@ -314,7 +335,14 @@ fn run() {
                     .map(|&id| {
                         g.morphemes
                             .get(id as usize)
-                            .map(|mi| format!("{}({}/{})", id, mi.xml_key, mi.gloss.as_deref().unwrap_or("-")))
+                            .map(|mi| {
+                                format!(
+                                    "{}({}/{})",
+                                    id,
+                                    mi.xml_key,
+                                    mi.gloss.as_deref().unwrap_or("-")
+                                )
+                            })
                             .unwrap_or_else(|| format!("{id}(?)"))
                     })
                     .collect();
@@ -336,7 +364,9 @@ fn run() {
         "propose total: {propose_time:?}; propose max/word: {max_propose:?}; propose mean/word: {:?}",
         propose_time / (n_words_analyzed.max(1) as u32)
     );
-    println!("total candidates proposed across corpus (overgeneration count): {total_overgenerated}");
+    println!(
+        "total candidates proposed across corpus (overgeneration count): {total_overgenerated}"
+    );
     if !misses.is_empty() {
         println!("--- MISSES ({} of {n_total}) ---", misses.len());
         for m in &misses {

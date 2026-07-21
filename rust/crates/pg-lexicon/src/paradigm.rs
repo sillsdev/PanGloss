@@ -70,7 +70,11 @@ pub fn disambiguating_forms(
 
         let entry = &grammar.entries[le.0 as usize];
         let class_mpr = entry.mpr;
-        let class_pos_bits = match grammar.fs_interner.get(entry.syn_fs).get(grammar.syn_features.pos) {
+        let class_pos_bits = match grammar
+            .fs_interner
+            .get(entry.syn_fs)
+            .get(grammar.syn_features.pos)
+        {
             Some(FeatureValue::Symbolic(bits)) => Some(*bits),
             _ => None,
         };

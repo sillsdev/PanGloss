@@ -302,7 +302,10 @@ mod tests {
         };
         let out = peeler.peel_candidates(&g, "mbali", &mut propose);
         assert!(out.is_empty());
-        assert_eq!(calls, 0, "no-redup grammar must never invoke the propose closure");
+        assert_eq!(
+            calls, 0,
+            "no-redup grammar must never invoke the propose closure"
+        );
     }
 
     /// Indonesian's redup rules recover "membagi-bagi" (a known corpus word) when the residual
@@ -315,7 +318,10 @@ mod tests {
             return;
         };
         let peeler = ReduplicationPeeler::new(&g);
-        assert!(peeler.has_redup_rules(), "Indonesian must have at least one redup rule");
+        assert!(
+            peeler.has_redup_rules(),
+            "Indonesian must have at least one redup rule"
+        );
 
         let root = g.entries[0].morpheme;
         let mut seen_residuals: Vec<String> = Vec::new();
@@ -338,7 +344,10 @@ mod tests {
         assert!(seen_residuals.iter().any(|r| r == "membagi"));
         for c in &out {
             assert_eq!(c.root_index, 0);
-            assert!(c.morphemes.len() >= 2, "expected root + at least the redup morpheme");
+            assert!(
+                c.morphemes.len() >= 2,
+                "expected root + at least the redup morpheme"
+            );
         }
     }
 }

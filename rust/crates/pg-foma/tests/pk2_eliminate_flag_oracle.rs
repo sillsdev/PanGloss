@@ -173,8 +173,14 @@ fn win_to_wsl_path(p: &Path) -> String {
 /// (spec §5's crash risk, github.com/mhulden/foma issue #60) -- callers must handle it and report
 /// it, never let it propagate as a Rust panic that would take down the whole test binary.
 enum CFomaOutcome {
-    Ok { fst_path: PathBuf },
-    Failed { status: String, stdout: String, stderr: String },
+    Ok {
+        fst_path: PathBuf,
+    },
+    Failed {
+        status: String,
+        stdout: String,
+        stderr: String,
+    },
 }
 
 /// Write `regex source; [eliminate flag ATTR ...]; save stack TAG.fst` to `TAG.foma` under the
@@ -241,8 +247,10 @@ fn flookup_up(fst_path: &Path, words: &[&str]) -> BTreeMap<String, BTreeSet<Stri
         }
     }
     let output = child.wait_with_output().expect("wait for wsl flookup");
-    let mut out: BTreeMap<String, BTreeSet<String>> =
-        words.iter().map(|&w| (w.to_string(), BTreeSet::new())).collect();
+    let mut out: BTreeMap<String, BTreeSet<String>> = words
+        .iter()
+        .map(|&w| (w.to_string(), BTreeSet::new()))
+        .collect();
     for line in String::from_utf8_lossy(&output.stdout).lines() {
         let line = line.trim_end_matches('\r');
         if line.is_empty() {
@@ -252,7 +260,9 @@ fn flookup_up(fst_path: &Path, words: &[&str]) -> BTreeMap<String, BTreeSet<Stri
             continue;
         };
         if result != "+?" {
-            out.entry(word.to_string()).or_default().insert(result.to_string());
+            out.entry(word.to_string())
+                .or_default()
+                .insert(result.to_string());
         }
     }
     out
@@ -274,7 +284,11 @@ fn c_foma_leg(
     }
     match run_c_foma_script(tag, regex_source, eliminate_attrs) {
         CFomaOutcome::Ok { fst_path } => Some(flookup_up(&fst_path, words)),
-        CFomaOutcome::Failed { status, stdout, stderr } => {
+        CFomaOutcome::Failed {
+            status,
+            stdout,
+            stderr,
+        } => {
             eprintln!(
                 "FINDING {tag}: C-foma script FAILED (status={status}) -- this is itself a gate \
                  result (spec §5 / issue #60 crash risk), not a harness bug:\nstdout:\n{stdout}\nstderr:\n{stderr}"
@@ -350,8 +364,10 @@ fn battery_a_unify_agreement_across_stem_boundary() {
     // attribute. Classic Beesley 1998 / B&K 2003 ch.7 "separated dependency" pattern.
     let src = r#"[["@U.NUM.sg@" t h e] | ["@U.NUM.pl@" t h e s e]] [["@U.NUM.sg@" c a t] | ["@U.NUM.pl@" c a t s]]"#;
     let words = ["thecat", "thesecats", "thecats", "thesecat"];
-    let legal_expected: BTreeSet<String> =
-        ["thecat", "thesecats"].iter().map(|s| s.to_string()).collect();
+    let legal_expected: BTreeSet<String> = ["thecat", "thesecats"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
 
     let baseline = rs_baseline_up(src, &words);
     print_table("battery_a rs baseline", &baseline);
@@ -376,7 +392,10 @@ fn battery_a_unify_agreement_across_stem_boundary() {
         return;
     };
     print_table("battery_a C-foma baseline", &c_baseline);
-    assert_eq!(baseline, c_baseline, "battery_a: foma-rs vs C-foma baseline must agree");
+    assert_eq!(
+        baseline, c_baseline,
+        "battery_a: foma-rs vs C-foma baseline must agree"
+    );
 
     let Some(c_eliminated) = c_foma_leg("battery_a_elim_num", src, &["NUM"], &words) else {
         return;
@@ -411,7 +430,10 @@ fn battery_b_positive_require_and_disallow_combos() {
         let Some(c_eliminated) = c_foma_leg(&tag, src, &[attr], &words) else {
             continue;
         };
-        print_table(&format!("battery_b C-foma eliminated({attr})"), &c_eliminated);
+        print_table(
+            &format!("battery_b C-foma eliminated({attr})"),
+            &c_eliminated,
+        );
         assert_eq!(
             eliminated, c_eliminated,
             "battery_b: foma-rs vs C-foma eliminated({attr}) must agree"
@@ -422,7 +444,10 @@ fn battery_b_positive_require_and_disallow_combos() {
         return;
     };
     print_table("battery_b C-foma baseline", &c_baseline);
-    assert_eq!(baseline, c_baseline, "battery_b: foma-rs vs C-foma baseline must agree");
+    assert_eq!(
+        baseline, c_baseline,
+        "battery_b: foma-rs vs C-foma baseline must agree"
+    );
 
     // Task item 2b explicitly asks for `@P.F.x@` + `@R.F.x@` -- i.e. REQUIRE *with a value*, a
     // distinct set of rows in flag_build's decision table ("R flag, with value", keyed on
@@ -439,7 +464,10 @@ fn battery_b_positive_require_and_disallow_combos() {
         .filter(|(_, v)| !v.is_empty())
         .map(|(k, _)| k.clone())
         .collect();
-    assert_eq!(rv_baseline_legal, rvalue_legal, "battery_b (R-with-value): baseline sanity");
+    assert_eq!(
+        rv_baseline_legal, rvalue_legal,
+        "battery_b (R-with-value): baseline sanity"
+    );
 
     let rv_eliminated = rs_eliminated_up(rvalue_src, &["K"], &rvalue_words);
     print_table("battery_b (R-with-value) rs eliminated(K)", &rv_eliminated);
@@ -448,7 +476,8 @@ fn battery_b_positive_require_and_disallow_combos() {
         "battery_b (R-with-value): foma-rs baseline vs K-eliminated must agree as sets per word"
     );
 
-    let Some(rv_c_baseline) = c_foma_leg("battery_b_rvalue_baseline", rvalue_src, &[], &rvalue_words)
+    let Some(rv_c_baseline) =
+        c_foma_leg("battery_b_rvalue_baseline", rvalue_src, &[], &rvalue_words)
     else {
         return;
     };
@@ -463,7 +492,10 @@ fn battery_b_positive_require_and_disallow_combos() {
     else {
         return;
     };
-    print_table("battery_b (R-with-value) C-foma eliminated(K)", &rv_c_eliminated);
+    print_table(
+        "battery_b (R-with-value) C-foma eliminated(K)",
+        &rv_c_eliminated,
+    );
     assert_eq!(
         rv_eliminated, rv_c_eliminated,
         "battery_b (R-with-value): foma-rs vs C-foma eliminated(K) must agree"
@@ -501,7 +533,10 @@ fn battery_c_three_independent_attributes_chained_elimination() {
         .filter(|(_, v)| !v.is_empty())
         .map(|(k, _)| k.clone())
         .collect();
-    assert_eq!(baseline_legal, legal_expected, "battery_c: baseline legal set sanity check");
+    assert_eq!(
+        baseline_legal, legal_expected,
+        "battery_c: baseline legal set sanity check"
+    );
 
     // Checkpoint after each incremental elimination in the chain NUM -> NUMBER -> CASE.
     let chain: [&[&str]; 3] = [&["NUM"], &["NUM", "NUMBER"], &["NUM", "NUMBER", "CASE"]];
@@ -519,7 +554,10 @@ fn battery_c_three_independent_attributes_chained_elimination() {
         let Some(c_eliminated) = c_foma_leg(&tag, src, attrs, &words) else {
             continue;
         };
-        print_table(&format!("battery_c C-foma eliminated({attrs:?})"), &c_eliminated);
+        print_table(
+            &format!("battery_c C-foma eliminated({attrs:?})"),
+            &c_eliminated,
+        );
         assert_eq!(
             eliminated, c_eliminated,
             "battery_c: foma-rs vs C-foma eliminated({attrs:?}) must agree"
@@ -530,7 +568,10 @@ fn battery_c_three_independent_attributes_chained_elimination() {
         return;
     };
     print_table("battery_c C-foma baseline", &c_baseline);
-    assert_eq!(baseline, c_baseline, "battery_c: foma-rs vs C-foma baseline must agree");
+    assert_eq!(
+        baseline, c_baseline,
+        "battery_c: foma-rs vs C-foma baseline must agree"
+    );
 }
 
 /* ------------------------------------------------------------------------------------------- */
@@ -554,14 +595,19 @@ fn battery_d_flags_coexist_with_multichar_tags() {
 
     let baseline = rs_baseline_up(src, &words);
     print_table("battery_d rs baseline", &baseline);
-    let legal_expected: BTreeSet<String> =
-        ["cat<R:0001>", "cats<R:0001>"].iter().map(|s| s.to_string()).collect();
+    let legal_expected: BTreeSet<String> = ["cat<R:0001>", "cats<R:0001>"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
     let baseline_legal: BTreeSet<String> = baseline
         .iter()
         .filter(|(_, v)| !v.is_empty())
         .map(|(k, _)| k.clone())
         .collect();
-    assert_eq!(baseline_legal, legal_expected, "battery_d: baseline sanity (tag required)");
+    assert_eq!(
+        baseline_legal, legal_expected,
+        "battery_d: baseline sanity (tag required)"
+    );
 
     // foma-rs internal: eliminate NUM, then check (1) apply_up sets still agree, (2) the tag
     // symbol is still present in sigma post-elimination, (3) no NUM flag symbols remain.
@@ -584,13 +630,19 @@ fn battery_d_flags_coexist_with_multichar_tags() {
 
     let eliminated = apply_up_all(&eliminated_net, &words);
     print_table("battery_d rs eliminated(NUM)", &eliminated);
-    assert_eq!(baseline, eliminated, "battery_d: baseline vs eliminated(NUM) must agree as sets");
+    assert_eq!(
+        baseline, eliminated,
+        "battery_d: baseline vs eliminated(NUM) must agree as sets"
+    );
 
     let Some(c_baseline) = c_foma_leg("battery_d_baseline", src, &[], &words) else {
         return;
     };
     print_table("battery_d C-foma baseline", &c_baseline);
-    assert_eq!(baseline, c_baseline, "battery_d: foma-rs vs C-foma baseline must agree");
+    assert_eq!(
+        baseline, c_baseline,
+        "battery_d: foma-rs vs C-foma baseline must agree"
+    );
 
     let Some(c_eliminated) = c_foma_leg("battery_d_elim_num", src, &["NUM"], &words) else {
         return;
@@ -623,9 +675,16 @@ fn battery_e_reduplication_shaped_flags_and_affix_issue60_risk() {
     // multichar tag -- reduplication-shaped, flagged, and affixed, all three risk ingredients from
     // the issue, without requiring a copy operator neither compiler's regex language has.
     let src = r#"[["@P.NUM.sg@" c a t c a t] | ["@P.NUM.pl@" d o g d o g]] [["@U.NUM.pl@" s] | ["@U.NUM.sg@"]] "<R:0002>""#;
-    let words = ["catcat<R:0002>", "dogdogs<R:0002>", "catcats<R:0002>", "dogdog<R:0002>"];
-    let legal_expected: BTreeSet<String> =
-        ["catcat<R:0002>", "dogdogs<R:0002>"].iter().map(|s| s.to_string()).collect();
+    let words = [
+        "catcat<R:0002>",
+        "dogdogs<R:0002>",
+        "catcats<R:0002>",
+        "dogdog<R:0002>",
+    ];
+    let legal_expected: BTreeSet<String> = ["catcat<R:0002>", "dogdogs<R:0002>"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
 
     let baseline = rs_baseline_up(src, &words);
     print_table("battery_e rs baseline", &baseline);
@@ -660,7 +719,11 @@ fn battery_e_reduplication_shaped_flags_and_affix_issue60_risk() {
                 "battery_e: foma-rs vs C-foma baseline (no elimination) must agree"
             );
         }
-        CFomaOutcome::Failed { status, stdout, stderr } => {
+        CFomaOutcome::Failed {
+            status,
+            stdout,
+            stderr,
+        } => {
             eprintln!(
                 "FINDING battery_e_baseline: C-foma FAILED even without elimination \
                  (status={status}):\nstdout:\n{stdout}\nstderr:\n{stderr}"
@@ -678,7 +741,11 @@ fn battery_e_reduplication_shaped_flags_and_affix_issue60_risk() {
                  here is the issue-#60 risk shape materializing"
             );
         }
-        CFomaOutcome::Failed { status, stdout, stderr } => {
+        CFomaOutcome::Failed {
+            status,
+            stdout,
+            stderr,
+        } => {
             eprintln!(
                 "FINDING battery_e_elim_num: C-foma CRASHED/FAILED eliminating flag NUM on a \
                  reduplication-shaped+affixed network (status={status}) -- this IS the issue-#60 \

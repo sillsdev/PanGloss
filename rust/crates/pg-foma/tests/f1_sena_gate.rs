@@ -45,8 +45,8 @@ fn have(name: &str) -> bool {
 
 fn load_sena() -> Grammar {
     let path = sample_path("sena-hc.xml");
-    let xml = std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let xml =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     pg_grammar::load(&xml).unwrap_or_else(|e| panic!("failed to load sena-hc.xml: {e}"))
 }
 
@@ -195,8 +195,7 @@ fn b_sena_recall_first_120_words() {
             if hit {
                 n_covered += 1;
             } else {
-                let names: Vec<String> =
-                    seq.iter().map(|&id| morpheme_name(&g, id)).collect();
+                let names: Vec<String> = seq.iter().map(|&id| morpheme_name(&g, id)).collect();
                 misses.push(format!(
                     "word {word:?}: engine analysis root_index={root_idx} morphemes=[{}]",
                     names.join(", ")
@@ -216,13 +215,17 @@ fn b_sena_recall_first_120_words() {
         propose_time / (n_words_analyzed.max(1) as u32)
     );
     if !misses.is_empty() {
-        println!("--- MISSES ({} of {n_total}) — the fix list ---", misses.len());
+        println!(
+            "--- MISSES ({} of {n_total}) — the fix list ---",
+            misses.len()
+        );
         for m in &misses {
             println!("MISS {m}");
         }
     }
     assert_eq!(
-        n_covered, n_total,
+        n_covered,
+        n_total,
         "recall gate: {} engine analyses not proposed (see MISS lines above)",
         n_total - n_covered
     );

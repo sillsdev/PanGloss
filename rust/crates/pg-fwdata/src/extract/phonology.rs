@@ -2,7 +2,7 @@
 
 use pg_snapshot::{
     BoundaryMarker, Environment, FeatureConstraint, FeatureSystems, MetathesisRule, NaturalClass,
-    Phoneme, Phonology, PhonContext, PhonologicalRule, RewriteRhs, RewriteRule, RuleDirection,
+    PhonContext, Phoneme, PhonologicalRule, Phonology, RewriteRhs, RewriteRule, RuleDirection,
 };
 
 use super::features::extract_feature_structure;
@@ -217,7 +217,10 @@ fn extract_environment(ctx: &mut Ctx, guid: &str) -> Option<Environment> {
     Some(Environment {
         guid: guid.to_string(),
         name: ctx.best_analysis(&rec.node.ws_forms("Name")),
-        representation: rec.node.str_text("StringRepresentation").unwrap_or_default(),
+        representation: rec
+            .node
+            .str_text("StringRepresentation")
+            .unwrap_or_default(),
     })
 }
 
@@ -427,7 +430,11 @@ fn extract_metathesis_rule(ctx: &mut Ctx, rec: &Record) -> Option<MetathesisRule
         .filter_map(|g| resolve_phon_context(ctx, &g, label))
         .collect();
 
-    let struc_change_text = rec.node.child("StrucChange").map(|c| c.text.clone()).unwrap_or_default();
+    let struc_change_text = rec
+        .node
+        .child("StrucChange")
+        .map(|c| c.text.clone())
+        .unwrap_or_default();
     let permutation: Vec<usize> = struc_change_text
         .split_whitespace()
         .filter_map(|tok| tok.parse::<usize>().ok())

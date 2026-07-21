@@ -31,8 +31,16 @@ pub struct CircumfixSpec {
 /// own prefix is `affix_chars[i % len]` doubled and its suffix is `affix_chars[(i+1) % len]` --
 /// distinct-enough per rule (when `count > 1`) to keep generated words visually distinguishable
 /// when debugging a failing gate, not load-bearing for correctness.
-pub fn build_circumfixes(count: usize, pos_xml_id: &str, affix_chars: &[char], ids: &mut IdMinter) -> Vec<CircumfixSpec> {
-    assert!(!affix_chars.is_empty(), "build_circumfixes: affix_chars must be non-empty");
+pub fn build_circumfixes(
+    count: usize,
+    pos_xml_id: &str,
+    affix_chars: &[char],
+    ids: &mut IdMinter,
+) -> Vec<CircumfixSpec> {
+    assert!(
+        !affix_chars.is_empty(),
+        "build_circumfixes: affix_chars must be non-empty"
+    );
     let mut out = Vec::with_capacity(count);
     for i in 0..count {
         let mrule_xml_id = ids.next("mrCirc");
@@ -55,7 +63,11 @@ pub fn build_circumfixes(count: usize, pos_xml_id: &str, affix_chars: &[char], i
              </MorphologicalRule>",
             nc_any = crate::build::tables::nc_any_xml_id(),
         );
-        out.push(CircumfixSpec { mrule_xml_id, morpheme_id, xml });
+        out.push(CircumfixSpec {
+            mrule_xml_id,
+            morpheme_id,
+            xml,
+        });
     }
     out
 }

@@ -34,8 +34,12 @@ pub(crate) fn build(
         .iter()
         .map(|t| (t.guid.as_str(), t))
         .collect();
-    let entry_by_guid: HashMap<&str, &LexEntry> =
-        snapshot.lexicon.entries.iter().map(|e| (e.guid.as_str(), e)).collect();
+    let entry_by_guid: HashMap<&str, &LexEntry> = snapshot
+        .lexicon
+        .entries
+        .iter()
+        .map(|e| (e.guid.as_str(), e))
+        .collect();
     let sense_owner: HashMap<&str, (&LexEntry, &Sense)> = snapshot
         .lexicon
         .entries
@@ -53,17 +57,16 @@ pub(crate) fn build(
         let clitic = |a: &Allomorph| {
             matches!(
                 a.morph_type,
-                MorphType::Clitic | MorphType::Enclitic | MorphType::Proclitic | MorphType::Particle
+                MorphType::Clitic
+                    | MorphType::Enclitic
+                    | MorphType::Proclitic
+                    | MorphType::Particle
             )
         };
-        let affix_allos: Vec<&Allomorph> =
-            entry.allomorphs.iter().filter(|a| !clitic(a)).collect();
+        let affix_allos: Vec<&Allomorph> = entry.allomorphs.iter().filter(|a| !clitic(a)).collect();
         let clitic_affix_allos: Vec<&Allomorph> =
             entry.allomorphs.iter().filter(|a| clitic(a)).collect();
-        let has_clitic_stem_form = entry
-            .allomorphs
-            .iter()
-            .any(|a| is_lex_entry_form(a, true));
+        let has_clitic_stem_form = entry.allomorphs.iter().any(|a| is_lex_entry_form(a, true));
         let has_stem_form = entry.allomorphs.iter().any(|a| is_lex_entry_form(a, false));
 
         // --- stems: one Grammar LexEntryDef per (entry, Msa::Stem, stratum-bucket) --------------
@@ -191,7 +194,11 @@ fn is_lex_entry_form(allo: &Allomorph, clitic: bool) -> bool {
     } else {
         matches!(
             allo.morph_type,
-            MorphType::Root | MorphType::Stem | MorphType::BoundRoot | MorphType::BoundStem | MorphType::Phrase
+            MorphType::Root
+                | MorphType::Stem
+                | MorphType::BoundRoot
+                | MorphType::BoundStem
+                | MorphType::Phrase
         )
     }
 }
@@ -218,7 +225,9 @@ fn build_stem_entry(
         return None;
     };
 
-    let pos_bits = part_of_speech.as_deref().and_then(|p| ctx.pos.bits_single(p));
+    let pos_bits = part_of_speech
+        .as_deref()
+        .and_then(|p| ctx.pos.bits_single(p));
     let syn_fs = match super::features::build_syn_fs(ctx.syn, pos_bits, features.as_ref()) {
         Ok(fs) => acc.fs_interner.intern(fs),
         Err(e) => {
@@ -230,20 +239,26 @@ fn build_stem_entry(
 
     // `GetInflClass` (HCLoader.cs:2625-2632): explicit inflection class, else the owning POS's
     // default walked up the ownership chain (`GetDefaultInflClass`).
-    let infl_class_guid = inflection_class
-        .clone()
-        .or_else(|| part_of_speech.as_deref().and_then(|p| ctx.pos.default_inflection_class(p)));
+    let infl_class_guid = inflection_class.clone().or_else(|| {
+        part_of_speech
+            .as_deref()
+            .and_then(|p| ctx.pos.default_inflection_class(p))
+    });
     let mut mpr = crate::model::MprSet::EMPTY;
     if let Some(ic) = &infl_class_guid {
         match ctx.mpr.infl_class_single(ic) {
             Some(s) => mpr = mpr.union(s),
-            None => warnings.push(format!("MSA {guid:?}: inflection class {ic:?} does not resolve")),
+            None => warnings.push(format!(
+                "MSA {guid:?}: inflection class {ic:?} does not resolve"
+            )),
         }
     }
     for f in exception_features {
         match ctx.mpr.exception_feature(f) {
             Some(s) => mpr = mpr.union(s),
-            None => warnings.push(format!("MSA {guid:?}: exception feature {f:?} does not resolve")),
+            None => warnings.push(format!(
+                "MSA {guid:?}: exception feature {f:?} does not resolve"
+            )),
         }
     }
     if let Some(it) = infl_type {
@@ -259,12 +274,19 @@ fn build_stem_entry(
     let lex_id = LexEntryId(acc.entries.len() as u32);
     let mut allomorphs = Vec::new();
     let clitic = stratum == StratumId(1);
-    for allo in entry.allomorphs.iter().filter(|a| is_lex_entry_form(a, clitic)) {
+    for allo in entry
+        .allomorphs
+        .iter()
+        .filter(|a| is_lex_entry_form(a, clitic))
+    {
         match build_root_allomorph(allo, ctx, warnings) {
             Ok(def) => {
                 let allo_id = crate::model::AllomorphId(acc.allomorph_owners.len() as u32);
                 acc.allomorph_owners
-                    .push(crate::model::AllomorphOwner::Root(lex_id, allomorphs.len() as u16));
+                    .push(crate::model::AllomorphOwner::Root(
+                        lex_id,
+                        allomorphs.len() as u16,
+                    ));
                 acc.allomorph_guid_index.insert(allo.guid.clone(), allo_id);
                 allomorphs.push(RootAllomorphDef { id: allo_id, ..def });
             }
@@ -297,7 +319,11 @@ fn build_stem_entry(
 /// `LoadRootAllomorph` (HCLoader.cs:809-845). Uses the pattern-aware segmenter (finding N3 in
 /// `crate::segment`, mirroring `crate::load::load_root_allomorph`'s own choice) since a root
 /// form may carry a lexical lookup pattern (`[C]`-style underspecified segments).
-fn build_root_allomorph(allo: &Allomorph, ctx: &Ctx, warnings: &mut Vec<String>) -> Result<RootAllomorphDef, String> {
+fn build_root_allomorph(
+    allo: &Allomorph,
+    ctx: &Ctx,
+    warnings: &mut Vec<String>,
+) -> Result<RootAllomorphDef, String> {
     let form = super::best_ws(&allo.forms, ctx.default_vernacular_ws.as_deref()).unwrap_or("");
     let form = super::format_form(form);
     let shape = crate::segment::segment_with_patterns(ctx.table, natural_class_defs(ctx), &form)
@@ -328,7 +354,10 @@ fn build_root_allomorph(allo: &Allomorph, ctx: &Ctx, warnings: &mut Vec<String>)
         }
     }
 
-    let stem_name = allo.stem_name.as_deref().and_then(|sn| ctx.stem_name_by_guid.get(sn).copied());
+    let stem_name = allo
+        .stem_name
+        .as_deref()
+        .and_then(|sn| ctx.stem_name_by_guid.get(sn).copied());
 
     let is_bound = matches!(allo.morph_type, MorphType::BoundRoot | MorphType::BoundStem);
 
@@ -388,21 +417,22 @@ fn build_variant(
     let infl_types = get_infl_types(variant_entry_types, infl_type_by_guid);
 
     for component in component_lexemes {
-        let main_msas: Vec<(&LexEntry, &Msa)> = if let Some(&e) = entry_by_guid.get(component.as_str()) {
-            e.msas.iter().map(|m| (e, m)).collect()
-        } else if let Some(&(e, sense)) = sense_owner.get(component.as_str()) {
-            e.msas
-                .iter()
-                .filter(|m| Some(m.guid()) == sense.msa.as_deref())
-                .map(|m| (e, m))
-                .collect()
-        } else {
-            warnings.push(format!(
+        let main_msas: Vec<(&LexEntry, &Msa)> =
+            if let Some(&e) = entry_by_guid.get(component.as_str()) {
+                e.msas.iter().map(|m| (e, m)).collect()
+            } else if let Some(&(e, sense)) = sense_owner.get(component.as_str()) {
+                e.msas
+                    .iter()
+                    .filter(|m| Some(m.guid()) == sense.msa.as_deref())
+                    .map(|m| (e, m))
+                    .collect()
+            } else {
+                warnings.push(format!(
                 "variant entry {:?}: component {component:?} does not resolve to an entry or sense",
                 variant_entry.guid
             ));
-            Vec::new()
-        };
+                Vec::new()
+            };
 
         // Stem MSAs: one variant LexEntryDef per (infl_type, msa) pair -- infl_type-sensitive
         // gloss prepend/append + inflFeats merge (`build_variant_stem_entry`).
@@ -434,10 +464,17 @@ fn build_variant(
             if matches!(msa, Msa::Stem { .. }) {
                 continue;
             }
-            if let Some(id) =
-                build_variant_affix_rule(variant_entry, main_entry, msa, variant_affix_allos, ctx, acc, warnings)
-            {
-                let template_only = matches!(msa, Msa::Inflectional { slots, .. } if !slots.is_empty());
+            if let Some(id) = build_variant_affix_rule(
+                variant_entry,
+                main_entry,
+                msa,
+                variant_affix_allos,
+                ctx,
+                acc,
+                warnings,
+            ) {
+                let template_only =
+                    matches!(msa, Msa::Inflectional { slots, .. } if !slots.is_empty());
                 if !template_only {
                     morphology_mrules.push(id);
                 }
@@ -525,7 +562,9 @@ fn build_variant_stem_entry(
         return None;
     };
 
-    let pos_bits = part_of_speech.as_deref().and_then(|p| ctx.pos.bits_single(p));
+    let pos_bits = part_of_speech
+        .as_deref()
+        .and_then(|p| ctx.pos.bits_single(p));
 
     // Merge MsFeatures with the inflType's own InflFeats (HCLoader.cs:769-782: the inflType's FS
     // is added to/replaces the head feature's value; both are `{closed feature -> value}` lists
@@ -541,7 +580,8 @@ fn build_variant_stem_entry(
         }
     }
 
-    let syn_fs = match super::features::build_syn_fs(ctx.syn, pos_bits, merged_ms_features.as_ref()) {
+    let syn_fs = match super::features::build_syn_fs(ctx.syn, pos_bits, merged_ms_features.as_ref())
+    {
         Ok(fs) => acc.fs_interner.intern(fs),
         Err(e) => {
             warnings.push(format!("MSA {guid:?}: {e}; variant entry skipped"));
@@ -550,9 +590,11 @@ fn build_variant_stem_entry(
     };
     let partial = part_of_speech.is_none();
 
-    let infl_class_guid = inflection_class
-        .clone()
-        .or_else(|| part_of_speech.as_deref().and_then(|p| ctx.pos.default_inflection_class(p)));
+    let infl_class_guid = inflection_class.clone().or_else(|| {
+        part_of_speech
+            .as_deref()
+            .and_then(|p| ctx.pos.default_inflection_class(p))
+    });
     let mut mpr = crate::model::MprSet::EMPTY;
     if let Some(ic) = &infl_class_guid {
         if let Some(s) = ctx.mpr.infl_class_single(ic) {
@@ -574,12 +616,19 @@ fn build_variant_stem_entry(
     let mut allomorphs = Vec::new();
     // Variants are built for the Morphology bucket only (clitic-typed variant forms are a known
     // gap — no reference corpus exercises them; see `build`'s partition doc).
-    for allo in variant_entry.allomorphs.iter().filter(|a| is_lex_entry_form(a, false)) {
+    for allo in variant_entry
+        .allomorphs
+        .iter()
+        .filter(|a| is_lex_entry_form(a, false))
+    {
         match build_root_allomorph(allo, ctx, warnings) {
             Ok(def) => {
                 let allo_id = crate::model::AllomorphId(acc.allomorph_owners.len() as u32);
                 acc.allomorph_owners
-                    .push(crate::model::AllomorphOwner::Root(lex_id, allomorphs.len() as u16));
+                    .push(crate::model::AllomorphOwner::Root(
+                        lex_id,
+                        allomorphs.len() as u16,
+                    ));
                 acc.allomorph_guid_index.insert(allo.guid.clone(), allo_id);
                 allomorphs.push(RootAllomorphDef { id: allo_id, ..def });
             }

@@ -54,8 +54,8 @@ fn have(name: &str) -> bool {
 
 fn load_indonesian() -> Grammar {
     let path = sample_path("indonesian-hc.xml");
-    let xml = std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let xml =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     pg_grammar::load(&xml).unwrap_or_else(|e| panic!("failed to load indonesian-hc.xml: {e}"))
 }
 
@@ -174,7 +174,11 @@ fn b_indonesian_recall_full_corpus_minus_redup() {
         .map(str::trim)
         .filter(|w| !w.is_empty())
         .collect();
-    assert!(words.len() >= 121, "corpus has at least 121 words, got {}", words.len());
+    assert!(
+        words.len() >= 121,
+        "corpus has at least 121 words, got {}",
+        words.len()
+    );
 
     println!("--- excluded (reduplication, P2 peel) ---");
     for (w, reason) in REDUP_EXCLUDED {
@@ -234,13 +238,17 @@ fn b_indonesian_recall_full_corpus_minus_redup() {
         propose_time / (n_words_analyzed.max(1) as u32)
     );
     if !misses.is_empty() {
-        println!("--- MISSES ({} of {n_total}) — the fix list ---", misses.len());
+        println!(
+            "--- MISSES ({} of {n_total}) — the fix list ---",
+            misses.len()
+        );
         for m in &misses {
             println!("MISS {m}");
         }
     }
     assert_eq!(
-        n_covered, n_total,
+        n_covered,
+        n_total,
         "recall gate: {} engine analyses not proposed (see MISS lines above)",
         n_total - n_covered
     );
@@ -265,9 +273,18 @@ fn c_junction_spot_checks() {
 
     // (word, description)
     let cases = [
-        ("membaca", "N-assimilation without deletion (meN+baca -> membaca, b retained)"),
-        ("menulis", "N-assimilation WITH root-initial deletion (meN+tulis -> menulis, t deleted)"),
-        ("memukul", "N-assimilation WITH root-initial deletion (meN+pukul -> memukul, p deleted)"),
+        (
+            "membaca",
+            "N-assimilation without deletion (meN+baca -> membaca, b retained)",
+        ),
+        (
+            "menulis",
+            "N-assimilation WITH root-initial deletion (meN+tulis -> menulis, t deleted)",
+        ),
+        (
+            "memukul",
+            "N-assimilation WITH root-initial deletion (meN+pukul -> memukul, p deleted)",
+        ),
         ("mengkhawatirkan", "meN- + root + -kan suffix"),
         ("tulis", "plain unprefixed root"),
     ];

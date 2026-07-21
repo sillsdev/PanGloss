@@ -8,8 +8,7 @@
 //! round trip.
 
 use pg_lexicon::{
-    augment_xml, candidate_classes, disambiguating_forms, validate_shape, UserLexEntry,
-    UserLexicon,
+    augment_xml, candidate_classes, disambiguating_forms, validate_shape, UserLexEntry, UserLexicon,
 };
 
 const TOY_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
@@ -109,7 +108,11 @@ const TOY_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 fn candidate_classes_finds_both_noun_classes() {
     let g = pg_grammar::load(TOY_XML).expect("toy fixture loads");
     let classes = candidate_classes(&g);
-    assert_eq!(classes.len(), 2, "C1 and C2 must be distinct candidate classes: {classes:?}");
+    assert_eq!(
+        classes.len(),
+        2,
+        "C1 and C2 must be distinct candidate classes: {classes:?}"
+    );
 
     let c1 = classes
         .iter()
@@ -117,7 +120,10 @@ fn candidate_classes_finds_both_noun_classes() {
         .expect("a C1 class");
     assert_eq!(c1.pos.as_deref(), Some("n"));
     assert_eq!(c1.entry_count, 2, "eHouse + eBook are both C1");
-    assert_eq!(c1.exemplar_xml_key, "eHouse", "first-seen entry in the class");
+    assert_eq!(
+        c1.exemplar_xml_key, "eHouse",
+        "first-seen entry in the class"
+    );
     assert_eq!(c1.exemplar_morph_id.as_deref(), Some("101"));
 
     let c2 = classes
@@ -126,7 +132,10 @@ fn candidate_classes_finds_both_noun_classes() {
         .expect("a C2 class");
     assert_eq!(c2.entry_count, 1);
     assert_eq!(c2.exemplar_xml_key, "eStone");
-    assert_eq!(c2.exemplar_morph_id, None, "eStone has no <Properties> block");
+    assert_eq!(
+        c2.exemplar_morph_id, None,
+        "eStone has no <Properties> block"
+    );
 
     assert_ne!(c1.key, c2.key, "class keys must be distinct");
 }
@@ -144,13 +153,26 @@ fn disambiguating_forms_differ_between_the_two_classes() {
     let forms = disambiguating_forms(&g, &morpher, shape, &classes, 4);
     assert_eq!(forms.len(), 2);
 
-    let c1_key = classes.iter().find(|c| c.mpr_names == vec!["C1".to_string()]).unwrap().key.clone();
-    let c2_key = classes.iter().find(|c| c.mpr_names == vec!["C2".to_string()]).unwrap().key.clone();
+    let c1_key = classes
+        .iter()
+        .find(|c| c.mpr_names == vec!["C1".to_string()])
+        .unwrap()
+        .key
+        .clone();
+    let c2_key = classes
+        .iter()
+        .find(|c| c.mpr_names == vec!["C2".to_string()])
+        .unwrap()
+        .key
+        .clone();
 
     let c1_forms = &forms.iter().find(|f| f.class_key == c1_key).unwrap().forms;
     let c2_forms = &forms.iter().find(|f| f.class_key == c2_key).unwrap().forms;
 
-    assert!(!c1_forms.is_empty() && !c2_forms.is_empty(), "both classes must yield at least the bare stem");
+    assert!(
+        !c1_forms.is_empty() && !c2_forms.is_empty(),
+        "both classes must yield at least the bare stem"
+    );
     assert_eq!(c1_forms[0], "sato", "bare stem comes first");
     assert_eq!(c2_forms[0], "sato");
 
@@ -170,7 +192,10 @@ fn validate_shape_rejects_out_of_alphabet_characters() {
     let g = pg_grammar::load(TOY_XML).expect("toy fixture loads");
     assert!(validate_shape(&g, "milu").is_ok());
     let err = validate_shape(&g, "milux").unwrap_err();
-    assert!(err.contains('x'), "message should name the offending character: {err}");
+    assert!(
+        err.contains('x'),
+        "message should name the offending character: {err}"
+    );
 }
 
 #[test]
@@ -212,15 +237,28 @@ fn augment_xml_splices_a_new_entry_that_reloads_and_parses() {
 
     let (augmented_xml, report) =
         augment_xml(TOY_XML, &g, &lexicon, &classes).expect("augmentation succeeds");
-    assert!(report.skipped.is_empty(), "nothing should be skipped: {:?}", report.skipped);
-    assert!(augmented_xml.contains("user:user-1"), "the user marker must be present");
-    assert!(augmented_xml.contains("sato"), "the new shape must be present");
+    assert!(
+        report.skipped.is_empty(),
+        "nothing should be skipped: {:?}",
+        report.skipped
+    );
+    assert!(
+        augmented_xml.contains("user:user-1"),
+        "the user marker must be present"
+    );
+    assert!(
+        augmented_xml.contains("sato"),
+        "the new shape must be present"
+    );
 
     // Reload through the NORMAL loader (not the in-memory `g`) and confirm the original grammar's
     // own words still parse (the splice must not corrupt anything already there)...
     let g2 = pg_grammar::load(&augmented_xml).expect("augmented XML reloads cleanly");
     let m2 = pg_parse::Morpher::new(&g2, usize::MAX);
-    assert!(!m2.parse_word("milu").analyses.is_empty(), "pre-existing entry must still parse");
+    assert!(
+        !m2.parse_word("milu").analyses.is_empty(),
+        "pre-existing entry must still parse"
+    );
     assert!(
         m2.parse_word("tanusi").analyses.is_empty(),
         "tanu is C2 (pre-existing eStone), so it must not accept C1's plural allomorph either"
@@ -228,13 +266,24 @@ fn augment_xml_splices_a_new_entry_that_reloads_and_parses() {
 
     // ...and that the NEW word now parses too, including its class-appropriate plural (+ta, C2).
     let bare = m2.parse_word("sato");
-    assert!(!bare.analyses.is_empty(), "the newly added root must parse bare: {:?}", bare.analyses);
+    assert!(
+        !bare.analyses.is_empty(),
+        "the newly added root must parse bare: {:?}",
+        bare.analyses
+    );
     let plural = m2.parse_word("satota");
-    assert!(!plural.analyses.is_empty(), "the new C2 word's plural (+ta) must parse: {:?}", plural.analyses);
+    assert!(
+        !plural.analyses.is_empty(),
+        "the new C2 word's plural (+ta) must parse: {:?}",
+        plural.analyses
+    );
     // The C1-suffixed form must NOT parse for this new (C2) word -- confirms the augmented entry
     // really carries C2's own `ruleFeatures`, not some default/blank MPR set.
     let wrong_plural = m2.parse_word("satosi");
-    assert!(wrong_plural.analyses.is_empty(), "a C2 word must not accept C1's plural allomorph");
+    assert!(
+        wrong_plural.analyses.is_empty(),
+        "a C2 word must not accept C1's plural allomorph"
+    );
 }
 
 #[test]
@@ -254,9 +303,17 @@ fn augment_xml_skips_and_reports_an_unresolvable_class_key() {
 
     let (augmented_xml, report) =
         augment_xml(TOY_XML, &g, &lexicon, &classes).expect("augmentation still succeeds overall");
-    assert_eq!(report.skipped.len(), 1, "the unresolvable entry must be reported: {:?}", report.skipped);
+    assert_eq!(
+        report.skipped.len(),
+        1,
+        "the unresolvable entry must be reported: {:?}",
+        report.skipped
+    );
     assert!(report.skipped[0].contains("user-2"));
-    assert!(!augmented_xml.contains("user:user-2"), "a skipped entry must not be spliced in");
+    assert!(
+        !augmented_xml.contains("user:user-2"),
+        "a skipped entry must not be spliced in"
+    );
     // The rest of the document must be untouched (byte-identical) when nothing was spliced in.
     assert_eq!(augmented_xml, TOY_XML);
 }

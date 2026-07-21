@@ -5,7 +5,10 @@
 use pg_snapshot::morphology::{CompoundConstituentRequirement, CompoundOutcome, CompoundRule};
 use pg_snapshot::Snapshot;
 
-use crate::model::{CompoundingRuleDef, CompoundingSubruleDef, MRuleId, MorphRuleDef, OutputAction, PartRef, Pattern};
+use crate::model::{
+    CompoundingRuleDef, CompoundingSubruleDef, MRuleId, MorphRuleDef, OutputAction, PartRef,
+    Pattern,
+};
 use crate::GrammarError;
 
 use super::{environment, Acc, Ctx};
@@ -51,13 +54,19 @@ pub(crate) fn build(
                 overriding,
                 ..
             } => {
-                if let Some(id) =
-                    build_endo(name, *head_last, left, right, overriding, max_apps, ctx, acc, warnings)
-                {
+                if let Some(id) = build_endo(
+                    name, *head_last, left, right, overriding, max_apps, ctx, acc, warnings,
+                ) {
                     morphology_mrules.push(id);
                 }
             }
-            CompoundRule::Exocentric { name, left, right, to, .. } => {
+            CompoundRule::Exocentric {
+                name,
+                left,
+                right,
+                to,
+                ..
+            } => {
                 for id in build_exo(name, left, right, to, max_apps, ctx, acc, warnings) {
                     morphology_mrules.push(id);
                 }
@@ -90,28 +99,29 @@ fn default_compounding_rules(ctx: &Ctx, acc: &mut Acc) -> Vec<MRuleId> {
         let rhs = plus_join(head_first, ctx);
         let empty = acc.fs_interner.intern(pg_featstruct::FeatureStruct::EMPTY);
         let mrule_id = MRuleId(acc.mrules.len() as u32);
-        acc.mrules.push(MorphRuleDef::Compounding(CompoundingRuleDef {
-            xml_id: name.to_string(),
-            name: Some(name.to_string()),
-            blockable: true,
-            max_apps: 1,
-            head_required_syn_fs: empty,
-            non_head_required_syn_fs: empty,
-            out_syn_fs: empty,
-            head_prod_restrictions_mpr: crate::model::MprSet::EMPTY,
-            non_head_prod_restrictions_mpr: crate::model::MprSet::EMPTY,
-            output_prod_restrictions_mpr: crate::model::MprSet::EMPTY,
-            obligatory_features: Vec::new(),
-            subrules: vec![CompoundingSubruleDef {
-                vars: crate::model::VarTable::default(),
-                required_mpr: crate::model::MprSet::EMPTY,
-                excluded_mpr: crate::model::MprSet::EMPTY,
-                out_mpr: crate::model::MprSet::EMPTY,
-                head_lhs,
-                non_head_lhs,
-                rhs,
-            }],
-        }));
+        acc.mrules
+            .push(MorphRuleDef::Compounding(CompoundingRuleDef {
+                xml_id: name.to_string(),
+                name: Some(name.to_string()),
+                blockable: true,
+                max_apps: 1,
+                head_required_syn_fs: empty,
+                non_head_required_syn_fs: empty,
+                out_syn_fs: empty,
+                head_prod_restrictions_mpr: crate::model::MprSet::EMPTY,
+                non_head_prod_restrictions_mpr: crate::model::MprSet::EMPTY,
+                output_prod_restrictions_mpr: crate::model::MprSet::EMPTY,
+                obligatory_features: Vec::new(),
+                subrules: vec![CompoundingSubruleDef {
+                    vars: crate::model::VarTable::default(),
+                    required_mpr: crate::model::MprSet::EMPTY,
+                    excluded_mpr: crate::model::MprSet::EMPTY,
+                    out_mpr: crate::model::MprSet::EMPTY,
+                    head_lhs,
+                    non_head_lhs,
+                    rhs,
+                }],
+            }));
         out.push(mrule_id);
     }
     out
@@ -120,7 +130,8 @@ fn default_compounding_rules(ctx: &Ctx, acc: &mut Acc) -> Vec<MRuleId> {
 /// `Copy(head), "+", Copy(nonhead)` or the reverse, depending on which constituent comes first in
 /// the output surface form.
 fn plus_join(head_first: bool, ctx: &Ctx) -> Vec<OutputAction> {
-    let plus = crate::segment::segment(ctx.table, "+").expect("'+' always segments (morph boundary)");
+    let plus =
+        crate::segment::segment(ctx.table, "+").expect("'+' always segments (morph boundary)");
     let insert = OutputAction::InsertSegments {
         table: ctx.table_id,
         shape: crate::model::SegmentedText {
@@ -155,10 +166,17 @@ fn build_endo(
     acc: &mut Acc,
     warnings: &mut Vec<String>,
 ) -> Option<MRuleId> {
-    let (head_side, non_head_side) = if head_last { (right, left) } else { (left, right) };
+    let (head_side, non_head_side) = if head_last {
+        (right, left)
+    } else {
+        (left, right)
+    };
     let head_required_syn_fs = side_required_fs(head_side, ctx, acc, warnings)?;
     let non_head_required_syn_fs = side_required_fs(non_head_side, ctx, acc, warnings)?;
-    let out_pos = overriding.part_of_speech.as_deref().and_then(|p| ctx.pos.bits_single(p));
+    let out_pos = overriding
+        .part_of_speech
+        .as_deref()
+        .and_then(|p| ctx.pos.bits_single(p));
     let out_syn_fs = match super::features::build_syn_fs(ctx.syn, out_pos, None) {
         Ok(fs) => acc.fs_interner.intern(fs),
         Err(e) => {
@@ -176,28 +194,29 @@ fn build_endo(
     let rhs = plus_join(!head_last, ctx);
 
     let mrule_id = MRuleId(acc.mrules.len() as u32);
-    acc.mrules.push(MorphRuleDef::Compounding(CompoundingRuleDef {
-        xml_id: format!("endo#{name}"),
-        name: Some(name.to_string()),
-        blockable: true,
-        max_apps,
-        head_required_syn_fs,
-        non_head_required_syn_fs,
-        out_syn_fs,
-        head_prod_restrictions_mpr: side_mpr(head_side, ctx, warnings),
-        non_head_prod_restrictions_mpr: side_mpr(non_head_side, ctx, warnings),
-        output_prod_restrictions_mpr: crate::model::MprSet::EMPTY,
-        obligatory_features: Vec::new(),
-        subrules: vec![CompoundingSubruleDef {
-            vars: crate::model::VarTable::default(),
-            required_mpr: crate::model::MprSet::EMPTY,
-            excluded_mpr: crate::model::MprSet::EMPTY,
-            out_mpr,
-            head_lhs,
-            non_head_lhs,
-            rhs,
-        }],
-    }));
+    acc.mrules
+        .push(MorphRuleDef::Compounding(CompoundingRuleDef {
+            xml_id: format!("endo#{name}"),
+            name: Some(name.to_string()),
+            blockable: true,
+            max_apps,
+            head_required_syn_fs,
+            non_head_required_syn_fs,
+            out_syn_fs,
+            head_prod_restrictions_mpr: side_mpr(head_side, ctx, warnings),
+            non_head_prod_restrictions_mpr: side_mpr(non_head_side, ctx, warnings),
+            output_prod_restrictions_mpr: crate::model::MprSet::EMPTY,
+            obligatory_features: Vec::new(),
+            subrules: vec![CompoundingSubruleDef {
+                vars: crate::model::VarTable::default(),
+                required_mpr: crate::model::MprSet::EMPTY,
+                excluded_mpr: crate::model::MprSet::EMPTY,
+                out_mpr,
+                head_lhs,
+                non_head_lhs,
+                rhs,
+            }],
+        }));
     Some(mrule_id)
 }
 
@@ -220,7 +239,10 @@ fn build_exo(
     let Some(right_fs) = side_required_fs(right, ctx, acc, warnings) else {
         return Vec::new();
     };
-    let out_pos = to.part_of_speech.as_deref().and_then(|p| ctx.pos.bits_single(p));
+    let out_pos = to
+        .part_of_speech
+        .as_deref()
+        .and_then(|p| ctx.pos.bits_single(p));
     let out_syn_fs = match super::features::build_syn_fs(ctx.syn, out_pos, None) {
         Ok(fs) => acc.fs_interner.intern(fs),
         Err(e) => {
@@ -242,28 +264,29 @@ fn build_exo(
         let (head_lhs, non_head_lhs) = head_nonhead_patterns(ctx);
         let rhs = plus_join(false, ctx);
         let mrule_id = MRuleId(acc.mrules.len() as u32);
-        acc.mrules.push(MorphRuleDef::Compounding(CompoundingRuleDef {
-            xml_id: format!("exo-right#{name}"),
-            name: Some(name.to_string()),
-            blockable: true,
-            max_apps,
-            head_required_syn_fs: right_fs,
-            non_head_required_syn_fs: left_fs,
-            out_syn_fs,
-            head_prod_restrictions_mpr: right_mpr,
-            non_head_prod_restrictions_mpr: left_mpr,
-            output_prod_restrictions_mpr: crate::model::MprSet::EMPTY,
-            obligatory_features: Vec::new(),
-            subrules: vec![CompoundingSubruleDef {
-                vars: crate::model::VarTable::default(),
-                required_mpr: crate::model::MprSet::EMPTY,
-                excluded_mpr: crate::model::MprSet::EMPTY,
-                out_mpr,
-                head_lhs,
-                non_head_lhs,
-                rhs,
-            }],
-        }));
+        acc.mrules
+            .push(MorphRuleDef::Compounding(CompoundingRuleDef {
+                xml_id: format!("exo-right#{name}"),
+                name: Some(name.to_string()),
+                blockable: true,
+                max_apps,
+                head_required_syn_fs: right_fs,
+                non_head_required_syn_fs: left_fs,
+                out_syn_fs,
+                head_prod_restrictions_mpr: right_mpr,
+                non_head_prod_restrictions_mpr: left_mpr,
+                output_prod_restrictions_mpr: crate::model::MprSet::EMPTY,
+                obligatory_features: Vec::new(),
+                subrules: vec![CompoundingSubruleDef {
+                    vars: crate::model::VarTable::default(),
+                    required_mpr: crate::model::MprSet::EMPTY,
+                    excluded_mpr: crate::model::MprSet::EMPTY,
+                    out_mpr,
+                    head_lhs,
+                    non_head_lhs,
+                    rhs,
+                }],
+            }));
         out.push(mrule_id);
     }
     // "left compound rule": head = left, non-head = right, output = head+"+"+nonhead.
@@ -271,28 +294,29 @@ fn build_exo(
         let (head_lhs, non_head_lhs) = head_nonhead_patterns(ctx);
         let rhs = plus_join(true, ctx);
         let mrule_id = MRuleId(acc.mrules.len() as u32);
-        acc.mrules.push(MorphRuleDef::Compounding(CompoundingRuleDef {
-            xml_id: format!("exo-left#{name}"),
-            name: Some(name.to_string()),
-            blockable: true,
-            max_apps,
-            head_required_syn_fs: left_fs,
-            non_head_required_syn_fs: right_fs,
-            out_syn_fs,
-            head_prod_restrictions_mpr: left_mpr,
-            non_head_prod_restrictions_mpr: right_mpr,
-            output_prod_restrictions_mpr: crate::model::MprSet::EMPTY,
-            obligatory_features: Vec::new(),
-            subrules: vec![CompoundingSubruleDef {
-                vars: crate::model::VarTable::default(),
-                required_mpr: crate::model::MprSet::EMPTY,
-                excluded_mpr: crate::model::MprSet::EMPTY,
-                out_mpr,
-                head_lhs,
-                non_head_lhs,
-                rhs,
-            }],
-        }));
+        acc.mrules
+            .push(MorphRuleDef::Compounding(CompoundingRuleDef {
+                xml_id: format!("exo-left#{name}"),
+                name: Some(name.to_string()),
+                blockable: true,
+                max_apps,
+                head_required_syn_fs: left_fs,
+                non_head_required_syn_fs: right_fs,
+                out_syn_fs,
+                head_prod_restrictions_mpr: left_mpr,
+                non_head_prod_restrictions_mpr: right_mpr,
+                output_prod_restrictions_mpr: crate::model::MprSet::EMPTY,
+                obligatory_features: Vec::new(),
+                subrules: vec![CompoundingSubruleDef {
+                    vars: crate::model::VarTable::default(),
+                    required_mpr: crate::model::MprSet::EMPTY,
+                    excluded_mpr: crate::model::MprSet::EMPTY,
+                    out_mpr,
+                    head_lhs,
+                    non_head_lhs,
+                    rhs,
+                }],
+            }));
         out.push(mrule_id);
     }
     out
@@ -317,12 +341,18 @@ fn side_required_fs(
     }
 }
 
-fn side_mpr(side: &CompoundConstituentRequirement, ctx: &Ctx, warnings: &mut Vec<String>) -> crate::model::MprSet {
+fn side_mpr(
+    side: &CompoundConstituentRequirement,
+    ctx: &Ctx,
+    warnings: &mut Vec<String>,
+) -> crate::model::MprSet {
     let mut set = crate::model::MprSet::EMPTY;
     for f in &side.exception_features {
         match ctx.mpr.exception_feature(f) {
             Some(s) => set = set.union(s),
-            None => warnings.push(format!("compound rule: exception feature {f:?} does not resolve")),
+            None => warnings.push(format!(
+                "compound rule: exception feature {f:?} does not resolve"
+            )),
         }
     }
     set

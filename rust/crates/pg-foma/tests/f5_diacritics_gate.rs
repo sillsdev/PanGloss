@@ -52,17 +52,22 @@ use pg_grammar::model::Grammar;
 use pg_parse::{Morpher, ParseOptions};
 
 fn fixture_path(name: &str) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(name)
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures")
+        .join(name)
 }
 
 fn load_dia() -> Grammar {
     let path = fixture_path("dia-hc.xml");
-    let xml = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let xml =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     pg_grammar::load(&xml).unwrap_or_else(|e| panic!("failed to load dia-hc.xml: {e}"))
 }
 
 /// Every word from the original bug report: 4 bare roots + their 2 suffixed forms each.
-const WORDS: &[&str] = &["año", "años", "café", "cafés", "göl", "göller", "kelî", "kelîs"];
+const WORDS: &[&str] = &[
+    "año", "años", "café", "cafés", "göl", "göller", "kelî", "kelîs",
+];
 
 // -------------------------------------------------------------------------------------------
 // (a) emit + compile: must succeed, and the Multichar_Symbols header must actually declare the
@@ -73,10 +78,19 @@ const WORDS: &[&str] = &["año", "años", "café", "cafés", "göl", "göller", 
 fn a_emits_and_compiles_with_combining_runs_declared() {
     let g = load_dia();
     let result = emit::emit(&g);
-    assert_eq!(result.report.counts.entries, 4, "4 lexical entries in the fixture");
-    assert_eq!(result.report.counts.rules, 2, "2 morphological rules (PL, PL2) in the fixture");
+    assert_eq!(
+        result.report.counts.entries, 4,
+        "4 lexical entries in the fixture"
+    );
+    assert_eq!(
+        result.report.counts.rules, 2,
+        "2 morphological rules (PL, PL2) in the fixture"
+    );
 
-    let header_end = result.lexc_source.find("\nLEXICON").unwrap_or(result.lexc_source.len());
+    let header_end = result
+        .lexc_source
+        .find("\nLEXICON")
+        .unwrap_or(result.lexc_source.len());
     let header = &result.lexc_source[..header_end];
     for run in ["e\u{301}", "i\u{302}", "n\u{303}", "o\u{308}"] {
         assert!(
@@ -142,7 +156,10 @@ fn c_foma_analyzer_matches_engine_exactly() {
         // The confirmed surface strings must be exactly the queried word (module doc: this is
         // %not just nonzero, but CORRECT%).
         for (_, surface) in &foma_outcome.analyses {
-            assert_eq!(surface, word, "confirmed analysis surface must equal the queried word");
+            assert_eq!(
+                surface, word,
+                "confirmed analysis surface must equal the queried word"
+            );
         }
     }
 }
@@ -166,8 +183,10 @@ fn c_foma_analyzer_matches_engine_exactly() {
 
 fn load_boundary_mark() -> Grammar {
     let path = fixture_path("boundary-mark-affix-hc.xml");
-    let xml = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
-    pg_grammar::load(&xml).unwrap_or_else(|e| panic!("failed to load boundary-mark-affix-hc.xml: {e}"))
+    let xml =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    pg_grammar::load(&xml)
+        .unwrap_or_else(|e| panic!("failed to load boundary-mark-affix-hc.xml: {e}"))
 }
 
 const BOUNDARY_WORDS: &[&str] = &["b\u{301}", "b\u{301}s"];
@@ -176,7 +195,10 @@ const BOUNDARY_WORDS: &[&str] = &["b\u{301}", "b\u{301}s"];
 fn d_boundary_mark_declares_the_cross_char_def_run() {
     let g = load_boundary_mark();
     let result = emit::emit(&g);
-    let header_end = result.lexc_source.find("\nLEXICON").unwrap_or(result.lexc_source.len());
+    let header_end = result
+        .lexc_source
+        .find("\nLEXICON")
+        .unwrap_or(result.lexc_source.len());
     let header = &result.lexc_source[..header_end];
     assert!(
         header.contains("b\u{301}"),
@@ -211,7 +233,10 @@ fn e_boundary_mark_foma_analyzer_matches_engine_exactly() {
             engine_outcome.structured.len()
         );
         for (_, surface) in &foma_outcome.analyses {
-            assert_eq!(surface, word, "confirmed analysis surface must equal the queried word");
+            assert_eq!(
+                surface, word,
+                "confirmed analysis surface must equal the queried word"
+            );
         }
     }
 }

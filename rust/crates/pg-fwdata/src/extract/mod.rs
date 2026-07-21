@@ -72,7 +72,9 @@ impl<'a> Ctx<'a> {
                 None
             }
             None => {
-                self.warn(format!("{context}: dangling reference to {want_class} {guid}"));
+                self.warn(format!(
+                    "{context}: dangling reference to {want_class} {guid}"
+                ));
                 None
             }
         }

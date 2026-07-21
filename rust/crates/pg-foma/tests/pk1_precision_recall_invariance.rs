@@ -70,7 +70,8 @@ fn load_grammar(name: &str) -> Option<Grammar> {
 
 fn read_words(name: &str) -> Vec<String> {
     let path = sample_path(name);
-    let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let text =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     text.lines()
         .map(str::trim)
         .filter(|w| !w.is_empty())
@@ -132,13 +133,18 @@ fn candidate_keys(cands: &[Candidate]) -> BTreeSet<(Vec<u32>, i32)> {
 /// `propose(word)` UNION `peeler.peel_candidates(word, propose)`, deduped by `(morphemes,
 /// root_index)` -- exactly `FomaAnalyzer::analyze_word`'s own candidate-assembly step (that
 /// module's doc), reimplemented here against a caller-supplied net (module doc's "why this file...").
-fn propose_and_peel(net: &Fsm, g: &Grammar, peeler: &ReduplicationPeeler, word: &str) -> Vec<Candidate> {
+fn propose_and_peel(
+    net: &Fsm,
+    g: &Grammar,
+    peeler: &ReduplicationPeeler,
+    word: &str,
+) -> Vec<Candidate> {
     let mut candidates = propose(net, word);
     let peeled = peeler.peel_candidates(g, word, &mut |r: &str| propose(net, r));
     for c in peeled {
-        let already = candidates
-            .iter()
-            .any(|existing| existing.root_index == c.root_index && existing.morphemes == c.morphemes);
+        let already = candidates.iter().any(|existing| {
+            existing.root_index == c.root_index && existing.morphemes == c.morphemes
+        });
         if !already {
             candidates.push(c);
         }
@@ -210,7 +216,8 @@ fn run_invariance(g: &Grammar, words: &[String]) -> bool {
         let confirmed_strip = confirmed_multiset(g, &owners, &morpher, &cands_strip, word);
         let confirmed_allflags = confirmed_multiset(g, &owners, &morpher, &cands_allflags, word);
         assert_eq!(
-            confirmed_strip, confirmed_allflags,
+            confirmed_strip,
+            confirmed_allflags,
             "{word:?}: CONFIRMED analyses must be IDENTICAL between Strip and AllFlags -- the \
              knob must never change which analyses come out, only network/candidate-count \
              performance. Strip candidates={}, AllFlags candidates={}",
@@ -282,8 +289,14 @@ fn sena_precision_recall_invariance() {
         "Sena's AllFlags lexc source must contain at least one ENV flag set"
     );
 
-    let words: Vec<String> = read_words("sena-words.txt").into_iter().take(SENA_SCAN_WORDS).collect();
-    assert!(words.len() >= SENA_SCAN_WORDS.min(10), "expected Sena corpus words to scan");
+    let words: Vec<String> = read_words("sena-words.txt")
+        .into_iter()
+        .take(SENA_SCAN_WORDS)
+        .collect();
+    assert!(
+        words.len() >= SENA_SCAN_WORDS.min(10),
+        "expected Sena corpus words to scan"
+    );
 
     let saw_strict_shrink = run_invariance(&g, &words);
     // Non-vacuity guard (b): among the scanned words, AllFlags must have actually pruned at least
@@ -323,7 +336,11 @@ fn indonesian_precision_recall_invariance() {
     drop(net_strip);
 
     let words = read_words("indonesian-words.txt");
-    assert!(words.len() >= 100, "expected most of the Indonesian corpus, got {}", words.len());
+    assert!(
+        words.len() >= 100,
+        "expected most of the Indonesian corpus, got {}",
+        words.len()
+    );
     let _saw_strict_shrink = run_invariance(&g, &words);
 }
 
@@ -345,6 +362,9 @@ fn emit_and_emit_with_precision_strip_are_the_same_call() {
         };
         let a = emit::emit(&g).lexc_source;
         let b = emit::emit_with_precision(&g, PrecisionConfig::Strip).lexc_source;
-        assert_eq!(a, b, "{name}: emit() must equal emit_with_precision(_, Strip) byte-for-byte");
+        assert_eq!(
+            a, b,
+            "{name}: emit() must equal emit_with_precision(_, Strip) byte-for-byte"
+        );
     }
 }

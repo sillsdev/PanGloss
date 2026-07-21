@@ -146,7 +146,10 @@ pub fn emit_underlying_filtered_with_budget(
     let line_cap = budget.line_cap();
     let check_line_budget = |lines: usize| -> Result<(), ComposeError> {
         if lines > line_cap {
-            return Err(ComposeError::EmitLineBudgetExceeded { lines, limit: line_cap });
+            return Err(ComposeError::EmitLineBudgetExceeded {
+                lines,
+                limit: line_cap,
+            });
         }
         Ok(())
     };
@@ -220,7 +223,10 @@ pub fn emit_underlying_filtered_with_budget(
                     check_line_budget(root_lines.len() + prefix_lines.len() + suffix_lines.len())?;
                 }
                 other => {
-                    skipped.push(format!("{morph_name}#allo{ai} role={other_label}", other_label = role_label(other)));
+                    skipped.push(format!(
+                        "{morph_name}#allo{ai} role={other_label}",
+                        other_label = role_label(other)
+                    ));
                 }
             }
         }
@@ -330,7 +336,8 @@ mod emit_budget_tests {
 </HermitCrabInput>
 "#
         );
-        pg_grammar::load(&xml).unwrap_or_else(|e| panic!("failed to load 20-entry fixture: {e}\n{xml}"))
+        pg_grammar::load(&xml)
+            .unwrap_or_else(|e| panic!("failed to load 20-entry fixture: {e}\n{xml}"))
     }
 
     #[test]
@@ -338,13 +345,17 @@ mod emit_budget_tests {
         let g = twenty_entries_fixture();
         let table = &g.char_tables[0];
         let alphabet = SegAlphabet::new(table);
-        let budget = ComposeBudget::with_caps(usize::MAX, usize::MAX, usize::MAX, usize::MAX, 5, None);
+        let budget =
+            ComposeBudget::with_caps(usize::MAX, usize::MAX, usize::MAX, usize::MAX, 5, None);
 
         let err = emit_underlying_filtered_with_budget(&g, &alphabet, None, &budget)
             .expect_err("20 root lines must exceed a line_cap of 5");
         match err {
             ComposeError::EmitLineBudgetExceeded { lines, limit } => {
-                assert_eq!(lines, 6, "must bail on the FIRST line count crossing the cap, not the final total");
+                assert_eq!(
+                    lines, 6,
+                    "must bail on the FIRST line count crossing the cap, not the final total"
+                );
                 assert_eq!(limit, 5);
             }
             other => panic!("expected EmitLineBudgetExceeded, got {other:?}"),

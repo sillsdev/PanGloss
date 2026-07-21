@@ -25,7 +25,8 @@ fn default_aweti_path() -> PathBuf {
 }
 
 fn load_grammar(path: &Path) -> Grammar {
-    let json = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let json =
+        std::fs::read_to_string(path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     let snapshot = pg_snapshot::Snapshot::from_json(&json)
         .unwrap_or_else(|e| panic!("parse snapshot {}: {e}", path.display()));
     let (grammar, warnings) = pg_grammar::compile_project(&snapshot)
@@ -55,9 +56,18 @@ enum Role {
 fn classify_affix(rhs: &[OutputAction]) -> Role {
     let copy_parts: Vec<PartRef> = rhs
         .iter()
-        .filter_map(|a| if let OutputAction::Copy(p) = a { Some(*p) } else { None })
+        .filter_map(|a| {
+            if let OutputAction::Copy(p) = a {
+                Some(*p)
+            } else {
+                None
+            }
+        })
         .collect();
-    if copy_parts.iter().any(|p| copy_parts.iter().filter(|&&q| q == *p).count() >= 2) {
+    if copy_parts
+        .iter()
+        .any(|p| copy_parts.iter().filter(|&&q| q == *p).count() >= 2)
+    {
         return Role::Reduplication;
     }
     let mut first_copy: Option<usize> = None;
@@ -107,7 +117,10 @@ fn allomorphs_of(g: &Grammar, mid: MRuleId) -> &[AffixAllomorphDef] {
 
 /// Verbatim port of `emit.rs::rule_role`.
 fn rule_role(g: &Grammar, mid: MRuleId) -> Role {
-    allomorphs_of(g, mid).first().map(|a| classify_affix(&a.rhs)).unwrap_or(Role::None)
+    allomorphs_of(g, mid)
+        .first()
+        .map(|a| classify_affix(&a.rhs))
+        .unwrap_or(Role::None)
 }
 
 /// Verbatim port of `emit.rs::slot_role`.
@@ -122,7 +135,11 @@ fn slot_role(g: &Grammar, slot: &SlotDef) -> Role {
             has_zero = true;
         }
     }
-    if has_zero { Role::Suffix } else { Role::None }
+    if has_zero {
+        Role::Suffix
+    } else {
+        Role::None
+    }
 }
 
 /// Port of `emit.rs::classify_template`, returning uncovered-slot diagnostics as strings instead
@@ -200,7 +217,8 @@ fn structural_candidate_rules(g: &Grammar) -> Vec<(MRuleId, bool)> {
                 return None;
             }
             let structural = is_structural_rule(g, mid);
-            let broad_hit = broad && matches!(rule_role(g, mid), Role::Prefix | Role::Suffix | Role::Infix);
+            let broad_hit =
+                broad && matches!(rule_role(g, mid), Role::Prefix | Role::Suffix | Role::Infix);
             if structural || broad_hit {
                 Some((mid, structural))
             } else {
@@ -216,7 +234,11 @@ fn rule_label(g: &Grammar, mid: MRuleId) -> String {
         MorphRuleDef::Realizational(def) => def.name.clone(),
         MorphRuleDef::Compounding(def) => def.name.clone(),
     };
-    format!("mrule{}({})", mid.0, name.unwrap_or_else(|| "<unnamed>".to_string()))
+    format!(
+        "mrule{}({})",
+        mid.0,
+        name.unwrap_or_else(|| "<unnamed>".to_string())
+    )
 }
 
 fn pretty_fs(g: &Grammar, fs: &pg_featstruct::FeatureStruct) -> String {
@@ -289,7 +311,11 @@ fn main() {
     println!("structural_candidate_rules(g).len() = {}", candidates.len());
     for (mid, is_structural) in &candidates {
         let role = rule_role(&g, *mid);
-        let reason = if *is_structural { "is_structural_rule" } else { "probe_would_refuse-broad" };
+        let reason = if *is_structural {
+            "is_structural_rule"
+        } else {
+            "probe_would_refuse-broad"
+        };
         println!("  {} role={role:?} reason={reason}", rule_label(&g, *mid));
     }
     // Direct answer to "does Aweti have any circumfix or null-morph affix rules?" -- scan every
@@ -322,7 +348,11 @@ fn main() {
 
     // --- 4. Compounding ------------------------------------------------------------------------
     println!("--- 4. Compounding ---");
-    let compounding_count = g.mrules.iter().filter(|m| matches!(m, MorphRuleDef::Compounding(_))).count();
+    let compounding_count = g
+        .mrules
+        .iter()
+        .filter(|m| matches!(m, MorphRuleDef::Compounding(_)))
+        .count();
     println!("mrules matching MorphRuleDef::Compounding(_) = {compounding_count}");
     println!();
 
@@ -335,7 +365,10 @@ fn main() {
         }
     }
     let gated = pg_foma::gate::find_gated_subrules(&g, &rules_in_order);
-    println!("pg_foma::gate::find_gated_subrules(g, prules_in_order).len() = {}", gated.len());
+    println!(
+        "pg_foma::gate::find_gated_subrules(g, prules_in_order).len() = {}",
+        gated.len()
+    );
     println!(
         "(0 means the MPR/POS partition step can be skipped entirely for Aweti: {})",
         gated.is_empty()
@@ -357,11 +390,18 @@ fn main() {
     for (pi, pr) in g.prules.iter().enumerate() {
         if let PhonRuleDef::Rewrite(r) = pr {
             if !r.vars.vars.is_empty() {
-                alpha_prules.push(format!("prule{pi}({:?}) vars={}", r.name, r.vars.vars.len()));
+                alpha_prules.push(format!(
+                    "prule{pi}({:?}) vars={}",
+                    r.name,
+                    r.vars.vars.len()
+                ));
             }
         }
     }
-    println!("  (a) phonological rules whose own VarTable declares >=1 alpha variable: {}", alpha_prules.len());
+    println!(
+        "  (a) phonological rules whose own VarTable declares >=1 alpha variable: {}",
+        alpha_prules.len()
+    );
     for a in &alpha_prules {
         println!("      {a}");
     }
@@ -376,7 +416,9 @@ fn main() {
     let mut template_mrules_with_alpha: Vec<String> = Vec::new();
     for &mi in &template_mrule_ids {
         let mid = MRuleId(mi);
-        let uses_alpha = allomorphs_of(&g, mid).iter().any(|a| !a.vars.vars.is_empty());
+        let uses_alpha = allomorphs_of(&g, mid)
+            .iter()
+            .any(|a| !a.vars.vars.is_empty());
         if uses_alpha {
             template_mrules_with_alpha.push(rule_label(&g, mid));
         }
@@ -403,9 +445,12 @@ fn main() {
 
     // --- 7. Disabled templates -------------------------------------------------------------------
     println!("--- 7. Disabled templates (samples/data/aweti.json) ---");
-    let raw = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
-    let disabled_true = raw.matches("\"disabled\": true").count() + raw.matches("\"disabled\":true").count();
-    let disabled_false = raw.matches("\"disabled\": false").count() + raw.matches("\"disabled\":false").count();
+    let raw =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let disabled_true =
+        raw.matches("\"disabled\": true").count() + raw.matches("\"disabled\":true").count();
+    let disabled_false =
+        raw.matches("\"disabled\": false").count() + raw.matches("\"disabled\":false").count();
     let affix_templates_blocks = raw.matches("\"affixTemplates\"").count();
     println!("raw JSON occurrences of \"disabled\": true = {disabled_true}, \"disabled\": false = {disabled_false}");
     println!("raw JSON occurrences of \"affixTemplates\" key = {affix_templates_blocks}");

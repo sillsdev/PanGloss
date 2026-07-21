@@ -51,19 +51,22 @@ fn have(name: &str) -> bool {
 
 fn load_sena() -> Grammar {
     let path = sample_path("sena-hc.xml");
-    let xml = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let xml =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     pg_grammar::load(&xml).unwrap_or_else(|e| panic!("failed to load sena-hc.xml: {e}"))
 }
 
 fn load_indonesian() -> Grammar {
     let path = sample_path("indonesian-hc.xml");
-    let xml = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let xml =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     pg_grammar::load(&xml).unwrap_or_else(|e| panic!("failed to load indonesian-hc.xml: {e}"))
 }
 
 fn read_words(name: &str) -> Vec<String> {
     let path = sample_path(name);
-    let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let text =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     text.lines()
         .map(str::trim)
         .filter(|w| !w.is_empty())
@@ -106,7 +109,10 @@ fn a_overgeneration_pruned_mbali() {
     let opts = ParseOptions::default();
 
     let engine = morpher.parse_word_opts("mbali", &opts);
-    assert!(!engine.structured.is_empty(), "engine finds analyses for mbali");
+    assert!(
+        !engine.structured.is_empty(),
+        "engine finds analyses for mbali"
+    );
 
     let outcome = analyzer.analyze_word("mbali");
     println!(
@@ -205,7 +211,10 @@ fn c_indonesian_redup_words_round_trip() {
             outcome.confirmed,
             engine.structured.len()
         );
-        assert!(outcome.peel_used, "{word:?}: expected the redup peel to fire for this word");
+        assert!(
+            outcome.peel_used,
+            "{word:?}: expected the redup peel to fire for this word"
+        );
         assert_eq!(
             structured_multiset(&outcome.structured),
             structured_multiset(&engine.structured),
@@ -294,7 +303,11 @@ fn e_mini_parity_sena_40_and_indonesian_non_redup() {
     let mut analyzer_sena = FomaAnalyzer::new(&g_sena).expect("sena compiles");
     let morpher_sena = Morpher::new(&g_sena, usize::MAX);
     let sena_words: Vec<String> = read_words("sena-words.txt").into_iter().take(40).collect();
-    assert_eq!(sena_words.len(), 40, "expected at least 40 Sena corpus words");
+    assert_eq!(
+        sena_words.len(),
+        40,
+        "expected at least 40 Sena corpus words"
+    );
 
     let mut sena_timings: Vec<Duration> = Vec::new();
     let mut sena_total = Duration::ZERO;
@@ -328,7 +341,11 @@ fn e_mini_parity_sena_40_and_indonesian_non_redup() {
     let sena_mean = sena_total / (sena_words.len() as u32);
     let sena_max = sena_timings.iter().max().copied().unwrap_or_default();
     let sena_engine_mean = sena_engine_total / (sena_words.len() as u32);
-    let sena_engine_max = sena_engine_timings.iter().max().copied().unwrap_or_default();
+    let sena_engine_max = sena_engine_timings
+        .iter()
+        .max()
+        .copied()
+        .unwrap_or_default();
     println!(
         "sena mini-parity: {sena_ok}/{} words match; per-word FOMA (propose+peel+confirm) \
          mean={sena_mean:?} max={sena_max:?} total={sena_total:?}; per-word ENGINE \
@@ -383,7 +400,11 @@ fn e_mini_parity_sena_40_and_indonesian_non_redup() {
     let indo_mean = indo_total / (indo_words.len().max(1) as u32);
     let indo_max = indo_timings.iter().max().copied().unwrap_or_default();
     let indo_engine_mean = indo_engine_total / (indo_words.len().max(1) as u32);
-    let indo_engine_max = indo_engine_timings.iter().max().copied().unwrap_or_default();
+    let indo_engine_max = indo_engine_timings
+        .iter()
+        .max()
+        .copied()
+        .unwrap_or_default();
     println!(
         "indonesian mini-parity: {indo_ok}/{} words match; per-word FOMA (propose+peel+confirm) \
          mean={indo_mean:?} max={indo_max:?} total={indo_total:?}; per-word ENGINE \

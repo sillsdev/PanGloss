@@ -820,9 +820,15 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
                 None => morph::analyze_with_root_filter(self.g, w, rule, filter),
             },
             _ => match self.cache {
-                Some(cache) => {
-                    morph::analyze_cached_traced(self.g, id, w, rule, cache, self.trace, node_parent)
-                }
+                Some(cache) => morph::analyze_cached_traced(
+                    self.g,
+                    id,
+                    w,
+                    rule,
+                    cache,
+                    self.trace,
+                    node_parent,
+                ),
                 None => morph::analyze(self.g, w, rule),
             },
         };
@@ -1197,10 +1203,21 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
             let result = match &self.g.prules[pid.0 as usize] {
                 pg_grammar::model::PhonRuleDef::Rewrite(r) => match self.cache {
                     Some(cache) => rewrite::analyze_cached_traced(
-                        self.g, pid, r, &input.shape, cache, self.trace, self.parent,
+                        self.g,
+                        pid,
+                        r,
+                        &input.shape,
+                        cache,
+                        self.trace,
+                        self.parent,
                     ),
                     None => rewrite::analyze_traced(
-                        self.g, pid, r, &input.shape, self.trace, self.parent,
+                        self.g,
+                        pid,
+                        r,
+                        &input.shape,
+                        self.trace,
+                        self.parent,
                     ),
                 },
                 pg_grammar::model::PhonRuleDef::Metathesis(r) => match self.cache {
@@ -1213,7 +1230,12 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
                         self.parent,
                     ),
                     None => metathesis::analyze_traced(
-                        self.g, pid, r, &input.shape, self.trace, self.parent,
+                        self.g,
+                        pid,
+                        r,
+                        &input.shape,
+                        self.trace,
+                        self.parent,
                     ),
                 },
             };

@@ -54,32 +54,48 @@ fn have(name: &str) -> bool {
 
 fn load_grammar(xml_name: &str) -> Grammar {
     let path = sample_path(xml_name);
-    let xml = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let xml =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     pg_grammar::load(&xml).unwrap_or_else(|e| panic!("failed to load {xml_name}: {e}"))
 }
 
 fn read_words(name: &str) -> Vec<String> {
     let path = sample_path(name);
-    let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
-    text.lines().map(str::trim).filter(|w| !w.is_empty()).map(str::to_string).collect()
+    let text =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    text.lines()
+        .map(str::trim)
+        .filter(|w| !w.is_empty())
+        .map(str::to_string)
+        .collect()
 }
 
 fn morpheme_name(g: &Grammar, id: u32) -> String {
     match g.morphemes.get(id as usize) {
-        Some(m) => format!("{}({}/{})", id, m.xml_key, m.gloss.as_deref().unwrap_or("-")),
+        Some(m) => format!(
+            "{}({}/{})",
+            id,
+            m.xml_key,
+            m.gloss.as_deref().unwrap_or("-")
+        ),
         None => format!("{id}(?)"),
     }
 }
 
 fn seq_names(g: &Grammar, seq: &[u32]) -> String {
-    seq.iter().map(|&id| morpheme_name(g, id)).collect::<Vec<_>>().join(", ")
+    seq.iter()
+        .map(|&id| morpheme_name(g, id))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// The full multiset (duplicates preserved, sorted) — plan §2's parity unit: "(morpheme_ids
 /// sequence, root_morpheme_index)".
 fn multiset(structured: &[WordAnalysis]) -> Vec<(Vec<u32>, i32)> {
-    let mut m: Vec<(Vec<u32>, i32)> =
-        structured.iter().map(|a| (a.morpheme_ids.clone(), a.root_morpheme_index)).collect();
+    let mut m: Vec<(Vec<u32>, i32)> = structured
+        .iter()
+        .map(|a| (a.morpheme_ids.clone(), a.root_morpheme_index))
+        .collect();
     m.sort();
     m
 }
@@ -156,8 +172,10 @@ fn assert_against_ledger(stats: &ParityStats, ledger: &[(&str, usize, usize)], l
         .iter()
         .map(|m| (m.word.clone(), m.engine_len, m.foma_len))
         .collect();
-    let expected: BTreeSet<(String, usize, usize)> =
-        ledger.iter().map(|&(w, e, f)| (w.to_string(), e, f)).collect();
+    let expected: BTreeSet<(String, usize, usize)> = ledger
+        .iter()
+        .map(|&(w, e, f)| (w.to_string(), e, f))
+        .collect();
 
     let unexpected: Vec<_> = actual.difference(&expected).collect();
     let fixed: Vec<_> = expected.difference(&actual).collect();
@@ -240,7 +258,9 @@ fn compare_word(
             ),
         });
     }
-    CompareResult::Compared { zero_analyses: engine_ms.is_empty() }
+    CompareResult::Compared {
+        zero_analyses: engine_ms.is_empty(),
+    }
 }
 
 // -------------------------------------------------------------------------------------------
@@ -260,7 +280,11 @@ fn indonesian_121_corpus_words_multiset_parity() {
     let opts = ParseOptions::default();
 
     let words = read_words("indonesian-words.txt");
-    assert_eq!(words.len(), 121, "plan §P3 3a requires exactly the 121-word Indonesian corpus");
+    assert_eq!(
+        words.len(),
+        121,
+        "plan §P3 3a requires exactly the 121-word Indonesian corpus"
+    );
 
     let mut stats = ParityStats::new();
     for word in &words {
@@ -268,8 +292,14 @@ fn indonesian_121_corpus_words_multiset_parity() {
     }
     stats.report("indonesian (121/121)");
 
-    assert_eq!(stats.n_excluded, 0, "Indonesian corpus is not expected to time out the full engine");
-    assert_eq!(stats.n_compared, 121, "every one of the 121 words must be compared");
+    assert_eq!(
+        stats.n_excluded, 0,
+        "Indonesian corpus is not expected to time out the full engine"
+    );
+    assert_eq!(
+        stats.n_compared, 121,
+        "every one of the 121 words must be compared"
+    );
     // Indonesian is at full multiset parity — the ledger is empty, and any mismatch is a hard fail.
     assert_against_ledger(&stats, &[], "indonesian (121/121)");
 }
@@ -291,7 +321,11 @@ fn sena_sample_300_multiset_parity() {
     let opts = ParseOptions::default();
 
     let words: Vec<String> = read_words("sena-words.txt").into_iter().take(300).collect();
-    assert_eq!(words.len(), 300, "plan §P3 3a requires a 300-word Sena sample");
+    assert_eq!(
+        words.len(),
+        300,
+        "plan §P3 3a requires a 300-word Sena sample"
+    );
 
     let mut stats = ParityStats::new();
     for word in &words {
@@ -299,8 +333,14 @@ fn sena_sample_300_multiset_parity() {
     }
     stats.report("sena (sample-300)");
 
-    assert_eq!(stats.n_excluded, 0, "Sena sample-300 is not expected to time out the full engine");
-    assert_eq!(stats.n_compared, 300, "every one of the 300 sample words must be compared");
+    assert_eq!(
+        stats.n_excluded, 0,
+        "Sena sample-300 is not expected to time out the full engine"
+    );
+    assert_eq!(
+        stats.n_compared, 300,
+        "every one of the 300 sample words must be compared"
+    );
     // KNOWN-FAILURES LEDGER (gate F3): empty — the former `musandilesera` recall miss (engine 10,
     //   foma 2) is FIXED. Root cause was NOT confirm/positional (that was ruled out): the 8 missing
     //   analyses all had the root `é` (morpheme 542) as the FIRST root of an `é + tentar` compound,
@@ -351,7 +391,11 @@ fn amharic_corpus_words_multiset_parity_impl() {
     let opts = ParseOptions::default();
 
     let words = read_words("amharic-words.txt");
-    assert!(words.len() >= 673, "amharic-words.txt should have at least 673 lines, got {}", words.len());
+    assert!(
+        words.len() >= 673,
+        "amharic-words.txt should have at least 673 lines, got {}",
+        words.len()
+    );
 
     let mut stats = ParityStats::new();
     let mut n_zero_analysis_words = 0usize;
@@ -370,7 +414,10 @@ fn amharic_corpus_words_multiset_parity_impl() {
          empty -- a legitimate non-parse, not a mismatch)"
     );
 
-    assert!(stats.n_compared > 0, "parity gate must compare at least one word");
+    assert!(
+        stats.n_compared > 0,
+        "parity gate must compare at least one word"
+    );
     // KNOWN-FAILURES LEDGER (gate F3): empty — the former `ገለፀ` interdigitation recall miss is
     //   FIXED (`preexpand.rs`'s `render_all_variants`: the composite emitter now renders every
     //   letter-series-merged spelling a probed Ge'ez glyph can honestly carry, not just the

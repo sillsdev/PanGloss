@@ -57,7 +57,11 @@ pub(crate) fn split_environment_string(representation: &str) -> Result<(String, 
 
 /// `LoadEnvironmentPattern` (HCLoader.cs:2268-2281). `left` selects which edge (start for the
 /// left context, end for the right context) a bare `#` anchors.
-pub(crate) fn load_environment_pattern(s: &str, left: bool, ctx: &Ctx) -> Result<Option<Pattern>, String> {
+pub(crate) fn load_environment_pattern(
+    s: &str,
+    left: bool,
+    ctx: &Ctx,
+) -> Result<Option<Pattern>, String> {
     if s.is_empty() {
         return Ok(None);
     }
@@ -114,7 +118,10 @@ pub(crate) fn tokenize(s: &str) -> Result<Vec<String>, String> {
 }
 
 fn find_from(chars: &[char], from: usize, target: char) -> Option<usize> {
-    chars[from..].iter().position(|&c| c == target).map(|d| from + d)
+    chars[from..]
+        .iter()
+        .position(|&c| c == target)
+        .map(|d| from + d)
 }
 
 /// Balanced-parenthesis scan for a `(` starting at `open` (nested optional groups are not valid

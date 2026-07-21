@@ -98,7 +98,11 @@ pub(crate) fn build(
 
     for nc in &snapshot.phonology.natural_classes {
         match nc {
-            SnapNaturalClass::Segments { guid, name, phonemes } => {
+            SnapNaturalClass::Segments {
+                guid,
+                name,
+                phonemes,
+            } => {
                 let mut resolved = Vec::with_capacity(phonemes.len());
                 let mut ok = true;
                 for p in phonemes {
@@ -129,7 +133,11 @@ pub(crate) fn build(
                     kind: NaturalClassKind::Segments(resolved),
                 });
             }
-            SnapNaturalClass::Features { guid, name, features } => {
+            SnapNaturalClass::Features {
+                guid,
+                name,
+                features,
+            } => {
                 let pairs = feature_constraint_pairs(features, phon, warnings, guid);
                 let id = NatClassId(defs.len() as u32);
                 by_guid.insert(guid.clone(), id);
@@ -152,7 +160,10 @@ pub(crate) fn build(
     defs.push(NaturalClass {
         xml_id: "__any__".to_string(),
         name: Some("Any".to_string()),
-        kind: NaturalClassKind::Feature(vec![(phon.type_flat(), SymbolBits(1u64 << TYPE_SEGMENT_SYMBOL))]),
+        kind: NaturalClassKind::Feature(vec![(
+            phon.type_flat(),
+            SymbolBits(1u64 << TYPE_SEGMENT_SYMBOL),
+        )]),
     });
 
     NatClassBuild {
@@ -322,7 +333,11 @@ fn walk_all_natclass_ids_mut(grammar: &mut Grammar, f: &mut dyn FnMut(&mut NatCl
 /// abbreviation eagerly, HCLoader.cs:2736-2741, so a name is never a reachability question).
 /// Everything else (an unnamed class that is neither `any_nc` nor `last_unnamed`) is kept only if
 /// [`walk_all_natclass_ids_mut`] actually finds a structural reference to it.
-pub(crate) fn compact_to_referenced(grammar: &mut Grammar, any_nc: NatClassId, last_unnamed: Option<NatClassId>) {
+pub(crate) fn compact_to_referenced(
+    grammar: &mut Grammar,
+    any_nc: NatClassId,
+    last_unnamed: Option<NatClassId>,
+) {
     let mut used: hashbrown::HashSet<u32> = hashbrown::HashSet::new();
     used.insert(any_nc.0);
     if let Some(id) = last_unnamed {

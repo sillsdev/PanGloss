@@ -100,7 +100,11 @@ pub fn candidate_classes(grammar: &Grammar) -> Vec<ClassCandidate> {
         })
         .collect();
 
-    out.sort_by(|a, b| b.entry_count.cmp(&a.entry_count).then_with(|| a.key.cmp(&b.key)));
+    out.sort_by(|a, b| {
+        b.entry_count
+            .cmp(&a.entry_count)
+            .then_with(|| a.key.cmp(&b.key))
+    });
     out
 }
 
@@ -219,8 +223,12 @@ mod tests {
         let classes = candidate_classes(&g);
         assert_eq!(classes.len(), 2, "two distinct MPR sets under one POS");
         assert!(classes.iter().all(|c| c.pos.as_deref() == Some("n")));
-        assert!(classes.iter().any(|c| c.mpr_names == vec!["C1".to_string()]));
-        assert!(classes.iter().any(|c| c.mpr_names == vec!["C2".to_string()]));
+        assert!(classes
+            .iter()
+            .any(|c| c.mpr_names == vec!["C1".to_string()]));
+        assert!(classes
+            .iter()
+            .any(|c| c.mpr_names == vec!["C2".to_string()]));
         let c1 = classes
             .iter()
             .find(|c| c.mpr_names == vec!["C1".to_string()])
@@ -239,6 +247,9 @@ mod tests {
         let g = pg_grammar::load(XML).expect("loads");
         assert!(validate_shape(&g, "aba").is_ok());
         let err = validate_shape(&g, "azb").unwrap_err();
-        assert!(err.contains('z'), "message should list the offending char: {err}");
+        assert!(
+            err.contains('z'),
+            "message should list the offending char: {err}"
+        );
     }
 }

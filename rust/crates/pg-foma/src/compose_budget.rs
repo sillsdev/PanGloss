@@ -508,7 +508,8 @@ mod compose_budget_tests {
     use foma::regex::fsm_parse_regex;
 
     fn tiny_net(opts: &FomaOptions, s: &str) -> Fsm {
-        fsm_parse_regex(opts, s, None, None).unwrap_or_else(|| panic!("regex {s:?} failed to compile"))
+        fsm_parse_regex(opts, s, None, None)
+            .unwrap_or_else(|| panic!("regex {s:?} failed to compile"))
     }
 
     #[test]
@@ -525,13 +526,18 @@ mod compose_budget_tests {
     fn state_budget_trips_on_tiny_cascade() {
         let opts = FomaOptions::default();
         // cap=0 states: even a single-state identity net must trip this.
-        let budget = ComposeBudget::with_caps(0, usize::MAX, usize::MAX, usize::MAX, usize::MAX, None);
+        let budget =
+            ComposeBudget::with_caps(0, usize::MAX, usize::MAX, usize::MAX, usize::MAX, None);
         let a = tiny_net(&opts, "a");
         let b = tiny_net(&opts, "a -> b");
         let err = compose_checked(&opts, a, b, &budget, "state_budget_trips_on_tiny_cascade")
             .expect_err("cap=0 states must trip");
         match err {
-            ComposeError::NetSizeExceeded { measure: NetSizeMeasure::States, limit, .. } => {
+            ComposeError::NetSizeExceeded {
+                measure: NetSizeMeasure::States,
+                limit,
+                ..
+            } => {
                 assert_eq!(limit, 0);
             }
             other => panic!("expected NetSizeExceeded(States), got {other:?}"),
@@ -541,13 +547,18 @@ mod compose_budget_tests {
     #[test]
     fn arc_budget_trips_on_tiny_cascade() {
         let opts = FomaOptions::default();
-        let budget = ComposeBudget::with_caps(usize::MAX, 0, usize::MAX, usize::MAX, usize::MAX, None);
+        let budget =
+            ComposeBudget::with_caps(usize::MAX, 0, usize::MAX, usize::MAX, usize::MAX, None);
         let a = tiny_net(&opts, "a");
         let b = tiny_net(&opts, "a -> b");
         let err = compose_checked(&opts, a, b, &budget, "arc_budget_trips_on_tiny_cascade")
             .expect_err("cap=0 arcs must trip");
         match err {
-            ComposeError::NetSizeExceeded { measure: NetSizeMeasure::Arcs, limit, .. } => {
+            ComposeError::NetSizeExceeded {
+                measure: NetSizeMeasure::Arcs,
+                limit,
+                ..
+            } => {
                 assert_eq!(limit, 0);
             }
             other => panic!("expected NetSizeExceeded(Arcs), got {other:?}"),
@@ -557,27 +568,35 @@ mod compose_budget_tests {
     #[test]
     fn union_checked_respects_budget() {
         let opts = FomaOptions::default();
-        let budget = ComposeBudget::with_caps(0, usize::MAX, usize::MAX, usize::MAX, usize::MAX, None);
+        let budget =
+            ComposeBudget::with_caps(0, usize::MAX, usize::MAX, usize::MAX, usize::MAX, None);
         let a = tiny_net(&opts, "a");
         let b = tiny_net(&opts, "b");
         let err = union_checked(&opts, a, b, &budget, "union_checked_respects_budget")
             .expect_err("cap=0 states must trip");
         assert!(matches!(
             err,
-            ComposeError::NetSizeExceeded { measure: NetSizeMeasure::States, .. }
+            ComposeError::NetSizeExceeded {
+                measure: NetSizeMeasure::States,
+                ..
+            }
         ));
     }
 
     #[test]
     fn minimize_checked_respects_budget() {
         let opts = FomaOptions::default();
-        let budget = ComposeBudget::with_caps(0, usize::MAX, usize::MAX, usize::MAX, usize::MAX, None);
+        let budget =
+            ComposeBudget::with_caps(0, usize::MAX, usize::MAX, usize::MAX, usize::MAX, None);
         let a = tiny_net(&opts, "a -> b, c -> d");
         let err = minimize_checked(&opts, a, &budget, "minimize_checked_respects_budget")
             .expect_err("cap=0 states must trip");
         assert!(matches!(
             err,
-            ComposeError::NetSizeExceeded { measure: NetSizeMeasure::States, .. }
+            ComposeError::NetSizeExceeded {
+                measure: NetSizeMeasure::States,
+                ..
+            }
         ));
     }
 
@@ -603,7 +622,10 @@ mod compose_budget_tests {
             },
             elapsed_budget,
         );
-        assert!(result.is_err(), "a 5s sleep must time out against a 50ms deadline");
+        assert!(
+            result.is_err(),
+            "a 5s sleep must time out against a 50ms deadline"
+        );
         assert!(
             start.elapsed() < Duration::from_secs(2),
             "call_with_deadline must return promptly once the deadline passes, not wait for the \

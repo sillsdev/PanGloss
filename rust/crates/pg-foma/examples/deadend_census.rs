@@ -119,7 +119,9 @@ const ENGINE_TIMEOUT: Duration = Duration::from_secs(10);
 // -------------------------------------------------------------------------------------------
 
 fn sample_path(name: &str) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../samples/data").join(name)
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../samples/data")
+        .join(name)
 }
 
 fn load_grammar(name: &str) -> Option<Grammar> {
@@ -176,13 +178,18 @@ fn propose(net: &Fsm, word: &str) -> Vec<Candidate> {
     out
 }
 
-fn propose_and_peel(net: &Fsm, g: &Grammar, peeler: &ReduplicationPeeler, word: &str) -> Vec<Candidate> {
+fn propose_and_peel(
+    net: &Fsm,
+    g: &Grammar,
+    peeler: &ReduplicationPeeler,
+    word: &str,
+) -> Vec<Candidate> {
     let mut candidates = propose(net, word);
     let peeled = peeler.peel_candidates(g, word, &mut |r: &str| propose(net, r));
     for c in peeled {
-        let already = candidates
-            .iter()
-            .any(|existing| existing.root_index == c.root_index && existing.morphemes == c.morphemes);
+        let already = candidates.iter().any(|existing| {
+            existing.root_index == c.root_index && existing.morphemes == c.morphemes
+        });
         if !already {
             candidates.push(c);
         }
@@ -260,8 +267,11 @@ fn classify_reason(r: FailureReason) -> DClass {
         // Real HC gates that don't map cleanly onto d1-d5's mechanisms — reported here, with the
         // raw reason kept visible in the per-class histogram so this bucket can be split later if
         // it turns out to matter (mission's own instruction: report d6's contents if >10%).
-        AllomorphCoOccurrenceRules | MorphemeCoOccurrenceRules | RequiredStemName
-        | ExcludedStemName | BoundRoot => DClass::D6Other,
+        AllomorphCoOccurrenceRules
+        | MorphemeCoOccurrenceRules
+        | RequiredStemName
+        | ExcludedStemName
+        | BoundRoot => DClass::D6Other,
     }
 }
 
@@ -383,7 +393,9 @@ fn reason_name(r: FailureReason) -> &'static str {
         PartialParse => "PartialParse",
         BoundRoot => "BoundRoot",
         NonPartialRuleProhibitedAfterFinalTemplate => "NonPartialRuleProhibitedAfterFinalTemplate",
-        NonPartialRuleRequiredAfterNonFinalTemplate => "NonPartialRuleRequiredAfterNonFinalTemplate",
+        NonPartialRuleRequiredAfterNonFinalTemplate => {
+            "NonPartialRuleRequiredAfterNonFinalTemplate"
+        }
         MaxApplicationCount => "MaxApplicationCount",
     }
 }
@@ -421,7 +433,10 @@ fn is_frontier(n: &TraceNode) -> Option<FailureReason> {
     if let Some(r) = n.failure_reason {
         return Some(r);
     }
-    if matches!(n.type_, TraceType::PhonologicalRuleAnalysis) && n.output.is_none() && n.input.is_some() {
+    if matches!(n.type_, TraceType::PhonologicalRuleAnalysis)
+        && n.output.is_none()
+        && n.input.is_some()
+    {
         return Some(FailureReason::Pattern);
     }
     None
@@ -485,10 +500,18 @@ fn find_frontier(sink: &TreeTraceSink, mode: FrontierMode) -> Option<FrontierHit
                 },
             };
             if better {
-                best = Some(FrontierHit { depth, stage, reason });
+                best = Some(FrontierHit {
+                    depth,
+                    stage,
+                    reason,
+                });
             }
         }
-        let child_depth = if is_success_step(&n) { depth + 1 } else { depth };
+        let child_depth = if is_success_step(&n) {
+            depth + 1
+        } else {
+            depth
+        };
         for &c in &n.children {
             stack.push((c, child_depth));
         }
@@ -618,7 +641,9 @@ fn measure_word(
     for &i in &failing_idx {
         let outcome = classify_failing_candidate(g, owners, morpher, &candidates[i], word, mode);
         let dclass = dclass_of(outcome);
-        *raw_hist[dclass.idx()].entry(raw_label(outcome)).or_insert(0) += 1;
+        *raw_hist[dclass.idx()]
+            .entry(raw_label(outcome))
+            .or_insert(0) += 1;
         cat_counts[dclass.idx()] += 1;
         if dclass == DClass::D5Ordering {
             if let Outcome::Frontier(reason) = outcome {
@@ -629,7 +654,10 @@ fn measure_word(
     }
 
     // Counterfactual timing: keep_confirming, and minus_dN for N in 1..=6.
-    let confirming_only: Vec<Candidate> = confirming_idx.iter().map(|&i| candidates[i].clone()).collect();
+    let confirming_only: Vec<Candidate> = confirming_idx
+        .iter()
+        .map(|&i| candidates[i].clone())
+        .collect();
     let keep_start = Instant::now();
     let _ = confirm::confirm_batch(g, owners, morpher, &confirming_only, word);
     let keep_ms = keep_start.elapsed().as_secs_f64() * 1000.0;
@@ -850,7 +878,9 @@ fn print_report(r: &GrammarReport) {
         100.0 * failing_fraction
     );
     if r.time_denom <= 1e-6 {
-        println!("GO/NO-GO metric: n/a (no measurable failing-candidate time on this corpus slice)");
+        println!(
+            "GO/NO-GO metric: n/a (no measurable failing-candidate time on this corpus slice)"
+        );
     } else {
         println!(
             "GO/NO-GO projection per class (class_time_share x failing_fraction, vs the plan's >=15% \
@@ -860,7 +890,11 @@ fn print_report(r: &GrammarReport) {
             let i = c.idx();
             let class_share = r.time_numer[i] / r.time_denom;
             let projected = 100.0 * class_share * failing_fraction;
-            println!("  {:28} projected end-to-end win = {:5.1}%", c.label(), projected);
+            println!(
+                "  {:28} projected end-to-end win = {:5.1}%",
+                c.label(),
+                projected
+            );
         }
     }
     println!();
@@ -868,7 +902,10 @@ fn print_report(r: &GrammarReport) {
 }
 
 fn env_usize(name: &str, default: usize) -> usize {
-    std::env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+    std::env::var(name)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(default)
 }
 
 fn run() {
@@ -902,14 +939,24 @@ fn run() {
         }
     } else {
         vec![
-            ("Sena", "sena-hc.xml", "sena-words.txt", env_usize("CENSUS_SENA_CAP", 300)),
+            (
+                "Sena",
+                "sena-hc.xml",
+                "sena-words.txt",
+                env_usize("CENSUS_SENA_CAP", 300),
+            ),
             (
                 "Indonesian",
                 "indonesian-hc.xml",
                 "indonesian-words.txt",
                 env_usize("CENSUS_INDONESIAN_CAP", 121),
             ),
-            ("Amharic", "amharic-hc.xml", "amharic-words.txt", env_usize("CENSUS_AMHARIC_CAP", 40)),
+            (
+                "Amharic",
+                "amharic-hc.xml",
+                "amharic-words.txt",
+                env_usize("CENSUS_AMHARIC_CAP", 40),
+            ),
         ]
     };
 

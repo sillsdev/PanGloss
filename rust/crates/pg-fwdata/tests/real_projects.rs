@@ -23,9 +23,7 @@ fn project_fwdata(project_dir_name: &str) -> Option<PathBuf> {
 }
 
 fn count_pos_tree(pos: &[PartOfSpeech]) -> usize {
-    pos.iter()
-        .map(|p| 1 + count_pos_tree(&p.children))
-        .sum()
+    pos.iter().map(|p| 1 + count_pos_tree(&p.children)).sum()
 }
 
 fn count_templates(pos: &[PartOfSpeech]) -> usize {
@@ -48,12 +46,32 @@ fn sena3_imports_with_expected_counts() {
     // would double-count as if they were `<rt>` records).
     assert_eq!(snap.lexicon.entries.len(), 1462, "LexEntry count");
     assert_eq!(snap.phonology.phonemes.len(), 44, "PhPhoneme count");
-    assert_eq!(count_pos_tree(&snap.morphology.parts_of_speech), 37, "PartOfSpeech count");
-    assert_eq!(count_templates(&snap.morphology.parts_of_speech), 25, "MoInflAffixTemplate count");
+    assert_eq!(
+        count_pos_tree(&snap.morphology.parts_of_speech),
+        37,
+        "PartOfSpeech count"
+    );
+    assert_eq!(
+        count_templates(&snap.morphology.parts_of_speech),
+        25,
+        "MoInflAffixTemplate count"
+    );
     assert_eq!(snap.phonology.environments.len(), 44, "PhEnvironment count");
-    assert_eq!(snap.phonology.natural_classes.len(), 18, "PhNCSegments count (no PhNCFeatures in Sena 3)");
-    assert_eq!(snap.morphology.compound_rules.len(), 4, "compound rule count (all MoExoCompound)");
-    assert_eq!(snap.morphology.lex_entry_infl_types.len(), 3, "LexEntryInflType count");
+    assert_eq!(
+        snap.phonology.natural_classes.len(),
+        18,
+        "PhNCSegments count (no PhNCFeatures in Sena 3)"
+    );
+    assert_eq!(
+        snap.morphology.compound_rules.len(),
+        4,
+        "compound rule count (all MoExoCompound)"
+    );
+    assert_eq!(
+        snap.morphology.lex_entry_infl_types.len(),
+        3,
+        "LexEntryInflType count"
+    );
 
     eprintln!("Sena 3 import warnings ({}):", report.warnings.len());
     for w in &report.warnings {
@@ -88,17 +106,42 @@ fn amharic_imports_with_expected_counts_and_adhoc_warning() {
         eprintln!("skipping amharic_imports_with_expected_counts_and_adhoc_warning: FieldWorks checkout not present");
         return;
     };
-    let (snap, report) = pg_fwdata::import_file(&path).expect("Amharic must import successfully, not crash");
+    let (snap, report) =
+        pg_fwdata::import_file(&path).expect("Amharic must import successfully, not crash");
 
     assert_eq!(snap.lexicon.entries.len(), 130, "LexEntry count");
     assert_eq!(snap.phonology.phonemes.len(), 417, "PhPhoneme count");
-    assert_eq!(count_pos_tree(&snap.morphology.parts_of_speech), 16, "PartOfSpeech count");
-    assert_eq!(count_templates(&snap.morphology.parts_of_speech), 18, "MoInflAffixTemplate count");
+    assert_eq!(
+        count_pos_tree(&snap.morphology.parts_of_speech),
+        16,
+        "PartOfSpeech count"
+    );
+    assert_eq!(
+        count_templates(&snap.morphology.parts_of_speech),
+        18,
+        "MoInflAffixTemplate count"
+    );
     assert_eq!(snap.phonology.environments.len(), 8, "PhEnvironment count");
-    assert_eq!(snap.phonology.natural_classes.len(), 18, "natural class count (3 PhNCSegments + 15 PhNCFeatures)");
-    assert_eq!(snap.morphology.compound_rules.len(), 1, "compound rule count (1 MoEndoCompound)");
-    assert_eq!(snap.morphology.adhoc_prohibitions.len(), 1, "adhoc prohibition count (the stale one)");
-    assert_eq!(snap.morphology.lex_entry_infl_types.len(), 5, "LexEntryInflType count");
+    assert_eq!(
+        snap.phonology.natural_classes.len(),
+        18,
+        "natural class count (3 PhNCSegments + 15 PhNCFeatures)"
+    );
+    assert_eq!(
+        snap.morphology.compound_rules.len(),
+        1,
+        "compound rule count (1 MoEndoCompound)"
+    );
+    assert_eq!(
+        snap.morphology.adhoc_prohibitions.len(),
+        1,
+        "adhoc prohibition count (the stale one)"
+    );
+    assert_eq!(
+        snap.morphology.lex_entry_infl_types.len(),
+        5,
+        "LexEntryInflType count"
+    );
 
     // §1's motivating example: a stale MoMorphAdhocProhib crashes FieldWorks' own C# exporter.
     // pg-fwdata must import successfully (already asserted above via `expect`) *and* surface a
@@ -148,7 +191,14 @@ fn imports_are_deterministic_across_runs() {
         };
         let (snap1, report1) = pg_fwdata::import_file(&path).unwrap();
         let (snap2, report2) = pg_fwdata::import_file(&path).unwrap();
-        assert_eq!(snap1.to_json(), snap2.to_json(), "{project}: repeated import must be byte-identical");
-        assert_eq!(report1.warnings, report2.warnings, "{project}: warnings must be identical across imports");
+        assert_eq!(
+            snap1.to_json(),
+            snap2.to_json(),
+            "{project}: repeated import must be byte-identical"
+        );
+        assert_eq!(
+            report1.warnings, report2.warnings,
+            "{project}: warnings must be identical across imports"
+        );
     }
 }

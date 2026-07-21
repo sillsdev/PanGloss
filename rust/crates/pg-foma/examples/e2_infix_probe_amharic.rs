@@ -54,7 +54,8 @@ fn read_pinned(words_file: &str) -> Vec<String> {
 
 fn load_amharic() -> Grammar {
     let path = sample_path("amharic-hc.xml");
-    let xml = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let xml =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     pg_grammar::load(&xml).unwrap_or_else(|e| panic!("failed to load amharic-hc.xml: {e}"))
 }
 
@@ -70,35 +71,68 @@ fn main() {
 // an example binary; kept intentionally identical in shape to that module's `classify_affix`). ---
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-enum Role { None, Prefix, Suffix, Infix, Reduplication, CircumfixPrefix, Process }
+enum Role {
+    None,
+    Prefix,
+    Suffix,
+    Infix,
+    Reduplication,
+    CircumfixPrefix,
+    Process,
+}
 
 fn classify_affix(rhs: &[OutputAction]) -> Role {
-    let copy_parts: Vec<PartRef> = rhs.iter().filter_map(|a| if let OutputAction::Copy(p) = a { Some(*p) } else { None }).collect();
-    if copy_parts.iter().any(|p| copy_parts.iter().filter(|&&q| q == *p).count() >= 2) {
+    let copy_parts: Vec<PartRef> = rhs
+        .iter()
+        .filter_map(|a| {
+            if let OutputAction::Copy(p) = a {
+                Some(*p)
+            } else {
+                None
+            }
+        })
+        .collect();
+    if copy_parts
+        .iter()
+        .any(|p| copy_parts.iter().filter(|&&q| q == *p).count() >= 2)
+    {
         return Role::Reduplication;
     }
     let mut first_copy: Option<usize> = None;
     let mut last_copy: usize = 0;
     for (i, action) in rhs.iter().enumerate() {
         if matches!(action, OutputAction::Copy(_)) {
-            if first_copy.is_none() { first_copy = Some(i); }
+            if first_copy.is_none() {
+                first_copy = Some(i);
+            }
             last_copy = i;
         }
     }
     let Some(first_copy) = first_copy else {
-        return if rhs.iter().any(|a| matches!(a, OutputAction::Modify(_, _))) { Role::Process } else { Role::None };
+        return if rhs.iter().any(|a| matches!(a, OutputAction::Modify(_, _))) {
+            Role::Process
+        } else {
+            Role::None
+        };
     };
     if first_copy < last_copy {
         for action in &rhs[first_copy + 1..last_copy] {
-            if !matches!(action, OutputAction::Copy(_)) { return Role::Infix; }
+            if !matches!(action, OutputAction::Copy(_)) {
+                return Role::Infix;
+            }
         }
     }
     let leading_insert = first_copy > 0;
     let trailing_insert = last_copy < rhs.len() - 1;
-    if leading_insert && trailing_insert { Role::CircumfixPrefix }
-    else if leading_insert { Role::Prefix }
-    else if trailing_insert { Role::Suffix }
-    else { Role::None }
+    if leading_insert && trailing_insert {
+        Role::CircumfixPrefix
+    } else if leading_insert {
+        Role::Prefix
+    } else if trailing_insert {
+        Role::Suffix
+    } else {
+        Role::None
+    }
 }
 
 fn allomorphs_of(g: &Grammar, def_idx: usize) -> &[pg_grammar::model::AffixAllomorphDef] {
@@ -110,7 +144,10 @@ fn allomorphs_of(g: &Grammar, def_idx: usize) -> &[pg_grammar::model::AffixAllom
 }
 
 fn rule_role(g: &Grammar, def_idx: usize) -> Role {
-    allomorphs_of(g, def_idx).first().map(|a| classify_affix(&a.rhs)).unwrap_or(Role::None)
+    allomorphs_of(g, def_idx)
+        .first()
+        .map(|a| classify_affix(&a.rhs))
+        .unwrap_or(Role::None)
 }
 
 fn engine_sequences(outcome: &pg_parse::ParseOutcome) -> Vec<(Vec<u32>, i32)> {
@@ -166,8 +203,11 @@ fn run() {
     println!(
         "underlying lexc emit: {emit_elapsed:?}; roots={} special_rules={} splice_composites={} \
          splice_pairs_probed={} splice_ambiguous_pairs={}",
-        ureport.root_count, ureport.special_rule_count, ureport.splice_composite_count,
-        ureport.splice_pairs_probed, ureport.splice_ambiguous_pairs
+        ureport.root_count,
+        ureport.special_rule_count,
+        ureport.splice_composite_count,
+        ureport.splice_pairs_probed,
+        ureport.splice_ambiguous_pairs
     );
     println!("uncovered ({}):", ureport.uncovered.len());
     for u in &ureport.uncovered {
@@ -180,7 +220,9 @@ fn run() {
     let lexc_elapsed = t_lexc.elapsed();
     println!(
         "lexc compile: {lexc_elapsed:?}; net: {} states, {} arcs; lexc bytes: {}",
-        lexc_net.statecount, lexc_net.arccount, ureport.lexc_source.len()
+        lexc_net.statecount,
+        lexc_net.arccount,
+        ureport.lexc_source.len()
     );
 
     // ---------------------------------------------------------------------------------------
@@ -195,12 +237,22 @@ fn run() {
     let t_rules = Instant::now();
     let mut skipped_rules: Vec<String> = Vec::new();
     let mut tuple_reports: Vec<(String, Vec<pg_foma::replace::TupleReport>)> = Vec::new();
-    let rule_net = compile_and_compose_rules(&opts, &g, &alphabet, &rules_in_order, &mut skipped_rules, &mut tuple_reports)
-        .expect("compose budget ok");
+    let rule_net = compile_and_compose_rules(
+        &opts,
+        &g,
+        &alphabet,
+        &rules_in_order,
+        &mut skipped_rules,
+        &mut tuple_reports,
+    )
+    .expect("compose budget ok");
     let rules_elapsed = t_rules.elapsed();
     println!("\nrule compile+compose: {rules_elapsed:?}; skipped: {skipped_rules:?}");
     let rule_net = rule_net.expect("Amharic's 7 rules must compile (see skipped_rules if not)");
-    println!("composed rule net: {} states, {} arcs", rule_net.statecount, rule_net.arccount);
+    println!(
+        "composed rule net: {} states, {} arcs",
+        rule_net.statecount, rule_net.arccount
+    );
 
     // ---------------------------------------------------------------------------------------
     // 3. Boundary cleanup, compose, minimize.
@@ -210,7 +262,11 @@ fn run() {
         .filter(|(_, cd)| cd.kind() == CharDefKind::Boundary)
         .map(|(id, _)| alphabet.token(id))
         .collect();
-    let cleanup_regex = boundary_tokens.iter().map(|c| format!("{c} -> 0")).collect::<Vec<_>>().join(", ");
+    let cleanup_regex = boundary_tokens
+        .iter()
+        .map(|c| format!("{c} -> 0"))
+        .collect::<Vec<_>>()
+        .join(", ");
     let cleanup_net = fsm_parse_regex(&opts, &cleanup_regex, None, None)
         .unwrap_or_else(|| panic!("boundary cleanup regex failed to compile: {cleanup_regex:?}"));
 
@@ -231,8 +287,14 @@ fn run() {
     // ---------------------------------------------------------------------------------------
     let morpher = Morpher::new(&g, usize::MAX).with_word_timeout(Some(ENGINE_TIMEOUT));
     let popts = ParseOptions::default();
-    let words_text = std::fs::read_to_string(sample_path("amharic-words.txt")).expect("read amharic-words.txt");
-    let mut words: Vec<String> = words_text.lines().map(str::trim).filter(|w| !w.is_empty()).map(str::to_string).collect();
+    let words_text =
+        std::fs::read_to_string(sample_path("amharic-words.txt")).expect("read amharic-words.txt");
+    let mut words: Vec<String> = words_text
+        .lines()
+        .map(str::trim)
+        .filter(|w| !w.is_empty())
+        .map(str::to_string)
+        .collect();
     let already: HashSet<String> = words.iter().cloned().collect();
     let pinned_extra: Vec<String> = read_pinned("amharic-words.txt")
         .into_iter()
@@ -241,7 +303,8 @@ fn run() {
     println!(
         "\n--- corpus parity gate (FULL corpus: {} words + {} pinned worst-words not already in \
          the front slice) ---",
-        words.len(), pinned_extra.len()
+        words.len(),
+        pinned_extra.len()
     );
     words.extend(pinned_extra);
 
@@ -270,7 +333,8 @@ fn run() {
                 for s in handle.up(&query) {
                     if let Some(path) = tags::decode_path(&s) {
                         for c in tags::to_candidates(&path) {
-                            let key: (Vec<u32>, i32) = (c.morphemes.iter().map(|m| m.0).collect(), c.root_index);
+                            let key: (Vec<u32>, i32) =
+                                (c.morphemes.iter().map(|m| m.0).collect(), c.root_index);
                             if seen.insert(key) {
                                 out.push(c);
                             }
@@ -291,24 +355,45 @@ fn run() {
             let covered = candidates_cover(&candidates, &seq, root_idx);
             if is_infix {
                 n_total_infix += 1;
-                if covered { n_covered_infix += 1; }
+                if covered {
+                    n_covered_infix += 1;
+                }
             } else {
                 n_total_plain += 1;
-                if covered { n_covered_plain += 1; }
+                if covered {
+                    n_covered_plain += 1;
+                }
             }
             if !covered {
-                let names: Vec<String> = seq.iter().map(|&id| {
-                    g.morphemes.get(id as usize).map(|mi| format!("{}({}/{})", id, mi.xml_key, mi.gloss.as_deref().unwrap_or("-"))).unwrap_or_else(|| format!("{id}(?)"))
-                }).collect();
+                let names: Vec<String> = seq
+                    .iter()
+                    .map(|&id| {
+                        g.morphemes
+                            .get(id as usize)
+                            .map(|mi| {
+                                format!(
+                                    "{}({}/{})",
+                                    id,
+                                    mi.xml_key,
+                                    mi.gloss.as_deref().unwrap_or("-")
+                                )
+                            })
+                            .unwrap_or_else(|| format!("{id}(?)"))
+                    })
+                    .collect();
                 misses.push(format!(
                     "word {word:?} [{}]: engine analysis root_index={root_idx} morphemes=[{}]",
-                    if is_infix { "INFIX" } else { "plain" }, names.join(", ")
+                    if is_infix { "INFIX" } else { "plain" },
+                    names.join(", ")
                 ));
             }
         }
     }
 
-    println!("words analyzed by engine: {n_words_analyzed} (of {} scanned)", words.len());
+    println!(
+        "words analyzed by engine: {n_words_analyzed} (of {} scanned)",
+        words.len()
+    );
     println!("INFIX-bearing analyses:  {n_covered_infix}/{n_total_infix} covered");
     println!("plain (non-infix) analyses: {n_covered_plain}/{n_total_plain} covered");
     println!(

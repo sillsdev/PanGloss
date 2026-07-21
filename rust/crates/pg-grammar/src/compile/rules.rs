@@ -16,16 +16,20 @@ use super::Ctx;
 /// Greek-letter alpha-variable names, in assignment order (`HCLoader.VariableNames`,
 /// HCLoader.cs:37-41).
 const VAR_NAMES: [&str; 24] = [
-    "\u{3b1}", "\u{3b2}", "\u{3b3}", "\u{3b4}", "\u{3b5}", "\u{3b6}", "\u{3b7}", "\u{3b8}", "\u{3b9}",
-    "\u{3ba}", "\u{3bb}", "\u{3bc}", "\u{3bd}", "\u{3be}", "\u{3bf}", "\u{3c0}", "\u{3c1}", "\u{3c3}",
-    "\u{3c4}", "\u{3c5}", "\u{3c6}", "\u{3c7}", "\u{3c8}", "\u{3c9}",
+    "\u{3b1}", "\u{3b2}", "\u{3b3}", "\u{3b4}", "\u{3b5}", "\u{3b6}", "\u{3b7}", "\u{3b8}",
+    "\u{3b9}", "\u{3ba}", "\u{3bb}", "\u{3bc}", "\u{3bd}", "\u{3be}", "\u{3bf}", "\u{3c0}",
+    "\u{3c1}", "\u{3c3}", "\u{3c4}", "\u{3c5}", "\u{3c6}", "\u{3c7}", "\u{3c8}", "\u{3c9}",
 ];
 
 /// All phonological-rule definitions, plus which of them run on the Morphology vs. Clitics
 /// stratum (`NotOnClitics`, HCLoader.cs:313-317).
 type RuleBuild = (Vec<PhonRuleDef>, Vec<PRuleId>, Vec<PRuleId>);
 
-pub(crate) fn build(snapshot: &Snapshot, ctx: &Ctx, warnings: &mut Vec<String>) -> Result<RuleBuild, GrammarError> {
+pub(crate) fn build(
+    snapshot: &Snapshot,
+    ctx: &Ctx,
+    warnings: &mut Vec<String>,
+) -> Result<RuleBuild, GrammarError> {
     let mut prules = Vec::new();
     let mut morphology_prules = Vec::new();
     let mut clitic_prules = Vec::new();
@@ -77,7 +81,12 @@ fn build_var_table(
 ) -> VarTable {
     let mut vars = Vec::new();
     for (i, g) in guids.iter().enumerate() {
-        let Some(fc) = snapshot.phonology.feature_constraints.iter().find(|c| &c.guid == g) else {
+        let Some(fc) = snapshot
+            .phonology
+            .feature_constraints
+            .iter()
+            .find(|c| &c.guid == g)
+        else {
             warnings.push(format!("feature constraint {g:?} does not resolve"));
             continue;
         };
@@ -220,7 +229,9 @@ fn left_is_word_boundary(pc: &PhonContext) -> bool {
 fn right_is_word_boundary(pc: &PhonContext) -> bool {
     match pc {
         PhonContext::WordBoundary => true,
-        PhonContext::Sequence { members } => matches!(members.last(), Some(PhonContext::WordBoundary)),
+        PhonContext::Sequence { members } => {
+            matches!(members.last(), Some(PhonContext::WordBoundary))
+        }
         _ => false,
     }
 }
@@ -228,7 +239,11 @@ fn right_is_word_boundary(pc: &PhonContext) -> bool {
 /// `LoadPatternNode`'s recursive dispatch (HCLoader.cs:2313-2389), alpha-variable-aware version
 /// used by rewrite rules (unlike `affixes::phon_context_nodes`, which rejects alpha variables —
 /// `MoAffixProcess` input carries no variable scope in LCM).
-fn phon_context_nodes(pc: &PhonContext, ctx: &Ctx, vars: &VarTable) -> Result<Vec<PatternNode>, String> {
+fn phon_context_nodes(
+    pc: &PhonContext,
+    ctx: &Ctx,
+    vars: &VarTable,
+) -> Result<Vec<PatternNode>, String> {
     match pc {
         PhonContext::Sequence { members } => {
             let mut out = Vec::new();

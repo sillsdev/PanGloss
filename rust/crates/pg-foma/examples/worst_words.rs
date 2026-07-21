@@ -27,11 +27,16 @@ const GRAMMARS: &[(&str, &str, &str, usize)] = &[
 ];
 
 fn sample_path(name: &str) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../samples/data").join(name)
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../samples/data")
+        .join(name)
 }
 
 fn hex(s: &str) -> String {
-    s.bytes().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(" ")
+    s.bytes()
+        .map(|b| format!("{b:02x}"))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn run(name: &str, xml: &str, words_file: &str, top_n: usize) {

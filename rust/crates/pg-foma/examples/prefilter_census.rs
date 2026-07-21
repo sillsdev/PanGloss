@@ -81,7 +81,9 @@ const ENGINE_TIMEOUT: Duration = Duration::from_secs(10);
 // -------------------------------------------------------------------------------------------
 
 fn sample_path(name: &str) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../samples/data").join(name)
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../samples/data")
+        .join(name)
 }
 
 fn load_grammar(name: &str) -> Option<Grammar> {
@@ -121,13 +123,18 @@ fn propose(net: &Fsm, word: &str) -> Vec<Candidate> {
     out
 }
 
-fn propose_and_peel(net: &Fsm, g: &Grammar, peeler: &ReduplicationPeeler, word: &str) -> Vec<Candidate> {
+fn propose_and_peel(
+    net: &Fsm,
+    g: &Grammar,
+    peeler: &ReduplicationPeeler,
+    word: &str,
+) -> Vec<Candidate> {
     let mut candidates = propose(net, word);
     let peeled = peeler.peel_candidates(g, word, &mut |r: &str| propose(net, r));
     for c in peeled {
-        let already = candidates
-            .iter()
-            .any(|existing| existing.root_index == c.root_index && existing.morphemes == c.morphemes);
+        let already = candidates.iter().any(|existing| {
+            existing.root_index == c.root_index && existing.morphemes == c.morphemes
+        });
         if !already {
             candidates.push(c);
         }
@@ -171,7 +178,10 @@ const VALIDITY_GATE_REASONS: &[FailureReason] = &[
     FailureReason::RequiredSyntacticFeatureStruct,
 ];
 
-const CASCADE_REASONS: &[FailureReason] = &[FailureReason::PartialParse, FailureReason::SurfaceFormMismatch];
+const CASCADE_REASONS: &[FailureReason] = &[
+    FailureReason::PartialParse,
+    FailureReason::SurfaceFormMismatch,
+];
 
 fn reason_name(r: FailureReason) -> &'static str {
     match r {
@@ -186,7 +196,9 @@ fn reason_name(r: FailureReason) -> &'static str {
         FailureReason::NonHeadPattern => "NonHeadPattern",
         FailureReason::RequiredSyntacticFeatureStruct => "RequiredSyntacticFeatureStruct",
         FailureReason::HeadRequiredSyntacticFeatureStruct => "HeadRequiredSyntacticFeatureStruct",
-        FailureReason::NonHeadRequiredSyntacticFeatureStruct => "NonHeadRequiredSyntacticFeatureStruct",
+        FailureReason::NonHeadRequiredSyntacticFeatureStruct => {
+            "NonHeadRequiredSyntacticFeatureStruct"
+        }
         FailureReason::HeadProdRestrictMprFeatures => "HeadProdRestrictMprFeatures",
         FailureReason::NonHeadProdRestrictMprFeatures => "NonHeadProdRestrictMprFeatures",
         FailureReason::RequiredMprFeatures => "RequiredMprFeatures",
@@ -195,8 +207,12 @@ fn reason_name(r: FailureReason) -> &'static str {
         FailureReason::ExcludedStemName => "ExcludedStemName",
         FailureReason::PartialParse => "PartialParse",
         FailureReason::BoundRoot => "BoundRoot",
-        FailureReason::NonPartialRuleProhibitedAfterFinalTemplate => "NonPartialRuleProhibitedAfterFinalTemplate",
-        FailureReason::NonPartialRuleRequiredAfterNonFinalTemplate => "NonPartialRuleRequiredAfterNonFinalTemplate",
+        FailureReason::NonPartialRuleProhibitedAfterFinalTemplate => {
+            "NonPartialRuleProhibitedAfterFinalTemplate"
+        }
+        FailureReason::NonPartialRuleRequiredAfterNonFinalTemplate => {
+            "NonPartialRuleRequiredAfterNonFinalTemplate"
+        }
         FailureReason::MaxApplicationCount => "MaxApplicationCount",
     }
 }
@@ -246,7 +262,7 @@ struct WordCensus {
     /// (see module doc). `None` when there were no failing candidates (nothing to attribute) or
     /// the denominator was non-positive (measurement noise on a near-zero-cost word).
     time_shares: Option<[f64; 3]>, // (baseline-minus_x) for x in A,B,C
-    denom: f64,                    // baseline - keep_confirming
+    denom: f64, // baseline - keep_confirming
 }
 
 fn measure_word(
@@ -257,7 +273,8 @@ fn measure_word(
     candidates: &[Candidate],
 ) -> WordCensus {
     let mut cat_counts = [0usize; 3];
-    let mut reason_hist: rustc_hash::FxHashMap<&'static str, usize> = rustc_hash::FxHashMap::default();
+    let mut reason_hist: rustc_hash::FxHashMap<&'static str, usize> =
+        rustc_hash::FxHashMap::default();
 
     let baseline_start = Instant::now();
     let baseline_buckets = confirm::confirm_batch(g, owners, morpher, candidates, word);
@@ -299,7 +316,8 @@ fn measure_word(
             Some(outcome) if outcome.candidates_generated == 0 => Category::B,
             Some(_) => {
                 let sink = TreeTraceSink::new();
-                let _ = confirm::confirm_one_traced(g, owners, morpher, &candidates[i], word, &sink);
+                let _ =
+                    confirm::confirm_one_traced(g, owners, morpher, &candidates[i], word, &sink);
                 let reasons = collect_failure_reasons(&sink);
                 for &r in &reasons {
                     if VALIDITY_GATE_REASONS.contains(&r) {
@@ -318,13 +336,19 @@ fn measure_word(
     }
 
     // Counterfactual timing: keep_confirming, and minus_{a,b,c}.
-    let confirming_only: Vec<Candidate> = confirming_idx.iter().map(|&i| candidates[i].clone()).collect();
+    let confirming_only: Vec<Candidate> = confirming_idx
+        .iter()
+        .map(|&i| candidates[i].clone())
+        .collect();
     let keep_start = Instant::now();
     let _ = confirm::confirm_batch(g, owners, morpher, &confirming_only, word);
     let keep_ms = keep_start.elapsed().as_secs_f64() * 1000.0;
 
     let mut minus_ms = [0.0f64; 3];
-    for (slot, target) in [Category::A, Category::B, Category::C].into_iter().enumerate() {
+    for (slot, target) in [Category::A, Category::B, Category::C]
+        .into_iter()
+        .enumerate()
+    {
         let minus: Vec<Candidate> = candidates
             .iter()
             .enumerate()
@@ -382,7 +406,12 @@ struct GrammarReport {
     wall_ms: f64,
 }
 
-fn run_grammar(name: &str, xml_file: &str, words_file: &str, word_cap: usize) -> Option<GrammarReport> {
+fn run_grammar(
+    name: &str,
+    xml_file: &str,
+    words_file: &str,
+    word_cap: usize,
+) -> Option<GrammarReport> {
     let start = Instant::now();
     let g = load_grammar(xml_file)?;
     let all_words = read_words(words_file)?;
@@ -404,7 +433,8 @@ fn run_grammar(name: &str, xml_file: &str, words_file: &str, word_cap: usize) ->
     let mut total_confirming = 0usize;
     let mut total_failing = 0usize;
     let mut cat_counts = [0usize; 3];
-    let mut reason_hist: rustc_hash::FxHashMap<&'static str, usize> = rustc_hash::FxHashMap::default();
+    let mut reason_hist: rustc_hash::FxHashMap<&'static str, usize> =
+        rustc_hash::FxHashMap::default();
     let mut time_numer = [0.0f64; 3];
     let mut time_denom = 0.0f64;
     let mut words_scanned = 0usize;
@@ -502,14 +532,19 @@ fn print_report(r: &GrammarReport) {
             100.0 * r.time_numer[2] / r.time_denom,
         );
     } else {
-        println!("GO/NO-GO metric: n/a (no measurable failing-candidate time on this corpus slice)");
+        println!(
+            "GO/NO-GO metric: n/a (no measurable failing-candidate time on this corpus slice)"
+        );
     }
     println!();
     println!("grammar wall time: {:.1}ms", r.wall_ms);
 }
 
 fn env_usize(name: &str, default: usize) -> usize {
-    std::env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+    std::env::var(name)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(default)
 }
 
 fn run() {
@@ -542,14 +577,24 @@ fn run() {
         }
     } else {
         vec![
-            ("Sena", "sena-hc.xml", "sena-words.txt", env_usize("CENSUS_SENA_CAP", 300)),
+            (
+                "Sena",
+                "sena-hc.xml",
+                "sena-words.txt",
+                env_usize("CENSUS_SENA_CAP", 300),
+            ),
             (
                 "Indonesian",
                 "indonesian-hc.xml",
                 "indonesian-words.txt",
                 env_usize("CENSUS_INDONESIAN_CAP", 121),
             ),
-            ("Amharic", "amharic-hc.xml", "amharic-words.txt", env_usize("CENSUS_AMHARIC_CAP", 40)),
+            (
+                "Amharic",
+                "amharic-hc.xml",
+                "amharic-words.txt",
+                env_usize("CENSUS_AMHARIC_CAP", 40),
+            ),
         ]
     };
 

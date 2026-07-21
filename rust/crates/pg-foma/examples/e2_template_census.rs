@@ -14,40 +14,74 @@ fn sample_path(name: &str) -> PathBuf {
 
 fn load_amharic() -> Grammar {
     let path = sample_path("amharic-hc.xml");
-    let xml = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let xml =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     pg_grammar::load(&xml).unwrap_or_else(|e| panic!("failed to load amharic-hc.xml: {e}"))
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-enum Role { None, Prefix, Suffix, Infix, Reduplication, CircumfixPrefix, Process }
+enum Role {
+    None,
+    Prefix,
+    Suffix,
+    Infix,
+    Reduplication,
+    CircumfixPrefix,
+    Process,
+}
 
 fn classify_affix(rhs: &[OutputAction]) -> Role {
-    let copy_parts: Vec<PartRef> = rhs.iter().filter_map(|a| if let OutputAction::Copy(p) = a { Some(*p) } else { None }).collect();
-    if copy_parts.iter().any(|p| copy_parts.iter().filter(|&&q| q == *p).count() >= 2) {
+    let copy_parts: Vec<PartRef> = rhs
+        .iter()
+        .filter_map(|a| {
+            if let OutputAction::Copy(p) = a {
+                Some(*p)
+            } else {
+                None
+            }
+        })
+        .collect();
+    if copy_parts
+        .iter()
+        .any(|p| copy_parts.iter().filter(|&&q| q == *p).count() >= 2)
+    {
         return Role::Reduplication;
     }
     let mut first_copy: Option<usize> = None;
     let mut last_copy: usize = 0;
     for (i, action) in rhs.iter().enumerate() {
         if matches!(action, OutputAction::Copy(_)) {
-            if first_copy.is_none() { first_copy = Some(i); }
+            if first_copy.is_none() {
+                first_copy = Some(i);
+            }
             last_copy = i;
         }
     }
     let Some(first_copy) = first_copy else {
-        return if rhs.iter().any(|a| matches!(a, OutputAction::Modify(_, _))) { Role::Process } else { Role::None };
+        return if rhs.iter().any(|a| matches!(a, OutputAction::Modify(_, _))) {
+            Role::Process
+        } else {
+            Role::None
+        };
     };
     if first_copy < last_copy {
         for action in &rhs[first_copy + 1..last_copy] {
-            if !matches!(action, OutputAction::Copy(_)) { return Role::Infix; }
+            if !matches!(action, OutputAction::Copy(_)) {
+                return Role::Infix;
+            }
         }
     }
     let leading_insert = first_copy > 0;
     let trailing_insert = last_copy < rhs.len() - 1;
-    if leading_insert && trailing_insert { Role::CircumfixPrefix }
-    else if leading_insert { Role::Prefix }
-    else if trailing_insert { Role::Suffix }
-    else { Role::None }
+    if leading_insert && trailing_insert {
+        Role::CircumfixPrefix
+    } else if leading_insert {
+        Role::Prefix
+    } else if trailing_insert {
+        Role::Suffix
+    } else {
+        Role::None
+    }
 }
 
 fn allomorphs_of(g: &Grammar, def_idx: usize) -> &[pg_grammar::model::AffixAllomorphDef] {
@@ -59,7 +93,10 @@ fn allomorphs_of(g: &Grammar, def_idx: usize) -> &[pg_grammar::model::AffixAllom
 }
 
 fn rule_role(g: &Grammar, def_idx: usize) -> Role {
-    allomorphs_of(g, def_idx).first().map(|a| classify_affix(&a.rhs)).unwrap_or(Role::None)
+    allomorphs_of(g, def_idx)
+        .first()
+        .map(|a| classify_affix(&a.rhs))
+        .unwrap_or(Role::None)
 }
 
 fn main() {
@@ -84,7 +121,9 @@ fn main() {
             let mut has_other = false;
             for &mrid in &slot.rules {
                 let mid = mrid.0 as usize;
-                if matches!(g.mrules[mid], MorphRuleDef::Compounding(_)) { continue; }
+                if matches!(g.mrules[mid], MorphRuleDef::Compounding(_)) {
+                    continue;
+                }
                 match rule_role(&g, mid) {
                     Role::Prefix => has_prefix = true,
                     Role::Suffix => has_suffix = true,
@@ -92,13 +131,31 @@ fn main() {
                     _ => has_other = true,
                 }
             }
-            let label = if has_prefix { "P" } else if has_suffix { "S" } else if has_zero { "Z" } else if has_other { "O" } else { "?" };
+            let label = if has_prefix {
+                "P"
+            } else if has_suffix {
+                "S"
+            } else if has_zero {
+                "Z"
+            } else if has_other {
+                "O"
+            } else {
+                "?"
+            };
             roles.push(label);
         }
-        println!("template {ti}: {} slots, roles={:?}, optional={:?}", t.slots.len(), roles, t.slots.iter().map(|s| s.optional).collect::<Vec<_>>());
+        println!(
+            "template {ti}: {} slots, roles={:?}, optional={:?}",
+            t.slots.len(),
+            roles,
+            t.slots.iter().map(|s| s.optional).collect::<Vec<_>>()
+        );
     }
 
-    let has_compounding = g.mrules.iter().any(|m| matches!(m, MorphRuleDef::Compounding(_)));
+    let has_compounding = g
+        .mrules
+        .iter()
+        .any(|m| matches!(m, MorphRuleDef::Compounding(_)));
     println!("has compounding rule: {has_compounding}");
 
     // Standalone (stratum-attached, non-template) rules -- deriv_prefix/deriv_suffix candidates.
@@ -108,7 +165,9 @@ fn main() {
     let mut deriv_none = 0usize;
     for sd in &g.strata {
         for &mid in &sd.mrules {
-            if matches!(g.mrules[mid.0 as usize], MorphRuleDef::Compounding(_)) { continue; }
+            if matches!(g.mrules[mid.0 as usize], MorphRuleDef::Compounding(_)) {
+                continue;
+            }
             match rule_role(&g, mid.0 as usize) {
                 Role::Prefix => deriv_prefix += 1,
                 Role::Suffix => deriv_suffix += 1,
@@ -123,8 +182,14 @@ fn main() {
     // Which morphemes/rules does the corpus actually use? Load engine, parse first 300 words,
     // collect distinct morpheme ids used across all analyses.
     let words_text = std::fs::read_to_string(sample_path("amharic-words.txt")).expect("read words");
-    let words: Vec<&str> = words_text.lines().map(str::trim).filter(|w| !w.is_empty()).take(300).collect();
-    let morpher = pg_parse::Morpher::new(&g, usize::MAX).with_word_timeout(Some(std::time::Duration::from_secs(5)));
+    let words: Vec<&str> = words_text
+        .lines()
+        .map(str::trim)
+        .filter(|w| !w.is_empty())
+        .take(300)
+        .collect();
+    let morpher = pg_parse::Morpher::new(&g, usize::MAX)
+        .with_word_timeout(Some(std::time::Duration::from_secs(5)));
     let opts = pg_parse::ParseOptions::default();
     let mut used_morphemes: std::collections::HashSet<u32> = Default::default();
     let mut max_analysis_len = 0usize;
@@ -137,7 +202,10 @@ fn main() {
             }
         }
     }
-    println!("distinct morphemes used across corpus analyses: {}", used_morphemes.len());
+    println!(
+        "distinct morphemes used across corpus analyses: {}",
+        used_morphemes.len()
+    );
     println!("max analysis length (morpheme count): {max_analysis_len}");
 
     // Of the mrules NOT in any template slot (standalone), which ones does the corpus actually use?
@@ -149,6 +217,9 @@ fn main() {
             }
         }
     }
-    println!("distinct mrule ids referenced by template slots: {}", template_mrule_ids.len());
+    println!(
+        "distinct mrule ids referenced by template slots: {}",
+        template_mrule_ids.len()
+    );
     println!("total mrules: {}", g.mrules.len());
 }

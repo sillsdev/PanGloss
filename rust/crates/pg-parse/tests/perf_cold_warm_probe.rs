@@ -34,7 +34,10 @@ fn sena_cold_vs_warm_and_memo_effect() {
 
     let load_start = Instant::now();
     let g = pg_grammar::load(&xml).expect("load sena grammar");
-    eprintln!("grammar load: {:.1}ms", load_start.elapsed().as_secs_f64() * 1000.0);
+    eprintln!(
+        "grammar load: {:.1}ms",
+        load_start.elapsed().as_secs_f64() * 1000.0
+    );
 
     // Real pathological words pulled live from this investigation's plain-engine batch run
     // (top of the observed-so-far distribution on a partial Sena run), not synthetic.

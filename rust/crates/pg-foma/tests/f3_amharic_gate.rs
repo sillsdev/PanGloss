@@ -100,8 +100,8 @@ fn have(name: &str) -> bool {
 
 fn load_amharic() -> Grammar {
     let path = sample_path("amharic-hc.xml");
-    let xml = std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let xml =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     pg_grammar::load(&xml).unwrap_or_else(|e| panic!("failed to load amharic-hc.xml: {e}"))
 }
 
@@ -116,7 +116,11 @@ fn corpus_words() -> Vec<String> {
         .take(WORD_CAP)
         .map(str::to_string)
         .collect();
-    assert_eq!(words.len(), WORD_CAP, "corpus has at least {WORD_CAP} words");
+    assert_eq!(
+        words.len(),
+        WORD_CAP,
+        "corpus has at least {WORD_CAP} words"
+    );
     words
 }
 
@@ -358,14 +362,21 @@ fn b_amharic_recall_first_100_words_is_100_percent() {
         propose_time / (n_words_analyzed.max(1) as u32)
     );
     if !misses.is_empty() {
-        println!("--- MISSES ({} of {n_total}) — every one is a P1d bug ---", misses.len());
+        println!(
+            "--- MISSES ({} of {n_total}) — every one is a P1d bug ---",
+            misses.len()
+        );
         for m in &misses {
             println!("MISS {m}");
         }
     }
-    assert!(n_total > 0, "recall gate must exercise at least one engine analysis");
+    assert!(
+        n_total > 0,
+        "recall gate must exercise at least one engine analysis"
+    );
     assert_eq!(
-        n_covered, n_total,
+        n_covered,
+        n_total,
         "P1d requires 100% Amharic proposer recall (plan §0: no fallback tier); {} engine \
          analyses not proposed — see MISS lines above",
         n_total - n_covered
@@ -448,7 +459,10 @@ fn c_amharic_end_to_end_multiset_parity() {
             println!("MISMATCH {m}");
         }
     }
-    assert!(n_words_compared > 0, "parity gate must compare at least one word");
+    assert!(
+        n_words_compared > 0,
+        "parity gate must compare at least one word"
+    );
     assert!(
         mismatches.is_empty(),
         "{} word(s) with foma-path multiset != full-engine multiset (see MISMATCH lines above)",
@@ -472,7 +486,11 @@ fn d_nonsense_word_proposes_boundedly_and_never_panics() {
     let mut proposer = FomaProposer::new(&g).expect("Amharic compiles");
     let t0 = Instant::now();
     let candidates = proposer.propose("ዝጎጠቃኝዬ");
-    println!("ዝጎጠቃኝዬ: {} candidates in {:?}", candidates.len(), t0.elapsed());
+    println!(
+        "ዝጎጠቃኝዬ: {} candidates in {:?}",
+        candidates.len(),
+        t0.elapsed()
+    );
     assert!(
         candidates.len() <= 20,
         "nonsense word should propose boundedly few candidates, got {}",
@@ -480,7 +498,10 @@ fn d_nonsense_word_proposes_boundedly_and_never_panics() {
     );
 
     let candidates2 = proposer.propose("zzzq");
-    assert!(candidates2.is_empty(), "unsegmentable word should propose nothing");
+    assert!(
+        candidates2.is_empty(),
+        "unsegmentable word should propose nothing"
+    );
 
     // Through the full composite (propose -> confirm): nonsense must confirm to zero analyses.
     let mut analyzer = FomaAnalyzer::new(&g).expect("Amharic compiles");

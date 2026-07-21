@@ -24,7 +24,7 @@ use foma::minimize::fsm_minimize;
 use foma::options::FomaOptions;
 use foma::regex::fsm_parse_regex;
 use foma::topsort::fsm_topsort;
-use foma::types::{PATHCOUNT_CYCLIC, PATHCOUNT_OVERFLOW, Tern};
+use foma::types::{Tern, PATHCOUNT_CYCLIC, PATHCOUNT_OVERFLOW};
 
 use pg_foma::emit::emit_underlying_templated;
 use pg_foma::replace::{compile_and_compose_rules, SegAlphabet};
@@ -34,12 +34,15 @@ use pg_grammar::model::{Grammar, PhonRuleDef};
 const STACK_BYTES: usize = 512 * 1024 * 1024;
 
 fn sample_path(name: &str) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../samples/data").join(name)
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../samples/data")
+        .join(name)
 }
 
 fn load_aweti() -> Grammar {
     let path = sample_path("aweti.json");
-    let json = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let json =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     let snapshot = pg_snapshot::Snapshot::from_json(&json)
         .unwrap_or_else(|e| panic!("parse snapshot {}: {e}", path.display()));
     let (grammar, _warnings) = pg_grammar::compile_project(&snapshot)
@@ -66,7 +69,10 @@ fn run() {
     println!("emit tier: {:?}", result.report.tier);
     let lexc_net = fsm_lexc_parse_string(&opts, None, &result.lexc_source)
         .unwrap_or_else(|| panic!("templated underlying-form lexc failed to compile"));
-    println!("lexc net: {} states, {} arcs", lexc_net.statecount, lexc_net.arccount);
+    println!(
+        "lexc net: {} states, {} arcs",
+        lexc_net.statecount, lexc_net.arccount
+    );
 
     let mut rules_in_order: Vec<&PhonRuleDef> = Vec::new();
     for st in &g.strata {
@@ -76,17 +82,31 @@ fn run() {
     }
     let mut skipped_rules: Vec<String> = Vec::new();
     let mut tuple_reports = Vec::new();
-    let rule_net = compile_and_compose_rules(&opts, &g, &alphabet, &rules_in_order, &mut skipped_rules, &mut tuple_reports)
-        .expect("compose budget ok")
-        .expect("Aweti's 18 rules must compile");
-    println!("rule net: {} states, {} arcs; skipped={skipped_rules:?}", rule_net.statecount, rule_net.arccount);
+    let rule_net = compile_and_compose_rules(
+        &opts,
+        &g,
+        &alphabet,
+        &rules_in_order,
+        &mut skipped_rules,
+        &mut tuple_reports,
+    )
+    .expect("compose budget ok")
+    .expect("Aweti's 18 rules must compile");
+    println!(
+        "rule net: {} states, {} arcs; skipped={skipped_rules:?}",
+        rule_net.statecount, rule_net.arccount
+    );
 
     let boundary_tokens: Vec<char> = table
         .iter()
         .filter(|(_, cd)| cd.kind() == CharDefKind::Boundary)
         .map(|(id, _)| alphabet.token(id))
         .collect();
-    let cleanup_regex = boundary_tokens.iter().map(|c| format!("{c} -> 0")).collect::<Vec<_>>().join(", ");
+    let cleanup_regex = boundary_tokens
+        .iter()
+        .map(|c| format!("{c} -> 0"))
+        .collect::<Vec<_>>()
+        .join(", ");
     let cleanup_net = fsm_parse_regex(&opts, &cleanup_regex, None, None)
         .unwrap_or_else(|| panic!("boundary cleanup regex failed to compile"));
 
@@ -116,7 +136,11 @@ fn run() {
     }
     assert_eq!(
         sorted.is_loop_free,
-        if matches!(sorted.pathcount, PATHCOUNT_CYCLIC) { Tern::No } else { Tern::Yes }
+        if matches!(sorted.pathcount, PATHCOUNT_CYCLIC) {
+            Tern::No
+        } else {
+            Tern::Yes
+        }
     );
 
     println!("\n=== done ===");

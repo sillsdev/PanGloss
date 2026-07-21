@@ -298,7 +298,9 @@ fn set_user_id_property(entry_xml: &str, marker: &str) -> String {
 }
 
 fn escape_xml(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 /// Build the patched clone of one exemplar `<LexicalEntry>` element: fresh entry/allomorph ids,
@@ -372,7 +374,10 @@ mod tests {
     fn find_element_span_does_not_confuse_allomorph_with_allomorphs() {
         let xml = "<Allomorphs><Allomorph id=\"a1\"><PhoneticShape>x</PhoneticShape></Allomorph></Allomorphs>";
         let (start, end) = find_element_span(xml, "Allomorph", 12).unwrap();
-        assert_eq!(&xml[start..end], "<Allomorph id=\"a1\"><PhoneticShape>x</PhoneticShape></Allomorph>");
+        assert_eq!(
+            &xml[start..end],
+            "<Allomorph id=\"a1\"><PhoneticShape>x</PhoneticShape></Allomorph>"
+        );
     }
 
     #[test]
@@ -387,7 +392,10 @@ mod tests {
         let entry = "<LexicalEntry id=\"e1\"><Gloss>x</Gloss><Properties><Property name=\"ID\">101</Property></Properties></LexicalEntry>";
         let out = set_user_id_property(entry, "user:abc-123");
         assert!(out.contains("<Property name=\"ID\">user:abc-123</Property>"));
-        assert!(!out.contains(">101<"), "the stale FieldWorks hvo must be gone: {out}");
+        assert!(
+            !out.contains(">101<"),
+            "the stale FieldWorks hvo must be gone: {out}"
+        );
         // Exactly one Properties block -- no duplicate injected alongside the existing one.
         assert_eq!(out.matches("<Properties>").count(), 1);
     }

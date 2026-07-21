@@ -2,14 +2,18 @@
 //! (no `.fwdata`/oracle files — those are T4's job). See `pg-snapshot/src/lib.rs`'s own tests for
 //! the construction style this mirrors.
 
-use pg_snapshot::feature::{ClosedFeature, FeatureStructure, FeatureSystem, FeatureValue, FeatureValueKind, FeatureValueSymbol};
+use pg_snapshot::feature::{
+    ClosedFeature, FeatureStructure, FeatureSystem, FeatureValue, FeatureValueKind,
+    FeatureValueSymbol,
+};
 use pg_snapshot::lexicon::{Allomorph, EntryRef, LexEntry, Lexicon, Msa, Sense};
 use pg_snapshot::morphology::{
-    AffixSlot, AffixTemplate, InflectionClass, LexEntryInflType, Morphology, MorphType, PartOfSpeech,
+    AffixSlot, AffixTemplate, InflectionClass, LexEntryInflType, MorphType, Morphology,
+    PartOfSpeech,
 };
 use pg_snapshot::phonology::{
-    BoundaryMarker, MetathesisRule, NaturalClass as SnapNaturalClass, Phoneme, Phonology,
-    PhonologicalRule, RuleDirection,
+    BoundaryMarker, MetathesisRule, NaturalClass as SnapNaturalClass, Phoneme, PhonologicalRule,
+    Phonology, RuleDirection,
 };
 use pg_snapshot::project::Project;
 use pg_snapshot::{FeatureSystems, Snapshot, WsForm};
@@ -250,19 +254,30 @@ fn tokenize_rejects_unclosed_paren() {
 #[test]
 fn invalid_environment_string_is_a_warning_not_an_error() {
     let (mut snapshot, _f) = fixture();
-    snapshot.phonology.environments.push(pg_snapshot::phonology::Environment {
-        guid: "env-bad".to_string(),
-        name: String::new(),
-        representation: "not-a-valid-environment".to_string(),
-    });
-    snapshot.lexicon.entries[0].allomorphs[0].environments.push("env-bad".to_string());
+    snapshot
+        .phonology
+        .environments
+        .push(pg_snapshot::phonology::Environment {
+            guid: "env-bad".to_string(),
+            name: String::new(),
+            representation: "not-a-valid-environment".to_string(),
+        });
+    snapshot.lexicon.entries[0].allomorphs[0]
+        .environments
+        .push("env-bad".to_string());
 
     let (grammar, warnings) = compile_project(&snapshot).expect("must still compile");
     assert!(
-        warnings.iter().any(|w| w.contains("env-bad") || w.contains("must start with")),
+        warnings
+            .iter()
+            .any(|w| w.contains("env-bad") || w.contains("must start with")),
         "expected a warning about the invalid environment; got {warnings:?}"
     );
-    assert_eq!(grammar.entries.len(), 1, "the stem entry must still compile");
+    assert_eq!(
+        grammar.entries.len(),
+        1,
+        "the stem entry must still compile"
+    );
 }
 
 /// A well-formed environment (`[NC]` natural-class reference) parses into a real pattern and
@@ -270,17 +285,25 @@ fn invalid_environment_string_is_a_warning_not_an_error() {
 #[test]
 fn valid_bracket_environment_compiles_without_warnings() {
     let (mut snapshot, f) = fixture();
-    snapshot.phonology.natural_classes.push(SnapNaturalClass::Segments {
-        guid: "nc-vowel".to_string(),
-        name: "V".to_string(),
-        phonemes: vec!["ph-a".to_string(), "ph-i".to_string(), "ph-u".to_string()],
-    });
-    snapshot.phonology.environments.push(pg_snapshot::phonology::Environment {
-        guid: "env-v".to_string(),
-        name: String::new(),
-        representation: "/_[V]".to_string(),
-    });
-    snapshot.lexicon.entries[1].allomorphs[0].environments.push("env-v".to_string());
+    snapshot
+        .phonology
+        .natural_classes
+        .push(SnapNaturalClass::Segments {
+            guid: "nc-vowel".to_string(),
+            name: "V".to_string(),
+            phonemes: vec!["ph-a".to_string(), "ph-i".to_string(), "ph-u".to_string()],
+        });
+    snapshot
+        .phonology
+        .environments
+        .push(pg_snapshot::phonology::Environment {
+            guid: "env-v".to_string(),
+            name: String::new(),
+            representation: "/_[V]".to_string(),
+        });
+    snapshot.lexicon.entries[1].allomorphs[0]
+        .environments
+        .push("env-v".to_string());
 
     let (grammar, warnings) = compile_project(&snapshot).expect("must compile");
     assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
@@ -303,16 +326,20 @@ fn valid_bracket_environment_compiles_without_warnings() {
 fn stem_msa_without_its_own_inflection_class_defaults_up_the_pos_chain() {
     let (mut snapshot, f) = fixture();
     let class_guid = "class-default".to_string();
-    snapshot.morphology.parts_of_speech[0].inflection_classes.push(InflectionClass {
-        guid: class_guid.clone(),
-        name: "DefaultClass".to_string(),
-        abbreviation: "def".to_string(),
-        children: Vec::new(),
-    });
+    snapshot.morphology.parts_of_speech[0]
+        .inflection_classes
+        .push(InflectionClass {
+            guid: class_guid.clone(),
+            name: "DefaultClass".to_string(),
+            abbreviation: "def".to_string(),
+            children: Vec::new(),
+        });
     snapshot.morphology.parts_of_speech[0].default_inflection_class = Some(class_guid.clone());
     // The stem MSA declares no inflection class of its own -- GetDefaultInflClass must supply it.
     match &mut snapshot.lexicon.entries[0].msas[0] {
-        Msa::Stem { inflection_class, .. } => *inflection_class = None,
+        Msa::Stem {
+            inflection_class, ..
+        } => *inflection_class = None,
         _ => panic!("expected the fixture's stem MSA"),
     }
 
@@ -324,7 +351,9 @@ fn stem_msa_without_its_own_inflection_class_defaults_up_the_pos_chain() {
         .position(|n| n == "DefaultClass")
         .expect("the default inflection class must be registered in the MPR table");
     assert!(
-        grammar.entries[0].mpr.contains(crate::model::MprId(class_bit as u8)),
+        grammar.entries[0]
+            .mpr
+            .contains(crate::model::MprId(class_bit as u8)),
         "the stem entry's MPR set must carry the POS's defaulted inflection class"
     );
     let _ = f;
@@ -336,15 +365,18 @@ fn stem_msa_without_its_own_inflection_class_defaults_up_the_pos_chain() {
 fn variant_entry_appends_infl_type_gloss_to_the_base_sense_gloss() {
     let (mut snapshot, f) = fixture();
     let infl_type_guid = "infl-plural".to_string();
-    snapshot.morphology.lex_entry_infl_types.push(LexEntryInflType {
-        guid: infl_type_guid.clone(),
-        name: "Irregular Plural".to_string(),
-        abbreviation: "irr.pl".to_string(),
-        gloss_prepend: String::new(),
-        gloss_append: ".IRR".to_string(),
-        slots: Vec::new(),
-        inflection_features: None,
-    });
+    snapshot
+        .morphology
+        .lex_entry_infl_types
+        .push(LexEntryInflType {
+            guid: infl_type_guid.clone(),
+            name: "Irregular Plural".to_string(),
+            abbreviation: "irr.pl".to_string(),
+            gloss_prepend: String::new(),
+            gloss_append: ".IRR".to_string(),
+            slots: Vec::new(),
+            inflection_features: None,
+        });
 
     let variant_entry = LexEntry {
         guid: "entry-variant".to_string(),
@@ -363,7 +395,11 @@ fn variant_entry_appends_infl_type_gloss_to_the_base_sense_gloss() {
 
     let (grammar, warnings) = compile_project(&snapshot).expect("must compile");
     assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
-    assert_eq!(grammar.entries.len(), 2, "the base stem entry plus the variant");
+    assert_eq!(
+        grammar.entries.len(),
+        2,
+        "the base stem entry plus the variant"
+    );
     let variant_morpheme = grammar
         .morphemes
         .iter()
@@ -385,7 +421,10 @@ fn stem_msa_without_a_part_of_speech_is_partial() {
     let (grammar, warnings) = compile_project(&snapshot).expect("must compile");
     assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
     assert_eq!(grammar.entries.len(), 1);
-    assert!(grammar.entries[0].partial, "an MSA with no POS must be IsPartial");
+    assert!(
+        grammar.entries[0].partial,
+        "an MSA with no POS must be IsPartial"
+    );
 }
 
 #[test]
@@ -407,7 +446,10 @@ fn inflectional_msa_with_no_slots_is_a_partial_rule() {
         })
         .collect();
     assert_eq!(affix_rules.len(), 1);
-    assert!(affix_rules[0].partial, "an MoInflAffMsa with zero slots must be IsPartial");
+    assert!(
+        affix_rules[0].partial,
+        "an MoInflAffMsa with zero slots must be IsPartial"
+    );
     // With no slots referencing it, the template's one slot has no loaded affix and the whole
     // template must be dropped (HCLoader.cs:297-300).
     assert!(grammar.templates.is_empty());
@@ -439,7 +481,10 @@ fn absent_compound_rules_synthesize_the_two_defaults_when_not_suppressed() {
         .iter()
         .filter(|r| matches!(r, MorphRuleDef::Compounding(_)))
         .count();
-    assert_eq!(compound_count, 2, "DefaultCompoundingRules synthesizes exactly two rules");
+    assert_eq!(
+        compound_count, 2,
+        "DefaultCompoundingRules synthesizes exactly two rules"
+    );
 }
 
 #[test]
@@ -451,27 +496,40 @@ fn custom_strata_parser_parameter_warns_and_falls_back_to_the_default_layout() {
         warnings.iter().any(|w| w.contains("Strata")),
         "expected a warning about unsupported custom Strata reorganization; got {warnings:?}"
     );
-    assert_eq!(grammar.strata.len(), 3, "default Morphology/Clitics/Surface layout still used");
+    assert_eq!(
+        grammar.strata.len(),
+        3,
+        "default Morphology/Clitics/Surface layout still used"
+    );
 }
 
 #[test]
 fn not_on_clitics_false_places_rewrite_rules_on_the_clitic_stratum() {
     let (mut snapshot, _f) = fixture();
     snapshot.morphology.parser_parameters.not_on_clitics = false;
-    snapshot.phonology.rules.push(PhonologicalRule::Rewrite(pg_snapshot::phonology::RewriteRule {
-        guid: "prule-1".to_string(),
-        name: "raise-a".to_string(),
-        direction: RuleDirection::LeftToRight,
-        structural_description: Vec::new(),
-        feature_constraint_variables: Vec::new(),
-        right_hand_sides: vec![pg_snapshot::phonology::RewriteRhs::default()],
-    }));
+    snapshot.phonology.rules.push(PhonologicalRule::Rewrite(
+        pg_snapshot::phonology::RewriteRule {
+            guid: "prule-1".to_string(),
+            name: "raise-a".to_string(),
+            direction: RuleDirection::LeftToRight,
+            structural_description: Vec::new(),
+            feature_constraint_variables: Vec::new(),
+            right_hand_sides: vec![pg_snapshot::phonology::RewriteRhs::default()],
+        },
+    ));
 
     let (grammar, warnings) = compile_project(&snapshot).expect("must compile");
     assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
     assert_eq!(grammar.prules.len(), 1);
-    assert!(grammar.strata[0].prules.is_empty(), "Morphology stratum must not carry the rule");
-    assert_eq!(grammar.strata[1].prules.len(), 1, "Clitics stratum must carry the rule");
+    assert!(
+        grammar.strata[0].prules.is_empty(),
+        "Morphology stratum must not carry the rule"
+    );
+    assert_eq!(
+        grammar.strata[1].prules.len(),
+        1,
+        "Clitics stratum must carry the rule"
+    );
 }
 
 // --- 7. unsupported Phase-B construct: a warning, not an error ---------------------------------
@@ -479,21 +537,30 @@ fn not_on_clitics_false_places_rewrite_rules_on_the_clitic_stratum() {
 #[test]
 fn metathesis_rule_is_unsupported_and_warns_rather_than_erroring() {
     let (mut snapshot, _f) = fixture();
-    snapshot.phonology.rules.push(PhonologicalRule::Metathesis(MetathesisRule {
-        guid: "meta-1".to_string(),
-        name: "swap".to_string(),
-        direction: RuleDirection::LeftToRight,
-        structural_description: Vec::new(),
-        left_switch_index: 0,
-        right_switch_index: 1,
-    }));
+    snapshot
+        .phonology
+        .rules
+        .push(PhonologicalRule::Metathesis(MetathesisRule {
+            guid: "meta-1".to_string(),
+            name: "swap".to_string(),
+            direction: RuleDirection::LeftToRight,
+            structural_description: Vec::new(),
+            left_switch_index: 0,
+            right_switch_index: 1,
+        }));
 
-    let (grammar, warnings) = compile_project(&snapshot).expect("metathesis must not be a hard error");
+    let (grammar, warnings) =
+        compile_project(&snapshot).expect("metathesis must not be a hard error");
     assert!(
-        warnings.iter().any(|w| w.contains("unsupported") && w.contains("metathesis")),
+        warnings
+            .iter()
+            .any(|w| w.contains("unsupported") && w.contains("metathesis")),
         "expected an 'unsupported: metathesis ...' warning; got {warnings:?}"
     );
-    assert!(grammar.prules.is_empty(), "the metathesis rule itself must not appear in the grammar");
+    assert!(
+        grammar.prules.is_empty(),
+        "the metathesis rule itself must not appear in the grammar"
+    );
 }
 
 /// A circumfix entry is Phase B too (cross-product allomorphs, HCLoader.cs:1048-1332): it warns
@@ -521,9 +588,12 @@ fn circumfix_entry_is_unsupported_and_warns_rather_than_erroring() {
     };
     snapshot.lexicon.entries.push(circumfix_entry);
 
-    let (_grammar, warnings) = compile_project(&snapshot).expect("circumfix must not be a hard error");
+    let (_grammar, warnings) =
+        compile_project(&snapshot).expect("circumfix must not be a hard error");
     assert!(
-        warnings.iter().any(|w| w.contains("unsupported") && w.contains("circumfix")),
+        warnings
+            .iter()
+            .any(|w| w.contains("unsupported") && w.contains("circumfix")),
         "expected an 'unsupported: circumfix ...' warning; got {warnings:?}"
     );
 }
@@ -561,7 +631,9 @@ fn morphosyntactic_closed_feature_compiles_into_the_syntactic_feature_system() {
             *features = Some(FeatureStructure {
                 values: vec![FeatureValue {
                     feature: number_guid.clone(),
-                    value: FeatureValueKind::Closed { value: sg_guid.clone() },
+                    value: FeatureValueKind::Closed {
+                        value: sg_guid.clone(),
+                    },
                 }],
             })
         }
@@ -571,7 +643,10 @@ fn morphosyntactic_closed_feature_compiles_into_the_syntactic_feature_system() {
     let (grammar, warnings) = compile_project(&snapshot).expect("must compile");
     assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
     assert!(
-        grammar.syn_features.feature_by_xml_id(&number_guid).is_some(),
+        grammar
+            .syn_features
+            .feature_by_xml_id(&number_guid)
+            .is_some(),
         "the morphosyntactic feature must be registered in the syntactic feature system"
     );
 }
@@ -595,12 +670,13 @@ fn assert_grammar_ids_are_internally_consistent(grammar: &crate::model::Grammar)
         let want = crate::model::AllomorphId(i as u32);
         match owner {
             AllomorphOwner::Root(le, k) => {
-                let entry = grammar
-                    .entries
-                    .get(le.0 as usize)
-                    .unwrap_or_else(|| panic!("allomorph_owners[{i}] = Root({le:?}, {k}): entry index out of range"));
+                let entry = grammar.entries.get(le.0 as usize).unwrap_or_else(|| {
+                    panic!("allomorph_owners[{i}] = Root({le:?}, {k}): entry index out of range")
+                });
                 let allo = entry.allomorphs.get(*k as usize).unwrap_or_else(|| {
-                    panic!("allomorph_owners[{i}] = Root({le:?}, {k}): allomorph index out of range")
+                    panic!(
+                        "allomorph_owners[{i}] = Root({le:?}, {k}): allomorph index out of range"
+                    )
                 });
                 assert_eq!(
                     allo.id, want,
@@ -609,15 +685,16 @@ fn assert_grammar_ids_are_internally_consistent(grammar: &crate::model::Grammar)
                 );
             }
             AllomorphOwner::Affix(mr, k) => {
-                let rule = grammar
-                    .mrules
-                    .get(mr.0 as usize)
-                    .unwrap_or_else(|| panic!("allomorph_owners[{i}] = Affix({mr:?}, {k}): mrule index out of range"));
+                let rule = grammar.mrules.get(mr.0 as usize).unwrap_or_else(|| {
+                    panic!("allomorph_owners[{i}] = Affix({mr:?}, {k}): mrule index out of range")
+                });
                 let allos = rule.affix_allomorphs().unwrap_or_else(|| {
                     panic!("allomorph_owners[{i}] = Affix({mr:?}, {k}): mrule {mr:?} is not an AffixProcess/Realizational rule")
                 });
                 let allo = allos.get(*k as usize).unwrap_or_else(|| {
-                    panic!("allomorph_owners[{i}] = Affix({mr:?}, {k}): allomorph index out of range")
+                    panic!(
+                        "allomorph_owners[{i}] = Affix({mr:?}, {k}): allomorph index out of range"
+                    )
                 });
                 assert_eq!(
                     allo.id, want,
@@ -717,7 +794,11 @@ fn variant_entry_grammar_dense_ids_are_internally_consistent() {
 
     let (grammar, warnings) = compile_project(&snapshot).expect("must compile");
     assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
-    assert_eq!(grammar.entries.len(), 2, "stem entry + variant entry expected");
+    assert_eq!(
+        grammar.entries.len(),
+        2,
+        "stem entry + variant entry expected"
+    );
     assert_grammar_ids_are_internally_consistent(&grammar);
 }
 
@@ -756,7 +837,8 @@ fn enclitic_entry_compiles_to_clitic_stratum_lex_entry_and_affix_rule() {
     };
     snapshot.lexicon.entries.push(clitic_entry);
 
-    let (grammar, warnings) = compile_project(&snapshot).expect("clitic entries must not be a hard error");
+    let (grammar, warnings) =
+        compile_project(&snapshot).expect("clitic entries must not be a hard error");
     assert!(
         !warnings.iter().any(|w| w.contains("clitic")),
         "clitics are implemented; no clitic warning expected, got {warnings:?}"
@@ -764,7 +846,11 @@ fn enclitic_entry_compiles_to_clitic_stratum_lex_entry_and_affix_rule() {
     // The fixture's own stem entry + the clitic entry's stem role.
     assert_eq!(grammar.entries.len(), 2);
     let clitics = &grammar.strata[1];
-    assert_eq!(clitics.entries.len(), 1, "the enclitic's stem role lands on the Clitics stratum");
+    assert_eq!(
+        clitics.entries.len(),
+        1,
+        "the enclitic's stem role lands on the Clitics stratum"
+    );
     assert_eq!(
         clitics.mrules.len(),
         1,
@@ -777,9 +863,14 @@ fn enclitic_entry_compiles_to_clitic_stratum_lex_entry_and_affix_rule() {
         crate::model::MorphRuleDef::AffixProcess(d) => d.morpheme,
         other => panic!("expected an affix-process rule, got {other:?}"),
     };
-    assert_eq!(grammar.morphemes[clitic_rule_morpheme.0 as usize].stratum.0, 1);
     assert_eq!(
-        grammar.morphemes[clitic_rule_morpheme.0 as usize].gloss.as_deref(),
+        grammar.morphemes[clitic_rule_morpheme.0 as usize].stratum.0,
+        1
+    );
+    assert_eq!(
+        grammar.morphemes[clitic_rule_morpheme.0 as usize]
+            .gloss
+            .as_deref(),
         Some("TOP")
     );
 }

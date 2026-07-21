@@ -36,9 +36,9 @@ use pg_grammar::model::{Grammar, MorphRuleDef, PhonRuleDef};
 use pg_rules::cache::RuleCache;
 use pg_rules::surface_probe::{self, ProbeSeg};
 use pg_shape::NodeKind;
-use rustc_hash::FxHashMap as HashMap;
 #[cfg(not(target_arch = "wasm32"))]
 use rayon::prelude::*;
+use rustc_hash::FxHashMap as HashMap;
 
 pub struct PhonologyProbe<'g> {
     g: &'g Grammar,
@@ -168,7 +168,10 @@ impl<'g> PhonologyProbe<'g> {
     /// `None` when the grammar declares no phonological rules at all — nothing to probe, and
     /// `emit.rs` treats `None` as "this grammar's affix/root emission is unchanged from stage 1".
     pub fn new(g: &'g Grammar) -> Option<Self> {
-        let surface_stratum = g.strata.last().expect("a loaded grammar always has a stratum");
+        let surface_stratum = g
+            .strata
+            .last()
+            .expect("a loaded grammar always has a stratum");
         let table = &g.char_tables[surface_stratum.table.0 as usize];
 
         let mut any_phonological_rules = false;
@@ -270,8 +273,9 @@ impl<'g> PhonologyProbe<'g> {
         #[cfg(target_arch = "wasm32")]
         let hits: Vec<[Option<String>; 2]> = self.alphabet.iter().map(probe_one).collect();
         #[cfg(not(target_arch = "wasm32"))]
-        let hits: Vec<[Option<String>; 2]> =
-            self.pool.install(|| self.alphabet.par_iter().map(probe_one).collect());
+        let hits: Vec<[Option<String>; 2]> = self
+            .pool
+            .install(|| self.alphabet.par_iter().map(probe_one).collect());
 
         for pair in hits {
             result.extend(pair.into_iter().flatten());
@@ -307,7 +311,10 @@ impl<'g> PhonologyProbe<'g> {
     /// Empty (not probed at all) when this grammar has no rule that can ever delete a segment.
     pub fn deletion_junctions(&self, underlying: &str) -> Vec<String> {
         {
-            let cache = self.junctions_cache.lock().expect("junctions_cache poisoned");
+            let cache = self
+                .junctions_cache
+                .lock()
+                .expect("junctions_cache poisoned");
             if let Some(v) = cache.get(underlying) {
                 return v.clone();
             }
@@ -348,7 +355,8 @@ impl<'g> PhonologyProbe<'g> {
                 return Some(hit);
             }
             for c2 in &self.alphabet {
-                if let Some(hit2) = self.try_probe_deletion(underlying, c1, Some(c2), underlying_len)
+                if let Some(hit2) =
+                    self.try_probe_deletion(underlying, c1, Some(c2), underlying_len)
                 {
                     return Some(hit2); // one confirming c2 is enough to know c1's context can delete.
                 }
@@ -359,8 +367,9 @@ impl<'g> PhonologyProbe<'g> {
         #[cfg(target_arch = "wasm32")]
         let hits: Vec<Option<String>> = self.neighbor_alphabet.iter().map(probe_one).collect();
         #[cfg(not(target_arch = "wasm32"))]
-        let hits: Vec<Option<String>> =
-            self.pool.install(|| self.neighbor_alphabet.par_iter().map(probe_one).collect());
+        let hits: Vec<Option<String>> = self
+            .pool
+            .install(|| self.neighbor_alphabet.par_iter().map(probe_one).collect());
 
         result.extend(hits.into_iter().flatten());
         result.into_iter().collect()

@@ -67,10 +67,19 @@ fn recipe() -> Recipe {
 fn circumfix_recall_parity_via_generator_and_oracle() {
     let recipe = recipe();
     let rendered = pg_grammar_gen::render_indexed(&recipe);
-    let g = pg_grammar::load(&rendered.xml).unwrap_or_else(|e| panic!("generated circumfix XML failed to load: {e}\n{}", rendered.xml));
+    let g = pg_grammar::load(&rendered.xml).unwrap_or_else(|e| {
+        panic!(
+            "generated circumfix XML failed to load: {e}\n{}",
+            rendered.xml
+        )
+    });
 
     assert_eq!(g.entries.len(), 3, "recipe must produce exactly 3 roots");
-    assert_eq!(g.templates.len(), 1, "recipe must produce exactly 1 AffixTemplate");
+    assert_eq!(
+        g.templates.len(),
+        1,
+        "recipe must produce exactly 1 AffixTemplate"
+    );
 
     let circ_xml_id = rendered.tables[0]
         .circumfix_mrule_xml_ids
@@ -89,10 +98,23 @@ fn circumfix_recall_parity_via_generator_and_oracle() {
     };
     let roots: Vec<LexEntryId> = (0..g.entries.len() as u32).map(LexEntryId).collect();
     let words = sweep(&g, &roots, &[circ_mrule], &oracle_opts);
-    assert!(!words.is_empty(), "oracle sweep produced zero words -- gate must be non-vacuous");
-    assert!(words.iter().any(|w| w.mrule.is_none()), "no bare-root oracle word generated");
-    assert!(words.iter().any(|w| w.mrule.is_some()), "no circumfixed oracle word generated");
-    println!("oracle produced {} words ({} roots x up to 2 forms each)", words.len(), roots.len());
+    assert!(
+        !words.is_empty(),
+        "oracle sweep produced zero words -- gate must be non-vacuous"
+    );
+    assert!(
+        words.iter().any(|w| w.mrule.is_none()),
+        "no bare-root oracle word generated"
+    );
+    assert!(
+        words.iter().any(|w| w.mrule.is_some()),
+        "no circumfixed oracle word generated"
+    );
+    println!(
+        "oracle produced {} words ({} roots x up to 2 forms each)",
+        words.len(),
+        roots.len()
+    );
 
     // --- Build the FST via the production enumeration path (module doc). ---
     let emit_result = emit::emit(&g);
@@ -111,7 +133,8 @@ fn circumfix_recall_parity_via_generator_and_oracle() {
     // --- Recall (design doc §4a): re-parse each oracle word via an independent Morpher to recover
     // its own tag sequence (mirrors the P6/Aweti compose-recall technique, module doc), then check
     // that sequence is reachable in `net`. 100% required (module doc). ---
-    let morpher = Morpher::new(&g, oracle_opts.step_cap).with_word_timeout(oracle_opts.word_timeout);
+    let morpher =
+        Morpher::new(&g, oracle_opts.step_cap).with_word_timeout(oracle_opts.word_timeout);
     let popts = ParseOptions::default();
     let width = tags::tag_width(g.morphemes.len());
 
@@ -148,12 +171,17 @@ fn circumfix_recall_parity_via_generator_and_oracle() {
             w.surface,
             w.root
         );
-        let any_reachable = analyses.iter().any(|tags| recall_reachable(&net, &normalized, tags));
+        let any_reachable = analyses
+            .iter()
+            .any(|tags| recall_reachable(&net, &normalized, tags));
         if !any_reachable {
             missed.push(w.surface.clone());
         }
     }
-    assert!(missed.is_empty(), "100% recall required on the oracle word list; missed: {missed:?}");
+    assert!(
+        missed.is_empty(),
+        "100% recall required on the oracle word list; missed: {missed:?}"
+    );
 
     // --- Resource envelope (design doc §4b): per-word p99, sub-10ms trip-wire (generous headroom
     // for a network this small; the trip-wire is about catching a regression, not benchmarking). ---
@@ -163,5 +191,8 @@ fn circumfix_recall_parity_via_generator_and_oracle() {
             let _ = recall_reachable(&net, &normalized, &tags);
         }
     });
-    assert!(p99 < Duration::from_millis(50), "per-word p99 {p99:?} exceeds the trip-wire");
+    assert!(
+        p99 < Duration::from_millis(50),
+        "per-word p99 {p99:?} exceeds the trip-wire"
+    );
 }

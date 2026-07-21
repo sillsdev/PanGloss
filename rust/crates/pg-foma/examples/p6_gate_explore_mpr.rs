@@ -26,7 +26,8 @@ fn sample_path(name: &str) -> PathBuf {
 
 fn load_indonesian_augmented() -> pg_grammar::model::Grammar {
     let path = sample_path("indonesian-hc.xml");
-    let xml = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let xml =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     let inject = r#"
           <LexicalEntry id="entry67" partOfSpeech="pos2014">
             <Allomorphs>
@@ -46,7 +47,10 @@ fn load_indonesian_augmented() -> pg_grammar::model::Grammar {
           </LexicalEntry>
         </LexicalEntries>"#;
     let count = xml.matches("</LexicalEntries>").count();
-    assert_eq!(count, 1, "expected exactly one </LexicalEntries> to splice before, found {count}");
+    assert_eq!(
+        count, 1,
+        "expected exactly one </LexicalEntries> to splice before, found {count}"
+    );
     let xml = xml.replacen("</LexicalEntries>", inject, 1);
     pg_grammar::load(&xml).unwrap_or_else(|e| panic!("failed to load augmented grammar: {e}"))
 }
@@ -57,7 +61,9 @@ fn main() {
     let morpher = Morpher::new(&g, usize::MAX);
     let popts = ParseOptions::default();
 
-    for word in ["menanam", "mentanam", "menabur", "mentabur", "tanam", "tabur"] {
+    for word in [
+        "menanam", "mentanam", "menabur", "mentabur", "tanam", "tabur",
+    ] {
         let outcome = morpher.parse_word_opts(word, &popts);
         println!("parse_word({word:?}):");
         if outcome.structured.is_empty() {
@@ -70,11 +76,22 @@ fn main() {
                 .map(|&id| {
                     g.morphemes
                         .get(id as usize)
-                        .map(|mi| format!("{}({}/{})", id, mi.xml_key, mi.gloss.as_deref().unwrap_or("-")))
+                        .map(|mi| {
+                            format!(
+                                "{}({}/{})",
+                                id,
+                                mi.xml_key,
+                                mi.gloss.as_deref().unwrap_or("-")
+                            )
+                        })
                         .unwrap_or_else(|| format!("{id}(?)"))
                 })
                 .collect();
-            println!("    root_index={} morphemes=[{}]", a.root_morpheme_index, names.join(", "));
+            println!(
+                "    root_index={} morphemes=[{}]",
+                a.root_morpheme_index,
+                names.join(", ")
+            );
         }
     }
 
@@ -93,14 +110,17 @@ fn main() {
         }
     }
 
-    let result = compile_gated_grammar(&opts, &g, &alphabet, &rules_in_order)
-        .expect("compose budget ok");
+    let result =
+        compile_gated_grammar(&opts, &g, &alphabet, &rules_in_order).expect("compose budget ok");
     println!("groups: {}", result.groups);
     for (key, roots, prefixes, suffixes) in &result.group_reports {
         println!("  group key={key:?} root_entries={roots} prefix_entries={prefixes} suffix_entries={suffixes}");
     }
     println!("skipped rules: {:?}", result.skipped_rules);
-    println!("skipped allomorphs: {} lines", result.skipped_allomorphs.len());
+    println!(
+        "skipped allomorphs: {} lines",
+        result.skipped_allomorphs.len()
+    );
 
     let net = result.net.expect("gated network must be non-empty");
 
@@ -109,7 +129,11 @@ fn main() {
         .filter(|(_, cd)| cd.kind() == CharDefKind::Boundary)
         .map(|(id, _)| alphabet.token(id))
         .collect();
-    let cleanup_regex = boundary_tokens.iter().map(|c| format!("{c} -> 0")).collect::<Vec<_>>().join(", ");
+    let cleanup_regex = boundary_tokens
+        .iter()
+        .map(|c| format!("{c} -> 0"))
+        .collect::<Vec<_>>()
+        .join(", ");
     let cleanup_net = fsm_parse_regex(&opts, &cleanup_regex, None, None).expect("cleanup regex");
     let net = foma::constructions::fsm_compose(&opts, net, cleanup_net);
     let net = foma::minimize::fsm_minimize(&opts, net);
@@ -135,11 +159,22 @@ fn main() {
                 .map(|m| {
                     g.morphemes
                         .get(m.0 as usize)
-                        .map(|mi| format!("{}({}/{})", m.0, mi.xml_key, mi.gloss.as_deref().unwrap_or("-")))
+                        .map(|mi| {
+                            format!(
+                                "{}({}/{})",
+                                m.0,
+                                mi.xml_key,
+                                mi.gloss.as_deref().unwrap_or("-")
+                            )
+                        })
                         .unwrap_or_else(|| format!("{}(?)", m.0))
                 })
                 .collect();
-            println!("    root_index={} morphemes=[{}]", c.root_index, names.join(", "));
+            println!(
+                "    root_index={} morphemes=[{}]",
+                c.root_index,
+                names.join(", ")
+            );
         }
     }
 
@@ -149,11 +184,21 @@ fn main() {
     // ---------------------------------------------------------------------------------------
     println!("\n=== full corpus parity (regression check) ===");
     const REDUP_EXCLUDED: &[&str] = &[
-        "membagi-bagi", "memijit-mijit", "meminta-minta", "mengamat-amati",
-        "mengayuh-ngayuh", "menulis-nulis", "menyewa-nyewa",
+        "membagi-bagi",
+        "memijit-mijit",
+        "meminta-minta",
+        "mengamat-amati",
+        "mengayuh-ngayuh",
+        "menulis-nulis",
+        "menyewa-nyewa",
     ];
-    let words_text = std::fs::read_to_string(sample_path("indonesian-words.txt")).expect("read words");
-    let words: Vec<&str> = words_text.lines().map(str::trim).filter(|w| !w.is_empty()).collect();
+    let words_text =
+        std::fs::read_to_string(sample_path("indonesian-words.txt")).expect("read words");
+    let words: Vec<&str> = words_text
+        .lines()
+        .map(str::trim)
+        .filter(|w| !w.is_empty())
+        .collect();
     let mut n_total = 0usize;
     let mut n_covered = 0usize;
     let mut n_words_analyzed = 0usize;
@@ -197,7 +242,9 @@ fn main() {
             if covered {
                 n_covered += 1;
             } else {
-                misses.push(format!("word {word:?}: root_index={root_idx} morphemes={seq:?}"));
+                misses.push(format!(
+                    "word {word:?}: root_index={root_idx} morphemes={seq:?}"
+                ));
             }
         }
     }

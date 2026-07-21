@@ -81,11 +81,15 @@ impl MprTables {
     /// HCLoader.cs:2610-2623) — `None` if it resolves to neither (dangling reference; caller
     /// warns and skips).
     pub fn rule_feature(&self, guid: &str) -> Option<MprSet> {
-        self.infl_class_single(guid).or_else(|| self.exception_feature(guid))
+        self.infl_class_single(guid)
+            .or_else(|| self.exception_feature(guid))
     }
 }
 
-pub(crate) fn build(snapshot: &Snapshot, warnings: &mut Vec<String>) -> Result<MprTables, GrammarError> {
+pub(crate) fn build(
+    snapshot: &Snapshot,
+    warnings: &mut Vec<String>,
+) -> Result<MprTables, GrammarError> {
     let mut mpr_names: Vec<String> = Vec::new();
     let mut infl_class_bit: HashMap<String, MprId> = HashMap::new();
     let mut infl_class_children: HashMap<String, Vec<String>> = HashMap::new();
@@ -191,7 +195,10 @@ fn add_infl_class(
     let id = next_bit(mpr_names, &ic.name)?;
     bit.insert(ic.guid.clone(), id);
     members.insert(id);
-    children.insert(ic.guid.clone(), ic.children.iter().map(|c| c.guid.clone()).collect());
+    children.insert(
+        ic.guid.clone(),
+        ic.children.iter().map(|c| c.guid.clone()).collect(),
+    );
     for c in &ic.children {
         add_infl_class(c, mpr_names, bit, children, members)?;
     }

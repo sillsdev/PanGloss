@@ -41,7 +41,10 @@ pub fn parse(raw: Option<&str>) -> ParserParameters {
         Some(hc) => hc.child_bool_text("NotOnClitics").unwrap_or(true),
     };
     let accept_unspecified_graphemes = hc
-        .map(|hc| hc.child_bool_text("AcceptUnspecifiedGraphemes").unwrap_or(false))
+        .map(|hc| {
+            hc.child_bool_text("AcceptUnspecifiedGraphemes")
+                .unwrap_or(false)
+        })
         .unwrap_or(false);
     let no_default_compounding = hc
         .map(|hc| hc.child_bool_text("NoDefaultCompounding").unwrap_or(false))

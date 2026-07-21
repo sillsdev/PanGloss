@@ -91,7 +91,9 @@ fn family_blocking_matches_oracle() {
 #[ignore = "conformance/ not yet pulled into PanGloss as a submodule -- see docs/hermitcrab-rust-port-audit.md section 5; will start running again once it lands"]
 fn realizational_rule_matches_oracle() {
     if !have_fixture("realizational-rule") {
-        eprintln!("skipping: rust/conformance/realizational/realizational-rule not present on disk");
+        eprintln!(
+            "skipping: rust/conformance/realizational/realizational-rule not present on disk"
+        );
         return;
     }
     assert_eq!(

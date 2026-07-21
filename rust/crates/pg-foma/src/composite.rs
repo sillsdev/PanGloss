@@ -123,7 +123,9 @@ impl<'g> FomaAnalyzer<'g> {
         // (`docs/fst-plan/morphotactic-composite-pruning.md`'s Aweti investigation used this to
         // localize an allocation-failure crash to inside `propose_candidates`).
         if std::env::var("HC_DEBUG_CANDIDATES").is_ok() {
-            eprintln!("[HC_DEBUG_CANDIDATES] word={word:?} candidates_generated={candidates_generated}");
+            eprintln!(
+                "[HC_DEBUG_CANDIDATES] word={word:?} candidates_generated={candidates_generated}"
+            );
         }
         let mut analyses = Vec::new();
         let mut structured = Vec::new();
@@ -168,9 +170,9 @@ impl<'g> FomaAnalyzer<'g> {
         let peel_used = !peeled.is_empty();
 
         for c in peeled {
-            let already_present = candidates
-                .iter()
-                .any(|existing| existing.root_index == c.root_index && existing.morphemes == c.morphemes);
+            let already_present = candidates.iter().any(|existing| {
+                existing.root_index == c.root_index && existing.morphemes == c.morphemes
+            });
             if !already_present {
                 candidates.push(c);
             }
@@ -295,25 +297,27 @@ impl<'g> FomaAnalyzer<'g> {
         per_word
             .into_iter()
             .zip(buckets_per_word)
-            .map(|((candidates, peel_used, propose_elapsed), (buckets, confirm_elapsed))| {
-                let candidates_generated = candidates.len();
-                let mut analyses = Vec::new();
-                let mut structured = Vec::new();
-                for bucket in buckets {
-                    for (wa, join, surface) in bucket {
-                        structured.push(wa);
-                        analyses.push((join, surface));
+            .map(
+                |((candidates, peel_used, propose_elapsed), (buckets, confirm_elapsed))| {
+                    let candidates_generated = candidates.len();
+                    let mut analyses = Vec::new();
+                    let mut structured = Vec::new();
+                    for bucket in buckets {
+                        for (wa, join, surface) in bucket {
+                            structured.push(wa);
+                            analyses.push((join, surface));
+                        }
                     }
-                }
-                let outcome = FomaOutcome {
-                    confirmed: structured.len(),
-                    analyses,
-                    structured,
-                    candidates_generated,
-                    peel_used,
-                };
-                (outcome, propose_elapsed + confirm_elapsed)
-            })
+                    let outcome = FomaOutcome {
+                        confirmed: structured.len(),
+                        analyses,
+                        structured,
+                        candidates_generated,
+                        peel_used,
+                    };
+                    (outcome, propose_elapsed + confirm_elapsed)
+                },
+            )
             .collect()
     }
 
@@ -365,7 +369,13 @@ impl<'g> FomaAnalyzer<'g> {
     /// The inverse of [`Self::from_cached`]: reclaim the three owned pieces this analyzer was
     /// built from (or built fresh in [`Self::new`]), discarding only the transient `Morpher<'g>`
     /// borrow (recreated for free on the next [`Self::from_cached`] call).
-    pub fn into_parts(self) -> (FomaProposer, ReduplicationPeeler, Vec<Option<MorphemeOwner>>) {
+    pub fn into_parts(
+        self,
+    ) -> (
+        FomaProposer,
+        ReduplicationPeeler,
+        Vec<Option<MorphemeOwner>>,
+    ) {
         (self.proposer, self.peeler, self.owners)
     }
 }

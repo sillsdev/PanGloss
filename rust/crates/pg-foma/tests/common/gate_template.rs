@@ -150,7 +150,10 @@ pub fn assert_net_size_within(net: &Fsm, state_cap: i32, arc_cap: i32) {
 /// design doc §4b uses; not a statistically rigorous percentile estimator, just a stable,
 /// reproducible one for a tiny gate word list).
 pub fn p99(mut samples: Vec<Duration>) -> Duration {
-    assert!(!samples.is_empty(), "p99 of an empty sample set is undefined");
+    assert!(
+        !samples.is_empty(),
+        "p99 of an empty sample set is undefined"
+    );
     samples.sort();
     let idx = ((samples.len() as f64) * 0.99).ceil() as usize;
     samples[idx.saturating_sub(1).min(samples.len() - 1)]

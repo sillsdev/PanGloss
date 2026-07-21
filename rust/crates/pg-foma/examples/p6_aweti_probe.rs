@@ -23,7 +23,8 @@ fn default_aweti_path() -> PathBuf {
 }
 
 fn load_grammar(path: &Path) -> Grammar {
-    let json = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let json =
+        std::fs::read_to_string(path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     let snapshot = pg_snapshot::Snapshot::from_json(&json)
         .unwrap_or_else(|e| panic!("parse snapshot {}: {e}", path.display()));
     let (grammar, warnings) = pg_grammar::compile_project(&snapshot)
@@ -75,7 +76,10 @@ fn run() {
             rules_in_order.push(&g.prules[prid.0 as usize]);
         }
     }
-    println!("phonological rules in stratum order: {}\n", rules_in_order.len());
+    println!(
+        "phonological rules in stratum order: {}\n",
+        rules_in_order.len()
+    );
 
     for pr in &rules_in_order {
         let PhonRuleDef::Rewrite(r) = pr else {
@@ -102,9 +106,18 @@ fn run() {
                     }
                 }
             }
-            Ok(Ok(None)) => println!("{} {:?}: NOT COMPILED (unsupported construct) in {elapsed:?}", r.xml_id, r.name),
-            Ok(Err(budget_err)) => println!("{} {:?}: COMPOSE BUDGET EXCEEDED: {budget_err} (in {elapsed:?})", r.xml_id, r.name),
-            Err(_) => println!("{} {:?}: PANICKED during compile (in {elapsed:?})", r.xml_id, r.name),
+            Ok(Ok(None)) => println!(
+                "{} {:?}: NOT COMPILED (unsupported construct) in {elapsed:?}",
+                r.xml_id, r.name
+            ),
+            Ok(Err(budget_err)) => println!(
+                "{} {:?}: COMPOSE BUDGET EXCEEDED: {budget_err} (in {elapsed:?})",
+                r.xml_id, r.name
+            ),
+            Err(_) => println!(
+                "{} {:?}: PANICKED during compile (in {elapsed:?})",
+                r.xml_id, r.name
+            ),
         }
     }
 
@@ -113,7 +126,14 @@ fn run() {
     let mut skipped: Vec<String> = Vec::new();
     let mut tuple_reports: Vec<(String, Vec<pg_foma::replace::TupleReport>)> = Vec::new();
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        compile_and_compose_rules(&opts, &g, &alphabet, &rules_in_order, &mut skipped, &mut tuple_reports)
+        compile_and_compose_rules(
+            &opts,
+            &g,
+            &alphabet,
+            &rules_in_order,
+            &mut skipped,
+            &mut tuple_reports,
+        )
     }));
     let all_elapsed = t_all.elapsed();
     println!("cascade compile+compose: {all_elapsed:?}");
@@ -121,11 +141,16 @@ fn run() {
         Ok(Ok(composed)) => {
             println!("skipped: {skipped:?}");
             match composed {
-                Some(net) => println!("composed net: {} states, {} arcs", net.statecount, net.arccount),
+                Some(net) => println!(
+                    "composed net: {} states, {} arcs",
+                    net.statecount, net.arccount
+                ),
                 None => println!("composed net: NONE"),
             }
         }
-        Ok(Err(budget_err)) => println!("COMPOSE BUDGET EXCEEDED: {budget_err} (after {all_elapsed:?})"),
+        Ok(Err(budget_err)) => {
+            println!("COMPOSE BUDGET EXCEEDED: {budget_err} (after {all_elapsed:?})")
+        }
         Err(_) => println!("PANICKED during full-cascade compose (after {all_elapsed:?})"),
     }
 

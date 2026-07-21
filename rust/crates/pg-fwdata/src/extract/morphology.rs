@@ -2,8 +2,8 @@
 
 use pg_snapshot::{
     AdhocProhibition, Adjacency, AffixSlot, AffixTemplate, CompoundConstituentRequirement,
-    CompoundOutcome, CompoundRule, ExceptionFeature, FeatureSystems, InflectionClass, Lexicon,
-    LexEntryInflType, Morphology, PartOfSpeech, StemName,
+    CompoundOutcome, CompoundRule, ExceptionFeature, FeatureSystems, InflectionClass,
+    LexEntryInflType, Lexicon, Morphology, PartOfSpeech, StemName,
 };
 
 use super::features::extract_feature_structure;
@@ -45,8 +45,11 @@ pub fn extract_morphology(
         .map(|db| extract_lex_entry_infl_types(ctx, db))
         .unwrap_or_default();
 
-    let parser_parameters =
-        parser_params::parse(morph_data.and_then(|md| md.node.uni_text("ParserParameters")).as_deref());
+    let parser_parameters = parser_params::parse(
+        morph_data
+            .and_then(|md| md.node.uni_text("ParserParameters"))
+            .as_deref(),
+    );
 
     Morphology {
         parts_of_speech,
@@ -124,7 +127,11 @@ fn extract_pos(ctx: &mut Ctx, guid: &str) -> Option<PartOfSpeech> {
 }
 
 fn extract_inflection_class(ctx: &mut Ctx, guid: &str) -> Option<InflectionClass> {
-    let rec = ctx.require(guid, "MoInflClass", "morphology.partsOfSpeech.inflectionClasses")?;
+    let rec = ctx.require(
+        guid,
+        "MoInflClass",
+        "morphology.partsOfSpeech.inflectionClasses",
+    )?;
     let children = rec
         .node
         .objsur_list("Subclasses")
@@ -163,7 +170,11 @@ fn extract_stem_name(ctx: &mut Ctx, guid: &str) -> Option<StemName> {
 }
 
 fn extract_affix_slot(ctx: &mut Ctx, guid: &str) -> Option<AffixSlot> {
-    let rec = ctx.require(guid, "MoInflAffixSlot", "morphology.partsOfSpeech.affixSlots")?;
+    let rec = ctx.require(
+        guid,
+        "MoInflAffixSlot",
+        "morphology.partsOfSpeech.affixSlots",
+    )?;
     Some(AffixSlot {
         guid: guid.to_string(),
         name: ctx.best_analysis(&rec.node.ws_forms("Name")),
@@ -172,7 +183,11 @@ fn extract_affix_slot(ctx: &mut Ctx, guid: &str) -> Option<AffixSlot> {
 }
 
 fn extract_affix_template(ctx: &mut Ctx, guid: &str) -> Option<AffixTemplate> {
-    let rec = ctx.require(guid, "MoInflAffixTemplate", "morphology.partsOfSpeech.affixTemplates")?;
+    let rec = ctx.require(
+        guid,
+        "MoInflAffixTemplate",
+        "morphology.partsOfSpeech.affixTemplates",
+    )?;
     Some(AffixTemplate {
         guid: guid.to_string(),
         name: ctx.best_analysis(&rec.node.ws_forms("Name")),
@@ -412,20 +427,30 @@ fn extract_exception_features(
     let mut out = Vec::new();
     if let Some(md) = morph_data {
         if let Some(list_guid) = md.node.objsur_one("ProdRestrict") {
-            walk_possibility_list(ctx, &list_guid, "morphology.exceptionFeatures", &mut |ctx, rec| {
-                if rec.class == "CmPossibility" {
-                    out.push(exception_feature(ctx, rec));
-                }
-            });
+            walk_possibility_list(
+                ctx,
+                &list_guid,
+                "morphology.exceptionFeatures",
+                &mut |ctx, rec| {
+                    if rec.class == "CmPossibility" {
+                        out.push(exception_feature(ctx, rec));
+                    }
+                },
+            );
         }
     }
     if let Some(pd) = phon_data {
         if let Some(list_guid) = pd.node.objsur_one("PhonRuleFeats") {
-            walk_possibility_list(ctx, &list_guid, "morphology.exceptionFeatures", &mut |ctx, rec| {
-                if rec.class == "CmPossibility" {
-                    out.push(exception_feature(ctx, rec));
-                }
-            });
+            walk_possibility_list(
+                ctx,
+                &list_guid,
+                "morphology.exceptionFeatures",
+                &mut |ctx, rec| {
+                    if rec.class == "CmPossibility" {
+                        out.push(exception_feature(ctx, rec));
+                    }
+                },
+            );
         }
     }
     out
@@ -447,13 +472,18 @@ fn extract_lex_entry_infl_types(ctx: &mut Ctx, lex_db: &Record) -> Vec<LexEntryI
     let mut out = Vec::new();
     for field in ["VariantEntryTypes", "ComplexEntryTypes"] {
         if let Some(list_guid) = lex_db.node.objsur_one(field) {
-            walk_possibility_list(ctx, &list_guid, "morphology.lexEntryInflTypes", &mut |ctx, rec| {
-                if rec.class == "LexEntryInflType" {
-                    if let Some(t) = lex_entry_infl_type(ctx, rec) {
-                        out.push(t);
+            walk_possibility_list(
+                ctx,
+                &list_guid,
+                "morphology.lexEntryInflTypes",
+                &mut |ctx, rec| {
+                    if rec.class == "LexEntryInflType" {
+                        if let Some(t) = lex_entry_infl_type(ctx, rec) {
+                            out.push(t);
+                        }
                     }
-                }
-            });
+                },
+            );
         }
     }
     out

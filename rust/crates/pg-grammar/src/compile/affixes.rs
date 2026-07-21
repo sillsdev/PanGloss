@@ -38,8 +38,12 @@ fn shape_of(mt: MorphType) -> Option<Shape> {
         // kMorphEnclitic case shares the suffix arm, kMorphProclitic the prefix arm) — the
         // clitic-ness lives in *stratum placement* (the caller routes clitic-bucket rules onto
         // the Clitics stratum, `lexicon::build`), not in the allomorph pattern shape.
-        MorphType::Prefix | MorphType::PrefixingInterfix | MorphType::Proclitic => Some(Shape::Prefix),
-        MorphType::Suffix | MorphType::SuffixingInterfix | MorphType::Enclitic => Some(Shape::Suffix),
+        MorphType::Prefix | MorphType::PrefixingInterfix | MorphType::Proclitic => {
+            Some(Shape::Prefix)
+        }
+        MorphType::Suffix | MorphType::SuffixingInterfix | MorphType::Enclitic => {
+            Some(Shape::Suffix)
+        }
         MorphType::Infix | MorphType::InfixingInterfix => Some(Shape::Infix),
         // Bare Clitic/Particle/Phrase: never rule forms (`IsValidRuleForm`, HCLoader.cs:536-569
         // has no case for them) — they are *stem* forms (clitic-stratum lex entries).
@@ -106,14 +110,17 @@ pub(crate) fn build_affix_rule(
             let req_pos = from_part_of_speech
                 .as_deref()
                 .map(|p| ctx.pos.bits_with_descendants(std::iter::once(p)));
-            let req = match super::features::build_syn_fs(ctx.syn, req_pos, from_features.as_ref()) {
+            let req = match super::features::build_syn_fs(ctx.syn, req_pos, from_features.as_ref())
+            {
                 Ok(fs) => acc.fs_interner.intern(fs),
                 Err(e) => {
                     warnings.push(format!("MSA {guid:?}: {e}; skipped"));
                     return None;
                 }
             };
-            let out_pos = to_part_of_speech.as_deref().and_then(|p| ctx.pos.bits_single(p));
+            let out_pos = to_part_of_speech
+                .as_deref()
+                .and_then(|p| ctx.pos.bits_single(p));
             let out = match super::features::build_syn_fs(ctx.syn, out_pos, to_features.as_ref()) {
                 Ok(fs) => acc.fs_interner.intern(fs),
                 Err(e) => {
@@ -143,7 +150,10 @@ pub(crate) fn build_affix_rule(
             let empty = acc.fs_interner.intern(pg_featstruct::FeatureStruct::EMPTY);
             (req, empty, slots.is_empty(), guid.clone())
         }
-        Msa::Unclassified { guid, part_of_speech } => {
+        Msa::Unclassified {
+            guid,
+            part_of_speech,
+        } => {
             let req_pos = part_of_speech
                 .as_deref()
                 .map(|p| ctx.pos.bits_with_descendants(std::iter::once(p)));
@@ -170,7 +180,10 @@ pub(crate) fn build_affix_rule(
             let req_pos = if from_parts_of_speech.is_empty() {
                 None
             } else {
-                Some(ctx.pos.bits_with_descendants(from_parts_of_speech.iter().map(String::as_str)))
+                Some(
+                    ctx.pos
+                        .bits_with_descendants(from_parts_of_speech.iter().map(String::as_str)),
+                )
             };
             let req = match super::features::build_syn_fs(ctx.syn, req_pos, None) {
                 Ok(fs) => acc.fs_interner.intern(fs),
@@ -197,7 +210,9 @@ pub(crate) fn build_affix_rule(
                 if let Some(s) = ctx.mpr.exception_feature(f) {
                     set = set.union(s);
                 } else {
-                    warnings.push(format!("MSA {msa_guid:?}: exception feature {f:?} does not resolve"));
+                    warnings.push(format!(
+                        "MSA {msa_guid:?}: exception feature {f:?} does not resolve"
+                    ));
                 }
             }
             if let Some(ic) = from_inflection_class {
@@ -218,7 +233,9 @@ pub(crate) fn build_affix_rule(
                 if let Some(s) = ctx.mpr.exception_feature(f) {
                     set = set.union(s);
                 } else {
-                    warnings.push(format!("MSA {msa_guid:?}: exception feature {f:?} does not resolve"));
+                    warnings.push(format!(
+                        "MSA {msa_guid:?}: exception feature {f:?} does not resolve"
+                    ));
                 }
             }
             set
@@ -236,7 +253,9 @@ pub(crate) fn build_affix_rule(
                 if let Some(s) = ctx.mpr.exception_feature(f) {
                     set = set.union(s);
                 } else {
-                    warnings.push(format!("MSA {msa_guid:?}: exception feature {f:?} does not resolve"));
+                    warnings.push(format!(
+                        "MSA {msa_guid:?}: exception feature {f:?} does not resolve"
+                    ));
                 }
             }
             if let Some(ic) = to_inflection_class {
@@ -253,10 +272,15 @@ pub(crate) fn build_affix_rule(
     };
 
     let required_stem_name = match msa {
-        Msa::Derivational { from_stem_name: Some(sn), .. } => match ctx.stem_name_by_guid.get(sn) {
+        Msa::Derivational {
+            from_stem_name: Some(sn),
+            ..
+        } => match ctx.stem_name_by_guid.get(sn) {
             Some(&id) => Some(id),
             None => {
-                warnings.push(format!("MSA {msa_guid:?}: stem name {sn:?} does not resolve"));
+                warnings.push(format!(
+                    "MSA {msa_guid:?}: stem name {sn:?} does not resolve"
+                ));
                 None
             }
         },
@@ -265,7 +289,8 @@ pub(crate) fn build_affix_rule(
 
     let mut allomorphs = Vec::new();
     for allo in rule_form_allos {
-        for def in build_affix_allomorphs_for(allo, msa, required_mpr, out_mpr, ctx, acc, warnings) {
+        for def in build_affix_allomorphs_for(allo, msa, required_mpr, out_mpr, ctx, acc, warnings)
+        {
             let allo_id = AllomorphId(acc.allomorph_owners.len() as u32);
             acc.allomorph_owners
                 .push(AllomorphOwner::Affix(mrule_id, allomorphs.len() as u16));
@@ -287,25 +312,29 @@ pub(crate) fn build_affix_rule(
         co_occurrence: Vec::new(),
     });
 
-    acc.mrules.push(MorphRuleDef::AffixProcess(AffixProcessRuleDef {
-        morpheme,
-        name: entry.citation_form.first().map(|f| f.form.clone()),
-        blockable: true,
-        partial,
-        max_apps: 1,
-        required_syn_fs,
-        out_syn_fs,
-        obligatory_features: Vec::new(),
-        required_stem_name,
-        allomorphs,
-        is_template_rule: false,
-    }));
+    acc.mrules
+        .push(MorphRuleDef::AffixProcess(AffixProcessRuleDef {
+            morpheme,
+            name: entry.citation_form.first().map(|f| f.form.clone()),
+            blockable: true,
+            partial,
+            max_apps: 1,
+            required_syn_fs,
+            out_syn_fs,
+            obligatory_features: Vec::new(),
+            required_stem_name,
+            allomorphs,
+            is_template_rule: false,
+        }));
 
     // Slot -> rule registry (HCLoader.cs:1704's reverse `slot.Affixes` walk, done forward here):
     // only `Msa::Inflectional` MSAs declare template slots.
     if let Msa::Inflectional { slots, .. } = msa {
         for slot in slots {
-            acc.slot_rules.entry(slot.clone()).or_default().push(mrule_id);
+            acc.slot_rules
+                .entry(slot.clone())
+                .or_default()
+                .push(mrule_id);
         }
     }
 
@@ -446,7 +475,10 @@ fn build_affix_allomorphs_for(
                     properties: Vec::new(),
                 });
             }
-            Err(e) => warnings.push(format!("allomorph {:?}: {e}; one environment skipped", allo.guid)),
+            Err(e) => warnings.push(format!(
+                "allomorph {:?}: {e}; one environment skipped",
+                allo.guid
+            )),
         }
     }
     out
@@ -510,7 +542,10 @@ fn build_concatenative(
             }
             let lhs = vec![Pattern { nodes }];
             let insert = format!("{form}+");
-            let rhs = vec![insert_segments(&insert, ctx)?, OutputAction::Copy(PartRef::Input(0))];
+            let rhs = vec![
+                insert_segments(&insert, ctx)?,
+                OutputAction::Copy(PartRef::Input(0)),
+            ];
             let mut environments = Vec::new();
             if !left_str.is_empty() {
                 if let Some(p) = environment::load_environment_pattern(left_str, true, ctx)? {
@@ -536,7 +571,10 @@ fn build_concatenative(
             } else {
                 right_nodes.extend(environment::any_star(ctx));
             }
-            let lhs = vec![Pattern { nodes: left_nodes }, Pattern { nodes: right_nodes }];
+            let lhs = vec![
+                Pattern { nodes: left_nodes },
+                Pattern { nodes: right_nodes },
+            ];
             let insert = format!("+{form}+");
             let rhs = vec![
                 OutputAction::Copy(PartRef::Input(0)),
@@ -549,7 +587,8 @@ fn build_concatenative(
 }
 
 fn insert_segments(text: &str, ctx: &Ctx) -> Result<OutputAction, String> {
-    let shape = crate::segment::segment(ctx.table, text).map_err(|e| format!("cannot segment {text:?}: {e}"))?;
+    let shape = crate::segment::segment(ctx.table, text)
+        .map_err(|e| format!("cannot segment {text:?}: {e}"))?;
     Ok(OutputAction::InsertSegments {
         table: ctx.table_id,
         shape: crate::model::SegmentedText {
@@ -571,7 +610,9 @@ fn resolve_environments(
     let mut has_blank = guids.is_empty();
     for g in guids {
         let Some(env) = ctx.env_by_guid.get(g) else {
-            warnings.push(format!("environment {g:?} does not resolve; treated as absent"));
+            warnings.push(format!(
+                "environment {g:?} does not resolve; treated as absent"
+            ));
             has_blank = true;
             continue;
         };
@@ -646,7 +687,10 @@ fn build_process_allomorph(
                 OutputAction::Copy(PartRef::Input((*part - 1) as u16))
             }
             RuleMapping::InsertSegments { text } => insert_segments(text.trim(), ctx)?,
-            RuleMapping::ModifyFromInput { part, natural_class } => {
+            RuleMapping::ModifyFromInput {
+                part,
+                natural_class,
+            } => {
                 if *part == 0 || *part as usize > process.input.len() {
                     return Err(format!("ModifyFromInput part {part} out of range"));
                 }

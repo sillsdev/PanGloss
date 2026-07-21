@@ -15,7 +15,9 @@ use std::time::Instant;
 
 use foma::options::FomaOptions;
 
-use pg_foma::replace::{compile_and_compose_rules, compile_rewrite_rule, is_fully_supported_shape, SegAlphabet};
+use pg_foma::replace::{
+    compile_and_compose_rules, compile_rewrite_rule, is_fully_supported_shape, SegAlphabet,
+};
 use pg_grammar::model::{Grammar, PhonRuleDef};
 
 const STACK_BYTES: usize = 512 * 1024 * 1024;
@@ -27,7 +29,8 @@ fn sample_path(name: &str) -> PathBuf {
 
 fn load_amharic() -> Grammar {
     let path = sample_path("amharic-hc.xml");
-    let xml = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let xml =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     pg_grammar::load(&xml).unwrap_or_else(|e| panic!("failed to load amharic-hc.xml: {e}"))
 }
 
@@ -54,7 +57,10 @@ fn run() {
             rules_in_order.push(&g.prules[prid.0 as usize]);
         }
     }
-    println!("phonological rules in stratum order: {}\n", rules_in_order.len());
+    println!(
+        "phonological rules in stratum order: {}\n",
+        rules_in_order.len()
+    );
 
     // Per-rule compile attempt (isolated — a rule that fails to compile alone should not block
     // measuring the others), with timing and tuple reports.
@@ -97,14 +103,26 @@ fn run() {
     let t_all = Instant::now();
     let mut skipped: Vec<String> = Vec::new();
     let mut tuple_reports: Vec<(String, Vec<pg_foma::replace::TupleReport>)> = Vec::new();
-    let composed = compile_and_compose_rules(&opts, &g, &alphabet, &rules_in_order, &mut skipped, &mut tuple_reports)
-        .expect("compose budget ok");
+    let composed = compile_and_compose_rules(
+        &opts,
+        &g,
+        &alphabet,
+        &rules_in_order,
+        &mut skipped,
+        &mut tuple_reports,
+    )
+    .expect("compose budget ok");
     let all_elapsed = t_all.elapsed();
     println!("cascade compile+compose: {all_elapsed:?}");
     println!("skipped: {skipped:?}");
     match composed {
-        Some(net) => println!("composed net: {} states, {} arcs", net.statecount, net.arccount),
-        None => println!("composed net: NONE (every rule was skipped or the grammar has zero prules)"),
+        Some(net) => println!(
+            "composed net: {} states, {} arcs",
+            net.statecount, net.arccount
+        ),
+        None => {
+            println!("composed net: NONE (every rule was skipped or the grammar has zero prules)")
+        }
     }
 
     println!("\n=== done ===");

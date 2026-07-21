@@ -706,7 +706,9 @@ mod tests {
             CompileNode::Constraint(vec![0b100u64]),
         ];
         for det in [true, false] {
-            let fst = CompileInput::new(nodes.clone()).deterministic(det).compile();
+            let fst = CompileInput::new(nodes.clone())
+                .deterministic(det)
+                .compile();
             let hops = fst.min_hops_to_accept();
             assert_eq!(hops.len(), fst.state_count());
             assert_eq!(

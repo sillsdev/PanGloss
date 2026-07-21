@@ -44,7 +44,8 @@ fn sample_path(name: &str) -> PathBuf {
 
 fn load_aweti() -> Grammar {
     let path = sample_path("aweti.json");
-    let json = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let json =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     let snapshot = pg_snapshot::Snapshot::from_json(&json)
         .unwrap_or_else(|e| panic!("parse snapshot {}: {e}", path.display()));
     let (grammar, warnings) = pg_grammar::compile_project(&snapshot)
@@ -110,7 +111,10 @@ fn run() {
     let emit_elapsed = t_emit.elapsed();
     println!("underlying (templated) lexc emit: {emit_elapsed:?}");
     println!("tier: {:?}", result.report.tier);
-    println!("enum_budget_exceeded: {:?}", result.report.enum_budget_exceeded);
+    println!(
+        "enum_budget_exceeded: {:?}",
+        result.report.enum_budget_exceeded
+    );
     println!("counts: {:?}", result.report.counts);
     println!("uncovered ({}):", result.report.uncovered.len());
     for u in &result.report.uncovered {
@@ -155,7 +159,10 @@ fn run() {
             rules_in_order.push(&g.prules[prid.0 as usize]);
         }
     }
-    println!("\nphonological rules in stratum order: {}", rules_in_order.len());
+    println!(
+        "\nphonological rules in stratum order: {}",
+        rules_in_order.len()
+    );
 
     let t_rules = Instant::now();
     let mut skipped_rules: Vec<String> = Vec::new();
@@ -253,7 +260,11 @@ fn run() {
     for word in ["parua", "an"] {
         let outcome = morpher.parse_word_opts(word, &popts);
         let engine_seqs = engine_sequences(&outcome);
-        println!("{word:?}: oracle has {} analysis(es): {:?}", engine_seqs.len(), engine_seqs);
+        println!(
+            "{word:?}: oracle has {} analysis(es): {:?}",
+            engine_seqs.len(),
+            engine_seqs
+        );
         let Some(query) = alphabet.encode_query(word) else {
             println!("  FAILED to segment query into token space");
             continue;
@@ -273,7 +284,8 @@ fn run() {
             if let Some(path) = tags::decode_path(&s) {
                 for c in tags::to_candidates(&path) {
                     for (i, (seq, root_idx)) in engine_seqs.iter().enumerate() {
-                        if !covered[i] && candidates_cover(std::slice::from_ref(&c), seq, *root_idx) {
+                        if !covered[i] && candidates_cover(std::slice::from_ref(&c), seq, *root_idx)
+                        {
                             covered[i] = true;
                         }
                     }
@@ -290,7 +302,11 @@ fn run() {
             engine_seqs.len(),
             all_candidates.len(),
             t0.elapsed(),
-            if hit_cap { ", HIT_CAP -- some analyses may be uncounted misses, not confirmed gaps" } else { "" }
+            if hit_cap {
+                ", HIT_CAP -- some analyses may be uncounted misses, not confirmed gaps"
+            } else {
+                ""
+            }
         );
     }
 

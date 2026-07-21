@@ -96,7 +96,13 @@ fn write_bare(out: &mut String, continuation: &str, lines: &mut usize) {
 /// One tagged entry: upper = tag symbol only, lower = underlying token text (already PUA
 /// codepoints — never collide with lexc's ASCII-only special chars, so no escaping is needed here,
 /// unlike `emit.rs::escape_lexc_text`'s literal-surface-text case).
-fn write_tag_entry(out: &mut String, tag_lexc: &str, underlying: &str, continuation: &str, lines: &mut usize) {
+fn write_tag_entry(
+    out: &mut String,
+    tag_lexc: &str,
+    underlying: &str,
+    continuation: &str,
+    lines: &mut usize,
+) {
     out.push_str(tag_lexc);
     out.push(':');
     if underlying.is_empty() {
@@ -115,18 +121,28 @@ struct RootRecU {
     underlying: String,
 }
 
-fn collect_roots_u(g: &Grammar, alphabet: &SegAlphabet<'_>, uncovered: &mut Vec<String>) -> Vec<RootRecU> {
+fn collect_roots_u(
+    g: &Grammar,
+    alphabet: &SegAlphabet<'_>,
+    uncovered: &mut Vec<String>,
+) -> Vec<RootRecU> {
     let mut roots = Vec::new();
     for sd in &g.strata {
         for &entry_id in &sd.entries {
             let entry = &g.entries[entry_id.0 as usize];
             for (allo_idx, allo) in entry.allomorphs.iter().enumerate() {
                 if allo.is_pattern {
-                    uncovered.push(format!("entry{}#allo{allo_idx} pattern-allomorph (skipped)", entry_id.0));
+                    uncovered.push(format!(
+                        "entry{}#allo{allo_idx} pattern-allomorph (skipped)",
+                        entry_id.0
+                    ));
                     continue;
                 }
                 let underlying = alphabet.encode_shape(&allo.shape.shape);
-                roots.push(RootRecU { morpheme: entry.morpheme, underlying });
+                roots.push(RootRecU {
+                    morpheme: entry.morpheme,
+                    underlying,
+                });
             }
         }
     }
@@ -148,17 +164,20 @@ fn emit_rule_allomorphs_u(
     let tag_lexc = tags::morph_tag_lexc(morpheme, width);
     for (allo_idx, allo) in allomorphs_of(g, mid).iter().enumerate() {
         let label = format!("mrule{}#allo{allo_idx}", mid.0);
-        if allo
-            .rhs
-            .iter()
-            .any(|a| matches!(a, OutputAction::Modify(_, _) | OutputAction::InsertContext(_)))
-        {
+        if allo.rhs.iter().any(|a| {
+            matches!(
+                a,
+                OutputAction::Modify(_, _) | OutputAction::InsertContext(_)
+            )
+        }) {
             uncovered.push(format!("{label} process-morph (skipped)"));
             continue;
         }
         let role = classify_affix(&allo.rhs);
         if role != zone_role && role != Role::None {
-            uncovered.push(format!("{label} role={role:?} zone={zone_role:?} mismatch (skipped)"));
+            uncovered.push(format!(
+                "{label} role={role:?} zone={zone_role:?} mismatch (skipped)"
+            ));
             continue;
         }
         let insert_shape = allo.rhs.iter().find_map(|a| match a {
@@ -199,10 +218,16 @@ fn build_deriv_chain_u(
         let name = format!("{prefix}{level}");
         write_lexicon_header(out, &name);
         let is_final = level + 1 == depth;
-        let next = if is_final { exit.to_string() } else { format!("{prefix}{}", level + 1) };
+        let next = if is_final {
+            exit.to_string()
+        } else {
+            format!("{prefix}{}", level + 1)
+        };
         write_bare(out, &next, lines);
         for &mid in rules {
-            emit_rule_allomorphs_u(out, g, alphabet, mid, zone_role, width, &next, uncovered, lines);
+            emit_rule_allomorphs_u(
+                out, g, alphabet, mid, zone_role, width, &next, uncovered, lines,
+            );
         }
     }
     entry_name
@@ -229,7 +254,10 @@ fn slot_role_u(g: &Grammar, slot: &SlotDef) -> Role {
     }
 }
 
-fn classify_template_u<'g>(g: &'g Grammar, template: &'g AffixTemplateDef) -> (Vec<&'g SlotDef>, Vec<&'g SlotDef>) {
+fn classify_template_u<'g>(
+    g: &'g Grammar,
+    template: &'g AffixTemplateDef,
+) -> (Vec<&'g SlotDef>, Vec<&'g SlotDef>) {
     let mut prefix = Vec::new();
     let mut suffix = Vec::new();
     for slot in &template.slots {
@@ -274,7 +302,11 @@ fn build_slot_chain_u(
     for (si, slot) in slots.iter().enumerate() {
         let name = format!("{prefix}{si}");
         write_lexicon_header(out, &name);
-        let next = if si + 1 == slots.len() { exit.to_string() } else { format!("{prefix}{}", si + 1) };
+        let next = if si + 1 == slots.len() {
+            exit.to_string()
+        } else {
+            format!("{prefix}{}", si + 1)
+        };
         if slot.optional {
             write_bare(out, &next, lines);
         }
@@ -290,7 +322,9 @@ fn build_slot_chain_u(
                     continue;
                 }
             }
-            emit_rule_allomorphs_u(out, g, alphabet, mid, zone_role, width, &next, uncovered, lines);
+            emit_rule_allomorphs_u(
+                out, g, alphabet, mid, zone_role, width, &next, uncovered, lines,
+            );
         }
     }
     entry_name
@@ -370,9 +404,12 @@ fn is_structural_rule_u(g: &Grammar, mid: MRuleId) -> bool {
 /// — it is squarely in scope for the SAME splice mechanism as Infix/structural rules, and dropping
 /// it would be a real recall regression relative to mainline, not a deferrable gap.
 fn has_unemittable_action_u(a: &AffixAllomorphDef) -> bool {
-    a.rhs
-        .iter()
-        .any(|act| matches!(act, OutputAction::Modify(_, _) | OutputAction::InsertContext(_)))
+    a.rhs.iter().any(|act| {
+        matches!(
+            act,
+            OutputAction::Modify(_, _) | OutputAction::InsertContext(_)
+        )
+    })
 }
 
 /// Bound on a splice chain's length beyond the root — same rationale/value as
@@ -551,7 +588,18 @@ fn splice_extend_u(
                     out.push((tag_lexc.clone(), underlying.clone()));
                 }
             }
-            splice_extend_u(g, alphabet, rules, w, &next_chain, depth + 1, width, out, pairs_probed, ambiguous_pairs);
+            splice_extend_u(
+                g,
+                alphabet,
+                rules,
+                w,
+                &next_chain,
+                depth + 1,
+                width,
+                out,
+                pairs_probed,
+                ambiguous_pairs,
+            );
         }
     }
 }
@@ -583,7 +631,9 @@ fn build_splice_composites(
                 if allo.is_pattern {
                     continue;
                 }
-                let Ok(shape) = pg_rules::shape_feat::segment_with_features(g, root_table, &allo.shape.text) else {
+                let Ok(shape) =
+                    pg_rules::shape_feat::segment_with_features(g, root_table, &allo.shape.text)
+                else {
                     continue;
                 };
                 let mut word = Word::new(shape, root_stratum);
@@ -594,7 +644,15 @@ fn build_splice_composites(
                 let root_tag = tags::root_tag_lexc(entry.morpheme, width);
                 let chain0 = vec![(entry.morpheme, root_tag)];
                 splice_extend_u(
-                    g, alphabet, splice_rules, &word, &chain0, 0, width, &mut out, &mut pairs_probed,
+                    g,
+                    alphabet,
+                    splice_rules,
+                    &word,
+                    &chain0,
+                    0,
+                    width,
+                    &mut out,
+                    &mut pairs_probed,
                     &mut ambiguous_pairs,
                 );
             }
@@ -678,7 +736,11 @@ pub fn emit_underlying_amharic_probe(g: &Grammar, alphabet: &SegAlphabet<'_>) ->
     for r in &roots {
         symbols.insert((true, r.morpheme.0));
     }
-    for &mid in deriv_prefix.iter().chain(deriv_suffix.iter()).chain(special_rules.iter()) {
+    for &mid in deriv_prefix
+        .iter()
+        .chain(deriv_suffix.iter())
+        .chain(special_rules.iter())
+    {
         symbols.insert((false, owning_morpheme(g, mid).0));
     }
     for t in &g.templates {
@@ -718,8 +780,16 @@ pub fn emit_underlying_amharic_probe(g: &Grammar, alphabet: &SegAlphabet<'_>) ->
 
     if has_templates {
         build_deriv_chain_u(
-            &mut out, g, alphabet, "OuterPfx", Role::Prefix, &deriv_prefix, width, "TmplDispatch",
-            &mut uncovered, &mut lines,
+            &mut out,
+            g,
+            alphabet,
+            "OuterPfx",
+            Role::Prefix,
+            &deriv_prefix,
+            width,
+            "TmplDispatch",
+            &mut uncovered,
+            &mut lines,
         );
         write_lexicon_header(&mut out, "TmplDispatch");
         let mut dispatch_lines: BTreeSet<String> = BTreeSet::new();
@@ -737,15 +807,31 @@ pub fn emit_underlying_amharic_probe(g: &Grammar, alphabet: &SegAlphabet<'_>) ->
             write_bare(&mut out, line, &mut lines);
         }
         build_deriv_chain_u(
-            &mut out, g, alphabet, "OuterSfx", Role::Suffix, &deriv_suffix, width, "#",
-            &mut uncovered, &mut lines,
+            &mut out,
+            g,
+            alphabet,
+            "OuterSfx",
+            Role::Suffix,
+            &deriv_suffix,
+            width,
+            "#",
+            &mut uncovered,
+            &mut lines,
         );
     }
 
     if has_template_less_section {
         build_deriv_chain_u(
-            &mut out, g, alphabet, "TLPfx", Role::Prefix, &deriv_prefix, width, "TLRoots",
-            &mut uncovered, &mut lines,
+            &mut out,
+            g,
+            alphabet,
+            "TLPfx",
+            Role::Prefix,
+            &deriv_prefix,
+            width,
+            "TLRoots",
+            &mut uncovered,
+            &mut lines,
         );
         write_lexicon_header(&mut out, "TLRoots");
         for r in &roots {
@@ -758,8 +844,16 @@ pub fn emit_underlying_amharic_probe(g: &Grammar, alphabet: &SegAlphabet<'_>) ->
         write_lexicon_header(&mut out, "TLPost");
         write_bare(&mut out, "TLSfx0", &mut lines);
         build_deriv_chain_u(
-            &mut out, g, alphabet, "TLSfx", Role::Suffix, &deriv_suffix, width, "#",
-            &mut uncovered, &mut lines,
+            &mut out,
+            g,
+            alphabet,
+            "TLSfx",
+            Role::Suffix,
+            &deriv_suffix,
+            width,
+            "#",
+            &mut uncovered,
+            &mut lines,
         );
     }
 
@@ -772,8 +866,17 @@ pub fn emit_underlying_amharic_probe(g: &Grammar, alphabet: &SegAlphabet<'_>) ->
                 join_lines.insert("OuterSfx0".to_string());
             } else {
                 let entry = build_slot_chain_u(
-                    &mut out, g, alphabet, &format!("T{ti}Z"), &suffix_slots, Role::Suffix,
-                    template.required_syn_fs, width, "OuterSfx0", &mut uncovered, &mut lines,
+                    &mut out,
+                    g,
+                    alphabet,
+                    &format!("T{ti}Z"),
+                    &suffix_slots,
+                    Role::Suffix,
+                    template.required_syn_fs,
+                    width,
+                    "OuterSfx0",
+                    &mut uncovered,
+                    &mut lines,
                 );
                 join_lines.insert(entry);
             }
@@ -785,8 +888,16 @@ pub fn emit_underlying_amharic_probe(g: &Grammar, alphabet: &SegAlphabet<'_>) ->
         }
 
         let sfx_deriv_entry = build_deriv_chain_u(
-            &mut out, g, alphabet, &format!("G{gi}SfxD"), Role::Suffix, &deriv_suffix, width,
-            &join_name, &mut uncovered, &mut lines,
+            &mut out,
+            g,
+            alphabet,
+            &format!("G{gi}SfxD"),
+            Role::Suffix,
+            &deriv_suffix,
+            width,
+            &join_name,
+            &mut uncovered,
+            &mut lines,
         );
 
         let post_name = format!("G{gi}Post");
@@ -804,8 +915,16 @@ pub fn emit_underlying_amharic_probe(g: &Grammar, alphabet: &SegAlphabet<'_>) ->
         }
 
         build_deriv_chain_u(
-            &mut out, g, alphabet, &format!("G{gi}PfxD"), Role::Prefix, &deriv_prefix, width,
-            &roots_name, &mut uncovered, &mut lines,
+            &mut out,
+            g,
+            alphabet,
+            &format!("G{gi}PfxD"),
+            Role::Prefix,
+            &deriv_prefix,
+            width,
+            &roots_name,
+            &mut uncovered,
+            &mut lines,
         );
 
         for &ti in &group_templates[gi] {
@@ -815,8 +934,17 @@ pub fn emit_underlying_amharic_probe(g: &Grammar, alphabet: &SegAlphabet<'_>) ->
                 continue;
             }
             build_slot_chain_u(
-                &mut out, g, alphabet, &format!("T{ti}P"), &prefix_slots, Role::Prefix,
-                template.required_syn_fs, width, &format!("G{gi}PfxD0"), &mut uncovered, &mut lines,
+                &mut out,
+                g,
+                alphabet,
+                &format!("T{ti}P"),
+                &prefix_slots,
+                Role::Prefix,
+                template.required_syn_fs,
+                width,
+                &format!("G{gi}PfxD0"),
+                &mut uncovered,
+                &mut lines,
             );
         }
     }

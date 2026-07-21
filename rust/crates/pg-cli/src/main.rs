@@ -245,8 +245,7 @@ fn load_grammar(path: &str) -> Result<(Grammar, Vec<String>), String> {
         }
         _ => {
             let xml = fs::read_to_string(path).map_err(|e| format!("read {path}: {e}"))?;
-            let grammar =
-                pg_grammar::load(&xml).map_err(|e| format!("load {path}: {e:?}"))?;
+            let grammar = pg_grammar::load(&xml).map_err(|e| format!("load {path}: {e:?}"))?;
             Ok((grammar, Vec::new()))
         }
     }
@@ -344,9 +343,11 @@ fn run_parse(args: &[String]) -> Result<(), String> {
         ));
     }
     if engine == Engine::Foma && trace_dest.is_some() {
-        return Err("--trace is not supported with --engine=foma (the foma path has no trace \
+        return Err(
+            "--trace is not supported with --engine=foma (the foma path has no trace \
                      sink of its own; use the default engine for tracing)"
-            .into());
+                .into(),
+        );
     }
     if let Some(v) = &natural_gloss {
         if v != "eng" {
@@ -894,9 +895,7 @@ fn run_batch(args: &[String]) -> Result<(), String> {
 /// needs a `WordAnalysis`, which isn't naturally hand-typable either).
 fn run_generate(args: &[String]) -> Result<(), String> {
     let [grammar_path, root_id, other_ids @ ..] = args else {
-        return Err(
-            "usage: generate <grammar> <root-morpheme-id> [other-morpheme-id ...]".into(),
-        );
+        return Err("usage: generate <grammar> <root-morpheme-id> [other-morpheme-id ...]".into());
     };
 
     let (grammar, warnings) = load_grammar(grammar_path)?;
@@ -1011,8 +1010,10 @@ mod tests {
     fn scratch_dir(tag: &str) -> std::path::PathBuf {
         static COUNTER: AtomicU32 = AtomicU32::new(0);
         let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let dir =
-            std::env::temp_dir().join(format!("pangloss-cli-test-{tag}-{}-{n}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "pangloss-cli-test-{tag}-{}-{n}",
+            std::process::id()
+        ));
         fs::create_dir_all(&dir).expect("create scratch dir");
         dir
     }

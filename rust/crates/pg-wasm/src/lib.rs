@@ -136,8 +136,7 @@ struct FomaState {
 /// (`pg_foma::analyzer::FomaError`'s `Display`) — a compiler-gap diagnostic, not a grammar-content
 /// problem the caller can fix by editing their text.
 fn build_foma_state(grammar: &Grammar) -> Result<FomaState, String> {
-    let proposer =
-        pg_foma::analyzer::FomaProposer::new(grammar).map_err(|e| e.to_string())?;
+    let proposer = pg_foma::analyzer::FomaProposer::new(grammar).map_err(|e| e.to_string())?;
     Ok(FomaState {
         peeler: pg_foma::peel::ReduplicationPeeler::new(grammar),
         owners: pg_foma::confirm::build_morpheme_owners(grammar),
@@ -754,7 +753,10 @@ mod tests {
     fn affix_glosses_includes_rule_glosses_but_not_root_glosses() {
         let g = pg_grammar::load(TEST_XML).expect("test fixture loads");
         let glosses = affix_glosses(&g);
-        assert!(glosses.iter().any(|s| s == "pl"), "the plural rule's gloss must be included: {glosses:?}");
+        assert!(
+            glosses.iter().any(|s| s == "pl"),
+            "the plural rule's gloss must be included: {glosses:?}"
+        );
         assert!(
             !glosses.iter().any(|s| s == "house"),
             "a lexical-entry (root) gloss must not be treated as an affix gloss: {glosses:?}"
@@ -816,8 +818,8 @@ mod tests {
             return;
         }
         let xml = std::fs::read_to_string(&grammar_path).expect("read grammar");
-        let grammar = pg_grammar::load(&xml)
-            .unwrap_or_else(|e| panic!("failed to load {grammar_file}: {e}"));
+        let grammar =
+            pg_grammar::load(&xml).unwrap_or_else(|e| panic!("failed to load {grammar_file}: {e}"));
         let foma_state = build_foma_state(&grammar)
             .unwrap_or_else(|e| panic!("{grammar_file} must foma-compile (gate F1): {e}"));
         let mut analyzer = pg_foma::composite::FomaAnalyzer::from_cached(

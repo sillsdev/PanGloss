@@ -415,25 +415,41 @@ fn push_instances(
 /// One [`EnvironmentDef`]'s coverage classification (module doc's findings, in order).
 fn classify(g: &Grammar, env: &EnvironmentDef, sibling_count: usize) -> EnvCoverage {
     if sibling_count != 1 {
-        return EnvCoverage::Unsupported { reason: "or-ambiguous" };
+        return EnvCoverage::Unsupported {
+            reason: "or-ambiguous",
+        };
     }
     // Finding 4 (module doc): exclude-left is out of THIS step's scope (conservative — the
     // recall-invariance corpus has zero exclude environments to test an exclude arm against), not
     // because the corrected mechanism below couldn't represent it.
     if !env.require {
-        return EnvCoverage::Unsupported { reason: "exclude-left-persistent-unsound" };
+        return EnvCoverage::Unsupported {
+            reason: "exclude-left-persistent-unsound",
+        };
     }
     if env.right.is_some() {
-        return EnvCoverage::Unsupported { reason: "right-context" };
+        return EnvCoverage::Unsupported {
+            reason: "right-context",
+        };
     }
     let Some(left) = &env.left else {
-        return EnvCoverage::Unsupported { reason: "no-pattern" };
+        return EnvCoverage::Unsupported {
+            reason: "no-pattern",
+        };
     };
     if left.nodes.len() != 1 {
-        return EnvCoverage::Unsupported { reason: "anchor-or-compound-left" };
+        return EnvCoverage::Unsupported {
+            reason: "anchor-or-compound-left",
+        };
     }
-    let PatternNode::Segments { table: seg_table, shape } = &left.nodes[0] else {
-        return EnvCoverage::Unsupported { reason: "non-literal-left" };
+    let PatternNode::Segments {
+        table: seg_table,
+        shape,
+    } = &left.nodes[0]
+    else {
+        return EnvCoverage::Unsupported {
+            reason: "non-literal-left",
+        };
     };
     let literal_table = &g.char_tables[seg_table.0 as usize];
     match surface_variants(literal_table, &shape.text) {
@@ -443,13 +459,19 @@ fn classify(g: &Grammar, env: &EnvironmentDef, sibling_count: usize) -> EnvCover
             // emitter's textual surface spellings would never show that, so the y-test below could
             // silently under-set `y` for a real context. Declining is always recall-safe (Strip).
             if prule_tail_rewrite_risk(g, &variants) {
-                EnvCoverage::Unsupported { reason: "prule-tail-rewrite-risk" }
+                EnvCoverage::Unsupported {
+                    reason: "prule-tail-rewrite-risk",
+                }
             } else {
-                EnvCoverage::LeftLiteral { literal_variants: variants }
+                EnvCoverage::LeftLiteral {
+                    literal_variants: variants,
+                }
             }
         }
         Some((_, true)) => EnvCoverage::Unsupported { reason: "overflow" },
-        _ => EnvCoverage::Unsupported { reason: "unsegmentable" },
+        _ => EnvCoverage::Unsupported {
+            reason: "unsegmentable",
+        },
     }
 }
 
@@ -474,10 +496,9 @@ fn prule_tail_rewrite_risk(g: &Grammar, literal_variants: &[String]) -> bool {
             let Some(rendered) = render_pattern_literal(g, &subrule.rhs) else {
                 return true; // Non-literal RHS shape: cannot cheaply prove no overlap.
             };
-            if rendered
-                .iter()
-                .any(|text| !text.is_empty() && literal_variants.iter().any(|l| l.contains(text.as_str())))
-            {
+            if rendered.iter().any(|text| {
+                !text.is_empty() && literal_variants.iter().any(|l| l.contains(text.as_str()))
+            }) {
                 return true;
             }
         }
@@ -550,7 +571,8 @@ fn flag_id(id: u32) -> String {
 /// match trivially/vacuously otherwise). When in doubt this returns `true` — never narrows.
 fn could_satisfy(surface: &str, literal_variants: &[String]) -> bool {
     literal_variants.iter().any(|l| {
-        !l.is_empty() && (surface.ends_with(l.as_str()) || (surface.len() < l.len() && l.ends_with(surface)))
+        !l.is_empty()
+            && (surface.ends_with(l.as_str()) || (surface.len() < l.len() && l.ends_with(surface)))
     })
 }
 
@@ -637,7 +659,9 @@ impl ConstraintCatalog {
                     (PrecisionConfig::AllFlags, EnvCoverage::LeftLiteral { .. }) => {
                         (PrecisionAction::KeepFlag, None)
                     }
-                    (_, EnvCoverage::Unsupported { reason }) => (PrecisionAction::Strip, Some(*reason)),
+                    (_, EnvCoverage::Unsupported { reason }) => {
+                        (PrecisionAction::Strip, Some(*reason))
+                    }
                     (_, EnvCoverage::LeftLiteral { .. }) => (PrecisionAction::Strip, None),
                 };
                 ConstraintDecision {
@@ -742,7 +766,12 @@ impl PrecisionEmit {
     /// "Why this is safe to splice directly...") — prefix/suffix is chosen only for readability.
     /// Under `Strip` (`set_rules`/`owner_require` both empty) this returns exactly `escaped`, or
     /// `"0"` when `escaped` is empty — byte-identical to the pre-precision-knob emitter.
-    pub(crate) fn tagged_lower(&self, surface: &str, escaped: &str, owner: Option<AllomorphId>) -> String {
+    pub(crate) fn tagged_lower(
+        &self,
+        surface: &str,
+        escaped: &str,
+        owner: Option<AllomorphId>,
+    ) -> String {
         let prefix = owner.and_then(|id| self.owner_require.get(&id));
         if surface.is_empty() {
             match prefix {
@@ -786,8 +815,8 @@ mod tests {
         let full = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../../machine/conformance")
             .join(path);
-        let xml = std::fs::read_to_string(&full)
-            .unwrap_or_else(|e| panic!("{}: {e}", full.display()));
+        let xml =
+            std::fs::read_to_string(&full).unwrap_or_else(|e| panic!("{}: {e}", full.display()));
         pg_grammar::load(&xml).unwrap()
     }
 
@@ -804,7 +833,10 @@ mod tests {
             return;
         };
         let catalog = ConstraintCatalog::build(&g);
-        assert!(!catalog.env.is_empty(), "Sena declares real environments; catalog must see them");
+        assert!(
+            !catalog.env.is_empty(),
+            "Sena declares real environments; catalog must see them"
+        );
         let coverable: Vec<&EnvConstraint> = catalog.coverable().collect();
         assert!(
             coverable.len() >= 2,
@@ -837,7 +869,10 @@ mod tests {
         let catalog2 = ConstraintCatalog::build(&g);
         let ids: Vec<u32> = catalog.env.iter().map(|c| c.id).collect();
         let ids2: Vec<u32> = catalog2.env.iter().map(|c| c.id).collect();
-        assert_eq!(ids, ids2, "catalog ids must be deterministic across rebuilds");
+        assert_eq!(
+            ids, ids2,
+            "catalog ids must be deterministic across rebuilds"
+        );
         // Attribute names are zero-padded ENV.nnnn per the design's own worked example.
         assert!(catalog.env[0].attr.starts_with("ENV."));
         assert_eq!(catalog.env[0].attr.len(), "ENV.".len() + 4);
@@ -854,7 +889,10 @@ mod tests {
             return;
         };
         let catalog = ConstraintCatalog::build(&g);
-        assert!(catalog.env.is_empty(), "Indonesian declares no environments at all");
+        assert!(
+            catalog.env.is_empty(),
+            "Indonesian declares no environments at all"
+        );
         let report = catalog.decide(PrecisionConfig::AllFlags);
         assert!(report.decisions.is_empty());
     }
@@ -874,7 +912,12 @@ mod tests {
         for c in &catalog.env {
             if c.sibling_count > 1 {
                 assert!(
-                    matches!(c.coverage, EnvCoverage::Unsupported { reason: "or-ambiguous" }),
+                    matches!(
+                        c.coverage,
+                        EnvCoverage::Unsupported {
+                            reason: "or-ambiguous"
+                        }
+                    ),
                     "constraint {c:?} has sibling_count > 1 but wasn't marked or-ambiguous"
                 );
             }
@@ -907,7 +950,10 @@ mod tests {
         let catalog = one_constraint_catalog(0, AllomorphId(7), "mb");
         let pk = PrecisionEmit::build(&catalog, PrecisionConfig::Strip);
         assert!(pk.flag_symbols.is_empty());
-        assert_eq!(pk.tagged_lower("tumba", "tumba", Some(AllomorphId(7))), "tumba");
+        assert_eq!(
+            pk.tagged_lower("tumba", "tumba", Some(AllomorphId(7))),
+            "tumba"
+        );
         assert_eq!(pk.tagged_lower("", "", Some(AllomorphId(7))), "0");
         assert_eq!(pk.tagged_lower("", "", None), "0");
     }
@@ -920,7 +966,11 @@ mod tests {
         let pk = PrecisionEmit::build(&catalog, PrecisionConfig::AllFlags);
         assert_eq!(
             pk.flag_symbols,
-            vec!["@R.ENV7.y@".to_string(), "@P.ENV7.y@".to_string(), "@P.ENV7.n@".to_string()]
+            vec![
+                "@R.ENV7.y@".to_string(),
+                "@P.ENV7.y@".to_string(),
+                "@P.ENV7.n@".to_string()
+            ]
         );
     }
 
@@ -984,7 +1034,10 @@ mod tests {
         for id in [0, 7, 10, 70, 700, 1007] {
             let fid = flag_id(id);
             assert!(!fid.contains('.'), "flag_id({id}) must never contain a dot");
-            assert!(!fid.contains('0'), "flag_id({id}) must never contain the digit 0, got {fid:?}");
+            assert!(
+                !fid.contains('0'),
+                "flag_id({id}) must never contain the digit 0, got {fid:?}"
+            );
         }
     }
 
@@ -997,7 +1050,10 @@ mod tests {
             eprintln!("skipping: sena-hc.xml not present on disk");
             return;
         };
-        assert!(g.prules.is_empty(), "Sena is the zero-phonological-rules reference grammar");
+        assert!(
+            g.prules.is_empty(),
+            "Sena is the zero-phonological-rules reference grammar"
+        );
         assert!(!prule_tail_rewrite_risk(&g, &["ma".to_string()]));
     }
 }

@@ -148,7 +148,10 @@ struct BehavioralAnalysis {
 /// index, per `ParseOutcome`'s own doc) -- `structured[i].morpheme_ids` gives the numeric
 /// morpheme sequence (resolved against *this* `Grammar`'s own `morphemes` table for the gloss),
 /// `analyses[i].1` gives the surface string.
-fn behavioral_result(grammar: &Grammar, outcome: &pg_parse::ParseOutcome) -> Vec<BehavioralAnalysis> {
+fn behavioral_result(
+    grammar: &Grammar,
+    outcome: &pg_parse::ParseOutcome,
+) -> Vec<BehavioralAnalysis> {
     let mut result: Vec<BehavioralAnalysis> = outcome
         .structured
         .iter()
@@ -178,13 +181,22 @@ fn behavioral_result(grammar: &Grammar, outcome: &pg_parse::ParseOutcome) -> Vec
 /// The result of comparing one word across both pipelines.
 enum WordComparison {
     Match,
-    Mismatch { new: Vec<BehavioralAnalysis>, legacy: Vec<BehavioralAnalysis> },
+    Mismatch {
+        new: Vec<BehavioralAnalysis>,
+        legacy: Vec<BehavioralAnalysis>,
+    },
     /// Either side's `Morpher` hit [`WORD_TIMEOUT`] -- see the module doc's "The hang (fixed)"
     /// section for why this is neither a match nor a mismatch, just reported and skipped.
     TimedOut,
 }
 
-fn compare_word(new_grammar: &Grammar, new_morpher: &Morpher, legacy_grammar: &Grammar, legacy_morpher: &Morpher, word: &str) -> WordComparison {
+fn compare_word(
+    new_grammar: &Grammar,
+    new_morpher: &Morpher,
+    legacy_grammar: &Grammar,
+    legacy_morpher: &Morpher,
+    word: &str,
+) -> WordComparison {
     let new_outcome = new_morpher.parse_word(word);
     let legacy_outcome = legacy_morpher.parse_word(word);
     if new_outcome.timed_out || legacy_outcome.timed_out {
@@ -241,7 +253,8 @@ fn run_conformance(
 
     let mut matched = 0usize;
     let mut timed_out = 0usize;
-    let mut mismatches: Vec<(String, Vec<BehavioralAnalysis>, Vec<BehavioralAnalysis>)> = Vec::new();
+    let mut mismatches: Vec<(String, Vec<BehavioralAnalysis>, Vec<BehavioralAnalysis>)> =
+        Vec::new();
     // Per-root tallies for the aggregate known-drift invariant (see this function's own doc
     // comment): a root is judged once, after the full word list has been scanned, not per-word.
     let mut drift_mismatches: HashMap<&str, usize> = HashMap::new();
@@ -252,7 +265,13 @@ fn run_conformance(
         // Substring, not exact equality -- see the module doc's "Known oracle drift" section:
         // a drifted root also breaks every corpus word derived from it by affixation.
         let drift = known_drift.iter().find(|(root, _)| word.contains(root));
-        match compare_word(new_grammar, &new_morpher, legacy_grammar, &legacy_morpher, word) {
+        match compare_word(
+            new_grammar,
+            &new_morpher,
+            legacy_grammar,
+            &legacy_morpher,
+            word,
+        ) {
             WordComparison::Match => {
                 // A word containing a drift root's substring that still matches both pipelines is
                 // healthy -- it merely shares a substring with the drifted root without being
@@ -398,12 +417,23 @@ fn sena3_new_pipeline_matches_legacy_oracle() {
 
     let legacy_grammar = load_legacy(&oracle_path);
     let words = read_words(&words_path);
-    assert!(words.len() >= 7000, "expected the full Sena corpus, got {}", words.len());
+    assert!(
+        words.len() >= 7000,
+        "expected the full Sena corpus, got {}",
+        words.len()
+    );
 
-    let mismatched =
-        run_conformance("Sena 3", &new_grammar, &legacy_grammar, &words, KNOWN_ORACLE_DRIFT, 20);
+    let mismatched = run_conformance(
+        "Sena 3",
+        &new_grammar,
+        &legacy_grammar,
+        &words,
+        KNOWN_ORACLE_DRIFT,
+        20,
+    );
     assert_eq!(
-        mismatched, 0,
+        mismatched,
+        0,
         "Sena 3: {mismatched}/{} words mismatched between the new (.fwdata) and legacy (HC-XML) \
          pipelines -- see stderr above for the diffs",
         words.len()
@@ -449,18 +479,24 @@ fn amharic_new_pipeline_matches_legacy_oracle() {
         warnings["import"]
     );
     assert!(
-        warnings["import"][0].contains("adhocProhibitions") || warnings["import"][0].contains("ad-hoc"),
+        warnings["import"][0].contains("adhocProhibitions")
+            || warnings["import"][0].contains("ad-hoc"),
         "expected the stale ad-hoc rule warning, got: {:?}",
         warnings["import"][0]
     );
 
     let legacy_grammar = load_legacy(&oracle_path);
     let words = read_words(&words_path);
-    assert!(words.len() >= 650, "expected the full Amharic corpus, got {}", words.len());
+    assert!(
+        words.len() >= 650,
+        "expected the full Amharic corpus, got {}",
+        words.len()
+    );
 
     let mismatched = run_conformance("Amharic", &new_grammar, &legacy_grammar, &words, &[], 20);
     assert_eq!(
-        mismatched, 0,
+        mismatched,
+        0,
         "Amharic: {mismatched}/{} words mismatched between the new (.fwdata) and legacy (HC-XML) \
          pipelines -- see stderr above for the diffs",
         words.len()
@@ -510,7 +546,11 @@ fn conformance_smoke_first_50_words_each_language() {
         words.truncate(50);
         let word_count = words.len();
 
-        let known_drift = if project == "Sena 3" { KNOWN_ORACLE_DRIFT } else { &[] };
+        let known_drift = if project == "Sena 3" {
+            KNOWN_ORACLE_DRIFT
+        } else {
+            &[]
+        };
         let mismatched = run_conformance(
             &format!("{project} (smoke, first {word_count} words)"),
             &new_grammar,

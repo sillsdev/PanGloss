@@ -73,7 +73,8 @@ const XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 "#;
 
 fn main() {
-    let g = pg_grammar::load(XML).unwrap_or_else(|e| panic!("failed to load POS fixture: {e}\n{XML}"));
+    let g =
+        pg_grammar::load(XML).unwrap_or_else(|e| panic!("failed to load POS fixture: {e}\n{XML}"));
 
     println!("=== POS-gating fixture: oracle exploration ===");
     let morpher = Morpher::new(&g, usize::MAX);
@@ -91,11 +92,22 @@ fn main() {
                 .map(|&id| {
                     g.morphemes
                         .get(id as usize)
-                        .map(|mi| format!("{}({}/{})", id, mi.xml_key, mi.gloss.as_deref().unwrap_or("-")))
+                        .map(|mi| {
+                            format!(
+                                "{}({}/{})",
+                                id,
+                                mi.xml_key,
+                                mi.gloss.as_deref().unwrap_or("-")
+                            )
+                        })
                         .unwrap_or_else(|| format!("{id}(?)"))
                 })
                 .collect();
-            println!("    root_index={} morphemes=[{}]", a.root_morpheme_index, names.join(", "));
+            println!(
+                "    root_index={} morphemes=[{}]",
+                a.root_morpheme_index,
+                names.join(", ")
+            );
         }
     }
 
@@ -109,8 +121,8 @@ fn main() {
             rules_in_order.push(&g.prules[prid.0 as usize]);
         }
     }
-    let result = compile_gated_grammar(&opts, &g, &alphabet, &rules_in_order)
-        .expect("compose budget ok");
+    let result =
+        compile_gated_grammar(&opts, &g, &alphabet, &rules_in_order).expect("compose budget ok");
     println!("groups: {}", result.groups);
     for (key, roots, prefixes, suffixes) in &result.group_reports {
         println!("  group key={key:?} root_entries={roots} prefix_entries={prefixes} suffix_entries={suffixes}");
@@ -126,8 +138,13 @@ fn main() {
     let net = if boundary_tokens.is_empty() {
         net
     } else {
-        let cleanup_regex = boundary_tokens.iter().map(|c| format!("{c} -> 0")).collect::<Vec<_>>().join(", ");
-        let cleanup_net = fsm_parse_regex(&opts, &cleanup_regex, None, None).expect("cleanup regex");
+        let cleanup_regex = boundary_tokens
+            .iter()
+            .map(|c| format!("{c} -> 0"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let cleanup_net =
+            fsm_parse_regex(&opts, &cleanup_regex, None, None).expect("cleanup regex");
         foma::constructions::fsm_compose(&opts, net, cleanup_net)
     };
     let net = foma::minimize::fsm_minimize(&opts, net);
@@ -153,11 +170,22 @@ fn main() {
                 .map(|m| {
                     g.morphemes
                         .get(m.0 as usize)
-                        .map(|mi| format!("{}({}/{})", m.0, mi.xml_key, mi.gloss.as_deref().unwrap_or("-")))
+                        .map(|mi| {
+                            format!(
+                                "{}({}/{})",
+                                m.0,
+                                mi.xml_key,
+                                mi.gloss.as_deref().unwrap_or("-")
+                            )
+                        })
                         .unwrap_or_else(|| format!("{}(?)", m.0))
                 })
                 .collect();
-            println!("    root_index={} morphemes=[{}]", c.root_index, names.join(", "));
+            println!(
+                "    root_index={} morphemes=[{}]",
+                c.root_index,
+                names.join(", ")
+            );
         }
     }
 }

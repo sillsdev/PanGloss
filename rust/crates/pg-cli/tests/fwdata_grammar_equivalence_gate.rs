@@ -141,7 +141,12 @@ fn import_and_compile(fwdata_path: &Path) -> Grammar {
     let validate_warnings = snapshot.validate();
     let (grammar, compile_warnings) =
         pg_grammar::compile_project(&snapshot).expect("compile_project must succeed");
-    for w in report.warnings.iter().chain(&validate_warnings).chain(&compile_warnings) {
+    for w in report
+        .warnings
+        .iter()
+        .chain(&validate_warnings)
+        .chain(&compile_warnings)
+    {
         eprintln!("  (new pipeline) {w}");
     }
     grammar
@@ -331,7 +336,9 @@ impl<'g> GV<'g> {
                     inner.join(" ")
                 )
             }
-            PatternNode::Segments { shape, .. } => format!("SEG[{}]", self.canon_segmented_text(shape)),
+            PatternNode::Segments { shape, .. } => {
+                format!("SEG[{}]", self.canon_segmented_text(shape))
+            }
             PatternNode::Anchor(side) => match side {
                 AnchorSide::Left => "ANCHOR_L".to_string(),
                 AnchorSide::Right => "ANCHOR_R".to_string(),
@@ -342,15 +349,25 @@ impl<'g> GV<'g> {
     /// Node order is preserved (not sorted): position within a pattern is structural, not
     /// incidental (advisor guidance: "a Pattern's nodes ... preserve order").
     fn canon_pattern(&self, p: &Pattern) -> String {
-        p.nodes.iter().map(|n| self.canon_node(n)).collect::<Vec<_>>().join(" ")
+        p.nodes
+            .iter()
+            .map(|n| self.canon_node(n))
+            .collect::<Vec<_>>()
+            .join(" ")
     }
 
     fn canon_env(&self, e: &EnvironmentDef) -> String {
         format!(
             "{}|L[{}]|R[{}]",
             if e.require { "REQ" } else { "EXCL" },
-            e.left.as_ref().map(|p| self.canon_pattern(p)).unwrap_or_default(),
-            e.right.as_ref().map(|p| self.canon_pattern(p)).unwrap_or_default(),
+            e.left
+                .as_ref()
+                .map(|p| self.canon_pattern(p))
+                .unwrap_or_default(),
+            e.right
+                .as_ref()
+                .map(|p| self.canon_pattern(p))
+                .unwrap_or_default(),
         )
     }
 
@@ -374,9 +391,15 @@ impl<'g> GV<'g> {
     fn canon_output_action(&self, a: &OutputAction) -> String {
         match a {
             OutputAction::Copy(p) => format!("COPY({})", self.canon_partref(p)),
-            OutputAction::InsertSegments { shape, .. } => format!("INS[{}]", self.canon_segmented_text(shape)),
+            OutputAction::InsertSegments { shape, .. } => {
+                format!("INS[{}]", self.canon_segmented_text(shape))
+            }
             OutputAction::Modify(p, sc) => {
-                format!("MOD({})[{}]", self.canon_partref(p), self.canon_simple_context(sc))
+                format!(
+                    "MOD({})[{}]",
+                    self.canon_partref(p),
+                    self.canon_simple_context(sc)
+                )
             }
             OutputAction::InsertContext(sc) => format!("INSCTX[{}]", self.canon_simple_context(sc)),
         }
@@ -384,13 +407,19 @@ impl<'g> GV<'g> {
 
     /// RHS action order is concatenation order -- structural, preserved.
     fn canon_rhs(&self, rhs: &[OutputAction]) -> String {
-        rhs.iter().map(|a| self.canon_output_action(a)).collect::<Vec<_>>().join(">")
+        rhs.iter()
+            .map(|a| self.canon_output_action(a))
+            .collect::<Vec<_>>()
+            .join(">")
     }
 
     /// LHS part order corresponds to `MorphologicalInput` position, referenced by index from the
     /// RHS (`PartRef::Input`) -- structural, preserved.
     fn canon_lhs(&self, lhs: &[Pattern]) -> String {
-        lhs.iter().map(|p| self.canon_pattern(p)).collect::<Vec<_>>().join(">")
+        lhs.iter()
+            .map(|p| self.canon_pattern(p))
+            .collect::<Vec<_>>()
+            .join(">")
     }
 
     fn gloss_of(&self, mid: MorphemeId) -> String {
@@ -484,20 +513,32 @@ impl<'g> GV<'g> {
 
     fn canon_synfeature_full(&self, f: &SynFeature) -> String {
         match &f.kind {
-            SynFeatureKind::Symbolic { symbols, default_symbol } => {
+            SynFeatureKind::Symbolic {
+                symbols,
+                default_symbol,
+            } => {
                 let mut names: Vec<String> = symbols.iter().map(|(_, n)| norm_label(n)).collect();
                 names.sort();
                 let default_name = default_symbol
                     .and_then(|i| symbols.get(i as usize))
                     .map(|(_, n)| norm_label(n));
-                format!("{}|SYMBOLIC[{}]|default={default_name:?}", norm_label(&f.name), names.join(","))
+                format!(
+                    "{}|SYMBOLIC[{}]|default={default_name:?}",
+                    norm_label(&f.name),
+                    names.join(",")
+                )
             }
             SynFeatureKind::Complex => format!("{}|COMPLEX", norm_label(&f.name)),
         }
     }
 
     fn canon_mprgroup_full(&self, g: &MprGroup) -> String {
-        format!("{:?}|{:?}|members=[{}]", g.match_type, g.output, self.canon_mpr(g.members))
+        format!(
+            "{:?}|{:?}|members=[{}]",
+            g.match_type,
+            g.output,
+            self.canon_mpr(g.members)
+        )
     }
 
     fn canon_rewrite_subrule(&self, s: &RewriteSubruleDef) -> String {
@@ -521,7 +562,11 @@ impl<'g> GV<'g> {
         match p {
             PhonRuleDef::Rewrite(r) => {
                 // Subrule order is first-match-wins application order -- structural, preserved.
-                let subrules: Vec<String> = r.subrules.iter().map(|s| self.canon_rewrite_subrule(s)).collect();
+                let subrules: Vec<String> = r
+                    .subrules
+                    .iter()
+                    .map(|s| self.canon_rewrite_subrule(s))
+                    .collect();
                 format!(
                     "REWRITE|name={:?}|mode={:?}|dir={:?}|lhs=[{}]|subrules=[{}]",
                     norm_opt_label(&r.name),
@@ -555,10 +600,18 @@ impl<'g> GV<'g> {
     }
 
     fn canon_compounding_full(&self, c: &CompoundingRuleDef) -> String {
-        let mut oblig: Vec<&str> = c.obligatory_features.iter().map(|f| self.feat_name(*f)).collect();
+        let mut oblig: Vec<&str> = c
+            .obligatory_features
+            .iter()
+            .map(|f| self.feat_name(*f))
+            .collect();
         oblig.sort();
         // Subrule order is first-match-wins -- structural, preserved.
-        let subrules: Vec<String> = c.subrules.iter().map(|s| self.canon_compounding_subrule(s)).collect();
+        let subrules: Vec<String> = c
+            .subrules
+            .iter()
+            .map(|s| self.canon_compounding_subrule(s))
+            .collect();
         format!(
             "COMPOUND|name={:?}|blockable={}|maxapps={}|headreqfs={}|nonheadreqfs={}|outfs={}|\
              headmpr={}|nonheadmpr={}|outmpr={}|obligfeats=[{}]|subrules=[{}]",
@@ -584,9 +637,17 @@ impl<'g> GV<'g> {
     fn canon_mrule(&self, id: MRuleId) -> String {
         match &self.g.mrules[id.0 as usize] {
             MorphRuleDef::AffixProcess(d) => {
-                let mut oblig: Vec<&str> = d.obligatory_features.iter().map(|f| self.feat_name(*f)).collect();
+                let mut oblig: Vec<&str> = d
+                    .obligatory_features
+                    .iter()
+                    .map(|f| self.feat_name(*f))
+                    .collect();
                 oblig.sort();
-                let mut allos: Vec<String> = d.allomorphs.iter().map(|a| self.canon_affix_allomorph(a)).collect();
+                let mut allos: Vec<String> = d
+                    .allomorphs
+                    .iter()
+                    .map(|a| self.canon_affix_allomorph(a))
+                    .collect();
                 allos.sort();
                 format!(
                     "AFFIX|gloss={:?}|strat={}|reqfs={}|outfs={}|partial={}|blockable={}|maxapps={}|\
@@ -604,7 +665,11 @@ impl<'g> GV<'g> {
                 )
             }
             MorphRuleDef::Realizational(d) => {
-                let mut allos: Vec<String> = d.allomorphs.iter().map(|a| self.canon_affix_allomorph(a)).collect();
+                let mut allos: Vec<String> = d
+                    .allomorphs
+                    .iter()
+                    .map(|a| self.canon_affix_allomorph(a))
+                    .collect();
                 allos.sort();
                 format!(
                     "REALIZATIONAL|gloss={:?}|blockable={}|reqfs={}|realfs={}|allos=[{}]",
@@ -630,7 +695,11 @@ impl<'g> GV<'g> {
             name: norm_opt_label(&t.name),
             is_final: t.is_final,
             reqfs: self.canon_fs(t.required_syn_fs),
-            slots: t.slots.iter().map(|s| (norm_opt_label(&s.name), s.optional)).collect(),
+            slots: t
+                .slots
+                .iter()
+                .map(|s| (norm_opt_label(&s.name), s.optional))
+                .collect(),
         }
     }
 
@@ -664,7 +733,11 @@ impl<'g> GV<'g> {
     }
 
     fn entry_value(&self, e: &LexEntryDef) -> Vec<String> {
-        let mut v: Vec<String> = e.allomorphs.iter().map(|a| self.canon_root_allomorph(a)).collect();
+        let mut v: Vec<String> = e
+            .allomorphs
+            .iter()
+            .map(|a| self.canon_root_allomorph(a))
+            .collect();
         v.push(format!("family={}", e.family.is_some()));
         v.sort();
         v
@@ -728,7 +801,13 @@ fn diff_multisets(new_items: Vec<String>, legacy_items: Vec<String>) -> Vec<Stri
     out
 }
 
-fn check_category(failures: &mut Vec<String>, language: &str, label: &str, new_items: Vec<String>, legacy_items: Vec<String>) {
+fn check_category(
+    failures: &mut Vec<String>,
+    language: &str,
+    label: &str,
+    new_items: Vec<String>,
+    legacy_items: Vec<String>,
+) {
     let new_count = new_items.len();
     let legacy_count = legacy_items.len();
     let diffs = diff_multisets(new_items, legacy_items);
@@ -745,7 +824,10 @@ fn check_category(failures: &mut Vec<String>, language: &str, label: &str, new_i
         if diffs.len() > 20 {
             eprintln!("  ... and {} more", diffs.len() - 20);
         }
-        failures.push(format!("{language} {label}: {} mismatched signature(s)", diffs.len()));
+        failures.push(format!(
+            "{language} {label}: {} mismatched signature(s)",
+            diffs.len()
+        ));
     }
 }
 
@@ -753,9 +835,17 @@ fn check_category(failures: &mut Vec<String>, language: &str, label: &str, new_i
 /// these constructs on both reference corpora. A nonzero-but-equal count is not itself a failure
 /// (this test doesn't have a canonicalizer for these yet), but it IS new territory worth a
 /// human's attention, so it's printed loudly rather than silently passed.
-fn check_zero_construct(failures: &mut Vec<String>, language: &str, label: &str, new_count: usize, legacy_count: usize) {
+fn check_zero_construct(
+    failures: &mut Vec<String>,
+    language: &str,
+    label: &str,
+    new_count: usize,
+    legacy_count: usize,
+) {
     if new_count == 0 && legacy_count == 0 {
-        eprintln!("{language} {label}: OK (0/0, matches the all-three-reference-grammars invariant)");
+        eprintln!(
+            "{language} {label}: OK (0/0, matches the all-three-reference-grammars invariant)"
+        );
     } else if new_count != legacy_count {
         failures.push(format!(
             "{language} {label}: count differs (new={new_count}, legacy={legacy_count})"
@@ -803,7 +893,13 @@ const SENA_ENTRY_DRIFT: &[KnownEntryDrift] = &[
     },
 ];
 
-fn compare_entries(failures: &mut Vec<String>, language: &str, nv: &GV, lv: &GV, drift: &[KnownEntryDrift]) {
+fn compare_entries(
+    failures: &mut Vec<String>,
+    language: &str,
+    nv: &GV,
+    lv: &GV,
+    drift: &[KnownEntryDrift],
+) {
     fn build_map(gv: &GV) -> BTreeMap<EntryKey, (usize, Vec<String>)> {
         let mut map: BTreeMap<EntryKey, (usize, Vec<String>)> = BTreeMap::new();
         for e in &gv.g.entries {
@@ -826,7 +922,12 @@ fn compare_entries(failures: &mut Vec<String>, language: &str, nv: &GV, lv: &GV,
     // resolve -- the allowlist itself would be pointing at a nonexistent/renamed entry).
     let mut drift_keys: HashMap<EntryKey, &KnownEntryDrift> = HashMap::new();
     for d in drift {
-        match nv.g.entries.iter().find(|e| nv.g.morphemes[e.morpheme.0 as usize].xml_key == d.new_guid) {
+        match nv
+            .g
+            .entries
+            .iter()
+            .find(|e| nv.g.morphemes[e.morpheme.0 as usize].xml_key == d.new_guid)
+        {
             Some(e) => {
                 drift_keys.insert(nv.entry_key(e), d);
             }
@@ -866,7 +967,9 @@ fn compare_entries(failures: &mut Vec<String>, language: &str, nv: &GV, lv: &GV,
             }
             (false, None) => {
                 mismatched += 1;
-                mismatch_lines.push(format!("  MISMATCH key={key:?}\n    new={n:?}\n    legacy={l:?}"));
+                mismatch_lines.push(format!(
+                    "  MISMATCH key={key:?}\n    new={n:?}\n    legacy={l:?}"
+                ));
             }
         }
     }
@@ -883,7 +986,9 @@ fn compare_entries(failures: &mut Vec<String>, language: &str, nv: &GV, lv: &GV,
         eprintln!("  ... and {} more", mismatch_lines.len() - 20);
     }
     if mismatched > 0 {
-        failures.push(format!("{language} lex entries: {mismatched} mismatched key(s)"));
+        failures.push(format!(
+            "{language} lex entries: {mismatched} mismatched key(s)"
+        ));
     }
 }
 
@@ -892,8 +997,19 @@ fn compare_entries(failures: &mut Vec<String>, language: &str, nv: &GV, lv: &GV,
 /// same count+multiset-per-key pattern [`compare_entries`] uses for lex entries, applied to
 /// templates because template *names* here are frequently absent/duplicated (unlike entries,
 /// which have gloss as a discriminating key; template shape plays that role instead).
-fn compare_templates(failures: &mut Vec<String>, language: &str, label: &str, nv: &GV, new_templates: &[&AffixTemplateDef], lv: &GV, leg_templates: &[&AffixTemplateDef]) {
-    fn build_map(gv: &GV, templates: &[&AffixTemplateDef]) -> BTreeMap<TemplateKey, (usize, Vec<String>)> {
+fn compare_templates(
+    failures: &mut Vec<String>,
+    language: &str,
+    label: &str,
+    nv: &GV,
+    new_templates: &[&AffixTemplateDef],
+    lv: &GV,
+    leg_templates: &[&AffixTemplateDef],
+) {
+    fn build_map(
+        gv: &GV,
+        templates: &[&AffixTemplateDef],
+    ) -> BTreeMap<TemplateKey, (usize, Vec<String>)> {
         let mut map: BTreeMap<TemplateKey, (usize, Vec<String>)> = BTreeMap::new();
         for &t in templates {
             let key = gv.template_key(t);
@@ -920,7 +1036,9 @@ fn compare_templates(failures: &mut Vec<String>, language: &str, label: &str, nv
         let l = leg_map.get(key);
         if n != l {
             mismatches += 1;
-            lines.push(format!("  MISMATCH key={key:?}\n    new={n:?}\n    legacy={l:?}"));
+            lines.push(format!(
+                "  MISMATCH key={key:?}\n    new={n:?}\n    legacy={l:?}"
+            ));
         }
     }
 
@@ -939,14 +1057,21 @@ fn compare_templates(failures: &mut Vec<String>, language: &str, label: &str, nv
         if lines.len() > 20 {
             eprintln!("  ... and {} more", lines.len() - 20);
         }
-        failures.push(format!("{language} {label}: {mismatches} mismatched template shape group(s)"));
+        failures.push(format!(
+            "{language} {label}: {mismatches} mismatched template shape group(s)"
+        ));
     }
 }
 
 /// The full grammar-equivalence comparison for one language. Collects failure descriptions
 /// rather than asserting inline, so every category (and, for Sena, both languages via the
 /// caller) gets a chance to report before the test fails on the first mismatch.
-fn compare_grammars(language: &str, new_g: &Grammar, legacy_g: &Grammar, entry_drift: &[KnownEntryDrift]) -> Vec<String> {
+fn compare_grammars(
+    language: &str,
+    new_g: &Grammar,
+    legacy_g: &Grammar,
+    entry_drift: &[KnownEntryDrift],
+) -> Vec<String> {
     let mut failures = Vec::new();
     let nv = GV::new(new_g);
     let lv = GV::new(legacy_g);
@@ -959,8 +1084,9 @@ fn compare_grammars(language: &str, new_g: &Grammar, legacy_g: &Grammar, entry_d
     // `#` segment/boundary attribute: zero hits), so it can never affect any parse/synthesis
     // outcome -- a table-inventory artifact of the two boundary-marker inventories, not grammar
     // content.
-    let is_inert_extra_boundary =
-        |cd: &CharDef| matches!(cd.kind(), CharDefKind::Boundary) && cd.representations_nfd() == ["#"];
+    let is_inert_extra_boundary = |cd: &CharDef| {
+        matches!(cd.kind(), CharDefKind::Boundary) && cd.representations_nfd() == ["#"]
+    };
     let new_items: Vec<String> = nv
         .table()
         .iter()
@@ -976,16 +1102,40 @@ fn compare_grammars(language: &str, new_g: &Grammar, legacy_g: &Grammar, entry_d
     check_category(&mut failures, language, "phonemes", new_items, leg_items);
 
     // 2. Natural classes.
-    let new_items: Vec<String> =
-        (0..new_g.natural_classes.len()).map(|i| nv.canon_natclass_full(NatClassId(i as u32))).collect();
-    let leg_items: Vec<String> =
-        (0..legacy_g.natural_classes.len()).map(|i| lv.canon_natclass_full(NatClassId(i as u32))).collect();
-    check_category(&mut failures, language, "natural classes", new_items, leg_items);
+    let new_items: Vec<String> = (0..new_g.natural_classes.len())
+        .map(|i| nv.canon_natclass_full(NatClassId(i as u32)))
+        .collect();
+    let leg_items: Vec<String> = (0..legacy_g.natural_classes.len())
+        .map(|i| lv.canon_natclass_full(NatClassId(i as u32)))
+        .collect();
+    check_category(
+        &mut failures,
+        language,
+        "natural classes",
+        new_items,
+        leg_items,
+    );
 
     // 3. Syntactic feature system.
-    let new_items: Vec<String> = new_g.syn_features.features.iter().map(|f| nv.canon_synfeature_full(f)).collect();
-    let leg_items: Vec<String> = legacy_g.syn_features.features.iter().map(|f| lv.canon_synfeature_full(f)).collect();
-    check_category(&mut failures, language, "syntactic features", new_items, leg_items);
+    let new_items: Vec<String> = new_g
+        .syn_features
+        .features
+        .iter()
+        .map(|f| nv.canon_synfeature_full(f))
+        .collect();
+    let leg_items: Vec<String> = legacy_g
+        .syn_features
+        .features
+        .iter()
+        .map(|f| lv.canon_synfeature_full(f))
+        .collect();
+    check_category(
+        &mut failures,
+        language,
+        "syntactic features",
+        new_items,
+        leg_items,
+    );
     if new_g.syn_features.foot.is_some() || legacy_g.syn_features.foot.is_some() {
         failures.push(format!(
             "{language}: a `foot` syntactic feature is present (expected absent in both -- \
@@ -995,35 +1145,117 @@ fn compare_grammars(language: &str, new_g: &Grammar, legacy_g: &Grammar, entry_d
     }
 
     // 4. MPR names + groups.
-    check_category(&mut failures, language, "mpr names", new_g.mpr_names.clone(), legacy_g.mpr_names.clone());
-    let new_items: Vec<String> = new_g.mpr_groups.iter().map(|g| nv.canon_mprgroup_full(g)).collect();
-    let leg_items: Vec<String> = legacy_g.mpr_groups.iter().map(|g| lv.canon_mprgroup_full(g)).collect();
+    check_category(
+        &mut failures,
+        language,
+        "mpr names",
+        new_g.mpr_names.clone(),
+        legacy_g.mpr_names.clone(),
+    );
+    let new_items: Vec<String> = new_g
+        .mpr_groups
+        .iter()
+        .map(|g| nv.canon_mprgroup_full(g))
+        .collect();
+    let leg_items: Vec<String> = legacy_g
+        .mpr_groups
+        .iter()
+        .map(|g| lv.canon_mprgroup_full(g))
+        .collect();
     check_category(&mut failures, language, "mpr groups", new_items, leg_items);
 
     // 5. Constructs documented as zero-occurrence in all three reference grammars.
-    check_zero_construct(&mut failures, language, "stem names", new_g.stem_names.len(), legacy_g.stem_names.len());
-    check_zero_construct(&mut failures, language, "families", new_g.families.len(), legacy_g.families.len());
-    let new_real = new_g.mrules.iter().filter(|r| matches!(r, MorphRuleDef::Realizational(_))).count();
-    let leg_real = legacy_g.mrules.iter().filter(|r| matches!(r, MorphRuleDef::Realizational(_))).count();
-    check_zero_construct(&mut failures, language, "realizational rules", new_real, leg_real);
+    check_zero_construct(
+        &mut failures,
+        language,
+        "stem names",
+        new_g.stem_names.len(),
+        legacy_g.stem_names.len(),
+    );
+    check_zero_construct(
+        &mut failures,
+        language,
+        "families",
+        new_g.families.len(),
+        legacy_g.families.len(),
+    );
+    let new_real = new_g
+        .mrules
+        .iter()
+        .filter(|r| matches!(r, MorphRuleDef::Realizational(_)))
+        .count();
+    let leg_real = legacy_g
+        .mrules
+        .iter()
+        .filter(|r| matches!(r, MorphRuleDef::Realizational(_)))
+        .count();
+    check_zero_construct(
+        &mut failures,
+        language,
+        "realizational rules",
+        new_real,
+        leg_real,
+    );
     let new_morph_coocc: usize = new_g.morphemes.iter().map(|m| m.co_occurrence.len()).sum();
-    let leg_morph_coocc: usize = legacy_g.morphemes.iter().map(|m| m.co_occurrence.len()).sum();
-    check_zero_construct(&mut failures, language, "morpheme co-occurrence rules", new_morph_coocc, leg_morph_coocc);
+    let leg_morph_coocc: usize = legacy_g
+        .morphemes
+        .iter()
+        .map(|m| m.co_occurrence.len())
+        .sum();
+    check_zero_construct(
+        &mut failures,
+        language,
+        "morpheme co-occurrence rules",
+        new_morph_coocc,
+        leg_morph_coocc,
+    );
 
     // 6. Phonological rules (grammar-wide total).
-    let new_items: Vec<String> = new_g.prules.iter().map(|p| nv.canon_prule_full(p)).collect();
-    let leg_items: Vec<String> = legacy_g.prules.iter().map(|p| lv.canon_prule_full(p)).collect();
-    check_category(&mut failures, language, "phon rules (total)", new_items, leg_items);
+    let new_items: Vec<String> = new_g
+        .prules
+        .iter()
+        .map(|p| nv.canon_prule_full(p))
+        .collect();
+    let leg_items: Vec<String> = legacy_g
+        .prules
+        .iter()
+        .map(|p| lv.canon_prule_full(p))
+        .collect();
+    check_category(
+        &mut failures,
+        language,
+        "phon rules (total)",
+        new_items,
+        leg_items,
+    );
 
     // 7. Templates (grammar-wide total; keyed by shape, see `compare_templates`'s doc).
     let new_all: Vec<&AffixTemplateDef> = new_g.templates.iter().collect();
     let leg_all: Vec<&AffixTemplateDef> = legacy_g.templates.iter().collect();
-    compare_templates(&mut failures, language, "templates (total)", &nv, &new_all, &lv, &leg_all);
+    compare_templates(
+        &mut failures,
+        language,
+        "templates (total)",
+        &nv,
+        &new_all,
+        &lv,
+        &leg_all,
+    );
 
     // 8. Morphological rules (grammar-wide total: affix + compounding + realizational).
-    let new_items: Vec<String> = (0..new_g.mrules.len()).map(|i| nv.canon_mrule(MRuleId(i as u32))).collect();
-    let leg_items: Vec<String> = (0..legacy_g.mrules.len()).map(|i| lv.canon_mrule(MRuleId(i as u32))).collect();
-    check_category(&mut failures, language, "mrules (total)", new_items, leg_items);
+    let new_items: Vec<String> = (0..new_g.mrules.len())
+        .map(|i| nv.canon_mrule(MRuleId(i as u32)))
+        .collect();
+    let leg_items: Vec<String> = (0..legacy_g.mrules.len())
+        .map(|i| lv.canon_mrule(MRuleId(i as u32)))
+        .collect();
+    check_category(
+        &mut failures,
+        language,
+        "mrules (total)",
+        new_items,
+        leg_items,
+    );
 
     // 9. Per-stratum content (catches a rule/entry/template landing on the wrong stratum, e.g.
     //    the historical "template-only-rule stratum leak" bug this gate must be able to catch).
@@ -1038,20 +1270,46 @@ fn compare_grammars(language: &str, new_g: &Grammar, legacy_g: &Grammar, entry_d
                 let nsd = &new_g.strata[nsid.0 as usize];
                 let lsd = &legacy_g.strata[lsid.0 as usize];
 
+                let new_items: Vec<String> = nsd
+                    .prules
+                    .iter()
+                    .map(|&id| nv.canon_prule_full(&new_g.prules[id.0 as usize]))
+                    .collect();
+                let leg_items: Vec<String> = lsd
+                    .prules
+                    .iter()
+                    .map(|&id| lv.canon_prule_full(&legacy_g.prules[id.0 as usize]))
+                    .collect();
+                check_category(
+                    &mut failures,
+                    language,
+                    &format!("stratum {name} phon rules"),
+                    new_items,
+                    leg_items,
+                );
+
                 let new_items: Vec<String> =
-                    nsd.prules.iter().map(|&id| nv.canon_prule_full(&new_g.prules[id.0 as usize])).collect();
+                    nsd.mrules.iter().map(|&id| nv.canon_mrule(id)).collect();
                 let leg_items: Vec<String> =
-                    lsd.prules.iter().map(|&id| lv.canon_prule_full(&legacy_g.prules[id.0 as usize])).collect();
-                check_category(&mut failures, language, &format!("stratum {name} phon rules"), new_items, leg_items);
+                    lsd.mrules.iter().map(|&id| lv.canon_mrule(id)).collect();
+                check_category(
+                    &mut failures,
+                    language,
+                    &format!("stratum {name} mrules"),
+                    new_items,
+                    leg_items,
+                );
 
-                let new_items: Vec<String> = nsd.mrules.iter().map(|&id| nv.canon_mrule(id)).collect();
-                let leg_items: Vec<String> = lsd.mrules.iter().map(|&id| lv.canon_mrule(id)).collect();
-                check_category(&mut failures, language, &format!("stratum {name} mrules"), new_items, leg_items);
-
-                let new_stratum_templates: Vec<&AffixTemplateDef> =
-                    nsd.templates.iter().map(|&id| &new_g.templates[id.0 as usize]).collect();
-                let leg_stratum_templates: Vec<&AffixTemplateDef> =
-                    lsd.templates.iter().map(|&id| &legacy_g.templates[id.0 as usize]).collect();
+                let new_stratum_templates: Vec<&AffixTemplateDef> = nsd
+                    .templates
+                    .iter()
+                    .map(|&id| &new_g.templates[id.0 as usize])
+                    .collect();
+                let leg_stratum_templates: Vec<&AffixTemplateDef> = lsd
+                    .templates
+                    .iter()
+                    .map(|&id| &legacy_g.templates[id.0 as usize])
+                    .collect();
                 compare_templates(
                     &mut failures,
                     language,
@@ -1062,7 +1320,9 @@ fn compare_grammars(language: &str, new_g: &Grammar, legacy_g: &Grammar, entry_d
                     &leg_stratum_templates,
                 );
             }
-            _ => failures.push(format!("{language}: stratum {name:?} present on only one side")),
+            _ => failures.push(format!(
+                "{language}: stratum {name:?} present on only one side"
+            )),
         }
     }
 
