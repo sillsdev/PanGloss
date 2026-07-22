@@ -2623,6 +2623,7 @@ mod tests {
     <HeadFeatures />
     <MorphologicalPhonologicalRuleFeatures>
       <MorphologicalPhonologicalRuleFeature id="mprA">Alpha</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="mprB">Alpha</MorphologicalPhonologicalRuleFeature>
     </MorphologicalPhonologicalRuleFeatures>
     <CharacterDefinitionTable id="t1">
       <Name>Main</Name>
@@ -2689,9 +2690,13 @@ mod tests {
         assert_eq!(g.name.as_deref(), Some("Mini"));
         assert_eq!(g.syn_features.features.len(), 2); // POS + head (empty HeadFeatures still added)
         assert_eq!(pos_symbol_count(&g), 2);
-        assert_eq!(g.mpr_names, vec!["Alpha".to_string()]);
-        assert_eq!(g.mpr_features[0].xml_id, "mprA");
-        assert_eq!(g.mpr_features[0].name, "Alpha");
+        assert_eq!(g.mpr_names, vec!["Alpha".to_string(); 2]);
+        assert_eq!(g.mpr_names.len(), g.mpr_features.len());
+        for (id, expected_xml_id) in [(MprId(0), "mprA"), (MprId(1), "mprB")] {
+            let feature = g.mpr_feature(id).expect("loaded MPR id must resolve");
+            assert_eq!(feature.xml_id, expected_xml_id);
+            assert_eq!(feature.name, g.mpr_names[id.0 as usize]);
+        }
         assert_eq!(g.entries[0].authored_id, "e1");
         let pos = &g.syn_features.features[g.syn_features.pos.0 as usize];
         assert_eq!(pos.xml_id, "__pos__");

@@ -1115,3 +1115,11 @@ pub struct Grammar {
     pub entries: Vec<LexEntryDef>,
     pub strata: Vec<StratumDef>,
 }
+
+impl Grammar {
+    /// Resolve a dense MPR id to its stable authored identity and current display label.
+    #[inline]
+    pub fn mpr_feature(&self, id: MprId) -> Option<&MprFeatureDef> {
+        self.mpr_features.get(id.0 as usize)
+    }
+}

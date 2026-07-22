@@ -341,6 +341,15 @@ fn stem_msa_without_its_own_inflection_class_defaults_up_the_pos_chain() {
             abbreviation: "def".to_string(),
             children: Vec::new(),
         });
+    let same_name_class_guid = "class-same-display-name".to_string();
+    snapshot.morphology.parts_of_speech[0]
+        .inflection_classes
+        .push(InflectionClass {
+            guid: same_name_class_guid.clone(),
+            name: "DefaultClass".to_string(),
+            abbreviation: "other".to_string(),
+            children: Vec::new(),
+        });
     snapshot.morphology.parts_of_speech[0].default_inflection_class = Some(class_guid.clone());
     // The stem MSA declares no inflection class of its own -- GetDefaultInflClass must supply it.
     match &mut snapshot.lexicon.entries[0].msas[0] {
@@ -357,8 +366,21 @@ fn stem_msa_without_its_own_inflection_class_defaults_up_the_pos_chain() {
         .iter()
         .position(|n| n == "DefaultClass")
         .expect("the default inflection class must be registered in the MPR table");
-    assert_eq!(grammar.mpr_features[class_bit].xml_id, class_guid);
-    assert_eq!(grammar.mpr_features[class_bit].name, "DefaultClass");
+    assert_eq!(grammar.mpr_names.len(), grammar.mpr_features.len());
+    for (id, feature) in grammar.mpr_features.iter().enumerate() {
+        assert_eq!(grammar.mpr_names[id], feature.name);
+    }
+    let first = grammar
+        .mpr_feature(crate::model::MprId(class_bit as u8))
+        .expect("default class bit must resolve");
+    assert_eq!(first.xml_id, class_guid);
+    let second = grammar
+        .mpr_features
+        .iter()
+        .position(|feature| feature.xml_id == same_name_class_guid)
+        .expect("same-named authored class must have a distinct row");
+    assert_ne!(class_bit, second);
+    assert_eq!(grammar.mpr_names[class_bit], grammar.mpr_names[second]);
     assert!(
         grammar.entries[0]
             .mpr
@@ -409,12 +431,17 @@ fn variant_entry_appends_infl_type_gloss_to_the_base_sense_gloss() {
         2,
         "the base stem entry plus the variant"
     );
-    let variant_morpheme = grammar
+    let variant_morpheme_id = grammar
         .morphemes
         .iter()
-        .find(|m| m.gloss.as_deref() == Some("dog.IRR"))
+        .position(|m| m.gloss.as_deref() == Some("dog.IRR"))
         .expect("expected a morpheme with the prepend/append-combined gloss \"dog.IRR\"");
-    let _ = variant_morpheme;
+    let variant = grammar
+        .entries
+        .iter()
+        .find(|entry| entry.morpheme.0 as usize == variant_morpheme_id)
+        .expect("variant morpheme must belong to a lexical entry");
+    assert_eq!(variant.authored_id, "entry-variant");
 }
 
 // --- 5. partial entry (MSA without POS) -------------------------------------------------------
