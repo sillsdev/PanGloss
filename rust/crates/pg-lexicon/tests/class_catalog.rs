@@ -2,9 +2,12 @@ use pg_lexicon::{ClassCatalog, SignatureId};
 
 const PREFIX: &str = r#"<HermitCrabInput><Language><Name>T</Name>
 <PartsOfSpeech><PartOfSpeech id="posN"><Name>noun</Name></PartOfSpeech></PartsOfSpeech>
+<Families><Family id="fam">family</Family></Families>
 <HeadFeatures><SymbolicFeature id="featNum"><Name>number</Name><Symbols>
 <Symbol id="valSg">sg</Symbol><Symbol id="valPl">pl</Symbol>
-</Symbols></SymbolicFeature></HeadFeatures>
+</Symbols></SymbolicFeature><SymbolicFeature id="featCase"><Name>case</Name><Symbols>
+<Symbol id="valNom">nom</Symbol><Symbol id="valAcc">acc</Symbol>
+</Symbols></SymbolicFeature><ComplexFeature id="featAgr"><Name>agreement</Name></ComplexFeature></HeadFeatures>
 <MorphologicalPhonologicalRuleFeatures>
 <MorphologicalPhonologicalRuleFeature id="mprA">same</MorphologicalPhonologicalRuleFeature>
 <MorphologicalPhonologicalRuleFeature id="mprB">same</MorphologicalPhonologicalRuleFeature>
@@ -65,12 +68,66 @@ fn excludes_partial_bound_pattern_and_restricted_entries() {
             "</Allomorph>",
             "<RequiredEnvironments><Environment/></RequiredEnvironments></Allomorph>",
         ),
+        entry("family", "a", r#"family="fam""#, "", ""),
+        entry("mixed", "a", "", r#"isBound="true""#, "").replace(
+            "</Allomorphs>",
+            "<Allomorph id=\"amixedFree\"><PhoneticShape>b</PhoneticShape></Allomorph></Allomorphs>",
+        ),
     ]
     .concat();
-    let grammar = load(entries);
+    let xml = format!("{PREFIX}{entries}</LexicalEntries></Stratum></Strata><MorphemeCoOccurrenceRules><MorphemeCoOccurrenceRule type=\"exclude\" primaryMorpheme=\"ok\" otherMorphemes=\"mixed\" adjacency=\"anywhere\"/></MorphemeCoOccurrenceRules></Language></HermitCrabInput>");
+    let grammar = pg_grammar::load(&xml).expect("restricted fixture loads");
     let catalog = ClassCatalog::from_grammar(&grammar).expect("catalog");
     assert_eq!(catalog.len(), 1);
     assert_eq!(catalog.signatures()[0].entry_count, 1);
+}
+
+#[test]
+fn recursive_authored_identity_changes_and_symbol_order_is_canonical() {
+    let nested = r#"<FeatureValue feature="featAgr"><FeatureValue feature="featNum" symbolValues="valPl valSg"/></FeatureValue><FeatureValue feature="featCase" symbolValues="valNom valAcc"/>"#;
+    let base = format!("{PREFIX}{}{SUFFIX}", entry("e", "a", "", "", nested));
+    let id = |xml: &str| {
+        ClassCatalog::from_grammar(&pg_grammar::load(xml).unwrap())
+            .unwrap()
+            .signatures()[0]
+            .id
+            .clone()
+    };
+    let base_id = id(&base);
+    assert_ne!(base_id, id(&base.replace("posN", "posChanged")));
+    assert_ne!(base_id, id(&base.replace("featCase", "featCaseChanged")));
+    assert_ne!(base_id, id(&base.replace("valNom", "valNomChanged")));
+    let reordered = base
+        .replace(
+            "<Symbol id=\"valSg\">sg</Symbol><Symbol id=\"valPl\">pl</Symbol>",
+            "<Symbol id=\"valPl\">pl</Symbol><Symbol id=\"valSg\">sg</Symbol>",
+        )
+        .replace(
+            "<SymbolicFeature id=\"featNum\"><Name>number</Name><Symbols>\n<Symbol id=\"valPl\">pl</Symbol><Symbol id=\"valSg\">sg</Symbol>\n</Symbols></SymbolicFeature><SymbolicFeature id=\"featCase\"><Name>case</Name><Symbols>\n<Symbol id=\"valNom\">nom</Symbol><Symbol id=\"valAcc\">acc</Symbol>\n</Symbols></SymbolicFeature>",
+            "<SymbolicFeature id=\"featCase\"><Name>case</Name><Symbols>\n<Symbol id=\"valNom\">nom</Symbol><Symbol id=\"valAcc\">acc</Symbol>\n</Symbols></SymbolicFeature><SymbolicFeature id=\"featNum\"><Name>number</Name><Symbols>\n<Symbol id=\"valPl\">pl</Symbol><Symbol id=\"valSg\">sg</Symbol>\n</Symbols></SymbolicFeature>",
+        )
+        .replace(
+            "symbolValues=\"valPl valSg\"",
+            "symbolValues=\"valSg valPl\"",
+        );
+    let reordered_grammar = pg_grammar::load(&reordered).unwrap();
+    assert!(
+        reordered_grammar
+            .syn_features
+            .feature_by_xml_id("featCase")
+            .unwrap()
+            < reordered_grammar
+                .syn_features
+                .feature_by_xml_id("featNum")
+                .unwrap()
+    );
+    assert_eq!(
+        base_id,
+        ClassCatalog::from_grammar(&reordered_grammar)
+            .unwrap()
+            .signatures()[0]
+            .id
+    );
 }
 
 #[test]
@@ -107,6 +164,13 @@ fn canonical_encoding_and_signature_id_are_golden() {
     );
     assert_eq!(
         sig.id,
-        SignatureId::new("sig_2db1c5e06e900a88b0f2440b82a04be8172f36de6b32f25ad4fe64471c2c1f4c")
+        SignatureId::parse("sig_2db1c5e06e900a88b0f2440b82a04be8172f36de6b32f25ad4fe64471c2c1f4c")
+            .unwrap()
     );
+}
+
+#[test]
+fn signature_id_parser_rejects_malformed_values() {
+    assert!(SignatureId::parse("sig_short").is_err());
+    assert!(SignatureId::parse(&format!("sig_{}", "G".repeat(64))).is_err());
 }
