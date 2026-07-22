@@ -572,6 +572,7 @@ dependencies = [
  "pg-grammar",
  "pg-lexicon",
  "pg-parse",
+ "rayon",
 ]
 
 [[package]]

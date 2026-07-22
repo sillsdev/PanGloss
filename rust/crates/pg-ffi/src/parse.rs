@@ -1,7 +1,7 @@
 //! `hc_parse_word` / `hc_parse_batch` (plan §4.2): the two result-producing entry points. Both
 //! encode through the same [`crate::buffer`] writer (`hc_parse_word` is the `word_count == 1`
 //! case), and both wrap their **entire** body in `catch_unwind` (plan §8 layer 7) — including,
-//! for `hc_parse_batch`, the call into `pg_parse::hc_parse_batch`'s rayon scoped pool, so a panic
+//! for `hc_parse_batch`, the call-scoped unified-analysis Rayon pool, so a panic
 //! raised inside a worker thread and propagated out through `par_iter`/`.install()` is caught
 //! here, not left to unwind across the `extern "C"` frame.
 
@@ -10,6 +10,7 @@ use crate::error::{
     HC_ERR_UTF8, HC_OK,
 };
 use crate::grammar::HcGrammarHandle;
+use rayon::prelude::*;
 
 /// A borrowed UTF-8 string passed into `hc_parse_batch` (plan §4.2's `HcStr`): a pointer + byte
 /// length, no ownership transfer, no terminator assumed (not nul-terminated — `len` is exact).
@@ -73,8 +74,8 @@ fn unified_to_parse(unified: pg_lexicon::UnifiedAnalysis) -> pg_parse::ParseOutc
 }
 
 /// `hc_parse_batch(HcGrammarHandle, const HcStr* words, size_t n, int32_t max_threads,
-/// HcResultBuf* out)` (plan §4.2). `max_threads == 0` means "all cores" (forwarded to
-/// `pg_parse::hc_parse_batch`, which treats `0` as rayon's default). Internally parallel — do not
+/// HcResultBuf* out)` (plan §4.2). `max_threads == 0` means Rayon's available-core default.
+/// A requested-size call-scoped pool parallelizes unified runtime analysis across words. Do not
 /// call this concurrently with itself or with `hc_parse_word` calls that would oversubscribe the
 /// host beyond what the caller intends (the grammar handle itself is safe to share; this is a
 /// performance note, not a soundness one).
@@ -119,16 +120,24 @@ pub unsafe extern "C" fn hc_parse_batch(
             let s = std::str::from_utf8(bytes).map_err(|_| HC_ERR_UTF8)?;
             rust_words.push(s.to_string());
         }
-        let outcomes: Vec<_> = rust_words
-            .iter()
-            .map(|word| {
-                let started = std::time::Instant::now();
-                pg_parse::BatchWordOutcome {
-                    outcome: unified_to_parse(gh.runtime.analyze_word(word, None)),
-                    elapsed: started.elapsed(),
-                }
-            })
-            .collect();
+        let mut builder = rayon::ThreadPoolBuilder::new().stack_size(1 << 30);
+        if max_threads > 0 {
+            builder = builder.num_threads(max_threads as usize);
+        }
+        let pool = builder.build().map_err(|_| HC_ERR_INVALID_ARG)?;
+        let outcomes: Vec<_> = pool.install(|| {
+            rust_words
+                .par_iter()
+                .map(|word| {
+                    pg_parse::batch::test_panic_if_requested(word);
+                    let started = std::time::Instant::now();
+                    pg_parse::BatchWordOutcome {
+                        outcome: unified_to_parse(gh.runtime.analyze_word(word, None)),
+                        elapsed: started.elapsed(),
+                    }
+                })
+                .collect()
+        });
         Ok(crate::buffer::encode_batch(&outcomes))
     });
     finish(result, out)

@@ -49,6 +49,16 @@ const WORKER_STACK_SIZE: usize = 1 << 30; // 1 GiB
 #[cfg(feature = "test-panic-hook")]
 pub const TEST_PANIC_WORD: &str = "\u{0}__hc_test_panic_hook__\u{0}";
 
+/// Shared worker-path test hook; a production-build no-op.
+pub fn test_panic_if_requested(word: &str) {
+    #[cfg(feature = "test-panic-hook")]
+    if word == TEST_PANIC_WORD {
+        panic!("hc_parse_batch test-panic-hook: deliberate worker panic");
+    }
+    #[cfg(not(feature = "test-panic-hook"))]
+    let _ = word;
+}
+
 /// One word's batch outcome: the parse result plus wall-clock time spent on it (the
 /// `BatchCommand` TSV's `elapsedMs` column).
 pub struct BatchWordOutcome {
@@ -97,12 +107,7 @@ pub fn hc_parse_batch(
             .par_iter()
             .zip(scratch.par_iter_mut())
             .for_each(|(&orig_idx, slot)| {
-                #[cfg(feature = "test-panic-hook")]
-                if words[orig_idx] == TEST_PANIC_WORD {
-                    panic!(
-                        "hc_parse_batch test-panic-hook: deliberate panic for abort-safety test"
-                    );
-                }
+                test_panic_if_requested(&words[orig_idx]);
                 let start = Instant::now();
                 let outcome = morpher.parse_word(&words[orig_idx]);
                 let elapsed = start.elapsed();
