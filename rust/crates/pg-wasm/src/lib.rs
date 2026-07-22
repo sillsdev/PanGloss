@@ -733,10 +733,11 @@ impl ClassificationGuide {
         })
     }
 
-    pub fn answer(&mut self, form_id: &str, judgment: JsValue) -> Result<(), JsValue> {
+    pub fn answer(&mut self, form_id: &str, judgment: JsValue) -> Result<JsValue, JsValue> {
         self.inner
             .answer(form_id, from_js(judgment)?)
-            .map_err(structured_js)
+            .map_err(structured_js)?;
+        to_js(&serde_json::json!({"answered":true}))
     }
 
     pub fn undo(&mut self) -> bool {

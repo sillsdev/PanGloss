@@ -1,7 +1,34 @@
 {
   "grammarXml": "<HermitCrabInput><Language><Name>BindingFixture</Name><PartsOfSpeech><PartOfSpeech id=\"posN\"><Name>Noun</Name></PartOfSpeech></PartsOfSpeech><CharacterDefinitionTable id=\"t\"><Name>T</Name><SegmentDefinitions><SegmentDefinition id=\"a\"><Representations><Representation>a</Representation></Representations></SegmentDefinition><SegmentDefinition id=\"b\"><Representations><Representation>b</Representation></Representations></SegmentDefinition></SegmentDefinitions></CharacterDefinitionTable><Strata><Stratum characterDefinitionTable=\"t\"><Name>S</Name><LexicalEntries><LexicalEntry id=\"official-a\" partOfSpeech=\"posN\"><Allomorphs><Allomorph id=\"aa\"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs></LexicalEntry></LexicalEntries></Stratum></Strata></Language></HermitCrabInput>",
-  "stem": "b",
-  "glossLanguage": "en",
-  "gloss": "bee",
-  "invalidAddErrorCode": "invalid_stem"
+  "stem": "b", "glossLanguage": "en", "gloss": "bee", "invalidAddErrorCode": "invalid_stem",
+  "normalization": {
+    "signatureId": "$signature", "entryId": "$entry", "lexicalDates": "$date",
+    "sourceGrammarFingerprint": "$grammarFingerprint",
+    "preserve": ["revisions", "morphemeIds", "mapKeys", "allOtherStringsAndNumbers"]
+  },
+  "fragments": {
+    "signature": {"canonical_encoding":"{\"pos\":\"posN\",\"features\":[{\"id\":\"__pos__\",\"symbolic\":[\"posN\"]}],\"mpr\":[]}","entry_count":1,"features":[{"feature":{"id":"__pos__","label":"partsOfSpeech"},"value":{"symbolic":[{"id":"posN","label":"Noun"}]}}],"id":"$signature","mpr":[],"pos":{"id":"posN","label":"Noun"}},
+    "entryBee": {"authority":"supplied","dateCreated":"$date","dateModified":"$date","gloss":"bee","id":"$entry","signatures":["$signature"],"state":"active","stem":"b"},
+    "entryUpdated": {"authority":"supplied","dateCreated":"$date","dateModified":"$date","gloss":"letter bee","id":"$entry","signatures":["$signature"],"state":"active","stem":"b"}
+  },
+  "expectedTranscript": {
+    "catalog":{"revision":"rev_0","signatures":[{"$ref":"signature"}]},
+    "invalidAdd":{"code":"invalid_stem","details":null,"message":"stem cannot be empty"},
+    "setGlossLanguage":{"changed":true,"revision":"rev_1","value":"en"},
+    "add":{"changed":true,"revision":"rev_2","value":{"$ref":"entryBee"}},
+    "get":{"$ref":"entryBee"}, "list":[{"$ref":"entryBee"}], "search":[{"$ref":"entryBee"}],
+    "revisionConflict":{"code":"revision_conflict","details":null,"message":"expected revision does not match"},
+    "update":{"changed":true,"revision":"rev_3","value":{"$ref":"entryUpdated"}},
+    "setAuthority":{"changed":false,"revision":"rev_3","value":{"$ref":"entryUpdated"}},
+    "export":{"entries":[{"$ref":"entryUpdated"}],"glossLanguage":"en","grammarName":"BindingFixture","schemaVersion":1,"signatures":[{"$ref":"signature"}],"sourceGrammarFingerprint":"$grammarFingerprint"},
+    "classificationMatrix":{"candidates":[{"$ref":"signature"}],"exhaustive":true,"forms":[],"stem":"b","truncationReason":null},
+    "guide":{"remaining":["$signature"],"next":null,"useful":[],"selection":{"exhaustive":true,"signatures":["$signature"]},"answer":{"answered":true},"afterAnswer":["$signature"],"undo":true,"invalidAnswer":{"code":"unknown_form","details":{"formId":"missing"},"message":"unknown diagnostic form"}},
+    "analysis":{
+      "supplied":{"analyses":[["b","b"]],"candidatesGenerated":1,"capped":false,"guessed":false,"invalidShape":false,"revision":"rev_3","structured":[{"guessed":false,"morphemeIds":[4294967295],"posId":0,"provenance":{"entryId":"$entry","kind":"supplied"},"rootMorphemeIndex":0,"suppliedRoot":{"authority":{"kind":"supplied"},"entryId":"$entry","gloss":"letter bee","lexicalSpelling":"b","mpr":0,"realizationId":"$entry","stratum":0,"synFs":{"entries":[[0,{"Symbolic":1}]]}}}],"timedOut":false},
+      "grammar":{"analyses":[["","a"]],"candidatesGenerated":2,"capped":false,"guessed":false,"invalidShape":false,"revision":"rev_3","structured":[{"guessed":false,"morphemeIds":[0],"posId":0,"provenance":{"kind":"grammar"},"rootMorphemeIndex":0,"suppliedRoot":null}],"timedOut":false}
+    },
+    "remove":{"changed":true,"revision":"rev_4","value":true},
+    "import":{"changed":true,"compatibleMigration":false,"exactMatch":true,"inactiveEntries":[],"revision":"rev_5","supersededEntries":[]},
+    "afterImport":[{"$ref":"entryUpdated"}]
+  }
 }

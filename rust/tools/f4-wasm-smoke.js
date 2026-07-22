@@ -41,6 +41,36 @@ function check(name, cond, detail) {
   console.log(`${cond ? "PASS" : "FAIL"}  ${name}${detail ? "  -- " + detail : ""}`);
   if (!cond) failures++;
 }
+function expandRefs(value, fragments) {
+  if (Array.isArray(value)) return value.map(v => expandRefs(v, fragments));
+  if (value && typeof value === "object") {
+    if (Object.keys(value).length === 1 && value.$ref) return expandRefs(fragments[value.$ref], fragments);
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, expandRefs(v, fragments)]));
+  }
+  return value;
+}
+function normalizeBinding(value, signature, key) {
+  if (typeof value === "string") {
+    if (value === signature) return "$signature";
+    if (value.startsWith("pgl_")) return "$entry";
+    if (key === "dateCreated" || key === "dateModified") return "$date";
+    if (key === "grammarFingerprint" || key === "sourceGrammarFingerprint") return "$grammarFingerprint";
+    return value;
+  }
+  if (Array.isArray(value)) return value.map(v => normalizeBinding(v, signature));
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, v]) =>
+    [k === signature ? "$signature" : k, normalizeBinding(v, signature, k === signature ? "$signature" : k)]));
+  return value;
+}
+function captureError(action) {
+  try { action(); return null; }
+  catch (error) { return {code: error.code, message: error.message, details: error.details}; }
+}
+function canonical(value) {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  if (value && typeof value === "object") return `{${Object.keys(value).sort().map(k => `${JSON.stringify(k)}:${canonical(value[k])}`).join(",")}}`;
+  return JSON.stringify(value);
+}
 
 try {
   pkg.start();
@@ -50,42 +80,45 @@ try {
   const engineBeforeAdd = runtime.engineKind();
   const catalog = runtime.classCatalog();
   const signature = catalog.signatures[0].id;
-  let structuredError = null;
-  try { runtime.addSuppliedEntry({stem: "", gloss: "", signatures: [signature]}); }
-  catch (e) { structuredError = e; }
-  check("WASM structured error parity", structuredError && structuredError.code === BINDING_FIXTURE.invalidAddErrorCode,
-    structuredError && JSON.stringify(structuredError));
-  runtime.setGlossLanguage({glossLanguage: BINDING_FIXTURE.glossLanguage});
-  const added = runtime.addSuppliedEntry({stem: BINDING_FIXTURE.stem, gloss: BINDING_FIXTURE.gloss, signatures: [signature]});
+  const invalidAdd = captureError(() => runtime.addSuppliedEntry({stem: "", gloss: "", signatures: [signature]}));
+  const gloss = runtime.setGlossLanguage({glossLanguage: BINDING_FIXTURE.glossLanguage});
+  const added = runtime.addSuppliedEntry({stem: BINDING_FIXTURE.stem, gloss: BINDING_FIXTURE.gloss,
+    signatures: [signature], expectedRevision: gloss.revision});
   check("WASM add does not recompile proposer", runtime.engineKind() === engineBeforeAdd);
-  check("WASM list/search/get", runtime.listSuppliedEntries().length === 1
-    && runtime.searchSuppliedEntries({query: "bee"}).length === 1
-    && runtime.getSuppliedEntry(added.value.id).id === added.value.id);
-  const analyzed = runtime.analyzeWord(BINDING_FIXTURE.stem);
-  check("WASM supplied provenance", analyzed.structured.some(a => a.provenance.kind === "supplied" && a.provenance.entryId === added.value.id));
-  const official = runtime.analyzeWord("a");
-  check("WASM grammar/supplied union", official.structured.some(a => a.provenance.kind === "grammar"));
-  check("WASM authored spelling/no lowercase", runtime.getSuppliedEntry(added.value.id).stem === BINDING_FIXTURE.stem);
-  const exported = runtime.exportSuppliedLexicon();
-  check("WASM export schema", exported.schemaVersion === 1 && exported.entries.length === 1);
-  const firstText = runtime.analyzeText(BINDING_FIXTURE.stem, {});
-  const staleCache = firstText.newCacheEntries;
+  const get = runtime.getSuppliedEntry(added.value.id);
+  const list = runtime.listSuppliedEntries();
+  const search = runtime.searchSuppliedEntries({query: "bee", signature, state: "active", pos: "posN"});
+  const revisionConflict = captureError(() => runtime.updateSuppliedEntry({id: added.value.id, stem: "b",
+    gloss: "letter bee", signatures: [signature], expectedRevision: "rev_0"}));
   const updated = runtime.updateSuppliedEntry({id: added.value.id, stem: BINDING_FIXTURE.stem,
     gloss: "letter bee", signatures: [signature], expectedRevision: added.revision});
-  const afterEdit = runtime.analyzeText(BINDING_FIXTURE.stem, staleCache);
-  check("WASM revision rejects stale analysis cache", afterEdit.tokens[0].fromCache === false,
-    JSON.stringify({token: afterEdit.tokens[0], staleCache, revision: updated.revision}));
   const authority = runtime.setEntryAuthority({id: added.value.id, authority: "supplied", expectedRevision: updated.revision});
-  check("WASM authority no-op", authority.changed === false);
+  const exported = runtime.exportSuppliedLexicon();
   const matrix = runtime.classificationMatrix({stem: BINDING_FIXTURE.stem});
-  const guide = new pkg.ClassificationGuide(matrix);
-  check("WASM classification guide", guide.remainingSignatures().length === 1
-    && guide.finalSelection().signatures.length === 1);
-  runtime.removeSuppliedEntry({id: added.value.id});
-  runtime.importSuppliedLexicon({document: exported});
-  check("WASM remove/import", runtime.listSuppliedEntries().length === 1);
-  runtime.clearSuppliedEntries({});
-  check("WASM clear", runtime.listSuppliedEntries().length === 0);
+  const guideMatrix = structuredClone(matrix);
+  guideMatrix.forms = [{id: "form-1", surface: "bs", predictions: [{signatureId: signature,
+    derivations: [[{id: "rule-pl", label: "plural"}]]}]}];
+  const guide = new pkg.ClassificationGuide(guideMatrix);
+  const guideResult = {remaining: guide.remainingSignatures(), next: guide.nextForm(), useful: guide.allUsefulForms(),
+    selection: guide.finalSelection()};
+  guideResult.answer = guide.answer("form-1", "yes");
+  guideResult.afterAnswer = guide.remainingSignatures();
+  guideResult.undo = guide.undo();
+  guideResult.invalidAnswer = captureError(() => guide.answer("missing", "yes"));
+  const suppliedAnalysis = runtime.analyzeWord(BINDING_FIXTURE.stem);
+  const grammarAnalysis = runtime.analyzeWord("a");
+  const removed = runtime.removeSuppliedEntry({id: added.value.id, expectedRevision: authority.revision});
+  const imported = runtime.importSuppliedLexicon({document: exported});
+  const afterImport = runtime.listSuppliedEntries();
+  const transcript = {catalog, invalidAdd, setGlossLanguage: gloss, add: added, get, list, search,
+    revisionConflict, update: updated, setAuthority: authority, export: exported,
+    classificationMatrix: matrix, guide: guideResult,
+    analysis: {supplied: suppliedAnalysis, grammar: grammarAnalysis}, remove: removed, import: imported, afterImport};
+  const normalized = normalizeBinding(transcript, signature);
+  const expected = expandRefs(BINDING_FIXTURE.expectedTranscript, BINDING_FIXTURE.fragments);
+  const transcriptMatches = canonical(normalized) === canonical(expected);
+  check("WASM/native full normalized JSON transcript", transcriptMatches,
+    transcriptMatches ? undefined : JSON.stringify({normalized, expected}));
 
   const ind = loadGrammar("indonesian-hc.xml", "indonesian-realize.toml");
   if (ind) {

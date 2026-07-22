@@ -252,8 +252,191 @@ fn shared_binding_fixture_normalizes_native_json_contract() {
             &json!({"stem":"","gloss":"","signatures":[signature]}),
         )
     };
-    assert_eq!(invalid["error"]["code"], fixture["invalidAddErrorCode"]);
+    let gloss = unsafe {
+        call(
+            hc_lexicon_set_gloss_language_json,
+            handle,
+            &json!({"glossLanguage":"en"}),
+        )
+    };
+    let added = unsafe {
+        call(
+            hc_lexicon_add_json,
+            handle,
+            &json!({"stem":"b","gloss":"bee","signatures":[signature],"expectedRevision":gloss["value"]["revision"]}),
+        )
+    };
+    let id = added["value"]["value"]["id"].as_str().unwrap();
+    let add_revision = added["value"]["revision"].clone();
+    let get = unsafe { call(hc_lexicon_get_json, handle, &json!({"id":id})) };
+    let list = unsafe { call(hc_lexicon_list_json, handle, &json!({})) };
+    let search = unsafe {
+        call(
+            hc_lexicon_search_json,
+            handle,
+            &json!({"query":"bee","signature":signature,"state":"active","pos":"posN"}),
+        )
+    };
+    let conflict = unsafe {
+        call(
+            hc_lexicon_update_json,
+            handle,
+            &json!({"id":id,"stem":"b","gloss":"letter bee","signatures":[signature],"expectedRevision":"rev_0"}),
+        )
+    };
+    let updated = unsafe {
+        call(
+            hc_lexicon_update_json,
+            handle,
+            &json!({"id":id,"stem":"b","gloss":"letter bee","signatures":[signature],"expectedRevision":add_revision}),
+        )
+    };
+    let authority = unsafe {
+        call(
+            hc_lexicon_set_authority_json,
+            handle,
+            &json!({"id":id,"authority":"supplied","expectedRevision":updated["value"]["revision"]}),
+        )
+    };
+    let exported = unsafe { call(hc_lexicon_export_json, handle, &json!({})) };
+    let matrix = unsafe { call(hc_classification_matrix_json, handle, &json!({"stem":"b"})) };
+    let mut guide_matrix = matrix["value"].clone();
+    guide_matrix["forms"] = json!([{"id":"form-1","surface":"bs","predictions":[{"signatureId":signature,"derivations":[[{"id":"rule-pl","label":"plural"}]]}]}]);
+    let matrix_bytes = serde_json::to_vec(&guide_matrix).unwrap();
+    let mut guide = std::ptr::null_mut();
+    let mut guide_out = HcResultBuf::EMPTY;
+    assert_eq!(
+        unsafe {
+            hc_classification_guide_new_json(
+                matrix_bytes.as_ptr(),
+                matrix_bytes.len(),
+                &mut guide,
+                &mut guide_out,
+            )
+        },
+        HC_OK
+    );
+    unsafe { hc_buf_free(&mut guide_out) };
+    let guide_remaining =
+        unsafe { call_guide(hc_classification_guide_remaining_json, guide, &json!({})) };
+    let guide_next = unsafe { call_guide(hc_classification_guide_next_json, guide, &json!({})) };
+    let guide_useful =
+        unsafe { call_guide(hc_classification_guide_useful_json, guide, &json!({})) };
+    let guide_selection =
+        unsafe { call_guide(hc_classification_guide_selection_json, guide, &json!({})) };
+    let guide_answer = unsafe {
+        call_guide(
+            hc_classification_guide_answer_json,
+            guide,
+            &json!({"formId":"form-1","judgment":"yes"}),
+        )
+    };
+    let guide_after_answer =
+        unsafe { call_guide(hc_classification_guide_remaining_json, guide, &json!({})) };
+    let guide_undo = unsafe { call_guide(hc_classification_guide_undo_json, guide, &json!({})) };
+    let guide_error = unsafe {
+        call_guide(
+            hc_classification_guide_answer_json,
+            guide,
+            &json!({"formId":"missing","judgment":"yes"}),
+        )
+    };
+    unsafe { hc_classification_guide_free(guide) };
+    let supplied_analysis = unsafe { call(hc_analyze_word_json, handle, &json!({"word":"b"})) };
+    let grammar_analysis = unsafe { call(hc_analyze_word_json, handle, &json!({"word":"a"})) };
+    let removed = unsafe {
+        call(
+            hc_lexicon_remove_json,
+            handle,
+            &json!({"id":id,"expectedRevision":authority["value"]["revision"]}),
+        )
+    };
+    let imported = unsafe {
+        call(
+            hc_lexicon_import_json,
+            handle,
+            &json!({"document":exported["value"]}),
+        )
+    };
+    let after_import = unsafe { call(hc_lexicon_list_json, handle, &json!({})) };
+    let transcript = json!({
+        "catalog": catalog["value"], "invalidAdd": invalid["error"], "setGlossLanguage": gloss["value"],
+        "add": added["value"], "get": get["value"], "list": list["value"], "search": search["value"],
+        "revisionConflict": conflict["error"], "update": updated["value"], "setAuthority": authority["value"],
+        "export": exported["value"], "classificationMatrix": matrix["value"],
+        "guide": {"remaining":guide_remaining["value"],"next":guide_next["value"],"useful":guide_useful["value"],"selection":guide_selection["value"],"answer":guide_answer["value"],"afterAnswer":guide_after_answer["value"],"undo":guide_undo["value"],"invalidAnswer":guide_error["error"]},
+        "analysis":{"supplied":supplied_analysis["value"],"grammar":grammar_analysis["value"]},
+        "remove":removed["value"], "import":imported["value"], "afterImport":after_import["value"]
+    });
+    let normalized = normalize_binding(transcript, signature);
+    let expected =
+        expand_fixture_refs(fixture["expectedTranscript"].clone(), &fixture["fragments"]);
+    assert_eq!(normalized, expected);
     unsafe { hc_grammar_free(handle) };
+}
+
+fn normalize_binding(value: Value, signature: &str) -> Value {
+    fn walk(value: Value, signature: &str, key: Option<&str>) -> Value {
+        match value {
+            Value::String(text) if text == signature => json!("$signature"),
+            Value::String(text) if text.starts_with("pgl_") => json!("$entry"),
+            Value::String(_) if matches!(key, Some("dateCreated" | "dateModified")) => {
+                json!("$date")
+            }
+            Value::String(_)
+                if matches!(key, Some("grammarFingerprint" | "sourceGrammarFingerprint")) =>
+            {
+                json!("$grammarFingerprint")
+            }
+            Value::String(_) if matches!(key, Some("buildFingerprint")) => {
+                json!("$buildFingerprint")
+            }
+            Value::Array(items) => Value::Array(
+                items
+                    .into_iter()
+                    .map(|v| walk(v, signature, None))
+                    .collect(),
+            ),
+            Value::Object(items) => Value::Object(
+                items
+                    .into_iter()
+                    .map(|(k, v)| {
+                        let normalized_key = if k == signature {
+                            "$signature".into()
+                        } else {
+                            k
+                        };
+                        let normalized_value = walk(v, signature, Some(&normalized_key));
+                        (normalized_key, normalized_value)
+                    })
+                    .collect(),
+            ),
+            other => other,
+        }
+    }
+    walk(value, signature, None)
+}
+
+fn expand_fixture_refs(value: Value, fragments: &Value) -> Value {
+    match value {
+        Value::Object(ref map) if map.len() == 1 && map.contains_key("$ref") => {
+            let name = map["$ref"].as_str().unwrap();
+            expand_fixture_refs(fragments[name].clone(), fragments)
+        }
+        Value::Array(items) => Value::Array(
+            items
+                .into_iter()
+                .map(|v| expand_fixture_refs(v, fragments))
+                .collect(),
+        ),
+        Value::Object(items) => Value::Object(
+            items
+                .into_iter()
+                .map(|(k, v)| (k, expand_fixture_refs(v, fragments)))
+                .collect(),
+        ),
+        other => other,
+    }
 }
 
 fn load_handle_from_xml(xml: &str) -> HcGrammarHandle {
