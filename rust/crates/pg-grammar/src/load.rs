@@ -321,6 +321,7 @@ pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
 
     // --- MPR features + groups ----------------------------------------------------------------
     let mut mpr_names: Vec<String> = Vec::new();
+    let mut mpr_features: Vec<MprFeatureDef> = Vec::new();
     let mut mpr_index: HashMap<String, MprId> = HashMap::new();
     {
         let count = lang
@@ -343,7 +344,11 @@ pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
             .filter(|e| e.is_active())
         {
             let id = mf.attr("id").unwrap_or("").to_string();
-            mpr_index.insert(id, MprId(mpr_names.len() as u8));
+            mpr_index.insert(id.clone(), MprId(mpr_names.len() as u8));
+            mpr_features.push(MprFeatureDef {
+                xml_id: id,
+                name: mf.text.clone(),
+            });
             mpr_names.push(mf.text.clone());
         }
     }
@@ -599,6 +604,7 @@ pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
         syn_features: syn,
         fs_interner: acc.fs_interner,
         mpr_names,
+        mpr_features,
         mpr_groups,
         stem_names,
         families: acc.families,
@@ -2182,6 +2188,7 @@ fn try_load_lex_entry(
     });
 
     acc.entries.push(LexEntryDef {
+        authored_id: entry.attr("id").unwrap_or("").to_string(),
         morpheme,
         syn_fs,
         mpr,
@@ -2683,6 +2690,17 @@ mod tests {
         assert_eq!(g.syn_features.features.len(), 2); // POS + head (empty HeadFeatures still added)
         assert_eq!(pos_symbol_count(&g), 2);
         assert_eq!(g.mpr_names, vec!["Alpha".to_string()]);
+        assert_eq!(g.mpr_features[0].xml_id, "mprA");
+        assert_eq!(g.mpr_features[0].name, "Alpha");
+        assert_eq!(g.entries[0].authored_id, "e1");
+        let pos = &g.syn_features.features[g.syn_features.pos.0 as usize];
+        assert_eq!(pos.xml_id, "__pos__");
+        match &pos.kind {
+            SynFeatureKind::Symbolic { symbols, .. } => {
+                assert!(symbols.iter().any(|(id, _)| id == "posV"));
+            }
+            SynFeatureKind::Complex => panic!("POS must be symbolic"),
+        }
         assert_eq!(g.natural_classes.len(), 1);
         assert_eq!(g.strata.len(), 1);
         assert_eq!(g.mrules.len(), 2);

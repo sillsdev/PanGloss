@@ -252,6 +252,7 @@ pub fn compile_project(snapshot: &Snapshot) -> Result<(Grammar, Vec<String>), Gr
         syn_features: syn,
         fs_interner: acc.fs_interner,
         mpr_names: mpr.mpr_names,
+        mpr_features: mpr.mpr_features,
         mpr_groups: mpr.mpr_groups,
         stem_names,
         families: Vec::new(),

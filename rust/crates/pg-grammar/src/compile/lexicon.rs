@@ -298,6 +298,7 @@ fn build_stem_entry(
     }
 
     acc.entries.push(LexEntryDef {
+        authored_id: entry.guid.clone(),
         morpheme: crate::model::MorphemeId(acc.morphemes.len() as u32),
         syn_fs,
         mpr,
@@ -655,6 +656,7 @@ fn build_variant_stem_entry(
     }
 
     acc.entries.push(LexEntryDef {
+        authored_id: variant_entry.guid.clone(),
         morpheme: crate::model::MorphemeId(acc.morphemes.len() as u32),
         syn_fs,
         mpr,

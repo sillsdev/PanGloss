@@ -11,11 +11,12 @@ use hashbrown::HashMap;
 use pg_snapshot::morphology::{InflectionClass, PartOfSpeech};
 use pg_snapshot::Snapshot;
 
-use crate::model::{MprGroup, MprGroupMatchType, MprGroupOutput, MprId, MprSet};
+use crate::model::{MprFeatureDef, MprGroup, MprGroupMatchType, MprGroupOutput, MprId, MprSet};
 use crate::GrammarError;
 
 pub(crate) struct MprTables {
     pub mpr_names: Vec<String>,
+    pub mpr_features: Vec<MprFeatureDef>,
     pub mpr_groups: Vec<MprGroup>,
     /// Inflection class guid -> its own bit (HCLoader.cs:571-577 `LoadMprFeature`).
     pub infl_class_bit: HashMap<String, MprId>,
@@ -91,6 +92,7 @@ pub(crate) fn build(
     warnings: &mut Vec<String>,
 ) -> Result<MprTables, GrammarError> {
     let mut mpr_names: Vec<String> = Vec::new();
+    let mut mpr_features: Vec<MprFeatureDef> = Vec::new();
     let mut infl_class_bit: HashMap<String, MprId> = HashMap::new();
     let mut infl_class_children: HashMap<String, Vec<String>> = HashMap::new();
     let mut infl_members = MprSet::EMPTY;
@@ -98,6 +100,7 @@ pub(crate) fn build(
     walk_pos_infl_classes(
         &snapshot.morphology.parts_of_speech,
         &mut mpr_names,
+        &mut mpr_features,
         &mut infl_class_bit,
         &mut infl_class_children,
         &mut infl_members,
@@ -106,7 +109,7 @@ pub(crate) fn build(
     let mut exception_feature_bit: HashMap<String, MprId> = HashMap::new();
     let mut exception_members = MprSet::EMPTY;
     for f in &snapshot.morphology.exception_features {
-        let id = next_bit(&mut mpr_names, &f.name)?;
+        let id = next_bit(&mut mpr_names, &mut mpr_features, &f.guid, &f.name)?;
         exception_feature_bit.insert(f.guid.clone(), id);
         exception_members.insert(id);
     }
@@ -114,7 +117,7 @@ pub(crate) fn build(
     let mut lex_entry_infl_type_bit: HashMap<String, MprId> = HashMap::new();
     let mut lex_entry_infl_type_members = MprSet::EMPTY;
     for t in &snapshot.morphology.lex_entry_infl_types {
-        let id = next_bit(&mut mpr_names, &t.name)?;
+        let id = next_bit(&mut mpr_names, &mut mpr_features, &t.guid, &t.name)?;
         lex_entry_infl_type_bit.insert(t.guid.clone(), id);
         lex_entry_infl_type_members.insert(id);
     }
@@ -149,6 +152,7 @@ pub(crate) fn build(
 
     Ok(MprTables {
         mpr_names,
+        mpr_features,
         mpr_groups,
         infl_class_bit,
         infl_class_children,
@@ -157,7 +161,12 @@ pub(crate) fn build(
     })
 }
 
-fn next_bit(mpr_names: &mut Vec<String>, name: &str) -> Result<MprId, GrammarError> {
+fn next_bit(
+    mpr_names: &mut Vec<String>,
+    mpr_features: &mut Vec<MprFeatureDef>,
+    xml_id: &str,
+    name: &str,
+) -> Result<MprId, GrammarError> {
     if mpr_names.len() >= 64 {
         return Err(GrammarError::Unsupported(format!(
             "{} MPR features; the bitset representation supports at most 64",
@@ -166,21 +175,33 @@ fn next_bit(mpr_names: &mut Vec<String>, name: &str) -> Result<MprId, GrammarErr
     }
     let id = MprId(mpr_names.len() as u8);
     mpr_names.push(name.to_string());
+    mpr_features.push(MprFeatureDef {
+        xml_id: xml_id.to_string(),
+        name: name.to_string(),
+    });
     Ok(id)
 }
 
 fn walk_pos_infl_classes(
     items: &[PartOfSpeech],
     mpr_names: &mut Vec<String>,
+    mpr_features: &mut Vec<MprFeatureDef>,
     bit: &mut HashMap<String, MprId>,
     children: &mut HashMap<String, Vec<String>>,
     members: &mut MprSet,
 ) -> Result<(), GrammarError> {
     for pos in items {
         for ic in &pos.inflection_classes {
-            add_infl_class(ic, mpr_names, bit, children, members)?;
+            add_infl_class(ic, mpr_names, mpr_features, bit, children, members)?;
         }
-        walk_pos_infl_classes(&pos.children, mpr_names, bit, children, members)?;
+        walk_pos_infl_classes(
+            &pos.children,
+            mpr_names,
+            mpr_features,
+            bit,
+            children,
+            members,
+        )?;
     }
     Ok(())
 }
@@ -188,11 +209,12 @@ fn walk_pos_infl_classes(
 fn add_infl_class(
     ic: &InflectionClass,
     mpr_names: &mut Vec<String>,
+    mpr_features: &mut Vec<MprFeatureDef>,
     bit: &mut HashMap<String, MprId>,
     children: &mut HashMap<String, Vec<String>>,
     members: &mut MprSet,
 ) -> Result<(), GrammarError> {
-    let id = next_bit(mpr_names, &ic.name)?;
+    let id = next_bit(mpr_names, mpr_features, &ic.guid, &ic.name)?;
     bit.insert(ic.guid.clone(), id);
     members.insert(id);
     children.insert(
@@ -200,7 +222,7 @@ fn add_infl_class(
         ic.children.iter().map(|c| c.guid.clone()).collect(),
     );
     for c in &ic.children {
-        add_infl_class(c, mpr_names, bit, children, members)?;
+        add_infl_class(c, mpr_names, mpr_features, bit, children, members)?;
     }
     Ok(())
 }

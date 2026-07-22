@@ -107,6 +107,14 @@ pub struct VarId(pub u16);
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, PartialOrd, Ord)]
 pub struct MprId(pub u8);
 
+/// Stable authored identity and current display label for one MPR feature. Indexed in the same
+/// order as [`Grammar::mpr_names`], so [`MprId`] remains the compact hot-path representation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MprFeatureDef {
+    pub xml_id: String,
+    pub name: String,
+}
+
 /// A set of morphological/phonological rule (MPR) features as a bitset. C# models this as
 /// `HashSet<MprFeature>` with UnionWith/Overlaps; sets here are tiny (≤6 members).
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, Default)]
@@ -742,6 +750,10 @@ pub struct SlotDef {
 /// (C# `TryLoadLexEntry` returns false).
 #[derive(Debug)]
 pub struct LexEntryDef {
+    /// Stable identity of the authored lexical entry. For HC XML this is `LexicalEntry@id`; for
+    /// snapshot compilation it is the source `LexEntry.Guid`, not the MSA guid used by the
+    /// morpheme registry.
+    pub authored_id: String,
     pub morpheme: MorphemeId,
     pub syn_fs: FsId,
     pub mpr: MprSet,
@@ -1087,6 +1099,8 @@ pub struct Grammar {
     /// in these tables resolves here. `FsId` of the empty FS is interned first (id 0).
     pub fs_interner: pg_featstruct::Interner<pg_featstruct::FeatureStruct>,
     pub mpr_names: Vec<String>,
+    /// Authored identities parallel to [`Self::mpr_names`] and indexed by [`MprId`].
+    pub mpr_features: Vec<MprFeatureDef>,
     pub mpr_groups: Vec<MprGroup>,
     /// `<StemNames><StemName>` (W5), in document order; [`StemNameId`] indexes this `Vec`.
     pub stem_names: Vec<StemNameDef>,

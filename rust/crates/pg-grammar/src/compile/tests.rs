@@ -200,9 +200,16 @@ fn stem_and_inflectional_affix_and_template_compile_into_expected_grammar() {
     assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
 
     assert_eq!(grammar.entries.len(), 1, "one stem entry expected");
+    match &grammar.syn_features.features[grammar.syn_features.pos.0 as usize].kind {
+        crate::model::SynFeatureKind::Symbolic { symbols, .. } => {
+            assert!(symbols.iter().any(|(id, _)| id == &f.noun_pos));
+        }
+        crate::model::SynFeatureKind::Complex => panic!("POS must be symbolic"),
+    }
     let stem_morpheme = &grammar.morphemes[grammar.entries[0].morpheme.0 as usize];
     assert_eq!(stem_morpheme.gloss.as_deref(), Some("dog"));
     assert_eq!(stem_morpheme.xml_key, f.stem_msa);
+    assert_eq!(grammar.entries[0].authored_id, f.stem_entry);
 
     let affix_rules: Vec<_> = grammar
         .mrules
@@ -350,6 +357,8 @@ fn stem_msa_without_its_own_inflection_class_defaults_up_the_pos_chain() {
         .iter()
         .position(|n| n == "DefaultClass")
         .expect("the default inflection class must be registered in the MPR table");
+    assert_eq!(grammar.mpr_features[class_bit].xml_id, class_guid);
+    assert_eq!(grammar.mpr_features[class_bit].name, "DefaultClass");
     assert!(
         grammar.entries[0]
             .mpr
@@ -642,13 +651,17 @@ fn morphosyntactic_closed_feature_compiles_into_the_syntactic_feature_system() {
 
     let (grammar, warnings) = compile_project(&snapshot).expect("must compile");
     assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
-    assert!(
-        grammar
-            .syn_features
-            .feature_by_xml_id(&number_guid)
-            .is_some(),
-        "the morphosyntactic feature must be registered in the syntactic feature system"
-    );
+    let feature_id = grammar
+        .syn_features
+        .feature_by_xml_id(&number_guid)
+        .expect("the morphosyntactic feature must retain its authored identity");
+    match &grammar.syn_features.features[feature_id.0 as usize].kind {
+        crate::model::SynFeatureKind::Symbolic { symbols, .. } => {
+            assert_eq!(symbols[0].0, sg_guid);
+            assert_eq!(symbols[1].0, pl_guid);
+        }
+        crate::model::SynFeatureKind::Complex => panic!("number must be symbolic"),
+    }
 }
 
 // --- cross-reference (dense-id) integrity -------------------------------------------------------
