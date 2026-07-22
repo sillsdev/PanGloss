@@ -53,7 +53,17 @@ pub unsafe extern "C" fn hc_parse_word(
             unsafe { std::slice::from_raw_parts(word_utf8, len) }
         };
         let word = std::str::from_utf8(bytes).map_err(|_| HC_ERR_UTF8)?;
-        let outcome = gh.morpher.parse_word(word);
+        let unified = gh.runtime.analyze_word(word, None);
+        let outcome = pg_parse::ParseOutcome {
+            analyses: unified.analyses,
+            structured: unified.structured,
+            capped: unified.capped,
+            invalid_shape: unified.invalid_shape,
+            steps: 0,
+            timed_out: unified.timed_out,
+            guessed: unified.guessed,
+            candidates_generated: unified.candidates_generated,
+        };
         Ok(crate::buffer::encode_single(&outcome))
     });
     finish(result, out)

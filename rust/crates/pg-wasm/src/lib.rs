@@ -13,9 +13,10 @@
 #![forbid(unsafe_code)]
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use pg_grammar::model::{Grammar, MorphRuleDef};
-use pg_parse::{Morpher, ParseOptions, WordAnalysis};
+use pg_parse::{Morpher, WordAnalysis};
 use pg_realize::{gloss_bundle, leipzig, to_ir, RealizeMap, Realizer, TableRealizer};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
@@ -237,7 +238,8 @@ pub struct PanGlossGrammar {
     /// with, kept so [`build_realize_map`] can be re-run (with the same sidecar) after
     /// [`PanGlossGrammar::apply_user_lexicon`] reloads the grammar.
     realize_toml: Option<String>,
-    grammar: Grammar,
+    grammar: Arc<Grammar>,
+    runtime: pg_lexicon::SuppliedLexiconRuntime,
     realize_map: RealizeMap,
     realizer: TableRealizer,
     /// `Some` iff this grammar's foma propose→confirm proposer compiled successfully (plan P4) —
@@ -302,15 +304,18 @@ impl PanGlossGrammar {
     /// gracefully to Leipzig-only glosses in that case (e.g. today's Sena sample).
     #[wasm_bindgen(constructor)]
     pub fn new(xml: &str, realize_toml: Option<String>) -> Result<PanGlossGrammar, JsValue> {
-        let grammar = pg_grammar::load(xml).map_err(|e| js_err("load grammar", &e))?;
+        let grammar = Arc::new(pg_grammar::load(xml).map_err(|e| js_err("load grammar", &e))?);
         let realizer =
             TableRealizer::new().map_err(|e| js_err("load embedded English table", &e))?;
         let realize_map = build_realize_map(&grammar, realize_toml.as_deref())?;
         let (foma, foma_diagnostic) = init_foma(&grammar);
+        let runtime = pg_lexicon::SuppliedLexiconRuntime::new(grammar.clone(), xml)
+            .map_err(|e| js_err("initialize supplied lexicon", &e))?;
         Ok(PanGlossGrammar {
             xml: xml.to_string(),
             realize_toml,
             grammar,
+            runtime,
             realize_map,
             realizer,
             foma,
@@ -374,8 +379,6 @@ impl PanGlossGrammar {
         // `FomaState`'s rehydrated `FomaAnalyzer` below) — needed unconditionally, both as the
         // sole engine when `self.foma` is `None` and as the guess-root retry when foma confirms
         // nothing for a particular word.
-        let morpher = Morpher::new(&self.grammar, usize::MAX);
-        let opts = ParseOptions::default().with_guess_root(true);
         let mut new_cache_entries: HashMap<String, CachedWord> = HashMap::new();
 
         // Check the compiled foma pieces (if any) out of `self.foma` and rehydrate a
@@ -413,50 +416,19 @@ impl PanGlossGrammar {
                         (hit.clone(), true, 0.0)
                     } else {
                         let start = Instant::now();
-                        let (structured, capped, invalid_shape, candidates_generated) =
-                            match foma_analyzer.as_mut() {
-                                Some(analyzer) => {
-                                    let outcome = analyzer.analyze_word(&lexical);
-                                    if outcome.structured.is_empty() {
-                                        // No confirmed foma candidate -- fall back to the full
-                                        // engine's own guess-root path for JUST this word (see
-                                        // this method's doc).
-                                        let fallback = morpher.parse_word_opts(&lexical, &opts);
-                                        (
-                                            fallback.structured,
-                                            fallback.capped,
-                                            fallback.invalid_shape,
-                                            fallback.candidates_generated,
-                                        )
-                                    } else {
-                                        // `FomaAnalyzer` has no notion of a step-budget cascade
-                                        // (confirm is always uncapped by design) or of orthography
-                                        // validity (that's a property of the word/grammar, not the
-                                        // engine) -- `capped` is honestly always false here, and
-                                        // `invalid_shape` is answered independently via the same
-                                        // segmentation check `pg_lexicon` already uses elsewhere in
-                                        // this crate (`disambiguating_forms`).
-                                        let invalid_shape =
-                                            pg_lexicon::validate_shape(&self.grammar, &lexical)
-                                                .is_err();
-                                        (
-                                            outcome.structured,
-                                            false,
-                                            invalid_shape,
-                                            outcome.candidates_generated,
-                                        )
-                                    }
-                                }
-                                None => {
-                                    let outcome = morpher.parse_word_opts(&lexical, &opts);
-                                    (
-                                        outcome.structured,
-                                        outcome.capped,
-                                        outcome.invalid_shape,
-                                        outcome.candidates_generated,
-                                    )
-                                }
-                            };
+                        let official = foma_analyzer.as_mut().map(|analyzer| {
+                            let outcome = analyzer.analyze_word(&lexical);
+                            pg_lexicon::OfficialOutcome {
+                                analyses: outcome.analyses,
+                                structured: outcome.structured,
+                                candidates_generated: outcome.candidates_generated,
+                            }
+                        });
+                        let outcome = self.runtime.analyze_word(&lexical, official);
+                        let structured = outcome.structured;
+                        let capped = outcome.capped;
+                        let invalid_shape = outcome.invalid_shape;
+                        let candidates_generated = outcome.candidates_generated;
                         let elapsed = start.elapsed().as_secs_f64() * 1000.0;
                         let fresh = build_cached_word(
                             &self.grammar,
@@ -579,14 +551,18 @@ impl PanGlossGrammar {
             pg_lexicon::augment_xml(&self.xml, &self.grammar, &lexicon, &candidates)
                 .map_err(|msg| JsValue::from_str(&msg))?;
 
-        let new_grammar = pg_grammar::load(&new_xml).map_err(|e| js_err("load grammar", &e))?;
+        let new_grammar =
+            Arc::new(pg_grammar::load(&new_xml).map_err(|e| js_err("load grammar", &e))?);
         let new_realize_map = build_realize_map(&new_grammar, self.realize_toml.as_deref())?;
         // The spliced-in entries change the lexicon the foma net was compiled from, so the
         // proposer must be recompiled from scratch here too (plan P4) -- otherwise newly-added
         // words would confirm via the full-engine guess-root retry forever, never via foma.
         let (new_foma, new_foma_diagnostic) = init_foma(&new_grammar);
+        let new_runtime = pg_lexicon::SuppliedLexiconRuntime::new(new_grammar.clone(), &new_xml)
+            .map_err(|e| js_err("initialize supplied lexicon", &e))?;
 
         self.grammar = new_grammar;
+        self.runtime = new_runtime;
         self.realize_map = new_realize_map;
         self.foma = new_foma;
         self.foma_diagnostic = new_foma_diagnostic;
@@ -827,7 +803,7 @@ mod tests {
             foma_state.owners,
         );
         let morpher = Morpher::new(&grammar, usize::MAX);
-        let opts = ParseOptions::default();
+        let opts = pg_parse::ParseOptions::default();
 
         let words_text = std::fs::read_to_string(&words_path).expect("read words file");
         let words: Vec<&str> = words_text

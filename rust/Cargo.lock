@@ -570,6 +570,7 @@ name = "pg-ffi"
 version = "0.1.0"
 dependencies = [
  "pg-grammar",
+ "pg-lexicon",
  "pg-parse",
 ]
 

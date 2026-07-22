@@ -10,6 +10,7 @@
 
 use pg_grammar::model::Grammar;
 use pg_parse::Morpher;
+use std::sync::Arc;
 
 use crate::error::{
     clear_error, set_error, HcError, HC_ERR_GRAMMAR_LOAD, HC_ERR_NULL_ARG, HC_ERR_UTF8, HC_OK,
@@ -52,16 +53,17 @@ pub(crate) struct GrammarHandle {
     /// it is the correct discipline for a self-referential struct regardless, and keeps this
     /// sound if either type ever gains a `Drop` impl later.
     pub(crate) morpher: Morpher<'static>,
+    pub(crate) runtime: pg_lexicon::SuppliedLexiconRuntime,
     /// Never read directly after construction — it exists purely to *own* the allocation
     /// `morpher` points into (dropping it is what actually frees the grammar). That's a real
     /// use the `dead_code` lint can't see, hence the explicit allow.
     #[allow(dead_code)]
-    grammar: Box<Grammar>,
+    grammar: Arc<Grammar>,
 }
 
 impl GrammarHandle {
-    fn new(grammar: Grammar) -> Box<GrammarHandle> {
-        let grammar = Box::new(grammar);
+    fn new(grammar: Grammar, grammar_source: &str) -> Box<GrammarHandle> {
+        let grammar = Arc::new(grammar);
         // SAFETY: `grammar` is heap-allocated and, per the struct docs above, never moved or
         // mutated again for the lifetime of the `GrammarHandle` being constructed — only this
         // function ever had `&mut` access to it, and that access ends here. The transmuted
@@ -70,7 +72,13 @@ impl GrammarHandle {
         // `morpher` (declared first) drops before `grammar` is freed.
         let grammar_ref: &'static Grammar = unsafe { &*(grammar.as_ref() as *const Grammar) };
         let morpher = Morpher::new(grammar_ref, DEFAULT_STEP_CAP).with_memo(DEFAULT_MEMO);
-        Box::new(GrammarHandle { morpher, grammar })
+        let runtime = pg_lexicon::SuppliedLexiconRuntime::new(grammar.clone(), grammar_source)
+            .expect("a successfully loaded named grammar initializes its runtime");
+        Box::new(GrammarHandle {
+            morpher,
+            runtime,
+            grammar,
+        })
     }
 }
 
@@ -98,7 +106,7 @@ pub unsafe extern "C" fn hc_grammar_load(
     out: *mut HcGrammarHandle,
     err: *mut HcError,
 ) -> i32 {
-    let result = std::panic::catch_unwind(|| -> Result<Grammar, (i32, String)> {
+    let result = std::panic::catch_unwind(|| -> Result<(Grammar, String), (i32, String)> {
         if out.is_null() {
             return Err((HC_ERR_NULL_ARG, "hc_grammar_load: out is null".to_string()));
         }
@@ -121,12 +129,14 @@ pub unsafe extern "C" fn hc_grammar_load(
                 format!("hc_grammar_load: invalid UTF-8 in grammar xml: {e}"),
             )
         })?;
-        pg_grammar::load(xml).map_err(|e| (HC_ERR_GRAMMAR_LOAD, format!("hc_grammar_load: {e}")))
+        let grammar = pg_grammar::load(xml)
+            .map_err(|e| (HC_ERR_GRAMMAR_LOAD, format!("hc_grammar_load: {e}")))?;
+        Ok((grammar, xml.to_string()))
     });
 
     match result {
-        Ok(Ok(grammar)) => {
-            let handle = GrammarHandle::new(grammar);
+        Ok(Ok((grammar, xml))) => {
+            let handle = GrammarHandle::new(grammar, &xml);
             // SAFETY: `out` non-null already checked above.
             unsafe {
                 *out = Box::into_raw(handle) as HcGrammarHandle;

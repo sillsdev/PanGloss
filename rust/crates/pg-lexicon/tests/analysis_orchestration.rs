@@ -67,6 +67,63 @@ fn confirmed_official_and_supplied_paths_union_without_guessing_or_case_folding(
 }
 
 #[test]
+fn duplicate_confirmed_records_dedup_but_supplied_homographs_remain_distinct() {
+    let (grammar, runtime) = setup();
+    let signature = runtime.catalog().signatures()[0].id.clone();
+    runtime
+        .add(AddRequest {
+            stem: "milu".into(),
+            gloss: String::new(),
+            signatures: vec![signature.clone()],
+            expected_revision: None,
+        })
+        .unwrap();
+    runtime
+        .add(AddRequest {
+            stem: "milu".into(),
+            gloss: String::new(),
+            signatures: vec![signature],
+            expected_revision: None,
+        })
+        .unwrap();
+    let mut proposed = official(&grammar, "milu");
+    proposed.analyses.push(proposed.analyses[0].clone());
+    proposed.structured.push(proposed.structured[0].clone());
+    let outcome = runtime.analyze_word("milu", Some(proposed));
+    assert_eq!(
+        outcome
+            .structured
+            .iter()
+            .filter(|a| matches!(a.provenance, AnalysisProvenance::Grammar))
+            .count(),
+        1
+    );
+    assert_eq!(
+        outcome
+            .structured
+            .iter()
+            .filter(|a| matches!(a.provenance, AnalysisProvenance::Supplied { .. }))
+            .count(),
+        2
+    );
+}
+
+#[test]
+fn proposer_rejection_of_a_real_grammar_root_cannot_be_reintroduced_by_guess_retry() {
+    let (_grammar, runtime) = setup();
+    let rejected = OfficialOutcome {
+        analyses: vec![],
+        structured: vec![],
+        candidates_generated: 0,
+    };
+    let outcome = runtime.analyze_word("milu", Some(rejected));
+    assert!(!outcome
+        .structured
+        .iter()
+        .any(|a| matches!(a.provenance, AnalysisProvenance::Grammar)));
+}
+
+#[test]
 fn guess_runs_only_after_the_total_official_and_supplied_union_misses() {
     let (grammar, runtime) = setup();
     let missing = runtime.analyze_word("panu", Some(official(&grammar, "panu")));

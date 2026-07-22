@@ -185,6 +185,9 @@ pub struct ParseOptions {
     /// results, retry via the lexical-pattern guesser (§1.2's pseudocode). `false` (the `Default`)
     /// reproduces `parse_word`'s existing behavior byte-for-byte.
     pub guess_root: bool,
+    /// Run the lexical guesser without consulting real or supplied root lookup. Intended for
+    /// orchestration after an independently confirmed total lexical miss.
+    pub guess_only: bool,
 }
 
 impl ParseOptions {
@@ -193,6 +196,14 @@ impl ParseOptions {
     /// the public construction path.
     pub fn with_guess_root(mut self, guess_root: bool) -> Self {
         self.guess_root = guess_root;
+        self
+    }
+
+    pub fn with_guess_only(mut self, guess_only: bool) -> Self {
+        self.guess_only = guess_only;
+        if guess_only {
+            self.guess_root = true;
+        }
         self
     }
 }
@@ -515,25 +526,27 @@ impl<'g> Morpher<'g> {
         // validity/match gate — purely additive, does not affect which candidates are matched.
         let mut candidates_generated: usize = 0;
         let mut matches: HashMap<WordKey, Word> = HashMap::default();
-        for aw in results.values() {
-            for syn_word in self.lexical_lookup_filtered(aw, lex_entry_filter) {
-                // `synthesisWord.ExpandAlternatives()` (Morpher.cs:478): recover the shape-equivalent
-                // candidates `MergeEquivalentAnalyses` folded away, each with the deeper strata's
-                // rules replayed, then synthesize every one of them.
-                for alt in syn_word.expand_alternatives() {
-                    for vw in self.synthesis_pipeline_selected(
-                        alt,
-                        trace,
-                        root,
-                        rule_filter,
-                        &budget,
-                        None,
-                    ) {
-                        candidates_generated += 1;
-                        if self.is_word_valid_traced(&vw, trace, root)
-                            && self.is_match_traced(&vw, word, trace, root)
-                        {
-                            matches.entry(vw.dedup_key()).or_insert(vw);
+        if !opts.guess_only {
+            for aw in results.values() {
+                for syn_word in self.lexical_lookup_filtered(aw, lex_entry_filter) {
+                    // `synthesisWord.ExpandAlternatives()` (Morpher.cs:478): recover the shape-equivalent
+                    // candidates `MergeEquivalentAnalyses` folded away, each with the deeper strata's
+                    // rules replayed, then synthesize every one of them.
+                    for alt in syn_word.expand_alternatives() {
+                        for vw in self.synthesis_pipeline_selected(
+                            alt,
+                            trace,
+                            root,
+                            rule_filter,
+                            &budget,
+                            None,
+                        ) {
+                            candidates_generated += 1;
+                            if self.is_word_valid_traced(&vw, trace, root)
+                                && self.is_match_traced(&vw, word, trace, root)
+                            {
+                                matches.entry(vw.dedup_key()).or_insert(vw);
+                            }
                         }
                     }
                 }

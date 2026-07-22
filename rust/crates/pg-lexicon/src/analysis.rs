@@ -1,6 +1,6 @@
 //! Shared official-plus-runtime lexical analysis orchestration for native and WASM bindings.
 
-use crate::{EntryAuthority, Revision, SuppliedLexiconRuntime};
+use crate::{EntryAuthority, Revision, SuppliedLexiconRuntime, ValidationState};
 use pg_parse::{AnalysisProvenance, Morpher, ParseOptions, WordAnalysis};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -71,6 +71,7 @@ impl SuppliedLexiconRuntime {
         let overridden: Vec<&str> = snapshot
             .entries()
             .iter()
+            .filter(|entry| matches!(entry.state, ValidationState::Active))
             .filter_map(|entry| match &entry.authority {
                 EntryAuthority::SuppliedOverride {
                     official_entry_id, ..
@@ -86,19 +87,18 @@ impl SuppliedLexiconRuntime {
             candidates_generated += official.candidates_generated;
             for (pair, analysis) in official.analyses.into_iter().zip(official.structured) {
                 if !analysis_is_overridden(&self.grammar, &analysis, &overridden) {
-                    analyses.push(pair);
-                    structured.push(analysis);
+                    push_unique(&mut analyses, &mut structured, pair, analysis);
                 }
             }
             for (pair, analysis) in normal.analyses.into_iter().zip(normal.structured) {
                 if !matches!(analysis.provenance, AnalysisProvenance::Grammar) {
-                    analyses.push(pair);
-                    structured.push(analysis);
+                    push_unique(&mut analyses, &mut structured, pair, analysis);
                 }
             }
         } else {
-            analyses = normal.analyses;
-            structured = normal.structured;
+            for (pair, analysis) in normal.analyses.into_iter().zip(normal.structured) {
+                push_unique(&mut analyses, &mut structured, pair, analysis);
+            }
         }
 
         let mut guessed = false;
@@ -106,12 +106,14 @@ impl SuppliedLexiconRuntime {
         let mut invalid_shape = normal.invalid_shape;
         let mut timed_out = normal.timed_out;
         if structured.is_empty() && !invalid_shape {
-            let mut guess_options = ParseOptions::default();
-            guess_options.guess_root = true;
+            let guess_options = ParseOptions::default().with_guess_only(true);
             let fallback = morpher.parse_word_opts(word, &guess_options);
             candidates_generated += fallback.candidates_generated;
-            analyses = fallback.analyses;
-            structured = fallback.structured;
+            analyses.clear();
+            structured.clear();
+            for (pair, analysis) in fallback.analyses.into_iter().zip(fallback.structured) {
+                push_unique(&mut analyses, &mut structured, pair, analysis);
+            }
             guessed = fallback.guessed;
             capped |= fallback.capped;
             invalid_shape |= fallback.invalid_shape;
@@ -128,6 +130,25 @@ impl SuppliedLexiconRuntime {
             revision: snapshot.revision().clone(),
         }
     }
+}
+
+fn push_unique(
+    pairs: &mut Vec<(String, String)>,
+    structured: &mut Vec<WordAnalysis>,
+    pair: (String, String),
+    analysis: WordAnalysis,
+) {
+    if structured
+        .iter()
+        .zip(pairs.iter())
+        .any(|(existing_analysis, existing_pair)| {
+            existing_analysis == &analysis && existing_pair == &pair
+        })
+    {
+        return;
+    }
+    pairs.push(pair);
+    structured.push(analysis);
 }
 
 fn analysis_is_overridden(
