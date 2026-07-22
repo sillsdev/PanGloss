@@ -211,13 +211,17 @@ mod tests {
     /// `Grammar::morphemes` by ordinal, so a hand-built `WordAnalysis` exercises the same code
     /// paths as a real one while keeping the fixture minimal (no rules needed at all).
     fn wa(morpheme_ids: Vec<u32>, root_morpheme_index: i32, guessed: bool) -> WordAnalysis {
+        let morpheme_count = morpheme_ids.len();
         WordAnalysis {
             morpheme_ids,
             root_morpheme_index,
             pos_id: None,
+            syn_fs: Default::default(),
+            mpr: pg_grammar::model::MprSet::EMPTY,
             guessed,
             provenance: pg_parse::AnalysisProvenance::Grammar,
             supplied_root: None,
+            morpheme_roots: vec![None; morpheme_count],
         }
     }
 

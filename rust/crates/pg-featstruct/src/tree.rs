@@ -24,7 +24,9 @@ use crate::bitvec::SymbolBits;
 
 /// Index of a feature within one feature *system* (the syntactic system here; the
 /// phonological system uses `FlatIndex` lanes instead). Assigned densely at grammar load.
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, PartialOrd, Ord)]
+#[derive(
+    Copy, Clone, PartialEq, Eq, Hash, Debug, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub struct FeatId(pub u16);
 
 /// One feature's value inside a tree FS.
@@ -33,7 +35,7 @@ pub struct FeatId(pub u16);
 /// with index `i` in the feature's declaration order), exactly like the segment-domain
 /// lanes — POS max across the reference grammars is 37 symbols, well under 64.
 /// Complex values are nested structs (C# `ComplexFeature`, e.g. Amharic's `obj`/`sbj`).
-#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug, serde::Serialize, serde::Deserialize)]
 pub enum FeatureValue {
     Symbolic(SymbolBits),
     Complex(FeatureStruct),
@@ -45,7 +47,7 @@ pub enum FeatureValue {
 /// or [`FeatureStruct::EMPTY`]. Grammar-tier instances are interned to `FsId` so equality
 /// on the hot path is an integer compare; this type's own `Eq`/`Hash` are what the
 /// interner pays once per distinct value.
-#[derive(Clone, PartialEq, Eq, Hash, Debug, Default)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct FeatureStruct {
     entries: Vec<(FeatId, FeatureValue)>,
 }

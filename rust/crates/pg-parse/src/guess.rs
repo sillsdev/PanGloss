@@ -378,16 +378,16 @@ pub fn lexical_guess(
             nw.mpr = owning_entry.mpr;
             nw.flags.is_partial = owning_entry.partial;
             nw.root_allomorph = Some(AllomorphId::GUESSED);
-            nw.runtime_root = Some(Rc::new(pg_rules::word::RuntimeRoot::Guessed(GuessedRoot {
+            let runtime = pg_rules::word::RuntimeRoot::Guessed(GuessedRoot {
                 pattern_allo,
                 pattern_entry,
-                text: shape_string,
-            })));
-            nw.morphs = vec![MorphRecord::new(
-                AllomorphId::GUESSED,
-                MorphemeId::GUESSED,
-                0,
-            )];
+                text: shape_string.clone(),
+            });
+            nw.root_runtime_id = Some(shape_string);
+            nw.morphs = vec![
+                MorphRecord::new(AllomorphId::GUESSED, MorphemeId::GUESSED, 0)
+                    .with_runtime_root(runtime),
+            ];
             out.push(nw);
         }
     }

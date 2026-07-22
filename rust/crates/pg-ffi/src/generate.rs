@@ -61,9 +61,12 @@ pub unsafe extern "C" fn hc_generate_words(
             morpheme_ids: ids.to_vec(),
             root_morpheme_index,
             pos_id: None,
+            syn_fs: Default::default(),
+            mpr: Default::default(),
             guessed: false,
             provenance: pg_parse::AnalysisProvenance::Grammar,
             supplied_root: None,
+            morpheme_roots: vec![None; ids.len()],
         };
         let words = gh.morpher.generate_words_from_analysis(&wa);
         Ok(crate::buffer::encode_generated_words(&words))

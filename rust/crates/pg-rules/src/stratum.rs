@@ -1862,7 +1862,7 @@ fn synth_apply_mrules(
 /// it came from).
 fn root_is_partial(g: &Grammar, word: &Word) -> bool {
     match word.root_allomorph {
-        Some(allo) if allo == AllomorphId::GUESSED => match word.runtime_root.as_deref() {
+        Some(allo) if allo == AllomorphId::GUESSED => match word.root_runtime() {
             Some(crate::word::RuntimeRoot::Guessed(gr)) => {
                 g.entries[gr.pattern_entry.0 as usize].partial
             }

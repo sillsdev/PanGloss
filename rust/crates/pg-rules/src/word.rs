@@ -64,6 +64,8 @@ pub struct MorphRecord {
     /// [`MorphStatus`] and `pg_rules::morph::attribute_morphs`'s doc comment for the C# mechanism
     /// each variant ports. `Real` for root records and every pre-wave-4 record.
     pub status: MorphStatus,
+    /// Runtime root payload attached to this morph (never word-wide), for supplied/guessed roots.
+    pub runtime_root: Option<Rc<RuntimeRoot>>,
 }
 
 /// How a [`MorphRecord`] is anchored to the word's shape (wave-4). Only [`MorphStatus::Real`]
@@ -99,7 +101,13 @@ impl MorphRecord {
             order,
             passed_over: None,
             status: MorphStatus::Real,
+            runtime_root: None,
         }
+    }
+
+    pub fn with_runtime_root(mut self, root: RuntimeRoot) -> Self {
+        self.runtime_root = Some(Rc::new(root));
+        self
     }
 }
 
@@ -137,22 +145,17 @@ pub struct GuessedRoot {
 
 /// Provenance and stable identity for roots that do not live in the immutable grammar tables.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub enum RootProvenance {
-    Grammar,
-    Supplied {
-        entry_id: String,
-    },
-    SuppliedOverride {
-        entry_id: String,
-        official_entry_id: String,
-    },
-    Guessed,
+pub enum SuppliedAuthorityData {
+    Supplied,
+    Override { official_entry_id: String },
 }
 
 /// Self-contained supplied root data used by both ordinary and compound lookup.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SuppliedRootData {
-    pub provenance: RootProvenance,
+    pub entry_id: String,
+    pub realization_id: String,
+    pub authority: SuppliedAuthorityData,
     pub lexical_spelling: String,
     pub gloss: String,
     pub syn_fs: FeatureStruct,
@@ -172,6 +175,14 @@ pub enum RuntimeRoot {
 pub enum ResolvedRoot {
     Grammar(AllomorphId, LexEntryId),
     Supplied(SuppliedRootData),
+}
+
+pub fn runtime_id(root: Option<&RuntimeRoot>) -> Option<&str> {
+    match root {
+        Some(RuntimeRoot::Guessed(root)) => Some(&root.text),
+        Some(RuntimeRoot::Supplied(root)) => Some(&root.realization_id),
+        None => None,
+    }
 }
 
 /// The in-flight parse state (plan §5.5). See the module docs for the flagged deviations from the
@@ -224,6 +235,8 @@ pub struct Word {
     /// `None` throughout M4b analysis (the surface word starts from `Word(Stratum, Shape)`, which
     /// leaves it null). A dedup-key component (Word.cs:522,542).
     pub root_allomorph: Option<AllomorphId>,
+    /// Stable identity of a runtime-backed head root; payload remains on its MorphRecord.
+    pub root_runtime_id: Option<String>,
     /// Obligatory syntactic features accumulated by applied rules (C#
     /// `Word.ObligatorySyntacticFeatures`).
     pub obligatory: Vec<FeatId>,
@@ -259,7 +272,6 @@ pub struct Word {
     /// object identity, is what C#'s dedup keys on; `root_allomorph`'s `AllomorphId::GUESSED`
     /// sentinel is the Rust analog of that, so this payload would be redundant in the key even if
     /// added).
-    pub runtime_root: Option<Rc<RuntimeRoot>>,
     /// C# `Word.Alternatives` (Word.cs:485-489): the shape-equivalent analysis candidates folded into
     /// this word by `MergeEquivalentAnalyses` (AnalysisStratumRule.cs:161-171 — a repeat shape does
     /// not enter the output set; instead `canonicalWord.Alternatives.Add(mruleOutWord)`). They differ
@@ -304,7 +316,7 @@ pub struct WordKey {
     non_head_app_index: i32,
     stratum: StratumId,
     root_allomorph: Option<AllomorphId>,
-    root_provenance: Option<RootProvenance>,
+    root_realization: Option<String>,
     mrule_apps: Vec<Option<MRuleId>>,
     mrule_app_index: i32,
     is_last_applied_rule_final: Option<bool>,
@@ -326,11 +338,11 @@ impl Word {
             mrule_apps: Vec::new(),
             mrule_app_index: -1,
             root_allomorph: None,
+            root_runtime_id: None,
             obligatory: Vec::new(),
             unapplied_rule_counts: BTreeMap::new(),
             flags: WordFlags::default(),
             source: None,
-            runtime_root: None,
             alternatives: Vec::new(),
             trace: None,
         }
@@ -439,10 +451,7 @@ impl Word {
             non_head_app_index: self.non_head_app_index,
             stratum: self.stratum,
             root_allomorph: self.root_allomorph,
-            root_provenance: self.runtime_root.as_ref().map(|root| match root.as_ref() {
-                RuntimeRoot::Guessed(_) => RootProvenance::Guessed,
-                RuntimeRoot::Supplied(root) => root.provenance.clone(),
-            }),
+            root_realization: self.root_runtime_id.clone(),
             mrule_apps: self.mrule_apps.clone(),
             mrule_app_index: self.mrule_app_index,
             is_last_applied_rule_final: self.flags.is_last_applied_rule_final,
@@ -546,11 +555,11 @@ impl Word {
                         alt.morphs = self.morphs.clone();
                         alt.flags.is_partial = self.flags.is_partial;
                         alt.root_allomorph = self.root_allomorph;
+                        alt.root_runtime_id = self.root_runtime_id.clone();
                         // P11 §4.4: the guessed-root payload rides along with root_allomorph —
                         // both change together at the exact same site (guess fabrication /
                         // lexical lookup), so whenever C#'s `RootAllomorph` setter fires here,
                         // this must fire with it (never observable in isolation).
-                        alt.runtime_root = self.runtime_root.clone();
                     }
                     out.push(alt);
                 }
@@ -565,20 +574,35 @@ impl Word {
         out
     }
 
+    pub fn root_runtime(&self) -> Option<&RuntimeRoot> {
+        self.morphs
+            .iter()
+            .find(|m| {
+                Some(m.allomorph) == self.root_allomorph
+                    && runtime_id(m.runtime_root.as_deref()) == self.root_runtime_id.as_deref()
+            })
+            .and_then(|m| m.runtime_root.as_deref())
+    }
+
     /// Morpheme ids in morph (surface) order — the sequence the batch signature joins with `+`.
-    /// Deduped by allomorph in first-occurrence order (C# `Word.AllomorphsInMorphOrder`'s
-    /// `Distinct()` — load-bearing since W3.3 splits a discontinuous morph into one
-    /// [`MorphRecord`] per contiguous run, all sharing the same allomorph).
+    /// Deduped by allomorph and runtime realization in first-occurrence order. The runtime
+    /// identity is load-bearing because supplied roots share a sentinel allomorph while still
+    /// representing distinct morphemes. W3.3 also splits a discontinuous morph into one
+    /// [`MorphRecord`] per contiguous run, all sharing both identities.
     pub fn morpheme_sequence(&self) -> Vec<MorphemeId> {
         let mut ms = self.morphs.clone();
         ms.sort_by_key(|m| m.order);
-        let mut seen: Vec<AllomorphId> = Vec::new();
+        let mut seen: Vec<(AllomorphId, Option<String>)> = Vec::new();
         ms.into_iter()
             .filter(|m| {
-                if seen.contains(&m.allomorph) {
+                let key = (
+                    m.allomorph,
+                    runtime_id(m.runtime_root.as_deref()).map(str::to_owned),
+                );
+                if seen.contains(&key) {
                     false
                 } else {
-                    seen.push(m.allomorph);
+                    seen.push(key);
                     true
                 }
             })

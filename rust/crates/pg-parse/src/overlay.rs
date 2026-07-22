@@ -1,20 +1,27 @@
 use pg_featstruct::{flat_unifiable, FeatureStruct};
 use pg_grammar::chardef::CharDefId;
-use pg_grammar::model::{Grammar, MprSet, StratumId};
+use pg_grammar::model::{Grammar, MprSet, StratumId, TableId};
 use pg_rules::shape_feat::segment_with_features;
-use pg_rules::word::{RootProvenance, SuppliedRootData};
+use pg_rules::word::{SuppliedAuthorityData, SuppliedRootData};
 use pg_shape::{NodeKind, Shape, NO_CHAR_DEF};
 use std::collections::BTreeSet;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum RootAuthority {
     Supplied,
     SuppliedOverride { official_entry_id: String },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SuppliedRoot {
     pub entry_id: String,
+    pub realization_id: String,
     pub lexical_spelling: String,
     pub gloss: String,
     pub syn_fs: FeatureStruct,
@@ -23,23 +30,45 @@ pub struct SuppliedRoot {
     pub authority: RootAuthority,
 }
 
+#[derive(Clone, Debug, Default)]
+struct OverlayNode {
+    edges: Vec<OverlayEdge>,
+    accepts: Vec<SuppliedRootData>,
+}
+
 #[derive(Clone, Debug)]
-struct IndexedRoot {
-    root: SuppliedRoot,
-    shape: Shape,
+struct OverlayEdge {
+    char_def: u32,
+    lanes: Vec<u64>,
+    target: usize,
+}
+
+#[derive(Clone, Debug)]
+struct OverlayTrie {
+    nodes: Vec<OverlayNode>,
+    table: TableId,
+    feat_width: usize,
 }
 
 /// Immutable supplied-root index, built independently of `pg-lexicon`.
 #[derive(Clone, Debug)]
 pub struct SuppliedRootOverlay {
-    roots: Vec<Vec<IndexedRoot>>,
+    tries: Vec<OverlayTrie>,
     suppressed_official: BTreeSet<String>,
 }
 
 impl SuppliedRootOverlay {
     pub fn empty(grammar: &Grammar) -> Self {
         Self {
-            roots: vec![Vec::new(); grammar.strata.len()],
+            tries: grammar
+                .strata
+                .iter()
+                .map(|stratum| OverlayTrie {
+                    nodes: vec![OverlayNode::default()],
+                    table: stratum.table,
+                    feat_width: grammar.phon_features.len(),
+                })
+                .collect(),
             suppressed_official: BTreeSet::new(),
         }
     }
@@ -59,7 +88,7 @@ impl SuppliedRootOverlay {
                     .suppressed_official
                     .insert(official_entry_id.clone());
             }
-            overlay.roots[stratum].push(IndexedRoot { root, shape });
+            overlay.tries[stratum].insert(grammar, &shape, root.to_data());
         }
         Ok(overlay)
     }
@@ -74,29 +103,104 @@ impl SuppliedRootOverlay {
         stratum: StratumId,
         query: &Shape,
     ) -> Vec<SuppliedRootData> {
-        self.roots[stratum.0 as usize]
-            .iter()
-            .filter(|indexed| shapes_match(grammar, stratum, &indexed.shape, query))
-            .map(|indexed| indexed.root.to_data())
-            .collect()
+        self.tries[stratum.0 as usize].search(grammar, query)
+    }
+
+    pub fn node_count(&self, stratum: StratumId) -> usize {
+        self.tries[stratum.0 as usize].nodes.len()
+    }
+}
+
+impl OverlayTrie {
+    fn insert(&mut self, grammar: &Grammar, shape: &Shape, root: SuppliedRootData) {
+        let table = &grammar.char_tables[self.table.0 as usize];
+        let mut current = 0;
+        for i in (0..shape.len()).filter(|&i| shape.kind(i) == NodeKind::Segment) {
+            let cd = shape.char_def(i);
+            let segment_lanes = lanes(shape, i, table, self.feat_width);
+            let edge = self.nodes[current]
+                .edges
+                .iter()
+                .position(|edge| edge.char_def == cd && edge.lanes == segment_lanes);
+            current = if let Some(edge) = edge {
+                self.nodes[current].edges[edge].target
+            } else {
+                let target = self.nodes.len();
+                self.nodes.push(OverlayNode::default());
+                self.nodes[current].edges.push(OverlayEdge {
+                    char_def: cd,
+                    lanes: segment_lanes,
+                    target,
+                });
+                target
+            };
+        }
+        self.nodes[current].accepts.push(root);
+    }
+
+    fn search(&self, grammar: &Grammar, query: &Shape) -> Vec<SuppliedRootData> {
+        let table = &grammar.char_tables[self.table.0 as usize];
+        let closure = table.unif_closure_rows();
+        let segments: Vec<_> = (0..query.len())
+            .filter(|&i| query.kind(i) == NodeKind::Segment)
+            .map(|i| {
+                (
+                    query.char_def(i),
+                    lanes(query, i, table, self.feat_width),
+                    query.flags(i).is_optional(),
+                )
+            })
+            .collect();
+        let mut active = vec![0usize];
+        for (cd, query_lanes, optional) in segments {
+            let mut next = Vec::new();
+            for node in &active {
+                for edge in &self.nodes[*node].edges {
+                    let identity = cd == NO_CHAR_DEF
+                        || edge.char_def == cd
+                        || closure.is_some_and(|rows| rows[edge.char_def as usize].contains(cd));
+                    if identity
+                        && flat_unifiable(&query_lanes, &edge.lanes)
+                        && !next.contains(&edge.target)
+                    {
+                        next.push(edge.target);
+                    }
+                }
+            }
+            if optional {
+                for node in &active {
+                    if !next.contains(node) {
+                        next.push(*node);
+                    }
+                }
+            }
+            active = next;
+            if active.is_empty() {
+                break;
+            }
+        }
+        let mut out = Vec::new();
+        for node in active {
+            out.extend(self.nodes[node].accepts.iter().cloned());
+        }
+        out
     }
 }
 
 impl SuppliedRoot {
     pub(crate) fn to_data(&self) -> SuppliedRootData {
-        let provenance = match &self.authority {
-            RootAuthority::Supplied => RootProvenance::Supplied {
-                entry_id: self.entry_id.clone(),
-            },
+        let authority = match &self.authority {
+            RootAuthority::Supplied => SuppliedAuthorityData::Supplied,
             RootAuthority::SuppliedOverride { official_entry_id } => {
-                RootProvenance::SuppliedOverride {
-                    entry_id: self.entry_id.clone(),
+                SuppliedAuthorityData::Override {
                     official_entry_id: official_entry_id.clone(),
                 }
             }
         };
         SuppliedRootData {
-            provenance,
+            entry_id: self.entry_id.clone(),
+            realization_id: self.realization_id.clone(),
+            authority,
             lexical_spelling: self.lexical_spelling.clone(),
             gloss: self.gloss.clone(),
             syn_fs: self.syn_fs.clone(),
@@ -106,21 +210,17 @@ impl SuppliedRoot {
     }
 
     pub(crate) fn from_data(root: &SuppliedRootData) -> Self {
-        let (entry_id, authority) = match &root.provenance {
-            RootProvenance::Supplied { entry_id } => (entry_id.clone(), RootAuthority::Supplied),
-            RootProvenance::SuppliedOverride {
-                entry_id,
-                official_entry_id,
-            } => (
-                entry_id.clone(),
+        let authority = match &root.authority {
+            SuppliedAuthorityData::Supplied => RootAuthority::Supplied,
+            SuppliedAuthorityData::Override { official_entry_id } => {
                 RootAuthority::SuppliedOverride {
                     official_entry_id: official_entry_id.clone(),
-                },
-            ),
-            _ => unreachable!("SuppliedRootData must carry supplied provenance"),
+                }
+            }
         };
         Self {
-            entry_id,
+            entry_id: root.entry_id.clone(),
+            realization_id: root.realization_id.clone(),
             lexical_spelling: root.lexical_spelling.clone(),
             gloss: root.gloss.clone(),
             syn_fs: root.syn_fs.clone(),
@@ -129,41 +229,6 @@ impl SuppliedRoot {
             authority,
         }
     }
-}
-
-fn shapes_match(grammar: &Grammar, stratum: StratumId, stored: &Shape, query: &Shape) -> bool {
-    let table = &grammar.char_tables[grammar.strata[stratum.0 as usize].table.0 as usize];
-    let width = grammar.phon_features.len();
-    let stored: Vec<_> = (0..stored.len())
-        .filter(|&i| stored.kind(i) == NodeKind::Segment)
-        .map(|i| (stored.char_def(i), lanes(stored, i, table, width)))
-        .collect();
-    let query: Vec<_> = (0..query.len())
-        .filter(|&i| query.kind(i) == NodeKind::Segment)
-        .map(|i| {
-            (
-                query.char_def(i),
-                lanes(query, i, table, width),
-                query.flags(i).is_optional(),
-            )
-        })
-        .collect();
-    fn walk(
-        stored: &[(u32, Vec<u64>)],
-        query: &[(u32, Vec<u64>, bool)],
-        si: usize,
-        qi: usize,
-    ) -> bool {
-        if qi == query.len() {
-            return si == stored.len();
-        }
-        let (qcd, qlanes, optional) = &query[qi];
-        let consume = stored.get(si).is_some_and(|(scd, slanes)| {
-            (*qcd == NO_CHAR_DEF || qcd == scd) && flat_unifiable(qlanes, slanes)
-        }) && walk(stored, query, si + 1, qi + 1);
-        consume || (*optional && walk(stored, query, si, qi + 1))
-    }
-    walk(&stored, &query, 0, 0)
 }
 
 fn lanes(

@@ -63,9 +63,12 @@ fn generate_words_can_generate_returns_correct_word() {
         ],
         root_morpheme_index: 1,
         pos_id: None,
+        syn_fs: pg_featstruct::FeatureStruct::EMPTY,
+        mpr: pg_grammar::model::MprSet::EMPTY,
         guessed: false,
         provenance: AnalysisProvenance::Grammar,
         supplied_root: None,
+        morpheme_roots: vec![None; 3],
     };
     let words: BTreeSet<String> = m.generate_words_from_analysis(&wa).into_iter().collect();
     assert_eq!(words, BTreeSet::from(["sisasɯd".to_string()]));
@@ -92,9 +95,12 @@ fn generate_words_cannot_generate_returns_empty_enumerable() {
         morpheme_ids: vec![morpheme_ordinal(&g, "32"), morpheme_ordinal(&g, "PL")],
         root_morpheme_index: 0,
         pos_id: None,
+        syn_fs: pg_featstruct::FeatureStruct::EMPTY,
+        mpr: pg_grammar::model::MprSet::EMPTY,
         guessed: false,
         provenance: AnalysisProvenance::Grammar,
         supplied_root: None,
+        morpheme_roots: vec![None; 1],
     };
     assert!(m.generate_words_from_analysis(&wa).is_empty());
 }
@@ -260,9 +266,12 @@ fn generate_words_from_analysis_two_prefixes_confirm_in_the_correct_relative_ord
         ],
         root_morpheme_index: 2,
         pos_id: None,
+        syn_fs: pg_featstruct::FeatureStruct::EMPTY,
+        mpr: pg_grammar::model::MprSet::EMPTY,
         guessed: false,
         provenance: AnalysisProvenance::Grammar,
         supplied_root: None,
+        morpheme_roots: vec![None; 3],
     };
     let words: BTreeSet<String> = m.generate_words_from_analysis(&wa).into_iter().collect();
     assert_eq!(words, BTreeSet::from(["iosag".to_string()]));
@@ -298,9 +307,12 @@ fn analyze_word_can_analyze_returns_correct_analysis() {
         morpheme_ids: vec![morpheme_ordinal(&g, "32"), morpheme_ordinal(&g, "PAST")],
         root_morpheme_index: 0,
         pos_id: Some(want_pos),
+        syn_fs: outcome.structured[0].syn_fs.clone(),
+        mpr: outcome.structured[0].mpr,
         guessed: false,
         provenance: AnalysisProvenance::Grammar,
         supplied_root: None,
+        morpheme_roots: vec![None; 2],
     };
     assert_eq!(
         outcome.structured,

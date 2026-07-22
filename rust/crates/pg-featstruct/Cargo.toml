@@ -8,5 +8,6 @@ license.workspace = true
 [dependencies]
 smallvec.workspace = true
 hashbrown.workspace = true
+serde.workspace = true
 
 [dev-dependencies]

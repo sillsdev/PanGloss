@@ -560,6 +560,7 @@ name = "pg-featstruct"
 version = "0.1.0"
 dependencies = [
  "hashbrown 0.15.5",
+ "serde",
  "smallvec",
 ]
 
@@ -618,6 +619,7 @@ dependencies = [
  "pg-shape",
  "pg-snapshot",
  "quick-xml",
+ "serde",
  "smallvec",
  "thiserror",
  "unicode-normalization",
@@ -669,6 +671,8 @@ dependencies = [
  "pg-shape",
  "rayon",
  "rustc-hash",
+ "serde",
+ "serde_json",
  "smallvec",
  "unicode-normalization",
 ]

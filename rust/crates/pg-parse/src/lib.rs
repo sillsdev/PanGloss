@@ -26,6 +26,8 @@ pub struct WordAnalysis {
     pub morpheme_ids: Vec<u32>,
     pub root_morpheme_index: i32,
     pub pos_id: Option<u32>,
+    pub syn_fs: pg_featstruct::FeatureStruct,
+    pub mpr: pg_grammar::model::MprSet,
     /// P11 §4.1: whether this analysis came from the guess branch (`Morpher::parse_word_opts`
     /// with `ParseOptions.guess_root = true`, on a total normal-lexicon miss). Always equal to
     /// the owning `ParseOutcome.guessed` today (the branch is all-or-nothing), but carried
@@ -37,9 +39,16 @@ pub struct WordAnalysis {
     pub provenance: AnalysisProvenance,
     /// Self-contained root payload for regeneration when provenance is supplied.
     pub supplied_root: Option<SuppliedRoot>,
+    /// Runtime supplied payload aligned one-for-one with `morpheme_ids`.
+    pub morpheme_roots: Vec<Option<SuppliedRoot>>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum AnalysisProvenance {
     Grammar,
     Supplied {

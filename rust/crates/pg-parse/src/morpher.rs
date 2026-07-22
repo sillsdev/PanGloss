@@ -34,7 +34,7 @@ use pg_rules::shape_feat::segment_with_features;
 use pg_rules::stratum::{AnalyzerConfig, NonHeadRootFilter};
 use pg_rules::trace::{FailureReason, NoopSink, TraceHandle, TraceSink};
 use pg_rules::word::{
-    GuessedRoot, MorphRecord, ResolvedRoot, RootProvenance, RuntimeRoot, Word, WordKey,
+    GuessedRoot, MorphRecord, ResolvedRoot, RuntimeRoot, SuppliedAuthorityData, Word, WordKey,
 };
 use rustc_hash::FxHashMap as HashMap;
 
@@ -613,12 +613,11 @@ impl<'g> Morpher<'g> {
             nw.mpr = root.mpr;
             nw.flags.is_partial = false;
             nw.root_allomorph = Some(AllomorphId::GUESSED);
-            nw.runtime_root = Some(Rc::new(RuntimeRoot::Supplied(root)));
-            nw.morphs = vec![MorphRecord::new(
-                AllomorphId::GUESSED,
-                MorphemeId::GUESSED,
-                0,
-            )];
+            nw.root_runtime_id = Some(root.realization_id.clone());
+            nw.morphs = vec![
+                MorphRecord::new(AllomorphId::GUESSED, MorphemeId::GUESSED, 0)
+                    .with_runtime_root(RuntimeRoot::Supplied(root)),
+            ];
             out.push(nw);
         }
         out
@@ -654,6 +653,7 @@ impl<'g> Morpher<'g> {
         w.flags.is_partial = entry.partial;
         w.root_allomorph = Some(allo);
         // MarkMorph(shape, rootAllomorph, RootMorphID): the root is the base morph at order 0.
+        w.root_runtime_id = None;
         w.morphs = vec![MorphRecord::new(allo, entry.morpheme, 0)];
     }
 
@@ -835,26 +835,23 @@ impl<'g> Morpher<'g> {
     /// string) and [`Self::structured_analysis`] (the FFI's numeric ids) are built from, so the
     /// two representations of "the morpheme sequence" cannot disagree on count, order, or dedup
     /// (flagged as a drift risk during M8 review — kept as one traversal, two projections).
-    fn allomorphs_in_morph_order(
-        &self,
-        w: &Word,
-    ) -> Vec<(
-        pg_grammar::model::AllomorphId,
-        pg_grammar::model::MorphemeId,
-    )> {
+    fn allomorphs_in_morph_order(&self, w: &Word) -> Vec<MorphRecord> {
         let mut ms = w.morphs.clone();
         ms.sort_by_key(|m| m.order);
-        let mut seen: Vec<pg_grammar::model::AllomorphId> = Vec::new();
-        ms.iter()
+        let mut seen: Vec<(AllomorphId, Option<String>)> = Vec::new();
+        ms.into_iter()
             .filter(|m| {
-                if seen.contains(&m.allomorph) {
+                let key = (
+                    m.allomorph,
+                    pg_rules::word::runtime_id(m.runtime_root.as_deref()).map(str::to_owned),
+                );
+                if seen.contains(&key) {
                     false
                 } else {
-                    seen.push(m.allomorph);
+                    seen.push(key);
                     true
                 }
             })
-            .map(|m| (m.allomorph, m.morpheme))
             .collect()
     }
 
@@ -868,17 +865,18 @@ impl<'g> Morpher<'g> {
         let g = self.g;
         self.allomorphs_in_morph_order(w)
             .into_iter()
-            .map(|(_, morpheme)| {
-                if morpheme == MorphemeId::GUESSED {
-                    w.runtime_root
-                        .as_ref()
-                        .and_then(|root| match root.as_ref() {
+            .map(|m| {
+                if m.morpheme == MorphemeId::GUESSED {
+                    m.runtime_root
+                        .as_deref()
+                        .map(|root| match root {
                             RuntimeRoot::Guessed(gr) => Some(gr.text.clone()),
                             RuntimeRoot::Supplied(root) => Some(root.lexical_spelling.clone()),
                         })
+                        .flatten()
                         .unwrap_or_default()
                 } else {
-                    g.morphemes[morpheme.0 as usize]
+                    g.morphemes[m.morpheme.0 as usize]
                         .morph_id
                         .clone()
                         .unwrap_or_default()
@@ -900,10 +898,14 @@ impl<'g> Morpher<'g> {
     /// carry the identical `AllomorphId::GUESSED` sentinel for a guessed word.
     fn structured_analysis(&self, w: &Word, guessed: bool) -> WordAnalysis {
         let seq = self.allomorphs_in_morph_order(w);
-        let morpheme_ids: Vec<u32> = seq.iter().map(|(_, m)| m.0).collect();
+        let morpheme_ids: Vec<u32> = seq.iter().map(|m| m.morpheme.0).collect();
         let root_morpheme_index = seq
             .iter()
-            .position(|(allo, _)| Some(*allo) == w.root_allomorph)
+            .position(|m| {
+                Some(m.allomorph) == w.root_allomorph
+                    && pg_rules::word::runtime_id(m.runtime_root.as_deref())
+                        == w.root_runtime_id.as_deref()
+            })
             .map(|i| i as i32)
             .unwrap_or(-1);
         let pos_id = match w.syn_fs.get(self.g.syn_features.pos) {
@@ -914,31 +916,35 @@ impl<'g> Morpher<'g> {
             morpheme_ids,
             root_morpheme_index,
             pos_id,
+            syn_fs: w.syn_fs.clone(),
+            mpr: w.mpr,
             guessed,
-            provenance: match w.runtime_root.as_ref().map(|root| root.as_ref()) {
+            provenance: match w.root_runtime() {
                 Some(RuntimeRoot::Guessed(_)) => AnalysisProvenance::Guessed,
-                Some(RuntimeRoot::Supplied(root)) => match &root.provenance {
-                    RootProvenance::Supplied { entry_id } => AnalysisProvenance::Supplied {
-                        entry_id: entry_id.clone(),
+                Some(RuntimeRoot::Supplied(root)) => match &root.authority {
+                    SuppliedAuthorityData::Supplied => AnalysisProvenance::Supplied {
+                        entry_id: root.entry_id.clone(),
                     },
-                    RootProvenance::SuppliedOverride {
-                        entry_id,
-                        official_entry_id,
-                    } => AnalysisProvenance::SuppliedOverride {
-                        entry_id: entry_id.clone(),
-                        overridden_grammar_entry_id: official_entry_id.clone(),
-                    },
-                    _ => AnalysisProvenance::Grammar,
+                    SuppliedAuthorityData::Override { official_entry_id } => {
+                        AnalysisProvenance::SuppliedOverride {
+                            entry_id: root.entry_id.clone(),
+                            overridden_grammar_entry_id: official_entry_id.clone(),
+                        }
+                    }
                 },
                 None => AnalysisProvenance::Grammar,
             },
-            supplied_root: w
-                .runtime_root
-                .as_ref()
-                .and_then(|root| match root.as_ref() {
-                    RuntimeRoot::Supplied(root) => Some(crate::SuppliedRoot::from_data(root)),
-                    RuntimeRoot::Guessed(_) => None,
-                }),
+            supplied_root: w.root_runtime().and_then(|root| match root {
+                RuntimeRoot::Supplied(root) => Some(crate::SuppliedRoot::from_data(root)),
+                RuntimeRoot::Guessed(_) => None,
+            }),
+            morpheme_roots: seq
+                .iter()
+                .map(|m| match m.runtime_root.as_deref() {
+                    Some(RuntimeRoot::Supplied(root)) => Some(crate::SuppliedRoot::from_data(root)),
+                    _ => None,
+                })
+                .collect(),
         }
     }
 }
@@ -1066,24 +1072,19 @@ fn resolve_other(g: &Grammar, id: MorphemeId) -> Option<GenMorpheme> {
 /// needed there. [`Morpher::generate_words_from_analysis`] does this reversal at its call site, not
 /// here, so this function's own contract stays a plain "two already-ordered sequences" merge with
 /// no morpheme-specific direction knowledge baked in.
-fn interleavings(left: &[GenMorpheme], right: &[GenMorpheme]) -> Vec<Vec<GenMorpheme>> {
-    fn go(
-        left: &[GenMorpheme],
-        right: &[GenMorpheme],
-        acc: &mut Vec<GenMorpheme>,
-        out: &mut Vec<Vec<GenMorpheme>>,
-    ) {
+fn interleavings<T: Clone>(left: &[T], right: &[T]) -> Vec<Vec<T>> {
+    fn go<T: Clone>(left: &[T], right: &[T], acc: &mut Vec<T>, out: &mut Vec<Vec<T>>) {
         if left.is_empty() && right.is_empty() {
             out.push(acc.clone());
             return;
         }
-        if let Some((&head, rest)) = left.split_first() {
-            acc.push(head);
+        if let Some((head, rest)) = left.split_first() {
+            acc.push(head.clone());
             go(rest, right, acc, out);
             acc.pop();
         }
-        if let Some((&head, rest)) = right.split_first() {
-            acc.push(head);
+        if let Some((head, rest)) = right.split_first() {
+            acc.push(head.clone());
             go(left, rest, acc, out);
             acc.pop();
         }
@@ -1177,6 +1178,14 @@ impl<'g> Morpher<'g> {
             return Vec::new();
         }
         let root_idx = wa.root_morpheme_index as usize;
+        if wa
+            .morpheme_roots
+            .iter()
+            .enumerate()
+            .any(|(i, root)| i != root_idx && root.is_some())
+        {
+            return self.generate_analysis_with_runtime_non_heads(wa, root_idx);
+        }
         let resolve_side = |ids: &[u32]| -> Option<Vec<GenMorpheme>> {
             ids.iter()
                 .map(|&id| resolve_other(g, MorphemeId(id)))
@@ -1207,12 +1216,11 @@ impl<'g> Morpher<'g> {
                 seed.mpr = root.mpr;
                 seed.root_allomorph = Some(AllomorphId::GUESSED);
                 let data = root.to_data();
-                seed.runtime_root = Some(Rc::new(RuntimeRoot::Supplied(data)));
-                seed.morphs = vec![MorphRecord::new(
-                    AllomorphId::GUESSED,
-                    MorphemeId::GUESSED,
-                    0,
-                )];
+                seed.root_runtime_id = Some(root.realization_id.clone());
+                seed.morphs = vec![
+                    MorphRecord::new(AllomorphId::GUESSED, MorphemeId::GUESSED, 0)
+                        .with_runtime_root(RuntimeRoot::Supplied(data)),
+                ];
                 for other in &others {
                     match *other {
                         GenMorpheme::Rule(id) => seed
@@ -1241,6 +1249,74 @@ impl<'g> Morpher<'g> {
                 for w in self.generate_words(root_entry, &others, FeatureStruct::EMPTY) {
                     words.insert(w);
                 }
+            }
+        }
+        words.into_iter().collect()
+    }
+
+    fn generate_analysis_with_runtime_non_heads(
+        &self,
+        wa: &WordAnalysis,
+        root_idx: usize,
+    ) -> Vec<String> {
+        let g = self.g;
+        let mut seed = if let Some(root) = wa.morpheme_roots.get(root_idx).and_then(Option::as_ref)
+        {
+            let table = &g.char_tables[g.strata[root.stratum.0 as usize].table.0 as usize];
+            let Ok(shape) = segment_with_features(g, table, &root.lexical_spelling) else {
+                return Vec::new();
+            };
+            let mut word = Word::new(shape, root.stratum);
+            word.syn_fs = root.syn_fs.clone();
+            word.mpr = root.mpr;
+            word.root_allomorph = Some(AllomorphId::GUESSED);
+            word.root_runtime_id = Some(root.realization_id.clone());
+            word.morphs = vec![
+                MorphRecord::new(AllomorphId::GUESSED, MorphemeId::GUESSED, 0)
+                    .with_runtime_root(RuntimeRoot::Supplied(root.to_data())),
+            ];
+            word
+        } else {
+            let Some(MorphemeOwner::Root(entry)) =
+                resolve_morpheme(g, MorphemeId(wa.morpheme_ids[root_idx]))
+            else {
+                return Vec::new();
+            };
+            self.build_root_seed(entry, 0, FeatureStruct::EMPTY)
+        };
+
+        let mut indices: Vec<usize> = (0..root_idx).rev().collect();
+        indices.extend(root_idx + 1..wa.morpheme_ids.len());
+        for i in indices {
+            if let Some(root) = wa.morpheme_roots.get(i).and_then(Option::as_ref) {
+                let table = &g.char_tables[g.strata[root.stratum.0 as usize].table.0 as usize];
+                let Ok(shape) = segment_with_features(g, table, &root.lexical_spelling) else {
+                    return Vec::new();
+                };
+                let mut non_head = Word::new(shape, root.stratum);
+                non_head.syn_fs = root.syn_fs.clone();
+                non_head.mpr = root.mpr;
+                non_head.root_allomorph = Some(AllomorphId::GUESSED);
+                non_head.root_runtime_id = Some(root.realization_id.clone());
+                non_head.morphs =
+                    vec![
+                        MorphRecord::new(AllomorphId::GUESSED, MorphemeId::GUESSED, 0)
+                            .with_runtime_root(RuntimeRoot::Supplied(root.to_data())),
+                    ];
+                seed.morphological_rule_unapplied(false, None);
+                seed.non_head_unapplied(non_head);
+            } else if let Some(GenMorpheme::Rule(rule)) =
+                resolve_other(g, MorphemeId(wa.morpheme_ids[i]))
+            {
+                seed.morphological_rule_unapplied(is_realizational_rule(g, rule), Some(rule));
+            } else {
+                return Vec::new();
+            }
+        }
+        let mut words = std::collections::BTreeSet::new();
+        for generated in self.synthesis_pipeline(seed) {
+            if self.is_word_valid(&generated) {
+                words.insert(self.generated_surface_of(&generated));
             }
         }
         words.into_iter().collect()
@@ -1349,16 +1425,16 @@ impl<'g> Morpher<'g> {
         w.mpr = entry.mpr;
         w.flags.is_partial = entry.partial;
         w.root_allomorph = Some(AllomorphId::GUESSED);
-        w.runtime_root = Some(Rc::new(RuntimeRoot::Guessed(GuessedRoot {
+        let runtime = RuntimeRoot::Guessed(GuessedRoot {
             pattern_allo: first_allo.id,
             pattern_entry: exemplar,
             text: shape_text.to_string(),
-        })));
-        w.morphs = vec![MorphRecord::new(
-            AllomorphId::GUESSED,
-            MorphemeId::GUESSED,
-            0,
-        )];
+        });
+        w.root_runtime_id = Some(shape_text.to_string());
+        w.morphs = vec![
+            MorphRecord::new(AllomorphId::GUESSED, MorphemeId::GUESSED, 0)
+                .with_runtime_root(runtime),
+        ];
 
         if let Some(rid) = rule {
             w.morphological_rule_unapplied(is_realizational_rule(g, rid), Some(rid));

@@ -17,8 +17,6 @@
 //! - morpheme co-occurrence rules, keyed on the GUESSED sentinel id as primary;
 //! - environments, delegated to the pattern allomorph's own `environments` field.
 
-use std::rc::Rc;
-
 use pg_grammar::model::{AllomorphId, Grammar, LexEntryId, MorphemeId};
 use pg_rules::validity::allomorphs_valid;
 use pg_rules::word::{GuessedRoot, MorphRecord};
@@ -143,16 +141,15 @@ fn guessed_word(g: &Grammar, text: &str) -> Word {
     let pattern_entry = find_entry_id(g, "[Any]*");
     let pattern_allo = find_entry(g, "[Any]*").allomorphs[0].id;
     let mut w = Word::new(shape_of(g, text), pg_grammar::model::StratumId(0));
-    w.runtime_root = Some(Rc::new(pg_rules::word::RuntimeRoot::Guessed(GuessedRoot {
+    let runtime = pg_rules::word::RuntimeRoot::Guessed(GuessedRoot {
         pattern_allo,
         pattern_entry,
         text: text.to_string(),
-    })));
-    w.morphs = vec![MorphRecord::new(
-        AllomorphId::GUESSED,
-        MorphemeId::GUESSED,
-        0,
-    )];
+    });
+    w.root_runtime_id = Some(text.to_string());
+    w.morphs = vec![
+        MorphRecord::new(AllomorphId::GUESSED, MorphemeId::GUESSED, 0).with_runtime_root(runtime),
+    ];
     w
 }
 

@@ -33,7 +33,9 @@ use crate::featsys::{FlatIndex, PhonFeatureSystem};
 // --- Id newtypes ---------------------------------------------------------------------------
 
 /// Index into [`Grammar::strata`].
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, PartialOrd, Ord)]
+#[derive(
+    Copy, Clone, PartialEq, Eq, Hash, Debug, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub struct StratumId(pub u8);
 
 /// Index into [`Grammar::mrules`] (all morphological rules, grammar-wide).
@@ -117,7 +119,9 @@ pub struct MprFeatureDef {
 
 /// A set of morphological/phonological rule (MPR) features as a bitset. C# models this as
 /// `HashSet<MprFeature>` with UnionWith/Overlaps; sets here are tiny (≤6 members).
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, Default)]
+#[derive(
+    Copy, Clone, PartialEq, Eq, Hash, Debug, Default, serde::Serialize, serde::Deserialize,
+)]
 pub struct MprSet(pub u64);
 
 impl MprSet {

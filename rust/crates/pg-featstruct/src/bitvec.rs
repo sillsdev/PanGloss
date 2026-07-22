@@ -34,7 +34,19 @@ pub const fn full_mask(count: u32) -> u64 {
 
 /// A bit-packed set of allowed symbols for one symbolic feature (port of the `_flags` field of
 /// C# `UlongSymbolicFeatureValueFlags`). Bit `i` corresponds to the `FeatureSymbol` with `Index i`.
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, Default, PartialOrd, Ord)]
+#[derive(
+    Copy,
+    Clone,
+    PartialEq,
+    Eq,
+    Hash,
+    Debug,
+    Default,
+    PartialOrd,
+    Ord,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub struct SymbolBits(pub u64);
 
 impl SymbolBits {

@@ -541,7 +541,7 @@ fn allomorphs_valid_impl(
         // lexical-pattern allomorph the guess was matched against (`Word::guessed_root`), never
         // to `g.allomorph_owners[AllomorphId::GUESSED]`.
         if m.allomorph == AllomorphId::GUESSED {
-            let Some(gr) = w
+            let Some(gr) = m
                 .runtime_root
                 .as_ref()
                 .and_then(|root| match root.as_ref() {

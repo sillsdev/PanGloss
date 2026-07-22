@@ -1145,6 +1145,7 @@ fn attribute_morphs(
                 order,
                 passed_over: m.passed_over.clone(),
                 status: MorphStatus::Real,
+                runtime_root: m.runtime_root.clone(),
             });
         }
     };
@@ -1254,6 +1255,7 @@ fn attribute_morphs(
                     order: FLOATING_ORDER,
                     passed_over: Some(p.into()),
                     status: MorphStatus::Floating,
+                    runtime_root: None,
                 });
             }
         }
@@ -1267,6 +1269,7 @@ fn attribute_morphs(
                     order,
                     passed_over: Some(p.into()),
                     status: MorphStatus::Real,
+                    runtime_root: None,
                 });
             }
         }
@@ -3337,12 +3340,11 @@ fn resolve_non_head_roots(
             nh.syn_fs = root.syn_fs.clone();
             nh.mpr = root.mpr;
             nh.root_allomorph = Some(AllomorphId::GUESSED);
-            nh.runtime_root = Some(std::rc::Rc::new(crate::word::RuntimeRoot::Supplied(root)));
-            nh.morphs = vec![MorphRecord::new(
-                AllomorphId::GUESSED,
-                MorphemeId::GUESSED,
-                0,
-            )];
+            nh.root_runtime_id = Some(root.realization_id.clone());
+            nh.morphs = vec![
+                MorphRecord::new(AllomorphId::GUESSED, MorphemeId::GUESSED, 0)
+                    .with_runtime_root(crate::word::RuntimeRoot::Supplied(root)),
+            ];
             out.push(nh);
             continue;
         };
