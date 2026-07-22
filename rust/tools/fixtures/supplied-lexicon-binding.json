@@ -1,0 +1,7 @@
+{
+  "grammarXml": "<HermitCrabInput><Language><Name>BindingFixture</Name><PartsOfSpeech><PartOfSpeech id=\"posN\"><Name>Noun</Name></PartOfSpeech></PartsOfSpeech><CharacterDefinitionTable id=\"t\"><Name>T</Name><SegmentDefinitions><SegmentDefinition id=\"a\"><Representations><Representation>a</Representation></Representations></SegmentDefinition><SegmentDefinition id=\"b\"><Representations><Representation>b</Representation></Representations></SegmentDefinition></SegmentDefinitions></CharacterDefinitionTable><Strata><Stratum characterDefinitionTable=\"t\"><Name>S</Name><LexicalEntries><LexicalEntry id=\"official-a\" partOfSpeech=\"posN\"><Allomorphs><Allomorph id=\"aa\"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs></LexicalEntry></LexicalEntries></Stratum></Strata></Language></HermitCrabInput>",
+  "stem": "b",
+  "glossLanguage": "en",
+  "gloss": "bee",
+  "invalidAddErrorCode": "invalid_stem"
+}

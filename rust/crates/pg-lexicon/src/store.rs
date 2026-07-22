@@ -1,5 +1,7 @@
 use crate::{ClassCatalog, SignatureId};
-use chrono::{NaiveDateTime, Utc};
+use chrono::NaiveDateTime;
+#[cfg(not(target_arch = "wasm32"))]
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -186,7 +188,24 @@ impl IdSource for OsIdSource {
 pub struct UtcClock;
 impl Clock for UtcClock {
     fn now(&mut self) -> LexicalDate {
-        LexicalDate(Utc::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string())
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            LexicalDate(Utc::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string())
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let date = js_sys::Date::new_0();
+            LexicalDate(format!(
+                "{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:03}",
+                date.get_utc_full_year(),
+                date.get_utc_month() + 1,
+                date.get_utc_date(),
+                date.get_utc_hours(),
+                date.get_utc_minutes(),
+                date.get_utc_seconds(),
+                date.get_utc_milliseconds(),
+            ))
+        }
     }
 }
 

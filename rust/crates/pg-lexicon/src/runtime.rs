@@ -133,6 +133,57 @@ impl SuppliedLexiconRuntime {
             .clone()
     }
 
+    pub fn get(&self, id: &EntryId) -> Option<SuppliedEntry> {
+        self.snapshot()
+            .entries()
+            .iter()
+            .find(|entry| &entry.id == id)
+            .cloned()
+    }
+
+    pub fn list(&self) -> Vec<SuppliedEntry> {
+        self.snapshot().entries().to_vec()
+    }
+
+    pub fn search(&self, request: &crate::SearchRequest) -> Vec<SuppliedEntry> {
+        self.snapshot()
+            .entries()
+            .iter()
+            .filter(|entry| {
+                (request.query.is_empty()
+                    || entry.stem.contains(&request.query)
+                    || entry.gloss.contains(&request.query))
+                    && request
+                        .signature
+                        .as_ref()
+                        .is_none_or(|signature| entry.signatures.contains(signature))
+                    && request.state.as_ref().is_none_or(|state| {
+                        matches!(
+                            (&entry.state, state),
+                            (ValidationState::Active, crate::ValidationStateKind::Active)
+                                | (
+                                    ValidationState::Inactive { .. },
+                                    crate::ValidationStateKind::Inactive
+                                )
+                                | (
+                                    ValidationState::Superseded { .. },
+                                    crate::ValidationStateKind::Superseded
+                                )
+                        )
+                    })
+                    && request.pos.as_ref().is_none_or(|pos| {
+                        entry.signatures.iter().any(|id| {
+                            self.catalog
+                                .resolved(id)
+                                .and_then(|resolved| resolved.signature.pos.as_ref())
+                                .is_some_and(|authored| &authored.id == pos)
+                        })
+                    })
+            })
+            .cloned()
+            .collect()
+    }
+
     pub fn parse_word(&self, word: &str) -> ParseOutcome {
         let snapshot = self.snapshot();
         Morpher::new_with_overlay(&self.grammar, 100_000, snapshot.overlay()).parse_word(word)

@@ -236,6 +236,36 @@ fn json_reads_and_mutations_can_share_a_live_handle() {
     unsafe { hc_grammar_free(handle as HcGrammarHandle) };
 }
 
+#[test]
+fn shared_binding_fixture_normalizes_native_json_contract() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../tools/fixtures/supplied-lexicon-binding.json"
+    ))
+    .unwrap();
+    let handle = load_handle_from_xml(fixture["grammarXml"].as_str().unwrap());
+    let catalog = unsafe { call(hc_lexicon_catalog_json, handle, &json!({})) };
+    let signature = catalog["value"]["signatures"][0]["id"].as_str().unwrap();
+    let invalid = unsafe {
+        call(
+            hc_lexicon_add_json,
+            handle,
+            &json!({"stem":"","gloss":"","signatures":[signature]}),
+        )
+    };
+    assert_eq!(invalid["error"]["code"], fixture["invalidAddErrorCode"]);
+    unsafe { hc_grammar_free(handle) };
+}
+
+fn load_handle_from_xml(xml: &str) -> HcGrammarHandle {
+    let mut handle = std::ptr::null_mut();
+    let mut error = HcError::EMPTY;
+    assert_eq!(
+        unsafe { hc_grammar_load(xml.as_ptr(), xml.len(), &mut handle, &mut error) },
+        HC_OK
+    );
+    handle
+}
+
 unsafe fn call_guide(
     f: unsafe extern "C" fn(HcClassificationGuideHandle, *const u8, usize, *mut HcResultBuf) -> i32,
     guide: HcClassificationGuideHandle,

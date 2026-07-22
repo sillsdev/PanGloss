@@ -4,8 +4,7 @@
 //! `print_realize_lines`) but for a whole run of text at once, tokenized here rather than one
 //! word at a time on a command line.
 //!
-//! P4 (`docs/fst-plan/foma-fst-plan.md` §4 P4, gate F4): `PanGlossGrammar::new` (and
-//! `apply_user_lexicon`, which reloads the grammar) also builds an `pg_foma::composite::FomaAnalyzer`
+//! P4 (`docs/fst-plan/foma-fst-plan.md` §4 P4, gate F4): `PanGlossGrammar::new` also builds an `pg_foma::composite::FomaAnalyzer`
 //! for the grammar; `analyze_text` routes each word through it when present. A grammar whose
 //! emitted lexc source fails to foma-compile falls back automatically to the full engine (logged,
 //! see [`log_foma_fallback`]) — see [`FomaState`]'s doc for why the compiled proposer is stored as
@@ -16,7 +15,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use pg_grammar::model::{Grammar, MorphRuleDef};
-use pg_parse::{Morpher, WordAnalysis};
+use pg_parse::WordAnalysis;
 use pg_realize::{gloss_bundle, leipzig, to_ir, RealizeMap, Realizer, TableRealizer};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
@@ -30,6 +29,7 @@ pub fn start() {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 struct AnalysisOut {
     /// Leipzig-style gloss, e.g. `1-child` (`pg_realize::leipzig`).
     leipzig: String,
@@ -41,6 +41,7 @@ struct AnalysisOut {
     residue: Vec<String>,
     /// True if this analysis came from the guess-root fallback (word absent from the lexicon).
     guessed: bool,
+    provenance: pg_parse::AnalysisProvenance,
     /// One entry per surface morpheme, same order as `pg_realize::GlossBundle.tokens` (which is
     /// itself `WordAnalysis.morpheme_ids` order) — each morpheme's `<Property name="ID">` value
     /// from the HermitCrab XML if it has one, `None` otherwise (guessed roots and any morpheme
@@ -57,6 +58,7 @@ struct AnalysisOut {
 /// `from_cache`) that must NOT be cached (a cache hit's `parse_ms` is always ~0, not the original
 /// call's timing).
 #[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 struct CachedWord {
     /// Overlay revision that produced this record. A caller-provided record is reusable only when
     /// it exactly matches the handle's current revision.
@@ -79,6 +81,7 @@ struct CachedWord {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct TokenOut {
     /// `"word"` for a token that went through morphological analysis, `"other"` for whitespace/
     /// punctuation/digits passed through verbatim (see [`tokenize`]).
@@ -113,6 +116,7 @@ struct TokenOut {
 /// returned — words already present in the `cache` argument aren't echoed back, since the caller
 /// already has them.
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct AnalyzeTextResult {
     tokens: Vec<TokenOut>,
     new_cache_entries: HashMap<String, CachedWord>,
@@ -181,18 +185,23 @@ fn log_foma_fallback(msg: &str) {
 /// names — shared by both engine paths in [`PanGlossGrammar::analyze_text`] so the
 /// gloss/leipzig/realize construction (which neither knows nor cares which engine produced
 /// `structured`) is written once.
-fn build_cached_word(
-    grammar: &Grammar,
-    realize_map: &RealizeMap,
-    realizer: &TableRealizer,
-    lower: &str,
+struct CacheAnalysis {
     structured: Vec<WordAnalysis>,
     capped: bool,
     invalid_shape: bool,
     candidates_generated: usize,
     overlay_revision: pg_lexicon::Revision,
+}
+
+fn build_cached_word(
+    grammar: &Grammar,
+    realize_map: &RealizeMap,
+    realizer: &TableRealizer,
+    lower: &str,
+    analysis: CacheAnalysis,
 ) -> CachedWord {
-    let analyses: Vec<AnalysisOut> = structured
+    let analyses: Vec<AnalysisOut> = analysis
+        .structured
         .iter()
         .map(|wa| {
             let bundle = gloss_bundle(grammar, wa);
@@ -215,17 +224,18 @@ fn build_cached_word(
                 complete: realization.complete,
                 residue: realization.residue,
                 guessed: wa.guessed,
+                provenance: wa.provenance.clone(),
                 morpheme_ids,
             }
         })
         .collect();
     CachedWord {
-        overlay_revision,
+        overlay_revision: analysis.overlay_revision,
         candidates_accepted: analyses.len(),
         analyses,
-        capped,
-        invalid_shape,
-        candidates_generated,
+        capped: analysis.capped,
+        invalid_shape: analysis.invalid_shape,
+        candidates_generated: analysis.candidates_generated,
     }
 }
 
@@ -233,16 +243,6 @@ fn build_cached_word(
 /// JS makes one object per grammar and calls [`PanGlossGrammar::analyze_text`] on it repeatedly.
 #[wasm_bindgen]
 pub struct PanGlossGrammar {
-    /// The PRISTINE grammar XML text this instance was constructed from — never mutated, never
-    /// replaced with an augmented copy. [`PanGlossGrammar::apply_user_lexicon`] always re-augments
-    /// from this original text (via `pg_lexicon::augment_xml`), so accumulated user-lexicon
-    /// entries are re-spliced from scratch on every call rather than compounding onto a
-    /// previously-augmented document.
-    xml: String,
-    /// The optional per-grammar `pg_realize::RealizeMap` sidecar this instance was constructed
-    /// with, kept so [`build_realize_map`] can be re-run (with the same sidecar) after
-    /// [`PanGlossGrammar::apply_user_lexicon`] reloads the grammar.
-    realize_toml: Option<String>,
     grammar: Arc<Grammar>,
     runtime: pg_lexicon::SuppliedLexiconRuntime,
     realize_map: RealizeMap,
@@ -253,8 +253,7 @@ pub struct PanGlossGrammar {
     /// compilation failed (see `foma_diagnostic`) or (transiently, mid-`analyze_text`) while the
     /// pieces are checked out to build this call's `FomaAnalyzer`.
     foma: Option<FomaState>,
-    /// `Some` iff the most recent attempt to build `foma` (construction, or the last
-    /// `apply_user_lexicon` reload) failed — the human-readable reason, surfaced to JS via
+    /// `Some` iff construction failed to build `foma` — the human-readable reason, surfaced to JS via
     /// [`PanGlossGrammar::engine_diagnostic`]. `None` once foma is active.
     foma_diagnostic: Option<String>,
 }
@@ -285,9 +284,7 @@ fn affix_glosses(grammar: &Grammar) -> Vec<String> {
 /// [`pg_realize::infer_english`] over the grammar's own affix-morpheme glosses (see
 /// [`affix_glosses`]) as the base, then, if `realize_toml` is `Some` and non-empty, parse it and
 /// let it override the base per-key (`RealizeMap::extend_overriding` — sidecar wins). Shared by
-/// [`PanGlossGrammar::new`] and [`PanGlossGrammar::apply_user_lexicon`] (the latter re-runs this
-/// against the freshly-reloaded grammar, with the same original sidecar text, after every
-/// add-to-dictionary splice).
+/// [`PanGlossGrammar::new`].
 fn build_realize_map(grammar: &Grammar, realize_toml: Option<&str>) -> Result<RealizeMap, JsValue> {
     let glosses = affix_glosses(grammar);
     let mut map = pg_realize::infer_english(glosses.iter().map(String::as_str));
@@ -317,8 +314,6 @@ impl PanGlossGrammar {
         let runtime = pg_lexicon::SuppliedLexiconRuntime::new(grammar.clone(), xml)
             .map_err(|e| js_err("initialize supplied lexicon", &e))?;
         Ok(PanGlossGrammar {
-            xml: xml.to_string(),
-            realize_toml,
             grammar,
             runtime,
             realize_map,
@@ -445,11 +440,13 @@ impl PanGlossGrammar {
                             &self.realize_map,
                             &self.realizer,
                             &lexical,
-                            structured,
-                            capped,
-                            invalid_shape,
-                            candidates_generated,
-                            overlay_revision,
+                            CacheAnalysis {
+                                structured,
+                                capped,
+                                invalid_shape,
+                                candidates_generated,
+                                overlay_revision,
+                            },
                         );
                         new_cache_entries.insert(lexical.clone(), fresh.clone());
                         (fresh, false, elapsed)
@@ -496,92 +493,278 @@ impl PanGlossGrammar {
             .map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
-    /// Enumerate this grammar's distinct `(POS, inflection-class)` candidate groups
-    /// (`pg_lexicon::candidate_classes`) — the "add to dictionary" flow's class picker.
-    #[wasm_bindgen(js_name = candidateClasses)]
-    pub fn candidate_classes(&self) -> Result<JsValue, JsValue> {
-        let classes = pg_lexicon::candidate_classes(&self.grammar);
-        let serializer = serde_wasm_bindgen::Serializer::json_compatible();
-        classes
-            .serialize(&serializer)
-            .map_err(|e| JsValue::from_str(&e.to_string()))
+    #[wasm_bindgen(js_name = classCatalog)]
+    pub fn class_catalog(&self) -> Result<JsValue, JsValue> {
+        let snapshot = self.runtime.snapshot();
+        to_js(&CatalogOut {
+            signatures: self.runtime.catalog().signatures(),
+            revision: snapshot.revision(),
+        })
     }
 
-    /// Synthesize comparison forms (bare stem + a few inflected forms) for `shape` against each of
-    /// `classKeys` (a JS array of [`pg_lexicon::ClassCandidate::key`] strings), so the user can
-    /// compare against real text they've seen and pick the right inflection class. Throws a
-    /// friendly message (via `pg_lexicon::validate_shape`) if `shape` contains characters outside
-    /// this grammar's writing system.
-    #[wasm_bindgen(js_name = disambiguatingForms)]
-    pub fn disambiguating_forms(
-        &self,
-        shape: &str,
-        class_keys: JsValue,
-        max_per_class: usize,
-    ) -> Result<JsValue, JsValue> {
-        pg_lexicon::validate_shape(&self.grammar, shape).map_err(|msg| JsValue::from_str(&msg))?;
-
-        let requested: Vec<String> = serde_wasm_bindgen::from_value(class_keys)
-            .map_err(|e| JsValue::from_str(&e.to_string()))?;
-
-        let all_candidates = pg_lexicon::candidate_classes(&self.grammar);
-        let filtered: Vec<_> = requested
-            .iter()
-            .filter_map(|key| all_candidates.iter().find(|c| &c.key == key).cloned())
-            .collect();
-
-        let morpher = Morpher::new(&self.grammar, usize::MAX);
-        let forms = pg_lexicon::disambiguating_forms(
-            &self.grammar,
-            &morpher,
-            shape,
-            &filtered,
-            max_per_class,
-        );
-
-        let serializer = serde_wasm_bindgen::Serializer::json_compatible();
-        forms
-            .serialize(&serializer)
-            .map_err(|e| JsValue::from_str(&e.to_string()))
+    #[wasm_bindgen(js_name = addSuppliedEntry)]
+    pub fn add_supplied_entry(&self, request: JsValue) -> Result<JsValue, JsValue> {
+        to_js(&self.runtime.add(from_js(request)?).map_err(structured_js)?)
     }
 
-    /// Splice every entry in `lexiconJson` (a JS-serialized [`pg_lexicon::UserLexicon`]) into a
-    /// fresh copy of the ORIGINAL grammar XML (`self.xml`, never the previously-augmented text —
-    /// see [`PanGlossGrammar::xml`]'s doc), reload it, rebuild the realize map against the
-    /// reloaded grammar, and replace `self.grammar`/`self.realize_map` in place so future
-    /// [`PanGlossGrammar::analyze_text`] calls recognize the new words. Returns the
-    /// [`pg_lexicon::AugmentReport`] (`{ skipped: string[] }`) so the caller can surface any
-    /// entries that couldn't be spliced in (stale class key, invalid shape, missing exemplar).
-    #[wasm_bindgen(js_name = applyUserLexicon)]
-    pub fn apply_user_lexicon(&mut self, lexicon_json: JsValue) -> Result<JsValue, JsValue> {
-        let lexicon: pg_lexicon::UserLexicon = serde_wasm_bindgen::from_value(lexicon_json)
-            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    #[wasm_bindgen(js_name = getSuppliedEntry)]
+    pub fn get_supplied_entry(&self, id: &str) -> Result<JsValue, JsValue> {
+        let id = pg_lexicon::EntryId::parse(id).map_err(structured_js)?;
+        let entry = self
+            .runtime
+            .get(&id)
+            .ok_or_else(|| structured_js(api_error("entry_not_found", "entry not found")))?;
+        to_js(&entry)
+    }
 
-        let candidates = pg_lexicon::candidate_classes(&self.grammar);
-        let (new_xml, report) =
-            pg_lexicon::augment_xml(&self.xml, &self.grammar, &lexicon, &candidates)
-                .map_err(|msg| JsValue::from_str(&msg))?;
+    #[wasm_bindgen(js_name = listSuppliedEntries)]
+    pub fn list_supplied_entries(&self) -> Result<JsValue, JsValue> {
+        to_js(&self.runtime.list())
+    }
 
-        let new_grammar =
-            Arc::new(pg_grammar::load(&new_xml).map_err(|e| js_err("load grammar", &e))?);
-        let new_realize_map = build_realize_map(&new_grammar, self.realize_toml.as_deref())?;
-        // The spliced-in entries change the lexicon the foma net was compiled from, so the
-        // proposer must be recompiled from scratch here too (plan P4) -- otherwise newly-added
-        // words would confirm via the full-engine guess-root retry forever, never via foma.
-        let (new_foma, new_foma_diagnostic) = init_foma(&new_grammar);
-        let new_runtime = pg_lexicon::SuppliedLexiconRuntime::new(new_grammar.clone(), &new_xml)
-            .map_err(|e| js_err("initialize supplied lexicon", &e))?;
+    #[wasm_bindgen(js_name = searchSuppliedEntries)]
+    pub fn search_supplied_entries(&self, request: JsValue) -> Result<JsValue, JsValue> {
+        let request: pg_lexicon::SearchRequest = from_js(request)?;
+        to_js(&self.runtime.search(&request))
+    }
 
-        self.grammar = new_grammar;
-        self.runtime = new_runtime;
-        self.realize_map = new_realize_map;
-        self.foma = new_foma;
-        self.foma_diagnostic = new_foma_diagnostic;
+    #[wasm_bindgen(js_name = updateSuppliedEntry)]
+    pub fn update_supplied_entry(&self, request: JsValue) -> Result<JsValue, JsValue> {
+        to_js(
+            &self
+                .runtime
+                .update(from_js(request)?)
+                .map_err(structured_js)?,
+        )
+    }
 
-        let serializer = serde_wasm_bindgen::Serializer::json_compatible();
-        report
-            .serialize(&serializer)
-            .map_err(|e| JsValue::from_str(&e.to_string()))
+    #[wasm_bindgen(js_name = removeSuppliedEntry)]
+    pub fn remove_supplied_entry(&self, request: JsValue) -> Result<JsValue, JsValue> {
+        to_js(
+            &self
+                .runtime
+                .remove(from_js(request)?)
+                .map_err(structured_js)?,
+        )
+    }
+
+    #[wasm_bindgen(js_name = clearSuppliedEntries)]
+    pub fn clear_supplied_entries(&self, request: JsValue) -> Result<JsValue, JsValue> {
+        to_js(
+            &self
+                .runtime
+                .clear(from_js(request)?)
+                .map_err(structured_js)?,
+        )
+    }
+
+    #[wasm_bindgen(js_name = setGlossLanguage)]
+    pub fn set_gloss_language(&self, request: JsValue) -> Result<JsValue, JsValue> {
+        to_js(
+            &self
+                .runtime
+                .set_gloss_language(from_js(request)?)
+                .map_err(structured_js)?,
+        )
+    }
+
+    #[wasm_bindgen(js_name = setEntryAuthority)]
+    pub fn set_entry_authority(&self, request: JsValue) -> Result<JsValue, JsValue> {
+        to_js(
+            &self
+                .runtime
+                .set_authority(from_js(request)?)
+                .map_err(structured_js)?,
+        )
+    }
+
+    #[wasm_bindgen(js_name = exportSuppliedLexicon)]
+    pub fn export_supplied_lexicon(&self) -> Result<JsValue, JsValue> {
+        to_js(&self.runtime.export_document())
+    }
+
+    #[wasm_bindgen(js_name = importSuppliedLexicon)]
+    pub fn import_supplied_lexicon(&self, request: JsValue) -> Result<JsValue, JsValue> {
+        to_js(
+            &self
+                .runtime
+                .import(from_js(request)?)
+                .map_err(structured_js)?,
+        )
+    }
+
+    #[wasm_bindgen(js_name = classificationMatrix)]
+    pub fn classification_matrix(&self, request: JsValue) -> Result<JsValue, JsValue> {
+        let request = from_js(request)?;
+        let matrix = pg_lexicon::classify(&self.grammar, self.runtime.catalog(), request)
+            .map_err(structured_js)?;
+        to_js(&matrix)
+    }
+
+    #[wasm_bindgen(js_name = analyzeWord)]
+    pub fn analyze_word(&mut self, word: &str) -> Result<JsValue, JsValue> {
+        let outcome = self.analyze_unified(word);
+        to_js(&UnifiedAnalysisOut::from(outcome))
+    }
+}
+
+impl PanGlossGrammar {
+    fn analyze_unified(&mut self, word: &str) -> pg_lexicon::UnifiedAnalysis {
+        let official = self.foma.take().map(|state| {
+            let mut analyzer = pg_foma::composite::FomaAnalyzer::from_cached(
+                &self.grammar,
+                state.proposer,
+                state.peeler,
+                state.owners,
+            );
+            let outcome = analyzer.analyze_word(word);
+            let (proposer, peeler, owners) = analyzer.into_parts();
+            self.foma = Some(FomaState {
+                proposer,
+                peeler,
+                owners,
+            });
+            pg_lexicon::OfficialOutcome {
+                analyses: outcome.analyses,
+                structured: outcome.structured,
+                candidates_generated: outcome.candidates_generated,
+            }
+        });
+        self.runtime.analyze_word(word, official)
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CatalogOut<'a> {
+    signatures: &'a [pg_lexicon::ClassSignature],
+    revision: &'a pg_lexicon::Revision,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UnifiedAnalysisOut {
+    analyses: Vec<(String, String)>,
+    structured: Vec<StructuredAnalysisOut>,
+    capped: bool,
+    invalid_shape: bool,
+    timed_out: bool,
+    guessed: bool,
+    candidates_generated: usize,
+    revision: pg_lexicon::Revision,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StructuredAnalysisOut {
+    morpheme_ids: Vec<u32>,
+    root_morpheme_index: i32,
+    pos_id: Option<u32>,
+    guessed: bool,
+    provenance: pg_parse::AnalysisProvenance,
+    supplied_root: Option<pg_parse::SuppliedRoot>,
+}
+
+impl From<pg_lexicon::UnifiedAnalysis> for UnifiedAnalysisOut {
+    fn from(value: pg_lexicon::UnifiedAnalysis) -> Self {
+        Self {
+            analyses: value.analyses,
+            structured: value
+                .structured
+                .into_iter()
+                .map(|analysis| StructuredAnalysisOut {
+                    morpheme_ids: analysis.morpheme_ids,
+                    root_morpheme_index: analysis.root_morpheme_index,
+                    pos_id: analysis.pos_id,
+                    guessed: analysis.guessed,
+                    provenance: analysis.provenance,
+                    supplied_root: analysis.supplied_root,
+                })
+                .collect(),
+            capped: value.capped,
+            invalid_shape: value.invalid_shape,
+            timed_out: value.timed_out,
+            guessed: value.guessed,
+            candidates_generated: value.candidates_generated,
+            revision: value.revision,
+        }
+    }
+}
+
+fn from_js<T: serde::de::DeserializeOwned>(value: JsValue) -> Result<T, JsValue> {
+    serde_wasm_bindgen::from_value(value).map_err(|error| {
+        structured_js(pg_lexicon::StructuredError {
+            code: "invalid_json".into(),
+            message: "request does not match the PanGloss JSON schema".into(),
+            details: serde_json::json!({"error":error.to_string()}),
+        })
+    })
+}
+
+fn to_js<T: Serialize + ?Sized>(value: &T) -> Result<JsValue, JsValue> {
+    value
+        .serialize(&serde_wasm_bindgen::Serializer::json_compatible())
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+
+fn structured_js(error: pg_lexicon::StructuredError) -> JsValue {
+    to_js(&error).unwrap_or_else(|serialization| serialization)
+}
+
+fn api_error(code: &str, message: &str) -> pg_lexicon::StructuredError {
+    pg_lexicon::StructuredError {
+        code: code.into(),
+        message: message.into(),
+        details: serde_json::Value::Null,
+    }
+}
+
+#[wasm_bindgen]
+pub struct ClassificationGuide {
+    inner: pg_lexicon::ClassificationGuide,
+}
+
+#[wasm_bindgen]
+impl ClassificationGuide {
+    #[wasm_bindgen(constructor)]
+    pub fn new(matrix: JsValue) -> Result<ClassificationGuide, JsValue> {
+        Ok(Self {
+            inner: pg_lexicon::ClassificationGuide::new(from_js(matrix)?),
+        })
+    }
+
+    pub fn answer(&mut self, form_id: &str, judgment: JsValue) -> Result<(), JsValue> {
+        self.inner
+            .answer(form_id, from_js(judgment)?)
+            .map_err(structured_js)
+    }
+
+    pub fn undo(&mut self) -> bool {
+        self.inner.undo()
+    }
+
+    #[wasm_bindgen(js_name = remainingSignatures)]
+    pub fn remaining_signatures(&self) -> Result<JsValue, JsValue> {
+        to_js(&self.inner.remaining_signatures())
+    }
+
+    #[wasm_bindgen(js_name = nextForm)]
+    pub fn next_form(&self) -> Result<JsValue, JsValue> {
+        to_js(&self.inner.next_form())
+    }
+
+    #[wasm_bindgen(js_name = allUsefulForms)]
+    pub fn all_useful_forms(&self) -> Result<JsValue, JsValue> {
+        to_js(&self.inner.all_useful_forms())
+    }
+
+    #[wasm_bindgen(js_name = finalSelection)]
+    pub fn final_selection(&self) -> Result<JsValue, JsValue> {
+        to_js(&self.inner.final_selection())
+    }
+
+    pub fn matrix(&self) -> Result<JsValue, JsValue> {
+        to_js(self.inner.matrix())
     }
 }
 
@@ -813,7 +996,7 @@ mod tests {
             foma_state.peeler,
             foma_state.owners,
         );
-        let morpher = Morpher::new(&grammar, usize::MAX);
+        let morpher = pg_parse::Morpher::new(&grammar, usize::MAX);
         let opts = pg_parse::ParseOptions::default();
 
         let words_text = std::fs::read_to_string(&words_path).expect("read words file");

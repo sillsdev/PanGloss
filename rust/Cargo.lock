@@ -647,6 +647,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "getrandom",
+ "js-sys",
  "pg-featstruct",
  "pg-grammar",
  "pg-parse",
@@ -737,6 +738,7 @@ dependencies = [
  "pg-realize",
  "serde",
  "serde-wasm-bindgen",
+ "serde_json",
  "wasm-bindgen",
  "web-sys",
  "web-time",

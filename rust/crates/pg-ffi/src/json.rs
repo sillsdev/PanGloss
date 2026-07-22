@@ -180,62 +180,17 @@ grammar_api!(hc_lexicon_export_json, Empty, |h, _| Ok(h
 grammar_api!(hc_lexicon_import_json, ImportRequest, |h, r| h
     .runtime
     .import(r));
-grammar_api!(hc_lexicon_list_json, Empty, |h, _| Ok(h
-    .runtime
-    .snapshot()
-    .entries()
-    .to_vec()));
+grammar_api!(hc_lexicon_list_json, Empty, |h, _| Ok(h.runtime.list()));
 grammar_api!(hc_lexicon_get_json, IdRequest, |h, r| h
     .runtime
-    .snapshot()
-    .entries()
-    .iter()
-    .find(|e| e.id == r.id)
-    .cloned()
+    .get(&r.id)
     .ok_or_else(|| error(
         "entry_not_found",
         "entry not found",
         Value::Null
     )));
 grammar_api!(hc_lexicon_search_json, SearchRequest, |h, r| {
-    let entries = h
-        .runtime
-        .snapshot()
-        .entries()
-        .iter()
-        .filter(|e| {
-            (r.query.is_empty() || e.stem.contains(&r.query) || e.gloss.contains(&r.query))
-                && r.signature
-                    .as_ref()
-                    .is_none_or(|s| e.signatures.contains(s))
-                && r.state.as_ref().is_none_or(|s| {
-                    matches!(
-                        (&e.state, s),
-                        (
-                            pg_lexicon::ValidationState::Active,
-                            pg_lexicon::ValidationStateKind::Active,
-                        ) | (
-                            pg_lexicon::ValidationState::Inactive { .. },
-                            pg_lexicon::ValidationStateKind::Inactive,
-                        ) | (
-                            pg_lexicon::ValidationState::Superseded { .. },
-                            pg_lexicon::ValidationStateKind::Superseded,
-                        )
-                    )
-                })
-                && r.pos.as_ref().is_none_or(|pos| {
-                    e.signatures.iter().any(|id| {
-                        h.runtime
-                            .catalog()
-                            .resolved(id)
-                            .and_then(|x| x.signature.pos.as_ref())
-                            .is_some_and(|p| &p.id == pos)
-                    })
-                })
-        })
-        .cloned()
-        .collect::<Vec<_>>();
-    Ok(entries)
+    Ok(h.runtime.search(&r))
 });
 grammar_api!(
     hc_classification_matrix_json,
