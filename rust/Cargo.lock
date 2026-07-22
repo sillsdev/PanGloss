@@ -561,6 +561,7 @@ version = "0.1.0"
 dependencies = [
  "hashbrown 0.15.5",
  "serde",
+ "serde_json",
  "smallvec",
 ]
 

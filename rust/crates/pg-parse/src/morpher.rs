@@ -870,10 +870,9 @@ impl<'g> Morpher<'g> {
                     m.runtime_root
                         .as_deref()
                         .map(|root| match root {
-                            RuntimeRoot::Guessed(gr) => Some(gr.text.clone()),
-                            RuntimeRoot::Supplied(root) => Some(root.lexical_spelling.clone()),
+                            RuntimeRoot::Guessed(gr) => gr.text.clone(),
+                            RuntimeRoot::Supplied(root) => root.lexical_spelling.clone(),
                         })
-                        .flatten()
                         .unwrap_or_default()
                 } else {
                     g.morphemes[m.morpheme.0 as usize]

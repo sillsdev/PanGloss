@@ -47,9 +47,38 @@ pub enum FeatureValue {
 /// or [`FeatureStruct::EMPTY`]. Grammar-tier instances are interned to `FsId` so equality
 /// on the hot path is an integer compare; this type's own `Eq`/`Hash` are what the
 /// interner pays once per distinct value.
-#[derive(Clone, PartialEq, Eq, Hash, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug, Default, serde::Serialize)]
 pub struct FeatureStruct {
     entries: Vec<(FeatId, FeatureValue)>,
+}
+
+impl<'de> serde::Deserialize<'de> for FeatureStruct {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(serde::Deserialize)]
+        struct WireFeatureStruct {
+            entries: Vec<(FeatId, FeatureValue)>,
+        }
+
+        let wire = WireFeatureStruct::deserialize(deserializer)?;
+        let mut builder = FeatureStructBuilder::new();
+        for (feat, value) in wire.entries {
+            if builder
+                .entries
+                .binary_search_by_key(&feat, |(existing, _)| *existing)
+                .is_ok()
+            {
+                return Err(serde::de::Error::custom(format_args!(
+                    "duplicate feature {}",
+                    feat.0
+                )));
+            }
+            builder.add(feat, value);
+        }
+        Ok(builder.build())
+    }
 }
 
 impl FeatureStruct {
@@ -115,6 +144,11 @@ impl FeatureStructBuilder {
 mod tests {
     use super::*;
 
+    const OUT_OF_ORDER: &str = r#"{"entries":[[3,{"Symbolic":2}],[1,{"Symbolic":1}]]}"#;
+    const DUPLICATE: &str = r#"{"entries":[[1,{"Symbolic":1}],[1,{"Symbolic":2}]]}"#;
+    const NESTED_DUPLICATE: &str =
+        r#"{"entries":[[1,{"Complex":{"entries":[[2,{"Symbolic":1}],[2,{"Symbolic":2}]]}}]]}"#;
+
     #[test]
     fn builder_sorts_and_dedups() {
         let mut b = FeatureStructBuilder::new();
@@ -140,5 +174,40 @@ mod tests {
         b.add(FeatId(2), FeatureValue::Complex(FeatureStruct::EMPTY));
         b.add(FeatId(1), FeatureValue::Symbolic(SymbolBits(1)));
         assert_eq!(a.build(), b.build());
+    }
+
+    #[test]
+    fn deserialize_canonicalizes_out_of_order_entries() {
+        let fs: FeatureStruct = serde_json::from_str(OUT_OF_ORDER).unwrap();
+        assert_eq!(
+            fs.entries()
+                .iter()
+                .map(|(feat, _)| feat.0)
+                .collect::<Vec<_>>(),
+            vec![1, 3]
+        );
+    }
+
+    #[test]
+    fn deserialize_rejects_duplicate_features() {
+        let error = serde_json::from_str::<FeatureStruct>(DUPLICATE).unwrap_err();
+        assert!(error.to_string().contains("duplicate feature 1"));
+    }
+
+    #[test]
+    fn deserialize_rejects_duplicates_in_nested_complex_values() {
+        let error = serde_json::from_str::<FeatureStruct>(NESTED_DUPLICATE).unwrap_err();
+        assert!(error.to_string().contains("duplicate feature 2"));
+    }
+
+    #[test]
+    fn serde_round_trip_preserves_the_public_wire_shape() {
+        let fs: FeatureStruct = serde_json::from_str(OUT_OF_ORDER).unwrap();
+        let json = serde_json::to_string(&fs).unwrap();
+        assert_eq!(
+            json,
+            r#"{"entries":[[1,{"Symbolic":1}],[3,{"Symbolic":2}]]}"#
+        );
+        assert_eq!(serde_json::from_str::<FeatureStruct>(&json).unwrap(), fs);
     }
 }
