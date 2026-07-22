@@ -1305,12 +1305,20 @@ impl<'g> Morpher<'g> {
                     ];
                 seed.morphological_rule_unapplied(false, None);
                 seed.non_head_unapplied(non_head);
-            } else if let Some(GenMorpheme::Rule(rule)) =
-                resolve_other(g, MorphemeId(wa.morpheme_ids[i]))
-            {
-                seed.morphological_rule_unapplied(is_realizational_rule(g, rule), Some(rule));
             } else {
-                return Vec::new();
+                match resolve_other(g, MorphemeId(wa.morpheme_ids[i])) {
+                    Some(GenMorpheme::Rule(rule)) => seed
+                        .morphological_rule_unapplied(is_realizational_rule(g, rule), Some(rule)),
+                    Some(GenMorpheme::NonHead(entry)) => {
+                        seed.morphological_rule_unapplied(false, None);
+                        seed.non_head_unapplied(self.build_root_seed(
+                            entry,
+                            0,
+                            FeatureStruct::EMPTY,
+                        ));
+                    }
+                    None => return Vec::new(),
+                }
             }
         }
         let mut words = std::collections::BTreeSet::new();

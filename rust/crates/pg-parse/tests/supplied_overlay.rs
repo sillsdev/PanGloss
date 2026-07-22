@@ -279,6 +279,48 @@ fn supplied_roots_participate_as_compound_heads_and_non_heads() {
 }
 
 #[test]
+fn nested_compound_with_supplied_and_official_non_heads_round_trips() {
+    let rule = r#"<CompoundingRule id="mrC"><Name>rule1</Name><CompoundingSubrules><CompoundingSubrule><HeadMorphologicalInput><PhoneticSequence id="head"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></HeadMorphologicalInput><NonHeadMorphologicalInput><PhoneticSequence id="nonHead"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></NonHeadMorphologicalInput><MorphologicalOutput><CopyFromInput index="head" /><InsertSegments><PhoneticShape>+</PhoneticShape></InsertSegments><CopyFromInput index="nonHead" /></MorphologicalOutput></CompoundingSubrule></CompoundingSubrules></CompoundingRule>"#;
+    let g = csharp_port_common::build_morph_grammar(rule, "mrC");
+    let supplied_model = &g.entries[csharp_port_common::lex_entry_id(&g, "8").0 as usize];
+    let official_non_head = &g.entries[csharp_port_common::lex_entry_id(&g, "46").0 as usize];
+    let overlay = SuppliedRootOverlay::build(
+        &g,
+        vec![SuppliedRoot {
+            entry_id: "pgl_nonhead".into(),
+            realization_id: "pgl_nonhead:sig-n".into(),
+            lexical_spelling: "das".into(),
+            gloss: "supplied non-head".into(),
+            syn_fs: g.fs_interner.get(supplied_model.syn_fs).clone(),
+            mpr: supplied_model.mpr,
+            stratum: StratumId(0),
+            authority: RootAuthority::Supplied,
+        }],
+    )
+    .unwrap();
+    let m = Morpher::new_with_overlay(&g, 100_000, &overlay);
+    let mut analysis = m
+        .parse_word("pʰutdas")
+        .structured
+        .into_iter()
+        .find(|analysis| {
+            analysis
+                .morpheme_roots
+                .iter()
+                .flatten()
+                .any(|root| root.entry_id == "pgl_nonhead")
+        })
+        .expect("official-head/supplied-nonhead compound analysis");
+    analysis.morpheme_ids.push(official_non_head.morpheme.0);
+    analysis.morpheme_roots.push(None);
+
+    assert_eq!(
+        m.generate_words_from_analysis(&analysis),
+        vec!["pʰutbupudas".to_string()]
+    );
+}
+
+#[test]
 fn override_suppresses_official_and_removal_restores_it() {
     let g = grammar();
     let overlay = SuppliedRootOverlay::build(
