@@ -5,3 +5,4 @@
 /samples/data/*-words.txt
 /samples/data/*.fwdata
 /samples/data/*.json
+/.worktrees/
