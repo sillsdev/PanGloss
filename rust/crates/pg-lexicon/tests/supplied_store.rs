@@ -8,6 +8,16 @@ impl IdSource for IDs {
         Ok([b; 16])
     }
 }
+struct FailIDs;
+impl IdSource for FailIDs {
+    fn next_128(&mut self) -> Result<[u8; 16], StructuredError> {
+        Err(StructuredError {
+            code: "entropy_failure".into(),
+            message: "no entropy".into(),
+            details: serde_json::json!({"source":"test"}),
+        })
+    }
+}
 struct Times(Vec<&'static str>);
 impl Clock for Times {
     fn now(&mut self) -> LexicalDate {
@@ -37,6 +47,17 @@ fn add(
         signatures: vec![SignatureId::parse(&format!("sig_{}", "0".repeat(64))).unwrap()],
         expected_revision: None,
     })
+}
+fn reject_z(s: &str) -> Result<(), String> {
+    if s.contains('z') {
+        Err("outside writing system".into())
+    } else {
+        Ok(())
+    }
+}
+fn catalog() -> ClassCatalog {
+    let x = r#"<HermitCrabInput><Language><Name>T</Name><PartsOfSpeech><PartOfSpeech id="n"><Name>n</Name></PartOfSpeech><PartOfSpeech id="v"><Name>v</Name></PartOfSpeech></PartsOfSpeech><CharacterDefinitionTable id="t"><Name>T</Name><SegmentDefinitions><SegmentDefinition id="a"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions></CharacterDefinitionTable><Strata><Stratum characterDefinitionTable="t"><Name>S</Name><LexicalEntries><LexicalEntry id="en" partOfSpeech="n"><Allomorphs><Allomorph id="an"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs></LexicalEntry><LexicalEntry id="ev" partOfSpeech="v"><Allomorphs><Allomorph id="av"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs></LexicalEntry></LexicalEntries></Stratum></Strata></Language></HermitCrabInput>"#;
+    ClassCatalog::from_grammar(&pg_grammar::load(x).unwrap()).unwrap()
 }
 
 #[test]
@@ -79,6 +100,94 @@ fn production_sources_generate_valid_values() {
 }
 
 #[test]
+fn id_source_failure_is_atomic() {
+    let mut st = SuppliedLexiconStore::new(FailIDs, Times(vec!["2026-07-22 12:00:00.123"]));
+    let revision = st.revision().clone();
+    let sig = SignatureId::parse(&format!("sig_{}", "0".repeat(64))).unwrap();
+    assert_eq!(
+        st.add(AddRequest {
+            stem: "a".into(),
+            gloss: "".into(),
+            signatures: vec![sig],
+            expected_revision: None
+        })
+        .unwrap_err()
+        .code,
+        "entropy_failure"
+    );
+    assert_eq!(st.revision(), &revision);
+    assert!(st.list().is_empty());
+}
+
+#[test]
+fn catalog_and_shape_validation_precede_id_allocation_and_pos_search_is_exact() {
+    let c = catalog();
+    let mut st = SuppliedLexiconStore::new_validated(
+        IDs(0),
+        Times(vec!["2026-07-22 12:00:00.123"]),
+        &c,
+        reject_z,
+    );
+    let unknown = SignatureId::parse(&format!("sig_{}", "f".repeat(64))).unwrap();
+    let unknown_error = st
+        .add(AddRequest {
+            stem: "a".into(),
+            gloss: "".into(),
+            signatures: vec![unknown.clone()],
+            expected_revision: None,
+        })
+        .unwrap_err();
+    assert_eq!(unknown_error.code, "unknown_signature");
+    assert_eq!(unknown_error.details["signatureIds"][0], unknown.as_str());
+    let n = c
+        .signatures()
+        .iter()
+        .find(|s| s.pos.as_ref().unwrap().id == "n")
+        .unwrap()
+        .id
+        .clone();
+    assert_eq!(
+        st.add(AddRequest {
+            stem: "z".into(),
+            gloss: "".into(),
+            signatures: vec![n.clone()],
+            expected_revision: None
+        })
+        .unwrap_err()
+        .code,
+        "invalid_shape"
+    );
+    let e = st
+        .add(AddRequest {
+            stem: "a".into(),
+            gloss: "".into(),
+            signatures: vec![n],
+            expected_revision: None,
+        })
+        .unwrap()
+        .value;
+    assert_eq!(e.id, EntryId::from_bytes([0; 16]));
+    assert_eq!(
+        st.search(&SearchRequest {
+            query: "".into(),
+            signature: None,
+            state: Some(ValidationStateKind::Active),
+            pos: Some("n".into())
+        })
+        .len(),
+        1
+    );
+    assert!(st
+        .search(&SearchRequest {
+            query: "".into(),
+            signature: None,
+            state: None,
+            pos: Some("v".into())
+        })
+        .is_empty());
+}
+
+#[test]
 fn validation_ids_revisions_noops_and_conflicts_are_atomic() {
     let mut st = store();
     let r0 = st.revision().clone();
@@ -93,6 +202,7 @@ fn validation_ids_revisions_noops_and_conflicts_are_atomic() {
     })
     .unwrap();
     let a = add(&mut st, "a", "x").unwrap();
+    assert_eq!(a.value.id, EntryId::from_bytes([0; 16]));
     assert_eq!(a.value.date_created, a.value.date_modified);
     let conflict = st
         .remove(RemoveRequest {
@@ -101,6 +211,10 @@ fn validation_ids_revisions_noops_and_conflicts_are_atomic() {
         })
         .unwrap_err();
     assert_eq!(conflict.code, "revision_conflict");
+    assert_eq!(
+        conflict.details["current"],
+        serde_json::to_value(st.revision()).unwrap()
+    );
     assert!(st.get(&a.value.id).is_some());
     let before = st.revision().clone();
     let no = st
@@ -114,6 +228,56 @@ fn validation_ids_revisions_noops_and_conflicts_are_atomic() {
         .unwrap();
     assert!(!no.changed);
     assert_eq!(st.revision(), &before);
+}
+
+#[test]
+fn signature_reorder_is_noop_and_gloss_only_preserves_identity() {
+    let mut st = store();
+    st.set_gloss_language(SetGlossLanguageRequest {
+        gloss_language: Some("en".into()),
+        expected_revision: None,
+    })
+    .unwrap();
+    let s0 = SignatureId::parse(&format!("sig_{}", "0".repeat(64))).unwrap();
+    let s1 = SignatureId::parse(&format!("sig_{}", "1".repeat(64))).unwrap();
+    let added = st
+        .add(AddRequest {
+            stem: "a".into(),
+            gloss: "x".into(),
+            signatures: vec![s1.clone(), s0.clone(), s1],
+            expected_revision: None,
+        })
+        .unwrap()
+        .value;
+    assert_eq!(
+        added.signatures,
+        vec![
+            s0.clone(),
+            SignatureId::parse(&format!("sig_{}", "1".repeat(64))).unwrap()
+        ]
+    );
+    let no = st
+        .update(UpdateRequest {
+            id: added.id.clone(),
+            stem: "a".into(),
+            gloss: "x".into(),
+            signatures: added.signatures.iter().rev().cloned().collect(),
+            expected_revision: None,
+        })
+        .unwrap();
+    assert!(!no.changed);
+    let changed = st
+        .update(UpdateRequest {
+            id: added.id.clone(),
+            stem: "a".into(),
+            gloss: "y".into(),
+            signatures: added.signatures.clone(),
+            expected_revision: None,
+        })
+        .unwrap();
+    assert_eq!(changed.value.id, added.id);
+    assert_eq!(changed.value.date_created, added.date_created);
+    assert_ne!(changed.value.date_modified, added.date_modified);
 }
 
 #[test]
@@ -132,20 +296,35 @@ fn crud_homographs_search_authority_and_clear() {
         st.search(&SearchRequest {
             query: "money".into(),
             signature: None,
-            state: None
+            state: None,
+            pos: None
         })
         .len(),
         1
     );
-    st.set_authority(SetAuthorityRequest {
-        id: a.id.clone(),
-        authority: EntryAuthority::SuppliedOverride {
-            official_entry_id: "official".into(),
-            note: None,
-        },
-        expected_revision: None,
-    })
-    .unwrap();
+    let authority_change = st
+        .set_authority(SetAuthorityRequest {
+            id: a.id.clone(),
+            authority: EntryAuthority::SuppliedOverride {
+                official_entry_id: "official".into(),
+                note: None,
+            },
+            expected_revision: None,
+        })
+        .unwrap();
+    assert_eq!(authority_change.value.date_created, a.date_created);
+    assert_ne!(authority_change.value.date_modified, a.date_modified);
+    let rev = st.revision().clone();
+    assert_eq!(
+        st.set_gloss_language(SetGlossLanguageRequest {
+            gloss_language: None,
+            expected_revision: None
+        })
+        .unwrap_err()
+        .code,
+        "gloss_language_required"
+    );
+    assert_eq!(st.revision(), &rev);
     assert!(matches!(
         st.get(&a.id).unwrap().authority,
         EntryAuthority::SuppliedOverride { .. }

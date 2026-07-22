@@ -1,4 +1,4 @@
-use crate::SignatureId;
+use crate::{ClassCatalog, SignatureId};
 use chrono::{NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -14,6 +14,13 @@ fn err(code: &str, message: &str) -> StructuredError {
         code: code.into(),
         message: message.into(),
         details: serde_json::Value::Null,
+    }
+}
+fn err_details(code: &str, message: &str, details: serde_json::Value) -> StructuredError {
+    StructuredError {
+        code: code.into(),
+        message: message.into(),
+        details,
     }
 }
 
@@ -183,6 +190,21 @@ pub enum ValidationState {
     Inactive { diagnostics: Vec<String> },
     Superseded { official_entry_id: String },
 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ValidationStateKind {
+    Active,
+    Inactive,
+    Superseded,
+}
+impl ValidationState {
+    fn kind(&self) -> ValidationStateKind {
+        match self {
+            Self::Active => ValidationStateKind::Active,
+            Self::Inactive { .. } => ValidationStateKind::Inactive,
+            Self::Superseded { .. } => ValidationStateKind::Superseded,
+        }
+    }
+}
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SuppliedEntry {
     pub id: EntryId,
@@ -233,7 +255,8 @@ pub struct ExpectedRevision {
 pub struct SearchRequest {
     pub query: String,
     pub signature: Option<SignatureId>,
-    pub state: Option<ValidationState>,
+    pub state: Option<ValidationStateKind>,
+    pub pos: Option<String>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MutationResult<T> {
@@ -249,6 +272,8 @@ pub struct SuppliedLexiconStore<I: IdSource, C: Clock> {
     gloss_language: Option<String>,
     counter: u64,
     revision: Revision,
+    catalog: Option<BTreeMap<SignatureId, Option<String>>>,
+    stem_validator: Option<fn(&str) -> Result<(), String>>,
 }
 impl<I: IdSource, C: Clock> SuppliedLexiconStore<I, C> {
     pub fn new(ids: I, clock: C) -> Self {
@@ -259,7 +284,26 @@ impl<I: IdSource, C: Clock> SuppliedLexiconStore<I, C> {
             gloss_language: None,
             counter: 0,
             revision: Revision("rev_0".into()),
+            catalog: None,
+            stem_validator: None,
         }
+    }
+    pub fn new_validated(
+        ids: I,
+        clock: C,
+        catalog: &ClassCatalog,
+        stem_validator: fn(&str) -> Result<(), String>,
+    ) -> Self {
+        let mut s = Self::new(ids, clock);
+        s.catalog = Some(
+            catalog
+                .signatures()
+                .iter()
+                .map(|x| (x.id.clone(), x.pos.as_ref().map(|p| p.id.clone())))
+                .collect(),
+        );
+        s.stem_validator = Some(stem_validator);
+        s
     }
     pub fn revision(&self) -> &Revision {
         &self.revision
@@ -272,7 +316,11 @@ impl<I: IdSource, C: Clock> SuppliedLexiconStore<I, C> {
     }
     fn check(&self, x: &Option<Revision>) -> Result<(), StructuredError> {
         if x.as_ref().is_some_and(|r| r != &self.revision) {
-            Err(err("revision_conflict", "expected revision does not match"))
+            Err(err_details(
+                "revision_conflict",
+                "expected revision does not match",
+                serde_json::json!({"expected":x,"current":self.revision}),
+            ))
         } else {
             Ok(())
         }
@@ -282,14 +330,19 @@ impl<I: IdSource, C: Clock> SuppliedLexiconStore<I, C> {
         stem: &str,
         gloss: &str,
         sigs: &[SignatureId],
-    ) -> Result<(), StructuredError> {
+    ) -> Result<Vec<SignatureId>, StructuredError> {
         if stem.is_empty() {
-            return Err(err("invalid_stem", "stem cannot be empty"));
+            return Err(err_details(
+                "invalid_stem",
+                "stem cannot be empty",
+                serde_json::json!({"stem":stem}),
+            ));
         }
         if sigs.is_empty() {
-            return Err(err(
+            return Err(err_details(
                 "invalid_signatures",
                 "at least one signature is required",
+                serde_json::json!({"signatureIds":sigs}),
             ));
         }
         if !gloss.is_empty() && self.gloss_language.is_none() {
@@ -298,7 +351,28 @@ impl<I: IdSource, C: Clock> SuppliedLexiconStore<I, C> {
                 "set gloss language before adding a gloss",
             ));
         }
-        Ok(())
+        if let Some(v) = self.stem_validator {
+            v(stem)
+                .map_err(|m| err_details("invalid_shape", &m, serde_json::json!({"stem":stem})))?;
+        }
+        let mut normalized = sigs.to_vec();
+        normalized.sort();
+        normalized.dedup();
+        if let Some(c) = &self.catalog {
+            let unknown: Vec<_> = normalized
+                .iter()
+                .filter(|id| !c.contains_key(*id))
+                .map(|id| id.as_str())
+                .collect();
+            if !unknown.is_empty() {
+                return Err(err_details(
+                    "unknown_signature",
+                    "unknown signature IDs",
+                    serde_json::json!({"signatureIds":unknown}),
+                ));
+            }
+        }
+        Ok(normalized)
     }
     fn bump(&mut self) {
         self.counter += 1;
@@ -306,7 +380,7 @@ impl<I: IdSource, C: Clock> SuppliedLexiconStore<I, C> {
     }
     pub fn add(&mut self, r: AddRequest) -> Result<MutationResult<SuppliedEntry>, StructuredError> {
         self.check(&r.expected_revision)?;
-        self.validate(&r.stem, &r.gloss, &r.signatures)?;
+        let signatures = self.validate(&r.stem, &r.gloss, &r.signatures)?;
         let id = EntryId::from_bytes(self.ids.next_128()?);
         if self.entries.contains_key(&id) {
             return Err(err("duplicate_entry_id", "generated duplicate entry id"));
@@ -316,7 +390,7 @@ impl<I: IdSource, C: Clock> SuppliedLexiconStore<I, C> {
             id,
             stem: r.stem,
             gloss: r.gloss,
-            signatures: r.signatures,
+            signatures,
             date_created: now.clone(),
             date_modified: now,
             authority: EntryAuthority::Supplied,
@@ -335,13 +409,13 @@ impl<I: IdSource, C: Clock> SuppliedLexiconStore<I, C> {
         r: UpdateRequest,
     ) -> Result<MutationResult<SuppliedEntry>, StructuredError> {
         self.check(&r.expected_revision)?;
-        self.validate(&r.stem, &r.gloss, &r.signatures)?;
+        let signatures = self.validate(&r.stem, &r.gloss, &r.signatures)?;
         let old = self
             .entries
             .get(&r.id)
             .cloned()
             .ok_or_else(|| err("entry_not_found", "entry not found"))?;
-        if old.stem == r.stem && old.gloss == r.gloss && old.signatures == r.signatures {
+        if old.stem == r.stem && old.gloss == r.gloss && old.signatures == signatures {
             return Ok(MutationResult {
                 value: old,
                 revision: self.revision.clone(),
@@ -351,7 +425,7 @@ impl<I: IdSource, C: Clock> SuppliedLexiconStore<I, C> {
         let mut e = old;
         e.stem = r.stem;
         e.gloss = r.gloss;
-        e.signatures = r.signatures;
+        e.signatures = signatures;
         e.date_modified = self.clock.now();
         self.entries.insert(e.id.clone(), e.clone());
         self.bump();
@@ -450,7 +524,14 @@ impl<I: IdSource, C: Clock> SuppliedLexiconStore<I, C> {
                     && r.signature
                         .as_ref()
                         .is_none_or(|s| e.signatures.contains(s))
-                    && r.state.as_ref().is_none_or(|s| &e.state == s)
+                    && r.state.as_ref().is_none_or(|s| e.state.kind() == *s)
+                    && r.pos.as_ref().is_none_or(|pos| {
+                        self.catalog.as_ref().is_some_and(|c| {
+                            e.signatures
+                                .iter()
+                                .any(|id| c.get(id).is_some_and(|p| p.as_ref() == Some(pos)))
+                        })
+                    })
             })
             .cloned()
             .collect()
