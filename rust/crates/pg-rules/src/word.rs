@@ -135,6 +135,45 @@ pub struct GuessedRoot {
     pub text: String,
 }
 
+/// Provenance and stable identity for roots that do not live in the immutable grammar tables.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum RootProvenance {
+    Grammar,
+    Supplied {
+        entry_id: String,
+    },
+    SuppliedOverride {
+        entry_id: String,
+        official_entry_id: String,
+    },
+    Guessed,
+}
+
+/// Self-contained supplied root data used by both ordinary and compound lookup.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SuppliedRootData {
+    pub provenance: RootProvenance,
+    pub lexical_spelling: String,
+    pub gloss: String,
+    pub syn_fs: FeatureStruct,
+    pub mpr: MprSet,
+    pub stratum: StratumId,
+}
+
+/// Generalized side channel for roots that have no grammar allomorph/entry row.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RuntimeRoot {
+    Guessed(GuessedRoot),
+    Supplied(SuppliedRootData),
+}
+
+/// Composite result crossing the pg-parse → pg-rules compounding lookup boundary.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ResolvedRoot {
+    Grammar(AllomorphId, LexEntryId),
+    Supplied(SuppliedRootData),
+}
+
 /// The in-flight parse state (plan §5.5). See the module docs for the flagged deviations from the
 /// brief's contract sketch.
 #[derive(Clone, Debug)]
@@ -220,7 +259,7 @@ pub struct Word {
     /// object identity, is what C#'s dedup keys on; `root_allomorph`'s `AllomorphId::GUESSED`
     /// sentinel is the Rust analog of that, so this payload would be redundant in the key even if
     /// added).
-    pub guessed_root: Option<Rc<GuessedRoot>>,
+    pub runtime_root: Option<Rc<RuntimeRoot>>,
     /// C# `Word.Alternatives` (Word.cs:485-489): the shape-equivalent analysis candidates folded into
     /// this word by `MergeEquivalentAnalyses` (AnalysisStratumRule.cs:161-171 — a repeat shape does
     /// not enter the output set; instead `canonicalWord.Alternatives.Add(mruleOutWord)`). They differ
@@ -265,6 +304,7 @@ pub struct WordKey {
     non_head_app_index: i32,
     stratum: StratumId,
     root_allomorph: Option<AllomorphId>,
+    root_provenance: Option<RootProvenance>,
     mrule_apps: Vec<Option<MRuleId>>,
     mrule_app_index: i32,
     is_last_applied_rule_final: Option<bool>,
@@ -290,7 +330,7 @@ impl Word {
             unapplied_rule_counts: BTreeMap::new(),
             flags: WordFlags::default(),
             source: None,
-            guessed_root: None,
+            runtime_root: None,
             alternatives: Vec::new(),
             trace: None,
         }
@@ -399,6 +439,10 @@ impl Word {
             non_head_app_index: self.non_head_app_index,
             stratum: self.stratum,
             root_allomorph: self.root_allomorph,
+            root_provenance: self.runtime_root.as_ref().map(|root| match root.as_ref() {
+                RuntimeRoot::Guessed(_) => RootProvenance::Guessed,
+                RuntimeRoot::Supplied(root) => root.provenance.clone(),
+            }),
             mrule_apps: self.mrule_apps.clone(),
             mrule_app_index: self.mrule_app_index,
             is_last_applied_rule_final: self.flags.is_last_applied_rule_final,
@@ -506,7 +550,7 @@ impl Word {
                         // both change together at the exact same site (guess fabrication /
                         // lexical lookup), so whenever C#'s `RootAllomorph` setter fires here,
                         // this must fire with it (never observable in isolation).
-                        alt.guessed_root = self.guessed_root.clone();
+                        alt.runtime_root = self.runtime_root.clone();
                     }
                     out.push(alt);
                 }

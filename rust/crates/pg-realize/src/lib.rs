@@ -216,6 +216,8 @@ mod tests {
             root_morpheme_index,
             pos_id: None,
             guessed,
+            provenance: pg_parse::AnalysisProvenance::Grammar,
+            supplied_root: None,
         }
     }
 

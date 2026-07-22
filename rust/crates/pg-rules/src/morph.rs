@@ -3317,7 +3317,35 @@ fn resolve_non_head_roots(
 ) -> Vec<Word> {
     let req = g.fs_interner.get(rule.non_head_required_syn_fs);
     let mut out = Vec::new();
-    for (allo_id, le_id) in filter(stratum, nh_shape) {
+    for resolved in filter(stratum, nh_shape) {
+        let crate::word::ResolvedRoot::Grammar(allo_id, le_id) = resolved else {
+            let crate::word::ResolvedRoot::Supplied(root) = resolved else {
+                unreachable!()
+            };
+            if !is_unifiable(req, &root.syn_fs)
+                || !rule.non_head_prod_restrictions_mpr.compound_match(root.mpr)
+            {
+                continue;
+            }
+            let table = &g.char_tables[g.strata[root.stratum.0 as usize].table.0 as usize];
+            let Ok(shape) =
+                crate::shape_feat::segment_with_features(g, table, &root.lexical_spelling)
+            else {
+                continue;
+            };
+            let mut nh = Word::new(shape, root.stratum);
+            nh.syn_fs = root.syn_fs.clone();
+            nh.mpr = root.mpr;
+            nh.root_allomorph = Some(AllomorphId::GUESSED);
+            nh.runtime_root = Some(std::rc::Rc::new(crate::word::RuntimeRoot::Supplied(root)));
+            nh.morphs = vec![MorphRecord::new(
+                AllomorphId::GUESSED,
+                MorphemeId::GUESSED,
+                0,
+            )];
+            out.push(nh);
+            continue;
+        };
         let entry = &g.entries[le_id.0 as usize];
         if !is_unifiable(req, g.fs_interner.get(entry.syn_fs)) {
             continue;

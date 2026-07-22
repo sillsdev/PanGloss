@@ -378,11 +378,11 @@ pub fn lexical_guess(
             nw.mpr = owning_entry.mpr;
             nw.flags.is_partial = owning_entry.partial;
             nw.root_allomorph = Some(AllomorphId::GUESSED);
-            nw.guessed_root = Some(Rc::new(GuessedRoot {
+            nw.runtime_root = Some(Rc::new(pg_rules::word::RuntimeRoot::Guessed(GuessedRoot {
                 pattern_allo,
                 pattern_entry,
                 text: shape_string,
-            }));
+            })));
             nw.morphs = vec![MorphRecord::new(
                 AllomorphId::GUESSED,
                 MorphemeId::GUESSED,

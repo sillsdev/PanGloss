@@ -33,18 +33,21 @@ use pg_rules::cache::RuleCache;
 use pg_rules::shape_feat::segment_with_features;
 use pg_rules::stratum::{AnalyzerConfig, NonHeadRootFilter};
 use pg_rules::trace::{FailureReason, NoopSink, TraceHandle, TraceSink};
-use pg_rules::word::{GuessedRoot, MorphRecord, Word, WordKey};
+use pg_rules::word::{
+    GuessedRoot, MorphRecord, ResolvedRoot, RootProvenance, RuntimeRoot, Word, WordKey,
+};
 use rustc_hash::FxHashMap as HashMap;
 
 use crate::guess;
 use crate::root_trie::{collect_lexical_patterns, RootAllomorphIndex};
-use crate::{result_signature, surface, WordAnalysis};
+use crate::{result_signature, surface, AnalysisProvenance, SuppliedRootOverlay, WordAnalysis};
 
 /// The compiled parser for one grammar: the immutable grammar plus its per-stratum root-allomorph
 /// tries (C# `Morpher`, built once, parses many words).
 pub struct Morpher<'g> {
     g: &'g Grammar,
     root_index: RootAllomorphIndex,
+    overlay: Option<&'g SuppliedRootOverlay>,
     /// P11 §4.3: every `IsPattern` root allomorph, flat across all strata, in document order
     /// (C#'s single `_lexicalPatterns` list, `Morpher.cs:74-85`) — the exact counterpart of the
     /// exclusion `RootAllomorphTrie::build` now applies. Inert until the guess subsystem
@@ -155,12 +158,41 @@ impl<'g> Morpher<'g> {
         Morpher {
             g,
             root_index: RootAllomorphIndex::build(g),
+            overlay: None,
             lexical_patterns: collect_lexical_patterns(g),
             cap,
             memo: true,
             word_timeout: None,
             cache: RuleCache::build(g),
         }
+    }
+
+    pub fn new_with_overlay(g: &'g Grammar, cap: usize, overlay: &'g SuppliedRootOverlay) -> Self {
+        let mut morpher = Self::new(g, cap);
+        morpher.overlay = Some(overlay);
+        morpher
+    }
+
+    fn search_roots(&self, stratum: StratumId, shape: &pg_shape::Shape) -> Vec<ResolvedRoot> {
+        let mut roots = Vec::new();
+        for (allo, entry) in self.root_index.search(self.g, stratum, shape) {
+            let authored_id = &self.g.entries[entry.0 as usize].authored_id;
+            if !self
+                .overlay
+                .is_some_and(|overlay| overlay.suppresses(authored_id))
+            {
+                roots.push(ResolvedRoot::Grammar(allo, entry));
+            }
+        }
+        if let Some(overlay) = self.overlay {
+            roots.extend(
+                overlay
+                    .search(self.g, stratum, shape)
+                    .into_iter()
+                    .map(ResolvedRoot::Supplied),
+            );
+        }
+        roots
     }
 
     /// Toggle the #451 analysis memo (default on). `false` = the unmemoized baseline (`--memo=off`).
@@ -379,7 +411,7 @@ impl<'g> Morpher<'g> {
         // results, never the index type itself (crate-boundary: `pg-rules` cannot depend on
         // `pg-parse`).
         let filter: NonHeadRootFilter =
-            &|st: StratumId, shape: &pg_shape::Shape| self.root_index.search(g, st, shape);
+            &|st: StratumId, shape: &pg_shape::Shape| self.search_roots(st, shape);
         let mut input_set: HashMap<WordKey, Word> = HashMap::default();
         input_set.insert(input.dedup_key(), input);
         let mut results: HashMap<WordKey, Word> = HashMap::default();
@@ -537,11 +569,14 @@ impl<'g> Morpher<'g> {
         lex_entry_filter: Option<&dyn Fn(LexEntryId) -> bool>,
     ) -> Vec<Word> {
         let g = self.g;
-        let matched = self.root_index.search(g, aw.stratum, &aw.shape);
+        let matched = self.search_roots(aw.stratum, &aw.shape);
         // Distinct entries in first-seen order (C# `.Distinct()` on the entry sequence), filtered by
         // `lex_entry_filter` first (C#: `.Where(LexEntrySelector)` precedes `.Distinct()`).
         let mut entries: Vec<LexEntryId> = Vec::new();
-        for (_, le) in &matched {
+        for root in &matched {
+            let ResolvedRoot::Grammar(_, le) = root else {
+                continue;
+            };
             if lex_entry_filter.is_some_and(|f| !f(*le)) {
                 continue;
             }
@@ -561,6 +596,30 @@ impl<'g> Morpher<'g> {
                 self.set_root_allomorph(&mut nw, le, allo.id, &allo.shape.text);
                 out.push(nw);
             }
+        }
+        for root in matched {
+            let ResolvedRoot::Supplied(root) = root else {
+                continue;
+            };
+            let mut nw = aw.clone_without_alternatives();
+            nw.source = Some(Rc::new(aw.clone()));
+            let table = &g.char_tables[g.strata[root.stratum.0 as usize].table.0 as usize];
+            let Ok(shape) = segment_with_features(g, table, &root.lexical_spelling) else {
+                continue;
+            };
+            nw.shape = shape;
+            nw.stratum = root.stratum;
+            nw.syn_fs = root.syn_fs.clone();
+            nw.mpr = root.mpr;
+            nw.flags.is_partial = false;
+            nw.root_allomorph = Some(AllomorphId::GUESSED);
+            nw.runtime_root = Some(Rc::new(RuntimeRoot::Supplied(root)));
+            nw.morphs = vec![MorphRecord::new(
+                AllomorphId::GUESSED,
+                MorphemeId::GUESSED,
+                0,
+            )];
+            out.push(nw);
         }
         out
     }
@@ -811,9 +870,12 @@ impl<'g> Morpher<'g> {
             .into_iter()
             .map(|(_, morpheme)| {
                 if morpheme == MorphemeId::GUESSED {
-                    w.guessed_root
+                    w.runtime_root
                         .as_ref()
-                        .map(|gr| gr.text.clone())
+                        .and_then(|root| match root.as_ref() {
+                            RuntimeRoot::Guessed(gr) => Some(gr.text.clone()),
+                            RuntimeRoot::Supplied(root) => Some(root.lexical_spelling.clone()),
+                        })
                         .unwrap_or_default()
                 } else {
                     g.morphemes[morpheme.0 as usize]
@@ -853,6 +915,30 @@ impl<'g> Morpher<'g> {
             root_morpheme_index,
             pos_id,
             guessed,
+            provenance: match w.runtime_root.as_ref().map(|root| root.as_ref()) {
+                Some(RuntimeRoot::Guessed(_)) => AnalysisProvenance::Guessed,
+                Some(RuntimeRoot::Supplied(root)) => match &root.provenance {
+                    RootProvenance::Supplied { entry_id } => AnalysisProvenance::Supplied {
+                        entry_id: entry_id.clone(),
+                    },
+                    RootProvenance::SuppliedOverride {
+                        entry_id,
+                        official_entry_id,
+                    } => AnalysisProvenance::SuppliedOverride {
+                        entry_id: entry_id.clone(),
+                        overridden_grammar_entry_id: official_entry_id.clone(),
+                    },
+                    _ => AnalysisProvenance::Grammar,
+                },
+                None => AnalysisProvenance::Grammar,
+            },
+            supplied_root: w
+                .runtime_root
+                .as_ref()
+                .and_then(|root| match root.as_ref() {
+                    RuntimeRoot::Supplied(root) => Some(crate::SuppliedRoot::from_data(root)),
+                    RuntimeRoot::Guessed(_) => None,
+                }),
         }
     }
 }
@@ -1091,10 +1177,6 @@ impl<'g> Morpher<'g> {
             return Vec::new();
         }
         let root_idx = wa.root_morpheme_index as usize;
-        let root_entry = match resolve_morpheme(g, MorphemeId(wa.morpheme_ids[root_idx])) {
-            Some(MorphemeOwner::Root(le)) => le,
-            _ => return Vec::new(),
-        };
         let resolve_side = |ids: &[u32]| -> Option<Vec<GenMorpheme>> {
             ids.iter()
                 .map(|&id| resolve_other(g, MorphemeId(id)))
@@ -1115,8 +1197,50 @@ impl<'g> Morpher<'g> {
 
         let mut words: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
         for others in interleavings(&left, &right) {
-            for w in self.generate_words(root_entry, &others, FeatureStruct::EMPTY) {
-                words.insert(w);
+            if let Some(root) = &wa.supplied_root {
+                let table = &g.char_tables[g.strata[root.stratum.0 as usize].table.0 as usize];
+                let Ok(shape) = segment_with_features(g, table, &root.lexical_spelling) else {
+                    continue;
+                };
+                let mut seed = Word::new(shape, root.stratum);
+                seed.syn_fs = root.syn_fs.clone();
+                seed.mpr = root.mpr;
+                seed.root_allomorph = Some(AllomorphId::GUESSED);
+                let data = root.to_data();
+                seed.runtime_root = Some(Rc::new(RuntimeRoot::Supplied(data)));
+                seed.morphs = vec![MorphRecord::new(
+                    AllomorphId::GUESSED,
+                    MorphemeId::GUESSED,
+                    0,
+                )];
+                for other in &others {
+                    match *other {
+                        GenMorpheme::Rule(id) => seed
+                            .morphological_rule_unapplied(is_realizational_rule(g, id), Some(id)),
+                        GenMorpheme::NonHead(le) => {
+                            seed.morphological_rule_unapplied(false, None);
+                            seed.non_head_unapplied(self.build_root_seed(
+                                le,
+                                0,
+                                FeatureStruct::EMPTY,
+                            ));
+                        }
+                    }
+                }
+                for generated in self.synthesis_pipeline(seed) {
+                    if self.is_word_valid(&generated) {
+                        words.insert(self.generated_surface_of(&generated));
+                    }
+                }
+            } else {
+                let Some(MorphemeOwner::Root(root_entry)) =
+                    resolve_morpheme(g, MorphemeId(wa.morpheme_ids[root_idx]))
+                else {
+                    continue;
+                };
+                for w in self.generate_words(root_entry, &others, FeatureStruct::EMPTY) {
+                    words.insert(w);
+                }
             }
         }
         words.into_iter().collect()
@@ -1225,11 +1349,11 @@ impl<'g> Morpher<'g> {
         w.mpr = entry.mpr;
         w.flags.is_partial = entry.partial;
         w.root_allomorph = Some(AllomorphId::GUESSED);
-        w.guessed_root = Some(Rc::new(GuessedRoot {
+        w.runtime_root = Some(Rc::new(RuntimeRoot::Guessed(GuessedRoot {
             pattern_allo: first_allo.id,
             pattern_entry: exemplar,
             text: shape_text.to_string(),
-        }));
+        })));
         w.morphs = vec![MorphRecord::new(
             AllomorphId::GUESSED,
             MorphemeId::GUESSED,

@@ -42,8 +42,8 @@ use web_time::{Duration, Instant};
 
 use pg_featstruct::{add, is_unifiable, subsumes, subtract, unify};
 use pg_grammar::model::{
-    AllomorphId, AllomorphOwner, Grammar, LexEntryId, MRuleId, MorphRuleDef, MorphRuleOrder,
-    SlotDef, StratumId, TemplateId,
+    AllomorphId, AllomorphOwner, Grammar, MRuleId, MorphRuleDef, MorphRuleOrder, SlotDef,
+    StratumId, TemplateId,
 };
 use pg_memo::{AnalysisScope, AnalysisStateKey, MemoEntry};
 use pg_shape::Shape;
@@ -69,7 +69,7 @@ use rustc_hash::FxHashMap as HashMap;
 /// non-`Sync` closure type baked in now would be a breaking API change later — cheap to get right
 /// now.
 pub type NonHeadRootFilter<'a> =
-    &'a (dyn Fn(StratumId, &Shape) -> Vec<(AllomorphId, LexEntryId)> + Sync);
+    &'a (dyn Fn(StratumId, &Shape) -> Vec<crate::word::ResolvedRoot> + Sync);
 
 /// F1 (HYBRID_FST_RUST_PLAN.md §7.1 item 1): the admission unit C#'s `Morpher.RuleSelector` gates —
 /// one variant per `IHCRule`-implementing kind that has its own `RuleSelector` read site (see the
@@ -1862,11 +1862,12 @@ fn synth_apply_mrules(
 /// it came from).
 fn root_is_partial(g: &Grammar, word: &Word) -> bool {
     match word.root_allomorph {
-        Some(allo) if allo == AllomorphId::GUESSED => word
-            .guessed_root
-            .as_ref()
-            .map(|gr| g.entries[gr.pattern_entry.0 as usize].partial)
-            .unwrap_or(false),
+        Some(allo) if allo == AllomorphId::GUESSED => match word.runtime_root.as_deref() {
+            Some(crate::word::RuntimeRoot::Guessed(gr)) => {
+                g.entries[gr.pattern_entry.0 as usize].partial
+            }
+            Some(crate::word::RuntimeRoot::Supplied(_)) | None => false,
+        },
         Some(allo) => match g.allomorph_owners[allo.0 as usize] {
             AllomorphOwner::Root(le, _) => g.entries[le.0 as usize].partial,
             AllomorphOwner::Affix(..) => false,

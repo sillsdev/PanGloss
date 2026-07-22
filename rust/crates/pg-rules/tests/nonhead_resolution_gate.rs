@@ -133,9 +133,9 @@ fn nonhead_resolution_replaces_shape_and_syntactic_fs() {
     let filter: NonHeadRootFilter = &|_st, shape: &Shape| {
         let cds = char_defs(shape);
         if cds == sine_cds {
-            vec![(sine_allo, sine_entry)]
+            vec![pg_rules::word::ResolvedRoot::Grammar(sine_allo, sine_entry)]
         } else if cds == ico_cds {
-            vec![(ico_allo, ico_entry)]
+            vec![pg_rules::word::ResolvedRoot::Grammar(ico_allo, ico_entry)]
         } else {
             Vec::new()
         }

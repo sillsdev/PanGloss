@@ -143,11 +143,11 @@ fn guessed_word(g: &Grammar, text: &str) -> Word {
     let pattern_entry = find_entry_id(g, "[Any]*");
     let pattern_allo = find_entry(g, "[Any]*").allomorphs[0].id;
     let mut w = Word::new(shape_of(g, text), pg_grammar::model::StratumId(0));
-    w.guessed_root = Some(Rc::new(GuessedRoot {
+    w.runtime_root = Some(Rc::new(pg_rules::word::RuntimeRoot::Guessed(GuessedRoot {
         pattern_allo,
         pattern_entry,
         text: text.to_string(),
-    }));
+    })));
     w.morphs = vec![MorphRecord::new(
         AllomorphId::GUESSED,
         MorphemeId::GUESSED,

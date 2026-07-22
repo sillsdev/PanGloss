@@ -10,11 +10,13 @@
 pub mod batch;
 pub mod guess;
 pub mod morpher;
+pub mod overlay;
 pub mod root_trie;
 pub mod surface;
 
 pub use batch::{hc_parse_batch, BatchWordOutcome};
 pub use morpher::{GenMorpheme, Morpher, ParseOptions, ParseOutcome};
+pub use overlay::{RootAuthority, SuppliedRoot, SuppliedRootOverlay};
 pub use root_trie::{RootAllomorphIndex, RootAllomorphTrie};
 
 /// One analysis of a word: ordered morpheme ids, the root's index within that sequence, and an
@@ -32,6 +34,22 @@ pub struct WordAnalysis {
     /// `MorphemeId::GUESSED`'s numeric value (`u32::MAX`) for the fabricated root's own slot when
     /// `guessed` is true — no separate sentinel handling needed here, the id just passes through.
     pub guessed: bool,
+    pub provenance: AnalysisProvenance,
+    /// Self-contained root payload for regeneration when provenance is supplied.
+    pub supplied_root: Option<SuppliedRoot>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AnalysisProvenance {
+    Grammar,
+    Supplied {
+        entry_id: String,
+    },
+    SuppliedOverride {
+        entry_id: String,
+        overridden_grammar_entry_id: String,
+    },
+    Guessed,
 }
 
 /// The canonical signature of a result set, matching the C# `BatchCommand` protocol exactly so

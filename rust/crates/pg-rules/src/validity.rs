@@ -541,10 +541,18 @@ fn allomorphs_valid_impl(
         // lexical-pattern allomorph the guess was matched against (`Word::guessed_root`), never
         // to `g.allomorph_owners[AllomorphId::GUESSED]`.
         if m.allomorph == AllomorphId::GUESSED {
-            let gr = w
-                .guessed_root
+            let Some(gr) = w
+                .runtime_root
                 .as_ref()
-                .expect("AllomorphId::GUESSED morph record with no Word.guessed_root payload");
+                .and_then(|root| match root.as_ref() {
+                    crate::word::RuntimeRoot::Guessed(root) => Some(root),
+                    crate::word::RuntimeRoot::Supplied(_) => None,
+                })
+            else {
+                // A supplied ordinary root, or a supplied compound non-head whose record has
+                // been folded into the head word, has no grammar allomorph restrictions.
+                continue;
+            };
             let allos = &g.entries[gr.pattern_entry.0 as usize].allomorphs;
             let idx = allos
                 .iter()

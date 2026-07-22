@@ -197,6 +197,7 @@ fn push_root_entry(g: &mut Grammar, partial: bool) -> AllomorphId {
     g.allomorph_owners.push(AllomorphOwner::Root(lex_id, 0));
     let shape = pg_grammar::segment::segment(&g.char_tables[0], "a").expect("segments");
     g.entries.push(LexEntryDef {
+        authored_id: format!("test-entry-{}", lex_id.0),
         morpheme: MorphemeId(900),
         syn_fs: pg_featstruct::FsId(0),
         mpr: MprSet::EMPTY,

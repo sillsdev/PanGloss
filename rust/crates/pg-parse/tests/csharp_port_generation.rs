@@ -23,7 +23,7 @@
 mod csharp_port_common;
 use csharp_port_common::{build_grammar, lex_entry_id, morpheme_ordinal, mrule_id};
 use pg_featstruct::FeatureStruct;
-use pg_parse::{GenMorpheme, Morpher, WordAnalysis};
+use pg_parse::{AnalysisProvenance, GenMorpheme, Morpher, WordAnalysis};
 use std::collections::BTreeSet;
 
 /// `si+` prefix (Gloss "3SG") + `+ɯd` suffix (Gloss "PAST"), both `requiredPartsOfSpeech="posV"` —
@@ -64,6 +64,8 @@ fn generate_words_can_generate_returns_correct_word() {
         root_morpheme_index: 1,
         pos_id: None,
         guessed: false,
+        provenance: AnalysisProvenance::Grammar,
+        supplied_root: None,
     };
     let words: BTreeSet<String> = m.generate_words_from_analysis(&wa).into_iter().collect();
     assert_eq!(words, BTreeSet::from(["sisasɯd".to_string()]));
@@ -91,6 +93,8 @@ fn generate_words_cannot_generate_returns_empty_enumerable() {
         root_morpheme_index: 0,
         pos_id: None,
         guessed: false,
+        provenance: AnalysisProvenance::Grammar,
+        supplied_root: None,
     };
     assert!(m.generate_words_from_analysis(&wa).is_empty());
 }
@@ -257,6 +261,8 @@ fn generate_words_from_analysis_two_prefixes_confirm_in_the_correct_relative_ord
         root_morpheme_index: 2,
         pos_id: None,
         guessed: false,
+        provenance: AnalysisProvenance::Grammar,
+        supplied_root: None,
     };
     let words: BTreeSet<String> = m.generate_words_from_analysis(&wa).into_iter().collect();
     assert_eq!(words, BTreeSet::from(["iosag".to_string()]));
@@ -293,6 +299,8 @@ fn analyze_word_can_analyze_returns_correct_analysis() {
         root_morpheme_index: 0,
         pos_id: Some(want_pos),
         guessed: false,
+        provenance: AnalysisProvenance::Grammar,
+        supplied_root: None,
     };
     assert_eq!(
         outcome.structured,

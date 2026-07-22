@@ -31,7 +31,7 @@
 //! branch), not literal byte-identical strings to the C# `ToString()` output.
 
 use pg_grammar::load;
-use pg_parse::{Morpher, ParseOptions};
+use pg_parse::{AnalysisProvenance, Morpher, ParseOptions};
 
 const XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
@@ -163,6 +163,10 @@ fn guess_on_gag_has_exactly_one_analysis_root_only() {
         "the sentinel MorphemeId::GUESSED value"
     );
     assert!(outcome.structured[0].guessed);
+    assert_eq!(
+        outcome.structured[0].provenance,
+        AnalysisProvenance::Guessed
+    );
 }
 
 /// C#: `AnalyzeWord("gagd", true)[0].ToString() == "[*gag ed_suffix]"` — the design doc's

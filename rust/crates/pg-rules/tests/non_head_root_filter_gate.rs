@@ -146,6 +146,7 @@ fn push_entry(g: &mut Grammar, syn_fs: FsId, mpr: MprSet) -> LexEntryId {
     });
     let id = LexEntryId(g.entries.len() as u32);
     g.entries.push(LexEntryDef {
+        authored_id: format!("test-entry-{}", id.0),
         morpheme,
         syn_fs,
         mpr,
@@ -210,8 +211,12 @@ fn split_survives_when_non_head_is_a_lexicon_root() {
     let r = push_mrule(&mut g, rule);
     let s = push_stratum(&mut g, vec![r]);
 
-    let filter: NonHeadRootFilter =
-        &|_st, _shape| vec![(pg_grammar::model::AllomorphId(300), entry)];
+    let filter: NonHeadRootFilter = &|_st, _shape| {
+        vec![pg_rules::word::ResolvedRoot::Grammar(
+            pg_grammar::model::AllomorphId(300),
+            entry,
+        )]
+    };
 
     let cache = pg_rules::cache::RuleCache::build(&g);
     let out = analyze_stratum_scoped_filtered(
@@ -282,8 +287,12 @@ fn split_dropped_when_root_found_but_mpr_restriction_unsatisfied() {
     let r = push_mrule(&mut g, rule);
     let s = push_stratum(&mut g, vec![r]);
 
-    let filter: NonHeadRootFilter =
-        &|_st, _shape| vec![(pg_grammar::model::AllomorphId(300), entry)];
+    let filter: NonHeadRootFilter = &|_st, _shape| {
+        vec![pg_rules::word::ResolvedRoot::Grammar(
+            pg_grammar::model::AllomorphId(300),
+            entry,
+        )]
+    };
 
     let cache = pg_rules::cache::RuleCache::build(&g);
     let out = analyze_stratum_scoped_filtered(
@@ -317,8 +326,12 @@ fn split_dropped_when_root_found_but_syntactic_fs_conflicts() {
     let r = push_mrule(&mut g, rule);
     let s = push_stratum(&mut g, vec![r]);
 
-    let filter: NonHeadRootFilter =
-        &|_st, _shape| vec![(pg_grammar::model::AllomorphId(300), entry)];
+    let filter: NonHeadRootFilter = &|_st, _shape| {
+        vec![pg_rules::word::ResolvedRoot::Grammar(
+            pg_grammar::model::AllomorphId(300),
+            entry,
+        )]
+    };
 
     let cache = pg_rules::cache::RuleCache::build(&g);
     let out = analyze_stratum_scoped_filtered(
