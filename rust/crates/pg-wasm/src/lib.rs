@@ -58,6 +58,9 @@ struct AnalysisOut {
 /// call's timing).
 #[derive(Serialize, Deserialize, Clone)]
 struct CachedWord {
+    /// Overlay revision that produced this record. A caller-provided record is reusable only when
+    /// it exactly matches the handle's current revision.
+    overlay_revision: pg_lexicon::Revision,
     /// Every surviving analysis, in `ParseOutcome.structured` order (first is the one the view
     /// stacks under the word; the rest are what a tooltip lists as alternate readings). Empty for
     /// words with no surviving analysis at all.
@@ -187,6 +190,7 @@ fn build_cached_word(
     capped: bool,
     invalid_shape: bool,
     candidates_generated: usize,
+    overlay_revision: pg_lexicon::Revision,
 ) -> CachedWord {
     let analyses: Vec<AnalysisOut> = structured
         .iter()
@@ -216,6 +220,7 @@ fn build_cached_word(
         })
         .collect();
     CachedWord {
+        overlay_revision,
         candidates_accepted: analyses.len(),
         analyses,
         capped,
@@ -412,7 +417,11 @@ impl PanGlossGrammar {
                     // authored token exactly; applications may offer case correction separately.
                     let lexical = word.to_string();
 
-                    let (cached, from_cache, parse_ms) = if let Some(hit) = cache.get(&lexical) {
+                    let current_revision = self.runtime.snapshot().revision().clone();
+                    let (cached, from_cache, parse_ms) = if let Some(hit) = cache
+                        .get(&lexical)
+                        .filter(|hit| hit.overlay_revision == current_revision)
+                    {
                         (hit.clone(), true, 0.0)
                     } else {
                         let start = Instant::now();
@@ -429,6 +438,7 @@ impl PanGlossGrammar {
                         let capped = outcome.capped;
                         let invalid_shape = outcome.invalid_shape;
                         let candidates_generated = outcome.candidates_generated;
+                        let overlay_revision = outcome.revision;
                         let elapsed = start.elapsed().as_secs_f64() * 1000.0;
                         let fresh = build_cached_word(
                             &self.grammar,
@@ -439,6 +449,7 @@ impl PanGlossGrammar {
                             capped,
                             invalid_shape,
                             candidates_generated,
+                            overlay_revision,
                         );
                         new_cache_entries.insert(lexical.clone(), fresh.clone());
                         (fresh, false, elapsed)

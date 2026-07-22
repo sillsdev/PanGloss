@@ -68,18 +68,8 @@ impl SuppliedLexiconRuntime {
         let morpher = Morpher::new_with_overlay(&self.grammar, 100_000, snapshot.overlay());
         let normal_options = ParseOptions::default();
         let normal = morpher.parse_word_opts(word, &normal_options);
-        let overridden: Vec<&str> = snapshot
-            .entries()
-            .iter()
-            .filter(|entry| matches!(entry.state, ValidationState::Active))
-            .filter_map(|entry| match &entry.authority {
-                EntryAuthority::SuppliedOverride {
-                    official_entry_id, ..
-                } => Some(official_entry_id.as_str()),
-                EntryAuthority::Supplied => None,
-            })
-            .collect();
-
+        let overridden = active_override_ids(snapshot.entries());
+        let overridden: Vec<&str> = overridden.iter().map(String::as_str).collect();
         let mut analyses = Vec::new();
         let mut structured = Vec::new();
         let mut candidates_generated = normal.candidates_generated;
@@ -132,6 +122,19 @@ impl SuppliedLexiconRuntime {
     }
 }
 
+fn active_override_ids(entries: &[crate::SuppliedEntry]) -> Vec<String> {
+    entries
+        .iter()
+        .filter(|entry| matches!(entry.state, ValidationState::Active))
+        .filter_map(|entry| match &entry.authority {
+            EntryAuthority::SuppliedOverride {
+                official_entry_id, ..
+            } => Some(official_entry_id.clone()),
+            EntryAuthority::Supplied => None,
+        })
+        .collect()
+}
+
 fn push_unique(
     pairs: &mut Vec<(String, String)>,
     structured: &mut Vec<WordAnalysis>,
@@ -165,4 +168,29 @@ fn analysis_is_overridden(
     grammar.entries.iter().any(|entry| {
         entry.morpheme.0 == root_morpheme && overridden.contains(&entry.authored_id.as_str())
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn inactive_override_never_suppresses_official_identity() {
+        let date = crate::LexicalDate::parse("2026-07-22 00:00:00.000").unwrap();
+        let entry = crate::SuppliedEntry {
+            id: crate::EntryId::from_bytes([1; 16]),
+            stem: "x".into(),
+            gloss: String::new(),
+            signatures: vec![],
+            date_created: date.clone(),
+            date_modified: date,
+            authority: EntryAuthority::SuppliedOverride {
+                official_entry_id: "official".into(),
+                note: None,
+            },
+            state: ValidationState::Inactive {
+                diagnostics: vec!["missing signature".into()],
+            },
+        };
+        assert!(active_override_ids(&[entry]).is_empty());
+    }
 }
