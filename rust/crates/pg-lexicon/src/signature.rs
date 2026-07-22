@@ -4,6 +4,7 @@
 //! object containing authored POS, syntactic-feature/value, and MPR IDs. Object fields have the
 //! fixed order `pos`, `features`, `mpr`; feature rows and symbolic/MPR ID arrays are sorted by
 //! authored ID. Display labels and grammar-local dense IDs are deliberately absent.
+//! `pos` is persistently encoded as one authored ID; entries with multiple POS bits are rejected.
 
 use pg_featstruct::{FeatureStruct, FeatureValue, FsId};
 use pg_grammar::model::{Grammar, MprId, SynFeatureKind};
