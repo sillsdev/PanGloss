@@ -11,6 +11,14 @@ $grammar = Join-Path $root "tools/fixtures/supplied-lexicon-host-smoke.xml"
 $pythonSmoke = Join-Path $root "examples/native-abi/python_ctypes_smoke.py"
 $csharpProject = Join-Path $root "examples/native-abi/csharp/PanGlossNativeSmoke.csproj"
 $nugetConfig = Join-Path $root "examples/native-abi/NuGet.Config"
+$environmentNames = @("APPDATA", "DOTNET_CLI_HOME", "DOTNET_SKIP_FIRST_TIME_EXPERIENCE")
+$previousEnvironment = @{}
+foreach ($name in $environmentNames) {
+    $previousEnvironment[$name] = @{
+        Present = Test-Path "Env:$name"
+        Value = [Environment]::GetEnvironmentVariable($name, "Process")
+    }
+}
 
 Push-Location $root
 try {
@@ -23,6 +31,8 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "Python example did not compile" }
         & $python.Source $pythonSmoke $library $grammar
         if ($LASTEXITCODE -ne 0) { throw "Python native ABI smoke failed" }
+        & $python.Source -O $pythonSmoke $library $grammar
+        if ($LASTEXITCODE -ne 0) { throw "optimized Python native ABI smoke failed" }
     } else {
         Write-Host "SKIP Python smoke: no Python interpreter is installed"
     }
@@ -44,5 +54,13 @@ try {
         Write-Host "SKIP C# smoke: dotnet is not installed"
     }
 } finally {
+    foreach ($name in $environmentNames) {
+        $prior = $previousEnvironment[$name]
+        if ($prior.Present) {
+            [Environment]::SetEnvironmentVariable($name, $prior.Value, "Process")
+        } else {
+            Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
+        }
+    }
     Pop-Location
 }

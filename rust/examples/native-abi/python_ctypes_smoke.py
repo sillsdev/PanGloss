@@ -15,6 +15,11 @@ class Error(ctypes.Structure):
     _fields_ = [("code", ctypes.c_int32), ("_pad", ctypes.c_int32), ("message", Buffer)]
 
 
+def require(condition: bool, message: str) -> None:
+    if not condition:
+        raise RuntimeError(message)
+
+
 def main() -> None:
     if len(sys.argv) != 3:
         raise SystemExit("usage: python_ctypes_smoke.py LIBRARY GRAMMAR_XML")
@@ -63,19 +68,19 @@ def main() -> None:
         })
         entry_id = added["value"]["value"]["id"]
         analysis = call("hc_analyze_word_json", {"word": "nupasi"})
-        assert any(item["provenance"].get("entryId") == entry_id for item in analysis["value"]["structured"])
+        require(any(item["provenance"].get("entryId") == entry_id for item in analysis["value"]["structured"]), "inflected supplied analysis missing")
         exported = call("hc_lexicon_export_json", {})["value"]
         removed = call("hc_lexicon_remove_json", {"id": entry_id, "expectedRevision": added["value"]["revision"]})
-        assert removed["value"]["value"] is True
-        assert not any(item["provenance"].get("entryId") == entry_id for item in call("hc_analyze_word_json", {"word": "nupasi"})["value"]["structured"])
+        require(removed["value"]["value"] is True, "hard remove did not report a removed entry")
+        require(not any(item["provenance"].get("entryId") == entry_id for item in call("hc_analyze_word_json", {"word": "nupasi"})["value"]["structured"]), "hard-removed entry still parses")
         restored = call("hc_lexicon_import_json", {"document": exported})
-        assert restored["value"]["changed"] is True
-        assert any(item["provenance"].get("entryId") == entry_id for item in call("hc_analyze_word_json", {"word": "nupasi"})["value"]["structured"])
+        require(restored["value"]["changed"] is True, "replace import did not publish a change")
+        require(any(item["provenance"].get("entryId") == entry_id for item in call("hc_analyze_word_json", {"word": "nupasi"})["value"]["structured"]), "replace import did not restore supplied analysis")
         conflict = call("hc_lexicon_update_json", {
             "id": entry_id, "stem": "nupa", "gloss": "changed", "signatures": [signature],
             "expectedRevision": "rev_0",
         })
-        assert conflict["ok"] is False and conflict["error"]["code"] == "revision_conflict"
+        require(conflict["ok"] is False and conflict["error"]["code"] == "revision_conflict", "stale update did not return revision_conflict")
     finally:
         lib.hc_grammar_free(handle)
 

@@ -7,17 +7,17 @@ internal static class Native
     private const string Library = "pangloss_ffi";
     [StructLayout(LayoutKind.Sequential)] internal struct Buffer { internal IntPtr Data; internal nuint Len; internal nuint Cap; }
     [StructLayout(LayoutKind.Sequential)] internal struct Error { internal int Code; internal int Pad; internal Buffer Message; }
-    [DllImport(Library)] internal static extern int hc_grammar_load(byte[] xml, nuint len, out IntPtr handle, out Error error);
-    [DllImport(Library)] internal static extern void hc_grammar_free(IntPtr handle);
-    [DllImport(Library)] internal static extern void hc_buf_free(ref Buffer buffer);
-    [DllImport(Library)] internal static extern int hc_lexicon_catalog_json(IntPtr h, byte[] json, nuint len, out Buffer output);
-    [DllImport(Library)] internal static extern int hc_lexicon_set_gloss_language_json(IntPtr h, byte[] json, nuint len, out Buffer output);
-    [DllImport(Library)] internal static extern int hc_lexicon_add_json(IntPtr h, byte[] json, nuint len, out Buffer output);
-    [DllImport(Library)] internal static extern int hc_analyze_word_json(IntPtr h, byte[] json, nuint len, out Buffer output);
-    [DllImport(Library)] internal static extern int hc_lexicon_export_json(IntPtr h, byte[] json, nuint len, out Buffer output);
-    [DllImport(Library)] internal static extern int hc_lexicon_remove_json(IntPtr h, byte[] json, nuint len, out Buffer output);
-    [DllImport(Library)] internal static extern int hc_lexicon_import_json(IntPtr h, byte[] json, nuint len, out Buffer output);
-    [DllImport(Library)] internal static extern int hc_lexicon_update_json(IntPtr h, byte[] json, nuint len, out Buffer output);
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)] internal static extern int hc_grammar_load(byte[] xml, nuint len, out IntPtr handle, out Error error);
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)] internal static extern void hc_grammar_free(IntPtr handle);
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)] internal static extern void hc_buf_free(ref Buffer buffer);
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)] internal static extern int hc_lexicon_catalog_json(IntPtr h, byte[] json, nuint len, out Buffer output);
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)] internal static extern int hc_lexicon_set_gloss_language_json(IntPtr h, byte[] json, nuint len, out Buffer output);
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)] internal static extern int hc_lexicon_add_json(IntPtr h, byte[] json, nuint len, out Buffer output);
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)] internal static extern int hc_analyze_word_json(IntPtr h, byte[] json, nuint len, out Buffer output);
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)] internal static extern int hc_lexicon_export_json(IntPtr h, byte[] json, nuint len, out Buffer output);
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)] internal static extern int hc_lexicon_remove_json(IntPtr h, byte[] json, nuint len, out Buffer output);
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)] internal static extern int hc_lexicon_import_json(IntPtr h, byte[] json, nuint len, out Buffer output);
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)] internal static extern int hc_lexicon_update_json(IntPtr h, byte[] json, nuint len, out Buffer output);
 
     internal static void Configure(string path) => NativeLibrary.SetDllImportResolver(typeof(Native).Assembly,
         (_, _, _) => NativeLibrary.Load(Path.GetFullPath(path)));
