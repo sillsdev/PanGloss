@@ -20,7 +20,7 @@
 //! expands them (via [`Word::expand_alternatives`]) between lexical lookup and synthesis, exactly as
 //! `SynthesizeAnalysis` does (Morpher.cs:476-486).
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -77,6 +77,50 @@ pub struct Morpher<'g> {
     /// (`hc_parse_batch` holds `&Morpher`, never a mutable one, once construction finishes). See
     /// `pg_rules::cache`'s module doc for the full rationale and per-site accounting.
     cache: RuleCache,
+}
+
+/// Shared instrumentation and hard limits for bounded synthesis across multiple derivations.
+pub struct SynthesisBudget {
+    steps: pg_rules::stratum::StepBudget,
+    candidate_cap: usize,
+    candidates: Cell<usize>,
+    candidates_capped: Cell<bool>,
+}
+
+impl SynthesisBudget {
+    pub fn new(step_cap: usize, candidate_cap: usize, timeout: Duration) -> Self {
+        Self {
+            steps: pg_rules::stratum::StepBudget::new(step_cap)
+                .with_timeout(Some(timeout))
+                .with_synthesis_counting(),
+            candidate_cap,
+            candidates: Cell::new(0),
+            candidates_capped: Cell::new(false),
+        }
+    }
+    fn admit_candidate(&self) -> bool {
+        if self.candidates.get() >= self.candidate_cap {
+            self.candidates_capped.set(true);
+            return false;
+        }
+        self.candidates.set(self.candidates.get() + 1);
+        true
+    }
+    pub fn steps(&self) -> usize {
+        self.steps.steps()
+    }
+    pub fn candidates(&self) -> usize {
+        self.candidates.get()
+    }
+    pub fn step_capped(&self) -> bool {
+        self.steps.capped()
+    }
+    pub fn candidate_capped(&self) -> bool {
+        self.candidates_capped.get()
+    }
+    pub fn timed_out(&self) -> bool {
+        self.steps.timed_out()
+    }
 }
 
 /// The outcome of parsing one word.
@@ -477,9 +521,14 @@ impl<'g> Morpher<'g> {
                 // candidates `MergeEquivalentAnalyses` folded away, each with the deeper strata's
                 // rules replayed, then synthesize every one of them.
                 for alt in syn_word.expand_alternatives() {
-                    for vw in
-                        self.synthesis_pipeline_selected(alt, trace, root, rule_filter, &budget)
-                    {
+                    for vw in self.synthesis_pipeline_selected(
+                        alt,
+                        trace,
+                        root,
+                        rule_filter,
+                        &budget,
+                        None,
+                    ) {
                         candidates_generated += 1;
                         if self.is_word_valid_traced(&vw, trace, root)
                             && self.is_match_traced(&vw, word, trace, root)
@@ -673,7 +722,7 @@ impl<'g> Morpher<'g> {
     fn synthesis_pipeline(&self, syn_word: Word) -> Vec<Word> {
         let sink = NoopSink;
         let budget = pg_rules::stratum::StepBudget::new(self.cap);
-        self.synthesis_pipeline_selected(syn_word, &sink, TraceHandle::DUMMY, None, &budget)
+        self.synthesis_pipeline_selected(syn_word, &sink, TraceHandle::DUMMY, None, &budget, None)
     }
 
     /// P12 chunks 4/5 (the applied-event spine): [`Self::synthesis_pipeline`]'s traced sibling.
@@ -692,7 +741,7 @@ impl<'g> Morpher<'g> {
         parent: TraceHandle,
         budget: &pg_rules::stratum::StepBudget,
     ) -> Vec<Word> {
-        self.synthesis_pipeline_selected(syn_word, trace, parent, None, budget)
+        self.synthesis_pipeline_selected(syn_word, trace, parent, None, budget, None)
     }
 
     /// F1 (§7.1 item 1): [`Self::synthesis_pipeline_traced`]'s selector-restricted sibling — adds
@@ -716,6 +765,7 @@ impl<'g> Morpher<'g> {
         parent: TraceHandle,
         rule_filter: Option<pg_rules::stratum::RuleFilter>,
         budget: &pg_rules::stratum::StepBudget,
+        work_budget: Option<&SynthesisBudget>,
     ) -> Vec<Word> {
         let g = self.g;
         let n = g.strata.len();
@@ -745,6 +795,9 @@ impl<'g> Morpher<'g> {
                     trace,
                     node_parent,
                 ) {
+                    if work_budget.is_some_and(|budget| !budget.admit_candidate()) {
+                        return Vec::new();
+                    }
                     next.entry(o.dedup_key()).or_insert(o);
                 }
             }
@@ -1470,6 +1523,30 @@ impl<'g> Morpher<'g> {
         stratum: StratumId,
         rules: &[MRuleId],
     ) -> Vec<String> {
+        self.synthesize_resolved_stem_impl(shape_text, syn_fs, mpr, stratum, rules, None)
+    }
+
+    pub fn synthesize_resolved_stem_bounded(
+        &self,
+        shape_text: &str,
+        syn_fs: FsId,
+        mpr: MprSet,
+        stratum: StratumId,
+        rules: &[MRuleId],
+        budget: &SynthesisBudget,
+    ) -> Vec<String> {
+        self.synthesize_resolved_stem_impl(shape_text, syn_fs, mpr, stratum, rules, Some(budget))
+    }
+
+    fn synthesize_resolved_stem_impl(
+        &self,
+        shape_text: &str,
+        syn_fs: FsId,
+        mpr: MprSet,
+        stratum: StratumId,
+        rules: &[MRuleId],
+        work_budget: Option<&SynthesisBudget>,
+    ) -> Vec<String> {
         let g = self.g;
         let Some(stratum_def) = g.strata.get(stratum.0 as usize) else {
             return Vec::new();
@@ -1505,7 +1582,20 @@ impl<'g> Morpher<'g> {
             word.morphological_rule_unapplied(is_realizational_rule(g, rule), Some(rule));
         }
         let mut out = std::collections::BTreeSet::new();
-        for generated in self.synthesis_pipeline(word) {
+        let generated = if let Some(work) = work_budget {
+            let sink = NoopSink;
+            self.synthesis_pipeline_selected(
+                word,
+                &sink,
+                TraceHandle::DUMMY,
+                None,
+                &work.steps,
+                Some(work),
+            )
+        } else {
+            self.synthesis_pipeline(word)
+        };
+        for generated in generated {
             if self.is_word_valid(&generated) {
                 out.insert(self.generated_surface_of(&generated));
             }

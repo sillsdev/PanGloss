@@ -194,6 +194,7 @@ pub struct StepBudget {
     /// not a re-expression of the step cap.
     deadline: Option<Instant>,
     timed_out: Cell<bool>,
+    synthesis_counting: bool,
 }
 
 impl StepBudget {
@@ -204,6 +205,7 @@ impl StepBudget {
             capped: Cell::new(false),
             deadline: None,
             timed_out: Cell::new(false),
+            synthesis_counting: false,
         }
     }
 
@@ -213,6 +215,14 @@ impl StepBudget {
     /// default), so callers that never pass `--word-timeout-ms` pay nothing extra.
     pub fn with_timeout(mut self, timeout: Option<Duration>) -> Self {
         self.deadline = timeout.map(|d| Instant::now() + d);
+        self
+    }
+
+    /// Makes synthesis consume this same step counter. Ordinary parse/generation callers leave
+    /// this disabled, preserving the historical independent synthesis cap; bounded diagnostic
+    /// generation enables it so one budget measures the actual engine walk across many calls.
+    pub fn with_synthesis_counting(mut self) -> Self {
+        self.synthesis_counting = true;
         self
     }
 
@@ -259,6 +269,17 @@ impl StepBudget {
                 return true;
             }
         }
+        false
+    }
+
+    fn synthesis_over_budget(&self) -> bool {
+        if !self.synthesis_counting {
+            return self.deadline_expired();
+        }
+        if self.over_budget() {
+            return true;
+        }
+        self.tick();
         false
     }
 
@@ -1197,7 +1218,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
             // golden parity) closes the same class of gap synthesis's own unguarded prule loop had.
             // `deadline_expired()` is a no-op when `--word-timeout-ms` is not set, so every
             // step-cap-only run (the Sena goldens) takes this loop to completion exactly as before.
-            if self.budget.deadline_expired() {
+            if self.budget.synthesis_over_budget() {
                 break;
             }
             let result = match &self.g.prules[pid.0 as usize] {
@@ -1416,7 +1437,7 @@ fn synth_slots_generic<F>(
     if steps.get() >= cap {
         return;
     }
-    if budget.deadline_expired() {
+    if budget.synthesis_over_budget() {
         return;
     }
     let mut i = index;
@@ -1428,7 +1449,7 @@ fn synth_slots_generic<F>(
             if steps.get() >= cap {
                 return;
             }
-            if budget.deadline_expired() {
+            if budget.synthesis_over_budget() {
                 return;
             }
             steps.set(steps.get() + 1);
@@ -1742,7 +1763,7 @@ pub fn synthesize_stratum_traced(
         // rather than unwinding the whole function. A `None` deadline (`--word-timeout-ms` unset)
         // makes this a no-op, so every step-cap-only run is unaffected.
         for &pid in &sd.prules {
-            if budget.deadline_expired() {
+            if budget.synthesis_over_budget() {
                 break;
             }
             let result = match &g.prules[pid.0 as usize] {
@@ -1794,7 +1815,7 @@ fn synth_apply_mrules(
     if steps.get() >= cap {
         return Vec::new();
     }
-    if budget.deadline_expired() {
+    if budget.synthesis_over_budget() {
         return Vec::new();
     }
     let key = |w: &Word| w.dedup_key();
@@ -1817,7 +1838,7 @@ fn synth_apply_mrules(
         if steps.get() >= cap {
             return Vec::new();
         }
-        if budget.deadline_expired() {
+        if budget.synthesis_over_budget() {
             return Vec::new();
         }
         steps.set(steps.get() + 1);
@@ -1954,7 +1975,7 @@ fn synth_apply_templates(
     if steps.get() >= cap {
         return Vec::new();
     }
-    if budget.deadline_expired() {
+    if budget.synthesis_over_budget() {
         return Vec::new();
     }
     // SynthesisAffixTemplatesRule.Apply (cs:35-77): try each applicable template; mark each output

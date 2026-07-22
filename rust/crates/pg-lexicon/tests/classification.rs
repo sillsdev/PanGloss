@@ -5,9 +5,35 @@ use pg_lexicon::{
     classify, ClassCatalog, ClassificationBudgets, ClassificationGuide, ClassificationRequest,
     Judgment, KnownFacts, TruncationReason,
 };
+use std::time::Duration;
 
 fn setup() -> (pg_grammar::model::Grammar, ClassCatalog) {
     let grammar = pg_grammar::load(fixture::TOY_XML).unwrap();
+    let catalog = ClassCatalog::from_grammar(&grammar).unwrap();
+    (grammar, catalog)
+}
+
+fn two_rule_setup() -> (pg_grammar::model::Grammar, ClassCatalog) {
+    let mut xml = fixture::TOY_XML
+        .replace("<MorphologicalPhonologicalRuleFeature id=\"mprC2\">C2</MorphologicalPhonologicalRuleFeature>", "<MorphologicalPhonologicalRuleFeature id=\"mprC2\">C2</MorphologicalPhonologicalRuleFeature><MorphologicalPhonologicalRuleFeature id=\"mprStage\">Stage</MorphologicalPhonologicalRuleFeature>")
+        .replace("morphologicalRules=\"mrPl\"", "morphologicalRules=\"mrPrep mrChoice\"");
+    let start = xml.find("<MorphologicalRule id=\"mrPl\"").unwrap();
+    let end =
+        start + xml[start..].find("</MorphologicalRule>").unwrap() + "</MorphologicalRule>".len();
+    let rules = r#"
+      <MorphologicalRule id="mrPrep" requiredPartsOfSpeech="posN" outputPartOfSpeech="posN">
+        <Name>prepare</Name><MorphemeId>PREP</MorphemeId><MorphologicalSubrules>
+          <MorphologicalSubrule id="prepSub"><MorphologicalInput><PhoneticSequence id="stem"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAll" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput><MorphologicalOutput MPRFeatures="mprStage"><CopyFromInput index="stem" /><InsertSegments><PhoneticShape>+a</PhoneticShape></InsertSegments></MorphologicalOutput></MorphologicalSubrule>
+        </MorphologicalSubrules>
+      </MorphologicalRule>
+      <MorphologicalRule id="mrChoice" requiredPartsOfSpeech="posN" outputPartOfSpeech="posN">
+        <Name>choose</Name><MorphemeId>CHOOSE</MorphemeId><MorphologicalSubrules>
+          <MorphologicalSubrule id="choice1"><MorphologicalInput requiredMPRFeatures="mprStage mprC1"><PhoneticSequence id="stem1"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAll" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput><MorphologicalOutput><CopyFromInput index="stem1" /><InsertSegments><PhoneticShape>+i</PhoneticShape></InsertSegments></MorphologicalOutput></MorphologicalSubrule>
+          <MorphologicalSubrule id="choice2"><MorphologicalInput requiredMPRFeatures="mprStage mprC2"><PhoneticSequence id="stem2"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAll" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput><MorphologicalOutput><CopyFromInput index="stem2" /><InsertSegments><PhoneticShape>+o</PhoneticShape></InsertSegments></MorphologicalOutput></MorphologicalSubrule>
+        </MorphologicalSubrules>
+      </MorphologicalRule>"#;
+    xml.replace_range(start..end, rules);
+    let grammar = pg_grammar::load(&xml).unwrap();
     let catalog = ClassCatalog::from_grammar(&grammar).unwrap();
     (grammar, catalog)
 }
@@ -67,6 +93,48 @@ fn guide_can_consume_the_real_matrix_without_session_state_in_core() {
     assert_eq!(guide.remaining_signatures().len(), 1);
     assert!(guide.undo());
     assert_eq!(guide.remaining_signatures().len(), 2);
+}
+
+#[test]
+fn bfs_finds_a_separator_that_requires_two_real_rules_in_replay_order() {
+    let (grammar, catalog) = two_rule_setup();
+    let matrix = classify(
+        &grammar,
+        &catalog,
+        ClassificationRequest {
+            stem: "sato".into(),
+            known: KnownFacts::default(),
+            budgets: ClassificationBudgets::default(),
+        },
+    )
+    .unwrap();
+    assert!(matrix.exhaustive, "{matrix:#?}");
+    let form = matrix
+        .forms
+        .iter()
+        .find(|form| {
+            form.predictions
+                .iter()
+                .any(|prediction| prediction.derivations.iter().any(|path| path.len() == 2))
+        })
+        .expect("a two-rule separator");
+    let path = form
+        .predictions
+        .iter()
+        .flat_map(|prediction| &prediction.derivations)
+        .find(|path| path.len() == 2)
+        .unwrap();
+    assert_eq!(
+        path.iter()
+            .map(|rule| rule.label.as_str())
+            .collect::<Vec<_>>(),
+        vec!["prepare", "choose"]
+    );
+    assert!(
+        form.surface.ends_with("ai") || form.surface.ends_with("ao"),
+        "{}",
+        form.surface
+    );
 }
 
 #[test]
@@ -147,4 +215,77 @@ fn precise_budgets_never_claim_truncated_work_is_exhaustive() {
     assert_eq!(matrix.forms.len(), 1);
     assert_eq!(matrix.truncation_reason, Some(TruncationReason::FormLimit));
     assert!(!matrix.exhaustive);
+}
+
+#[test]
+fn parser_budget_instrumentation_is_shared_and_ordinary_synthesis_stays_unbounded() {
+    let (grammar, catalog) = setup();
+    let resolved = catalog.resolved(&catalog.signatures()[0].id).unwrap();
+    let morpher = pg_parse::Morpher::new(&grammar, usize::MAX);
+    let ordinary = morpher.synthesize_resolved_stem(
+        "sato",
+        resolved.syn_fs,
+        resolved.mpr,
+        resolved.stratum,
+        &[],
+    );
+    assert_eq!(ordinary, vec!["sato"]);
+
+    let ample = pg_parse::SynthesisBudget::new(10_000, 10_000, Duration::from_secs(1));
+    assert_eq!(
+        morpher.synthesize_resolved_stem_bounded(
+            "sato",
+            resolved.syn_fs,
+            resolved.mpr,
+            resolved.stratum,
+            &[],
+            &ample
+        ),
+        ordinary
+    );
+    assert!(ample.steps() > 0);
+    assert!(ample.candidates() > 0);
+
+    let step = pg_parse::SynthesisBudget::new(1, 10_000, Duration::from_secs(1));
+    let _ = morpher.synthesize_resolved_stem_bounded(
+        "sato",
+        resolved.syn_fs,
+        resolved.mpr,
+        resolved.stratum,
+        &[],
+        &step,
+    );
+    assert!(step.step_capped());
+    assert_eq!(step.steps(), 1);
+
+    let candidates = pg_parse::SynthesisBudget::new(10_000, 1, Duration::from_secs(1));
+    let _ = morpher.synthesize_resolved_stem_bounded(
+        "sato",
+        resolved.syn_fs,
+        resolved.mpr,
+        resolved.stratum,
+        &[],
+        &candidates,
+    );
+    let _ = morpher.synthesize_resolved_stem_bounded(
+        "sato",
+        resolved.syn_fs,
+        resolved.mpr,
+        resolved.stratum,
+        &[],
+        &candidates,
+    );
+    assert!(candidates.candidate_capped());
+    assert_eq!(candidates.candidates(), 1);
+
+    let expired = pg_parse::SynthesisBudget::new(10_000, 10_000, Duration::ZERO);
+    let _ = morpher.synthesize_resolved_stem_bounded(
+        "sato",
+        resolved.syn_fs,
+        resolved.mpr,
+        resolved.stratum,
+        &[],
+        &expired,
+    );
+    assert!(expired.timed_out());
 }

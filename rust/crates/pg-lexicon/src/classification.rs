@@ -5,11 +5,11 @@ use crate::{
     StructuredError, SuppliedEntry, SuppliedLexiconRuntime,
 };
 use pg_grammar::model::{Grammar, MRuleId, MorphRuleDef};
-use pg_parse::Morpher;
+use pg_parse::{Morpher, SynthesisBudget};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -158,48 +158,46 @@ pub fn classify(
     }
     let candidate_ids: Vec<_> = candidates.iter().map(|s| s.id.clone()).collect();
     let mut surfaces: BTreeMap<String, BTreeMap<SignatureId, BTreeSet<Vec<u32>>>> = BTreeMap::new();
-    let started = Instant::now();
-    let deadline = Duration::from_millis(budgets.max_time_ms);
-    let (mut derivations, mut generated, mut steps) = (0usize, 0usize, 0usize);
+    let engine_budget = SynthesisBudget::new(
+        budgets.max_steps,
+        budgets.max_candidates,
+        Duration::from_millis(budgets.max_time_ms),
+    );
+    let mut derivations = 0usize;
     let mut truncation = None;
     let mut completed_depth = 0usize;
 
     while let Some(work) = queue.pop_front() {
         if work.rules.len() > completed_depth {
+            if useful_surface_count(&surfaces, candidates.len()) > budgets.max_forms {
+                truncation = Some(TruncationReason::FormLimit);
+                break;
+            }
             if all_pairs_separated(&candidate_ids, &surfaces) {
                 break;
             }
             completed_depth = work.rules.len();
         }
-        if started.elapsed() >= deadline {
-            truncation = Some(TruncationReason::TimeLimit);
-            break;
-        }
         if derivations >= budgets.max_derivations {
             truncation = Some(TruncationReason::DerivationLimit);
-            break;
-        }
-        if steps.saturating_add(work.rules.len()) > budgets.max_steps {
-            truncation = Some(TruncationReason::StepLimit);
             break;
         }
         let resolved = catalog
             .resolved(&work.signature)
             .expect("catalog is coherent");
         derivations += 1;
-        steps += work.rules.len();
-        let produced = morpher.synthesize_resolved_stem(
+        let produced = morpher.synthesize_resolved_stem_bounded(
             &request.stem,
             resolved.syn_fs,
             resolved.mpr,
             resolved.stratum,
             &work.rules,
+            &engine_budget,
         );
-        if generated.saturating_add(produced.len()) > budgets.max_candidates {
-            truncation = Some(TruncationReason::CandidateLimit);
+        if let Some(reason) = engine_truncation(&engine_budget) {
+            truncation = Some(reason);
             break;
         }
-        generated += produced.len();
         let path: Vec<u32> = work.rules.iter().map(|id| id.0).collect();
         for surface in produced {
             surfaces
@@ -225,6 +223,10 @@ pub fn classify(
     }
 
     let separated = all_pairs_separated(&candidate_ids, &surfaces);
+    if truncation.is_none() && useful_surface_count(&surfaces, candidates.len()) > budgets.max_forms
+    {
+        truncation = Some(TruncationReason::FormLimit);
+    }
     let naturally_done = queue.is_empty();
     let exhaustive = truncation.is_none() && (separated || naturally_done);
     let mut useful: Vec<_> = surfaces
@@ -248,6 +250,28 @@ pub fn classify(
         exhaustive: exhaustive && truncation.is_none(),
         truncation_reason: truncation,
     })
+}
+
+fn engine_truncation(budget: &SynthesisBudget) -> Option<TruncationReason> {
+    if budget.timed_out() {
+        Some(TruncationReason::TimeLimit)
+    } else if budget.step_capped() {
+        Some(TruncationReason::StepLimit)
+    } else if budget.candidate_capped() {
+        Some(TruncationReason::CandidateLimit)
+    } else {
+        None
+    }
+}
+
+fn useful_surface_count(
+    surfaces: &BTreeMap<String, BTreeMap<SignatureId, BTreeSet<Vec<u32>>>>,
+    total: usize,
+) -> usize {
+    surfaces
+        .values()
+        .filter(|predictions| !predictions.is_empty() && predictions.len() < total)
+        .count()
 }
 
 fn budget_error(message: &str) -> StructuredError {
@@ -323,6 +347,7 @@ fn build_form(
                 .into_iter()
                 .map(|path| {
                     path.into_iter()
+                        .rev()
                         .map(|id| rule_metadata(grammar, MRuleId(id)))
                         .collect()
                 })
