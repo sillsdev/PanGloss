@@ -24,9 +24,10 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Duration;
 
-use pg_featstruct::{FeatId, FeatureStruct, FeatureValue};
+use pg_featstruct::{FeatId, FeatureStruct, FeatureValue, FsId};
 use pg_grammar::model::{
-    AllomorphId, AllomorphOwner, Grammar, LexEntryId, MRuleId, MorphRuleDef, MorphemeId, StratumId,
+    AllomorphId, AllomorphOwner, Grammar, LexEntryId, MRuleId, MorphRuleDef, MorphemeId, MprSet,
+    StratumId,
 };
 use pg_memo::AnalysisScope;
 use pg_rules::cache::RuleCache;
@@ -1451,6 +1452,62 @@ impl<'g> Morpher<'g> {
         for vw in self.synthesis_pipeline(w) {
             if self.is_word_valid(&vw) {
                 out.insert(self.generated_surface_of(&vw));
+            }
+        }
+        out.into_iter().collect()
+    }
+
+    /// Synthesizes a hypothetical ordinary supplied root with an already-resolved grammatical
+    /// class. Unlike [`Self::synthesize_guessed_stem`], this seam does not borrow restrictions from
+    /// an exemplar lexeme and can replay a complete multi-rule derivation. It is intentionally
+    /// small: bounded exploration belongs to the caller, while every returned surface still passes
+    /// through the real synthesis and validity pipelines.
+    pub fn synthesize_resolved_stem(
+        &self,
+        shape_text: &str,
+        syn_fs: FsId,
+        mpr: MprSet,
+        stratum: StratumId,
+        rules: &[MRuleId],
+    ) -> Vec<String> {
+        let g = self.g;
+        let Some(stratum_def) = g.strata.get(stratum.0 as usize) else {
+            return Vec::new();
+        };
+        let table = &g.char_tables[stratum_def.table.0 as usize];
+        let Ok(shape) = segment_with_features(g, table, shape_text) else {
+            return Vec::new();
+        };
+        let realization_id = format!("classification:{shape_text}");
+        let supplied = pg_rules::word::SuppliedRootData {
+            entry_id: realization_id.clone(),
+            realization_id: realization_id.clone(),
+            authority: pg_rules::word::SuppliedAuthorityData::Supplied,
+            lexical_spelling: shape_text.to_string(),
+            gloss: String::new(),
+            syn_fs: g.fs_interner.get(syn_fs).clone(),
+            mpr,
+            stratum,
+        };
+        let mut word = Word::new(shape, stratum);
+        word.syn_fs = supplied.syn_fs.clone();
+        word.mpr = mpr;
+        word.root_allomorph = Some(AllomorphId::GUESSED);
+        word.root_runtime_id = Some(realization_id);
+        word.morphs = vec![
+            MorphRecord::new(AllomorphId::GUESSED, MorphemeId::GUESSED, 0)
+                .with_runtime_root(RuntimeRoot::Supplied(supplied)),
+        ];
+        for &rule in rules {
+            if rule.0 as usize >= g.mrules.len() {
+                return Vec::new();
+            }
+            word.morphological_rule_unapplied(is_realizational_rule(g, rule), Some(rule));
+        }
+        let mut out = std::collections::BTreeSet::new();
+        for generated in self.synthesis_pipeline(word) {
+            if self.is_word_valid(&generated) {
+                out.insert(self.generated_surface_of(&generated));
             }
         }
         out.into_iter().collect()

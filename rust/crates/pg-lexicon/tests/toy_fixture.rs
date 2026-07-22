@@ -11,7 +11,7 @@ use pg_lexicon::{
     augment_xml, candidate_classes, disambiguating_forms, validate_shape, UserLexEntry, UserLexicon,
 };
 
-const TOY_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+pub(crate) const TOY_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
     <Name>LexiconToy</Name>

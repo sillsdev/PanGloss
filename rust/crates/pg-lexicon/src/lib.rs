@@ -28,6 +28,7 @@
 
 pub mod augment;
 pub mod classes;
+pub mod classification;
 pub mod model;
 pub mod paradigm;
 pub mod runtime;
@@ -36,6 +37,7 @@ pub mod store;
 
 pub use augment::{augment_xml, AugmentReport};
 pub use classes::{candidate_classes, validate_shape, ClassCandidate};
+pub use classification::*;
 pub use model::{UserLexEntry, UserLexicon};
 pub use paradigm::{disambiguating_forms, ClassForms};
 pub use runtime::*;
