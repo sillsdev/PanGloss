@@ -25,3 +25,6 @@ serde_json.workspace = true
 # NEVER for a plain `cargo build`/`cargo build --release`, which does not build
 # `[dev-dependencies]` at all — see pg-parse/Cargo.toml and `tests/abort_safety.rs`).
 pg-parse = { workspace = true, features = ["test-panic-hook"] }
+
+[build-dependencies]
+cc = "1"

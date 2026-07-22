@@ -69,8 +69,21 @@ pub extern "C" fn hc_abi_version() -> i32 {
 
 #[cfg(test)]
 mod tests {
+    unsafe extern "C" {
+        fn pangloss_header_c_smoke();
+        fn pangloss_header_cpp_smoke();
+    }
+
     #[test]
     fn abi_version_is_exposed() {
         assert_eq!(super::hc_abi_version(), super::HC_ABI_VERSION);
+    }
+
+    #[test]
+    fn installed_header_compiles_and_links_as_c_and_cpp() {
+        unsafe {
+            pangloss_header_c_smoke();
+            pangloss_header_cpp_smoke();
+        }
     }
 }

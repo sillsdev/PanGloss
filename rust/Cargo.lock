@@ -569,6 +569,7 @@ dependencies = [
 name = "pg-ffi"
 version = "0.1.0"
 dependencies = [
+ "cc",
  "pg-foma",
  "pg-grammar",
  "pg-lexicon",

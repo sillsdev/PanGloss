@@ -11,8 +11,24 @@ extern "C" {
 typedef void *HcGrammarHandle;
 typedef void *HcClassificationGuideHandle;
 typedef struct { uint8_t *data; size_t len; size_t cap; } HcResultBuf;
+typedef struct { int32_t code; int32_t _pad; HcResultBuf message; } HcError;
+typedef struct { const uint8_t *ptr; size_t len; } HcStr;
+
+enum {
+    HC_OK = 0,
+    HC_ERR_UTF8 = 1,
+    HC_ERR_GRAMMAR_LOAD = 2,
+    HC_ERR_NULL_ARG = 3,
+    HC_ERR_PANIC = 4,
+    HC_ERR_INVALID_ARG = 5
+};
 
 int32_t hc_abi_version(void); /* 2: binary parse ABI unchanged; JSON API added. */
+int32_t hc_grammar_load(const uint8_t *xml_utf8, size_t len, HcGrammarHandle *out, HcError *error);
+void hc_grammar_free(HcGrammarHandle handle);
+int32_t hc_parse_word(HcGrammarHandle handle, const uint8_t *word_utf8, size_t len, HcResultBuf *out);
+int32_t hc_parse_batch(HcGrammarHandle handle, const HcStr *words, size_t count, int32_t max_threads, HcResultBuf *out);
+int32_t hc_generate_words(HcGrammarHandle handle, const uint32_t *morpheme_ids, size_t morpheme_count, int32_t root_morpheme_index, HcResultBuf *out);
 void hc_buf_free(HcResultBuf *buf);
 
 /* All request strings are length-delimited UTF-8 and need not be NUL-terminated. JSON calls

@@ -45,22 +45,6 @@ enum OfficialBackend {
     MorpherFallback { diagnostic: String },
 }
 
-#[cfg(test)]
-static FORCE_NEXT_FOMA_PANIC: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
-
-#[cfg(test)]
-fn force_next_foma_panic() {
-    FORCE_NEXT_FOMA_PANIC.store(true, std::sync::atomic::Ordering::SeqCst);
-}
-
-fn test_panic_if_requested() {
-    #[cfg(test)]
-    if FORCE_NEXT_FOMA_PANIC.swap(false, std::sync::atomic::Ordering::SeqCst) {
-        panic!("forced native foma analyzer panic");
-    }
-}
-
 impl FomaState {
     fn new(grammar: &Grammar) -> Result<Self, String> {
         Ok(Self {
@@ -94,6 +78,8 @@ pub(crate) struct GrammarHandle {
     /// Owned, immutable-with-respect-to-the-grammar proposer pieces. The foma runtime itself
     /// needs mutable access while proposing, so calls briefly check the pieces out under a lock.
     official_backend: Mutex<OfficialBackend>,
+    #[cfg(test)]
+    force_next_foma_panic: std::sync::atomic::AtomicBool,
     /// Never read directly after construction — it exists purely to *own* the allocation
     /// `morpher` points into (dropping it is what actually frees the grammar). That's a real
     /// use the `dead_code` lint can't see, hence the explicit allow.
@@ -147,6 +133,8 @@ impl GrammarHandle {
             morpher,
             runtime,
             official_backend: Mutex::new(official_backend),
+            #[cfg(test)]
+            force_next_foma_panic: std::sync::atomic::AtomicBool::new(false),
             grammar,
         })
     }
@@ -173,7 +161,7 @@ impl GrammarHandle {
             }
         };
         let attempted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            test_panic_if_requested();
+            self.test_panic_if_requested();
             let mut analyzer = pg_foma::composite::FomaAnalyzer::from_cached(
                 &self.grammar,
                 state.proposer,
@@ -224,6 +212,22 @@ impl GrammarHandle {
                 assert!(!diagnostic.is_empty());
                 "morpherFallback"
             }
+        }
+    }
+
+    #[cfg(test)]
+    fn force_next_foma_panic(&self) {
+        self.force_next_foma_panic
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    fn test_panic_if_requested(&self) {
+        #[cfg(test)]
+        if self
+            .force_next_foma_panic
+            .swap(false, std::sync::atomic::Ordering::SeqCst)
+        {
+            panic!("forced native foma analyzer panic");
         }
     }
 }
@@ -372,8 +376,8 @@ mod runtime_backend_tests {
     fn analyzer_panic_is_enveloped_and_the_same_handle_remains_usable() {
         let grammar = pg_grammar::load(XML).unwrap();
         let handle = GrammarHandle::new(grammar, XML);
+        handle.force_next_foma_panic();
         let raw = Box::into_raw(handle).cast();
-        force_next_foma_panic();
 
         let request = br#"{"word":"a"}"#;
         let mut out = HcResultBuf::EMPTY;
@@ -403,5 +407,18 @@ mod runtime_backend_tests {
             hc_buf_free(&mut out);
             crate::hc_grammar_free(raw)
         };
+    }
+
+    #[test]
+    fn injected_analyzer_panic_is_scoped_to_one_handle() {
+        let first = GrammarHandle::new(pg_grammar::load(XML).unwrap(), XML);
+        let second = GrammarHandle::new(pg_grammar::load(XML).unwrap(), XML);
+        first.force_next_foma_panic();
+        assert!(!second.analyze_word("a").structured.is_empty());
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| first.analyze_word("a")))
+                .is_err()
+        );
+        assert!(!first.analyze_word("a").structured.is_empty());
     }
 }
