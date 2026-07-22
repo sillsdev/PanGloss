@@ -330,3 +330,78 @@ fn ordinary_mutations_validate_before_atomic_snapshot_publication() {
     );
     assert!(rt.parse_word("b").structured.is_empty());
 }
+
+#[test]
+fn stale_replace_after_newer_mutation_preserves_snapshot_and_revision() {
+    let rt = runtime(XML);
+    let stale_revision = rt.snapshot().revision().clone();
+    let replacement = document(&rt, "b");
+    rt.set_gloss_language(SetGlossLanguageRequest {
+        gloss_language: Some("en".into()),
+        expected_revision: None,
+    })
+    .unwrap();
+    let before = rt.snapshot();
+    let error = rt
+        .import(ImportRequest {
+            document: replacement,
+            expected_revision: Some(stale_revision),
+        })
+        .unwrap_err();
+    assert_eq!(error.code, "revision_conflict");
+    assert!(Arc::ptr_eq(&before, &rt.snapshot()));
+    assert_eq!(before.revision(), rt.snapshot().revision());
+}
+
+#[test]
+fn exact_export_reimport_and_canonical_reordering_are_semantic_noops() {
+    let rt = runtime(XML);
+    let mut initial = document(&rt, "b");
+    let mut second = initial.entries[0].clone();
+    second.id = EntryId::from_bytes([8; 16]);
+    second.stem = "a".into();
+    initial.entries.push(second);
+    rt.import_document(initial).unwrap();
+
+    let before = rt.snapshot();
+    let exact = rt.export_document();
+    let report = rt.import_document(exact.clone()).unwrap();
+    assert!(!report.changed);
+    assert_eq!(&report.revision, before.revision());
+    assert!(Arc::ptr_eq(&before, &rt.snapshot()));
+
+    let mut reordered = exact;
+    reordered.source_grammar_fingerprint = "sha256_previous_build".into();
+    reordered.entries.reverse();
+    reordered.signatures.reverse();
+    for entry in &mut reordered.entries {
+        entry.signatures.reverse();
+    }
+    let json = serde_json::to_string(&reordered).unwrap();
+    let report = rt
+        .import_json(&json, Some(before.revision().clone()))
+        .unwrap();
+    assert!(!report.changed);
+    assert!(report.compatible_migration);
+    assert!(Arc::ptr_eq(&before, &rt.snapshot()));
+}
+
+#[test]
+fn changed_import_publishes_exactly_one_new_revision() {
+    let rt = runtime(XML);
+    rt.import_document(document(&rt, "b")).unwrap();
+    let before = rt.snapshot();
+    let mut changed = rt.export_document();
+    changed.entries[0].stem = "a".into();
+    let report = rt
+        .import(ImportRequest {
+            document: changed,
+            expected_revision: Some(before.revision().clone()),
+        })
+        .unwrap();
+    assert!(report.changed);
+    let after = rt.snapshot();
+    assert!(!Arc::ptr_eq(&before, &after));
+    assert_ne!(before.revision(), after.revision());
+    assert_eq!(&report.revision, after.revision());
+}

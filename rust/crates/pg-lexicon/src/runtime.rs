@@ -31,6 +31,15 @@ pub struct ReconciliationReport {
     pub compatible_migration: bool,
     pub inactive_entries: Vec<EntryId>,
     pub superseded_entries: Vec<EntryId>,
+    pub revision: Revision,
+    pub changed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportRequest {
+    pub document: LexiconDocument,
+    pub expected_revision: Option<Revision>,
 }
 
 #[derive(Debug)]
@@ -454,11 +463,35 @@ impl SuppliedLexiconRuntime {
         &self,
         document: LexiconDocument,
     ) -> Result<ReconciliationReport, StructuredError> {
+        self.import(ImportRequest {
+            document,
+            expected_revision: None,
+        })
+    }
+
+    pub fn import(&self, request: ImportRequest) -> Result<ReconciliationReport, StructuredError> {
         let _mutation = self
             .mutation
             .lock()
             .expect("lexicon mutation lock poisoned");
-        self.import_document_locked(document)
+        self.check_revision(&request.expected_revision)?;
+        self.import_document_locked(request.document)
+    }
+
+    pub fn import_json(
+        &self,
+        json: &str,
+        expected_revision: Option<Revision>,
+    ) -> Result<ReconciliationReport, StructuredError> {
+        let document = serde_json::from_str(json).map_err(|json_error| StructuredError {
+            code: "invalid_import_json".into(),
+            message: "invalid lexicon JSON".into(),
+            details: serde_json::json!({"error": json_error.to_string()}),
+        })?;
+        self.import(ImportRequest {
+            document,
+            expected_revision,
+        })
     }
 
     fn import_document_locked(
@@ -605,9 +638,28 @@ impl SuppliedLexiconRuntime {
                 inactive_entries.push(entry.id.clone());
             }
         }
+        let old = self.snapshot();
+        let referenced: BTreeSet<_> = entries
+            .iter()
+            .flat_map(|entry| entry.signatures.iter().cloned())
+            .collect();
+        mappings.retain(|id, _| referenced.contains(id));
+        let compatible_migration = !exact_match && inactive_entries.is_empty();
+        if old.entries == entries
+            && old.mappings == mappings
+            && old.gloss_language == document.gloss_language
+        {
+            return Ok(ReconciliationReport {
+                exact_match,
+                compatible_migration,
+                inactive_entries,
+                superseded_entries,
+                revision: old.revision().clone(),
+                changed: false,
+            });
+        }
         let overlay = SuppliedRootOverlay::build(&self.grammar, roots)
             .map_err(|message| error("invalid_overlay", message))?;
-        let old = self.snapshot();
         let snapshot = Arc::new(LexiconSnapshot {
             revision: Revision::new(old.revision().number() + 1),
             entries,
@@ -615,12 +667,15 @@ impl SuppliedLexiconRuntime {
             gloss_language: document.gloss_language,
             overlay,
         });
+        let revision = snapshot.revision().clone();
         *self.state.write().expect("lexicon snapshot lock poisoned") = snapshot;
         Ok(ReconciliationReport {
             exact_match,
-            compatible_migration: !exact_match && inactive_entries.is_empty(),
+            compatible_migration,
             inactive_entries,
             superseded_entries,
+            revision,
+            changed: true,
         })
     }
 }
