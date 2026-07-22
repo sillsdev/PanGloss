@@ -359,6 +359,43 @@ fn shared_binding_fixture_normalizes_native_json_contract() {
         )
     };
     let after_import = unsafe { call(hc_lexicon_list_json, handle, &json!({})) };
+    let cleared = unsafe {
+        call(
+            hc_lexicon_clear_json,
+            handle,
+            &json!({"expectedRevision":imported["value"]["revision"]}),
+        )
+    };
+    let after_clear = unsafe { call(hc_lexicon_list_json, handle, &json!({})) };
+    let restored = unsafe {
+        call(
+            hc_lexicon_import_json,
+            handle,
+            &json!({"document":exported["value"]}),
+        )
+    };
+    let after_restore = unsafe { call(hc_lexicon_list_json, handle, &json!({})) };
+
+    let case_handle = load_handle_from_xml(fixture["grammarXml"].as_str().unwrap());
+    let case_catalog = unsafe { call(hc_lexicon_catalog_json, case_handle, &json!({})) };
+    let case_signature = case_catalog["value"]["signatures"][0]["id"]
+        .as_str()
+        .unwrap();
+    let case_added = unsafe {
+        call(
+            hc_lexicon_add_json,
+            case_handle,
+            &json!({"stem":"B","gloss":"","signatures":[case_signature]}),
+        )
+    };
+    let case_id = case_added["value"]["value"]["id"]
+        .as_str()
+        .unwrap_or_else(|| panic!("uppercase add failed: {case_added}"));
+    let case_get = unsafe { call(hc_lexicon_get_json, case_handle, &json!({"id":case_id})) };
+    let case_list = unsafe { call(hc_lexicon_list_json, case_handle, &json!({})) };
+    let case_search = unsafe { call(hc_lexicon_search_json, case_handle, &json!({"query":"B"})) };
+    let case_export = unsafe { call(hc_lexicon_export_json, case_handle, &json!({})) };
+    let case_analysis = unsafe { call(hc_analyze_word_json, case_handle, &json!({"word":"B"})) };
     let transcript = json!({
         "catalog": catalog["value"], "invalidAdd": invalid["error"], "setGlossLanguage": gloss["value"],
         "add": added["value"], "get": get["value"], "list": list["value"], "search": search["value"],
@@ -366,13 +403,18 @@ fn shared_binding_fixture_normalizes_native_json_contract() {
         "export": exported["value"], "classificationMatrix": matrix["value"],
         "guide": {"remaining":guide_remaining["value"],"next":guide_next["value"],"useful":guide_useful["value"],"selection":guide_selection["value"],"answer":guide_answer["value"],"afterAnswer":guide_after_answer["value"],"undo":guide_undo["value"],"invalidAnswer":guide_error["error"]},
         "analysis":{"supplied":supplied_analysis["value"],"grammar":grammar_analysis["value"]},
-        "remove":removed["value"], "import":imported["value"], "afterImport":after_import["value"]
+        "remove":removed["value"], "import":imported["value"], "afterImport":after_import["value"],
+        "clear":cleared["value"], "afterClear":after_clear["value"], "restore":restored["value"], "afterRestore":after_restore["value"],
+        "authoredCase":{"add":case_added["value"],"get":case_get["value"],"list":case_list["value"],"search":case_search["value"],"export":case_export["value"],"analysis":case_analysis["value"]}
     });
     let normalized = normalize_binding(transcript, signature);
     let expected =
         expand_fixture_refs(fixture["expectedTranscript"].clone(), &fixture["fragments"]);
     assert_eq!(normalized, expected);
-    unsafe { hc_grammar_free(handle) };
+    unsafe {
+        hc_grammar_free(case_handle);
+        hc_grammar_free(handle);
+    };
 }
 
 fn normalize_binding(value: Value, signature: &str) -> Value {

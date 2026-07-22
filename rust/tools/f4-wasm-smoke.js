@@ -110,15 +110,48 @@ try {
   const removed = runtime.removeSuppliedEntry({id: added.value.id, expectedRevision: authority.revision});
   const imported = runtime.importSuppliedLexicon({document: exported});
   const afterImport = runtime.listSuppliedEntries();
+  const cleared = runtime.clearSuppliedEntries({expectedRevision: imported.revision});
+  const afterClear = runtime.listSuppliedEntries();
+  const restored = runtime.importSuppliedLexicon({document: exported});
+  const afterRestore = runtime.listSuppliedEntries();
+
+  const caseRuntime = new pkg.PanGlossGrammar(BINDING_FIXTURE.grammarXml, undefined);
+  const caseSignature = caseRuntime.classCatalog().signatures[0].id;
+  const caseAdded = caseRuntime.addSuppliedEntry({stem: "B", gloss: "", signatures: [caseSignature]});
+  const caseGet = caseRuntime.getSuppliedEntry(caseAdded.value.id);
+  const caseList = caseRuntime.listSuppliedEntries();
+  const caseSearch = caseRuntime.searchSuppliedEntries({query: "B"});
+  const caseExport = caseRuntime.exportSuppliedLexicon();
+  const caseAnalysis = caseRuntime.analyzeWord("B");
   const transcript = {catalog, invalidAdd, setGlossLanguage: gloss, add: added, get, list, search,
     revisionConflict, update: updated, setAuthority: authority, export: exported,
     classificationMatrix: matrix, guide: guideResult,
-    analysis: {supplied: suppliedAnalysis, grammar: grammarAnalysis}, remove: removed, import: imported, afterImport};
+    analysis: {supplied: suppliedAnalysis, grammar: grammarAnalysis}, remove: removed, import: imported, afterImport,
+    clear: cleared, afterClear, restore: restored, afterRestore,
+    authoredCase: {add: caseAdded, get: caseGet, list: caseList, search: caseSearch, export: caseExport, analysis: caseAnalysis}};
   const normalized = normalizeBinding(transcript, signature);
   const expected = expandRefs(BINDING_FIXTURE.expectedTranscript, BINDING_FIXTURE.fragments);
   const transcriptMatches = canonical(normalized) === canonical(expected);
   check("WASM/native full normalized JSON transcript", transcriptMatches,
     transcriptMatches ? undefined : JSON.stringify({normalized, expected}));
+
+  const originalCaseText = caseRuntime.analyzeText("B", {});
+  const staleCaseCache = originalCaseText.newCacheEntries;
+  const caseGloss = caseRuntime.setGlossLanguage({glossLanguage: "en", expectedRevision: caseAdded.revision});
+  const caseUpdated = caseRuntime.updateSuppliedEntry({id: caseAdded.value.id, stem: "B", gloss: "updated capital bee",
+    signatures: [caseSignature], expectedRevision: caseGloss.revision});
+  const refreshedCaseText = caseRuntime.analyzeText("B", staleCaseCache);
+  const staleCaseRejected = staleCaseCache.B.overlayRevision === caseAdded.revision
+      && refreshedCaseText.tokens[0].fromCache === false
+      && refreshedCaseText.newCacheEntries.B.overlayRevision === caseUpdated.revision
+      && refreshedCaseText.tokens[0].analyses.some(a => a.provenance.kind === "supplied" && a.provenance.entryId === caseAdded.value.id);
+  check("WASM stale caller cache rejected after gloss-only edit", staleCaseRejected,
+    staleCaseRejected ? undefined : JSON.stringify({staleCaseCache, refreshedCaseText, caseUpdated}));
+  check("WASM authored-case cache identity is exact",
+    Object.hasOwn(staleCaseCache, "B") && !Object.hasOwn(staleCaseCache, "b")
+      && Object.hasOwn(refreshedCaseText.newCacheEntries, "B")
+      && !Object.hasOwn(refreshedCaseText.newCacheEntries, "b")
+      && refreshedCaseText.tokens[0].text === "B");
 
   const ind = loadGrammar("indonesian-hc.xml", "indonesian-realize.toml");
   if (ind) {
