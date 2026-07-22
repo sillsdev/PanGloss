@@ -133,7 +133,8 @@ fn pos_name_of(g: &Grammar, entry: &LexEntryDef) -> Option<String> {
 /// (linear scan; called once per candidate class or per user-lexicon entry, never per-word).
 pub(crate) fn resolve_entry_by_xml_key(grammar: &Grammar, xml_key: &str) -> Option<LexEntryId> {
     grammar.entries.iter().enumerate().find_map(|(i, e)| {
-        (grammar.morphemes[e.morpheme.0 as usize].xml_key == xml_key).then(|| LexEntryId(i as u32))
+        (grammar.morphemes[e.morpheme.0 as usize].xml_key == xml_key)
+            .then_some(LexEntryId(i as u32))
     })
 }
 

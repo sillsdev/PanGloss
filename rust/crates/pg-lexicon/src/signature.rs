@@ -86,6 +86,7 @@ pub struct ResolvedSignature {
     pub signature: ClassSignature,
     pub syn_fs: FsId,
     pub mpr: pg_grammar::model::MprSet,
+    pub stratum: pg_grammar::model::StratumId,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -183,6 +184,7 @@ impl ClassCatalog {
                 signature,
                 syn_fs: entry.syn_fs,
                 mpr: entry.mpr,
+                stratum: grammar.morphemes[entry.morpheme.0 as usize].stratum,
             });
         }
         resolved.sort_by(|a, b| a.signature.id.cmp(&b.signature.id));

@@ -161,6 +161,16 @@ pub trait IdSource {
 pub trait Clock {
     fn now(&mut self) -> LexicalDate;
 }
+impl<T: IdSource + ?Sized> IdSource for Box<T> {
+    fn next_128(&mut self) -> Result<[u8; 16], StructuredError> {
+        (**self).next_128()
+    }
+}
+impl<T: Clock + ?Sized> Clock for Box<T> {
+    fn now(&mut self) -> LexicalDate {
+        (**self).now()
+    }
+}
 pub struct OsIdSource;
 impl IdSource for OsIdSource {
     fn next_128(&mut self) -> Result<[u8; 16], StructuredError> {
@@ -183,6 +193,17 @@ impl Clock for UtcClock {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Revision(String);
+impl Revision {
+    pub(crate) fn new(number: u64) -> Self {
+        Self(format!("rev_{number}"))
+    }
+    pub(crate) fn number(&self) -> u64 {
+        self.0
+            .strip_prefix("rev_")
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(0)
+    }
+}
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EntryAuthority {
     Supplied,
@@ -272,6 +293,8 @@ pub struct MutationResult<T> {
     pub changed: bool,
 }
 
+type StemValidator = dyn Fn(&str) -> Result<(), String> + Send + Sync;
+
 pub struct SuppliedLexiconStore<I: IdSource, C: Clock> {
     ids: I,
     clock: C,
@@ -280,7 +303,7 @@ pub struct SuppliedLexiconStore<I: IdSource, C: Clock> {
     counter: u64,
     revision: Revision,
     catalog: BTreeMap<SignatureId, Option<String>>,
-    stem_validator: Arc<dyn Fn(&str) -> Result<(), String> + Send + Sync>,
+    stem_validator: Arc<StemValidator>,
 }
 impl<I: IdSource, C: Clock> SuppliedLexiconStore<I, C> {
     pub fn new<V>(ids: I, clock: C, catalog: &ClassCatalog, stem_validator: V) -> Self

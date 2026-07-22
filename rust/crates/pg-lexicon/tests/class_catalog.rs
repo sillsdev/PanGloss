@@ -20,9 +20,11 @@ const PREFIX: &str = r#"<HermitCrabInput><Language><Name>T</Name>
 const SUFFIX: &str = "</LexicalEntries></Stratum></Strata></Language></HermitCrabInput>";
 
 fn entry(id: &str, shape: &str, attrs: &str, allo_attrs: &str, fs: &str) -> String {
-    let assigned = (!fs.is_empty())
-        .then(|| format!("<AssignedHeadFeatures>{fs}</AssignedHeadFeatures>"))
-        .unwrap_or_default();
+    let assigned = if fs.is_empty() {
+        String::new()
+    } else {
+        format!("<AssignedHeadFeatures>{fs}</AssignedHeadFeatures>")
+    };
     format!(
         r#"<LexicalEntry id="{id}" partOfSpeech="posN" {attrs}>{assigned}<Allomorphs><Allomorph id="a{id}" {allo_attrs}><PhoneticShape>{shape}</PhoneticShape></Allomorph></Allomorphs></LexicalEntry>"#
     )
