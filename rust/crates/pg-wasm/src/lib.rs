@@ -50,7 +50,7 @@ struct AnalysisOut {
     morpheme_ids: Vec<Option<String>>,
 }
 
-/// Everything about a parsed word that's deterministic for a given (grammar, lowercased word)
+/// Everything about a parsed word that's deterministic for a given (grammar, exact authored word)
 /// pair — i.e. safe to cache and replay without re-running the morpher. Kept separate from
 /// [`TokenOut`] because [`TokenOut`] also carries call-specific bookkeeping (`parse_ms`,
 /// `from_cache`) that must NOT be cached (a cache hit's `parse_ms` is always ~0, not the original
@@ -104,7 +104,7 @@ struct TokenOut {
 }
 
 /// Return value of [`PanGlossGrammar::analyze_text`]: the token stream to render, plus every
-/// newly-parsed (not-a-cache-hit) word's [`CachedWord`], keyed by its lowercased surface form, for
+/// newly-parsed (not-a-cache-hit) word's [`CachedWord`], keyed by its exact surface form, for
 /// the caller to merge into whatever persistent cache it keeps across calls. Only *new* entries are
 /// returned — words already present in the `cache` argument aren't echoed back, since the caller
 /// already has them.
@@ -349,7 +349,7 @@ impl PanGlossGrammar {
     /// empty `analyses` array — showing the guess path is part of what the demo is for, not a
     /// fallback to hide.
     ///
-    /// `cache` is a JS object (or `undefined`/`null`) mapping a lowercased word to a previously
+    /// `cache` is a JS object (or `undefined`/`null`) mapping an exact surface word to a previously
     /// returned [`CachedWord`] (i.e. the accumulated `newCacheEntries` of every prior call, merged
     /// by the caller) — words present there skip re-analysis entirely and are replayed verbatim,
     /// so re-analyzing the same chapter (or any text sharing vocabulary with one already seen)
@@ -405,25 +405,23 @@ impl PanGlossGrammar {
                     from_cache: false,
                 },
                 Piece::Word(word) => {
-                    // Field-linguistics orthography tables are typically lowercase-only (verified
-                    // against a real FieldWorks-exported grammar: capitalized sentence-initial
-                    // words otherwise come back `invalid_shape`), so analyze the lowercased form
-                    // but keep `text` as the original surface casing for display.
-                    let lower = word.to_lowercase();
+                    // Machine/LibLCM lexical identity is writing-system aware. Preserve the
+                    // authored token exactly; applications may offer case correction separately.
+                    let lexical = word.to_string();
 
-                    let (cached, from_cache, parse_ms) = if let Some(hit) = cache.get(&lower) {
+                    let (cached, from_cache, parse_ms) = if let Some(hit) = cache.get(&lexical) {
                         (hit.clone(), true, 0.0)
                     } else {
                         let start = Instant::now();
                         let (structured, capped, invalid_shape, candidates_generated) =
                             match foma_analyzer.as_mut() {
                                 Some(analyzer) => {
-                                    let outcome = analyzer.analyze_word(&lower);
+                                    let outcome = analyzer.analyze_word(&lexical);
                                     if outcome.structured.is_empty() {
                                         // No confirmed foma candidate -- fall back to the full
                                         // engine's own guess-root path for JUST this word (see
                                         // this method's doc).
-                                        let fallback = morpher.parse_word_opts(&lower, &opts);
+                                        let fallback = morpher.parse_word_opts(&lexical, &opts);
                                         (
                                             fallback.structured,
                                             fallback.capped,
@@ -439,7 +437,7 @@ impl PanGlossGrammar {
                                         // segmentation check `pg_lexicon` already uses elsewhere in
                                         // this crate (`disambiguating_forms`).
                                         let invalid_shape =
-                                            pg_lexicon::validate_shape(&self.grammar, &lower)
+                                            pg_lexicon::validate_shape(&self.grammar, &lexical)
                                                 .is_err();
                                         (
                                             outcome.structured,
@@ -450,7 +448,7 @@ impl PanGlossGrammar {
                                     }
                                 }
                                 None => {
-                                    let outcome = morpher.parse_word_opts(&lower, &opts);
+                                    let outcome = morpher.parse_word_opts(&lexical, &opts);
                                     (
                                         outcome.structured,
                                         outcome.capped,
@@ -464,13 +462,13 @@ impl PanGlossGrammar {
                             &self.grammar,
                             &self.realize_map,
                             &self.realizer,
-                            &lower,
+                            &lexical,
                             structured,
                             capped,
                             invalid_shape,
                             candidates_generated,
                         );
-                        new_cache_entries.insert(lower.clone(), fresh.clone());
+                        new_cache_entries.insert(lexical.clone(), fresh.clone());
                         (fresh, false, elapsed)
                     };
 

@@ -64,7 +64,7 @@ impl LexiconSnapshot {
 }
 
 pub struct SuppliedLexiconRuntime {
-    grammar: Arc<Grammar>,
+    pub(crate) grammar: Arc<Grammar>,
     catalog: ClassCatalog,
     grammar_name: String,
     source_fingerprint: String,

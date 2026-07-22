@@ -26,6 +26,7 @@
 //! here is a pure read (or, for [`augment::augment_xml`], a pure text transform of a *copy* of the
 //! grammar's XML).
 
+pub mod analysis;
 pub mod augment;
 pub mod classes;
 pub mod classification;
@@ -35,6 +36,7 @@ pub mod runtime;
 pub mod signature;
 pub mod store;
 
+pub use analysis::*;
 pub use augment::{augment_xml, AugmentReport};
 pub use classes::{candidate_classes, validate_shape, ClassCandidate};
 pub use classification::*;
