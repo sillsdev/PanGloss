@@ -2,23 +2,48 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static SCRATCH_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 fn workspace_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
-fn target_debug() -> PathBuf {
+fn target_profile() -> PathBuf {
     std::env::var_os("CARGO_TARGET_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| workspace_root().join("target"))
-        .join("debug")
+        .join(if cfg!(debug_assertions) {
+            "debug"
+        } else {
+            "release"
+        })
 }
 
-fn compile_and_run(source: &str, cpp: bool) {
+struct ScratchDir(PathBuf);
+
+impl ScratchDir {
+    fn new(target: &Path) -> Self {
+        let sequence = SCRATCH_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let path = target.join(format!(
+            "header-abi-smoke-{}-{sequence}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&path).expect("create unique header smoke scratch directory");
+        Self(path)
+    }
+}
+
+impl Drop for ScratchDir {
+    fn drop(&mut self) {
+        std::fs::remove_dir_all(&self.0).expect("remove header smoke scratch directory");
+    }
+}
+
+fn compile_and_run(source: &str, cpp: bool, scratch: &Path) {
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let target = target_debug();
-    let scratch = target.join("header-abi-smoke");
-    std::fs::create_dir_all(&scratch).unwrap();
+    let target = target_profile();
     let stem = if cpp {
         "pangloss_header_cpp"
     } else {
@@ -87,12 +112,32 @@ fn compile_and_run(source: &str, cpp: bool) {
 
 #[test]
 fn installed_header_compiles_links_and_runs_as_c_and_cpp() {
-    let status = Command::new(env!("CARGO"))
+    let mut build = Command::new(env!("CARGO"));
+    build
         .current_dir(workspace_root())
-        .args(["build", "-p", "pg-ffi", "--lib"])
-        .status()
-        .expect("build pg-ffi cdylib");
+        .args(["build", "-p", "pg-ffi", "--lib"]);
+    if !cfg!(debug_assertions) {
+        build.arg("--release");
+    }
+    let status = build.status().expect("build pg-ffi cdylib");
     assert!(status.success());
-    compile_and_run("header_smoke.c", false);
-    compile_and_run("header_smoke.cpp", true);
+    let scratch = ScratchDir::new(&target_profile());
+    compile_and_run("header_smoke.c", false, &scratch.0);
+    compile_and_run("header_smoke.cpp", true, &scratch.0);
+}
+
+#[test]
+fn scratch_directories_are_unique_and_removed_on_drop() {
+    let target = target_profile();
+    let first = ScratchDir::new(&target);
+    let first_path = first.0.clone();
+    let second = ScratchDir::new(&target);
+    let second_path = second.0.clone();
+    assert_ne!(first_path, second_path);
+    assert!(first_path.is_dir());
+    assert!(second_path.is_dir());
+    drop(first);
+    drop(second);
+    assert!(!first_path.exists());
+    assert!(!second_path.exists());
 }
