@@ -17,6 +17,7 @@ const ROOT = path.resolve(__dirname, "..");
 const PKG = path.join(ROOT, "crates/pg-wasm/pkg/pg_wasm.js");
 const DATA = path.resolve(ROOT, "../samples/data");
 const BINDING_FIXTURE = JSON.parse(fs.readFileSync(path.join(ROOT, "tools/fixtures/supplied-lexicon-binding.json"), "utf8"));
+const { checkGeneratedWasmApi } = require("./check-wasm-api.js");
 
 if (!fs.existsSync(PKG)) {
   console.error(`missing ${PKG}\nbuild first: wasm-pack build crates/pg-wasm --target nodejs --dev --out-dir pkg`);
@@ -73,6 +74,8 @@ function canonical(value) {
 }
 
 try {
+  checkGeneratedWasmApi(ROOT);
+  console.log("generated JS/.d.ts API surface ok");
   pkg.start();
   console.log("start() ok (module loaded, panic hook installed)");
 
@@ -152,6 +155,10 @@ try {
       && Object.hasOwn(refreshedCaseText.newCacheEntries, "B")
       && !Object.hasOwn(refreshedCaseText.newCacheEntries, "b")
       && refreshedCaseText.tokens[0].text === "B");
+  check("WASM backend remains foma after repeated official/supplied analysis",
+    runtime.engineKind() === engineBeforeAdd
+      && grammarAnalysis.structured.some(a => a.provenance.kind === "grammar")
+      && runtime.analyzeWord("a").structured.some(a => a.provenance.kind === "grammar"));
 
   const ind = loadGrammar("indonesian-hc.xml", "indonesian-realize.toml");
   if (ind) {

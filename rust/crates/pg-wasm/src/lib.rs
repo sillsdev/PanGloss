@@ -130,14 +130,49 @@ struct AnalyzeTextResult {
 /// of type `FomaAnalyzer<'g>` tied to a sibling `grammar: Grammar` field is a self-referential
 /// struct Rust cannot express directly. Instead this crate does what it already does for
 /// `Morpher<'g>` (see [`PanGlossGrammar::analyze_text`]: never stored, always built fresh per call
-/// from `&self.grammar`): [`PanGlossGrammar::analyze_text`] takes this out of `self.foma`,
-/// reconstructs a short-lived `FomaAnalyzer` via `FomaAnalyzer::from_cached(&self.grammar, ...)`
-/// for the duration of one call, then hands the (unchanged) owned pieces back via
-/// `FomaAnalyzer::into_parts`.
+/// from `&self.grammar`). [`FomaCheckout`] reconstructs a short-lived `FomaAnalyzer` and owns the
+/// mandatory restoration path; its `Drop` implementation returns the unchanged compiled pieces
+/// during ordinary return, error return, or panic unwinding.
 struct FomaState {
     proposer: pg_foma::analyzer::FomaProposer,
     peeler: pg_foma::peel::ReduplicationPeeler,
     owners: Vec<Option<pg_foma::confirm::MorphemeOwner>>,
+}
+
+struct FomaCheckout<'slot, 'grammar> {
+    slot: &'slot mut Option<FomaState>,
+    analyzer: Option<pg_foma::composite::FomaAnalyzer<'grammar>>,
+}
+
+impl<'slot, 'grammar> FomaCheckout<'slot, 'grammar> {
+    fn new(slot: &'slot mut Option<FomaState>, grammar: &'grammar Grammar) -> Self {
+        let analyzer = slot.take().map(|state| {
+            pg_foma::composite::FomaAnalyzer::from_cached(
+                grammar,
+                state.proposer,
+                state.peeler,
+                state.owners,
+            )
+        });
+        Self { slot, analyzer }
+    }
+
+    fn analyzer_mut(&mut self) -> Option<&mut pg_foma::composite::FomaAnalyzer<'grammar>> {
+        self.analyzer.as_mut()
+    }
+}
+
+impl Drop for FomaCheckout<'_, '_> {
+    fn drop(&mut self) {
+        if let Some(analyzer) = self.analyzer.take() {
+            let (proposer, peeler, owners) = analyzer.into_parts();
+            *self.slot = Some(FomaState {
+                proposer,
+                peeler,
+                owners,
+            });
+        }
+    }
 }
 
 /// Emit + foma-compile `grammar`'s propose→confirm pieces. `Err` carries a human-readable message
@@ -249,9 +284,9 @@ pub struct PanGlossGrammar {
     realizer: TableRealizer,
     /// `Some` iff this grammar's foma propose→confirm proposer compiled successfully (plan P4) —
     /// see [`FomaState`]'s doc for why these are owned pieces rather than a stored `FomaAnalyzer`.
-    /// `None` means every word in this grammar routes through the full engine, either because
-    /// compilation failed (see `foma_diagnostic`) or (transiently, mid-`analyze_text`) while the
-    /// pieces are checked out to build this call's `FomaAnalyzer`.
+    /// `None` means every word in this grammar routes through the full engine because compilation
+    /// failed (see `foma_diagnostic`). A transient checkout is protected by [`FomaCheckout`],
+    /// whose destructor restores this slot even while unwinding.
     foma: Option<FomaState>,
     /// `Some` iff construction failed to build `foma` — the human-readable reason, surfaced to JS via
     /// [`PanGlossGrammar::engine_diagnostic`]. `None` once foma is active.
@@ -333,7 +368,7 @@ impl PanGlossGrammar {
     /// engine this instance is on.
     #[wasm_bindgen(js_name = engineKind)]
     pub fn engine_kind(&self) -> String {
-        if self.foma.is_some() {
+        if self.foma_diagnostic.is_none() {
             "foma"
         } else {
             "engine"
@@ -380,18 +415,11 @@ impl PanGlossGrammar {
         // sole engine when `self.foma` is `None` and as the guess-root retry when foma confirms
         // nothing for a particular word.
         let mut new_cache_entries: HashMap<String, CachedWord> = HashMap::new();
+        self.ensure_foma();
 
-        // Check the compiled foma pieces (if any) out of `self.foma` and rehydrate a
-        // `FomaAnalyzer` borrowing `&self.grammar` for the rest of this call — see [`FomaState`]'s
-        // doc for why this can't just be a stored field.
-        let mut foma_analyzer = self.foma.take().map(|state| {
-            pg_foma::composite::FomaAnalyzer::from_cached(
-                &self.grammar,
-                state.proposer,
-                state.peeler,
-                state.owners,
-            )
-        });
+        // Rehydrate a `FomaAnalyzer` borrowing `&self.grammar` for this call. The checkout guard
+        // restores the compiled pieces on every exit path, including panic unwinding.
+        let mut foma = FomaCheckout::new(&mut self.foma, &self.grammar);
 
         let mut tokens: Vec<TokenOut> = Vec::new();
         for piece in tokenize(text) {
@@ -420,7 +448,7 @@ impl PanGlossGrammar {
                         (hit.clone(), true, 0.0)
                     } else {
                         let start = Instant::now();
-                        let official = foma_analyzer.as_mut().map(|analyzer| {
+                        let official = foma.analyzer_mut().map(|analyzer| {
                             let outcome = analyzer.analyze_word(&lexical);
                             pg_lexicon::OfficialOutcome {
                                 analyses: outcome.analyses,
@@ -466,17 +494,6 @@ impl PanGlossGrammar {
                 }
             };
             tokens.push(token);
-        }
-
-        // Hand the (content-unchanged) compiled pieces back to long-term storage -- the inverse
-        // of the check-out above. No-op (`self.foma` stays `None`) when this grammar has none.
-        if let Some(analyzer) = foma_analyzer.take() {
-            let (proposer, peeler, owners) = analyzer.into_parts();
-            self.foma = Some(FomaState {
-                proposer,
-                peeler,
-                owners,
-            });
         }
 
         let result = AnalyzeTextResult {
@@ -609,21 +626,23 @@ impl PanGlossGrammar {
 }
 
 impl PanGlossGrammar {
+    fn ensure_foma(&mut self) {
+        if self.foma.is_none() && self.foma_diagnostic.is_none() {
+            match build_foma_state(&self.grammar) {
+                Ok(state) => self.foma = Some(state),
+                Err(message) => {
+                    log_foma_fallback(&message);
+                    self.foma_diagnostic = Some(message);
+                }
+            }
+        }
+    }
+
     fn analyze_unified(&mut self, word: &str) -> pg_lexicon::UnifiedAnalysis {
-        let official = self.foma.take().map(|state| {
-            let mut analyzer = pg_foma::composite::FomaAnalyzer::from_cached(
-                &self.grammar,
-                state.proposer,
-                state.peeler,
-                state.owners,
-            );
+        self.ensure_foma();
+        let mut foma = FomaCheckout::new(&mut self.foma, &self.grammar);
+        let official = foma.analyzer_mut().map(|analyzer| {
             let outcome = analyzer.analyze_word(word);
-            let (proposer, peeler, owners) = analyzer.into_parts();
-            self.foma = Some(FomaState {
-                proposer,
-                peeler,
-                owners,
-            });
             pg_lexicon::OfficialOutcome {
                 analyses: outcome.analyses,
                 structured: outcome.structured,
@@ -961,6 +980,44 @@ mod tests {
         let with_none = build_realize_map(&g, None).expect("builds with None");
         let with_blank = build_realize_map(&g, Some("   \n")).expect("builds with blank sidecar");
         assert_eq!(with_none, with_blank);
+    }
+
+    #[test]
+    fn proposer_panic_or_trap_preserves_logical_backend_and_official_analysis_recovers() {
+        let grammar = Arc::new(pg_grammar::load(TEST_XML).expect("test fixture loads"));
+        let (foma, foma_diagnostic) = init_foma(&grammar);
+        let mut wrapper = PanGlossGrammar {
+            runtime: pg_lexicon::SuppliedLexiconRuntime::new(grammar.clone(), TEST_XML)
+                .expect("runtime initializes"),
+            realize_map: build_realize_map(&grammar, None).expect("realize map builds"),
+            realizer: TableRealizer::new().expect("embedded realizer loads"),
+            grammar,
+            foma,
+            foma_diagnostic,
+        };
+        assert_eq!(wrapper.engine_kind(), "foma");
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut checkout = FomaCheckout::new(&mut wrapper.foma, &wrapper.grammar);
+            assert!(checkout.analyzer_mut().is_some());
+            panic!("injected proposer panic");
+        }));
+        assert!(panic.is_err());
+        assert_eq!(wrapper.engine_kind(), "foma");
+        let checkout = FomaCheckout::new(&mut wrapper.foma, &wrapper.grammar);
+        std::mem::forget(checkout);
+        assert!(
+            wrapper.foma.is_none(),
+            "simulated trap strands the checkout"
+        );
+        assert_eq!(wrapper.engine_kind(), "foma");
+        let recovered = wrapper.analyze_unified("house");
+        assert!(
+            recovered
+                .structured
+                .iter()
+                .any(|analysis| analysis.provenance == pg_parse::AnalysisProvenance::Grammar),
+            "the same compiled backend must still produce official analyses after unwind"
+        );
     }
 
     // --- P4 gate F4: native parity smoke (docs/fst-plan/foma-fst-plan.md §4 P4) ---------------
