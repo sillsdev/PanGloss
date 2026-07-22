@@ -116,9 +116,9 @@ pub fn encode_single(outcome: &ParseOutcome) -> Vec<u8> {
     buf
 }
 
-/// Encode a full batch outcome, one word-record per input word, in original request order
-/// (`hc_parse_batch`; `pg_parse::hc_parse_batch` already reindexes to original order — see its
-/// module docs — so no reordering is needed here beyond the per-word canonical analysis sort).
+/// Encode a full batch outcome, one word-record per input word, in original request order.
+/// `hc_parse_batch`'s unified runtime path uses an indexed parallel collect before calling this
+/// function, so no reordering is needed here beyond the per-word canonical analysis sort.
 pub fn encode_batch(outcomes: &[BatchWordOutcome]) -> Vec<u8> {
     let mut buf = Vec::new();
     write_header(&mut buf, outcomes.len() as u32);
