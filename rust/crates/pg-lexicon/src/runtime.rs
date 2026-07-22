@@ -9,6 +9,8 @@ use pg_parse::{Morpher, ParseOutcome, RootAuthority, SuppliedRoot, SuppliedRootO
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
+#[cfg(any(test, feature = "test-hooks"))]
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 pub const LEXICON_SCHEMA_VERSION: u32 = 1;
@@ -68,15 +70,32 @@ pub struct SuppliedLexiconRuntime {
     catalog: ClassCatalog,
     grammar_name: String,
     source_fingerprint: String,
+    analysis_policy: crate::AnalysisPolicy,
     mutation: Mutex<()>,
     ids: Mutex<Box<dyn IdSource + Send>>,
     clock: Mutex<Box<dyn Clock + Send>>,
     state: RwLock<Arc<LexiconSnapshot>>,
+    #[cfg(any(test, feature = "test-hooks"))]
+    force_next_mutation_panic: AtomicBool,
 }
 
 impl SuppliedLexiconRuntime {
     pub fn new(grammar: Arc<Grammar>, grammar_source: &str) -> Result<Self, StructuredError> {
-        Self::with_sources(grammar, grammar_source, OsIdSource, UtcClock)
+        Self::with_policy(grammar, grammar_source, crate::AnalysisPolicy::default())
+    }
+
+    pub fn with_policy(
+        grammar: Arc<Grammar>,
+        grammar_source: &str,
+        analysis_policy: crate::AnalysisPolicy,
+    ) -> Result<Self, StructuredError> {
+        Self::with_sources_and_policy(
+            grammar,
+            grammar_source,
+            OsIdSource,
+            UtcClock,
+            analysis_policy,
+        )
     }
 
     pub fn with_sources<I, C>(
@@ -84,6 +103,26 @@ impl SuppliedLexiconRuntime {
         grammar_source: &str,
         ids: I,
         clock: C,
+    ) -> Result<Self, StructuredError>
+    where
+        I: IdSource + Send + 'static,
+        C: Clock + Send + 'static,
+    {
+        Self::with_sources_and_policy(
+            grammar,
+            grammar_source,
+            ids,
+            clock,
+            crate::AnalysisPolicy::default(),
+        )
+    }
+
+    pub fn with_sources_and_policy<I, C>(
+        grammar: Arc<Grammar>,
+        grammar_source: &str,
+        ids: I,
+        clock: C,
+        analysis_policy: crate::AnalysisPolicy,
     ) -> Result<Self, StructuredError>
     where
         I: IdSource + Send + 'static,
@@ -111,10 +150,13 @@ impl SuppliedLexiconRuntime {
             catalog,
             grammar_name,
             source_fingerprint: grammar_source_fingerprint(grammar_source),
+            analysis_policy,
             mutation: Mutex::new(()),
             ids: Mutex::new(Box::new(ids)),
             clock: Mutex::new(Box::new(clock)),
             state: RwLock::new(Arc::new(snapshot)),
+            #[cfg(any(test, feature = "test-hooks"))]
+            force_next_mutation_panic: AtomicBool::new(false),
         })
     }
 
@@ -126,11 +168,57 @@ impl SuppliedLexiconRuntime {
         &self.source_fingerprint
     }
 
+    pub fn analysis_policy(&self) -> crate::AnalysisPolicy {
+        self.analysis_policy
+    }
+
+    pub(crate) fn morpher<'a>(&'a self, snapshot: &'a LexiconSnapshot) -> Morpher<'a> {
+        Morpher::new_with_overlay(
+            &self.grammar,
+            self.analysis_policy.step_cap,
+            snapshot.overlay(),
+        )
+        .with_memo(self.analysis_policy.memo)
+    }
+
     pub fn snapshot(&self) -> Arc<LexiconSnapshot> {
         self.state
             .read()
-            .expect("lexicon snapshot lock poisoned")
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone()
+    }
+
+    fn begin_mutation(&self) -> std::sync::MutexGuard<'_, ()> {
+        let guard = self
+            .mutation
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        #[cfg(any(test, feature = "test-hooks"))]
+        self.panic_if_mutation_requested();
+        guard
+    }
+
+    #[cfg(any(test, feature = "test-hooks"))]
+    fn panic_if_mutation_requested(&self) {
+        if self.force_next_mutation_panic.swap(false, Ordering::SeqCst) {
+            panic!("forced supplied lexicon mutation panic");
+        }
+    }
+
+    #[cfg(any(test, feature = "test-hooks"))]
+    #[doc(hidden)]
+    pub fn force_next_mutation_panic_for_test(&self) {
+        self.force_next_mutation_panic.store(true, Ordering::SeqCst);
+    }
+
+    #[cfg(test)]
+    #[doc(hidden)]
+    pub fn force_state_lock_panic_for_test(&self) {
+        let _state = self
+            .state
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        panic!("forced supplied lexicon state-lock panic");
     }
 
     pub fn get(&self, id: &EntryId) -> Option<SuppliedEntry> {
@@ -186,7 +274,7 @@ impl SuppliedLexiconRuntime {
 
     pub fn parse_word(&self, word: &str) -> ParseOutcome {
         let snapshot = self.snapshot();
-        Morpher::new_with_overlay(&self.grammar, 100_000, snapshot.overlay()).parse_word(word)
+        self.morpher(&snapshot).parse_word(word)
     }
 
     pub fn export_document(&self) -> LexiconDocument {
@@ -213,17 +301,14 @@ impl SuppliedLexiconRuntime {
         &self,
         request: AddRequest,
     ) -> Result<MutationResult<SuppliedEntry>, StructuredError> {
-        let _mutation = self
-            .mutation
-            .lock()
-            .expect("lexicon mutation lock poisoned");
+        let _mutation = self.begin_mutation();
         self.check_revision(&request.expected_revision)?;
         let mut signatures = request.signatures;
         self.validate_active_entry(&request.stem, &request.gloss, &mut signatures)?;
         let id = EntryId::from_bytes(
             self.ids
                 .lock()
-                .expect("lexicon ID source lock poisoned")
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .next_128()?,
         );
         let mut document = self.export_document();
@@ -233,7 +318,7 @@ impl SuppliedLexiconRuntime {
         let now = self
             .clock
             .lock()
-            .expect("lexicon clock lock poisoned")
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .now();
         let entry = SuppliedEntry {
             id,
@@ -266,10 +351,7 @@ impl SuppliedLexiconRuntime {
         &self,
         request: UpdateRequest,
     ) -> Result<MutationResult<SuppliedEntry>, StructuredError> {
-        let _mutation = self
-            .mutation
-            .lock()
-            .expect("lexicon mutation lock poisoned");
+        let _mutation = self.begin_mutation();
         self.check_revision(&request.expected_revision)?;
         let mut signatures = request.signatures;
         self.validate_active_entry(&request.stem, &request.gloss, &mut signatures)?;
@@ -295,7 +377,7 @@ impl SuppliedLexiconRuntime {
         entry.date_modified = self
             .clock
             .lock()
-            .expect("lexicon clock lock poisoned")
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .now();
         let id = entry.id.clone();
         self.ensure_current_mappings(&mut document);
@@ -315,10 +397,7 @@ impl SuppliedLexiconRuntime {
     }
 
     pub fn remove(&self, request: RemoveRequest) -> Result<MutationResult<bool>, StructuredError> {
-        let _mutation = self
-            .mutation
-            .lock()
-            .expect("lexicon mutation lock poisoned");
+        let _mutation = self.begin_mutation();
         self.check_revision(&request.expected_revision)?;
         let mut document = self.export_document();
         let before = document.entries.len();
@@ -339,10 +418,7 @@ impl SuppliedLexiconRuntime {
         &self,
         request: ExpectedRevision,
     ) -> Result<MutationResult<usize>, StructuredError> {
-        let _mutation = self
-            .mutation
-            .lock()
-            .expect("lexicon mutation lock poisoned");
+        let _mutation = self.begin_mutation();
         self.check_revision(&request.expected_revision)?;
         let mut document = self.export_document();
         let count = document.entries.len();
@@ -362,10 +438,7 @@ impl SuppliedLexiconRuntime {
         &self,
         request: SetGlossLanguageRequest,
     ) -> Result<MutationResult<Option<String>>, StructuredError> {
-        let _mutation = self
-            .mutation
-            .lock()
-            .expect("lexicon mutation lock poisoned");
+        let _mutation = self.begin_mutation();
         self.check_revision(&request.expected_revision)?;
         if request
             .gloss_language
@@ -399,10 +472,7 @@ impl SuppliedLexiconRuntime {
         &self,
         request: SetAuthorityRequest,
     ) -> Result<MutationResult<SuppliedEntry>, StructuredError> {
-        let _mutation = self
-            .mutation
-            .lock()
-            .expect("lexicon mutation lock poisoned");
+        let _mutation = self.begin_mutation();
         self.check_revision(&request.expected_revision)?;
         let mut document = self.export_document();
         let entry = document
@@ -421,7 +491,7 @@ impl SuppliedLexiconRuntime {
         entry.date_modified = self
             .clock
             .lock()
-            .expect("lexicon clock lock poisoned")
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .now();
         let id = entry.id.clone();
         self.import_document_locked(document)?;
@@ -521,10 +591,7 @@ impl SuppliedLexiconRuntime {
     }
 
     pub fn import(&self, request: ImportRequest) -> Result<ReconciliationReport, StructuredError> {
-        let _mutation = self
-            .mutation
-            .lock()
-            .expect("lexicon mutation lock poisoned");
+        let _mutation = self.begin_mutation();
         self.check_revision(&request.expected_revision)?;
         self.import_document_locked(request.document)
     }
@@ -719,7 +786,10 @@ impl SuppliedLexiconRuntime {
             overlay,
         });
         let revision = snapshot.revision().clone();
-        *self.state.write().expect("lexicon snapshot lock poisoned") = snapshot;
+        *self
+            .state
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = snapshot;
         Ok(ReconciliationReport {
             exact_match,
             compatible_migration,
@@ -747,5 +817,26 @@ fn error(code: &str, message: impl Into<String>) -> StructuredError {
         code: code.into(),
         message: message.into(),
         details: serde_json::Value::Null,
+    }
+}
+
+#[cfg(test)]
+mod poison_tests {
+    use super::*;
+
+    const XML: &str = r#"<HermitCrabInput><Language><Name>PoisonTest</Name><PartsOfSpeech><PartOfSpeech id="p"><Name>N</Name></PartOfSpeech></PartsOfSpeech><CharacterDefinitionTable id="t"><Name>T</Name><SegmentDefinitions><SegmentDefinition id="a"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions></CharacterDefinitionTable><Strata><Stratum characterDefinitionTable="t"><Name>S</Name><LexicalEntries><LexicalEntry id="a" partOfSpeech="p"><Allomorphs><Allomorph id="aa"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs></LexicalEntry></LexicalEntries></Stratum></Strata></Language></HermitCrabInput>"#;
+
+    #[test]
+    fn poisoned_snapshot_lock_recovers_the_old_snapshot() {
+        let grammar = Arc::new(pg_grammar::load(XML).unwrap());
+        let runtime = SuppliedLexiconRuntime::new(grammar, XML).unwrap();
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            runtime.force_state_lock_panic_for_test()
+        }))
+        .is_err());
+        assert_eq!(
+            serde_json::to_value(runtime.snapshot().revision()).unwrap(),
+            "rev_0"
+        );
     }
 }

@@ -1,9 +1,38 @@
 //! Shared official-plus-runtime lexical analysis orchestration for native and WASM bindings.
 
 use crate::{EntryAuthority, Revision, SuppliedLexiconRuntime, ValidationState};
-use pg_parse::{AnalysisProvenance, Morpher, ParseOptions, WordAnalysis};
+use pg_parse::{AnalysisProvenance, ParseOptions, WordAnalysis};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+
+/// Construction-time policy for every authoritative overlay-aware `Morpher` owned by a runtime.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AnalysisPolicy {
+    pub step_cap: usize,
+    pub memo: bool,
+}
+
+impl AnalysisPolicy {
+    pub const fn browser_default() -> Self {
+        Self {
+            step_cap: 100_000,
+            memo: true,
+        }
+    }
+
+    pub const fn native_abi_v1() -> Self {
+        Self {
+            step_cap: 500_000,
+            memo: true,
+        }
+    }
+}
+
+impl Default for AnalysisPolicy {
+    fn default() -> Self {
+        Self::browser_default()
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct OfficialOutcome {
@@ -65,7 +94,7 @@ impl SuppliedLexiconRuntime {
     /// and only after that complete union is empty.
     pub fn analyze_word(&self, word: &str, official: Option<OfficialOutcome>) -> UnifiedAnalysis {
         let snapshot = self.snapshot();
-        let morpher = Morpher::new_with_overlay(&self.grammar, 100_000, snapshot.overlay());
+        let morpher = self.morpher(&snapshot);
         let normal_options = ParseOptions::default();
         let normal = morpher.parse_word_opts(word, &normal_options);
         let overridden = active_override_ids(snapshot.entries());
@@ -173,6 +202,23 @@ fn analysis_is_overridden(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn named_analysis_policies_pin_host_contracts() {
+        assert_eq!(
+            AnalysisPolicy::browser_default(),
+            AnalysisPolicy {
+                step_cap: 100_000,
+                memo: true
+            }
+        );
+        assert_eq!(
+            AnalysisPolicy::native_abi_v1(),
+            AnalysisPolicy {
+                step_cap: 500_000,
+                memo: true
+            }
+        );
+    }
     #[test]
     fn inactive_override_never_suppresses_official_identity() {
         let date = crate::LexicalDate::parse("2026-07-22 00:00:00.000").unwrap();

@@ -5,6 +5,9 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[features]
+test-concurrency-hook = []
+
 [dependencies]
 # Pinned exact so a version bump is always deliberate and re-gated, not a silent float.
 # Originally validated at 0.1.1 by gate F0 (docs/fst-plan/foma-fst-plan.md); re-validated at

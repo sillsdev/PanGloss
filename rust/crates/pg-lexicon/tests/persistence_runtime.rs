@@ -331,6 +331,58 @@ fn ordinary_mutations_validate_before_atomic_snapshot_publication() {
     assert!(rt.parse_word("b").structured.is_empty());
 }
 
+struct PanicOnceId(bool);
+impl IdSource for PanicOnceId {
+    fn next_128(&mut self) -> Result<[u8; 16], StructuredError> {
+        if !self.0 {
+            self.0 = true;
+            panic!("forced ID source panic");
+        }
+        Ok([11; 16])
+    }
+}
+
+struct PanicOnceClock(bool);
+impl Clock for PanicOnceClock {
+    fn now(&mut self) -> LexicalDate {
+        if !self.0 {
+            self.0 = true;
+            panic!("forced clock panic");
+        }
+        LexicalDate::parse("2026-07-22 14:00:00.000").unwrap()
+    }
+}
+
+fn add_b(rt: &SuppliedLexiconRuntime) -> Result<MutationResult<SuppliedEntry>, StructuredError> {
+    rt.add(AddRequest {
+        stem: "b".into(),
+        gloss: String::new(),
+        signatures: vec![rt.catalog().signatures()[0].id.clone()],
+        expected_revision: None,
+    })
+}
+
+#[test]
+fn poisoned_id_source_and_mutation_locks_recover_without_publishing_partial_state() {
+    let grammar = Arc::new(pg_grammar::load(XML).unwrap());
+    let rt = SuppliedLexiconRuntime::with_sources(grammar, XML, PanicOnceId(false), Times).unwrap();
+    let before = rt.snapshot();
+    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| add_b(&rt))).is_err());
+    assert!(Arc::ptr_eq(&before, &rt.snapshot()));
+    assert!(add_b(&rt).unwrap().changed);
+}
+
+#[test]
+fn poisoned_clock_and_mutation_locks_recover_without_publishing_partial_state() {
+    let grammar = Arc::new(pg_grammar::load(XML).unwrap());
+    let rt =
+        SuppliedLexiconRuntime::with_sources(grammar, XML, IDs, PanicOnceClock(false)).unwrap();
+    let before = rt.snapshot();
+    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| add_b(&rt))).is_err());
+    assert!(Arc::ptr_eq(&before, &rt.snapshot()));
+    assert!(add_b(&rt).unwrap().changed);
+}
+
 #[test]
 fn stale_replace_after_newer_mutation_preserves_snapshot_and_revision() {
     let rt = runtime(XML);

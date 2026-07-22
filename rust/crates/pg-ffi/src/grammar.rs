@@ -31,8 +31,14 @@ pub type HcGrammarHandle = *mut std::ffi::c_void;
 /// configuration the FFI handle uses internally — the FFI-vs-in-process parity test needs both
 /// sides run under the same budget/memo settings, or a mismatch there (not an encoding bug) could
 /// masquerade as one.
-pub const DEFAULT_STEP_CAP: usize = 500_000;
-pub const DEFAULT_MEMO: bool = true;
+pub const DEFAULT_ANALYSIS_POLICY: pg_lexicon::AnalysisPolicy =
+    pg_lexicon::AnalysisPolicy::native_abi_v1();
+pub const DEFAULT_STEP_CAP: usize = DEFAULT_ANALYSIS_POLICY.step_cap;
+pub const DEFAULT_MEMO: bool = DEFAULT_ANALYSIS_POLICY.memo;
+
+fn native_v1_morpher(grammar: &'static Grammar) -> Morpher<'static> {
+    Morpher::new(grammar, DEFAULT_ANALYSIS_POLICY.step_cap).with_memo(DEFAULT_ANALYSIS_POLICY.memo)
+}
 
 struct FomaState {
     proposer: pg_foma::analyzer::FomaProposer,
@@ -97,9 +103,13 @@ impl GrammarHandle {
         // `morpher`, because both are dropped together (as fields of the same struct) and
         // `morpher` (declared first) drops before `grammar` is freed.
         let grammar_ref: &'static Grammar = unsafe { &*(grammar.as_ref() as *const Grammar) };
-        let morpher = Morpher::new(grammar_ref, DEFAULT_STEP_CAP).with_memo(DEFAULT_MEMO);
-        let runtime = pg_lexicon::SuppliedLexiconRuntime::new(grammar.clone(), grammar_source)
-            .expect("a successfully loaded named grammar initializes its runtime");
+        let morpher = native_v1_morpher(grammar_ref);
+        let runtime = pg_lexicon::SuppliedLexiconRuntime::with_policy(
+            grammar.clone(),
+            grammar_source,
+            DEFAULT_ANALYSIS_POLICY,
+        )
+        .expect("a successfully loaded named grammar initializes its runtime");
         let foma = FomaState::new(&grammar);
         Self::new_with_foma_result_inner(grammar, morpher, runtime, foma)
     }
@@ -113,9 +123,13 @@ impl GrammarHandle {
         let grammar = Arc::new(grammar);
         // SAFETY: identical ownership/lifetime argument to `new` above.
         let grammar_ref: &'static Grammar = unsafe { &*(grammar.as_ref() as *const Grammar) };
-        let morpher = Morpher::new(grammar_ref, DEFAULT_STEP_CAP).with_memo(DEFAULT_MEMO);
-        let runtime = pg_lexicon::SuppliedLexiconRuntime::new(grammar.clone(), grammar_source)
-            .expect("a successfully loaded named grammar initializes its runtime");
+        let morpher = native_v1_morpher(grammar_ref);
+        let runtime = pg_lexicon::SuppliedLexiconRuntime::with_policy(
+            grammar.clone(),
+            grammar_source,
+            DEFAULT_ANALYSIS_POLICY,
+        )
+        .expect("a successfully loaded named grammar initializes its runtime");
         Self::new_with_foma_result_inner(grammar, morpher, runtime, foma)
     }
 
@@ -198,6 +212,127 @@ impl GrammarHandle {
                 std::panic::resume_unwind(payload)
             }
         }
+    }
+
+    /// Analyze a batch while holding the mutable foma backend lock only for serialized proposal.
+    /// Confirmation (the dominant official cost) and overlay union run outside that lock with the
+    /// caller's requested parallelism.
+    pub(crate) fn analyze_words(
+        &self,
+        words: &[String],
+        max_threads: usize,
+    ) -> Vec<(pg_lexicon::UnifiedAnalysis, std::time::Duration)> {
+        for word in words {
+            pg_parse::batch::test_panic_if_requested(word);
+        }
+        let mut backend = self
+            .official_backend
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let checked_out = std::mem::replace(
+            &mut *backend,
+            OfficialBackend::MorpherFallback {
+                diagnostic: "foma state temporarily checked out".into(),
+            },
+        );
+        let (proposed, owners) = match checked_out {
+            OfficialBackend::MorpherFallback { diagnostic } => {
+                *backend = OfficialBackend::MorpherFallback { diagnostic };
+                drop(backend);
+                return self.analyze_words_without_official(words, max_threads);
+            }
+            OfficialBackend::Foma(state) => {
+                let state = *state;
+                let attempted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    self.test_panic_if_requested();
+                    let mut analyzer = pg_foma::composite::FomaAnalyzer::from_cached(
+                        &self.grammar,
+                        state.proposer,
+                        state.peeler,
+                        state.owners,
+                    );
+                    let proposed = analyzer.propose_words(words);
+                    let (proposer, peeler, owners) = analyzer.into_parts();
+                    (proposed, proposer, peeler, owners)
+                }));
+                match attempted {
+                    Ok((proposed, proposer, peeler, owners)) => {
+                        let confirm_owners = owners.clone();
+                        *backend = OfficialBackend::Foma(Box::new(FomaState {
+                            proposer,
+                            peeler,
+                            owners,
+                        }));
+                        drop(backend);
+                        (proposed, confirm_owners)
+                    }
+                    Err(payload) => {
+                        *backend = match FomaState::new(&self.grammar) {
+                            Ok(state) => OfficialBackend::Foma(Box::new(state)),
+                            Err(diagnostic) => OfficialBackend::MorpherFallback { diagnostic },
+                        };
+                        drop(backend);
+                        std::panic::resume_unwind(payload)
+                    }
+                }
+            }
+        };
+        let official = pg_foma::composite::confirm_proposed_words(
+            &self.grammar,
+            &owners,
+            words,
+            proposed,
+            max_threads,
+        );
+        self.union_official_batch(words, official, max_threads)
+    }
+
+    fn analyze_words_without_official(
+        &self,
+        words: &[String],
+        max_threads: usize,
+    ) -> Vec<(pg_lexicon::UnifiedAnalysis, std::time::Duration)> {
+        self.parallel_map(words, max_threads, |word| {
+            let started = std::time::Instant::now();
+            let outcome = self.runtime.analyze_word(word, None);
+            (outcome, started.elapsed())
+        })
+    }
+
+    fn union_official_batch(
+        &self,
+        words: &[String],
+        official: Vec<(pg_foma::composite::FomaOutcome, std::time::Duration)>,
+        max_threads: usize,
+    ) -> Vec<(pg_lexicon::UnifiedAnalysis, std::time::Duration)> {
+        let inputs: Vec<_> = words.iter().zip(official).collect();
+        self.parallel_map(&inputs, max_threads, |(word, (outcome, elapsed))| {
+            let started = std::time::Instant::now();
+            let unified = self.runtime.analyze_word(
+                word,
+                Some(pg_lexicon::OfficialOutcome {
+                    analyses: outcome.analyses.clone(),
+                    structured: outcome.structured.clone(),
+                    candidates_generated: outcome.candidates_generated,
+                }),
+            );
+            (unified, *elapsed + started.elapsed())
+        })
+    }
+
+    fn parallel_map<T: Sync, R: Send>(
+        &self,
+        inputs: &[T],
+        max_threads: usize,
+        operation: impl Fn(&T) -> R + Sync + Send,
+    ) -> Vec<R> {
+        use rayon::prelude::*;
+        let mut builder = rayon::ThreadPoolBuilder::new().stack_size(1 << 30);
+        if max_threads > 0 {
+            builder = builder.num_threads(max_threads);
+        }
+        let pool = builder.build().expect("build native runtime batch pool");
+        pool.install(|| inputs.par_iter().map(operation).collect())
     }
 
     #[cfg(test)]
@@ -356,7 +491,7 @@ pub(crate) unsafe fn borrow<'a>(handle: HcGrammarHandle) -> Option<&'a GrammarHa
 #[cfg(test)]
 mod runtime_backend_tests {
     use super::*;
-    use crate::{hc_analyze_word_json, hc_buf_free, HcResultBuf, HC_OK};
+    use crate::{hc_analyze_word_json, hc_buf_free, hc_lexicon_add_json, HcResultBuf, HC_OK};
 
     const XML: &str = r#"<HermitCrabInput><Language><Name>BackendTest</Name><PartsOfSpeech><PartOfSpeech id="p"><Name>N</Name></PartOfSpeech></PartsOfSpeech><CharacterDefinitionTable id="t"><Name>T</Name><SegmentDefinitions><SegmentDefinition id="a"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions></CharacterDefinitionTable><Strata><Stratum characterDefinitionTable="t"><Name>S</Name><LexicalEntries><LexicalEntry id="official-a" partOfSpeech="p"><Allomorphs><Allomorph id="aa"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs></LexicalEntry></LexicalEntries></Stratum></Strata></Language></HermitCrabInput>"#;
 
@@ -370,6 +505,10 @@ mod runtime_backend_tests {
             .iter()
             .any(|analysis| matches!(analysis.provenance, pg_parse::AnalysisProvenance::Grammar)));
         assert_eq!(handle.backend_kind(), "morpherFallback");
+        assert_eq!(
+            handle.runtime.analysis_policy(),
+            pg_lexicon::AnalysisPolicy::native_abi_v1()
+        );
     }
 
     #[test]
@@ -420,5 +559,77 @@ mod runtime_backend_tests {
                 .is_err()
         );
         assert!(!first.analyze_word("a").structured.is_empty());
+    }
+
+    #[test]
+    fn mutation_panic_is_structured_and_same_handle_remains_mutable_and_analyzable() {
+        let handle = GrammarHandle::new(pg_grammar::load(XML).unwrap(), XML);
+        let signature = handle.runtime.catalog().signatures()[0].id.as_str();
+        let request = serde_json::json!({"stem":"a", "gloss":"", "signatures":[signature]});
+        let bytes = serde_json::to_vec(&request).unwrap();
+        handle.runtime.force_next_mutation_panic_for_test();
+        let raw = Box::into_raw(handle).cast();
+        let mut out = HcResultBuf::EMPTY;
+        assert_eq!(
+            unsafe { hc_lexicon_add_json(raw, bytes.as_ptr(), bytes.len(), &mut out) },
+            HC_OK
+        );
+        let first: serde_json::Value =
+            serde_json::from_slice(unsafe { std::slice::from_raw_parts(out.data, out.len) })
+                .unwrap();
+        assert_eq!(first["error"]["code"], "panic");
+        unsafe { hc_buf_free(&mut out) };
+
+        assert_eq!(
+            unsafe { hc_lexicon_add_json(raw, bytes.as_ptr(), bytes.len(), &mut out) },
+            HC_OK
+        );
+        let second: serde_json::Value =
+            serde_json::from_slice(unsafe { std::slice::from_raw_parts(out.data, out.len) })
+                .unwrap();
+        assert_eq!(second["ok"], true);
+        unsafe { hc_buf_free(&mut out) };
+
+        let analyze = br#"{"word":"a"}"#;
+        assert_eq!(
+            unsafe { hc_analyze_word_json(raw, analyze.as_ptr(), analyze.len(), &mut out) },
+            HC_OK
+        );
+        let third: serde_json::Value =
+            serde_json::from_slice(unsafe { std::slice::from_raw_parts(out.data, out.len) })
+                .unwrap();
+        assert_eq!(third["ok"], true);
+        unsafe {
+            hc_buf_free(&mut out);
+            crate::hc_grammar_free(raw)
+        };
+    }
+
+    #[test]
+    fn batch_confirmation_uses_requested_parallelism_outside_backend_lock() {
+        let handle = GrammarHandle::new(pg_grammar::load(XML).unwrap(), XML);
+        let words = vec!["a".to_string(); 8];
+        pg_foma::composite::test_confirmation_concurrency::arm();
+        let sequential = handle.analyze_words(&words, 1);
+        assert_eq!(
+            pg_foma::composite::test_confirmation_concurrency::max_active(),
+            1
+        );
+        pg_foma::composite::test_confirmation_concurrency::arm();
+        let outcomes = handle.analyze_words(&words, 2);
+        assert_eq!(outcomes.len(), words.len());
+        assert_eq!(
+            pg_foma::composite::test_confirmation_concurrency::max_active(),
+            2
+        );
+        assert!(outcomes
+            .iter()
+            .all(|(outcome, _)| !outcome.structured.is_empty()));
+        for ((expected, _), (actual, _)) in sequential.iter().zip(&outcomes) {
+            assert_eq!(expected.analyses, actual.analyses);
+            assert_eq!(expected.structured, actual.structured);
+            assert_eq!(expected.guessed, actual.guessed);
+            assert_eq!(expected.capped, actual.capped);
+        }
     }
 }

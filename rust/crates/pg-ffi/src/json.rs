@@ -294,13 +294,9 @@ where
                 ));
             }
             let h = &*(handle as *const GuideHandle);
-            let mut g = h.0.lock().map_err(|_| {
-                error(
-                    "guide_poisoned",
-                    "classification guide lock is poisoned",
-                    Value::Null,
-                )
-            })?;
+            let mut g =
+                h.0.lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
             f(&mut g, r)
         })
     }

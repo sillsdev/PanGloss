@@ -24,6 +24,58 @@ use crate::confirm::{self, MorphemeOwner};
 use crate::peel::ReduplicationPeeler;
 use crate::tags::Candidate;
 
+/// Serialized proposal result detached from the mutable foma apply handle.
+pub struct ProposedWord {
+    candidates: Vec<Candidate>,
+    peel_used: bool,
+    propose_elapsed: Duration,
+}
+
+type ConfirmedBuckets = Vec<Vec<(WordAnalysis, String, String)>>;
+type TimedConfirmedBuckets = (ConfirmedBuckets, Duration);
+
+#[cfg(feature = "test-concurrency-hook")]
+#[doc(hidden)]
+pub mod test_confirmation_concurrency {
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    static ARMED: AtomicBool = AtomicBool::new(false);
+    static ACTIVE: AtomicUsize = AtomicUsize::new(0);
+    static MAX_ACTIVE: AtomicUsize = AtomicUsize::new(0);
+    pub fn arm() {
+        ACTIVE.store(0, Ordering::SeqCst);
+        MAX_ACTIVE.store(0, Ordering::SeqCst);
+        ARMED.store(true, Ordering::SeqCst);
+    }
+    pub fn max_active() -> usize {
+        MAX_ACTIVE.load(Ordering::SeqCst)
+    }
+    pub(super) fn take_arm() -> bool {
+        ARMED.swap(false, Ordering::SeqCst)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(super) struct Guard(bool);
+    #[cfg(not(target_arch = "wasm32"))]
+    impl Guard {
+        pub(super) fn enter(enabled: bool) -> Self {
+            if !enabled {
+                return Self(false);
+            }
+            let active = ACTIVE.fetch_add(1, Ordering::SeqCst) + 1;
+            MAX_ACTIVE.fetch_max(active, Ordering::SeqCst);
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            Self(true)
+        }
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            if self.0 {
+                ACTIVE.fetch_sub(1, Ordering::SeqCst);
+            }
+        }
+    }
+}
+
 /// Per-word timer for [`FomaAnalyzer::analyze_words`]'s reported durations.
 /// `std::time::Instant::now()` COMPILES on wasm32-unknown-unknown but ABORTS at runtime
 /// ("time not implemented on this platform") — the same compiles-but-aborts trap as
@@ -76,8 +128,8 @@ pub struct FomaOutcome {
     pub peel_used: bool,
 }
 
-/// One grammar's compiled foma proposer + uncapped verify [`Morpher`] + prebuilt morpheme-owner map
-/// + redup peeler, owned together (plan §1: "propose→confirm composite"). `'g` ties this to the
+/// One grammar's compiled foma proposer, uncapped verify [`Morpher`], prebuilt morpheme-owner map,
+/// and redup peeler, owned together (plan §1: "propose→confirm composite"). `'g` ties this to the
 /// same `&Grammar` borrow the verify `Morpher` itself needs.
 pub struct FomaAnalyzer<'g> {
     g: &'g Grammar,
@@ -242,82 +294,31 @@ impl<'g> FomaAnalyzer<'g> {
     /// summed, mirroring `pg_parse::batch::BatchWordOutcome::elapsed`'s own per-word-not-per-batch
     /// convention.
     pub fn analyze_words(&mut self, words: &[String]) -> Vec<(FomaOutcome, Duration)> {
-        if words.is_empty() {
-            return Vec::new();
-        }
+        self.analyze_words_with_threads(words, 0)
+    }
 
-        // Stage 1 (sequential): propose + peel per word.
-        let per_word: Vec<(Vec<Candidate>, bool, Duration)> = words
+    pub fn analyze_words_with_threads(
+        &mut self,
+        words: &[String],
+        max_threads: usize,
+    ) -> Vec<(FomaOutcome, Duration)> {
+        let proposed = self.propose_words(words);
+        confirm_proposed_words(self.g, &self.owners, words, proposed, max_threads)
+    }
+
+    /// Run the mutable foma proposal phase without retaining the confirming analyzer.
+    pub fn propose_words(&mut self, words: &[String]) -> Vec<ProposedWord> {
+        words
             .iter()
             .map(|word| {
                 let t0 = word_timer::start();
                 let (candidates, peel_used) = self.propose_candidates(word);
-                (candidates, peel_used, t0.elapsed())
+                ProposedWord {
+                    candidates,
+                    peel_used,
+                    propose_elapsed: t0.elapsed(),
+                }
             })
-            .collect();
-
-        // Stage 2 (parallel across words): confirm — see doc above for the soundness argument.
-        #[cfg(target_arch = "wasm32")]
-        let buckets_per_word: Vec<(Vec<Vec<(WordAnalysis, String, String)>>, Duration)> = words
-            .iter()
-            .zip(per_word.iter())
-            .map(|(word, (candidates, _, _))| {
-                let t0 = word_timer::start();
-                let buckets =
-                    confirm::confirm_batch(self.g, &self.owners, &self.morpher, candidates, word);
-                (buckets, t0.elapsed())
-            })
-            .collect();
-
-        #[cfg(not(target_arch = "wasm32"))]
-        let buckets_per_word: Vec<(Vec<Vec<(WordAnalysis, String, String)>>, Duration)> = {
-            let pool = rayon::ThreadPoolBuilder::new()
-                .stack_size(crate::emit::PROBE_STACK_BYTES)
-                .build()
-                .expect("build FomaAnalyzer::analyze_words confirm rayon pool");
-            pool.install(|| {
-                words
-                    .par_iter()
-                    .zip(per_word.par_iter())
-                    .map(|(word, (candidates, _, _))| {
-                        let t0 = word_timer::start();
-                        let buckets = confirm::confirm_batch(
-                            self.g,
-                            &self.owners,
-                            &self.morpher,
-                            candidates,
-                            word,
-                        );
-                        (buckets, t0.elapsed())
-                    })
-                    .collect()
-            })
-        };
-
-        per_word
-            .into_iter()
-            .zip(buckets_per_word)
-            .map(
-                |((candidates, peel_used, propose_elapsed), (buckets, confirm_elapsed))| {
-                    let candidates_generated = candidates.len();
-                    let mut analyses = Vec::new();
-                    let mut structured = Vec::new();
-                    for bucket in buckets {
-                        for (wa, join, surface) in bucket {
-                            structured.push(wa);
-                            analyses.push((join, surface));
-                        }
-                    }
-                    let outcome = FomaOutcome {
-                        confirmed: structured.len(),
-                        analyses,
-                        structured,
-                        candidates_generated,
-                        peel_used,
-                    };
-                    (outcome, propose_elapsed + confirm_elapsed)
-                },
-            )
             .collect()
     }
 
@@ -378,6 +379,87 @@ impl<'g> FomaAnalyzer<'g> {
     ) {
         (self.proposer, self.peeler, self.owners)
     }
+}
+
+/// Confirm detached proposals using at most `max_threads` workers (`0` = available cores).
+pub fn confirm_proposed_words(
+    g: &Grammar,
+    owners: &[Option<MorphemeOwner>],
+    words: &[String],
+    proposed: Vec<ProposedWord>,
+    max_threads: usize,
+) -> Vec<(FomaOutcome, Duration)> {
+    if words.is_empty() {
+        return Vec::new();
+    }
+    assert_eq!(words.len(), proposed.len(), "one proposal record per word");
+    let morpher = Morpher::new(g, usize::MAX);
+    #[cfg(feature = "test-concurrency-hook")]
+    let observe_confirmation = test_confirmation_concurrency::take_arm();
+    #[cfg(target_arch = "wasm32")]
+    let _ = max_threads;
+
+    #[cfg(target_arch = "wasm32")]
+    let buckets_per_word: Vec<TimedConfirmedBuckets> = words
+        .iter()
+        .zip(proposed.iter())
+        .map(|(word, proposal)| {
+            let t0 = word_timer::start();
+            let buckets = confirm::confirm_batch(g, owners, &morpher, &proposal.candidates, word);
+            (buckets, t0.elapsed())
+        })
+        .collect();
+
+    #[cfg(not(target_arch = "wasm32"))]
+    let buckets_per_word: Vec<TimedConfirmedBuckets> = {
+        let mut builder =
+            rayon::ThreadPoolBuilder::new().stack_size(crate::emit::PROBE_STACK_BYTES);
+        if max_threads > 0 {
+            builder = builder.num_threads(max_threads);
+        }
+        let pool = builder
+            .build()
+            .expect("build detached foma confirmation rayon pool");
+        pool.install(|| {
+            words
+                .par_iter()
+                .zip(proposed.par_iter())
+                .map(|(word, proposal)| {
+                    #[cfg(feature = "test-concurrency-hook")]
+                    let _concurrency =
+                        test_confirmation_concurrency::Guard::enter(observe_confirmation);
+                    let t0 = word_timer::start();
+                    let buckets =
+                        confirm::confirm_batch(g, owners, &morpher, &proposal.candidates, word);
+                    (buckets, t0.elapsed())
+                })
+                .collect()
+        })
+    };
+
+    proposed
+        .into_iter()
+        .zip(buckets_per_word)
+        .map(|(proposal, (buckets, confirm_elapsed))| {
+            let candidates_generated = proposal.candidates.len();
+            let mut analyses = Vec::new();
+            let mut structured = Vec::new();
+            for bucket in buckets {
+                for (wa, join, surface) in bucket {
+                    structured.push(wa);
+                    analyses.push((join, surface));
+                }
+            }
+            let outcome = FomaOutcome {
+                confirmed: structured.len(),
+                analyses,
+                structured,
+                candidates_generated,
+                peel_used: proposal.peel_used,
+            };
+            (outcome, proposal.propose_elapsed + confirm_elapsed)
+        })
+        .collect()
 }
 
 #[cfg(test)]

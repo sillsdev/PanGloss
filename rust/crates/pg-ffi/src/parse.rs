@@ -10,7 +10,6 @@ use crate::error::{
     HC_ERR_UTF8, HC_OK,
 };
 use crate::grammar::HcGrammarHandle;
-use rayon::prelude::*;
 
 /// A borrowed UTF-8 string passed into `hc_parse_batch` (plan §4.2's `HcStr`): a pointer + byte
 /// length, no ownership transfer, no terminator assumed (not nul-terminated — `len` is exact).
@@ -120,24 +119,14 @@ pub unsafe extern "C" fn hc_parse_batch(
             let s = std::str::from_utf8(bytes).map_err(|_| HC_ERR_UTF8)?;
             rust_words.push(s.to_string());
         }
-        let mut builder = rayon::ThreadPoolBuilder::new().stack_size(1 << 30);
-        if max_threads > 0 {
-            builder = builder.num_threads(max_threads as usize);
-        }
-        let pool = builder.build().map_err(|_| HC_ERR_INVALID_ARG)?;
-        let outcomes: Vec<_> = pool.install(|| {
-            rust_words
-                .par_iter()
-                .map(|word| {
-                    pg_parse::batch::test_panic_if_requested(word);
-                    let started = std::time::Instant::now();
-                    pg_parse::BatchWordOutcome {
-                        outcome: unified_to_parse(gh.analyze_word(word)),
-                        elapsed: started.elapsed(),
-                    }
-                })
-                .collect()
-        });
+        let outcomes: Vec<_> = gh
+            .analyze_words(&rust_words, max_threads as usize)
+            .into_iter()
+            .map(|(outcome, elapsed)| pg_parse::BatchWordOutcome {
+                outcome: unified_to_parse(outcome),
+                elapsed,
+            })
+            .collect();
         Ok(crate::buffer::encode_batch(&outcomes))
     });
     finish(result, out)
