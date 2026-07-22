@@ -13,7 +13,42 @@ use std::sync::Mutex;
 
 pub type HcClassificationGuideHandle = *mut std::ffi::c_void;
 
-struct GuideHandle(Mutex<ClassificationGuide>);
+struct GuideHandle {
+    guide: Mutex<ClassificationGuide>,
+    #[cfg(test)]
+    force_next_panic: std::sync::atomic::AtomicBool,
+}
+
+impl GuideHandle {
+    fn new(guide: ClassificationGuide) -> Self {
+        Self {
+            guide: Mutex::new(guide),
+            #[cfg(test)]
+            force_next_panic: std::sync::atomic::AtomicBool::new(false),
+        }
+    }
+
+    #[cfg(test)]
+    fn new_for_test(guide: ClassificationGuide) -> Self {
+        Self::new(guide)
+    }
+
+    #[cfg(test)]
+    fn force_next_panic_for_test(&self) {
+        self.force_next_panic
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    fn panic_if_requested(&self) {
+        #[cfg(test)]
+        if self
+            .force_next_panic
+            .swap(false, std::sync::atomic::Ordering::SeqCst)
+        {
+            panic!("forced classification guide panic under mutex");
+        }
+    }
+}
 
 #[derive(Serialize)]
 #[serde(untagged)]
@@ -266,7 +301,7 @@ pub unsafe extern "C" fn hc_classification_guide_new_json(
     *guide_out = std::ptr::null_mut();
     unsafe {
         json_call::<ClassificationMatrix, _, _>(request, len, out, |matrix| {
-            let guide = Box::new(GuideHandle(Mutex::new(ClassificationGuide::new(matrix))));
+            let guide = Box::new(GuideHandle::new(ClassificationGuide::new(matrix)));
             *guide_out = Box::into_raw(guide).cast();
             Ok(json!({"created":true}))
         })
@@ -294,9 +329,11 @@ where
                 ));
             }
             let h = &*(handle as *const GuideHandle);
-            let mut g =
-                h.0.lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut g = h
+                .guide
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            h.panic_if_requested();
             f(&mut g, r)
         })
     }
@@ -384,5 +421,57 @@ mod tests {
         assert_eq!(value["ok"], false);
         assert_eq!(value["error"]["code"], "panic");
         unsafe { crate::parse::hc_buf_free(&mut out) };
+    }
+
+    #[test]
+    fn poisoned_guide_mutex_recovers_for_the_same_ffi_handle() {
+        let matrix = ClassificationMatrix {
+            stem: "x".into(),
+            candidates: Vec::new(),
+            forms: Vec::new(),
+            exhaustive: true,
+            truncation_reason: None,
+        };
+        let guide = Box::new(GuideHandle::new_for_test(ClassificationGuide::new(matrix)));
+        guide.force_next_panic_for_test();
+        let raw = Box::into_raw(guide).cast();
+        let request = b"{}";
+        let mut out = HcResultBuf::EMPTY;
+        assert_eq!(
+            unsafe {
+                hc_classification_guide_remaining_json(
+                    raw,
+                    request.as_ptr(),
+                    request.len(),
+                    &mut out,
+                )
+            },
+            HC_OK
+        );
+        let first: Value =
+            serde_json::from_slice(unsafe { std::slice::from_raw_parts(out.data, out.len) })
+                .unwrap();
+        assert_eq!(first["error"]["code"], "panic");
+        unsafe { crate::hc_buf_free(&mut out) };
+
+        assert_eq!(
+            unsafe {
+                hc_classification_guide_remaining_json(
+                    raw,
+                    request.as_ptr(),
+                    request.len(),
+                    &mut out,
+                )
+            },
+            HC_OK
+        );
+        let second: Value =
+            serde_json::from_slice(unsafe { std::slice::from_raw_parts(out.data, out.len) })
+                .unwrap();
+        assert_eq!(second["ok"], true);
+        unsafe {
+            crate::hc_buf_free(&mut out);
+            hc_classification_guide_free(raw)
+        };
     }
 }

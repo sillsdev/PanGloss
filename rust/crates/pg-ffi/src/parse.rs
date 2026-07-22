@@ -121,6 +121,7 @@ pub unsafe extern "C" fn hc_parse_batch(
         }
         let outcomes: Vec<_> = gh
             .analyze_words(&rust_words, max_threads as usize)
+            .map_err(|_| HC_ERR_INVALID_ARG)?
             .into_iter()
             .map(|(outcome, elapsed)| pg_parse::BatchWordOutcome {
                 outcome: unified_to_parse(outcome),

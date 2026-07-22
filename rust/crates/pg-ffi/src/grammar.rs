@@ -86,6 +86,10 @@ pub(crate) struct GrammarHandle {
     official_backend: Mutex<OfficialBackend>,
     #[cfg(test)]
     force_next_foma_panic: std::sync::atomic::AtomicBool,
+    #[cfg(test)]
+    force_next_pool_build_failure: std::sync::atomic::AtomicBool,
+    #[cfg(test)]
+    pool_build_count: std::sync::atomic::AtomicUsize,
     /// Never read directly after construction — it exists purely to *own* the allocation
     /// `morpher` points into (dropping it is what actually frees the grammar). That's a real
     /// use the `dead_code` lint can't see, hence the explicit allow.
@@ -149,6 +153,10 @@ impl GrammarHandle {
             official_backend: Mutex::new(official_backend),
             #[cfg(test)]
             force_next_foma_panic: std::sync::atomic::AtomicBool::new(false),
+            #[cfg(test)]
+            force_next_pool_build_failure: std::sync::atomic::AtomicBool::new(false),
+            #[cfg(test)]
+            pool_build_count: std::sync::atomic::AtomicUsize::new(0),
             grammar,
         })
     }
@@ -221,10 +229,11 @@ impl GrammarHandle {
         &self,
         words: &[String],
         max_threads: usize,
-    ) -> Vec<(pg_lexicon::UnifiedAnalysis, std::time::Duration)> {
+    ) -> Result<Vec<(pg_lexicon::UnifiedAnalysis, std::time::Duration)>, ()> {
         for word in words {
             pg_parse::batch::test_panic_if_requested(word);
         }
+        let pool = self.build_batch_pool(max_threads)?;
         let mut backend = self
             .official_backend
             .lock()
@@ -239,7 +248,7 @@ impl GrammarHandle {
             OfficialBackend::MorpherFallback { diagnostic } => {
                 *backend = OfficialBackend::MorpherFallback { diagnostic };
                 drop(backend);
-                return self.analyze_words_without_official(words, max_threads);
+                return Ok(self.analyze_words_without_official(words, &pool));
             }
             OfficialBackend::Foma(state) => {
                 let state = *state;
@@ -277,22 +286,41 @@ impl GrammarHandle {
                 }
             }
         };
-        let official = pg_foma::composite::confirm_proposed_words(
+        let official = pg_foma::composite::confirm_proposed_words_in_pool(
             &self.grammar,
             &owners,
             words,
             proposed,
-            max_threads,
+            &pool,
         );
-        self.union_official_batch(words, official, max_threads)
+        Ok(self.union_official_batch(words, official, &pool))
+    }
+
+    fn build_batch_pool(&self, max_threads: usize) -> Result<rayon::ThreadPool, ()> {
+        #[cfg(test)]
+        if self
+            .force_next_pool_build_failure
+            .swap(false, std::sync::atomic::Ordering::SeqCst)
+        {
+            return Err(());
+        }
+        let mut builder = rayon::ThreadPoolBuilder::new().stack_size(1 << 30);
+        if max_threads > 0 {
+            builder = builder.num_threads(max_threads);
+        }
+        let pool = builder.build().map_err(|_| ())?;
+        #[cfg(test)]
+        self.pool_build_count
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(pool)
     }
 
     fn analyze_words_without_official(
         &self,
         words: &[String],
-        max_threads: usize,
+        pool: &rayon::ThreadPool,
     ) -> Vec<(pg_lexicon::UnifiedAnalysis, std::time::Duration)> {
-        self.parallel_map(words, max_threads, |word| {
+        self.parallel_map(words, pool, |word| {
             let started = std::time::Instant::now();
             let outcome = self.runtime.analyze_word(word, None);
             (outcome, started.elapsed())
@@ -303,10 +331,10 @@ impl GrammarHandle {
         &self,
         words: &[String],
         official: Vec<(pg_foma::composite::FomaOutcome, std::time::Duration)>,
-        max_threads: usize,
+        pool: &rayon::ThreadPool,
     ) -> Vec<(pg_lexicon::UnifiedAnalysis, std::time::Duration)> {
         let inputs: Vec<_> = words.iter().zip(official).collect();
-        self.parallel_map(&inputs, max_threads, |(word, (outcome, elapsed))| {
+        self.parallel_map(&inputs, pool, |(word, (outcome, elapsed))| {
             let started = std::time::Instant::now();
             let unified = self.runtime.analyze_word(
                 word,
@@ -323,15 +351,10 @@ impl GrammarHandle {
     fn parallel_map<T: Sync, R: Send>(
         &self,
         inputs: &[T],
-        max_threads: usize,
+        pool: &rayon::ThreadPool,
         operation: impl Fn(&T) -> R + Sync + Send,
     ) -> Vec<R> {
         use rayon::prelude::*;
-        let mut builder = rayon::ThreadPoolBuilder::new().stack_size(1 << 30);
-        if max_threads > 0 {
-            builder = builder.num_threads(max_threads);
-        }
-        let pool = builder.build().expect("build native runtime batch pool");
         pool.install(|| inputs.par_iter().map(operation).collect())
     }
 
@@ -354,6 +377,18 @@ impl GrammarHandle {
     fn force_next_foma_panic(&self) {
         self.force_next_foma_panic
             .store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    #[cfg(test)]
+    fn force_next_pool_build_failure_for_test(&self) {
+        self.force_next_pool_build_failure
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    #[cfg(test)]
+    fn pool_build_count_for_test(&self) -> usize {
+        self.pool_build_count
+            .load(std::sync::atomic::Ordering::SeqCst)
     }
 
     fn test_panic_if_requested(&self) {
@@ -610,18 +645,20 @@ mod runtime_backend_tests {
         let handle = GrammarHandle::new(pg_grammar::load(XML).unwrap(), XML);
         let words = vec!["a".to_string(); 8];
         pg_foma::composite::test_confirmation_concurrency::arm();
-        let sequential = handle.analyze_words(&words, 1);
+        let sequential = handle.analyze_words(&words, 1).unwrap();
         assert_eq!(
             pg_foma::composite::test_confirmation_concurrency::max_active(),
             1
         );
         pg_foma::composite::test_confirmation_concurrency::arm();
-        let outcomes = handle.analyze_words(&words, 2);
+        let pools_before = handle.pool_build_count_for_test();
+        let outcomes = handle.analyze_words(&words, 2).unwrap();
         assert_eq!(outcomes.len(), words.len());
         assert_eq!(
             pg_foma::composite::test_confirmation_concurrency::max_active(),
             2
         );
+        assert_eq!(handle.pool_build_count_for_test() - pools_before, 1);
         assert!(outcomes
             .iter()
             .all(|(outcome, _)| !outcome.structured.is_empty()));
@@ -631,5 +668,26 @@ mod runtime_backend_tests {
             assert_eq!(expected.guessed, actual.guessed);
             assert_eq!(expected.capped, actual.capped);
         }
+    }
+
+    #[test]
+    fn batch_pool_build_failure_maps_to_invalid_argument_and_handle_is_reusable() {
+        let handle = GrammarHandle::new(pg_grammar::load(XML).unwrap(), XML);
+        handle.force_next_pool_build_failure_for_test();
+        let raw = Box::into_raw(handle).cast();
+        let mut out = HcResultBuf::EMPTY;
+        assert_eq!(
+            unsafe { crate::hc_parse_batch(raw, std::ptr::null(), 0, 2, &mut out) },
+            crate::HC_ERR_INVALID_ARG
+        );
+        assert!(out.data.is_null());
+        assert_eq!(
+            unsafe { crate::hc_parse_word(raw, b"a".as_ptr(), 1, &mut out) },
+            HC_OK
+        );
+        unsafe {
+            hc_buf_free(&mut out);
+            crate::hc_grammar_free(raw)
+        };
     }
 }

@@ -389,29 +389,8 @@ pub fn confirm_proposed_words(
     proposed: Vec<ProposedWord>,
     max_threads: usize,
 ) -> Vec<(FomaOutcome, Duration)> {
-    if words.is_empty() {
-        return Vec::new();
-    }
-    assert_eq!(words.len(), proposed.len(), "one proposal record per word");
-    let morpher = Morpher::new(g, usize::MAX);
-    #[cfg(feature = "test-concurrency-hook")]
-    let observe_confirmation = test_confirmation_concurrency::take_arm();
-    #[cfg(target_arch = "wasm32")]
-    let _ = max_threads;
-
-    #[cfg(target_arch = "wasm32")]
-    let buckets_per_word: Vec<TimedConfirmedBuckets> = words
-        .iter()
-        .zip(proposed.iter())
-        .map(|(word, proposal)| {
-            let t0 = word_timer::start();
-            let buckets = confirm::confirm_batch(g, owners, &morpher, &proposal.candidates, word);
-            (buckets, t0.elapsed())
-        })
-        .collect();
-
     #[cfg(not(target_arch = "wasm32"))]
-    let buckets_per_word: Vec<TimedConfirmedBuckets> = {
+    {
         let mut builder =
             rayon::ThreadPoolBuilder::new().stack_size(crate::emit::PROBE_STACK_BYTES);
         if max_threads > 0 {
@@ -420,23 +399,70 @@ pub fn confirm_proposed_words(
         let pool = builder
             .build()
             .expect("build detached foma confirmation rayon pool");
-        pool.install(|| {
-            words
-                .par_iter()
-                .zip(proposed.par_iter())
-                .map(|(word, proposal)| {
-                    #[cfg(feature = "test-concurrency-hook")]
-                    let _concurrency =
-                        test_confirmation_concurrency::Guard::enter(observe_confirmation);
-                    let t0 = word_timer::start();
-                    let buckets =
-                        confirm::confirm_batch(g, owners, &morpher, &proposal.candidates, word);
-                    (buckets, t0.elapsed())
-                })
-                .collect()
-        })
-    };
+        return confirm_proposed_words_in_pool(g, owners, words, proposed, &pool);
+    }
 
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = max_threads;
+        if words.is_empty() {
+            return Vec::new();
+        }
+        assert_eq!(words.len(), proposed.len(), "one proposal record per word");
+        let morpher = Morpher::new(g, usize::MAX);
+        let buckets_per_word: Vec<TimedConfirmedBuckets> = words
+            .iter()
+            .zip(proposed.iter())
+            .map(|(word, proposal)| {
+                let t0 = word_timer::start();
+                let buckets =
+                    confirm::confirm_batch(g, owners, &morpher, &proposal.candidates, word);
+                (buckets, t0.elapsed())
+            })
+            .collect();
+        finish_confirmed(proposed, buckets_per_word)
+    }
+}
+
+/// Confirm detached proposals inside a caller-owned pool, allowing a host batch to reuse that
+/// same requested-size pool for its later overlay-union phase.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn confirm_proposed_words_in_pool(
+    g: &Grammar,
+    owners: &[Option<MorphemeOwner>],
+    words: &[String],
+    proposed: Vec<ProposedWord>,
+    pool: &rayon::ThreadPool,
+) -> Vec<(FomaOutcome, Duration)> {
+    if words.is_empty() {
+        return Vec::new();
+    }
+    assert_eq!(words.len(), proposed.len(), "one proposal record per word");
+    let morpher = Morpher::new(g, usize::MAX);
+    #[cfg(feature = "test-concurrency-hook")]
+    let observe_confirmation = test_confirmation_concurrency::take_arm();
+    let buckets_per_word: Vec<TimedConfirmedBuckets> = pool.install(|| {
+        words
+            .par_iter()
+            .zip(proposed.par_iter())
+            .map(|(word, proposal)| {
+                #[cfg(feature = "test-concurrency-hook")]
+                let _concurrency =
+                    test_confirmation_concurrency::Guard::enter(observe_confirmation);
+                let t0 = word_timer::start();
+                let buckets =
+                    confirm::confirm_batch(g, owners, &morpher, &proposal.candidates, word);
+                (buckets, t0.elapsed())
+            })
+            .collect()
+    });
+    finish_confirmed(proposed, buckets_per_word)
+}
+
+fn finish_confirmed(
+    proposed: Vec<ProposedWord>,
+    buckets_per_word: Vec<TimedConfirmedBuckets>,
+) -> Vec<(FomaOutcome, Duration)> {
     proposed
         .into_iter()
         .zip(buckets_per_word)
