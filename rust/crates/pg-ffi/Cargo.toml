@@ -14,7 +14,10 @@ crate-type = ["cdylib", "rlib"]
 pg-parse.workspace = true
 pg-grammar.workspace = true
 pg-lexicon.workspace = true
+pg-foma.workspace = true
 rayon = "1"
+serde.workspace = true
+serde_json.workspace = true
 
 [dev-dependencies]
 # Enables `pg_parse::batch::TEST_PANIC_WORD` for the abort-safety test only (Cargo feature

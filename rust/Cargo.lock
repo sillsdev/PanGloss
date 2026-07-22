@@ -569,10 +569,13 @@ dependencies = [
 name = "pg-ffi"
 version = "0.1.0"
 dependencies = [
+ "pg-foma",
  "pg-grammar",
  "pg-lexicon",
  "pg-parse",
  "rayon",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

@@ -39,6 +39,7 @@ pub mod buffer;
 pub mod error;
 pub mod generate;
 pub mod grammar;
+pub mod json;
 pub mod parse;
 
 pub use buffer::{
@@ -53,11 +54,12 @@ pub use generate::hc_generate_words;
 pub use grammar::{
     hc_grammar_free, hc_grammar_load, HcGrammarHandle, DEFAULT_MEMO, DEFAULT_STEP_CAP,
 };
+pub use json::*;
 pub use parse::{hc_buf_free, hc_parse_batch, hc_parse_word, HcStr};
 
 /// ABI version — bump on any struct layout or semantic change so the managed side can detect a
 /// mismatched native DLL and fall back to the managed engine (plan §4.2).
-pub const HC_ABI_VERSION: i32 = 1;
+pub const HC_ABI_VERSION: i32 = 2;
 
 /// `hc_abi_version()` — the managed loader checks this before trusting the DLL.
 #[no_mangle]

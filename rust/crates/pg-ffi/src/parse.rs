@@ -54,7 +54,7 @@ pub unsafe extern "C" fn hc_parse_word(
             unsafe { std::slice::from_raw_parts(word_utf8, len) }
         };
         let word = std::str::from_utf8(bytes).map_err(|_| HC_ERR_UTF8)?;
-        let outcome = unified_to_parse(gh.runtime.analyze_word(word, None));
+        let outcome = unified_to_parse(gh.analyze_word(word));
         Ok(crate::buffer::encode_single(&outcome))
     });
     finish(result, out)
@@ -132,7 +132,7 @@ pub unsafe extern "C" fn hc_parse_batch(
                     pg_parse::batch::test_panic_if_requested(word);
                     let started = std::time::Instant::now();
                     pg_parse::BatchWordOutcome {
-                        outcome: unified_to_parse(gh.runtime.analyze_word(word, None)),
+                        outcome: unified_to_parse(gh.analyze_word(word)),
                         elapsed: started.elapsed(),
                     }
                 })

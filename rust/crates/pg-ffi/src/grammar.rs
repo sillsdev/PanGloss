@@ -10,7 +10,7 @@
 
 use pg_grammar::model::Grammar;
 use pg_parse::Morpher;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::error::{
     clear_error, set_error, HcError, HC_ERR_GRAMMAR_LOAD, HC_ERR_NULL_ARG, HC_ERR_UTF8, HC_OK,
@@ -34,6 +34,22 @@ pub type HcGrammarHandle = *mut std::ffi::c_void;
 pub const DEFAULT_STEP_CAP: usize = 500_000;
 pub const DEFAULT_MEMO: bool = true;
 
+struct FomaState {
+    proposer: pg_foma::analyzer::FomaProposer,
+    peeler: pg_foma::peel::ReduplicationPeeler,
+    owners: Vec<Option<pg_foma::confirm::MorphemeOwner>>,
+}
+
+impl FomaState {
+    fn new(grammar: &Grammar) -> Result<Self, String> {
+        Ok(Self {
+            proposer: pg_foma::analyzer::FomaProposer::new(grammar).map_err(|e| e.to_string())?,
+            peeler: pg_foma::peel::ReduplicationPeeler::new(grammar),
+            owners: pg_foma::confirm::build_morpheme_owners(grammar),
+        })
+    }
+}
+
 /// The boxed, self-owning grammar + pre-built `Morpher`.
 ///
 /// `Morpher<'g>` borrows the `Grammar` it parses against; to store both in one heap allocation
@@ -54,11 +70,14 @@ pub(crate) struct GrammarHandle {
     /// sound if either type ever gains a `Drop` impl later.
     pub(crate) morpher: Morpher<'static>,
     pub(crate) runtime: pg_lexicon::SuppliedLexiconRuntime,
+    /// Owned, immutable-with-respect-to-the-grammar proposer pieces. The foma runtime itself
+    /// needs mutable access while proposing, so calls briefly check the pieces out under a lock.
+    foma: Mutex<Option<FomaState>>,
     /// Never read directly after construction — it exists purely to *own* the allocation
     /// `morpher` points into (dropping it is what actually frees the grammar). That's a real
     /// use the `dead_code` lint can't see, hence the explicit allow.
     #[allow(dead_code)]
-    grammar: Arc<Grammar>,
+    pub(crate) grammar: Arc<Grammar>,
 }
 
 impl GrammarHandle {
@@ -74,11 +93,39 @@ impl GrammarHandle {
         let morpher = Morpher::new(grammar_ref, DEFAULT_STEP_CAP).with_memo(DEFAULT_MEMO);
         let runtime = pg_lexicon::SuppliedLexiconRuntime::new(grammar.clone(), grammar_source)
             .expect("a successfully loaded named grammar initializes its runtime");
+        let foma = FomaState::new(&grammar).ok();
         Box::new(GrammarHandle {
             morpher,
             runtime,
+            foma: Mutex::new(foma),
             grammar,
         })
+    }
+
+    pub(crate) fn analyze_word(&self, word: &str) -> pg_lexicon::UnifiedAnalysis {
+        let mut foma = self.foma.lock().expect("native foma state lock poisoned");
+        let official = foma.take().map(|state| {
+            let mut analyzer = pg_foma::composite::FomaAnalyzer::from_cached(
+                &self.grammar,
+                state.proposer,
+                state.peeler,
+                state.owners,
+            );
+            let outcome = analyzer.analyze_word(word);
+            let (proposer, peeler, owners) = analyzer.into_parts();
+            *foma = Some(FomaState {
+                proposer,
+                peeler,
+                owners,
+            });
+            pg_lexicon::OfficialOutcome {
+                analyses: outcome.analyses,
+                structured: outcome.structured,
+                candidates_generated: outcome.candidates_generated,
+            }
+        });
+        drop(foma);
+        self.runtime.analyze_word(word, official)
     }
 }
 

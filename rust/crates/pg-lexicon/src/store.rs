@@ -205,6 +205,7 @@ impl Revision {
     }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum EntryAuthority {
     Supplied,
     SuppliedOverride {
@@ -213,12 +214,14 @@ pub enum EntryAuthority {
     },
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum ValidationState {
     Active,
     Inactive { diagnostics: Vec<String> },
     Superseded { official_entry_id: String },
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum ValidationStateKind {
     Active,
     Inactive,
@@ -234,6 +237,7 @@ impl ValidationState {
     }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SuppliedEntry {
     pub id: EntryId,
     pub stem: String,
@@ -245,6 +249,7 @@ pub struct SuppliedEntry {
     pub state: ValidationState,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AddRequest {
     pub stem: String,
     pub gloss: String,
@@ -252,6 +257,7 @@ pub struct AddRequest {
     pub expected_revision: Option<Revision>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UpdateRequest {
     pub id: EntryId,
     pub stem: String,
@@ -260,26 +266,31 @@ pub struct UpdateRequest {
     pub expected_revision: Option<Revision>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RemoveRequest {
     pub id: EntryId,
     pub expected_revision: Option<Revision>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SetGlossLanguageRequest {
     pub gloss_language: Option<String>,
     pub expected_revision: Option<Revision>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SetAuthorityRequest {
     pub id: EntryId,
     pub authority: EntryAuthority,
     pub expected_revision: Option<Revision>,
 }
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ExpectedRevision {
     pub expected_revision: Option<Revision>,
 }
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SearchRequest {
     pub query: String,
     pub signature: Option<SignatureId>,
@@ -287,6 +298,7 @@ pub struct SearchRequest {
     pub pos: Option<String>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MutationResult<T> {
     pub value: T,
     pub revision: Revision,
