@@ -6,3 +6,5 @@
 /samples/data/*.fwdata
 /samples/data/*.json
 /.worktrees/
+/rust/examples/native-abi/csharp/bin/
+/rust/examples/native-abi/csharp/obj/
