@@ -40,6 +40,27 @@ struct FomaState {
     owners: Vec<Option<pg_foma::confirm::MorphemeOwner>>,
 }
 
+enum OfficialBackend {
+    Foma(Box<FomaState>),
+    MorpherFallback { diagnostic: String },
+}
+
+#[cfg(test)]
+static FORCE_NEXT_FOMA_PANIC: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+#[cfg(test)]
+fn force_next_foma_panic() {
+    FORCE_NEXT_FOMA_PANIC.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
+fn test_panic_if_requested() {
+    #[cfg(test)]
+    if FORCE_NEXT_FOMA_PANIC.swap(false, std::sync::atomic::Ordering::SeqCst) {
+        panic!("forced native foma analyzer panic");
+    }
+}
+
 impl FomaState {
     fn new(grammar: &Grammar) -> Result<Self, String> {
         Ok(Self {
@@ -72,7 +93,7 @@ pub(crate) struct GrammarHandle {
     pub(crate) runtime: pg_lexicon::SuppliedLexiconRuntime,
     /// Owned, immutable-with-respect-to-the-grammar proposer pieces. The foma runtime itself
     /// needs mutable access while proposing, so calls briefly check the pieces out under a lock.
-    foma: Mutex<Option<FomaState>>,
+    official_backend: Mutex<OfficialBackend>,
     /// Never read directly after construction — it exists purely to *own* the allocation
     /// `morpher` points into (dropping it is what actually frees the grammar). That's a real
     /// use the `dead_code` lint can't see, hence the explicit allow.
@@ -93,18 +114,66 @@ impl GrammarHandle {
         let morpher = Morpher::new(grammar_ref, DEFAULT_STEP_CAP).with_memo(DEFAULT_MEMO);
         let runtime = pg_lexicon::SuppliedLexiconRuntime::new(grammar.clone(), grammar_source)
             .expect("a successfully loaded named grammar initializes its runtime");
-        let foma = FomaState::new(&grammar).ok();
+        let foma = FomaState::new(&grammar);
+        Self::new_with_foma_result_inner(grammar, morpher, runtime, foma)
+    }
+
+    #[cfg(test)]
+    fn new_with_foma_result(
+        grammar: Grammar,
+        grammar_source: &str,
+        foma: Result<FomaState, String>,
+    ) -> Box<GrammarHandle> {
+        let grammar = Arc::new(grammar);
+        // SAFETY: identical ownership/lifetime argument to `new` above.
+        let grammar_ref: &'static Grammar = unsafe { &*(grammar.as_ref() as *const Grammar) };
+        let morpher = Morpher::new(grammar_ref, DEFAULT_STEP_CAP).with_memo(DEFAULT_MEMO);
+        let runtime = pg_lexicon::SuppliedLexiconRuntime::new(grammar.clone(), grammar_source)
+            .expect("a successfully loaded named grammar initializes its runtime");
+        Self::new_with_foma_result_inner(grammar, morpher, runtime, foma)
+    }
+
+    fn new_with_foma_result_inner(
+        grammar: Arc<Grammar>,
+        morpher: Morpher<'static>,
+        runtime: pg_lexicon::SuppliedLexiconRuntime,
+        foma: Result<FomaState, String>,
+    ) -> Box<GrammarHandle> {
+        let official_backend = match foma {
+            Ok(state) => OfficialBackend::Foma(Box::new(state)),
+            Err(diagnostic) => OfficialBackend::MorpherFallback { diagnostic },
+        };
         Box::new(GrammarHandle {
             morpher,
             runtime,
-            foma: Mutex::new(foma),
+            official_backend: Mutex::new(official_backend),
             grammar,
         })
     }
 
     pub(crate) fn analyze_word(&self, word: &str) -> pg_lexicon::UnifiedAnalysis {
-        let mut foma = self.foma.lock().expect("native foma state lock poisoned");
-        let official = foma.take().map(|state| {
+        let mut backend = self
+            .official_backend
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let checked_out = std::mem::replace(
+            &mut *backend,
+            OfficialBackend::MorpherFallback {
+                diagnostic: "foma state temporarily checked out".into(),
+            },
+        );
+        let state = match checked_out {
+            OfficialBackend::Foma(state) => *state,
+            OfficialBackend::MorpherFallback { diagnostic } => {
+                *backend = OfficialBackend::MorpherFallback { diagnostic };
+                drop(backend);
+                // `None` deliberately selects the unified runtime's authoritative grammar
+                // Morpher, not an overlay-only path.
+                return self.runtime.analyze_word(word, None);
+            }
+        };
+        let attempted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            test_panic_if_requested();
             let mut analyzer = pg_foma::composite::FomaAnalyzer::from_cached(
                 &self.grammar,
                 state.proposer,
@@ -113,19 +182,49 @@ impl GrammarHandle {
             );
             let outcome = analyzer.analyze_word(word);
             let (proposer, peeler, owners) = analyzer.into_parts();
-            *foma = Some(FomaState {
-                proposer,
-                peeler,
-                owners,
-            });
-            pg_lexicon::OfficialOutcome {
-                analyses: outcome.analyses,
-                structured: outcome.structured,
-                candidates_generated: outcome.candidates_generated,
+            (
+                pg_lexicon::OfficialOutcome {
+                    analyses: outcome.analyses,
+                    structured: outcome.structured,
+                    candidates_generated: outcome.candidates_generated,
+                },
+                FomaState {
+                    proposer,
+                    peeler,
+                    owners,
+                },
+            )
+        }));
+        match attempted {
+            Ok((official, state)) => {
+                *backend = OfficialBackend::Foma(Box::new(state));
+                drop(backend);
+                self.runtime.analyze_word(word, Some(official))
             }
-        });
-        drop(foma);
-        self.runtime.analyze_word(word, official)
+            Err(payload) => {
+                *backend = match FomaState::new(&self.grammar) {
+                    Ok(state) => OfficialBackend::Foma(Box::new(state)),
+                    Err(diagnostic) => OfficialBackend::MorpherFallback { diagnostic },
+                };
+                drop(backend);
+                std::panic::resume_unwind(payload)
+            }
+        }
+    }
+
+    #[cfg(test)]
+    fn backend_kind(&self) -> &'static str {
+        match &*self
+            .official_backend
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+        {
+            OfficialBackend::Foma(_) => "foma",
+            OfficialBackend::MorpherFallback { diagnostic } => {
+                assert!(!diagnostic.is_empty());
+                "morpherFallback"
+            }
+        }
     }
 }
 
@@ -247,5 +346,62 @@ pub(crate) unsafe fn borrow<'a>(handle: HcGrammarHandle) -> Option<&'a GrammarHa
     } else {
         // SAFETY: precondition documented above.
         Some(unsafe { &*(handle as *const GrammarHandle) })
+    }
+}
+
+#[cfg(test)]
+mod runtime_backend_tests {
+    use super::*;
+    use crate::{hc_analyze_word_json, hc_buf_free, HcResultBuf, HC_OK};
+
+    const XML: &str = r#"<HermitCrabInput><Language><Name>BackendTest</Name><PartsOfSpeech><PartOfSpeech id="p"><Name>N</Name></PartOfSpeech></PartsOfSpeech><CharacterDefinitionTable id="t"><Name>T</Name><SegmentDefinitions><SegmentDefinition id="a"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions></CharacterDefinitionTable><Strata><Stratum characterDefinitionTable="t"><Name>S</Name><LexicalEntries><LexicalEntry id="official-a" partOfSpeech="p"><Allomorphs><Allomorph id="aa"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs></LexicalEntry></LexicalEntries></Stratum></Strata></Language></HermitCrabInput>"#;
+
+    #[test]
+    fn foma_initialization_failure_explicitly_falls_back_to_official_morpher_analysis() {
+        let grammar = pg_grammar::load(XML).unwrap();
+        let handle = GrammarHandle::new_with_foma_result(grammar, XML, Err("forced".into()));
+        let result = handle.analyze_word("a");
+        assert!(result
+            .structured
+            .iter()
+            .any(|analysis| matches!(analysis.provenance, pg_parse::AnalysisProvenance::Grammar)));
+        assert_eq!(handle.backend_kind(), "morpherFallback");
+    }
+
+    #[test]
+    fn analyzer_panic_is_enveloped_and_the_same_handle_remains_usable() {
+        let grammar = pg_grammar::load(XML).unwrap();
+        let handle = GrammarHandle::new(grammar, XML);
+        let raw = Box::into_raw(handle).cast();
+        force_next_foma_panic();
+
+        let request = br#"{"word":"a"}"#;
+        let mut out = HcResultBuf::EMPTY;
+        assert_eq!(
+            unsafe { hc_analyze_word_json(raw, request.as_ptr(), request.len(), &mut out) },
+            HC_OK
+        );
+        let first: serde_json::Value =
+            serde_json::from_slice(unsafe { std::slice::from_raw_parts(out.data, out.len) })
+                .unwrap();
+        assert_eq!(first["error"]["code"], "panic");
+        unsafe { hc_buf_free(&mut out) };
+
+        assert_eq!(
+            unsafe { hc_analyze_word_json(raw, request.as_ptr(), request.len(), &mut out) },
+            HC_OK
+        );
+        let second: serde_json::Value =
+            serde_json::from_slice(unsafe { std::slice::from_raw_parts(out.data, out.len) })
+                .unwrap();
+        assert_eq!(second["ok"], true);
+        assert_eq!(
+            second["value"]["structured"][0]["provenance"]["kind"],
+            "grammar"
+        );
+        unsafe {
+            hc_buf_free(&mut out);
+            crate::hc_grammar_free(raw)
+        };
     }
 }
