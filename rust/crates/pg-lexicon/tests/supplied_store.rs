@@ -26,6 +26,7 @@ impl Clock for Times {
 }
 
 fn store() -> SuppliedLexiconStore<IDs, Times> {
+    let c = catalog();
     SuppliedLexiconStore::new(
         IDs(0),
         Times(vec![
@@ -34,7 +35,12 @@ fn store() -> SuppliedLexiconStore<IDs, Times> {
             "2026-07-22 12:02:00.789",
             "2026-07-22 12:03:00.000",
         ]),
+        &c,
+        |_| Ok(()),
     )
+}
+fn default_signature() -> SignatureId {
+    catalog().signatures()[0].id.clone()
 }
 fn add(
     st: &mut SuppliedLexiconStore<IDs, Times>,
@@ -44,20 +50,16 @@ fn add(
     st.add(AddRequest {
         stem: stem.into(),
         gloss: gloss.into(),
-        signatures: vec![SignatureId::parse(&format!("sig_{}", "0".repeat(64))).unwrap()],
+        signatures: vec![default_signature()],
         expected_revision: None,
     })
 }
-fn reject_z(s: &str) -> Result<(), String> {
-    if s.contains('z') {
-        Err("outside writing system".into())
-    } else {
-        Ok(())
-    }
+fn grammar() -> pg_grammar::model::Grammar {
+    let x = r#"<HermitCrabInput><Language><Name>T</Name><PartsOfSpeech><PartOfSpeech id="n"><Name>n</Name></PartOfSpeech><PartOfSpeech id="v"><Name>v</Name></PartOfSpeech></PartsOfSpeech><CharacterDefinitionTable id="t"><Name>T</Name><SegmentDefinitions><SegmentDefinition id="a"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions></CharacterDefinitionTable><Strata><Stratum characterDefinitionTable="t"><Name>S</Name><LexicalEntries><LexicalEntry id="en" partOfSpeech="n"><Allomorphs><Allomorph id="an"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs></LexicalEntry><LexicalEntry id="ev" partOfSpeech="v"><Allomorphs><Allomorph id="av"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs></LexicalEntry></LexicalEntries></Stratum></Strata></Language></HermitCrabInput>"#;
+    pg_grammar::load(x).unwrap()
 }
 fn catalog() -> ClassCatalog {
-    let x = r#"<HermitCrabInput><Language><Name>T</Name><PartsOfSpeech><PartOfSpeech id="n"><Name>n</Name></PartOfSpeech><PartOfSpeech id="v"><Name>v</Name></PartOfSpeech></PartsOfSpeech><CharacterDefinitionTable id="t"><Name>T</Name><SegmentDefinitions><SegmentDefinition id="a"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions></CharacterDefinitionTable><Strata><Stratum characterDefinitionTable="t"><Name>S</Name><LexicalEntries><LexicalEntry id="en" partOfSpeech="n"><Allomorphs><Allomorph id="an"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs></LexicalEntry><LexicalEntry id="ev" partOfSpeech="v"><Allomorphs><Allomorph id="av"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs></LexicalEntry></LexicalEntries></Stratum></Strata></Language></HermitCrabInput>"#;
-    ClassCatalog::from_grammar(&pg_grammar::load(x).unwrap()).unwrap()
+    ClassCatalog::from_grammar(&grammar()).unwrap()
 }
 
 #[test]
@@ -79,13 +81,15 @@ fn id_guid_and_date_vectors() {
     let id = EntryId::from_bytes(bytes);
     assert_eq!(
         id.to_dotnet_guid_string().unwrap(),
-        "03020100-0504-0706-0809-0a0b0c0d0e0f"
+        "00010203-0405-0607-0809-0a0b0c0d0e0f"
     );
     assert_eq!(
-        EntryId::from_dotnet_guid_string("03020100-0504-0706-0809-0a0b0c0d0e0f").unwrap(),
+        EntryId::from_dotnet_guid_string("00010203-0405-0607-0809-0a0b0c0d0e0f").unwrap(),
         id
     );
     assert!(serde_json::from_str::<EntryId>(r#""pgl_bad""#).is_err());
+    assert!(EntryId::parse("pgl_AAAAAAAAAAAAAAAAAAAAAB").is_err());
+    assert!(EntryId::from_dotnet_guid_string("000102030405-0607-0809-0a0b0c0d0e0f").is_err());
     assert!(serde_json::from_str::<LexicalDate>(r#""2026-02-29 12:00:00.123""#).is_err());
     assert!(LexicalDate::parse("2024-02-29 23:59:59.999").is_ok());
     assert!(LexicalDate::parse("2024-01-01 24:00:00.000").is_err());
@@ -94,16 +98,20 @@ fn id_guid_and_date_vectors() {
 #[test]
 fn production_sources_generate_valid_values() {
     let mut ids = OsIdSource;
-    assert_ne!(ids.next_128().unwrap(), ids.next_128().unwrap());
+    assert_eq!(ids.next_128().unwrap().len(), 16);
     let mut clock = UtcClock;
     assert_eq!(clock.now().as_str().len(), 23);
 }
 
 #[test]
 fn id_source_failure_is_atomic() {
-    let mut st = SuppliedLexiconStore::new(FailIDs, Times(vec!["2026-07-22 12:00:00.123"]));
+    let c = catalog();
+    let mut st =
+        SuppliedLexiconStore::new(FailIDs, Times(vec!["2026-07-22 12:00:00.123"]), &c, |_| {
+            Ok(())
+        });
     let revision = st.revision().clone();
-    let sig = SignatureId::parse(&format!("sig_{}", "0".repeat(64))).unwrap();
+    let sig = c.signatures()[0].id.clone();
     assert_eq!(
         st.add(AddRequest {
             stem: "a".into(),
@@ -122,11 +130,17 @@ fn id_source_failure_is_atomic() {
 #[test]
 fn catalog_and_shape_validation_precede_id_allocation_and_pos_search_is_exact() {
     let c = catalog();
-    let mut st = SuppliedLexiconStore::new_validated(
+    let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let validator_calls = calls.clone();
+    let validator_grammar = std::sync::Arc::new(grammar());
+    let mut st = SuppliedLexiconStore::new(
         IDs(0),
         Times(vec!["2026-07-22 12:00:00.123"]),
         &c,
-        reject_z,
+        move |stem| {
+            validator_calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            validate_shape(&validator_grammar, stem)
+        },
     );
     let unknown = SignatureId::parse(&format!("sig_{}", "f".repeat(64))).unwrap();
     let unknown_error = st
@@ -166,6 +180,7 @@ fn catalog_and_shape_validation_precede_id_allocation_and_pos_search_is_exact() 
         })
         .unwrap()
         .value;
+    assert_eq!(calls.load(std::sync::atomic::Ordering::Relaxed), 3);
     assert_eq!(e.id, EntryId::from_bytes([0; 16]));
     assert_eq!(
         st.search(&SearchRequest {
@@ -238,24 +253,24 @@ fn signature_reorder_is_noop_and_gloss_only_preserves_identity() {
         expected_revision: None,
     })
     .unwrap();
-    let s0 = SignatureId::parse(&format!("sig_{}", "0".repeat(64))).unwrap();
-    let s1 = SignatureId::parse(&format!("sig_{}", "1".repeat(64))).unwrap();
+    let mut signatures: Vec<_> = catalog()
+        .signatures()
+        .iter()
+        .map(|s| s.id.clone())
+        .collect();
+    signatures.sort();
+    let s0 = signatures[0].clone();
+    let s1 = signatures[1].clone();
     let added = st
         .add(AddRequest {
             stem: "a".into(),
             gloss: "x".into(),
-            signatures: vec![s1.clone(), s0.clone(), s1],
+            signatures: vec![s1.clone(), s0.clone(), s1.clone()],
             expected_revision: None,
         })
         .unwrap()
         .value;
-    assert_eq!(
-        added.signatures,
-        vec![
-            s0.clone(),
-            SignatureId::parse(&format!("sig_{}", "1".repeat(64))).unwrap()
-        ]
-    );
+    assert_eq!(added.signatures, vec![s0.clone(), s1.clone()]);
     let no = st
         .update(UpdateRequest {
             id: added.id.clone(),

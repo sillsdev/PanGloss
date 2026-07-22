@@ -2,6 +2,7 @@ use crate::{ClassCatalog, SignatureId};
 use chrono::{NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StructuredError {
@@ -45,22 +46,26 @@ impl EntryId {
         Ok(b)
     }
     pub fn to_dotnet_guid_string(&self) -> Result<String, StructuredError> {
-        let b = self.to_dotnet_guid_bytes()?;
+        let b = decode_id(&self.0)?;
         Ok(format!("{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",b[0],b[1],b[2],b[3],b[4],b[5],b[6],b[7],b[8],b[9],b[10],b[11],b[12],b[13],b[14],b[15]))
     }
     pub fn from_dotnet_guid_string(s: &str) -> Result<Self, StructuredError> {
-        let compact = s.replace('-', "");
-        if compact.len() != 32 {
+        let bytes = s.as_bytes();
+        if bytes.len() != 36
+            || [8, 13, 18, 23].iter().any(|&i| bytes[i] != b'-')
+            || bytes
+                .iter()
+                .enumerate()
+                .any(|(i, b)| ![8, 13, 18, 23].contains(&i) && !b.is_ascii_hexdigit())
+        {
             return Err(err("invalid_guid", "expected D-format GUID"));
         }
+        let compact = s.replace('-', "");
         let mut b = [0; 16];
         for i in 0..16 {
             b[i] = u8::from_str_radix(&compact[i * 2..i * 2 + 2], 16)
                 .map_err(|_| err("invalid_guid", "GUID contains non-hex characters"))?;
         }
-        b[0..4].reverse();
-        b[4..6].reverse();
-        b[6..8].reverse();
         Ok(Self::from_bytes(b))
     }
 }
@@ -123,6 +128,8 @@ fn decode_id(s: &str) -> Result<[u8; 16], StructuredError> {
     }
     if oi != 16 {
         Err(err("invalid_entry_id", "wrong decoded length"))
+    } else if b64(&out) != x {
+        Err(err("invalid_entry_id", "noncanonical base64url encoding"))
     } else {
         Ok(out)
     }
@@ -272,11 +279,14 @@ pub struct SuppliedLexiconStore<I: IdSource, C: Clock> {
     gloss_language: Option<String>,
     counter: u64,
     revision: Revision,
-    catalog: Option<BTreeMap<SignatureId, Option<String>>>,
-    stem_validator: Option<fn(&str) -> Result<(), String>>,
+    catalog: BTreeMap<SignatureId, Option<String>>,
+    stem_validator: Arc<dyn Fn(&str) -> Result<(), String> + Send + Sync>,
 }
 impl<I: IdSource, C: Clock> SuppliedLexiconStore<I, C> {
-    pub fn new(ids: I, clock: C) -> Self {
+    pub fn new<V>(ids: I, clock: C, catalog: &ClassCatalog, stem_validator: V) -> Self
+    where
+        V: Fn(&str) -> Result<(), String> + Send + Sync + 'static,
+    {
         Self {
             ids,
             clock,
@@ -284,26 +294,13 @@ impl<I: IdSource, C: Clock> SuppliedLexiconStore<I, C> {
             gloss_language: None,
             counter: 0,
             revision: Revision("rev_0".into()),
-            catalog: None,
-            stem_validator: None,
-        }
-    }
-    pub fn new_validated(
-        ids: I,
-        clock: C,
-        catalog: &ClassCatalog,
-        stem_validator: fn(&str) -> Result<(), String>,
-    ) -> Self {
-        let mut s = Self::new(ids, clock);
-        s.catalog = Some(
-            catalog
+            catalog: catalog
                 .signatures()
                 .iter()
                 .map(|x| (x.id.clone(), x.pos.as_ref().map(|p| p.id.clone())))
                 .collect(),
-        );
-        s.stem_validator = Some(stem_validator);
-        s
+            stem_validator: Arc::new(stem_validator),
+        }
     }
     pub fn revision(&self) -> &Revision {
         &self.revision
@@ -351,26 +348,22 @@ impl<I: IdSource, C: Clock> SuppliedLexiconStore<I, C> {
                 "set gloss language before adding a gloss",
             ));
         }
-        if let Some(v) = self.stem_validator {
-            v(stem)
-                .map_err(|m| err_details("invalid_shape", &m, serde_json::json!({"stem":stem})))?;
-        }
+        (self.stem_validator)(stem)
+            .map_err(|m| err_details("invalid_shape", &m, serde_json::json!({"stem":stem})))?;
         let mut normalized = sigs.to_vec();
         normalized.sort();
         normalized.dedup();
-        if let Some(c) = &self.catalog {
-            let unknown: Vec<_> = normalized
-                .iter()
-                .filter(|id| !c.contains_key(*id))
-                .map(|id| id.as_str())
-                .collect();
-            if !unknown.is_empty() {
-                return Err(err_details(
-                    "unknown_signature",
-                    "unknown signature IDs",
-                    serde_json::json!({"signatureIds":unknown}),
-                ));
-            }
+        let unknown: Vec<_> = normalized
+            .iter()
+            .filter(|id| !self.catalog.contains_key(*id))
+            .map(|id| id.as_str())
+            .collect();
+        if !unknown.is_empty() {
+            return Err(err_details(
+                "unknown_signature",
+                "unknown signature IDs",
+                serde_json::json!({"signatureIds":unknown}),
+            ));
         }
         Ok(normalized)
     }
@@ -526,10 +519,10 @@ impl<I: IdSource, C: Clock> SuppliedLexiconStore<I, C> {
                         .is_none_or(|s| e.signatures.contains(s))
                     && r.state.as_ref().is_none_or(|s| e.state.kind() == *s)
                     && r.pos.as_ref().is_none_or(|pos| {
-                        self.catalog.as_ref().is_some_and(|c| {
-                            e.signatures
-                                .iter()
-                                .any(|id| c.get(id).is_some_and(|p| p.as_ref() == Some(pos)))
+                        e.signatures.iter().any(|id| {
+                            self.catalog
+                                .get(id)
+                                .is_some_and(|p| p.as_ref() == Some(pos))
                         })
                     })
             })
