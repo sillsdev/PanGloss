@@ -1,4 +1,4 @@
-#[path = "toy_fixture.rs"]
+#[path = "support/toy_fixture.rs"]
 mod fixture;
 
 use pg_lexicon::{
