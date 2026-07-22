@@ -43,10 +43,10 @@ fn add(
 fn id_guid_and_date_vectors() {
     let id = EntryId::from_bytes([0; 16]);
     assert_eq!(id.as_str(), "pgl_AAAAAAAAAAAAAAAAAAAAAA");
-    assert_eq!(id.to_dotnet_guid_bytes(), [0; 16]);
+    assert_eq!(id.to_dotnet_guid_bytes().unwrap(), [0; 16]);
     let bytes = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
     assert_eq!(
-        EntryId::from_bytes(bytes).to_dotnet_guid_bytes(),
+        EntryId::from_bytes(bytes).to_dotnet_guid_bytes().unwrap(),
         [3, 2, 1, 0, 5, 4, 7, 6, 8, 9, 10, 11, 12, 13, 14, 15]
     );
     assert_eq!(
@@ -55,6 +55,27 @@ fn id_guid_and_date_vectors() {
             .as_str(),
         "2026-07-22 12:00:00.123"
     );
+    let id = EntryId::from_bytes(bytes);
+    assert_eq!(
+        id.to_dotnet_guid_string().unwrap(),
+        "03020100-0504-0706-0809-0a0b0c0d0e0f"
+    );
+    assert_eq!(
+        EntryId::from_dotnet_guid_string("03020100-0504-0706-0809-0a0b0c0d0e0f").unwrap(),
+        id
+    );
+    assert!(serde_json::from_str::<EntryId>(r#""pgl_bad""#).is_err());
+    assert!(serde_json::from_str::<LexicalDate>(r#""2026-02-29 12:00:00.123""#).is_err());
+    assert!(LexicalDate::parse("2024-02-29 23:59:59.999").is_ok());
+    assert!(LexicalDate::parse("2024-01-01 24:00:00.000").is_err());
+}
+
+#[test]
+fn production_sources_generate_valid_values() {
+    let mut ids = OsIdSource;
+    assert_ne!(ids.next_128().unwrap(), ids.next_128().unwrap());
+    let mut clock = UtcClock;
+    assert_eq!(clock.now().as_str().len(), 23);
 }
 
 #[test]

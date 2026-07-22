@@ -1,4 +1,5 @@
 use crate::SignatureId;
+use chrono::{NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -16,7 +17,7 @@ fn err(code: &str, message: &str) -> StructuredError {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 #[serde(transparent)]
 pub struct EntryId(String);
 impl EntryId {
@@ -26,12 +27,40 @@ impl EntryId {
     pub fn as_str(&self) -> &str {
         &self.0
     }
-    pub fn to_dotnet_guid_bytes(&self) -> [u8; 16] {
-        let mut b = decode_id(&self.0).expect("validated EntryId");
+    pub fn parse(value: &str) -> Result<Self, StructuredError> {
+        decode_id(value).map(|_| Self(value.into()))
+    }
+    pub fn to_dotnet_guid_bytes(&self) -> Result<[u8; 16], StructuredError> {
+        let mut b = decode_id(&self.0)?;
         b[0..4].reverse();
         b[4..6].reverse();
         b[6..8].reverse();
-        b
+        Ok(b)
+    }
+    pub fn to_dotnet_guid_string(&self) -> Result<String, StructuredError> {
+        let b = self.to_dotnet_guid_bytes()?;
+        Ok(format!("{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",b[0],b[1],b[2],b[3],b[4],b[5],b[6],b[7],b[8],b[9],b[10],b[11],b[12],b[13],b[14],b[15]))
+    }
+    pub fn from_dotnet_guid_string(s: &str) -> Result<Self, StructuredError> {
+        let compact = s.replace('-', "");
+        if compact.len() != 32 {
+            return Err(err("invalid_guid", "expected D-format GUID"));
+        }
+        let mut b = [0; 16];
+        for i in 0..16 {
+            b[i] = u8::from_str_radix(&compact[i * 2..i * 2 + 2], 16)
+                .map_err(|_| err("invalid_guid", "GUID contains non-hex characters"))?;
+        }
+        b[0..4].reverse();
+        b[4..6].reverse();
+        b[6..8].reverse();
+        Ok(Self::from_bytes(b))
+    }
+}
+impl<'de> Deserialize<'de> for EntryId {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(d)?;
+        Self::parse(&s).map_err(|e| serde::de::Error::custom(e.message))
     }
 }
 fn b64(bytes: &[u8]) -> String {
@@ -92,24 +121,12 @@ fn decode_id(s: &str) -> Result<[u8; 16], StructuredError> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(transparent)]
 pub struct LexicalDate(String);
 impl LexicalDate {
     pub fn parse(s: &str) -> Result<Self, StructuredError> {
-        let b = s.as_bytes();
-        if b.len() != 23
-            || b[4] != b'-'
-            || b[7] != b'-'
-            || b[10] != b' '
-            || b[13] != b':'
-            || b[16] != b':'
-            || b[19] != b'.'
-            || b.iter().enumerate().any(|(i, c)| {
-                ![4, 7, 10, 13, 16, 19].contains(&i) && false
-                    || (![4, 7, 10, 13, 16, 19].contains(&i) && !c.is_ascii_digit())
-            })
-        {
+        if NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.3f").is_err() || s.len() != 23 {
             return Err(err("invalid_date", "expected UTC yyyy-MM-dd HH:mm:ss.fff"));
         }
         Ok(Self(s.into()))
@@ -118,11 +135,35 @@ impl LexicalDate {
         &self.0
     }
 }
+impl<'de> Deserialize<'de> for LexicalDate {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(d)?;
+        Self::parse(&s).map_err(|e| serde::de::Error::custom(e.message))
+    }
+}
 pub trait IdSource {
     fn next_128(&mut self) -> Result<[u8; 16], StructuredError>;
 }
 pub trait Clock {
     fn now(&mut self) -> LexicalDate;
+}
+pub struct OsIdSource;
+impl IdSource for OsIdSource {
+    fn next_128(&mut self) -> Result<[u8; 16], StructuredError> {
+        let mut b = [0; 16];
+        getrandom::fill(&mut b).map_err(|e| StructuredError {
+            code: "entropy_failure".into(),
+            message: e.to_string(),
+            details: serde_json::Value::Null,
+        })?;
+        Ok(b)
+    }
+}
+pub struct UtcClock;
+impl Clock for UtcClock {
+    fn now(&mut self) -> LexicalDate {
+        LexicalDate(Utc::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
