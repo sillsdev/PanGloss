@@ -14,3 +14,8 @@ extern "C" void pangloss_header_cpp_smoke() {
     auto guide = &hc_classification_guide_answer_json;
     (void)load; (void)parse; (void)batch; (void)generate; (void)json; (void)guide;
 }
+
+int main() {
+    pangloss_header_cpp_smoke();
+    return 0;
+}

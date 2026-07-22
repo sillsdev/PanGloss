@@ -29,3 +29,8 @@ void pangloss_header_c_smoke(void) {
     (void)&hc_classification_guide_next_json; (void)&hc_classification_guide_useful_json;
     (void)&hc_classification_guide_selection_json; (void)&hc_classification_guide_free;
 }
+
+int main(void) {
+    pangloss_header_c_smoke();
+    return 0;
+}
