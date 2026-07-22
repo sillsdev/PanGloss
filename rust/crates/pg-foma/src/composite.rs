@@ -399,7 +399,7 @@ pub fn confirm_proposed_words(
         let pool = builder
             .build()
             .expect("build detached foma confirmation rayon pool");
-        return confirm_proposed_words_in_pool(g, owners, words, proposed, &pool);
+        confirm_proposed_words_in_pool(g, owners, words, proposed, &pool)
     }
 
     #[cfg(target_arch = "wasm32")]
