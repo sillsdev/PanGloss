@@ -156,10 +156,12 @@ impl OrderedDedup {
 /// construct their own `StepBudget::new(cap)` per call — identical to the old per-instance-`Cell`
 /// behavior for an isolated single call.
 ///
-/// Synthesis (`synthesize_stratum`/`synthesize_template`) deliberately does NOT share this budget —
-/// see `docs/budget-model.md`'s "scope of this change" section: synthesis is a confirmation walk
-/// bounded by the word's own unapplication-stack length, and sharing a single counter across both
-/// phases would let a heavy analysis starve the very candidates it just found of synthesis steps.
+/// Ordinary parsing and generation deliberately keep synthesis's historical independent local step
+/// cap: [`StepBudget::new`] leaves synthesis counting disabled, so a heavy analysis cannot starve
+/// the candidates it just found of confirmation steps. Bounded diagnostic/classification generation
+/// is the explicit exception: [`StepBudget::with_synthesis_counting`] opts into one shared counter
+/// and deadline across its synthesis calls, allowing the caller to bound the complete exploratory
+/// engine walk. See `docs/budget-model.md`'s "scope of this change" section.
 /// **O1b history:** `over_budget()` used to re-sample the wall clock only every
 /// `WALL_CLOCK_CHECK_INTERVAL` (1024) ticks, gated on `self.steps.get().is_multiple_of(1024)` —
 /// the reasoning being that `Instant::now()` is more expensive than the `Cell` compare the step-cap
@@ -246,22 +248,16 @@ impl StepBudget {
         false
     }
 
-    /// Fix 2 (synthesis-side `--word-timeout-ms` enforcement, `docs/budget-model.md`): the
-    /// **wall-clock-only** half of [`Self::over_budget`], deliberately WITHOUT the step-cap branch.
-    /// Synthesis (`synthesize_stratum`/`synth_apply_mrules`/`synth_apply_templates`/
-    /// `guided_template_apply`/`synth_slots_generic`) keeps its own local `cap: usize` + `Cell<usize>`
-    /// step counter, entirely separate from this budget's `cap`/`steps` (see this struct's own doc,
-    /// "Synthesis ... deliberately does NOT share this budget") — that step-count semantics must stay
-    /// byte-identical (the Sena `--step-cap 500000` goldens), so synthesis must never call
-    /// [`Self::over_budget`] itself (its step-cap branch reads THIS budget's `steps`/`cap`, which
-    /// belong to the analysis phase of the same `parse_word` call and could already be exhausted by
-    /// analysis alone, tripping a cap-shaped bail at a point synthesis never checked before). This
-    /// method only ever reads `deadline`, exactly like [`Self::over_budget`]'s own deadline branch,
-    /// and sets `timed_out` the same way (so the CLI's existing `TIMEOUT` row plumbing, gated on
-    /// `timed_out()`, fires regardless of which phase actually caught the deadline). When `deadline`
-    /// is `None` (`--word-timeout-ms` omitted — the Sena golden runs, which pass only `--step-cap`)
-    /// this is `false` unconditionally, a complete no-op: every step-cap-only synthesis call site
-    /// that gains a check against this method behaves exactly as before this fix.
+    /// The wall-clock-only synthesis check used by ordinary parsing/generation. Those callers leave
+    /// [`Self::synthesis_counting`] disabled: synthesis retains its own local step cap, while this
+    /// method propagates the parse-wide deadline and latches `timed_out`. It deliberately omits this
+    /// budget's step-cap branch so analysis effort cannot starve ordinary synthesis and historical
+    /// `--step-cap` behavior remains byte-identical. With no deadline it is a complete no-op.
+    ///
+    /// Opt-in bounded diagnostic/classification synthesis does not call this method directly.
+    /// [`Self::synthesis_over_budget`] observes `synthesis_counting`, delegates here for the ordinary
+    /// mode, and otherwise consumes the shared [`Self::over_budget`] counter. Thus the two modes are
+    /// explicit rather than accidentally conflating their step semantics.
     fn deadline_expired(&self) -> bool {
         if let Some(deadline) = self.deadline {
             if Instant::now() >= deadline {
