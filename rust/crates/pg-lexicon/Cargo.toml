@@ -16,6 +16,8 @@ pg-featstruct.workspace = true
 # Not a workspace-pinned dependency (no other in-workspace crate needs it yet); declared directly
 # here the same way `pg-wasm/Cargo.toml` declares it for its own serde needs.
 serde = { version = "1", features = ["derive"] }
+serde_json.workspace = true
+sha2 = "0.10"
 
 [dev-dependencies]
 serde_json = "1"
