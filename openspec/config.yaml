@@ -1,20 +1,34 @@
 schema: spec-driven
 
-# Project context (optional)
-# This is shown to AI when creating artifacts.
-# Add your tech stack, conventions, style guides, domain knowledge, etc.
-# Example:
-#   context: |
-#     Tech stack: TypeScript, React, Node.js
-#     We use conventional commits
-#     Domain: e-commerce platform
+context: |
+  PanGloss is a Rust port and foma-backed propose→confirm implementation of the
+  HermitCrab morphological parser. Correctness is defined against the full-HC
+  oracle at analysis identity/multiplicity level, not merely word reachability.
 
-# Per-artifact rules (optional)
-# Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always include a "Non-goals" section
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
+  Before creating or applying any change, read the repository glossary at
+  CONTEXT.md and the authoritative cross-change dependency/ownership graph at
+  openspec/changes/STAGING.md. A change being OpenSpec-valid does not override a
+  prerequisite, stage gate, exclusive file owner, quiet-machine requirement, or
+  evidence rule in STAGING.md.
+
+  Implementation is normally dispatched in isolated git worktrees. Preserve
+  unrelated user changes. Semantic work touching replace.rs/gate.rs and
+  overlapping emit.rs regions is serialized exactly as STAGING.md specifies.
+  Do not weaken recall, completeness, hard-supervisor, or logical-budget gates
+  to make a test pass.
+
+rules:
+  proposal:
+    - State explicit dependencies on sibling OpenSpec changes and distinguish observation, support, recall, and certification claims.
+    - Put work owned by another staged change in Dependencies or Non-goals rather than duplicating it.
+  design:
+    - Name the production pipeline being changed or measured and identify exclusive file/module ownership.
+    - Resolve semantic, error, timeout, truncation, fallback, platform, and rollback decisions before implementation.
+    - Reference openspec/changes/STAGING.md for cross-change ordering.
+  specs:
+    - Use analysis-level oracle scenarios and preserve multiplicity where correctness is claimed.
+    - Make timeout, truncation, unsupported constructs, and resource breaches explicitly non-certifying.
+  tasks:
+    - Break work into independently reviewable merge units with prerequisites and exclusive ownership.
+    - Name concrete files or modules when known and include focused verification commands or named gates.
+    - Separate code implementation, heavy measurement runs, policy publication, and final certification into distinct tasks.

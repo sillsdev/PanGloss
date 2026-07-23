@@ -4,6 +4,20 @@ Native Rust port of the low-level HermitCrab morphological parser — *words in,
 out* — callable from .NET Framework 4.8 (FieldWorks) and switchable at runtime with the
 managed engine. See [`../docs/history/rust-conversion.md`](../docs/history/rust-conversion.md) for the full plan.
 
+## Capability profiles
+
+The native C ABI supports inference and, in build-capable distributions, grammar/FST compilation,
+health diagnostics, and grammar comparison for FieldWorks and AI-framework hosts. WASM is
+inference-only: it loads a native-produced analysis package and exports no compiler. The pinned C#
+Machine oracle is invoked only by the separate native CLI/PowerShell validation utility and is
+never linked into either runtime. Hosts query capabilities and receive a typed
+`unsupported_capability` result for operations absent from their build.
+
+The distributions are **PanGloss Runtime** (`pangloss-runtime`) and the additive **PanGloss SDK**,
+which supplies `pangloss-build` beside and dependent on the exact same runtime library. A build may
+remain in memory for word assessment or optionally serialize one data-only `.pgpack` PanGloss
+Language Pack. Build reports and word-assessment reports are separate immutable artifacts.
+
 ## Layout (crate map — plan §5.1)
 
 | Crate | Role |

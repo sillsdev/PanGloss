@@ -1,49 +1,53 @@
-## 1. Rust core: `pangloss diagnose` skeleton + report model
+## 1. Rust command and schema
 
-- [ ] 1.1 Add a `diagnose` subcommand to `pg-cli` that accepts a grammar path (reusing `load_grammar`'s `.xml`/`.json`/`.fwdata` dispatch) and a `words.txt`, and `--project`/word-list/output-dir args
-- [ ] 1.2 Define the `report.json` model (`schema_version`, grammar metadata, `word_count`, per-word rows, compile profile, summary) as serde types in a new `pg-cli` diagnostics module
-- [ ] 1.3 Emit `report.json` for a grammar with grammar metadata + word count only (end-to-end write path), plus a golden-ish unit test on a tiny in-memory grammar
+- [ ] 1.1 Make `load_grammar` `pub(crate)` and add `pangloss diagnose <grammar> <words> <out-dir>` using the existing extension dispatch; allow in-memory compile/assessment with optional package output
+- [ ] 1.2 Define separate immutable `build.json` and `assessment.json` report types consuming the coverage contract's evidence/completeness types and the safety change's resource outcomes
+- [ ] 1.3 Record grammar/network fingerprint, pipeline and resource-policy versions, scanned/oracle-producing words, analyses, predeclared exclusions, timeouts, and partial-result status
+- [ ] 1.4 Add golden schema and invalid-input tests
 
-## 2. Per-word timing distribution
+## 2. Supervised dual-engine timing
 
-- [ ] 2.1 Run the word list through the default `Morpher` and the `--engine=foma` propose→confirm path, capturing wall-clock per word (reuse `batch`'s threading + `--word-timeout-ms`)
-- [ ] 2.2 Compute p50/p95/p99/worst/mean per engine; segregate timed-out words into their own count, excluded from percentiles
-- [ ] 2.3 Unit-test the percentile aggregation (including the timed-out-segregation rule) with fixed inputs
+- [ ] 2.0 Integrate the completed single-worker watchdog from `harden-foma-resource-safety` before
+      executing potentially adversarial real grammars; continue schema/CLI/self-contained work independently
+- [ ] 2.1 Run default and production foma pipelines only through the shared supervisor/watchdog; diagnostics SHALL NOT invent an independent Aweti cap
+- [ ] 2.2 Record load, traversal, decode/dedup, confirm-group build, restricted HC parse, route/match, total confirm, and separately labeled oracle time; consume compile events from `profile-fst-compilation` without instrumenting `emit.rs`
+- [ ] 2.3 Compute completed-observation p50/p95/p99/max/mean while preserving timeout/partial-result counts as correctness-incomplete
+- [ ] 2.4 Prove sink-off structural and exact-result equivalence with named gates
+- [ ] 2.5 Run caller-supplied word sets through combined and Rust-HermitCrab-only pipelines and
+      compare completed structured analysis collections independent of order or serialization
+- [ ] 2.6 Reuse the coverage contract's structured-analysis identity exactly; retain internal traces
+      only as mismatch and duplicate-provenance diagnostics
+- [ ] 2.7 Add explicit strict-parity and grammar-delta interpretations: always run requested contexts,
+      record their metadata, and emit per-word added/removed/unchanged/incomplete/not-attempted sets
+- [ ] 2.8 Accept optional caller-supplied golden identity sets and emit exact matching/missing/
+      unexpected diffs without a linguistic-quality or aggregate-closeness score
+- [ ] 2.9 Optionally write a context-bound proposed golden to a distinct output path with an exact
+      diff; prove validation never mutates, reformats, or replaces an input golden
+- [ ] 2.10 Attach available stable rule/construct/stage/proposal/confirmation breadcrumbs to semantic
+      deltas and duplicates, preserve completeness, and prohibit unsupported causal wording
+- [ ] 2.11 Implement build-report comparison and assessment-report comparison as separate operations;
+      semantic deltas accept canonical assessment reports only and never compile hidden baselines
 
-## 3. Per-mechanism compile profile + state-explosion curve
+## 3. Rust gloss and debug artifacts
 
-- [ ] 3.1 Add an optional `CompileProfile` capture sink; thread it (as `Option`, `None` in production) through `emit` and `replace::compile_and_compose_rules`
-- [ ] 3.2 Record per phonological rule: own-net compile time + states/arcs; record composed-net states/arcs after each fold step (the state-explosion curve); record per-template lexc line counts and α-tuple survivor counts (reuse `TupleReport`/emit counters)
-- [ ] 3.3 Derive category counts (rewrite-rule subtypes, templates, partition groups, compounding, strata, char-def tables) from the loaded `Grammar` model, aligned with the construct matrix
-- [ ] 3.4 Populate the `compile_profile` block in `report.json`; verify the non-diagnostic compile path is byte-identical with the sink `None` (run the Indonesian/Amharic/Aweti gates)
+- [ ] 3.1 Thread structured analyses through all four Rust batch result sites and derive gloss bundles with `pg_realize::gloss_bundle`
+- [ ] 3.2 Emit stable `glosses.tsv` entries using the shared tagged RFC 8785 canonical-JSON-string
+      grammar; preserve duplicate multiplicity and encode missing gloss as `m:<id-json-string>`
+- [ ] 3.3 Add opt-in `debug.jsonl` for proposed/decoded/unique/confirmed counts and named-stage timing; label Complete or Truncated
+- [ ] 3.4 Test zero, single, duplicate, missing-gloss, multi-character-shape, skipped, timed-out, and partial-result cases
+- [ ] 3.5 Emit per-word pre-dedup duplicate counts, ratios, and available rule/proposer provenance;
+      keep the duplicate-sensitive artifact separate from deduplicated semantic parity
 
-## 4. Gloss dump + deep debug
+## 4. PowerShell, rendering, CI, and skill
 
-- [ ] 4.1 Emit `glosses.tsv` — one row per input word with its gloss(es), no-analysis words explicitly marked
-- [ ] 4.2 Add `--debug`: per-word (foma path) proposed-candidate count, confirmed count, and dead-end signal, written to `debug.jsonl`
-- [ ] 4.3 Test gloss dump completeness (every input word present) and that `--debug` is off by default
+- [ ] 4.1 Add `scripts/diagnose.ps1` with `<lang>`, `-All`, and `-Project`; the Rust CLI remains single-grammar
+- [ ] 4.2 Establish `incoming/<lang>/{grammar.*,words.txt}` with explicit gitignore negations for committed README/fixture files
+- [ ] 4.3 Render build/assessment Markdown from their respective JSON artifacts, clearly separating compiler health from word-test evidence
+- [ ] 4.4 Add a tiny committed synthetic CI smoke fixture and validate the report schema
+- [ ] 4.5 Add `.claude/skills/grammar-diagnostic/SKILL.md`, accurately handing slow-confirm investigation to `dead-end-census` rather than claiming three counters reproduce its d1–d6 census
 
-## 5. PowerShell runner + `incoming/` convention
+## 5. Verification
 
-- [ ] 5.1 Add `scripts/diagnose.ps1` with `<lang>` / `-All` / `-Project <path>` and `-Full` / `-Debug`, invoking the Rust core and rendering `report.md` from `report.json`
-- [ ] 5.2 Establish `incoming/<lang>/{grammar.*,words.txt}`; add `incoming/` to `.gitignore` with a committed `incoming/README.md` documenting the convention
-- [ ] 5.3 Render `report.md`: per-language timing table, compile-profile table with the state-explosion curve, and (when present) the parity summary
-- [ ] 5.4 Fail loudly (non-zero, naming the directory) when a selected language lacks a grammar or `words.txt`
-
-## 6. C# reference harness + parity (`--full`)
-
-- [ ] 6.1 Add a stats/timing subcommand to `machine/src/SIL.Machine.Morphology.HermitCrab.Tool` that runs C# HermitCrab over the same `words.txt` and emits per-word gloss + timing in the shared TSV protocol + a JSON sidecar
-- [ ] 6.2 Wire `-Full` in `diagnose.ps1` to invoke it via `dotnet run`; align outputs by word and compute word→gloss parity (gloss-set agreement) + Rust-vs-C# comparative timing into `report.json`/`report.md`
-- [ ] 6.3 `-Full` fails clearly when `dotnet` is unavailable; without `-Full` the Rust-only report is unaffected
-
-## 7. First-class integration: CI guard + skill
-
-- [ ] 7.1 Commit a tiny synthetic fixture grammar (via `pg-grammar-gen`) + word list under a non-gitignored fixtures path
-- [ ] 7.2 Add a CI job that runs `diagnose` on that fixture and asserts the run succeeds and `report.json` is well-formed (no corpora, no `--full`)
-- [ ] 7.3 Author `.claude/skills/grammar-diagnostic/SKILL.md` documenting when to run the pipeline, how to read the compile profile / dead-end signals, and the hand-off to `dead-end-census`
-
-## 8. Verification
-
-- [ ] 8.1 Run `diagnose --all --full --debug` over the four languages; confirm the report reproduces the p50/p95/worst/mean + word-count + compile-time table and Rust-vs-C# parity
-- [ ] 8.2 Confirm the existing byte-identity/recall gates (Indonesian 97/97, Amharic parity, Aweti) remain green with the instrumentation present
-- [ ] 8.3 `openspec validate add-grammar-diagnostics --strict` passes
+- [ ] 5.1 Produce a single-grammar artifact suitable for later consumption by `certify-four-language-matrix`; do not run or certify the four-language matrix here
+- [ ] 5.2 Verify the authoritative Indonesian, Amharic, and pinned Aweti structural/result gates
+- [ ] 5.3 Run strict OpenSpec validation when the CLI is available

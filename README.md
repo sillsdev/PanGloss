@@ -9,6 +9,42 @@ The FST can only ever cost speed, never correctness — a candidate the FST over
 rejected by the confirmer, and the proposer is held to 100% recall (every analysis the full
 engine would find is always proposed).
 
+## Deployment domains
+
+PanGloss is delivered in several capability profiles:
+
+- **Inference** — browser/WASM, word processors, and native C hosts load a precompiled one-file
+  analysis package for bounded analysis, spell checking, and glossing.
+- **Native build and diagnostics** — FieldWorks and AI frameworks use the C ABI or CLI to import
+  grammars, compile FST packages, audit compiler health, and compare grammar revisions.
+- **Reference development tooling** — source in this repository can compare selected words with the
+  pinned C# Machine HermitCrab oracle for HC XML. It supports conformance investigation but is not
+  distributed in the Runtime or SDK.
+
+WASM contains no grammar or FST compiler. It consumes artifacts produced by native tooling. C#
+HermitCrab is an explicit build-time authority check, never a runtime fallback. PanGloss emits
+structured reports and FieldWorks investigation handoffs; consuming applications own history,
+publication decisions, UI, and interactive debugging, and PanGloss never launches FieldWorks.
+
+## Code, build, test, and release
+
+PanGloss treats a linguistic grammar like source code:
+
+| Development step | PanGloss |
+|---|---|
+| Code | LibLCM/HermitCrab grammar and stems |
+| Build | Compile an FST and bind matching Rust-HermitCrab data |
+| Compiler output | A build report with FST warnings, errors, thresholds, and resource evidence |
+| Test | Run a caller-supplied word set against that compiled model |
+| Test output | An immutable assessment report; compare two reports to review a grammar delta |
+| Release | Optionally write one `.pgpack` PanGloss Language Pack |
+| Deploy | Load the Language Pack into PanGloss Runtime |
+
+A Language Pack is a data-only plugin, never executable extension code. It contains the precompiled
+FST and matching runtime grammar data; the fixed Runtime supplies all behavior. Compilation can stay
+in memory for iterative assessment, and writing a release artifact is optional. Build and assessment
+reports remain separate; applications own baselines, test policy, history, installers, and UI.
+
 ## How it works
 
 ```
@@ -103,9 +139,9 @@ let outcomes = analyzer.analyze_words(&words);          // parallel confirm acro
 Representative timings (2026-07-17, all landed optimizations, one desktop machine):
 Indonesian compiles in ~85 ms and averages ~0.7 ms/word; Sena compiles in ~225 ms and
 averages ~29 ms/word; Amharic compiles in ~5.7 s and averages ~41 ms/word (median ~1 µs —
-most words are rejected by the proposer outright — with a heavy tail). The whole pipeline
-also runs on `wasm32-unknown-unknown` (`pg-wasm`, ~1.6 MB bundle; runtime smoke test at
-`rust/tools/f4-wasm-smoke.js`).
+most words are rejected by the proposer outright — with a heavy tail). The analysis runtime also
+targets `wasm32-unknown-unknown`; that build loads a precompiled analysis package and deliberately
+excludes grammar and FST compilation.
 
 ## Layout
 

@@ -22,7 +22,11 @@ from `samples/data`'s real-language corpora). Layout mirrors `machine/conformanc
 (`edge-cases/<fixture-name>/`, `languages/<fixture-name>/`, same file anatomy per
 `machine/conformance/PROTOCOL.md`), so graduation is a pure copy into a machine PR with zero
 reshaping. Each staged fixture additionally carries a `STAGING.md` (why it exists, what bug it
-pins, which engine generated `expected.tsv`, upstream PR link once opened).
+pins, which engine generated `expected.tsv`, upstream PR link once opened, and exactly one promotion
+status: `local_regression`, `upstream_candidate`, `upstream_submitted`, `upstream_accepted`, or
+`pangloss_specific`). Once an accepted semantic fixture appears in the pinned Machine submodule,
+the local duplicate is removed. FST/package/resource/diagnostic fixtures are
+`pangloss_specific` and are never promoted merely because they mention HermitCrab.
 
 ### The mechanism
 
@@ -42,6 +46,11 @@ pins, which engine generated `expected.tsv`, upstream PR link once opened).
    (e.g. pinning a foma-proposer bug where pangloss full engine IS the oracle), `STAGING.md` must
    say so — machine acceptance re-verifies against the founding oracle, and any divergence
    found there is itself a finding.
+5. **Upstream-candidate threshold**: a semantic fixture becomes `upstream_candidate` only when it
+   isolates one HermitCrab behavior, records the pinned Machine revision and evidence method
+   (existing Machine test, direct source audit, or source-only C# utility), and checks both Rust HC
+   and FST-plus-Rust outcomes. Apparent Machine bugs are marked disputed rather than silently
+   blessing the current Rust result.
 
 ### Debt this absorbs
 
