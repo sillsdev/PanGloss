@@ -1,0 +1,77 @@
+name: Conformance CI
+
+# Runs the engine-agnostic morphological-parser conformance suite (`machine/conformance`, an
+# all-synthetic-language fixture set -- see machine/conformance/README.md and PROTOCOL.md) as a
+# regression gate: builds pangloss (release) and the suite's own C# adapter driver, then diffs
+# pangloss's parse output against the suite's checked-in ground truth (each fixture's
+# `words.yaml`, materialized by the driver into `words.txt`/`expected.tsv`) via
+# `rust/tools/run-conformance.sh`. This is self-contained given the `machine` submodule checked
+# out below -- the driver derives its expected output straight from committed `words.yaml` text,
+# it does NOT shell out to a live C# HermitCrab oracle at run time (self-check mode is the only
+# mode that does that, and this workflow doesn't use self-check mode).
+#
+# Exit codes from run-conformance.sh (see that script's own header for the full contract):
+#   0 = every attempted fixture passed, or every failure is a documented, accepted divergence
+#       (rust/tools/known-conformance-divergences.txt) -- gate passes.
+#   1 = at least one UNEXPECTED failure (a real conformance regression) -- gate fails.
+#   2 = a harness-level error (missing `machine` submodule, missing pangloss binary, malformed
+#       fixture metadata) -- NOT a conformance verdict either way. Treated as a gate failure
+#       here too (see the "Run conformance suite" step below) rather than a silent skip: this
+#       workflow always checks out the submodule itself (see below), so exit 2 in practice means
+#       something is wrong with the CI environment, not with the fixtures or pangloss, and that is
+#       worth surfacing loudly during a refactor rather than quietly waving through.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  conformance:
+    name: synthetic conformance suite (default engine)
+    runs-on: ubuntu-latest
+    # Defensive upper bound only -- normal runs finish in well under a minute once built (see
+    # rust/tools/run-conformance.sh's own local timings). A risky compiler refactor could in
+    # principle introduce a genuine infinite loop in the default engine's search (neither
+    # --step-cap nor --word-timeout-ms is passed by run-conformance.sh today), so this caps the
+    # damage to a bounded, clearly-reported job timeout instead of an hours-long hang.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # machine/conformance/ (languages/, edge-cases/, each fixture's words.yaml ground
+          # truth) lives in the `machine` submodule (sillsdev/machine, `conformance-framework`
+          # branch). Non-recursive, matching rust-ci.yml's own checkout of this same submodule:
+          # `machine` carries no nested submodules of its own.
+          submodules: true
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          # SIL.Machine.Morphology.HermitCrab.Conformance (the suite's own driver, which
+          # run-conformance.sh builds and runs via `dotnet build`/`dotnet run`) targets
+          # net10.0 -- matches the `machine` submodule's own CI
+          # (machine/.github/workflows/ci.yml's `actions/setup-dotnet@v5` step).
+          dotnet-version: |
+            10.0.x
+
+      - name: Run conformance suite
+        run: |
+          set +e
+          bash rust/tools/run-conformance.sh
+          exit_code=$?
+          set -e
+          if [ "$exit_code" = 2 ]; then
+            echo "::error::run-conformance.sh exited 2 -- a harness-level error (missing machine submodule, missing pangloss binary, or malformed fixture metadata), NOT a conformance regression. See the job log above for which one. Treated as a gate failure (not a silent skip): this workflow checks out the submodule and builds pangloss itself, so this should never happen here -- fix the CI environment rather than re-running."
+          fi
+          exit "$exit_code"
