@@ -167,7 +167,10 @@ fn class_members(
 // =================================================================================================
 
 /// One position in a rendered pattern.
-enum Slot {
+///
+/// `pub(crate)`: reused by [`crate::lower`] (Stage 1B, `lower-fst-pattern-environments`) rather
+/// than re-derived -- see that module's own doc for exactly which pieces of this file it borrows.
+pub(crate) enum Slot {
     /// A single fixed char-def (`PatternNode::CharDef`, or a `Context` with no alpha vars whose
     /// class happens to be a singleton — kept general as [`Slot::Union`] instead, see below).
     Fixed(CharDefId),
@@ -194,9 +197,17 @@ enum Slot {
 
 /// Walk `pattern`'s nodes into [`Slot`]s, numbering each `Alpha` occurrence sequentially from
 /// `*next_occurrence` (shared across LHS/RHS/left-env/right-env for one subrule — see
-/// [`compile_rewrite_rule`]). Returns `None` (uncovered) on `Quantifier`/`Anchor` — this
-/// prototype's documented scope line (module doc).
-fn pattern_slots(g: &Grammar, pattern: &Pattern, next_occurrence: &mut usize) -> Option<Vec<Slot>> {
+/// [`compile_rewrite_rule`]). Returns `None` (uncovered) on `Quantifier`/`Segments`/`Anchor`/
+/// disagree-polarity `Context` — this prototype's documented scope line (module doc).
+///
+/// `pub(crate)`: reused by [`crate::lower`] (Stage 1B) to lower a subrule's environment/focus
+/// pattern the SAME way this file already lowers LHS/RHS/environment patterns — one pattern
+/// semantics, not two independently-maintained ones.
+pub(crate) fn pattern_slots(
+    g: &Grammar,
+    pattern: &Pattern,
+    next_occurrence: &mut usize,
+) -> Option<Vec<Slot>> {
     let mut out = Vec::with_capacity(pattern.nodes.len());
     for node in &pattern.nodes {
         match node {
@@ -279,7 +290,11 @@ pub struct TupleReport {
 /// implemented generically over N variables and N occurrences per variable. Returns
 /// `(assignments, report)`; a rule with zero alpha slots returns one trivial
 /// `AlphaAssignment { values: {} }` and a `raw_product`/`surviving` of 1 (nothing to expand).
-fn resolve_alpha_tuples(
+///
+/// `pub(crate)`: reused by [`crate::lower`] (Stage 1B) for the SAME reason [`pattern_slots`] is —
+/// a subrule's span lowering needs the identical joint-agreement resolution this file already
+/// gives LHS/RHS/environment compilation, not a second implementation of the same semantics.
+pub(crate) fn resolve_alpha_tuples(
     g: &Grammar,
     slot_lists: &[&[Slot]],
 ) -> (Vec<AlphaAssignment>, TupleReport) {
@@ -401,7 +416,14 @@ fn resolve_alpha_tuples(
 /// verified by the vendored crate's own tests) — the gap is specific to non-ASCII/high-codepoint
 /// symbols, which is exactly what a char-def-identity token alphabet (module doc) is built from.
 /// Mainline P6 must carry this forward as a hard rule for ANY xre string this compiler emits.
-fn render_slots(alphabet: &SegAlphabet, slots: &[Slot], assignment: &AlphaAssignment) -> String {
+///
+/// `pub(crate)`: reused by [`crate::lower`] (Stage 1B) — same rendering, same PUA-token load-
+/// bearing space-separation rule, for the environment/focus text it feeds `fsm_parse_regex`.
+pub(crate) fn render_slots(
+    alphabet: &SegAlphabet,
+    slots: &[Slot],
+    assignment: &AlphaAssignment,
+) -> String {
     let mut pieces: Vec<String> = Vec::with_capacity(slots.len());
     for slot in slots {
         let piece = match slot {

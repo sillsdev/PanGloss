@@ -29,11 +29,10 @@
 //!
 //! # D3: the worked example
 //! [`SimultaneousSubruleOverlapPredicate`] implements the `simultaneous.subrule-overlap` predicate
-//! design.md D3 works through in full — see that type's own doc for the conservative fallback this
-//! step takes in place of the `lower-fst-pattern-environments` (Stage 1B) automaton intersection,
-//! which does not exist in this crate yet (confirmed: no `lower.rs`/pattern-to-`Fsm` facility
-//! anywhere in `pg-fst`/`pg-foma` as of this step — grep the workspace before assuming otherwise if
-//! this doc goes stale).
+//! design.md D3 works through in full, now via the REAL automaton intersection
+//! `lower-fst-pattern-environments` (Stage 1B, [`crate::lower`]) provides — see that type's own
+//! doc for how the intersection runs and [`LoweredSpan`]'s doc for where the lowering itself
+//! happens (`characterize`, not `evaluate`).
 //!
 //! # `PlanNode` vs. `PlanNodeKind`
 //! design.md D2's pseudocode signature is `evaluate(&self, profile: &CharacteristicsProfile,
@@ -57,10 +56,11 @@
 //! production flip, ADR 0005's override, and the CI cross-check are later `tasks.md` items. D4's
 //! third paragraph (interaction predicates for `Union`/`Compose` nodes, via parallel-independence)
 //! is deliberately NOT implemented here: no interaction predicate exists in [`default_registry`]
-//! yet (it needs `lower-fst-pattern-environments`, same prerequisite [`SimultaneousSubruleOverlapPredicate`]
-//! is blocked on), so a `Union`/`Compose` node's "own predicate verdicts" are simply empty today —
-//! flagged as a documented gap, not a silent omission; see [`compose_envelope`]'s own doc for the
-//! per-construct plan-node-mapping judgment calls.
+//! yet — `lower-fst-pattern-environments` (Stage 1B, [`crate::lower`]) now exists and
+//! [`SimultaneousSubruleOverlapPredicate`] uses it, but no `Union`/`Compose`-level interaction
+//! predicate has been built ON TOP of that seam yet — so a `Union`/`Compose` node's "own predicate
+//! verdicts" are simply empty today — flagged as a documented gap, not a silent omission; see
+//! [`compose_envelope`]'s own doc for the per-construct plan-node-mapping judgment calls.
 
 use std::collections::{HashMap, HashSet};
 
@@ -225,16 +225,48 @@ pub enum ModelLocation {
     AllomorphCoOccurrence(AllomorphId),
 }
 
+/// A subrule's D3 `span(s) = left_env · lhs_focus · right_env`, pre-lowered at [`characterize`]
+/// time via [`crate::lower::lower_span`] (Stage 1B, `lower-fst-pattern-environments`) into the
+/// `(left_language, focus_right_language)` pair [`crate::lower::spans_overlap`] intersects.
+///
+/// Lowered HERE (inside `characterize`, which walks the `&Grammar` directly) rather than lazily
+/// inside [`SimultaneousSubruleOverlapPredicate::evaluate`] itself: [`CapabilityPredicate::
+/// evaluate`]'s signature (design.md D2, exactly) takes only `&CharacteristicsProfile`/
+/// `&PlanNodeKind` — no `&Grammar`/`SegAlphabet`/`FomaOptions`, everything `lower_span` needs to
+/// run. Pre-lowering into the profile (which the trait's OWN doc already calls "a self-contained
+/// projection", design.md D1) keeps that generic trait signature untouched rather than widening it
+/// crate-wide for one predicate's sake. Flagged as a judgment call for review (the same kind
+/// `crate::lower`'s own doc names for its `PlanNode`/`PlanNodeKind` naming gap), not silently
+/// reconciled: a cleaner long-term shape might carry `&Grammar`/an alphabet through
+/// [`CapabilityPredicate::evaluate`] itself once more predicates need Stage-1B lowering, but that
+/// is a wider trait change this additive step does not take.
+#[derive(Debug, Clone)]
+pub enum LoweredSpan {
+    /// Lowered successfully to `(left_language, focus_right_language)` — boxed (clippy
+    /// `large_enum_variant`): two owned [`foma::types::Fsm`]s make this variant far larger than
+    /// [`Self::Unsupported`]'s `String`, and every [`SubruleGateInfo`] carries one of these per
+    /// subrule.
+    Ok(Box<(foma::types::Fsm, foma::types::Fsm)>),
+    /// [`crate::lower::lower_span`] hit a pattern node kind (or a grammar with no character table
+    /// at all — see [`lower_subrule_span`]) it cannot represent; the message names the cause.
+    Unsupported(String),
+}
+
 /// Per-subrule gate/opacity facts a [`RewriteRuleDef`](pg_grammar::model::RewriteRuleDef)'s
 /// [`ObservationDetail::SimultaneousRewrite`] carries — exactly what
 /// [`SimultaneousSubruleOverlapPredicate`] (D3) needs, without re-walking the `Grammar` at
 /// evaluate-time (the profile is meant to be a self-contained projection, design.md D1).
-#[derive(Debug, Clone, Copy)]
+///
+/// No longer `Copy` (dropped from the derive by this step): [`LoweredSpan::Ok`] carries owned
+/// [`foma::types::Fsm`] values, which are `Clone` but not `Copy` upstream.
+#[derive(Debug, Clone)]
 pub struct SubruleGateInfo {
     pub index: usize,
     pub required_mpr: MprSet,
     pub excluded_mpr: MprSet,
     pub self_opaquing: bool,
+    /// Stage 1B (`lower-fst-pattern-environments`): this subrule's pre-lowered D3 span.
+    pub span: LoweredSpan,
 }
 
 /// [`ObservationDetail::SimultaneousRewrite`]'s payload: one rule's full subrule-gate table.
@@ -425,6 +457,48 @@ fn co_occurrence_adjacency_label(
     }
 }
 
+/// Lowers one `Simultaneous`-mode subrule's D3 span via [`crate::lower::lower_span`], for
+/// [`SubruleGateInfo::span`] — see that field's own doc for why this runs HERE (inside
+/// `characterize`, which owns a live `&Grammar`) rather than inside
+/// [`SimultaneousSubruleOverlapPredicate::evaluate`] itself.
+///
+/// Builds a fresh [`crate::replace::SegAlphabet`]/[`foma::options::FomaOptions`] per call rather
+/// than threading them through `characterize`'s own signature — cheap (`SegAlphabet::new` only
+/// borrows a table reference; `FomaOptions::default()` is a plain value struct), and keeps
+/// `characterize`'s signature (`fn characterize(g: &Grammar) -> CharacteristicsProfile`, unchanged
+/// since Step 1 of `add-capability-characteristics-check`) untouched.
+///
+/// Single-table assumption (`g.char_tables[0]`): the SAME documented gap
+/// `crate::replace::table_of` already carries ("a multi-table grammar would need the owning
+/// stratum threaded through") — not a new one this step introduces. Guarded (rather than indexed
+/// unchecked) so this never panics on a `Grammar` with zero character tables at all — not actually
+/// reachable for a real `Simultaneous` `PhonologicalRule` (its own `NaturalClass` references
+/// already require one), but defensive rather than assumed.
+fn lower_subrule_span(
+    g: &Grammar,
+    rule: &pg_grammar::model::RewriteRuleDef,
+    sr: &pg_grammar::model::RewriteSubruleDef,
+) -> LoweredSpan {
+    let Some(table) = g.char_tables.first() else {
+        return LoweredSpan::Unsupported(
+            "grammar has no CharacterDefinitionTable at all; cannot lower any span".to_string(),
+        );
+    };
+    let alphabet = crate::replace::SegAlphabet::new(table);
+    let opts = foma::options::FomaOptions::default();
+    match crate::lower::lower_span(
+        &opts,
+        g,
+        &alphabet,
+        sr.left_env.as_ref(),
+        &rule.lhs,
+        sr.right_env.as_ref(),
+    ) {
+        Ok((left, focus_right)) => LoweredSpan::Ok(Box::new((left, focus_right))),
+        Err(reason) => LoweredSpan::Unsupported(reason.to_string()),
+    }
+}
+
 fn characterize_allomorph(
     observations: &mut Vec<CharacteristicObservation>,
     rule: MRuleId,
@@ -591,6 +665,7 @@ pub fn characterize(g: &Grammar) -> CharacteristicsProfile {
                                 required_mpr: sr.required_mpr,
                                 excluded_mpr: sr.excluded_mpr,
                                 self_opaquing: sr.self_opaquing,
+                                span: lower_subrule_span(g, r, sr),
                             })
                             .collect();
                         observations.push(CharacteristicObservation::new(
@@ -810,30 +885,28 @@ fn mpr_gates_disjoint(a: &SubruleGateInfo, b: &SubruleGateInfo) -> bool {
 ///   return Admit
 /// ```
 ///
-/// # The conservative fallback this step actually takes (no `lower.rs` yet)
+/// # The real automaton intersection (Stage 1B, `lower-fst-pattern-environments`)
 /// D3's precise test is `intersect(span(s_i), span(s_j))` where `span(s) = left_env · lhs_focus ·
-/// right_env`, lowered to an `Fsm` via `lower-fst-pattern-environments` (Stage 1B). That facility
-/// does **not exist yet** in this workspace — confirmed by grep: no `lower.rs`/pattern-to-`Fsm`
-/// module anywhere under `pg-fst`/`pg-foma` as of this step (`crate::plan`'s own leaf shapes carry
-/// no `Fsm` either — see that module's own doc, "no live `Fsm` here — that is Step 2"). So instead
-/// of the true automaton intersection, every pair that survives the `mpr_gates_disjoint` early-out
-/// (i.e. whose overlap is NOT ruled out by MPR gating alone) is rounded straight to `Refuse` —
-/// D3's own words: "any approximation rounds toward 'overlap possible' (Refuse)." **TODO**: once
-/// `lower-fst-pattern-environments` lands, replace that unconditional `Refuse` with the real
-/// `intersect(span(s_i), span(s_j))` test, which will `Admit` strictly more pairs than today
-/// (never fewer — over-refusal only ever narrows as proof machinery improves, per ADR 0001).
+/// right_env`, lowered to an `Fsm` via [`crate::lower::lower_span`]. That facility now exists
+/// (Stage 1B landed alongside this predicate's own upgrade): every pair that survives the
+/// `self_opaquing`/`mpr_gates_disjoint` early-outs is decided by
+/// [`crate::lower::spans_overlap`] over each subrule's [`SubruleGateInfo::span`] (pre-lowered by
+/// [`characterize`] — see [`LoweredSpan`]'s own doc for why lowering happens THERE, not in this
+/// `evaluate` call). `Refuse` only when the intersection is genuinely NON-EMPTY (a real witness
+/// overlap), or when either span's [`LoweredSpan`] is [`LoweredSpan::Unsupported`] (a pattern node
+/// kind `lower_span` cannot yet represent — D3's own words, "any approximation rounds toward
+/// Refuse," still applies to THAT residual gap). This `Admit`s strictly more pairs than the prior
+/// unconditional-`Refuse` fallback did (never fewer — over-refusal only ever narrows as proof
+/// machinery improves, per ADR 0001); see this module's test module for a pair that was
+/// `Refuse`-only before this step and is now proven `Admit`.
 ///
 /// # Provenance
-/// [`EvidenceProvenance::Structural`]: every fact this predicate's `evaluate` reads
-/// (`self_opaquing`, `required_mpr`, `excluded_mpr`) is a directly-inspectable `model.rs` field —
-/// no foma black-box oracle call is made at this step. This is a judgment call flagged for review:
-/// design.md D3 reserves `Structural` for "the controllable composition path (we intersect real
-/// lowered automata)," which this step does not yet do; `Behavioral` (reserved for "the black-box
-/// foma path... automata unobservable") does not fit either, since no foma call happens here at
-/// all. `Structural` was chosen because the EVIDENCE KIND (direct field reads) matches that
-/// definition even though the PROOF (automaton intersection) is not yet built; once
-/// `lower-fst-pattern-environments` lands the provenance value should not need to change, only the
-/// `Refuse`-fallback TODO above does.
+/// [`EvidenceProvenance::Structural`]: `self_opaquing`/`mpr_gates_disjoint` still read directly-
+/// inspectable `model.rs` fields for their own early-outs, and the surviving-pair test now
+/// genuinely intersects REAL lowered automata (`crate::lower`) — exactly the "controllable
+/// composition path" design.md D3 reserves `Structural` for, no longer a judgment call: this is no
+/// longer evidence-kind-matches-but-proof-not-yet-built (the prior step's own caveat), it now IS
+/// that controllable-composition proof.
 pub struct SimultaneousSubruleOverlapPredicate;
 
 impl CapabilityPredicate for SimultaneousSubruleOverlapPredicate {
@@ -889,20 +962,48 @@ impl CapabilityPredicate for SimultaneousSubruleOverlapPredicate {
                     continue;
                 }
 
-                // Conservative fallback (see this type's own doc): no `lower-fst-pattern-
-                // environments` automaton intersection exists yet, so any pair not proven
-                // mpr-disjoint rounds to Refuse rather than risk an unproven Admit.
-                return PredicateVerdict::Refuse(CapabilityDiagnostic {
-                    predicate: self.id(),
-                    construct: format!("prule {} subrules {}/{}", rule.0, a.index, b.index),
-                    witness: format!(
-                        "subrules {} and {} are not proven mpr-gate-disjoint, and \
-                         lower-fst-pattern-environments (Stage 1B) is not yet available to \
-                         intersect their lowered environment automata; conservatively rounding \
-                         toward overlap-possible (TODO: tighten once lower.rs lands)",
-                        a.index, b.index
-                    ),
-                });
+                // Stage 1B: the real automaton intersection (see this type's own doc). Either
+                // span being Unsupported rounds to Refuse (D3: "any approximation rounds toward
+                // Refuse"), naming the unhandled construct rather than silently admitting it.
+                let opts = foma::options::FomaOptions::default();
+                match (&a.span, &b.span) {
+                    (LoweredSpan::Ok(span_a), LoweredSpan::Ok(span_b)) => {
+                        let overlaps = crate::lower::spans_overlap(&opts, span_a, span_b);
+                        if overlaps {
+                            return PredicateVerdict::Refuse(CapabilityDiagnostic {
+                                predicate: self.id(),
+                                construct: format!(
+                                    "prule {} subrules {}/{}",
+                                    rule.0, a.index, b.index
+                                ),
+                                witness: format!(
+                                    "subrules {} and {} are not mpr-gate-disjoint, and their \
+                                     lowered left_env/lhs_focus/right_env spans (Stage 1B, \
+                                     crate::lower) genuinely intersect at a shared focus \
+                                     position -- a real overlap witness, not an unproven \
+                                     approximation",
+                                    a.index, b.index
+                                ),
+                            });
+                        }
+                        // Proven non-overlapping: fall through to the next pair.
+                    }
+                    (LoweredSpan::Unsupported(reason), _) | (_, LoweredSpan::Unsupported(reason)) => {
+                        return PredicateVerdict::Refuse(CapabilityDiagnostic {
+                            predicate: self.id(),
+                            construct: format!(
+                                "prule {} subrules {}/{}",
+                                rule.0, a.index, b.index
+                            ),
+                            witness: format!(
+                                "subrules {} and {} are not mpr-gate-disjoint, and at least one \
+                                 span could not be lowered (Stage 1B, crate::lower): {reason}; \
+                                 conservatively rounding toward overlap-possible",
+                                a.index, b.index
+                            ),
+                        });
+                    }
+                }
             }
         }
 
@@ -1736,6 +1837,200 @@ mod tests {
             predicate.evaluate(&profile, &leaf_for(PRuleId(0))),
             PredicateVerdict::Admit
         );
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Stage 1B (`lower-fst-pattern-environments`): the real automaton intersection replacing the
+    // conservative unconditional-Refuse fallback. No `PhonologicalFeatureSystem` in any of these
+    // three fixtures -- deliberately: every `Context` node's self-opaquing pin-bit computation
+    // (`pg_grammar::load::pattern_node_pin_bits`) is vacuously empty with zero declared features,
+    // so `self_opaquing` is `false` for every subrule below regardless of environment shape,
+    // isolating exactly the NEW code path (the survives-both-early-outs branch) these tests target
+    // -- the SAME reason `SIMULTANEOUS_PROBE_XML`'s own `prAdmit`/`prRefuseOverlap` rules avoid
+    // self-opaquing by declaring no `Environment` at all; these need a real environment, so they
+    // avoid it via "no features to mismatch on" instead. Also no MPR features declared, so
+    // `mpr_gates_disjoint` is `false` (two empty `MprSet`s never overlap) for every pair -- the
+    // mpr-gate early-out never fires either, so every case here is decided purely by the NEW
+    // lowered-span intersection.
+    // ---------------------------------------------------------------------------------------
+
+    /// Two subrules whose RIGHT environments are mutually exclusive `SegmentNaturalClass`es
+    /// (`Front` = {`i`}, `Back` = {`u`}, no shared segment) -- genuinely CANNOT overlap at the
+    /// shared focus position. Neither is mpr-disjoint nor self-opaquing, so the PRIOR
+    /// unconditional-`Refuse` fallback would have rounded this pair to `Refuse`; the real
+    /// automaton intersection (Stage 1B) now proves their spans disjoint and `Admit`s -- the
+    /// whole point of this step (strictly fewer refusals, never more, per ADR 0001).
+    #[test]
+    fn simultaneous_predicate_admits_genuinely_non_overlapping_subrules_via_lowered_span() {
+        const XML: &str = r#"<HermitCrabInput><Language><Name>SimLowerAdmit</Name>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions>
+              <SegmentDefinition id="cStop"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
+              <SegmentDefinition id="cFront"><Representations><Representation>i</Representation></Representations></SegmentDefinition>
+              <SegmentDefinition id="cBack"><Representations><Representation>u</Representation></Representations></SegmentDefinition>
+            </SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <NaturalClasses>
+            <SegmentNaturalClass id="ncStop"><Name>Stop</Name><Segment segment="cStop" /></SegmentNaturalClass>
+            <SegmentNaturalClass id="ncFront"><Name>Front</Name><Segment segment="cFront" /></SegmentNaturalClass>
+            <SegmentNaturalClass id="ncBack"><Name>Back</Name><Segment segment="cBack" /></SegmentNaturalClass>
+          </NaturalClasses>
+          <PhonologicalRuleDefinitions>
+            <PhonologicalRule id="pr1" multipleApplicationOrder="simultaneous"><Name>PR</Name>
+              <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticInput>
+              <PhonologicalSubrules>
+                <PhonologicalSubrule>
+                  <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticOutput>
+                  <Environment><RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncFront" /></PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment>
+                </PhonologicalSubrule>
+                <PhonologicalSubrule>
+                  <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticOutput>
+                  <Environment><RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncBack" /></PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment>
+                </PhonologicalSubrule>
+              </PhonologicalSubrules>
+            </PhonologicalRule>
+          </PhonologicalRuleDefinitions>
+        </Language></HermitCrabInput>"#;
+        let g = load(XML);
+        let PhonRuleDef::Rewrite(r) = &g.prules[0] else {
+            panic!("expected rewrite rule at 0")
+        };
+        assert_eq!(r.mode, RewriteMode::Simultaneous);
+        assert!(!r.subrules[0].self_opaquing && !r.subrules[1].self_opaquing);
+        // No MPR features declared anywhere in this fixture -- both subrules' gates are empty, so
+        // `mpr_gates_disjoint` cannot possibly short-circuit this pair (two empty `MprSet`s never
+        // "overlap"); the outcome below is decided purely by the new lowered-span intersection.
+        assert!(r.subrules[0].required_mpr.is_empty() && r.subrules[0].excluded_mpr.is_empty());
+        assert!(r.subrules[1].required_mpr.is_empty() && r.subrules[1].excluded_mpr.is_empty());
+
+        let profile = characterize(&g);
+        let predicate = SimultaneousSubruleOverlapPredicate;
+        assert_eq!(
+            predicate.evaluate(&profile, &leaf_for(PRuleId(0))),
+            PredicateVerdict::Admit,
+            "Front/Back-flanked, non-mpr-disjoint, non-self-opaquing subrules must now Admit \
+             via the real lowered-span intersection (previously Refuse under the conservative \
+             fallback)"
+        );
+    }
+
+    /// Two subrules whose RIGHT environments genuinely OVERLAP (one accepts `{Front, Back}`, the
+    /// other accepts `{Back}` alone -- a shared member, not an identical automaton) must still
+    /// `Refuse`, with a witness naming the real intersection.
+    #[test]
+    fn simultaneous_predicate_refuses_genuinely_overlapping_subrules_via_lowered_span() {
+        const XML: &str = r#"<HermitCrabInput><Language><Name>SimLowerRefuse</Name>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions>
+              <SegmentDefinition id="cStop"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
+              <SegmentDefinition id="cFront"><Representations><Representation>i</Representation></Representations></SegmentDefinition>
+              <SegmentDefinition id="cBack"><Representations><Representation>u</Representation></Representations></SegmentDefinition>
+            </SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <NaturalClasses>
+            <SegmentNaturalClass id="ncStop"><Name>Stop</Name><Segment segment="cStop" /></SegmentNaturalClass>
+            <SegmentNaturalClass id="ncFrontOrBack"><Name>FrontOrBack</Name><Segment segment="cFront" /><Segment segment="cBack" /></SegmentNaturalClass>
+            <SegmentNaturalClass id="ncBack"><Name>Back</Name><Segment segment="cBack" /></SegmentNaturalClass>
+          </NaturalClasses>
+          <PhonologicalRuleDefinitions>
+            <PhonologicalRule id="pr1" multipleApplicationOrder="simultaneous"><Name>PR</Name>
+              <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticInput>
+              <PhonologicalSubrules>
+                <PhonologicalSubrule>
+                  <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticOutput>
+                  <Environment><RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncFrontOrBack" /></PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment>
+                </PhonologicalSubrule>
+                <PhonologicalSubrule>
+                  <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticOutput>
+                  <Environment><RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncBack" /></PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment>
+                </PhonologicalSubrule>
+              </PhonologicalSubrules>
+            </PhonologicalRule>
+          </PhonologicalRuleDefinitions>
+        </Language></HermitCrabInput>"#;
+        let g = load(XML);
+        let PhonRuleDef::Rewrite(r) = &g.prules[0] else {
+            panic!("expected rewrite rule at 0")
+        };
+        assert!(!r.subrules[0].self_opaquing && !r.subrules[1].self_opaquing);
+
+        let profile = characterize(&g);
+        let predicate = SimultaneousSubruleOverlapPredicate;
+        match predicate.evaluate(&profile, &leaf_for(PRuleId(0))) {
+            PredicateVerdict::Refuse(diag) => {
+                assert_eq!(diag.predicate, "simultaneous.subrule-overlap");
+                assert!(
+                    diag.witness.contains("genuinely intersect"),
+                    "witness should name the real intersection, not the old conservative \
+                     wording: {diag:?}"
+                );
+            }
+            other => panic!("expected Refuse (genuine overlap via shared Back member), got {other:?}"),
+        }
+    }
+
+    /// A subrule whose right environment uses a `PatternNode::Anchor` (word-boundary condition) --
+    /// a node kind [`crate::lower::lower_span`] does not represent -- must still conservatively
+    /// `Refuse`, naming the unhandled kind, rather than silently `Admit` an unproven pair.
+    #[test]
+    fn simultaneous_predicate_refuses_unsupported_pattern_node_conservatively() {
+        const XML: &str = r#"<HermitCrabInput><Language><Name>SimLowerUnsupported</Name>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions>
+              <SegmentDefinition id="cStop"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
+              <SegmentDefinition id="cFront"><Representations><Representation>i</Representation></Representations></SegmentDefinition>
+              <SegmentDefinition id="cBack"><Representations><Representation>u</Representation></Representations></SegmentDefinition>
+            </SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <NaturalClasses>
+            <SegmentNaturalClass id="ncStop"><Name>Stop</Name><Segment segment="cStop" /></SegmentNaturalClass>
+            <SegmentNaturalClass id="ncFront"><Name>Front</Name><Segment segment="cFront" /></SegmentNaturalClass>
+            <SegmentNaturalClass id="ncBack"><Name>Back</Name><Segment segment="cBack" /></SegmentNaturalClass>
+          </NaturalClasses>
+          <PhonologicalRuleDefinitions>
+            <PhonologicalRule id="pr1" multipleApplicationOrder="simultaneous"><Name>PR</Name>
+              <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticInput>
+              <PhonologicalSubrules>
+                <PhonologicalSubrule>
+                  <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticOutput>
+                  <Environment><RightEnvironment><PhoneticTemplate finalBoundaryCondition="true"><PhoneticSequence><SimpleContext naturalClass="ncFront" /></PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment>
+                </PhonologicalSubrule>
+                <PhonologicalSubrule>
+                  <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticOutput>
+                  <Environment><RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncBack" /></PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment>
+                </PhonologicalSubrule>
+              </PhonologicalSubrules>
+            </PhonologicalRule>
+          </PhonologicalRuleDefinitions>
+        </Language></HermitCrabInput>"#;
+        let g = load(XML);
+        let PhonRuleDef::Rewrite(r) = &g.prules[0] else {
+            panic!("expected rewrite rule at 0")
+        };
+        assert!(!r.subrules[0].self_opaquing && !r.subrules[1].self_opaquing);
+        assert!(
+            matches!(
+                r.subrules[0].right_env.as_ref().unwrap().nodes.last(),
+                Some(pg_grammar::model::PatternNode::Anchor(
+                    pg_grammar::model::AnchorSide::Right
+                ))
+            ),
+            "fixture must actually carry an Anchor node in subrule 0's right_env: {:?}",
+            r.subrules[0].right_env
+        );
+
+        let profile = characterize(&g);
+        let predicate = SimultaneousSubruleOverlapPredicate;
+        match predicate.evaluate(&profile, &leaf_for(PRuleId(0))) {
+            PredicateVerdict::Refuse(diag) => {
+                assert_eq!(diag.predicate, "simultaneous.subrule-overlap");
+                assert!(
+                    diag.witness.contains("Anchor"),
+                    "witness must name the unhandled Anchor node kind: {diag:?}"
+                );
+            }
+            other => panic!("expected conservative Refuse naming Anchor, got {other:?}"),
+        }
     }
 
     // ---------------------------------------------------------------------------------------

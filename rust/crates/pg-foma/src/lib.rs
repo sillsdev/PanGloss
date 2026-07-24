@@ -101,6 +101,13 @@ pub mod emit;
 /// why it is a flag-free static partition rather than a flag-diacritics encoding.
 pub mod gate;
 pub mod junctions;
+/// Stage 1B of `openspec/changes/lower-fst-pattern-environments` (design.md D3): the shared
+/// pattern/environment → FST lowering seam -- [`lower::lower_span`] lowers one subrule's
+/// `left_env · lhs_focus · right_env` triple into foma acceptors, [`lower::spans_overlap`] tests
+/// two such spans for a non-empty intersection. Reuses [`replace`]'s own pattern-slot/alpha-tuple/
+/// rendering logic rather than re-deriving it; see that module's own doc for full scope, what is
+/// reused vs. newly written, and the judgment calls it surfaces.
+pub mod lower;
 pub(crate) mod morphotactics;
 /// Step 3 of `openspec/changes/reify-compilation-plans` (design.md D4, task 3.1): the
 /// differential-correctness oracle -- [`oracle::differential_oracle`] builds two [`plan::Plan`]s
