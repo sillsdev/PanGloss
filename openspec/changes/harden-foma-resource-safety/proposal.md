@@ -7,6 +7,10 @@ traversal is uncapped; and budget failures are not uniformly terminal typed outc
 ## What Changes
 
 - Add validated cumulative build and apply budgets with uniform typed errors.
+- Add a derivation/unapplication **chain-depth** budget dimension (`docs/adr/0003-apply-time-
+  containment.md`), tracked alongside the existing states/arcs/tuples/paths/candidates counters, that
+  deterministically closes the stack-overflow failure class (the deep 24-level derivation chain; the
+  1 GiB-stack workaround) instead of relying on a larger stack.
 - Check every newly compiled net, including single/no-rule paths and raw lexc/regex/apply-init operations.
 - Run compilation in one native worker with parent-enforced wall timeout, sampled RSS guardrail,
   bounded input/output, and one typed protocol on Windows and Linux.
@@ -18,5 +22,7 @@ traversal is uncapped; and budget failures are not uniformly terminal typed outc
 ## Impact
 
 This changes failure behavior, not accepted parse semantics. Production compilation launches one
-worker and no descendants. Logical budgets are the primary explosion defense; the parent watchdog
-is the emergency backstop. This change does not build a general process sandbox.
+worker and no descendants. Logical budgets — now including chain depth — are the primary explosion
+defense; the parent watchdog is the emergency backstop. The chain-depth dimension is what makes
+stack-overflow deterministically boundable rather than merely deferred by a bigger stack. This change
+does not build a general process sandbox.

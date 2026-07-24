@@ -20,3 +20,12 @@ Run from `rust/`:
 - `cargo test -p pg-rules --test memo_gate`
 - `cargo test -p pg-foma --test f4_composite_gate`
 - `cargo test -p pg-foma --test p6_gate_parity`
+
+## Dependencies
+
+This change is authored on the reified compilation model (`reify-compilation-plans`) rather than the
+old hardcoded `should_run`/`probe_would_refuse`/`partition_entries` branching. Its capability boundary
+is a configuration-predicate registered with `add-capability-characteristics-check`: constraints
+requiring mutable derivational history or full feature unification are confirm-only-by-default per
+ADR 0001, and an FST admission filter is added only where a proven no-false-negative argument licenses
+it — consistent with this change's existing `confirm-only` preference above.

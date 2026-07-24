@@ -17,3 +17,12 @@ Run from `rust/`:
 - `cargo test -p pg-foma --test phase_c_multi_table`
 - `cargo test -p pg-foma --test phase_c_right_to_left`
 - `cargo test -p pg-foma --test phase_c_simultaneous`
+
+## Dependencies
+
+This change is authored on the reified compilation model (`reify-compilation-plans`) rather than the
+old hardcoded `should_run`/`probe_would_refuse`/`partition_entries` branching: bounded-quantifier
+expansion is a `Plan` node/strategy the enumerator selects among. Its capability boundary — which
+optional/bounded-repetition configurations compile faithfully within budget — is a configuration-
+predicate registered with `add-capability-characteristics-check`, confirm-only-by-default per ADR
+0001 unless a proven no-false-negative admission-filter argument exists.

@@ -17,3 +17,12 @@ Run from `rust/`:
 - `cargo test -p pg-foma --test f4_composite_gate`
 - `cargo test -p pg-rules --test morph_gate`
 - `cargo test -p pg-rules --test stratum_gate`
+
+## Dependencies
+
+This change is authored on the reified compilation model (`reify-compilation-plans`) rather than the
+old hardcoded `should_run`/`probe_would_refuse`/`partition_entries` branching: circumfix/null-output
+emission is expressed as `Plan` node structure the enumerator selects among. Its capability boundary
+— which `OutputAction` sequence/role combinations compile faithfully — is a configuration-predicate
+registered with `add-capability-characteristics-check`, confirm-only-by-default per ADR 0001 unless a
+proven no-false-negative admission-filter argument exists.

@@ -23,3 +23,15 @@ Run from `rust/`:
 
 When available, run `tools/run-conformance.sh edge-cases/truncate-morphotactic`; otherwise record
 that external conformance evidence as `not_run` and continue self-contained verification.
+
+## Dependencies
+
+This change is authored on the reified compilation model (`reify-compilation-plans`) rather than the
+old hardcoded `should_run`/`probe_would_refuse`/`partition_entries` branching: template/truncation/
+reduplication emission is expressed as `Plan` node structure the enumerator selects among. Its
+capability boundary — which template-alternative/truncation/reduplication configurations compile
+faithfully — is a configuration-predicate registered with `add-capability-characteristics-check`,
+confirm-only-by-default per ADR 0001 unless a proven no-false-negative admission-filter argument
+exists. Per `STAGING.md`, reduplication-peel is additionally wired as an ADR 0004 required-runtime-
+feature declaration and an ADR 0003 chain-depth/allocation-budgeted apply operation, not a
+fully-lowered no-op default.

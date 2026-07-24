@@ -18,3 +18,13 @@ Run from `rust/`:
 - `cargo test -p pg-rules --test rewrite_gate`
 - `cargo test -p pg-foma --test phase_c_multi_table`
 - `cargo test -p pg-foma --test phase_c_quantifier`
+
+## Dependencies
+
+This change is authored on the reified compilation model (`reify-compilation-plans`) rather than the
+old hardcoded `should_run`/`probe_would_refuse`/`partition_entries` branching: the metathesis swap
+relation is a `Plan` `Leaf`/`Compose` node the enumerator selects among, not a special-cased branch.
+Its capability boundary — which switch/boundary/direction/feature-class/table combinations compile
+faithfully — is a configuration-predicate registered with `add-capability-characteristics-check`,
+confirm-only-by-default per ADR 0001 unless a proven no-false-negative admission-filter argument
+exists.

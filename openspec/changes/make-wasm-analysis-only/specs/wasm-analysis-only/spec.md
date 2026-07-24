@@ -22,11 +22,13 @@ comparison. An operation absent from the current build SHALL return typed
 ### Requirement: WASM loads compatible analysis artifacts
 WASM SHALL construct its analyzer only from one complete, self-contained, versioned analysis file
 containing a precompiled FST proposer network and the matching runtime grammar data used by the Rust
-HermitCrab port. A whole-package fingerprint SHALL bind both payloads.
+HermitCrab port. A whole-package fingerprint SHALL bind both payloads. Compatibility SHALL be decided
+by load-time runtime-feature containment (the pack manifest's required runtime-feature set is a
+subset of the Runtime's provided set), not by an engine-compatibility-identifier equality check.
 
 #### Scenario: Compatible artifact is loaded
-- **WHEN** the artifact version, grammar fingerprint, engine compatibility identifier, proposer, and
-  confirmation data all validate
+- **WHEN** the artifact version, grammar fingerprint, required-runtime-feature set, proposer, and
+  confirmation data all validate — with the required set contained in the Runtime's provided set
 - **THEN** WASM enables bounded analysis without recompiling the network
 
 #### Scenario: Both analysis stages run
@@ -49,9 +51,11 @@ HermitCrab port. A whole-package fingerprint SHALL bind both payloads.
 
 ### Requirement: Analysis packages use one bounded binary container
 Container v1 SHALL contain fixed PanGloss magic bytes, a container version, a length-prefixed
-canonical JSON manifest, a length-prefixed Rust HermitCrab runtime payload, a length-prefixed foma
-binary payload in the existing foma encoding, and a SHA-256 digest covering the exact framed manifest
-and payload bytes. The format SHALL specify one integer byte order.
+canonical JSON pack manifest, a length-prefixed Rust HermitCrab runtime payload, a length-prefixed
+foma binary payload in the existing foma encoding, and a SHA-256 digest covering the exact framed pack
+manifest and payload bytes. The format SHALL specify one integer byte order. The pack manifest SHALL
+carry a required-runtime-feature-set field (ADR 0004), an ADR 0005 capability-trust stamp, and an
+FST-health admission/findings field reconciled with `add-fst-compilation-health-audit`'s schema.
 
 The container SHALL be a data-only PanGloss Language Pack. It SHALL NOT contain an embedded WASM
 module, native library, script, or dynamically executable extension. All executable behavior SHALL
@@ -72,8 +76,8 @@ come from the installed PanGloss Runtime.
 
 ### Requirement: Integrity is distinct from authorization
 The SHA-256 package digest SHALL be described and used as an integrity check only. Licensing and
-publisher authenticity metadata SHALL occupy a separately versioned manifest section and SHALL NOT
-treat a public hash or a secret embedded in WASM as proof of authorization.
+publisher authenticity metadata SHALL occupy a separately versioned pack manifest section and SHALL
+NOT treat a public hash or a secret embedded in WASM as proof of authorization.
 
 #### Scenario: Content is rehashed by an untrusted party
 - **WHEN** modified content carries a newly computed valid SHA-256 digest but lacks a valid optional
@@ -95,7 +99,7 @@ disable, restrict, or authorize FieldWorks or WASM analysis.
 
 ### Requirement: Publisher signatures are optional offline provenance
 Packages MAY carry an Ed25519 publisher signature over a domain-separated canonical representation
-of the container version, manifest excluding its signature value, and both framed payloads. Signing
+of the container version, pack manifest excluding its signature value, and both framed payloads. Signing
 SHALL use an external private key; verification SHALL require no secret, entitlement, account, or
 network service.
 

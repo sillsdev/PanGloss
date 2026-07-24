@@ -1,8 +1,15 @@
 ## 1. Pin the artifact contract
 
 - [ ] 1.1 Implement container v1 with fixed magic, fixed integer byte order, length-prefixed canonical
-      JSON manifest, Rust HermitCrab runtime payload, existing foma binary payload, and trailing
-      SHA-256 digest over the exact framed manifest/payload bytes
+      JSON pack manifest, Rust HermitCrab runtime payload, existing foma binary payload, and trailing
+      SHA-256 digest over the exact framed pack-manifest/payload bytes
+- [ ] 1.1e Add the pack manifest's required-runtime-feature-set field (ADR 0004: payload-format
+      version, required runtime operations, foma-feature level, HC-port semantic version, extensions)
+      and implement the loader's `required ⊆ provided` containment check in place of any engine-
+      compatibility-identifier equality check
+- [ ] 1.1f Add the pack manifest's ADR 0005 capability-trust stamp (proven, or overridden/unproven
+      plus override record) and reconcile its FST-health admission/findings field with
+      `add-fst-compilation-health-audit`'s schema rather than defining a parallel one
 - [ ] 1.2 Specify typed failures for unknown version, incompatible engine, mismatched grammar/data,
       corrupt network bytes, and absent confirmation data
 - [ ] 1.3 Define versioned per-section and total byte limits; reject overflow, oversize declarations,
@@ -44,8 +51,10 @@
 - [ ] 4.2 Add a build/export audit that fails if a compiler constructor or compile API reaches WASM
 - [ ] 4.3 Test malformed, stale, mismatched, oversized, and unsupported artifacts fail closed
 - [ ] 4.4 Verify WASM analysis remains subject to per-word path/output/candidate/time budgets
-- [ ] 4.5 Add golden byte fixtures proving native and WASM readers agree on canonical manifest bytes,
-      integer byte order, section boundaries, digest coverage, and rejection behavior
+- [ ] 4.5 Add golden byte fixtures proving native and WASM readers agree on canonical pack-manifest
+      bytes, integer byte order, section boundaries, digest coverage, and rejection behavior
+- [ ] 4.9 Prove an older Runtime loads a pack whose required-runtime-feature set it fully provides,
+      and refuses (with a typed incompatibility, not a crash) a pack requiring a feature it lacks
 - [ ] 4.6 Prove unsigned, validly signed, and invalidly signed packages all remain analyzable while
       exposing distinct signature status and the unchanged license declaration
 - [ ] 4.7 Prove package loading and analysis perform no license-server or entitlement network request

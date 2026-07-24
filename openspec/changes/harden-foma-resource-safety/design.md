@@ -7,6 +7,12 @@ Execution order, prerequisites, and exclusive ownership are governed by
   host from opaque foma hangs, panics, and excessive sampled memory.
 - A mutable tracker accumulates states, arcs, tuples, groups, emitted lines, elapsed build time,
   paths, outputs, and candidates across the grammar/word.
+- Per `docs/adr/0003-apply-time-containment.md`, the tracker adds a **derivation/unapplication
+  chain-depth** dimension: a per-word counter of nested apply/unapply steps, checked on every step
+  rather than bounded only by the native call stack. This closes the stack-overflow failure class
+  deterministically (the Aweti-shaped 24-level derivation chain; the 1 GiB-stack workaround) instead
+  of merely raising the point at which it recurs. Chain-depth breach is a distinct typed outcome
+  alongside the existing logical-budget outcomes, ported identically to Windows, Linux, and WASM.
 - Configuration parsing is strict and reports effective versioned limits.
 - Every configurable dimension has a hard-coded, versioned, deliberately high absolute ceiling.
   Defaults and caller/host-selected limits remain below it; `unlimited` is not a supported value.
