@@ -43,8 +43,26 @@
 //! `&PlanNodeKind` where D2 says `&PlanNode`, which is the concrete type D2's own co-designed
 //! `crate::plan` module actually shipped. Flagged as a judgment call for review, not silently
 //! reconciled.
+//!
+//! # D4 (Step 2): bottom-up envelope composition + the CHECK-ONLY [`CompileDecision`]
+//! [`compose_envelope`] is this crate's Step 2 of `add-capability-characteristics-check`: it runs
+//! [`characterize`] to get the profile, walks `crate::enumerate::enumerate_default`'s reified
+//! [`crate::plan::Plan`] bottom-up (design.md D4: "a node's verdict is the meet of its children's
+//! verdicts and its own node-level predicate"), and folds in every observed non-`Proven`
+//! characteristic that has no plan-node-addressable predicate at all. [`meet`] is D4's lattice
+//! made explicit (`Refuse` dominates `ConfirmOnly` dominates `Admit`); [`CompileDecision`] widens
+//! [`PredicateVerdict`]'s single-diagnostic `Refuse` into a deduplicated `Vec` so a caller sees
+//! every refusing construct in one pass. **Still purely additive and check-only**: nothing in this
+//! crate consults [`CompileDecision`] to block or alter any production compile path — the
+//! production flip, ADR 0005's override, and the CI cross-check are later `tasks.md` items. D4's
+//! third paragraph (interaction predicates for `Union`/`Compose` nodes, via parallel-independence)
+//! is deliberately NOT implemented here: no interaction predicate exists in [`default_registry`]
+//! yet (it needs `lower-fst-pattern-environments`, same prerequisite [`SimultaneousSubruleOverlapPredicate`]
+//! is blocked on), so a `Union`/`Compose` node's "own predicate verdicts" are simply empty today —
+//! flagged as a documented gap, not a silent omission; see [`compose_envelope`]'s own doc for the
+//! per-construct plan-node-mapping judgment calls.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use pg_grammar::model::{
     AffixAllomorphDef, AllomorphId, Dir, Grammar, MRuleId, MorphRuleDef, MorphRuleOrder,
@@ -52,7 +70,7 @@ use pg_grammar::model::{
     PRuleId, PartRef, PhonRuleDef, ReduplicationHint, RewriteMode, StratumId,
 };
 
-use crate::plan::{FragmentSpec, PlanNodeKind};
+use crate::plan::{FragmentSpec, NodeId, Plan, PlanNodeKind};
 
 // =================================================================================================
 // D1: Disposition + CharacteristicKind + the characterizer
@@ -1053,6 +1071,257 @@ pub fn undischarged_kinds(registry: &PredicateRegistry) -> Vec<CharacteristicKin
         .collect()
 }
 
+// =================================================================================================
+// D4: bottom-up envelope composition + the CHECK-ONLY compile decision (Step 2)
+// =================================================================================================
+
+/// The overall, whole-plan CHECK-ONLY compile decision [`compose_envelope`] returns (design.md D4;
+/// spec.md: "A node verdict SHALL be the meet of its children's verdicts and its own predicate,
+/// with Refuse dominating and any ConfirmOnly demoting the subtree"). Distinct from
+/// [`PredicateVerdict`] (D2's PER-PREDICATE, single-node verdict, carrying at most one
+/// [`CapabilityDiagnostic`]): composing a whole plan can collect refusals from many different
+/// nodes/observations, and a caller should see all of them, not just whichever one [`meet`] folded
+/// in first — this type widens the single diagnostic to a deduplicated `Vec` at exactly the point
+/// those per-node/per-observation verdicts get folded together.
+///
+/// **CHECK-ONLY** (this module's own top-doc "D4 (Step 2)" section): nothing in this crate
+/// consults a [`CompileDecision`] to block or alter any real compile path yet. That wiring — the
+/// production flip, ADR 0005's override, and the CI cross-check — is later `tasks.md` work.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CompileDecision {
+    /// Every construct in the plan is `Proven`, or has a predicate-proven [`PredicateVerdict::Admit`].
+    /// Admission-filtering is licensed.
+    Admit,
+    /// At least one construct rests at (or was proven no better than) `ConfirmOnly`, and NONE is
+    /// refused. Propose the superset, no admission-filtering — first-class, not a failure (ADR
+    /// 0001).
+    ConfirmOnly,
+    /// At least one construct is refused. Carries EVERY [`CapabilityDiagnostic`] collected while
+    /// composing the plan (content-deduplicated — see [`meet`]'s own doc), not just the first, so a
+    /// caller sees every problem in one pass rather than one compile attempt at a time.
+    Refuse(Vec<CapabilityDiagnostic>),
+}
+
+/// D4's lattice, made explicit: `Refuse` dominates `ConfirmOnly` dominates `Admit`/`Proven` —
+/// `meet(a, b)` is this lattice's greatest-lower-bound over the total order `Admit < ConfirmOnly <
+/// Refuse`.
+///
+/// ```text
+/// meet(Admit,       Admit)       = Admit
+/// meet(Admit,       ConfirmOnly) = ConfirmOnly
+/// meet(ConfirmOnly, ConfirmOnly) = ConfirmOnly
+/// meet(_,           Refuse(d2))  = Refuse(d1 ++ d2, content-deduplicated)  -- Refuse always wins
+/// meet(Refuse(d1),  _)           = Refuse(d1 ++ d2, content-deduplicated)
+/// ```
+/// Two `Refuse`s meet to a `Refuse` carrying the UNION of both sides' diagnostics, content-
+/// deduplicated: the same [`CapabilityDiagnostic`] can be reached via two different DAG paths to a
+/// shared node (D1's content-addressed sharing means a single offending leaf can be a descendant of
+/// several parents), and it must not appear twice in the final report merely because it was visited
+/// twice.
+pub fn meet(a: CompileDecision, b: CompileDecision) -> CompileDecision {
+    match (a, b) {
+        (CompileDecision::Refuse(mut left), CompileDecision::Refuse(right)) => {
+            for diag in right {
+                if !left.contains(&diag) {
+                    left.push(diag);
+                }
+            }
+            CompileDecision::Refuse(left)
+        }
+        (CompileDecision::Refuse(d), _) | (_, CompileDecision::Refuse(d)) => {
+            CompileDecision::Refuse(d)
+        }
+        (CompileDecision::ConfirmOnly, _) | (_, CompileDecision::ConfirmOnly) => {
+            CompileDecision::ConfirmOnly
+        }
+        (CompileDecision::Admit, CompileDecision::Admit) => CompileDecision::Admit,
+    }
+}
+
+/// Widens one predicate's [`PredicateVerdict`] (D2: one diagnostic max) into a [`CompileDecision`]
+/// (this section: a `Vec` of diagnostics) so it can be [`meet`]-folded together with other nodes'/
+/// observations' decisions.
+fn verdict_to_decision(verdict: PredicateVerdict) -> CompileDecision {
+    match verdict {
+        PredicateVerdict::Admit => CompileDecision::Admit,
+        PredicateVerdict::ConfirmOnly => CompileDecision::ConfirmOnly,
+        PredicateVerdict::Refuse(diag) => CompileDecision::Refuse(vec![diag]),
+    }
+}
+
+/// The overall decision floor for an observed, non-`Proven` [`CharacteristicKind`] that NO
+/// registered predicate discharges at all — there is no `evaluate` call to make for it, only
+/// `kind`'s own default [`Disposition`] to fold in directly (design.md's D1 table, restated as a
+/// [`CompileDecision`]).
+///
+/// - [`Disposition::ConfirmOnly`]/[`Disposition::ConfigPredicate`] rest at
+///   [`CompileDecision::ConfirmOnly`] absent a predicate proving `Admit` — exactly
+///   [`Disposition::ConfigPredicate`]'s own doc ("`ConfirmOnly` unless/until a registered predicate
+///   proves `Admit`") and [`Disposition::ConfirmOnly`]'s own doc (recall-preserving only if the
+///   proposer proposes the superset — never promotable to `Admit` without a proof this function has
+///   no predicate to supply). This is the landing spot for e.g. an observed
+///   [`CharacteristicKind::MprGroupAppend`]: [`default_registry`] intentionally registers no
+///   predicate for it at all (`ConfirmOnly` already IS its resting disposition, per D1's table —
+///   there is nothing to prove up to `Admit` and no coverage gap either, since
+///   [`undischarged_kinds`] only requires coverage for `FailClosed`/`ConfigPredicate` kinds).
+/// - [`Disposition::FailClosed`] with NO discharging predicate registered at all is a REGISTRY
+///   COVERAGE GAP ([`undischarged_kinds`] exists precisely to catch this at the registry level, and
+///   [`default_registry`]'s own test proves it never happens for that registry). Handled here
+///   defensively for any OTHER caller-supplied [`PredicateRegistry`] that omits it, by folding in a
+///   synthetic `Refuse` naming the gap rather than silently `Admit`ting an unproven-by-construction
+///   characteristic — the exact failure mode ADR 0001 forbids.
+/// - [`Disposition::Proven`] never actually reaches this function in practice (callers only invoke
+///   it for observations already filtered to `disposition != Proven`); matched here anyway for the
+///   same no-catch-all discipline the rest of this module holds itself to.
+fn disposition_floor(kind: CharacteristicKind, disposition: Disposition) -> CompileDecision {
+    match disposition {
+        Disposition::Proven => CompileDecision::Admit,
+        Disposition::ConfigPredicate | Disposition::ConfirmOnly => CompileDecision::ConfirmOnly,
+        Disposition::FailClosed => CompileDecision::Refuse(vec![CapabilityDiagnostic {
+            predicate: "registry-coverage-gap.no-predicate-registered",
+            construct: format!("{kind:?}"),
+            witness: format!(
+                "{kind:?} is FailClosed by default disposition (design.md D1) but the supplied \
+                 PredicateRegistry registers no predicate discharging it -- conservatively \
+                 refusing rather than silently admitting an unproven-by-construction \
+                 characteristic (run undischarged_kinds() against any production registry to catch \
+                 this earlier)"
+            ),
+        }]),
+    }
+}
+
+/// Computes `node_id`'s bottom-up [`CompileDecision`] within `plan` (design.md D4: "a node's
+/// verdict is the meet of its children's verdicts and its own node-level predicate"), memoized by
+/// [`NodeId`] in `cache` so a node shared by multiple parents (D1's content-addressed DAG sharing)
+/// is evaluated exactly once, not once per parent referencing it.
+///
+/// A node's "own predicate verdicts" are every predicate in `registry` whose
+/// [`CapabilityPredicate::discharges`] names a [`CharacteristicKind`] present in `relevant_kinds`
+/// (every kind `compose_envelope` found the profile observed with a non-`Proven` disposition). This
+/// guard exists because [`FailClosedPlaceholder`]'s `evaluate` ignores both `profile` and
+/// `plan_node` and unconditionally `Refuse`s — calling it at every node of every plan regardless of
+/// whether its characteristic was ever observed would force every grammar to `Refuse`, including
+/// ordinary ones that never exercise that construct at all. Gating on "was this kind observed
+/// anywhere" makes a predicate a pure no-op at every node when its construct genuinely does not
+/// occur in this grammar, which is always safe (there is nothing to refuse if the construct is
+/// absent) — never a shortcut that could skip a predicate whose construct actually IS present.
+///
+/// A predicate whose construct DOES occur (e.g. [`SimultaneousSubruleOverlapPredicate`]) is still
+/// called at literally EVERY node the walk visits, not just the "right" one — correctness relies on
+/// well-behaved predicates already being self-gating on node applicability (D2's own contract:
+/// `evaluate` "may return `Refuse` too eagerly, never `Admit` too eagerly", and
+/// [`SimultaneousSubruleOverlapPredicate::evaluate`]'s own early `Admit` returns for a non-
+/// `RewriteRule` leaf, or a `RewriteRule` leaf whose `PRuleId` isn't the observed `Simultaneous`
+/// rule), not on this function pre-filtering by node shape. This is also exactly how a
+/// [`CharacteristicKind::SimultaneousRewrite`] observation's [`ModelLocation::PhonRule`] gets
+/// "mapped" onto its plan node: `crate::enumerate::enumerate_default` mints one
+/// `Leaf { fragment: FragmentSpec::RewriteRule { rule }, .. }` per `PRuleId`, the walk below visits
+/// every leaf, and the predicate's own `PRuleId`-keyed lookup
+/// ([`CharacteristicsProfile::simultaneous_detail`]) does the actual matching — no separate
+/// `ModelLocation -> NodeId` lookup table is built, because the walk already provides it.
+fn node_decision(
+    plan: &Plan,
+    profile: &CharacteristicsProfile,
+    registry: &PredicateRegistry,
+    relevant_kinds: &HashSet<CharacteristicKind>,
+    node_id: NodeId,
+    cache: &mut HashMap<NodeId, CompileDecision>,
+) -> CompileDecision {
+    if let Some(cached) = cache.get(&node_id) {
+        return cached.clone();
+    }
+    // A dangling id (not interned in this plan) would be a caller/plan-construction bug, not a
+    // capability judgment -- fold in as vacuously Admit rather than panic, since this function's
+    // job is a conservative DECISION over a well-formed Plan, not plan validation (`crate::plan`
+    // owns that).
+    let Some(kind) = plan.get(node_id) else {
+        return CompileDecision::Admit;
+    };
+
+    let mut decision = CompileDecision::Admit;
+    for &child in kind.children() {
+        decision = meet(
+            decision,
+            node_decision(plan, profile, registry, relevant_kinds, child, cache),
+        );
+    }
+    for predicate in registry.predicates() {
+        if predicate
+            .discharges()
+            .iter()
+            .any(|k| relevant_kinds.contains(k))
+        {
+            decision = meet(decision, verdict_to_decision(predicate.evaluate(profile, kind)));
+        }
+    }
+
+    cache.insert(node_id, decision.clone());
+    decision
+}
+
+/// Step 2 of `add-capability-characteristics-check` (design.md D4): composes the capability
+/// envelope bottom-up over `plan` (the reified compilation plan `crate::enumerate::
+/// enumerate_default` builds) and returns the overall CHECK-ONLY [`CompileDecision`] — connecting
+/// Step 1's two spines, [`characterize`] (the profile) and `enumerate_default` (the plan), through
+/// `registry`.
+///
+/// # Algorithm (design.md D4, spec.md)
+/// 1. [`characterize`] projects `g` into a [`CharacteristicsProfile`].
+/// 2. Every observed [`CharacteristicKind`] whose disposition is NOT [`Disposition::Proven`] is
+///    collected into a `relevant_kinds` set ([`node_decision`]'s own doc explains why).
+/// 3. `plan`'s root is walked bottom-up via [`node_decision`]: the meet of every node's children's
+///    decisions and its own applicable registered predicates.
+/// 4. Separately, every OBSERVED non-`Proven` kind that NO registered predicate discharges at all
+///    (so step 3 never had an `evaluate` call to make for it — e.g. [`CharacteristicKind::
+///    MprGroupAppend`], which [`default_registry`] intentionally leaves undischarged since
+///    `ConfirmOnly` is already its own resting disposition) is folded in via [`disposition_floor`],
+///    so a grammar-wide characteristic with no registered predicate at all still pulls the overall
+///    decision down.
+/// 5. The two folds [`meet`] into the final, overall [`CompileDecision`].
+///
+/// # Judgment call: constructs with no distinct plan node
+/// Several `FailClosed`/`ConfigPredicate` characteristics ([`CharacteristicKind::Compounding`],
+/// [`CharacteristicKind::UnorderedMorphRuleApplication`], [`CharacteristicKind::MprGroupOverwrite`],
+/// [`CharacteristicKind::Epenthesis`], [`CharacteristicKind::CircumfixOutputAction`],
+/// [`CharacteristicKind::Reduplication`]) have NO corresponding [`crate::plan::PlanNodeKind`] in
+/// today's `enumerate_default` shape at all — that module's own doc: it only ever mints leaves for
+/// the lexicon (per gate group), one per rewrite rule, and the two composite-emission markers,
+/// nothing addressed by `MRuleId`/`StratumId`/an mpr-group index. Each of these characteristics is
+/// discharged today by a [`FailClosedPlaceholder`], whose `evaluate` unconditionally `Refuse`s
+/// REGARDLESS of which node it is called at or what `profile` says (that type's own Step-1 doc) —
+/// so which specific node it is evaluated against is behaviorally irrelevant here, and
+/// [`node_decision`]'s per-node walk (which calls every relevant-kind predicate at EVERY node)
+/// already folds its `Refuse` in correctly without needing a `ModelLocation -> NodeId` lookup table
+/// for these kinds at all. This is this step's "representative node" case: no lookup was built
+/// because none would change the outcome, not because one was skipped for convenience — documented
+/// here rather than silently. [`CharacteristicKind::SimultaneousRewrite`] is the one kind that DOES
+/// need (and gets, via the plan walk itself) a SPECIFIC node — see [`node_decision`]'s own doc for
+/// how that mapping actually happens.
+pub fn compose_envelope(g: &Grammar, plan: &Plan, registry: &PredicateRegistry) -> CompileDecision {
+    let profile = characterize(g);
+    let relevant_kinds: HashSet<CharacteristicKind> = profile
+        .observations()
+        .iter()
+        .filter(|o| o.disposition != Disposition::Proven)
+        .map(|o| o.kind)
+        .collect();
+
+    let mut cache = HashMap::new();
+    let mut decision = match plan.root() {
+        Some(root) => node_decision(plan, &profile, registry, &relevant_kinds, root, &mut cache),
+        None => CompileDecision::Admit,
+    };
+
+    for &kind in &relevant_kinds {
+        if !registry.discharges(kind) {
+            decision = meet(decision, disposition_floor(kind, kind.default_disposition()));
+        }
+    }
+
+    decision
+}
+
 #[cfg(test)]
 mod tests {
     //! Synthetic, delanguaged fixtures only (no natural-language names) -- built via
@@ -1063,10 +1332,37 @@ mod tests {
     use pg_grammar::model::{MorphRuleDef, PhonRuleDef, PRuleId};
 
     use super::*;
+    use crate::enumerate::enumerate_default;
+    use crate::junctions::PhonologyProbe;
     use crate::plan::{FragmentSpec, PlanNodeKind, Provenance};
+    use crate::replace::SegAlphabet;
 
     fn load(xml: &str) -> Grammar {
         pg_grammar::load(xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"))
+    }
+
+    /// `crate::enumerate::enumerate_default`'s own test-module helper, duplicated here (not
+    /// shared -- test modules don't share private helpers across files): the grammar's
+    /// phonological rules in cascade order, as literal borrows of `g.prules` (required for
+    /// `enumerate_default`'s pointer-identity `PRuleId` recovery -- see `enumerate::rule_id_of`'s
+    /// own doc).
+    fn prules_in_order(g: &Grammar) -> Vec<&PhonRuleDef> {
+        g.strata
+            .iter()
+            .flat_map(|s| &s.prules)
+            .map(|&id| &g.prules[id.0 as usize])
+            .collect()
+    }
+
+    /// Builds `g`'s enumerated [`crate::plan::Plan`] via the REAL `enumerate_default` seam (Step 2
+    /// of `reify-compilation-plans`), exactly the way a real caller would -- these
+    /// `compose_envelope` tests exercise the full characterize+enumerate+compose pipeline end to
+    /// end, not a hand-built `Plan`.
+    fn enumerated_plan(g: &Grammar) -> Plan {
+        let alphabet = SegAlphabet::new(&g.char_tables[0]);
+        let ro = prules_in_order(g);
+        let phon = PhonologyProbe::new(g);
+        enumerate_default(g, &alphabet, &ro, phon.as_ref())
     }
 
     // ---------------------------------------------------------------------------------------
@@ -1470,5 +1766,442 @@ mod tests {
             let _ = kind.default_disposition();
         }
         assert_eq!(CharacteristicKind::ALL.len(), 18);
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // compose_envelope (D4, Step 2): meet lattice unit checks
+    // ---------------------------------------------------------------------------------------
+
+    fn diag(predicate: PredicateId, construct: &str) -> CapabilityDiagnostic {
+        CapabilityDiagnostic {
+            predicate,
+            construct: construct.to_string(),
+            witness: "unit-test witness".to_string(),
+        }
+    }
+
+    /// D4's lattice, spelled out directly on [`meet`] (not via a whole grammar): `Refuse`
+    /// dominates `ConfirmOnly` dominates `Admit`, in every pairing.
+    #[test]
+    fn meet_lattice_lines_up_with_d4() {
+        assert_eq!(
+            meet(CompileDecision::Admit, CompileDecision::Admit),
+            CompileDecision::Admit
+        );
+        assert_eq!(
+            meet(CompileDecision::Admit, CompileDecision::ConfirmOnly),
+            CompileDecision::ConfirmOnly
+        );
+        assert_eq!(
+            meet(CompileDecision::ConfirmOnly, CompileDecision::Admit),
+            CompileDecision::ConfirmOnly
+        );
+        assert_eq!(
+            meet(CompileDecision::ConfirmOnly, CompileDecision::ConfirmOnly),
+            CompileDecision::ConfirmOnly
+        );
+        let d1 = diag("p1", "c1");
+        assert_eq!(
+            meet(CompileDecision::Admit, CompileDecision::Refuse(vec![d1.clone()])),
+            CompileDecision::Refuse(vec![d1.clone()])
+        );
+        assert_eq!(
+            meet(CompileDecision::Refuse(vec![d1.clone()]), CompileDecision::ConfirmOnly),
+            CompileDecision::Refuse(vec![d1.clone()])
+        );
+    }
+
+    /// Two `Refuse`s meet to carry BOTH diagnostics (union), not just one side's -- the "a caller
+    /// sees every problem" requirement.
+    #[test]
+    fn meet_of_two_refuses_unions_diagnostics() {
+        let d1 = diag("p1", "c1");
+        let d2 = diag("p2", "c2");
+        let merged = meet(
+            CompileDecision::Refuse(vec![d1.clone()]),
+            CompileDecision::Refuse(vec![d2.clone()]),
+        );
+        assert_eq!(merged, CompileDecision::Refuse(vec![d1, d2]));
+    }
+
+    /// Meeting a `Refuse` with an EQUAL diagnostic (the same construct reached via two DAG paths
+    /// to a shared node) does not duplicate it.
+    #[test]
+    fn meet_of_two_refuses_deduplicates_identical_diagnostics() {
+        let d1 = diag("p1", "c1");
+        let merged = meet(
+            CompileDecision::Refuse(vec![d1.clone()]),
+            CompileDecision::Refuse(vec![d1.clone()]),
+        );
+        assert_eq!(merged, CompileDecision::Refuse(vec![d1]));
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // compose_envelope (D4, Step 2): end-to-end over characterize() + enumerate_default()
+    // ---------------------------------------------------------------------------------------
+
+    /// An ordinary affix + iterative-rewrite grammar (no Compounding, no Unordered strata, no MPR
+    /// groups, no Simultaneous/RightToLeft/Metathesis rules, no true reduplication/circumfix) must
+    /// compose to `Admit` -- the common well-authored case.
+    #[test]
+    fn compose_envelope_admits_ordinary_affix_and_iterative_rewrite_grammar() {
+        const XML: &str = r#"<HermitCrabInput><Language><Name>Ordinary</Name>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions>
+              <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+              <SegmentDefinition id="cb"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
+            </SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /><Segment segment="cb" /></SegmentNaturalClass></NaturalClasses>
+          <PhonologicalRuleDefinitions>
+            <PhonologicalRule id="pr1">
+              <Name>PR</Name>
+              <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncAll" /></PhoneticSequence></PhoneticInput>
+              <PhonologicalSubrules>
+                <PhonologicalSubrule>
+                  <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncAll" /></PhoneticSequence></PhoneticOutput>
+                </PhonologicalSubrule>
+              </PhonologicalSubrules>
+            </PhonologicalRule>
+          </PhonologicalRuleDefinitions>
+          <Strata>
+            <Stratum characterDefinitionTable="t1" phonologicalRules="pr1" morphologicalRules="mr1">
+              <Name>S</Name>
+              <MorphologicalRuleDefinitions>
+                <MorphologicalRule id="mr1">
+                  <Name>-a</Name>
+                  <MorphologicalSubrules>
+                    <MorphologicalSubrule id="sub1">
+                      <MorphologicalInput>
+                        <PhoneticSequence id="stem"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAll" /></OptionalSegmentSequence></PhoneticSequence>
+                      </MorphologicalInput>
+                      <MorphologicalOutput>
+                        <CopyFromInput index="stem" />
+                        <InsertSegments><PhoneticShape>a</PhoneticShape></InsertSegments>
+                      </MorphologicalOutput>
+                    </MorphologicalSubrule>
+                  </MorphologicalSubrules>
+                </MorphologicalRule>
+              </MorphologicalRuleDefinitions>
+              <LexicalEntries>
+                <LexicalEntry id="e1">
+                  <Allomorphs><Allomorph id="a1"><PhoneticShape>b</PhoneticShape></Allomorph></Allomorphs>
+                </LexicalEntry>
+              </LexicalEntries>
+            </Stratum>
+          </Strata>
+        </Language></HermitCrabInput>"#;
+        let g = load(XML);
+        let plan = enumerated_plan(&g);
+        let registry = default_registry();
+
+        assert_eq!(compose_envelope(&g, &plan, &registry), CompileDecision::Admit);
+    }
+
+    /// A grammar with a `Compounding` rule must compose to `Refuse`, with a diagnostic naming
+    /// compounding.
+    #[test]
+    fn compose_envelope_refuses_compounding_grammar() {
+        const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /></SegmentNaturalClass></NaturalClasses>
+          <Strata>
+            <Stratum characterDefinitionTable="t1">
+              <Name>S</Name>
+              <MorphologicalRuleDefinitions>
+                <CompoundingRule id="cr1">
+                  <Name>Compound</Name>
+                  <CompoundingSubrules>
+                    <CompoundingSubrule>
+                      <HeadMorphologicalInput>
+                        <PhoneticSequence id="h0"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
+                      </HeadMorphologicalInput>
+                      <NonHeadMorphologicalInput>
+                        <PhoneticSequence id="n0"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
+                      </NonHeadMorphologicalInput>
+                      <MorphologicalOutput>
+                        <CopyFromInput index="n0" />
+                        <CopyFromInput index="h0" />
+                      </MorphologicalOutput>
+                    </CompoundingSubrule>
+                  </CompoundingSubrules>
+                </CompoundingRule>
+              </MorphologicalRuleDefinitions>
+            </Stratum>
+          </Strata>
+        </Language></HermitCrabInput>"#;
+        let g = load(XML);
+        let plan = enumerated_plan(&g);
+        let registry = default_registry();
+
+        match compose_envelope(&g, &plan, &registry) {
+            CompileDecision::Refuse(diags) => {
+                assert!(
+                    diags.iter().any(|d| d.construct.contains("Compounding")),
+                    "expected a diagnostic naming Compounding: {diags:?}"
+                );
+            }
+            other => panic!("expected Refuse, got {other:?}"),
+        }
+    }
+
+    /// A grammar with `MorphRuleOrder::Unordered` must compose to `Refuse`.
+    #[test]
+    fn compose_envelope_refuses_unordered_morph_rule_order_grammar() {
+        const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <Strata>
+            <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered">
+              <Name>S</Name>
+            </Stratum>
+          </Strata>
+        </Language></HermitCrabInput>"#;
+        let g = load(XML);
+        let plan = enumerated_plan(&g);
+        let registry = default_registry();
+
+        match compose_envelope(&g, &plan, &registry) {
+            CompileDecision::Refuse(diags) => {
+                assert!(
+                    diags
+                        .iter()
+                        .any(|d| d.construct.contains("UnorderedMorphRuleApplication")),
+                    "expected a diagnostic naming UnorderedMorphRuleApplication: {diags:?}"
+                );
+            }
+            other => panic!("expected Refuse, got {other:?}"),
+        }
+    }
+
+    /// A grammar with an `MprGroupOutput::Append` group and nothing worse must compose to
+    /// `ConfirmOnly` -- not `Admit` (the group is real, unproven-to-Admit material) and not
+    /// `Refuse` (nothing FailClosed is present).
+    #[test]
+    fn compose_envelope_confirm_only_for_append_group_alone() {
+        const XML: &str = r#"<HermitCrabInput><Language><Name>AppendOnly</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
+          <MorphologicalPhonologicalRuleFeatures>
+            <MorphologicalPhonologicalRuleFeature id="mprA">A</MorphologicalPhonologicalRuleFeature>
+            <MorphologicalPhonologicalRuleFeatureGroup matchType="all" outputType="append" features="mprA"><Name>GAppend</Name></MorphologicalPhonologicalRuleFeatureGroup>
+          </MorphologicalPhonologicalRuleFeatures>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions><SegmentDefinition id="c1"><Representations><Representation>p</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <Strata>
+            <Stratum characterDefinitionTable="t1">
+              <Name>S</Name>
+              <LexicalEntries>
+                <LexicalEntry id="e1" partOfSpeech="posV">
+                  <Allomorphs><Allomorph id="a1"><PhoneticShape>p</PhoneticShape></Allomorph></Allomorphs>
+                  <Gloss>e1</Gloss>
+                </LexicalEntry>
+              </LexicalEntries>
+            </Stratum>
+          </Strata>
+        </Language></HermitCrabInput>"#;
+        let g = load(XML);
+        assert!(
+            !g.mpr_groups.is_empty(),
+            "fixture must declare an MprGroup at all"
+        );
+        let plan = enumerated_plan(&g);
+        let registry = default_registry();
+
+        assert_eq!(
+            compose_envelope(&g, &plan, &registry),
+            CompileDecision::ConfirmOnly
+        );
+    }
+
+    /// A grammar with a `Simultaneous` rewrite rule whose subrules are provably mpr-disjoint (and
+    /// not self-opaquing) must compose to `Admit`.
+    #[test]
+    fn compose_envelope_admits_simultaneous_rule_with_mpr_disjoint_subrules() {
+        const XML: &str = r#"<HermitCrabInput><Language><Name>SimAdmit</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
+          <MorphologicalPhonologicalRuleFeatures>
+            <MorphologicalPhonologicalRuleFeature id="mprA">Alpha</MorphologicalPhonologicalRuleFeature>
+          </MorphologicalPhonologicalRuleFeatures>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions>
+              <SegmentDefinition id="c1"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
+              <SegmentDefinition id="c2"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
+            </SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <NaturalClasses>
+            <SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="c1" /></SegmentNaturalClass>
+          </NaturalClasses>
+          <PhonologicalRuleDefinitions>
+            <PhonologicalRule id="pr1" multipleApplicationOrder="simultaneous">
+              <Name>PR</Name>
+              <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncAll" /></PhoneticSequence></PhoneticInput>
+              <PhonologicalSubrules>
+                <PhonologicalSubrule requiredMPRFeatures="mprA">
+                  <PhoneticOutput><PhoneticSequence><Segment segment="c2" /></PhoneticSequence></PhoneticOutput>
+                </PhonologicalSubrule>
+                <PhonologicalSubrule excludedMPRFeatures="mprA">
+                  <PhoneticOutput><PhoneticSequence><Segment segment="c2" /></PhoneticSequence></PhoneticOutput>
+                </PhonologicalSubrule>
+              </PhonologicalSubrules>
+            </PhonologicalRule>
+          </PhonologicalRuleDefinitions>
+          <Strata>
+            <Stratum characterDefinitionTable="t1" phonologicalRules="pr1">
+              <Name>S</Name>
+              <LexicalEntries>
+                <LexicalEntry id="e1" partOfSpeech="posV">
+                  <Allomorphs><Allomorph id="a1"><PhoneticShape>p</PhoneticShape></Allomorph></Allomorphs>
+                  <Gloss>e1</Gloss>
+                </LexicalEntry>
+              </LexicalEntries>
+            </Stratum>
+          </Strata>
+        </Language></HermitCrabInput>"#;
+        let g = load(XML);
+        let PhonRuleDef::Rewrite(r) = &g.prules[0] else {
+            panic!("expected rewrite rule at 0")
+        };
+        assert_eq!(r.mode, RewriteMode::Simultaneous);
+        assert!(!r.subrules[0].self_opaquing && !r.subrules[1].self_opaquing);
+
+        let plan = enumerated_plan(&g);
+        let registry = default_registry();
+
+        assert_eq!(compose_envelope(&g, &plan, &registry), CompileDecision::Admit);
+    }
+
+    /// The same shape, but neither subrule declares an MPR gate -- overlap can't be ruled out, so
+    /// this must compose to `Refuse`.
+    #[test]
+    fn compose_envelope_refuses_simultaneous_rule_when_overlap_cannot_be_ruled_out() {
+        const XML: &str = r#"<HermitCrabInput><Language><Name>SimRefuse</Name>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions>
+              <SegmentDefinition id="c1"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
+              <SegmentDefinition id="c2"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
+            </SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <NaturalClasses>
+            <SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="c1" /></SegmentNaturalClass>
+          </NaturalClasses>
+          <PhonologicalRuleDefinitions>
+            <PhonologicalRule id="pr1" multipleApplicationOrder="simultaneous">
+              <Name>PR</Name>
+              <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncAll" /></PhoneticSequence></PhoneticInput>
+              <PhonologicalSubrules>
+                <PhonologicalSubrule>
+                  <PhoneticOutput><PhoneticSequence><Segment segment="c2" /></PhoneticSequence></PhoneticOutput>
+                </PhonologicalSubrule>
+                <PhonologicalSubrule>
+                  <PhoneticOutput><PhoneticSequence><Segment segment="c2" /></PhoneticSequence></PhoneticOutput>
+                </PhonologicalSubrule>
+              </PhonologicalSubrules>
+            </PhonologicalRule>
+          </PhonologicalRuleDefinitions>
+          <Strata>
+            <Stratum characterDefinitionTable="t1" phonologicalRules="pr1">
+              <Name>S</Name>
+              <LexicalEntries>
+                <LexicalEntry id="e1">
+                  <Allomorphs><Allomorph id="a1"><PhoneticShape>p</PhoneticShape></Allomorph></Allomorphs>
+                </LexicalEntry>
+              </LexicalEntries>
+            </Stratum>
+          </Strata>
+        </Language></HermitCrabInput>"#;
+        let g = load(XML);
+        let PhonRuleDef::Rewrite(r) = &g.prules[0] else {
+            panic!("expected rewrite rule at 0")
+        };
+        assert!(!r.subrules[0].self_opaquing && !r.subrules[1].self_opaquing);
+        assert!(r.subrules[0].required_mpr.is_empty() && r.subrules[0].excluded_mpr.is_empty());
+
+        let plan = enumerated_plan(&g);
+        let registry = default_registry();
+
+        match compose_envelope(&g, &plan, &registry) {
+            CompileDecision::Refuse(diags) => {
+                assert!(
+                    diags.iter().any(|d| d.predicate == "simultaneous.subrule-overlap"),
+                    "expected a simultaneous.subrule-overlap diagnostic: {diags:?}"
+                );
+            }
+            other => panic!("expected Refuse, got {other:?}"),
+        }
+    }
+
+    /// Meet correctness: a grammar that is BOTH ConfirmOnly-worthy (an Append group) AND
+    /// Refuse-worthy (a Compounding rule) must compose to `Refuse` overall (Refuse dominates), and
+    /// the `Refuse` must carry a diagnostic for the refusing construct (Compounding), not just
+    /// silently drop it because a milder ConfirmOnly construct is ALSO present.
+    #[test]
+    fn compose_envelope_meet_correctness_refuse_dominates_confirm_only() {
+        const XML: &str = r#"<HermitCrabInput><Language><Name>AppendPlusCompound</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
+          <MorphologicalPhonologicalRuleFeatures>
+            <MorphologicalPhonologicalRuleFeature id="mprA">A</MorphologicalPhonologicalRuleFeature>
+            <MorphologicalPhonologicalRuleFeatureGroup matchType="all" outputType="append" features="mprA"><Name>GAppend</Name></MorphologicalPhonologicalRuleFeatureGroup>
+          </MorphologicalPhonologicalRuleFeatures>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions><SegmentDefinition id="c1"><Representations><Representation>p</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="c1" /></SegmentNaturalClass></NaturalClasses>
+          <Strata>
+            <Stratum characterDefinitionTable="t1">
+              <Name>S</Name>
+              <MorphologicalRuleDefinitions>
+                <CompoundingRule id="cr1">
+                  <Name>Compound</Name>
+                  <CompoundingSubrules>
+                    <CompoundingSubrule>
+                      <HeadMorphologicalInput>
+                        <PhoneticSequence id="h0"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
+                      </HeadMorphologicalInput>
+                      <NonHeadMorphologicalInput>
+                        <PhoneticSequence id="n0"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
+                      </NonHeadMorphologicalInput>
+                      <MorphologicalOutput>
+                        <CopyFromInput index="n0" />
+                        <CopyFromInput index="h0" />
+                      </MorphologicalOutput>
+                    </CompoundingSubrule>
+                  </CompoundingSubrules>
+                </CompoundingRule>
+              </MorphologicalRuleDefinitions>
+              <LexicalEntries>
+                <LexicalEntry id="e1" partOfSpeech="posV">
+                  <Allomorphs><Allomorph id="a1"><PhoneticShape>p</PhoneticShape></Allomorph></Allomorphs>
+                  <Gloss>e1</Gloss>
+                </LexicalEntry>
+              </LexicalEntries>
+            </Stratum>
+          </Strata>
+        </Language></HermitCrabInput>"#;
+        let g = load(XML);
+        assert!(!g.mpr_groups.is_empty(), "fixture must declare an MprGroup");
+        assert!(
+            g.mrules.iter().any(|m| matches!(m, MorphRuleDef::Compounding(_))),
+            "fixture must declare a Compounding rule"
+        );
+
+        let plan = enumerated_plan(&g);
+        let registry = default_registry();
+
+        match compose_envelope(&g, &plan, &registry) {
+            CompileDecision::Refuse(diags) => {
+                assert!(
+                    diags.iter().any(|d| d.construct.contains("Compounding")),
+                    "Refuse must carry a diagnostic naming Compounding, not just meet away to a \
+                     bare ConfirmOnly: {diags:?}"
+                );
+            }
+            other => panic!(
+                "expected Refuse (Refuse dominates ConfirmOnly per D4), got {other:?}"
+            ),
+        }
     }
 }
