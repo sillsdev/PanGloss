@@ -102,6 +102,14 @@ pub mod emit;
 pub mod gate;
 pub mod junctions;
 pub(crate) mod morphotactics;
+/// Step 3 of `openspec/changes/reify-compilation-plans` (design.md D4, task 3.1): the
+/// differential-correctness oracle -- [`oracle::differential_oracle`] builds two [`plan::Plan`]s
+/// via [`build::build_controllable`] and compares their `apply_up` result sets, reporting the
+/// shortest disagreeing word plus symmetric difference on mismatch; [`oracle::permute_gate_groups`]
+/// is the second same-relation topology generator this module's own tests diff against. Cheap,
+/// always-on tier only (D4's expensive exact-equivalence stretch tier and any real confirm-engine
+/// integration are explicitly out of scope; see that module's own doc). Purely additive.
+pub mod oracle;
 pub mod peel;
 /// Step 1 of `openspec/changes/reify-compilation-plans` (design.md D1): the reified,
 /// content-addressed compilation-`Plan` data type. Purely additive -- does not rewire
