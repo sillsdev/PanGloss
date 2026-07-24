@@ -1,4 +1,4 @@
-# Tasks — add-capability-characteristics-check (SCAFFOLD, pending grill/authoring)
+# Tasks — add-capability-characteristics-check
 
 ## 1. Profile + envelope + predicate types
 - [ ] 1.1 Characteristics profile type projected from grammar + stem data
@@ -22,5 +22,5 @@
 - [ ] 5.1 Cross-check capability manifest against `machine/conformance/` coverage; break build on gap
 
 ## 6. Design + specs
-- [ ] 6.1 design.md (envelope composition, interaction predicates, provenance)
-- [ ] 6.2 specs delta for the capability-boundary contract
+- [x] 6.1 design.md (envelope composition, interaction predicates, provenance)
+- [x] 6.2 specs delta for the capability-boundary contract

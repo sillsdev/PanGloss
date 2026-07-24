@@ -1,4 +1,4 @@
-# Tasks — reify-compilation-plans (SCAFFOLD, pending grill/authoring)
+# Tasks — reify-compilation-plans
 
 ## 1. Plan as first-class data
 - [ ] 1.1 Compilation plan type (enumerable composition topology)
@@ -16,5 +16,5 @@
 - [ ] 4.1 Compilation modules named by composed parts, never by language
 
 ## 5. Design + specs
-- [ ] 5.1 design.md (enumerator, selection, oracle, blast radius on replace/gate/emit)
-- [ ] 5.2 specs delta
+- [x] 5.1 design.md (enumerator, selection, oracle, blast radius on replace/gate/emit)
+- [x] 5.2 specs delta
