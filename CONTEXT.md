@@ -263,6 +263,18 @@ _Avoid_: Grammar summary, feature flags
 A compilation stage's oracle- or proof-backed statement of the construct configurations it faithfully handles, the interactions it is proven orthogonal across, and the cardinalities it accepts. Envelopes compose bottom-up over a compilation plan; an interaction neither proven orthogonal nor proven-together fails closed.
 _Avoid_: Feature list, supported flag
 
+**Capability predicate**:
+An oracle-verified proof obligation that discharges one characteristic (or an interaction of several) at a plan node, returning `Admit`, `ConfirmOnly`, or `Refuse`. It is conservative: it may over-refuse but must never admit a configuration that could omit a valid analysis. Predicates are what the capability envelope is composed from.
+_Avoid_: Check, rule (unqualified)
+
+**Confirm-only by default**:
+The standing rule that a construct's proposer over-approximates (proposes the superset) and confirm prunes, unless a proven no-false-negative argument licenses the FST to admission-filter. Admission-filtering is an optimization with a proof obligation; absent the proof the verdict is `ConfirmOnly`. This makes "never under-propose" structural rather than a matter of per-author diligence.
+_Avoid_: FST filtering as the default, propose-narrow
+
+**Parallel-independence**:
+The general form of the interaction predicate proving two composition branches may be merged by union: neither branch's rewrite reads or deletes what the other touches (graph-transformation theory's Local Church-Rosser condition; feeding/bleeding disjointness is the phonology-specific special case). Proven pairwise by critical-pair enumeration over the constructs actually present; this is how "proving orthogonality retires combination space" becomes a finite checklist.
+_Avoid_: Independence (unqualified), commutativity (as if free)
+
 **Characteristics check**:
 The unifying accept/refuse decision matching a characteristics profile against the composed capability envelope, recording why. It hard-fails any grammar using a not-proven-faithful configuration (an honest carve-out) and never converts a cost prediction into a correctness verdict.
 _Avoid_: Validation pass, lint
@@ -272,11 +284,11 @@ Whether a "supported" claim rests on behavioral oracle witnesses (the black-box 
 _Avoid_: Supported (unqualified)
 
 **Conformance coverage gate**:
-The CI check that makes "supported" mean "proven accurate": a construct or configuration may not flip from fail-closed to supported unless the in-repo conformance suite exercises it and passes. The capability manifest is cross-checked against conformance coverage, and marking anything supported without a covering, passing fixture breaks the build. This is how the claim "if a grammar compiles, it is accurate" is mechanically enforced rather than promised — the conformance suite is the gate through which a construct earns "supported."
+The CI check that makes "supported" mean "proven accurate": a construct or configuration may not flip from fail-closed to supported unless the in-repo conformance suite exercises it and passes. The capability registry is cross-checked against conformance coverage, and marking anything supported without a covering, passing fixture breaks the build. This is how the claim "if a grammar compiles, it is accurate" is mechanically enforced rather than promised — the conformance suite is the gate through which a construct earns "supported."
 _Avoid_: Certification, sign-off (there is no separate terminal certification stage; ground truth is committed per-fixture and integration tests run the current engine against it)
 
 **Capability override**:
-An explicit escape hatch that force-compiles a grammar the characteristics check refused. It produces an artifact indelibly stamped unproven/recall-unsafe that still loads and runs. It is the development on-ramp for promoting a construct (force-compile → iterate → prove → cover → flip supported) and the way an in-progress grammar reaches a user for trial. The override is recorded in the manifest; it never passes the conformance gate and is cleared only by genuine proof plus a clean recompile.
+An explicit escape hatch that force-compiles a grammar the characteristics check refused. It produces an artifact indelibly stamped unproven/recall-unsafe that still loads and runs. It is the development on-ramp for promoting a construct (force-compile → iterate → prove → cover → flip supported) and the way an in-progress grammar reaches a user for trial. The override is recorded in the pack manifest; it never passes the conformance gate and is cleared only by genuine proof plus a clean recompile.
 _Avoid_: Bypass, disable-check (it does not silence the contract; it records the exception and marks the result)
 
 **Unproven-grammar trust signal**:
@@ -286,6 +298,18 @@ _Avoid_: Warning (unqualified), error band (that is the separate cost/health axi
 **Compilation plan**:
 A first-class, enumerable description of one legal composition topology for a grammar. Multiple plans may pass capability for one grammar; because every capability-passing plan is recall-preserving, all produce the identical confirmed analysis set and differ only in cost.
 _Avoid_: Build path, pipeline (unqualified)
+
+**Plan node**:
+One node of a compilation plan's content-addressed DAG, drawn from a closed kind set (`Leaf`, `Compose` — n-ary, with a separate physical strategy — `Union`, `Gate`, `Replace`). Node identity is content-addressed (a function of kind, children, and config) so identical sub-plans share one identity, storage, and measurement, and each node is individually addressable as a coverage/fuzz target.
+_Avoid_: Stage, pass (unqualified)
+
+**Differential-correctness oracle**:
+The check that builds two or more capability-passing plans for one grammar and asserts their confirmed analysis sets are identical per word; disagreement is a predicate bug (a plan was admitted that is not recall-equivalent), reported with the shortest disagreeing word and the set difference. Because every capability-passing plan is recall-preserving, agreement is required, not hoped for. (Novel: combines sound over-approximation with differential testing; no prior art.)
+_Avoid_: Regression diff, A/B test
+
+**Language-preserving operation**:
+An FST operation that changes representation but not the recognized relation (trim/coaccessible, epsilon-removal, determinization-where-valid, minimization). Only language-preserving operations are permitted anywhere in a proposer pipeline; anything that can change the relation (beam pruning, top-k/best-path shortcuts) is forbidden in propose and confined to confirm/ranking. This is the mechanical guarantee behind propose being a sound over-approximation for recall.
+_Avoid_: Optimization (unqualified), pruning (as if always safe)
 
 **Projected cost**:
 A calibrated heuristic estimate carrying an error bound, used to rank compilation plans before building. Overlapping bounds mean "close" — build the top candidates and measure. A point estimate never prunes a candidate by itself, and projected cost is never a correctness gate.
