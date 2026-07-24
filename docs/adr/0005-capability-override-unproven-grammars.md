@@ -42,16 +42,22 @@ still allowing the artifact to run.
   flag. An app can therefore warn once (banner) and/or per-result, and a user can decide whether
   to trust an answer. A proven pack carries the clean status and neither signal fires.
 - **The override is explicit and recorded.** Who/when/why, and exactly which fail-closed
-  configurations were overridden, are written into the manifest override record — reusing
-  ADR 0004's manifest admission/findings/override field rather than inventing a parallel one.
+  configurations were overridden, are written into the **pack manifest** override record —
+  reusing ADR 0004's pack-manifest admission/findings/override field rather than inventing a
+  parallel one. ("Pack manifest" is the per-`.pgpack` blob; it is distinct from the source-
+  controlled **capability registry** of ADR 0001. Bare unqualified "manifest" is banned.)
 - **Indelible + conformance-excluded.** The stamp survives serialization and cannot be removed
   by a consumer; the conformance gate never passes for an overridden artifact, so an unproven
   pack can never be laundered into a "supported" claim. Only genuine proof + clean recompile
   clears it.
 - **Distinct axis from cost/health.** Capability-override (a correctness-trust axis) composes
-  with, but is separate from, the FST-health admission bands (Warning / Error-with-override /
-  Critical — a cost/size axis, ADR 0001's cost side). A pack can be cost-healthy yet
-  capability-unproven, or vice versa; the manifest carries both independently.
+  with, but is separate from, the FST-health admission bands (Warning / Error / Critical — a
+  cost/size axis, ADR 0001's cost side). Both Error and Critical cost/size bands are themselves
+  overridable via this same capability-override mechanism (force-compile behind the degraded-
+  trust signal); the trust axis is binary and the only non-overridable floor is ADR 0003
+  apply-time execution containment, never a predicted cost/size verdict. A pack can be
+  cost-healthy yet capability-unproven, or vice versa; the pack manifest carries both
+  independently.
 - **It is the construct-promotion workflow.** The override is not only a debugging valve — it is
   the standard loop by which each construct earns "supported" status one at a time, which is the
   slow, deliberate capability-growth pace ADR 0001 prescribes.

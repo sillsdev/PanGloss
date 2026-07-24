@@ -169,8 +169,8 @@ A stable coded compiler diagnostic with severity, phase, affected constructs, me
 _Avoid_: AI grammar advice
 
 **FST admission result**:
-The worst non-overridden FST health severity for one grammar compilation: Ideal, Info, Warning, Error, or Critical. Error is explicitly overridable and permanently recorded; Critical is not overridable.
-_Avoid_: Supported language status
+The worst non-overridden FST health severity for one grammar compilation: Ideal, Info, Warning, Error, or Critical. Error and Critical are both **overridable via the capability override** (ADR 0005), which force-compiles behind an indelible degraded-trust runtime signal; the override is explicit and permanently recorded. The trust axis is binary — proven vs unproven — and the *only* non-overridable hard floor is ADR 0003 apply-time execution containment (the killable compile worker + cooperative apply budgets), which converts a real blowup into a clean containment error rather than a crash. A predicted FST-health verdict, however severe, never becomes a non-overridable refusal.
+_Avoid_: Supported language status, "Critical is a hard refusal"
 
 **Semantic uncertainty**:
 A condition where the compiler cannot preserve every analysis required by the frozen HermitCrab model. It fails closed rather than producing a knowingly incomplete analysis artifact.

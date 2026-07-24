@@ -52,6 +52,17 @@ overclaim."
   for a configuration (e.g. simultaneous-subrule overlap, never pinned against `hc.dll`), the
   configuration is unsupported *by definition* — there is no correct behavior to check
   against.
+- **Confirm-only by default.** The standing rule for every construct: the FST proposer
+  overapproximates (proposes broadly) and the confirm engine prunes to the exact HermitCrab
+  set. Having the FST itself *filter* admissions — narrowing what it proposes so confirm does
+  less work — is an **optimization**, and it carries a proof obligation: a construct's proposer
+  may only admission-filter where a proven no-false-negative argument shows the filter can
+  never drop a valid analysis. Absent that proof, the construct is **confirm-only** — it must
+  propose the superset and lean entirely on confirm. This makes "never under-propose"
+  *structural* rather than a matter of per-author diligence: the unsafe direction (a naive FST
+  filter that silently omits, e.g. history-dependent `MprGroup::Overwrite`) is closed by
+  default, and admission-filtering is an opt-in guarded by the same over-refuse-never-under-
+  refuse discipline as the characterizer's predicates.
 - **Interactions do not compose for free.** A composition node's capability is not the union
   of its children's; composing two safe stages can create an emergent hazard
   (feeding/bleeding non-termination, order-dependence). Orthogonal branches compose by union;
@@ -62,17 +73,20 @@ overclaim."
 - **"Supported" is mechanically gated on passing conformance coverage.** A construct or
   configuration cannot flip from fail-closed to supported unless the in-repo conformance
   suite (`machine/conformance/`) actually exercises it and passes: CI cross-checks the
-  capability manifest against conformance coverage (`constructs.txt` / per-word `exercises:` /
-  `rules.csv`), and marking anything supported without a covering, passing fixture **breaks
-  the build.** This turns the claim *"if a grammar compiles, it is accurate"* into an enforced
+  **capability registry** (the source-controlled, per-construct supported/unsupported contract —
+  distinct from a per-`.pgpack` **pack manifest**; bare unqualified "manifest" is banned) against
+  conformance coverage (`constructs.txt` / per-word `exercises:` / `rules.csv`), and marking
+  anything supported without a covering, passing fixture **breaks the build.** This turns the claim *"if a grammar compiles, it is accurate"* into an enforced
   property rather than a promise, and makes the conformance suite the literal gate through
   which a construct earns "supported" status. It is the same default-deny discipline as the
   characterizer's no-catch-all, extended all the way to accuracy evidence — closing the exact
   hole `Compounding` fell through (implemented, never proposed, never conformance-covered, no
-  build failure). The suite's ground truth is committed per-fixture (`words.yaml` /
-  `expected.tsv`), authored from the founding C# HermitCrab oracle and human-accepted (never
-  blindly regenerated); PanGloss is validated through the engine-agnostic adapter contract
-  (`PROTOCOL.md`), diffing its output against that committed ground truth. There is therefore
+  build failure). The suite's ground truth is the committed per-fixture `words.yaml`, authored
+  from the founding C# HermitCrab oracle and human-accepted (never blindly regenerated); the
+  `expected.tsv` a run diffs against is **materialized at runtime** by `FixtureMaterializer`
+  from that `words.yaml` (it is not itself committed, so there is no second copy to drift).
+  PanGloss is validated through the engine-agnostic adapter contract (`PROTOCOL.md`), diffing
+  its output against that materialized ground truth. There is therefore
   no separate "certification" stage and no prior artifact to go stale — the integration tests
   run the current engine against versioned-in-repo truth.
 - **Capability and cost are gated by different standards.** Capability/correctness is
@@ -95,5 +109,14 @@ overclaim."
   variant refused for one unproven config).
 - **Strict n-way interaction proof** — maximally honest but never ships a real language
   (real grammars are rich n-way combinations).
-- **Pairwise-confidence-as-supported** — acceptable only as a *declared* limitation stamped
-  into the profile; a hidden pairwise-only claim is overclaiming.
+- **Pairwise-confidence as a trust level** — rejected. The trust axis is **binary** (proven
+  vs unproven; see ADR 0005): there is no "pairwise-confident" middle tier a grammar can be
+  admitted at. Interaction coverage is instead a *test-coverage evidence method* feeding the
+  binary gate, and its right shape is **tree-structured node/subtree fuzzing** over the reified
+  compilation plans (ADR 0002), not covering arrays over raw knobs: the compilation tree *is*
+  the interaction surface, so fuzz each non-orthogonal composition node and its connected
+  subtree, index every conformance fixture by the node/subtree it exercises, and apply
+  covering-array minimization over composition-types (not raw knobs) to cover legal
+  co-occurrences absent from the authored corpus. A proven-orthogonal set still retires
+  combination space by union; a residual pairwise-only limitation is *declared and stamped*,
+  never a hidden claim.

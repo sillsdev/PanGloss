@@ -96,7 +96,10 @@ UI is added to this core repository for these warnings.
 
 FST payload size uses decimal bytes: Ideal `<=10_000_000`; Info `>10_000_000..=20_000_000`;
 Warning `>20_000_000..=100_000_000`; Error `>100_000_000..=500_000_000` with explicit recorded
-override; Critical `>500_000_000` with no override. Size is one dimension; compile work,
+override; Critical `>500_000_000`. Both Error and Critical are overridable via the ADR 0005
+capability override (force-compile behind an indelible degraded-trust runtime signal, permanently
+recorded); the trust axis is binary and the only non-overridable floor is ADR 0003 apply-time
+execution containment, not any predicted size verdict. Size is one dimension; compile work,
 intermediate nets, candidates, paths, time, and unknown/unbounded constructs may raise severity.
 Unknown cost is not itself Critical when construction is recall-preserving: compilation proceeds
 under the shared resource envelope and its observed outcome controls admission. Any uncertainty
