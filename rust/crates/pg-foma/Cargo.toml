@@ -24,6 +24,11 @@ pg-featstruct.workspace = true
 pg-rules.workspace = true
 pg-shape.workspace = true
 rustc-hash.workspace = true
+# `health.rs` (openspec/changes/define-fst-compilation-health): the FST compilation-health finding
+# schema's canonical JSON. serde/serde_json are already pinned once at the workspace root (see
+# `pg-snapshot`'s own Cargo.toml for the same two-line pattern).
+serde.workspace = true
+serde_json.workspace = true
 # junctions.rs's alphabet probe loops (compute_variants/compute_deletion_junctions): parallelized
 # across CPU cores on non-wasm32 targets via a dedicated large-stack pool (see
 # `PhonologyProbe::new`'s doc) -- NOT used on wasm32-unknown-unknown, where `thread::spawn` (which

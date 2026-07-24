@@ -100,6 +100,13 @@ pub mod emit;
 /// `docs/fst-plan/p6-prototype-report.md` §6 item 4 gap). See that module's doc for the design and
 /// why it is a flag-free static partition rather than a flag-diacritics encoding.
 pub mod gate;
+/// Stage 0D of `openspec/changes/define-fst-compilation-health` (design.md, R6): the FST
+/// compilation-health finding schema -- [`health::Severity`]/[`health::severity_for_size_bytes`]
+/// (R6's exact decimal-byte size bands), the immutable [`health::FindingCode`] `PGFdddd` registry,
+/// [`health::HealthFinding`]/[`health::HealthReport`], and canonical JSON. Purely additive -- no
+/// compiler pass in this crate produces a `HealthFinding` yet; see that module's own doc for full
+/// scope, the R6-corrected Error/Critical override policy, and the judgment calls it surfaces.
+pub mod health;
 pub mod junctions;
 /// Stage 1B of `openspec/changes/lower-fst-pattern-environments` (design.md D3): the shared
 /// pattern/environment → FST lowering seam -- [`lower::lower_span`] lowers one subrule's
