@@ -166,6 +166,17 @@ pub enum FragmentSpec {
     /// this grammar's composite entries" (see those modules' own docs for what "composite" means).
     /// Opaque at this step — Step 2 resolves it against the grammar, not this descriptor.
     CompositeEmissionMarker,
+    /// A structural-composite subtree marker (Step 2, design.md D2 row 2: `emit::probe_would_refuse`
+    /// / `emit::structural_candidate_rules`): "compile whatever `emit::build_structural_composites`
+    /// already builds for this grammar's structural-candidate rules" — rules `crate::preexpand`'s
+    /// ordinary composite mechanism cannot represent at all (circumfixes, subtractive/dropped-LHS-
+    /// material rules), plus every ordinary `Prefix`/`Suffix`/`Infix` rule when
+    /// `emit::probe_would_refuse` holds (that construct's own doc). Kept as a DISTINCT marker from
+    /// [`Self::CompositeEmissionMarker`] even though both are "opaque, Step-2-resolves-it-against-
+    /// the-grammar" leaves: they gate on two different seams (`preexpand::should_run` vs.
+    /// `emit::probe_would_refuse`/`structural_candidate_rules`) and a grammar can need either, both,
+    /// or neither independently — collapsing them into one marker would lose that independence.
+    StructuralCompositeMarker,
 }
 
 /// Which grammar construct a [`PlanNodeKind::Leaf`] (or [`PlanNodeKind::Replace`]) encodes (D1:
@@ -190,6 +201,10 @@ pub enum Provenance {
     Replace,
     /// A composite-emission subtree (multi-tag composite entries).
     CompositeEmission,
+    /// A structural-composite subtree (Step 2: the `emit::build_structural_composites` route — see
+    /// [`FragmentSpec::StructuralCompositeMarker`]'s doc for why this is kept distinct from
+    /// [`Self::CompositeEmission`]).
+    StructuralComposite,
 }
 
 // ---------------------------------------------------------------------------------------------

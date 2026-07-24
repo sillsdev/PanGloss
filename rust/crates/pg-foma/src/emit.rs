@@ -1726,7 +1726,13 @@ fn is_structural_rule(g: &Grammar, mid: MRuleId) -> bool {
 /// — checking every rule in `g.prules` (not just ones reachable from a given stratum) is therefore
 /// a safe, conservative over-approximation of "could this ever refuse", cheap enough to run
 /// unconditionally.
-fn probe_would_refuse(g: &Grammar) -> bool {
+///
+/// `pub(crate)` (widened from private, no body change): `openspec/changes/reify-compilation-plans`
+/// Step 2 (design.md D2) mirrors this seam's decision structurally in `crate::enumerate::
+/// enumerate_default`, and that module's own tests compare the enumerated `Plan` against calling
+/// this REAL function directly — the whole correctness argument for that step depends on both
+/// sides calling the identical predicate, not a re-derivation of it.
+pub(crate) fn probe_would_refuse(g: &Grammar) -> bool {
     g.prules.iter().any(|pr| match pr {
         PhonRuleDef::Metathesis(_) => true,
         PhonRuleDef::Rewrite(r) => r.lhs.nodes.is_empty(),
@@ -1739,7 +1745,12 @@ fn probe_would_refuse(g: &Grammar) -> bool {
 /// probe refuses for every candidate in the affected stratum), so this mechanism is their only
 /// remaining path to a phonology-resolved surface. Excludes `CompoundingRule` (never a candidate
 /// anywhere in this emitter's rule-application mechanisms).
-fn structural_candidate_rules(g: &Grammar) -> Vec<MRuleId> {
+///
+/// `pub(crate)` (widened from private, no body change): see [`probe_would_refuse`]'s doc for why --
+/// same `reify-compilation-plans` Step 2 rationale, this is the other half of D2's row 2 seam
+/// (`crate::enumerate::enumerate_default` calls this directly to decide the structural-composite
+/// route's presence, matching `emit_with_budget`'s own `!struct_rules.is_empty()` gate exactly).
+pub(crate) fn structural_candidate_rules(g: &Grammar) -> Vec<MRuleId> {
     let broad = probe_would_refuse(g);
     (0..g.mrules.len() as u32)
         .map(MRuleId)

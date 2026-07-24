@@ -68,6 +68,13 @@ pub mod analyzer;
 pub mod compose_budget;
 pub mod composite;
 pub mod confirm;
+/// Step 2 of `openspec/changes/reify-compilation-plans` (design.md D2): `enumerate_default`, which
+/// builds today's compilation topology for a `Grammar` as a single reified [`plan::Plan`], verified
+/// structurally against the real `preexpand::should_run`/`emit::probe_would_refuse`/`gate::
+/// partition_entries` seams. Purely additive -- does not flip any production compile path, does
+/// not build/execute a `Plan` into real FSTs (Step 3); see that module's own doc for full scope and
+/// the judgment calls it surfaces.
+pub mod enumerate;
 /// E2 feasibility probe (not mainline; see that module's doc): does token-space Infix-rule
 /// splicing (Amharic root-and-pattern interdigitation) reach 100% recall composed with
 /// [`replace`]'s rule cascade? Standalone, additive, same status as [`replace`]/[`uflexc`].
