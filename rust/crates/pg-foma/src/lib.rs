@@ -25,6 +25,10 @@
 //!   in the pinned `parse_word_selected` outcome, not just the first).
 //! - [`peel`] (P2, D6): a fresh port of `hc-hybrid/src/proposers.rs::ReduplicationProposer`, its
 //!   recursion target swapped to the foma proposer (`ReduplicationPeeler::peel_candidates`).
+//! - [`plan`] (`openspec/changes/reify-compilation-plans` Step 1, design.md D1): the reified,
+//!   content-addressed compilation-`Plan` data type -- a closed node-kind enum (`Leaf`, `Compose`,
+//!   `Union`, `Gate`, `Replace`) plus the interning arena that makes identical subtrees dedup.
+//!   Purely additive; not wired into [`replace`]/[`gate`]/[`emit`]/[`preexpand`] yet.
 //! - [`composite`] (P2): `FomaAnalyzer`, the public propose→confirm product API — `analyze_word`
 //!   mirrors `pg_parse::ParseOutcome`'s `analyses`/`structured` shape, plus diagnostics.
 //! - [`precision`] (P6 step 1, `docs/superpowers/specs/2026-07-15-fst-precision-knob-design.md`):
@@ -76,6 +80,10 @@ pub mod gate;
 pub mod junctions;
 pub(crate) mod morphotactics;
 pub mod peel;
+/// Step 1 of `openspec/changes/reify-compilation-plans` (design.md D1): the reified,
+/// content-addressed compilation-`Plan` data type. Purely additive -- does not rewire
+/// [`replace`]/[`gate`]/[`emit`]/[`preexpand`]; see that module's own doc for full scope.
+pub mod plan;
 pub mod precision;
 pub(crate) mod preexpand;
 /// P6 feasibility prototype (docs/fst-plan/p6-prototype-report.md): replace-rule compilation +
