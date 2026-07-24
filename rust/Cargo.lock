@@ -594,6 +594,8 @@ dependencies = [
  "pg-snapshot",
  "rayon",
  "rustc-hash",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
