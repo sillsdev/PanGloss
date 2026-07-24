@@ -49,6 +49,21 @@ makes (a) the plan cache key, (b) cross-plan subtree sharing (two plans differin
 phonological cascade is grouped share their identical lexicon leaves — measured once, stored once),
 and (c) the memoized AND-OR search actually work. A tree would force duplicating shared subtrees.
 
+**Soundness invariant (added after Step 3a):** content-addressed dedup and any `NodeId`-keyed
+plan-cache are sound **only if a node's compiled artifact is a pure function of its `NodeId`** — i.e.
+everything that affects the compiled FST must be in the node's content. Step 3a (`build_controllable`)
+found this is **not yet true** for the `Gate`/`Replace` pairing `enumerate_default` produces: every
+group's `Compose` references the *same* shared `Replace` `NodeId`, but each group must compile that
+cascade under a *different* `subrule_ok` (a function of the group's gating key, which lives on the
+`Gate` node, not on the rule-level `ReplaceCascadeSpec`). A naive `NodeId`-memoizing interpreter would
+build the shared `Replace` once and reuse the wrong network per group — silently unsound.
+`build_controllable` sidesteps this by being Gate-aware (re-deriving `subrule_ok` per group, never
+caching the shared `Replace` `Fsm`), which is correct but keeps `Gate` from being "just another n-ary
+node." **Refinement required before the plan-cache / `NodeId`-memoized generic interpreter / the
+differential oracle can memoize by `NodeId`:** push the per-group subrule mask into the node content
+(e.g. a per-group `Replace` variant carrying the group's subrule inclusion, so distinct groups get
+distinct `NodeId`s and dedup stays sound). Tracked as task 1.4.
+
 ### D2. The three hardcoded seams become enumerator decisions over node kinds
 
 The refactor's concrete deliverable is deleting the imperative branching and re-expressing each as a

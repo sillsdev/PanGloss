@@ -4,6 +4,9 @@
 - [ ] 1.1 Compilation plan type (enumerable composition topology)
 - [ ] 1.2 Strategy enumerator emitting legal candidate plans for a grammar
 - [ ] 1.3 Replace hardcoded should_run/probe_would_refuse/partition_entries branching
+- [ ] 1.4 Make a node's compiled artifact a pure function of its NodeId (push the per-group Gate
+      subrule mask into node content) so dedup / the NodeId-keyed plan-cache / the differential
+      oracle can memoize soundly — see design.md D1's soundness invariant (found in Step 3a)
 
 ## 2. Capability-safe selection
 - [ ] 2.1 Selection restricted to capability-passing plans (recall-preserving invariant)
