@@ -251,9 +251,45 @@ pub struct GatePartitionSpec {
 
 /// The cascade descriptor for a [`PlanNodeKind::Replace`] node: the ordered rewrite rules the
 /// cascade applies, addressed by `PRuleId` in cascade order.
+///
+/// **`gated_subrules` + `group_key` (design.md D1 "Soundness invariant", task 1.4):** a `Replace`
+/// node compiled underneath a [`PlanNodeKind::Gate`] group must exclude/include specific SUBRULES
+/// per that group's own gating key (`crate::replace::compile_and_compose_rules_gated_with_budget`'s
+/// `subrule_ok` callback) -- a fact that, before this fix, lived only on the `Gate` node's
+/// [`GatePartitionSpec`], NOT on the `Replace` node's own content. That made two groups needing
+/// DIFFERENT `subrule_ok` behavior reference the SAME `Replace` `NodeId` (`crate::enumerate`'s own
+/// `enumerate_default` built exactly one shared `Replace` node for every group), which is unsound
+/// for any `NodeId`-keyed cache/memoizing interpreter: the compiled artifact for that shared
+/// `NodeId` is NOT a pure function of the id, it also depends on which group is asking.
+///
+/// The fix: every `Replace` node now carries its OWN group's subrule inclusion directly, in the
+/// same shape [`GatePartitionSpec`] already uses for the analogous group-level facts --
+/// `gated_subrules` mirrors [`GatePartitionSpec::gated_subrules`] (which `(rule_pos, sub_idx)`
+/// subrule positions are gated at all) and `group_key` mirrors [`GateGroupSpec::key`] (THIS
+/// cascade's own truth value for each of those positions, same indexing). Two `Replace` nodes are
+/// now the SAME `NodeId` iff they share `rules` AND `gated_subrules` AND `group_key` -- i.e. iff
+/// they would compile to the identical `subrule_ok` predicate -- so distinct groups (different
+/// `group_key`) always get distinct `NodeId`s (no more false sharing), while two groups that
+/// happen to gate identically (same `group_key`, e.g. built from two different grammars/`Plan`s
+/// that realize the same key) still dedup correctly, because their compiled artifact really would
+/// be identical. An ungated cascade (no gated subrules apply at all -- the pre-refactor "1 group,
+/// empty key" collapse) carries `gated_subrules: vec![]` / `group_key: vec![]`, matching
+/// [`GatePartitionSpec`]'s own ungated-collapse shape.
+///
+/// `Replace` is content-pure with this fix in place (`crate::build`'s own module doc): its
+/// compiled `Fsm` depends on nothing this struct doesn't already carry, so a future `NodeId`-keyed
+/// plan-cache/memoizing interpreter can treat it like any other node, not a `Gate`-aware special
+/// case.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ReplaceCascadeSpec {
     pub rules: Vec<PRuleId>,
+    /// Which `(rule_pos, sub_idx)` subrule positions this cascade's `subrule_ok` gates on at all --
+    /// same shape as [`GatePartitionSpec::gated_subrules`]. Empty for an ungated cascade.
+    pub gated_subrules: Vec<GatedSubruleRef>,
+    /// THIS cascade's own truth value for each of `gated_subrules`, same indexing -- same shape as
+    /// [`GateGroupSpec::key`]. Empty for an ungated cascade (vacuously matches an empty
+    /// `gated_subrules`).
+    pub group_key: Vec<bool>,
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -496,6 +532,65 @@ mod tests {
         );
     }
 
+    /// Task 1.4's core content-addressing claim, at the `ReplaceCascadeSpec` level directly (no
+    /// `Grammar`/`Gate` node involved -- `crate::enumerate`/`crate::build`'s own tests exercise the
+    /// same property end-to-end on real seam-derived data; this is the minimal, data-only proof):
+    /// two `Replace` nodes with the SAME `rules`/`gated_subrules` but DIFFERENT `group_key` must get
+    /// DIFFERENT `NodeId`s (the soundness fix itself -- distinct groups never false-share), while
+    /// two `Replace` nodes with IDENTICAL `rules`/`gated_subrules`/`group_key` must get the SAME
+    /// `NodeId` and dedup to one stored node (identically-gated cascades still share correctly).
+    #[test]
+    fn replace_nodes_differing_only_in_group_key_yield_different_ids_but_identical_keys_dedup() {
+        let mut plan = Plan::new();
+        let leaf = plan.add_node(rule_leaf(1));
+        let gated_subrules = vec![GatedSubruleRef {
+            rule_pos: 0,
+            sub_idx: 0,
+        }];
+
+        let replace_true = plan.add_node(PlanNodeKind::Replace {
+            cascade: ReplaceCascadeSpec {
+                rules: vec![PRuleId(1)],
+                gated_subrules: gated_subrules.clone(),
+                group_key: vec![true],
+            },
+            children: vec![leaf],
+        });
+        let replace_false = plan.add_node(PlanNodeKind::Replace {
+            cascade: ReplaceCascadeSpec {
+                rules: vec![PRuleId(1)],
+                gated_subrules: gated_subrules.clone(),
+                group_key: vec![false],
+            },
+            children: vec![leaf],
+        });
+        assert_ne!(
+            replace_true, replace_false,
+            "two Replace nodes differing only in group_key are different candidate compiled \
+             cascades (different subrule_ok), and must get different NodeIds -- this is the task \
+             1.4 fix's whole point"
+        );
+
+        let replace_true_again = plan.add_node(PlanNodeKind::Replace {
+            cascade: ReplaceCascadeSpec {
+                rules: vec![PRuleId(1)],
+                gated_subrules,
+                group_key: vec![true],
+            },
+            children: vec![leaf],
+        });
+        assert_eq!(
+            replace_true, replace_true_again,
+            "two Replace nodes with an IDENTICAL group_key (same rules, same gated_subrules) must \
+             still dedup to the SAME NodeId -- the fix must not break sound sharing"
+        );
+        assert_eq!(
+            plan.len(),
+            3,
+            "leaf + 2 distinct Replace nodes (true/false), the redundant true-again NOT duplicated"
+        );
+    }
+
     /// A small hand-built DAG where two parents share one child leaf: the leaf is stored once, not
     /// once per parent (spec.md's "Two plans share a lexicon leaf" scenario, scaled down to two
     /// parents within one plan rather than two separate plans — the storage argument is the same).
@@ -628,6 +723,8 @@ mod tests {
         let replace = plan.add_node(PlanNodeKind::Replace {
             cascade: ReplaceCascadeSpec {
                 rules: vec![PRuleId(0), PRuleId(1)],
+                gated_subrules: vec![],
+                group_key: vec![],
             },
             children: vec![leaf],
         });

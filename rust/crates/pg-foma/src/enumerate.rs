@@ -29,11 +29,14 @@
 //!
 //! each group's Compose = Compose[ group's LexiconFragment Leaf (entries = Some(that group's own
 //!                                 sorted entries), mirrors `gate::EntryGroup::entries`),
-//!                                 the shared Replace node ]
+//!                                 THIS GROUP'S OWN Replace node ]
 //!
-//! the shared Replace node = Replace{ cascade = ReplaceCascadeSpec{ rules = prules_in_order's
-//!                                    PRuleIds, in order },
-//!                                    children = one RewriteRule Leaf per rule }
+//! each group's own Replace node = Replace{ cascade = ReplaceCascadeSpec{ rules = prules_in_order's
+//!                                    PRuleIds, in order; gated_subrules = the SAME gated-subrule
+//!                                    universe for every group; group_key = THIS group's own key },
+//!                                    children = one RewriteRule Leaf per rule (content-identical
+//!                                    across every group, so these dedup even though the parent
+//!                                    Replace node itself does not) }
 //! ```
 //! The `Union` at the root (rather than nesting the composite-emission/structural-composite markers
 //! *inside* each group) is a judgment call, not free of ambiguity — see "Judgment calls" below.
@@ -49,16 +52,22 @@
 //!   asks for ONE enumerator that treats all three seams as choices over the SAME plan, which today's
 //!   code doesn't literally do (they're two separate compile entry points): this module's shape is
 //!   the natural unification, not a literal mirror of one existing function's call graph.
-//! - **Every gate group's `Replace` subplan is the identical, SHARED node**, not a per-group variant.
-//!   [`ReplaceCascadeSpec`] is rule-level (`Vec<PRuleId>`), with no field for "which SUBRULE within
-//!   a rule this group's own compiled network actually includes" — that distinction is exactly what
-//!   [`GatePartitionSpec::gated_subrules`] + each group's own `key` already name, so duplicating it
-//!   into a per-group `Replace` node would be redundant, not more faithful. Content-addressing (D1)
-//!   makes this concrete: every group's `Compose` node references the SAME `Replace` `NodeId` (this
-//!   module's own tests assert it), the identical-subtree-dedup story from `crate::plan`'s own tests
-//!   playing out on real seam-derived data. Step 3, which DOES need subrule-level detail to build a
-//!   per-group network correctly, will need to either add that field or resolve it by re-deriving
-//!   the group's key at build time.
+//! - **Every gate group gets its OWN `Replace` node** (task 1.4, design.md D1 "Soundness
+//!   invariant" — resolved; this bullet was a Step-2 judgment call flagging exactly the gap Step 3a
+//!   found and task 1.4 closed). An EARLIER version of this module built one Replace node SHARED by
+//!   every group, on the reasoning that [`ReplaceCascadeSpec`] is rule-level (`Vec<PRuleId>`) and
+//!   the per-group subrule-inclusion distinction lives on [`GatePartitionSpec::gated_subrules`] +
+//!   each group's own `key`, so duplicating it into `Replace` would be "redundant, not more
+//!   faithful." That turned out to be UNSOUND: `crate::build`'s `build_controllable` needs a
+//!   DIFFERENT `subrule_ok` per group, so a single shared `Replace` `NodeId` violates node purity
+//!   (a `NodeId`-memoizing interpreter would build the cascade once and silently reuse the WRONG
+//!   network for every other group). The fix: `ReplaceCascadeSpec` now carries `gated_subrules` +
+//!   `group_key` directly (see that struct's own doc), so THIS group's own `Replace` node's content
+//!   fully determines its `subrule_ok` — content-addressing (D1) then does the right thing on its
+//!   own: two groups with DIFFERENT keys get DIFFERENT `Replace` `NodeId`s (no false sharing, this
+//!   module's own tests assert it), while two groups that happen to gate IDENTICALLY still dedup to
+//!   the SAME `Replace` `NodeId` (also asserted) — the shared rewrite-rule Leaf CHILDREN still dedup
+//!   across every group either way, since those leaves' content never depended on the group at all.
 //! - **Per-group `LexiconFragment.entries` is always `Some(sorted group entries)`**, never `None`,
 //!   even for the single/ungated group — mirrors `compile_gated_grammar_with_budget`'s own call
 //!   (`emit_underlying_filtered_with_budget(g, alphabet, Some(&group.entries), budget)`, ALWAYS
@@ -137,9 +146,22 @@ pub fn enumerate_default(
     // key before this order becomes part of the Gate node's content address.
     groups.sort_by(|a, b| a.key.cmp(&b.key));
 
-    // The shared rewrite cascade (`replace.rs`'s construction, promoted to `Replace` per D1/D2):
-    // ONE subtree, referenced by every group's Compose node below (module doc's "shared Replace
-    // node" judgment call).
+    // The gated-subrule universe (task 1.4/D1): the SAME for every group in this grammar, so
+    // computed once and cloned into each group's own Replace node below (only `group_key` differs
+    // per group).
+    let gated_subrule_refs: Vec<GatedSubruleRef> = gated
+        .iter()
+        .map(|gs| GatedSubruleRef {
+            rule_pos: gs.rule_pos,
+            sub_idx: gs.sub_idx,
+        })
+        .collect();
+    let cascade_rules: Vec<PRuleId> = prules_in_order.iter().map(|pr| rule_id_of(g, pr)).collect();
+
+    // The rewrite-rule Leaf children (`replace.rs`'s per-rule transducers, promoted to `Replace`
+    // per D1/D2): content-identical regardless of which group compiles them, so these dedup across
+    // every group's own Replace node below even though the Replace PARENT node itself no longer
+    // does (task 1.4's fix -- see module doc's "Judgment calls").
     let rule_children: Vec<NodeId> = prules_in_order
         .iter()
         .map(|pr| {
@@ -150,15 +172,12 @@ pub fn enumerate_default(
             })
         })
         .collect();
-    let replace_node = plan.add_node(PlanNodeKind::Replace {
-        cascade: ReplaceCascadeSpec {
-            rules: prules_in_order.iter().map(|pr| rule_id_of(g, pr)).collect(),
-        },
-        children: rule_children,
-    });
 
-    // One Compose (group lexicon fragment .o. the shared cascade) per partition group -- mirrors
-    // `compile_gated_grammar_with_budget`'s own per-group `lexc_net .o. rules_net` step.
+    // One Compose (group lexicon fragment .o. THIS GROUP'S OWN Replace node) per partition group --
+    // mirrors `compile_gated_grammar_with_budget`'s own per-group `lexc_net .o. rules_net` step.
+    // Task 1.4: each group's Replace node carries its OWN `group_key`, so distinct groups get
+    // distinct Replace NodeIds (module doc) rather than sharing one node under different intended
+    // meanings.
     let group_children: Vec<NodeId> = groups
         .iter()
         .map(|group| {
@@ -170,6 +189,14 @@ pub fn enumerate_default(
                 },
                 provenance: Provenance::Lexicon,
             });
+            let replace_node = plan.add_node(PlanNodeKind::Replace {
+                cascade: ReplaceCascadeSpec {
+                    rules: cascade_rules.clone(),
+                    gated_subrules: gated_subrule_refs.clone(),
+                    group_key: group.key.clone(),
+                },
+                children: rule_children.clone(),
+            });
             plan.add_node(PlanNodeKind::Compose {
                 children: vec![lexicon_leaf, replace_node],
                 strategy: ComposeStrategy::Static,
@@ -179,13 +206,7 @@ pub fn enumerate_default(
 
     let gate_node = plan.add_node(PlanNodeKind::Gate {
         partition: GatePartitionSpec {
-            gated_subrules: gated
-                .iter()
-                .map(|gs| GatedSubruleRef {
-                    rule_pos: gs.rule_pos,
-                    sub_idx: gs.sub_idx,
-                })
-                .collect(),
+            gated_subrules: gated_subrule_refs,
             groups: groups
                 .iter()
                 .map(|group| GateGroupSpec {
@@ -508,12 +529,16 @@ mod tests {
 
     /// D2 row 3 on a REAL gated multi-group grammar: the enumerated Plan's Gate
     /// `partition.groups.len()` equals `partition_entries(...).len()` (here, 2), one
-    /// `GatedSubruleRef` per `find_gated_subrules` entry, and (D1) the shared `Replace` subtree is
-    /// interned exactly ONCE and referenced by every group's `Compose` node, not duplicated per
-    /// group — the content-addressing dedup claim, exercised on real seam-derived data rather than
-    /// the hand-built DAGs `plan.rs`'s own tests use.
+    /// `GatedSubruleRef` per `find_gated_subrules` entry, and (task 1.4, D1's soundness invariant)
+    /// each group's `Compose` child now references its OWN, DISTINCT `Replace` `NodeId` — the two
+    /// groups here realize different gate keys (`[true]`/`[false]`), so they MUST get different
+    /// `Replace` nodes (a single shared node, this module's pre-task-1.4 behavior, would be unsound:
+    /// see `ReplaceCascadeSpec`'s own doc). The companion test below,
+    /// `identically_gated_groups_across_independent_plans_share_the_same_replace_node_id`, proves
+    /// the other half of the invariant: groups that DO gate identically still dedup to the SAME
+    /// `Replace` `NodeId`.
     #[test]
-    fn gated_two_group_fixture_matches_real_partition_and_dedups_shared_replace() {
+    fn gated_two_group_fixture_matches_real_partition_and_gives_distinct_per_group_replace_nodes() {
         let g = load(&gated_two_group_fixture());
         let alphabet = SegAlphabet::new(&g.char_tables[0]);
         let ro = prules_in_order(&g);
@@ -545,8 +570,9 @@ mod tests {
         keys.sort();
         assert_eq!(keys, vec![vec![false], vec![true]]);
 
-        // Content-addressing dedup (D1): every group's Compose child must reference the SAME
-        // Replace NodeId, not a per-group copy.
+        // Task 1.4 (D1's soundness invariant): every group's Compose child must reference its OWN
+        // Replace NodeId -- these two groups gate DIFFERENTLY ([true] vs. [false]), so sharing one
+        // Replace node between them would be the exact unsoundness task 1.4 closes.
         let PlanNodeKind::Gate { children, .. } = plan.get(gate_id).unwrap() else {
             unreachable!("gate_of only ever returns a Gate node")
         };
@@ -560,17 +586,20 @@ mod tests {
                 children[1]
             })
             .collect();
-        assert_eq!(
+        assert_ne!(
             replace_ids[0], replace_ids[1],
-            "every gate group's Compose must share the SAME Replace NodeId (D1 dedup)"
+            "two DIFFERENTLY-gated groups must get DISTINCT Replace NodeIds (task 1.4: a node's \
+             compiled artifact must be a pure function of its own NodeId, so no two groups needing \
+             different subrule_ok may share one Replace node)"
         );
         let replace_node_count = plan
             .iter()
             .filter(|(_, kind)| kind.kind_name() == "Replace")
             .count();
         assert_eq!(
-            replace_node_count, 1,
-            "the shared Replace subtree must be stored once, not once per group"
+            replace_node_count, 2,
+            "two differently-gated groups must be stored as two DISTINCT Replace nodes, not one \
+             shared/deduped node"
         );
 
         // The two groups' own LexiconFragment leaves, by contrast, must differ (different entries
@@ -582,6 +611,62 @@ mod tests {
             "the 2 groups' lexicon fragments carry different entry subsets, so must NOT dedup \
              against each other"
         );
+    }
+
+    /// The other half of task 1.4's soundness invariant (companion to the test above, which proves
+    /// DIFFERENTLY-gated groups get DISTINCT `Replace` NodeIds): groups that gate IDENTICALLY still
+    /// dedup to the SAME `Replace` `NodeId`, even across two INDEPENDENT `enumerate_default` calls
+    /// (two separate `Plan` arenas) -- content addressing dedups by CONTENT (`rules` +
+    /// `gated_subrules` + `group_key`), never by which `Plan`/`Gate` node happened to build a node.
+    /// A single `partition_entries` call can never itself realize two groups with the same key
+    /// (`partition_entries` is a true partition -- one group per DISTINCT key by construction), so
+    /// this property can only be exercised across two independently-enumerated `Plan`s, exactly
+    /// what this test does: build the same fixture twice and match up each plan's groups by key.
+    #[test]
+    fn identically_gated_groups_across_independent_plans_share_the_same_replace_node_id() {
+        let g = load(&gated_two_group_fixture());
+        let alphabet = SegAlphabet::new(&g.char_tables[0]);
+        let ro = prules_in_order(&g);
+        let phon = PhonologyProbe::new(&g);
+
+        let plan_1 = enumerate_default(&g, &alphabet, &ro, phon.as_ref());
+        let plan_2 = enumerate_default(&g, &alphabet, &ro, phon.as_ref());
+
+        fn replace_ids_by_key(plan: &Plan) -> std::collections::BTreeMap<Vec<bool>, NodeId> {
+            let (gate_id, partition) = gate_of(plan);
+            let PlanNodeKind::Gate { children, .. } = plan.get(gate_id).unwrap() else {
+                unreachable!("gate_of only ever returns a Gate node")
+            };
+            partition
+                .groups
+                .iter()
+                .zip(children.iter())
+                .map(|(group, &compose_id)| {
+                    let PlanNodeKind::Compose { children, .. } = plan.get(compose_id).unwrap()
+                    else {
+                        panic!("each Gate child must be a Compose node")
+                    };
+                    (group.key.clone(), children[1])
+                })
+                .collect()
+        }
+
+        let ids_1 = replace_ids_by_key(&plan_1);
+        let ids_2 = replace_ids_by_key(&plan_2);
+        assert_eq!(
+            ids_1.keys().collect::<Vec<_>>(),
+            ids_2.keys().collect::<Vec<_>>(),
+            "both independently-built plans must realize the same set of gate keys"
+        );
+        for (key, id_1) in &ids_1 {
+            let id_2 = ids_2[key];
+            assert_eq!(
+                *id_1, id_2,
+                "the SAME gating key ({key:?}), built in two INDEPENDENT Plans, must yield the \
+                 SAME Replace NodeId -- content addressing dedups by content, never by which Plan \
+                 built a node"
+            );
+        }
     }
 
     /// A regression pin for [`rule_id_of`]: every rewrite-rule Leaf's `PRuleId` inside the

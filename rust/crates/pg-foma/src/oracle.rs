@@ -17,21 +17,25 @@
 //!   equivalence for finite-valued transducers) is explicitly marked a stretch goal, not a v1
 //!   requirement, in design.md -- not attempted here.
 //!
-//! # The D1 soundness caveat this module must respect
+//! # The D1 soundness caveat this module must respect (task 1.4: now RESOLVED)
 //! design.md D1's soundness invariant (added after Step 3a, `crate::build`'s own module doc) is:
 //! **a node's compiled artifact must be a pure function of its `NodeId`** for any `NodeId`-keyed
-//! memoization to be sound. That is **not yet true** in general for `Gate`/`Replace` pairing --
-//! [`build::build_controllable`] sidesteps it by being Gate-aware (re-deriving each group's
-//! `subrule_ok` from the `Gate` node's own partition, never caching a compiled `Fsm` against the
-//! shared `Replace` `NodeId`) rather than by a generic `NodeId`-memoizing interpreter. This module
-//! calls [`build::build_controllable`] itself for BOTH plans it diffs, so it inherits that same
-//! Gate-aware, non-memoizing safety -- it never memoizes a compiled artifact by `NodeId` across the
-//! two builds. [`permute_gate_groups`] (below) is careful to keep this sound too: it reorders a
-//! `Gate` node's `groups` and `children` IN LOCKSTEP (each group's key travels with its own child),
-//! never separately -- so every group's `subrule_ok` is still re-derived from the correct key at
-//! `build_controllable` time, on both plans. Task 1.4 (pushing the per-group subrule mask into
-//! node content so `Gate` becomes "just another n-ary node") is still open; this module does not
-//! depend on it being closed, and does not attempt a generic `NodeId`-memoized interpreter itself.
+//! memoization to be sound. That was **not true** in general for `Gate`/`Replace` pairing at Step
+//! 3a -- [`build::build_controllable`] sidestepped it by being Gate-aware (re-deriving each group's
+//! `subrule_ok` from the `Gate` node's own partition, never caching a compiled `Fsm` against a
+//! shared `Replace` `NodeId`) rather than by a generic `NodeId`-memoizing interpreter. Task 1.4
+//! closed the gap at its root: `crate::enumerate::enumerate_default` now builds one `Replace` node
+//! PER GROUP, carrying that group's own `gated_subrules`/`group_key` directly in its
+//! `crate::plan::ReplaceCascadeSpec` (that struct's own doc), so distinct groups get distinct
+//! `Replace` `NodeId`s and `build_controllable` reads `subrule_ok` from the Replace node's own
+//! content, not the `Gate` node's partition (`build`'s own module doc). This module calls
+//! [`build::build_controllable`] itself for BOTH plans it diffs, so it inherits that same
+//! now-content-pure behavior -- it never memoizes a compiled artifact by `NodeId` across the two
+//! builds (still true, and now provably safe if it did). [`permute_gate_groups`] (below) is careful
+//! to keep this sound too: it reorders a `Gate` node's `groups` and `children` IN LOCKSTEP (each
+//! group's key travels with its own child, and -- since task 1.4 -- its own `Replace` node,
+//! implicitly, as part of that child subtree), never separately -- so every group's `subrule_ok` is
+//! still resolved from the correct key at `build_controllable` time, on both plans.
 //!
 //! # The oracle's comparison methodology
 //! [`differential_oracle`] builds BOTH input plans via [`build::build_controllable`] (never

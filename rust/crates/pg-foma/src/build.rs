@@ -33,41 +33,36 @@
 //! the marker leaves are checked for by kind (so a genuinely unrecognized Union child is a loud,
 //! documented programmer-error panic, never a silent skip of something unexpected) but never built.
 //!
-//! # The obstacle this step surfaces (Step-3 design signal, per the task's own "if it doesn't fit")
-//! `enumerate.rs`'s own module doc already flagged this as a "judgment call" at Step 2, and building
-//! against it confirms it is a REAL interpretation obstacle, not a hypothetical one:
+//! # Task 1.4: the obstacle this step surfaced, now RESOLVED
+//! Step 3a (an earlier version of this module) flagged a real interpretation obstacle here, and
+//! design.md D1's "Soundness invariant" paragraph (added after Step 3a) named it precisely: **every
+//! gate group's `Replace` subplan was the identical, content-addressed-SHARED [`crate::plan::
+//! NodeId`]**, yet the COMPILED `Fsm` that node had to produce differed PER GROUP, because
+//! [`crate::replace::compile_and_compose_rules_gated_with_budget`]'s `subrule_ok` callback is a
+//! function of the *group*, not of the `Replace` node's own content. A naive content-addressed
+//! interpreter that memoizes a built `Fsm` per `NodeId` would therefore have built the shared
+//! `Replace` node's cascade ONCE and silently reused that WRONG network for every other group -- an
+//! unsound, silent correctness bug, not a missing feature. At Step 3a, [`build_controllable`]
+//! sidestepped this by being Gate-aware (re-deriving each group's `subrule_ok` from the `Gate`
+//! node's own `partition`, never caching a compiled `Fsm` against the shared `Replace` `NodeId`),
+//! which was correct but kept `Gate` from being "just another n-ary node."
 //!
-//! **Every gate group's `Replace` subplan is the identical, content-addressed-SHARED [`crate::plan::
-//! NodeId`]** (`enumerate_default`'s own module doc, and its own test
-//! `gated_two_group_fixture_matches_real_partition_and_dedups_shared_replace` asserts this directly)
-//! -- but the COMPILED `Fsm` that node must produce differs PER GROUP, because
-//! [`crate::replace::compile_and_compose_rules_gated_with_budget`]'s `subrule_ok` callback (which
-//! subrules of the shared rewrite cascade a given group's own gating key includes/excludes) is a
-//! function of the *group*, not of the `Replace` node's own content (a [`crate::plan::
-//! ReplaceCascadeSpec`] is rule-level only -- `Vec<PRuleId>` -- with no field for "which SUBRULE
-//! within a rule this specific group's own network includes"; that distinction lives entirely in
-//! [`crate::plan::GatePartitionSpec::gated_subrules`] + each group's own `key`, which are the GATE
-//! node's data, not the Replace node's). A naive content-addressed interpreter that memoizes a built
-//! `Fsm` per `NodeId` (the natural reading of D1's "measured once, stored once" dedup claim) would
-//! therefore build the shared `Replace` node's cascade ONCE, using whichever group's `subrule_ok` ran
-//! first, and silently reuse that WRONG network for every other group -- an unsound, silent
-//! correctness bug, not a missing feature.
-//!
-//! **Resolution taken here** (matches `enumerate.rs`'s own suggested fix: "resolve it by re-deriving
-//! the group's key at build time"): [`build_controllable`] does NOT do generic NodeId-memoized
-//! interpretation. It is Gate-aware: for each group, it reads that group's own
-//! [`crate::plan::GateGroupSpec::key`] from the `Gate` node's `partition` (not from the `Replace`
-//! node at all) and threads it into a freshly-built `subrule_ok` closure for THAT group's own call to
-//! `compile_and_compose_rules_gated_with_budget` -- so the shared `Replace` `NodeId` is walked/
-//! validated once per group (its `cascade.rules`/child-leaf shape is read and cross-checked against
-//! `prules_in_order` every time, cheap) but never has its COMPILED `Fsm` cached/reused across groups.
-//! This closes the gap for `build()` v1, but it means [`build_controllable`] is not a fully generic
-//! "interpret any DAG shape uniformly" walker -- it specifically special-cases `Gate`'s children,
-//! which is exactly the Step-3 design signal the task asked to surface: **a future, more general
-//! interpreter (or a richer `GatePartitionSpec`/`ReplaceCascadeSpec` that pushes the per-group subrule
-//! detail down onto the `Replace` node itself, e.g. one `Replace` variant per group instead of one
-//! shared node) would need to resolve this before Gate could be treated as "just another n-ary
-//! Compose over shared children" the way `Union`/plain `Compose` already can be.**
+//! **Task 1.4's fix** (`crate::plan::ReplaceCascadeSpec`'s own doc, `crate::enumerate::
+//! enumerate_default`'s own module doc): `enumerate_default` now builds ONE `Replace` node PER
+//! GROUP, and that node's own `cascade` carries `gated_subrules` + `group_key` directly -- so a
+//! group's `subrule_ok` is now fully determined by its OWN `Replace` node's content, not by which
+//! `Gate` group happens to reference it. [`build_controllable`] below reflects this: it derives
+//! `subrule_ok` by reading the per-group `Replace` node's own `cascade.gated_subrules`/
+//! `cascade.group_key` (see [`subrule_ok_for_group`]), NOT by re-deriving it from the `Gate` node's
+//! partition. The `Gate`-node walk itself is unchanged (this module still locates each group's own
+//! `Compose`/`Replace` subtree by walking the `Gate` node's `children`, and still cross-checks
+//! `partition.groups[group_idx].key` against the Replace node's own `group_key` as a redundant
+//! sanity check -- see the loop in [`build_controllable`]), but **correctness no longer depends on
+//! Gate-awareness of the Replace node**: `Replace`'s compiled artifact is now a pure function of its
+//! own `NodeId`, exactly what D1's soundness invariant requires for content-addressed dedup / a
+//! future `NodeId`-keyed plan-cache / the differential oracle (`crate::oracle`) to memoize safely.
+//! This step does not build a generic memoizing interpreter -- that remains future work -- it only
+//! removes the soundness caveat that would have made one unsound.
 //!
 //! # Node kinds handled (exactly what `enumerate_default` emits on the controllable path)
 //! - [`crate::plan::PlanNodeKind::Gate`] -- the entry point; see the obstacle note above.
@@ -105,7 +100,7 @@ use crate::compose_budget::{
 use crate::enumerate::rule_id_of;
 use crate::gate::GatedCompileResult;
 use crate::plan::{
-    ComposeStrategy, FragmentSpec, GatePartitionSpec, NodeId, Plan, PlanNodeKind,
+    ComposeStrategy, FragmentSpec, GatedSubruleRef, NodeId, Plan, PlanNodeKind, ReplaceCascadeSpec,
 };
 use crate::replace::{compile_and_compose_rules_gated_with_budget, SegAlphabet, TupleReport};
 use crate::uflexc::{emit_underlying_filtered_with_budget, UEmitReport};
@@ -174,9 +169,18 @@ pub fn build_controllable(
         let entries = lexicon_fragment_entries(plan, lexicon_id);
         let entries_set: HashSet<LexEntryId> = entries.iter().copied().collect();
 
-        // Walks the shared Replace node's OWN data (cascade + rule-leaf children) and cross-checks
-        // it against `prules_in_order` -- see this function's own doc, module doc's "obstacle" note.
-        validate_replace_cascade(plan, replace_id, g, prules_in_order);
+        // Walks THIS group's OWN Replace node's data (cascade + rule-leaf children) and
+        // cross-checks it against `prules_in_order` -- see this function's own doc, module doc's
+        // "task 1.4" note. Returns the cascade itself so this group's `subrule_ok` can be derived
+        // straight from it below, rather than from the Gate node's partition.
+        let cascade = validate_replace_cascade(plan, replace_id, g, prules_in_order);
+        assert_eq!(
+            &cascade.group_key, group_key,
+            "this group's own Replace node's group_key must match the Gate node's own partition \
+             key for the same group -- a redundant sanity check (task 1.4: subrule_ok is now \
+             derived from the Replace node's own cascade, not from this Gate-node value), catching \
+             an enumerator bug that desynced the two rather than a normal-path failure"
+        );
 
         let UEmitReport {
             lexc_source,
@@ -198,10 +202,11 @@ pub fn build_controllable(
         let lexc_net = foma::lexcread::fsm_lexc_parse_string(opts, None, &lexc_source)
             .unwrap_or_else(|| panic!("gated group lexc failed to compile:\n{lexc_source}"));
 
-        // The module doc's "obstacle": this group's own gating key, read from the GATE node's
-        // partition (never from the shared Replace node), threaded fresh into a per-group
-        // subrule_ok closure -- NOT a cached/reused compile of the shared Replace NodeId.
-        let subrule_ok = subrule_ok_for_group(partition, group_key);
+        // Task 1.4 (module doc): this group's own gating key, read from its OWN Replace node's
+        // cascade (never re-derived from the Gate node's partition), threaded into a per-group
+        // subrule_ok closure. This is now a pure read of that Replace NodeId's own content -- no
+        // cross-group state, no cache to get wrong.
+        let subrule_ok = subrule_ok_for_group(&cascade.gated_subrules, &cascade.group_key);
 
         let mut group_skipped_rules = Vec::new();
         let rules_net = compile_and_compose_rules_gated_with_budget(
@@ -386,7 +391,7 @@ fn lexicon_fragment_entries(plan: &Plan, lexicon_id: NodeId) -> Vec<LexEntryId> 
     })
 }
 
-/// Reads a gate group's `Replace` node's own `cascade`/rule-leaf children and cross-validates them
+/// Reads a gate group's OWN `Replace` node's `cascade`/rule-leaf children and cross-validates them
 /// against `prules_in_order` -- the caller-supplied slice `build_controllable` actually compiles
 /// with. This is not redundant bookkeeping: it is the one place this function proves the
 /// `prules_in_order` slice the CALLER passed to `build_controllable` is the SAME slice (same
@@ -396,12 +401,16 @@ fn lexicon_fragment_entries(plan: &Plan, lexicon_id: NodeId) -> Vec<LexEntryId> 
 /// `rule_pos` indices are positions into `prules_in_order`, so a reordered/different slice changes
 /// which subrules a group's key gates without any other signal). Panics loudly on any mismatch,
 /// mirroring `crate::enumerate::rule_id_of`'s own panic for the identical caller-contract shape.
-fn validate_replace_cascade(
-    plan: &Plan,
+///
+/// Returns the validated `&ReplaceCascadeSpec` itself (task 1.4: this group's `subrule_ok` is now
+/// read straight off THIS return value's `gated_subrules`/`group_key` -- see
+/// [`subrule_ok_for_group`] -- rather than re-derived from the `Gate` node's partition).
+fn validate_replace_cascade<'a>(
+    plan: &'a Plan,
     replace_id: NodeId,
     g: &Grammar,
     prules_in_order: &[&PhonRuleDef],
-) {
+) -> &'a ReplaceCascadeSpec {
     let PlanNodeKind::Replace { cascade, children } = plan
         .get(replace_id)
         .unwrap_or_else(|| panic!("dangling Replace NodeId {replace_id}"))
@@ -442,21 +451,23 @@ fn validate_replace_cascade(
              cascade.rules[{i}]"
         );
     }
+    cascade
 }
 
-/// Builds one group's `subrule_ok(rule_pos, sub_idx)` predicate from the GATE node's own
-/// `partition.gated_subrules` + that group's own `key` -- IDENTICAL shape to `crate::gate::
+/// Builds one group's `subrule_ok(rule_pos, sub_idx)` predicate from a `Replace` node's OWN
+/// `cascade.gated_subrules` + `cascade.group_key` (task 1.4) -- IDENTICAL shape to `crate::gate::
 /// compile_gated_grammar_with_budget`'s own inline closure (that function's body, the `subrule_ok`
 /// local), just reading its inputs back out of `plan` data instead of `crate::gate::EntryGroup`/
-/// `crate::gate::GatedSubrule`. See the module doc's "obstacle" note for why this MUST be
-/// re-derived fresh per group rather than read off (or cached against) the shared `Replace` node.
+/// `crate::gate::GatedSubrule`. Before task 1.4 this had to be re-derived from the GATE node's
+/// partition instead (see the module doc's "task 1.4" note for why that was the unsound
+/// arrangement) -- now it is a pure read of the Replace node's own content, matching whichever
+/// `Replace` `NodeId` was resolved for this group.
 fn subrule_ok_for_group<'a>(
-    partition: &'a GatePartitionSpec,
+    gated_subrules: &'a [GatedSubruleRef],
     group_key: &'a [bool],
 ) -> impl Fn(usize, usize) -> bool + 'a {
     move |rule_pos: usize, sub_idx: usize| -> bool {
-        match partition
-            .gated_subrules
+        match gated_subrules
             .iter()
             .position(|gs| gs.rule_pos == rule_pos && gs.sub_idx == sub_idx)
         {
@@ -653,5 +664,73 @@ mod equivalence_tests {
             "fixture sanity: \"p\" and \"q\" must resolve to different analyses on the direct-compile \
              net (otherwise the gate isn't actually being exercised)"
         );
+    }
+
+    /// Task 1.4's node-purity claim, proven end-to-end on this module's own gated fixture: (a) the
+    /// two gate groups' OWN `Replace` `NodeId`s must now be DISTINCT (the fix's whole point -- a
+    /// single shared `Replace` node across differently-gated groups was the unsound arrangement
+    /// design.md D1's "Soundness invariant" paragraph named), and (b) that distinctness changes
+    /// nothing about the compiled RELATION: `build_controllable`'s plan-walk must still be
+    /// apply-equivalent to the direct-compile path, exactly the load-bearing correctness argument
+    /// [`plan_walk_matches_direct_compile_by_apply_on_gated_two_group_fixture`] already makes (this
+    /// test does not replace or weaken that one -- it adds the NodeId-purity claim on top of it,
+    /// reusing the same fixture and the same apply-comparison methodology).
+    #[test]
+    fn purity_differently_gated_groups_have_distinct_replace_node_ids_and_build_stays_apply_equivalent(
+    ) {
+        let g = load(gated_two_group_fixture_xml());
+        let alphabet = SegAlphabet::new(&g.char_tables[0]);
+        let opts = FomaOptions::default();
+        let ro = prules_in_order(&g);
+        let phon = PhonologyProbe::new(&g);
+        let budget = ComposeBudget::unbounded();
+
+        let plan = enumerate_default(&g, &alphabet, &ro, phon.as_ref());
+
+        // (a) node purity: the two gate groups must reference DISTINCT Replace NodeIds now.
+        let gate_id = find_gate_node(&plan);
+        let PlanNodeKind::Gate { children, .. } = plan.get(gate_id).unwrap() else {
+            unreachable!("find_gate_node only ever returns the id of a Gate node")
+        };
+        assert_eq!(children.len(), 2, "fixture declares exactly 2 gate groups");
+        let replace_ids: Vec<NodeId> = children
+            .iter()
+            .map(|&compose_id| gate_group_children(&plan, compose_id).1)
+            .collect();
+        assert_ne!(
+            replace_ids[0], replace_ids[1],
+            "task 1.4: two differently-gated groups must get DISTINCT Replace NodeIds -- a node's \
+             compiled artifact is now a pure function of its own NodeId (design.md D1), so no two \
+             groups needing different subrule_ok may share one Replace node"
+        );
+
+        // (b) that distinctness does not change the compiled relation: the plan-walk build must
+        // still be apply-equivalent to the direct-compile path.
+        let direct = compile_gated_grammar_with_budget(&opts, &g, &alphabet, &ro, &budget)
+            .expect("direct compile must succeed");
+        let direct_net = direct
+            .net
+            .clone()
+            .expect("direct compile must produce a non-empty net");
+        let built = build_controllable(&plan, &opts, &g, &alphabet, &ro, &budget)
+            .expect("plan-walk build must succeed");
+        let built_net = built
+            .net
+            .clone()
+            .expect("plan-walk build must produce a non-empty net");
+
+        for word in ["p", "q"] {
+            let want = apply_up_results(&direct_net, &alphabet, word);
+            let got = apply_up_results(&built_net, &alphabet, word);
+            assert!(
+                !want.is_empty(),
+                "sanity: {word:?} must actually analyze on the direct-compile net"
+            );
+            assert_eq!(
+                got, want,
+                "apply_up results for {word:?} must match EXACTLY between direct compile and \
+                 plan-walk build despite the two groups now having distinct Replace NodeIds"
+            );
+        }
     }
 }
