@@ -23,13 +23,19 @@ The FST payload SHALL use decimal-byte bands: Ideal through 10,000,000; Info abo
 - **THEN** the result is Warning
 
 ### Requirement: Overrides are explicit and bounded
-Warning and below SHALL permit normal artifact publication. Error SHALL require an explicit override
-recorded in the health report and package manifest. Critical SHALL reject compilation/publication and
-SHALL NOT be overridable.
+Warning and below SHALL permit normal artifact publication. Error and Critical SHALL each be
+overridable via the ADR 0005 capability override, recorded in the health report and pack manifest;
+the only non-overridable floor is ADR 0003 apply-time execution containment, never a predicted
+health/size verdict.
 
 #### Scenario: An Error package is explicitly published
 - **WHEN** a caller supplies the Error override
 - **THEN** publication succeeds and permanently records severity, metric, value, threshold, and override
+
+#### Scenario: A Critical package is force-compiled under the capability override
+- **WHEN** a caller supplies the capability override for a Critical finding
+- **THEN** compilation/publication succeeds behind the ADR 0005 degraded-trust signal and permanently
+  records the override; it never passes conformance
 
 ### Requirement: Size is not the only health dimension
 Overall admission SHALL be the worst applicable finding across payload size, estimated and actual

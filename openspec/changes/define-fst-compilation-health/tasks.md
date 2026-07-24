@@ -8,7 +8,7 @@
 
 - [ ] 2.1 Implement exact decimal FST-payload bands at 10/20/100/500 MB
 - [ ] 2.2 Aggregate independent size, construction, application, and unsupported-work severities
-- [ ] 2.3 Implement explicit Error override records and prohibit Critical overrides
+- [ ] 2.3 Implement explicit Error AND Critical override records via the ADR 0005 capability override (binary trust axis; no predicted verdict is non-overridable)
 - [ ] 2.4 Keep Warning-and-below packages deployable
 
 ## 3. Diagnostic quality

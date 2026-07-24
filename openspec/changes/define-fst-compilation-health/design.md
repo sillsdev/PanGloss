@@ -10,8 +10,10 @@ Execution order and ownership follow `openspec/changes/STAGING.md`.
 - Findings explain computational consequences only. They may suggest constraining or reordering a
   rule if linguistically equivalent, but never assert that such a change improves the grammar.
 - Overall admission is the worst applicable severity after validating any explicit override.
-- Error requires an explicit per-compilation override and remains recorded in reports and packages.
-  Critical cannot be overridden. Warning and below publish normally.
+- Error and Critical are BOTH overridable via the ADR 0005 capability override (an explicit
+  per-compilation override, permanently recorded in reports and the pack manifest); the trust axis is
+  binary and the only non-overridable floor is ADR 0003 apply-time execution containment, never a
+  predicted health/size verdict. Warning and below publish normally.
 - FST payload uses decimal byte bands: Ideal <=10,000,000; Info <=20,000,000; Warning
   <=100,000,000; Error <=500,000,000; Critical above 500,000,000.
 - Size does not dominate other dimensions. Unknown/unbounded work, intermediate-net growth,
