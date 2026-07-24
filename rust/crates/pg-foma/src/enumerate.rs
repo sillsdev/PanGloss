@@ -225,7 +225,13 @@ pub fn enumerate_default(
 /// `prules_in_order` slice NOT borrowed from this same `g`, which is a caller bug this function
 /// cannot silently paper over (silently returning a wrong `PRuleId` would corrupt every downstream
 /// consumer of that id, e.g. capability-evidence-provenance tagging, ADR 0001).
-fn rule_id_of(g: &Grammar, pr: &PhonRuleDef) -> PRuleId {
+///
+/// Widened from private to `pub(crate)` for Step 3a (`crate::build`): that module's own
+/// `validate_replace_cascade` needs the identical pointer-identity `PRuleId` recovery to
+/// cross-check a `Plan`'s `Replace` cascade against a caller-supplied `prules_in_order` slice, and
+/// re-deriving the same safety-relevant logic a second time would risk the two copies silently
+/// drifting apart.
+pub(crate) fn rule_id_of(g: &Grammar, pr: &PhonRuleDef) -> PRuleId {
     let idx = g
         .prules
         .iter()

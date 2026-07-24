@@ -68,6 +68,15 @@ pub mod analyzer;
 /// `gate.rs`/`replace.rs`/`preexpand.rs` bodies are untouched); see that module's own doc for full
 /// scope and the judgment calls it surfaces.
 pub mod capability;
+/// Step 3a of `openspec/changes/reify-compilation-plans` (design.md D3): [`build::
+/// build_controllable`], a [`plan::Plan`] interpreter for the controllable subtree (the `Gate`
+/// node and its per-group `Compose{LexiconFragment, Replace}` children [`enumerate::
+/// enumerate_default`] emits) into a real, composed [`foma::types::Fsm`] -- proven equivalent to
+/// [`gate::compile_gated_grammar_with_budget`]'s own direct-compile output by an apply-based test.
+/// Composite/structural-composite markers stay out of scope (that path's artifact type is a lexc
+/// `String`, not this module's `Fsm`); see that module's own doc for the full scope and the
+/// per-group-Replace-variance obstacle this step surfaced.
+pub mod build;
 /// Phase B composition-path budget guards (`docs/fst-plan/phase-b-compose-budget-design.md`):
 /// [`morphotactics::EnumerationBudget`]'s sibling for the P6 composition path ([`replace`],
 /// [`gate`], [`uflexc`]) -- size/count caps plus an opt-in wall-clock deadline for every
