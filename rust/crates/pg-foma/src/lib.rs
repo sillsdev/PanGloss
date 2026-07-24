@@ -61,6 +61,13 @@
 #![forbid(unsafe_code)]
 
 pub mod analyzer;
+/// Step 1 of `openspec/changes/add-capability-characteristics-check` (design.md D1/D2/D3): the
+/// `CharacteristicsProfile` projection, the `CapabilityPredicate` trait + `PredicateVerdict`, the
+/// exhaustive default-deny `characterize`, and the worked `simultaneous.subrule-overlap`
+/// predicate. Purely additive -- does not wire a gate into any production compile path (`emit.rs`/
+/// `gate.rs`/`replace.rs`/`preexpand.rs` bodies are untouched); see that module's own doc for full
+/// scope and the judgment calls it surfaces.
+pub mod capability;
 /// Phase B composition-path budget guards (`docs/fst-plan/phase-b-compose-budget-design.md`):
 /// [`morphotactics::EnumerationBudget`]'s sibling for the P6 composition path ([`replace`],
 /// [`gate`], [`uflexc`]) -- size/count caps plus an opt-in wall-clock deadline for every
