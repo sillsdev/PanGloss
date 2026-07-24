@@ -254,3 +254,51 @@ _Avoid_: Root-cause verdict, AI explanation
 **Absolute resource ceiling**:
 A versioned, hard-coded, deliberately high non-disableable limit above all default, app, and caller limits. Runtime ceilings and budget dimensions are identical across native Windows, native Linux, and WASM. It is an emergency containment boundary, not a normal operating target or a substitute for earlier logical-budget diagnostics.
 _Avoid_: Unlimited, default budget
+
+**Characteristics profile**:
+The total, fail-closed projection of a grammar-plus-stem-data compilation input onto the constructs, configurations, cardinalities, and scale dimensions that determine compiler capability and cost. Produced by an enumerator exhaustive over the frozen model; an unrecognized construct is a build break, never a silent omission.
+_Avoid_: Grammar summary, feature flags
+
+**Capability envelope**:
+A compilation stage's oracle- or proof-backed statement of the construct configurations it faithfully handles, the interactions it is proven orthogonal across, and the cardinalities it accepts. Envelopes compose bottom-up over a compilation plan; an interaction neither proven orthogonal nor proven-together fails closed.
+_Avoid_: Feature list, supported flag
+
+**Characteristics check**:
+The unifying accept/refuse decision matching a characteristics profile against the composed capability envelope, recording why. It hard-fails any grammar using a not-proven-faithful configuration (an honest carve-out) and never converts a cost prediction into a correctness verdict.
+_Avoid_: Validation pass, lint
+
+**Capability evidence provenance**:
+Whether a "supported" claim rests on behavioral oracle witnesses (the black-box lexc mainline) or a structural proof over controllable composition (the P6 path). The two are distinguished in the profile and never conflated; presenting a behavioral pass as a structural guarantee is overclaiming.
+_Avoid_: Supported (unqualified)
+
+**Conformance coverage gate**:
+The CI check that makes "supported" mean "proven accurate": a construct or configuration may not flip from fail-closed to supported unless the in-repo conformance suite exercises it and passes. The capability manifest is cross-checked against conformance coverage, and marking anything supported without a covering, passing fixture breaks the build. This is how the claim "if a grammar compiles, it is accurate" is mechanically enforced rather than promised — the conformance suite is the gate through which a construct earns "supported."
+_Avoid_: Certification, sign-off (there is no separate terminal certification stage; ground truth is committed per-fixture and integration tests run the current engine against it)
+
+**Capability override**:
+An explicit escape hatch that force-compiles a grammar the characteristics check refused. It produces an artifact indelibly stamped unproven/recall-unsafe that still loads and runs. It is the development on-ramp for promoting a construct (force-compile → iterate → prove → cover → flip supported) and the way an in-progress grammar reaches a user for trial. The override is recorded in the manifest; it never passes the conformance gate and is cleared only by genuine proof plus a clean recompile.
+_Avoid_: Bypass, disable-check (it does not silence the contract; it records the exception and marks the result)
+
+**Unproven-grammar trust signal**:
+The strong, machine-readable degraded-trust status a Runtime broadcasts for a capability-overridden pack — pack-level `unproven` at load and a degraded/experimental flag on every analysis result — which a consuming app keys off to warn the user ("this is potentially broken"). For unproven packs the signal, not a refusal, is the safety mechanism; a proven pack fires neither.
+_Avoid_: Warning (unqualified), error band (that is the separate cost/health axis)
+
+**Compilation plan**:
+A first-class, enumerable description of one legal composition topology for a grammar. Multiple plans may pass capability for one grammar; because every capability-passing plan is recall-preserving, all produce the identical confirmed analysis set and differ only in cost.
+_Avoid_: Build path, pipeline (unqualified)
+
+**Projected cost**:
+A calibrated heuristic estimate carrying an error bound, used to rank compilation plans before building. Overlapping bounds mean "close" — build the top candidates and measure. A point estimate never prunes a candidate by itself, and projected cost is never a correctness gate.
+_Avoid_: Cost, size (as if exact)
+
+**Committed plan**:
+The reviewed compilation plan recorded authoritatively in grammar configuration and used by every normal build for reproducibility. Distinct from the derived plan cache, a disposable fail-safe local optimization that is never authoritative over it. A tuning run proposes a plan diff; committing it is an explicit human-reviewed action.
+_Avoid_: Cached plan (as authoritative), default path
+
+**Runtime feature set**:
+The versioned set of runtime operations, payload-format versions, and core (foma/HC-port) semantic versions that a Language Pack requires and a PanGloss Runtime provides. A pack loads iff its required set is contained in the Runtime's provided set. It concerns runtime features only, never grammar constructs, which the compiler has already lowered into generic FST and runtime data.
+_Avoid_: Engine version (as the compatibility key), API level
+
+**Append-only runtime compatibility**:
+The invariant that a Runtime's provided feature set only ever grows and an existing behavior is never altered in place, so every older pack's required set stays contained and old packs run unchanged on newer engines forever. Forward incompatibility is allowed — a new pack needing a feature an older engine lacks yields a typed upgrade request. A genuine non-additive change is a rare, carefully staged major-version event that recompiles grammars, never a silent in-place behavior swap.
+_Avoid_: Semver compatibility, breaking patch

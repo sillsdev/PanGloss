@@ -1,6 +1,29 @@
 # Staged OpenSpec execution
 
-This is the authoritative dependency and worktree-ownership map for the active grammar-coverage changes. Change artifacts define behavior; this file defines dispatch and merge order.
+This is the authoritative dependency and worktree-ownership map for the active grammar-coverage
+changes. Change artifacts define behavior; this file defines dispatch and merge order.
+
+This spine was reorganized on 2026-07-24 to reflect the honest-capability architecture recorded in
+`docs/adr/0001`–`0005`. The governing facts that reshaped it:
+
+- **The characteristics check is the contract** (ADR 0001): a first-class, dynamic, composed gate
+  that hard-fails any grammar it cannot faithfully compile. It is not a passive ledger.
+- **Multi-topology is the compilation model, not an optimizer** (ADR 0002): nothing ships until it
+  exists, so the compile step is refactored to the plan-reified model *as the model*, and capability
+  is grown one construct at a time. There is no ad-hoc selection to preserve.
+- **The capability override** (ADR 0005) lets a refused grammar force-compile, load, and run behind
+  an indelible degraded-trust runtime signal — the on-ramp for promoting each construct.
+- **Packaging/WASM/compat are downstream**: with nothing shipping yet, they trail the compilation
+  spine.
+
+## Hard rule: synthetic data only
+
+Every conformance grammar and fixture uses **synthetic data only** — invented lexemes, segment
+inventories, and rules. **No actual-language data, ever.** Files and directories are **not** named by
+language; features/knobs are **not** named by language; a language **family or typology** may appear
+**only in a comment** for context, never in a filename or identifier. Each FST compilation module is
+named by **the parts it composes** (or another disambiguating scheme), never by a language. This rule
+governs new work and is a standing review criterion for existing fixtures.
 
 ## Deployment domains
 
@@ -14,146 +37,100 @@ publication policy, or diagnostic UI.
 
 ## Lifecycle ownership
 
-Grammar and stems are source. Compilation creates an immutable build report with FST-health
-diagnostics; a caller-supplied word run creates a separate immutable assessment report. Build-report
-and assessment-report comparison are separate operations, while CLI conveniences may compose them.
-Compilation may remain in memory for iterative tests. Release optionally writes one data-only
-`.pgpack` PanGloss Language Pack; packages contain no executable extensions. The PanGloss SDK adds
-`pangloss-build` beside and dependent on the exact Runtime build bundled and tested with that SDK.
-An external patch-level Runtime may substitute only after the declared ABI/package compatibility
-check passes; major/minor lines match and there is no initial old-runtime targeting. The C# Machine
-utility is maintained as source-only conformance/investigation tooling, not shipped product.
+Grammar and stems are source. Compilation is gated by the characteristics check and creates an
+immutable build report with capability disposition and FST-health diagnostics; a caller-supplied
+word run creates a separate immutable assessment report. Compilation may remain in memory for
+iterative tests. Release optionally writes one data-only `.pgpack` PanGloss Language Pack; packages
+contain no executable extensions and carry a capability-trust status (proven, or overridden/unproven
+per ADR 0005). The C# Machine utility is maintained as source-only conformance/investigation tooling,
+not shipped product.
 
-## Stage 0 — parallel foundations
+---
 
-### 0A. Coverage contract
+## Stage 0 — the contract and foundations (parallel)
 
-`define-grammar-coverage-contract`: ledger schema/inventory, oracle identity and containment library,
-then migration of named Phase-C/Aweti gates. These are serial merge units inside the change.
+### 0A. Capability characteristics check — the contract *(NET-NEW, keystone)*
 
-### 0B. Resource-safety foundation
+`add-capability-characteristics-check`: the load-bearing gate (ADR 0001). Projects a grammar + stem
+data into a characteristics profile, composes the capability envelope from per-stage/interaction
+predicates, and **hard-fails** any not-proven-faithful configuration with a typed diagnostic. Owns:
+the profile/envelope/predicate types, the default-deny characterizer (no catch-all — adding a
+`model.rs` variant breaks the build), the **capability override + unproven-trust runtime signal**
+(ADR 0005), and the **conformance-coverage CI gate** (supported ⟺ a passing in-repo
+`machine/conformance/` fixture, else the build breaks). Its first act marks every unproven
+configuration — including `MorphRuleDef::Compounding`, `MorphRuleOrder::Unordered`, and `MprGroup` —
+**fail-closed**. Everything else sequences behind this.
+
+### 0B. Coverage ledger — evidence into the gate
+
+`define-grammar-coverage-contract`, **demoted to evidence role**: the one-time audited ledger over
+the frozen `pg-grammar/src/model.rs`, oracle records, and proposer-to-confirm containment gates feed
+*into* the Stage 0A gate. The ledger is not itself the gate.
+
+### 0C. Resource-safety foundation
 
 `harden-foma-resource-safety`, budget/error foundation: validated configuration, cumulative logical
-trackers, checked operations, and typed outcomes. This may run in parallel with 0A.
-
-Coverage owns ledger/schema/test-support files. Resource safety owns `compose_budget.rs` and new
+trackers, checked operations, typed outcomes, pre-allocation reservations. **Extension:** add the
+derivation/unapplication **chain-depth** dimension (ADR 0003) that deterministically closes stack
+overflow (the Aweti 24-level chain, the 1 GiB-stack workaround). Owns `compose_budget.rs` and new
 budget types.
 
-### 0C. FST compilation-health contract
+### 0D. FST compilation-health contract
 
-`define-fst-compilation-health` defines the Rust-owned finding schema, stable codes, severity and
-override semantics, FST-payload size bands, and the boundary between compilation health and
-linguistic grammar quality. It may proceed with 0A/0B and owns no compiler instrumentation.
+`define-fst-compilation-health`: Rust-owned finding schema, stable codes, severity/override
+semantics, size bands, and the boundary between compilation health (cost axis) and linguistic
+grammar quality. Distinct from the capability-trust axis (ADR 0005).
 
-## Stage 1 — diagnostic foundation and trustworthy baseline
+### 0E. Reference oracle harness — pulled early
 
-### 1A. Rust grammar diagnostics
+`add-reference-hermitcrab-parity`: the C# HermitCrab oracle harness that **authors** conformance
+ground truth (gloss/analysis signatures) and supplies investigative parity evidence. Pulled into
+Stage 0 because the 0A conformance gate depends on oracle-authored fixtures existing. It is
+investigative evidence, never the gate itself.
 
-`add-grammar-diagnostics` depends on the Stage 0 coverage schema and worker-watchdog contract.
-It owns the separate Rust build/assessment report schemas, single-grammar CLI, gloss output, shared diagnostic events,
-PowerShell/incoming orchestration, CI smoke test, and diagnostic skill.
+## Stage 1 — the compilation refactor
 
-Schema, CLI, PowerShell, rendering, and self-contained tests may proceed against the Stage 0
-contract. Potentially adversarial diagnostic compile/parse execution—including Aweti—uses the Stage
-1E compiler-worker watchdog and effective policy when that execution is reached. Diagnostics never
-substitutes its own cap or runs an uncapped Morpher; unavailable external evidence is recorded as
-`not_run` while independent implementation continues.
+### 1A. Reify compilation plans *(NET-NEW)*
 
-### 1B. Production-emitter compile profile
+`reify-compilation-plans`: the "massive refactor" of the compile step to the plan-reified
+multi-topology model (ADR 0002). Replaces hardcoded topology branching
+(`should_run`/`probe_would_refuse`/`partition_entries`) with first-class enumerable plans,
+capability-safe selection, and the **differential-correctness oracle** (build ≥2 plans, assert
+identical confirmed sets). The cost-model, projected-cost error bounds, committed-plan cache, and
+profile-guided autotuning are a **parked follow-on** (`add-compilation-cost-planner`) triggered by
+real multi-topology pressure.
 
-`profile-fst-compilation` Phase A depends on 1A's report/event schema. It profiles the active
-`emit_with_budget`/lexc production path only: top-line compile time, emitter/probe/lexc stages,
-per-template lines, final states/arcs, and resource outcomes.
+### 1B. Shared pattern/environment lowering
 
-It exclusively owns compile events and `emit.rs` instrumentation. Diagnostics consumes these
-events; it does not add competing emitter/build counters.
+`lower-fst-pattern-environments`: the one shared IR/lowering seam (`pg-foma/src/lower.rs`) the
+reified model and every Stage-2 construct build on. Compiler plumbing, grants no new capability.
 
-### 1B2. FST compilation-health audit
+### 1C. Production-emitter compile profile
 
-`add-fst-compilation-health-audit` consumes 0C plus the Stage 0 budget APIs and Stage 1B profile
-events. Rust performs preflight and observed health evaluation, emits canonical JSON/Markdown and
-compiler warnings, and supplies artifact admission metadata. It reuses measurements; it does not
-recalculate profile metrics or judge linguistic quality.
+`profile-fst-compilation`: compile-time stage instrumentation feeding cost signals. Owns compile
+events and `emit.rs` instrumentation.
 
-### 1C. Reference HermitCrab parity
+## Stage 2 — constructs, one at a time, on the new model
 
-`add-reference-hermitcrab-parity` depends on 1A's Rust gloss-signature API. It is an otherwise
-parallel harness lane: HC-XML-only `gloss-batch`, real `-i/-s` invocation, and duplicate-sensitive
-gloss-chain/surface-shape multiset comparison.
-
-### 1D. Aweti baseline
-
-`reconcile-aweti-baseline` depends on the coverage gate library and shared diagnostic-event API. It
-owns the exact Aweti manifest, shared Aweti network constructor, gate adaptation, bare-root evidence,
-and Aweti-specific measurement. Historical 68/104 remains non-comparable; existing 32/104 remains a
-word-level floor until replaced by exact manifest evidence.
-
-### 1E. Compiler-worker safety
-
-After the typed schema lands, the single-worker watchdog and terminal production routing proceed.
-Resource safety owns the worker protocol, standard-library timeout/kill loop, sampled-RSS monitor,
-bounded IPC, and `composite.rs` routing on Windows and Linux. It does not own process-tree, Job
-Object, cgroup, Tokio, or `processkit` infrastructure. Diagnostics only serializes outcomes. Work
-proceeds independently, while unsafe real-grammar executions use the watchdog rather than run uncapped.
-
-### 1F. WASM analysis boundary
-
-`make-wasm-analysis-only` removes FST compilation from the WASM dependency graph and public API,
-then loads one-file validated analysis packages produced by the native compilation authority. Each
-package binds the precompiled FST proposer to the runtime grammar data consumed by the Rust
-HermitCrab port. Artifact contract and loader work may begin after the foma binary-memory contract
-is pinned; production artifact generation depends on the Stage 1E native worker watchdog.
-
-Artifact publication also consumes the Rust FST-admission result. Warning packages publish normally;
-Error packages require an explicit recorded override; Critical packages cannot publish.
-Preflight distinguishes correctness from prediction: possible analysis loss fails closed, while
-recall-preserving work with unknown growth is attempted under the shared watchdog and logical
-budgets. Cost uncertainty alone is not Critical.
-Resource termination never triggers automatic retry or limit escalation. Diagnostics return the
-effective envelope, reached metric, partial measurements, and grammar-first remedies; a caller may
-start an explicit new attempt using a larger named, versioned envelope.
-Deterministic work counters provide the normal early cutoff and construct attribution. Cooperative
-elapsed checks and the parent wall timeout remain outer safeguards for stalls and uninstrumented
-native work, without imposing an identical elapsed-time promise across platforms or machines.
-Exact values and proven conservative lower bounds reserve cumulative logical work before material
-allocation and stop operations that provably cannot fit. Heuristic estimates may warn but never
-reject by themselves; uncertain work proceeds under actual counters.
-Potentially meaning-changing grammar improvements are advisory only. Automatic compiler lowering or
-optimization requires semantics-preservation evidence owned and verified by the relevant compile
-change; applied internal transformations are recorded in profile evidence.
-The pipeline preserves PanGloss's propose-and-confirm architecture: recall-preserving FST
-overapproximation is valid, and Rust HermitCrab filters false positives. Candidate/path volume,
-confirmation work, and rejection share remain first-class health dimensions.
-Apply-budget exhaustion is atomic per word: completed batch members remain valid, but the exhausted
-word returns only a typed incomplete outcome plus diagnostic evidence. A caller may explicitly retry
-the incomplete subset with larger selected apply limits; no automatic retry occurs.
-An optional caller-selected cumulative batch budget preserves completed results and distinguishes a
-started incomplete word from remaining not-attempted words, so callers can resume either subset.
-Every configurable resource dimension also has a versioned, hard-coded, deliberately high absolute
-ceiling. Defaults, named envelopes, hosts, and callers may select only lower effective values; no
-unlimited mode exists. Calibration keeps normal fail-fast limits distinct from emergency ceilings.
-Runtime application has one budget schema and absolute ceiling set across Windows, Linux, and WASM.
-Apps select lower normal or retry values from that same contract; ordinary defaults target user PCs.
-
-This lane is not a compiler-coverage lane. WASM uses logical apply budgets but does not need or
-emulate a child-process compile supervisor. The separately in-flight stem-input work may extend the
-analysis artifact/input data but SHALL NOT add an engine mutation or compilation path. Because both
-may touch `pg-wasm`, they merge serially with one owner at a time.
-
-## Stage 2 — serialized rewrite correctness
-
-Merge in this exact order because these changes own `pg-foma/src/replace.rs`, relevant `gate.rs`
-entry points, and dedicated gates:
+Each construct ships its **full kit**: a configuration-predicate capability boundary (never
+variant-level), oracle witnesses, a synthetic `machine/conformance/` fixture, big-O characterization
++ resource thresholds, a per-construct runtime-feature declaration (ADR 0004; default: fully lowered,
+contributes nothing), and diagnostics. A construct is promoted from fail-closed to supported only via
+the Stage 0A gate. Merge in an order that respects `replace.rs`/`gate.rs` single-ownership:
 
 1. `fix-multitable-fst-compilation`
-2. `compile-right-to-left-rewrites`
-3. `compile-simultaneous-rewrites`
-4. `lower-fst-pattern-environments`
-5. `compile-bounded-fst-quantifiers`
-6. `compile-fst-metathesis`
-7. `cover-circumfix-null-output-actions`
-8. `cover-template-truncation-reduplication`
-9. `cover-realizational-morphology-constraints`
+2. `compile-right-to-left-rewrites` — **rewrite spec to config-predicate granularity**
+3. `compile-simultaneous-rewrites` — **surface the subrule-overlap predicate as an explicit
+   requirement** (ADR 0001's own worked example)
+4. `compile-bounded-fst-quantifiers`
+5. `compile-fst-metathesis`
+6. `cover-circumfix-null-output-actions`
+7. `cover-template-truncation-reduplication` — wire reduplication-peel as an ADR 0004
+   required-runtime-feature and an ADR 0003 chain-depth/allocation-budgeted apply op
+8. `cover-realizational-morphology-constraints`
+9. `cover-compounding` *(NET-NEW — parity hole, no prior owner)*
+10. `cover-unordered-morph-rules` *(NET-NEW — `MorphRuleOrder::Unordered`, no prior owner)*
+11. `cover-mpr-groups` *(NET-NEW — `MprGroup`, no prior owner)*
 
 The coverage ledger has one integration owner. Semantic worktrees produce evidence/row-update
 fragments; the integration owner applies ledger changes after merge.
@@ -161,88 +138,72 @@ fragments; the integration owner applies ledger changes after merge.
 ### Stage 2+ gate: replacement-cascade compilation profile
 
 `profile-fst-compilation` Phase B is blocked until Stage 2 wires the replacement-rule cascade into
-the production network constructor used for lookup. The mere existence of experimental
-`replace.rs` functions does not satisfy this dependency. Before that switch, any cascade metrics
-are labeled `experimental_composition`; after it, the profile may add per-rule own-net,
-alpha/group, and running state/arc curve metrics without observer-induced minimization.
+the production network constructor used for lookup. Before that switch, cascade metrics are labeled
+`experimental_composition`.
 
 ## Stage 3 — interaction and scale
 
-- `add-pairwise-grammar-interaction-coverage` runs against a pinned post-Stage-2 ledger version.
-- `calibrate-fst-resource-envelopes` may build its harness earlier, but final sweeps wait until every
-  Stage-2 construct, production cascade/profile, correctness gate, and pairwise gate has merged.
-  Earlier stages use centralized values explicitly marked provisional. Serial sweeps replace them
-  with reviewed portable defaults and hard ceilings; release is blocked while provisional markers remain.
-  Final evidence combines representative real-language workloads with generated one-factor and
-  pairwise scaling cases plus long/ambiguous words. All retain semantic correctness gates.
-  Current calibration evidence runs on Windows and records Linux as `not_run`; this is honest missing
-  evidence, not an implementation blocker. Later Linux evidence may conservatively revise the same
-  portable runtime policy but does not create platform-specific limits.
-  Calibration produces evidence, headroom reasoning, and a proposed policy diff only. It cannot
-  rewrite or adapt production constants; activation requires a human-reviewed committed policy version.
-Runtime APIs expose explicitly named combined and HermitCrab-only pipelines. The latter supports
-engine integration and parse-failure explanation. Both share the portable budget/outcome contract,
-and a request never switches pipelines automatically.
-Native word-set cross-engine validation compares completed combined and Rust-HermitCrab-only results
-by structured semantic identity and may also invoke C# HermitCrab for HC XML. C# remains a native
-CLI/PowerShell reference tool and has no WASM dependency or export. PanGloss reports comparison and
-availability evidence; consuming applications own publication allow/deny policy.
-Semantic parity compares deduplicated structured-analysis sets. Duplicate copies retain counts,
-ratios, and available rule/proposal-path provenance as health evidence so developers and AI agents
-can diagnose overlapping FST paths without misclassifying duplicates as linguistic answers.
-One coverage-contract owner defines identity from Machine `WordAnalysis.Equals`: ordered stable
-morpheme IDs, root position, and category/POS; Rust `guessed` is a separate parity annotation.
-Diagnostics reuse it while gloss/shape/properties/duplicates/paths remain evidence. Key semantic
-decisions cite Machine and applicable LibLCM precedent; divergences require reviewed rationale,
-compatibility impact, and focused regression tests.
-C# `analysis-batch` owns authoritative native machine-delta output using stable XML keys, root, and
-category; `gloss-batch` remains explanatory. The loader exposes a supported object-to-source-key map,
-and missing/colliding mappings yield typed `not_comparable` rather than silent identity collapse.
-Reports capture both sides' full available context without gating execution on equality. Strict
-engine parity highlights unexpected drift; intentional grammar-delta mode compares differing
-grammars/options/data and reports added, removed, unchanged, incomplete, and unattempted analyses.
-Optional golden sets yield exact matching/missing/unexpected diffs. Semantic changes never receive a
-PanGloss quality verdict or aggregate closeness score; compiler/runtime health remains separate.
-Validation treats input goldens as immutable. Optional proposed goldens are distinct context-bound
-artifacts with exact diffs; adoption is an explicit caller-owned action outside the validation run.
-Compiler/runtime-owned breadcrumbs attach stable rule/construct IDs, stages, paths, outcomes, and
-completeness to deltas and duplicates. Reports describe participation/association, never unsupported
-causation; downstream developers and AI tooling own interpretation.
+- `add-pairwise-grammar-interaction-coverage` runs against a pinned post-Stage-2 ledger version and
+  **feeds its proven/declared pairs back into the capability manifest** (ADR 0001: proving
+  orthogonality retires combination space; a declared pairwise-only limitation is stamped, not
+  hidden).
+- `calibrate-fst-resource-envelopes`: final sweeps after every Stage-2 construct, production
+  cascade/profile, and pairwise gate merge. **Extension:** explicitly instrument and calibrate the
+  ADR 0003 chain-depth and pre-allocation logical-memory dimensions. Governance: evidence + proposed
+  diff + human-reviewed committed policy version; no automatic write-back. Also serves as ADR 0002's
+  periodic re-validation of projected-cost estimates.
 
-## Stage 4 — final evidence
+## Stage 4 — correctness proof (always-on CI, not a terminal audit)
 
-`certify-four-language-matrix` runs serially on one quiet, fully merged commit. It consumes the
-versioned diagnostic reports from Stage 1 and the compile profiles/resource policy from later
-stages; it does not reimplement timing, gloss, completeness, or resource calculations. It changes
-reports and status only. Any code failure opens a new bounded OpenSpec change.
+`certify-four-language-matrix` is **reframed** (rename target: `run-synthetic-conformance-matrix`):
+there is no terminal "certification" stage and no external reference languages. Correctness is proven
+by **conformance integration tests over the in-repo synthetic `machine/conformance/` grammars**,
+diffing the current engine against committed oracle-authored ground truth, enforced as the Stage 0A
+CI gate. Actual-language data (Sena/Amharic/Indonesian/Aweti) is **not** migrated in; typological
+coverage is expanded only with synthetic fixtures named by construct/composition (see the hard rule
+above).
+
+## Downstream — post-multi-topology, pre-ship
+
+These assume shippable packs and trail the compilation spine:
+
+- `make-wasm-analysis-only` — **reworked** to ADR 0004's `required ⊆ provided` append-only runtime
+  compatibility (replacing the monolithic engine-compatibility-identifier equality check), adding the
+  manifest required-runtime-feature-set field and the ADR 0005 capability-trust stamp. Reconcile the
+  manifest's FST-health admission field with `add-fst-compilation-health-audit`.
+- `.pgpack` packaging/release path.
+- `add-grammar-diagnostics` — **fix** the apply-path containment to ADR 0003's in-process cooperative
+  magnitude budgets (not "the watchdog", which is compile-only).
+- `add-fst-compilation-health-audit`.
+- `reconcile-aweti-baseline` — folds into a synthetic Aweti-shaped conformance fixture + a
+  construct-driven target; the honest 32/104 floor and non-comparable 68/104 history are preserved as
+  provenance, not as actual-language data.
 
 ## Merge hotspots
 
 - `replace.rs` / `gate.rs`: one semantic owner at a time.
-- `emit.rs`: one owner at a time across production-profile sink threading and semantic compiler work.
+- `emit.rs`: one owner at a time across profiling and semantic compiler work.
+- `lower.rs`: shared IR seam owner (Stage 1B) before Stage-2 constructs consume it.
+- Plan-reification core: one owner (Stage 1A) before constructs are authored on the new model.
 - `preexpand.rs` / `peel.rs` / `morphotactics.rs`: one Stage-2 morphology owner at a time.
 - Coverage ledger: one integration owner.
+- Characteristics-check gate + capability manifest: one contract owner; construct work contributes
+  registered predicates and conformance fixtures.
 - `analyzer.rs`: diagnostic event producer; apply-budget adapters consume its stable API.
-- `confirm.rs`: confirm instrumentation owner.
-- `composite.rs`: terminal-outcome routing owner; automatic alternate-engine routing is removed.
-- `p6_aweti_gate.rs`: Aweti owner until Stage 1 merges.
-- `pg-cli/main.rs`: diagnostics/gloss owner until Stage 1A merges.
-- C# HermitCrab.Tool command files: reference-parity owner during Stage 1C.
+- `composite.rs`: terminal-outcome routing owner.
 - `pg-wasm`: one owner at a time across stem-input integration and the analysis-only boundary.
-- FST health finding registry/schema: one contract owner; compiler work contributes registered codes.
 
 ## Initial parallel dispatch set
 
-After prompts name exact file ownership, the following can start in parallel:
+After prompts name exact file ownership, these can start in parallel once the planning commit lands:
 
-1. Coverage ledger schema/inventory (0A first unit)
-2. Resource budget/error foundation (0B)
-3. Diagnostic report schema/CLI skeleton after consuming the agreed schema boundary (1A first unit)
-4. PowerShell/incoming/report rendering after report schema stabilizes
-5. C# `gloss-batch` golden contract after the Rust/shared signature format stabilizes
-6. FST compilation-health schema and golden findings (0C)
+1. Capability characteristics-check types + default-deny characterizer skeleton (0A first unit)
+2. Coverage ledger schema/inventory (0B first unit)
+3. Resource budget/error foundation incl. chain-depth (0C)
+4. FST compilation-health schema and golden findings (0D)
+5. Reference gloss/analysis-signature goldens (0E)
 
 All work touching `replace.rs`, `gate.rs`, or overlapping `emit.rs` regions remains serialized.
-Missing `machine`, private/gitignored corpora, an oracle executable, a platform runner, or a quiet
-benchmark host never freezes this queue. The owning agent records the unavailable evidence and
-continues every self-contained task; certification status remains unclaimed until its evidence runs.
+Missing `machine`, private/gitignored corpora, an oracle executable, or a platform runner never
+freezes this queue: the owning agent records the unavailable evidence as `not_run` and continues
+every self-contained task.
