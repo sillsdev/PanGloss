@@ -203,6 +203,15 @@ pub mod profile;
 /// P6 feasibility prototype (docs/fst-plan/p6-prototype-report.md): replace-rule compilation +
 /// underlying-form lexc, NOT wired into the mainline `emit`/`analyzer` path. See that module's doc.
 pub mod replace;
+/// Tasks 2.1/2.2 of `openspec/changes/reify-compilation-plans` (design.md D3): [`selection::
+/// select_plan`] -- filters [`enumerate::enumerate_candidates`]'s candidate list to those whose
+/// [`capability::compose_envelope`] decision is not `Refuse` (capability-safe by construction),
+/// then picks the minimum measured `states + arcs` (via [`build::build_controllable`]), tie-broken
+/// by root [`plan::NodeId`] (D1's content address). A library capability only -- NOT wired into any
+/// production compile path (task 1.3, the production flip, stays a deliberately separate, still-open
+/// task); see that module's own doc for the full filter/rank/tie-break contract and what is parked
+/// to `add-compilation-cost-planner`.
+pub mod selection;
 pub mod tags;
 /// P6 feasibility prototype sibling of [`replace`]: the underlying-form lexc emitter.
 pub mod uflexc;

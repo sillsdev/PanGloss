@@ -94,6 +94,7 @@ use pg_grammar::model::{Grammar, LexEntryId, PRuleId, PhonRuleDef};
 
 use crate::gate::{find_gated_subrules, partition_entries};
 use crate::junctions::PhonologyProbe;
+use crate::oracle::permute_gate_groups;
 use crate::plan::{
     ComposeStrategy, FragmentSpec, GateGroupSpec, GatePartitionSpec, GatedSubruleRef, NodeId, Plan,
     PlanNodeKind, Provenance, ReplaceCascadeSpec,
@@ -233,6 +234,97 @@ pub fn enumerate_default(
     plan.set_root(root);
 
     plan
+}
+
+/// One candidate topology [`enumerate_candidates`] emits, labeled for provenance/diagnostics
+/// (task 2.1/2.2, `openspec/changes/reify-compilation-plans`). The label is a static string naming
+/// WHICH axis produced this candidate (`"default"`, `"gate-group-permuted"`, ...), not a
+/// user-facing description — see [`crate::selection::select_plan`]'s own doc for how this feeds a
+/// caller's provenance report.
+#[derive(Debug)]
+pub struct CandidatePlan {
+    pub label: &'static str,
+    pub plan: Plan,
+}
+
+/// Task 2.1/2.2 (`openspec/changes/reify-compilation-plans`, design.md D3): the candidate
+/// ENUMERATOR — every legal, **buildable** topology this crate can emit for `g` today, as
+/// content-addressed [`Plan`]s a caller (typically [`crate::selection::select_plan`]) can filter by
+/// capability and rank by cost. Always emits [`enumerate_default`]'s own plan first (candidate
+/// `"default"`); the D3 selection story only becomes meaningful once there is a second, genuinely
+/// distinct candidate to choose between.
+///
+/// # Which axes are emitted, and why
+///
+/// **Emitted: gate-group order** (candidate `"gate-group-permuted"`, via [`permute_gate_groups`]).
+/// [`crate::oracle`]'s own module doc proves this is sound and non-vacuous: [`build::
+/// build_controllable`] folds every `Gate` group's compiled network together with
+/// [`crate::compose_budget::union_checked`] (commutative) and always finishes with
+/// [`crate::compose_budget::minimize_checked`], so a `Gate` node's group ORDER cannot affect the
+/// final relation — only membership does. Reordering the groups changes the `Gate` node's content
+/// address (D1: `NodeId = hash(kind, children, config)`, and both `partition.groups` and `children`
+/// are part of that content) without changing what the built network recognizes: a real, distinct,
+/// SAME-relation candidate topology, not a relabeling of the identical `Plan`. **Only added when it
+/// is actually a different plan**: a grammar with 0 or 1 partition groups reverses to the identical
+/// `Vec`, so `permute_gate_groups` would return a `Plan` with the SAME root `NodeId` — appending it
+/// would just be the `"default"` candidate wearing a second label, which is not a genuine
+/// alternative for [`crate::selection::select_plan`] to weigh. This function checks the roots differ
+/// before appending, so the returned `Vec` has length 1 for an ungated/single-group grammar and
+/// length 2 once there are ≥2 groups to reorder.
+///
+/// # Which axes are deliberately NOT emitted yet, and why
+///
+/// - **`ComposeStrategy::Lazy`/`LazyLookahead`** (`plan.rs`'s own second axis, D1: "kept separate
+///   from topology"). [`build::build_controllable`]'s own module doc is explicit: it interprets
+///   ONLY [`ComposeStrategy::Static`] — "the only strategy `enumerate_default` ever emits" — and
+///   PANICS on any other strategy, since "no lazy-composition primitive exists anywhere in this
+///   crate yet." Emitting a `Lazy`/`LazyLookahead` candidate here would violate this task's own hard
+///   rule ("do NOT emit a plan `build_controllable` cannot build"), so this axis stays out until a
+///   real lazy-composition builder exists — a `crate::build` gap, not something this enumerator can
+///   paper over by constructing the node anyway.
+/// - **Reordering the root `Union`'s composite-emission/structural-composite marker children.**
+///   [`enumerate_default`]'s own module doc already notes `Union`'s commutativity makes child order
+///   semantically inert; the reason this is still not a candidate axis is that neither marker leaf
+///   is interpreted by [`build::build_controllable`] at all (that module's own scope note: markers
+///   are a separate, black-box lexc-`String` artifact, "out of scope for this step"). Permuting
+///   `Union` children would therefore change a content address without changing anything
+///   [`build::build_controllable`] can measure or build differently — no genuine topology choice,
+///   just churn.
+/// - **An alternative partition function for the `Gate` node** (grouping entries differently than
+///   [`crate::gate::partition_entries`] does). No second partition-computing seam exists anywhere in
+///   this crate; inventing one here would mean re-deriving `gate.rs`'s own gating semantics a second,
+///   independent way — squarely the kind of change this task's own scope excludes ("do NOT touch
+///   replace.rs or lower.rs"; by the same discipline, this step does not reach into `gate.rs` either
+///   to manufacture a second partition strategy it was never asked to build).
+/// - **Reordering a `Replace` cascade's rule sequence.** Unlike gate-group order, rewrite-rule order
+///   is NOT proven irrelevant — `replace.rs`'s cascade is explicitly order-sensitive (each rule's
+///   output feeds the next), so two different rule orders are not, in general, the SAME relation at
+///   all. Emitting a reordered-cascade candidate here would risk exactly what D3 rules out by
+///   construction ("selection can never pick a fast-but-wrong plan"): a candidate that LOOKS like an
+///   alternative topology for the same logical request but actually computes a different relation.
+///   Absent a proof of order-irrelevance (which no seam in this crate currently supplies), this axis
+///   is left unexplored rather than emitted unsoundly.
+pub fn enumerate_candidates(
+    g: &Grammar,
+    alphabet: &SegAlphabet<'_>,
+    prules_in_order: &[&PhonRuleDef],
+    phon: Option<&PhonologyProbe<'_>>,
+) -> Vec<CandidatePlan> {
+    let default_plan = enumerate_default(g, alphabet, prules_in_order, phon);
+    let mut candidates = vec![CandidatePlan {
+        label: "default",
+        plan: default_plan,
+    }];
+
+    let permuted = permute_gate_groups(&candidates[0].plan);
+    if permuted.root() != candidates[0].plan.root() {
+        candidates.push(CandidatePlan {
+            label: "gate-group-permuted",
+            plan: permuted,
+        });
+    }
+
+    candidates
 }
 
 /// Recovers `pr`'s [`PRuleId`] (its index into [`Grammar::prules`]) from a `prules_in_order` entry,
@@ -753,5 +845,71 @@ mod tests {
 
         assert_eq!(plan_a.root(), plan_b.root());
         assert_eq!(plan_a.len(), plan_b.len());
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Task 2.1/2.2: enumerate_candidates
+    // ---------------------------------------------------------------------------------------------
+
+    /// A grammar with ≥2 gate groups must yield 2 candidates: `"default"` and
+    /// `"gate-group-permuted"`, with genuinely different root NodeIds (the whole point of the
+    /// second axis -- see [`enumerate_candidates`]'s own doc).
+    #[test]
+    fn enumerate_candidates_yields_two_distinct_candidates_for_a_multi_group_gated_fixture() {
+        let g = load(&gated_two_group_fixture());
+        let alphabet = SegAlphabet::new(&g.char_tables[0]);
+        let ro = prules_in_order(&g);
+        let phon = PhonologyProbe::new(&g);
+
+        let candidates = enumerate_candidates(&g, &alphabet, &ro, phon.as_ref());
+        assert_eq!(
+            candidates.len(),
+            2,
+            "a ≥2-group gated grammar must yield exactly 2 candidates"
+        );
+        assert_eq!(candidates[0].label, "default");
+        assert_eq!(candidates[1].label, "gate-group-permuted");
+        assert_ne!(
+            candidates[0].plan.root(),
+            candidates[1].plan.root(),
+            "the two candidates must be genuinely distinct topologies (different root NodeIds)"
+        );
+    }
+
+    /// An ungated (single-group) grammar must yield exactly 1 candidate: permuting a single-element
+    /// group list is a no-op (same root NodeId as `"default"`), so `enumerate_candidates` must not
+    /// append a second, merely-relabeled copy of the same plan.
+    #[test]
+    fn enumerate_candidates_yields_one_candidate_for_an_ungated_fixture() {
+        let g = load(&ungated_no_composite_fixture());
+        let alphabet = SegAlphabet::new(&g.char_tables[0]);
+        let ro = prules_in_order(&g);
+        let phon = PhonologyProbe::new(&g);
+
+        let candidates = enumerate_candidates(&g, &alphabet, &ro, phon.as_ref());
+        assert_eq!(
+            candidates.len(),
+            1,
+            "a single-group (ungated) grammar must yield exactly 1 candidate -- permuting 1 group \
+             is a no-op, not a genuine second topology"
+        );
+        assert_eq!(candidates[0].label, "default");
+    }
+
+    /// Determinism across independent calls (D1, mirrored for the candidate list): building the
+    /// same fixture's candidates twice yields the same root NodeIds in the same order.
+    #[test]
+    fn enumerate_candidates_is_deterministic_across_independent_calls() {
+        let g = load(&gated_two_group_fixture());
+        let alphabet = SegAlphabet::new(&g.char_tables[0]);
+        let ro = prules_in_order(&g);
+        let phon = PhonologyProbe::new(&g);
+
+        let candidates_a = enumerate_candidates(&g, &alphabet, &ro, phon.as_ref());
+        let candidates_b = enumerate_candidates(&g, &alphabet, &ro, phon.as_ref());
+
+        let roots_a: Vec<_> = candidates_a.iter().map(|c| (c.label, c.plan.root())).collect();
+        let roots_b: Vec<_> = candidates_b.iter().map(|c| (c.label, c.plan.root())).collect();
+        assert_eq!(roots_a, roots_b);
     }
 }
