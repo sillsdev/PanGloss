@@ -160,14 +160,19 @@ fn run() -> ExitCode {
         _ => {
             eprintln!(
                 "pangloss {} — HermitCrab Rust engine CLI\n\
-                 usage: pangloss batch <grammar> <words.txt> <out.tsv> [--step-cap N] [--word-timeout-ms N] [--memo=on|off] [--threads N] [--start N] [--engine=default|foma] [--enforce-capability] [--allow-unproven]\n\
+                 usage: pangloss batch <grammar> <words.txt> <out.tsv> [--step-cap N] [--word-timeout-ms N] [--memo=on|off] [--threads N] [--start N] [--engine=default|foma] [--enforce-capability|--no-enforce-capability] [--allow-unproven]\n\
                  usage: pangloss generate <grammar> <root-morpheme-id> [other-morpheme-id ...]\n\
-                 usage: pangloss parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--engine=default|foma] [--enforce-capability] [--allow-unproven]\n\
+                 usage: pangloss parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--engine=default|foma] [--enforce-capability|--no-enforce-capability] [--allow-unproven]\n\
                  usage: pangloss import <project.fwdata> <out.json>\n\
                  \n\
                  <grammar> is one of: a HermitCrab XML export (.xml, the legacy path), a\n\
                  pg-snapshot JSON file (.json, from `pangloss import` or any other producer), or a\n\
-                 FieldWorks project file (.fwdata, imported in-memory and compiled on the fly).",
+                 FieldWorks project file (.fwdata, imported in-memory and compiled on the fly).\n\
+                 \n\
+                 Capability gate (ADR 0001/0005): --engine=foma is DEFAULT-ENFORCING -- a Refuse\n\
+                 verdict fails hard unless --allow-unproven overrides it (trust=unproven marker);\n\
+                 --no-enforce-capability drops back to advisory-only. --engine=default (the\n\
+                 HC-oracle path) is never enforced, regardless of any flag.",
                 env!("CARGO_PKG_VERSION")
             );
             ExitCode::FAILURE
@@ -261,19 +266,25 @@ fn print_grammar_warnings(warnings: &[String]) {
 }
 
 /// `openspec/changes/add-capability-characteristics-check` (ADR 0001 `docs/adr/0001-honest-
-/// capability-boundary.md`; design.md D4) plus this step's OPT-IN, default-off enforcement (ADR
-/// 0005 `docs/adr/0005-capability-override-unproven-grammars.md`): decides what `run_batch`/
-/// `run_parse` should do about [`pg_foma::capability_entry::evaluate_capability`]'s
-/// [`pg_foma::capability::CompileDecision`] for `g`, given the two new `--enforce-capability`/
-/// `--allow-unproven` flags, and what to print to stderr about it.
+/// capability-boundary.md`; design.md D4) plus ADR 0005's override (`docs/adr/
+/// 0005-capability-override-unproven-grammars.md`): decides what `run_batch`/`run_parse` should
+/// do about [`pg_foma::capability_entry::evaluate_capability`]'s
+/// [`pg_foma::capability::CompileDecision`] for `g`, given the resolved `enforce`/
+/// `allow_unproven` booleans, and what to print to stderr about it.
 ///
-/// **`enforce == false` (the flag omitted -- every pre-existing invocation): byte-for-byte the
-/// prior unconditional advisory-only behavior.** `Admit`/`ConfirmOnly`/`Refuse` are all reported
-/// as a preview only; a `Refuse` here never blocks, matching every invocation before this step
-/// existed (task 3.3's "actually flipping a real compile seam... is still pending" now only
-/// describes the *default*, unflagged path -- the flagged path below is that flip, opt-in).
-/// `allow_unproven` is meaningless without `enforce` (this step's own brief: "only matters WITH
-/// enforcement") -- passed alone here it is silently inert, never an error.
+/// This function itself is engine-agnostic -- it just implements the enforce/override
+/// boolean contract below. **Which engines actually pass `enforce == true` is a policy decision
+/// made by the caller** (`run_batch`/`run_parse`'s own arg-handling, see their doc comments):
+/// DEFAULT-ENFORCING on the `--engine=foma` path (the FST proposer is what a `Refuse` verdict is
+/// about -- ADR 0001's never-overclaim), never enforced on `--engine=default` (the HC-oracle path
+/// never builds/relies on the FST proposer; it is always faithful, so there is nothing for this
+/// gate to refuse on its behalf). `--no-enforce-capability` is the escape hatch out of the
+/// foma-path default; `--allow-unproven` is meaningless without `enforce` (ADR 0005: "only
+/// matters WITH enforcement") -- passed alone here it is silently inert, never an error.
+///
+/// **`enforce == false` (advisory-only, byte-for-byte the pre-existing behavior before this step
+/// and still what every `--engine=default` invocation gets): `Admit`/`ConfirmOnly`/`Refuse` are
+/// all reported as a preview only; a `Refuse` here never blocks.**
 ///
 /// **`enforce == true`:**
 /// - `Admit`/`ConfirmOnly` -> proceed. `ConfirmOnly` is ADR 0001's own first-class non-failure
@@ -322,6 +333,39 @@ struct GateResult {
     overridden: bool,
 }
 
+/// This step's DEFAULT-ENFORCING flip, scoped to exactly where `--engine` selects the FST/foma
+/// compile path (ADR 0001 `docs/adr/0001-honest-capability-boundary.md`'s never-overclaim; ADR
+/// 0005 `docs/adr/0005-capability-override-unproven-grammars.md`'s override): resolves the
+/// effective `enforce` boolean [`capability_gate`] takes, from the parsed `--engine` and the
+/// user's explicit `--enforce-capability`/`--no-enforce-capability` choice (`enforce_flag`,
+/// `None` when neither was passed).
+///
+/// - **`Engine::Foma`** (the path that actually builds the FST proposer -- `FomaAnalyzer::new`
+///   below in both `run_batch`/`run_parse` -- and where a `Refuse` verdict means the shippable
+///   proposer cannot be faithful): default-ENFORCING, i.e. `enforce_flag.unwrap_or(true)`.
+///   `--no-enforce-capability` is the escape hatch back to advisory-only on this path;
+///   `--enforce-capability` is accepted but redundant (already the default).
+/// - **`Engine::Default`** (the `pg_parse::Morpher` full-search HC-oracle path -- always faithful,
+///   never builds or relies on the FST proposer): **never enforced, unconditionally** -- this is
+///   the hard scoping rule (only the FST/foma compile path is gated; the oracle path is not this
+///   gate's concern at all). An explicit `--enforce-capability` here is advisory-only and gets its
+///   own note so it is never silently swallowed; `--no-enforce-capability` is a silent no-op
+///   (there is nothing to disable).
+fn resolve_capability_enforcement(engine: Engine, enforce_flag: Option<bool>) -> bool {
+    if engine == Engine::Default {
+        if enforce_flag == Some(true) {
+            eprintln!(
+                "capability: --enforce-capability has no effect with --engine=default -- the \
+                 HC-oracle path always builds the exact HermitCrab-faithful analyzer and never \
+                 relies on the FST proposer, so it is never gated; enforcement is scoped to \
+                 --engine=foma only, see ADR 0001/0005."
+            );
+        }
+        return false;
+    }
+    enforce_flag.unwrap_or(true)
+}
+
 fn capability_gate(g: &Grammar, enforce: bool, allow_unproven: bool) -> GateResult {
     use pg_foma::capability::CompileDecision;
     let decision = pg_foma::capability_entry::evaluate_capability(g);
@@ -364,14 +408,14 @@ fn capability_gate(g: &Grammar, enforce: bool, allow_unproven: bool) -> GateResu
         CompileDecision::Admit => GateResult {
             proceed: true,
             stderr_lines: vec![
-                "capability: Admit [--enforce-capability: gate satisfied, proceeding]".to_string(),
+                "capability: Admit [enforcing: gate satisfied, proceeding]".to_string(),
             ],
             overridden: false,
         },
         CompileDecision::ConfirmOnly => GateResult {
             proceed: true,
             stderr_lines: vec![
-                "capability: ConfirmOnly [--enforce-capability: proceeding -- ConfirmOnly is a \
+                "capability: ConfirmOnly [enforcing: proceeding -- ConfirmOnly is a \
                  valid non-failure verdict per ADR 0001, recall-preserving via confirm]"
                     .to_string(),
             ],
@@ -380,7 +424,7 @@ fn capability_gate(g: &Grammar, enforce: bool, allow_unproven: bool) -> GateResu
         CompileDecision::Refuse(diags) => {
             if !allow_unproven {
                 let mut lines = vec![format!(
-                    "capability: Refuse ({} diagnostic(s)) [--enforce-capability: REFUSING -- no \
+                    "capability: Refuse ({} diagnostic(s)) [enforcing: REFUSING -- no \
                      analysis will be performed, see ADR 0001; pass --allow-unproven to force-\
                      compile anyway, see ADR 0005]",
                     diags.len()
@@ -446,9 +490,10 @@ fn run_capability_gate(g: &Grammar, enforce: bool, allow_unproven: bool) -> Resu
         Ok(())
     } else {
         Err(
-            "capability gate refused this grammar under --enforce-capability (diagnostics \
-             printed above; ADR 0001); no analysis was performed. Pass --allow-unproven to \
-             force-compile anyway (ADR 0005) -- the result will be marked trust=unproven."
+            "capability gate refused this grammar under capability enforcement (diagnostics \
+             printed above; ADR 0001); no analysis was performed. --engine=foma enforces by \
+             default -- pass --no-enforce-capability to fall back to advisory-only, or \
+             --allow-unproven to force-compile anyway (ADR 0005, marked trust=unproven)."
                 .to_string(),
         )
     }
@@ -491,10 +536,11 @@ fn run_parse(args: &[String]) -> Result<(), String> {
     let mut natural_gloss: Option<String> = None;
     let mut realize_map_arg: Option<String> = None;
     let mut engine = Engine::Default;
-    // ADR 0001/0005, this step: OPT-IN, default-off capability gate + override. See
-    // `capability_gate`'s own doc for exact semantics; both default to `false` (unset), which
-    // reproduces today's advisory-only, non-blocking behavior exactly.
-    let mut enforce_capability = false;
+    // ADR 0001/0005, this step: DEFAULT-ENFORCING on --engine=foma, never enforced on
+    // --engine=default -- see `resolve_capability_enforcement`'s own doc for the exact scoping.
+    // `enforce_flag` is `None` unless the user explicitly passed `--enforce-capability` or
+    // `--no-enforce-capability`; resolved to a plain bool below, once `engine` is final.
+    let mut enforce_capability_flag: Option<bool> = None;
     let mut allow_unproven = false;
 
     let mut it = args.iter();
@@ -533,11 +579,13 @@ fn run_parse(args: &[String]) -> Result<(), String> {
             s if s.starts_with("--engine=") => {
                 engine = Engine::parse(&s["--engine=".len()..])?;
             }
-            "--enforce-capability" => enforce_capability = true,
+            "--enforce-capability" => enforce_capability_flag = Some(true),
+            "--no-enforce-capability" => enforce_capability_flag = Some(false),
             "--allow-unproven" => allow_unproven = true,
             s => positional.push(s),
         }
     }
+    let enforce_capability = resolve_capability_enforcement(engine, enforce_capability_flag);
     if trace_format != "text" && trace_format != "json" {
         return Err(format!(
             "invalid --trace-format: {trace_format} (expected text|json)"
@@ -558,7 +606,7 @@ fn run_parse(args: &[String]) -> Result<(), String> {
         }
     }
     let [grammar_path, word] = positional[..] else {
-        return Err("usage: parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--engine=default|foma] [--enforce-capability] [--allow-unproven]".into());
+        return Err("usage: parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--engine=default|foma] [--enforce-capability|--no-enforce-capability] [--allow-unproven]".into());
     };
 
     let (grammar, warnings) = load_grammar(grammar_path)?;
@@ -722,10 +770,11 @@ fn run_batch(args: &[String]) -> Result<(), String> {
     // P3 (docs/fst-plan/foma-fst-plan.md): `--engine=foma` routes the whole batch through
     // `pg_foma::composite::FomaAnalyzer` instead of `pg_parse::Morpher`. Default unchanged.
     let mut engine = Engine::Default;
-    // ADR 0001/0005, this step: OPT-IN, default-off capability gate + override -- see
-    // `capability_gate`'s own doc. Both default `false`, reproducing today's advisory-only,
-    // non-blocking behavior exactly when omitted.
-    let mut enforce_capability = false;
+    // ADR 0001/0005, this step: DEFAULT-ENFORCING on --engine=foma, never enforced on
+    // --engine=default -- see `resolve_capability_enforcement`'s own doc for the exact scoping.
+    // `enforce_flag` is `None` unless the user explicitly passed `--enforce-capability` or
+    // `--no-enforce-capability`; resolved to a plain bool below, once `engine` is final.
+    let mut enforce_capability_flag: Option<bool> = None;
     let mut allow_unproven = false;
     let parse_memo = |v: &str| match v {
         "on" | "true" | "1" => Ok(true),
@@ -787,17 +836,19 @@ fn run_batch(args: &[String]) -> Result<(), String> {
             s if s.starts_with("--engine=") => {
                 engine = Engine::parse(&s["--engine=".len()..])?;
             }
-            "--enforce-capability" => enforce_capability = true,
+            "--enforce-capability" => enforce_capability_flag = Some(true),
+            "--no-enforce-capability" => enforce_capability_flag = Some(false),
             "--allow-unproven" => allow_unproven = true,
             s => positional.push(s),
         }
     }
+    let enforce_capability = resolve_capability_enforcement(engine, enforce_capability_flag);
     if threads == 0 {
         return Err("--threads must be >= 1".into());
     }
     let [grammar_path, words_path, out_path] = positional.as_slice() else {
         return Err(
-            "usage: batch <grammar> <words.txt> <out.tsv> [--step-cap N] [--word-timeout-ms N] [--memo=on|off] [--threads N] [--start N] [--engine=default|foma] [--enforce-capability] [--allow-unproven]"
+            "usage: batch <grammar> <words.txt> <out.tsv> [--step-cap N] [--word-timeout-ms N] [--memo=on|off] [--threads N] [--start N] [--engine=default|foma] [--enforce-capability|--no-enforce-capability] [--allow-unproven]"
                 .into(),
         );
     };
@@ -810,10 +861,10 @@ fn run_batch(args: &[String]) -> Result<(), String> {
     let (grammar, warnings) = load_grammar(grammar_path)?;
     print_grammar_warnings(&warnings);
     let grammar_load_ms = t_load.elapsed().as_secs_f64() * 1e3;
-    // Advisory-only by default, opt-in enforcing with `--enforce-capability` (see
-    // `run_capability_gate`'s own doc): computed AFTER `grammar_load_ms` is captured so this
-    // note's own cost never perturbs the existing LOADTIME diagnostic's timing. Sits BEFORE
-    // `out_path` is ever created/opened below, so a `--enforce-capability` refusal (no
+    // DEFAULT-ENFORCING on --engine=foma, never enforced on --engine=default (this step's flip --
+    // see `resolve_capability_enforcement`'s own doc): computed AFTER `grammar_load_ms` is
+    // captured so this note's own cost never perturbs the existing LOADTIME diagnostic's timing.
+    // Sits BEFORE `out_path` is ever created/opened below, so a foma-path refusal (no
     // `--allow-unproven`) truly produces no analysis output -- the file is left untouched.
     run_capability_gate(&grammar, enforce_capability, allow_unproven)?;
 
@@ -1318,10 +1369,14 @@ mod tests {
     }
 
     /// ADR 0001 (`docs/adr/0001-honest-capability-boundary.md`) / ADR 0005 (`docs/adr/
-    /// 0005-capability-override-unproven-grammars.md`): OPT-IN `--enforce-capability`/
-    /// `--allow-unproven` gating, both unit-tested directly against [`super::capability_gate`]
-    /// (no stderr capture needed -- see that function's own "pure" doc) and end-to-end through
-    /// [`run_batch`] for the file-level "no analysis output" / "output proceeds" behavior.
+    /// 0005-capability-override-unproven-grammars.md`): DEFAULT-ENFORCING, scoped to
+    /// `--engine=foma`, `--allow-unproven`-overridable gating. Covers both the pure
+    /// [`super::capability_gate`] boolean contract directly (no stderr capture needed -- see that
+    /// function's own "pure" doc) AND [`super::resolve_capability_enforcement`]'s engine-scoping
+    /// policy end-to-end through [`run_batch`], proving: (a) `--engine=default` never enforces,
+    /// with or without `--enforce-capability`; (b) `--engine=foma` enforces BY DEFAULT with no
+    /// flags at all; (c) `--no-enforce-capability` opts back out on the foma path;
+    /// (d) `--allow-unproven` still overrides a foma-path refusal.
     mod capability_gate_tests {
         use super::super::{capability_gate, run_batch};
         use std::fs;
@@ -1375,8 +1430,9 @@ mod tests {
         // --- Unit-level: `capability_gate` itself, no process I/O ------------------------------
 
         /// No flags (both `false`): behavior must be advisory-only, for BOTH an `Admit` grammar
-        /// and a `Refuse` grammar — matching every pre-existing invocation exactly (this step's
-        /// own "default-off, byte-identical" hard rule).
+        /// and a `Refuse` grammar -- this is [`capability_gate`]'s own bool contract (unaffected
+        /// by the engine-scoping policy in [`super::super::resolve_capability_enforcement`],
+        /// which lives one layer up in `run_batch`/`run_parse`, not here).
         #[test]
         fn capability_gate_no_flags_never_blocks_either_grammar() {
             let clean = load(super::MINI_GRAMMAR_XML);
@@ -1487,20 +1543,20 @@ mod tests {
             (run_batch(&args), out_path)
         }
 
-        /// A `Refuse`-verdict grammar + `--enforce-capability` (no override): `run_batch` must
-        /// return `Err` (the caller in `main()` turns this into a nonzero exit), and `out.tsv`
-        /// must never have been created — "NO analysis output is produced" (this step's own
-        /// hard requirement), not merely an empty file.
+        /// THE CORE FLIP, this step: a `Refuse`-verdict grammar on `--engine=foma` with NO
+        /// capability flags at all must now fail hard by default (ADR 0001 never-overclaim) --
+        /// `run_batch` returns `Err` (the caller in `main()` turns this into a nonzero exit), and
+        /// `out.tsv` must never have been created (not merely an empty file). The capability gate
+        /// sits before `FomaAnalyzer::new` in `run_batch`'s control flow, so this refusal happens
+        /// before any foma compile is even attempted.
         #[test]
-        fn run_batch_enforce_capability_refuses_compounding_with_no_output_file() {
-            let (result, out_path) = run_batch_raw(
-                "refuse",
-                COMPOUNDING_GRAMMAR_XML,
-                &["--enforce-capability"],
-            );
+        fn run_batch_foma_engine_default_enforces_refuses_compounding_with_no_flags() {
+            let (result, out_path) =
+                run_batch_raw("foma-default-refuse", COMPOUNDING_GRAMMAR_XML, &["--engine=foma"]);
             assert!(
                 result.is_err(),
-                "run_batch must fail hard for a Refuse verdict under --enforce-capability"
+                "--engine=foma must refuse a Refuse-verdict grammar BY DEFAULT, with no flags: \
+                 {result:?}"
             );
             assert!(
                 !out_path.exists(),
@@ -1508,14 +1564,34 @@ mod tests {
             );
         }
 
-        /// Same `Refuse`-verdict grammar + `--enforce-capability --allow-unproven`: `run_batch`
-        /// must succeed and actually write `out.tsv` (analysis proceeds, force-compiled).
+        /// `--engine=foma --no-enforce-capability`: the escape hatch back to advisory-only --
+        /// same `Refuse`-verdict grammar must now proceed (unenforced), matching the pre-flip
+        /// behavior exactly.
         #[test]
-        fn run_batch_enforce_capability_with_override_proceeds_and_writes_output() {
+        fn run_batch_foma_engine_no_enforce_capability_proceeds_for_compounding() {
             let (result, out_path) = run_batch_raw(
-                "override",
+                "foma-no-enforce",
                 COMPOUNDING_GRAMMAR_XML,
-                &["--enforce-capability", "--allow-unproven"],
+                &["--engine=foma", "--no-enforce-capability"],
+            );
+            assert!(
+                result.is_ok(),
+                "--no-enforce-capability must drop back to advisory-only on --engine=foma: \
+                 {result:?}"
+            );
+            assert!(out_path.exists(), "an unenforced run must still produce output");
+        }
+
+        /// Same `Refuse`-verdict grammar on `--engine=foma`, this time with `--allow-unproven`
+        /// (no need to also pass `--enforce-capability` -- enforcement is already the foma-path
+        /// default): `run_batch` must succeed and actually write `out.tsv` (analysis proceeds,
+        /// force-compiled, ADR 0005's override).
+        #[test]
+        fn run_batch_foma_engine_allow_unproven_overrides_default_enforcement() {
+            let (result, out_path) = run_batch_raw(
+                "foma-override",
+                COMPOUNDING_GRAMMAR_XML,
+                &["--engine=foma", "--allow-unproven"],
             );
             assert!(
                 result.is_ok(),
@@ -1526,13 +1602,13 @@ mod tests {
             assert!(!tsv.trim().is_empty(), "out.tsv must contain at least one row");
         }
 
-        /// A clean (`Admit`-verdict) grammar + `--enforce-capability`: ordinary success, same
-        /// 5-column `ok` row shape as the no-flags path.
+        /// A clean (`Admit`-verdict) grammar on `--engine=foma`, no flags: ordinary success under
+        /// default enforcement, same 5-column `ok` row shape as every other path.
         #[test]
-        fn run_batch_enforce_capability_admits_clean_grammar_normally() {
+        fn run_batch_foma_engine_admits_clean_grammar_normally() {
             let (result, out_path) =
-                run_batch_raw("clean-enforce", super::MINI_GRAMMAR_XML, &["--enforce-capability"]);
-            assert!(result.is_ok(), "a clean grammar must pass enforcement: {result:?}");
+                run_batch_raw("foma-clean", super::MINI_GRAMMAR_XML, &["--engine=foma"]);
+            assert!(result.is_ok(), "a clean grammar must pass default enforcement: {result:?}");
             let tsv = fs::read_to_string(&out_path).expect("read out.tsv");
             let last = tsv.lines().last().expect("at least one row");
             let fields: Vec<&str> = last.split('\t').collect();
@@ -1540,9 +1616,28 @@ mod tests {
             assert_eq!(fields[3], "ok", "{fields:?}");
         }
 
-        /// No flags at all, on the SAME `Refuse`-verdict grammar that blocks under enforcement:
-        /// today's exact unchanged behavior — `run_batch` must still succeed and still write
-        /// output, proving the default path is genuinely untouched by this step.
+        /// THE OTHER HALF OF THE SCOPING RULE: `--engine=default` (the HC-oracle path) must
+        /// NEVER enforce -- not even with an explicit `--enforce-capability` -- since it never
+        /// builds or relies on the FST proposer a `Refuse` verdict is about. Same `Refuse`-verdict
+        /// grammar that hard-fails above under `--engine=foma` must still succeed here and still
+        /// write output, proving the default engine is genuinely untouched by this step's flip.
+        #[test]
+        fn run_batch_default_engine_never_enforces_even_with_explicit_flag() {
+            let (result, out_path) = run_batch_raw(
+                "default-flag-noop",
+                COMPOUNDING_GRAMMAR_XML,
+                &["--enforce-capability"],
+            );
+            assert!(
+                result.is_ok(),
+                "--engine=default must never enforce, even with --enforce-capability: {result:?}"
+            );
+            assert!(out_path.exists(), "--engine=default must still produce output");
+        }
+
+        /// No flags at all, on the SAME `Refuse`-verdict grammar, no `--engine` (so `--engine=
+        /// default`): today's exact unchanged behavior -- `run_batch` must still succeed and
+        /// still write output.
         #[test]
         fn run_batch_no_flags_still_proceeds_for_compounding_grammar() {
             let (result, out_path) = run_batch_raw("no-flags-compounding", COMPOUNDING_GRAMMAR_XML, &[]);
