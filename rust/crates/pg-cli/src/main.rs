@@ -160,9 +160,9 @@ fn run() -> ExitCode {
         _ => {
             eprintln!(
                 "pangloss {} — HermitCrab Rust engine CLI\n\
-                 usage: pangloss batch <grammar> <words.txt> <out.tsv> [--step-cap N] [--word-timeout-ms N] [--memo=on|off] [--threads N] [--start N] [--engine=default|foma]\n\
+                 usage: pangloss batch <grammar> <words.txt> <out.tsv> [--step-cap N] [--word-timeout-ms N] [--memo=on|off] [--threads N] [--start N] [--engine=default|foma] [--enforce-capability] [--allow-unproven]\n\
                  usage: pangloss generate <grammar> <root-morpheme-id> [other-morpheme-id ...]\n\
-                 usage: pangloss parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--engine=default|foma]\n\
+                 usage: pangloss parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--engine=default|foma] [--enforce-capability] [--allow-unproven]\n\
                  usage: pangloss import <project.fwdata> <out.json>\n\
                  \n\
                  <grammar> is one of: a HermitCrab XML export (.xml, the legacy path), a\n\
@@ -261,49 +261,196 @@ fn print_grammar_warnings(warnings: &[String]) {
 }
 
 /// `openspec/changes/add-capability-characteristics-check` (ADR 0001 `docs/adr/0001-honest-
-/// capability-boundary.md`; design.md D4): runs [`pg_foma::capability_entry::evaluate_capability`]
-/// over `g` and prints its [`pg_foma::capability::CompileDecision`] as a single labeled,
-/// **advisory/preview** line to stderr.
+/// capability-boundary.md`; design.md D4) plus this step's OPT-IN, default-off enforcement (ADR
+/// 0005 `docs/adr/0005-capability-override-unproven-grammars.md`): decides what `run_batch`/
+/// `run_parse` should do about [`pg_foma::capability_entry::evaluate_capability`]'s
+/// [`pg_foma::capability::CompileDecision`] for `g`, given the two new `--enforce-capability`/
+/// `--allow-unproven` flags, and what to print to stderr about it.
 ///
-/// **Non-blocking, by design and unconditionally.** This is a preview of a gate that is not yet
-/// wired to anything: task 3.3 of that change (actually flipping a real compile seam to consult a
-/// `CompileDecision` and block/stamp on `Refuse`) is still pending. Calling this function has zero
-/// effect on `g`, on which route `batch`/`parse` take, on the compiled/analyzed artifact, or on the
-/// process exit code -- a `Refuse` here is REPORTED only; compilation and analysis proceed exactly
-/// as they did before this function existed, every time, regardless of the decision.
+/// **`enforce == false` (the flag omitted -- every pre-existing invocation): byte-for-byte the
+/// prior unconditional advisory-only behavior.** `Admit`/`ConfirmOnly`/`Refuse` are all reported
+/// as a preview only; a `Refuse` here never blocks, matching every invocation before this step
+/// existed (task 3.3's "actually flipping a real compile seam... is still pending" now only
+/// describes the *default*, unflagged path -- the flagged path below is that flip, opt-in).
+/// `allow_unproven` is meaningless without `enforce` (this step's own brief: "only matters WITH
+/// enforcement") -- passed alone here it is silently inert, never an error.
 ///
-/// **Stderr, never stdout.** `batch`'s TSV rows are written to the `<out.tsv>` file (never stdout in
-/// the first place), but its own `LOADTIME`/`CANDSTATS`/etc. diagnostics and `print_grammar_warnings`
-/// above already establish "stderr for anything that isn't the parity-sensitive protocol output"
-/// as this file's own convention -- `parse`'s `word\tsignature` line IS that protocol output for
-/// `parse`, so this note is printed alongside the other stderr-only diagnostics, never interleaved
-/// with it. `rust/tools/run-conformance.sh`'s driver only ever reads the `{output}` TSV FILE `batch`
-/// writes (never `pangloss`'s own stderr, and `dotnet run`'s stdout carries only the C# driver's own
-/// `[PASS]`/`[FAIL]` lines) -- this note cannot pollute the conformance signature it parses.
-fn print_capability_advisory(g: &Grammar) {
+/// **`enforce == true`:**
+/// - `Admit`/`ConfirmOnly` -> proceed. `ConfirmOnly` is ADR 0001's own first-class non-failure
+///   verdict ("propose the superset... first-class, not a failure") -- enforcement does not
+///   demand `Admit`, only rules out `Refuse`.
+/// - `Refuse`, `allow_unproven == false` -> the caller must fail hard with **no analysis output**:
+///   [`GateResult::proceed`] is `false`, so `run_batch`/`run_parse` return `Err` before writing any
+///   TSV row / `word\tsignature` line (both call sites sit before any such output is produced).
+/// - `Refuse`, `allow_unproven == true` -> ADR 0005's override: force-compile anyway
+///   (`proceed: true`), but [`GateResult::overridden`] is `true` and `stderr_lines` carries an
+///   **unmissable** `trust=unproven` degraded-trust marker naming every overridden diagnostic --
+///   see [`GateResult::overridden`]'s own doc for why a report/stderr-level marker is this step's
+///   deliberate stand-in for ADR 0005's real, persistent pack-manifest stamp (no `.pgpack`
+///   packaging exists yet to carry that).
+///
+/// **Stderr, never stdout, in every branch.** Same convention `print_grammar_warnings`/the
+/// pre-existing advisory already established: `batch`'s TSV rows go to the `<out.tsv>` FILE
+/// (never stdout), `parse`'s `word\tsignature` line is that protocol output for `parse` -- this
+/// function's lines are never among either, so `rust/tools/run-conformance.sh` (which only ever
+/// reads the `{output}` TSV file, never `pangloss`'s stderr) cannot be perturbed by anything here.
+///
+/// Pure (no I/O of its own) precisely so it is directly unit-testable without capturing process
+/// stderr -- callers (here, [`run_capability_gate`]) print `stderr_lines` themselves.
+struct GateResult {
+    /// `false` only for `enforce == true, Refuse, !allow_unproven`; every other combination
+    /// proceeds.
+    proceed: bool,
+    /// Lines for the caller to `eprintln!`, in order -- stderr-only by construction (see this
+    /// type's own doc and the hard rule in this step's brief: the batch/parse signature the
+    /// conformance runner parses must never be polluted).
+    stderr_lines: Vec<String>,
+    /// `true` iff this call force-compiled a `Refuse` via `allow_unproven` (ADR 0005). Exposed as
+    /// a plain bool -- not only baked into `stderr_lines`' text -- so a test (or any future caller
+    /// wanting a machine-readable hook beyond stderr) can key off the degraded-trust fact
+    /// directly. This is this step's session/report-level rendition of ADR 0005's trust signal:
+    /// the ADR's own *persistent, indelible* pack-manifest stamp is explicitly deferred here (no
+    /// packaging exists yet in this repo to carry it) -- `overridden`/`stderr_lines`' marker is
+    /// scoped to this one invocation's report, not to any serialized artifact.
+    ///
+    /// Not read by [`run_capability_gate`] itself (the marker text in `stderr_lines` already
+    /// carries everything a CLI caller needs) -- kept as a plain field for tests (see this
+    /// crate's `capability_gate_tests` module) and any future non-stderr consumer to key off
+    /// directly rather than string-matching stderr; `#[allow(dead_code)]` reflects that it is
+    /// genuine, documented API surface with no non-test reader yet, not an oversight.
+    #[allow(dead_code)]
+    overridden: bool,
+}
+
+fn capability_gate(g: &Grammar, enforce: bool, allow_unproven: bool) -> GateResult {
     use pg_foma::capability::CompileDecision;
-    match pg_foma::capability_entry::evaluate_capability(g) {
-        CompileDecision::Admit => {
-            eprintln!("capability: Admit [advisory/preview -- gate not yet enforced, see ADR 0001]");
-        }
-        CompileDecision::ConfirmOnly => {
-            eprintln!(
-                "capability: ConfirmOnly [advisory/preview -- gate not yet enforced, see ADR 0001]"
-            );
-        }
+    let decision = pg_foma::capability_entry::evaluate_capability(g);
+
+    if !enforce {
+        // Unchanged: the exact pre-existing advisory-only report, regardless of `allow_unproven`.
+        let stderr_lines = match &decision {
+            CompileDecision::Admit => vec![
+                "capability: Admit [advisory/preview -- gate not yet enforced, see ADR 0001]"
+                    .to_string(),
+            ],
+            CompileDecision::ConfirmOnly => vec![
+                "capability: ConfirmOnly [advisory/preview -- gate not yet enforced, see ADR \
+                 0001]"
+                    .to_string(),
+            ],
+            CompileDecision::Refuse(diags) => {
+                let mut lines = vec![format!(
+                    "capability: Refuse ({} diagnostic(s)) [advisory/preview -- gate not yet \
+                     enforced; compilation/analysis proceeds unchanged, see ADR 0001]",
+                    diags.len()
+                )];
+                for d in diags {
+                    lines.push(format!(
+                        "  capability-refuse: predicate={} construct={} witness={}",
+                        d.predicate, d.construct, d.witness
+                    ));
+                }
+                lines
+            }
+        };
+        return GateResult {
+            proceed: true,
+            stderr_lines,
+            overridden: false,
+        };
+    }
+
+    match decision {
+        CompileDecision::Admit => GateResult {
+            proceed: true,
+            stderr_lines: vec![
+                "capability: Admit [--enforce-capability: gate satisfied, proceeding]".to_string(),
+            ],
+            overridden: false,
+        },
+        CompileDecision::ConfirmOnly => GateResult {
+            proceed: true,
+            stderr_lines: vec![
+                "capability: ConfirmOnly [--enforce-capability: proceeding -- ConfirmOnly is a \
+                 valid non-failure verdict per ADR 0001, recall-preserving via confirm]"
+                    .to_string(),
+            ],
+            overridden: false,
+        },
         CompileDecision::Refuse(diags) => {
-            eprintln!(
-                "capability: Refuse ({} diagnostic(s)) [advisory/preview -- gate not yet enforced; \
-                 compilation/analysis proceeds unchanged, see ADR 0001]",
+            if !allow_unproven {
+                let mut lines = vec![format!(
+                    "capability: Refuse ({} diagnostic(s)) [--enforce-capability: REFUSING -- no \
+                     analysis will be performed, see ADR 0001; pass --allow-unproven to force-\
+                     compile anyway, see ADR 0005]",
+                    diags.len()
+                )];
+                for d in &diags {
+                    lines.push(format!(
+                        "  capability-refuse: predicate={} construct={} witness={}",
+                        d.predicate, d.construct, d.witness
+                    ));
+                }
+                return GateResult {
+                    proceed: false,
+                    stderr_lines: lines,
+                    overridden: false,
+                };
+            }
+
+            // ADR 0005's override: force-compile behind an unmissable degraded-trust marker.
+            // `trust=unproven` is the machine-readable token, repeated at both the top and the
+            // bottom of the block -- a long diagnostic list must never let the marker scroll out
+            // of view -- and every overridden config is individually named ("recorded... exactly
+            // which fail-closed configurations were overridden", ADR 0005).
+            let mut lines = vec![format!(
+                "CAPABILITY-OVERRIDE trust=unproven: --allow-unproven force-compiled {} refused \
+                 construct(s) (ADR 0005) -- THIS RUN'S OUTPUT IS RECALL-UNSAFE, NOT a clean \
+                 result. No .pgpack packaging exists yet to carry ADR 0005's persistent, \
+                 indelible manifest stamp; this is a SESSION/REPORT-LEVEL marker only for this \
+                 invocation -- do not mistake it for that stamp.",
                 diags.len()
-            );
+            )];
             for d in &diags {
-                eprintln!(
-                    "  capability-refuse: predicate={} construct={} witness={}",
+                lines.push(format!(
+                    "  capability-override: predicate={} construct={} witness={}",
                     d.predicate, d.construct, d.witness
-                );
+                ));
+            }
+            lines.push(format!(
+                "CAPABILITY-OVERRIDE trust=unproven: end of override record -- {} config(s) \
+                 force-compiled, this run's results are NOT recall-proven",
+                diags.len()
+            ));
+            GateResult {
+                proceed: true,
+                stderr_lines: lines,
+                overridden: true,
             }
         }
+    }
+}
+
+/// Runs [`capability_gate`] over `g`, prints its `stderr_lines` (one `eprintln!` per entry,
+/// preserving the exact pre-existing line-by-line shape when `enforce` is unset), and returns
+/// `Err` -- matching `run_batch`/`run_parse`'s own `Result<(), String>` shape -- when the gate
+/// refuses. Called at the exact point in both subcommands' control flow where the pre-existing
+/// advisory print used to sit: BEFORE any output file is created or any analysis line is printed,
+/// so a hard refusal under `--enforce-capability` truly produces no analysis output.
+fn run_capability_gate(g: &Grammar, enforce: bool, allow_unproven: bool) -> Result<(), String> {
+    let gate = capability_gate(g, enforce, allow_unproven);
+    for line in &gate.stderr_lines {
+        eprintln!("{line}");
+    }
+    if gate.proceed {
+        Ok(())
+    } else {
+        Err(
+            "capability gate refused this grammar under --enforce-capability (diagnostics \
+             printed above; ADR 0001); no analysis was performed. Pass --allow-unproven to \
+             force-compile anyway (ADR 0005) -- the result will be marked trust=unproven."
+                .to_string(),
+        )
     }
 }
 
@@ -344,6 +491,11 @@ fn run_parse(args: &[String]) -> Result<(), String> {
     let mut natural_gloss: Option<String> = None;
     let mut realize_map_arg: Option<String> = None;
     let mut engine = Engine::Default;
+    // ADR 0001/0005, this step: OPT-IN, default-off capability gate + override. See
+    // `capability_gate`'s own doc for exact semantics; both default to `false` (unset), which
+    // reproduces today's advisory-only, non-blocking behavior exactly.
+    let mut enforce_capability = false;
+    let mut allow_unproven = false;
 
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -381,6 +533,8 @@ fn run_parse(args: &[String]) -> Result<(), String> {
             s if s.starts_with("--engine=") => {
                 engine = Engine::parse(&s["--engine=".len()..])?;
             }
+            "--enforce-capability" => enforce_capability = true,
+            "--allow-unproven" => allow_unproven = true,
             s => positional.push(s),
         }
     }
@@ -404,12 +558,12 @@ fn run_parse(args: &[String]) -> Result<(), String> {
         }
     }
     let [grammar_path, word] = positional[..] else {
-        return Err("usage: parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--engine=default|foma]".into());
+        return Err("usage: parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--engine=default|foma] [--enforce-capability] [--allow-unproven]".into());
     };
 
     let (grammar, warnings) = load_grammar(grammar_path)?;
     print_grammar_warnings(&warnings);
-    print_capability_advisory(&grammar);
+    run_capability_gate(&grammar, enforce_capability, allow_unproven)?;
 
     // `--natural-gloss=eng` setup: the embedded English table + the per-grammar sidecar map, both
     // built once up front (not per-analysis) since neither depends on the word being parsed.
@@ -568,6 +722,11 @@ fn run_batch(args: &[String]) -> Result<(), String> {
     // P3 (docs/fst-plan/foma-fst-plan.md): `--engine=foma` routes the whole batch through
     // `pg_foma::composite::FomaAnalyzer` instead of `pg_parse::Morpher`. Default unchanged.
     let mut engine = Engine::Default;
+    // ADR 0001/0005, this step: OPT-IN, default-off capability gate + override -- see
+    // `capability_gate`'s own doc. Both default `false`, reproducing today's advisory-only,
+    // non-blocking behavior exactly when omitted.
+    let mut enforce_capability = false;
+    let mut allow_unproven = false;
     let parse_memo = |v: &str| match v {
         "on" | "true" | "1" => Ok(true),
         "off" | "false" | "0" => Ok(false),
@@ -628,6 +787,8 @@ fn run_batch(args: &[String]) -> Result<(), String> {
             s if s.starts_with("--engine=") => {
                 engine = Engine::parse(&s["--engine=".len()..])?;
             }
+            "--enforce-capability" => enforce_capability = true,
+            "--allow-unproven" => allow_unproven = true,
             s => positional.push(s),
         }
     }
@@ -636,7 +797,7 @@ fn run_batch(args: &[String]) -> Result<(), String> {
     }
     let [grammar_path, words_path, out_path] = positional.as_slice() else {
         return Err(
-            "usage: batch <grammar> <words.txt> <out.tsv> [--step-cap N] [--word-timeout-ms N] [--memo=on|off] [--threads N] [--start N] [--engine=default|foma]"
+            "usage: batch <grammar> <words.txt> <out.tsv> [--step-cap N] [--word-timeout-ms N] [--memo=on|off] [--threads N] [--start N] [--engine=default|foma] [--enforce-capability] [--allow-unproven]"
                 .into(),
         );
     };
@@ -649,9 +810,12 @@ fn run_batch(args: &[String]) -> Result<(), String> {
     let (grammar, warnings) = load_grammar(grammar_path)?;
     print_grammar_warnings(&warnings);
     let grammar_load_ms = t_load.elapsed().as_secs_f64() * 1e3;
-    // Advisory-only (see this function's own doc): computed AFTER `grammar_load_ms` is captured so
-    // this preview note's own cost never perturbs the existing LOADTIME diagnostic's timing.
-    print_capability_advisory(&grammar);
+    // Advisory-only by default, opt-in enforcing with `--enforce-capability` (see
+    // `run_capability_gate`'s own doc): computed AFTER `grammar_load_ms` is captured so this
+    // note's own cost never perturbs the existing LOADTIME diagnostic's timing. Sits BEFORE
+    // `out_path` is ever created/opened below, so a `--enforce-capability` refusal (no
+    // `--allow-unproven`) truly produces no analysis output -- the file is left untouched.
+    run_capability_gate(&grammar, enforce_capability, allow_unproven)?;
 
     let words: Vec<String> = fs::read_to_string(words_path)
         .map_err(|e| format!("read {words_path}: {e}"))?
@@ -1150,6 +1314,243 @@ mod tests {
                 fields[4], "-",
                 "threads={threads}: \"kat\" should analyze to a real signature"
             );
+        }
+    }
+
+    /// ADR 0001 (`docs/adr/0001-honest-capability-boundary.md`) / ADR 0005 (`docs/adr/
+    /// 0005-capability-override-unproven-grammars.md`): OPT-IN `--enforce-capability`/
+    /// `--allow-unproven` gating, both unit-tested directly against [`super::capability_gate`]
+    /// (no stderr capture needed -- see that function's own "pure" doc) and end-to-end through
+    /// [`run_batch`] for the file-level "no analysis output" / "output proceeds" behavior.
+    mod capability_gate_tests {
+        use super::super::{capability_gate, run_batch};
+        use std::fs;
+        use std::sync::atomic::{AtomicU32, Ordering};
+
+        /// A `Compounding`-bearing grammar (same fixture shape as
+        /// `pg_foma::capability_entry::tests::evaluate_capability_refuses_compounding_grammar`,
+        /// ported verbatim into this crate rather than importing a `#[cfg(test)]`-only item
+        /// across the crate boundary) — `default_registry`'s `FailClosedPlaceholder` for
+        /// `Compounding` always `Refuse`s this, unconditionally, regardless of enforcement.
+        const COMPOUNDING_GRAMMAR_XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /></SegmentNaturalClass></NaturalClasses>
+          <Strata>
+            <Stratum characterDefinitionTable="t1">
+              <Name>S</Name>
+              <MorphologicalRuleDefinitions>
+                <CompoundingRule id="cr1">
+                  <Name>Compound</Name>
+                  <CompoundingSubrules>
+                    <CompoundingSubrule>
+                      <HeadMorphologicalInput>
+                        <PhoneticSequence id="h0"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
+                      </HeadMorphologicalInput>
+                      <NonHeadMorphologicalInput>
+                        <PhoneticSequence id="n0"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
+                      </NonHeadMorphologicalInput>
+                      <MorphologicalOutput>
+                        <CopyFromInput index="n0" />
+                        <CopyFromInput index="h0" />
+                      </MorphologicalOutput>
+                    </CompoundingSubrule>
+                  </CompoundingSubrules>
+                </CompoundingRule>
+              </MorphologicalRuleDefinitions>
+              <LexicalEntries>
+                <LexicalEntry id="e1">
+                  <Allomorphs><Allomorph id="a1"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs>
+                </LexicalEntry>
+              </LexicalEntries>
+            </Stratum>
+          </Strata>
+        </Language></HermitCrabInput>"#;
+
+        fn load(xml: &str) -> pg_grammar::model::Grammar {
+            pg_grammar::load(xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"))
+        }
+
+        // --- Unit-level: `capability_gate` itself, no process I/O ------------------------------
+
+        /// No flags (both `false`): behavior must be advisory-only, for BOTH an `Admit` grammar
+        /// and a `Refuse` grammar — matching every pre-existing invocation exactly (this step's
+        /// own "default-off, byte-identical" hard rule).
+        #[test]
+        fn capability_gate_no_flags_never_blocks_either_grammar() {
+            let clean = load(super::MINI_GRAMMAR_XML);
+            let compounding = load(COMPOUNDING_GRAMMAR_XML);
+
+            let g1 = capability_gate(&clean, false, false);
+            assert!(g1.proceed, "advisory-only must never block an Admit grammar");
+            assert!(!g1.overridden);
+
+            let g2 = capability_gate(&compounding, false, false);
+            assert!(
+                g2.proceed,
+                "advisory-only must never block even a Refuse grammar (unchanged default \
+                 behavior)"
+            );
+            assert!(!g2.overridden);
+        }
+
+        /// `--enforce-capability` alone (no override) on a clean grammar: proceeds cleanly.
+        #[test]
+        fn capability_gate_enforce_admits_clean_grammar() {
+            let clean = load(super::MINI_GRAMMAR_XML);
+            let g = capability_gate(&clean, true, false);
+            assert!(g.proceed, "an Admit-verdict grammar must proceed under enforcement");
+            assert!(!g.overridden);
+        }
+
+        /// `--enforce-capability` alone (no override) on a `Refuse` grammar: must refuse, with
+        /// typed diagnostics naming the construct, and must NOT be marked `overridden`.
+        #[test]
+        fn capability_gate_enforce_refuses_compounding_without_override() {
+            let compounding = load(COMPOUNDING_GRAMMAR_XML);
+            let g = capability_gate(&compounding, true, false);
+            assert!(!g.proceed, "a Refuse verdict must block under --enforce-capability");
+            assert!(!g.overridden, "no override was requested");
+            assert!(
+                g.stderr_lines.iter().any(|l| l.contains("Compounding")),
+                "expected a diagnostic naming Compounding: {:?}",
+                g.stderr_lines
+            );
+        }
+
+        /// `--enforce-capability --allow-unproven` on the SAME `Refuse` grammar: must proceed
+        /// (ADR 0005's override), must be flagged `overridden`, and the stderr report must carry
+        /// an unmissable, machine-readable `trust=unproven` marker plus the overridden
+        /// diagnostic(s) by name.
+        #[test]
+        fn capability_gate_override_force_compiles_and_marks_trust_unproven() {
+            let compounding = load(COMPOUNDING_GRAMMAR_XML);
+            let g = capability_gate(&compounding, true, true);
+            assert!(g.proceed, "--allow-unproven must force-compile a Refuse verdict");
+            assert!(g.overridden, "must be flagged as an overridden run");
+            assert!(
+                g.stderr_lines.iter().any(|l| l.contains("trust=unproven")),
+                "expected an unmissable trust=unproven marker: {:?}",
+                g.stderr_lines
+            );
+            assert!(
+                g.stderr_lines
+                    .iter()
+                    .any(|l| l.contains("CAPABILITY-OVERRIDE")),
+                "expected a CAPABILITY-OVERRIDE-labeled line: {:?}",
+                g.stderr_lines
+            );
+            assert!(
+                g.stderr_lines.iter().any(|l| l.contains("Compounding")),
+                "the override record must still name which construct was force-compiled: {:?}",
+                g.stderr_lines
+            );
+        }
+
+        // --- End-to-end: `run_batch` itself, file-level behavior --------------------------------
+
+        fn scratch_dir(tag: &str) -> std::path::PathBuf {
+            static COUNTER: AtomicU32 = AtomicU32::new(0);
+            let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+            let dir = std::env::temp_dir().join(format!(
+                "pangloss-cli-test-capgate-{tag}-{}-{n}",
+                std::process::id()
+            ));
+            fs::create_dir_all(&dir).expect("create scratch dir");
+            dir
+        }
+
+        /// Runs `batch <grammar> <words> <out.tsv> <extra_args...>`, returning `run_batch`'s own
+        /// `Result` plus the `out.tsv` path (which the caller checks for existence/contents --
+        /// deliberately NOT read-and-unwrap here, since the whole point of the refuse-without-
+        /// override case is that the file must never be created at all).
+        fn run_batch_raw(
+            tag: &str,
+            grammar_xml: &str,
+            extra_args: &[&str],
+        ) -> (Result<(), String>, std::path::PathBuf) {
+            let dir = scratch_dir(tag);
+            let grammar_path = dir.join("grammar.xml");
+            let words_path = dir.join("words.txt");
+            let out_path = dir.join("out.tsv");
+            fs::write(&grammar_path, grammar_xml).expect("write grammar");
+            fs::write(&words_path, "a\n").expect("write words");
+
+            let mut args: Vec<String> = vec![
+                grammar_path.to_string_lossy().into_owned(),
+                words_path.to_string_lossy().into_owned(),
+                out_path.to_string_lossy().into_owned(),
+            ];
+            args.extend(extra_args.iter().map(|s| s.to_string()));
+
+            (run_batch(&args), out_path)
+        }
+
+        /// A `Refuse`-verdict grammar + `--enforce-capability` (no override): `run_batch` must
+        /// return `Err` (the caller in `main()` turns this into a nonzero exit), and `out.tsv`
+        /// must never have been created — "NO analysis output is produced" (this step's own
+        /// hard requirement), not merely an empty file.
+        #[test]
+        fn run_batch_enforce_capability_refuses_compounding_with_no_output_file() {
+            let (result, out_path) = run_batch_raw(
+                "refuse",
+                COMPOUNDING_GRAMMAR_XML,
+                &["--enforce-capability"],
+            );
+            assert!(
+                result.is_err(),
+                "run_batch must fail hard for a Refuse verdict under --enforce-capability"
+            );
+            assert!(
+                !out_path.exists(),
+                "no analysis output may be produced for a refused, non-overridden run"
+            );
+        }
+
+        /// Same `Refuse`-verdict grammar + `--enforce-capability --allow-unproven`: `run_batch`
+        /// must succeed and actually write `out.tsv` (analysis proceeds, force-compiled).
+        #[test]
+        fn run_batch_enforce_capability_with_override_proceeds_and_writes_output() {
+            let (result, out_path) = run_batch_raw(
+                "override",
+                COMPOUNDING_GRAMMAR_XML,
+                &["--enforce-capability", "--allow-unproven"],
+            );
+            assert!(
+                result.is_ok(),
+                "run_batch must proceed under --allow-unproven: {result:?}"
+            );
+            assert!(out_path.exists(), "the overridden run must still produce output");
+            let tsv = fs::read_to_string(&out_path).expect("read out.tsv");
+            assert!(!tsv.trim().is_empty(), "out.tsv must contain at least one row");
+        }
+
+        /// A clean (`Admit`-verdict) grammar + `--enforce-capability`: ordinary success, same
+        /// 5-column `ok` row shape as the no-flags path.
+        #[test]
+        fn run_batch_enforce_capability_admits_clean_grammar_normally() {
+            let (result, out_path) =
+                run_batch_raw("clean-enforce", super::MINI_GRAMMAR_XML, &["--enforce-capability"]);
+            assert!(result.is_ok(), "a clean grammar must pass enforcement: {result:?}");
+            let tsv = fs::read_to_string(&out_path).expect("read out.tsv");
+            let last = tsv.lines().last().expect("at least one row");
+            let fields: Vec<&str> = last.split('\t').collect();
+            assert_eq!(fields.len(), 5, "{fields:?}");
+            assert_eq!(fields[3], "ok", "{fields:?}");
+        }
+
+        /// No flags at all, on the SAME `Refuse`-verdict grammar that blocks under enforcement:
+        /// today's exact unchanged behavior — `run_batch` must still succeed and still write
+        /// output, proving the default path is genuinely untouched by this step.
+        #[test]
+        fn run_batch_no_flags_still_proceeds_for_compounding_grammar() {
+            let (result, out_path) = run_batch_raw("no-flags-compounding", COMPOUNDING_GRAMMAR_XML, &[]);
+            assert!(
+                result.is_ok(),
+                "default (no-flag) behavior must be unchanged -- never blocks: {result:?}"
+            );
+            assert!(out_path.exists(), "default behavior must still produce output");
         }
     }
 }
