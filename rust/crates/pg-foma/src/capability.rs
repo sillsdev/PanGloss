@@ -2853,6 +2853,165 @@ mod tests {
         );
     }
 
+    /// `cover-realizational-morphology-constraints`: `MorphRuleDef::Realizational` characterizes
+    /// `RealizationalMorphology`/`ConfirmOnly`, UNCONDITIONALLY — unlike `Reduplication`/
+    /// `RightToLeftRewrite`/`Metathesis`/`MultiTable`/`QuantifierPattern` (all `ConfigPredicate`,
+    /// because a real compiled/faithful construction exists for SOME of their shapes), no shape of
+    /// `RealizationalRule` has, or could have, a proven no-false-negative admission filter (the
+    /// module top doc's own argument: `real_fs`/`IsBlocked` depend on the word's accumulated FS, not
+    /// anything the FST proposer can see at a single transition) — so there is no Admit-vs-Refuse
+    /// split for a predicate to discriminate; every occurrence is `ConfirmOnly` by construction, not
+    /// merely by omission. `tests/cover_realizational_morphology_constraints.rs` (the crate's own
+    /// integration-test tree) is this claim's oracle-backed proposer-to-confirm containment proof;
+    /// this test pins the `characterize()`/`default_disposition()` mapping itself.
+    #[test]
+    fn characterize_marks_realizational_rule_confirm_only() {
+        const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /></SegmentNaturalClass></NaturalClasses>
+          <Strata>
+            <Stratum characterDefinitionTable="t1">
+              <Name>S</Name>
+              <MorphologicalRuleDefinitions>
+                <RealizationalRule id="rr1">
+                  <Name>Realiz</Name>
+                  <MorphologicalSubrules>
+                    <MorphologicalSubrule id="sub1">
+                      <MorphologicalInput><PhoneticSequence id="s0"><SimpleContext naturalClass="ncAll" /></PhoneticSequence></MorphologicalInput>
+                      <MorphologicalOutput><CopyFromInput index="s0" /></MorphologicalOutput>
+                    </MorphologicalSubrule>
+                  </MorphologicalSubrules>
+                </RealizationalRule>
+              </MorphologicalRuleDefinitions>
+              <LexicalEntries>
+                <LexicalEntry id="e1">
+                  <Allomorphs><Allomorph id="a1"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs>
+                </LexicalEntry>
+              </LexicalEntries>
+            </Stratum>
+          </Strata>
+        </Language></HermitCrabInput>"#;
+        let g = load(XML);
+        assert!(matches!(g.mrules[0], MorphRuleDef::Realizational(_)));
+
+        let profile = characterize(&g);
+        assert!(
+            profile.observations().iter().any(|o| o.kind
+                == CharacteristicKind::RealizationalMorphology
+                && o.disposition == Disposition::ConfirmOnly),
+            "RealizationalRule must characterize ConfirmOnly: {:?}",
+            profile.observations()
+        );
+    }
+
+    /// `cover-realizational-morphology-constraints`: a `<MorphemeCoOccurrenceRule>` characterizes
+    /// `CoOccurrenceConstraint`/`ConfirmOnly`, unconditionally — `pg_rules::validity`'s co-occurrence
+    /// check depends on which OTHER morphemes end up in the SAME final derivation (an
+    /// unbounded-window fact no per-transition FST filter can see), so every `CoOccurrenceAdjacency`
+    /// variant (model.rs:508) is confirm-only alike; `co_occurrence_adjacency_label`'s own
+    /// exhaustive match over the enum is the discipline-only proof that adding a variant would break
+    /// this file's build, not a source of per-variant disposition splitting.
+    #[test]
+    fn characterize_marks_morpheme_co_occurrence_confirm_only() {
+        const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /></SegmentNaturalClass></NaturalClasses>
+          <Strata>
+            <Stratum characterDefinitionTable="t1">
+              <Name>S</Name>
+              <MorphologicalRuleDefinitions>
+                <MorphologicalRule id="mrA">
+                  <Name>A</Name>
+                  <MorphologicalSubrules>
+                    <MorphologicalSubrule id="subA">
+                      <MorphologicalInput><PhoneticSequence id="s0"><SimpleContext naturalClass="ncAll" /></PhoneticSequence></MorphologicalInput>
+                      <MorphologicalOutput><CopyFromInput index="s0" /></MorphologicalOutput>
+                    </MorphologicalSubrule>
+                  </MorphologicalSubrules>
+                </MorphologicalRule>
+                <MorphologicalRule id="mrB">
+                  <Name>B</Name>
+                  <MorphologicalSubrules>
+                    <MorphologicalSubrule id="subB">
+                      <MorphologicalInput><PhoneticSequence id="s1"><SimpleContext naturalClass="ncAll" /></PhoneticSequence></MorphologicalInput>
+                      <MorphologicalOutput><CopyFromInput index="s1" /></MorphologicalOutput>
+                    </MorphologicalSubrule>
+                  </MorphologicalSubrules>
+                </MorphologicalRule>
+              </MorphologicalRuleDefinitions>
+            </Stratum>
+          </Strata>
+          <MorphemeCoOccurrenceRules>
+            <MorphemeCoOccurrenceRule type="exclude" primaryMorpheme="mrA" otherMorphemes="mrB" adjacency="anywhere" />
+          </MorphemeCoOccurrenceRules>
+        </Language></HermitCrabInput>"#;
+        let g = load(XML);
+        assert!(
+            g.morphemes.iter().any(|m| !m.co_occurrence.is_empty()),
+            "fixture must attach at least one MorphemeCoOccurrenceRule to a morpheme"
+        );
+
+        let profile = characterize(&g);
+        assert!(
+            profile.observations().iter().any(|o| o.kind
+                == CharacteristicKind::CoOccurrenceConstraint
+                && o.disposition == Disposition::ConfirmOnly),
+            "MorphemeCoOccurrenceRule must characterize ConfirmOnly: {:?}",
+            profile.observations()
+        );
+    }
+
+    /// `cover-realizational-morphology-constraints`: an `<AllomorphCoOccurrenceRule>` (attached to a
+    /// ROOT allomorph, distinct from the per-morpheme rule above per `AllomorphCoOccurrenceRuleDef`'s
+    /// own doc) characterizes the SAME `CoOccurrenceConstraint`/`ConfirmOnly`.
+    #[test]
+    fn characterize_marks_allomorph_co_occurrence_confirm_only() {
+        const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions>
+              <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+              <SegmentDefinition id="cb"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
+            </SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <Strata>
+            <Stratum characterDefinitionTable="t1">
+              <Name>S</Name>
+              <LexicalEntries>
+                <LexicalEntry id="e1">
+                  <Allomorphs><Allomorph id="a1"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs>
+                </LexicalEntry>
+                <LexicalEntry id="e2">
+                  <Allomorphs><Allomorph id="a2"><PhoneticShape>b</PhoneticShape></Allomorph></Allomorphs>
+                </LexicalEntry>
+              </LexicalEntries>
+            </Stratum>
+          </Strata>
+          <AllomorphCoOccurrenceRules>
+            <AllomorphCoOccurrenceRule type="exclude" primaryAllomorph="a1" otherAllomorphs="a2" adjacency="anywhere" />
+          </AllomorphCoOccurrenceRules>
+        </Language></HermitCrabInput>"#;
+        let g = load(XML);
+        assert!(
+            g.entries
+                .iter()
+                .any(|e| e.allomorphs.iter().any(|a| !a.co_occurrence.is_empty())),
+            "fixture must attach at least one AllomorphCoOccurrenceRule to a root allomorph"
+        );
+
+        let profile = characterize(&g);
+        assert!(
+            profile.observations().iter().any(|o| o.kind
+                == CharacteristicKind::CoOccurrenceConstraint
+                && o.disposition == Disposition::ConfirmOnly),
+            "AllomorphCoOccurrenceRule must characterize ConfirmOnly: {:?}",
+            profile.observations()
+        );
+    }
+
     /// `fix-multitable-fst-compilation`: two tables with DISJOINT representations characterize
     /// `MultiTable`/`ConfigPredicate` (D1's table: `ConfirmOnly` unless/until a predicate proves
     /// `Admit`) — never `FailClosed` outright, since the threading fix makes per-rule resolution
@@ -4813,6 +4972,104 @@ mod tests {
             !g.mpr_groups.is_empty(),
             "fixture must declare an MprGroup at all"
         );
+        let plan = enumerated_plan(&g);
+        let registry = default_registry();
+
+        assert_eq!(
+            compose_envelope(&g, &plan, &registry),
+            CompileDecision::ConfirmOnly
+        );
+    }
+
+    /// `cover-realizational-morphology-constraints`: a grammar with a `RealizationalRule` and
+    /// nothing worse must compose to `ConfirmOnly` — not `Admit` (no compiled admission filter is
+    /// ever attempted for this construct, see `characterize_marks_realizational_rule_confirm_only`'s
+    /// own doc) and not `Refuse` (nothing `FailClosed` is present).
+    #[test]
+    fn compose_envelope_confirm_only_for_realizational_rule_alone() {
+        const XML: &str = r#"<HermitCrabInput><Language><Name>RealizAlone</Name>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /></SegmentNaturalClass></NaturalClasses>
+          <Strata>
+            <Stratum characterDefinitionTable="t1">
+              <Name>S</Name>
+              <MorphologicalRuleDefinitions>
+                <RealizationalRule id="rr1">
+                  <Name>Realiz</Name>
+                  <MorphologicalSubrules>
+                    <MorphologicalSubrule id="sub1">
+                      <MorphologicalInput><PhoneticSequence id="s0"><SimpleContext naturalClass="ncAll" /></PhoneticSequence></MorphologicalInput>
+                      <MorphologicalOutput><CopyFromInput index="s0" /></MorphologicalOutput>
+                    </MorphologicalSubrule>
+                  </MorphologicalSubrules>
+                </RealizationalRule>
+              </MorphologicalRuleDefinitions>
+              <LexicalEntries>
+                <LexicalEntry id="e1">
+                  <Allomorphs><Allomorph id="a1"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs>
+                </LexicalEntry>
+              </LexicalEntries>
+            </Stratum>
+          </Strata>
+        </Language></HermitCrabInput>"#;
+        let g = load(XML);
+        assert!(matches!(g.mrules[0], MorphRuleDef::Realizational(_)));
+        let plan = enumerated_plan(&g);
+        let registry = default_registry();
+
+        assert_eq!(
+            compose_envelope(&g, &plan, &registry),
+            CompileDecision::ConfirmOnly
+        );
+    }
+
+    /// `cover-realizational-morphology-constraints`: a grammar with a `MorphemeCoOccurrenceRule` and
+    /// nothing worse must compose to `ConfirmOnly` for the same reason.
+    #[test]
+    fn compose_envelope_confirm_only_for_co_occurrence_rule_alone() {
+        const XML: &str = r#"<HermitCrabInput><Language><Name>CoOccurAlone</Name>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /></SegmentNaturalClass></NaturalClasses>
+          <Strata>
+            <Stratum characterDefinitionTable="t1">
+              <Name>S</Name>
+              <MorphologicalRuleDefinitions>
+                <MorphologicalRule id="mrA">
+                  <Name>A</Name>
+                  <MorphologicalSubrules>
+                    <MorphologicalSubrule id="subA">
+                      <MorphologicalInput><PhoneticSequence id="s0"><SimpleContext naturalClass="ncAll" /></PhoneticSequence></MorphologicalInput>
+                      <MorphologicalOutput><CopyFromInput index="s0" /></MorphologicalOutput>
+                    </MorphologicalSubrule>
+                  </MorphologicalSubrules>
+                </MorphologicalRule>
+                <MorphologicalRule id="mrB">
+                  <Name>B</Name>
+                  <MorphologicalSubrules>
+                    <MorphologicalSubrule id="subB">
+                      <MorphologicalInput><PhoneticSequence id="s1"><SimpleContext naturalClass="ncAll" /></PhoneticSequence></MorphologicalInput>
+                      <MorphologicalOutput><CopyFromInput index="s1" /></MorphologicalOutput>
+                    </MorphologicalSubrule>
+                  </MorphologicalSubrules>
+                </MorphologicalRule>
+              </MorphologicalRuleDefinitions>
+              <LexicalEntries>
+                <LexicalEntry id="e1">
+                  <Allomorphs><Allomorph id="a1"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs>
+                </LexicalEntry>
+              </LexicalEntries>
+            </Stratum>
+          </Strata>
+          <MorphemeCoOccurrenceRules>
+            <MorphemeCoOccurrenceRule type="exclude" primaryMorpheme="mrA" otherMorphemes="mrB" adjacency="anywhere" />
+          </MorphemeCoOccurrenceRules>
+        </Language></HermitCrabInput>"#;
+        let g = load(XML);
+        assert!(g.morphemes.iter().any(|m| !m.co_occurrence.is_empty()));
         let plan = enumerated_plan(&g);
         let registry = default_registry();
 
