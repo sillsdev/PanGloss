@@ -74,6 +74,10 @@ pg-snapshot = { path = "crates/pg-snapshot" }
 pg-fwdata = { path = "crates/pg-fwdata" }
 pg-conformance-fixtures = { path = "crates/pg-conformance-fixtures" }
 pg-grammar-gen = { path = "crates/pg-grammar-gen" }
+# `.pgpack` container (R2A / `make-wasm-analysis-only`): ADR 0004 required-runtime-feature
+# containment + ADR 0005 capability-trust stamp, consumed by `pg-wasm`'s load path (see that
+# crate's `src/pack.rs`).
+pg-pack = { path = "crates/pg-pack" }
 # dev
 criterion = "0.5"
 proptest = "1"

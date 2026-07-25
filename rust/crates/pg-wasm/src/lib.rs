@@ -21,6 +21,11 @@ use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 use web_time::Instant;
 
+/// `.pgpack` load-time compatibility (ADR 0004 `required ⊆ provided` containment) and the ADR
+/// 0005 capability-trust stamp -- see [`pack`]'s own module doc. [`PgPack`] below is this module's
+/// wasm-bindgen-facing wrapper.
+pub mod pack;
+
 /// Call once from JS before anything else — routes Rust panics to `console.error` instead of a
 /// silent abort, the only setup a `--target web` module needs beyond `init()`.
 #[wasm_bindgen(start)]
@@ -736,6 +741,140 @@ fn api_error(code: &str, message: &str) -> pg_lexicon::StructuredError {
         message: message.into(),
         details: serde_json::Value::Null,
     }
+}
+
+/// The wasm-bindgen-facing handle for a validated `.pgpack` artifact (R2A;
+/// `openspec/changes/make-wasm-analysis-only`). Construction runs [`pack::load_pack`]: the
+/// container's own structural validation, then ADR 0004's `required ⊆ provided` runtime-feature
+/// containment check against this build's own [`pack::provided_runtime_features`] -- replacing
+/// what would otherwise be a monolithic engine-compatibility-identifier equality check. A pack
+/// requiring a runtime feature this build does not provide is refused here with a typed
+/// `pack_incompatible_runtime_features` diagnostic (see [`pack_load_err_to_js`]), never a crash.
+///
+/// Every getter below is a read-only view over the manifest [`pack::load_pack`] already accepted;
+/// this handle does not (yet) construct a working analyzer from the packaged runtime/foma payload
+/// bytes -- see [`pack`]'s own module doc "Analysis-only boundary" section for that scope
+/// boundary. Loading a pack here performs zero FST/lexc compilation.
+#[wasm_bindgen]
+pub struct PgPack {
+    loaded: pack::LoadedPack,
+}
+
+#[wasm_bindgen]
+impl PgPack {
+    /// `bytes` is a complete `.pgpack` container (see `pg_pack::format`'s own byte-layout doc).
+    /// `Err` iff the container itself is structurally invalid (bad magic/version, oversize or
+    /// truncated section, digest or fingerprint mismatch, ...) OR iff its
+    /// `required_runtime_features` is not a subset of this build's `provided` set -- both fail
+    /// closed with a typed, JS-inspectable diagnostic rather than a panic.
+    #[wasm_bindgen(constructor)]
+    pub fn new(bytes: &[u8]) -> Result<PgPack, JsValue> {
+        let loaded = pack::load_pack(bytes).map_err(pack_load_err_to_js)?;
+        Ok(PgPack { loaded })
+    }
+
+    /// [`pg_pack::PackManifest::grammar_id`] -- this pack's stable grammar/package identity.
+    #[wasm_bindgen(js_name = grammarId)]
+    pub fn grammar_id(&self) -> String {
+        self.loaded.manifest.grammar_id.clone()
+    }
+
+    /// ADR 0005's pack-level degraded-trust signal: `true` iff this pack was force-compiled past
+    /// a characteristics-check refusal (`pg_pack::CapabilityTrust::Overridden`) and is therefore
+    /// indelibly unproven/recall-unsafe. A consuming application keys its warning banner off this
+    /// at load time; the pack still loaded and may still be analyzed -- the signal, not a refusal,
+    /// is the safety mechanism (ADR 0005).
+    #[wasm_bindgen(js_name = isUnproven)]
+    pub fn is_unproven(&self) -> bool {
+        self.loaded.is_unproven()
+    }
+
+    /// The same ADR 0005 signal as [`PgPack::is_unproven`], exposed under the name a per-analysis-
+    /// result flag would also use once packaged-artifact analysis is wired (tasks.md §3): every
+    /// result drawn from an unproven pack must carry this flag.
+    #[wasm_bindgen(js_name = analysisTrustFlag)]
+    pub fn analysis_trust_flag(&self) -> bool {
+        self.loaded.analysis_trust_flag()
+    }
+
+    /// `"unsigned"`, `"valid"`, or `"invalid"` (`pg_pack::SignatureState`). Reported for the
+    /// caller's information only -- R2A: signature state never gates a load or analysis, so this
+    /// is meaningful regardless of its value.
+    #[wasm_bindgen(js_name = signatureState)]
+    pub fn signature_state(&self) -> String {
+        match self.loaded.signature_state {
+            pg_pack::SignatureState::Unsigned => "unsigned",
+            pg_pack::SignatureState::Valid => "valid",
+            pg_pack::SignatureState::Invalid => "invalid",
+        }
+        .to_string()
+    }
+
+    /// The FST-health "admission result" (`pg_foma::health::HealthReport::admission`, reused
+    /// verbatim -- see [`pack::LoadedPack::fst_health_admission`]'s doc), as its lowercase
+    /// `Severity` name (`"ideal"`, `"info"`, `"warning"`, `"error"`, or `"critical"`).
+    #[wasm_bindgen(js_name = fstHealthAdmission)]
+    pub fn fst_health_admission(&self) -> String {
+        match self.loaded.fst_health_admission() {
+            pg_foma::health::Severity::Ideal => "ideal",
+            pg_foma::health::Severity::Info => "info",
+            pg_foma::health::Severity::Warning => "warning",
+            pg_foma::health::Severity::Error => "error",
+            pg_foma::health::Severity::Critical => "critical",
+        }
+        .to_string()
+    }
+
+    /// The complete FST-health report (`pg_foma::health::HealthReport`, reused verbatim) as its
+    /// own canonical JSON shape -- every finding, not just the aggregated admission severity.
+    #[wasm_bindgen(js_name = fstHealthReport)]
+    pub fn fst_health_report(&self) -> Result<JsValue, JsValue> {
+        to_js(&self.loaded.manifest.fst_health)
+    }
+
+    /// This pack's required-runtime-feature set (`pg_pack::RequiredRuntimeFeatures`), the same
+    /// value [`PgPack::new`] already checked against this build's provided set.
+    #[wasm_bindgen(js_name = requiredRuntimeFeatures)]
+    pub fn required_runtime_features(&self) -> Result<JsValue, JsValue> {
+        to_js(&self.loaded.manifest.required_runtime_features)
+    }
+}
+
+/// Maps [`pack::PackLoadError`] to this crate's usual `pg_lexicon::StructuredError` JSON shape
+/// (the same convention [`structured_js`] already applies to every other fallible wasm-bindgen
+/// method here) so JS callers get one consistent `{code, message, details}` diagnostic regardless
+/// of which layer refused the pack.
+fn pack_load_err_to_js(err: pack::PackLoadError) -> JsValue {
+    let structured = match err {
+        pack::PackLoadError::Container(inner) => pg_lexicon::StructuredError {
+            code: "pack_container_invalid".into(),
+            message: inner.to_string(),
+            details: serde_json::Value::Null,
+        },
+        pack::PackLoadError::IncompatibleRuntimeFeatures { required, provided } => {
+            pg_lexicon::StructuredError {
+                code: "pack_incompatible_runtime_features".into(),
+                message: "pack requires a runtime feature this Runtime build does not provide \
+                    (ADR 0004): upgrade PanGloss to run this grammar"
+                    .into(),
+                details: serde_json::json!({
+                    "required": required,
+                    "provided": {
+                        "payloadFormatVersions": provided.payload_format_versions,
+                        "runtimeOperations": provided.runtime_operations,
+                        "fomaFeatureLevel": provided.foma_feature_level,
+                        "hcPortSemver": [
+                            provided.hc_port_semver.0,
+                            provided.hc_port_semver.1,
+                            provided.hc_port_semver.2,
+                        ],
+                        "extensions": provided.extensions,
+                    },
+                }),
+            }
+        }
+    };
+    structured_js(structured)
 }
 
 #[wasm_bindgen]
