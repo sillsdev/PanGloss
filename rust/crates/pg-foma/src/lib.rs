@@ -179,6 +179,15 @@ pub mod plan;
 pub mod plan_interaction_coverage;
 pub mod precision;
 pub(crate) mod preexpand;
+/// `openspec/changes/add-fst-compilation-health-audit`, tasks.md section 1 ("Preflight"): the
+/// cheap, pre-compile health pass -- [`preflight::preflight_findings`] turns
+/// [`capability::characterize`]'s already-computed [`capability::CharacteristicsProfile`] and
+/// [`capability_entry::evaluate_capability`]'s already-resolved [`capability::CompileDecision`]
+/// into [`health::HealthFinding`]s BEFORE any foma compile is attempted -- semantic uncertainty
+/// (`Refuse`), cost uncertainty (`ConfirmOnly`/unbounded quantifiers), and bounded-product findings
+/// (`Unordered`-stratum rule counts, a grammar-wide mrule x prule product). See that module's own
+/// doc for the full design and judgment calls.
+pub mod preflight;
 /// `openspec/changes/profile-fst-compilation` (proposal.md; design.md D1-D4; R6): the compile-time
 /// **profile** type -- [`profile::CompileProfile`]/[`profile::CompileStage`]/[`profile::
 /// GroupLineCount`]/[`profile::ProfileLabel`] -- collected from the PRODUCTION

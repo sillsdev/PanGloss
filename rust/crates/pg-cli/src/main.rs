@@ -54,6 +54,14 @@
 //! ADR-0003 in-process apply-path containment outcome
 //! (`pg_foma::analyzer::FomaProposer::propose_budgeted`) — never a watchdog, which is compile-only.
 //!
+//! ## `fst-health` (`openspec/changes/add-fst-compilation-health-audit`, see `fst_health.rs`'s own
+//! doc for the full contract)
+//! `fst-health <grammar> [<words.txt>] [<out.json>]` runs `pg_foma::preflight::preflight_findings`
+//! (a cheap, pre-compile pass) plus `pg_foma::health_evaluator::evaluate_health` (a standalone
+//! profiled compile), and — only when `<words.txt>` is given — a caller-supplied word set's
+//! proposal/confirmation counts, rejection share, and pre-dedup duplicate-analysis evidence, into
+//! one canonical `pg_foma::health::HealthReport`. `<out.json>` omitted prints the JSON to stdout.
+//!
 //! Every other subcommand that takes a grammar path (`parse`, `batch`, `generate`, `diagnose`)
 //! now dispatches on the path's extension via [`load_grammar`]: `.xml` (or anything else) is the
 //! legacy HC-XML path (`pg_grammar::load`, unchanged, no warnings); `.json` loads a `pg-snapshot`
@@ -76,6 +84,7 @@ use pg_grammar::model::{Grammar, LexEntryId, MRuleId, MorphRuleDef};
 use pg_parse::{hc_parse_batch, GenMorpheme, Morpher, WordAnalysis};
 
 mod diagnostics;
+mod fst_health;
 mod pack;
 mod trace_render;
 
@@ -182,6 +191,13 @@ fn run() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
+        Some("fst-health") => match fst_health::run_fst_health(&args[2..]) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("pangloss fst-health: {e}");
+                ExitCode::FAILURE
+            }
+        },
         // Hidden, internal compile-worker CHILD entry point (`harden-foma-resource-safety`
         // section 3/4; `pg_foma::worker`'s own doc). Spawned only by `pangloss pack --watchdog`
         // (`pack.rs::run_fst_health_under_watchdog`) via `pg_foma::worker::run_compile_worker`
@@ -207,6 +223,7 @@ fn run() -> ExitCode {
                  usage: pangloss import <project.fwdata> <out.json>\n\
                  usage: pangloss diagnose <grammar> <words.txt> <out-dir>\n\
                  usage: pangloss pack <grammar> <out.pgpack> [--allow-unproven] [--authorized-by=<name>] [--reason=<text>] [--watchdog]\n\
+                 usage: pangloss fst-health <grammar> [<words.txt>] [<out.json>]\n\
                  \n\
                  <grammar> is one of: a HermitCrab XML export (.xml, the legacy path), a\n\
                  pg-snapshot JSON file (.json, from `pangloss import` or any other producer), or a\n\
