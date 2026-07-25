@@ -124,6 +124,14 @@ pub mod gate;
 /// compiler pass in this crate produces a `HealthFinding` yet; see that module's own doc for full
 /// scope, the R6-corrected Error/Critical override policy, and the judgment calls it surfaces.
 pub mod health;
+/// `openspec/changes/add-fst-compilation-health-audit`: the real health EVALUATOR --
+/// [`health_evaluator::evaluate_health`] turns available compile measurements (final FST payload
+/// size, [`emit::EmitReport`], [`compose_budget::ComposeError`], per-word
+/// [`health_evaluator::ApplyBudgetTrip`]s) into [`health::HealthFinding`]s + a [`health::
+/// HealthReport`], consuming [`health`]'s schema without recomputing any measurement itself. See
+/// that module's own doc for the exact input -> finding mapping and which finding kinds stay
+/// unpopulated pending `profile-fst-compilation`.
+pub mod health_evaluator;
 pub mod junctions;
 /// Stage 1B of `openspec/changes/lower-fst-pattern-environments` (design.md D3): the shared
 /// pattern/environment → FST lowering seam -- [`lower::lower_span`] lowers one subrule's

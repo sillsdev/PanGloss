@@ -232,6 +232,16 @@ pub enum Metric {
     /// A construct whose cost cannot be bounded ahead of time (CONTEXT.md `Cost uncertainty`);
     /// paired with [`MetricValue::Unbounded`] and [`ValueProvenance::Predicted`].
     UnknownUnboundedWork,
+    /// An `Unordered` stratum's own loose-rule count, checked against
+    /// `crate::compose_budget::ComposeBudget::ordering_multiplicity_cap`
+    /// (`crate::compose_budget::ComposeError::OrderingMultiplicityExceeded`). Added by
+    /// `openspec/changes/add-fst-compilation-health-audit` (its own evaluator's Step 2 mapping,
+    /// `crate::health_evaluator`): none of this enum's original ten variants name a plain rule-
+    /// count dimension, and reusing e.g. [`Metric::AlphaTupleCount`] or [`Metric::GateGroupCount`]
+    /// for an unrelated quantity would make either one's stored meaning ambiguous forever in
+    /// canonical JSON. Appended, per this file's own "new codes only ever append" convention for
+    /// [`FindingCode`] — no existing variant renumbered or removed.
+    OrderingRuleCount,
 }
 
 /// Whether a [`HealthFinding`]'s [`MetricValue`] is a heuristic estimate, a trustworthy proof, or
