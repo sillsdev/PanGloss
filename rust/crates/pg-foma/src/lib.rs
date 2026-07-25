@@ -101,6 +101,17 @@ pub mod build;
 pub mod compose_budget;
 pub mod composite;
 pub mod confirm;
+/// `openspec/changes/define-grammar-coverage-contract` (demoted to an evidence role — `docs/adr/
+/// 0001-honest-capability-boundary.md`; `openspec/changes/STAGING.md` Stage 0B): the one-time,
+/// audited coverage LEDGER over the frozen `pg-grammar/src/model.rs` construct set —
+/// [`coverage_ledger::LedgerRow`]/[`coverage_ledger::CoverageLedger`]/[`coverage_ledger::
+/// build_ledger`] (a consolidated, serializable view over [`capability::CharacteristicKind`]'s
+/// existing disposition/predicate/conformance-mapping facts) plus [`coverage_ledger::
+/// containment_evidence_for`] (the curated, hand-reviewed proposer-to-confirm containment-test
+/// citation table). **Evidence, not a gate** — nothing here is consulted by any compile path; see
+/// that module's own doc for the full per-task assessment of what already existed vs. what this
+/// module adds.
+pub mod coverage_ledger;
 /// Step 2 of `openspec/changes/reify-compilation-plans` (design.md D2): `enumerate_default`, which
 /// builds today's compilation topology for a `Grammar` as a single reified [`plan::Plan`], verified
 /// structurally against the real `preexpand::should_run`/`emit::probe_would_refuse`/`gate::

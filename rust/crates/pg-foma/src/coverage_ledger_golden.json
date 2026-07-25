@@ -1,0 +1,333 @@
+{
+  "schema_version": 1,
+  "rows": [
+    {
+      "kind": "affixation",
+      "disposition": "proven",
+      "discharging_predicates": [],
+      "construct_ids": [
+        "AffixProcessRule: prefix/suffix/circumfix/infix",
+        "AffixProcessRule: subtraction/truncation"
+      ],
+      "conformance_status": "covered",
+      "containment": {
+        "kind": "general_pervasive",
+        "citation": "tests/f1_sena_gate.rs, tests/f2_indonesian_gate.rs, tests/f4_composite_gate.rs",
+        "note": "Ordinary AffixProcessRule prefixation/suffixation/infixation is the baseline every full-grammar propose-confirm gate exercises continuously; Proven already licenses unconditional admission-filtering, so no separate dedicated fixture is required."
+      }
+    },
+    {
+      "kind": "realizational_morphology",
+      "disposition": "confirm_only",
+      "discharging_predicates": [],
+      "construct_ids": [
+        "RealizationalAffixProcessRule"
+      ],
+      "conformance_status": "covered",
+      "containment": {
+        "kind": "dedicated",
+        "citation": "tests/cover_realizational_morphology_constraints.rs::realizational_rule_presence_blocking_over_propose_confirm_prune",
+        "note": "Proposer-to-confirm containment for MorphRuleDef::Realizational's real_fs head-wrapped presence-blocking."
+      }
+    },
+    {
+      "kind": "compounding",
+      "disposition": "config_predicate",
+      "discharging_predicates": [
+        {
+          "id": "compounding.non-recursive",
+          "provenance": "structural"
+        }
+      ],
+      "construct_ids": [
+        "CompoundingRule"
+      ],
+      "conformance_status": "covered",
+      "containment": {
+        "kind": "dedicated",
+        "citation": "tests/cover_compounding.rs::head_a_word_over_propose_confirm_prune (+ subrule_group_gate_excludes_partial_match_like_confirm, head_c_excluded_by_rule_level_gate_like_confirm); budget refusal: tests/cover_compounding_budget.rs",
+        "note": "License-gated head/non-head cross-product containment for the non-recursive case, plus the (un)group-awareness witness design.md D4 names."
+      }
+    },
+    {
+      "kind": "ordered_morph_rule_application",
+      "disposition": "proven",
+      "discharging_predicates": [],
+      "construct_ids": [
+        "Stratum (Linear/Unordered rule order)"
+      ],
+      "conformance_status": "covered",
+      "containment": {
+        "kind": "general_pervasive",
+        "citation": "tests/phase_c_strata_depth.rs (multi-stratum cascade recall-parity), tests/f1_sena_gate.rs, tests/f4_composite_gate.rs",
+        "note": "Linear rule-application order is the default cascade shape exercised by every general gate; Proven, no dedicated fixture required."
+      }
+    },
+    {
+      "kind": "unordered_morph_rule_application",
+      "disposition": "config_predicate",
+      "discharging_predicates": [
+        {
+          "id": "unordered-application.chain-depth-bounded",
+          "provenance": "structural"
+        }
+      ],
+      "construct_ids": [
+        "Stratum (Linear/Unordered rule order)"
+      ],
+      "conformance_status": "covered",
+      "containment": {
+        "kind": "dedicated",
+        "citation": "tests/cover_unordered_morph_rules.rs::non_document_order_analysis_is_proposed_and_confirmed (+ unbounded_unordered_stratum_deterministically_refuses_to_compile for the Refuse split)",
+        "note": "Chain-depth-bounded any-order proposal containment, plus the deterministic over-budget refusal witness."
+      }
+    },
+    {
+      "kind": "mpr_group_append",
+      "disposition": "confirm_only",
+      "discharging_predicates": [
+        {
+          "id": "mpr-group.append-output",
+          "provenance": "structural"
+        }
+      ],
+      "construct_ids": [
+        "MPR features/groups"
+      ],
+      "conformance_status": "covered",
+      "containment": {
+        "kind": "dedicated",
+        "citation": "tests/cover_mpr_groups.rs::out_mpr_accumulation_then_gate_over_propose_confirm_prune (+ append_output_is_order_invariant_overwrite_output_is_not)",
+        "note": "Non-tracking-baseline containment for MprGroupOutput::Append, plus the order-invariance witness design.md D4 names."
+      }
+    },
+    {
+      "kind": "mpr_group_overwrite",
+      "disposition": "fail_closed",
+      "discharging_predicates": [
+        {
+          "id": "mpr-group.overwrite-output",
+          "provenance": "structural"
+        }
+      ],
+      "construct_ids": [
+        "MPR features/groups"
+      ],
+      "conformance_status": "covered",
+      "containment": {
+        "kind": "refusal_witness",
+        "citation": "tests/cover_mpr_groups.rs::overwrite_group_composes_to_refuse",
+        "note": "FailClosed: containment is not the applicable property here -- this witness proves compose_envelope genuinely Refuses whenever MprGroupOutput::Overwrite is observed."
+      }
+    },
+    {
+      "kind": "iterative_rewrite",
+      "disposition": "proven",
+      "discharging_predicates": [],
+      "construct_ids": [
+        "RewriteRule Iterative (epenthesis/deletion/feature/expansion/merge)"
+      ],
+      "conformance_status": "covered",
+      "containment": {
+        "kind": "general_pervasive",
+        "citation": "tests/f1_sena_gate.rs, tests/f2_indonesian_gate.rs, tests/phase_c_right_to_left.rs (iterative baseline contrast)",
+        "note": "The default RewriteMode every general gate's phonological rules use; Proven, no dedicated fixture required."
+      }
+    },
+    {
+      "kind": "simultaneous_rewrite",
+      "disposition": "config_predicate",
+      "discharging_predicates": [
+        {
+          "id": "simultaneous.subrule-overlap",
+          "provenance": "structural"
+        }
+      ],
+      "construct_ids": [
+        "RewriteRule Simultaneous"
+      ],
+      "conformance_status": "covered",
+      "containment": {
+        "kind": "dedicated",
+        "citation": "tests/phase_c_simultaneous.rs::sim_nonoverlap_env_now_compiles_and_matches_oracle_exactly (+ sim_overlap_env_stays_honest_unsupported for the Refuse split)",
+        "note": "Containment for the pairwise-non-overlapping case the simultaneous.subrule-overlap predicate Admits; the genuinely-overlapping case stays honestly unsupported."
+      }
+    },
+    {
+      "kind": "left_to_right_rewrite",
+      "disposition": "proven",
+      "discharging_predicates": [],
+      "construct_ids": [],
+      "conformance_status": "unmappable",
+      "containment": {
+        "kind": "general_pervasive",
+        "citation": "tests/f2_indonesian_gate.rs, tests/phase_c_right_to_left.rs (LTR is the implicit contrast baseline for every rtl_* case)",
+        "note": "The default Dir every general gate's phonological rules use; Proven, no dedicated fixture required."
+      }
+    },
+    {
+      "kind": "right_to_left_rewrite",
+      "disposition": "config_predicate",
+      "discharging_predicates": [
+        {
+          "id": "right-to-left-rewrite.faithful-reversal-construction",
+          "provenance": "structural"
+        }
+      ],
+      "construct_ids": [],
+      "conformance_status": "unmappable",
+      "containment": {
+        "kind": "dedicated",
+        "citation": "tests/phase_c_right_to_left.rs::rtl_plain_rule_now_compiles_and_matches_oracle (+ rtl_feature_environment_swap_matches_oracle, rtl_deletion_matches_oracle)",
+        "note": "Reversal-plus-safety-net-union containment against the real oracle across five named RTL fixture shapes."
+      }
+    },
+    {
+      "kind": "metathesis",
+      "disposition": "config_predicate",
+      "discharging_predicates": [
+        {
+          "id": "metathesis.faithful-swap-construction",
+          "provenance": "structural"
+        }
+      ],
+      "construct_ids": [
+        "MetathesisRule"
+      ],
+      "conformance_status": "covered",
+      "containment": {
+        "kind": "dedicated",
+        "citation": "tests/phase_c_metathesis.rs::metathesis_adjacent_singleton_swap_matches_oracle_exactly (+ metathesis_right_to_left_stays_honestly_unsupported for the scope boundary)",
+        "note": "Dedicated swap-relation containment against the real oracle; Dir::RightToLeft stays a documented, honestly-unsupported scope boundary."
+      }
+    },
+    {
+      "kind": "epenthesis",
+      "disposition": "config_predicate",
+      "discharging_predicates": [
+        {
+          "id": "epenthesis.structural-composite-route",
+          "provenance": "structural"
+        }
+      ],
+      "construct_ids": [
+        "RewriteRule Iterative (epenthesis/deletion/feature/expansion/merge)"
+      ],
+      "conformance_status": "covered",
+      "containment": {
+        "kind": "dedicated",
+        "citation": "tests/epenthesis_structural_route_containment.rs::epenthesis_over_propose_confirm_prune_matches_oracle_exactly",
+        "note": "End-to-end propose(over-generate)-then-confirm(prune) containment for an obligatory-epenthesis grammar, matching the oracle's analysis set exactly."
+      }
+    },
+    {
+      "kind": "subrule_gating",
+      "disposition": "proven",
+      "discharging_predicates": [],
+      "construct_ids": [],
+      "conformance_status": "unmappable",
+      "containment": {
+        "kind": "dedicated",
+        "citation": "tests/p6_gate_parity.rs::synthetic_pos_gate_matches_oracle (+ ungated_cascade_would_have_missed_the_noun_entry); scale: tests/phase_c_partition_k.rs::partition_k_recall_parity_via_generator_and_oracle",
+        "note": "Static MPR/POS subrule-gating containment against the real oracle, plus a 2^k-group scale gate."
+      }
+    },
+    {
+      "kind": "circumfix_output_action",
+      "disposition": "config_predicate",
+      "discharging_predicates": [
+        {
+          "id": "circumfix-output-action.faithful-structural-composite",
+          "provenance": "structural"
+        }
+      ],
+      "construct_ids": [
+        "AffixProcessRule: prefix/suffix/circumfix/infix"
+      ],
+      "conformance_status": "covered",
+      "containment": {
+        "kind": "dedicated",
+        "citation": "tests/phase_c_circumfix.rs::circumfix_recall_parity_via_generator_and_oracle (+ ordered_multi_insert_no_first_insert_shortcut_recall_parity, null_role_structural_drop_recall_parity)",
+        "note": "Structural-composite containment for circumfix-shaped (discontinuous/dropped-material) allomorphs against the real oracle."
+      }
+    },
+    {
+      "kind": "reduplication",
+      "disposition": "config_predicate",
+      "discharging_predicates": [
+        {
+          "id": "reduplication.peel-eligible-rule-kind",
+          "provenance": "structural"
+        }
+      ],
+      "construct_ids": [
+        "AffixProcessRule: reduplication (ReduplicationHint)"
+      ],
+      "conformance_status": "covered",
+      "containment": {
+        "kind": "dedicated",
+        "citation": "tests/f6_reduplication_peel_chain_depth.rs::kimbiakimbia_reduplication_is_recovered_with_oracle_containment (+ deep_self_similar_chain_is_refused_deterministically for the chain-depth budget); tests/f4_composite_gate.rs case (c)",
+        "note": "Peeler-to-confirm containment for true-reduplication allomorphs, plus the deterministic deep-chain refusal witness."
+      }
+    },
+    {
+      "kind": "co_occurrence_constraint",
+      "disposition": "confirm_only",
+      "discharging_predicates": [],
+      "construct_ids": [
+        "MorphemeCoOccurrenceRule/AllomorphCoOccurrenceRule"
+      ],
+      "conformance_status": "covered",
+      "containment": {
+        "kind": "dedicated",
+        "citation": "tests/cover_realizational_morphology_constraints.rs::morpheme_co_occurrence_exclude_anywhere_over_propose_confirm_prune",
+        "note": "Proposer-to-confirm containment for MorphemeCoOccurrenceRule adjacency exclusion."
+      }
+    },
+    {
+      "kind": "natural_class_definition",
+      "disposition": "proven",
+      "discharging_predicates": [],
+      "construct_ids": [
+        "NaturalClass: Segments vs FeatureNaturalClass/SegmentNaturalClass precision"
+      ],
+      "conformance_status": "covered"
+    },
+    {
+      "kind": "multi_table",
+      "disposition": "config_predicate",
+      "discharging_predicates": [
+        {
+          "id": "multi-table.faithful-table-threading",
+          "provenance": "structural"
+        }
+      ],
+      "construct_ids": [],
+      "conformance_status": "unmappable",
+      "containment": {
+        "kind": "dedicated",
+        "citation": "tests/phase_c_multi_table.rs::multi_table_rewrite_compiles_correctly_against_its_owning_table; stronger claim: tests/two_table_symbol_divergence.rs::stratum_1_devoice_rewrite_proposer_confirm_matches_oracle",
+        "note": "Faithful per-stratum table threading, proven for one stratum's own rule and, more strongly, for two strata whose tables disagree about the same symbol index."
+      }
+    },
+    {
+      "kind": "quantifier_pattern",
+      "disposition": "config_predicate",
+      "discharging_predicates": [
+        {
+          "id": "quantifier.bounded-expansion",
+          "provenance": "structural"
+        }
+      ],
+      "construct_ids": [
+        "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
+      ],
+      "conformance_status": "covered",
+      "containment": {
+        "kind": "dedicated",
+        "citation": "tests/phase_c_quantifier.rs::quantifier_bounded_environment_compiles_and_matches_oracle (+ quantifier_unbounded_environment_stays_honestly_unsupported for the scope boundary)",
+        "note": "Bounded-quantifier containment against the real oracle at both min/max boundary occurrence counts; genuinely unbounded quantifiers stay honestly unsupported."
+      }
+    }
+  ]
+}
