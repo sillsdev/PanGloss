@@ -633,6 +633,8 @@ dependencies = [
  "pg-rules",
  "pg-snapshot",
  "rayon",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
