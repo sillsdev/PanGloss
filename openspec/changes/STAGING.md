@@ -62,9 +62,14 @@ cannot confirm a quantifier used as the LHS/RHS focus; `ana_epenthesis` finds no
 direction; `pg_rules::metathesis`'s `build_analysis_pattern` disagrees with synthesis on reversed
 switch-tag order and drops a middle context node. Each is pinned by a test at its discovery site.
 
+**Stage 4 — REFRAMED.** `certify-four-language-matrix` is renamed `run-synthetic-conformance-matrix`
+(its specs subdir likewise); the body already dropped the terminal-certification framing and the four
+actual languages. The always-on CI gate it describes is the committed `conformance-ci.yml`.
+
 **Still open:** Stage 1C compile profiling; Stage 3 tree-structured interaction fuzzing + calibration;
-Stage 4 synthetic-conformance-matrix reframe; the coverage ledger; the reify production flip; the
-confirm-engine gaps above; delanguaging Part C.
+the coverage ledger; the reify production flip; the remaining confirm-engine gaps above (the
+direction-blind pick-order one is FIXED — `pg_rules::rewrite` is now direction-aware, matching the C#
+frozen model, conformance unchanged); delanguaging Part C.
 
 This spine was reorganized on 2026-07-24 to reflect the honest-capability architecture recorded in
 `docs/adr/0001`–`0005`. The governing facts that reshaped it:
@@ -218,7 +223,7 @@ the production network constructor used for lookup. Before that switch, cascade 
 
 ## Stage 4 — correctness proof (always-on CI, not a terminal audit)
 
-`certify-four-language-matrix` is **reframed** (rename target: `run-synthetic-conformance-matrix`):
+`run-synthetic-conformance-matrix` is **reframed** (rename target: `run-synthetic-conformance-matrix`):
 there is no terminal "certification" stage and no external reference languages. Correctness is proven
 by **conformance integration tests over the in-repo synthetic `machine/conformance/` grammars**,
 diffing the current engine against committed oracle-authored ground truth, enforced as the Stage 0A

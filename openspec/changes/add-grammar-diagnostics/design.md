@@ -45,7 +45,7 @@ analysis surface shape. Duplicate entries remain distinct. This becomes the Rust
 recall, or supported-language status from successful words, glosses, or timings.
 
 **D6 — The matrix consumes diagnostics.** This change only produces the instrument and schema used
-later by `certify-four-language-matrix`; it does not run or publish a second four-language matrix.
+later by `run-synthetic-conformance-matrix`; it does not run or publish a second four-language matrix.
 
 ## Dependencies and Ownership
 

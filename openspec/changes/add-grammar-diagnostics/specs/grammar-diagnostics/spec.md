@@ -67,7 +67,7 @@ semantically equivalent under the named existing gates.
 - **THEN** the authoritative Indonesian, Amharic, and pinned Aweti gates remain unchanged
 
 ### Requirement: Diagnostics feed but do not duplicate certification
-The report schema SHALL be consumable by `certify-four-language-matrix`; this change SHALL NOT run
+The report schema SHALL be consumable by `run-synthetic-conformance-matrix`; this change SHALL NOT run
 or publish an independent four-language certification matrix.
 
 #### Scenario: Diagnostic implementation completes

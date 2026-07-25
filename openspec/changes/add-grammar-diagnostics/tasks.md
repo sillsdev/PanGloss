@@ -89,7 +89,7 @@ those need have not landed.
 
 ## 5. Verification
 
-- [ ] 5.1 Produce a single-grammar artifact suitable for later consumption by `certify-four-language-matrix`; do not run or certify the four-language matrix here
+- [ ] 5.1 Produce a single-grammar artifact suitable for later consumption by `run-synthetic-conformance-matrix`; do not run or certify the four-language matrix here
       (partial — `diagnose` produces a single-grammar artifact; downstream consumption by the
       renamed/reframed Stage 4 matrix is not wired up)
 - [ ] 5.2 Verify the authoritative Indonesian, Amharic, and pinned Aweti structural/result gates
