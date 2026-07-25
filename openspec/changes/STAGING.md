@@ -37,11 +37,18 @@ confirm-only), compounding (license-gated head×non-head cross product, budget-b
 fail-closed), unordered (existing derivation-chain superset + bounded/unbounded split), MPR groups
 (Append non-tracking baseline; Overwrite permanently fail-closed).
 
-**Downstream — LANDED.** `.pgpack` container + pack manifest (`pg-pack`: ADR 0004 feature set, ADR
-0005 trust stamp, health admission, non-gating Ed25519, validate-before-allocate). WASM load-compat
-reworked to `required ⊆ provided` + trust stamp (`pg-wasm/src/pack.rs`). Diagnostics
-(`pangloss diagnose`: build/assessment reports reusing the signature + health units). Health audit
-(the evaluator above).
+**Downstream — PARTIAL.** Landed: `.pgpack` container + pack manifest (`pg-pack`: ADR 0004 feature
+set, ADR 0005 trust stamp, health admission, non-gating Ed25519, validate-before-allocate); WASM
+load-compat reworked to `required ⊆ provided` + trust stamp (`pg-wasm/src/pack.rs`); the
+`pangloss diagnose` build/assessment reports reusing the signature + health units. **Explicitly NOT
+done** (each change's own `tasks.md` is precise): `add-fst-compilation-health-audit` has only its
+evaluator library — no preflight walker, proposal/confirmation counts, dedup tracking,
+`pangloss fst-health` command, or admission/package wiring; `make-wasm-analysis-only` has NOT removed
+the compiler from WASM (`PanGlossGrammar::new` still compiles from XML) and produces no real
+artifacts; `add-grammar-diagnostics` defers everything needing a second pipeline, file artifacts, or
+the PowerShell/CI/skill layer; `harden-foma-resource-safety`'s entire single-worker watchdog
+subsystem does not exist (only the budget foundation + the ADR 0003 chain-depth/apply dimensions);
+`add-reference-hermitcrab-parity` has the Rust gloss-signature unit but zero of the C# oracle harness.
 
 **Delanguaging — A + B LANDED.** Real-language data removed and artifacts renamed in-repo; the
 `machine` conformance fixtures renamed by inspected construct and pushed (`sillsdev/machine`
