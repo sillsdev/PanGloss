@@ -75,6 +75,16 @@ pub mod capability;
 /// resulting `CompileDecision` from one call. Still purely additive and check-only -- see that
 /// module's own doc.
 pub mod capability_entry;
+/// Task 5.1 of `openspec/changes/add-capability-characteristics-check` (ADR 0001): the
+/// conformance-coverage cross-check — [`conformance_coverage::construct_ids_for`] (the
+/// [`capability::CharacteristicKind`] → `machine/conformance/constructs.txt` identifier mapping,
+/// the contract) and [`conformance_coverage::supported_coverage_report`]/[`conformance_coverage::
+/// supported_uncovered`] (the pure cross-check over a caller-supplied passing-construct set).
+/// **NON-BLOCKING PREVIEW**: this module reports gaps, it does not enforce `gaps.is_empty()` —
+/// see its own doc for the mapping, today's reported gaps, and the deferred build-breaking end
+/// state. The fixture-replay glue that builds the "passing" set lives in
+/// `tests/conformance_coverage_gate.rs` (dev-dependency-only).
+pub mod conformance_coverage;
 /// Step 3a of `openspec/changes/reify-compilation-plans` (design.md D3): [`build::
 /// build_controllable`], a [`plan::Plan`] interpreter for the controllable subtree (the `Gate`
 /// node and its per-group `Compose{LexiconFragment, Replace}` children [`enumerate::

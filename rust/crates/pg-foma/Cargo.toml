@@ -55,3 +55,8 @@ pg-fwdata.workspace = true
 # `features = ["oracle"]` because `pg-grammar-gen`'s own `pg-parse` dependency is feature-gated
 # (see that crate's Cargo.toml) -- its default features alone don't build the oracle module.
 pg-grammar-gen = { workspace = true, features = ["oracle"] }
+# tests/conformance_coverage_gate.rs (task 5.1, ADR 0001's non-blocking conformance-coverage
+# preview, `src/conformance_coverage.rs`): dual-root fixture discovery + `words.yaml` parsing.
+# Dev-dependency only, same as every other example/test-only dependency above -- no cycle, since
+# `pg-conformance-fixtures` depends on `pg-grammar`/`pg-parse` only, never back on this crate.
+pg-conformance-fixtures.workspace = true
