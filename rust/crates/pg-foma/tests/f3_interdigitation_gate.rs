@@ -1,9 +1,19 @@
+//! ## Delanguaging Part C note (2026-07-25)
+//! Renamed off the real language's name (was `f3_amharic_gate.rs`). Still corpus-blocked: needs
+//! `samples/data/amharic-hc.xml` + `samples/data/amharic-words.txt` (gitignored). This grammar's
+//! own pathology is interdigitation (infixing) + boundary-fusion coalescence — Part C's synthetic-
+//! reproduction attempt targeted the deep-standalone-affix-chain anchor instead (`pg_grammar_gen::
+//! build::chain`; see `tests/phase_c_chain_scale.rs`'s own module doc), and `pg_grammar_gen` has no
+//! infix/interdigitation builder today (`synthetic-stress-grammar-plan.md` §2 lists `Role::Infix`
+//! coverage as PROVEN only against this real grammar, no synthetic recipe yet), so no synthetic
+//! replacement exists for this gate. Kept `#[ignore]`d unconditionally.
+//!
 //! P1d gate (docs/fst-plan/foma-fst-plan.md §P1d, "Amharic capability stage — required, no
 //! fallback tier"): the emitter + `crate::preexpand` (rule-application pre-expansion and
 //! boundary-fusion composite probing) against the real Amharic grammar (76 lexical entries, 87
 //! `MorphologicalRule` + 1 `CompoundingRule`, 15 templates, 7 phonological rules over a
 //! 417-Segment char-def table), with the FULL ENGINE (`pg_parse::Morpher`) as the recall oracle —
-//! same denominator rules as `tests/f1_sena_gate.rs`/`tests/f2_indonesian_gate.rs`.
+//! same denominator rules as `tests/f1_large_lexicon_gate.rs`/`tests/f2_junction_gate.rs`.
 //!
 //! ## History: why this gate's verdict changed (P1c -> P1d)
 //!
@@ -65,7 +75,7 @@
 //! `#[ignore = "..."]`d (replacing the old `cfg_attr(debug_assertions, ...)` debug-only ignore),
 //! each with a self-skip guard so `--include-ignored` runs stay green where the fixture is absent
 //! (CI). Run the full set locally with
-//! `cargo test -p pg-foma --release --test f3_amharic_gate -- --include-ignored`.
+//! `cargo test -p pg-foma --release --test f3_interdigitation_gate -- --include-ignored`.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -98,7 +108,7 @@ fn have(name: &str) -> bool {
     sample_path(name).exists()
 }
 
-fn load_amharic() -> Grammar {
+fn load_grammar() -> Grammar {
     let path = sample_path("amharic-hc.xml");
     let xml =
         std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
@@ -182,12 +192,12 @@ fn candidates_cover(candidates: &[pg_foma::tags::Candidate], seq: &[u32], root_i
 
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/amharic-hc.xml); run with --include-ignored"]
-fn a_amharic_emits_and_compiles() {
+fn a_emits_and_compiles() {
     if !have("amharic-hc.xml") {
         eprintln!("skipping: amharic-hc.xml not present on disk");
         return;
     }
-    let g = load_amharic();
+    let g = load_grammar();
 
     let t_emit = Instant::now();
     let emitted = emit::emit(&g);
@@ -283,12 +293,12 @@ fn a_amharic_emits_and_compiles() {
 
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/amharic-hc.xml); run with --include-ignored"]
-fn b_amharic_recall_first_100_words_is_100_percent() {
+fn b_recall_first_100_words_is_100_percent() {
     if !have("amharic-hc.xml") {
         eprintln!("skipping: amharic-hc.xml not present on disk");
         return;
     }
-    let g = load_amharic();
+    let g = load_grammar();
     assert!(
         !ReduplicationPeeler::new(&g).has_redup_rules(),
         "Amharic was verified to have zero Role::Reduplication rules; if this grammar changed, \
@@ -392,12 +402,12 @@ fn b_amharic_recall_first_100_words_is_100_percent() {
 
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/amharic-hc.xml); run with --include-ignored"]
-fn c_amharic_end_to_end_multiset_parity() {
+fn c_end_to_end_multiset_parity() {
     if !have("amharic-hc.xml") {
         eprintln!("skipping: amharic-hc.xml not present on disk");
         return;
     }
-    let g = load_amharic();
+    let g = load_grammar();
     let mut analyzer = FomaAnalyzer::new(&g).expect("Amharic compiles");
     let morpher = Morpher::new(&g, usize::MAX).with_word_timeout(Some(ENGINE_TIMEOUT));
     let opts = ParseOptions::default();
@@ -482,7 +492,7 @@ fn d_nonsense_word_proposes_boundedly_and_never_panics() {
         eprintln!("skipping: amharic-hc.xml not present on disk");
         return;
     }
-    let g = load_amharic();
+    let g = load_grammar();
     let mut proposer = FomaProposer::new(&g).expect("Amharic compiles");
     let t0 = Instant::now();
     let candidates = proposer.propose("ዝጎጠቃኝዬ");

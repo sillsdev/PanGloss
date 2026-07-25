@@ -3,7 +3,7 @@
 //! known POS-gated subrules (prule1/prule2/prule3, `requiredPartsOfSpeech`) without crashing, (b)
 //! leave the UNTOUCHED `compile_and_compose_rules`/`compile_rewrite_rule` entry points byte-for-
 //! byte behaviorally identical (they are new sibling functions, not edited — this just re-confirms
-//! Amharic's own tuple-expansion counts from `p6_amharic_probe.rs` are unchanged), and (c) do the
+//! Amharic's own tuple-expansion counts from `p6_interdigitation_probe.rs` are unchanged), and (c) do the
 //! same sanity pass over Aweti. Does NOT attempt a full gated compile for either (both need the
 //! templated-morphotactics `uflexc` emitter this prototype never built — a separate, already-costed
 //! gap per `docs/fst-plan/p6-prototype-report.md` §6 item 2, not something this MPR/POS step
@@ -58,7 +58,7 @@ fn check(label: &str, g: &Grammar) {
     }
 
     // Untouched entry point: confirm the ORIGINAL (ungated) cascade compile still runs clean,
-    // exactly reproducing p6_amharic_probe.rs / p6_aweti_probe.rs's own reported behavior (this is
+    // exactly reproducing p6_interdigitation_probe.rs / p6_templated_rules_probe.rs's own reported behavior (this is
     // the same call those probes make; a regression here would mean this PR's edits broke
     // replace.rs's pre-existing code path, not gate.rs's own new one).
     let mut skipped: Vec<String> = Vec::new();
@@ -85,7 +85,7 @@ fn check(label: &str, g: &Grammar) {
 
 fn main() {
     // Aweti intentionally omitted here (unlike its name suggests) -- its own regression coverage
-    // needs the JSON pg-snapshot loader path (`aweti_probe.rs`'s bespoke loader), not worth wiring
+    // needs the JSON pg-snapshot loader path (`templated_probe.rs`'s bespoke loader), not worth wiring
     // up for a sanity check the task doesn't ask for regressing (only Indonesian recall and
     // Amharic's tuple-expansion numbers are the named regression targets). Amharic alone below.
     let handle = std::thread::Builder::new()

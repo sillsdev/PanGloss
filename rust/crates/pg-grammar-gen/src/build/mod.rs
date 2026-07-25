@@ -5,13 +5,16 @@
 //! (it's generic glue, not a construct-specific builder). Stage 2 (design doc §6's priority order)
 //! fills in every remaining module: [`gating`] (partition-k), [`alpha`] (alpha-variable scale),
 //! [`strata`] (stratum-depth scale), [`compounding`] (compounding-rule scale), [`quantifier`]/
-//! [`metathesis`]/[`simultaneous`]/[`right_to_left`] (the four HONEST-SKIP bail gates).
+//! [`metathesis`]/[`simultaneous`]/[`right_to_left`] (the four HONEST-SKIP bail gates). [`chain`]
+//! is Part C of the delanguaging effort: a deep STANDALONE (non-template) affix chain,
+//! reproducing `docs/fst-plan/p6-deep-truncation-chain-report.md`'s own root cause synthetically.
 
 pub mod circumfix;
 pub mod tables;
 pub mod template;
 
 pub mod alpha;
+pub mod chain;
 pub mod compounding;
 pub mod gating;
 pub mod metathesis;

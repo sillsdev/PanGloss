@@ -1,9 +1,18 @@
+//! ## Delanguaging Part C note (2026-07-25)
+//! Renamed off the real language's name (was `f2_indonesian_gate.rs`). Still corpus-blocked: needs
+//! `samples/data/indonesian-hc.xml` + `samples/data/indonesian-words.txt` (gitignored). This
+//! grammar's own pathology is junction-aware nasal-place assimilation at a prefix/root boundary
+//! plus reduplication — Part C's synthetic-reproduction attempt targeted the OTHER historical
+//! anchor (a deep standalone-affix chain, `pg_grammar_gen::build::chain`; see
+//! `tests/phase_c_chain_scale.rs`'s own module doc) and never attempted junction/reduplication
+//! parity, so no synthetic replacement exists for this gate yet. Kept `#[ignore]`d unconditionally.
+//!
 //! Phase P1 stage 2 gate (docs/fst-plan/foma-fst-plan.md §P1, gate F1, Indonesian leg): the
 //! junction-aware emitter (`pg_foma::emit` + `pg_foma::junctions::PhonologyProbe`) against the real
 //! Indonesian grammar (66 entries, 5 phonological rules: nasal-place assimilation of the `meN-`
 //! prefix's placeholder nasal, plus voiceless-obstruent deletion at the resulting prefix/root
 //! junction — `meN+tulis -> menulis`), with the FULL ENGINE (`pg_parse::Morpher`, a dev-dependency
-//! only) as the recall oracle, exactly like `tests/f1_sena_gate.rs`'s Sena leg.
+//! only) as the recall oracle, exactly like `tests/f1_large_lexicon_gate.rs`'s Sena leg.
 //!
 //! Reduplication (7 corpus words: `membagi-bagi`, `memijit-mijit`, `meminta-minta`,
 //! `mengamat-amati`, `mengayuh-ngayuh`, `menulis-nulis`, `menyewa-nyewa`) is explicitly OUT OF
@@ -20,7 +29,7 @@
 //! this file loads `samples/data/indonesian-hc.xml`, so all four are unconditionally
 //! `#[ignore = "..."]`d, each with a self-skip guard so `--include-ignored` runs stay green where
 //! the fixture is absent (CI). Run the full set locally with
-//! `cargo test -p pg-foma --release --test f2_indonesian_gate -- --include-ignored`.
+//! `cargo test -p pg-foma --release --test f2_junction_gate -- --include-ignored`.
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -52,7 +61,7 @@ fn have(name: &str) -> bool {
     sample_path(name).exists()
 }
 
-fn load_indonesian() -> Grammar {
+fn load_grammar() -> Grammar {
     let path = sample_path("indonesian-hc.xml");
     let xml =
         std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
@@ -94,12 +103,12 @@ fn candidates_cover(candidates: &[pg_foma::tags::Candidate], seq: &[u32], root_i
 
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with --include-ignored"]
-fn a_indonesian_emits_and_compiles() {
+fn a_emits_and_compiles() {
     if !have("indonesian-hc.xml") {
         eprintln!("skipping: indonesian-hc.xml not present on disk");
         return;
     }
-    let g = load_indonesian();
+    let g = load_grammar();
 
     let t_emit = Instant::now();
     let emitted = emit::emit(&g);
@@ -156,12 +165,12 @@ fn a_indonesian_emits_and_compiles() {
 
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with --include-ignored"]
-fn b_indonesian_recall_full_corpus_minus_redup() {
+fn b_recall_full_corpus_minus_redup() {
     if !have("indonesian-hc.xml") {
         eprintln!("skipping: indonesian-hc.xml not present on disk");
         return;
     }
-    let g = load_indonesian();
+    let g = load_grammar();
     let mut proposer = FomaProposer::new(&g).expect("Indonesian compiles");
     let morpher = Morpher::new(&g, usize::MAX);
     let opts = ParseOptions::default();
@@ -266,7 +275,7 @@ fn c_junction_spot_checks() {
         eprintln!("skipping: indonesian-hc.xml not present on disk");
         return;
     }
-    let g = load_indonesian();
+    let g = load_grammar();
     let mut proposer = FomaProposer::new(&g).expect("Indonesian compiles");
     let morpher = Morpher::new(&g, usize::MAX);
     let opts = ParseOptions::default();
@@ -332,7 +341,7 @@ fn d_nonsense_word_proposes_nothing() {
         eprintln!("skipping: indonesian-hc.xml not present on disk");
         return;
     }
-    let g = load_indonesian();
+    let g = load_grammar();
     let mut proposer = FomaProposer::new(&g).expect("Indonesian compiles");
     let t0 = Instant::now();
     let candidates = proposer.propose("zzzq");

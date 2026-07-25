@@ -11,8 +11,8 @@ import random
 import sys
 
 from hc_xml import parse_grammar
-from derive_indonesian import derive_and_realize
-from build_indonesian_fst import build_union_fst
+from derive_junction import derive_and_realize
+from build_junction_fst import build_union_fst
 from collections import defaultdict
 
 

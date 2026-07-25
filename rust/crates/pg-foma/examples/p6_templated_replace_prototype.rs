@@ -4,7 +4,7 @@
 //! `underlying-lexc(templated) .o. prule1 .o. .. .o. prule18 .o. boundary-cleanup` for Aweti (855
 //! entries, 135 mrules, 18 prules, 14 templates/43 slots, 3 strata) using
 //! [`pg_foma::emit::emit_underlying_templated`] instead of the enumeration-based
-//! [`pg_foma::emit::emit`] (which OOMs on this grammar — `p6_aweti_diagnostics.rs`'s/the emit
+//! [`pg_foma::emit::emit`] (which OOMs on this grammar — `p6_templated_diagnostics.rs`'s/the emit
 //! budget's own numbers: 2,833,559 fusion entries, a 691MB/9.7M-line lexc, ~8.8GB `apply_up`
 //! allocation). Unlike its Indonesian sibling, this driver does NOT attempt a full-corpus
 //! recall-parity gate — see the comment above the spot-check section below (and
@@ -31,7 +31,7 @@ use pg_grammar::chardef::CharDefKind;
 use pg_grammar::model::{Grammar, PhonRuleDef};
 use pg_parse::{Morpher, ParseOptions};
 
-/// Same large-stack convention `p6_replace_prototype.rs`/`p6_aweti_probe.rs` use — the vendored
+/// Same large-stack convention `p6_replace_prototype.rs`/`p6_templated_rules_probe.rs` use — the vendored
 /// foma-rs's own `fsm_compose`/`fsm_minimize` constructions and this crate's own morphotactic
 /// derivation-layer recursion both recurse deeply enough (14 templates/43 slots here) to overflow
 /// the default thread stack.
@@ -151,7 +151,7 @@ fn run() {
 
     // ---------------------------------------------------------------------------------------
     // 2. Compile + compose the 18 phonological rules, in stratum/document order (mirrors
-    //    `p6_aweti_probe.rs`'s own stratum-order collection).
+    //    `p6_templated_rules_probe.rs`'s own stratum-order collection).
     // ---------------------------------------------------------------------------------------
     let mut rules_in_order: Vec<&PhonRuleDef> = Vec::new();
     for st in &g.strata {

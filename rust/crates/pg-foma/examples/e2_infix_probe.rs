@@ -226,7 +226,7 @@ fn run() {
     );
 
     // ---------------------------------------------------------------------------------------
-    // 2. Rule cascade compile+compose (already proven: p6_amharic_probe.rs, 2.14s, 82st/1.1M arcs).
+    // 2. Rule cascade compile+compose (already proven: p6_interdigitation_probe.rs, 2.14s, 82st/1.1M arcs).
     // ---------------------------------------------------------------------------------------
     let mut rules_in_order: Vec<&PhonRuleDef> = Vec::new();
     for st in &g.strata {

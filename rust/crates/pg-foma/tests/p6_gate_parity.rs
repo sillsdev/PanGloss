@@ -3,7 +3,7 @@
 //! flag-diacritics encoding — a genuine, load-bearing toolkit finding, not a shortcut).
 //!
 //! Both acceptance cases follow this file's own oracle/predicate: `pg_parse::Morpher` (the SAME
-//! full-engine oracle `f2_indonesian_gate.rs`/`f3_amharic_gate.rs` use), compared against the
+//! full-engine oracle `f2_junction_gate.rs`/`f3_interdigitation_gate.rs` use), compared against the
 //! compiled foma network's `apply_up` decoded candidates, keyed by `(morpheme_ids, root_index)` —
 //! the identical positional-multiset predicate `p6_replace_prototype.rs`'s own parity gate uses.
 //!
@@ -448,7 +448,7 @@ fn ungated_cascade_would_have_missed_the_noun_entry() {
     );
 }
 
-/// Regression: the full Indonesian corpus parity gate (`f2_indonesian_gate.rs`'s own 97/97
+/// Regression: the full Indonesian corpus parity gate (`f2_junction_gate.rs`'s own 97/97
 /// predicate) must stay 100% through the AUGMENTED grammar + GATED compile path — the 2 synthetic
 /// entries neither collide with nor are reachable by any real corpus word (verified: neither
 /// `tanam` nor `tabur` appears in `indonesian-words.txt`), so this is a pure regression check.

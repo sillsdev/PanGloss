@@ -1,7 +1,23 @@
+//! ## Delanguaging Part C note (2026-07-25)
+//! Renamed off the real language's name (was `p6_aweti_gate.rs`). Still corpus-blocked: needs
+//! `samples/data/aweti.json` + `samples/data/aweti-words.txt` (gitignored). This IS the gate for
+//! the exact historical pathology Part C set out to reproduce synthetically (this file's own
+//! §"deriv chain" doc below, and `docs/fst-plan/p6-deep-truncation-chain-report.md`) — MEASURED
+//! result (see `tests/phase_c_chain_scale.rs`'s own module doc, `examples/deep_chain_scale_probe.rs`/
+//! `examples/deep_chain_compose_probe.rs`): a synthetic deep standalone-affix chain
+//! (`pg_grammar_gen::build::chain`) at this grammar's own real per-zone rule-count scale (N=24)
+//! does NOT reproduce the apply_up explosion/OOM this grammar historically hit — both the bare net
+//! and one composed against a trivial identity rule stay in the microsecond range even on a
+//! deliberately maximally-path-ambiguous query. The likely missing ingredient (not independently
+//! confirmed) is real, content-differentiated rule interaction (this grammar's own real
+//! phonological conditioning + its two independent per-zone chain instances), which a synthetic
+//! recipe using inert identity-like rules cannot exercise. This gate therefore stays genuinely
+//! corpus-blocked, not merely unattempted. Kept `#[ignore]`d unconditionally.
+//!
 //! P6 templated-morphotactics acceptance gate (`docs/fst-plan/p6-prototype-report.md` §6 item 2,
 //! `docs/fst-plan/foma-fst-plan.md` §P6): the Aweti gate, mirroring
 //! `examples/p6_aweti_replace_prototype.rs`'s own compose flow, as a real, CI-shaped `#[ignore]`d
-//! test — matching `f2_indonesian_gate.rs`/`f3_amharic_gate.rs`'s own self-skip-guard convention
+//! test — matching `f2_junction_gate.rs`/`f3_interdigitation_gate.rs`'s own self-skip-guard convention
 //! for a gitignored real-language corpus fixture.
 //!
 //! ## Why this exists (not just the example)
@@ -28,7 +44,7 @@
 //! report's §1 for the full measurement trail.
 //!
 //! ## Full-corpus recall gate (composition-based, no `apply_up`)
-//! [`b_aweti_full_corpus_recall_via_compose`] uses the composition technique (word-FST `.o.`
+//! [`b_full_corpus_recall_via_compose`] uses the composition technique (word-FST `.o.`
 //! composed net, `fsm_upper`, intersect against each oracle analysis's own tag acceptor,
 //! `fsm_isempty`) — an ordinary, terminating automaton construction with NO backtracking search
 //! and NO query-ordering dependence, safe to run over the whole corpus (`Morpher::new(&g,
@@ -219,12 +235,12 @@ fn sample_path(name: &str) -> PathBuf {
 }
 
 /// Self-skip guard: gitignored real-corpus fixtures aren't present in a fresh clone or CI —
-/// matches `f2_indonesian_gate.rs`/`f3_amharic_gate.rs`'s own `have()` convention exactly.
+/// matches `f2_junction_gate.rs`/`f3_interdigitation_gate.rs`'s own `have()` convention exactly.
 fn have(name: &str) -> bool {
     sample_path(name).exists()
 }
 
-fn load_aweti() -> Grammar {
+fn load_grammar() -> Grammar {
     let path = sample_path("aweti.json");
     let json =
         std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
@@ -243,7 +259,7 @@ fn load_aweti() -> Grammar {
 /// pre-expansion stage before any of this is reached), so completing it at all is the deliverable.
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/aweti.json); run with --include-ignored"]
-fn a_aweti_templated_emit_compile_and_compose() {
+fn a_templated_emit_compile_and_compose() {
     if !have("aweti.json") {
         eprintln!("skipping: aweti.json not present on disk");
         return;
@@ -258,7 +274,7 @@ fn a_aweti_templated_emit_compile_and_compose() {
 }
 
 fn run_emit_compile_compose() {
-    let g = load_aweti();
+    let g = load_grammar();
     let table = &g.char_tables[0];
     let alphabet = SegAlphabet::new(table);
     let opts = FomaOptions::default();
@@ -425,7 +441,7 @@ fn tag_string_fsm(name: &str, tags: &[String]) -> Fsm {
 /// still recall).
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/aweti.json); run with --include-ignored"]
-fn b_aweti_full_corpus_recall_via_compose() {
+fn b_full_corpus_recall_via_compose() {
     if !have("aweti.json") {
         eprintln!("skipping: aweti.json not present on disk");
         return;
@@ -440,7 +456,7 @@ fn b_aweti_full_corpus_recall_via_compose() {
 }
 
 fn run_full_corpus_recall() {
-    let g = load_aweti();
+    let g = load_grammar();
     let table = &g.char_tables[0];
     let alphabet = SegAlphabet::new(table);
     let opts = FomaOptions::default();
@@ -587,7 +603,7 @@ fn run_full_corpus_recall() {
 /// composed net TERMINATES promptly and does not explode (pre-restriction it hung indefinitely).
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/aweti.json); run with --include-ignored"]
-fn c_aweti_apply_up_terminates_parua() {
+fn c_apply_up_terminates_parua() {
     if !have("aweti.json") {
         eprintln!("skipping: aweti.json not present on disk");
         return;
@@ -602,7 +618,7 @@ fn c_aweti_apply_up_terminates_parua() {
 }
 
 fn run_spot_check() {
-    let g = load_aweti();
+    let g = load_grammar();
     let table = &g.char_tables[0];
     let alphabet = SegAlphabet::new(table);
     let opts = FomaOptions::default();

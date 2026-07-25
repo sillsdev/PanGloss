@@ -19,7 +19,7 @@ import time
 from pyfoma import FST, State
 
 from hc_xml import parse_grammar
-from derive_indonesian import derive_and_realize
+from derive_junction import derive_and_realize
 
 TAG_OPEN = "["  # ASCII, not the fancy U+2045/2046 quill brackets -- AT&T/save_att opens its
 TAG_CLOSE = "]"  # output files with the platform-default encoding (cp1252 on this Windows box),
@@ -105,7 +105,7 @@ def main():
               f"~{int(n_states*ratio)} states, ~{int(n_arcs*ratio)} arcs, "
               f"~{build_s*ratio:.0f}s build")
 
-    att_path = "indonesian_raw.att"
+    att_path = "junction_raw.att"
     fst.save_att(att_path)
     import os
     raw_size = os.path.getsize(att_path)

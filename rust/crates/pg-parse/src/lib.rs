@@ -70,7 +70,7 @@ pub enum AnalysisProvenance {
 /// rendered strings for genuinely distinct underlying analyses (e.g. Sena `mbali` →
 /// `++|[mn]+?bal+?i` ×9, `+|[mn]+?bali` ×6, in both `parity-out/golden/*/sena-*.tsv`; same
 /// phenomenon covers the free-fluctuation case in
-/// `sena_free_fluctuation_gate.rs`). This was flagged as a tear-out candidate
+/// `free_fluctuation_gate.rs`). This was flagged as a tear-out candidate
 /// (rust-optimizations-phase2.md T-B) and rejected after a dedup attempt broke that gate — the
 /// duplicate count is real signal, not byte-parity noise. See
 /// `identical_rendered_signatures_are_kept_not_deduped` below.

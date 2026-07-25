@@ -351,6 +351,36 @@ fn right_to_left_recipe_loads_and_is_deterministic() {
     assert_eq!(g.prules.len(), 1);
 }
 
+// --- Part C (delanguaging): build::chain (deep standalone-affix chain). ---
+
+#[test]
+fn chain_recipe_loads_and_is_deterministic() {
+    let recipe = Recipe {
+        name: "self-check-chain",
+        seed: 18,
+        scale: ScaleKnobs {
+            segment_inventory: 6,
+            ..ScaleKnobs::default()
+        },
+        construct: ConstructKnobs {
+            table_count: 1,
+            chain_rule_count: 5,
+            ..Default::default()
+        },
+    };
+    let xml = assert_deterministic(&recipe);
+    let g = load(&xml);
+    assert_eq!(g.entries.len(), 1, "chain recipe has exactly 1 root");
+    let affix_process_rules = g
+        .mrules
+        .iter()
+        .filter(|r| matches!(r, pg_grammar::model::MorphRuleDef::AffixProcess(_)))
+        .count();
+    assert_eq!(affix_process_rules, 5, "chain_rule_count standalone rules");
+    // None of these rules are wrapped in a template -- they're stratum-attached standalone rules.
+    assert_eq!(g.templates.len(), 0);
+}
+
 #[cfg(feature = "oracle")]
 #[test]
 fn oracle_sweep_on_circumfix_recipe_is_non_vacuous() {

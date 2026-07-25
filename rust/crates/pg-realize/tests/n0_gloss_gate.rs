@@ -112,7 +112,7 @@ fn sena_pinned_leipzig_strings() {
 }
 
 /// Sena's `mbali` is the free-fluctuation multi-analysis case documented in
-/// `pg-parse/src/lib.rs::result_signature` and `sena_free_fluctuation_gate.rs` -- confirms
+/// `pg-parse/src/lib.rs::result_signature` and `free_fluctuation_gate.rs` -- confirms
 /// `gloss_bundle`/`leipzig` produce one Leipzig string per `outcome.structured[i]`, same index
 /// order as `outcome.analyses`, without collapsing or reordering the (deliberately undeduped)
 /// candidate set.

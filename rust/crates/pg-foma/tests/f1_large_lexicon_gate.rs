@@ -1,3 +1,14 @@
+//! ## Delanguaging Part C note (2026-07-25)
+//! Renamed off the real language's name (was `f1_sena_gate.rs`) as part of the delanguaging
+//! effort's last gap. This gate is STILL corpus-blocked: it needs `samples/data/sena-hc.xml` +
+//! `samples/data/sena-words.txt` (both gitignored real-language data, absent in a fresh clone/CI),
+//! and Part C's own synthetic-reproduction attempt (`pg_grammar_gen::build::chain`, a deep
+//! standalone-affix chain — see `tests/phase_c_chain_scale.rs`'s own module doc) did not reproduce
+//! this grammar's own large-lexicon-scale pathology (its recall gate exercises a >1,300-entry, 132-
+//! rule agglutinative lexicon at real corpus scale, which no synthetic recipe in this repo attempts
+//! to match at that entry count yet — `synthetic-stress-grammar-plan.md`'s own Phase D scale sweeps
+//! are the follow-on for that). Kept `#[ignore]`d, unconditionally, exactly as before.
+//!
 //! Phase P1 stage 1 gate (docs/fst-plan/foma-fst-plan.md §P1, gate F1, Sena leg): the emitter
 //! (`pg_foma::emit`) + tag codec (`pg_foma::tags`) + thin proposer (`pg_foma::analyzer`) against
 //! the real Sena grammar, with the FULL ENGINE (`pg_parse::Morpher`, a dev-dependency only) as the
@@ -7,7 +18,7 @@
 //! the proposer's candidates — under-generation is a silently lost analysis. Over-generation is
 //! harmless (P2's confirm prunes it); test (d) only sanity-checks it isn't absurd.
 //!
-//! Run with `cargo test -p pg-foma --release --test f1_sena_gate -- --include-ignored`. Measured
+//! Run with `cargo test -p pg-foma --release --test f1_large_lexicon_gate -- --include-ignored`. Measured
 //! on this machine (2026-07-15): release, all four tests ~32s total (recall gate b: ~33s wall, of
 //! which ~30s is the ENGINE oracle, 0.13s the proposer); debug, ~145s total with b alone ~120s.
 //!
@@ -15,11 +26,11 @@
 //! The default local `cargo test --workspace --release` run must stay under ~60s total and must
 //! not depend on the gitignored real-language corpus fixtures (`samples/data/*`) at all — not even
 //! a fast one. Every test in this file loads `samples/data/sena-hc.xml` (directly or via
-//! `load_sena`), so ALL FOUR are `#[ignore = "..."]`d unconditionally (not the old
+//! `load_grammar`), so ALL FOUR are `#[ignore = "..."]`d unconditionally (not the old
 //! `cfg_attr(debug_assertions, ...)` debug-only ignore), each with a self-skip guard so
 //! `--include-ignored` runs stay green in CI where the fixture is absent (gitignored, never
 //! checked out there). Run the full set locally with
-//! `cargo test -p pg-foma --release --test f1_sena_gate -- --include-ignored`; CI runs this too,
+//! `cargo test -p pg-foma --release --test f1_large_lexicon_gate -- --include-ignored`; CI runs this too,
 //! and skips gracefully rather than failing when the corpus files aren't present.
 
 use std::path::{Path, PathBuf};
@@ -43,7 +54,7 @@ fn have(name: &str) -> bool {
     sample_path(name).exists()
 }
 
-fn load_sena() -> Grammar {
+fn load_grammar() -> Grammar {
     let path = sample_path("sena-hc.xml");
     let xml =
         std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
@@ -66,12 +77,12 @@ fn morpheme_name(g: &Grammar, id: u32) -> String {
 
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
-fn a_sena_emits_and_compiles() {
+fn a_emits_and_compiles() {
     if !have("sena-hc.xml") {
         eprintln!("skipping: sena-hc.xml not present on disk");
         return;
     }
-    let g = load_sena();
+    let g = load_grammar();
 
     let t_emit = Instant::now();
     let emitted = emit::emit(&g);
@@ -131,12 +142,12 @@ fn a_sena_emits_and_compiles() {
 
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
-fn b_sena_recall_first_120_words() {
+fn b_recall_first_120_words() {
     if !have("sena-hc.xml") {
         eprintln!("skipping: sena-hc.xml not present on disk");
         return;
     }
-    let g = load_sena();
+    let g = load_grammar();
     let mut proposer = FomaProposer::new(&g).expect("Sena compiles");
     let morpher = Morpher::new(&g, usize::MAX);
     let opts = ParseOptions::default();
@@ -244,7 +255,7 @@ fn c_mbali_covers_both_engine_sequences() {
         eprintln!("skipping: sena-hc.xml not present on disk");
         return;
     }
-    let g = load_sena();
+    let g = load_grammar();
     let mut proposer = FomaProposer::new(&g).expect("Sena compiles");
     let morpher = Morpher::new(&g, usize::MAX);
 
@@ -296,7 +307,7 @@ fn d_nonsense_word_proposes_nothing() {
         eprintln!("skipping: sena-hc.xml not present on disk");
         return;
     }
-    let g = load_sena();
+    let g = load_grammar();
     let mut proposer = FomaProposer::new(&g).expect("Sena compiles");
     let t0 = Instant::now();
     let candidates = proposer.propose("zzzq");

@@ -1,3 +1,10 @@
+//! ## Delanguaging Part C note (2026-07-25)
+//! Renamed off the real language's name (was `indonesian_redup_gate.rs`). Still corpus-blocked:
+//! needs `samples/data/indonesian-hc.xml` (gitignored). Part C's own synthetic-reproduction
+//! attempt (`pg_grammar_gen::build::chain`, see `pg-foma/tests/phase_c_chain_scale.rs`) targeted a
+//! different historical anchor (a deep standalone-affix chain) and never attempted reduplication
+//! parity; `pg_grammar_gen` has no reduplication builder today. Kept `#[ignore]`d unconditionally.
+//!
 //! Tier-2 #8 real-grammar regression guard (plan §13.1.1 / §13.2 step 10): Indonesian's 3 actual
 //! reduplication subrules (`msubrule5`/`mrule7` "-Cont", `msubrule11`/`mrule13` "-Pl",
 //! `msubrule13`/`mrule15` "REDUP-meN") must keep resynthesizing their gold-matching surfaces once
@@ -30,7 +37,7 @@ fn sample_path(name: &str) -> Option<PathBuf> {
 
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with --include-ignored"]
-fn indonesian_reduplicated_words_keep_their_gold_signature() {
+fn reduplicated_words_keep_their_gold_signature() {
     let Some(grammar_path) = sample_path("indonesian-hc.xml") else {
         eprintln!("skipping: indonesian-hc.xml not present on disk");
         return;

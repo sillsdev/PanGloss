@@ -1,7 +1,7 @@
 //! P6 static diagnostic pass on the compiled Aweti grammar (throwaway, not committed): answers a
 //! handful of yes/no + count questions that scope the upcoming P6 emitter work, WITHOUT calling
 //! `pg_foma::emit::emit()` (that's the known OOM this whole P6 effort routes around). Loads the
-//! grammar exactly like `examples/p6_aweti_probe.rs` (`pg_snapshot::Snapshot::from_json` +
+//! grammar exactly like `examples/p6_templated_rules_probe.rs` (`pg_snapshot::Snapshot::from_json` +
 //! `pg_grammar::compile_project`).
 //!
 //! Several of `emit.rs`'s helpers this diagnostic needs (`classify_template`, `rule_role`,

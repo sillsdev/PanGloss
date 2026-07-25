@@ -34,7 +34,7 @@ pub mod oracle;
 
 pub use recipe::{ConstructKnobs, Recipe, ScaleKnobs};
 pub use render::{
-    render, render_indexed, AlphaIndex, CompoundingIndex, ExtraStratumIndex, GatingIndex,
-    MetathesisIndex, QuantifierIndex, RenderedGrammar, RightToLeftIndex, RootIndex,
+    render, render_indexed, AlphaIndex, ChainIndex, CompoundingIndex, ExtraStratumIndex,
+    GatingIndex, MetathesisIndex, QuantifierIndex, RenderedGrammar, RightToLeftIndex, RootIndex,
     SimultaneousIndex, TableIndex,
 };

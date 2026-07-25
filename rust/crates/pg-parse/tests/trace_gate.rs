@@ -148,7 +148,7 @@ fn obligatory_syntactic_feature_never_satisfied_is_reported() {
 }
 
 /// Real-corpus fixture (self-skips if the untracked sample corpus isn't present on disk, matching
-/// `indonesian_redup_gate.rs`'s existing convention): empirically confirmed (via this same tracing
+/// `reduplication_gate.rs`'s existing convention): empirically confirmed (via this same tracing
 /// machinery, during this chunk's development) that Indonesian's "memaca" produces at least one
 /// synthesis candidate that passes `is_word_valid_traced` but is rejected by `is_match_traced` with
 /// `SurfaceFormMismatch` -- the real grammar naturally exercises the third wired reason, not just a

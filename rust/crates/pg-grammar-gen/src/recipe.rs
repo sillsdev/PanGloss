@@ -103,4 +103,11 @@ pub struct ConstructKnobs {
     pub rtl_rule_count: usize,
     /// Stage 2 priority (7), bail gate: [`crate::build::quantifier`]. `Some((min, max))` bound.
     pub quantifier_bound: Option<(usize, usize)>,
+    /// Part C (delanguaging): number of independent standalone (non-template) suffix rules
+    /// [`crate::build::chain`] generates on stratum 0 — the deep-chain reproduction of
+    /// `docs/fst-plan/p6-deep-truncation-chain-report.md`'s root cause (`build_deriv_chain`'s
+    /// legacy `TextMode::SurfaceProbed` strategy: `rules.len()` levels, EVERY level offers EVERY
+    /// rule). `0` = no chain material. Capped at 25 by `build::tables`' own 26-ASCII-letter ceiling
+    /// (module doc of `build::chain`).
+    pub chain_rule_count: usize,
 }

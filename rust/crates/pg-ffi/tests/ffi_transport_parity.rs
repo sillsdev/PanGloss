@@ -1,3 +1,15 @@
+//! ## Delanguaging Part C note (2026-07-25)
+//! Renamed off the real language's name (was `ffi_indonesian_parity.rs`). Still corpus-blocked:
+//! needs `samples/data/indonesian-hc.xml` + `samples/data/indonesian-words.txt` (gitignored). The
+//! actual property under test (transport/encoding fidelity between the FFI buffer path and the
+//! in-process `Morpher`) has nothing to do with Indonesian specifically — ANY loadable grammar with
+//! enough real analyses would do — but Part C's own synthetic-reproduction attempt targeted the
+//! deep-standalone-affix-chain anchor (`pg_grammar_gen::build::chain`, see
+//! `pg-foma/tests/phase_c_chain_scale.rs`), not a full end-to-end FFI encode/decode corpus. A
+//! synthetic replacement for THIS gate is likely the cheapest of this whole file list to build in
+//! a follow-on pass (any `pg_grammar_gen` recipe + its own oracle word list would do), but building
+//! it was out of this pass's scope. Kept `#[ignore]`d unconditionally.
+//!
 //! The tightest gate for M8 (plan brief): transport fidelity, not the C# golden. This test calls
 //! the real `extern "C"` entry points — exactly as an external caller would, through
 //! `pangloss_ffi::{hc_grammar_load, hc_parse_word, hc_parse_batch, hc_buf_free, hc_grammar_free}`,
@@ -46,7 +58,7 @@ fn decode_one(bytes: &[u8]) -> DecodedWord {
 
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with --include-ignored"]
-fn ffi_batch_matches_in_process_for_full_indonesian_corpus() {
+fn ffi_batch_matches_in_process_for_full_corpus() {
     let Some(xml) = support::load_xml("indonesian-hc.xml") else {
         eprintln!("skipping: indonesian-hc.xml not present on disk");
         return;
@@ -125,7 +137,7 @@ fn ffi_batch_matches_in_process_for_full_indonesian_corpus() {
 
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with --include-ignored"]
-fn ffi_single_word_matches_in_process_for_full_indonesian_corpus() {
+fn ffi_single_word_matches_in_process_for_full_corpus() {
     let Some(xml) = support::load_xml("indonesian-hc.xml") else {
         eprintln!("skipping: indonesian-hc.xml not present on disk");
         return;

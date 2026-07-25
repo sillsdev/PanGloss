@@ -9,7 +9,7 @@
 //! = -1 iff a cycle -- including a self-loop or a back-edge into an already-topologically-treated
 //! state -- was found during the single linear pass); it does not enumerate paths.
 //!
-//! Mirrors `examples/p6_aweti_replace_prototype.rs`'s own compose flow exactly (same emitter, same
+//! Mirrors `examples/p6_templated_replace_prototype.rs`'s own compose flow exactly (same emitter, same
 //! rule cascade, same boundary cleanup) so the network under test here is byte-identical to the one
 //! `tests/p6_aweti_gate.rs` exercises.
 //!

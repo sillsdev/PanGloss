@@ -1,3 +1,11 @@
+//! ## Delanguaging Part C note (2026-07-25)
+//! Renamed off the real language's name (was `sena_free_fluctuation_gate.rs`). Still corpus-
+//! blocked: needs `samples/data/sena-hc.xml` (gitignored). Part C's own synthetic-reproduction
+//! attempt (`pg_grammar_gen::build::chain`, see `pg-foma/tests/phase_c_chain_scale.rs`) targeted a
+//! different historical anchor (a deep standalone-affix chain) and never attempted free-
+//! fluctuating-allomorph parity; no synthetic grammar in this repo exercises `FreeFluctuatesWith`
+//! today. Kept `#[ignore]`d unconditionally.
+//!
 //! R3 real-grammar regression/gain guard (plan §13.1.1 / §13.2 step 10): Sena's word "ana" is the
 //! one non-capped, deterministic word (out of a Sena first-100 corpus run, uncapped here since it
 //! completes in well under a second) whose analysis set actually changes once the disjunctive-
@@ -39,7 +47,7 @@ fn sample_path(name: &str) -> Option<PathBuf> {
 
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
-fn sena_ana_recovers_free_fluctuating_analyses() {
+fn ana_recovers_free_fluctuating_analyses() {
     let Some(grammar_path) = sample_path("sena-hc.xml") else {
         eprintln!("skipping: sena-hc.xml not present on disk");
         return;

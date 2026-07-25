@@ -7,7 +7,7 @@
 //! `MorphologicalRuleSynthesis` nodes, each one the parent of the next -- exactly the "rule sequence"
 //! a person (or a future Rust/C# divergence hunt) needs to follow. This is real-corpus, not a hand-
 //! built fixture: self-skips if the untracked sample corpus isn't present (matching
-//! `indonesian_redup_gate.rs`'s existing convention).
+//! `reduplication_gate.rs`'s existing convention).
 //!
 //! Test-timing policy (revised 2026-07-17): the default local `cargo test --workspace --release`
 //! run must stay under ~60s and must not depend on this gitignored fixture at all, so this test is

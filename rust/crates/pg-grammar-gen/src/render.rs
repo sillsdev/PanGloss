@@ -93,6 +93,18 @@ pub struct QuantifierIndex {
     pub rule_xml_id: String,
 }
 
+/// Bookkeeping for a `chain_rule_count > 0` recipe (Part C, delanguaging: deep standalone-affix
+/// chain — `crate::build::chain`'s own module doc).
+#[derive(Debug, Clone)]
+pub struct ChainIndex {
+    /// The `count` standalone suffix rules' own xml ids, in level order.
+    pub rule_xml_ids: Vec<String>,
+    /// The single generated root entry's own xml id.
+    pub root_entry_xml_id: String,
+    /// The root entry's own bare (pre-any-rule) `<PhoneticShape>` text.
+    pub root_shape: String,
+}
+
 /// Bookkeeping for a `metathesis_rule_count > 0` recipe (design doc §6 priority (7)).
 #[derive(Debug, Clone)]
 pub struct MetathesisIndex {
@@ -134,6 +146,7 @@ pub struct RenderedGrammar {
     pub metathesis: Option<MetathesisIndex>,
     pub simultaneous: Option<SimultaneousIndex>,
     pub right_to_left: Option<RightToLeftIndex>,
+    pub chain: Option<ChainIndex>,
 }
 
 const POS_XML_ID: &str = "posV";
@@ -196,6 +209,7 @@ pub fn render_indexed(recipe: &Recipe) -> RenderedGrammar {
     let has_metathesis = c.metathesis_rule_count > 0;
     let has_simultaneous = c.simultaneous_rule_count > 0;
     let has_rtl = c.rtl_rule_count > 0;
+    let has_chain = c.chain_rule_count > 0;
 
     // Circumfix affix material needs its own declared characters distinct from root characters
     // (module doc of `build::circumfix`) -- pad the requested segment inventory up so table 0 has
@@ -232,6 +246,9 @@ pub fn render_indexed(recipe: &Recipe) -> RenderedGrammar {
     if has_extra_strata {
         min_inventory_for_table0 = min_inventory_for_table0.max(c.extra_strata);
     }
+    if has_chain {
+        min_inventory_for_table0 = min_inventory_for_table0.max(c.chain_rule_count + 1);
+    }
 
     let segment_inventory = recipe
         .scale
@@ -257,6 +274,8 @@ pub fn render_indexed(recipe: &Recipe) -> RenderedGrammar {
         has_alpha.then(|| build::alpha::build(c.alpha_var_count, &tb.tables[0], &mut ids));
     let quantifier_build =
         has_quantifier.then(|| build::quantifier::build(&tb.tables[0], &mut ids));
+    let chain_build =
+        has_chain.then(|| build::chain::build(c.chain_rule_count, POS_XML_ID, &tb.tables[0], &mut ids));
     let metathesis_builds: Vec<_> = (0..c.metathesis_rule_count)
         .map(|n| build::metathesis::build(&sub_table_pair(&tb.tables[0], 2 * n), &mut ids))
         .collect();
@@ -283,11 +302,13 @@ pub fn render_indexed(recipe: &Recipe) -> RenderedGrammar {
         || has_metathesis
         || has_simultaneous
         || has_rtl
-        || has_compounding;
+        || has_compounding
+        || has_chain;
 
     let mut strata_xml = String::new();
     let mut table_indices = Vec::with_capacity(table_count);
     let mut alpha_root_entry_id: Option<String> = None;
+    let mut chain_root_entry_id: Option<String> = None;
 
     for (ti, table) in tb.tables.iter().enumerate() {
         let mut entries_xml = String::new();
@@ -303,6 +324,10 @@ pub fn render_indexed(recipe: &Recipe) -> RenderedGrammar {
             } else if let Some(qb) = &quantifier_build {
                 let (xml, _id) = one_entry_xml(&mut ids, POS_XML_ID, &qb.root_shape, "QUANT");
                 entries_xml.push_str(&xml);
+            } else if let Some(cb) = &chain_build {
+                let (xml, entry_id) = one_entry_xml(&mut ids, POS_XML_ID, &cb.root_shape, "CHAINROOT");
+                entries_xml.push_str(&xml);
+                chain_root_entry_id = Some(entry_id);
             } else if !metathesis_builds.is_empty() {
                 for (n, mb) in metathesis_builds.iter().enumerate() {
                     let (xml, _id) =
@@ -391,6 +416,11 @@ pub fn render_indexed(recipe: &Recipe) -> RenderedGrammar {
                 mrule_defs_xml.push_str(&cb.rule_xml);
             }
         }
+        if ti == 0 {
+            if let Some(cb) = &chain_build {
+                mrule_defs_xml.push_str(&cb.mrule_defs_xml);
+            }
+        }
 
         // The demo devoicing rule (module doc of `build::tables`) sits on the LAST stratum only
         // (GATE 1's own 2-table shape puts it on table/stratum 1; a `table_count > 2` recipe
@@ -443,6 +473,9 @@ pub fn render_indexed(recipe: &Recipe) -> RenderedGrammar {
         if ti == 0 {
             for cb in &compounding_builds {
                 morph_ids.push(cb.rule_xml_id.as_str());
+            }
+            if let Some(cb) = &chain_build {
+                morph_ids.extend(cb.rule_xml_ids.iter().map(String::as_str));
             }
         }
         let morph_rules_attr = if morph_ids.is_empty() {
@@ -580,6 +613,12 @@ pub fn render_indexed(recipe: &Recipe) -> RenderedGrammar {
         }),
         right_to_left: (!rtl_builds.is_empty()).then(|| RightToLeftIndex {
             rule_xml_ids: rtl_builds.iter().map(|rb| rb.rule_xml_id.clone()).collect(),
+        }),
+        chain: chain_build.map(|cb| ChainIndex {
+            rule_xml_ids: cb.rule_xml_ids,
+            root_entry_xml_id: chain_root_entry_id
+                .expect("chain_build implies the ti==0 branch minted a root entry"),
+            root_shape: cb.root_shape,
         }),
     }
 }

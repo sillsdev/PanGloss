@@ -78,7 +78,7 @@ fn regenerating_a_parsed_words_own_analysis_reproduces_it() {
 
     // Only round-trip words with EXACTLY one surviving analysis -- an ambiguous word has no single
     // "own analysis" to feed back, and this test is about the round trip, not enumerating every
-    // ambiguity (that's `ffi_indonesian_parity.rs`'s job).
+    // ambiguity (that's `ffi_transport_parity.rs`'s job).
     let mut checked = 0usize;
     let mut mismatches = Vec::new();
     for word in words.iter().take(60) {

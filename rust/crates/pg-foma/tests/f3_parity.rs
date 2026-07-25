@@ -9,12 +9,12 @@
 //! - Indonesian: all 121 corpus words — required 100%.
 //! - Sena: sample-300 corpus (first 300 lines of `sena-words.txt`) — required 100%.
 //! - Amharic: corpus words file (`amharic-words.txt`, all 673 lines) — required 100%, following
-//!   `tests/f3_amharic_gate.rs`'s precedent for engine-timeout exclusions (a word where the FULL
+//!   `tests/f3_interdigitation_gate.rs`'s precedent for engine-timeout exclusions (a word where the FULL
 //!   ENGINE itself times out with a PARTIAL result cannot be a parity baseline — the foma path's
 //!   confirm is uncapped and can legitimately find analyses the timed-out full-search pass never
 //!   reached; a word timing out with ZERO analyses is excluded outright, same as f3's own rule).
 //!
-//! No reduplication exclusion for Indonesian here (unlike the P1-stage `f2_indonesian_gate.rs`
+//! No reduplication exclusion for Indonesian here (unlike the P1-stage `f2_junction_gate.rs`
 //! recall-only gate): P2's `FomaAnalyzer` composite (propose UNION peel -> confirm) is exactly the
 //! mechanism that closes the redup gap end-to-end (`tests/f4_composite_gate.rs` test (c) already
 //! demonstrates all 7 redup words round-trip byte-for-byte) — this file's Indonesian test covers
@@ -357,14 +357,14 @@ fn sena_sample_300_multiset_parity() {
 // -------------------------------------------------------------------------------------------
 // Amharic: the full corpus words file (673 words). 100% multiset parity required on every word
 // the full engine actually reaches a (possibly partial-free) result for, following
-// `tests/f3_amharic_gate.rs`'s precedent for engine-timeout exclusions.
+// `tests/f3_interdigitation_gate.rs`'s precedent for engine-timeout exclusions.
 // -------------------------------------------------------------------------------------------
 
-/// Per-word engine-oracle timeout, matching `tests/f3_amharic_gate.rs::ENGINE_TIMEOUT`.
+/// Per-word engine-oracle timeout, matching `tests/f3_interdigitation_gate.rs::ENGINE_TIMEOUT`.
 const AMHARIC_ENGINE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// HARDENING, not a verified crash fix (see the commit message this landed in for the full
-/// investigation): this test (unlike `tests/f3_amharic_gate.rs`'s end-to-end test, which only
+/// investigation): this test (unlike `tests/f3_interdigitation_gate.rs`'s end-to-end test, which only
 /// compares the first `WORD_CAP = 100` corpus words) runs the FULL 673-word corpus through
 /// `FomaAnalyzer::analyze_word` -> `crate::confirm::confirm_batch` ->
 /// `pg_parse::Morpher::parse_word_selected` directly on the `cargo test` harness's own per-test
@@ -429,7 +429,7 @@ fn amharic_corpus_words_multiset_parity_impl() {
         println!(
             "NOTE: {} Amharic corpus word(s) excluded from parity because the full engine itself \
              timed out ({AMHARIC_ENGINE_TIMEOUT:?}/word) -- a timed-out full search cannot be a \
-             parity baseline (plan D7); see tests/f3_amharic_gate.rs for the same policy applied \
+             parity baseline (plan D7); see tests/f3_interdigitation_gate.rs for the same policy applied \
              to the recall gate.",
             stats.n_excluded
         );

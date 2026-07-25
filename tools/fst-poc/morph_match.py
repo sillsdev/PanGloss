@@ -1,4 +1,4 @@
-"""Shared MorphologicalInput pattern matcher, used by both derive_indonesian.py (whose only
+"""Shared MorphologicalInput pattern matcher, used by both derive_junction.py (whose only
 LHS shapes are 'generic stem' and one fixed-literal-then-stem rule) and derive_sena.py (whose
 LHS shapes additionally condition the allomorph on the natural class of the stem's FIRST
 segment, e.g. Sena's "mu-3" rule choosing 'mw-' before a back vowel vs 'm-' elsewhere -- a
