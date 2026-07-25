@@ -2889,6 +2889,139 @@ impl CapabilityPredicate for QuantifierBoundedExpansionPredicate {
     }
 }
 
+// -------------------------------------------------------------------------------------------
+// Epenthesis: replaces the last remaining `epenthesis.placeholder` `FailClosedPlaceholder`
+// -------------------------------------------------------------------------------------------
+
+/// Replaces this crate's own `epenthesis.placeholder` [`FailClosedPlaceholder`] (design.md D1's
+/// "TODO: no owning Stage-2 change named ... yet" row) with a real predicate — this crate's LAST
+/// remaining bare placeholder. `CharacteristicKind::Epenthesis`'s own trigger
+/// (`RewriteRuleDef::lhs.nodes.is_empty()`, `characterize`'s own comment on model.rs:417's "empty
+/// pattern if absent (epenthesis rules)" convention) is, on inspection, ALREADY handled faithfully
+/// by mechanisms this crate ships for an unrelated reason — this predicate documents and verifies
+/// that fact rather than fixing a narrowing bug, the same "was already at the safe baseline"
+/// shape [`MprGroupAppendNonNarrowingPredicate`]'s own doc describes.
+///
+/// # The two-sided evidence
+/// - **PROPOSE side** ([`crate::emit`]): [`crate::emit::probe_would_refuse`] is `true` the instant
+///   ANY `PhonRuleDef::Rewrite` rule in the grammar has an empty LHS — EXACTLY
+///   `CharacteristicKind::Epenthesis`'s own trigger, checked unconditionally over every rule in
+///   `g.prules` regardless of whether the specific rule being asked about fires for any given
+///   word (that function's own doc). Whenever this fires, [`crate::emit::structural_candidate_
+///   rules`] widens to cover every ordinary `Role::Prefix`/`Role::Suffix`/`Role::Infix` morph rule
+///   in the WHOLE grammar (not just ones that themselves drop LHS material,
+///   [`crate::emit::is_structural_rule`]'s own narrower test) — `crate::preexpand`'s ordinary
+///   fusion/interdigitation probe cannot represent them correctly either (its own probe,
+///   `pg_rules::surface_probe::probe_synthesize`, refuses for every candidate in the affected
+///   stratum), so [`crate::emit`]'s module doc names [`crate::emit::build_structural_composites`]
+///   as "their only remaining path to a phonology-resolved surface." That mechanism resynthesizes
+///   every candidate surface via the REAL morphological engine
+///   ([`pg_rules::morph::synthesize`]/[`crate::emit::probe_surface`]/`Morpher::generate_words`),
+///   never a literal-text splice or an FST regex approximation of the empty-LHS rule itself — so
+///   it is faithful for whatever epenthesis environment/RHS shape the grammar actually declares,
+///   `PatternNode` variety notwithstanding (unlike [`RightToLeftRewriteFaithfulReversalPredicate`]/
+///   [`MetathesisFaithfulSwapPredicate`], there is no narrower `crate::replace::pattern_slots`
+///   admission floor to check here at all: this construct's own faithful path never asks that
+///   question in the first place). This is unconditional on the rule's mere existence — there is
+///   no narrower shape within "epenthesis" for propose to fall short on.
+/// - **CONFIRM side** ([`pg_rules::rewrite`]): `syn_epenthesis`/`ana_epenthesis` (the oracle
+///   `pg_parse::Morpher` itself calls through its own stratum cascade) were freshly re-investigated
+///   for this predicate. `ana_epenthesis`'s own doc comment records that a previously-suspected
+///   oracle gap (`tests/phase_c_right_to_left.rs`'s "Morpher finds no analysis for ANY word of an
+///   epenthesis fixture") could NOT be reproduced against the code as it exists today, and
+///   `pg-rules/tests/rewrite_gate.rs::epenthesis_natural_class_rhs_round_trips_with_environment`
+///   (added alongside that investigation) pins the correct round-trip: an environment-gated,
+///   natural-class-RHS epenthesis rule synthesizes the obligatory insertion AND recovers the
+///   pre-insertion analysis (the inserted segment marked `Optional`, never deleted) in BOTH
+///   `LeftToRight` and `RightToLeft` iteration order.
+///
+/// # Disposition
+/// - **Not observed at all**: vacuously [`PredicateVerdict::Admit`] — mirrors every other predicate
+///   in this file's own convention.
+/// - **At least one `Epenthesis` occurrence observed**: [`PredicateVerdict::ConfirmOnly`],
+///   UNCONDITIONALLY — every observation reaches the SAME verdict, the same "no
+///   `something`-vs-something-worse case to discriminate" shape
+///   [`MprGroupAppendNonNarrowingPredicate`]'s own doc describes: `probe_would_refuse`'s trigger
+///   IS this characteristic's own trigger (not a narrower sub-condition of it), so there is no
+///   in-scope/out-of-scope pattern-shape split the way [`RightToLeftRewriteFaithfulReversalPredicate`]/
+///   [`MetathesisFaithfulSwapPredicate`]/[`QuantifierBoundedExpansionPredicate`] each have — this
+///   predicate's own containment test
+///   (`tests/epenthesis_structural_route_containment.rs`) built a synthetic delanguaged grammar
+///   exercising exactly this shape (a root + an ordinary `Role::Suffix` rule + an
+///   environment-gated epenthesis rule between them) and found candidates ARE over-proposed
+///   (`FomaOutcome::candidates_generated > 0` including the raw, un-inserted-into spelling) while
+///   confirm prunes to EXACTLY the oracle's own `pg_parse::Morpher` analysis set — no shape was
+///   found where containment fails, so no `Refuse` witness exists to carve out. [`PredicateVerdict::
+///   Admit`] (an accumulated no-false-negative admission-filter proof, ADR 0001's own bar) is a
+///   separate, unproven step this predicate does NOT make — it only ever proves the safe baseline
+///   ConfigPredicate landing spot every other characteristic in this file rests at absent such a
+///   proof.
+///
+/// # Out of scope (documented, not silently ignored)
+/// Like [`MetathesisDetail::swap_construction_attempted`]'s own disclaimer, this predicate does not
+/// model a runtime-resource dimension: [`crate::emit::build_structural_composites`]'s own bounded
+/// recursion (`crate::emit::STRUCT_MAX_EXTRA_RULES`) and the shared
+/// [`crate::morphotactics::EnumerationBudget`] are calibrated resource limits the D1 profile does
+/// not represent, not a structural fact about any one epenthesis rule — the same "a runtime
+/// resource concern the D1 profile does not model, not a structural fact about the rule itself"
+/// convention [`MetathesisDetail`]'s own doc already draws for `ComposeBudget::tuple_cap`.
+///
+/// # Node applicability
+/// `CharacteristicKind::Epenthesis`'s own `ModelLocation` is a `PhonRuleDef::Rewrite` rule, which
+/// (unlike `CircumfixOutputAction`/`Reduplication`/`Compounding`/`MprGroupAppend`/`MprGroupOverwrite`)
+/// DOES get its own ordinary [`crate::plan::PlanNodeKind::Leaf`]
+/// (`FragmentSpec::RewriteRule { rule }`, minted unconditionally for every `PRuleId` — the same
+/// leaf [`RightToLeftRewriteFaithfulReversalPredicate`]/[`MetathesisFaithfulSwapPredicate`] key off
+/// via [`rewrite_rule_of`]). But THIS predicate's own subject matter is not "is this rule's own
+/// leaf faithfully compiled" (unlike those two) — it is the GRAMMAR-WIDE side effect the rule's
+/// mere presence has on OTHER rules' own propose route entirely (module doc above), which no single
+/// leaf address captures. `evaluate` therefore ignores `plan_node` and scans
+/// [`CharacteristicsProfile::observations`] directly instead, the same "grammar-wide, not
+/// node-specific" shape [`MprGroupAppendNonNarrowingPredicate`]/
+/// [`MprGroupOverwriteFailClosedPredicate`]'s own docs describe, for a different underlying reason
+/// (those two truly have no corresponding leaf at all; this one has a leaf whose address is simply
+/// irrelevant to the question this predicate asks).
+///
+/// # Provenance
+/// [`EvidenceProvenance::Structural`]: `probe_would_refuse`'s own check is directly-inspectable
+/// `model.rs` structure (no oracle witness needed to derive the verdict itself) — the propose-side
+/// recall argument (structural composites resynthesize via the real engine) and the confirm-side
+/// correctness argument (the fresh `ana_epenthesis`/`syn_epenthesis` round-trip) were both
+/// separately, empirically verified (this predicate's own containment test; `pg-rules/tests/
+/// rewrite_gate.rs`), the same "oracle verified the construction, the predicate reads structure"
+/// split every other `*Predicate` in this module already draws.
+pub struct EpenthesisStructuralRoutePredicate;
+
+impl CapabilityPredicate for EpenthesisStructuralRoutePredicate {
+    fn id(&self) -> PredicateId {
+        "epenthesis.structural-composite-route"
+    }
+
+    fn discharges(&self) -> &[CharacteristicKind] {
+        &[CharacteristicKind::Epenthesis]
+    }
+
+    fn provenance(&self) -> EvidenceProvenance {
+        EvidenceProvenance::Structural
+    }
+
+    fn evaluate(
+        &self,
+        profile: &CharacteristicsProfile,
+        _plan_node: &PlanNodeKind,
+    ) -> PredicateVerdict {
+        let observed = profile
+            .observations()
+            .iter()
+            .any(|o| o.kind == CharacteristicKind::Epenthesis);
+        if observed {
+            PredicateVerdict::ConfirmOnly
+        } else {
+            PredicateVerdict::Admit
+        }
+    }
+}
+
 // =================================================================================================
 // The predicate registry (design.md D2's "no silent vacuous pass" coverage check)
 // =================================================================================================
@@ -2978,19 +3111,22 @@ impl PredicateRegistry {
     }
 }
 
-/// The registry this step ships: the eleven REAL predicates
+/// The registry this step ships: twelve REAL predicates
 /// ([`SimultaneousSubruleOverlapPredicate`], [`MultiTableFaithfulThreadingPredicate`],
 /// [`RightToLeftRewriteFaithfulReversalPredicate`], [`QuantifierBoundedExpansionPredicate`],
 /// [`MetathesisFaithfulSwapPredicate`], [`CircumfixStructuralCompositePredicate`],
 /// [`ReduplicationPeelSupportedPredicate`], [`CompoundingRecursionSafePredicate`],
 /// [`UnorderedOrderingUnionPredicate`], [`MprGroupAppendNonNarrowingPredicate`],
-/// [`MprGroupOverwriteFailClosedPredicate`]), plus an explicit [`FailClosedPlaceholder`] for every
-/// other `FailClosed`/`ConfigPredicate` characteristic — proving the coverage contract holds today
-/// without pretending any of those other constructs has a real proof yet. `openspec/changes/
-/// cover-mpr-groups` is the last of the three net-new Stage-2 constructs (`STAGING.md`'s own
-/// ordering) — this registry, as of this step, has no remaining `FailClosedPlaceholder` for any
-/// construct that names an owning `cover-*`/`compile-*` change at all; only `epenthesis.placeholder`
-/// remains, flagged below as genuinely unowned.
+/// [`MprGroupOverwriteFailClosedPredicate`], [`EpenthesisStructuralRoutePredicate`]) — proving the
+/// coverage contract holds with a real, evidenced proof for every `FailClosed`/`ConfigPredicate`
+/// characteristic this crate's `model.rs` names. `openspec/changes/cover-mpr-groups` was the last
+/// of the three net-new Stage-2 constructs (`STAGING.md`'s own ordering); replacing
+/// `epenthesis.placeholder` with [`EpenthesisStructuralRoutePredicate`] means this registry now has
+/// NO remaining bare [`FailClosedPlaceholder`] at all — every characteristic is discharged by a
+/// predicate that actually reads `profile`, not a stub that unconditionally refuses regardless of
+/// what the grammar contains. [`FailClosedPlaceholder`] itself stays defined (not dead code): it
+/// remains the correct, conservative landing spot for any FUTURE `FailClosed`/`ConfigPredicate`
+/// characteristic added to `model.rs` before its own owning change ships a real predicate.
 pub fn default_registry() -> PredicateRegistry {
     let mut r = PredicateRegistry::new();
     r.register(Box::new(SimultaneousSubruleOverlapPredicate));
@@ -3004,12 +3140,7 @@ pub fn default_registry() -> PredicateRegistry {
     r.register(Box::new(UnorderedOrderingUnionPredicate));
     r.register(Box::new(MprGroupAppendNonNarrowingPredicate));
     r.register(Box::new(MprGroupOverwriteFailClosedPredicate));
-    r.register(Box::new(FailClosedPlaceholder::new(
-        "epenthesis.placeholder",
-        &[CharacteristicKind::Epenthesis],
-        // design.md D1 names no `cover-*` change for this row -- flagged for review.
-        "TODO: no owning Stage-2 change named by design.md yet for epenthesis",
-    )));
+    r.register(Box::new(EpenthesisStructuralRoutePredicate));
     r
 }
 
@@ -3250,23 +3381,35 @@ fn node_decision(
 /// # Judgment call: constructs with no distinct plan node
 /// Several `FailClosed`/`ConfigPredicate` characteristics ([`CharacteristicKind::Compounding`],
 /// [`CharacteristicKind::UnorderedMorphRuleApplication`], [`CharacteristicKind::MprGroupAppend`],
-/// [`CharacteristicKind::MprGroupOverwrite`], [`CharacteristicKind::Epenthesis`]) have NO
-/// corresponding [`crate::plan::PlanNodeKind`] in today's `enumerate_default` shape at all — that
-/// module's own doc: it only ever mints leaves for the lexicon (per gate group), one per rewrite
-/// rule, and the two composite-emission markers, nothing addressed by `MRuleId`/`StratumId`/an
-/// mpr-group index. Only [`CharacteristicKind::Epenthesis`] is still discharged today by a bare
-/// [`FailClosedPlaceholder`] (whose `evaluate` unconditionally `Refuse`s REGARDLESS of which node it
-/// is called at or what `profile` says — that type's own Step-1 doc); the other four now have real
-/// predicates ([`CompoundingRecursionSafePredicate`], [`UnorderedOrderingUnionPredicate`],
+/// [`CharacteristicKind::MprGroupOverwrite`]) have NO corresponding [`crate::plan::PlanNodeKind`]
+/// in today's `enumerate_default` shape at all — that module's own doc: it only ever mints leaves
+/// for the lexicon (per gate group), one per rewrite rule, and the two composite-emission markers,
+/// nothing addressed by `MRuleId`/`StratumId`/an mpr-group index. All four now have real predicates
+/// ([`CompoundingRecursionSafePredicate`], [`UnorderedOrderingUnionPredicate`],
 /// [`MprGroupAppendNonNarrowingPredicate`], [`MprGroupOverwriteFailClosedPredicate`]) that each scan
-/// [`CharacteristicsProfile`] directly rather than unconditionally refusing. Either way, which
-/// specific node the predicate is evaluated against is behaviorally irrelevant here (every one of
-/// these predicates ignores `plan_node` and reaches the SAME verdict regardless), and
+/// [`CharacteristicsProfile`] directly rather than unconditionally refusing. Which specific node
+/// the predicate is evaluated against is behaviorally irrelevant here (every one of these
+/// predicates ignores `plan_node` and reaches the SAME verdict regardless), and
 /// [`node_decision`]'s per-node walk (which calls every relevant-kind predicate at EVERY node)
 /// already folds the result in correctly without needing a `ModelLocation -> NodeId` lookup table
 /// for these kinds at all. This is this step's "representative node" case: no lookup was built
 /// because none would change the outcome, not because one was skipped for convenience — documented
 /// here rather than silently.
+///
+/// [`CharacteristicKind::Epenthesis`] is a related but DISTINCT case, corrected here: its own
+/// `ModelLocation` (a `PhonRuleDef::Rewrite` rule) DOES get an ordinary
+/// `Leaf { fragment: FragmentSpec::RewriteRule { rule }, .. }` (minted unconditionally for every
+/// `PRuleId` in `prules_in_order`, regardless of LHS shape — no special-casing excludes an
+/// empty-LHS rule from `rule_children` below). [`EpenthesisStructuralRoutePredicate`] still ignores
+/// `plan_node` and scans observations directly (same mechanics as the four above), but for a
+/// different reason: its own subject matter is not "is THIS rule's own leaf faithfully compiled"
+/// (the question [`RightToLeftRewriteFaithfulReversalPredicate`]/[`MetathesisFaithfulSwapPredicate`]
+/// ask at that exact leaf) — it is the GRAMMAR-WIDE side effect the rule's mere presence has on
+/// OTHER rules' own propose route ([`crate::emit::probe_would_refuse`]/[`crate::emit::
+/// structural_candidate_rules`], that predicate's own doc), which no single leaf address captures
+/// even though one exists. Superseded a bare [`FailClosedPlaceholder`] (whose `evaluate`
+/// unconditionally `Refuse`d REGARDLESS of which node it was called at or what `profile` said —
+/// that type's own doc) with a predicate that reads `profile` for real.
 /// [`CharacteristicKind::CircumfixOutputAction`] and [`CharacteristicKind::Reduplication`] are the
 /// SAME "no distinct plan node" shape (peeling and structural-composite resynthesis both happen
 /// entirely OUTSIDE the compiled FST, so there is genuinely no plan node to address either by), but
@@ -5880,6 +6023,73 @@ mod tests {
             }
             other => panic!("expected Refuse, got {other:?}"),
         }
+    }
+
+    /// Deliverable 1's own capability.rs judgment call check: a grammar with an `Epenthesis`
+    /// occurrence (an empty-LHS `PhonologicalRule`) and nothing worse must compose to `ConfirmOnly`
+    /// -- not `Admit` (no no-false-negative admission-filter proof exists, ADR 0001) and not
+    /// `Refuse` (`epenthesis.structural-composite-route` is no longer a bare `FailClosedPlaceholder`
+    /// -- `EpenthesisStructuralRoutePredicate`'s own doc). Bare-root phonology (no morphological
+    /// rule needed at all): `characterize`'s own per-`PhonRuleDef` walk observes `Epenthesis` from
+    /// the rule's OWN empty LHS alone, the same granularity
+    /// `compose_envelope_confirm_only_for_append_group_alone` already established for
+    /// `MprGroupAppend`.
+    #[test]
+    fn compose_envelope_confirm_only_for_epenthesis_alone() {
+        const XML: &str = r#"<HermitCrabInput><Language><Name>EpenthesisAlone</Name>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions>
+              <SegmentDefinition id="cx"><Representations><Representation>x</Representation></Representations></SegmentDefinition>
+              <SegmentDefinition id="ce"><Representations><Representation>e</Representation></Representations></SegmentDefinition>
+              <SegmentDefinition id="cy"><Representations><Representation>y</Representation></Representations></SegmentDefinition>
+            </SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <NaturalClasses>
+            <SegmentNaturalClass id="ncE"><Name>Epenthetic</Name><Segment segment="ce" /></SegmentNaturalClass>
+            <SegmentNaturalClass id="ncX"><Name>X</Name><Segment segment="cx" /></SegmentNaturalClass>
+            <SegmentNaturalClass id="ncY"><Name>Y</Name><Segment segment="cy" /></SegmentNaturalClass>
+          </NaturalClasses>
+          <PhonologicalRuleDefinitions>
+            <PhonologicalRule id="prEpenthesis">
+              <Name>epenthesisAlone</Name>
+              <PhoneticInput><PhoneticSequence /></PhoneticInput>
+              <PhonologicalSubrules>
+                <PhonologicalSubrule>
+                  <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncE" /></PhoneticSequence></PhoneticOutput>
+                  <Environment>
+                    <LeftEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncX" /></PhoneticSequence></PhoneticTemplate></LeftEnvironment>
+                    <RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncY" /></PhoneticSequence></PhoneticTemplate></RightEnvironment>
+                  </Environment>
+                </PhonologicalSubrule>
+              </PhonologicalSubrules>
+            </PhonologicalRule>
+          </PhonologicalRuleDefinitions>
+          <Strata>
+            <Stratum characterDefinitionTable="t1" phonologicalRules="prEpenthesis">
+              <Name>S</Name>
+              <LexicalEntries>
+                <LexicalEntry id="e1">
+                  <Allomorphs><Allomorph id="a1"><PhoneticShape>xy</PhoneticShape></Allomorph></Allomorphs>
+                  <Gloss>e1</Gloss>
+                </LexicalEntry>
+              </LexicalEntries>
+            </Stratum>
+          </Strata>
+        </Language></HermitCrabInput>"#;
+        let g = load(XML);
+        assert!(
+            g.prules.iter().any(|pr| matches!(pr,
+                PhonRuleDef::Rewrite(r) if r.lhs.nodes.is_empty())),
+            "fixture must declare an empty-LHS (epenthesis) rewrite rule"
+        );
+        let plan = enumerated_plan(&g);
+        let registry = default_registry();
+
+        assert_eq!(
+            compose_envelope(&g, &plan, &registry),
+            CompileDecision::ConfirmOnly,
+            "an epenthesis-only fixture must compose to ConfirmOnly, never Refuse/FailClosed"
+        );
     }
 
     /// `cover-realizational-morphology-constraints`: a grammar with a `RealizationalRule` and
