@@ -157,6 +157,14 @@ pub enum CharacteristicKind {
     /// [`MultiTableFaithfulThreadingPredicate`] (`openspec/changes/fix-multitable-fst-compilation`).
     /// See that predicate's own doc for the admit/confirm-only/refuse split.
     MultiTable,
+    /// A `PatternNode::Quantifier` (`<OptionalSegmentSequence min max>`) occurrence anywhere in a
+    /// `RewriteRuleDef`'s own LHS, or any of its subrules' RHS/left-env/right-env patterns
+    /// (`openspec/changes/compile-bounded-fst-quantifiers`). NOT one variant of `RewriteMode`/`Dir`
+    /// (those already have their own characteristics) — a grammar-level structural fact about
+    /// WHICH pattern nodes a rule's own patterns use, discharged by
+    /// [`QuantifierBoundedExpansionPredicate`]. See that predicate's own doc for the bounded/
+    /// unbounded split.
+    QuantifierPattern,
 }
 
 impl CharacteristicKind {
@@ -186,6 +194,7 @@ impl CharacteristicKind {
         CharacteristicKind::CoOccurrenceConstraint,
         CharacteristicKind::NaturalClassDefinition,
         CharacteristicKind::MultiTable,
+        CharacteristicKind::QuantifierPattern,
     ];
 
     /// design.md D1's table, as code: this characteristic's disposition BEFORE any predicate runs.
@@ -226,6 +235,13 @@ impl CharacteristicKind {
             // ConfirmOnly unless/until `MultiTableFaithfulThreadingPredicate` proves `Admit` for
             // the specific configuration observed (pairwise-disjoint table representations).
             CharacteristicKind::MultiTable => Disposition::ConfigPredicate,
+            // `compile-bounded-fst-quantifiers`: a finitely bounded, alpha-free quantifier now
+            // compiles faithfully (`crate::replace::Slot::Repeat`), but no proven no-false-negative
+            // admission-filter argument exists (ADR 0001) -- ConfirmOnly-by-default landing spot,
+            // same shape `RightToLeftRewrite`/`MultiTable` already use. A genuinely unbounded (or
+            // otherwise out-of-scope) quantifier stays refused, per
+            // `QuantifierBoundedExpansionPredicate`'s own split.
+            CharacteristicKind::QuantifierPattern => Disposition::ConfigPredicate,
         }
     }
 }
@@ -348,6 +364,31 @@ pub struct RightToLeftRewriteDetail {
     pub reversal_construction_attempted: bool,
 }
 
+/// [`ObservationDetail::QuantifierPattern`]'s payload (`openspec/changes/
+/// compile-bounded-fst-quantifiers`): the two independent facts
+/// [`QuantifierBoundedExpansionPredicate`] needs about a rule observed to use
+/// `PatternNode::Quantifier` somewhere in its own LHS/RHS/environment patterns.
+#[derive(Debug, Clone, Copy)]
+pub struct QuantifierPatternDetail {
+    pub rule: PRuleId,
+    /// `true` iff EVERY `Quantifier` occurrence anywhere in this rule's patterns (LHS, every
+    /// subrule's RHS/left-env/right-env, at ANY nesting depth) has a concrete `max` bound
+    /// (`rule_has_unbounded_quantifier`'s own negation) — `false` means at least one is genuinely
+    /// unbounded (`max == None`, the DTD's `max="-1"` Kleene sentinel).
+    pub all_bounded: bool,
+    /// `true` iff [`rtl_reversal_construction_attempted`] accepts this rule's WHOLE pattern shape
+    /// (every LHS/RHS/environment pattern is `crate::replace::pattern_slots`-acceptable and the
+    /// rule resolves to a real owning table) — reused verbatim from the RTL predicate's own
+    /// structural probe (that function's own doc: it is Dir-agnostic, a generic "is this rule's
+    /// pattern shape compilable at all" check), not re-derived, since it is EXACTLY the question
+    /// this detail also needs: even a rule whose every quantifier is individually bounded can still
+    /// be blocked from compiling by some OTHER unsupported construct in the SAME rule (`Segments`/
+    /// `Anchor`/disagree-polarity alpha var elsewhere in its patterns, or an unresolvable owning
+    /// table) — `false` in that case, so the predicate never claims more than the real compiler
+    /// actually attempts.
+    pub compile_attempted: bool,
+}
+
 /// Extra structured data an observation needs beyond `kind`/`disposition`/`location`, for the
 /// characteristics that a predicate must inspect at finer grain than "did this occur at all"
 /// (design.md D2/D3). Most characteristics carry `None` — [`CharacteristicKind::
@@ -361,6 +402,7 @@ pub enum ObservationDetail {
     SimultaneousRewrite(SimultaneousRewriteDetail),
     MultiTable(MultiTableDetail),
     RightToLeftRewrite(RightToLeftRewriteDetail),
+    QuantifierPattern(QuantifierPatternDetail),
 }
 
 /// One occurrence of a characteristic in a [`CharacteristicsProfile`] (design.md D1).
@@ -461,6 +503,16 @@ impl CharacteristicsProfile {
             _ => None,
         })
     }
+
+    /// `rule`'s own [`QuantifierPatternDetail`], if it was observed to use `PatternNode::Quantifier`
+    /// anywhere in its own patterns at all (`characterize`'s own quantifier-scan block;
+    /// `openspec/changes/compile-bounded-fst-quantifiers`).
+    pub fn quantifier_detail(&self, rule: PRuleId) -> Option<&QuantifierPatternDetail> {
+        self.observations.iter().find_map(|o| match &o.detail {
+            ObservationDetail::QuantifierPattern(d) if d.rule == rule => Some(d),
+            _ => None,
+        })
+    }
 }
 
 // -------------------------------------------------------------------------------------------
@@ -476,6 +528,12 @@ impl CharacteristicsProfile {
 /// no resolvable owning table ([`crate::replace::owning_table`] returning `None`). Cheap and
 /// purely structural: no [`foma::options::FomaOptions`]/[`crate::replace::SegAlphabet`] needed,
 /// unlike the real compile.
+///
+/// Despite its RTL-flavored name (this function predates the second use), this check is entirely
+/// `Dir`-agnostic — it never reads `r.dir` at all — so `characterize`'s own quantifier-scan block
+/// (`openspec/changes/compile-bounded-fst-quantifiers`) reuses it VERBATIM for
+/// [`QuantifierPatternDetail::compile_attempted`] rather than re-deriving the identical "is this
+/// rule's whole pattern shape compilable at all" structural probe a second time.
 fn rtl_reversal_construction_attempted(g: &Grammar, r: &pg_grammar::model::RewriteRuleDef) -> bool {
     let Some(table) = crate::replace::owning_table(g, r) else {
         return false;
@@ -504,6 +562,92 @@ fn rtl_reversal_construction_attempted(g: &Grammar, r: &pg_grammar::model::Rewri
         }
     }
     true
+}
+
+/// `true` iff `nodes` (at ANY nesting depth — a `PatternNode::Quantifier`'s own `children` is
+/// itself a `&[PatternNode]`, recursed into) contains at least one `PatternNode::Quantifier`
+/// occurrence. Exhaustively matched (no catch-all) over every `PatternNode` variant, mirroring this
+/// module's own "adding a `model.rs` variant breaks this build" discipline (module top doc).
+fn nodes_have_quantifier(nodes: &[pg_grammar::model::PatternNode]) -> bool {
+    use pg_grammar::model::PatternNode;
+    nodes.iter().any(|n| match n {
+        PatternNode::Quantifier { .. } => true,
+        PatternNode::Context(_)
+        | PatternNode::CharDef(_)
+        | PatternNode::Segments { .. }
+        | PatternNode::Anchor(_) => false,
+    })
+}
+
+/// `true` iff `nodes` contains a `PatternNode::Quantifier` whose OWN `max` is `None` (the DTD's
+/// `max="-1"` Kleene sentinel), at ANY nesting depth — recurses into a bounded quantifier's own
+/// `children` too, so a bounded-outer/unbounded-inner nesting is still caught (an outer bound alone
+/// never proves the whole construct finite). Exhaustively matched, same discipline as
+/// [`nodes_have_quantifier`].
+fn nodes_have_unbounded_quantifier(nodes: &[pg_grammar::model::PatternNode]) -> bool {
+    use pg_grammar::model::PatternNode;
+    nodes.iter().any(|n| match n {
+        PatternNode::Quantifier { max: None, .. } => true,
+        PatternNode::Quantifier {
+            max: Some(_),
+            children,
+            ..
+        } => nodes_have_unbounded_quantifier(children),
+        PatternNode::Context(_)
+        | PatternNode::CharDef(_)
+        | PatternNode::Segments { .. }
+        | PatternNode::Anchor(_) => false,
+    })
+}
+
+/// `true` iff `r`'s own LHS, or any of its subrules' RHS/left-env/right-env, contains a
+/// `PatternNode::Quantifier` occurrence anywhere (`characterize`'s own trigger for observing
+/// [`CharacteristicKind::QuantifierPattern`] at all).
+fn rule_has_quantifier(r: &pg_grammar::model::RewriteRuleDef) -> bool {
+    if nodes_have_quantifier(&r.lhs.nodes) {
+        return true;
+    }
+    for sr in &r.subrules {
+        if nodes_have_quantifier(&sr.rhs.nodes) {
+            return true;
+        }
+        if let Some(p) = &sr.left_env {
+            if nodes_have_quantifier(&p.nodes) {
+                return true;
+            }
+        }
+        if let Some(p) = &sr.right_env {
+            if nodes_have_quantifier(&p.nodes) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// `true` iff `r`'s own LHS, or any of its subrules' RHS/left-env/right-env, contains a genuinely
+/// UNBOUNDED `PatternNode::Quantifier` occurrence anywhere (
+/// [`QuantifierPatternDetail::all_bounded`]'s own negation).
+fn rule_has_unbounded_quantifier(r: &pg_grammar::model::RewriteRuleDef) -> bool {
+    if nodes_have_unbounded_quantifier(&r.lhs.nodes) {
+        return true;
+    }
+    for sr in &r.subrules {
+        if nodes_have_unbounded_quantifier(&sr.rhs.nodes) {
+            return true;
+        }
+        if let Some(p) = &sr.left_env {
+            if nodes_have_unbounded_quantifier(&p.nodes) {
+                return true;
+            }
+        }
+        if let Some(p) = &sr.right_env {
+            if nodes_have_unbounded_quantifier(&p.nodes) {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// Groups `rhs`'s `Copy(Input(i))`/`Modify(Input(i), _)` occurrences by the input part they
@@ -930,6 +1074,22 @@ pub fn characterize(g: &Grammar) -> CharacteristicsProfile {
                             ObservationDetail::None,
                         ));
                     }
+                }
+                // `PatternNode::Quantifier` (`openspec/changes/compile-bounded-fst-quantifiers`):
+                // a grammar-level structural fact about which pattern nodes this rule's own
+                // LHS/RHS/environment patterns use, independent of `RewriteMode`/`Dir` (both
+                // already characterized above) -- see `CharacteristicKind::QuantifierPattern`'s
+                // own doc.
+                if rule_has_quantifier(r) {
+                    observations.push(CharacteristicObservation::new(
+                        CharacteristicKind::QuantifierPattern,
+                        ModelLocation::PhonRule(id),
+                        ObservationDetail::QuantifierPattern(QuantifierPatternDetail {
+                            rule: id,
+                            all_bounded: !rule_has_unbounded_quantifier(r),
+                            compile_attempted: rtl_reversal_construction_attempted(g, r),
+                        }),
+                    ));
                 }
             }
             PhonRuleDef::Metathesis(_) => observations.push(CharacteristicObservation::new(
@@ -1511,6 +1671,108 @@ impl CapabilityPredicate for RightToLeftRewriteFaithfulReversalPredicate {
     }
 }
 
+// -------------------------------------------------------------------------------------------
+// QuantifierPattern: the config-predicate `compile-bounded-fst-quantifiers` registers
+// -------------------------------------------------------------------------------------------
+
+/// `openspec/changes/compile-bounded-fst-quantifiers`'s own capability predicate: a
+/// `PatternNode::Quantifier` occurrence is now faithfully COMPILABLE (`crate::replace::Slot::Repeat`,
+/// foma's own native `^{min,max}` bounded-repetition construction) PROVIDED every quantifier the
+/// rule's own patterns use is finitely bounded (never a finite cutoff standing in for genuinely
+/// unbounded Kleene semantics, ADR 0001) AND the rule's whole pattern shape is otherwise one
+/// `crate::replace::compile_rewrite_rule_subset` actually attempts
+/// ([`QuantifierPatternDetail::compile_attempted`]).
+///
+/// # Disposition
+/// - **Not observed to use `Quantifier` at all**: vacuously `Admit` — nothing for this predicate to
+///   say (mirrors [`RightToLeftRewriteFaithfulReversalPredicate`]'s own "not applicable here"
+///   convention).
+/// - **Every quantifier bounded, and the rule's whole pattern shape compiles**
+///   (`all_bounded && compile_attempted`): [`PredicateVerdict::ConfirmOnly`] — bounded expansion is
+///   a genuinely faithful FST construction for the SUPPORTED case (this change's own containment
+///   fixture, `tests/phase_c_quantifier.rs`, proves oracle-exact equality for a quantifier used in
+///   an ENVIRONMENT — see that module's own doc for why a LHS/RHS-focus-quantified rule's full
+///   containment against `pg_rules::rewrite` is a SEPARATE, documented, pre-existing confirm-engine
+///   gap this change surfaces but does not fix, `crate::replace` module doc's "Confirm-engine
+///   finding"), but no PROVEN no-false-negative admission-filter argument exists for the construct
+///   in general (ADR 0001's own bar for `Admit`) — so this is confirm-only-by-default, the same
+///   landing spot [`RightToLeftRewriteFaithfulReversalPredicate`]/[`MultiTableFaithfulThreadingPredicate`]
+///   already use.
+/// - **At least one quantifier is genuinely unbounded** (`!all_bounded`): [`PredicateVerdict::Refuse`]
+///   — a finite cutoff must never masquerade as unbounded Kleene semantics; the real compiler
+///   already honestly skips (`Ok(None)`) exactly this rule, never a silent wrong compile.
+/// - **Every quantifier is bounded, but the rule's pattern shape does not compile at all**
+///   (`all_bounded && !compile_attempted`): [`PredicateVerdict::Refuse`] — some OTHER unsupported
+///   construct (`Segments`/`Anchor`/disagree-polarity alpha var elsewhere in the rule's own
+///   patterns) or an unresolvable owning table blocks the real compiler; this predicate never
+///   claims more than the real compiler actually attempts.
+///
+/// # Provenance
+/// [`EvidenceProvenance::Structural`]: both `all_bounded`/`compile_attempted` read directly-
+/// inspectable `model.rs` data (no oracle witnesses needed to derive the verdict itself) — the
+/// SUPPORTED case's own safe-recall argument was separately, empirically verified for the
+/// environment-quantifier shape (`tests/phase_c_quantifier.rs`'s own containment fixture), the same
+/// "oracle verified the construction, the predicate reads structure" split
+/// [`MultiTableFaithfulThreadingPredicate`]'s own doc draws.
+///
+/// # Node applicability
+/// Like [`SimultaneousSubruleOverlapPredicate`]/[`RightToLeftRewriteFaithfulReversalPredicate`],
+/// addressed via [`rewrite_rule_of`] at a rewrite-rule leaf node — the SAME plan-node-extraction
+/// helper, reused rather than re-derived.
+pub struct QuantifierBoundedExpansionPredicate;
+
+impl CapabilityPredicate for QuantifierBoundedExpansionPredicate {
+    fn id(&self) -> PredicateId {
+        "quantifier.bounded-expansion"
+    }
+
+    fn discharges(&self) -> &[CharacteristicKind] {
+        &[CharacteristicKind::QuantifierPattern]
+    }
+
+    fn provenance(&self) -> EvidenceProvenance {
+        EvidenceProvenance::Structural
+    }
+
+    fn evaluate(
+        &self,
+        profile: &CharacteristicsProfile,
+        plan_node: &PlanNodeKind,
+    ) -> PredicateVerdict {
+        let Some(rule) = rewrite_rule_of(plan_node) else {
+            return PredicateVerdict::Admit;
+        };
+        let Some(detail) = profile.quantifier_detail(rule) else {
+            // Not observed to use Quantifier at all -- nothing for this predicate to say (doc).
+            return PredicateVerdict::Admit;
+        };
+        if !detail.all_bounded {
+            return PredicateVerdict::Refuse(CapabilityDiagnostic {
+                predicate: self.id(),
+                construct: format!("prule {} (Quantifier/OptionalSegmentSequence)", rule.0),
+                witness: "an unbounded quantifier (max=-1, OptionalSegmentSequence's own Kleene \
+                          sentinel, or a bounded outer quantifier nesting an unbounded inner one) \
+                          is out of scope: a finite cutoff must never masquerade as unbounded \
+                          Kleene semantics (ADR 0001), so this stays honestly unsupported"
+                    .to_string(),
+            });
+        }
+        if !detail.compile_attempted {
+            return PredicateVerdict::Refuse(CapabilityDiagnostic {
+                predicate: self.id(),
+                construct: format!("prule {} (Quantifier/OptionalSegmentSequence)", rule.0),
+                witness: "every quantifier in this rule is finitely bounded, but some OTHER \
+                          LHS/RHS/environment construct (Segments/Anchor/disagree-polarity alpha \
+                          var), or an unresolvable owning character-definition table, blocks \
+                          crate::replace::pattern_slots from accepting this rule's whole pattern \
+                          shape at all"
+                    .to_string(),
+            });
+        }
+        PredicateVerdict::ConfirmOnly
+    }
+}
+
 // =================================================================================================
 // The predicate registry (design.md D2's "no silent vacuous pass" coverage check)
 // =================================================================================================
@@ -1600,16 +1862,18 @@ impl PredicateRegistry {
     }
 }
 
-/// The registry this step ships: the three REAL predicates
+/// The registry this step ships: the four REAL predicates
 /// ([`SimultaneousSubruleOverlapPredicate`], [`MultiTableFaithfulThreadingPredicate`],
-/// [`RightToLeftRewriteFaithfulReversalPredicate`]), plus an explicit [`FailClosedPlaceholder`]
-/// for every other `FailClosed`/`ConfigPredicate` characteristic — proving the coverage contract
-/// holds today without pretending any of those other constructs has a real proof yet.
+/// [`RightToLeftRewriteFaithfulReversalPredicate`], [`QuantifierBoundedExpansionPredicate`]), plus
+/// an explicit [`FailClosedPlaceholder`] for every other `FailClosed`/`ConfigPredicate`
+/// characteristic — proving the coverage contract holds today without pretending any of those
+/// other constructs has a real proof yet.
 pub fn default_registry() -> PredicateRegistry {
     let mut r = PredicateRegistry::new();
     r.register(Box::new(SimultaneousSubruleOverlapPredicate));
     r.register(Box::new(MultiTableFaithfulThreadingPredicate));
     r.register(Box::new(RightToLeftRewriteFaithfulReversalPredicate));
+    r.register(Box::new(QuantifierBoundedExpansionPredicate));
     r.register(Box::new(FailClosedPlaceholder::new(
         "compounding.placeholder",
         &[CharacteristicKind::Compounding],
@@ -2338,6 +2602,162 @@ mod tests {
         }
     }
 
+    // ---------------------------------------------------------------------------------------
+    // QuantifierPattern (`openspec/changes/compile-bounded-fst-quantifiers`)
+    // ---------------------------------------------------------------------------------------
+
+    /// Synthetic, delanguaged fixture: an ordinary fixed-segment feature rewrite (`a -> b`) gated
+    /// by a BOUNDED quantifier (`min="1" max="2"`) in its own right environment — the shape
+    /// `tests/phase_c_quantifier.rs`'s own containment fixture proves oracle-exact (`crate::replace`
+    /// module doc's "Confirm-engine finding": a quantifier used INSIDE an environment has no
+    /// width-matching gap, unlike one used as the LHS/RHS focus itself).
+    const QUANT_BOUNDED_ENV_XML: &str = r#"<HermitCrabInput><Language><Name>QuantBoundedEnv</Name>
+      <CharacterDefinitionTable id="t1"><Name>Main</Name>
+        <SegmentDefinitions>
+          <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+          <SegmentDefinition id="cb"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
+          <SegmentDefinition id="cz"><Representations><Representation>z</Representation></Representations></SegmentDefinition>
+        </SegmentDefinitions>
+      </CharacterDefinitionTable>
+      <NaturalClasses><SegmentNaturalClass id="ncZ"><Name>Z</Name><Segment segment="cz" /></SegmentNaturalClass></NaturalClasses>
+      <PhonologicalRuleDefinitions>
+        <PhonologicalRule id="prQuantBounded">
+          <Name>quantBoundedDemo</Name>
+          <PhoneticInput><PhoneticSequence><Segment segment="ca" /></PhoneticSequence></PhoneticInput>
+          <PhonologicalSubrules>
+            <PhonologicalSubrule>
+              <PhoneticOutput><PhoneticSequence><Segment segment="cb" /></PhoneticSequence></PhoneticOutput>
+              <Environment><RightEnvironment><PhoneticTemplate><PhoneticSequence>
+                <OptionalSegmentSequence min="1" max="2"><SimpleContext naturalClass="ncZ" /></OptionalSegmentSequence>
+              </PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment>
+            </PhonologicalSubrule>
+          </PhonologicalSubrules>
+        </PhonologicalRule>
+      </PhonologicalRuleDefinitions>
+      <Strata><Stratum characterDefinitionTable="t1" phonologicalRules="prQuantBounded"><Name>S</Name></Stratum></Strata>
+    </Language></HermitCrabInput>"#;
+
+    /// Same shape, but the right-environment quantifier is genuinely UNBOUNDED (`max="-1"`, the
+    /// DTD's own Kleene sentinel) — the out-of-scope config this change must never silently compile.
+    const QUANT_UNBOUNDED_ENV_XML: &str = r#"<HermitCrabInput><Language><Name>QuantUnboundedEnv</Name>
+      <CharacterDefinitionTable id="t1"><Name>Main</Name>
+        <SegmentDefinitions>
+          <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+          <SegmentDefinition id="cb"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
+          <SegmentDefinition id="cz"><Representations><Representation>z</Representation></Representations></SegmentDefinition>
+        </SegmentDefinitions>
+      </CharacterDefinitionTable>
+      <NaturalClasses><SegmentNaturalClass id="ncZ"><Name>Z</Name><Segment segment="cz" /></SegmentNaturalClass></NaturalClasses>
+      <PhonologicalRuleDefinitions>
+        <PhonologicalRule id="prQuantUnbounded">
+          <Name>quantUnboundedDemo</Name>
+          <PhoneticInput><PhoneticSequence><Segment segment="ca" /></PhoneticSequence></PhoneticInput>
+          <PhonologicalSubrules>
+            <PhonologicalSubrule>
+              <PhoneticOutput><PhoneticSequence><Segment segment="cb" /></PhoneticSequence></PhoneticOutput>
+              <Environment><RightEnvironment><PhoneticTemplate><PhoneticSequence>
+                <OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncZ" /></OptionalSegmentSequence>
+              </PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment>
+            </PhonologicalSubrule>
+          </PhonologicalSubrules>
+        </PhonologicalRule>
+      </PhonologicalRuleDefinitions>
+      <Strata><Stratum characterDefinitionTable="t1" phonologicalRules="prQuantUnbounded"><Name>S</Name></Stratum></Strata>
+    </Language></HermitCrabInput>"#;
+
+    /// `characterize` marks a rule using a BOUNDED environment quantifier `ConfigPredicate`, with
+    /// `all_bounded == true` and `compile_attempted == true`.
+    #[test]
+    fn characterize_marks_quantifier_pattern_config_predicate_when_bounded() {
+        let g = load(QUANT_BOUNDED_ENV_XML);
+        assert!(rule_has_quantifier(match &g.prules[0] {
+            PhonRuleDef::Rewrite(r) => r,
+            _ => panic!("expected a Rewrite-kind rule"),
+        }));
+
+        let profile = characterize(&g);
+        assert!(
+            profile.observations().iter().any(|o| o.kind
+                == CharacteristicKind::QuantifierPattern
+                && o.disposition == Disposition::ConfigPredicate),
+            "a bounded environment quantifier must characterize ConfigPredicate: {:?}",
+            profile.observations()
+        );
+        let detail = profile
+            .quantifier_detail(PRuleId(0))
+            .expect("QuantifierPattern must carry a QuantifierPatternDetail");
+        assert!(detail.all_bounded, "min=1/max=2 is finitely bounded");
+        assert!(
+            detail.compile_attempted,
+            "a bounded environment quantifier alongside an ordinary fixed-segment LHS/RHS is \
+             exactly the shape crate::replace::pattern_slots accepts"
+        );
+    }
+
+    /// Positive witness: [`QuantifierBoundedExpansionPredicate`] returns `ConfirmOnly` (never
+    /// `Admit`/`Refuse`) for a bounded, compile-attempted quantifier rule.
+    #[test]
+    fn quantifier_predicate_confirm_only_for_bounded_shape() {
+        let g = load(QUANT_BOUNDED_ENV_XML);
+        let profile = characterize(&g);
+        let predicate = QuantifierBoundedExpansionPredicate;
+        assert_eq!(
+            predicate.evaluate(&profile, &leaf_for(PRuleId(0))),
+            PredicateVerdict::ConfirmOnly,
+            "a bounded, compile-attempted quantifier rule must be ConfirmOnly, never Admit or Refuse"
+        );
+    }
+
+    /// `characterize` marks a rule using an UNBOUNDED environment quantifier with
+    /// `all_bounded == false`.
+    #[test]
+    fn characterize_marks_quantifier_unbounded_as_not_all_bounded() {
+        let g = load(QUANT_UNBOUNDED_ENV_XML);
+        let profile = characterize(&g);
+        let detail = profile
+            .quantifier_detail(PRuleId(0))
+            .expect("QuantifierPattern must carry a QuantifierPatternDetail");
+        assert!(
+            !detail.all_bounded,
+            "max=-1 is the DTD's own unbounded Kleene sentinel"
+        );
+    }
+
+    /// Negative witness: [`QuantifierBoundedExpansionPredicate`] `Refuse`s a genuinely unbounded
+    /// quantifier rule, never silently `ConfirmOnly`/`Admit`s it.
+    #[test]
+    fn quantifier_predicate_refuses_unbounded_quantifier() {
+        let g = load(QUANT_UNBOUNDED_ENV_XML);
+        let profile = characterize(&g);
+        let predicate = QuantifierBoundedExpansionPredicate;
+        match predicate.evaluate(&profile, &leaf_for(PRuleId(0))) {
+            PredicateVerdict::Refuse(diag) => {
+                assert_eq!(diag.predicate, "quantifier.bounded-expansion");
+            }
+            other => panic!("expected Refuse for an unbounded quantifier rule, got {other:?}"),
+        }
+    }
+
+    /// A rule that never uses `Quantifier` at all never observes `QuantifierPattern`, and the
+    /// predicate vacuously `Admit`s (reuses `RTL_PLAIN_XML`, already Quantifier-free).
+    #[test]
+    fn quantifier_predicate_admits_vacuously_for_rule_without_quantifier() {
+        let g = load(RTL_PLAIN_XML);
+        let profile = characterize(&g);
+        assert!(
+            !profile
+                .observations()
+                .iter()
+                .any(|o| o.kind == CharacteristicKind::QuantifierPattern),
+            "a quantifier-free rule must never observe QuantifierPattern at all"
+        );
+        let predicate = QuantifierBoundedExpansionPredicate;
+        assert_eq!(
+            predicate.evaluate(&profile, &leaf_for(PRuleId(0))),
+            PredicateVerdict::Admit
+        );
+    }
+
     const TWO_TABLE_DISJOINT_XML: &str = r#"<HermitCrabInput><Language><Name>TwoTableDisjoint</Name>
       <CharacterDefinitionTable id="t0"><Name>T0</Name>
         <SegmentDefinitions><SegmentDefinition id="c0a"><Representations><Representation>p</Representation></Representations></SegmentDefinition></SegmentDefinitions>
@@ -3036,8 +3456,9 @@ mod tests {
         }
         assert_eq!(
             CharacteristicKind::ALL.len(),
-            19,
-            "bumped from 18 by fix-multitable-fst-compilation's new CharacteristicKind::MultiTable"
+            20,
+            "bumped from 19 by compile-bounded-fst-quantifiers's new \
+             CharacteristicKind::QuantifierPattern"
         );
     }
 

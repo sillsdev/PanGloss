@@ -150,6 +150,11 @@ pub fn construct_ids_for(kind: CharacteristicKind) -> &'static [&'static str] {
         // documented, deliberate empty-mapping judgment call this function's own doc already makes
         // for `LeftToRightRewrite`/`RightToLeftRewrite`/`SubruleGating`.
         MultiTable => &[],
+        // `compile-bounded-fst-quantifiers`: `constructs.txt`'s own "optional group / Kleene star"
+        // row is exactly `PatternNode::Quantifier` (`<OptionalSegmentSequence min max>`) -- unlike
+        // `MultiTable`/`LeftToRightRewrite`/etc above, this construct DOES have a distinctly-tagged
+        // coverage identifier.
+        QuantifierPattern => &["CharacterDefinitionTable pattern shapes: optional group / Kleene star"],
     }
 }
 

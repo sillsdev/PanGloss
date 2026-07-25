@@ -17,9 +17,17 @@
 //! REUSE their pattern semantics rather than re-derive it — see "What is reused" below. Migrating
 //! `replace.rs`'s OWN rewrite-rule compilation onto this seam (design.md's "Migrate existing
 //! replacement callers", `tasks.md` 2.1) is NOT attempted here; that is a separate, larger
-//! follow-on this step does not claim. Full Stage 1B coverage (multi-table ownership, alternation,
-//! quantifier metadata) is likewise future work — see [`UnsupportedPatternNode`]'s own doc for
-//! exactly which node kinds this step's [`lower_span`] does and does not represent.
+//! follow-on this step does not claim. Full Stage 1B coverage (multi-table ownership, alternation)
+//! is likewise future work — see [`UnsupportedPatternNode`]'s own doc for exactly which node kinds
+//! this step's [`lower_span`] does and does not represent. Quantifier metadata is PARTIALLY covered
+//! now, transparently: `openspec/changes/compile-bounded-fst-quantifiers` teaches
+//! [`crate::replace::pattern_slots`] itself to accept a finitely bounded, alpha-free
+//! `PatternNode::Quantifier` (a new `Slot::Repeat`, that module's own doc) — since [`lower_span`]
+//! calls `pattern_slots` directly (never re-deriving pattern coverage, this module's own "What is
+//! reused" convention), a bounded quantifier anywhere in `left_env`/`focus`/`right_env` now lowers
+//! for free, no code change needed HERE. A genuinely unbounded/inverted/over-budget/alpha-nested
+//! quantifier is UNCHANGED: `pattern_slots` still returns `None` for it, and
+//! [`UnsupportedPatternNode::Quantifier`] is still the typed reason [`diagnose_unsupported`] reports.
 //!
 //! # What is reused vs. newly written
 //! Reused verbatim from [`crate::replace`] (visibility bumped `pub(crate)`, logic byte-for-byte
@@ -62,9 +70,14 @@ use crate::replace::{pattern_slots, render_slots, resolve_alpha_tuples, SegAlpha
 /// a typed value instead of a silent `None`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnsupportedPatternNode {
-    /// `PatternNode::Quantifier` (`<OptionalSegmentSequence min max>`) — unbounded/bounded-
-    /// repetition group; no `Fsm` closure construction is attempted for it here (Stage 1B's own
-    /// `tasks.md` 1.2 names quantifier metadata as future scope).
+    /// `PatternNode::Quantifier` (`<OptionalSegmentSequence min max>`) that
+    /// [`crate::replace::pattern_slots`] still refuses: genuinely UNBOUNDED (`max == None`),
+    /// inverted (`min > max`), pathologically large (past
+    /// [`crate::replace`]'s own preflight bound), or carrying an alpha-bound occurrence anywhere in
+    /// its own children (`openspec/changes/compile-bounded-fst-quantifiers`, that module's own
+    /// `Slot::Repeat` doc names exactly this scope line). A FINITELY bounded, alpha-free quantifier
+    /// no longer reaches this variant at all — `pattern_slots` accepts it directly (a new
+    /// `Slot::Repeat`), so [`lower_span`] lowers it transparently, same as any other supported node.
     Quantifier,
     /// `PatternNode::Segments` (`<Segments><PhoneticShape>`) — an inline pre-segmented literal
     /// shape group.
@@ -138,16 +151,22 @@ fn parse_template(opts: &FomaOptions, text: &str) -> Fsm {
 /// # Why a `(left_language, focus_right_language)` PAIR, not one combined `Fsm`
 /// D3 writes `span(s) = left_env · lhs_focus · right_env` and says to intersect two subrules'
 /// spans. Read as a literal concatenation of the three patterns' own node sequences and compared
-/// as ONE automaton, that is only sound when both subrules' `left_env`/`right_env` have the SAME
-/// node count: `left_env`/`right_env` are boundary-anchored templates (they constrain the
-/// segments immediately adjacent to the shared focus, not "some point in the word" — no
-/// `Quantifier` closure is in scope here, so every non-`None` `left_env`/`right_env` this function
-/// accepts has a fixed, statically-known length), so two subrules whose environments have
-/// DIFFERENT node counts describe overlapping-but-different-length windows around the SAME anchor
-/// point. A literal fixed-length concatenation, intersected whole, would (wrongly) report them as
-/// non-overlapping merely because the two automata accept different string lengths — an UNSOUND
-/// under-refusal (ADR 0001 forbids rounding toward `Admit`; ["`Refuse`(never) rounds toward
-/// `Admit`"] is exactly backwards from the required direction).
+/// as ONE automaton, that is only sound when both subrules' `left_env`/`right_env` describe the
+/// SAME fixed length: `left_env`/`right_env` are boundary-anchored templates (they constrain the
+/// segments immediately adjacent to the shared focus, not "some point in the word"), so two
+/// subrules whose environments describe DIFFERENT lengths (whether because they have different
+/// node counts, or — `openspec/changes/compile-bounded-fst-quantifiers` — because one or both
+/// contain a bounded `Quantifier` whose own `min..max` range makes even ONE subrule's own template
+/// match more than one length) describe overlapping-but-different-length windows around the SAME
+/// anchor point. A literal fixed-length concatenation, intersected whole, would (wrongly) report
+/// them as non-overlapping merely because the two automata accept different string lengths — an
+/// UNSOUND under-refusal (ADR 0001 forbids rounding toward `Admit`; ["`Refuse`(never) rounds toward
+/// `Admit`"] is exactly backwards from the required direction). The `Σ*`-padding fix below does not
+/// depend on either side being fixed-length in the first place — a bounded quantifier's own
+/// template is still a plain REGULAR language (a finite union of finite lengths, exactly what
+/// `Slot::Repeat`'s `^{min,max}` compiles to, `crate::replace` module doc's "Bounded quantifiers"),
+/// which `fsm_parse_regex` compiles the same as any other template; only a GENUINELY unbounded
+/// quantifier stays a [`UnsupportedPatternNode`] here, same as everywhere else in this crate.
 ///
 /// The fix: represent `left_env` as the SUFFIX language `Σ* · left_env` (any prefix, ending in the
 /// template) and fold `lhs_focus`/`right_env` into the PREFIX language `lhs_focus · right_env ·

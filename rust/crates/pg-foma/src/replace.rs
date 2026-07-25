@@ -45,9 +45,15 @@
 //! rule without modification.
 //!
 //! ## What this module does NOT attempt (see the prototype report for the full list)
-//! - [`PatternNode::Quantifier`] (`OptionalSegmentSequence`, prule3's own left-environment) —
-//!   [`pattern_slots`] returns `None` or bails when it meets one; a rule whose pattern needs it is
-//!   reported uncovered, not silently mis-rendered.
+//! - [`PatternNode::Quantifier`] (`OptionalSegmentSequence`) whose own bound is genuinely UNBOUNDED
+//!   (`max == None`, the DTD's `max="-1"` sentinel), inverted (`min > max`), pathologically large
+//!   (past [`MAX_QUANTIFIER_BOUND`]), or carries an alpha-bound occurrence anywhere in its own
+//!   children — [`pattern_slots`] still returns `None`/bails for exactly these configurations (a
+//!   rule whose pattern needs one is reported uncovered, not silently mis-rendered). A FINITELY
+//!   bounded, alpha-free quantifier (`min`/`max` both concrete, `min <= max <= MAX_QUANTIFIER_BOUND`)
+//!   DOES compile now, via [`Slot::Repeat`] (`openspec/changes/compile-bounded-fst-quantifiers`) —
+//!   see that variant's own doc for the construction, and "Bounded quantifiers" below for the
+//!   compiled-vs-still-unsupported line and the confirm-engine finding that motivates it.
 //! - [`AlphaVar::plus`] == `false` ("disagree" polarity) — no reference-grammar rule needs it.
 //! - `RewriteMode::Simultaneous` whose subrules the `simultaneous.subrule-overlap` predicate (D3,
 //!   `crate::capability`) cannot prove pairwise non-overlapping (self-opaquing, an unresolved
@@ -162,6 +168,77 @@
 //! is needed here (contrast [`compile_rtl_branch_net`]'s own documented judgment call): there is no
 //! known faithfulness gap between what this file compiles and what confirm accepts for the admitted
 //! case, so no superset-widening is required to stay recall-safe.
+//!
+//! ## Bounded quantifiers (`openspec/changes/compile-bounded-fst-quantifiers`; ADR 0001, `docs/adr/
+//! 0001-honest-capability-boundary.md`)
+//! [`PatternNode::Quantifier`] (`<OptionalSegmentSequence min max>`) used to be `pattern_slots`'
+//! unconditional bail (module doc, "What this module does NOT attempt") regardless of `min`/`max`.
+//! Now a FINITELY bounded, alpha-free quantifier — `max == Some(_)`, `min <= max <=
+//! [MAX_QUANTIFIER_BOUND]`, no `Slot::Alpha` occurrence anywhere in its own (possibly nested)
+//! children — compiles to a new [`Slot::Repeat`], rendered as foma's OWN native bounded-repetition
+//! xre operator, `A^{min,max}` (`nfst-xre = "0.1.0"`'s `RepeatNToK`, confirmed by reading that
+//! vendored crate's own `src/lexer.rs`/`src/parser.rs`: `^{N,K}`/`^N,K` lexes to `CatenateNToK`, a
+//! POSTFIX operator over whatever `[...]`-grouped term precedes it) over the quantifier's own
+//! rendered children — never a hand-rolled state-machine construction, so this file inherits
+//! foma's own `fsm_concat_m_n` construction (`foma = "0.4.0"`'s own `src/constructions/boolean.rs`:
+//! `min` mandatory concatenated copies of the child net, then `max - min` further copies each
+//! wrapped in `fsm_optionality` — i.e. **exactly** the "bounded concatenation/optionality"
+//! construction this change's own proposal names, not an approximation of it) for free. Genuinely
+//! unbounded (`max == None`, the DTD's `max="-1"` Kleene sentinel), inverted (`min > max`, no sound
+//! finite construction), over-[`MAX_QUANTIFIER_BOUND`], or alpha-nested quantifiers are UNCHANGED:
+//! still `None`, still honestly reported uncovered by every existing caller — ADR 0001 forbids a
+//! finite cutoff masquerading as unbounded Kleene semantics, so an out-of-scope config is never
+//! silently rounded down to "the biggest bound we felt like compiling."
+//!
+//! **Big-O.** `A^{min,max}`'s compiled size is `O(max · |A|)` states/arcs (`max` sequential copies
+//! of the child automaton `A`, `fsm_concat_m_n`'s own doc above) — LINEAR in the bound, never
+//! exponential, and independent of `min` (a smaller `min` only changes how many of the `max` copies
+//! are wrapped `fsm_optionality`-skippable, not how many copies exist). A rule combining a
+//! quantifier with alpha variables ELSEWHERE in the same subrule (never inside the quantifier's own
+//! children — disallowed, see [`Slot::Repeat`]'s own doc) multiplies this bound by
+//! [`resolve_alpha_tuples`]'s own `surviving` tuple count, exactly the same two-independent-axes
+//! shape [`ComposeBudget::tuple_cap`](crate::compose_budget::ComposeBudget::tuple_cap)'s own V3
+//! check already guards on the alpha axis; the quantifier axis gets its OWN eager, cheaper-than-any-
+//! `Fsm` preflight ([`MAX_QUANTIFIER_BOUND`], checked in `pattern_slots` before any regex is even
+//! rendered, let alone parsed — the same "check the search result before the expensive part"
+//! principle `docs/fst-plan/phase-b-compose-budget-design.md`'s V3 already uses for alpha tuples),
+//! rather than a new [`crate::compose_budget::ComposeBudget`] dimension: `pattern_slots` is a pure
+//! structural walk with no `ComposeBudget` threaded through it (every existing caller — this file's
+//! own compile path, `crate::lower::lower_span`, `crate::capability`'s structural probes — calls it
+//! with only a `&Grammar`/`&CharDefTable`), and widening that signature crate-wide for one
+//! dimension's sake was judged a larger, separate follow-on rather than something this single-owner
+//! slice should take on. **Residual, pre-existing, NOT introduced here**: the FIRST branch net of a
+//! [`compile_rewrite_rule_subset`] fold (`net = None => branch_net` — no `compose_checked`/
+//! `union_checked` call at all for that one net) already escapes every `ComposeBudget` size check
+//! before the SECOND subrule's fold runs one — true for every existing construct this file compiles
+//! (alpha tuples, RTL, Simultaneous), not a new gap a large quantifier bound opens; flagged here
+//! because a large `max` is the most likely way any one branch net alone gets big, not because this
+//! change caused it.
+//!
+//! **Confirm-engine finding (recall RTL's own "recall this can have gaps" note): a Quantifier whose
+//! own occurrence count can make it match a PHYSICAL WIDTH other than exactly 1 segment, used as (or
+//! inside) a rule's LHS/RHS focus, cannot be confirmed by `pg_rules::rewrite` at all today** —
+//! `pg_rules::rewrite::width_matches`'s own doc (`rewrite.rs`, "Shared width-mismatch guard")
+//! requires the ACTUAL matched span width to equal the rule's raw `lhs.nodes.len()`
+//! (`Kind::Narrow`) or `rhs.nodes.len()` (`Kind::Feature`) — a plain node COUNT that is always
+//! exactly 1 for "one `Quantifier` node occupies the entire LHS", regardless of how many physical
+//! segments it actually consumes; any occurrence count whose real width differs from that fixed
+//! count (e.g. `max > 1`, or `min == 0`'s zero-occurrence skip) is silently discarded by this guard
+//! before the RHS is ever applied, INDEPENDENT of this change (`width_matches` predates it; the
+//! guard's own doc explains it exists for a DIFFERENT, unrelated scenario — an earlier rule's own
+//! analysis-inserted Optional segment widening a LATER rule's match span — that merely also catches
+//! this one). **A `Quantifier` used inside a rule's `left_env`/`right_env` has no such gap**:
+//! `pg_rules::rewrite::left_env_match`/`right_env_match` compile the environment via the SAME
+//! `PatternBridge::compile_pattern` bridge this crate's own oracle-comparison tests already rely on
+//! being Quantifier-faithful (`pg-rules/src/bridge.rs`'s own doc: "the pg-fst `{min,max}` quantifier
+//! over the compiled children"), and test only FIRST-MATCH EXISTENCE (`Transduce::first_match`), never
+//! a positional per-node array — no width count to mismatch. `tests/phase_c_quantifier.rs`'s own
+//! bounded-quantifier containment fixture therefore places its quantifier in a `right_env`
+//! (`prule3`'s own precedent this module's earlier doc already cited), where exact oracle
+//! containment is provable today; a genuinely LHS/RHS-focus-quantified rule is real, compilable
+//! FST-side, but its full-recall containment against `pg_rules::rewrite` is a documented, pre-
+//! existing gap this change surfaces rather than silently works around — flagged for a follow-on
+//! entirely outside `replace.rs`'s single-owner boundary, exactly like the RTL gap above.
 
 use std::collections::HashSet;
 
@@ -302,12 +379,81 @@ pub(crate) enum Slot {
         occurrence: usize,
         base_members: Vec<CharDefId>,
     },
+    /// `PatternNode::Quantifier { min, max: Some(max), children }` (`openspec/changes/
+    /// compile-bounded-fst-quantifiers`): a FINITELY bounded, alpha-free repetition of `children`'s
+    /// own rendered slots. Renders (`render_slots`) as `[<children text>]^{min,max}` — foma's own
+    /// native bounded-repetition xre operator (module doc's "Bounded quantifiers" section), never a
+    /// hand-rolled expansion — so `[Slot::Repeat]`'s compiled size is exactly foma's own
+    /// `fsm_concat_m_n` construction: `min` mandatory copies of `children`'s own compiled sub-net,
+    /// then `max - min` further copies each individually optional (that function's own doc, cited
+    /// in the module's Big-O note).
+    ///
+    /// # Why `children: Vec<Slot>`, not a second `Pattern`
+    /// `slots_from_nodes` (this variant's own builder) already turns `PatternNode::Quantifier`'s
+    /// `children: Vec<PatternNode>` into slots via the IDENTICAL recursive call it uses for the
+    /// pattern's own top-level nodes — one node-to-slot mapping, reused, not re-derived (mirrors
+    /// this file's "resolve once, reuse everywhere" discipline for `pattern_slots`/
+    /// `resolve_alpha_tuples`/`render_slots` themselves, module doc). Storing already-resolved
+    /// `Slot`s (rather than the raw `PatternNode`s) means [`render_slots`] can render a nested
+    /// quantifier the SAME way it renders every other slot list, with no special-cased second
+    /// PatternNode-to-text path.
+    ///
+    /// # Why no `Slot::Alpha` may ever appear (transitively) inside `children`
+    /// [`slots_from_nodes`] REFUSES (returns `None`) to build a `Slot::Repeat` whose own `children`
+    /// contain a `Slot::Alpha` occurrence at ANY nesting depth (checked recursively through any
+    /// further-nested `Slot::Repeat`, never just the immediate level) — [`resolve_alpha_tuples`]'s
+    /// own occurrence-flattening walks `slot_lists: &[&[Slot]]` at exactly ONE level (the top-level
+    /// LHS/RHS/left-env/right-env lists `compile_rewrite_rule_subset`/`crate::lower::lower_span`
+    /// pass it), so an `Alpha` occurrence buried inside a `Slot::Repeat`'s own `children` would
+    /// never be discovered, never receive a resolved assignment, and would panic
+    /// [`render_slots`]'s own `.expect("every alpha slot's occurrence has a resolved assignment by
+    /// render time")` the first time anyone tried to render it. Refusing to BUILD the `Slot::Repeat`
+    /// in the first place (rather than teaching `resolve_alpha_tuples` to recurse) keeps that
+    /// invariant enforced at construction time, not merely by convention — an alpha variable nested
+    /// inside a quantifier's own children is therefore honestly out of scope for this change (`None`
+    /// from `slots_from_nodes`, exactly like an unbounded quantifier), not a latent panic risk.
+    Repeat {
+        min: u32,
+        max: u32,
+        children: Vec<Slot>,
+    },
 }
+
+/// `true` iff `slots` (or the `children` of any `Slot::Repeat` nested at ANY depth inside `slots`)
+/// contains at least one `Slot::Alpha` occurrence — [`Slot::Repeat`]'s own doc explains why a
+/// `Slot::Repeat` may never be built over such `children`: this is the recursive check
+/// [`slots_from_nodes`]'s own `PatternNode::Quantifier` arm uses to enforce that, checked at EVERY
+/// nesting depth (not just the immediate one) so a nested bounded-quantifier-inside-a-bounded-
+/// quantifier can never smuggle an alpha occurrence past a shallow, single-level check.
+fn slots_contain_alpha(slots: &[Slot]) -> bool {
+    slots.iter().any(|s| match s {
+        Slot::Alpha { .. } => true,
+        Slot::Repeat { children, .. } => slots_contain_alpha(children),
+        Slot::Fixed(_) | Slot::Union(_) => false,
+    })
+}
+
+/// Preflight ceiling on a [`PatternNode::Quantifier`]'s own `max` bound (`openspec/changes/
+/// compile-bounded-fst-quantifiers`, design.md: "Preflight the product of alternatives/repetitions
+/// and report a typed budget or unsupported result"). Checked in `slots_from_nodes` BEFORE any xre
+/// text is rendered or any `Fsm` is built at all — the cheapest possible predictor, the same "check
+/// the search result before the expensive part" principle `resolve_alpha_tuples`' own V3 alpha-tuple
+/// cap uses (module doc's Big-O note). `pattern_slots`/`slots_from_nodes` are pure structural walks
+/// with no [`crate::compose_budget::ComposeBudget`] threaded through them (module doc's Big-O note
+/// explains why this is a fixed, always-on structural ceiling rather than a new env-configurable
+/// budget dimension) — a `max` above this ceiling is honestly reported unsupported (`None`), never
+/// silently clamped down to it (that would be exactly the finite-cutoff-masquerading-as-something-
+/// else move ADR 0001 forbids, just at a different bound). Generous relative to any authored HC
+/// grammar this crate has ever seen (`OptionalSegmentSequence` bounds in the reference/synthetic
+/// grammars are single digits) while keeping even an UNCHECKED first branch net (module doc's
+/// residual-gap note) trivially bounded before any `ComposeBudget` size check ever runs.
+const MAX_QUANTIFIER_BOUND: u32 = 512;
 
 /// Walk `pattern`'s nodes into [`Slot`]s, numbering each `Alpha` occurrence sequentially from
 /// `*next_occurrence` (shared across LHS/RHS/left-env/right-env for one subrule — see
-/// [`compile_rewrite_rule`]). Returns `None` (uncovered) on `Quantifier`/`Segments`/`Anchor`/
-/// disagree-polarity `Context` — this prototype's documented scope line (module doc).
+/// [`compile_rewrite_rule`]). Returns `None` (uncovered) on `Segments`/`Anchor`/disagree-polarity
+/// `Context`, or an out-of-scope `Quantifier` (unbounded/inverted/over-budget/alpha-nested — see
+/// [`Slot::Repeat`]'s own doc) — this prototype's documented scope line (module doc).
 ///
 /// `table`: every `Context` node's `NatClassId` is resolved against THIS table
 /// ([`class_members`]), never an implicit grammar-wide default
@@ -330,8 +476,24 @@ pub(crate) fn pattern_slots(
     pattern: &Pattern,
     next_occurrence: &mut usize,
 ) -> Option<Vec<Slot>> {
-    let mut out = Vec::with_capacity(pattern.nodes.len());
-    for node in &pattern.nodes {
+    slots_from_nodes(g, table, &pattern.nodes, next_occurrence)
+}
+
+/// [`pattern_slots`]'s own per-node walk, factored out over a bare node slice (rather than a whole
+/// `&Pattern`) so [`PatternNode::Quantifier`]'s own `children` (`openspec/changes/
+/// compile-bounded-fst-quantifiers`) can recurse through the IDENTICAL per-node semantics
+/// `pattern_slots` already gives a whole pattern — one pattern-node-to-slot mapping, not two
+/// independently-maintained ones (mirrors this file's own "one shared occurrence counter" discipline
+/// for LHS/RHS/environment: `next_occurrence` threads through this recursion exactly like it already
+/// threads across a subrule's LHS/RHS/left-env/right-env calls).
+fn slots_from_nodes(
+    g: &Grammar,
+    table: &CharDefTable,
+    nodes: &[PatternNode],
+    next_occurrence: &mut usize,
+) -> Option<Vec<Slot>> {
+    let mut out = Vec::with_capacity(nodes.len());
+    for node in nodes {
         match node {
             PatternNode::CharDef(id) => out.push(Slot::Fixed(*id)),
             PatternNode::Context(sc) => {
@@ -357,9 +519,45 @@ pub(crate) fn pattern_slots(
                     });
                 }
             }
-            PatternNode::Quantifier { .. }
-            | PatternNode::Segments { .. }
-            | PatternNode::Anchor(_) => {
+            PatternNode::Quantifier { min, max, children } => {
+                // Genuinely unbounded (Kleene) -- ADR 0001: a finite cutoff must never masquerade
+                // as unbounded semantics, so this stays honestly unsupported (module doc's "Bounded
+                // quantifiers" section).
+                let Some(max_v) = max else {
+                    return None;
+                };
+                // Inverted bound -- no sound finite construction exists for it; conservative
+                // honest-unsupported rather than silently swapping/clamping min/max.
+                if min > max_v {
+                    return None;
+                }
+                // Preflight (design.md: "Preflight the product of alternatives/repetitions and
+                // report a typed budget or unsupported result") -- checked BEFORE recursing into
+                // children/rendering any xre text at all, the cheapest possible predictor.
+                if *max_v > MAX_QUANTIFIER_BOUND {
+                    return None;
+                }
+                let child_slots = slots_from_nodes(g, table, children, next_occurrence)?;
+                if child_slots.is_empty() {
+                    // No renderable child at all (an empty <OptionalSegmentSequence>) -- not a
+                    // shape any DTD-legal grammar this crate has seen produces; nothing to
+                    // bound-repeat, so honest-unsupported rather than rendering a vacuous group.
+                    return None;
+                }
+                if slots_contain_alpha(&child_slots) {
+                    // Alpha-bound occurrence nested inside a quantifier group -- out of scope for
+                    // this change (`Slot::Repeat`'s own doc: `resolve_alpha_tuples` does not
+                    // recurse into a `Slot::Repeat`'s own children) -- honest-unsupported rather
+                    // than risk an unresolved occurrence panicking at render time.
+                    return None;
+                }
+                out.push(Slot::Repeat {
+                    min: *min,
+                    max: *max_v,
+                    children: child_slots,
+                });
+            }
+            PatternNode::Segments { .. } | PatternNode::Anchor(_) => {
                 return None;
             }
         }
@@ -598,6 +796,22 @@ pub(crate) fn render_slots(
                     "every alpha slot's occurrence has a resolved assignment by render time",
                 );
                 alphabet.token(*cd).to_string()
+            }
+            Slot::Repeat {
+                min,
+                max,
+                children,
+            } => {
+                // `openspec/changes/compile-bounded-fst-quantifiers` (module doc, "Bounded
+                // quantifiers"): foma's own native bounded-repetition xre operator, `^{min,max}`
+                // (`nfst-xre`'s `CatenateNToK`, lexed as a POSTFIX operator over whatever `[...]`-
+                // grouped term precedes it -- `[...]` is foma's plain GROUPING bracket, distinct
+                // from `(...)`'s OPTIONALITY meaning this file's own `render_branch_regex` already
+                // relies on for epenthesis). Recurses into `render_slots` for `children` -- the
+                // SAME rendering, same PUA-token space, same load-bearing space-separation rule
+                // this whole function's own doc already establishes; no second text-rendering path.
+                let inner = render_slots(alphabet, children, assignment);
+                format!("[{inner}]^{{{min},{max}}}")
             }
         };
         pieces.push(piece);

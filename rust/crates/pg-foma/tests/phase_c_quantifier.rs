@@ -1,21 +1,61 @@
 //! GATE (`docs/fst-plan/phase-c-generator-design.md` §6, priority (7)): quantifier /
 //! `OptionalSegmentSequence` HONEST-SKIP bail gate -- pure test-writing, the loader/compiler already
 //! reports this construct as `skipped`; this gate pins that it stays that way (never silently
-//! mis-compiled).
+//! mis-compiled) for the genuinely OUT-OF-SCOPE configurations.
 //!
-//! `pg_foma::replace::pattern_slots` returns `None` on any `PatternNode::Quantifier` it meets in a
-//! REWRITE rule's own LHS/RHS/environment, which `compile_rewrite_rule_subset` turns into `Ok(None)`
-//! for the whole rule; `compile_and_compose_rules_with_budget` reports that via `skipped.push(rule.
-//! xml_id.clone())` (design doc §5's "Honest skip now" list).
+//! `pg_foma::replace::pattern_slots` returns `None` on any out-of-scope `PatternNode::Quantifier`
+//! it meets in a REWRITE rule's own LHS/RHS/environment (genuinely unbounded/inverted/over-budget/
+//! alpha-nested), which `compile_rewrite_rule_subset` turns into `Ok(None)` for the whole rule;
+//! `compile_and_compose_rules_with_budget` reports that via `skipped.push(rule.xml_id.clone())`
+//! (design doc §5's "Honest skip now" list). `quantifier_rule_is_honestly_reported_skipped` (below)
+//! still pins exactly that for the construct's ORIGINAL, unbounded (`max="-1"`) shape.
+//!
+//! ## Bounded quantifiers now compile (`openspec/changes/compile-bounded-fst-quantifiers`)
+//! A FINITELY bounded, alpha-free quantifier (`min`/`max` both concrete) compiles now, via
+//! `pg_foma::replace::Slot::Repeat` (that variant's own doc: foma's native `^{min,max}` bounded-
+//! repetition xre operator). `quantifier_bounded_environment_compiles_and_matches_oracle` (below) is
+//! this change's own containment fixture: a bounded quantifier used INSIDE a rule's right
+//! environment, proposer-to-confirm CONTAINMENT-checked against `pg_parse::Morpher` (this codebase's
+//! own full-HC oracle) at BOTH its `min` and `max` boundary occurrence counts, plus a negative
+//! control below `min`.
+//!
+//! **Why the environment, not the LHS/RHS focus** (a documented, load-bearing choice, not an
+//! arbitrary one): `pg_rules::rewrite::width_matches`'s own doc names a "Shared width-mismatch
+//! guard" that requires a matched span's PHYSICAL width to equal the rule's raw `lhs.nodes.len()`/
+//! `rhs.nodes.len()` -- a plain node COUNT that is always exactly 1 for "one `Quantifier` node
+//! occupies the whole LHS/RHS", regardless of how many physical segments it actually consumes. A
+//! Quantifier match whose real width differs from that fixed count (any `max > 1`, or a `min == 0`
+//! zero-occurrence skip) is silently discarded by this guard before the RHS is ever applied --
+//! independent of this change (the guard predates it; its own doc explains it exists for an
+//! unrelated scenario that merely also catches this one). This is a real, pre-existing,
+//! now-surfaced confirm-engine gap, documented in `pg_foma::replace`'s own module doc ("Confirm-
+//! engine finding") rather than silently worked around -- exactly the RTL precedent's own
+//! "recall-preserve, don't paper over" discipline (`tests/phase_c_right_to_left.rs`'s "Known,
+//! out-of-scope oracle gap" section). A `Quantifier` used INSIDE an environment has NO such gap:
+//! `pg_rules::rewrite::left_env_match`/`right_env_match` test only first-match EXISTENCE
+//! (`Transduce::first_match`) against a `PatternBridge::compile_pattern`-compiled (Quantifier-
+//! faithful) environment FST, never a positional per-node array -- no width count to mismatch. This
+//! file's own containment fixture therefore places its quantifier there, where exact oracle
+//! equality is provable today, following the SAME `fst_candidate_set`/`oracle_candidate_set`
+//! methodology `tests/phase_c_right_to_left.rs`/`tests/two_table_symbol_divergence.rs` already use.
 
 mod common;
 
+use std::collections::HashSet;
+
+use foma::apply::apply_init;
+use foma::constructions::fsm_compose;
+use foma::lexcread::fsm_lexc_parse_string;
+use foma::minimize::fsm_minimize;
 use foma::options::FomaOptions;
 
 use pg_foma::compose_budget::ComposeBudget;
 use pg_foma::replace::{compile_and_compose_rules_with_budget, SegAlphabet};
-use pg_grammar::model::{Grammar, PhonRuleDef};
+use pg_foma::tags;
+use pg_foma::uflexc::emit_underlying_filtered_with_budget;
+use pg_grammar::model::{Grammar, LexEntryId, PhonRuleDef};
 use pg_grammar_gen::{ConstructKnobs, Recipe, ScaleKnobs};
+use pg_parse::{Morpher, ParseOptions};
 
 fn recipe() -> Recipe {
     Recipe {
@@ -88,6 +128,321 @@ fn quantifier_rule_is_honestly_reported_skipped() {
         skipped,
         vec![quantifier.rule_xml_id.clone()],
         "the quantifier rule must be the ONLY skipped rule, and must be reported (never silent)"
+    );
+    assert!(
+        composed.is_none(),
+        "zero compilable rules -- the cascade must be a no-op, never a wrong network"
+    );
+    assert!(
+        tuple_reports.is_empty(),
+        "a skipped rule contributes no alpha-tuple report"
+    );
+}
+
+// =================================================================================================
+// Bounded quantifier, IN AN ENVIRONMENT (`openspec/changes/compile-bounded-fst-quantifiers`; this
+// file's own top doc, "Bounded quantifiers now compile" / "Why the environment, not the LHS/RHS
+// focus"): synthetic, delanguaged fixtures, named by construct.
+// =================================================================================================
+
+fn load(xml: &str) -> Grammar {
+    pg_grammar::load(xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"))
+}
+
+/// Every DECODED `apply_up` candidate for `query` against `net` (`tests/phase_c_right_to_left.rs`'s
+/// own helper, reused verbatim).
+fn fst_candidate_set(net: &foma::types::Fsm, query: &str) -> HashSet<(i32, Vec<u32>)> {
+    let mut out = HashSet::new();
+    let mut handle = apply_init(net);
+    for s in handle.up(query) {
+        let Some(path) = tags::decode_path(&s) else {
+            continue;
+        };
+        for c in tags::to_candidates(&path) {
+            out.insert((c.root_index, c.morphemes.iter().map(|m| m.0).collect()));
+        }
+    }
+    out
+}
+
+/// The full-HC oracle's own candidate set for `surface`, restricted to `allowed_morphemes`
+/// (`tests/phase_c_right_to_left.rs`'s own helper, reused verbatim).
+fn oracle_candidate_set(
+    morpher: &Morpher,
+    surface: &str,
+    allowed_morphemes: &HashSet<u32>,
+) -> HashSet<(i32, Vec<u32>)> {
+    let outcome = morpher.parse_word_opts(surface, &ParseOptions::default());
+    outcome
+        .structured
+        .iter()
+        .filter(|a| a.morpheme_ids.iter().all(|m| allowed_morphemes.contains(m)))
+        .map(|a| (a.root_morpheme_index, a.morpheme_ids.clone()))
+        .collect()
+}
+
+/// One `a -> b` rewrite rule, gated by a right environment `<OptionalSegmentSequence min="1"
+/// max={max_attr}"><SimpleContext naturalClass="ncZ" /></OptionalSegmentSequence>` (one or more `z`
+/// segments) -- `max_attr` is either a concrete bound (`"2"`, the bounded/must-compile fixture) or
+/// `"-1"` (the DTD's own unbounded Kleene sentinel, the out-of-scope fixture). Three entries probe
+/// the quantifier's own boundary behavior: `entryMin` (exactly `min` occurrences), `entryMax`
+/// (exactly the bound's own `max`, when `max` is concrete), and `entryBelowMin` (zero occurrences,
+/// below `min` -- the environment must NOT match, so the rule must NOT fire).
+///
+/// One distinct symbol value PER SEGMENT (not per natural-class membership), matching
+/// `tests/phase_c_right_to_left.rs`'s own `RTL_FEATURE_ENV_XML` fixture's documented finding:
+/// `pg_parse::Morpher`'s own analysis-side unapplication needs this to disambiguate segments -- a
+/// grammar with NO `PhonologicalFeatureSystem` at all (every char-def's feature lanes empty) was
+/// this fixture's own first-drafted shape, and it silently failed to fire the rule during
+/// SYNTHESIS at all (`Morpher::generate_words` returned the root's own raw, un-rewritten spelling
+/// unchanged) -- a genuine, pre-existing `pg_rules::rewrite`/zero-phonological-feature-grammar
+/// interaction this fixture works around by giving every segment its own distinct feature value,
+/// the same way the reference/synthetic RTL environment fixture already does, rather than a
+/// Quantifier-specific finding worth its own module-doc callout.
+fn quantifier_env_xml(max_attr: &str) -> String {
+    format!(
+        r#"<HermitCrabInput><Language><Name>QuantifierBoundedEnv</Name>
+      <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
+      <PhonologicalFeatureSystem>
+        <SymbolicFeature id="featId"><Name>id</Name>
+          <Symbols>
+            <Symbol id="symA">a</Symbol><Symbol id="symB">b</Symbol><Symbol id="symZ">z</Symbol>
+          </Symbols>
+        </SymbolicFeature>
+      </PhonologicalFeatureSystem>
+      <CharacterDefinitionTable id="t1"><Name>Main</Name>
+        <SegmentDefinitions>
+          <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations><FeatureValue feature="featId" symbolValues="symA" /></SegmentDefinition>
+          <SegmentDefinition id="cb"><Representations><Representation>b</Representation></Representations><FeatureValue feature="featId" symbolValues="symB" /></SegmentDefinition>
+          <SegmentDefinition id="cz"><Representations><Representation>z</Representation></Representations><FeatureValue feature="featId" symbolValues="symZ" /></SegmentDefinition>
+        </SegmentDefinitions>
+      </CharacterDefinitionTable>
+      <NaturalClasses><SegmentNaturalClass id="ncZ"><Name>Z</Name><Segment segment="cz" /></SegmentNaturalClass></NaturalClasses>
+      <PhonologicalRuleDefinitions>
+        <PhonologicalRule id="prQuantEnv">
+          <Name>quantEnvDemo</Name>
+          <PhoneticInput><PhoneticSequence><Segment segment="ca" /></PhoneticSequence></PhoneticInput>
+          <PhonologicalSubrules>
+            <PhonologicalSubrule>
+              <PhoneticOutput><PhoneticSequence><Segment segment="cb" /></PhoneticSequence></PhoneticOutput>
+              <Environment><RightEnvironment><PhoneticTemplate><PhoneticSequence>
+                <OptionalSegmentSequence min="1" max="{max_attr}"><SimpleContext naturalClass="ncZ" /></OptionalSegmentSequence>
+              </PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment>
+            </PhonologicalSubrule>
+          </PhonologicalSubrules>
+        </PhonologicalRule>
+      </PhonologicalRuleDefinitions>
+      <Strata>
+        <Stratum characterDefinitionTable="t1" phonologicalRules="prQuantEnv">
+          <Name>S</Name>
+          <LexicalEntries>
+            <LexicalEntry id="entryMin" partOfSpeech="posV">
+              <Allomorphs><Allomorph id="alloMin"><PhoneticShape>az</PhoneticShape></Allomorph></Allomorphs>
+              <Gloss>min</Gloss>
+            </LexicalEntry>
+            <LexicalEntry id="entryMax" partOfSpeech="posV">
+              <Allomorphs><Allomorph id="alloMax"><PhoneticShape>azz</PhoneticShape></Allomorph></Allomorphs>
+              <Gloss>max</Gloss>
+            </LexicalEntry>
+            <LexicalEntry id="entryBelowMin" partOfSpeech="posV">
+              <Allomorphs><Allomorph id="alloBelowMin"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs>
+              <Gloss>belowMin</Gloss>
+            </LexicalEntry>
+          </LexicalEntries>
+        </Stratum>
+      </Strata>
+    </Language></HermitCrabInput>"#
+    )
+}
+
+/// Compiles `rule` over `alphabet`'s table, composes after `lexc_source`, and minimizes -- the
+/// shared plumbing both witnesses below use (`tests/phase_c_right_to_left.rs`'s own `compile_net`
+/// helper, reused verbatim).
+fn compile_net(
+    g: &Grammar,
+    alphabet: &SegAlphabet,
+    rule: &PhonRuleDef,
+    lexc_source: &str,
+) -> foma::types::Fsm {
+    let opts = FomaOptions::default();
+    let budget = ComposeBudget::with_caps(
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        None,
+    );
+    let lexc_net = fsm_lexc_parse_string(&opts, None, lexc_source)
+        .unwrap_or_else(|| panic!("lexc must compile:\n{lexc_source}"));
+    let mut skipped = Vec::new();
+    let mut tuple_reports = Vec::new();
+    let rule_net = compile_and_compose_rules_with_budget(
+        &opts,
+        g,
+        alphabet,
+        &[rule],
+        &mut skipped,
+        &mut tuple_reports,
+        &budget,
+    )
+    .unwrap_or_else(|e| panic!("rule compile must not hit any budget: {e}"))
+    .expect("bounded-quantifier rule must compile to Some(net)");
+    assert!(skipped.is_empty(), "rule must not be skipped: {skipped:?}");
+    fsm_minimize(&opts, fsm_compose(&opts, lexc_net, rule_net))
+}
+
+/// **Must-compile, oracle-exact containment.** A bounded (`min="1" max="2"`) right-environment
+/// quantifier: `entryMin` ("az", exactly 1 occurrence) and `entryMax` ("azz", exactly 2
+/// occurrences) both obligatorily devoice-rewrite `a -> b` (the environment holds for either
+/// count); `entryBelowMin` ("a", 0 occurrences) does NOT (the environment requires at least 1), so
+/// the rule must NOT fire and the root's own spelling must survive unchanged. Exercising BOTH the
+/// `min` and `max` boundary occurrence counts against the SAME rule is what actually distinguishes
+/// genuine bounded (1..2) behavior from an accidental always-1 (no real quantifier effect) or
+/// silently-unbounded (would also accept 3+ occurrences of an environment this fixture never
+/// authors) compile.
+#[test]
+fn quantifier_bounded_environment_compiles_and_matches_oracle() {
+    let g = load(&quantifier_env_xml("2"));
+    let PhonRuleDef::Rewrite(rule) = &g.prules[0] else {
+        panic!("expected a Rewrite-kind rule");
+    };
+    assert_eq!(rule.subrules.len(), 1);
+
+    let table = &g.char_tables[0];
+    let alphabet = SegAlphabet::new(table);
+
+    let entry_min = common::gate_template::entry_id_of(&g, "entryMin");
+    let entry_max = common::gate_template::entry_id_of(&g, "entryMax");
+    let entry_below_min = common::gate_template::entry_id_of(&g, "entryBelowMin");
+
+    let budget = ComposeBudget::with_caps(
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        None,
+    );
+    let entries: HashSet<LexEntryId> = [entry_min, entry_max, entry_below_min].into_iter().collect();
+    let uemit = emit_underlying_filtered_with_budget(&g, &alphabet, Some(&entries), &budget)
+        .unwrap_or_else(|e| panic!("lexc emission must not hit any budget: {e}"));
+    assert!(uemit.skipped.is_empty());
+
+    let net = compile_net(&g, &alphabet, &g.prules[0], &uemit.lexc_source);
+    let morpher = Morpher::new(&g, usize::MAX);
+
+    let allowed: HashSet<u32> = [
+        g.entries[entry_min.0 as usize].morpheme.0,
+        g.entries[entry_max.0 as usize].morpheme.0,
+        g.entries[entry_below_min.0 as usize].morpheme.0,
+    ]
+    .into_iter()
+    .collect();
+
+    // --- min boundary: exactly 1 occurrence ("az" -> "bz"). ---
+    let query_min = alphabet.encode_query("bz").expect("'bz' must segment");
+    let fst_min = fst_candidate_set(&net, &query_min);
+    let oracle_min = oracle_candidate_set(&morpher, "bz", &allowed);
+    assert_eq!(
+        oracle_min.len(),
+        1,
+        "oracle must recall entryMin for 'bz' (1 z, within [1,2]): {oracle_min:?}"
+    );
+    assert_eq!(
+        fst_min, oracle_min,
+        "CONTAINMENT for 'bz' (min-boundary, 1 occurrence)"
+    );
+
+    // --- max boundary: exactly 2 occurrences ("azz" -> "bzz"). ---
+    let query_max = alphabet.encode_query("bzz").expect("'bzz' must segment");
+    let fst_max = fst_candidate_set(&net, &query_max);
+    let oracle_max = oracle_candidate_set(&morpher, "bzz", &allowed);
+    assert_eq!(
+        oracle_max.len(),
+        1,
+        "oracle must recall entryMax for 'bzz' (2 z's, within [1,2]): {oracle_max:?}"
+    );
+    assert_eq!(
+        fst_max, oracle_max,
+        "CONTAINMENT for 'bzz' (max-boundary, 2 occurrences)"
+    );
+
+    // Both roots' own RAW (un-rewritten) spellings must never surface (obligatory rule, and both
+    // occurrence counts satisfy the environment).
+    let oracle_raw_min = oracle_candidate_set(&morpher, "az", &allowed);
+    assert!(
+        oracle_raw_min.is_empty(),
+        "'az' (obligatorily rewritten) must have no oracle analysis: {oracle_raw_min:?}"
+    );
+    let oracle_raw_max = oracle_candidate_set(&morpher, "azz", &allowed);
+    assert!(
+        oracle_raw_max.is_empty(),
+        "'azz' (obligatorily rewritten) must have no oracle analysis: {oracle_raw_max:?}"
+    );
+
+    // --- below min: 0 occurrences ("a" alone) -- environment does NOT hold, rule must NOT fire. ---
+    let query_below = alphabet.encode_query("a").expect("'a' must segment");
+    let fst_below = fst_candidate_set(&net, &query_below);
+    let oracle_below = oracle_candidate_set(&morpher, "a", &allowed);
+    assert_eq!(
+        oracle_below.len(),
+        1,
+        "oracle must recall entryBelowMin unchanged for 'a' (0 z's, below min=1): {oracle_below:?}"
+    );
+    assert_eq!(
+        fst_below, oracle_below,
+        "CONTAINMENT for 'a' (below-min: the quantifier's own min correctly gates the rule off)"
+    );
+}
+
+/// **Out-of-scope, stays unsupported.** Same shape, but the right-environment quantifier's own
+/// `max` is the DTD's unbounded Kleene sentinel (`max="-1"`) -- `pg_foma::replace::pattern_slots`
+/// must still return `None` for it (a finite cutoff must never masquerade as unbounded Kleene
+/// semantics, ADR 0001), so the rule is honestly reported `skipped`, never silently compiled as if
+/// it were bounded.
+#[test]
+fn quantifier_unbounded_environment_stays_honestly_unsupported() {
+    let g = load(&quantifier_env_xml("-1"));
+    let PhonRuleDef::Rewrite(rule) = &g.prules[0] else {
+        panic!("expected a Rewrite-kind rule");
+    };
+    assert_eq!(rule.subrules.len(), 1);
+    assert!(
+        rule.subrules[0].right_env.is_some(),
+        "the demo rule's own right environment must be present"
+    );
+
+    let table = &g.char_tables[0];
+    let alphabet = SegAlphabet::new(table);
+    let opts = FomaOptions::default();
+    let budget = ComposeBudget::with_caps(
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        None,
+    );
+
+    let mut skipped = Vec::new();
+    let mut tuple_reports = Vec::new();
+    let composed = compile_and_compose_rules_with_budget(
+        &opts,
+        &g,
+        &alphabet,
+        &[&g.prules[0]],
+        &mut skipped,
+        &mut tuple_reports,
+        &budget,
+    )
+    .unwrap_or_else(|e| panic!("compile must not hit any budget: {e}"));
+
+    assert_eq!(
+        skipped,
+        vec![rule.xml_id.clone()],
+        "an unbounded environment quantifier must be honestly reported skipped, never silently \
+         compiled: {skipped:?}"
     );
     assert!(
         composed.is_none(),
