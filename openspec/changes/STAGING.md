@@ -116,9 +116,29 @@ evidenced predicate.
 (its specs subdir likewise); the body already dropped the terminal-certification framing and the four
 actual languages. The always-on CI gate it describes is the committed `conformance-ci.yml`.
 
-**Still open:** Stage 1C compile profiling; Stage 3 tree-structured interaction fuzzing + calibration;
-the coverage ledger; the reify production flip; delanguaging Part C. (The confirm-engine gaps are all
-resolved — see the section above.)
+**Still open — and each is blocked or large, not merely unstarted:**
+
+- **`calibrate-fst-resource-envelopes`** — the last STAGING item, and it is *data*-blocked. Eight
+  constants ship as documented placeholders (ordering-multiplicity cap 100, the health 80%-of-budget
+  threshold, `MAX_QUANTIFIER_BOUND` 512, the compound-pair budget, the chain-depth ceiling, the
+  rule-product threshold, and the worker wall-timeout/RSS defaults). The large-cascade axis has a
+  reproducing synthetic anchor and could be calibrated now; the deep-chain axis does not (see the Part C
+  measurement above). Per R6 calibration is advisory regardless: it emits evidence plus a proposed diff
+  and requires a human-reviewed commit and policy-version bump — it cannot self-activate.
+- **WASM compiler removal** (`make-wasm-analysis-only` 3.2/3.3, §4) — one step closer now that
+  `pangloss pack` writes a genuinely reloadable foma proposer half, but still needs the consumer-side
+  "reconstruct an analyzer from `.pgpack` bytes" path *and* the runtime-grammar payload serializer,
+  which is itself blocked: `pg_grammar::model::Grammar` derives serde on almost none of its types and
+  `pg_featstruct::Interner<FeatureStruct>` has no impl at all.
+- **The C# HermitCrab oracle harness** (`add-reference-hermitcrab-parity` §§2/2A/3/4/5) — zero code
+  exists; the Rust gloss-signature half is done.
+- **`reify-compilation-plans`' parked follow-on** (`add-compilation-cost-planner`): the projected-cost
+  model with error bounds, the committed-plan cache, and profile-guided autotuning — parked by ADR 0002
+  itself until real multi-topology pressure exists.
+
+Everything else in this spine is implemented. `partition_entries` remains the one seam not derived from
+the plan (it belongs to `gate.rs`'s separate compile entry point; wiring it means merging the two entry
+points — recorded, not pretended).
 
 This spine was reorganized on 2026-07-24 to reflect the honest-capability architecture recorded in
 `docs/adr/0001`–`0005`. The governing facts that reshaped it:
