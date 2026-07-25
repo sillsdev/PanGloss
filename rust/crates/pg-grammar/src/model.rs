@@ -476,9 +476,21 @@ pub struct MetathesisRuleDef {
     /// the `leftSwitch`/`rightSwitch` XML attribute respectively. `XmlLanguageLoader.LoadMetathesisRule`
     /// binds `MetathesisRule.LeftSwitchName` to whichever pattern element the `leftSwitch` IDREF
     /// points at (internally renamed `"r"`; the C# naming is an implementation detail, not a
-    /// "physically left" claim — see the loader doc for the full derivation). After synthesis,
-    /// whatever this index identifies always ends up FIRST in the output; `right_switch` always ends
-    /// up SECOND — regardless of which one was physically first in `pattern.nodes`.
+    /// "physically left" claim — see the loader doc for the full derivation).
+    ///
+    /// CORRECTED (2026-07-25; this doc previously claimed "after synthesis, whatever `left_switch`
+    /// identifies always ends up FIRST in the output ... regardless of which one was physically
+    /// first" — verified FALSE by direct trace of `pg_rules::metathesis::synthesize`'s own
+    /// `synthesis_reorder`/`move_nodes_after` algorithm): what actually ends up FIRST in the
+    /// synthesized output is whichever of `left_switch`/`right_switch` is physically LAST in
+    /// `pattern.nodes` — tag-name-agnostic, driven purely by physical document-order position. For
+    /// every attested grammar (`left_switch` always tagging the physically-last of the two — the
+    /// only convention any real HermitCrab fixture this repo has seen uses, e.g.
+    /// `machine/conformance/languages/metathesis-phase-isolation`'s `mrSimpleMeta`/`mrComplexMeta`),
+    /// this coincides with the old claim. It does NOT hold for the reverse tagging (`left_switch`
+    /// physically first) — DTD-legal and reachable via `pg_grammar_gen::build::metathesis::build`'s
+    /// own recipe, see `pg_rules::metathesis::build_analysis_pattern`'s doc for the full citation
+    /// trail and how the analysis side was fixed to match this real behavior.
     pub left_switch: u32,
     pub right_switch: u32,
 }

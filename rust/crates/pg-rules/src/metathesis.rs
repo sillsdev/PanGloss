@@ -37,20 +37,45 @@
 //! between them keeps its slot untouched.
 //!
 //! ## Analysis (reverse, feature union)
-//! Pattern REBUILT per `AnalysisMetathesisRuleSpec`'s ctor ([`build_analysis_pattern`]): pre-first-
-//! group nodes verbatim, then the left-switch node, then the right-switch node (always in THIS fixed
-//! order — the whole point of the rebuild is to search the surface for the *already-swapped*
-//! arrangement synthesis always produces, regardless of which switch was physically first in the
-//! underlying/document order), then post-last-group nodes verbatim; anything else between the first
-//! and last original switch position is dropped (see
-//! `rust/conformance/metathesis/complex_rule/README.md`'s worked trace). Matched with
-//! `reverse(rule.dir)` over `Segment+Anchor` only (no boundaries), nondeterministic (C#: shape nodes
-//! can be underspecified during analysis). On a match, [`ana_union`] bitwise-ORs the two matched
-//! nodes' lanes onto each other (see its doc for why this equals C#'s `FeatureStruct.Union` under
-//! this port's dense-lane representation) and resets both nodes' `char_def` identity to `NO_CHAR_DEF`
-//! (mirroring `pg_rules::rewrite::syn_feature`'s identical, already-documented choice for the same
-//! "a feature-changed node must stop being treated as a concrete, single-char-def-identity node"
-//! reason).
+//! Pattern REBUILT ([`build_analysis_pattern`]), physical-position-driven (see that function's own
+//! doc for two fixes vs. an earlier revision, both discovered building `pg_foma`'s FST-metathesis
+//! containment suite, `pg_foma::tests::phase_c_metathesis`):
+//! 1. **Switch order**: C#'s own `AnalysisMetathesisRuleSpec` ctor (`AnalysisMetathesisRuleSpec.
+//!    cs:19-45`) always re-adds `leftGroupName`'s node first, `rightGroupName`'s second — a
+//!    TAG-NAME-driven order. For every attested grammar (`left_switch` tagging whichever node is
+//!    physically LAST), this coincides with `synthesis_reorder`'s own PHYSICAL-position-driven
+//!    behavior (physically-last always ends up first — see that function's doc), so the two
+//!    conventions were indistinguishable until `pg_grammar_gen::build::metathesis::build`'s own
+//!    recipe exposed the "reversed" case (`left_switch` tagging the physically-FIRST node): C#'s
+//!    tag-driven rebuild there would search for the surface's ORIGINAL, un-swapped arrangement (a
+//!    vacuous no-op), disagreeing with what synthesis actually produces. This port instead orders
+//!    by PHYSICAL position unconditionally (whichever of `left_switch`/`right_switch` is physically
+//!    LAST goes first, physically FIRST goes second) — identical output to C#'s tag-driven order for
+//!    every attested shape, and additionally a true inverse of `synthesis_reorder` for the reversed
+//!    one.
+//! 2. **Middle node preserved**: a node strictly between the two switches (by original physical
+//!    position) is no longer dropped — it is kept in its own slot, between the two (now reordered)
+//!    switch nodes, UNLESS it resolves to a `CharDefKind::Boundary` (a literal `<BoundaryMarker>`):
+//!    a boundary is excluded from the analysis match sequence entirely regardless of pattern shape
+//!    (`MutShape::segs(false)`'s own `NodeKind::Boundary` exclusion, "Segment+Anchor only, no
+//!    boundaries" below), so keeping one in the rebuilt pattern would require a match position that
+//!    can never be satisfied — dropping it is not just harmless but necessary. This is why C#'s own
+//!    unconditional drop (`AnalysisMetathesisRuleSpec.cs:27-45`'s `TakeWhile(!Group)` on both ends)
+//!    never surfaced as a problem in the one real shape its own conformance suite exercises there
+//!    (`mrComplexMeta`'s `<BoundaryMarker>`, `metathesis-phase-isolation`'s `mu+?i` word, ported as
+//!    `csharp_port_metathesis.rs::complex_rule`) — a boundary is dropped either way. A genuine middle
+//!    SEGMENT context node (never attested in any real HermitCrab fixture C#'s own conformance suite
+//!    carries, but DTD-legal and reachable via `pg_grammar_gen`) is instead preserved, matching
+//!    `synthesis_reorder`'s real behavior (`synthesis_reorder`'s own doc: "a node strictly between
+//!    them keeps its slot untouched") and letting analysis actually confirm it.
+//!
+//! Matched with `reverse(rule.dir)` over `Segment+Anchor` only (no boundaries), nondeterministic (C#:
+//! shape nodes can be underspecified during analysis). On a match, [`ana_union`] bitwise-ORs the two
+//! matched nodes' lanes onto each other (see its doc for why this equals C#'s `FeatureStruct.Union`
+//! under this port's dense-lane representation) and resets both nodes' `char_def` identity to
+//! `NO_CHAR_DEF` (mirroring `pg_rules::rewrite::syn_feature`'s identical, already-documented choice
+//! for the same "a feature-changed node must stop being treated as a concrete, single-char-def-
+//! identity node" reason).
 //!
 //! ## MPR/POS immunity
 //! No subrule-level gating exists at all (see [`pg_grammar::model::MetathesisRuleDef`]'s doc) — every
@@ -62,6 +87,7 @@
 //! first explain what XML would ever set it.
 
 use pg_fst::{CompileNode, Direction, Fst, Segment, Transduce, ENTIRE_MATCH};
+use pg_grammar::chardef::CharDefKind;
 use pg_grammar::model::{
     Grammar, MetathesisRuleDef, PRuleId, Pattern, PatternNode, StratumId, TableId,
 };
@@ -177,17 +203,28 @@ fn non_anchor_count(nodes: &[PatternNode]) -> usize {
         .count()
 }
 
-/// C# `AnalysisMetathesisRuleSpec`'s ctor (`AnalysisMetathesisRuleSpec.cs:19-45`): rebuild the
-/// pattern as `pre ++ [left_switch_node] ++ [right_switch_node] ++ post`, where `pre` is every node
-/// strictly before the *first* (by original position) of the two switch nodes (verbatim, original
-/// order) and `post` is every node strictly after the *last* (verbatim); anything else between them
-/// is dropped (unreachable for the two switches themselves, but would apply to a stray middle context
-/// node if one existed between them at the top level). The two switch nodes are always re-added in
-/// left-then-right order regardless of which was physically first: the whole point of the rebuild is
-/// to search the surface for the arrangement synthesis always produces (left switch first). Returns
-/// the rebuilt pattern plus the left/right switch's own indices in *that* pattern's full-node-space
-/// (trivially `pre.len()`/`pre.len()+1`, since both are freshly appended right after `pre`).
+/// Rebuild the search pattern analysis needs to recognize whatever `synthesis_reorder` actually
+/// produces (this module's own doc, "Analysis" section, has the full rationale + citations for both
+/// fixes below vs. an earlier revision of this function). Returns the rebuilt pattern plus the
+/// (now-reordered) switch nodes' own indices in *that* pattern's full-node-space.
+///
+/// `pre` is every node strictly before the *first* (by original physical position) of the two switch
+/// nodes (verbatim, original order); `post` is every node strictly after the *last* (verbatim). The
+/// two switch nodes are re-added PHYSICAL-POSITION-first: whichever of `left_switch`/`right_switch`
+/// is physically LAST in `pattern.nodes` goes first, physically FIRST goes second — matching
+/// `synthesis_reorder`'s own real behavior (physically-last-always-ends-up-first, tag-name-agnostic),
+/// not C#'s literal tag-driven `leftGroupName`-always-first order (which happens to coincide with
+/// this for every attested grammar, since `left_switch` always tags the physically-last node there,
+/// but disagrees for the "reversed" tag convention `pg_grammar_gen`'s own recipe exercises).
+///
+/// Any node strictly between the two original switch positions is preserved, in its own slot,
+/// between the two (now reordered) switch nodes — UNLESS [`is_boundary_node`] reports it resolves to
+/// a `CharDefKind::Boundary`, in which case it is dropped (a boundary never appears in the analysis
+/// match sequence regardless of pattern shape, so requiring one here could never be satisfied; see
+/// this module's doc for why C#'s own unconditional drop never surfaced this as a problem).
 fn build_analysis_pattern(
+    g: &Grammar,
+    table: TableId,
     pattern: &Pattern,
     left_switch: u32,
     right_switch: u32,
@@ -198,11 +235,34 @@ fn build_analysis_pattern(
         (right_switch, left_switch)
     };
     let mut nodes: Vec<PatternNode> = pattern.nodes[..first as usize].to_vec();
-    let pre_len = nodes.len() as u32;
-    nodes.push(pattern.nodes[left_switch as usize].clone());
-    nodes.push(pattern.nodes[right_switch as usize].clone());
+    nodes.push(pattern.nodes[last as usize].clone());
+    let left_full = (nodes.len() - 1) as u32;
+    for mid in &pattern.nodes[(first as usize + 1)..(last as usize)] {
+        if !is_boundary_node(g, table, mid) {
+            nodes.push(mid.clone());
+        }
+    }
+    nodes.push(pattern.nodes[first as usize].clone());
+    let right_full = (nodes.len() - 1) as u32;
     nodes.extend(pattern.nodes[(last as usize + 1)..].iter().cloned());
-    (Pattern { nodes }, pre_len, pre_len + 1)
+    (Pattern { nodes }, left_full, right_full)
+}
+
+/// Whether `node` lowers to a `NodeKind::Boundary` shape node at segmentation time (the only
+/// `PatternNode` kind that ever does is a literal `<Segment>`/`<BoundaryMarker>` resolving to a
+/// `CharDefKind::Boundary` char def — a `Context` node's `SimpleContext` always names a segment
+/// natural class, per this crate's own `PatternNode::Context` doc; `pg_grammar::chardef`'s own
+/// "AddBoundary always passes `fs: null`" provenance note is why boundaries never carry a natural-
+/// class feature constraint). Used by [`build_analysis_pattern`] to decide whether a middle node
+/// between the two switches must be dropped (a boundary, transparent to analysis matching either
+/// way) or preserved (a real segment, required for a faithful round-trip with `synthesis_reorder`).
+fn is_boundary_node(g: &Grammar, table: TableId, node: &PatternNode) -> bool {
+    match node {
+        PatternNode::CharDef(id) => {
+            g.char_tables[table.0 as usize].get(*id).kind() == CharDefKind::Boundary
+        }
+        _ => false,
+    }
 }
 
 // =================================================================================================
@@ -586,7 +646,7 @@ pub fn analyze(g: &Grammar, rule: &MetathesisRuleDef, input: &Shape) -> Vec<Shap
     let table_id = TableId(0);
     let dir = reverse(dir_from_model(rule.dir));
     let (ana_pattern, left_idx_full, right_idx_full) =
-        build_analysis_pattern(&rule.pattern, rule.left_switch, rule.right_switch);
+        build_analysis_pattern(g, table_id, &rule.pattern, rule.left_switch, rule.right_switch);
     let left_idx = compiled_index(&ana_pattern, left_idx_full);
     let right_idx = compiled_index(&ana_pattern, right_idx_full);
     let compiled =
@@ -596,14 +656,11 @@ pub fn analyze(g: &Grammar, rule: &MetathesisRuleDef, input: &Shape) -> Vec<Shap
 }
 
 pub(crate) fn analyze_cached(
-    rule: &MetathesisRuleDef,
+    _rule: &MetathesisRuleDef,
     input: &Shape,
     cache: &MetaCache,
 ) -> Vec<Shape> {
-    let (ana_pattern, ..) =
-        build_analysis_pattern(&rule.pattern, rule.left_switch, rule.right_switch);
-    let pattern_len = non_anchor_count(&ana_pattern.nodes);
-    analyze_with_pattern(&cache.ana, pattern_len, input)
+    analyze_with_pattern(&cache.ana, cache.ana_pattern_len, input)
 }
 
 fn analyze_with_pattern(
@@ -728,6 +785,11 @@ fn report_metathesis_analysis(
 pub(crate) struct MetaCache {
     syn: CompiledSwitchPattern,
     ana: CompiledSwitchPattern,
+    /// `non_anchor_count` of the REBUILT analysis pattern's nodes -- cached here (rather than
+    /// recomputed by re-running [`build_analysis_pattern`] on every [`analyze_cached`] call, as an
+    /// earlier revision did) because that rebuild is now `&Grammar`-aware ([`is_boundary_node`]),
+    /// and `analyze_cached` itself has no `&Grammar` in scope (only [`build_meta_cache`] does).
+    ana_pattern_len: usize,
 }
 
 pub(crate) fn build_meta_cache(
@@ -750,9 +812,10 @@ pub(crate) fn build_meta_cache(
 
     let ana_dir = reverse(syn_dir);
     let (ana_pattern, ana_left_full, ana_right_full) =
-        build_analysis_pattern(&rule.pattern, rule.left_switch, rule.right_switch);
+        build_analysis_pattern(g, table_id, &rule.pattern, rule.left_switch, rule.right_switch);
     let ana_left = compiled_index(&ana_pattern, ana_left_full);
     let ana_right = compiled_index(&ana_pattern, ana_right_full);
+    let ana_pattern_len = non_anchor_count(&ana_pattern.nodes);
     let ana = compile_switch_pattern(
         g,
         table_id,
@@ -763,5 +826,9 @@ pub(crate) fn build_meta_cache(
         false,
     );
 
-    MetaCache { syn, ana }
+    MetaCache {
+        syn,
+        ana,
+        ana_pattern_len,
+    }
 }
