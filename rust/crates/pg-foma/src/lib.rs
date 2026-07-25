@@ -154,6 +154,14 @@ pub mod replace;
 pub mod tags;
 /// P6 feasibility prototype sibling of [`replace`]: the underlying-form lexc emitter.
 pub mod uflexc;
+/// `openspec/changes/cover-unordered-morph-rules`: the `MorphRuleOrder::Unordered` chain-depth-
+/// bounded/unbounded compile-time cardinality gate -- [`unordered::check_unordered_strata_bound`],
+/// wired into [`analyzer::FomaProposer::new_with_budget`], the second real production consumer of
+/// [`compose_budget::ComposeBudget`]'s chain-depth-shaped budget discipline after
+/// [`peel::ReduplicationPeeler`]. See that module's own doc for the full design, including this
+/// change's own load-bearing finding that the "ordering-union proposal" design.md calls for is an
+/// EXISTING mechanism (`crate::emit::build_deriv_chain`), not a new one.
+pub(crate) mod unordered;
 
 /// Re-exported so downstream crates (and the P0 tests) have a single, versioned door into the
 /// `foma` runtime rather than depending on it directly.

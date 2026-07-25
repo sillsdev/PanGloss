@@ -19,6 +19,7 @@ use foma::types::ApplyHandle;
 
 use pg_grammar::model::Grammar;
 
+use crate::compose_budget::ComposeBudget;
 use crate::emit::{self, EmitReport};
 use crate::tags::{self, Candidate};
 
@@ -49,6 +50,18 @@ pub enum FomaError {
         /// `HC_ENUM_PROBE_BUDGET` override).
         limit: usize,
     },
+    /// `openspec/changes/cover-unordered-morph-rules`: [`crate::unordered::check_unordered_strata_bound`]
+    /// found an `Unordered` stratum's own loose-rule count exceeding
+    /// [`crate::compose_budget::ComposeBudget::ordering_multiplicity_cap`] -- checked FIRST, before
+    /// `emit::emit_with_budget` is ever called, so `unordered-application.unbounded` never pays the
+    /// cost of building a (potentially large) `build_deriv_chain` network only to refuse it. Carries
+    /// the SAME [`crate::compose_budget::ComposeError`] this crate's other typed budget errors
+    /// carry, unwrapped to this variant's own fields for a caller that never needs to depend on
+    /// `crate::compose_budget` directly.
+    UnorderedOrderingMultiplicityExceeded {
+        rule_count: usize,
+        limit: usize,
+    },
 }
 
 impl fmt::Display for FomaError {
@@ -74,6 +87,17 @@ impl fmt::Display for FomaError {
                  instead of the foma-composite engine, or -- only if you understand why this \
                  grammar's dynamic enumeration tree is this large -- raise the budget via \
                  HC_ENUM_ENTRY_BUDGET/HC_ENUM_PROBE_BUDGET and re-run."
+            ),
+            FomaError::UnorderedOrderingMultiplicityExceeded { rule_count, limit } => write!(
+                f,
+                "grammar has an Unordered stratum with {rule_count} loose rules, exceeding the \
+                 ordering-multiplicity budget (limit {limit}). MorphRuleOrder::Unordered's \
+                 any-order/any-subset combination cascade admits a combinatorial number of \
+                 admissible rule orderings in the loose-rule count; this grammar's \
+                 unordered-application.unbounded configuration is honestly unsupported \
+                 (openspec/changes/cover-unordered-morph-rules) rather than silently truncated. \
+                 Raise HC_COMPOSE_ORDERING_MULTIPLICITY_BUDGET only if you understand why this \
+                 stratum's rule count is this large."
             ),
         }
     }
@@ -122,23 +146,48 @@ impl FomaProposer {
     ///
     /// Thin, env-driven wrapper over [`Self::new_with_budget`] -- same convention
     /// `crate::emit::emit_with_precision` uses for the same reason (its own doc): reads
-    /// `HC_ENUM_ENTRY_BUDGET`/`HC_ENUM_PROBE_BUDGET` exactly once, here, in the production entry
-    /// point, so parallel test processes never race process-global env state.
+    /// `HC_ENUM_ENTRY_BUDGET`/`HC_ENUM_PROBE_BUDGET`/`HC_COMPOSE_ORDERING_MULTIPLICITY_BUDGET`
+    /// exactly once, here, in the production entry point, so parallel test processes never race
+    /// process-global env state.
     pub fn new(g: &Grammar) -> Result<Self> {
         let enum_budget = crate::morphotactics::EnumerationBudget::from_env();
-        Self::new_with_budget(g, &enum_budget)
+        let compose_budget = ComposeBudget::from_env();
+        Self::new_with_budget(g, &enum_budget, &compose_budget)
     }
 
-    /// [`Self::new`]'s core, with the Fix 1 enumeration budget threaded in explicitly rather than
-    /// read from env -- what tests call directly (with a small
-    /// [`crate::morphotactics::EnumerationBudget::with_caps`]) to exercise
-    /// `FomaError::EnumerationBudgetExceeded` deterministically and fast, without setting
-    /// `HC_ENUM_ENTRY_BUDGET`/`HC_ENUM_PROBE_BUDGET` (this crate's tests never touch that env var,
+    /// [`Self::new`]'s core, with the Fix 1 enumeration budget AND
+    /// `openspec/changes/cover-unordered-morph-rules`'s ordering-multiplicity budget both threaded
+    /// in explicitly rather than read from env -- what tests call directly (with a small
+    /// [`crate::morphotactics::EnumerationBudget::with_caps`]/
+    /// [`ComposeBudget::with_ordering_multiplicity_cap`]) to exercise
+    /// `FomaError::EnumerationBudgetExceeded`/`FomaError::UnorderedOrderingMultiplicityExceeded`
+    /// deterministically and fast, without setting `HC_ENUM_ENTRY_BUDGET`/`HC_ENUM_PROBE_BUDGET`/
+    /// `HC_COMPOSE_ORDERING_MULTIPLICITY_BUDGET` (this crate's tests never touch those env vars,
     /// mirroring `crate::morphotactics::ExploreMode`'s own doc's reasoning for `HC_PREEXPAND_FLAT`).
     pub(crate) fn new_with_budget(
         g: &Grammar,
         enum_budget: &crate::morphotactics::EnumerationBudget,
+        compose_budget: &ComposeBudget,
     ) -> Result<Self> {
+        // `openspec/changes/cover-unordered-morph-rules`: checked FIRST, before `emit::
+        // emit_with_budget` is ever called -- `unordered-application.unbounded` never pays the cost
+        // of building a (potentially large) `build_deriv_chain` network only to refuse it (mirrors
+        // Fix 1's own "checked before the expensive derivation-layer/lexc-string-writing work"
+        // placement, just below).
+        if let Err(err) = crate::unordered::check_unordered_strata_bound(g, compose_budget) {
+            match err {
+                crate::compose_budget::ComposeError::OrderingMultiplicityExceeded {
+                    rule_count,
+                    limit,
+                    ..
+                } => {
+                    return Err(FomaError::UnorderedOrderingMultiplicityExceeded { rule_count, limit });
+                }
+                other => unreachable!(
+                    "check_unordered_strata_bound only ever produces OrderingMultiplicityExceeded, got {other:?}"
+                ),
+            }
+        }
         let result =
             emit::emit_with_budget(g, crate::precision::PrecisionConfig::Strip, enum_budget);
         // Fix 1 (fail-fast enumeration budget): checked FIRST, before ever handing `result.lexc_source`
@@ -268,7 +317,7 @@ mod budget_tests {
         let budget = EnumerationBudget::with_caps(10, usize::MAX);
 
         let t0 = std::time::Instant::now();
-        let result = FomaProposer::new_with_budget(&g, &budget);
+        let result = FomaProposer::new_with_budget(&g, &budget, &ComposeBudget::unbounded());
         let elapsed = t0.elapsed();
         eprintln!("aweti tiny-entry-budget trip took {elapsed:?}");
 
@@ -319,7 +368,7 @@ mod budget_tests {
         let budget = EnumerationBudget::with_caps(usize::MAX, 5);
 
         let t0 = std::time::Instant::now();
-        let result = FomaProposer::new_with_budget(&g, &budget);
+        let result = FomaProposer::new_with_budget(&g, &budget, &ComposeBudget::unbounded());
         let elapsed = t0.elapsed();
         eprintln!("aweti tiny-probe-budget trip took {elapsed:?}");
 
@@ -381,7 +430,7 @@ mod budget_tests {
 </HermitCrabInput>"#;
         let g = pg_grammar::load(FIXTURE).unwrap_or_else(|e| panic!("fixture failed to load: {e}"));
         let budget = EnumerationBudget::unbounded();
-        let result = FomaProposer::new_with_budget(&g, &budget);
+        let result = FomaProposer::new_with_budget(&g, &budget, &ComposeBudget::unbounded());
         assert!(
             result.is_ok(),
             "an unbounded budget must never trip on a tiny, non-composite grammar"

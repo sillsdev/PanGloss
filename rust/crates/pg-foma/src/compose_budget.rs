@@ -262,6 +262,58 @@ pub(crate) fn clamp_chain_depth_cap(configured: usize) -> usize {
     configured.min(CHAIN_DEPTH_ABSOLUTE_CEILING)
 }
 
+// --- Ordering-multiplicity dimension (`openspec/changes/cover-unordered-morph-rules`, design.md
+// D1 blocker 3 / D3; spec.md "Unordered application's chain-depth multiplication is a required
+// ADR 0003 budget extension, not an open question"). ------------------------------------------
+//
+// `MorphRuleOrder::Unordered`'s any-order/any-subset walk (`pg_rules::cascade::Cascade::
+// combination`, this crate's own citation of that module's "k!-walk over rule subsets" doc) adds a
+// COMBINATORIAL dimension the plain [`ComposeBudget::chain_depth_cap`] above was never calibrated
+// against: that dimension bounds ORDINARY derivation/unapplication chain length (a single word's
+// nested-reduplication depth, ADR 0003's Aweti 24-level chain), a fundamentally different quantity
+// from "how many DISTINCT orderings of a stratum's own loose rules exist to propose a union over."
+// Reusing `chain_depth_cap` for both would let an unrelated calibration decision on one silently
+// move the other -- exactly the trap `HC_COMPOSE_TUPLE_BUDGET`'s own doc names for NOT reusing
+// `DEFAULT_TUPLE_BUDGET` for the compounding pair-budget. This is therefore its own field, own env
+// var, own error variant.
+//
+// **Judgment call / finding (flagged, not silently assumed):** design.md frames the danger as
+// "O(n!)" (`cascade.rs`'s own "k!-walk" naming) -- but `crate::unordered::check_unordered_strata_bound`
+// (this dimension's own, first, production call site) checks a stratum's plain loose-rule COUNT,
+// not a literally-enumerated ordering count. Two reasons this is still the correct, conservative
+// quantity to gate on: (1) `n!` (or, under `multi_app = true` -- production's own
+// `pg_rules::stratum.rs::run_mrule_cascade` choice for BOTH `Linear`/`Unordered` -- the even larger
+// `n^d`-shaped reachable-node count `combination_rec`'s unbounded multi-application walk can visit)
+// is monotonically increasing in `n` alone, so a cap on `n` is a sound, if coarse, proxy for the
+// real danger without this crate's own compile-time gate needing to compute a factorial/exponential
+// itself; (2) no real large-scale `Unordered`-stratum grammar exists yet to calibrate the TRUE
+// joint (rule-count x chain-depth) bound design.md's own Novelty/risk section asks for -- so, exactly
+// like every other budget in this module, [`DEFAULT_ORDERING_MULTIPLICITY_BUDGET`] below is a
+// conservative placeholder pending real-grammar measurement (`calibrate-fst-resource-envelopes`'s
+// own governance: evidence + proposed diff + human-reviewed commit), not a final number.
+//
+// **Calibration basis (measured, this change):** every `Unordered` stratum in this repo's own
+// reference/conformance corpus, as of this writing --
+// `machine/conformance/languages/{fusional-realizational-morphology (16 loose rules),
+// suffixing-evidential-adjacency-chain (11), metathesis-phase-isolation/templatic-root-modification
+// (7), suffixing-vowel-harmony (6), polysynthetic-stratal-derivation-chain (5)}`,
+// `conformance-staging/edge-cases/*` (<=3), and -- the real ceiling --
+// `samples/data/sena-hc.xml` (25 loose rules in its own largest `Unordered` stratum; measured via
+// this change's own compile-time gate tripping on every one of these, since NOTHING in
+// `crate::analyzer`/`crate::emit` branched on `MorphRuleOrder` before this change). 100 leaves ~4x
+// headroom above that measured ceiling -- generous, but this change's own HARD RULE is "existing
+// behavior unchanged": a default that regresses Sena (this crate's own P1 stage-1 gate,
+// `tests/f1_sena_gate.rs`) would violate that regardless of how principled the calibration
+// reasoning is otherwise.
+pub(crate) const DEFAULT_ORDERING_MULTIPLICITY_BUDGET: usize = 100;
+
+pub(crate) fn ordering_multiplicity_budget_from_env() -> usize {
+    std::env::var("HC_COMPOSE_ORDERING_MULTIPLICITY_BUDGET")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(DEFAULT_ORDERING_MULTIPLICITY_BUDGET)
+}
+
 /// Which size measure [`ComposeError::NetSizeExceeded`] reports.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NetSizeMeasure {
@@ -328,6 +380,20 @@ pub enum ComposeError {
     /// variant exists so the typed-error schema is complete ahead of the recursion wiring.
     ChainDepthExceeded {
         depth: usize,
+        limit: usize,
+        site: &'static str,
+    },
+    /// `openspec/changes/cover-unordered-morph-rules`'s own ADR 0003 extension (this module's
+    /// "Ordering-multiplicity dimension" section): [`ComposeBudget::check_ordering_multiplicity`]
+    /// found an `Unordered` stratum's loose-rule count exceeding
+    /// [`ComposeBudget::ordering_multiplicity_cap`] -- the `unordered-application.unbounded`
+    /// configuration predicate's own compile-time trip wire (`crate::capability::
+    /// UnorderedOrderingUnionPredicate`'s doc). Named as its OWN dimension, distinct from
+    /// [`Self::ChainDepthExceeded`] (spec.md's own scenario: "compilation reports the
+    /// ordering-multiplicity dimension as the named blocking dimension, not the plain
+    /// chain-depth one").
+    OrderingMultiplicityExceeded {
+        rule_count: usize,
         limit: usize,
         site: &'static str,
     },
@@ -399,6 +465,22 @@ impl fmt::Display for ComposeError {
                  larger call stack -- raise HC_COMPOSE_CHAIN_DEPTH_BUDGET only if you understand why \
                  this grammar's derivation chain is this deep."
             ),
+            ComposeError::OrderingMultiplicityExceeded {
+                rule_count,
+                limit,
+                site,
+            } => write!(
+                f,
+                "ordering-multiplicity budget exceeded at {site:?}: {rule_count} loose rules in an \
+                 Unordered stratum (limit {limit}). MorphRuleOrder::Unordered's any-order/any-subset \
+                 combination cascade (pg_rules::cascade::Cascade::combination) admits up to a \
+                 factorial (or, under multi-application, exponential) number of admissible rule \
+                 orderings in the loose-rule count -- this grammar's own unordered-application.\
+                 unbounded configuration is honestly unsupported (openspec/changes/\
+                 cover-unordered-morph-rules), never silently truncated; raise \
+                 HC_COMPOSE_ORDERING_MULTIPLICITY_BUDGET only if you understand why this stratum's \
+                 rule count is this large."
+            ),
         }
     }
 }
@@ -431,6 +513,17 @@ pub struct ComposeBudget {
     /// (the production default), so every existing caller's behavior is unchanged until an
     /// operator opts in.
     pub(crate) chain_depth_cap: Option<usize>,
+    /// `openspec/changes/cover-unordered-morph-rules`'s own ADR 0003 extension (this module's
+    /// "Ordering-multiplicity dimension" section): `Some(cap)` bounds an `Unordered` stratum's own
+    /// loose-rule count; `None` means unbounded/off. Unlike [`Self::chain_depth_cap`] (default
+    /// `None`, uncalibrated -- that module doc's own history), [`Self::from_env`] defaults this to
+    /// `Some(DEFAULT_ORDERING_MULTIPLICITY_BUDGET)` -- a real, if conservative, calibrated default
+    /// ships with THIS change (mirroring the four size caps' own default-ON convention), since
+    /// promoting `unordered-application.chain-depth-bounded` off `FailClosed` needs a concrete
+    /// bound to promote AGAINST, not an uncalibrated placeholder. [`Self::with_caps`]/
+    /// [`Self::unbounded`] leave it `None` (mirrors [`Self::chain_depth_cap`]'s own "tests opt in
+    /// via an explicit builder" convention) -- use [`Self::with_ordering_multiplicity_cap`].
+    pub(crate) ordering_multiplicity_cap: Option<usize>,
 }
 
 impl ComposeBudget {
@@ -447,6 +540,7 @@ impl ComposeBudget {
             line_cap: line_budget_from_env(),
             step_timeout: step_timeout_from_env(),
             chain_depth_cap: chain_depth_cap_from_env(),
+            ordering_multiplicity_cap: Some(ordering_multiplicity_budget_from_env()),
         }
     }
 
@@ -474,6 +568,7 @@ impl ComposeBudget {
             line_cap,
             step_timeout,
             chain_depth_cap: None,
+            ordering_multiplicity_cap: None,
         }
     }
 
@@ -490,6 +585,7 @@ impl ComposeBudget {
             line_cap: usize::MAX,
             step_timeout: None,
             chain_depth_cap: None,
+            ordering_multiplicity_cap: None,
         }
     }
 
@@ -564,6 +660,54 @@ impl ComposeBudget {
             None => Ok(()),
             Some(limit) if depth <= limit => Ok(()),
             Some(limit) => Err(ComposeError::ChainDepthExceeded { depth, limit, site }),
+        }
+    }
+
+    /// Explicit-caps builder for the ordering-multiplicity dimension (mirrors
+    /// [`Self::with_chain_depth_cap`]'s own shape) -- what tests use to exercise
+    /// [`Self::check_ordering_multiplicity`] deterministically, without touching
+    /// `HC_COMPOSE_ORDERING_MULTIPLICITY_BUDGET`.
+    pub fn with_ordering_multiplicity_cap(mut self, cap: usize) -> Self {
+        self.ordering_multiplicity_cap = Some(cap);
+        self
+    }
+
+    /// This budget's currently configured ordering-multiplicity cap, if any (`None` = unbounded/
+    /// off -- only [`Self::with_caps`]/[`Self::unbounded`], never [`Self::from_env`], which always
+    /// configures a real default; see this module's "Ordering-multiplicity dimension" section).
+    ///
+    /// `#[allow(dead_code)]`: [`Self::check_ordering_multiplicity`] reads the
+    /// `ordering_multiplicity_cap` field directly rather than through this accessor (mirrors
+    /// [`Self::chain_depth_cap`]'s own doc); only this module's own tests call it.
+    #[allow(dead_code)]
+    pub(crate) fn ordering_multiplicity_cap(&self) -> Option<usize> {
+        self.ordering_multiplicity_cap
+    }
+
+    /// Checked ordering-multiplicity dimension (`openspec/changes/cover-unordered-morph-rules`;
+    /// this module's "Ordering-multiplicity dimension" section): `Ok` iff `rule_count` (an
+    /// `Unordered` stratum's own loose-rule count) does not exceed [`Self::ordering_multiplicity_cap`]
+    /// (unconfigured/`None` always `Ok`, the same zero-behavior-change-when-unset shape every other
+    /// dimension in this module uses). `rule_count <= limit` is accepted, mirroring
+    /// [`Self::check_chain_depth`]'s own "the cap names the last value that still fits" convention.
+    ///
+    /// **Wired for real** by `crate::unordered::check_unordered_strata_bound` -- called once per
+    /// grammar, before `crate::analyzer::FomaProposer` ever hands a lexc source to the foma
+    /// compiler (the second real production consumer of this module's chain-depth-shaped budget
+    /// discipline, after `crate::peel::ReduplicationPeeler`'s own per-word chain-depth check).
+    pub(crate) fn check_ordering_multiplicity(
+        &self,
+        rule_count: usize,
+        site: &'static str,
+    ) -> Result<(), ComposeError> {
+        match self.ordering_multiplicity_cap {
+            None => Ok(()),
+            Some(limit) if rule_count <= limit => Ok(()),
+            Some(limit) => Err(ComposeError::OrderingMultiplicityExceeded {
+                rule_count,
+                limit,
+                site,
+            }),
         }
     }
 }
@@ -955,5 +1099,88 @@ mod compose_budget_tests {
         assert!(msg.contains("25"));
         assert!(msg.contains("24"));
         assert!(msg.contains("HC_COMPOSE_CHAIN_DEPTH_BUDGET"));
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Ordering-multiplicity dimension (`openspec/changes/cover-unordered-morph-rules`).
+    // ---------------------------------------------------------------------------------------
+
+    #[test]
+    fn ordering_multiplicity_unbounded_budget_never_trips() {
+        let budget = ComposeBudget::unbounded();
+        assert_eq!(budget.ordering_multiplicity_cap(), None);
+        budget
+            .check_ordering_multiplicity(1_000_000, "ordering_multiplicity_unbounded_budget_never_trips")
+            .expect("unbounded ordering-multiplicity budget must never trip, at any rule count");
+    }
+
+    #[test]
+    fn ordering_multiplicity_with_caps_defaults_to_unbounded() {
+        // `with_caps` cannot take an 8th positional argument without breaking every existing call
+        // site across this crate -- prove it still leaves this dimension off by default.
+        let budget =
+            ComposeBudget::with_caps(usize::MAX, usize::MAX, usize::MAX, usize::MAX, usize::MAX, None);
+        assert_eq!(budget.ordering_multiplicity_cap(), None);
+        budget
+            .check_ordering_multiplicity(usize::MAX, "ordering_multiplicity_with_caps_defaults_to_unbounded")
+            .expect("with_caps' default ordering-multiplicity cap must be unbounded");
+    }
+
+    #[test]
+    fn ordering_multiplicity_explicit_cap_does_not_trip_at_or_below_limit() {
+        let budget = ComposeBudget::unbounded().with_ordering_multiplicity_cap(6);
+        budget
+            .check_ordering_multiplicity(6, "ordering_multiplicity_explicit_cap_does_not_trip_at_or_below_limit")
+            .expect("rule_count == cap must be accepted");
+        budget
+            .check_ordering_multiplicity(2, "ordering_multiplicity_explicit_cap_does_not_trip_at_or_below_limit")
+            .expect("rule_count well below cap must be accepted");
+    }
+
+    #[test]
+    fn ordering_multiplicity_explicit_cap_trips_one_past_limit() {
+        let budget = ComposeBudget::unbounded().with_ordering_multiplicity_cap(6);
+        let err = budget
+            .check_ordering_multiplicity(7, "ordering_multiplicity_explicit_cap_trips_one_past_limit")
+            .expect_err("rule_count == cap + 1 must trip");
+        match err {
+            ComposeError::OrderingMultiplicityExceeded {
+                rule_count,
+                limit,
+                site,
+            } => {
+                assert_eq!(rule_count, 7);
+                assert_eq!(limit, 6);
+                assert_eq!(site, "ordering_multiplicity_explicit_cap_trips_one_past_limit");
+            }
+            other => panic!("expected OrderingMultiplicityExceeded, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn ordering_multiplicity_from_env_defaults_to_a_calibrated_bound() {
+        // Unlike chain_depth_cap (default None/uncalibrated), from_env must configure a REAL
+        // default -- this change's own promotion needs a concrete bound, not an uncalibrated
+        // placeholder (this module's "Ordering-multiplicity dimension" section doc).
+        let budget = ComposeBudget::from_env();
+        assert_eq!(
+            budget.ordering_multiplicity_cap(),
+            Some(DEFAULT_ORDERING_MULTIPLICITY_BUDGET),
+            "from_env must default this dimension ON (unlike chain_depth_cap), absent an env override"
+        );
+    }
+
+    #[test]
+    fn ordering_multiplicity_exceeded_display_is_specific() {
+        let err = ComposeError::OrderingMultiplicityExceeded {
+            rule_count: 7,
+            limit: 6,
+            site: "unit-test-site",
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("unit-test-site"));
+        assert!(msg.contains('7'));
+        assert!(msg.contains('6'));
+        assert!(msg.contains("HC_COMPOSE_ORDERING_MULTIPLICITY_BUDGET"));
     }
 }
