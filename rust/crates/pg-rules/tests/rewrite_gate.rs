@@ -45,6 +45,21 @@ fn rule(lhs: Pattern, sr: RewriteSubruleDef) -> RewriteRuleDef {
     }
 }
 
+/// [`rule`]'s direction-parameterized sibling — needed only by the direction (LtR vs RtL) pick-order
+/// gate tests below, which are the only tests in this file that build a `Dir::RightToLeft` rule
+/// (`rule`'s every other caller wants the default `Dir::LeftToRight`, so that helper is left as-is).
+fn rule_dir(lhs: Pattern, sr: RewriteSubruleDef, dir: Dir) -> RewriteRuleDef {
+    RewriteRuleDef {
+        xml_id: "test-dir".into(),
+        name: None,
+        mode: RewriteMode::Iterative,
+        dir,
+        vars: Default::default(),
+        lhs,
+        subrules: vec![sr],
+    }
+}
+
 /// [`rule`]'s multi-subrule, mode-parameterized sibling — needed only by the P13 multi-subrule
 /// Simultaneous-disjunction gate test below (§4.1's warning / §7 open question 1), which is the
 /// only test in this file with more than one subrule on a single rule.
@@ -706,6 +721,203 @@ fn narrow_synthesis_rejects_an_over_wide_optional_skip_span() {
     assert!(
         out.is_empty(),
         "no width-correct match exists; the over-wide span must be rejected, not applied"
+    );
+}
+
+// =================================================================================================
+// Direction-aware Iterative pick order (DIRECTION-BLIND bug fix): C#
+// `IterativePhonologicalPatternRule.Apply` (`PhonologicalRules/IterativePhonologicalPatternRule.cs:
+// 17-48`) finds the next match by scanning in `Matcher.Direction` (`Matcher.Match(input)`, no
+// explicit start ⇒ from the shape's `Direction`-side anchor) and, after applying or skipping it,
+// resumes scanning FURTHER in that SAME direction (`targetMatch.Range.GetEnd(Direction).GetNext(
+// Direction)` / `GetStart(Direction).GetNext(Direction)`, cs:29,33) — so a `LeftToRight` rule always
+// finds its LEFTMOST remaining candidate first and a `RightToLeft` rule always finds its RIGHTMOST
+// remaining candidate first. Before this fix, `pg_rules::rewrite`'s Iterative pick-one-then-rescan
+// loops (`syn_feature`/`syn_narrow`/`probe_narrow`/`ana_feature`) always picked the leftmost accepted
+// candidate, with ZERO dependence on `rule.dir` — a `RightToLeft`-declared rule behaved exactly like
+// `LeftToRight`. `double_t_narrow_rule`/`double_t_feature_change_rule` above are reused directly
+// (only `dir` differs) since they are already exactly the "two overlapping same-shape matches"
+// fixtures this bug needs — `rule`'s hardcoded `Dir::LeftToRight` is why `rule_dir` exists.
+// =================================================================================================
+
+fn double_t_narrow_rule_dir(g: &pg_grammar::model::Grammar, dir: Dir) -> RewriteRuleDef {
+    rule_dir(
+        Pattern {
+            nodes: vec![
+                PatternNode::CharDef(char_def(g, "char_t")),
+                PatternNode::CharDef(char_def(g, "char_t")),
+            ],
+        },
+        subrule(pat_char(char_def(g, "char_n")), None, None),
+        dir,
+    )
+}
+
+#[test]
+fn narrow_synthesis_pick_order_witness_leftmost_then_rightmost() {
+    // The bug's own concrete witness (generalized from `aa -> b` on "aaa" to this file's `char_t`/
+    // `char_n` alphabet: `tt -> n` on "ttt"). The raw FST reports two OVERLAPPING "tt" candidates
+    // sharing the middle node — (t0,t1) and (t1,t2) — so which one an Iterative loop merges FIRST
+    // determines which single `t` survives unmerged; before this fix BOTH directions merged
+    // (t0,t1), leaving "n"+"t" regardless of `rule.dir`.
+    let g = load_probe_grammar();
+
+    let ltr = pg_rules::rewrite::synthesize(
+        &g,
+        &double_t_narrow_rule_dir(&g, Dir::LeftToRight),
+        &seg(&g, "ttt"),
+    );
+    assert_eq!(ltr.len(), 1, "LtR: rule applied");
+    let got = interior(&ltr[0]);
+    assert_eq!(got.len(), 2, "one pair merged, one t left over");
+    assert_eq!(
+        (got[0].1, got[1].1),
+        (char_def(&g, "char_n").0, char_def(&g, "char_t").0),
+        "LtR merges the LEFTMOST pair (t0,t1) -> n t"
+    );
+
+    let rtl = pg_rules::rewrite::synthesize(
+        &g,
+        &double_t_narrow_rule_dir(&g, Dir::RightToLeft),
+        &seg(&g, "ttt"),
+    );
+    assert_eq!(rtl.len(), 1, "RtL: rule applied");
+    let got = interior(&rtl[0]);
+    assert_eq!(got.len(), 2, "one pair merged, one t left over");
+    assert_eq!(
+        (got[0].1, got[1].1),
+        (char_def(&g, "char_t").0, char_def(&g, "char_n").0),
+        "RtL merges the RIGHTMOST pair (t1,t2) -> t n -- the MIRROR IMAGE of LtR, not the same \
+         result under both directions (the pre-fix bug)"
+    );
+}
+
+#[test]
+fn narrow_synthesis_pick_order_with_environment_changes_final_result() {
+    // `t t -> n / _ t` (a genuine, non-trivial right environment: "the pair must be immediately
+    // followed by a literal t"), applied to "tttt". The raw FST reports three candidate windows —
+    // (t0,t1), (t1,t2), (t2,t3) — but the environment independently eliminates the LAST one in
+    // EITHER direction (nothing follows t2,t3), leaving two overlapping, BOTH env-satisfying
+    // candidates for direction to arbitrate between: (t0,t1) [followed by t2] and (t1,t2) [followed
+    // by t3].
+    let g = load_probe_grammar();
+    let env_rule = |dir: Dir| {
+        rule_dir(
+            Pattern {
+                nodes: vec![
+                    PatternNode::CharDef(char_def(&g, "char_t")),
+                    PatternNode::CharDef(char_def(&g, "char_t")),
+                ],
+            },
+            subrule(
+                pat_char(char_def(&g, "char_n")),
+                None,
+                Some(pat_char(char_def(&g, "char_t"))),
+            ),
+            dir,
+        )
+    };
+    let cds = |shape: &Shape| -> Vec<u32> { interior(shape).iter().map(|n| n.1).collect() };
+
+    let ltr = pg_rules::rewrite::synthesize(&g, &env_rule(Dir::LeftToRight), &seg(&g, "tttt"));
+    assert_eq!(ltr.len(), 1, "LtR: rule applied");
+    assert_eq!(
+        cds(&ltr[0]),
+        vec![
+            char_def(&g, "char_n").0,
+            char_def(&g, "char_t").0,
+            char_def(&g, "char_t").0,
+        ],
+        "LtR merges the LEFTMOST env-satisfying pair (t0,t1) -> n t t"
+    );
+
+    let rtl = pg_rules::rewrite::synthesize(&g, &env_rule(Dir::RightToLeft), &seg(&g, "tttt"));
+    assert_eq!(rtl.len(), 1, "RtL: rule applied");
+    assert_eq!(
+        cds(&rtl[0]),
+        vec![
+            char_def(&g, "char_t").0,
+            char_def(&g, "char_n").0,
+            char_def(&g, "char_t").0,
+        ],
+        "RtL merges the RIGHTMOST env-satisfying pair (t1,t2) -> t n t -- a DIFFERENT final surface \
+         from LtR, driven jointly by direction and a real (non-vacuous) environment"
+    );
+}
+
+fn double_t_feature_change_rule_dir(g: &pg_grammar::model::Grammar, dir: Dir) -> RewriteRuleDef {
+    rule_dir(
+        Pattern {
+            nodes: vec![
+                PatternNode::CharDef(char_def(g, "char_t")),
+                PatternNode::CharDef(char_def(g, "char_t")),
+            ],
+        },
+        subrule(
+            Pattern {
+                nodes: vec![
+                    PatternNode::Context(ctx(nat_class(g, "nc_voi"))),
+                    PatternNode::Context(ctx(nat_class(g, "nc_voi"))),
+                ],
+            },
+            None,
+            None,
+        ),
+        dir,
+    )
+}
+
+#[test]
+fn feature_change_analysis_pick_order_depends_on_direction() {
+    // The un-application counterpart, exercising `ana_feature` specifically (the only ANALYSIS-side
+    // site this fix touches — `ana_narrow_deletion`/`ana_narrow_general`/`ana_epenthesis` are all
+    // Simultaneous/collect-every-match in C# too, `PhonologicalRules/AnalysisRewriteRule.cs:72-90`,
+    // so they have no "which one wins" question). `double_t_feature_change_rule`'s un-apply target
+    // is `LHS ⊕ RHS` = [cons+, voi+] at BOTH of its two positions — exactly "d"'s (or "n"'s) own
+    // lanes — so "ddd" (three d's) offers the SAME kind of overlapping-pair ambiguity as the
+    // synthesis witness above: candidate windows (d0,d1) and (d1,d2) share the middle node, and
+    // `ana_feature`'s own `dirty` gate (set on every node the FIRST accepted window touches) then
+    // blocks the other, overlapping window on rescan — so exactly one window ever unapplies, and
+    // direction decides which.
+    //
+    // Critically, `AnalysisRewriteRule`'s own `Matcher.Direction` is the OPPOSITE of `rule.Direction`
+    // (`AnalysisRewriteRule.cs:33`: `rule.Direction == LeftToRight ? RightToLeft : LeftToRight`) —
+    // un-application is the MIRROR IMAGE of application, not a copy of it — so a `LeftToRight`-
+    // declared rule's analysis scans RIGHT-TO-LEFT (rightmost pair first) and a `RightToLeft`-
+    // declared rule's analysis scans LEFT-TO-RIGHT (leftmost pair first).
+    let g = load_probe_grammar();
+    let unconstrained_voi = vec![0b01u64, 0b11, 0b01]; // cons+ (from d), voi now full-mask (t|d)
+
+    let out_ltr = pg_rules::rewrite::analyze(
+        &g,
+        &double_t_feature_change_rule_dir(&g, Dir::LeftToRight),
+        &seg(&g, "ddd"),
+    );
+    assert_eq!(out_ltr.len(), 1, "LtR-declared rule: unapplied");
+    let got = interior(&out_ltr[0]);
+    assert_eq!(got.len(), 3);
+    assert_eq!(
+        got[0].2,
+        D.to_vec(),
+        "leftmost d untouched -- a LtR-declared rule's analysis scans RtL"
+    );
+    assert_eq!(got[1].2, unconstrained_voi, "middle d unapplied (part of the rightmost pair)");
+    assert_eq!(got[2].2, unconstrained_voi, "rightmost d unapplied (part of the rightmost pair)");
+
+    let out_rtl = pg_rules::rewrite::analyze(
+        &g,
+        &double_t_feature_change_rule_dir(&g, Dir::RightToLeft),
+        &seg(&g, "ddd"),
+    );
+    assert_eq!(out_rtl.len(), 1, "RtL-declared rule: unapplied");
+    let got = interior(&out_rtl[0]);
+    assert_eq!(got.len(), 3);
+    assert_eq!(got[0].2, unconstrained_voi, "leftmost d unapplied (part of the leftmost pair)");
+    assert_eq!(got[1].2, unconstrained_voi, "middle d unapplied (part of the leftmost pair)");
+    assert_eq!(
+        got[2].2,
+        D.to_vec(),
+        "rightmost d untouched -- a RtL-declared rule's analysis scans LtR"
     );
 }
 

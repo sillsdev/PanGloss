@@ -15,27 +15,28 @@
 //! oracle), following `tests/two_table_symbol_divergence.rs`'s established methodology exactly
 //! (`fst_candidate_set`/`oracle_candidate_set`, decode via `pg_foma::tags`).
 //!
-//! ## Known, out-of-scope oracle gap (discovered during this change, NOT fixed here)
+//! ## Formerly out-of-scope oracle gap — FIXED (pg-rules DIRECTION-BLIND pick-order fix)
 //! `pg_rules::rewrite`'s own `Iterative` synthesis/analysis loops (`syn_feature`/`syn_narrow`/
-//! `ana_feature`/…) pick which of several candidate spans to act on first via `all_spans`'/
-//! `candidates.sort_unstable()`'s own ASCENDING sort, with NO dependence on `rule.dir` anywhere in
-//! either loop or in the compiled target/environment FST's own matched-span SET (`pg_rules::
-//! rewrite::compile_lane_fst`'s own doc: "direction changes scan order/preference, not the matched
-//! string" — and the "preference" half is exactly what the unconditional ascending sort erases).
-//! Verified directly (a throwaway probe, not checked in): a hand-built `aa -> b` rule applied via
-//! `pg_rules::rewrite::synthesize` to `"aaa"` returns `"ba"` whether the rule is declared
-//! `LeftToRight` or `rightToLeftIterative` — IDENTICAL output. This repo's own full-HC oracle is
-//! therefore, today, direction-BLIND for "which overlapping match wins" — a pre-existing gap in
-//! `pg_rules::rewrite`, entirely outside `replace.rs`'s single-owner boundary this change holds to.
-//! ADR 0001 (`docs/adr/0001-honest-capability-boundary.md`): *"Where the oracle itself is
-//! unverified for a configuration... the configuration is unsupported by definition — there is no
-//! correct behavior to check against."* `rtl_distinct_leftmost_rightmost_differs_from_ltr_and_is_
-//! recall_safe_against_the_current_oracle` (below) documents this precisely: it proves the
-//! REVERSED branch alone genuinely differs from `LeftToRight` (a pure, oracle-independent FST
-//! fact), and proves the UNION'd construction this file's other four tests already pin never
-//! UNDER-recalls relative to today's oracle (safe superset) — it does NOT claim exact oracle
-//! equality for the specific "which overlapping match wins" dimension, because no correct oracle
-//! answer for that dimension exists in this repo today.
+//! `probe_narrow`/`ana_feature`) used to pick which of several candidate spans to act on first via
+//! an ASCENDING sort with NO dependence on `rule.dir`. Verified directly at the time (a throwaway
+//! probe, not checked in): a hand-built `aa -> b` rule applied via `pg_rules::rewrite::synthesize`
+//! to `"aaa"` returned `"ba"` whether the rule was declared `LeftToRight` or
+//! `rightToLeftIterative` — IDENTICAL output; this repo's own full-HC oracle was, at the time,
+//! direction-BLIND for "which overlapping match wins". That gap has since been fixed in
+//! `pg_rules::rewrite` (see `rewrite.rs`'s `ordered_spans` — candidates are now tried in
+//! `target.direction()`'s own scan order, leftmost-first for `LeftToRight`, rightmost-first for
+//! `RightToLeft`, mirroring C# `IterativePhonologicalPatternRule.Apply`). This file's own
+//! `rtl_distinct_leftmost_rightmost_differs_from_ltr_and_is_recall_safe_against_the_current_oracle`
+//! test (below) originally pinned the gap as data (oracle recalls "aaa" only as "ba", never "ab",
+//! for a `RightToLeft`-declared rule) and now pins its correction (oracle recalls "aaa" only as
+//! "ab", never "ba", for the same rule) — the flip the test's own pre-fix comment anticipated as
+//! "the expected, welcome signal to revisit this test". `replace.rs`'s plain∪reversed union
+//! (`compile_rtl_branch_net`'s safety net, kept UNCHANGED by the pg-rules fix — this file's crate is
+//! not touched by that change) still recall-safely PROPOSES both "ba" and "ab" for this query, so
+//! the containment check below is now a strict superset (not equality) on the "ba" side: the union
+//! could in principle be tightened to drop the plain/`LeftToRight`-style branch now that the oracle
+//! no longer needs it for a genuinely `RightToLeft`-declared rule, but recall safety never demanded
+//! that tightening (a superset is always safe) and this file does not attempt it.
 
 mod common;
 
@@ -608,10 +609,10 @@ fn rtl_epenthesis_construction_is_correct_at_the_fst_level() {
 
 // =================================================================================================
 // rtl-distinct-leftmost-rightmost: the spec's own discriminating scenario ("Direction changes the
-// result"). See this file's own top doc, "Known, out-of-scope oracle gap", for why this witness
-// proves genuine FST-level directional divergence + safe superset-containment against today's
-// oracle, rather than exact oracle equality (no correct oracle answer for this dimension exists in
-// this repo today).
+// result"). See this file's own top doc, "Formerly out-of-scope oracle gap — FIXED", for why this
+// witness now proves genuine FST-level directional divergence AND genuine oracle-level directional
+// correctness (the oracle's own pick-order gap is fixed), plus safe superset-containment against
+// the (still union-based, unchanged) FST relation.
 // =================================================================================================
 
 #[test]
@@ -720,28 +721,29 @@ fn rtl_distinct_leftmost_rightmost_differs_from_ltr_and_is_recall_safe_against_t
     let oracle_ba = oracle_candidate_set(&morpher, "ba", &allowed);
     let oracle_ab = oracle_candidate_set(&morpher, "ab", &allowed);
 
-    // The oracle gap, pinned as data: `pg_rules::rewrite`'s own resynthesis of "aaa" is always
-    // "ba" (leftmost-preferring), REGARDLESS of this rule's declared `RightToLeft` direction --
-    // this file's top doc explains why. If a future fix makes the oracle direction-aware, EITHER
-    // of these two assertions failing is the expected, welcome signal to revisit this test (not a
-    // regression in `replace.rs`).
-    assert_eq!(oracle_ba.len(), 1, "oracle recalls 'aaa' for 'ba' (its own leftmost-preferring resynthesis): {oracle_ba:?}");
-    assert!(oracle_ab.is_empty(), "KNOWN ORACLE GAP: oracle does NOT recall 'aaa' for 'ab' today (pg_rules::rewrite is direction-blind for pick-order) -- see this file's top doc");
+    // FIXED (this file's top doc, "Formerly out-of-scope oracle gap"): `pg_rules::rewrite`'s
+    // Iterative pick-order now respects `rule.dir`, so for THIS rule (declared
+    // `rightToLeftIterative`) the oracle's own resynthesis of "aaa" is now "ab" (rightmost-
+    // preferring) -- it no longer recalls "ba" at all. Before the fix these two assertions were
+    // inverted (oracle recalled "ba", never "ab") -- exactly the flip the pre-fix comment here
+    // anticipated as "the expected, welcome signal to revisit this test".
+    assert!(oracle_ba.is_empty(), "FIXED: a RightToLeft-declared rule's oracle resynthesis of 'aaa' must no longer be 'ba': {oracle_ba:?}");
+    assert_eq!(oracle_ab.len(), 1, "FIXED: the oracle now recalls 'aaa' for 'ab' (rightmost-preferring, matching rule.dir=RightToLeft): {oracle_ab:?}");
 
-    // RECALL SAFETY (never under-propose relative to today's real oracle): the FST's compiled
-    // relation, which the safety-net union guarantees always contains the plain/LeftToRight-style
-    // branch's own pairs, must still recall "aaa" for "ba".
-    assert_eq!(fst_ba, oracle_ba, "CONTAINMENT for 'ba': FST must recall exactly what today's oracle confirms");
+    // RECALL SAFETY (never under-propose relative to the real oracle): the FST's compiled relation
+    // must still recall "aaa" for "ab" -- now the genuinely-correct direction, not just the
+    // reversed branch's own candidate.
+    assert_eq!(fst_ab, oracle_ab, "CONTAINMENT for 'ab': FST must recall exactly what the oracle confirms");
 
-    // GENUINE DIRECTIONALITY (not "compiled as LeftToRight"): the FST's compiled relation must
-    // ALSO propose "aaa" for "ab" -- the reversed branch's own genuinely-different candidate,
-    // safely over-proposed (ConfirmOnly's own "propose the superset" contract, ADR 0001) even
-    // though today's oracle cannot yet confirm it (the documented gap above).
+    // The 'ba' side is now a STRICT superset, not equality: `replace.rs`'s plain∪reversed union
+    // (`compile_rtl_branch_net`, unchanged by the pg-rules fix -- this crate is not touched by that
+    // change) still proposes 'ba' from its plain/LeftToRight-style safety-net branch, even though
+    // the now-correct oracle no longer confirms it for this genuinely-RightToLeft rule. Still
+    // recall-safe (a superset is always safe), just no longer tight -- see this file's top doc for
+    // why this over-proposal is a real, but not urgent, tightening opportunity left for later.
+    assert!(!fst_ba.is_empty(), "the union's plain-branch safety net still proposes 'ba' (over-proposing, not a regression)");
     assert!(
-        !fst_ab.is_empty(),
-        "the RTL-compiled relation must still PROPOSE 'aaa' for 'ab' (the genuinely-reversed \
-         branch's own candidate) even though today's oracle cannot confirm it -- this is what \
-         proves the construction is not simply 'compiled as LeftToRight': a plain LeftToRight-only \
-         compile of this same rule would NEVER propose 'aaa' for surface 'ab'"
+        oracle_ba.is_subset(&fst_ba),
+        "recall safety must still hold for 'ba' (trivially, since the oracle no longer claims it at all)"
     );
 }

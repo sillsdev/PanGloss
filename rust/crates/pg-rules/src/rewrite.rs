@@ -348,6 +348,44 @@ pub(crate) fn all_spans(fst: &Fst, segs: &[Segment]) -> Vec<(usize, usize)> {
     spans
 }
 
+/// [`all_spans`], reordered to match an Iterative pick-one-then-rescan loop's own scan preference
+/// ([`syn_feature`]/[`syn_narrow`]/[`probe_narrow`]/[`ana_feature`] — every direction-BLIND site
+/// this fix corrects). C# `IterativePhonologicalPatternRule.Apply`
+/// (`PhonologicalRules/IterativePhonologicalPatternRule.cs:17-48`) finds the match nearest the
+/// shape's `Matcher.Direction`-side edge first (`Matcher.Match(input)`, no explicit start ⇒ scan
+/// from the anchor in `Direction`), applies it (or, if `MatchSubrule` rejects it, just steps past
+/// its start), then resumes scanning FURTHER in that SAME `Direction`
+/// (`targetMatch.Range.GetEnd(Direction).GetNext(Direction)` /
+/// `GetStart(Direction).GetNext(Direction)`, cs:29,33) — i.e. for `LeftToRight` it always tries the
+/// leftmost not-yet-tried position next; for `RightToLeft` it always tries the rightmost
+/// not-yet-tried position next.
+///
+/// `all_spans` itself stays a plain, direction-agnostic ascending sort — its other callers
+/// (`sim_feature`/`sim_narrow`/`probe_sim_narrow`/`ana_narrow_general`, all confirmed Simultaneous-
+/// mode / collect-then-apply-every-match consumers, see their own docs and
+/// `AnalysisRewriteRule.cs:72-90`'s `mode = RewriteApplicationMode.Simultaneous` for the Narrow
+/// cases) apply EVERY accepted candidate regardless of order, so they have no "which one wins"
+/// question for this fix to touch. Only a pick-one Iterative loop needs its candidates tried in
+/// scan order, so each such loop reorders its own copy via this helper instead of changing
+/// `all_spans`'s contract for everyone.
+///
+/// `target.direction()` is always the right thing to key off, for EITHER caller family: synthesis
+/// compiles `target` with `dir_of(rule)` ([`lhs_fst`]'s own call in `synthesize_with_mpr`), while
+/// analysis compiles it with `reverse(dir_of(rule))` ([`ana_feature_target_lanes`]'s caller) —
+/// mirroring `AnalysisRewriteRule`'s own constructor, which builds its `Matcher.Direction` as
+/// `rule.Direction == LeftToRight ? RightToLeft : LeftToRight` (`PhonologicalRules/
+/// AnalysisRewriteRule.cs:33`), i.e. analysis always scans the OPPOSITE way synthesis would have.
+/// Reading `target.direction()` directly (rather than re-deriving `dir_of(rule)`/`reverse(..)` at
+/// each call site) means both sides reduce to the same one-line rule — "scan in the direction THIS
+/// specific compiled matcher actually traverses" — with no risk of the two getting out of sync.
+fn ordered_spans(target: &Fst, segs: &[Segment]) -> Vec<(usize, usize)> {
+    let mut spans = all_spans(target, segs);
+    if target.direction() == Direction::RightToLeft {
+        spans.reverse();
+    }
+    spans
+}
+
 /// A compiled environment (already lifted from a model [`Pattern`] with its anchors as flags).
 ///
 /// `pub(crate)` (plan §13.1 Tier-1 #5): reused as-is by `crate::validity`'s allomorph-environment
@@ -1901,10 +1939,12 @@ fn syn_feature(
     let mut applied = false;
     loop {
         let (segs, node_of) = ms.segs(true);
-        // Leftmost span whose target nodes are all clean (Modified=Clean) and where the environments
-        // hold. (Feeding order beyond leftmost-clean is out of scope; the gate rules don't feed.)
+        // First span (in `target.direction()`'s own scan order — leftmost-first for LtR, rightmost-
+        // first for RtL, see [`ordered_spans`]'s doc) whose target nodes are all clean
+        // (Modified=Clean) and where the environments hold. (Feeding order beyond that is out of
+        // scope; the gate rules don't feed.)
         let mut acted = false;
-        for (s, e) in all_spans(target, &segs) {
+        for (s, e) in ordered_spans(target, &segs) {
             let target_nodes: Vec<usize> = node_of[s..e].to_vec();
             // Width guard (plan §6 item 1): reject an over-wide Optional-skip artifact before the
             // positional `rhs_pins[k]` index below, which would otherwise panic on a multi-node
@@ -2284,9 +2324,14 @@ fn ana_feature(
 
         // `filter_map` drops a match whose group offsets didn't all resolve (not expected for an
         // accepting match against this compiled target, but fail open rather than index a
-        // missing position); sort+dedup restores `all_spans`' leftmost-first, stable-order scan
-        // preference (lexicographic on `Vec<usize>` sorts by the first row's position first,
-        // exactly mirroring the old ascending `(s, e)` sort).
+        // missing position); sort+dedup gives a stable, deduped ordering (lexicographic on
+        // `Vec<usize>` sorts by the first row's position first, mirroring `all_spans`' own
+        // ascending `(s, e)` sort). Direction fix: this loop is the analysis-side Iterative
+        // pick-one-then-rescan loop ([`ordered_spans`]'s doc), so the candidate a scan actually
+        // reaches first must follow `target.direction()`'s own scan order, not always the
+        // ascending one -- `rtl` (already computed above for `recover_pos`) reverses the sorted
+        // list into descending (rightmost-first) order when this target's compiled direction is
+        // `RightToLeft`, exactly like `ordered_spans` does for the `(s, e)`-tuple callers.
         let mut candidates: Vec<Vec<usize>> = Transduce::new(target, segs.clone())
             .all_matches()
             .iter()
@@ -2299,6 +2344,9 @@ fn ana_feature(
             .collect();
         candidates.sort_unstable();
         candidates.dedup();
+        if rtl {
+            candidates.reverse();
+        }
 
         for row_starts in candidates {
             let target_nodes: Vec<usize> = row_starts.iter().map(|&pos| node_of[pos]).collect();
@@ -2423,7 +2471,9 @@ fn syn_narrow(
     loop {
         let (segs, node_of) = ms.segs(true);
         let mut acted = false;
-        for (s, e) in all_spans(target, &segs) {
+        // Direction-ordered scan (see [`ordered_spans`]'s doc): leftmost-first for LtR, rightmost-
+        // first for RtL — matching C# `IterativePhonologicalPatternRule.Apply`'s own scan order.
+        for (s, e) in ordered_spans(target, &segs) {
             let target_nodes: Vec<usize> = node_of[s..e].to_vec();
             // Width guard (plan §6 item 1): an over-wide Optional-skip span here would delete more
             // physical nodes than the LHS pattern actually matched (a silent wrong mutation, not a
@@ -3174,7 +3224,9 @@ fn probe_narrow(
     loop {
         let (segs, node_of) = ms.segs(true);
         let mut acted = false;
-        for (s, e) in all_spans(target, &segs) {
+        // Direction-ordered scan (see [`ordered_spans`]'s doc) -- same fix as `syn_narrow`, whose
+        // soft-delete sibling this function is.
+        for (s, e) in ordered_spans(target, &segs) {
             let target_nodes: Vec<usize> = node_of[s..e].to_vec();
             if !width_matches(&target_nodes, rule.lhs.nodes.len()) {
                 continue;
