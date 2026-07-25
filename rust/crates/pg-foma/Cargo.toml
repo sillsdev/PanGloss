@@ -43,13 +43,24 @@ rayon.workspace = true
 # and the same for pg-wasm both stay part of this crate's gate.
 pg-parse.workspace = true
 
-[dev-dependencies]
-# Only used by the aweti_probe/precision_bench/deadend_census/p6_aweti_probe examples' `.json`/
-# `.fwdata` grammar dispatch (mirrors `pg-cli`'s `load_grammar`) -- Aweti has no legacy `-hc.xml`
-# export, so those examples load it via the direct fwdata-import path or pg-snapshot JSON instead
-# (`pg_snapshot::Snapshot::from_json` + `pg_grammar::compile_project`).
+# `harden-foma-resource-safety` section 3 (`openspec/changes/IMPLEMENTATION-READINESS.md` R2): the
+# compile-worker watchdog (`src/worker.rs`) is entirely `#[cfg(not(target_arch = "wasm32"))]` --
+# these three dependencies are scoped to the SAME target cfg here too (not merely dead code on
+# wasm32, but genuinely ABSENT from `pg-wasm`'s dependency graph), mirroring R2's "WASM is
+# analysis-only and needs no compile watchdog" / R2A's "WASM... dependency graph SHALL NOT contain
+# FST compiler construction" ethos applied to this worker.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# The compile worker's sampled-RSS guardrail (R2: "sampled RSS through a Rust-1.90-compatible
+# `sysinfo` release"). Pinned once at the workspace root; see `worker.rs`'s own doc.
+sysinfo.workspace = true
+# The worker child's own `.xml`/`.json`/`.fwdata` grammar-source dispatch (`worker.rs`'s
+# `load_grammar_for_worker`, mirroring `pg-cli::load_grammar`'s three-way extension dispatch so the
+# worker protocol can name any of the three grammar-path shapes the CLI already accepts). Promoted
+# from dev-only (below) to a real, non-wasm dependency by this change.
 pg-snapshot.workspace = true
 pg-fwdata.workspace = true
+
+[dev-dependencies]
 # Phase C (docs/fst-plan/phase-c-generator-design.md): the synthetic-grammar generator + its
 # Morpher-as-generator oracle, used by tests/phase_c_*.rs (and tests/common/gate_template.rs).
 # `features = ["oracle"]` because `pg-grammar-gen`'s own `pg-parse` dependency is feature-gated

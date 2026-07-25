@@ -193,6 +193,17 @@ pub mod replace;
 pub mod tags;
 /// P6 feasibility prototype sibling of [`replace`]: the underlying-form lexc emitter.
 pub mod uflexc;
+/// `openspec/changes/harden-foma-resource-safety` section 3/4 (`openspec/changes/
+/// IMPLEMENTATION-READINESS.md` R2): the compile-worker watchdog -- a versioned request/result
+/// protocol, a killable native worker process (`std::process::Command`/`Child::try_wait`/
+/// `Child::kill`, sampled RSS via `sysinfo`), and typed outcomes mapped into [`health`]'s existing
+/// vocabulary. ADR 0003's COMPILE-side containment, distinct from [`compose_budget`]'s in-process
+/// cooperative APPLY-side budgets -- see that module's own doc. `#[cfg(not(target_arch =
+/// "wasm32"))]`: this crate's own wasm32 dependency-graph discipline (R2: "WASM is analysis-only
+/// and needs no compile watchdog") -- see that module's own top doc for why its three extra
+/// dependencies are scoped to the identical target cfg in `Cargo.toml`.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod worker;
 /// `openspec/changes/cover-unordered-morph-rules`: the `MorphRuleOrder::Unordered` chain-depth-
 /// bounded/unbounded compile-time cardinality gate -- [`unordered::check_unordered_strata_bound`],
 /// wired into [`analyzer::FomaProposer::new_with_budget`], the second real production consumer of

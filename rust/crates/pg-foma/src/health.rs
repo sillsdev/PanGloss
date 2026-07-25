@@ -242,6 +242,17 @@ pub enum Metric {
     /// canonical JSON. Appended, per this file's own "new codes only ever append" convention for
     /// [`FindingCode`] — no existing variant renumbered or removed.
     OrderingRuleCount,
+    /// `openspec/changes/harden-foma-resource-safety` section 3 (`crate::worker`, the compile-worker
+    /// watchdog): a sampled resident-set-size (RSS) reading of the spawned compile-worker child
+    /// process, in bytes, taken via `sysinfo` at a reported interval (`crate::worker::WorkerOutcome::
+    /// RssLimitExceeded`). Appended rather than reusing [`Metric::ApplyAllocationBytes`] (that
+    /// variant's own doc names it as an APPLY-time, RESERVED-before-allocation quantity — a
+    /// different phase and a different provenance shape entirely from a periodic, COMPILE-time,
+    /// OBSERVED-after-the-fact sample) — the same "no existing variant fits, append one" precedent
+    /// [`Metric::OrderingRuleCount`] already set for this enum. **Never a hard ceiling** — see
+    /// `crate::worker`'s own module doc "Sampled RSS is not a hard ceiling": allocation between
+    /// samples means a reading below a guardrail is never proof the process stayed under it.
+    SampledCompileRssBytes,
 }
 
 /// Whether a [`HealthFinding`]'s [`MetricValue`] is a heuristic estimate, a trustworthy proof, or

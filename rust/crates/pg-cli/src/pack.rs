@@ -99,16 +99,34 @@ fn now_string() -> String {
 }
 
 /// `pangloss pack <grammar> <out.pgpack> [--allow-unproven] [--authorized-by=<name>]
-/// [--reason=<text>]` — see this module's top doc for the full contract. `--authorized-by`/
-/// `--reason` are only consulted when a `Refuse` verdict is actually force-packed via
-/// `--allow-unproven` (ADR 0005's override record); given without `--allow-unproven`, or on a
-/// grammar that never reaches `Refuse`, they are silently inert -- same "meaningless without
-/// enforcement" contract `main.rs`'s `--allow-unproven` already documents for `batch`/`parse`.
+/// [--reason=<text>] [--watchdog]` — see this module's top doc for the full contract.
+/// `--authorized-by`/`--reason` are only consulted when a `Refuse` verdict is actually
+/// force-packed via `--allow-unproven` (ADR 0005's override record); given without
+/// `--allow-unproven`, or on a grammar that never reaches `Refuse`, they are silently inert --
+/// same "meaningless without enforcement" contract `main.rs`'s `--allow-unproven` already
+/// documents for `batch`/`parse`.
+///
+/// # `--watchdog` (`harden-foma-resource-safety` section 3/4; `pg_foma::worker`'s own doc)
+/// OPT-IN ONLY -- see this module's own top doc "What is real vs. placeholder" section for
+/// context: this command already runs one standalone, potentially-adversarial foma compile purely
+/// to produce `fst_health` (`FomaProposer::new_with_profile`, a second compiled network from the
+/// SAME judgment call this module's top doc already documents). Without `--watchdog` (the
+/// default), that compile runs exactly as it always has, in-process -- BYTE-FOR-BYTE UNCHANGED
+/// behavior, output, and exit codes for every existing invocation. With `--watchdog`, that ONE
+/// compile is instead routed through `pg_foma::worker::run_compile_worker`: this process re-execs
+/// itself (`std::env::current_exe()`) with the hidden `__compile-worker-child` subcommand
+/// (`main.rs`'s own dispatch), which calls `pg_foma::worker::run_worker_child` on its own
+/// stdin/stdout. The child's compile runs under a killable watchdog (wall-clock deadline, sampled
+/// RSS, bounded I/O) instead of this process's own stack/heap -- a hung or resource-runaway
+/// compile can no longer take this whole `pangloss pack` invocation down with it. Every other part
+/// of this command (grammar load, capability-trust evaluation, the manifest/payload write) is
+/// unaffected by this flag either way.
 pub fn run_pack(args: &[String]) -> Result<(), String> {
     let mut positional: Vec<&str> = Vec::new();
     let mut allow_unproven = false;
     let mut authorized_by: Option<String> = None;
     let mut reason: Option<String> = None;
+    let mut watchdog = false;
 
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -128,13 +146,14 @@ pub fn run_pack(args: &[String]) -> Result<(), String> {
             s if s.starts_with("--reason=") => {
                 reason = Some(s["--reason=".len()..].to_string());
             }
+            "--watchdog" => watchdog = true,
             s => positional.push(s),
         }
     }
     let [grammar_path, out_path] = positional[..] else {
         return Err(
             "usage: pack <grammar> <out.pgpack> [--allow-unproven] [--authorized-by=<name>] \
-             [--reason=<text>]"
+             [--reason=<text>] [--watchdog]"
                 .into(),
         );
     };
@@ -222,13 +241,21 @@ pub fn run_pack(args: &[String]) -> Result<(), String> {
 
     // ---- FST health: a standalone profiled compile, mirroring diagnostics.rs's own "a second
     // compiled network is an acceptable one-time cost for an offline tool" judgment call ---------
-    let (proposer_result, compile_profile) = FomaProposer::new_with_profile(&grammar);
-    let fst_health = match &proposer_result {
-        Ok(proposer) => evaluate_health(None, Some(&proposer.report), &[], &[], Some(&compile_profile)),
-        Err(pg_foma::analyzer::FomaError::LexcCompileFailed(report)) => {
-            evaluate_health(None, Some(report), &[], &[], Some(&compile_profile))
+    // `--watchdog` (this module's own doc): OPT-IN. Default path (watchdog == false) is BYTE-FOR-
+    // BYTE the pre-existing in-process compile -- unchanged.
+    let fst_health = if watchdog {
+        run_fst_health_under_watchdog(grammar_path)?
+    } else {
+        let (proposer_result, compile_profile) = FomaProposer::new_with_profile(&grammar);
+        match &proposer_result {
+            Ok(proposer) => {
+                evaluate_health(None, Some(&proposer.report), &[], &[], Some(&compile_profile))
+            }
+            Err(pg_foma::analyzer::FomaError::LexcCompileFailed(report)) => {
+                evaluate_health(None, Some(report), &[], &[], Some(&compile_profile))
+            }
+            Err(_) => evaluate_health(None, None, &[], &[], Some(&compile_profile)),
         }
-        Err(_) => evaluate_health(None, None, &[], &[], Some(&compile_profile)),
     };
 
     // ---- Payloads: honestly-labeled placeholders (see this module's top doc) -------------------
@@ -276,6 +303,47 @@ pub fn run_pack(args: &[String]) -> Result<(), String> {
         manifest.fst_health.admission(),
     );
     Ok(())
+}
+
+/// `grammar_path`'s extension -> [`pg_foma::worker::GrammarFormat`], mirroring `crate::
+/// load_grammar`'s own three-way extension dispatch exactly (`.json` -> `Json`, `.fwdata` ->
+/// `Fwdata`, anything else including `.xml` -> `Xml`) so the watchdog path names the SAME format
+/// the non-watchdog path would have loaded.
+fn infer_grammar_format(grammar_path: &str) -> pg_foma::worker::GrammarFormat {
+    let ext = std::path::Path::new(grammar_path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("");
+    match ext {
+        "json" => pg_foma::worker::GrammarFormat::Json,
+        "fwdata" => pg_foma::worker::GrammarFormat::Fwdata,
+        _ => pg_foma::worker::GrammarFormat::Xml,
+    }
+}
+
+/// `--watchdog`'s implementation (this module's own doc): re-execs this same `pangloss` binary as
+/// the hidden `__compile-worker-child` subcommand (`main.rs`'s dispatch) via
+/// [`pg_foma::worker::run_compile_worker`], under [`pg_foma::worker::WatchdogEnvelope::
+/// default_envelope`], and maps whatever [`pg_foma::worker::WorkerOutcome`] comes back into the
+/// same [`pg_foma::health::HealthReport`] the non-watchdog path already produces
+/// ([`pg_foma::worker::WorkerOutcome::health_report`] handles every variant, including a real
+/// `Completed(Success)`'s own real report, uniformly -- no separate match needed here).
+fn run_fst_health_under_watchdog(
+    grammar_path: &str,
+) -> Result<pg_foma::health::HealthReport, String> {
+    let format = infer_grammar_format(grammar_path);
+    let request = pg_foma::worker::CompileWorkerRequest::new(grammar_path.to_string(), format);
+    let envelope = pg_foma::worker::WatchdogEnvelope::default_envelope();
+    let exe = std::env::current_exe()
+        .map_err(|e| format!("--watchdog: could not resolve this executable's own path: {e}"))?;
+    let outcome = pg_foma::worker::run_compile_worker(
+        &exe,
+        &["__compile-worker-child".to_string()],
+        &request,
+        &envelope,
+    );
+    eprintln!("watchdog: compile-worker outcome: {outcome:?}");
+    Ok(outcome.health_report())
 }
 
 #[cfg(test)]

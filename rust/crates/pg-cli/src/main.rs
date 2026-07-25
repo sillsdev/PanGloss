@@ -182,6 +182,22 @@ fn run() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
+        // Hidden, internal compile-worker CHILD entry point (`harden-foma-resource-safety`
+        // section 3/4; `pg_foma::worker`'s own doc). Spawned only by `pangloss pack --watchdog`
+        // (`pack.rs::run_fst_health_under_watchdog`) via `pg_foma::worker::run_compile_worker`
+        // re-execing this same binary -- never invoked directly by a user, and deliberately absent
+        // from the usage banner below.
+        Some("__compile-worker-child") => {
+            let stdin = std::io::stdin();
+            let stdout = std::io::stdout();
+            match pg_foma::worker::run_worker_child(stdin.lock(), stdout.lock()) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("pangloss __compile-worker-child: {e}");
+                    ExitCode::FAILURE
+                }
+            }
+        }
         _ => {
             eprintln!(
                 "pangloss {} — HermitCrab Rust engine CLI\n\
@@ -190,7 +206,7 @@ fn run() -> ExitCode {
                  usage: pangloss parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--engine=default|foma] [--enforce-capability|--no-enforce-capability] [--allow-unproven]\n\
                  usage: pangloss import <project.fwdata> <out.json>\n\
                  usage: pangloss diagnose <grammar> <words.txt> <out-dir>\n\
-                 usage: pangloss pack <grammar> <out.pgpack> [--allow-unproven] [--authorized-by=<name>] [--reason=<text>]\n\
+                 usage: pangloss pack <grammar> <out.pgpack> [--allow-unproven] [--authorized-by=<name>] [--reason=<text>] [--watchdog]\n\
                  \n\
                  <grammar> is one of: a HermitCrab XML export (.xml, the legacy path), a\n\
                  pg-snapshot JSON file (.json, from `pangloss import` or any other producer), or a\n\
