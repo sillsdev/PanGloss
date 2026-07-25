@@ -76,6 +76,17 @@ constructs the FST proposes correctly. Outcomes:
 
 Each outcome is pinned by a test at its site, and every fix left conformance at exact baseline.
 
+**Measured conformance (2026-07-25, fresh release builds).** Default engine: **15 passed + 1 known
+divergence** (`edge-cases/simultaneous-epenthesis-cascade`, which pins a C# synthesis-side crash bug) —
+the standing baseline, unchanged by every change above. FST/foma engine under the now-default-enforcing
+gate: **10 passed, 5 unexpected failures** (down from 6). Every foma refusal is the gate working as
+designed — a loud capability Refuse instead of silent recall loss — and each remaining one is
+principled: an `Overwrite` MPR group (permanently fail-closed, the history-dependent trap), a
+`Modify`/`InsertContext` process-morph allomorph (honestly skipped, not mis-compiled), plus
+metathesis/compounding shapes outside their proven boundaries. The capability registry now contains
+**zero bare `FailClosedPlaceholder`s**: every `FailClosed`/`ConfigPredicate` characteristic has a real,
+evidenced predicate.
+
 **Stage 4 — REFRAMED.** `certify-four-language-matrix` is renamed `run-synthetic-conformance-matrix`
 (its specs subdir likewise); the body already dropped the terminal-certification framing and the four
 actual languages. The always-on CI gate it describes is the committed `conformance-ci.yml`.
