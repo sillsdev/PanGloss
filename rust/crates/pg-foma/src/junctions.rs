@@ -156,7 +156,14 @@ fn neighbor_first_segments(g: &Grammar, table: &CharDefTable) -> BTreeSet<CharDe
                     if let Some(id) = first_segment_id(table, &shape.text) {
                         ids.insert(id);
                     }
-                    break; // mirrors emit.rs's first_insert_text: only the FIRST InsertSegments action.
+                    // Only the FIRST `InsertSegments` action matters HERE: this function wants the
+                    // affix's own first rendered segment (for the C1 neighbor-probe set), which is
+                    // always that first action's first segment regardless of how many more
+                    // `InsertSegments` actions follow it (`emit.rs::insert_action_texts` now
+                    // concatenates every one of them for the affix's FULL text, a distinct
+                    // question this loop does not need to answer -- `openspec/changes/
+                    // cover-circumfix-null-output-actions`).
+                    break;
                 }
             }
         }

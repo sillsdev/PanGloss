@@ -418,13 +418,50 @@ pub struct QuantifierPatternDetail {
     pub compile_attempted: bool,
 }
 
+/// [`ObservationDetail::CircumfixOutputAction`]'s payload (`openspec/changes/
+/// cover-circumfix-null-output-actions`): the one structural fact
+/// [`CircumfixStructuralCompositePredicate`] needs about an [`AffixAllomorphDef`] whose RHS drops
+/// real LHS material ([`allomorph_drops_lhs_material`]'s own trigger — circumfix wrapping, a
+/// null-role subtractive input, or any other "real subtracted/discontinuous material" shape that
+/// function's own doc names), computed once here (self-contained projection, same reasoning
+/// [`LoweredSpan`]'s own doc gives) rather than re-derived at `evaluate` time.
+#[derive(Debug, Clone, Copy)]
+pub struct CircumfixOutputActionDetail {
+    pub rule: MRuleId,
+    pub allomorph_index: usize,
+    /// `true` iff `crate::emit::is_structural_rule` routes THIS observation's owning rule through
+    /// [`crate::emit`]'s `build_structural_composites` — the mechanism that resynthesizes every
+    /// candidate surface via the REAL morphological engine (`pg_rules::morph::synthesize`) rather
+    /// than splicing literal `InsertSegments` text, and so is faithful (never a silent wrong
+    /// compile) for whatever shape a rule routed there actually has, `OutputAction` variant
+    /// notwithstanding. `is_structural_rule` itself is per-RULE (its own doc: role classification
+    /// comes from the rule's FIRST allomorph), so every allomorph of a covered rule shares this same
+    /// `true`/`false` value — computed once per allomorph anyway (not memoized across allomorphs of
+    /// the same rule) to keep this detail self-contained per observation, mirroring
+    /// [`MetathesisDetail`]/[`RightToLeftRewriteDetail`]'s own "cheap, recompute don't share"
+    /// convention.
+    ///
+    /// `false` means the rule's own role (from ITS FIRST allomorph — `Role::Infix`/
+    /// `Role::Reduplication`/`Role::Process`/`Role::CircumfixSuffix`, per `crate::emit::classify_
+    /// affix`) falls outside `is_structural_rule`'s covered set even though THIS allomorph still
+    /// drops real LHS material -- e.g. a rule whose primary shape is genuine interdigitation
+    /// (`crate::preexpand`'s own job) or whose RHS uses `OutputAction::Modify`/`InsertContext`
+    /// (`Role::Process`, never compilable as a literal string at all, module doc "Not emittable as
+    /// literal lexc"). The real compiler already honestly skips such an allomorph everywhere (never
+    /// silently mis-compiled): [`crate::emit::emit_rule_allomorphs`]'s own role/zone check reports it
+    /// `uncovered`, and it never reaches `build_structural_composites` either.
+    pub structural_composite_attempted: bool,
+}
+
 /// Extra structured data an observation needs beyond `kind`/`disposition`/`location`, for the
 /// characteristics that a predicate must inspect at finer grain than "did this occur at all"
 /// (design.md D2/D3). Most characteristics carry `None` — [`CharacteristicKind::
 /// SimultaneousRewrite`] needs [`Self::SimultaneousRewrite`] (D3's worked example),
 /// [`CharacteristicKind::MultiTable`] needs [`Self::MultiTable`]
-/// (`fix-multitable-fst-compilation`), and [`CharacteristicKind::RightToLeftRewrite`] needs
-/// [`Self::RightToLeftRewrite`] (`compile-right-to-left-rewrites`).
+/// (`fix-multitable-fst-compilation`), [`CharacteristicKind::RightToLeftRewrite`] needs
+/// [`Self::RightToLeftRewrite`] (`compile-right-to-left-rewrites`), and
+/// [`CharacteristicKind::CircumfixOutputAction`] needs [`Self::CircumfixOutputAction`]
+/// (`cover-circumfix-null-output-actions`).
 #[derive(Debug, Clone)]
 pub enum ObservationDetail {
     None,
@@ -433,6 +470,7 @@ pub enum ObservationDetail {
     RightToLeftRewrite(RightToLeftRewriteDetail),
     QuantifierPattern(QuantifierPatternDetail),
     Metathesis(MetathesisDetail),
+    CircumfixOutputAction(CircumfixOutputActionDetail),
 }
 
 /// One occurrence of a characteristic in a [`CharacteristicsProfile`] (design.md D1).
@@ -550,6 +588,20 @@ impl CharacteristicsProfile {
     pub fn metathesis_detail(&self, rule: PRuleId) -> Option<&MetathesisDetail> {
         self.observations.iter().find_map(|o| match &o.detail {
             ObservationDetail::Metathesis(d) if d.rule == rule => Some(d),
+            _ => None,
+        })
+    }
+
+    /// Every [`CircumfixOutputActionDetail`] observed at all (`characterize_allomorph`'s own
+    /// `allomorph_drops_lhs_material` trigger; `openspec/changes/
+    /// cover-circumfix-null-output-actions`) — plural, unlike the other `*_detail` lookups above:
+    /// [`CircumfixStructuralCompositePredicate`] has no per-node address to key a single lookup on
+    /// (this characteristic has no corresponding [`crate::plan::PlanNodeKind`] at all, same
+    /// "grammar-wide, not node-specific" shape [`MultiTableFaithfulThreadingPredicate`]'s own doc
+    /// describes), so it scans every observation itself rather than looking one up by id.
+    pub fn circumfix_output_action_details(&self) -> impl Iterator<Item = &CircumfixOutputActionDetail> {
+        self.observations.iter().filter_map(|o| match &o.detail {
+            ObservationDetail::CircumfixOutputAction(d) => Some(d),
             _ => None,
         })
     }
@@ -932,6 +984,7 @@ fn lower_subrule_span(
 
 fn characterize_allomorph(
     observations: &mut Vec<CharacteristicObservation>,
+    g: &Grammar,
     rule: MRuleId,
     allomorph_index: usize,
     allo: &AffixAllomorphDef,
@@ -967,7 +1020,11 @@ fn characterize_allomorph(
                 rule,
                 allomorph_index,
             },
-            ObservationDetail::None,
+            ObservationDetail::CircumfixOutputAction(CircumfixOutputActionDetail {
+                rule,
+                allomorph_index,
+                structural_composite_attempted: crate::emit::is_structural_rule(g, rule),
+            }),
         ));
     }
 
@@ -1018,7 +1075,7 @@ pub fn characterize(g: &Grammar) -> CharacteristicsProfile {
         // uniform accessor) -- walk it once here rather than duplicating the match above.
         if let Some(allomorphs) = mrule.affix_allomorphs() {
             for (ai, allo) in allomorphs.iter().enumerate() {
-                characterize_allomorph(&mut observations, id, ai, allo);
+                characterize_allomorph(&mut observations, g, id, ai, allo);
             }
         }
 
@@ -1850,6 +1907,116 @@ impl CapabilityPredicate for MetathesisFaithfulSwapPredicate {
 }
 
 // -------------------------------------------------------------------------------------------
+// CircumfixOutputAction: the config-predicate `cover-circumfix-null-output-actions` registers
+// -------------------------------------------------------------------------------------------
+
+/// `openspec/changes/cover-circumfix-null-output-actions`'s own capability predicate: an
+/// `AffixAllomorphDef` whose RHS drops real LHS material — a circumfix wrapping the stem, a
+/// null-role subtractive input (an LHS part matched for context but never copied to the output),
+/// or an ordered multi-`InsertSegments` output-action sequence built on top of either shape — is
+/// now faithfully COMPILABLE whenever its owning rule reaches [`crate::emit::
+/// build_structural_composites`] (`crate::emit::is_structural_rule`'s own admission test): that
+/// mechanism resynthesizes every candidate surface via the REAL morphological engine
+/// (`pg_rules::morph::synthesize`) rather than splicing literal text, so it is faithful for
+/// whatever concrete `OutputAction` sequence a covered rule's allomorphs actually carry — including
+/// the "never silently reduced to the first inserted segment" ordered-multi-insert fix
+/// (`crate::emit::insert_action_texts`) this change also ships for the allomorphs that stay on the
+/// ordinary (non-structural) emission path.
+///
+/// A rule whose own role (from its FIRST allomorph, per `crate::emit::classify_affix`) is
+/// `Role::Infix`/`Role::Reduplication`/`Role::Process`/`Role::CircumfixSuffix` stays OUTSIDE
+/// `is_structural_rule`'s admitted set even when one of its allomorphs drops LHS material too —
+/// e.g. a rule whose RHS uses `OutputAction::Modify`/`InsertContext` (ablaut/simulfix-style
+/// "process morphs", D1's own "not compilable as strings" citation) is never routed there, and the
+/// ordinary emission path already honestly reports it `uncovered` (`crate::emit::
+/// emit_rule_allomorphs`'s `has_unemittable_action` check) rather than silently mis-compiling it.
+///
+/// # Disposition
+/// - **Not observed at all** (no allomorph drops LHS material anywhere in the grammar): vacuously
+///   `Admit` — nothing for this predicate to say (mirrors [`RightToLeftRewriteFaithfulReversalPredicate`]'s
+///   own "not applicable here" convention).
+/// - **Every observed occurrence reaches `build_structural_composites`**
+///   (`structural_composite_attempted == true` for every [`CircumfixOutputActionDetail`]):
+///   [`PredicateVerdict::ConfirmOnly`] — the structural-composite construction is a proven faithful,
+///   oracle-backed compile for the SUPPORTED case (this change's own containment fixture proves
+///   oracle-exact equality against `pg_parse::Morpher` for a covered circumfix/null-role rule,
+///   mirroring [`MetathesisFaithfulSwapPredicate`]'s own "exact containment, not merely a safe
+///   superset" precedent), but no PROVEN no-false-negative admission-filter argument exists (ADR
+///   0001's own bar for `Admit`) — confirm-only-by-default, the same landing spot every other
+///   `ConfigPredicate` characteristic in this registry already uses.
+/// - **At least one observed occurrence does NOT reach `build_structural_composites`**
+///   (`structural_composite_attempted == false`): [`PredicateVerdict::Refuse`] — the real compiler
+///   already honestly skips this exact allomorph everywhere (module doc above), never a silent wrong
+///   compile, but a grammar depending on it must be refused rather than silently missing recall;
+///   overridable per ADR 0005.
+///
+/// # Provenance
+/// [`EvidenceProvenance::Structural`]: `structural_composite_attempted` reads directly-inspectable
+/// `model.rs` data via `crate::emit::is_structural_rule` (the SAME structural fact the real compile
+/// path itself branches on to decide whether to build a structural composite for this rule at all),
+/// no oracle witnesses needed to derive the VERDICT itself — the SUPPORTED case's own safe-recall
+/// argument (exact containment, not merely a safe superset) was separately, empirically verified
+/// against `pg_parse::Morpher` (this crate's own containment fixture), the same "oracle verified the
+/// construction, the predicate reads structure" split every other `*FaithfulPredicate` in this
+/// module already draws.
+///
+/// # Node applicability
+/// Grammar-wide, not node-specific — same shape [`MultiTableFaithfulThreadingPredicate`]'s own doc
+/// describes: `CircumfixOutputAction` has no corresponding [`crate::plan::PlanNodeKind`] in today's
+/// `enumerate_default` shape at all (this module's own `compose_envelope` doc, "Judgment call:
+/// constructs with no distinct plan node"), so `evaluate` ignores `plan_node` entirely and returns
+/// the SAME verdict at every node the walk visits — safe under `meet` for the identical reason that
+/// doc gives.
+pub struct CircumfixStructuralCompositePredicate;
+
+impl CapabilityPredicate for CircumfixStructuralCompositePredicate {
+    fn id(&self) -> PredicateId {
+        "circumfix-output-action.faithful-structural-composite"
+    }
+
+    fn discharges(&self) -> &[CharacteristicKind] {
+        &[CharacteristicKind::CircumfixOutputAction]
+    }
+
+    fn provenance(&self) -> EvidenceProvenance {
+        EvidenceProvenance::Structural
+    }
+
+    fn evaluate(
+        &self,
+        profile: &CharacteristicsProfile,
+        _plan_node: &PlanNodeKind,
+    ) -> PredicateVerdict {
+        let mut any_observed = false;
+        for detail in profile.circumfix_output_action_details() {
+            any_observed = true;
+            if !detail.structural_composite_attempted {
+                return PredicateVerdict::Refuse(CapabilityDiagnostic {
+                    predicate: self.id(),
+                    construct: format!(
+                        "mrule {} allomorph #{} (LHS-material-dropping output action)",
+                        detail.rule.0, detail.allomorph_index
+                    ),
+                    witness: "this allomorph's own rule does not classify as crate::emit::Role::\
+                              None/Prefix/Suffix/CircumfixPrefix from its first allomorph (crate::\
+                              emit::classify_affix), or uses OutputAction::Modify/InsertContext, \
+                              so crate::emit::is_structural_rule never routes it through the \
+                              faithful build_structural_composites construction -- the real \
+                              compiler already honestly skips (reports uncovered) this exact \
+                              allomorph rather than silently mis-compiling it"
+                        .to_string(),
+                });
+            }
+        }
+        if any_observed {
+            PredicateVerdict::ConfirmOnly
+        } else {
+            PredicateVerdict::Admit
+        }
+    }
+}
+
+// -------------------------------------------------------------------------------------------
 // QuantifierPattern: the config-predicate `compile-bounded-fst-quantifiers` registers
 // -------------------------------------------------------------------------------------------
 
@@ -2040,12 +2207,13 @@ impl PredicateRegistry {
     }
 }
 
-/// The registry this step ships: the five REAL predicates
+/// The registry this step ships: the six REAL predicates
 /// ([`SimultaneousSubruleOverlapPredicate`], [`MultiTableFaithfulThreadingPredicate`],
 /// [`RightToLeftRewriteFaithfulReversalPredicate`], [`QuantifierBoundedExpansionPredicate`],
-/// [`MetathesisFaithfulSwapPredicate`]), plus an explicit [`FailClosedPlaceholder`] for every other
-/// `FailClosed`/`ConfigPredicate` characteristic — proving the coverage contract holds today
-/// without pretending any of those other constructs has a real proof yet.
+/// [`MetathesisFaithfulSwapPredicate`], [`CircumfixStructuralCompositePredicate`]), plus an
+/// explicit [`FailClosedPlaceholder`] for every other `FailClosed`/`ConfigPredicate`
+/// characteristic — proving the coverage contract holds today without pretending any of those
+/// other constructs has a real proof yet.
 pub fn default_registry() -> PredicateRegistry {
     let mut r = PredicateRegistry::new();
     r.register(Box::new(SimultaneousSubruleOverlapPredicate));
@@ -2053,6 +2221,7 @@ pub fn default_registry() -> PredicateRegistry {
     r.register(Box::new(RightToLeftRewriteFaithfulReversalPredicate));
     r.register(Box::new(QuantifierBoundedExpansionPredicate));
     r.register(Box::new(MetathesisFaithfulSwapPredicate));
+    r.register(Box::new(CircumfixStructuralCompositePredicate));
     r.register(Box::new(FailClosedPlaceholder::new(
         "compounding.placeholder",
         &[CharacteristicKind::Compounding],
@@ -2073,11 +2242,6 @@ pub fn default_registry() -> PredicateRegistry {
         &[CharacteristicKind::Epenthesis],
         // design.md D1 names no `cover-*` change for this row -- flagged for review.
         "TODO: no owning Stage-2 change named by design.md yet for epenthesis",
-    )));
-    r.register(Box::new(FailClosedPlaceholder::new(
-        "circumfix-output-action.placeholder",
-        &[CharacteristicKind::CircumfixOutputAction],
-        "cover-circumfix-null-output-actions",
     )));
     r.register(Box::new(FailClosedPlaceholder::new(
         "reduplication.placeholder",
@@ -2320,19 +2484,23 @@ fn node_decision(
 /// # Judgment call: constructs with no distinct plan node
 /// Several `FailClosed`/`ConfigPredicate` characteristics ([`CharacteristicKind::Compounding`],
 /// [`CharacteristicKind::UnorderedMorphRuleApplication`], [`CharacteristicKind::MprGroupOverwrite`],
-/// [`CharacteristicKind::Epenthesis`], [`CharacteristicKind::CircumfixOutputAction`],
-/// [`CharacteristicKind::Reduplication`]) have NO corresponding [`crate::plan::PlanNodeKind`] in
-/// today's `enumerate_default` shape at all — that module's own doc: it only ever mints leaves for
-/// the lexicon (per gate group), one per rewrite rule, and the two composite-emission markers,
-/// nothing addressed by `MRuleId`/`StratumId`/an mpr-group index. Each of these characteristics is
-/// discharged today by a [`FailClosedPlaceholder`], whose `evaluate` unconditionally `Refuse`s
-/// REGARDLESS of which node it is called at or what `profile` says (that type's own Step-1 doc) —
-/// so which specific node it is evaluated against is behaviorally irrelevant here, and
-/// [`node_decision`]'s per-node walk (which calls every relevant-kind predicate at EVERY node)
-/// already folds its `Refuse` in correctly without needing a `ModelLocation -> NodeId` lookup table
-/// for these kinds at all. This is this step's "representative node" case: no lookup was built
-/// because none would change the outcome, not because one was skipped for convenience — documented
-/// here rather than silently. [`CharacteristicKind::SimultaneousRewrite`] is the one kind that DOES
+/// [`CharacteristicKind::Epenthesis`], [`CharacteristicKind::Reduplication`]) have NO corresponding
+/// [`crate::plan::PlanNodeKind`] in today's `enumerate_default` shape at all — that module's own
+/// doc: it only ever mints leaves for the lexicon (per gate group), one per rewrite rule, and the
+/// two composite-emission markers, nothing addressed by `MRuleId`/`StratumId`/an mpr-group index.
+/// Each of these characteristics is discharged today by a [`FailClosedPlaceholder`], whose
+/// `evaluate` unconditionally `Refuse`s REGARDLESS of which node it is called at or what `profile`
+/// says (that type's own Step-1 doc) — so which specific node it is evaluated against is
+/// behaviorally irrelevant here, and [`node_decision`]'s per-node walk (which calls every
+/// relevant-kind predicate at EVERY node) already folds its `Refuse` in correctly without needing a
+/// `ModelLocation -> NodeId` lookup table for these kinds at all. This is this step's
+/// "representative node" case: no lookup was built because none would change the outcome, not
+/// because one was skipped for convenience — documented here rather than silently.
+/// [`CharacteristicKind::CircumfixOutputAction`] is the SAME "no distinct plan node" shape, but is
+/// no longer a bare placeholder: [`CircumfixStructuralCompositePredicate`] (`cover-circumfix-null-
+/// output-actions`) ALSO ignores `plan_node` (same reasoning), but its own `evaluate` reads real
+/// per-allomorph structural facts rather than unconditionally refusing — see that predicate's own
+/// "Node applicability" doc. [`CharacteristicKind::SimultaneousRewrite`] is the one kind that DOES
 /// need (and gets, via the plan walk itself) a SPECIFIC node — see [`node_decision`]'s own doc for
 /// how that mapping actually happens.
 pub fn compose_envelope(g: &Grammar, plan: &Plan, registry: &PredicateRegistry) -> CompileDecision {
@@ -2983,6 +3151,212 @@ mod tests {
             }
             other => panic!("expected Refuse for an Anchor-shaped metathesis pattern, got {other:?}"),
         }
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // CircumfixOutputAction (`openspec/changes/cover-circumfix-null-output-actions`)
+    // ---------------------------------------------------------------------------------------
+
+    /// Synthetic, delanguaged fixture: a single `MorphologicalRule` whose only allomorph has a
+    /// 2-part `MorphologicalInput` (`qA`, `qB`) but a RHS that `CopyFromInput`s only `qA` — a
+    /// null-role subtractive shape (D1's "cover-circumfix-null-..." row): `qB` is matched/consumed
+    /// but never reaches the output. `classify_affix` reads this as `Role::None` (no `InsertSegments`
+    /// at all, so no leading/trailing insert), and `crate::emit::is_structural_rule`'s own
+    /// `Role::None` branch admits it (`rhs_drops_lhs_material` is `true`: `qB` is never copied) — the
+    /// IN-SCOPE case this change compiles faithfully via `build_structural_composites`.
+    const CIRCUMFIX_STRUCTURAL_XML: &str = r#"<HermitCrabInput><Language><Name>CircStruct</Name>
+      <CharacterDefinitionTable id="t1"><Name>Main</Name>
+        <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+      </CharacterDefinitionTable>
+      <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /></SegmentNaturalClass></NaturalClasses>
+      <Strata>
+        <Stratum characterDefinitionTable="t1" morphologicalRules="mrDropOk">
+          <Name>S</Name>
+          <MorphologicalRuleDefinitions>
+            <MorphologicalRule id="mrDropOk">
+              <Name>dropOk</Name>
+              <MorphologicalSubrules>
+                <MorphologicalSubrule id="subDropOk">
+                  <MorphologicalInput>
+                    <PhoneticSequence id="qA"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
+                    <PhoneticSequence id="qB"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
+                  </MorphologicalInput>
+                  <MorphologicalOutput>
+                    <CopyFromInput index="qA" />
+                  </MorphologicalOutput>
+                </MorphologicalSubrule>
+              </MorphologicalSubrules>
+            </MorphologicalRule>
+          </MorphologicalRuleDefinitions>
+        </Stratum>
+      </Strata>
+    </Language></HermitCrabInput>"#;
+
+    /// Same 2-part-LHS-drop shape, but the RHS uses `ModifyFromInput` (an ablaut/simulfix-style
+    /// "process morph", D1's "not compilable as strings" citation) instead of ever `CopyFromInput`ing
+    /// either part -- `classify_affix` reads this as `Role::Process` (no `Copy` action at all, but a
+    /// `Modify` is present), which `crate::emit::is_structural_rule`'s own match falls through to its
+    /// `_ => false` arm for -- the OUT-OF-SCOPE case that must stay honestly unsupported (the real
+    /// compiler already reports it `uncovered` via `has_unemittable_action`, never silently
+    /// mis-compiled).
+    const CIRCUMFIX_PROCESS_XML: &str = r#"<HermitCrabInput><Language><Name>CircProcess</Name>
+      <CharacterDefinitionTable id="t1"><Name>Main</Name>
+        <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+      </CharacterDefinitionTable>
+      <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /></SegmentNaturalClass></NaturalClasses>
+      <Strata>
+        <Stratum characterDefinitionTable="t1" morphologicalRules="mrDropProcess">
+          <Name>S</Name>
+          <MorphologicalRuleDefinitions>
+            <MorphologicalRule id="mrDropProcess">
+              <Name>dropProcess</Name>
+              <MorphologicalSubrules>
+                <MorphologicalSubrule id="subDropProcess">
+                  <MorphologicalInput>
+                    <PhoneticSequence id="pA"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
+                    <PhoneticSequence id="pB"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
+                  </MorphologicalInput>
+                  <MorphologicalOutput>
+                    <ModifyFromInput index="pA"><SimpleContext naturalClass="ncAll" /></ModifyFromInput>
+                  </MorphologicalOutput>
+                </MorphologicalSubrule>
+              </MorphologicalSubrules>
+            </MorphologicalRule>
+          </MorphologicalRuleDefinitions>
+        </Stratum>
+      </Strata>
+    </Language></HermitCrabInput>"#;
+
+    fn mrule_leaf(rule: MRuleId) -> PlanNodeKind {
+        // `CircumfixOutputAction` has no dedicated `Provenance`/`FragmentSpec` pairing of its own
+        // (module doc, "Judgment call: constructs with no distinct plan node") -- any
+        // `PlanNodeKind` works for [`CircumfixStructuralCompositePredicate::evaluate`], which
+        // ignores `plan_node` entirely (same node-agnostic convention `leaf_for`'s own callers
+        // already rely on for [`MultiTableFaithfulThreadingPredicate`]). `Provenance::MorphRule`
+        // is the closest-fitting tag, reused here purely for readability at the call site.
+        PlanNodeKind::Leaf {
+            fragment: FragmentSpec::LexiconFragment { entries: None },
+            provenance: Provenance::MorphRule(rule),
+        }
+    }
+
+    /// `characterize` marks the IN-SCOPE (`Role::None`, structurally routed) drop shape
+    /// `ConfigPredicate`, with `structural_composite_attempted == true`.
+    #[test]
+    fn characterize_marks_circumfix_output_action_config_predicate_when_structural() {
+        let g = load(CIRCUMFIX_STRUCTURAL_XML);
+        assert!(matches!(g.mrules[0], MorphRuleDef::AffixProcess(_)));
+        assert!(
+            crate::emit::is_structural_rule(&g, MRuleId(0)),
+            "the real compile path must route this rule through build_structural_composites"
+        );
+
+        let profile = characterize(&g);
+        assert!(
+            profile.observations().iter().any(|o| o.kind
+                == CharacteristicKind::CircumfixOutputAction
+                && o.disposition == Disposition::ConfigPredicate),
+            "a 2-part-LHS drop must characterize CircumfixOutputAction/ConfigPredicate: {:?}",
+            profile.observations()
+        );
+        let detail = profile
+            .circumfix_output_action_details()
+            .find(|d| d.rule == MRuleId(0) && d.allomorph_index == 0)
+            .expect("must carry a CircumfixOutputActionDetail for mrule 0 allomorph 0");
+        assert!(
+            detail.structural_composite_attempted,
+            "Role::None with rhs_drops_lhs_material must reach build_structural_composites"
+        );
+    }
+
+    /// `characterize` marks the OUT-OF-SCOPE (`Role::Process`, never structurally routed) drop
+    /// shape with `structural_composite_attempted == false`, even though it is STILL observed as
+    /// `CircumfixOutputAction` (the characteristic fires on the structural shape alone, independent
+    /// of which `OutputAction` variant realizes it -- module doc on `output_action_label`).
+    #[test]
+    fn characterize_marks_circumfix_output_action_not_structural_for_process_role() {
+        let g = load(CIRCUMFIX_PROCESS_XML);
+        assert!(
+            !crate::emit::is_structural_rule(&g, MRuleId(0)),
+            "a Role::Process rule must never reach build_structural_composites"
+        );
+
+        let profile = characterize(&g);
+        assert!(
+            profile
+                .observations()
+                .iter()
+                .any(|o| o.kind == CharacteristicKind::CircumfixOutputAction),
+            "a Modify-only 2-part-LHS drop must still observe CircumfixOutputAction: {:?}",
+            profile.observations()
+        );
+        let detail = profile
+            .circumfix_output_action_details()
+            .find(|d| d.rule == MRuleId(0) && d.allomorph_index == 0)
+            .expect("must carry a CircumfixOutputActionDetail for mrule 0 allomorph 0");
+        assert!(
+            !detail.structural_composite_attempted,
+            "Role::Process must never be reported as reaching the structural-composite route"
+        );
+    }
+
+    /// Positive witness: [`CircumfixStructuralCompositePredicate`] returns `ConfirmOnly` (never
+    /// `Admit` -- no proven no-false-negative admission filter exists, module doc) for the IN-SCOPE
+    /// structural drop shape.
+    #[test]
+    fn circumfix_output_action_predicate_confirm_only_for_structural_case() {
+        let g = load(CIRCUMFIX_STRUCTURAL_XML);
+        let profile = characterize(&g);
+        let predicate = CircumfixStructuralCompositePredicate;
+        assert_eq!(
+            predicate.evaluate(&profile, &mrule_leaf(MRuleId(0))),
+            PredicateVerdict::ConfirmOnly,
+            "an in-scope structural circumfix/null-role drop must be ConfirmOnly, never Refuse \
+             or Admit"
+        );
+    }
+
+    /// Negative witness: [`CircumfixStructuralCompositePredicate`] `Refuse`s the OUT-OF-SCOPE
+    /// `Role::Process` drop shape -- the real compiler already honestly skips it everywhere, but a
+    /// grammar depending on it must be refused rather than silently missing recall.
+    #[test]
+    fn circumfix_output_action_predicate_refuses_non_structural_case() {
+        let g = load(CIRCUMFIX_PROCESS_XML);
+        let profile = characterize(&g);
+        let predicate = CircumfixStructuralCompositePredicate;
+        match predicate.evaluate(&profile, &mrule_leaf(MRuleId(0))) {
+            PredicateVerdict::Refuse(diag) => {
+                assert_eq!(
+                    diag.predicate,
+                    "circumfix-output-action.faithful-structural-composite"
+                );
+            }
+            other => panic!(
+                "expected Refuse for the Role::Process out-of-scope drop shape, got {other:?}"
+            ),
+        }
+    }
+
+    /// A grammar with no LHS-material-dropping allomorph at all (the ordinary affix fixture already
+    /// used elsewhere in this module) never observes `CircumfixOutputAction`, and the predicate
+    /// vacuously `Admit`s -- the byte-identical, never-touched ordinary case.
+    #[test]
+    fn circumfix_output_action_predicate_admits_vacuously_without_a_drop() {
+        let g = load(RTL_PLAIN_XML);
+        let profile = characterize(&g);
+        assert!(
+            !profile
+                .observations()
+                .iter()
+                .any(|o| o.kind == CharacteristicKind::CircumfixOutputAction),
+            "a grammar with no LHS-material-dropping allomorph must never observe \
+             CircumfixOutputAction at all"
+        );
+        let predicate = CircumfixStructuralCompositePredicate;
+        assert_eq!(
+            predicate.evaluate(&profile, &mrule_leaf(MRuleId(0))),
+            PredicateVerdict::Admit
+        );
     }
 
     // ---------------------------------------------------------------------------------------

@@ -204,7 +204,7 @@ use crate::replace::SegAlphabet;
 use crate::tags;
 
 /// Mode switch for every LEAF text-producing site this module threads it through
-/// ([`collect_roots`], [`first_insert_text`]/[`emit_rule_allomorphs`]) and the purely-structural
+/// ([`collect_roots`], [`insert_action_texts`]/[`emit_rule_allomorphs`]) and the purely-structural
 /// functions that call them ([`build_deriv_chain`], [`build_slot_chain`]) — the P6 templated-
 /// morphotactics emitter (`docs/fst-plan/foma-fst-plan.md` §P6, `docs/fst-plan/
 /// p6-prototype-report.md` §6 item 2 / §7's refit note).
@@ -458,29 +458,61 @@ fn has_unemittable_action(rhs: &[OutputAction]) -> bool {
     })
 }
 
+/// `openspec/changes/cover-circumfix-null-output-actions` (design.md: "never silently reduced to
+/// the first inserted segment"; ADR 0001's honest-boundary discipline): this USED TO carry a single
+/// `text`/`shape` pair — the allomorph's FIRST `InsertSegments` action only, silently dropping any
+/// later one in the same RHS. [`insert_action_texts`] now collects EVERY `InsertSegments`
+/// occurrence, so this variant carries a `Vec` of each in document order instead.
 enum InsertText<'a> {
-    /// No `InsertSegments` action at all — a pure zero/null morph (token only, epsilon text).
+    /// No `InsertSegments` action at all — a pure zero/null morph (token only, epsilon text). This
+    /// is the "null-role" shape the change above names: an allomorph whose RHS never inserts ANY
+    /// concrete text, whether or not it also `Copy`s an input part (a genuine `Role::None` zero
+    /// morph either way — see [`classify_affix`]).
     None,
-    /// `text`: the literal authored surface text (SurfaceProbed mode's own input, unchanged).
-    /// `shape`: that SAME `InsertSegments` action's already-segmented [`Shape`] (P6:
+    /// `texts[i]`/`shapes[i]` are one `InsertSegments` action's own literal authored surface text
+    /// (SurfaceProbed mode's own input — `texts[0]` alone is byte-identical to the pre-fix single-
+    /// action behavior) and that SAME action's already-segmented [`Shape`] (P6:
     /// `TextMode::UnderlyingTokens`'s input — mirrors `uflexc::affix_insert_shape`, which exposes
     /// the identical field for the SAME reason: [`SegAlphabet::encode_shape`] needs the `Shape`,
-    /// not the raw text, to render char-def-identity tokens).
-    Text { text: &'a str, shape: &'a Shape },
+    /// not the raw text, to render char-def-identity tokens), both in RHS document order.
+    ///
+    /// Concatenating every occurrence in order is sound for every role that reaches this variant
+    /// (only `Role::None`/`Role::Prefix`/`Role::Suffix` ever call [`insert_action_texts`] at all —
+    /// `Role::Infix`/`Role::CircumfixPrefix` are routed to `crate::preexpand`/
+    /// [`build_structural_composites`] instead, never through [`emit_rule_allomorphs`]):
+    /// [`classify_affix`]'s own Infix-detection loop already forces `Role::Infix` the instant a
+    /// non-`Copy` action sits strictly BETWEEN two `Copy` actions, so for every role that reaches
+    /// here every `InsertSegments` occurrence is either entirely before the first `Copy` (several
+    /// leading/prefix inserts), entirely after the last `Copy` (several trailing/suffix inserts),
+    /// or — a `Role::None` allomorph with NO `Copy` at all, the "null-role" case above — anywhere
+    /// in the sequence with nothing else to interleave with. Document order is therefore always
+    /// the correct concatenation order; there is no ambiguous case this variant papers over.
+    Text {
+        texts: Vec<&'a str>,
+        shapes: Vec<&'a Shape>,
+    },
 }
 
-/// The first `InsertSegments` action's underlying text (`hc-hybrid/src/trie.rs::first_insert`,
-/// text half only — this emitter re-derives kept surface text itself, see [`kept_surface_text`]).
-fn first_insert_text(rhs: &[OutputAction]) -> InsertText<'_> {
+/// Every `InsertSegments` action's underlying text/shape in `rhs`, in document order — NOT just the
+/// first (`hc-hybrid/src/trie.rs::first_insert`'s text-only single-action shape inspired the
+/// ORIGINAL version of this function; `openspec/changes/cover-circumfix-null-output-actions`
+/// closes the gap that left, see [`InsertText::Text`]'s own doc for the soundness argument for why
+/// concatenating in document order is always correct here). This emitter re-derives kept surface
+/// text itself, see [`kept_surface_text`].
+fn insert_action_texts(rhs: &[OutputAction]) -> InsertText<'_> {
+    let mut texts = Vec::new();
+    let mut shapes = Vec::new();
     for a in rhs {
         if let OutputAction::InsertSegments { shape, .. } = a {
-            return InsertText::Text {
-                text: shape.text.as_str(),
-                shape: &shape.shape,
-            };
+            texts.push(shape.text.as_str());
+            shapes.push(&shape.shape);
         }
     }
-    InsertText::None
+    if texts.is_empty() {
+        InsertText::None
+    } else {
+        InsertText::Text { texts, shapes }
+    }
 }
 
 /// `pub(crate)`: [`crate::peel`] reuses this too (its redup/suffix rules always resolve to
@@ -586,6 +618,48 @@ pub(crate) fn surface_variants(table: &CharDefTable, text: &str) -> Option<(Vec<
         if !matched {
             return None;
         }
+    }
+    variants.sort_unstable();
+    variants.dedup();
+    Some((variants, overflowed))
+}
+
+/// [`surface_variants`], extended to MULTIPLE insert-text pieces in document order
+/// (`openspec/changes/cover-circumfix-null-output-actions`, [`insert_action_texts`]'s own doc):
+/// [`surface_variants`] each piece SEPARATELY (never re-segmenting the raw concatenation of two
+/// pieces as one string, which could spuriously merge a segment across an authored `InsertSegments`
+/// boundary the real engine keeps distinct — mirrors how the oracle keeps each action's own `Shape`
+/// nodes separate rather than re-parsing a merged string), then takes the CARTESIAN PRODUCT of the
+/// per-piece variant lists, concatenating each combination in order — same [`REP_VARIANT_CAP`]
+/// bound and `overflowed` convention as [`surface_variants`] itself (folded across every piece).
+///
+/// For a single piece this is byte-identical to `surface_variants(table, texts[0])` (the module
+/// doc's "byte-identical to this module's pre-existing (pre-P6) behavior" invariant on
+/// [`TextMode::SurfaceProbed`] holds unchanged): the fold starts from `vec![String::new()]` and one
+/// pass through one piece's own variant list produces exactly that list back, just each member
+/// re-sorted/re-deduped (a no-op on an already-sorted-deduped `Vec`).
+///
+/// `None` (mirroring `surface_variants`'s own convention) the instant ANY piece fails to
+/// re-segment — the caller reports the SAME `"unsegmentable-affix"` `uncovered` item this always
+/// reported for the single-piece case.
+fn surface_variants_concat(table: &CharDefTable, texts: &[&str]) -> Option<(Vec<String>, bool)> {
+    let mut variants: Vec<String> = vec![String::new()];
+    let mut overflowed = false;
+    for text in texts {
+        let (piece_variants, piece_overflowed) = surface_variants(table, text)?;
+        overflowed |= piece_overflowed;
+        let mut next =
+            Vec::with_capacity(variants.len().saturating_mul(piece_variants.len().max(1)));
+        'grow: for v in &variants {
+            for p in &piece_variants {
+                if next.len() >= REP_VARIANT_CAP {
+                    overflowed = true;
+                    break 'grow;
+                }
+                next.push(format!("{v}{p}"));
+            }
+        }
+        variants = next;
     }
     variants.sort_unstable();
     variants.dedup();
@@ -1260,35 +1334,40 @@ fn emit_rule_allomorphs(
             continue;
         }
         let owner = Some(allo.id);
-        match first_insert_text(&allo.rhs) {
+        match insert_action_texts(&allo.rhs) {
             InsertText::None => {
                 write_tag_entry(out, &tag_lexc, "", next, counts, pk, owner);
                 counts.allomorphs_emitted += 1;
             }
-            // P6 (`TextMode::UnderlyingTokens`): ONE token string via `SegAlphabet::encode_shape`
-            // — no surface_variants cartesian product, no `phon`/junction-probe consultation at
-            // all (module doc on `TextMode`; the affix's own underlying spelling is exactly what
-            // `shape` already is, char-def identity collapsing the representation question the
-            // SurfaceProbed arm below exists to solve). `encode_shape` keeps Boundary nodes (e.g.
-            // the affix's own trailing `+`) — the rule cascade's own environments need them.
-            InsertText::Text { shape, .. } if matches!(mode, TextMode::UnderlyingTokens(_)) => {
+            // P6 (`TextMode::UnderlyingTokens`): concatenate EVERY `InsertSegments` action's own
+            // token string via `SegAlphabet::encode_shape`, in document order (`InsertText::Text`'s
+            // own doc: never just the first) — no surface_variants cartesian product, no
+            // `phon`/junction-probe consultation at all (module doc on `TextMode`; each action's
+            // own underlying spelling is exactly what its `Shape` already is, char-def identity
+            // collapsing the representation question the SurfaceProbed arm below exists to solve).
+            // `encode_shape` keeps Boundary nodes (e.g. the affix's own trailing `+`) — the rule
+            // cascade's own environments need them.
+            InsertText::Text { shapes, .. } if matches!(mode, TextMode::UnderlyingTokens(_)) => {
                 let TextMode::UnderlyingTokens(alphabet) = mode else {
                     unreachable!()
                 };
-                let underlying = alphabet.encode_shape(shape);
+                let underlying: String = shapes
+                    .iter()
+                    .map(|shape| alphabet.encode_shape(shape))
+                    .collect();
                 write_tag_entry(out, &tag_lexc, &underlying, next, counts, pk, owner);
                 counts.allomorphs_emitted += 1;
             }
-            InsertText::Text { text: t, .. } => {
+            InsertText::Text { texts, .. } => {
                 let mut emitted_any = false;
-                match surface_variants(table, t) {
+                match surface_variants_concat(table, &texts) {
                     Some((variants, overflowed)) => {
                         if overflowed {
                             uncovered.push(UncoveredItem {
                                 kind: "rep-variant-overflow".to_string(),
                                 id: label.clone(),
                                 reason: format!(
-                                    "affix insert text {t:?} exceeds {REP_VARIANT_CAP} representation variants; excess spellings dropped"
+                                    "affix insert text {texts:?} exceeds {REP_VARIANT_CAP} representation variants; excess spellings dropped"
                                 ),
                             });
                         }
@@ -1302,21 +1381,27 @@ fn emit_rule_allomorphs(
                             kind: "unsegmentable-affix".to_string(),
                             id: label.clone(),
                             reason: format!(
-                                "affix insert text {t:?} does not re-segment against the surface char-def table"
+                                "affix insert text {texts:?} does not re-segment against the surface char-def table"
                             ),
                         });
                     }
                 }
                 // Junction-aware enrichment (module doc): union in every probe-derived surface
                 // spelling, and (only where the caller says this level is root-adjacent) route
-                // deletion-junction spellings to the stripped-roots continuation instead.
+                // deletion-junction spellings to the stripped-roots continuation instead. The probe
+                // takes one literal string; every piece is joined in document order first (an
+                // upward-only, harmless-anywhere approximation for the 2+-piece case, same
+                // convention as the rest of this enrichment -- module doc, "Junction-aware
+                // affix/root emission" -- byte-identical to the pre-fix single-piece call when
+                // `texts.len() == 1`).
                 if let Some(probe) = phon {
-                    for surface in probe.variants(t) {
+                    let joined: String = texts.concat();
+                    for surface in probe.variants(&joined) {
                         write_tag_entry(out, &tag_lexc, &surface, next, counts, pk, owner);
                         emitted_any = true;
                     }
                     if let Some(target) = junction_target {
-                        for surface in probe.deletion_junctions(t) {
+                        for surface in probe.deletion_junctions(&joined) {
                             write_tag_entry(out, &tag_lexc, &surface, target, counts, pk, owner);
                             emitted_any = true;
                         }
@@ -1700,7 +1785,15 @@ fn rhs_drops_lhs_material(a: &AffixAllomorphDef) -> bool {
 /// (`Role::None`/`Role::Prefix`/`Role::Suffix`) — `Role::Infix` is `crate::preexpand`'s own job
 /// (module doc, item 2, covers the case where it ALSO needs this mechanism); `CircumfixPrefix`/
 /// `Reduplication`/`Process` remain `uncovered`'s job, unchanged.
-fn is_structural_rule(g: &Grammar, mid: MRuleId) -> bool {
+///
+/// `pub(crate)` (widened from private, no body change): `openspec/changes/
+/// cover-circumfix-null-output-actions`'s `crate::capability::CircumfixStructuralCompositePredicate`
+/// calls this directly to decide whether a given `CircumfixOutputAction` observation's owning rule
+/// actually reaches the faithful, oracle-backed [`build_structural_composites`] construction — the
+/// same "predicate reads the identical structural fact the real compile path branches on, not a
+/// re-derivation of it" precedent [`probe_would_refuse`]/[`structural_candidate_rules`] already set
+/// for `reify-compilation-plans`.
+pub(crate) fn is_structural_rule(g: &Grammar, mid: MRuleId) -> bool {
     match rule_role(g, mid) {
         Role::None | Role::Prefix | Role::Suffix => {
             allomorphs_of(g, mid).iter().any(rhs_drops_lhs_material)
