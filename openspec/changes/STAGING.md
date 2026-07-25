@@ -58,10 +58,27 @@ stated in the module doc and re-printed on stderr at pack time. And `harden-foma
 framing, `try_wait`/`kill` wall-time control, sampled RSS that is explicitly *not* a hard ceiling),
 opt-in via `pangloss pack --watchdog` with the default in-process path byte-identical.
 
-**Delanguaging — A + B LANDED.** Real-language data removed and artifacts renamed in-repo; the
-`machine` conformance fixtures renamed by inspected construct and pushed (`sillsdev/machine`
-`conformance-framework`). OPEN (Part C): the perf-benchmark tests still named/loading real grammars —
-coupled to synthetic stress-data synthesis.
+**Delanguaging — A + B + C LANDED (C with a measured caveat).** Real-language data removed and
+artifacts renamed in-repo; the `machine` conformance fixtures renamed by inspected construct and pushed
+(`sillsdev/machine` `conformance-framework`); Part C renamed every remaining language-named test/example
+(`pg-foma`, `pg-parse`, `pg-ffi`, `tools/fst-poc`) and added a synthetic deep-affix-chain generator
+(`pg-grammar-gen/src/build/chain.rs`).
+
+**MEASURED, AND THE ANSWER IS NO FOR THE DEEP CHAIN — the real-corpus perf anchor cannot be retired.**
+The grill recorded an open risk that synthetic shapes must be *proven* to reproduce the real OOM/timing
+cliffs. Measured: the synthetic deep-chain shape at N=24 (the real per-zone scale) compiles in ~3ms /
+1154 states and `propose()` on a deliberately worst-case query (C(24,12) = 2,704,156 raw placements)
+returns in **13.5 microseconds** — no cliff. Likely cause (flagged, unproven): foma minimizes "which of
+N levels fired" into a single state when the branches are bisimilar, which holds for a content-free
+chain but not for real phonologically-conditioned rules plus two independent per-zone chains. So the
+corpus-dependent perf tests are **renamed but still `#[ignore]`d**, each carrying a doc note naming the
+gitignored fixture it still needs; none was promoted. Today's actual (small) envelope is pinned as a
+non-ignored regression test rather than discarded.
+
+**The large-cascade anchor DID reproduce, guard included.** Compile time grows 1ms → 8.6s as
+roots × rules goes 3 → 384, and the production `EnumerationBudget` (whose own doc cites the historical
+8.8 GB OOM) correctly tripped `EnumerationBudgetExceeded` at product = 576 after 18s — no OOM, no hang.
+That validates the budget guard against its own motivating case.
 
 **Confirm-engine (oracle) gaps found while implementing Stage 2 — all four now resolved.** None ever
 caused overclaiming (confirm-only means confirm decides); they limited *end-to-end recall* for
