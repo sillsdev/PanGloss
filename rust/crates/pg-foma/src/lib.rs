@@ -154,6 +154,18 @@ pub mod peel;
 /// content-addressed compilation-`Plan` data type. Purely additive -- does not rewire
 /// [`replace`]/[`gate`]/[`emit`]/[`preexpand`]; see that module's own doc for full scope.
 pub mod plan;
+/// Stage 3 of `openspec/changes/add-pairwise-grammar-interaction-coverage` (the REFRAMED design):
+/// tree-structured node/subtree interaction coverage over the reified compilation plan --
+/// [`plan_interaction_coverage::AdjacencyTuple`] extraction + tagging,
+/// [`plan_interaction_coverage::retired_interactions`] (orthogonality pruning, evidence-cited, never
+/// invented), [`plan_interaction_coverage::compute_interaction_coverage`] (the required/covered/
+/// uncovered/contains-unsupported report), and [`plan_interaction_coverage::
+/// fuzz_gate_group_reordering_for_grammar`] (targeted Gate-node subtree fuzzing via
+/// [`oracle::permute_gate_groups`] + [`oracle::differential_oracle`]). **ADVISORY-FIRST**, same
+/// non-blocking discipline [`conformance_coverage`] already established: see that module's own doc
+/// for the mapping, today's reported gaps (`tests/plan_interaction_coverage_gate.rs`), and the
+/// deferred build-breaking end state.
+pub mod plan_interaction_coverage;
 pub mod precision;
 pub(crate) mod preexpand;
 /// `openspec/changes/profile-fst-compilation` (proposal.md; design.md D1-D4; R6): the compile-time
