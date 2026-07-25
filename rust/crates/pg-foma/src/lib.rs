@@ -156,6 +156,14 @@ pub mod peel;
 pub mod plan;
 pub mod precision;
 pub(crate) mod preexpand;
+/// `openspec/changes/profile-fst-compilation` (proposal.md; design.md D1-D4; R6): the compile-time
+/// **profile** type -- [`profile::CompileProfile`]/[`profile::CompileStage`]/[`profile::
+/// GroupLineCount`]/[`profile::ProfileLabel`] -- collected from the PRODUCTION
+/// `emit::emit_with_budget_profiled` -> `foma::lexcread::fsm_lexc_parse_string` path
+/// (`analyzer::FomaProposer::new_with_budget`). Phase A only (design.md D1) -- see that module's
+/// own doc for the Phase B gate this stays clear of, and [`health_evaluator::profile_findings`]
+/// for how this feeds the previously-unpopulated profile-sourced health findings.
+pub mod profile;
 /// P6 feasibility prototype (docs/fst-plan/p6-prototype-report.md): replace-rule compilation +
 /// underlying-form lexc, NOT wired into the mainline `emit`/`analyzer` path. See that module's doc.
 pub mod replace;

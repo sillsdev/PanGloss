@@ -9,7 +9,7 @@
 //! # Scope: consume, never remeasure (R6)
 //! `openspec/changes/IMPLEMENTATION-READINESS.md` §R6: "Measurements come from the admission
 //! walker, budget tracker, and compile profile once; the health evaluator consumes them without
-//! recomputation." This module reads exactly three measurement sources that exist in this crate
+//! recomputation." This module reads exactly four measurement sources that exist in this crate
 //! **today** — nothing here calls `foma`, walks a grammar, or measures anything itself:
 //! - **Payload size**: a plain `u64` byte count the caller already has (the emitted network /
 //!   `pg-pack` payload), scored by [`crate::health::severity_for_size_bytes`] (unchanged, reused).
@@ -19,26 +19,38 @@
 //!   [`ApplyBudgetTrip`] (this module's own lightweight distillation of a per-word
 //!   `crate::compose_budget::ApplyOutcome::Incomplete` — see that type's own doc for why it exists
 //!   instead of taking `ApplyOutcome<T>` generically).
+//! - **[`crate::profile::CompileProfile`]** (`openspec/changes/profile-fst-compilation`): [`profile_findings`]
+//!   reads its final compiled-network state/arc counts and total emitted-line count to produce the
+//!   two *approaching-but-not-yet-tripped* finding kinds this module's own doc used to list as
+//!   deferred (see immediately below) — the compile-time-series instrumentation R6 asked for.
 //!
-//! **Explicitly deferred, not populated here** (R6: "FST health policy/schema may land before
+//! **Previously deferred, now populated by [`profile_findings`]** (`profile-fst-compilation`):
+//! [`crate::health::FindingCode::IntermediateNetworkGrowth`] (the production network's own final
+//! state/arc count approaching, but not tripping, `crate::compose_budget::DEFAULT_STATE_BUDGET`/
+//! `DEFAULT_ARC_BUDGET` — reused as the closest existing calibrated size dimension; see
+//! [`profile_findings`]'s own doc for why Phase A's production path has no earlier "intermediate"
+//! composition product to measure instead) and [`crate::health::FindingCode::CompileWorkBudget`]
+//! (total emitted lexc lines approaching, but not tripping, `crate::compose_budget::
+//! DEFAULT_LINE_BUDGET` — a dimension the production path does not even check today, unlike the
+//! experimental `emit_underlying_templated`/`crate::uflexc` paths' own incremental `line_cap`
+//! check).
+//!
+//! **Still explicitly deferred, not populated here** (R6: "FST health policy/schema may land before
 //! instrumentation; observed audit fields populate as their owning profile/budget changes merge
 //! and are never independently remeasured" — `openspec/changes/IMPLEMENTATION-READINESS.md`
-//! "Conditional/later work"): [`crate::health::FindingCode::IntermediateNetworkGrowth`] and
-//! [`crate::health::FindingCode::CompileWorkBudget`] for *approaching-but-not-yet-tripped* growth
-//! (this evaluator only sees a size/count once a [`crate::compose_budget::ComposeError`] has
-//! already tripped, never a continuous "80% of budget" measurement — that needs
-//! `profile-fst-compilation`'s own compile-time-series instrumentation);
-//! [`crate::health::FindingCode::ApplicationTimeWork`]'s [`crate::health::Metric::ElapsedMillis`]/
-//! [`crate::health::Metric::ApplyAllocationBytes`] dimensions (no per-word wall-clock/allocation
-//! instrumentation exists yet, only the two magnitude caps [`ApplyBudgetTrip`] already covers);
+//! "Conditional/later work"): [`crate::health::FindingCode::ApplicationTimeWork`]'s
+//! [`crate::health::Metric::ElapsedMillis`]/[`crate::health::Metric::ApplyAllocationBytes`]
+//! dimensions (no per-word wall-clock/allocation instrumentation exists yet, only the two
+//! magnitude caps [`ApplyBudgetTrip`] already covers — `profile-fst-compilation` is a COMPILE-time
+//! profile, this dimension is per-word APPLY-time, a different measurement surface entirely);
 //! [`crate::health::FindingCode::DuplicateAnalysisOverlap`] (needs `crate::confirm`'s pre-dedup
 //! counts, not produced anywhere yet); and [`crate::health::FindingCode::ProposalVolume`]/
 //! [`crate::health::FindingCode::ConfirmationWork`] for *large-but-not-tripped* candidate/
 //! confirmation volume (only the tripped case, via [`ApplyBudgetTrip`], is evaluated here — see
-//! this module's "Judgment calls" section, item 6). Every one of these finding kinds is fully
-//! *producible* by this evaluator's own shape (the `match` arms below are exhaustive over
-//! [`crate::compose_budget::ComposeError`]/[`crate::emit::FomaTier`]) but stays unpopulated until
-//! its owning profile/budget change lands real values to read.
+//! this module's "Judgment calls" section, item 6; also apply-time, not compile-time). Every one of
+//! these finding kinds is fully *producible* by this evaluator's own shape (the `match` arms below
+//! are exhaustive over [`crate::compose_budget::ComposeError`]/[`crate::emit::FomaTier`]) but stays
+//! unpopulated until its owning profile/budget change lands real values to read.
 //!
 //! # Two distinct axes, again (see `crate::health`'s own doc first)
 //! Every [`HealthFinding`] this module builds carries `severity` on the cost/health axis only
@@ -101,13 +113,155 @@
 //!    measurement already carries** (a compose-budget `site` label, an `UncoveredItem::id`, a rule
 //!    XML id, an apply-time word) — never inventing a new identifier scheme; grammar-level findings
 //!    with no specific construct identifier (e.g. a payload-size finding) leave `affected` empty.
+//! 8. **[`profile_findings`] reuses [`Metric::IntermediateStateCount`]/[`Metric::IntermediateArcCount`]
+//!    for the PRODUCTION path's own FINAL compiled network**, not a mid-cascade intermediate
+//!    composition product — `crate::emit::emit_with_budget`'s Phase A production path (proposal.md's
+//!    own "Context": "pre-bakes phonology into emitted surface forms, so replacement-rule nets ...
+//!    do not exist there") performs no separate `fsm_compose`/`fsm_union`/`fsm_minimize` call at all;
+//!    the single `foma::lexcread::fsm_lexc_parse_string` call IS the only network-construction step,
+//!    so its own state/arc count is simultaneously the "final" and the only "intermediate" product
+//!    available pre-Stage-2. This reuses the task brief's required existing `Metric`/`MetricValue`
+//!    vocabulary rather than inventing a parallel one; the finding's own `explanation` text says so
+//!    explicitly, so a report reader is never misled into expecting Phase B's future per-rule
+//!    cascade curve from a Phase A report.
+//! 9. **A single flat 80%-of-budget threshold, not a banded severity scale**
+//!    ([`APPROACHING_BUDGET_WARNING_FRACTION`]) — no real large-grammar measurement of a legitimate
+//!    "approaching" curve exists yet for either dimension (mirrors `crate::compose_budget`'s own
+//!    "conservative placeholder pending real-grammar measurement" convention for its calibrated
+//!    defaults); always [`Severity::Warning`], never escalated further by this evaluator, because an
+//!    ACTUAL trip of the same dimension is a completely different, already-handled code path
+//!    ([`compose_error_finding`]'s [`FindingCode::ResourceBudgetReached`]/
+//!    [`FindingCode::ProvenBoundExceedsBudget`] arms) that this function never reaches (Phase A's
+//!    production path has no compose-budget-checked call site at all, module doc).
+//! 10. **[`profile_findings`] refuses a non-[`crate::profile::ProfileLabel::Production`] profile
+//!     outright** (empty `Vec`, never a partial fold) — design.md's Phase B gate/spec.md
+//!     "Experimental cascade is profiled early": an `ExperimentalComposition`-labeled profile "cannot
+//!     satisfy production-profile gates." [`evaluate_health`] never even needs to check this itself;
+//!     [`profile_findings`] is the one and only place this gate is enforced.
 
-use crate::compose_budget::{ApplyDimension, ComposeError, NetSizeMeasure};
+use crate::compose_budget::{
+    ApplyDimension, ComposeError, NetSizeMeasure, DEFAULT_ARC_BUDGET, DEFAULT_LINE_BUDGET,
+    DEFAULT_STATE_BUDGET,
+};
 use crate::emit::{EmitReport, EnumBudgetExceeded, FomaTier};
 use crate::health::{
     severity_for_size_bytes, FindingCode, HealthFinding, HealthReport, Metric, MetricValue, Phase,
     Remedy, Severity, ValueProvenance,
 };
+use crate::profile::{CompileProfile, ProfileLabel};
+
+/// `openspec/changes/profile-fst-compilation`: the fraction of a calibrated compose-budget
+/// dimension ([`DEFAULT_STATE_BUDGET`]/[`DEFAULT_ARC_BUDGET`]/[`DEFAULT_LINE_BUDGET`]) at or above
+/// which [`profile_findings`] raises an "approaching, not yet tripped" [`Severity::Warning`]
+/// finding — this module's own doc's previously-deferred "continuous '80% of budget' measurement."
+/// A single flat threshold, not a banded severity scale — see this module's "Judgment calls" item
+/// 9 for why.
+const APPROACHING_BUDGET_WARNING_FRACTION: f64 = 0.8;
+
+/// One "approaching, not yet tripped" [`Severity::Warning`] finding, or `None` when `value` is
+/// below [`APPROACHING_BUDGET_WARNING_FRACTION`] of `limit` (this module's own "Ideal: nothing to
+/// report" convention, mirroring [`payload_size_finding`]). Shared by every [`profile_findings`]
+/// dimension so the threshold/severity policy lives in exactly one place.
+fn approaching_budget_finding(
+    code: FindingCode,
+    metric: Metric,
+    value: u64,
+    limit: u64,
+    explanation: String,
+) -> Option<HealthFinding> {
+    if limit == 0 || (value as f64) < APPROACHING_BUDGET_WARNING_FRACTION * (limit as f64) {
+        return None;
+    }
+    Some(HealthFinding {
+        code,
+        severity: Severity::Warning,
+        phase: Phase::Compile,
+        affected: Vec::new(),
+        metric,
+        value: MetricValue::Count(value),
+        provenance: ValueProvenance::Observed,
+        threshold: Some(MetricValue::Count(limit)),
+        explanation,
+        remedies: Vec::new(),
+        override_record: None,
+    })
+}
+
+/// `crate::profile::CompileProfile`-sourced findings (`openspec/changes/profile-fst-compilation`;
+/// this module's own doc, "Previously deferred, now populated"): [`FindingCode::IntermediateNetworkGrowth`]
+/// from the production network's final state/arc count approaching (but not tripping)
+/// [`DEFAULT_STATE_BUDGET`]/[`DEFAULT_ARC_BUDGET`], and [`FindingCode::CompileWorkBudget`] from the
+/// total emitted lexc line count approaching (but not tripping) [`DEFAULT_LINE_BUDGET`] — see this
+/// module's "Judgment calls" items 8/9 for the reuse/threshold rationale.
+///
+/// Phase B gate (this module's "Judgment calls" item 10): a `profile.label !=
+/// crate::profile::ProfileLabel::Production` is refused outright, returning an empty `Vec` — never
+/// partially folded in as production evidence.
+pub fn profile_findings(profile: &CompileProfile) -> Vec<HealthFinding> {
+    if profile.label != ProfileLabel::Production {
+        return Vec::new();
+    }
+    let mut findings = Vec::new();
+
+    if let Some(states) = profile.final_state_count.filter(|&v| v >= 0) {
+        let states = states as u64;
+        let limit = DEFAULT_STATE_BUDGET as u64;
+        findings.extend(approaching_budget_finding(
+            FindingCode::IntermediateNetworkGrowth,
+            Metric::IntermediateStateCount,
+            states,
+            limit,
+            format!(
+                "This grammar's compiled production network has {states} states, at or above \
+                 {pct:.0}% of the {limit}-state compose-budget reference band \
+                 (crate::compose_budget::DEFAULT_STATE_BUDGET). Phase A's production path \
+                 (surface-prebaked emit_with_budget -> a single fsm_lexc_parse_string call) \
+                 performs no separate composition/union/minimize fold of its own -- this is the \
+                 compiled network's own final size, reused against the closest existing calibrated \
+                 size dimension rather than a mid-cascade intermediate product (this evaluator's own \
+                 \"Judgment calls\" item 8).",
+                pct = APPROACHING_BUDGET_WARNING_FRACTION * 100.0,
+            ),
+        ));
+    }
+    if let Some(arcs) = profile.final_arc_count.filter(|&v| v >= 0) {
+        let arcs = arcs as u64;
+        let limit = DEFAULT_ARC_BUDGET as u64;
+        findings.extend(approaching_budget_finding(
+            FindingCode::IntermediateNetworkGrowth,
+            Metric::IntermediateArcCount,
+            arcs,
+            limit,
+            format!(
+                "This grammar's compiled production network has {arcs} arcs, at or above \
+                 {pct:.0}% of the {limit}-arc compose-budget reference band \
+                 (crate::compose_budget::DEFAULT_ARC_BUDGET). Same Phase A caveat as the \
+                 state-count finding.",
+                pct = APPROACHING_BUDGET_WARNING_FRACTION * 100.0,
+            ),
+        ));
+    }
+    if let Some(lines) = profile.total_lexc_lines {
+        let limit = DEFAULT_LINE_BUDGET as u64;
+        findings.extend(approaching_budget_finding(
+            FindingCode::CompileWorkBudget,
+            Metric::EmittedLineCount,
+            lines,
+            limit,
+            format!(
+                "This grammar's production emission wrote {lines} lexc lines, at or above \
+                 {pct:.0}% of the {limit}-line compose-budget reference band \
+                 (crate::compose_budget::DEFAULT_LINE_BUDGET) -- a dimension Phase A's production \
+                 path does not itself check (only the experimental emit_underlying_templated/\
+                 crate::uflexc paths do), so this is diagnostic evidence, never a resource-budget \
+                 trip.",
+                pct = APPROACHING_BUDGET_WARNING_FRACTION * 100.0,
+            ),
+        ));
+    }
+
+    findings
+}
 
 /// This evaluator's own distillation of one `crate::compose_budget::ApplyOutcome::Incomplete` —
 /// see this module's "Judgment calls" item 6 for why [`evaluate_health`] takes this instead of the
@@ -481,11 +635,16 @@ fn apply_budget_trip_finding(trip: &ApplyBudgetTrip) -> HealthFinding {
 ///   chain-depth/ordering-multiplicity calls raised (typically zero or one per grammar, but a
 ///   caller collecting evidence across a batch or a diagnostic sweep may pass more than one).
 /// - `apply_budget_trips`: every per-word [`ApplyBudgetTrip`] this compilation's callers observed.
+/// - `compile_profile`: `openspec/changes/profile-fst-compilation`'s own [`CompileProfile`], if this
+///   compilation collected one (`crate::analyzer::FomaProposer::new_with_profile`) — see
+///   [`profile_findings`]'s own doc for exactly which finding kinds this populates, and the Phase B
+///   gate it enforces on a non-production-labeled profile.
 pub fn evaluate_health(
     payload_bytes: Option<u64>,
     emit_report: Option<&EmitReport>,
     compose_errors: &[ComposeError],
     apply_budget_trips: &[ApplyBudgetTrip],
+    compile_profile: Option<&CompileProfile>,
 ) -> HealthReport {
     let mut findings = Vec::new();
 
@@ -500,6 +659,9 @@ pub fn evaluate_health(
     }
     for trip in apply_budget_trips {
         findings.push(apply_budget_trip_finding(trip));
+    }
+    if let Some(profile) = compile_profile {
+        findings.extend(profile_findings(profile));
     }
 
     HealthReport::new(findings)
@@ -517,14 +679,14 @@ mod tests {
 
     #[test]
     fn fst_health_evaluator_ideal_payload_produces_no_finding() {
-        let report = evaluate_health(Some(10_000_000), None, &[], &[]);
+        let report = evaluate_health(Some(10_000_000), None, &[], &[], None);
         assert!(report.findings.is_empty());
         assert_eq!(report.admission(), Severity::Ideal);
     }
 
     #[test]
     fn fst_health_evaluator_warning_payload_produces_payload_size_band_finding() {
-        let report = evaluate_health(Some(50_000_000), None, &[], &[]);
+        let report = evaluate_health(Some(50_000_000), None, &[], &[], None);
         assert_eq!(report.findings.len(), 1);
         let finding = &report.findings[0];
         assert_eq!(finding.code, FindingCode::PayloadSizeBand);
@@ -540,7 +702,7 @@ mod tests {
     fn fst_health_evaluator_error_payload_matches_health_schema_worked_scenario() {
         // crate::health's own worked scenario: "FST payload is exactly 100,000,000 bytes" -> Warning
         // is the UPPER edge of Warning; one byte more crosses into Error.
-        let report = evaluate_health(Some(100_000_001), None, &[], &[]);
+        let report = evaluate_health(Some(100_000_001), None, &[], &[], None);
         assert_eq!(report.findings[0].severity, Severity::Error);
         assert_eq!(
             report.findings[0].threshold,
@@ -550,7 +712,7 @@ mod tests {
 
     #[test]
     fn fst_health_evaluator_critical_payload_is_critical_and_overridable() {
-        let report = evaluate_health(Some(500_000_001), None, &[], &[]);
+        let report = evaluate_health(Some(500_000_001), None, &[], &[], None);
         assert_eq!(report.findings[0].severity, Severity::Critical);
         assert!(report.findings[0].severity.overridable());
         assert_eq!(report.admission(), Severity::Critical);
@@ -568,7 +730,7 @@ mod tests {
             tier: FomaTier::Full,
             enum_budget_exceeded: None,
         };
-        let health = evaluate_health(None, Some(&report), &[], &[]);
+        let health = evaluate_health(None, Some(&report), &[], &[], None);
         assert!(health.findings.is_empty());
         assert_eq!(health.admission(), Severity::Ideal);
     }
@@ -593,7 +755,7 @@ mod tests {
             tier: FomaTier::Partial { uncovered: 2 },
             enum_budget_exceeded: None,
         };
-        let health = evaluate_health(None, Some(&report), &[], &[]);
+        let health = evaluate_health(None, Some(&report), &[], &[], None);
         assert_eq!(health.findings.len(), 1);
         let finding = &health.findings[0];
         assert_eq!(finding.code, FindingCode::UnknownUnboundedConstruct);
@@ -616,7 +778,7 @@ mod tests {
             },
             enum_budget_exceeded: None,
         };
-        let health = evaluate_health(None, Some(&report), &[], &[]);
+        let health = evaluate_health(None, Some(&report), &[], &[], None);
         assert_eq!(health.findings.len(), 1);
         let finding = &health.findings[0];
         assert_eq!(finding.code, FindingCode::UnknownUnboundedConstruct);
@@ -639,7 +801,7 @@ mod tests {
                 limit: 5_000,
             }),
         };
-        let health = evaluate_health(None, Some(&report), &[], &[]);
+        let health = evaluate_health(None, Some(&report), &[], &[], None);
         // One finding for the Unsupported tier, one for the specific tripped budget.
         assert_eq!(health.findings.len(), 2);
         let budget_finding = health
@@ -665,7 +827,7 @@ mod tests {
             limit: 2_000_000,
             site: "synthetic-test-site",
         };
-        let health = evaluate_health(None, None, std::slice::from_ref(&err), &[]);
+        let health = evaluate_health(None, None, std::slice::from_ref(&err), &[], None);
         let finding = &health.findings[0];
         assert_eq!(finding.code, FindingCode::ResourceBudgetReached);
         assert_eq!(finding.metric, Metric::IntermediateStateCount);
@@ -683,7 +845,7 @@ mod tests {
             limit: 5_000,
             rule_xml_id: "synthetic-mrule-0099".to_string(),
         };
-        let health = evaluate_health(None, None, std::slice::from_ref(&err), &[]);
+        let health = evaluate_health(None, None, std::slice::from_ref(&err), &[], None);
         let finding = &health.findings[0];
         assert_eq!(finding.code, FindingCode::ProvenBoundExceedsBudget);
         assert_eq!(finding.metric, Metric::AlphaTupleCount);
@@ -698,7 +860,7 @@ mod tests {
             limit: 64,
             gated_subrules: 7,
         };
-        let health = evaluate_health(None, None, std::slice::from_ref(&err), &[]);
+        let health = evaluate_health(None, None, std::slice::from_ref(&err), &[], None);
         let finding = &health.findings[0];
         assert_eq!(finding.code, FindingCode::ProvenBoundExceedsBudget);
         assert_eq!(finding.metric, Metric::GateGroupCount);
@@ -711,7 +873,7 @@ mod tests {
             lines: 1_000_001,
             limit: 1_000_000,
         };
-        let health = evaluate_health(None, None, std::slice::from_ref(&err), &[]);
+        let health = evaluate_health(None, None, std::slice::from_ref(&err), &[], None);
         let finding = &health.findings[0];
         assert_eq!(finding.code, FindingCode::ResourceBudgetReached);
         assert_eq!(finding.metric, Metric::EmittedLineCount);
@@ -725,7 +887,7 @@ mod tests {
             limit: Duration::from_millis(5_000),
             site: "synthetic-timeout-site",
         };
-        let health = evaluate_health(None, None, std::slice::from_ref(&err), &[]);
+        let health = evaluate_health(None, None, std::slice::from_ref(&err), &[], None);
         let finding = &health.findings[0];
         assert_eq!(finding.code, FindingCode::ResourceBudgetReached);
         assert_eq!(finding.metric, Metric::ElapsedMillis);
@@ -740,7 +902,7 @@ mod tests {
             limit: 24,
             site: "synthetic-peel-site",
         };
-        let health = evaluate_health(None, None, std::slice::from_ref(&err), &[]);
+        let health = evaluate_health(None, None, std::slice::from_ref(&err), &[], None);
         let finding = &health.findings[0];
         assert_eq!(finding.code, FindingCode::ResourceBudgetReached);
         assert_eq!(finding.metric, Metric::ApplyChainDepth);
@@ -754,7 +916,7 @@ mod tests {
             limit: 100,
             site: "synthetic-unordered-stratum",
         };
-        let health = evaluate_health(None, None, std::slice::from_ref(&err), &[]);
+        let health = evaluate_health(None, None, std::slice::from_ref(&err), &[], None);
         let finding = &health.findings[0];
         assert_eq!(finding.code, FindingCode::ProvenBoundExceedsBudget);
         assert_eq!(finding.metric, Metric::OrderingRuleCount);
@@ -773,7 +935,7 @@ mod tests {
             limit: 10_000,
             word: Some("synthetic-word".to_string()),
         };
-        let health = evaluate_health(None, None, &[], std::slice::from_ref(&trip));
+        let health = evaluate_health(None, None, &[], std::slice::from_ref(&trip), None);
         let finding = &health.findings[0];
         assert_eq!(finding.code, FindingCode::ResourceBudgetReached);
         assert_eq!(finding.metric, Metric::ProposalPathCount);
@@ -789,7 +951,7 @@ mod tests {
             limit: 500,
             word: None,
         };
-        let health = evaluate_health(None, None, &[], std::slice::from_ref(&trip));
+        let health = evaluate_health(None, None, &[], std::slice::from_ref(&trip), None);
         let finding = &health.findings[0];
         assert_eq!(finding.metric, Metric::ProposalCandidateCount);
         assert!(finding.affected.is_empty());
@@ -801,10 +963,135 @@ mod tests {
 
     #[test]
     fn fst_health_evaluator_empty_report_is_ideal() {
-        let health = evaluate_health(None, None, &[], &[]);
+        let health = evaluate_health(None, None, &[], &[], None);
         assert!(health.findings.is_empty());
         assert_eq!(health.admission(), Severity::Ideal);
         assert_eq!(health.schema_version, crate::health::HEALTH_SCHEMA_VERSION);
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // fst_health_evaluator_profile: `openspec/changes/profile-fst-compilation` -- the two
+    // previously-unpopulated finding kinds (IntermediateNetworkGrowth, CompileWorkBudget) now
+    // populate from `crate::profile::CompileProfile`, and the Phase B `ProfileLabel` gate.
+    // ---------------------------------------------------------------------------------------
+
+    fn synthetic_profile(
+        label: ProfileLabel,
+        final_state_count: Option<i64>,
+        final_arc_count: Option<i64>,
+        total_lexc_lines: Option<u64>,
+    ) -> CompileProfile {
+        CompileProfile {
+            label,
+            pipeline: "synthetic-test-pipeline".to_string(),
+            total_elapsed_millis: 5,
+            stages: Vec::new(),
+            group_lines: Vec::new(),
+            total_lexc_lines,
+            final_state_count,
+            final_arc_count,
+        }
+    }
+
+    /// Before this change, NOTHING could ever produce an `IntermediateNetworkGrowth`/
+    /// `CompileWorkBudget` finding for an "approaching, not yet tripped" grammar -- this evaluator's
+    /// own module doc used to list both as deferred. A profile whose values sit comfortably below
+    /// the 80% threshold must still produce nothing (Ideal), proving the new code path is real
+    /// gating, not an unconditional finding.
+    #[test]
+    fn fst_health_evaluator_profile_below_threshold_produces_no_finding() {
+        // 50% of DEFAULT_STATE_BUDGET/DEFAULT_ARC_BUDGET/DEFAULT_LINE_BUDGET.
+        let profile = synthetic_profile(
+            ProfileLabel::Production,
+            Some((DEFAULT_STATE_BUDGET / 2) as i64),
+            Some((DEFAULT_ARC_BUDGET / 2) as i64),
+            Some((DEFAULT_LINE_BUDGET / 2) as u64),
+        );
+        let health = evaluate_health(None, None, &[], &[], Some(&profile));
+        assert!(
+            health.findings.is_empty(),
+            "a comfortably-below-threshold profile must produce no finding, got {:?}",
+            health.findings
+        );
+        assert_eq!(health.admission(), Severity::Ideal);
+    }
+
+    /// The real case this change exists for: a profile whose final network state count sits at 90%
+    /// of `DEFAULT_STATE_BUDGET` -- a case that produced NO finding before this change (no code path
+    /// could see this measurement at all) now produces a real, Observed
+    /// `IntermediateNetworkGrowth`/`IntermediateStateCount` Warning finding with the exact measured
+    /// value and the calibrated budget as its threshold.
+    #[test]
+    fn fst_health_evaluator_profile_network_growth_approaching_budget_produces_warning() {
+        let states = (DEFAULT_STATE_BUDGET as f64 * 0.9) as i64;
+        let profile = synthetic_profile(ProfileLabel::Production, Some(states), None, None);
+        let health = evaluate_health(None, None, &[], &[], Some(&profile));
+        assert_eq!(health.findings.len(), 1);
+        let finding = &health.findings[0];
+        assert_eq!(finding.code, FindingCode::IntermediateNetworkGrowth);
+        assert_eq!(finding.metric, Metric::IntermediateStateCount);
+        assert_eq!(finding.severity, Severity::Warning);
+        assert_eq!(finding.provenance, ValueProvenance::Observed);
+        assert_eq!(finding.value, MetricValue::Count(states as u64));
+        assert_eq!(
+            finding.threshold,
+            Some(MetricValue::Count(DEFAULT_STATE_BUDGET as u64))
+        );
+        assert_eq!(health.admission(), Severity::Warning);
+    }
+
+    /// Same shape, the arc-count dimension.
+    #[test]
+    fn fst_health_evaluator_profile_arc_growth_approaching_budget_produces_warning() {
+        let arcs = (DEFAULT_ARC_BUDGET as f64 * 0.85) as i64;
+        let profile = synthetic_profile(ProfileLabel::Production, None, Some(arcs), None);
+        let health = evaluate_health(None, None, &[], &[], Some(&profile));
+        assert_eq!(health.findings.len(), 1);
+        let finding = &health.findings[0];
+        assert_eq!(finding.code, FindingCode::IntermediateNetworkGrowth);
+        assert_eq!(finding.metric, Metric::IntermediateArcCount);
+        assert_eq!(finding.severity, Severity::Warning);
+    }
+
+    /// The total-emitted-lexc-lines dimension -- `CompileWorkBudget`, the OTHER
+    /// previously-unpopulated finding kind.
+    #[test]
+    fn fst_health_evaluator_profile_compile_work_lines_approaching_budget_produces_warning() {
+        let lines = (DEFAULT_LINE_BUDGET as f64 * 0.95) as u64;
+        let profile = synthetic_profile(ProfileLabel::Production, None, None, Some(lines));
+        let health = evaluate_health(None, None, &[], &[], Some(&profile));
+        assert_eq!(health.findings.len(), 1);
+        let finding = &health.findings[0];
+        assert_eq!(finding.code, FindingCode::CompileWorkBudget);
+        assert_eq!(finding.metric, Metric::EmittedLineCount);
+        assert_eq!(finding.severity, Severity::Warning);
+        assert_eq!(finding.value, MetricValue::Count(lines));
+        assert_eq!(
+            finding.threshold,
+            Some(MetricValue::Count(DEFAULT_LINE_BUDGET as u64))
+        );
+    }
+
+    /// Phase B gate (design.md D1; spec.md "Experimental cascade is profiled early"): a profile
+    /// labeled `ExperimentalComposition` must be refused OUTRIGHT by `profile_findings`/
+    /// `evaluate_health`, even when its own values would otherwise trip every dimension at once --
+    /// proving this is a hard label check, not merely "these particular synthetic values happen not
+    /// to cross the threshold."
+    #[test]
+    fn fst_health_evaluator_experimental_composition_profile_is_refused() {
+        let profile = synthetic_profile(
+            ProfileLabel::ExperimentalComposition,
+            Some(DEFAULT_STATE_BUDGET as i64 * 10),
+            Some(DEFAULT_ARC_BUDGET as i64 * 10),
+            Some(DEFAULT_LINE_BUDGET as u64 * 10),
+        );
+        assert!(
+            profile_findings(&profile).is_empty(),
+            "an experimental_composition-labeled profile must never satisfy production-profile gates"
+        );
+        let health = evaluate_health(None, None, &[], &[], Some(&profile));
+        assert!(health.findings.is_empty());
+        assert_eq!(health.admission(), Severity::Ideal);
     }
 
     // ---------------------------------------------------------------------------------------
@@ -910,6 +1197,7 @@ mod tests {
             Some(&emit_report),
             std::slice::from_ref(&compose_error),
             &[],
+            None,
         );
         let json = health.to_json().expect("serialization must succeed");
         assert_eq!(json, GOLDEN_JSON, "canonical JSON drifted from the committed golden");
@@ -923,6 +1211,7 @@ mod tests {
             Some(&emit_report),
             std::slice::from_ref(&compose_error),
             &[],
+            None,
         );
         // Two Warning findings + one Critical (non-overridden) -> admission is Critical.
         assert_eq!(health.admission(), Severity::Critical);
@@ -936,6 +1225,7 @@ mod tests {
             Some(&emit_report),
             std::slice::from_ref(&compose_error),
             &[],
+            None,
         );
         let json = health.to_json().expect("serialization must succeed");
         let parsed = HealthReport::from_json(&json).expect("deserialization must succeed");

@@ -181,6 +181,7 @@
 //!   accepted it once).
 
 use std::collections::{BTreeSet, HashSet};
+use std::time::Instant;
 
 use foma::utf8::is_combining;
 use pg_featstruct::{is_unifiable, FeatureStruct, FsId};
@@ -200,6 +201,7 @@ use crate::morphotactics::{
     ChainState, EnumerationBudget, ExploreMode, MorphotacticIndex, ProbeBudget,
 };
 use crate::precision::{ConstraintCatalog, PrecisionConfig, PrecisionEmit};
+use crate::profile::{CompileProfileBuilder, CompileStage};
 use crate::replace::SegAlphabet;
 use crate::tags;
 
@@ -2469,11 +2471,39 @@ pub fn emit_with_precision(g: &Grammar, precision: PrecisionConfig) -> EmitResul
 /// than read from env — see [`emit_with_precision`]'s own doc for why tests should call this
 /// directly (with a small [`crate::morphotactics::EnumerationBudget::with_caps`]) instead of
 /// setting `HC_ENUM_ENTRY_BUDGET`/`HC_ENUM_PROBE_BUDGET`.
+///
+/// Thin, zero-behavior-change wrapper over [`emit_with_budget_profiled`] with `profile: None`
+/// (`openspec/changes/profile-fst-compilation`'s own D2/"no observer-induced minimization" rule,
+/// proven byte-for-byte by `tests::fst_profile_emitted_artifact_is_byte_identical_with_profiling_on_or_off`
+/// in this file's own test module below): every existing caller of this function is completely
+/// unaffected by the profiling machinery's existence.
 pub(crate) fn emit_with_budget(
     g: &Grammar,
     precision: PrecisionConfig,
     enum_budget: &crate::morphotactics::EnumerationBudget,
 ) -> EmitResult {
+    emit_with_budget_profiled(g, precision, enum_budget, None)
+}
+
+/// [`emit_with_budget`]'s real core, with an optional compile-profile sink
+/// (`openspec/changes/profile-fst-compilation`, `crate::profile`'s own module doc "Stage
+/// boundaries") threaded through as its fourth parameter. `profile: None` is byte-for-byte
+/// identical to this function's pre-profiling behavior (nothing here branches on `profile` for any
+/// purpose OTHER than pushing a timing/count record) -- `crate::analyzer::FomaProposer::
+/// new_with_budget` is the one production caller that passes `Some`.
+///
+/// Every stage boundary below is a plain `Instant::now()`/`.elapsed()` pair around already-existing
+/// sequential code, never a closure: several stages sit across this function's own early `return`s
+/// (the enum-budget trip, the empty-roots bail-out, the compound-pair-budget breach), and a closure
+/// cannot early-return its OUTER function, so timing via closures would not fit every stage
+/// [`CompileStage`] names (`crate::profile`'s own doc, [`CompileProfileBuilder::push_stage`]).
+pub(crate) fn emit_with_budget_profiled(
+    g: &Grammar,
+    precision: PrecisionConfig,
+    enum_budget: &crate::morphotactics::EnumerationBudget,
+    mut profile: Option<&mut CompileProfileBuilder>,
+) -> EmitResult {
+    let mut stage_start = Instant::now();
     let width = tags::tag_width(g.morphemes.len());
     let table = surface_table(g);
 
@@ -2511,6 +2541,10 @@ pub(crate) fn emit_with_budget(
     } else {
         None
     };
+    if let Some(p) = profile.as_deref_mut() {
+        p.push_stage(CompileStage::SurfaceSetup, stage_start.elapsed());
+    }
+    stage_start = Instant::now();
 
     let roots = collect_roots(
         g,
@@ -2523,6 +2557,10 @@ pub(crate) fn emit_with_budget(
         None,
         TextMode::SurfaceProbed,
     );
+    if let Some(p) = profile.as_deref_mut() {
+        p.push_stage(CompileStage::RootCollection, stage_start.elapsed());
+    }
+    stage_start = Instant::now();
 
     // Morphotactic pruning (`crate::morphotactics`, `docs/fst-plan/morphotactic-composite-pruning.md`
     // -- the Aweti scale fix): built ONCE here and shared by BOTH composite builders below, so
@@ -2562,6 +2600,10 @@ pub(crate) fn emit_with_budget(
     counts.composite_pairs_probed = composite_report.pairs_probed;
     counts.composite_interdigitation_entries = composite_report.interdigitation_entries;
     counts.composite_fusion_entries = composite_report.fusion_entries;
+    if let Some(p) = profile.as_deref_mut() {
+        p.push_stage(CompileStage::PreexpandComposites, stage_start.elapsed());
+    }
+    stage_start = Instant::now();
 
     // Gate F3 3b: rules `crate::preexpand`'s own mechanism cannot represent at all ("Structural
     // composites" section above) — `struct_rules.is_empty()` short-circuits this to zero cost/zero
@@ -2587,6 +2629,13 @@ pub(crate) fn emit_with_budget(
         composites.extend(struct_composites);
         struct_covered_rules = covered;
     }
+    // `crate::profile`'s own "zero-cost when the construct is absent" convention (module doc,
+    // `CompileStage::StructuralComposites`): pushed unconditionally, but its own elapsed time is
+    // genuinely near-zero whenever `struct_rules.is_empty()` skipped the block above entirely.
+    if let Some(p) = profile.as_deref_mut() {
+        p.push_stage(CompileStage::StructuralComposites, stage_start.elapsed());
+    }
+    stage_start = Instant::now();
 
     // Fix 1 (fail-fast enumeration budget): both composite builders above check `enum_budget`
     // cooperatively DURING their own recursion (module doc), but the grammar-level verdict is
@@ -3086,6 +3135,12 @@ pub(crate) fn emit_with_budget(
 
     // ---- Per-group root sections + per-template slot chains ----
     for (gi, &key) in group_keys.iter().enumerate() {
+        // `crate::profile` (task A.1, "per-template/continuation lexc lines"): this emitter's own
+        // architecture attaches line counts to the GROUP a set of templates was collapsed into, not
+        // to any one template individually (`crate::profile`'s own module doc explains why) — a
+        // plain before/after snapshot of the already-incremented `counts.lexc_lines`, never a
+        // separate counter.
+        let group_lines_before = counts.lexc_lines;
         // Per-template suffix chains, then the group's suffix join, suffix derivation layers,
         // compound hop, roots, prefix derivation layers, and each template's prefix chain.
         let mut join_lines: BTreeSet<String> = BTreeSet::new();
@@ -3301,6 +3356,10 @@ pub(crate) fn emit_with_budget(
                 TextMode::SurfaceProbed,
             );
         }
+
+        if let Some(p) = profile.as_deref_mut() {
+            p.push_group_lines(gi, counts.lexc_lines - group_lines_before);
+        }
     }
 
     // ---- P1d shared composites section (see LEXICON Root's comment for the design) ----
@@ -3365,6 +3424,13 @@ pub(crate) fn emit_with_budget(
             uncovered: uncovered.len(),
         }
     };
+
+    // Last use of `profile` in this function -- a plain move (no further reborrow needed
+    // afterward), unlike every earlier stage push above.
+    if let Some(p) = profile {
+        p.set_total_lexc_lines(counts.lexc_lines);
+        p.push_stage(CompileStage::LexcConstruction, stage_start.elapsed());
+    }
 
     EmitResult {
         lexc_source: out,
@@ -4524,5 +4590,107 @@ mod structural_and_pattern_tests {
             boundary_combining_run_symbols(table).is_empty(),
             "dia-hc.xml has no mark-initial char-def; boundary function must declare nothing"
         );
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // `openspec/changes/profile-fst-compilation`: compile-profile instrumentation on the
+    // production `emit_with_budget_profiled` path.
+    // ---------------------------------------------------------------------------------------
+
+    /// The profile must collect real per-stage data (not all-zero placeholders) and the total
+    /// emitted-line count, on a synthetic grammar with real phonology (exercises `PreexpandComposites`
+    /// as well as the always-run stages).
+    #[test]
+    fn fst_profile_collects_per_stage_data_on_a_synthetic_grammar() {
+        let g = load("languages/suffixing-vowel-harmony/grammar.xml");
+        let enum_budget = crate::morphotactics::EnumerationBudget::from_env();
+        let mut builder = crate::profile::CompileProfileBuilder::production();
+        let result =
+            emit_with_budget_profiled(&g, PrecisionConfig::Strip, &enum_budget, Some(&mut builder));
+        assert!(
+            !matches!(result.report.tier, FomaTier::Unsupported { .. }),
+            "sanity: this fixture must emit a usable network, got {:?}",
+            result.report.tier
+        );
+        let profile = builder.finish(None, None);
+
+        let stages: Vec<crate::profile::CompileStage> =
+            profile.stages.iter().map(|s| s.stage).collect();
+        assert!(stages.contains(&crate::profile::CompileStage::SurfaceSetup));
+        assert!(stages.contains(&crate::profile::CompileStage::RootCollection));
+        assert!(stages.contains(&crate::profile::CompileStage::PreexpandComposites));
+        assert!(stages.contains(&crate::profile::CompileStage::StructuralComposites));
+        assert!(stages.contains(&crate::profile::CompileStage::LexcConstruction));
+        assert!(
+            profile.total_lexc_lines.unwrap_or(0) > 0,
+            "a real grammar must emit at least one lexc line"
+        );
+        assert_eq!(
+            profile.total_lexc_lines,
+            Some(result.report.counts.lexc_lines as u64),
+            "the profile's own total must match the EmitReport's own count exactly"
+        );
+    }
+
+    /// D2/D3 (`crate::profile`'s own doc): profiling must never change the emitted artifact. Proves
+    /// byte-identical `lexc_source` (and identical `EmitCounts`) with profiling on vs. off, on the
+    /// same synthetic grammar used above.
+    #[test]
+    fn fst_profile_emitted_artifact_is_byte_identical_with_profiling_on_or_off() {
+        let g = load("languages/suffixing-vowel-harmony/grammar.xml");
+        let enum_budget = crate::morphotactics::EnumerationBudget::from_env();
+
+        let without_profile =
+            emit_with_budget_profiled(&g, PrecisionConfig::Strip, &enum_budget, None);
+
+        let mut builder = crate::profile::CompileProfileBuilder::production();
+        let with_profile =
+            emit_with_budget_profiled(&g, PrecisionConfig::Strip, &enum_budget, Some(&mut builder));
+
+        assert_eq!(
+            without_profile.lexc_source, with_profile.lexc_source,
+            "profiling must never change the emitted lexc source"
+        );
+        assert_eq!(
+            without_profile.report.counts.lexc_lines,
+            with_profile.report.counts.lexc_lines
+        );
+        assert_eq!(without_profile.report.tier, with_profile.report.tier);
+        assert_eq!(
+            without_profile.report.uncovered.len(),
+            with_profile.report.uncovered.len()
+        );
+
+        // Also exercise `emit_with_budget`'s own thin wrapper (profile: None internally) for
+        // exact parity with the production, non-profiled entry point every existing caller uses.
+        let via_wrapper = emit_with_budget(&g, PrecisionConfig::Strip, &enum_budget);
+        assert_eq!(via_wrapper.lexc_source, without_profile.lexc_source);
+    }
+
+    /// Per-group line counts (module doc "Per-template/continuation lexc line counts"): every group
+    /// this grammar has must report a nonzero line count, and the per-group counts must sum to no
+    /// more than the total (the per-group loop is one of several sections that write lexc lines).
+    #[test]
+    fn fst_profile_group_line_counts_are_real_and_bounded_by_the_total() {
+        let g = load("languages/suffixing-vowel-harmony/grammar.xml");
+        let enum_budget = crate::morphotactics::EnumerationBudget::from_env();
+        let mut builder = crate::profile::CompileProfileBuilder::production();
+        let _ =
+            emit_with_budget_profiled(&g, PrecisionConfig::Strip, &enum_budget, Some(&mut builder));
+        let profile = builder.finish(None, None);
+
+        assert!(
+            !profile.group_lines.is_empty(),
+            "this fixture has templates and must report groups"
+        );
+        for group in &profile.group_lines {
+            assert!(
+                group.lines > 0,
+                "group {} reported zero lines",
+                group.group_index
+            );
+        }
+        let group_total: u64 = profile.group_lines.iter().map(|g| g.lines).sum();
+        assert!(group_total <= profile.total_lexc_lines.unwrap());
     }
 }
