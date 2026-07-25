@@ -135,6 +135,13 @@ actual languages. The always-on CI gate it describes is the committed `conforman
 - **`reify-compilation-plans`' parked follow-on** (`add-compilation-cost-planner`): the projected-cost
   model with error bounds, the committed-plan cache, and profile-guided autotuning — parked by ADR 0002
   itself until real multi-topology pressure exists.
+- **`plan-construct-coverage-completion`** — the plan is written (per-construct verdicts, the upstream
+  `constructs.txt` PR, the oracle-vs-self-verifiable split, the definition of done), but every downstream
+  item it schedules is itself open: the upstream PR is not filed, the conformance-coverage gate's
+  `Proven`-only scope gap is not fixed, none of the four PROVABLE construct rows (`Compounding.recursive`,
+  `RightToLeftRewrite`'s extra shapes, `CircumfixOutputAction`'s census-then-fix, `MultiTable`'s
+  disjoint-encoding) are closed, and the two NEEDS-DECISION rows (`Metathesis` RTL,
+  `QuantifierPattern` unbounded) await a human decision record.
 
 Everything else in this spine is implemented. `partition_entries` remains the one seam not derived from
 the plan (it belongs to `gate.rs`'s separate compile entry point; wiring it means merging the two entry
@@ -289,6 +296,23 @@ the production network constructor used for lookup. Before that switch, cascade 
   ADR 0003 chain-depth and pre-allocation logical-memory dimensions. Governance: evidence + proposed
   diff + human-reviewed committed policy version; no automatic write-back. Also serves as ADR 0002's
   periodic re-validation of projected-cost estimates.
+
+### Stage 3+ — construct coverage completion (successor to Stage 2/3's per-construct work)
+
+`plan-construct-coverage-completion` *(NET-NEW, planning/design only)*: the consolidated plan — read
+from `pangloss coverage`'s own ledger output and `plan_interaction_coverage.rs`'s tuple/retirement
+model, not assumed — for taking every remaining construct to full, evidenced coverage. Defines the
+promotion ladder once (ADR 0001: `ConfirmOnly` is a legitimate permanent rest, `Admit` is a separate
+optional optimization, never required); tables all 14 non-`Proven` `CharacteristicKind`s with a
+PROVABLE/NEEDS-ORACLE/PERMANENT-CARVE-OUT/NEEDS-DECISION verdict each; shows how the reified plan
+tree's closed 7-tuple adjacency set plus its two proven orthogonality retirements bound the fixture-
+authoring obligation to linear-in-open-gaps rather than combinatorial; schedules the upstream
+`sillsdev/machine` `constructs.txt` PR the 4 `Unmappable` kinds are blocked on; separates which
+promotions need the (still-unstarted) C# oracle harness from which can proceed against this repo's own
+confirm engine; and states the crisp definition of done — including fixing `conformance_coverage.rs`'s
+own `Proven`-only scope gap before flipping the cross-check from advisory to build-breaking, the actual
+finish line. Hands off PROVABLE items to future one-construct-one-kit worktrees and NEEDS-DECISION
+items to a human/architect decision record; implements no `.rs` change itself.
 
 ## Stage 4 — correctness proof (always-on CI, not a terminal audit)
 
