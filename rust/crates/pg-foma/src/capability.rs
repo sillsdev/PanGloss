@@ -2586,6 +2586,208 @@ impl CapabilityPredicate for UnorderedOrderingUnionPredicate {
 }
 
 // -------------------------------------------------------------------------------------------
+// MprGroupAppend / MprGroupOverwrite: the config-predicates `cover-mpr-groups` registers
+// -------------------------------------------------------------------------------------------
+
+/// `openspec/changes/cover-mpr-groups`'s own capability predicate (design.md D1/D2): the
+/// NON-TRACKING baseline for `MprGroupOutput::Append` groups. Per design.md D1, the split is drawn
+/// on `MprGroupOutput`, not on `MprGroup` wholesale — this predicate discharges ONLY
+/// [`CharacteristicKind::MprGroupAppend`]; `Overwrite` is [`MprGroupOverwriteFailClosedPredicate`]'s
+/// own, permanently different-verdict predicate (D3), never inferred from this one.
+///
+/// # The baseline this predicate verifies (design.md D2, tasks.md 2.2)
+/// Checked here, not merely asserted: NEITHER of this crate's own MPR-consuming propose code paths
+/// ever tracks accumulated MPR-group state to reject a candidate mid-derivation —
+/// - `crate::gate`'s static root-entry partition (`entry_gate_key`) keys ONLY on
+///   `LexEntryDef::mpr` — a candidate's OWN declared MPR set, fixed at grammar-load time, never an
+///   accumulated derivation-chain value (that module's own doc, "root-only" caveat: `out_mpr` "is
+///   not threaded into the partition key — every group's affix chains are shared, unfiltered",
+///   named there as the exact gap this predicate answers);
+/// - the ordinary morphological affix-allomorph emitter (`crate::emit::emit_rule_allomorphs`, called
+///   from `crate::emit::build_deriv_chain` — the SAME derivation-layer construction
+///   `UnorderedOrderingUnionPredicate`'s own doc cites) never reads `AffixAllomorphDef::
+///   required_mpr`/`excluded_mpr`/`out_mpr` at all: every allomorph is offered unconditionally,
+///   gated only by RHS emittability and `Role` classification (confirmed by inspection of that
+///   function's own body, not merely by absence of a grep hit).
+///
+/// Both propose exactly the license-free superset every `required_mpr`/`excluded_mpr` gate
+/// downstream of an `out_mpr`-bearing allomorph would otherwise need dynamic state for, and leave
+/// the exact `mpr_group_ok`/`mpr_add_output` fold entirely to confirm (`pg_rules::morph.rs:
+/// 1596,1822,2842,2162,3073-3074`) — the same "unfiltered" fallback `crate::gate`'s own module doc
+/// names for the one partial code path (root-only MPR/POS gating) that exists there. This is D2's
+/// own required verification, not a restatement of "`ConfirmOnly` is safe in principle" (trivially
+/// true for ANY non-narrowing baseline, D3's own first sentence): it is the positive proof that THIS
+/// crate's actual propose code never accidentally crosses from that baseline into a narrowing
+/// filter — the real risk D2's blocker 2 names. Oracle-contained (over-propose, exact-confirm) by
+/// `tests/cover_mpr_groups.rs`.
+///
+/// # Disposition
+/// - **Not observed at all**: vacuously `Admit` — nothing for this predicate to say (mirrors
+///   [`CompoundingRecursionSafePredicate`]/[`UnorderedOrderingUnionPredicate`]'s own convention).
+/// - **At least one `Append`-output `MprGroup` observed**: [`PredicateVerdict::ConfirmOnly`],
+///   UNCONDITIONALLY. Unlike `compounding.non-recursive`/`unordered-application.chain-depth-bounded`,
+///   there is no FURTHER split within `Append`: the non-narrowing baseline is safe for every
+///   `Append`-output group by construction (the "propose the superset, confirm applies the exact
+///   fold" argument does not depend on any per-group structural fact the way recursion-reachability
+///   or a stratum's own rule count does), so there is no "`mpr-group.append-output`-vs-something-
+///   worse" case to discriminate — every observation reaches the SAME verdict.
+///   [`PredicateVerdict::Admit`] (an accumulated-state ADMISSION FILTER, D2's own "materially harder
+///   claim") is a separate, unproven step this predicate does NOT make — it only ever proves the
+///   safe baseline, never promotes past it.
+///
+/// # Node applicability
+/// Like [`CompoundingRecursionSafePredicate`]/[`UnorderedOrderingUnionPredicate`]: `MprGroupAppend`
+/// has no corresponding [`crate::plan::PlanNodeKind`] in today's `enumerate_default` shape — design.md
+/// D5's net-new surface (a derivation-state-dependent `Gate` *position*, distinct from today's
+/// root-static one) does not exist in this crate at all yet, blocked on `reify-compilation-plans`;
+/// today's only `Gate` shape (`crate::gate`'s root-static partition) is unconditionally safe and
+/// needs no predicate to say so. `evaluate` ignores `plan_node` entirely and scans
+/// [`CharacteristicsProfile::observations`] for an `MprGroupAppend` occurrence instead, safe under
+/// `meet` for the identical reason those two predicates' own docs give (every node the walk visits
+/// gets the SAME verdict).
+///
+/// # Big-O + ADR 0004 runtime-feature declaration (tasks.md 5/6)
+/// Zero marginal cost: this predicate discharges an EXISTING code path verbatim (`crate::gate`'s
+/// partition, `crate::emit::build_deriv_chain`/`emit_rule_allomorphs`, `crate::uflexc`'s lexc
+/// construction) — no new FST states/arcs, no new compile-time pass, nothing to calibrate a resource
+/// threshold against. `evaluate` itself is `O(#observations)`, a single linear scan, same as every
+/// other profile-wide predicate in this file. Per ADR 0004 (`docs/adr/
+/// 0004-runtime-feature-compatibility.md`), the required-runtime-feature set is EMPTY: the
+/// non-tracking baseline changes nothing about what propose already emits, so there is no query-time
+/// operation to declare (unlike `crate::peel::RUNTIME_FEATURE_REDUPLICATION_PEEL`'s per-word peel
+/// op) — confirmed, not assumed, since D2's whole baseline argument is that it adds no new mechanism.
+///
+/// # Provenance
+/// [`EvidenceProvenance::Structural`]: the claim rests on directly-inspectable `crate::gate`/
+/// `crate::emit`/`crate::uflexc` source (which fields those modules read, or don't), not a black-box
+/// oracle witness — the oracle witnesses this change ships separately (`tests/cover_mpr_groups.rs`)
+/// prove the resulting PROPOSAL is a correct over-approximation against `pg_parse::Morpher`, a
+/// different, complementary claim from what this predicate decides.
+pub struct MprGroupAppendNonNarrowingPredicate;
+
+impl CapabilityPredicate for MprGroupAppendNonNarrowingPredicate {
+    fn id(&self) -> PredicateId {
+        "mpr-group.append-output"
+    }
+
+    fn discharges(&self) -> &[CharacteristicKind] {
+        &[CharacteristicKind::MprGroupAppend]
+    }
+
+    fn provenance(&self) -> EvidenceProvenance {
+        EvidenceProvenance::Structural
+    }
+
+    fn evaluate(
+        &self,
+        profile: &CharacteristicsProfile,
+        _plan_node: &PlanNodeKind,
+    ) -> PredicateVerdict {
+        let observed = profile
+            .observations()
+            .iter()
+            .any(|o| o.kind == CharacteristicKind::MprGroupAppend);
+        if observed {
+            PredicateVerdict::ConfirmOnly
+        } else {
+            PredicateVerdict::Admit
+        }
+    }
+}
+
+/// `openspec/changes/cover-mpr-groups`'s own capability predicate (design.md D3): `MprGroupOutput::
+/// Overwrite` stays `FailClosed` PERMANENTLY by default — not "not yet proven" the way
+/// `compounding.recursive`/`unordered-application.unbounded` are provisionally refused pending a
+/// future proof, but categorically refused. A monotone-accumulation admission-filter argument (the
+/// basis for `mpr-group.append-output`'s own EVENTUAL, still-unproven `Admit` candidacy) is UNSOUND
+/// BY CONSTRUCTION for `Overwrite` — [`pg_grammar::model::mpr_add_output`]'s own doc (model.rs:
+/// 915-932): a LATER rule application can retract exactly the feature an EARLIER one added, so the
+/// accumulated set at any derivation point depends on the SEQUENCE, not just the MULTISET, of prior
+/// outputs. This is the literal case ADR 0001 cites as its own worked confirm-only trap ("a naive
+/// FST filter that silently omits, e.g. history-dependent `MprGroup::Overwrite`").
+///
+/// Replaces this crate's own `mpr-group-overwrite.placeholder` [`FailClosedPlaceholder`] (Step 1 of
+/// `add-capability-characteristics-check`) with a real, permanently-refusing predicate — the SAME
+/// unconditional-`Refuse`-when-observed BEHAVIOR the placeholder already had (so no already-compiling
+/// grammar's verdict changes), now documented as this construct's own deliberate, named landing spot
+/// rather than a generic "not implemented yet" stub.
+///
+/// # Disposition
+/// - **Not observed at all**: vacuously `Admit` — mirrors every other predicate in this file's own
+///   convention.
+/// - **At least one `Overwrite`-output `MprGroup` observed**: [`PredicateVerdict::Refuse`],
+///   UNCONDITIONALLY. The SAME non-tracking `ConfirmOnly` baseline `mpr-group.append-output` uses
+///   (D2) is available here too — not narrowing at all is trivially safe regardless of output policy
+///   (design.md D3's own first sentence) — but this predicate's OWN obligation is stronger: it must
+///   guarantee no admission-FILTER code path is EVER reached for an `Overwrite`-touching
+///   configuration, permanently, not merely "not yet proven" — so it refuses outright rather than
+///   resting at `ConfirmOnly` (spec.md's own requirement: "SHALL remain `FailClosed` until a proof
+///   characterizes the group's history-dependent replace semantics as a sound admission filter").
+///   The ADR 0005 capability override remains the on-ramp for anyone who wants to force-compile and
+///   experiment with an `Overwrite`-bearing grammar under the degraded-trust signal before that proof
+///   exists (design.md D3's own closing sentence) — mirrors
+///   [`CompoundingRecursionSafePredicate`]'s identical citation for `compounding.recursive`.
+///
+/// # Node applicability
+/// Same "no corresponding [`crate::plan::PlanNodeKind`]" shape
+/// [`MprGroupAppendNonNarrowingPredicate`]'s own doc describes — `evaluate` ignores `plan_node` and
+/// scans observations directly.
+///
+/// # Big-O + ADR 0004 runtime-feature declaration
+/// Trivial: this predicate's `Refuse` verdict means no propose construction is ever attempted for an
+/// `Overwrite`-touching configuration at all (absent the ADR 0005 override) — zero compiled states/
+/// arcs, zero query-time operations, nothing to declare a required-runtime-feature for.
+///
+/// # Provenance
+/// [`EvidenceProvenance::Structural`]: `MprGroupOutput::Overwrite` is directly-inspectable
+/// `model.rs` structure (`characterize`'s own `MprGroupOutput::Overwrite` match arm) — there is no
+/// admission-filter construction to verify at all, so no oracle witness could ever promote this
+/// predicate past `Refuse`; `Structural` names the only evidence this predicate ever consults, not a
+/// placeholder for missing behavioral evidence.
+pub struct MprGroupOverwriteFailClosedPredicate;
+
+impl CapabilityPredicate for MprGroupOverwriteFailClosedPredicate {
+    fn id(&self) -> PredicateId {
+        "mpr-group.overwrite-output"
+    }
+
+    fn discharges(&self) -> &[CharacteristicKind] {
+        &[CharacteristicKind::MprGroupOverwrite]
+    }
+
+    fn provenance(&self) -> EvidenceProvenance {
+        EvidenceProvenance::Structural
+    }
+
+    fn evaluate(
+        &self,
+        profile: &CharacteristicsProfile,
+        _plan_node: &PlanNodeKind,
+    ) -> PredicateVerdict {
+        for obs in profile.observations() {
+            if obs.kind != CharacteristicKind::MprGroupOverwrite {
+                continue;
+            }
+            let construct = match obs.location {
+                ModelLocation::MprGroup(i) => format!("MprGroup {i} (Overwrite)"),
+                _ => "MprGroup (Overwrite)".to_string(),
+            };
+            return PredicateVerdict::Refuse(CapabilityDiagnostic {
+                predicate: self.id(),
+                construct,
+                witness: "mpr-group.overwrite-output stays FailClosed permanently by default: a \
+                          monotone-accumulation admission filter is unsound for history-dependent \
+                          Overwrite replace semantics (pg_grammar::model::mpr_add_output's own doc; \
+                          ADR 0001's own worked confirm-only trap). The ADR 0005 capability override \
+                          is the on-ramp to force-compile it."
+                    .to_string(),
+            });
+        }
+        PredicateVerdict::Admit
+    }
+}
+
+// -------------------------------------------------------------------------------------------
 // QuantifierPattern: the config-predicate `compile-bounded-fst-quantifiers` registers
 // -------------------------------------------------------------------------------------------
 
@@ -2776,14 +2978,19 @@ impl PredicateRegistry {
     }
 }
 
-/// The registry this step ships: the nine REAL predicates
+/// The registry this step ships: the eleven REAL predicates
 /// ([`SimultaneousSubruleOverlapPredicate`], [`MultiTableFaithfulThreadingPredicate`],
 /// [`RightToLeftRewriteFaithfulReversalPredicate`], [`QuantifierBoundedExpansionPredicate`],
 /// [`MetathesisFaithfulSwapPredicate`], [`CircumfixStructuralCompositePredicate`],
 /// [`ReduplicationPeelSupportedPredicate`], [`CompoundingRecursionSafePredicate`],
-/// [`UnorderedOrderingUnionPredicate`]), plus an explicit [`FailClosedPlaceholder`] for every other
-/// `FailClosed`/`ConfigPredicate` characteristic — proving the coverage contract holds today
-/// without pretending any of those other constructs has a real proof yet.
+/// [`UnorderedOrderingUnionPredicate`], [`MprGroupAppendNonNarrowingPredicate`],
+/// [`MprGroupOverwriteFailClosedPredicate`]), plus an explicit [`FailClosedPlaceholder`] for every
+/// other `FailClosed`/`ConfigPredicate` characteristic — proving the coverage contract holds today
+/// without pretending any of those other constructs has a real proof yet. `openspec/changes/
+/// cover-mpr-groups` is the last of the three net-new Stage-2 constructs (`STAGING.md`'s own
+/// ordering) — this registry, as of this step, has no remaining `FailClosedPlaceholder` for any
+/// construct that names an owning `cover-*`/`compile-*` change at all; only `epenthesis.placeholder`
+/// remains, flagged below as genuinely unowned.
 pub fn default_registry() -> PredicateRegistry {
     let mut r = PredicateRegistry::new();
     r.register(Box::new(SimultaneousSubruleOverlapPredicate));
@@ -2795,11 +3002,8 @@ pub fn default_registry() -> PredicateRegistry {
     r.register(Box::new(ReduplicationPeelSupportedPredicate));
     r.register(Box::new(CompoundingRecursionSafePredicate));
     r.register(Box::new(UnorderedOrderingUnionPredicate));
-    r.register(Box::new(FailClosedPlaceholder::new(
-        "mpr-group-overwrite.placeholder",
-        &[CharacteristicKind::MprGroupOverwrite],
-        "cover-mpr-groups",
-    )));
+    r.register(Box::new(MprGroupAppendNonNarrowingPredicate));
+    r.register(Box::new(MprGroupOverwriteFailClosedPredicate));
     r.register(Box::new(FailClosedPlaceholder::new(
         "epenthesis.placeholder",
         &[CharacteristicKind::Epenthesis],
@@ -2917,10 +3121,16 @@ fn verdict_to_decision(verdict: PredicateVerdict) -> CompileDecision {
 ///   proves `Admit`") and [`Disposition::ConfirmOnly`]'s own doc (recall-preserving only if the
 ///   proposer proposes the superset — never promotable to `Admit` without a proof this function has
 ///   no predicate to supply). This is the landing spot for e.g. an observed
-///   [`CharacteristicKind::MprGroupAppend`]: [`default_registry`] intentionally registers no
+///   [`CharacteristicKind::CoOccurrenceConstraint`]: [`default_registry`] intentionally registers no
 ///   predicate for it at all (`ConfirmOnly` already IS its resting disposition, per D1's table —
 ///   there is nothing to prove up to `Admit` and no coverage gap either, since
 ///   [`undischarged_kinds`] only requires coverage for `FailClosed`/`ConfigPredicate` kinds).
+///   [`CharacteristicKind::MprGroupAppend`] rests at the SAME `ConfirmOnly` disposition, but (unlike
+///   `CoOccurrenceConstraint`) DOES have a registered predicate,
+///   [`MprGroupAppendNonNarrowingPredicate`] — registered anyway, per `cover-mpr-groups` design.md
+///   D2's own verification obligation ("positively verify the baseline never uses tracked
+///   accumulated MPR state to reject a candidate"), even though [`undischarged_kinds`] would not
+///   have required it.
 /// - [`Disposition::FailClosed`] with NO discharging predicate registered at all is a REGISTRY
 ///   COVERAGE GAP ([`undischarged_kinds`] exists precisely to catch this at the registry level, and
 ///   [`default_registry`]'s own test proves it never happens for that registry). Handled here
@@ -3031,7 +3241,7 @@ fn node_decision(
 ///    decisions and its own applicable registered predicates.
 /// 4. Separately, every OBSERVED non-`Proven` kind that NO registered predicate discharges at all
 ///    (so step 3 never had an `evaluate` call to make for it — e.g. [`CharacteristicKind::
-///    MprGroupAppend`], which [`default_registry`] intentionally leaves undischarged since
+///    CoOccurrenceConstraint`], which [`default_registry`] intentionally leaves undischarged since
 ///    `ConfirmOnly` is already its own resting disposition) is folded in via [`disposition_floor`],
 ///    so a grammar-wide characteristic with no registered predicate at all still pulls the overall
 ///    decision down.
@@ -3039,16 +3249,21 @@ fn node_decision(
 ///
 /// # Judgment call: constructs with no distinct plan node
 /// Several `FailClosed`/`ConfigPredicate` characteristics ([`CharacteristicKind::Compounding`],
-/// [`CharacteristicKind::UnorderedMorphRuleApplication`], [`CharacteristicKind::MprGroupOverwrite`],
-/// [`CharacteristicKind::Epenthesis`]) have NO corresponding [`crate::plan::PlanNodeKind`] in
-/// today's `enumerate_default` shape at all — that module's own doc: it only ever mints leaves for
-/// the lexicon (per gate group), one per rewrite rule, and the two composite-emission markers,
-/// nothing addressed by `MRuleId`/`StratumId`/an mpr-group index. Each of these characteristics is
-/// discharged today by a [`FailClosedPlaceholder`], whose `evaluate` unconditionally `Refuse`s
-/// REGARDLESS of which node it is called at or what `profile` says (that type's own Step-1 doc) —
-/// so which specific node it is evaluated against is behaviorally irrelevant here, and
+/// [`CharacteristicKind::UnorderedMorphRuleApplication`], [`CharacteristicKind::MprGroupAppend`],
+/// [`CharacteristicKind::MprGroupOverwrite`], [`CharacteristicKind::Epenthesis`]) have NO
+/// corresponding [`crate::plan::PlanNodeKind`] in today's `enumerate_default` shape at all — that
+/// module's own doc: it only ever mints leaves for the lexicon (per gate group), one per rewrite
+/// rule, and the two composite-emission markers, nothing addressed by `MRuleId`/`StratumId`/an
+/// mpr-group index. Only [`CharacteristicKind::Epenthesis`] is still discharged today by a bare
+/// [`FailClosedPlaceholder`] (whose `evaluate` unconditionally `Refuse`s REGARDLESS of which node it
+/// is called at or what `profile` says — that type's own Step-1 doc); the other four now have real
+/// predicates ([`CompoundingRecursionSafePredicate`], [`UnorderedOrderingUnionPredicate`],
+/// [`MprGroupAppendNonNarrowingPredicate`], [`MprGroupOverwriteFailClosedPredicate`]) that each scan
+/// [`CharacteristicsProfile`] directly rather than unconditionally refusing. Either way, which
+/// specific node the predicate is evaluated against is behaviorally irrelevant here (every one of
+/// these predicates ignores `plan_node` and reaches the SAME verdict regardless), and
 /// [`node_decision`]'s per-node walk (which calls every relevant-kind predicate at EVERY node)
-/// already folds its `Refuse` in correctly without needing a `ModelLocation -> NodeId` lookup table
+/// already folds the result in correctly without needing a `ModelLocation -> NodeId` lookup table
 /// for these kinds at all. This is this step's "representative node" case: no lookup was built
 /// because none would change the outcome, not because one was skipped for convenience — documented
 /// here rather than silently.
@@ -3093,7 +3308,7 @@ mod tests {
     //! rather than hand-constructing a `Grammar` (which would require standing up every interner
     //! field by hand; `load` is this workspace's own supported entry point for exactly this).
 
-    use pg_grammar::model::{MorphRuleDef, PhonRuleDef, PRuleId};
+    use pg_grammar::model::{MorphRuleDef, MprGroupOutput, PhonRuleDef, PRuleId};
 
     use super::*;
     use crate::enumerate::enumerate_default;
@@ -5612,6 +5827,59 @@ mod tests {
             compose_envelope(&g, &plan, &registry),
             CompileDecision::ConfirmOnly
         );
+    }
+
+    /// `cover-mpr-groups`: the mirror image of `compose_envelope_confirm_only_for_append_group_alone`
+    /// -- a grammar with an `MprGroupOutput::Overwrite` group and nothing else must compose to
+    /// `Refuse` (never `ConfirmOnly`, never `Admit`), carrying a diagnostic from
+    /// `mpr-group.overwrite-output` naming the Overwrite group, proving
+    /// `MprGroupOverwriteFailClosedPredicate` (which REPLACED the bare `mpr-group-overwrite.
+    /// placeholder` `FailClosedPlaceholder`) reaches the identical verdict the placeholder always
+    /// gave -- this change's own promotion changes NO already-compiling grammar's outcome.
+    #[test]
+    fn compose_envelope_refuses_for_overwrite_group_alone() {
+        const XML: &str = r#"<HermitCrabInput><Language><Name>OverwriteOnly</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
+          <MorphologicalPhonologicalRuleFeatures>
+            <MorphologicalPhonologicalRuleFeature id="mprA">A</MorphologicalPhonologicalRuleFeature>
+            <MorphologicalPhonologicalRuleFeatureGroup matchType="all" outputType="overwrite" features="mprA"><Name>GOverwrite</Name></MorphologicalPhonologicalRuleFeatureGroup>
+          </MorphologicalPhonologicalRuleFeatures>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions><SegmentDefinition id="c1"><Representations><Representation>p</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <Strata>
+            <Stratum characterDefinitionTable="t1">
+              <Name>S</Name>
+              <LexicalEntries>
+                <LexicalEntry id="e1" partOfSpeech="posV">
+                  <Allomorphs><Allomorph id="a1"><PhoneticShape>p</PhoneticShape></Allomorph></Allomorphs>
+                  <Gloss>e1</Gloss>
+                </LexicalEntry>
+              </LexicalEntries>
+            </Stratum>
+          </Strata>
+        </Language></HermitCrabInput>"#;
+        let g = load(XML);
+        assert!(
+            !g.mpr_groups.is_empty(),
+            "fixture must declare an MprGroup at all"
+        );
+        assert_eq!(g.mpr_groups[0].output, MprGroupOutput::Overwrite);
+        let plan = enumerated_plan(&g);
+        let registry = default_registry();
+
+        match compose_envelope(&g, &plan, &registry) {
+            CompileDecision::Refuse(diags) => {
+                assert!(
+                    diags
+                        .iter()
+                        .any(|d| d.predicate == "mpr-group.overwrite-output"
+                            && d.construct.contains("Overwrite")),
+                    "expected an mpr-group.overwrite-output diagnostic naming Overwrite: {diags:?}"
+                );
+            }
+            other => panic!("expected Refuse, got {other:?}"),
+        }
     }
 
     /// `cover-realizational-morphology-constraints`: a grammar with a `RealizationalRule` and
