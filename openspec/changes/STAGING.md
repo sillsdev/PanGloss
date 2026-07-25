@@ -42,13 +42,21 @@ set, ADR 0005 trust stamp, health admission, non-gating Ed25519, validate-before
 load-compat reworked to `required ⊆ provided` + trust stamp (`pg-wasm/src/pack.rs`); the
 `pangloss diagnose` build/assessment reports reusing the signature + health units. **Explicitly NOT
 done** (each change's own `tasks.md` is precise): `add-fst-compilation-health-audit` has only its
-evaluator library — no preflight walker, proposal/confirmation counts, dedup tracking,
-`pangloss fst-health` command, or admission/package wiring; `make-wasm-analysis-only` has NOT removed
-the compiler from WASM (`PanGlossGrammar::new` still compiles from XML) and produces no real
-artifacts; `add-grammar-diagnostics` defers everything needing a second pipeline, file artifacts, or
-the PowerShell/CI/skill layer; `harden-foma-resource-safety`'s entire single-worker watchdog
-subsystem does not exist (only the budget foundation + the ADR 0003 chain-depth/apply dimensions);
-`add-reference-hermitcrab-parity` has the Rust gloss-signature unit but zero of the C# oracle harness.
+evaluator library — no preflight walker, proposal/confirmation counts, dedup tracking, or
+`pangloss fst-health` command; `make-wasm-analysis-only` has NOT removed the compiler from WASM
+(`PanGlossGrammar::new` still compiles from XML); `add-grammar-diagnostics` defers everything needing
+a second pipeline, file artifacts, or the PowerShell/CI/skill layer; `add-reference-hermitcrab-parity`
+has the Rust gloss-signature unit but zero of the C# oracle harness.
+
+**Since then, two of those gaps closed.** `pangloss pack` writes a real `.pgpack` carrying the
+persistent, indelible ADR 0005 capability-trust stamp (a `Refuse` without `--allow-unproven` writes no
+artifact at all; an override records who/why/when plus every refused config, and the stamp provably
+survives write→read with no field a consumer can flip). Its two payload sections are honestly-labelled
+placeholders — no Rust-HermitCrab runtime-payload serializer or foma binary-memory export exists yet —
+stated in the module doc and re-printed on stderr at pack time. And `harden-foma-resource-safety`'s
+**watchdog now exists**: a killable compile worker (versioned protocol, validate-before-allocate
+framing, `try_wait`/`kill` wall-time control, sampled RSS that is explicitly *not* a hard ceiling),
+opt-in via `pangloss pack --watchdog` with the default in-process path byte-identical.
 
 **Delanguaging — A + B LANDED.** Real-language data removed and artifacts renamed in-repo; the
 `machine` conformance fixtures renamed by inspected construct and pushed (`sillsdev/machine`
