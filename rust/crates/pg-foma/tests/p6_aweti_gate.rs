@@ -54,6 +54,21 @@
 //!   (`fsm_reverse`) + `Simultaneous` compiler — scheduled follow-on work, not a defect in this
 //!   gate.** When it lands, this gate's floor rises and `BASELINE_MISSES` shrinks accordingly.
 //!
+//! **UPDATE (`openspec/changes/compile-right-to-left-rewrites`, 2026-07-24):** the `RightToLeft`
+//! half of that follow-on has now landed (`pg_foma::replace::compile_rtl_branch_net`, real
+//! reversal-plus-safety-net-union semantics — see that function's own doc). `is_fully_supported_
+//! shape` now reports Aweti's `Dir::RightToLeft` rule (`e41e45d9-6eb8-45f1-a16b-a6a05fa6bb6c`)
+//! fully-supported; only the `Simultaneous` rule (`2996dcb3-2e00-4d41-926e-fe5ed11f0753`) remains
+//! honestly skipped below (`Simultaneous` is a separate, not-yet-built algorithm — design.md of
+//! this change: "separate from Simultaneous mode because both require different algorithms").
+//! **NOT RUN**: re-measuring this gate's actual recall floor against the real, gitignored Aweti
+//! corpus (`samples/data/aweti.json`, absent from this checkout/CI) is the corpus re-run this
+//! change's own `tasks.md` item 2.2 calls for — recorded here as `not_run` (missing prerequisite:
+//! the gitignored corpus data), per this repo's own not-run convention, rather than blocked on or
+//! guessed at. The `32/104`/`BASELINE_MISSES` figures below are therefore STALE (pre-RTL-fix) and
+//! are expected to rise once someone with the real corpus data re-runs this `#[ignore]`d test —
+//! left as-is (not fabricated a new number) until that re-run happens.
+//!
 //! A separate, still-unexplained gap (a bare root with zero affixes, `"mã"`, also misses this
 //! recall check even with the entire phonological cascade removed from the composition) is
 //! documented in `docs/fst-plan/p6-aweti-truncation-chain-report.md` §3 as an open finding.
@@ -324,21 +339,24 @@ fn run_emit_compile_compose() {
         "rule compile+compose: {:?}; skipped={skipped_rules:?}",
         t_rules.elapsed()
     );
-    // Post-detection (Phase C, `replace.rs::is_fully_supported_shape`): exactly Aweti's two
-    // non-Iterative/LeftToRight rules are honestly reported skipped (RightToLeft + Simultaneous),
-    // instead of being silently mis-compiled as plain `->`. Pinning the exact set (not just "some
-    // are skipped") is the meaningful guard: if a THIRD rule ever starts being skipped, or if a
-    // real RTL/Simultaneous compiler lands and either of these stops being skipped, this fails and
-    // forces this gate's recall floor / miss list to be revisited (module doc).
+    // Post-detection (Phase C, `replace.rs::is_fully_supported_shape`), UPDATED by
+    // `openspec/changes/compile-right-to-left-rewrites` (module doc's "UPDATE" note): Aweti's
+    // `RewriteMode::Simultaneous` rule is still honestly reported skipped -- a separate,
+    // not-yet-built algorithm -- but the `Dir::RightToLeft` rule now COMPILES (the reversal-plus-
+    // safety-net-union construction, `pg_foma::replace::compile_rtl_branch_net`) and is therefore
+    // no longer in this list. Pinning the exact set (not just "some are skipped") is the
+    // meaningful guard: if a THIRD rule ever starts being skipped, or if a real Simultaneous
+    // compiler lands and this one stops being skipped too, this fails and forces this gate's
+    // recall floor / miss list to be revisited (module doc).
     let mut skipped_sorted = skipped_rules.clone();
     skipped_sorted.sort();
     assert_eq!(
         skipped_sorted,
         vec![
             "2996dcb3-2e00-4d41-926e-fe5ed11f0753".to_string(), // RewriteMode::Simultaneous
-            "e41e45d9-6eb8-45f1-a16b-a6a05fa6bb6c".to_string(), // Dir::RightToLeft
         ],
-        "expected exactly Aweti's RightToLeft + Simultaneous rules to be honestly skipped; got {skipped_rules:?}"
+        "expected exactly Aweti's Simultaneous rule to be honestly skipped (RightToLeft now \
+         compiles); got {skipped_rules:?}"
     );
 
     let boundary_tokens: Vec<char> = table

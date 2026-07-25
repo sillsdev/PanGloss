@@ -49,22 +49,74 @@
 //!   [`pattern_slots`] returns `None` or bails when it meets one; a rule whose pattern needs it is
 //!   reported uncovered, not silently mis-rendered.
 //! - [`AlphaVar::plus`] == `false` ("disagree" polarity) — no reference-grammar rule needs it.
-//! - `RewriteMode::Simultaneous` vs `Iterative` distinction, and `Dir::RightToLeft` — Indonesian's
-//!   5 rules are all `Iterative`/`LeftToRight`; every subrule is compiled with plain foma `->`
-//!   (see the report for the mapping-fidelity discussion; the `foma` crate's `src/reverse.rs`'s
-//!   `fsm_reverse` is the standard primitive `RightToLeft` would need, unexercised here). Phase C
+//! - `RewriteMode::Simultaneous` — a genuinely different algorithm from the per-subrule/per-tuple
+//!   sequential-compose this module implements for `Iterative` (both directions); Phase C
 //!   (`docs/fst-plan/phase-c-generator-design.md` §5/§6) wired [`is_fully_supported_shape`] into
-//!   [`compile_rewrite_rule_subset`] so a rule outside this shape is now DETECTED and reported
-//!   `skipped` (module doc's "None -> caller reports it" contract), rather than silently
-//!   compiled as if it were Iterative/LeftToRight — the mapping itself (an actual `Simultaneous`/
-//!   `RightToLeft` compiler) remains future work.
+//!   [`compile_rewrite_rule_subset`] so a `Simultaneous` rule is DETECTED and reported `skipped`
+//!   (module doc's "None -> caller reports it" contract), rather than silently compiled as if it
+//!   were `Iterative` — `openspec/changes/compile-right-to-left-rewrites`'s own design.md: "It is
+//!   separate from Simultaneous mode because both require different algorithms and share
+//!   high-conflict files." An actual `Simultaneous` compiler remains future work
+//!   (`compile-fst-simultaneous-rewrites`, or whichever change eventually claims it).
 //! - MPR gating (`required_mpr`/`excluded_mpr` on a subrule) — flag-diacritic emission is P6
 //!   mainline work per the plan (`§P6` item 1's own text), not attempted in this slice.
+//!
+//! ## `Dir::RightToLeft`: the reversal construction (`openspec/changes/
+//! compile-right-to-left-rewrites`)
+//! `Dir::RightToLeft` used to be honestly skipped (the same `Ok(None)` treatment `Simultaneous`
+//! still gets); this change gives it real, direction-faithful semantics via the STANDARD
+//! finite-state technique for "prefer the rightmost, not leftmost, non-overlapping match" (Beesley
+//! & Karttunen, *Finite State Morphology*, ch. 6 "Directional replacement rules"; ADR 0001, `docs/
+//! adr/0001-honest-capability-boundary.md`, "confirm-only-by-default"): reverse ∘ compile(mirror
+//! rule) ∘ reverse, NOT "compile as if `LeftToRight`".
+//!
+//! **The mirror rule.** Foma's native `->` only ever prefers the LEFTMOST of several
+//! non-overlapping candidate matches (there is no built-in "prefer rightmost" operator). To get
+//! rightmost preference, [`compile_rtl_branch_net`] builds the MIRROR IMAGE of the rule — reverse
+//! the LHS's own slot order, reverse the RHS's own slot order, and SWAP the two environments while
+//! ALSO reversing each one's own slot order (`left_env' = reverse(right_env)`, `right_env' =
+//! reverse(left_env)`) — compiles that mirror rule with the SAME plain-`->` machinery
+//! [`render_branch_regex`] already uses for `LeftToRight`, and then calls [`fsm_reverse`] on the
+//! resulting `Fsm`. `fsm_reverse`'s own contract (`foma::reverse`'s doc: "all original state
+//! numbers are shifted up by 1... label sides are NOT swapped") means: for a transducer whose own
+//! upper/lower tapes spell `reverse(S)`/`reverse(S')` when read forward, `fsm_reverse` of it spells
+//! `S`/`S'` when read forward — i.e. reversing a network that operates on REVERSED strings gives
+//! back a network that operates on NORMAL strings, but the internal left-to-right preference that
+//! was baked into the mirror compile (over the reversed alphabet) becomes a right-to-left
+//! preference over the real, un-reversed string. Environments keep their ordinary, un-reversed
+//! meaning in the FINAL network (`left_env` is still "precedes the target in the real string") —
+//! the swap+reverse only happens in the INTERMEDIATE mirror-rule text; see
+//! [`compile_rtl_branch_net`]'s own doc for the worked "aa -> b" example this construction is
+//! checked against.
+//!
+//! **The safety-net union (a documented, conservative judgment call).** `pg_rules::rewrite`'s own
+//! `Iterative` synthesis/analysis loops (`syn_feature`/`syn_narrow`/`ana_feature`/…) pick which
+//! candidate span to act on first via `all_spans`'/`candidates.sort_unstable()`'s own ASCENDING
+//! sort — i.e. this repo's current full-HC oracle is, empirically, direction-BLIND for the "which
+//! overlapping match wins" question (verified directly: a hand-built `aa -> b` rule applied to
+//! `"aaa"` synthesizes to `"ba"` whether the rule is declared `LeftToRight` or
+//! `rightToLeftIterative`). ADR 0001: *"Where the oracle itself is unverified for a configuration...
+//! the configuration is unsupported by definition."* Rather than let a THEORETICALLY-faithful
+//! reversal-only compile under-propose relative to what this repo's own confirm engine actually
+//! requires for recall (the reversal-only net for `aa -> b`/`RightToLeft` maps `"aaa"` to `"ab"`,
+//! never `"ba"` — so it would never even PROPOSE the lexical form the current oracle confirms for
+//! surface `"ba"`), [`compile_rtl_branch_net`] returns `fsm_union(plain_LTR_style_net,
+//! reversed_net)`: the SAME plain construction [`render_branch_regex`] already gives `LeftToRight`
+//! (a proven-safe floor, since the oracle treats every direction identically today) UNIONED with
+//! the genuinely-reversed net (so the construction really is direction-aware, differs from a plain
+//! `LeftToRight` compile on any input where the two branches disagree, and is READY the day
+//! `pg_rules::rewrite`'s own pick-order gets a direction-aware fix — a follow-on outside this
+//! single-owner file's scope, flagged, not fixed here). Both branches are already COMPLETE,
+//! obligatory replace transducers (each has no "did nothing" identity path at a position its own
+//! context matches), so `fsm_union`ing them adds no spurious third "nothing happened" path — see
+//! [`compile_rtl_branch_net`]'s own doc for why this differs from the alpha-tuple union-is-wrong
+//! finding above.
 
 use std::collections::HashSet;
 
 use foma::options::FomaOptions;
 use foma::regex::fsm_parse_regex;
+use foma::reverse::fsm_reverse;
 use foma::types::Fsm;
 
 use pg_grammar::chardef::{CharDefId, CharDefKind, CharDefTable};
@@ -73,7 +125,7 @@ use pg_grammar::model::{
     RewriteRuleDef, RewriteSubruleDef, VarId,
 };
 
-use crate::compose_budget::{compose_checked, ComposeBudget, ComposeError};
+use crate::compose_budget::{compose_checked, union_checked, ComposeBudget, ComposeError};
 
 /// Private-Use-Area base codepoint every [`CharDefId`] is offset from. `CharDefId`s in every
 /// reference grammar are far below `0xF8FF - 0xE000` (6400) entries, so no grammar in scope can
@@ -170,6 +222,12 @@ fn class_members(
 ///
 /// `pub(crate)`: reused by [`crate::lower`] (Stage 1B, `lower-fst-pattern-environments`) rather
 /// than re-derived -- see that module's own doc for exactly which pieces of this file it borrows.
+///
+/// `Clone` (`openspec/changes/compile-right-to-left-rewrites`): the RTL reversal construction
+/// needs a REVERSED copy of a subrule's own slot lists (`reversed_slots`, below) alongside the
+/// original document-order lists it builds the safety-net `LeftToRight`-style branch from -- see
+/// [`compile_rtl_branch_net`]'s doc.
+#[derive(Clone)]
 pub(crate) enum Slot {
     /// A single fixed char-def (`PatternNode::CharDef`, or a `Context` with no alpha vars whose
     /// class happens to be a singleton — kept general as [`Slot::Union`] instead, see below).
@@ -496,6 +554,150 @@ pub(crate) fn render_slots(
     pieces.join(" ")
 }
 
+/// `slots` in REVERSE document order (`openspec/changes/compile-right-to-left-rewrites`'s mirror-
+/// rule construction, module doc): a plain `.iter().rev().cloned()` copy, never mutated in place,
+/// so the caller's own document-order `Vec<Slot>` (needed unchanged for the safety-net plain
+/// branch, [`compile_rtl_branch_net`]'s doc) is untouched.
+fn reversed_slots(slots: &[Slot]) -> Vec<Slot> {
+    slots.iter().rev().cloned().collect()
+}
+
+/// Renders one COMPLETE branch's xre source text (`"LHS -> RHS"`, optionally with `|| L _`/`|| _
+/// R`/`|| L _ R`), given slot lists ALREADY in the final order/environment-role this branch wants
+/// to render (document order for the ordinary `LeftToRight`-style branch; mirrored — reversed and
+/// left/right-swapped — for [`compile_rtl_branch_net`]'s intermediate mirror-rule compile).
+///
+/// Empty `lhs`/`rhs` render as foma's own epenthesis/deletion literals, `"[..]"`/`"0"` (foma's xre
+/// grammar rejects a literally-blank LHS/RHS operand — confirmed empirically, `docs/fst-plan/
+/// p6-prototype-report.md`-style bisection: `"0 -> x || a _ b"` silently compiles to a rule that
+/// NEVER inserts on either tape, while `"[..] -> x || a _ b"`, foma's own documented epenthesis
+/// notation — `foma::rewrite`'s own test `rewrite_epenthesis`, `"[..] -> x"` inserting `x` at
+/// every position — behaves correctly). The RHS `"0"` deletion literal was already this file's own
+/// convention before this change (deletion IS exercised by the reference grammars); the LHS
+/// `"[..]"` epenthesis literal is new here — no existing caller ever renders an empty-LHS branch
+/// (`rule.lhs.nodes.is_empty()` is [`CharacteristicKind::Epenthesis`](crate::capability::
+/// CharacteristicKind::Epenthesis)'s own trigger, still `FailClosed`-placeholder'd in
+/// `capability.rs` for unrelated reasons — this fix only makes THIS FILE's own compile mechanics
+/// epenthesis-capable; it does not by itself flip that placeholder), so this changes no existing
+/// test's compiled output.
+fn render_branch_regex(
+    alphabet: &SegAlphabet,
+    lhs_slots: &[Slot],
+    rhs_slots: &[Slot],
+    left_slots: &[Slot],
+    right_slots: &[Slot],
+    asg: &AlphaAssignment,
+) -> String {
+    let lhs_text = render_slots(alphabet, lhs_slots, asg);
+    let lhs_text = if lhs_text.is_empty() {
+        "[..]".to_string()
+    } else {
+        lhs_text
+    };
+    let rhs_text = render_slots(alphabet, rhs_slots, asg);
+    let rhs_text = if rhs_text.is_empty() {
+        "0".to_string()
+    } else {
+        rhs_text
+    };
+    let has_left = !left_slots.is_empty();
+    let has_right = !right_slots.is_empty();
+    if !has_left && !has_right {
+        format!("{lhs_text} -> {rhs_text}")
+    } else {
+        let left_text = render_slots(alphabet, left_slots, asg);
+        let right_text = render_slots(alphabet, right_slots, asg);
+        match (has_left, has_right) {
+            (true, true) => format!("{lhs_text} -> {rhs_text} || {left_text} _ {right_text}"),
+            (true, false) => format!("{lhs_text} -> {rhs_text} || {left_text} _"),
+            (false, true) => format!("{lhs_text} -> {rhs_text} || _ {right_text}"),
+            (false, false) => unreachable!("has_left || has_right guarded this branch"),
+        }
+    }
+}
+
+/// Compiles one branch (one subrule, one alpha-tuple assignment) into a foma `Fsm`, dispatching on
+/// `dir` (module doc, "`Dir::RightToLeft`: the reversal construction"):
+/// - `Dir::LeftToRight`: [`render_branch_regex`] over the slots AS GIVEN (document order), compiled
+///   with plain foma `->` — byte-identical to what this file has always done (no behavior change
+///   for any `LeftToRight` rule).
+/// - `Dir::RightToLeft`: `fsm_union(plain_net, reversed_net)` where `plain_net` is the SAME
+///   `LeftToRight`-style compile (the safety-net floor, module doc) and `reversed_net` is
+///   [`fsm_reverse`] of the MIRROR rule's compile — LHS/RHS reversed, environments swapped-and-
+///   reversed (`left_env' = reverse(right_env)`, `right_env' = reverse(left_env)`).
+///
+/// # Worked example (`tests/phase_c_right_to_left.rs`'s own `rtl-distinct-leftmost-rightmost`
+/// witness, "aa -> b" on "aaa")
+/// Plain `LeftToRight` compile of `"aa -> b"` prefers the LEFTMOST non-overlapping match: applied
+/// to `"aaa"` it yields `"ba"` (positions 0-1 replaced, trailing "a" survives). The mirror rule
+/// reverses LHS ("aa" reversed is still "aa", a palindrome) and RHS ("b" reversed is "b") — same
+/// xre text — so `fsm_reverse` of that mirror compile yields a network that, on the SAME un-
+/// reversed input `"aaa"`, prefers the RIGHTMOST non-overlapping match instead: `"ab"` (positions
+/// 1-2 replaced, leading "a" survives). `reversed_net` alone therefore genuinely differs from
+/// `plain_net` on this input (proof the construction is not "compiled as LeftToRight"); the
+/// returned `fsm_union(plain_net, reversed_net)` accepts BOTH `"ba"` and `"ab"` as valid rewrites
+/// of `"aaa"` (module doc's safety-net rationale).
+///
+/// No spurious THIRD "did nothing" path is introduced by this union (contrast the alpha-tuple
+/// union-is-wrong finding two sections up): both `plain_net` and `reversed_net` are already
+/// COMPLETE, OBLIGATORY replace transducers over the FULL rule (not a partition of a shared
+/// context space the way per-tuple branches are) — neither one has an identity-elsewhere escape
+/// hatch at a position where its own LHS/environment matches, so unioning them only ever adds the
+/// second branch's own genuinely-distinct obligatory rewrite(s), never a "nothing happened"
+/// alternative.
+#[allow(clippy::too_many_arguments)]
+fn compile_rtl_branch_net(
+    opts: &FomaOptions,
+    alphabet: &SegAlphabet,
+    dir: Dir,
+    lhs_slots: &[Slot],
+    rhs_slots: &[Slot],
+    left_slots: &[Slot],
+    right_slots: &[Slot],
+    asg: &AlphaAssignment,
+    budget: &ComposeBudget,
+    rule_xml_id: &str,
+) -> Result<Fsm, ComposeError> {
+    let plain_regex =
+        render_branch_regex(alphabet, lhs_slots, rhs_slots, left_slots, right_slots, asg);
+    let plain_net = fsm_parse_regex(opts, &plain_regex, None, None).unwrap_or_else(|| {
+        panic!("foma rejected compiled regex for rule {rule_xml_id}: {plain_regex:?}")
+    });
+    match dir {
+        Dir::LeftToRight => Ok(plain_net),
+        Dir::RightToLeft => {
+            let mirror_lhs = reversed_slots(lhs_slots);
+            let mirror_rhs = reversed_slots(rhs_slots);
+            // Swap: the mirror rule's own left environment is the REVERSED original right
+            // environment, and vice versa (module doc).
+            let mirror_left = reversed_slots(right_slots);
+            let mirror_right = reversed_slots(left_slots);
+            let mirror_regex = render_branch_regex(
+                alphabet,
+                &mirror_lhs,
+                &mirror_rhs,
+                &mirror_left,
+                &mirror_right,
+                asg,
+            );
+            let mirror_net = fsm_parse_regex(opts, &mirror_regex, None, None).unwrap_or_else(|| {
+                panic!(
+                    "foma rejected compiled mirror-rule regex for rule {rule_xml_id}: \
+                     {mirror_regex:?}"
+                )
+            });
+            let reversed_net = fsm_reverse(mirror_net);
+            union_checked(
+                opts,
+                plain_net,
+                reversed_net,
+                budget,
+                "compile_rtl_branch_net safety-net union",
+            )
+        }
+    }
+}
+
 // =================================================================================================
 // One subrule -> one or more concrete xre replace-rule instances, COMPOSED (not unioned!) at the
 // Fsm level. Two false starts, both empirically confirmed and worth recording (prototype
@@ -570,15 +772,19 @@ pub fn compile_rewrite_rule(
 ///
 /// **Mode/dir detection (Phase C, `docs/fst-plan/phase-c-generator-design.md` §5/§6):**
 /// `rule.mode`/`rule.dir` are checked FIRST, via [`is_fully_supported_shape`] -- a rule outside
-/// that shape (`RewriteMode::Simultaneous`, or `Dir::RightToLeft`) returns `Ok(None)` immediately,
-/// exactly the same "uncovered, caller reports it `skipped`" contract [`pattern_slots`] already
-/// uses for an unsupported PATTERN construct (Quantifier/Segments/Anchor). Before this check
-/// existed, an unsupported mode/dir was silently compiled via plain foma `->` as if it were
+/// that shape (`RewriteMode::Simultaneous`, any `Dir`) returns `Ok(None)` immediately, exactly the
+/// same "uncovered, caller reports it `skipped`" contract [`pattern_slots`] already uses for an
+/// unsupported PATTERN construct (Quantifier/Segments/Anchor). Before this check existed, an
+/// unsupported mode/dir was silently compiled via plain foma `->` as if it were
 /// Iterative/LeftToRight -- a WRONG network with no signal (design doc §5's "SILENT MIS-MAP" row).
-/// Every reference-grammar rule (Indonesian/Amharic/Sena) is already `Iterative`/`LeftToRight`
-/// (this function's own prior module-level doc), so this check changes no existing grammar's
-/// compiled output -- verified by `tests/p6_gate_parity.rs`'s byte-exact Amharic state/arc-count
-/// regression guard and `tests/f3_parity.rs`'s multiset parity gates staying green.
+/// `Dir::RightToLeft` used to be gated out here too (`Ok(None)`, honestly skipped) until
+/// `openspec/changes/compile-right-to-left-rewrites` gave it real semantics
+/// ([`compile_rtl_branch_net`], module doc) -- both `Iterative` directions now compile; only
+/// `Simultaneous` (either direction) remains gated here. Every reference-grammar rule
+/// (Indonesian/Amharic/Sena) is already `Iterative`/`LeftToRight` (this function's own prior
+/// module-level doc), so NEITHER change alters any existing grammar's compiled output -- verified
+/// by `tests/p6_gate_parity.rs`'s byte-exact Amharic state/arc-count regression guard and
+/// `tests/f3_parity.rs`'s multiset parity gates staying green.
 pub fn compile_rewrite_rule_subset(
     opts: &FomaOptions,
     g: &Grammar,
@@ -654,37 +860,18 @@ pub fn compile_rewrite_rule_subset(
         reports.push(report);
 
         for asg in &assignments {
-            let lhs_text = render_slots(alphabet, &lhs_slots, asg);
-            let rhs_text = render_slots(alphabet, &rhs_slots, asg);
-            // Deletion (empty RHS pattern): foma spells "nothing" as `0` in a replace rule.
-            let rhs_text = if rhs_text.is_empty() {
-                "0".to_string()
-            } else {
-                rhs_text
-            };
-            let has_left = !left_slots.is_empty();
-            let has_right = !right_slots.is_empty();
-            let branch_regex = if !has_left && !has_right {
-                format!("{lhs_text} -> {rhs_text}")
-            } else {
-                let left_text = render_slots(alphabet, &left_slots, asg);
-                let right_text = render_slots(alphabet, &right_slots, asg);
-                match (has_left, has_right) {
-                    (true, true) => {
-                        format!("{lhs_text} -> {rhs_text} || {left_text} _ {right_text}")
-                    }
-                    (true, false) => format!("{lhs_text} -> {rhs_text} || {left_text} _"),
-                    (false, true) => format!("{lhs_text} -> {rhs_text} || _ {right_text}"),
-                    (false, false) => unreachable!(),
-                }
-            };
-            let branch_net =
-                fsm_parse_regex(opts, &branch_regex, None, None).unwrap_or_else(|| {
-                    panic!(
-                        "foma rejected compiled regex for rule {}: {branch_regex:?}",
-                        rule.xml_id
-                    )
-                });
+            let branch_net = compile_rtl_branch_net(
+                opts,
+                alphabet,
+                rule.dir,
+                &lhs_slots,
+                &rhs_slots,
+                &left_slots,
+                &right_slots,
+                asg,
+                budget,
+                &rule.xml_id,
+            )?;
             net = Some(match net {
                 None => branch_net,
                 // Sequential composition, NOT union — see the module-level doc above this
@@ -879,9 +1066,13 @@ pub fn compile_and_compose_rules_gated_with_budget(
     Ok(composed)
 }
 
-/// `true` iff `rule.mode`/`rule.dir` are the only combination this prototype claims fidelity for.
+/// `true` iff `rule.mode` is a shape this file's compile functions claim fidelity for.
+/// `RewriteMode::Iterative` compiles under EITHER `Dir` (`Dir::LeftToRight` via the plain
+/// construction; `Dir::RightToLeft` via [`compile_rtl_branch_net`]'s reversal-plus-safety-net-union
+/// construction, `openspec/changes/compile-right-to-left-rewrites`). `RewriteMode::Simultaneous`
+/// remains outside this shape regardless of `Dir` -- a different algorithm, module doc.
 pub fn is_fully_supported_shape(rule: &RewriteRuleDef) -> bool {
-    matches!(rule.mode, RewriteMode::Iterative) && matches!(rule.dir, Dir::LeftToRight)
+    matches!(rule.mode, RewriteMode::Iterative)
 }
 
 /// Convenience re-export so the driver doesn't need a second `use` line for the one subrule field

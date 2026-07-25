@@ -203,7 +203,15 @@ impl CharacteristicKind {
             CharacteristicKind::IterativeRewrite => Disposition::Proven,
             CharacteristicKind::SimultaneousRewrite => Disposition::ConfigPredicate,
             CharacteristicKind::LeftToRightRewrite => Disposition::Proven,
-            CharacteristicKind::RightToLeftRewrite => Disposition::FailClosed,
+            // `compile-right-to-left-rewrites`: the reversal-plus-safety-net-union construction
+            // (`crate::replace::compile_rtl_branch_net`) makes RTL rewrite compilation faithful
+            // (never a silent LTR mis-compile) for the same pattern shapes any other rewrite rule
+            // already needs -- no longer bare FailClosed, but no proven no-false-positive
+            // admission-filter argument exists either (ADR 0001), so the resting disposition is
+            // the ConfigPredicate landing spot: ConfirmOnly unless/until
+            // `RightToLeftRewriteFaithfulReversalPredicate` proves `Admit` (it never does today --
+            // see that predicate's own doc) or Refuses an out-of-shape rule.
+            CharacteristicKind::RightToLeftRewrite => Disposition::ConfigPredicate,
             CharacteristicKind::Metathesis => Disposition::FailClosed,
             CharacteristicKind::Epenthesis => Disposition::ConfigPredicate,
             CharacteristicKind::SubruleGating => Disposition::Proven,
@@ -312,17 +320,47 @@ pub struct MultiTableDetail {
     pub shared_representation_witness: Option<String>,
 }
 
+/// [`ObservationDetail::RightToLeftRewrite`]'s payload (`openspec/changes/
+/// compile-right-to-left-rewrites`): whether [`crate::replace::compile_rtl_branch_net`]'s
+/// reversal construction can even be ATTEMPTED for this specific `Dir::RightToLeft` rule —
+/// computed once here (self-contained projection, same reasoning [`LoweredSpan`]'s own doc gives)
+/// by re-running the SAME structural pattern-shape check `crate::replace::compile_rewrite_rule_
+/// subset` itself gates on (every LHS/RHS/environment pattern must avoid `Quantifier`/`Segments`/
+/// `Anchor` and disagree-polarity alpha vars, and the rule must resolve to a real owning table) —
+/// via [`crate::replace::pattern_slots`]/[`crate::replace::owning_table`] directly, WITHOUT
+/// compiling any foma automaton (cheap, purely structural, no `FomaOptions`/`SegAlphabet` needed).
+/// `Simultaneous` mode is handled by its own [`CharacteristicKind::SimultaneousRewrite`]
+/// observation, so this detail is only ever computed for `Dir::RightToLeft` rules (`characterize`'s
+/// own `Dir::RightToLeft` arm) — a rule that is BOTH `Simultaneous` and `RightToLeft` gets both
+/// observations, and `RightToLeftRewriteFaithfulReversalPredicate`'s own verdict is irrelevant
+/// there since `SimultaneousRewrite`'s `FailClosed`-by-default disposition already dominates under
+/// `meet` (D4).
+#[derive(Debug, Clone, Copy)]
+pub struct RightToLeftRewriteDetail {
+    pub rule: PRuleId,
+    /// `true` iff every LHS/RHS/environment pattern in this rule's subrules is a shape
+    /// [`crate::replace::pattern_slots`] accepts (no `Quantifier`/`Segments`/`Anchor`, no
+    /// disagree-polarity alpha var) AND the rule resolves to a real owning
+    /// [`pg_grammar::chardef::CharDefTable`] — i.e. exactly the construct-shape floor
+    /// `compile_rewrite_rule_subset` itself requires before it ever calls [`fsm_reverse`
+    /// ](foma::reverse::fsm_reverse). `false` means the rule is STILL honestly skipped
+    /// (`Ok(None)`) by the real compiler, same as any other unsupported pattern construct.
+    pub reversal_construction_attempted: bool,
+}
+
 /// Extra structured data an observation needs beyond `kind`/`disposition`/`location`, for the
 /// characteristics that a predicate must inspect at finer grain than "did this occur at all"
 /// (design.md D2/D3). Most characteristics carry `None` — [`CharacteristicKind::
-/// SimultaneousRewrite`] needs [`Self::SimultaneousRewrite`] (D3's worked example) and
+/// SimultaneousRewrite`] needs [`Self::SimultaneousRewrite`] (D3's worked example),
 /// [`CharacteristicKind::MultiTable`] needs [`Self::MultiTable`]
-/// (`fix-multitable-fst-compilation`).
+/// (`fix-multitable-fst-compilation`), and [`CharacteristicKind::RightToLeftRewrite`] needs
+/// [`Self::RightToLeftRewrite`] (`compile-right-to-left-rewrites`).
 #[derive(Debug, Clone)]
 pub enum ObservationDetail {
     None,
     SimultaneousRewrite(SimultaneousRewriteDetail),
     MultiTable(MultiTableDetail),
+    RightToLeftRewrite(RightToLeftRewriteDetail),
 }
 
 /// One occurrence of a characteristic in a [`CharacteristicsProfile`] (design.md D1).
@@ -414,11 +452,59 @@ impl CharacteristicsProfile {
             _ => None,
         })
     }
+
+    /// `rule`'s own [`RightToLeftRewriteDetail`], if it was observed as a `Dir::RightToLeft` rule
+    /// at all (`characterize`'s own `Dir::RightToLeft` arm; `compile-right-to-left-rewrites`).
+    pub fn right_to_left_detail(&self, rule: PRuleId) -> Option<&RightToLeftRewriteDetail> {
+        self.observations.iter().find_map(|o| match &o.detail {
+            ObservationDetail::RightToLeftRewrite(d) if d.rule == rule => Some(d),
+            _ => None,
+        })
+    }
 }
 
 // -------------------------------------------------------------------------------------------
 // Private per-construct characterization helpers
 // -------------------------------------------------------------------------------------------
+
+/// [`RightToLeftRewriteDetail::reversal_construction_attempted`]'s own computation
+/// (`openspec/changes/compile-right-to-left-rewrites`): re-runs [`crate::replace::pattern_slots`]
+/// over every LHS/RHS/environment pattern this rule's subrules carry, EXACTLY the same shape
+/// [`crate::replace::compile_rewrite_rule_subset`] itself checks before ever compiling a foma
+/// automaton — `false` the instant any one of them returns `None` (an unsupported pattern
+/// construct: `Quantifier`/`Segments`/`Anchor`, or a disagree-polarity alpha var), or the rule has
+/// no resolvable owning table ([`crate::replace::owning_table`] returning `None`). Cheap and
+/// purely structural: no [`foma::options::FomaOptions`]/[`crate::replace::SegAlphabet`] needed,
+/// unlike the real compile.
+fn rtl_reversal_construction_attempted(g: &Grammar, r: &pg_grammar::model::RewriteRuleDef) -> bool {
+    let Some(table) = crate::replace::owning_table(g, r) else {
+        return false;
+    };
+    for sr in &r.subrules {
+        // Mirrors `compile_rewrite_rule_subset`'s own loop: a fresh occurrence counter per
+        // subrule (LHS is re-walked per subrule too, in step with the real compiler), though for
+        // this Some/None-only probe the actual occurrence NUMBERING is irrelevant -- only whether
+        // `pattern_slots` returns `None` anywhere matters.
+        let mut next_occurrence = 0usize;
+        if crate::replace::pattern_slots(g, table, &r.lhs, &mut next_occurrence).is_none() {
+            return false;
+        }
+        if crate::replace::pattern_slots(g, table, &sr.rhs, &mut next_occurrence).is_none() {
+            return false;
+        }
+        if let Some(p) = &sr.left_env {
+            if crate::replace::pattern_slots(g, table, p, &mut next_occurrence).is_none() {
+                return false;
+            }
+        }
+        if let Some(p) = &sr.right_env {
+            if crate::replace::pattern_slots(g, table, p, &mut next_occurrence).is_none() {
+                return false;
+            }
+        }
+    }
+    true
+}
 
 /// Groups `rhs`'s `Copy(Input(i))`/`Modify(Input(i), _)` occurrences by the input part they
 /// reference, mirroring (independently — this crate has no dependency edge onto `pg-rules`'
@@ -781,7 +867,12 @@ pub fn characterize(g: &Grammar) -> CharacteristicsProfile {
                     Dir::RightToLeft => observations.push(CharacteristicObservation::new(
                         CharacteristicKind::RightToLeftRewrite,
                         ModelLocation::PhonRule(id),
-                        ObservationDetail::None,
+                        ObservationDetail::RightToLeftRewrite(RightToLeftRewriteDetail {
+                            rule: id,
+                            reversal_construction_attempted: rtl_reversal_construction_attempted(
+                                g, r,
+                            ),
+                        }),
                     )),
                 }
                 // "Epenthesis" (D1) is an empty-`lhs` RULE, not a subrule field (model.rs:417's
@@ -1219,6 +1310,91 @@ impl CapabilityPredicate for MultiTableFaithfulThreadingPredicate {
     }
 }
 
+// -------------------------------------------------------------------------------------------
+// RightToLeftRewrite: the config-predicate `compile-right-to-left-rewrites` registers
+// -------------------------------------------------------------------------------------------
+
+/// `openspec/changes/compile-right-to-left-rewrites`'s own capability predicate: a `Dir::
+/// RightToLeft` rewrite rule is now faithfully COMPILABLE (never a silent LTR mis-compile) by
+/// [`crate::replace::compile_rtl_branch_net`]'s reversal-plus-safety-net-union construction
+/// (that function's own doc), PROVIDED the rule's own LHS/RHS/environment patterns are within the
+/// shape this crate's compiler already requires for ANY rewrite rule ([`RightToLeftRewriteDetail::
+/// reversal_construction_attempted`], computed once by [`rtl_reversal_construction_attempted`]).
+///
+/// # Disposition
+/// - **Not observed as `Dir::RightToLeft` at all** (e.g. `LeftToRight`, or this predicate asked
+///   about a non-rewrite-rule node): vacuously `Admit` — nothing for this predicate to say
+///   (mirrors [`SimultaneousSubruleOverlapPredicate`]'s own "not applicable here" convention).
+/// - **Pattern shape within scope** (`reversal_construction_attempted == true`):
+///   [`PredicateVerdict::ConfirmOnly`] — the reversal-plus-union construction is a proven SAFE
+///   OVER-APPROXIMATION relative to today's confirm engine (module doc on `compile_rtl_branch_net`:
+///   the safety-net `LeftToRight`-style branch alone is already recall-complete against
+///   `pg_rules::rewrite`'s own, empirically-verified direction-blind pick-order; the genuinely-
+///   reversed branch only ever ADDS candidates, never drops one), but no PROVEN no-false-positive
+///   admission-filter argument exists (ADR 0001's own bar for `Admit`) — so this is confirm-only-
+///   by-default, never `Admit`.
+/// - **Pattern shape outside scope** (`reversal_construction_attempted == false` — the rule's own
+///   LHS/RHS/environment needs `Quantifier`/`Segments`/`Anchor`, a disagree-polarity alpha var, or
+///   has no resolvable owning table): [`PredicateVerdict::Refuse`] — the real compiler already
+///   honestly skips (`Ok(None)`) exactly this rule (never a silent LTR fallback), so a grammar
+///   depending on it must be refused rather than silently missing recall; overridable per ADR 0005.
+///
+/// # Provenance
+/// [`EvidenceProvenance::Structural`]: `rtl_reversal_construction_attempted` reads directly-
+/// inspectable `model.rs`/`CharDefTable` data (the same structural facts [`crate::replace::
+/// pattern_slots`]/[`crate::replace::owning_table`] already compute for the real compile), no
+/// oracle witnesses needed to derive the VERDICT itself — the safe-superset recall ARGUMENT this
+/// predicate's own `ConfirmOnly` verdict rests on was separately, empirically verified (this
+/// crate's `tests/phase_c_right_to_left.rs`), the same "oracle verified the construction, the
+/// predicate reads structure" split [`MultiTableFaithfulThreadingPredicate`]'s own doc draws.
+///
+/// # Node applicability
+/// Like [`SimultaneousSubruleOverlapPredicate`], addressed via [`rewrite_rule_of`] at a rewrite-
+/// rule leaf node — the SAME plan-node-extraction helper, reused rather than re-derived.
+pub struct RightToLeftRewriteFaithfulReversalPredicate;
+
+impl CapabilityPredicate for RightToLeftRewriteFaithfulReversalPredicate {
+    fn id(&self) -> PredicateId {
+        "right-to-left-rewrite.faithful-reversal-construction"
+    }
+
+    fn discharges(&self) -> &[CharacteristicKind] {
+        &[CharacteristicKind::RightToLeftRewrite]
+    }
+
+    fn provenance(&self) -> EvidenceProvenance {
+        EvidenceProvenance::Structural
+    }
+
+    fn evaluate(
+        &self,
+        profile: &CharacteristicsProfile,
+        plan_node: &PlanNodeKind,
+    ) -> PredicateVerdict {
+        let Some(rule) = rewrite_rule_of(plan_node) else {
+            return PredicateVerdict::Admit;
+        };
+        let Some(detail) = profile.right_to_left_detail(rule) else {
+            // Not observed as `Dir::RightToLeft` at all (e.g. it's `LeftToRight`) -- nothing for
+            // this predicate to say (module doc).
+            return PredicateVerdict::Admit;
+        };
+        if !detail.reversal_construction_attempted {
+            return PredicateVerdict::Refuse(CapabilityDiagnostic {
+                predicate: self.id(),
+                construct: format!("prule {} (Dir::RightToLeft)", rule.0),
+                witness: "this rule's own LHS/RHS/environment pattern needs a construct \
+                          `crate::replace::pattern_slots` does not support (Quantifier/Segments/ \
+                          Anchor, or a disagree-polarity alpha var), or the rule has no resolvable \
+                          owning character-definition table -- the real compiler already honestly \
+                          skips (Ok(None)) this exact rule rather than silently mis-compiling it"
+                    .to_string(),
+            });
+        }
+        PredicateVerdict::ConfirmOnly
+    }
+}
+
 // =================================================================================================
 // The predicate registry (design.md D2's "no silent vacuous pass" coverage check)
 // =================================================================================================
@@ -1308,15 +1484,16 @@ impl PredicateRegistry {
     }
 }
 
-/// The minimal registry this step ships: the two REAL predicates
-/// ([`SimultaneousSubruleOverlapPredicate`], [`MultiTableFaithfulThreadingPredicate`]), plus an
-/// explicit [`FailClosedPlaceholder`] for every other `FailClosed`/`ConfigPredicate` characteristic
-/// — proving the coverage contract holds today without pretending any of those other constructs
-/// has a real proof yet.
+/// The registry this step ships: the three REAL predicates
+/// ([`SimultaneousSubruleOverlapPredicate`], [`MultiTableFaithfulThreadingPredicate`],
+/// [`RightToLeftRewriteFaithfulReversalPredicate`]), plus an explicit [`FailClosedPlaceholder`]
+/// for every other `FailClosed`/`ConfigPredicate` characteristic — proving the coverage contract
+/// holds today without pretending any of those other constructs has a real proof yet.
 pub fn default_registry() -> PredicateRegistry {
     let mut r = PredicateRegistry::new();
     r.register(Box::new(SimultaneousSubruleOverlapPredicate));
     r.register(Box::new(MultiTableFaithfulThreadingPredicate));
+    r.register(Box::new(RightToLeftRewriteFaithfulReversalPredicate));
     r.register(Box::new(FailClosedPlaceholder::new(
         "compounding.placeholder",
         &[CharacteristicKind::Compounding],
@@ -1331,11 +1508,6 @@ pub fn default_registry() -> PredicateRegistry {
         "mpr-group-overwrite.placeholder",
         &[CharacteristicKind::MprGroupOverwrite],
         "cover-mpr-groups",
-    )));
-    r.register(Box::new(FailClosedPlaceholder::new(
-        "right-to-left-rewrite.placeholder",
-        &[CharacteristicKind::RightToLeftRewrite],
-        "compile-right-to-left-rewrites",
     )));
     r.register(Box::new(FailClosedPlaceholder::new(
         "metathesis.placeholder",
@@ -1881,6 +2053,173 @@ mod tests {
             predicate.evaluate(&profile, &leaf_for(PRuleId(0))),
             PredicateVerdict::Admit
         );
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // RightToLeftRewrite (`openspec/changes/compile-right-to-left-rewrites`)
+    // ---------------------------------------------------------------------------------------
+
+    const RTL_PLAIN_XML: &str = r#"<HermitCrabInput><Language><Name>RtlPlain</Name>
+      <CharacterDefinitionTable id="t1"><Name>Main</Name>
+        <SegmentDefinitions>
+          <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+          <SegmentDefinition id="cb"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
+        </SegmentDefinitions>
+      </CharacterDefinitionTable>
+      <PhonologicalRuleDefinitions>
+        <PhonologicalRule id="prRtl" multipleApplicationOrder="rightToLeftIterative">
+          <Name>rtlDemo</Name>
+          <PhoneticInput><PhoneticSequence><Segment segment="ca" /></PhoneticSequence></PhoneticInput>
+          <PhonologicalSubrules>
+            <PhonologicalSubrule>
+              <PhoneticOutput><PhoneticSequence><Segment segment="cb" /></PhoneticSequence></PhoneticOutput>
+            </PhonologicalSubrule>
+          </PhonologicalSubrules>
+        </PhonologicalRule>
+      </PhonologicalRuleDefinitions>
+      <Strata><Stratum characterDefinitionTable="t1" phonologicalRules="prRtl"><Name>S</Name></Stratum></Strata>
+    </Language></HermitCrabInput>"#;
+
+    /// `characterize` marks a plain (in-shape) `Dir::RightToLeft` rule `ConfigPredicate`, with
+    /// `reversal_construction_attempted == true` -- the reversal construction can genuinely be
+    /// attempted for this rule's own LHS/RHS shape (both fixed single segments, no environment).
+    #[test]
+    fn characterize_marks_right_to_left_rewrite_config_predicate_when_shape_supported() {
+        let g = load(RTL_PLAIN_XML);
+        let PhonRuleDef::Rewrite(r) = &g.prules[0] else {
+            panic!("expected a Rewrite-kind rule");
+        };
+        assert_eq!(r.dir, Dir::RightToLeft);
+
+        let profile = characterize(&g);
+        assert!(
+            profile.observations().iter().any(|o| o.kind
+                == CharacteristicKind::RightToLeftRewrite
+                && o.disposition == Disposition::ConfigPredicate),
+            "Dir::RightToLeft must characterize ConfigPredicate (no longer bare FailClosed): {:?}",
+            profile.observations()
+        );
+        let detail = profile
+            .right_to_left_detail(PRuleId(0))
+            .expect("RightToLeftRewrite must carry a RightToLeftRewriteDetail");
+        assert!(
+            detail.reversal_construction_attempted,
+            "a plain fixed-segment, no-environment rule is exactly the shape the reversal \
+             construction supports"
+        );
+    }
+
+    /// Positive witness: [`RightToLeftRewriteFaithfulReversalPredicate`] returns `ConfirmOnly`
+    /// (never `Admit` -- no proven no-false-positive admission filter exists, module doc) for an
+    /// in-shape `Dir::RightToLeft` rule.
+    #[test]
+    fn right_to_left_predicate_confirm_only_for_supported_shape() {
+        let g = load(RTL_PLAIN_XML);
+        let profile = characterize(&g);
+        let predicate = RightToLeftRewriteFaithfulReversalPredicate;
+        assert_eq!(
+            predicate.evaluate(&profile, &leaf_for(PRuleId(0))),
+            PredicateVerdict::ConfirmOnly,
+            "an in-shape RTL rule must be ConfirmOnly, never Refuse or Admit"
+        );
+    }
+
+    /// A plain `Dir::LeftToRight` rule never observes `RightToLeftRewrite` at all, and the
+    /// predicate vacuously `Admit`s -- the byte-identical, never-touched ordinary case.
+    #[test]
+    fn right_to_left_predicate_admits_vacuously_for_left_to_right_rule() {
+        const XML: &str = r#"<HermitCrabInput><Language><Name>LtrPlain</Name>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions>
+              <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+              <SegmentDefinition id="cb"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
+            </SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <PhonologicalRuleDefinitions>
+            <PhonologicalRule id="prLtr">
+              <Name>ltrDemo</Name>
+              <PhoneticInput><PhoneticSequence><Segment segment="ca" /></PhoneticSequence></PhoneticInput>
+              <PhonologicalSubrules>
+                <PhonologicalSubrule>
+                  <PhoneticOutput><PhoneticSequence><Segment segment="cb" /></PhoneticSequence></PhoneticOutput>
+                </PhonologicalSubrule>
+              </PhonologicalSubrules>
+            </PhonologicalRule>
+          </PhonologicalRuleDefinitions>
+          <Strata><Stratum characterDefinitionTable="t1" phonologicalRules="prLtr"><Name>S</Name></Stratum></Strata>
+        </Language></HermitCrabInput>"#;
+        let g = load(XML);
+        let PhonRuleDef::Rewrite(r) = &g.prules[0] else {
+            panic!("expected a Rewrite-kind rule");
+        };
+        assert_eq!(r.dir, Dir::LeftToRight);
+        let profile = characterize(&g);
+        assert!(
+            !profile
+                .observations()
+                .iter()
+                .any(|o| o.kind == CharacteristicKind::RightToLeftRewrite),
+            "a LeftToRight rule must never observe RightToLeftRewrite at all"
+        );
+        let predicate = RightToLeftRewriteFaithfulReversalPredicate;
+        assert_eq!(
+            predicate.evaluate(&profile, &leaf_for(PRuleId(0))),
+            PredicateVerdict::Admit
+        );
+    }
+
+    /// Negative witness: a `Dir::RightToLeft` rule whose LHS needs a `Quantifier`
+    /// (`OptionalSegmentSequence`) -- a construct `crate::replace::pattern_slots` does not support
+    /// for ANY rewrite rule, RTL or not -- must characterize `reversal_construction_attempted ==
+    /// false`, and the predicate must `Refuse` it (never silently `ConfirmOnly`/`Admit` a rule the
+    /// real compiler cannot even attempt).
+    #[test]
+    fn right_to_left_predicate_refuses_quantifier_shaped_rule() {
+        const XML: &str = r#"<HermitCrabInput><Language><Name>RtlQuantifier</Name>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions>
+              <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+              <SegmentDefinition id="cb"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
+            </SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /><Segment segment="cb" /></SegmentNaturalClass></NaturalClasses>
+          <PhonologicalRuleDefinitions>
+            <PhonologicalRule id="prRtlQ" multipleApplicationOrder="rightToLeftIterative">
+              <Name>rtlQuantifierDemo</Name>
+              <PhoneticInput><PhoneticSequence>
+                <OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAll" /></OptionalSegmentSequence>
+              </PhoneticSequence></PhoneticInput>
+              <PhonologicalSubrules>
+                <PhonologicalSubrule>
+                  <PhoneticOutput><PhoneticSequence><Segment segment="cb" /></PhoneticSequence></PhoneticOutput>
+                </PhonologicalSubrule>
+              </PhonologicalSubrules>
+            </PhonologicalRule>
+          </PhonologicalRuleDefinitions>
+          <Strata><Stratum characterDefinitionTable="t1" phonologicalRules="prRtlQ"><Name>S</Name></Stratum></Strata>
+        </Language></HermitCrabInput>"#;
+        let g = load(XML);
+        let PhonRuleDef::Rewrite(r) = &g.prules[0] else {
+            panic!("expected a Rewrite-kind rule");
+        };
+        assert_eq!(r.dir, Dir::RightToLeft);
+
+        let profile = characterize(&g);
+        let detail = profile
+            .right_to_left_detail(PRuleId(0))
+            .expect("RightToLeftRewrite must carry a RightToLeftRewriteDetail");
+        assert!(
+            !detail.reversal_construction_attempted,
+            "a Quantifier-shaped LHS is outside crate::replace::pattern_slots' own supported shape"
+        );
+
+        let predicate = RightToLeftRewriteFaithfulReversalPredicate;
+        match predicate.evaluate(&profile, &leaf_for(PRuleId(0))) {
+            PredicateVerdict::Refuse(diag) => {
+                assert_eq!(diag.predicate, "right-to-left-rewrite.faithful-reversal-construction");
+            }
+            other => panic!("expected Refuse for a Quantifier-shaped RTL rule, got {other:?}"),
+        }
     }
 
     const TWO_TABLE_DISJOINT_XML: &str = r#"<HermitCrabInput><Language><Name>TwoTableDisjoint</Name>
