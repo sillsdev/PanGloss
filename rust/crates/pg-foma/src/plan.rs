@@ -676,6 +676,15 @@ mod tests {
 
     /// The debug-only invariant in [`Plan::add_node`] catches a `Gate` node whose `children` count
     /// doesn't match its partition's group count.
+    ///
+    /// `#[cfg(debug_assertions)]`-gated because the invariant it exercises is a `debug_assert!`,
+    /// which the compiler strips under `--release` — so a `#[should_panic]` test of it cannot pass
+    /// there. Without this gate `cargo test --workspace --release` fails on this one test even though
+    /// nothing is wrong (found by the delanguaging Part C sweep, which ran the release suite). Gating
+    /// keeps the assertion genuinely tested in the debug profile — where `debug_assert!` actually
+    /// fires and where the whole test suite normally runs — instead of weakening it to an
+    /// always-checked `assert!` purely to satisfy a profile that strips it.
+    #[cfg(debug_assertions)]
     #[test]
     #[should_panic(expected = "one child per partition group")]
     fn gate_node_invariant_panics_in_debug_on_mismatch() {
