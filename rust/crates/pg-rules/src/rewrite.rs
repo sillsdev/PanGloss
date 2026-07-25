@@ -327,6 +327,57 @@ fn compile_lane_fst_grouped(
 /// `syn_narrow` multi-node target the way this P6 fixture's `ana_feature` case did. Flagged, not
 /// fixed — a real grammar exercising that combination would need the same per-row `Group`-capture
 /// treatment applied to whichever of those three functions hits it.
+///
+/// **INVESTIGATED, LEFT AS-IS: a bounded `Quantifier` occupying the WHOLE LHS/RHS** (docs/
+/// `phase_c_quantifier.rs`'s own "Why the environment, not the LHS/RHS focus" section; also
+/// `phase_c_right_to_left.rs`'s epenthesis note references this same shape). A single
+/// `PatternNode::Quantifier` node as the entire LHS or RHS has `Pattern::nodes.len() == 1`
+/// regardless of its own `min`/`max`, so every caller here (`rhs_pins.len()`/`rule.lhs.nodes.len()`/
+/// `target_len`/`expected_len` — all plain node counts) will reject any REAL match of that
+/// Quantifier whose physical width differs from 1 (`max > 1`, or a `min == 0` skip), exactly per
+/// this doc's opening paragraph. Probed directly (`pg-rules` synthesis, throwaway, not checked in):
+/// `LHS = [Quantifier{min:1, max:2, children:[CharDef(a)]}]`, `RHS = [CharDef(t)]` against "aa"/
+/// "aaa" does not crash and does not mis-group — but it also does not honor the quantifier's own
+/// multiplicity at all: because every INDIVIDUAL occurrence of the quantifier's own child (a bare
+/// single `a`) independently satisfies `min=1` and is a width-1 match, the Iterative scan finds and
+/// applies each one separately (rewriting every `a` to `t` one at a time) before the wider,
+/// width-2+ span is ever reachable (its start node is already `dirty` by the time the scan gets
+/// there) — the quantifier's own grouping is silently invisible to this machinery, not merely its
+/// non-unit-width occurrences.
+///
+/// This is **not treated as a Rust-side gap to close**, because C# has no defined behavior for this
+/// shape either — it crashes. `SynthesisRewriteRuleSpec`'s constructor unconditionally does
+/// `lhs.Children.Cast<Constraint<Word, ShapeNode>>()` over the RULE's own Lhs
+/// (`PhonologicalRules/SynthesisRewriteRuleSpec.cs:33`), and every subrule-spec constructor that
+/// consumes a subrule's Rhs does the identical unconditional cast: `FeatureAnalysisRewriteRuleSpec.
+/// cs:104`, `NarrowAnalysisRewriteRuleSpec.cs:45`, `EpenthesisAnalysisRewriteRuleSpec.cs:18`
+/// (analysis side, one per `Kind`), plus the Simultaneous-mode self-opaquing probe at
+/// `AnalysisRewriteRule.cs:53-55` and the metathesis siblings `SynthesisMetathesisRuleSpec.cs:31`/
+/// `AnalysisMetathesisRuleSpec.cs:53`. `Constraint<TData,TOffset>` and `Quantifier<TData,TOffset>`
+/// are SIBLING subclasses of `PatternNode<TData,TOffset>` with no inheritance relation
+/// (`SIL.Machine/Matching/Constraint.cs:12-13`, `Quantifier.cs:13-14`), so LINQ's `Cast<T>` throws
+/// `InvalidCastException` the instant it reaches a `Quantifier` child. The DTD genuinely allows one
+/// there — `PhoneticInput`/`PhoneticOutput`'s shared `PhoneticSequence` production
+/// (`HermitCrabInput.dtd:515`) permits `OptionalSegmentSequence` exactly like `PhoneticTemplate`'s
+/// environments do, and `XmlLanguageLoader`'s generic `LoadPatternNodes`/`LoadPhoneticSequence`
+/// (`XmlLanguageLoader.cs:1405-1415,1493-1505`) builds a real `Quantifier<Word,ShapeNode>` for it
+/// with no LHS/RHS-vs-environment distinction at load time — so this is a genuine DTD-vs-
+/// implementation gap IN C# ITSELF (uncaught anywhere between XML loading and `Morpher`
+/// construction, `RewriteRule.CompileSynthesisRule`/`CompileAnalysisRule`, both called with no
+/// surrounding `try`/`catch` — `SynthesisRewriteRule.cs:31-36`), not an unglamorous corner nobody
+/// exercises. `pg_grammar::load` is more permissive than C# here (it happily loads this shape
+/// structurally into `PatternNode::Quantifier`, matching the loader's own permissiveness, but
+/// nothing downstream crashes) — deliberately so, since crashing to match a C# bug would be a
+/// strictly worse outcome than this module's existing behavior for no compensating fidelity gain.
+///
+/// Per this port's own governing rule (match C# and cite it; if C# is ambiguous or the shape is
+/// unrepresentable, do not guess), `width_matches` is left EXACTLY as-is for this shape: there is no
+/// C# behavior to converge on. Contrast the ENVIRONMENT case (`phase_c_quantifier.rs`'s own
+/// containment fixture): an environment's Quantifier is matched via `EnvFst`/
+/// `Transduce::first_match`, a pure existence test with no positional array to mismatch, and C#'s
+/// environment matchers are ordinary `Matcher<Word,ShapeNode>` instances built directly from the
+/// SAME `Pattern` with no Constraint-only cast anywhere — environments have real, well-defined C#
+/// behavior for a Quantifier, and this port already provides it.
 #[inline]
 pub(crate) fn width_matches(target_nodes: &[usize], pattern_len: usize) -> bool {
     target_nodes.len() == pattern_len
@@ -2905,6 +2956,31 @@ fn ana_epenthesis_target_lanes(
 /// C# `EpenthesisAnalysisRewriteRuleSpec` (reapply Normal/SelfOpaquing): the analysis matcher
 /// matches the epenthesized segment(s), and `Unapply` marks them **optional** (so a later lexical
 /// lookup may skip them) — it does not delete. The nonvacuous guard skips already-optional nodes.
+///
+/// **INVESTIGATED: `tests/phase_c_right_to_left.rs`'s reported oracle gap does not reproduce.**
+/// That file's own top doc ("Known, out-of-scope oracle gap" area / its epenthesis test's doc)
+/// reports a throwaway (not checked in) finding that `pg_parse::Morpher` returns NO analysis at all
+/// for ANY word of its `RTL_EPENTHESIS_XML` fixture — including `entryXOnly`'s own unaffected
+/// spelling `"x"`, which this rule's environment never even licenses — reproducing byte-identically
+/// whether the rule is declared plain `LeftToRight` or `rightToLeftIterative`. Re-investigated here
+/// (throwaway probes, not checked in, per this port's "reproduce yourself first" discipline): that
+/// EXACT fixture (byte-for-byte, both direction variants) was loaded and run two ways — (1)
+/// `analyze` called directly (bypassing `Morpher`/the stratum cascade entirely) and (2) the full
+/// `pg_parse::Morpher::parse_word_opts` pipeline. Both ways, both directions, all three surface
+/// forms return the oracle-correct result: `"x"` recalls `entryXOnly` unchanged (1 analysis),
+/// `"xey"` recalls `entryXY` with its medial segment marked Optional (1 analysis), `"xy"` (the raw,
+/// pre-epenthesis spelling of an obligatory rule) recalls nothing (0 analyses, correctly — an
+/// obligatory epenthesis rule's un-rewritten input must never itself be valid). `git log` confirms
+/// neither this function, `stratum.rs`'s prule cascade (`StratumAnalyzer::analyze`), nor
+/// `morpher.rs` has changed since the commit that introduced that fixture, so this is not a case of
+/// an intervening fix elsewhere quietly closing the gap — the described symptom simply could not be
+/// reproduced against the code as it exists. Left as a documented non-finding, not a guessed fix for
+/// an unobservable symptom (this module's own "reproduce first" discipline): the pre-existing
+/// `pg-rules/tests/rewrite_gate.rs` epenthesis gates plus this crate's own
+/// `epenthesis_natural_class_rhs_round_trips_with_environment` (added alongside this note, using a
+/// `PatternNode::Context` RHS + explicit two-sided environment — the same shape as the cited
+/// fixture, rather than the pre-existing gates' concrete-`CharDef` RHS) keep pinning correct
+/// behavior for this shape in both directions.
 fn ana_epenthesis(
     ms: &mut MutShape,
     target: Option<&Fst>,

@@ -1366,3 +1366,106 @@ fn traced_analysis_cached_matches_uncached() {
     assert_eq!(ev.subrule_index, Some(0));
     assert_eq!(ev.failure_reason, None);
 }
+
+// =================================================================================================
+// Confirm-engine gap 1: a bounded `Quantifier` occupying the WHOLE LHS/RHS (`width_matches`'s own
+// doc, "INVESTIGATED, LEFT AS-IS: a bounded Quantifier occupying the WHOLE LHS/RHS"). C# has no
+// defined behavior for this shape at all (`SynthesisRewriteRuleSpec.cs:33` etc. crash with
+// `InvalidCastException` the instant a top-level LHS/RHS child isn't a plain `Constraint`), so this
+// is not "fixed" -- this pins the current, safe (non-crashing, non-mis-grouping) behavior instead:
+// the quantifier's own multiplicity is invisible to this machinery, because every INDIVIDUAL
+// occurrence of its child pattern independently satisfies `min=1` and is matched/applied as its own
+// ordinary width-1 site before the wider span is ever reachable.
+// =================================================================================================
+
+#[test]
+fn quantifier_as_whole_lhs_ignores_its_own_multiplicity_but_never_crashes_or_misgroups() {
+    let g = load_probe_grammar();
+    // LHS = (a){1,2} as the ENTIRE LHS pattern (one top-level `Quantifier` node); RHS = a single
+    // fixed segment `t` (also one top-level node, so `classify` sees `t == r == 1` => `Kind::Feature`
+    // -- same dispatch a plain `a -> t` rule would get; the quantifier envelope changes nothing
+    // about which spec function runs, only what its own compiled target FST structurally matches).
+    let lhs = Pattern {
+        nodes: vec![PatternNode::Quantifier {
+            min: 1,
+            max: Some(2),
+            children: vec![PatternNode::CharDef(char_def(&g, "char_a"))],
+        }],
+    };
+    let r = rule(lhs, subrule(pat_char(char_def(&g, "char_t")), None, None));
+
+    // One, two, and three `a`s: every single `a` is independently rewritten to `t` (the quantifier's
+    // 1..2 bound is never actually enforced as a GROUP), and nothing panics or drops nodes.
+    for (word, want_len) in [("a", 1), ("aa", 2), ("aaa", 3)] {
+        let out = pg_rules::rewrite::synthesize(&g, &r, &seg(&g, word));
+        assert_eq!(out.len(), 1, "{word:?}: rule applies (no crash, no silent no-op)");
+        let got = interior(&out[0]);
+        assert_eq!(got.len(), want_len, "{word:?}: node count preserved (no over-wide consumption)");
+        for (i, node) in got.iter().enumerate() {
+            assert_eq!(
+                node.2, T.to_vec(),
+                "{word:?}: position {i} independently rewritten to t's lanes"
+            );
+        }
+    }
+}
+
+// =================================================================================================
+// Confirm-engine gap 2 (investigated, does not reproduce): `ana_epenthesis`'s own doc records that
+// `tests/phase_c_right_to_left.rs`'s reported "Morpher finds no analysis for ANY word" finding could
+// not be reproduced here. This pins the ACTUAL current (correct) behavior for that exact shape --
+// `PatternNode::Context` (natural-class) RHS epenthesis with an explicit two-sided environment,
+// round-tripping in both directions -- as a standing regression guard, distinct from the
+// pre-existing `epenthesis_*` gates above (which all use a concrete `PatternNode::CharDef` RHS, not
+// a natural-class `Context` RHS).
+// =================================================================================================
+
+fn ctx_epenthesis_rule(g: &pg_grammar::model::Grammar, dir: Dir) -> RewriteRuleDef {
+    rule_dir(
+        Pattern::default(), // empty LHS => epenthesis
+        subrule(
+            pat_ctx(nat_class(g, "nc_n")), // RHS: a natural-class reference, not a concrete segment
+            Some(pat_ctx(nat_class(g, "nc_vowel"))), // left env: a
+            Some(pat_ctx(nat_class(g, "nc_t"))),     // right env: t (excludes the inserted n itself)
+        ),
+        dir,
+    )
+}
+
+#[test]
+fn epenthesis_natural_class_rhs_round_trips_with_environment() {
+    let g = load_probe_grammar();
+    for dir in [Dir::LeftToRight, Dir::RightToLeft] {
+        let r = ctx_epenthesis_rule(&g, dir);
+
+        // "at" -> "ant": obligatory insertion of the nc_n-class segment between the vowel and t.
+        let synth = pg_rules::rewrite::synthesize(&g, &r, &seg(&g, "at"));
+        assert_eq!(synth.len(), 1, "{dir:?}: epenthesis must fire (env holds)");
+        let got = interior(&synth[0]);
+        assert_eq!(got.len(), 3, "{dir:?}: one segment epenthesized");
+        assert_eq!(got[0].2, A.to_vec(), "{dir:?}: left a unchanged");
+        assert_eq!(got[2].2, T.to_vec(), "{dir:?}: right t unchanged");
+        // The inserted segment's lanes match nc_n's own natural-class constraint (voi+/cons+, the
+        // same feature bundle as `d` -- `n` exists precisely to give epenthesis a distinct
+        // char-def; see `common/mod.rs`'s doc). `char_def` is `NO_CHAR_DEF`: a `Context` RHS has no
+        // single concrete identity (the file's own `new_seg_node` doc's "KNOWN RESIDUAL"), which is
+        // exactly the shape this test targets, distinct from the pre-existing concrete-`CharDef`
+        // epenthesis gates.
+        assert_eq!(got[1].2, D.to_vec(), "{dir:?}: inserted segment carries nc_n's own lanes");
+        assert_eq!(got[1].1, pg_shape::NO_CHAR_DEF, "{dir:?}: Context RHS has no concrete char-def identity");
+        assert!(!got[1].3, "{dir:?}: synthesized epenthetic segment is not optional");
+
+        // Analysis must recover the pre-insertion form: the medial inserted segment is marked
+        // OPTIONAL (never deleted), and the flanking a/t are untouched -- this is the exact
+        // reported-gap scenario (an environment-gated, natural-class-RHS epenthesis rule) and it
+        // round-trips correctly in BOTH directions.
+        let ana = pg_rules::rewrite::analyze(&g, &r, &synth[0]);
+        assert_eq!(ana.len(), 1, "{dir:?}: unapplication must fire (nonvacuous: the segment is not yet optional)");
+        let got = interior(&ana[0]);
+        assert_eq!(
+            got.iter().map(|x| x.3).collect::<Vec<_>>(),
+            vec![false, true, false],
+            "{dir:?}: only the epenthetic medial segment is marked optional"
+        );
+    }
+}
