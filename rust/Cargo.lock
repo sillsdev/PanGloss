@@ -628,6 +628,7 @@ dependencies = [
  "pg-fst",
  "pg-fwdata",
  "pg-grammar",
+ "pg-pack",
  "pg-parse",
  "pg-realize",
  "pg-rules",

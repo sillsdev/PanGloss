@@ -76,6 +76,7 @@ use pg_grammar::model::{Grammar, LexEntryId, MRuleId, MorphRuleDef};
 use pg_parse::{hc_parse_batch, GenMorpheme, Morpher, WordAnalysis};
 
 mod diagnostics;
+mod pack;
 mod trace_render;
 
 /// P3 (docs/fst-plan/foma-fst-plan.md, gate F3): which proposer/verifier path a `batch`/`parse`
@@ -174,6 +175,13 @@ fn run() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
+        Some("pack") => match pack::run_pack(&args[2..]) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("pangloss pack: {e}");
+                ExitCode::FAILURE
+            }
+        },
         _ => {
             eprintln!(
                 "pangloss {} — HermitCrab Rust engine CLI\n\
@@ -182,6 +190,7 @@ fn run() -> ExitCode {
                  usage: pangloss parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--engine=default|foma] [--enforce-capability|--no-enforce-capability] [--allow-unproven]\n\
                  usage: pangloss import <project.fwdata> <out.json>\n\
                  usage: pangloss diagnose <grammar> <words.txt> <out-dir>\n\
+                 usage: pangloss pack <grammar> <out.pgpack> [--allow-unproven] [--authorized-by=<name>] [--reason=<text>]\n\
                  \n\
                  <grammar> is one of: a HermitCrab XML export (.xml, the legacy path), a\n\
                  pg-snapshot JSON file (.json, from `pangloss import` or any other producer), or a\n\
@@ -190,7 +199,10 @@ fn run() -> ExitCode {
                  Capability gate (ADR 0001/0005): --engine=foma is DEFAULT-ENFORCING -- a Refuse\n\
                  verdict fails hard unless --allow-unproven overrides it (trust=unproven marker);\n\
                  --no-enforce-capability drops back to advisory-only. --engine=default (the\n\
-                 HC-oracle path) is never enforced, regardless of any flag.",
+                 HC-oracle path) is never enforced, regardless of any flag. `pack`'s own\n\
+                 --allow-unproven is unconditional (packing is always capability-checked) and its\n\
+                 override is PERSISTENT, written into the .pgpack manifest itself -- not the\n\
+                 session-only stderr marker batch/parse emit (see `pack.rs`'s module doc).",
                 env!("CARGO_PKG_VERSION")
             );
             ExitCode::FAILURE
@@ -314,9 +326,14 @@ pub(crate) fn print_grammar_warnings(warnings: &[String]) {
 /// - `Refuse`, `allow_unproven == true` -> ADR 0005's override: force-compile anyway
 ///   (`proceed: true`), but [`GateResult::overridden`] is `true` and `stderr_lines` carries an
 ///   **unmissable** `trust=unproven` degraded-trust marker naming every overridden diagnostic --
-///   see [`GateResult::overridden`]'s own doc for why a report/stderr-level marker is this step's
-///   deliberate stand-in for ADR 0005's real, persistent pack-manifest stamp (no `.pgpack`
-///   packaging exists yet to carry that).
+///   see [`GateResult::overridden`]'s own doc for why this remains a report/stderr-level marker
+///   HERE: `batch`/`parse` produce no persistent artifact of their own (a TSV file / a
+///   `word\tsignature` line, neither an ADR 0005 pack), so there is nothing for a manifest stamp to
+///   attach to at this call site. `pangloss pack` (`pack.rs`) is the real, persistent home for that
+///   stamp -- it writes the ADR 0005 `capability_trust`/`CapabilityOverrideRecord` into an actual
+///   `.pgpack` manifest via `pg_pack::write_pack`, which is what this doc used to say did not exist
+///   yet. This function's own marker stays exactly what it always was: a session/report-level
+///   notice scoped to one `batch`/`parse` invocation, never a substitute for packaging.
 ///
 /// **Stderr, never stdout, in every branch.** Same convention `print_grammar_warnings`/the
 /// pre-existing advisory already established: `batch`'s TSV rows go to the `<out.tsv>` FILE
@@ -337,16 +354,18 @@ struct GateResult {
     /// `true` iff this call force-compiled a `Refuse` via `allow_unproven` (ADR 0005). Exposed as
     /// a plain bool -- not only baked into `stderr_lines`' text -- so a test (or any future caller
     /// wanting a machine-readable hook beyond stderr) can key off the degraded-trust fact
-    /// directly. This is this step's session/report-level rendition of ADR 0005's trust signal:
-    /// the ADR's own *persistent, indelible* pack-manifest stamp is explicitly deferred here (no
-    /// packaging exists yet in this repo to carry it) -- `overridden`/`stderr_lines`' marker is
-    /// scoped to this one invocation's report, not to any serialized artifact.
+    /// directly.
     ///
     /// Not read by [`run_capability_gate`] itself (the marker text in `stderr_lines` already
     /// carries everything a CLI caller needs) -- kept as a plain field for tests (see this
     /// crate's `capability_gate_tests` module) and any future non-stderr consumer to key off
     /// directly rather than string-matching stderr; `#[allow(dead_code)]` reflects that it is
-    /// genuine, documented API surface with no non-test reader yet, not an oversight.
+    /// genuine, documented API surface with no non-test reader yet, not an oversight. This is
+    /// `batch`/`parse`'s own SESSION/REPORT-LEVEL rendition of the ADR 0005 trust signal --
+    /// `pangloss pack` (`pack.rs`) is the separate, PERSISTENT home for the real indelible
+    /// pack-manifest stamp (`pg_pack::CapabilityTrust`/`CapabilityOverrideRecord`, written into an
+    /// actual `.pgpack` file); this field never claims to be that, it only reports the same fact
+    /// for one in-process invocation that produces no artifact of its own.
     #[allow(dead_code)]
     overridden: bool,
 }
@@ -468,9 +487,11 @@ fn capability_gate(g: &Grammar, enforce: bool, allow_unproven: bool) -> GateResu
             let mut lines = vec![format!(
                 "CAPABILITY-OVERRIDE trust=unproven: --allow-unproven force-compiled {} refused \
                  construct(s) (ADR 0005) -- THIS RUN'S OUTPUT IS RECALL-UNSAFE, NOT a clean \
-                 result. No .pgpack packaging exists yet to carry ADR 0005's persistent, \
-                 indelible manifest stamp; this is a SESSION/REPORT-LEVEL marker only for this \
-                 invocation -- do not mistake it for that stamp.",
+                 result. This is a SESSION/REPORT-LEVEL marker only for this invocation -- \
+                 `batch`/`parse` write no persistent artifact of their own, so there is nothing \
+                 for a pack-manifest stamp to attach to here. For a real, PERSISTENT, indelible \
+                 ADR 0005 stamp, use `pangloss pack <grammar> <out.pgpack> --allow-unproven` \
+                 instead, which writes this same override record into an actual .pgpack manifest.",
                 diags.len()
             )];
             for d in &diags {
