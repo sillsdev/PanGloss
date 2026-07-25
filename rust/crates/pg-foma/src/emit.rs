@@ -186,8 +186,8 @@ use foma::utf8::is_combining;
 use pg_featstruct::{is_unifiable, FeatureStruct, FsId};
 use pg_grammar::chardef::{CharDefId, CharDefKind, CharDefTable};
 use pg_grammar::model::{
-    AffixAllomorphDef, AllomorphId, Grammar, LexEntryId, MRuleId, MorphRuleDef, MorphemeId,
-    OutputAction, PartRef, PhonRuleDef, SlotDef,
+    AffixAllomorphDef, AllomorphId, AllomorphOwner, Grammar, LexEntryId, MRuleId, MorphRuleDef,
+    MorphemeId, OutputAction, PartRef, PhonRuleDef, SlotDef,
 };
 use pg_parse::{GenMorpheme, Morpher};
 use pg_rules::cache::RuleCache;
@@ -1271,6 +1271,127 @@ fn collect_roots(
         }
     }
     roots
+}
+
+// --- Compounding license gate (`openspec/changes/cover-compounding` design.md D3/D4) -------------
+
+/// The two license-gated lexical-entry subsets `openspec/changes/cover-compounding`'s design.md D3
+/// names as the `Gate` partitions a reified `Plan`'s `Union(Gate(head-trie) x Gate(non_head-trie))`
+/// node would author for `compounding.non-recursive`. Computed directly against `Grammar` here
+/// (rather than authored as real `crate::plan::PlanNodeKind::Gate` nodes) because
+/// `reify-compilation-plans`'s enumerator/builder does not wire this crate's lexc emitters to a real
+/// `Plan` yet (`crate::capability`'s own top doc: "purely additive... does not wire a gate into any
+/// production compile path") — this is the concrete stand-in the emitter itself consults, ahead of
+/// that wiring.
+struct CompoundLicense {
+    /// Entries licensed to serve as a compound's HEAD stem by at least one `CompoundingRuleDef` in
+    /// the grammar.
+    head_eligible: HashSet<LexEntryId>,
+    /// Entries licensed to serve as a compound's NON-HEAD ("extra root") stem by at least one
+    /// `CompoundingRuleDef` in the grammar.
+    non_head_eligible: HashSet<LexEntryId>,
+}
+
+/// Computes [`CompoundLicense`] for `g`, or `None` if `g` declares no `CompoundingRuleDef` at all
+/// (the overwhelmingly common case — this function, and every call site consuming its result, is a
+/// pure no-op for a grammar that never uses compounding).
+///
+/// **The (un)group-awareness contract (design.md D4, load-bearing — never reverse these):**
+/// - The three RULE-level restriction fields (`head_prod_restrictions_mpr`,
+///   `non_head_prod_restrictions_mpr`; `output_prod_restrictions_mpr` is confirm-only, see below)
+///   are tested with [`MprSet::compound_match`] — group-UNAWARE, mirroring C#'s
+///   `CompoundMprFeaturesMatch`, the ONLY semantics `pg_rules::morph::synth_compound`/
+///   `resolve_non_head_roots` ever apply to these two fields (`morph.rs:2834,2938,3329,3357`).
+/// - Each SUBRULE's `required_mpr`/`excluded_mpr` is tested with [`Grammar::mpr_group_ok`] —
+///   group-AWARE (`morph.rs:2842,2955`). Using `compound_match` here instead would apply a LOOSER
+///   test than confirm does (harmless for propose's over-approximation, but not what confirm
+///   verifies against); using the group-aware helper on the RULE-level fields instead (the
+///   opposite mistake) would apply a STRICTER test than C# and confirm actually use there, a
+///   genuine under-propose/recall-loss bug — design.md D4's own worked trap. This function follows
+///   the contract exactly, in the direction that matches `pg_rules::morph` line for line.
+///
+/// **Head-subrule union, not per-subrule partitions (a documented simplification, not a precision
+/// loss):** `synth_compound`'s own gate order tests EVERY subrule's `required_mpr`/`excluded_mpr`
+/// against the SAME `word.mpr` (the head's own mpr) before trying that subrule's pattern match — so
+/// an entry is head-eligible under rule `r` if it clears `r`'s rule-level gate AND clears AT LEAST
+/// ONE subrule's gate. Keeping N separate per-subrule head partitions and unioning their CROSS
+/// PRODUCTS with the (subrule-independent) non-head set afterward would be provably equivalent as an
+/// upper bound (`∪_sr (H_sr x N) == (∪_sr H_sr) x N` for a fixed `N`) — this function computes the
+/// flattened right-hand side directly, a safe simplification (still a superset), not a narrower one.
+///
+/// **The subrule gate is NEVER applied to the non-head side**: confirm's own
+/// `resolve_non_head_roots` tests only `rule.non_head_prod_restrictions_mpr.compound_match`, never
+/// any subrule's `required_mpr`/`excluded_mpr`, against a non-head candidate — applying it here would
+/// silently narrow past what confirm accepts (an under-propose bug), so this function does not.
+///
+/// **Grammar-scoped, not per-rule** (mirrors the pre-existing `has_compounding_rules: bool` grain
+/// this module's "bounded compound loop" already uses — module doc, "Bounded compound loop"): an
+/// entry is admitted if ANY `CompoundingRuleDef` in the grammar licenses it. Union across rules is
+/// still a safe superset of any one rule's own exact requirement, and matches the granularity the
+/// existing lexc sections (`TLCmp`/`G{gi}Cmp`, shared across every compounding rule) already use.
+///
+/// **Left to confirm, deliberately** (design.md D3: "only language-preserving/widening operations
+/// belong in propose"): `head_required_syn_fs`/`non_head_required_syn_fs` (syntactic-FS
+/// unification), `output_prod_restrictions_mpr`, `out_syn_fs`, `obligatory_features`, and the exact
+/// `head_lhs`/`non_head_lhs` pattern match itself. None of those narrow this function's result.
+fn compound_license(g: &Grammar) -> Option<CompoundLicense> {
+    let mut head_eligible: HashSet<LexEntryId> = HashSet::new();
+    let mut non_head_eligible: HashSet<LexEntryId> = HashSet::new();
+    let mut any_rule = false;
+    for mrule in &g.mrules {
+        let MorphRuleDef::Compounding(rule) = mrule else {
+            continue;
+        };
+        any_rule = true;
+        for (i, entry) in g.entries.iter().enumerate() {
+            let id = LexEntryId(i as u32);
+            if rule.head_prod_restrictions_mpr.compound_match(entry.mpr)
+                && (rule.subrules.is_empty()
+                    || rule
+                        .subrules
+                        .iter()
+                        .any(|sr| g.mpr_group_ok(sr.required_mpr, sr.excluded_mpr, entry.mpr)))
+            {
+                head_eligible.insert(id);
+            }
+            if rule.non_head_prod_restrictions_mpr.compound_match(entry.mpr) {
+                non_head_eligible.insert(id);
+            }
+        }
+    }
+    if !any_rule {
+        return None;
+    }
+    Some(CompoundLicense {
+        head_eligible,
+        non_head_eligible,
+    })
+}
+
+/// Resolves a [`RootRec`]'s owning [`LexEntryId`] via `g.allomorph_owners` (the registry
+/// [`collect_roots`] itself draws every `RootRec::id` from). `None` for a registry id this grammar's
+/// `allomorph_owners` doesn't classify as `AllomorphOwner::Root` (an affix allomorph would never
+/// appear in a root list at all, so this is defensive, not expected to fire in practice).
+fn root_lex_entry(g: &Grammar, id: AllomorphId) -> Option<LexEntryId> {
+    match g.allomorph_owners.get(id.0 as usize)? {
+        AllomorphOwner::Root(le, _) => Some(*le),
+        AllomorphOwner::Affix(_, _) => None,
+    }
+}
+
+/// Filters `roots` down to the entries `eligible` licenses (via [`root_lex_entry`]). Used to narrow
+/// the compound HEAD/NON-HEAD lexc continuation sections from the maximal `all_roots` bag down to
+/// [`compound_license`]'s two subsets.
+fn filter_roots_by_license<'a>(
+    g: &Grammar,
+    roots: &[&'a RootRec],
+    eligible: &HashSet<LexEntryId>,
+) -> Vec<&'a RootRec> {
+    roots
+        .iter()
+        .copied()
+        .filter(|r| root_lex_entry(g, r.id).is_some_and(|le| eligible.contains(&le)))
+        .collect()
 }
 
 // --- Affix entry emission (shared by slot chains and derivation layers) ---------------------------
@@ -2698,6 +2819,53 @@ pub(crate) fn emit_with_budget(
             }
         };
     let all_roots: Vec<&RootRec> = roots.iter().collect();
+
+    // `openspec/changes/cover-compounding` (design.md D2/D3/D4, tasks.md 2/5): the license-gated
+    // head/non-head subsets + the compound-pair budget check, computed once, right after `all_roots`
+    // and before any lexc text is written (fail fast, mirroring the enum-budget check above). `None`
+    // for the overwhelmingly common no-compounding-rule grammar -- a pure no-op there.
+    let compound_license = if has_compounding_rules {
+        compound_license(g)
+    } else {
+        None
+    };
+    if let Some(license) = &compound_license {
+        // Conservative exposure estimate: the HEAD side stays unfiltered in the per-template-group
+        // sections below (module doc judgment call -- the shared `G{gi}Roots` root section also
+        // serves ordinary non-compound word formation, so narrowing it there risks regressing plain
+        // recall; over-proposing on the head side remains sound, ADR 0001 never requires narrowing,
+        // only forbids it), so this uses `all_roots.len()` (not the smaller, template-less-section-
+        // only `head_eligible` count) as the pessimistic head-side operand -- never UNDER-counts the
+        // real cost this emit call is about to incur.
+        let non_head_count = filter_roots_by_license(g, &all_roots, &license.non_head_eligible).len();
+        let cross = all_roots.len().saturating_mul(non_head_count);
+        let limit = crate::compose_budget::compound_pair_budget_from_env();
+        if cross > limit {
+            let reason = format!(
+                "compound head x non-head root-pair cross product ({cross} = {} heads x {non_head_count} \
+                 licensed non-heads) exceeds HC_COMPOUND_PAIR_BUDGET (limit {limit}). This grammar's \
+                 compounding rule(s) license too large a cross product to safely emit -- raise the \
+                 budget only if you understand why this grammar's compounding is this large, or fall \
+                 back to another engine for this grammar. Never silently truncated: an honest refusal, \
+                 not a partial/unsound network.",
+                all_roots.len()
+            );
+            return EmitResult {
+                lexc_source: String::new(),
+                report: EmitReport {
+                    uncovered,
+                    counts,
+                    tier: FomaTier::Unsupported { reason },
+                    enum_budget_exceeded: Some(EnumBudgetExceeded {
+                        measure: "compound head x non-head root pairs",
+                        value: cross,
+                        limit,
+                    }),
+                },
+            };
+        }
+    }
+
     let has_templates = !g.templates.is_empty();
     // P1d (`crate::preexpand`): composites are emitted ONCE, in a single shared `Composites`
     // lexicon (each entry's upper tape = the ALREADY-CONCATENATED multi-tag chain,
@@ -2805,13 +2973,39 @@ pub(crate) fn emit_with_budget(
             TextMode::SurfaceProbed,
         );
         write_lexicon_header(&mut out, "TLRoots");
-        write_root_entries(&mut out, &all_roots, "TLPost", &mut counts, &mut pk);
+        // `openspec/changes/cover-compounding` (design.md D3 head Gate): split `all_roots` into
+        // head-eligible (continues to `TLPost`, which offers both `TLSfx0` and `TLCmp`) and
+        // head-ineligible (continues to `TLPostNoCmp`, `TLSfx0` only) -- a root can still form any
+        // ordinary non-compound word either way (both continuations reach `TLSfx0`), so this never
+        // regresses plain-word recall; it only removes the `TLCmp` option from a root NO
+        // `CompoundingRuleDef` in the grammar licenses as a head. When there is no compound license
+        // (no compounding rules at all) every root is `tl_head_ok` and `tl_head_no` stays empty --
+        // byte-identical to the pre-gating behavior. The `Stripped` sibling below is deliberately
+        // NOT split the same way (see its own comment) -- an accepted, safe (over-proposing, never
+        // under-proposing) simplification.
+        let (tl_head_ok, tl_head_no): (Vec<&RootRec>, Vec<&RootRec>) = match &compound_license {
+            Some(license) => all_roots.iter().copied().partition(|r| {
+                root_lex_entry(g, r.id).is_some_and(|le| license.head_eligible.contains(&le))
+            }),
+            None => (all_roots.clone(), Vec::new()),
+        };
+        write_root_entries(&mut out, &tl_head_ok, "TLPost", &mut counts, &mut pk);
+        if !tl_head_no.is_empty() {
+            write_root_entries(&mut out, &tl_head_no, "TLPostNoCmp", &mut counts, &mut pk);
+        }
         if has_composites {
             write_bare(&mut out, "Composites", &mut counts);
         }
         if phon.is_some() {
             // `TLRoots`' `Stripped` sibling (module doc, "Junction-aware affix/root emission"):
             // `TLPfx`'s final level routes every deletion-junction hit here instead of `TLRoots`.
+            // Deliberately NOT split by head-eligibility like the intact section above -- every
+            // stripped/junction-form root continues to `TLPost` (both `TLSfx0` and `TLCmp` remain
+            // reachable) regardless of head license. This is a strict superset of the intact path's
+            // narrower routing -- safe (over-propose, never under-propose), and avoids doubling this
+            // already-conditional (`phon.is_some()`) section into a further Stripped/NoCmp cross
+            // product for a low-value edge case (a head-ineligible root's OWN junction-deletion
+            // spelling variant).
             write_lexicon_header(&mut out, "TLRootsStripped");
             write_stripped_root_entries(&mut out, &all_roots, "TLPost", &mut counts, &mut pk);
         }
@@ -2846,13 +3040,31 @@ pub(crate) fn emit_with_budget(
                 TextMode::SurfaceProbed,
             );
             write_lexicon_header(&mut out, "TLCmpRoots");
-            write_root_entries(&mut out, &all_roots, "TLSfx0", &mut counts, &mut pk);
+            // `openspec/changes/cover-compounding` (design.md D3 non-head Gate): the compound EXTRA
+            // ("non-head") root position, narrowed from `all_roots` to the licensed non-head subset
+            // -- `TLCmpRoots` serves ONLY this compound continuation (nothing else reaches it), so
+            // narrowing here never touches ordinary non-compound word formation. `None` (no compound
+            // license computed) falls back to `all_roots`, matching the pre-gating behavior exactly.
+            let tl_non_head_roots: Vec<&RootRec> = match &compound_license {
+                Some(license) => filter_roots_by_license(g, &all_roots, &license.non_head_eligible),
+                None => all_roots.clone(),
+            };
+            write_root_entries(&mut out, &tl_non_head_roots, "TLSfx0", &mut counts, &mut pk);
             if phon.is_some() {
                 // `TLCmpRoots`' `Stripped` sibling — `TLCmpPfx`'s final level routes every
                 // deletion-junction hit here (module doc, "Junction-aware affix/root emission").
+                // Deliberately left unfiltered (`all_roots`, not `tl_non_head_roots`) -- same
+                // documented simplification as `TLRootsStripped` above (a strict, safe superset).
                 write_lexicon_header(&mut out, "TLCmpRootsStripped");
                 write_stripped_root_entries(&mut out, &all_roots, "TLSfx0", &mut counts, &mut pk);
             }
+        }
+        if !tl_head_no.is_empty() {
+            // The head-ineligible twin of `TLPost`: only `TLSfx0` (no `TLCmp`) -- written AFTER the
+            // whole `TLCmp`/`TLCmpPfx`/`TLCmpRoots` block above so its own header/entries never
+            // interleave into `TLPost`'s (see `tl_head_ok`'s own comment for why this split exists).
+            write_lexicon_header(&mut out, "TLPostNoCmp");
+            write_bare(&mut out, "TLSfx0", &mut counts);
         }
         build_deriv_chain(
             &mut out,
@@ -2956,7 +3168,25 @@ pub(crate) fn emit_with_budget(
                 TextMode::SurfaceProbed,
             );
             write_lexicon_header(&mut out, &cmp_roots);
-            write_root_entries(&mut out, &all_roots, &sfx_deriv_entry, &mut counts, &mut pk);
+            // `openspec/changes/cover-compounding` (design.md D3 non-head Gate): same narrowing as
+            // the template-less `TLCmpRoots` section above -- `G{gi}CmpRoots` serves ONLY the
+            // compound continuation, so filtering to the licensed non-head subset never touches
+            // ordinary non-compound word formation in this group. The HEAD side of this per-group
+            // section is deliberately left ungated (matches `eligible_roots`' own pre-existing
+            // full-broadening-when-compounding comment just below) -- template+compounding
+            // interaction is an unproven composition node (design.md D4), so this change does not
+            // add new precision there, only preserves the existing safe-over-approximation shape.
+            let group_non_head_roots: Vec<&RootRec> = match &compound_license {
+                Some(license) => filter_roots_by_license(g, &all_roots, &license.non_head_eligible),
+                None => all_roots.clone(),
+            };
+            write_root_entries(
+                &mut out,
+                &group_non_head_roots,
+                &sfx_deriv_entry,
+                &mut counts,
+                &mut pk,
+            );
             if phon.is_some() {
                 write_lexicon_header(&mut out, &format!("{cmp_roots}Stripped"));
                 write_stripped_root_entries(
@@ -3435,6 +3665,44 @@ pub fn emit_underlying_templated(
     };
     let all_roots: Vec<&RootRec> = roots.iter().collect();
 
+    // `openspec/changes/cover-compounding` (design.md D2/D3/D4): the same license-gated head/
+    // non-head subsets + compound-pair budget check `emit_with_budget` computes, mirrored here
+    // (this function's own doc: no composite pipeline, but the SAME "bounded compound loop"
+    // template-less/per-group structure). `None` for the common no-compounding-rule grammar.
+    let compound_license = if has_compounding_rules {
+        compound_license(g)
+    } else {
+        None
+    };
+    if let Some(license) = &compound_license {
+        let non_head_count =
+            filter_roots_by_license(g, &all_roots, &license.non_head_eligible).len();
+        let cross = all_roots.len().saturating_mul(non_head_count);
+        let limit = crate::compose_budget::compound_pair_budget_from_env();
+        if cross > limit {
+            let reason = format!(
+                "compound head x non-head root-pair cross product ({cross} = {} heads x \
+                 {non_head_count} licensed non-heads) exceeds HC_COMPOUND_PAIR_BUDGET (limit \
+                 {limit}). Never silently truncated: an honest refusal, not a partial/unsound \
+                 network.",
+                all_roots.len()
+            );
+            return EmitResult {
+                lexc_source: String::new(),
+                report: EmitReport {
+                    uncovered,
+                    counts,
+                    tier: FomaTier::Unsupported { reason },
+                    enum_budget_exceeded: Some(EnumBudgetExceeded {
+                        measure: "compound head x non-head root pairs",
+                        value: cross,
+                        limit,
+                    }),
+                },
+            };
+        }
+    }
+
     // ---- LEXICON Root: bare roots, the template-less section, the outer-prefix hop into the
     // per-template dispatch (no `Composites` bare-redirect: no composite pipeline here) ----
     write_lexicon_header(&mut out, "Root");
@@ -3531,7 +3799,20 @@ pub fn emit_underlying_templated(
             mode,
         );
         write_lexicon_header(&mut out, "TLRoots");
-        write_root_entries(&mut out, &all_roots, "TLPost", &mut counts, &mut pk);
+        // `openspec/changes/cover-compounding` (design.md D3 head Gate): same head-eligible/
+        // head-ineligible split as `emit_with_budget`'s own `TLRoots`/`TLPost`/`TLPostNoCmp` -- see
+        // that function's own comment for the full rationale. `None` (no compound license) leaves
+        // `tl_head_no` empty, byte-identical to the pre-gating behavior.
+        let (tl_head_ok, tl_head_no): (Vec<&RootRec>, Vec<&RootRec>) = match &compound_license {
+            Some(license) => all_roots.iter().copied().partition(|r| {
+                root_lex_entry(g, r.id).is_some_and(|le| license.head_eligible.contains(&le))
+            }),
+            None => (all_roots.clone(), Vec::new()),
+        };
+        write_root_entries(&mut out, &tl_head_ok, "TLPost", &mut counts, &mut pk);
+        if !tl_head_no.is_empty() {
+            write_root_entries(&mut out, &tl_head_no, "TLPostNoCmp", &mut counts, &mut pk);
+        }
         write_lexicon_header(&mut out, "TLPost");
         write_bare(&mut out, "TLSfx0", &mut counts);
         if has_compounding_rules {
@@ -3555,7 +3836,19 @@ pub fn emit_underlying_templated(
                 mode,
             );
             write_lexicon_header(&mut out, "TLCmpRoots");
-            write_root_entries(&mut out, &all_roots, "TLSfx0", &mut counts, &mut pk);
+            // `openspec/changes/cover-compounding` (design.md D3 non-head Gate): narrow to the
+            // licensed non-head subset -- `TLCmpRoots` serves only this compound continuation.
+            let tl_non_head_roots: Vec<&RootRec> = match &compound_license {
+                Some(license) => filter_roots_by_license(g, &all_roots, &license.non_head_eligible),
+                None => all_roots.clone(),
+            };
+            write_root_entries(&mut out, &tl_non_head_roots, "TLSfx0", &mut counts, &mut pk);
+        }
+        if !tl_head_no.is_empty() {
+            // The head-ineligible twin of `TLPost`, written after the whole `TLCmp` block so its
+            // header/entries never interleave into `TLPost`'s own.
+            write_lexicon_header(&mut out, "TLPostNoCmp");
+            write_bare(&mut out, "TLSfx0", &mut counts);
         }
         build_deriv_chain(
             &mut out,
@@ -3661,7 +3954,22 @@ pub fn emit_underlying_templated(
                 mode,
             );
             write_lexicon_header(&mut out, &cmp_roots);
-            write_root_entries(&mut out, &all_roots, &sfx_deriv_entry, &mut counts, &mut pk);
+            // `openspec/changes/cover-compounding` (design.md D3 non-head Gate): same per-group
+            // narrowing as `emit_with_budget`'s own `G{gi}CmpRoots` -- the HEAD side of this
+            // per-group section stays ungated (unproven template+compounding interaction, design.md
+            // D4; see `emit_with_budget`'s own comment on `eligible_roots` for the pre-existing
+            // broadening this preserves).
+            let group_non_head_roots: Vec<&RootRec> = match &compound_license {
+                Some(license) => filter_roots_by_license(g, &all_roots, &license.non_head_eligible),
+                None => all_roots.clone(),
+            };
+            write_root_entries(
+                &mut out,
+                &group_non_head_roots,
+                &sfx_deriv_entry,
+                &mut counts,
+                &mut pk,
+            );
         }
 
         let roots_name = format!("G{gi}Roots");

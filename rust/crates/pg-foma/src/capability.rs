@@ -208,7 +208,18 @@ impl CharacteristicKind {
         match self {
             CharacteristicKind::Affixation => Disposition::Proven,
             CharacteristicKind::RealizationalMorphology => Disposition::ConfirmOnly,
-            CharacteristicKind::Compounding => Disposition::FailClosed,
+            // `cover-compounding`: `crate::emit::compound_license` now license-gates the lexicon
+            // into head-eligible/non-head-eligible subsets (design.md D3/D4's `compound_match`/
+            // `mpr_group_ok` (un)group-awareness contract) and proposes their budget-bounded cross
+            // product through the existing "bounded compound loop" lexc construction -- a genuinely
+            // faithful (over-approximating, never under-proposing) FST proposal for the
+            // NON-RECURSIVE case, no longer bare FailClosed. No proven no-false-negative
+            // admission-filter argument exists either (ADR 0001), so the resting disposition is the
+            // same ConfigPredicate landing spot every other Stage-2 construct in this file uses:
+            // ConfirmOnly for `compounding.non-recursive`, Refuse for `compounding.recursive` (D2
+            // item 3's self-feeding/nested case, still unproven), per
+            // `CompoundingRecursionSafePredicate`'s own split.
+            CharacteristicKind::Compounding => Disposition::ConfigPredicate,
             CharacteristicKind::OrderedMorphRuleApplication => Disposition::Proven,
             CharacteristicKind::UnorderedMorphRuleApplication => Disposition::FailClosed,
             CharacteristicKind::MprGroupAppend => Disposition::ConfirmOnly,
@@ -493,6 +504,25 @@ pub struct ReduplicationDetail {
     pub peel_eligible_rule_kind: bool,
 }
 
+/// [`ObservationDetail::Compounding`]'s payload (`openspec/changes/cover-compounding` design.md
+/// D2/D3): the one structural fact [`CompoundingRecursionSafePredicate`] needs about a
+/// `MorphRuleDef::Compounding` occurrence — whether `compounding_recursive` (this module's own
+/// grammar-rule-graph reachability pass, design.md's Novelty/risk note: "a new kind of predicate
+/// input beyond the per-rule/per-subrule checks the other Stage-2 predicates use") proved this
+/// specific rule's head/non-head stem search can be reached by another `Compounding` application's
+/// own output.
+#[derive(Debug, Clone, Copy)]
+pub struct CompoundingDetail {
+    pub rule: MRuleId,
+    /// `true` iff `rule` is `compounding.recursive` (design.md D2 item 3 / the split this change's
+    /// own Novelty/risk note flags) — self-feeding (`rule.max_apps() > 1`) or reachable from a
+    /// DISTINCT `Compounding` rule sharing or preceding its stratum (`compounding_recursive`'s own
+    /// doc for the exact, deliberately conservative reachability test). `false` means
+    /// `compounding.non-recursive` — the license-gated propose shape (`crate::emit::
+    /// compound_license`) applies and [`CompoundingRecursionSafePredicate`] returns `ConfirmOnly`.
+    pub recursive: bool,
+}
+
 /// Extra structured data an observation needs beyond `kind`/`disposition`/`location`, for the
 /// characteristics that a predicate must inspect at finer grain than "did this occur at all"
 /// (design.md D2/D3). Most characteristics carry `None` — [`CharacteristicKind::
@@ -513,6 +543,7 @@ pub enum ObservationDetail {
     Metathesis(MetathesisDetail),
     CircumfixOutputAction(CircumfixOutputActionDetail),
     Reduplication(ReduplicationDetail),
+    Compounding(CompoundingDetail),
 }
 
 /// One occurrence of a characteristic in a [`CharacteristicsProfile`] (design.md D1).
@@ -658,6 +689,18 @@ impl CharacteristicsProfile {
     pub fn reduplication_details(&self) -> impl Iterator<Item = &ReduplicationDetail> {
         self.observations.iter().filter_map(|o| match &o.detail {
             ObservationDetail::Reduplication(d) => Some(d),
+            _ => None,
+        })
+    }
+
+    /// Every [`CompoundingDetail`] observed at all (`openspec/changes/cover-compounding` design.md
+    /// D2/D3) — plural, same "no corresponding [`crate::plan::PlanNodeKind`]" shape
+    /// [`Self::reduplication_details`]/[`Self::circumfix_output_action_details`] already use:
+    /// [`CompoundingRecursionSafePredicate`] scans every observation itself rather than looking one
+    /// up by a specific plan node.
+    pub fn compounding_details(&self) -> impl Iterator<Item = &CompoundingDetail> {
+        self.observations.iter().filter_map(|o| match &o.detail {
+            ObservationDetail::Compounding(d) => Some(d),
             _ => None,
         })
     }
@@ -1103,10 +1146,105 @@ fn characterize_allomorph(
     }
 }
 
+/// The stratum index owning `mid` — either directly (`StratumDef::mrules`) or via one of that
+/// stratum's own templates' slots (`SlotDef::rules`, which a `Compounding` rule id can appear in
+/// exactly like an `AffixProcess`/`Realizational` one, model.rs's own `SlotDef::rules` doc).
+/// `None` if `mid` is not found anywhere (should not happen for a well-formed [`Grammar`] — every
+/// caller of this function treats `None` maximally conservatively, never as "rank 0"/"unreachable").
+fn mrule_stratum_rank(g: &Grammar, mid: MRuleId) -> Option<usize> {
+    for (si, sd) in g.strata.iter().enumerate() {
+        if sd.mrules.contains(&mid) {
+            return Some(si);
+        }
+        for &tid in &sd.templates {
+            if g.templates[tid.0 as usize]
+                .slots
+                .iter()
+                .any(|slot| slot.rules.contains(&mid))
+            {
+                return Some(si);
+            }
+        }
+    }
+    None
+}
+
+/// The `compounding.non-recursive` vs `compounding.recursive` reachability pass (design.md D2 item
+/// 3 / Novelty-risk note: "a new kind of predicate input... the characterizer needs a graph-
+/// reachability pass over `Grammar.mrules`"). Returns the [`MRuleId`]s of every `Compounding` rule
+/// this pass could NOT prove non-recursive.
+///
+/// **What "recursive" means here**: `pg_rules::morph::synth_compound`'s own `word: &Word` head
+/// argument is an ARBITRARY already-derived word, not restricted to a fresh lexical root
+/// (`morph.rs:2820-2821` — the spike's own cited evidence) — so a `Compounding` rule `r` is
+/// recursive iff some `Compounding` application's OUTPUT could reach `r`'s own head/non-head stem
+/// search, i.e. `r` fires again (or a DIFFERENT compounding rule fires) on a word that has ALREADY
+/// been through a compounding application.
+///
+/// **The reachability test (deliberately coarse, rounding every uncertainty toward "recursive" —
+/// design.md's own "if uncertain, conservatively treat as recursive"):**
+/// - `r.max_apps() > 1`: `r` itself may apply more than once in one derivation, so a second
+///   application's head can be the first application's own compound output — direct self-recursion,
+///   regardless of stratum/template structure.
+/// - A DISTINCT `Compounding` rule `r2 != r` exists with `mrule_stratum_rank(r2) <= mrule_stratum_rank(r)`:
+///   either `r2` sits in a STRICTLY EARLIER stratum (word output flows forward through subsequent
+///   strata — the standard sequential-stratum architecture, so `r2`'s compound output can
+///   legitimately arrive at `r`'s stratum as an ordinary candidate word) or `r2` shares `r`'s OWN
+///   stratum. The same-stratum case is intentionally NOT refined by `MorphRuleOrder`
+///   (`Linear`-order's real forward-only restriction, or template slot order, would in principle let
+///   some same-stratum pairs be proven safe) — two co-located rules are treated as mutually
+///   reachable unconditionally. This over-flags some pairs a finer analysis could clear, which is
+///   exactly the conservative direction design.md's own novelty note asks for; a later change may
+///   tighten it once a real motivating grammar needs the extra precision.
+/// - `mrule_stratum_rank` returning `None` for either rule (should not happen for a well-formed
+///   grammar) is treated as "cannot prove non-recursive" — recursive, never silently ignored.
+fn compounding_recursive(g: &Grammar) -> HashSet<MRuleId> {
+    let compounding_rules: Vec<(MRuleId, &pg_grammar::model::CompoundingRuleDef)> = g
+        .mrules
+        .iter()
+        .enumerate()
+        .filter_map(|(i, m)| match m {
+            MorphRuleDef::Compounding(def) => Some((MRuleId(i as u32), def)),
+            _ => None,
+        })
+        .collect();
+
+    let mut recursive = HashSet::new();
+    for &(mid, def) in &compounding_rules {
+        if def.max_apps > 1 {
+            recursive.insert(mid);
+            continue;
+        }
+        let Some(rank) = mrule_stratum_rank(g, mid) else {
+            recursive.insert(mid);
+            continue;
+        };
+        for &(mid2, _) in &compounding_rules {
+            if mid2 == mid {
+                continue;
+            }
+            let is_recursive = match mrule_stratum_rank(g, mid2) {
+                Some(rank2) => rank2 <= rank,
+                None => true,
+            };
+            if is_recursive {
+                recursive.insert(mid);
+                break;
+            }
+        }
+    }
+    recursive
+}
+
 /// D1's exhaustive default-deny characterizer: walks `g` and matches EVERY variant of EVERY
 /// `model.rs` enum design.md D1 names, with no catch-all arm.
 pub fn characterize(g: &Grammar) -> CharacteristicsProfile {
     let mut observations = Vec::new();
+
+    // `openspec/changes/cover-compounding` (design.md D2/D3): computed ONCE, grammar-wide, before
+    // the per-rule walk below -- a rule-graph reachability pass, not a per-rule check (design.md's
+    // own Novelty/risk note).
+    let compounding_recursive_set = compounding_recursive(g);
 
     // --- MorphRuleDef (model.rs:542) --------------------------------------------------------
     for (i, mrule) in g.mrules.iter().enumerate() {
@@ -1120,11 +1258,19 @@ pub fn characterize(g: &Grammar) -> CharacteristicsProfile {
                 ));
             }
             MorphRuleDef::Compounding(_) => {
-                // D5's first act: FailClosed, unconditionally, regardless of subrule shape.
+                // `openspec/changes/cover-compounding`: `compounding.non-recursive` (target
+                // `ConfirmOnly`) vs `compounding.recursive` (stays `FailClosed`/`Refuse`) — see
+                // `CompoundingDetail`'s own doc. `CharacteristicKind::Compounding`'s own
+                // `default_disposition` is the PRE-predicate resting spot (`ConfigPredicate`);
+                // `CompoundingRecursionSafePredicate` reads this detail to decide `ConfirmOnly` vs
+                // `Refuse`.
                 observations.push(CharacteristicObservation::new(
                     CharacteristicKind::Compounding,
                     ModelLocation::MorphRule(id),
-                    ObservationDetail::None,
+                    ObservationDetail::Compounding(CompoundingDetail {
+                        rule: id,
+                        recursive: compounding_recursive_set.contains(&id),
+                    }),
                 ));
             }
             MorphRuleDef::Realizational(_) => {
@@ -2192,6 +2338,95 @@ impl CapabilityPredicate for ReduplicationPeelSupportedPredicate {
 }
 
 // -------------------------------------------------------------------------------------------
+// Compounding: the config-predicate `cover-compounding` registers
+// -------------------------------------------------------------------------------------------
+
+/// `openspec/changes/cover-compounding`'s own capability predicate (design.md D2/D3): splits
+/// `CharacteristicKind::Compounding` at CONFIGURATION-PREDICATE granularity (never a blanket
+/// variant claim, per ADR 0001) into `compounding.non-recursive` and `compounding.recursive`,
+/// keyed by [`CompoundingDetail::recursive`] (`compounding_recursive`'s rule-graph reachability
+/// pass, design.md's own Novelty/risk note — the first Stage-2 predicate whose input is a GRAPH
+/// property of `Grammar.mrules`, not a per-rule/per-subrule check).
+///
+/// # Disposition
+/// - **Not observed at all** (no `Compounding` rule in the grammar): vacuously `Admit` — nothing
+///   for this predicate to say (mirrors [`ReduplicationPeelSupportedPredicate`]'s own convention).
+/// - **`compounding.non-recursive`** (every observed `Compounding` rule has
+///   `detail.recursive == false`): [`PredicateVerdict::ConfirmOnly`] — `crate::emit::
+///   compound_license`'s license-gated head/non-head cross product (design.md D3's `Gate`/
+///   `Compose`/`Union` shape, authored directly against this crate's lexc emitter rather than a
+///   real `crate::plan::PlanNodeKind::Gate` node, since `reify-compilation-plans` does not wire this
+///   crate's emitters to the reified `Plan` yet) is a genuinely faithful, over-approximating
+///   proposal for this case — never a proven no-false-negative admission-filter argument (ADR
+///   0001's own bar for `Admit`), so `ConfirmOnly` is the correct landing spot, the same
+///   `ConfigPredicate` shape every other Stage-2 construct in this file uses.
+/// - **`compounding.recursive`** (at least one observed `Compounding` rule has
+///   `detail.recursive == true`): [`PredicateVerdict::Refuse`] — design.md D2 item 3's self-feeding/
+///   nested case, whose interaction with the ADR 0003 derivation-chain-depth budget is not
+///   characterized by this change (design.md's own scope cut). The ADR 0005 override remains this
+///   rule's on-ramp for anyone who wants to force-compile and experiment with it under the
+///   degraded-trust signal.
+///
+/// # Node applicability
+/// Like [`ReduplicationPeelSupportedPredicate`]/[`CircumfixStructuralCompositePredicate`]:
+/// `Compounding` has no corresponding [`crate::plan::PlanNodeKind`] in today's `enumerate_default`
+/// shape (the license-gated cross product is built directly into `crate::emit`'s lexc sections, not
+/// a reified `Plan` node) — `evaluate` ignores `plan_node` entirely and scans
+/// [`CharacteristicsProfile::compounding_details`] instead, safe under `meet` for the identical
+/// reason those two predicates' own docs give (every node the walk visits gets the SAME verdict).
+///
+/// # Provenance
+/// [`EvidenceProvenance::Structural`]: both the recursion reachability pass and the
+/// license-gate (un)group-awareness contract read directly-inspectable `model.rs`/`Grammar`
+/// structure — no oracle witness is needed to derive the verdict itself (the oracle witnesses this
+/// change ships separately prove the license-gated PROPOSAL is a correct over-approximation, which
+/// is a different claim from what this predicate decides).
+pub struct CompoundingRecursionSafePredicate;
+
+impl CapabilityPredicate for CompoundingRecursionSafePredicate {
+    fn id(&self) -> PredicateId {
+        "compounding.non-recursive"
+    }
+
+    fn discharges(&self) -> &[CharacteristicKind] {
+        &[CharacteristicKind::Compounding]
+    }
+
+    fn provenance(&self) -> EvidenceProvenance {
+        EvidenceProvenance::Structural
+    }
+
+    fn evaluate(
+        &self,
+        profile: &CharacteristicsProfile,
+        _plan_node: &PlanNodeKind,
+    ) -> PredicateVerdict {
+        let mut any_observed = false;
+        for detail in profile.compounding_details() {
+            any_observed = true;
+            if detail.recursive {
+                return PredicateVerdict::Refuse(CapabilityDiagnostic {
+                    predicate: self.id(),
+                    construct: format!("mrule {} (CompoundingRule)", detail.rule.0),
+                    witness: "compounding_recursive's rule-graph reachability pass found this \
+                              rule's own head/non-head stem search reachable from a Compounding \
+                              application's output -- either self-feeding (multipleApplication > \
+                              1) or a distinct CompoundingRule sharing or preceding its stratum. \
+                              compounding.recursive stays FailClosed/Refuse (design.md D2 item 3); \
+                              the ADR 0005 override is the on-ramp to force-compile it."
+                        .to_string(),
+                });
+            }
+        }
+        if any_observed {
+            PredicateVerdict::ConfirmOnly
+        } else {
+            PredicateVerdict::Admit
+        }
+    }
+}
+
+// -------------------------------------------------------------------------------------------
 // QuantifierPattern: the config-predicate `compile-bounded-fst-quantifiers` registers
 // -------------------------------------------------------------------------------------------
 
@@ -2382,13 +2617,14 @@ impl PredicateRegistry {
     }
 }
 
-/// The registry this step ships: the seven REAL predicates
+/// The registry this step ships: the eight REAL predicates
 /// ([`SimultaneousSubruleOverlapPredicate`], [`MultiTableFaithfulThreadingPredicate`],
 /// [`RightToLeftRewriteFaithfulReversalPredicate`], [`QuantifierBoundedExpansionPredicate`],
 /// [`MetathesisFaithfulSwapPredicate`], [`CircumfixStructuralCompositePredicate`],
-/// [`ReduplicationPeelSupportedPredicate`]), plus an explicit [`FailClosedPlaceholder`] for every
-/// other `FailClosed`/`ConfigPredicate` characteristic — proving the coverage contract holds today
-/// without pretending any of those other constructs has a real proof yet.
+/// [`ReduplicationPeelSupportedPredicate`], [`CompoundingRecursionSafePredicate`]), plus an explicit
+/// [`FailClosedPlaceholder`] for every other `FailClosed`/`ConfigPredicate` characteristic —
+/// proving the coverage contract holds today without pretending any of those other constructs has a
+/// real proof yet.
 pub fn default_registry() -> PredicateRegistry {
     let mut r = PredicateRegistry::new();
     r.register(Box::new(SimultaneousSubruleOverlapPredicate));
@@ -2398,11 +2634,7 @@ pub fn default_registry() -> PredicateRegistry {
     r.register(Box::new(MetathesisFaithfulSwapPredicate));
     r.register(Box::new(CircumfixStructuralCompositePredicate));
     r.register(Box::new(ReduplicationPeelSupportedPredicate));
-    r.register(Box::new(FailClosedPlaceholder::new(
-        "compounding.placeholder",
-        &[CharacteristicKind::Compounding],
-        "cover-compounding",
-    )));
+    r.register(Box::new(CompoundingRecursionSafePredicate));
     r.register(Box::new(FailClosedPlaceholder::new(
         "unordered-morph-rules.placeholder",
         &[CharacteristicKind::UnorderedMorphRuleApplication],
@@ -2746,16 +2978,20 @@ mod tests {
     // characterize(): FailClosed triggers
     // ---------------------------------------------------------------------------------------
 
-    /// D5's first act: `MorphRuleDef::Compounding` characterizes FailClosed.
+    /// `openspec/changes/cover-compounding`: `MorphRuleDef::Compounding` now characterizes at the
+    /// `ConfigPredicate` landing spot (no longer bare `FailClosed`), and a single, isolated,
+    /// `multipleApplication`-default (1) `CompoundingRule` characterizes as `compounding.non-recursive`
+    /// (`CompoundingDetail::recursive == false`) — `compounding_recursive`'s reachability pass finds
+    /// no other `Compounding` rule and no self-application to flag.
     #[test]
-    fn characterize_marks_compounding_fail_closed() {
+    fn characterize_marks_compounding_config_predicate_and_non_recursive() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
           </CharacterDefinitionTable>
           <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /></SegmentNaturalClass></NaturalClasses>
           <Strata>
-            <Stratum characterDefinitionTable="t1">
+            <Stratum characterDefinitionTable="t1" morphologicalRules="cr1">
               <Name>S</Name>
               <MorphologicalRuleDefinitions>
                 <CompoundingRule id="cr1">
@@ -2788,9 +3024,122 @@ mod tests {
                 .observations()
                 .iter()
                 .any(|o| o.kind == CharacteristicKind::Compounding
-                    && o.disposition == Disposition::FailClosed),
-            "Compounding must characterize FailClosed: {:?}",
+                    && o.disposition == Disposition::ConfigPredicate),
+            "Compounding must characterize at the ConfigPredicate landing spot: {:?}",
             profile.observations()
+        );
+        let details: Vec<_> = profile.compounding_details().collect();
+        assert_eq!(details.len(), 1);
+        assert!(
+            !details[0].recursive,
+            "a single isolated CompoundingRule must characterize non-recursive: {details:?}"
+        );
+    }
+
+    /// `openspec/changes/cover-compounding` (design.md D2 item 3): a `CompoundingRule` with
+    /// `multipleApplication > 1` self-feeds (the rule may re-apply to its own prior compound output)
+    /// and must characterize `compounding.recursive`.
+    #[test]
+    fn characterize_marks_compounding_recursive_via_multiple_application() {
+        const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /></SegmentNaturalClass></NaturalClasses>
+          <Strata>
+            <Stratum characterDefinitionTable="t1" morphologicalRules="cr1">
+              <Name>S</Name>
+              <MorphologicalRuleDefinitions>
+                <CompoundingRule id="cr1" multipleApplication="2">
+                  <Name>Compound</Name>
+                  <CompoundingSubrules>
+                    <CompoundingSubrule>
+                      <HeadMorphologicalInput>
+                        <PhoneticSequence id="h0"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
+                      </HeadMorphologicalInput>
+                      <NonHeadMorphologicalInput>
+                        <PhoneticSequence id="n0"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
+                      </NonHeadMorphologicalInput>
+                      <MorphologicalOutput>
+                        <CopyFromInput index="n0" />
+                        <CopyFromInput index="h0" />
+                      </MorphologicalOutput>
+                    </CompoundingSubrule>
+                  </CompoundingSubrules>
+                </CompoundingRule>
+              </MorphologicalRuleDefinitions>
+            </Stratum>
+          </Strata>
+        </Language></HermitCrabInput>"#;
+        let g = load(XML);
+        let profile = characterize(&g);
+        let details: Vec<_> = profile.compounding_details().collect();
+        assert_eq!(details.len(), 1);
+        assert!(
+            details[0].recursive,
+            "multipleApplication > 1 must characterize compounding.recursive: {details:?}"
+        );
+    }
+
+    /// `openspec/changes/cover-compounding` (design.md D2 item 3): TWO `CompoundingRule`s sharing one
+    /// stratum must BOTH characterize recursive — either rule's output could feed the other's
+    /// head/non-head search (the coarse, deliberately conservative same-stratum co-location test).
+    #[test]
+    fn characterize_marks_compounding_recursive_via_distinct_rule_same_stratum() {
+        const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /></SegmentNaturalClass></NaturalClasses>
+          <Strata>
+            <Stratum characterDefinitionTable="t1" morphologicalRules="cr1 cr2">
+              <Name>S</Name>
+              <MorphologicalRuleDefinitions>
+                <CompoundingRule id="cr1">
+                  <Name>Compound1</Name>
+                  <CompoundingSubrules>
+                    <CompoundingSubrule>
+                      <HeadMorphologicalInput>
+                        <PhoneticSequence id="h0"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
+                      </HeadMorphologicalInput>
+                      <NonHeadMorphologicalInput>
+                        <PhoneticSequence id="n0"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
+                      </NonHeadMorphologicalInput>
+                      <MorphologicalOutput>
+                        <CopyFromInput index="n0" />
+                        <CopyFromInput index="h0" />
+                      </MorphologicalOutput>
+                    </CompoundingSubrule>
+                  </CompoundingSubrules>
+                </CompoundingRule>
+                <CompoundingRule id="cr2">
+                  <Name>Compound2</Name>
+                  <CompoundingSubrules>
+                    <CompoundingSubrule>
+                      <HeadMorphologicalInput>
+                        <PhoneticSequence id="h1"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
+                      </HeadMorphologicalInput>
+                      <NonHeadMorphologicalInput>
+                        <PhoneticSequence id="n1"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
+                      </NonHeadMorphologicalInput>
+                      <MorphologicalOutput>
+                        <CopyFromInput index="n1" />
+                        <CopyFromInput index="h1" />
+                      </MorphologicalOutput>
+                    </CompoundingSubrule>
+                  </CompoundingSubrules>
+                </CompoundingRule>
+              </MorphologicalRuleDefinitions>
+            </Stratum>
+          </Strata>
+        </Language></HermitCrabInput>"#;
+        let g = load(XML);
+        let profile = characterize(&g);
+        let details: Vec<_> = profile.compounding_details().collect();
+        assert_eq!(details.len(), 2);
+        assert!(
+            details.iter().all(|d| d.recursive),
+            "two co-located CompoundingRules must both characterize recursive: {details:?}"
         );
     }
 
@@ -4862,20 +5211,67 @@ mod tests {
         assert_eq!(compose_envelope(&g, &plan, &registry), CompileDecision::Admit);
     }
 
-    /// A grammar with a `Compounding` rule must compose to `Refuse`, with a diagnostic naming
-    /// compounding.
+    /// `openspec/changes/cover-compounding`: a grammar with a single, non-recursive `Compounding`
+    /// rule must now compose to `ConfirmOnly` (no longer bare `Refuse` — the license-gated propose
+    /// shape supersedes the pre-change placeholder's unconditional refusal).
     #[test]
-    fn compose_envelope_refuses_compounding_grammar() {
+    fn compose_envelope_confirm_only_for_non_recursive_compounding_grammar() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
           </CharacterDefinitionTable>
           <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /></SegmentNaturalClass></NaturalClasses>
           <Strata>
-            <Stratum characterDefinitionTable="t1">
+            <Stratum characterDefinitionTable="t1" morphologicalRules="cr1">
               <Name>S</Name>
               <MorphologicalRuleDefinitions>
                 <CompoundingRule id="cr1">
+                  <Name>Compound</Name>
+                  <CompoundingSubrules>
+                    <CompoundingSubrule>
+                      <HeadMorphologicalInput>
+                        <PhoneticSequence id="h0"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
+                      </HeadMorphologicalInput>
+                      <NonHeadMorphologicalInput>
+                        <PhoneticSequence id="n0"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
+                      </NonHeadMorphologicalInput>
+                      <MorphologicalOutput>
+                        <CopyFromInput index="n0" />
+                        <CopyFromInput index="h0" />
+                      </MorphologicalOutput>
+                    </CompoundingSubrule>
+                  </CompoundingSubrules>
+                </CompoundingRule>
+              </MorphologicalRuleDefinitions>
+            </Stratum>
+          </Strata>
+        </Language></HermitCrabInput>"#;
+        let g = load(XML);
+        let plan = enumerated_plan(&g);
+        let registry = default_registry();
+
+        assert_eq!(
+            compose_envelope(&g, &plan, &registry),
+            CompileDecision::ConfirmOnly,
+            "a single non-recursive Compounding rule must compose to ConfirmOnly"
+        );
+    }
+
+    /// `openspec/changes/cover-compounding` (design.md D2 item 3): a `Compounding` rule with
+    /// `multipleApplication > 1` (self-feeding) must compose to `Refuse`, with a diagnostic naming
+    /// compounding.
+    #[test]
+    fn compose_envelope_refuses_recursive_compounding_grammar() {
+        const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /></SegmentNaturalClass></NaturalClasses>
+          <Strata>
+            <Stratum characterDefinitionTable="t1" morphologicalRules="cr1">
+              <Name>S</Name>
+              <MorphologicalRuleDefinitions>
+                <CompoundingRule id="cr1" multipleApplication="2">
                   <Name>Compound</Name>
                   <CompoundingSubrules>
                     <CompoundingSubrule>
@@ -5197,9 +5593,11 @@ mod tests {
     }
 
     /// Meet correctness: a grammar that is BOTH ConfirmOnly-worthy (an Append group) AND
-    /// Refuse-worthy (a Compounding rule) must compose to `Refuse` overall (Refuse dominates), and
-    /// the `Refuse` must carry a diagnostic for the refusing construct (Compounding), not just
-    /// silently drop it because a milder ConfirmOnly construct is ALSO present.
+    /// Refuse-worthy (a self-feeding, `compounding.recursive` `Compounding` rule —
+    /// `multipleApplication="2"`, `openspec/changes/cover-compounding` design.md D2 item 3) must
+    /// compose to `Refuse` overall (Refuse dominates), and the `Refuse` must carry a diagnostic for
+    /// the refusing construct (Compounding), not just silently drop it because a milder ConfirmOnly
+    /// construct is ALSO present.
     #[test]
     fn compose_envelope_meet_correctness_refuse_dominates_confirm_only() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>AppendPlusCompound</Name>
@@ -5213,10 +5611,10 @@ mod tests {
           </CharacterDefinitionTable>
           <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="c1" /></SegmentNaturalClass></NaturalClasses>
           <Strata>
-            <Stratum characterDefinitionTable="t1">
+            <Stratum characterDefinitionTable="t1" morphologicalRules="cr1">
               <Name>S</Name>
               <MorphologicalRuleDefinitions>
-                <CompoundingRule id="cr1">
+                <CompoundingRule id="cr1" multipleApplication="2">
                   <Name>Compound</Name>
                   <CompoundingSubrules>
                     <CompoundingSubrule>

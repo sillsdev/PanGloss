@@ -153,22 +153,63 @@ mod tests {
         assert_eq!(evaluate_capability(&g), CompileDecision::Admit);
     }
 
-    /// A grammar with a `Compounding` rule must evaluate to `Refuse` through this entry point too,
-    /// with a diagnostic naming Compounding — the same fixture/assertion shape
-    /// `capability::tests::compose_envelope_refuses_compounding_grammar` already proves against
-    /// `compose_envelope` called directly.
+    /// `openspec/changes/cover-compounding`: a grammar with a single, non-recursive `Compounding`
+    /// rule must evaluate to `ConfirmOnly` through this entry point too (no longer bare `Refuse`) —
+    /// the same fixture/assertion shape
+    /// `capability::tests::compose_envelope_confirm_only_for_non_recursive_compounding_grammar`
+    /// already proves against `compose_envelope` called directly.
     #[test]
-    fn evaluate_capability_refuses_compounding_grammar() {
+    fn evaluate_capability_confirm_only_for_non_recursive_compounding_grammar() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
           </CharacterDefinitionTable>
           <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /></SegmentNaturalClass></NaturalClasses>
           <Strata>
-            <Stratum characterDefinitionTable="t1">
+            <Stratum characterDefinitionTable="t1" morphologicalRules="cr1">
               <Name>S</Name>
               <MorphologicalRuleDefinitions>
                 <CompoundingRule id="cr1">
+                  <Name>Compound</Name>
+                  <CompoundingSubrules>
+                    <CompoundingSubrule>
+                      <HeadMorphologicalInput>
+                        <PhoneticSequence id="h0"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
+                      </HeadMorphologicalInput>
+                      <NonHeadMorphologicalInput>
+                        <PhoneticSequence id="n0"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
+                      </NonHeadMorphologicalInput>
+                      <MorphologicalOutput>
+                        <CopyFromInput index="n0" />
+                        <CopyFromInput index="h0" />
+                      </MorphologicalOutput>
+                    </CompoundingSubrule>
+                  </CompoundingSubrules>
+                </CompoundingRule>
+              </MorphologicalRuleDefinitions>
+            </Stratum>
+          </Strata>
+        </Language></HermitCrabInput>"#;
+        let g = load(XML);
+
+        assert_eq!(evaluate_capability(&g), CompileDecision::ConfirmOnly);
+    }
+
+    /// `openspec/changes/cover-compounding` (design.md D2 item 3): a self-feeding
+    /// (`multipleApplication="2"`) `Compounding` rule must still evaluate to `Refuse` through this
+    /// entry point, with a diagnostic naming Compounding.
+    #[test]
+    fn evaluate_capability_refuses_recursive_compounding_grammar() {
+        const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /></SegmentNaturalClass></NaturalClasses>
+          <Strata>
+            <Stratum characterDefinitionTable="t1" morphologicalRules="cr1">
+              <Name>S</Name>
+              <MorphologicalRuleDefinitions>
+                <CompoundingRule id="cr1" multipleApplication="2">
                   <Name>Compound</Name>
                   <CompoundingSubrules>
                     <CompoundingSubrule>

@@ -1,0 +1,88 @@
+# Synthetic construct-shaped mimic -- see STAGING.md and grammar.xml's own header comment. Oracle:
+# pangloss (`pg_parse::Morpher`, driven directly -- see STAGING.md's "Verification" section), NOT the
+# C# founding oracle -- authored and verified against this repo's own Rust engine only. Signatures
+# below are transcribed verbatim from that run, not hand-derived.
+
+language: CompoundingNonRecursive
+inspired_by: ["synthetic compounding-construct probe (not modeling any real language)"]
+sources:
+  - "openspec/changes/cover-compounding/design.md (D2/D3/D4)"
+requires: []
+words:
+  - word: fasu
+    note: headA bare root, no compounding -- a plain control.
+    parses:
+      - signature: "HEADA|fasu"
+        rules: []
+
+  - word: bel
+    note: nonHeadOk bare root -- a plain control.
+    parses:
+      - signature: "NONHEADOK|bel"
+        rules: []
+
+  - word: zon
+    note: nonHeadBadPos bare root -- a plain control.
+    parses:
+      - signature: "NONHEADBADPOS|zon"
+        rules: []
+
+  - word: numo
+    note: headC bare root, no MPR features at all -- a plain control.
+    parses:
+      - signature: "HEADC|numo"
+        rules: []
+
+  - word: tiku
+    note: headB bare root -- a plain control.
+    parses:
+      - signature: "HEADB|tiku"
+        rules: []
+
+  - word: fasubel
+    note: >-
+      THE positive witness: headA (fasu) + nonHeadOk (bel) via cr1. headA carries only mpr1 of the
+      {mpr1,mpr2} all-type MprGroup cr1's own headProdRestrictionsMprFeatures names -- admitted by
+      the group-UNAWARE MprSet::compound_match (correct; a group-aware reading of this RULE-level
+      field would wrongly exclude it, the exact recall-loss bug openspec/changes/cover-compounding
+      design.md D4 names). headA also carries BOTH mpr3+mpr4 of the {mpr3,mpr4} all-type group the
+      SUBRULE's own requiredMPRFeatures names, satisfying the group-AWARE Grammar::mpr_group_ok
+      that field is (correctly) tested with. nonHeadOk's own posHead unifies with cr1's
+      nonHeadPartsOfSpeech="posHead".
+    provenance: "openspec/changes/cover-compounding design.md D4: the group-(un)awareness contract"
+    parses:
+      - signature: "HEADA+NONHEADOK|fasubel"
+        rules: [cr1]
+
+  - word: fasuzon
+    note: >-
+      Left-to-confirm witness (design.md D3): headA + nonHeadBadPos (zon, posOther). zon is
+      MPR-licensed as a non-head (non_head_prod_restrictions_mpr is empty/vacuous -- the FST
+      proposer's license gate never checks syntactic FS at all), but disagrees with cr1's own
+      nonHeadPartsOfSpeech="posHead" -- no valid derivation. An engine whose PROPOSER silently
+      narrowed by syntactic FS would never even offer this candidate to confirm; an engine whose
+      CONFIRM step ignored nonHeadPartsOfSpeech would wrongly accept it. Both must be honored.
+    provenance: "openspec/changes/cover-compounding design.md D3: left to confirm, deliberately"
+    expect_fail: true
+    blocked_by: [cr1]
+
+  - word: tikubel
+    note: >-
+      Subrule group-awareness precision witness: headB (tiku) carries mpr1 (rule-level, admitted)
+      but only mpr3 -- NOT mpr4 -- of the subrule's own {mpr3,mpr4} all-type group. The group-AWARE
+      Grammar::mpr_group_ok correctly excludes it (an all-type group demands ALL members present);
+      a flat MprSet::compound_match reading of this SUBRULE field would have wrongly ADMITTED it
+      (mpr3 alone overlaps). No valid derivation.
+    provenance: "openspec/changes/cover-compounding design.md D4: subrule fields are group-aware"
+    expect_fail: true
+    blocked_by: [cr1]
+
+  - word: numobel
+    note: >-
+      Rule-level negative control: headC (numo) carries no MPR features at all, so cr1's own
+      headProdRestrictionsMprFeatures="mpr1 mpr2" (non-empty) fails MprSet::compound_match outright
+      (self.overlaps(EMPTY) is always false) -- proving the rule-level gate genuinely restricts
+      something, not a vacuous always-admit. No valid derivation.
+    provenance: "openspec/changes/cover-compounding: rule-level headProdRestrictionsMprFeatures gate"
+    expect_fail: true
+    blocked_by: [cr1]

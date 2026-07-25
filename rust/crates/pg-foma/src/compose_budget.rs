@@ -157,6 +157,30 @@ pub(crate) fn line_budget_from_env() -> usize {
         .unwrap_or(DEFAULT_LINE_BUDGET)
 }
 
+/// `HC_COMPOUND_PAIR_BUDGET` (`openspec/changes/cover-compounding` design.md D2 item 2 / tasks.md
+/// 5.1): ceiling on the compound HEAD x NON-HEAD root-pair cross product `crate::emit`'s license-gated
+/// "bounded compound loop" is about to emit, checked BEFORE any of that lexc text is written (the
+/// same "check the search result before the expensive part" discipline every other budget in this
+/// module uses). Unlike ordinary affix concatenation (one lexicon-scale operand times one small,
+/// fixed affix-inventory operand), a `CompoundingRuleDef`'s cross product is lexicon-scale on BOTH
+/// sides (design.md D2's own "no resource threshold derived" flag) — this is the threshold that
+/// closes it. A separate constant/env var from [`DEFAULT_TUPLE_BUDGET`]/`HC_COMPOSE_TUPLE_BUDGET`
+/// on purpose: that budget bounds `crate::replace::resolve_alpha_tuples`'s alpha-variable-assignment
+/// count, a semantically unrelated quantity that happens to share a "count candidates before the
+/// expensive step" shape — conflating the two would make either one's calibration silently affect
+/// the other. Default 4,000,000: generous relative to every synthetic Stage-2 fixture (a handful of
+/// roots per side) while still catching a pathological 50k-entry-scale grammar (`build-for-full-
+/// scale-grammars`'s own target) before `write_root_entries` emits millions of lexc lines for it.
+/// Revisit with real large-grammar measurements once one exercises compounding at that scale.
+pub(crate) const DEFAULT_COMPOUND_PAIR_BUDGET: usize = 4_000_000;
+
+pub(crate) fn compound_pair_budget_from_env() -> usize {
+    std::env::var("HC_COMPOUND_PAIR_BUDGET")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(DEFAULT_COMPOUND_PAIR_BUDGET)
+}
+
 /// `HC_COMPOSE_STEP_TIMEOUT_MS`: wall-clock deadline (design doc §5) for every checked
 /// compose/union/minimize call, via [`call_with_deadline`]. **Default OFF** (`None`) -- unlike the
 /// four size caps above (default ON, mirroring `EnumerationBudget`'s own always-live convention),

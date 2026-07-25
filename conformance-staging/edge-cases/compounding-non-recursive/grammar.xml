@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
+<HermitCrabInput>
+  <Language>
+    <Name>CompoundingNonRecursive</Name>
+    <!-- Synthetic construct/composition-shaped mimic (openspec/changes/STAGING.md's "Hard rule:
+         synthetic data only" -- invented CVCV/CVC roots, no natural-language lexemes). Pins
+         openspec/changes/cover-compounding: a single, non-recursive CompoundingRuleDef, license-gated
+         head/non-head lexicon subsets (headProdRestrictionsMprFeatures/nonHeadPartsOfSpeech), and the
+         MPR group-(un)awareness contract (design.md D4) between the RULE-level restriction fields
+         (MprSet::compound_match, group-UNAWARE) and the SUBRULE-level requiredMPRFeatures (group-AWARE
+         Grammar::mpr_group_ok) -- see this directory's STAGING.md for the full rationale, mirrored
+         from rust/crates/pg-foma/tests/cover_compounding.rs's own (already oracle-verified) fixture. -->
+    <PartsOfSpeech>
+      <PartOfSpeech id="posHead"><Name>head</Name></PartOfSpeech>
+      <PartOfSpeech id="posOther"><Name>other</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <MorphologicalPhonologicalRuleFeatures>
+      <MorphologicalPhonologicalRuleFeature id="mpr1">M1</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="mpr2">M2</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="mpr3">M3</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="mpr4">M4</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeatureGroup matchType="all" outputType="append" features="mpr1 mpr2"><Name>GRuleLevel</Name></MorphologicalPhonologicalRuleFeatureGroup>
+      <MorphologicalPhonologicalRuleFeatureGroup matchType="all" outputType="append" features="mpr3 mpr4"><Name>GSubruleLevel</Name></MorphologicalPhonologicalRuleFeatureGroup>
+    </MorphologicalPhonologicalRuleFeatures>
+    <CharacterDefinitionTable id="table1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cb"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="ce"><Representations><Representation>e</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cf"><Representations><Representation>f</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="ci"><Representations><Representation>i</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="ck"><Representations><Representation>k</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cl"><Representations><Representation>l</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cm"><Representations><Representation>m</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cn"><Representations><Representation>n</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="co"><Representations><Representation>o</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cs"><Representations><Representation>s</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="ct"><Representations><Representation>t</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cu"><Representations><Representation>u</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cz"><Representations><Representation>z</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum characterDefinitionTable="table1" morphologicalRuleOrder="linear" morphologicalRules="cr1">
+        <Name>Main</Name>
+        <MorphologicalRuleDefinitions>
+          <CompoundingRule id="cr1" headProdRestrictionsMprFeatures="mpr1 mpr2" nonHeadPartsOfSpeech="posHead">
+            <Name>Compound</Name>
+            <CompoundingSubrules>
+              <CompoundingSubrule>
+                <HeadMorphologicalInput requiredMPRFeatures="mpr3 mpr4">
+                  <PhoneticSequence id="h0"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence>
+                </HeadMorphologicalInput>
+                <NonHeadMorphologicalInput>
+                  <PhoneticSequence id="n0"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence>
+                </NonHeadMorphologicalInput>
+                <MorphologicalOutput>
+                  <CopyFromInput index="h0" />
+                  <CopyFromInput index="n0" />
+                </MorphologicalOutput>
+              </CompoundingSubrule>
+            </CompoundingSubrules>
+          </CompoundingRule>
+        </MorphologicalRuleDefinitions>
+        <LexicalEntries>
+          <!-- headA: RULE-level trap witness -- only mpr1 (of the {mpr1,mpr2} all-group), but BOTH
+               mpr3+mpr4 (of the {mpr3,mpr4} all-group) -- passes head_prod_restrictions_mpr via
+               compound_match's flat overlap AND the subrule's required_mpr via mpr_group_ok. -->
+          <LexicalEntry id="eHeadA" partOfSpeech="posHead" ruleFeatures="mpr1 mpr3 mpr4">
+            <Allomorphs><Allomorph id="aHeadA"><PhoneticShape>fasu</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>HEADA</MorphemeId>
+            <Gloss>headA</Gloss>
+          </LexicalEntry>
+          <!-- headB: SUBRULE-level precision witness -- mpr1 (rule-level, admitted) + mpr3 only
+               (subrule-level, missing mpr4) -- mpr_group_ok's all-type semantics must exclude it. -->
+          <LexicalEntry id="eHeadB" partOfSpeech="posHead" ruleFeatures="mpr1 mpr3">
+            <Allomorphs><Allomorph id="aHeadB"><PhoneticShape>tiku</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>HEADB</MorphemeId>
+            <Gloss>headB</Gloss>
+          </LexicalEntry>
+          <!-- headC: rule-level negative control -- no mpr features at all, so
+               head_prod_restrictions_mpr's compound_match (self non-empty, stem empty) rejects it. -->
+          <LexicalEntry id="eHeadC" partOfSpeech="posHead">
+            <Allomorphs><Allomorph id="aHeadC"><PhoneticShape>numo</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>HEADC</MorphemeId>
+            <Gloss>headC</Gloss>
+          </LexicalEntry>
+          <!-- nonHeadOk: posHead -- unifies with cr1's own nonHeadPartsOfSpeech="posHead". -->
+          <LexicalEntry id="eNonHeadOk" partOfSpeech="posHead">
+            <Allomorphs><Allomorph id="aNonHeadOk"><PhoneticShape>bel</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>NONHEADOK</MorphemeId>
+            <Gloss>nonHeadOk</Gloss>
+          </LexicalEntry>
+          <!-- nonHeadBadPos: posOther -- MPR-licensed (non_head_prod_restrictions_mpr is empty/
+               vacuous), but disagrees with nonHeadPartsOfSpeech="posHead" at confirm -- left to
+               confirm, design.md D3. -->
+          <LexicalEntry id="eNonHeadBadPos" partOfSpeech="posOther">
+            <Allomorphs><Allomorph id="aNonHeadBadPos"><PhoneticShape>zon</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>NONHEADBADPOS</MorphemeId>
+            <Gloss>nonHeadBadPos</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>
