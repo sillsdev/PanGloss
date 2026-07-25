@@ -45,7 +45,15 @@ use pg_pack::{
 /// runtime operation... contribute" — e.g. reduplication's query-time peel op). Freeform, stable,
 /// delanguaged identifiers; this module does not mint a registry, it only names the ones this
 /// Runtime build actually implements today.
-pub const OP_REDUPLICATION_PEEL: &str = "pg.reduplication.peel";
+///
+/// **Re-exported from the producing side, deliberately not re-spelled.** This is the identifier
+/// `pangloss pack` writes into a manifest's `required_runtime_features.runtime_operations` whenever a
+/// grammar needs peeling, so the *provided* set here and the *required* set there MUST be the same
+/// string or ADR 0004's `required ⊆ provided` check rejects a pack this Runtime can in fact serve.
+/// This crate previously spelled it `"pg.reduplication.peel"` while the producer wrote
+/// `"reduplication.peel"` — a latent load-rejection bug that only became reachable once both sides
+/// existed. Aliasing the producer's constant makes the mismatch unrepresentable.
+pub use pg_foma::peel::RUNTIME_FEATURE_REDUPLICATION_PEEL as OP_REDUPLICATION_PEEL;
 
 /// This Runtime build's own declared **provided** runtime-feature set (ADR 0004's other half of
 /// the `required ⊆ provided` containment check) — never read from any `.pgpack` file, always
