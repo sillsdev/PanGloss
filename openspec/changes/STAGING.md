@@ -55,21 +55,34 @@ subsystem does not exist (only the budget foundation + the ADR 0003 chain-depth/
 `conformance-framework`). OPEN (Part C): the perf-benchmark tests still named/loading real grammars —
 coupled to synthetic stress-data synthesis.
 
-**Known confirm-engine (oracle) gaps found while implementing Stage 2** — these limit *end-to-end
-recall* for constructs the FST now proposes correctly; they never cause overclaiming (confirm-only
-means confirm decides): `pg_rules::rewrite` direction-blind iterative pick-order; `width_matches`
-cannot confirm a quantifier used as the LHS/RHS focus; `ana_epenthesis` finds no analysis for any
-direction; `pg_rules::metathesis`'s `build_analysis_pattern` disagrees with synthesis on reversed
-switch-tag order and drops a middle context node. Each is pinned by a test at its discovery site.
+**Confirm-engine (oracle) gaps found while implementing Stage 2 — all four now resolved.** None ever
+caused overclaiming (confirm-only means confirm decides); they limited *end-to-end recall* for
+constructs the FST proposes correctly. Outcomes:
+
+1. **FIXED** — `pg_rules::rewrite` iterative pick-order was direction-blind (RTL behaved as LTR). Now
+   direction-aware, matching C# (`IterativePhonologicalPatternRule.cs:17-48`), including the subtlety
+   that analysis scans the *opposite* direction from synthesis (`AnalysisRewriteRule.cs:33`).
+2. **FIXED** — `pg_rules::metathesis`'s `build_analysis_pattern` disagreed with synthesis on switch
+   ordering (tag-name vs physical position) and dropped a middle context node; analysis is now a true
+   inverse of synthesis.
+3. **NOT OURS (a C# bug)** — a `Quantifier` used as the LHS/RHS *focus* makes C# throw
+   `InvalidCastException` at `Morpher` construction (`Cast<Constraint>` over children whose
+   `Quantifier` is a *sibling* class), though the DTD permits the shape. There is no C# semantics to
+   match, so `width_matches` is deliberately unchanged; Rust's behavior (silently ignore the grouping,
+   never crash or mis-group) is strictly safer and is pinned by a test.
+4. **DID NOT REPRODUCE** — "`ana_epenthesis` finds no analysis" was a mis-attribution: the cited
+   fixture returns oracle-correct results in both directions via both `rewrite::analyze` and the full
+   `Morpher` pipeline. Documented as a non-finding with a regression guard.
+
+Each outcome is pinned by a test at its site, and every fix left conformance at exact baseline.
 
 **Stage 4 — REFRAMED.** `certify-four-language-matrix` is renamed `run-synthetic-conformance-matrix`
 (its specs subdir likewise); the body already dropped the terminal-certification framing and the four
 actual languages. The always-on CI gate it describes is the committed `conformance-ci.yml`.
 
 **Still open:** Stage 1C compile profiling; Stage 3 tree-structured interaction fuzzing + calibration;
-the coverage ledger; the reify production flip; the remaining confirm-engine gaps above (the
-direction-blind pick-order one is FIXED — `pg_rules::rewrite` is now direction-aware, matching the C#
-frozen model, conformance unchanged); delanguaging Part C.
+the coverage ledger; the reify production flip; delanguaging Part C. (The confirm-engine gaps are all
+resolved — see the section above.)
 
 This spine was reorganized on 2026-07-24 to reflect the honest-capability architecture recorded in
 `docs/adr/0001`–`0005`. The governing facts that reshaped it:
