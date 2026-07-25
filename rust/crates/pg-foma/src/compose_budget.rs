@@ -175,16 +175,21 @@ pub(crate) fn step_timeout_from_env() -> Option<Duration> {
 // chain-depth dimension ... that deterministically closes stack overflow (the Aweti 24-level
 // chain, the 1 GiB-stack workaround). Owns `compose_budget.rs` and new budget types."). ------------
 //
-// **This is a schema/budget-type step only** (mirrors `crate::health`'s own "purely additive"
-// precedent, module doc: "defines and unit-tests the schema only ... does not instrument any
-// compiler pass"). [`ComposeBudget::check_chain_depth`] exists and is unit-tested here, but **no
-// call site in `emit.rs`/`preexpand.rs`/`gate.rs`/`replace.rs`/`pg-rules` calls it yet** -- that
-// wiring (threading a real per-word derivation/unapplication step counter through the recursive
-// apply/derivation path and calling this at each step) is a separate, production-touching
-// follow-on change. Until that lands, [`ComposeBudget::chain_depth_cap`] defaults to `None`
+// **Originally shipped as a schema/budget-type step only** (mirrors `crate::health`'s own "purely
+// additive" precedent, module doc: "defines and unit-tests the schema only ... does not instrument
+// any compiler pass"): [`ComposeBudget::check_chain_depth`] existed and was unit-tested here, but no
+// production call site used it. `openspec/changes/cover-template-truncation-reduplication` is the
+// first real (non-test) consumer: [`crate::peel::ReduplicationPeeler`]'s nested-reduplication
+// recursion (its own module doc, "Chain depth and nested reduplication") calls
+// [`ComposeBudget::check_chain_depth`] once per genuine reduplication layer it is about to use.
+// `emit.rs`/`preexpand.rs`/`gate.rs`/`replace.rs`/`pg-rules`'s OWN general derivation/unapplication
+// recursion (the broader Aweti 24-level-chain case ADR 0003 names) still has no call site here --
+// threading a real per-word step counter through THAT recursive apply/derivation path remains a
+// separate, larger follow-on change. [`ComposeBudget::chain_depth_cap`] still defaults to `None`
 // (unbounded) everywhere -- [`ComposeBudget::from_env`], [`ComposeBudget::with_caps`], and
-// [`ComposeBudget::unbounded`] all leave it off -- so this addition is a zero-behavior-change
-// no-op for every existing caller and test.
+// [`ComposeBudget::unbounded`] all leave it off -- so this remains a zero-behavior-change no-op for
+// every caller that does not explicitly configure a cap (every production caller, until
+// `calibrate-fst-resource-envelopes` lands a calibrated default).
 //
 // Unlike the four size caps above (state/arc/tuple/group -- default ON with a calibrated
 // production default), chain depth mirrors [`step_timeout_from_env`]'s **default-OFF** shape:
@@ -394,11 +399,13 @@ pub struct ComposeBudget {
     /// caller's behavior changes. `Some(limit)` is already clamped to
     /// [`CHAIN_DEPTH_ABSOLUTE_CEILING`] by whichever constructor set it.
     ///
-    /// `#[allow(dead_code)]`: only read by [`Self::chain_depth_cap`]/[`Self::check_chain_depth`],
-    /// which are themselves unread by production code at this schema-only step (same precedent
-    /// as this module's own `assert_send` helper above) -- the recursion-wiring follow-on this
-    /// module's doc describes is what starts reading it for real.
-    #[allow(dead_code)]
+    /// **Now read by production code**: `openspec/changes/cover-template-truncation-reduplication`
+    /// wires [`crate::peel::ReduplicationPeeler`]'s nested-reduplication recursion through
+    /// [`Self::check_chain_depth`] (`crate::peel`'s own module doc, "Chain depth and nested
+    /// reduplication" section) -- the first real (non-test) consumer of this dimension. Still
+    /// `None` everywhere [`Self::from_env`] is called with `HC_COMPOSE_CHAIN_DEPTH_BUDGET` unset
+    /// (the production default), so every existing caller's behavior is unchanged until an
+    /// operator opts in.
     pub(crate) chain_depth_cap: Option<usize>,
 }
 
@@ -474,22 +481,26 @@ impl ComposeBudget {
         self.group_cap
     }
 
-    /// Test-only builder for the chain-depth dimension (mirrors [`Self::unbounded`]'s own
-    /// `#[cfg(test)]` scoping): returns `self` with an explicit chain-depth cap, clamped to
-    /// [`CHAIN_DEPTH_ABSOLUTE_CEILING`] the same way [`chain_depth_cap_from_env`] clamps a
-    /// configured env value. Production code has no call site that needs this yet (this module's
-    /// "Chain-depth dimension" section) -- callers/tests exercising [`Self::check_chain_depth`]
-    /// use this instead of reaching into the `pub(crate)` field directly.
-    #[cfg(test)]
-    pub(crate) fn with_chain_depth_cap(mut self, cap: usize) -> Self {
+    /// Explicit-caps builder for the chain-depth dimension (mirrors [`Self::with_caps`]'s own
+    /// "explicit-caps constructors, never env vars" convention for tests): returns `self` with an
+    /// explicit chain-depth cap, clamped to [`CHAIN_DEPTH_ABSOLUTE_CEILING`] the same way
+    /// [`chain_depth_cap_from_env`] clamps a configured env value. Promoted from a `#[cfg(test)]`
+    /// `pub(crate)` helper to plain `pub` by `cover-template-truncation-reduplication`: that
+    /// change's own `pg-foma` integration tests (`tests/*.rs`, compiled as a SEPARATE crate from
+    /// this one) need to construct a small explicit cap without touching process-global env
+    /// state, and `pub(crate)`/`#[cfg(test)]` items in this crate's `src/` are invisible there --
+    /// only [`crate::peel::ReduplicationPeeler`] itself needs no special access (it takes a
+    /// `&ComposeBudget` its caller already built).
+    pub fn with_chain_depth_cap(mut self, cap: usize) -> Self {
         self.chain_depth_cap = Some(clamp_chain_depth_cap(cap));
         self
     }
 
     /// This budget's currently configured chain-depth cap, if any (`None` = unbounded/off).
     ///
-    /// `#[allow(dead_code)]`: unread outside this module's own tests until the recursion-wiring
-    /// follow-on (this module's "Chain-depth dimension" section) has a production caller.
+    /// `#[allow(dead_code)]`: [`Self::check_chain_depth`] reads the `chain_depth_cap` field
+    /// directly rather than through this accessor; only this module's own tests call it (a plain
+    /// `--lib` build never does).
     #[allow(dead_code)]
     pub(crate) fn chain_depth_cap(&self) -> Option<usize> {
         self.chain_depth_cap
@@ -508,15 +519,18 @@ impl ComposeBudget {
     /// `depth <= limit` is accepted (design doc/glossary convention shared with every other cap
     /// in this module: the cap names the last depth that still fits, not the first depth that
     /// doesn't). `None` (the default; see this module's "Chain-depth dimension" section for why)
-    /// always returns `Ok` -- this is the zero-behavior-change no-op every existing caller and
-    /// test relies on until a follow-on change wires a real depth counter through
-    /// `emit.rs`/`preexpand.rs`/`gate.rs`/`replace.rs`/`pg-rules` and calls this at each
-    /// derivation/unapplication step.
+    /// always returns `Ok` -- the zero-behavior-change no-op every existing caller and test
+    /// relies on when no cap is configured.
     ///
-    /// `#[allow(dead_code)]`: this is that not-yet-wired API -- see this module's "Chain-depth
-    /// dimension" section (same precedent as this module's own `assert_send` helper above and
-    /// `crate::health`'s "purely additive" schema step).
-    #[allow(dead_code)]
+    /// **Wired for real** by `openspec/changes/cover-template-truncation-reduplication`:
+    /// [`crate::peel::ReduplicationPeeler::propose_for_residual`] calls this once per genuine
+    /// nested-reduplication layer it is about to use (see that module's own doc for why the
+    /// check sits at "a real match was found," not at recursive-function entry -- the distinction
+    /// that keeps an ordinary single-layer word from tripping a small cap just because one more,
+    /// ultimately-empty, layer was cheaply attempted). `emit.rs`/`preexpand.rs`/`gate.rs`/
+    /// `replace.rs`/`pg-rules`' OWN derivation/unapplication recursion (the general Aweti
+    /// 24-level-chain case ADR 0003 names) still has no call site here -- that remains a
+    /// separate, larger follow-on; this is the first, narrower one.
     pub(crate) fn check_chain_depth(
         &self,
         depth: usize,

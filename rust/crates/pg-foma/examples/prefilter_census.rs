@@ -62,6 +62,7 @@ use foma::lexcread::fsm_lexc_parse_string;
 use foma::options::FomaOptions;
 use foma::types::Fsm;
 
+use pg_foma::compose_budget::ComposeBudget;
 use pg_foma::confirm::{self, MorphemeOwner};
 use pg_foma::emit;
 use pg_foma::peel::ReduplicationPeeler;
@@ -130,7 +131,16 @@ fn propose_and_peel(
     word: &str,
 ) -> Vec<Candidate> {
     let mut candidates = propose(net, word);
-    let peeled = peeler.peel_candidates(g, word, &mut |r: &str| propose(net, r));
+    // Real corpus/census words, never an adversarial synthetic stress string -- an unbounded
+    // chain-depth budget is safe here (`pg_foma::peel`'s own module doc, "Chain depth and nested
+    // reduplication", ADR 0003).
+    let budget = ComposeBudget::from_env();
+    let peeled = peeler
+        .peel_candidates(g, word, &budget, &mut |r: &str| propose(net, r))
+        .unwrap_or_else(|e| {
+            eprintln!("[prefilter_census] reduplication peel refused for {word:?}: {e}");
+            Vec::new()
+        });
     for c in peeled {
         let already = candidates.iter().any(|existing| {
             existing.root_index == c.root_index && existing.morphemes == c.morphemes

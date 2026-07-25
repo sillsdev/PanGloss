@@ -20,6 +20,7 @@ use pg_grammar::model::Grammar;
 use pg_parse::{Morpher, WordAnalysis};
 
 use crate::analyzer::{FomaError, FomaProposer};
+use crate::compose_budget::{ComposeBudget, ComposeError};
 use crate::confirm::{self, MorphemeOwner};
 use crate::peel::ReduplicationPeeler;
 use crate::tags::Candidate;
@@ -28,6 +29,8 @@ use crate::tags::Candidate;
 pub struct ProposedWord {
     candidates: Vec<Candidate>,
     peel_used: bool,
+    /// See [`FomaOutcome::peel_chain_depth_error`]'s own doc.
+    peel_chain_depth_error: Option<ComposeError>,
     propose_elapsed: Duration,
 }
 
@@ -124,8 +127,20 @@ pub struct FomaOutcome {
     /// Whether [`crate::peel::ReduplicationPeeler::peel_candidates`] returned at least one
     /// candidate for this word (regardless of whether it survived the union dedup against
     /// `propose`'s own output) — the redup gate's own diagnostic (plan P2 gate item "redup words
-    /// round-trip").
+    /// round-trip"). `false` whenever [`Self::peel_chain_depth_error`] is `Some` too (a refused
+    /// peel contributes zero candidates for this word).
     pub peel_used: bool,
+    /// `Some` iff [`crate::peel::ReduplicationPeeler::peel_candidates`] returned
+    /// [`crate::compose_budget::ComposeError::ChainDepthExceeded`] for this word (ADR 0003; see
+    /// `crate::peel`'s own module doc) — a genuinely deep nested-reduplication chain exceeded the
+    /// configured [`crate::compose_budget::ComposeBudget::chain_depth_cap`]. This word's
+    /// `analyses`/`structured`/`candidates_generated` still reflect whatever `propose` (the FST
+    /// proposer alone, unaffected) found on its own; the peel's own contribution for this word was
+    /// refused rather than silently dropped, and this field is the typed, honest record of that —
+    /// never surfaced as a panic or a silent recall gap. `None` (the overwhelming common case,
+    /// including every grammar with `chain_depth_cap` unconfigured — production's default) means
+    /// the peel completed normally, whether or not it found anything.
+    pub peel_chain_depth_error: Option<ComposeError>,
 }
 
 /// One grammar's compiled foma proposer, uncapped verify [`Morpher`], prebuilt morpheme-owner map,
@@ -137,6 +152,15 @@ pub struct FomaAnalyzer<'g> {
     peeler: ReduplicationPeeler,
     morpher: Morpher<'g>,
     owners: Vec<Option<MorphemeOwner>>,
+    /// The [`ComposeBudget`] [`Self::propose_candidates`] threads into every
+    /// [`ReduplicationPeeler::peel_candidates`] call (ADR 0003; `crate::peel`'s own module doc).
+    /// Built ONCE here from `HC_COMPOSE_*` env vars (mirrors [`ComposeBudget::from_env`]'s own "read
+    /// env exactly once, in the production entry point" convention/doc) rather than per word —
+    /// [`ComposeBudget`] is `Copy`, so re-reading it per word would be pure waste, not a correctness
+    /// concern either way. Production's default (`HC_COMPOSE_CHAIN_DEPTH_BUDGET` unset) leaves
+    /// `chain_depth_cap` at `None` (unbounded) — this addition is a zero-behavior-change no-op for
+    /// every existing caller of this type unless that env var is explicitly set.
+    peel_budget: ComposeBudget,
 }
 
 impl<'g> FomaAnalyzer<'g> {
@@ -155,6 +179,7 @@ impl<'g> FomaAnalyzer<'g> {
             peeler: ReduplicationPeeler::new(g),
             morpher: Morpher::new(g, usize::MAX),
             owners: confirm::build_morpheme_owners(g),
+            peel_budget: ComposeBudget::from_env(),
         })
     }
 
@@ -166,7 +191,7 @@ impl<'g> FomaAnalyzer<'g> {
     /// result here is consistent with `Morpher::parse_word_opts(word, &ParseOptions::default())`
     /// under the SAME options, matching P2's own gate requirement).
     pub fn analyze_word(&mut self, word: &str) -> FomaOutcome {
-        let (candidates, peel_used) = self.propose_candidates(word);
+        let (candidates, peel_used, peel_chain_depth_error) = self.propose_candidates(word);
         let candidates_generated = candidates.len();
         // `HC_DEBUG_CANDIDATES=1` (diagnostic-only, off by default, same env-gated-diagnostic
         // precedent as `HC_PREEXPAND_FLAT`/`HC_PREEXPAND_PROBE_CAP`): prints the proposed-candidate
@@ -199,6 +224,7 @@ impl<'g> FomaAnalyzer<'g> {
             structured,
             candidates_generated,
             peel_used,
+            peel_chain_depth_error,
         }
     }
 
@@ -206,18 +232,29 @@ impl<'g> FomaAnalyzer<'g> {
     /// root_index)` — the pre-confirm half of [`Self::analyze_word`]/[`Self::analyze_words`],
     /// factored out so the batch path can run this stage sequentially over every word (see
     /// [`Self::analyze_words`]'s doc for why it stays sequential) before handing the results to
-    /// confirm. Returns the deduped candidate list plus whether the redup peel contributed
-    /// anything for this word.
-    fn propose_candidates(&mut self, word: &str) -> (Vec<Candidate>, bool) {
+    /// confirm. Returns the deduped candidate list, whether the redup peel contributed anything
+    /// for this word, and (ADR 0003) `Some` iff the peel hit its configured chain-depth budget for
+    /// this word (`self.peel_budget`; [`FomaOutcome::peel_chain_depth_error`]'s own doc) — a refused
+    /// peel contributes zero candidates of its own for this word, but never touches `propose`'s
+    /// own (unaffected) candidates.
+    fn propose_candidates(&mut self, word: &str) -> (Vec<Candidate>, bool, Option<ComposeError>) {
         let mut candidates: Vec<Candidate> = self.proposer.propose(word);
 
         // Disjoint field borrows: `proposer` borrows only `self.proposer` (mutably); the
         // `peel_candidates` call below borrows only `self.peeler` (immutably) and copies `self.g`
-        // (a `&Grammar`) — no conflict, since neither touches the other's field.
-        let peeled: Vec<Candidate> = {
+        // (a `&Grammar`) — no conflict, since neither touches the other's field. `self.peel_budget`
+        // is `Copy`, copied out by value for the same reason.
+        let peel_budget = self.peel_budget;
+        let (peeled, peel_chain_depth_error): (Vec<Candidate>, Option<ComposeError>) = {
             let proposer = &mut self.proposer;
             let mut propose_fn = |r: &str| proposer.propose(r);
-            self.peeler.peel_candidates(self.g, word, &mut propose_fn)
+            match self
+                .peeler
+                .peel_candidates(self.g, word, &peel_budget, &mut propose_fn)
+            {
+                Ok(peeled) => (peeled, None),
+                Err(e) => (Vec::new(), Some(e)),
+            }
         };
         let peel_used = !peeled.is_empty();
 
@@ -251,7 +288,7 @@ impl<'g> FomaAnalyzer<'g> {
             "propose UNION peel produced a duplicate (morphemes, root_index) candidate for {word:?}"
         );
 
-        (candidates, peel_used)
+        (candidates, peel_used, peel_chain_depth_error)
     }
 
     /// Batch entry point (perf pass, 2026-07-16): analyze every word in `words`, running PROPOSE
@@ -312,10 +349,12 @@ impl<'g> FomaAnalyzer<'g> {
             .iter()
             .map(|word| {
                 let t0 = word_timer::start();
-                let (candidates, peel_used) = self.propose_candidates(word);
+                let (candidates, peel_used, peel_chain_depth_error) =
+                    self.propose_candidates(word);
                 ProposedWord {
                     candidates,
                     peel_used,
+                    peel_chain_depth_error,
                     propose_elapsed: t0.elapsed(),
                 }
             })
@@ -364,6 +403,7 @@ impl<'g> FomaAnalyzer<'g> {
             peeler,
             morpher: Morpher::new(g, usize::MAX),
             owners,
+            peel_budget: ComposeBudget::from_env(),
         }
     }
 
@@ -482,6 +522,7 @@ fn finish_confirmed(
                 structured,
                 candidates_generated,
                 peel_used: proposal.peel_used,
+                peel_chain_depth_error: proposal.peel_chain_depth_error,
             };
             (outcome, proposal.propose_elapsed + confirm_elapsed)
         })
