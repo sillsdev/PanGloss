@@ -249,8 +249,8 @@ use foma::types::Fsm;
 
 use pg_grammar::chardef::{CharDefId, CharDefKind, CharDefTable};
 use pg_grammar::model::{
-    Dir, Grammar, NaturalClassKind, Pattern, PatternNode, PhonRuleDef, PRuleId, RewriteMode,
-    RewriteRuleDef, RewriteSubruleDef, VarId,
+    Dir, Grammar, MetathesisRuleDef, NaturalClassKind, Pattern, PatternNode, PhonRuleDef, PRuleId,
+    RewriteMode, RewriteRuleDef, RewriteSubruleDef, VarId,
 };
 
 use crate::compose_budget::{compose_checked, union_checked, ComposeBudget, ComposeError};
@@ -594,6 +594,34 @@ pub(crate) fn owning_table<'g>(g: &'g Grammar, rule: &RewriteRuleDef) -> Option<
         .prules
         .iter()
         .position(|pr| matches!(pr, PhonRuleDef::Rewrite(r) if r.xml_id == rule.xml_id))?;
+    owning_table_for_prule_position(g, idx)
+}
+
+/// [`owning_table`]'s sibling for a [`MetathesisRuleDef`] (`openspec/changes/compile-fst-metathesis`,
+/// design.md/ADR 0001): identical reasoning, just matched against the `PhonRuleDef::Metathesis`
+/// variant instead of `PhonRuleDef::Rewrite` — a `MetathesisRuleDef` lives in the SAME `g.prules`
+/// vec and is wired to a stratum's own `prules: Vec<PRuleId>` list exactly the same way, so the
+/// "find this rule's own index, then find which stratum's own cascade contains it" algorithm is
+/// identical; only the variant match differs. Shares [`owning_table_for_prule_position`] with
+/// [`owning_table`] rather than re-deriving the stratum lookup a second time.
+pub(crate) fn owning_table_for_metathesis<'g>(
+    g: &'g Grammar,
+    rule: &MetathesisRuleDef,
+) -> Option<&'g CharDefTable> {
+    let idx = g
+        .prules
+        .iter()
+        .position(|pr| matches!(pr, PhonRuleDef::Metathesis(r) if r.xml_id == rule.xml_id))?;
+    owning_table_for_prule_position(g, idx)
+}
+
+/// Shared tail of [`owning_table`]/[`owning_table_for_metathesis`]: given a rule's own position
+/// (`PRuleId`, found by the caller's own variant-specific `xml_id` lookup) in `g.prules`, find the
+/// stratum whose `prules` list contains it and return that stratum's own `CharDefTable`. `None`
+/// (never a panic, never an implicit table-zero guess) when no stratum's own `prules` list
+/// contains it — see [`owning_table`]'s own doc for the full "unreachable from any stratum" case
+/// this covers.
+fn owning_table_for_prule_position(g: &Grammar, idx: usize) -> Option<&CharDefTable> {
     let target = PRuleId(idx as u32);
     let stratum = g.strata.iter().find(|s| s.prules.contains(&target))?;
     Some(&g.char_tables[stratum.table.0 as usize])
@@ -1220,12 +1248,31 @@ pub fn compile_and_compose_rules_with_budget(
 ) -> Result<Option<Fsm>, ComposeError> {
     let mut composed: Option<Fsm> = None;
     for pr in prules_in_order {
-        let PhonRuleDef::Rewrite(rule) = pr else {
-            skipped.push(match pr {
-                PhonRuleDef::Metathesis(m) => format!("{} (metathesis, unhandled)", m.xml_id),
-                PhonRuleDef::Rewrite(_) => unreachable!(),
-            });
-            continue;
+        let rule = match pr {
+            PhonRuleDef::Rewrite(rule) => rule,
+            PhonRuleDef::Metathesis(m) => {
+                // `openspec/changes/compile-fst-metathesis`: attempt the dedicated swap relation
+                // (module doc on `compile_metathesis_rule`) instead of an unconditional skip. A
+                // shape this change leaves honestly unsupported (module doc's "Scope" section)
+                // still falls through to the SAME `skipped` report every unsupported construct
+                // uses, never a silent wrong compile.
+                match compile_metathesis_rule(opts, g, alphabet, m, budget)? {
+                    Some(net) => {
+                        composed = Some(match composed {
+                            None => net,
+                            Some(prev) => compose_checked(
+                                opts,
+                                prev,
+                                net,
+                                budget,
+                                "compile_and_compose_rules cascade fold",
+                            )?,
+                        });
+                    }
+                    None => skipped.push(format!("{} (metathesis, unhandled)", m.xml_id)),
+                }
+                continue;
+            }
         };
         // Direction/mode fidelity (module doc): every reference-grammar rule this prototype has
         // seen is `Iterative`/`LeftToRight`, compiled via plain foma `->` (unioned per alpha-tuple,
@@ -1304,12 +1351,30 @@ pub fn compile_and_compose_rules_gated_with_budget(
 ) -> Result<Option<Fsm>, ComposeError> {
     let mut composed: Option<Fsm> = None;
     for (rule_pos, pr) in prules_in_order.iter().enumerate() {
-        let PhonRuleDef::Rewrite(rule) = pr else {
-            skipped.push(match pr {
-                PhonRuleDef::Metathesis(m) => format!("{} (metathesis, unhandled)", m.xml_id),
-                PhonRuleDef::Rewrite(_) => unreachable!(),
-            });
-            continue;
+        let rule = match pr {
+            PhonRuleDef::Rewrite(rule) => rule,
+            PhonRuleDef::Metathesis(m) => {
+                // `openspec/changes/compile-fst-metathesis`: a `MetathesisRuleDef` carries no
+                // subrules at all (no MPR/POS gating surface, module doc on `MetathesisRuleDef`),
+                // so `subrule_ok`/gating simply does not apply -- every group compiles the SAME
+                // metathesis relation `compile_and_compose_rules_with_budget` does.
+                match compile_metathesis_rule(opts, g, alphabet, m, budget)? {
+                    Some(net) => {
+                        composed = Some(match composed {
+                            None => net,
+                            Some(prev) => compose_checked(
+                                opts,
+                                prev,
+                                net,
+                                budget,
+                                "compile_and_compose_rules_gated cascade fold",
+                            )?,
+                        });
+                    }
+                    None => skipped.push(format!("{} (metathesis, unhandled)", m.xml_id)),
+                }
+                continue;
+            }
         };
         // See `compile_and_compose_rules_with_budget`'s own doc: mode/dir detection now lives in
         // `compile_rewrite_rule_subset` itself (`is_fully_supported_shape`), so an unsupported
@@ -1367,6 +1432,213 @@ pub fn is_fully_supported_shape(g: &Grammar, rule: &RewriteRuleDef) -> bool {
 /// Convenience re-export so the driver doesn't need a second `use` line for the one subrule field
 /// this module reads directly (`mode`/`dir` are read via [`is_fully_supported_shape`] instead).
 pub type Subrule = RewriteSubruleDef;
+
+// =================================================================================================
+// Metathesis (`openspec/changes/compile-fst-metathesis`; ADR 0001, `docs/adr/
+// 0001-honest-capability-boundary.md`): the dedicated swap relation.
+//
+// A [`MetathesisRuleDef`] (model.rs's own doc, cited there) is ONE match pattern plus two switch
+// POSITIONS (`left_switch`/`right_switch`, each a single index into `pattern.nodes` — never a
+// range: the model has no way to represent a multi-node switch group at all, unlike the oracle's
+// own generalized `pg_rules::metathesis` machinery, which handles a possibly-wider *compiled
+// segment* span defensively even though no DTD-legal, C#-loadable grammar can ever produce one
+// wider than one node — see that module's own doc). Synthesis reorders the two switch nodes'
+// OWN VALUES: whichever switch is PHYSICALLY LAST in `pattern.nodes` ends up FIRST in the output;
+// whichever is physically first ends up last; every node strictly between them (if any) keeps its
+// own slot, value unchanged (`pg_rules::metathesis::synthesis_reorder`'s own `move_nodes_after`
+// algorithm, hand-traced and cross-checked against both of this repo's real HermitCrab-conformant
+// fixtures — `machine/conformance/languages/metathesis-phase-isolation`'s `mrSimpleMeta`/
+// `mrComplexMeta` — which both author `left_switch` physically AFTER `right_switch`, the only
+// shape a genuine (non-vacuous) metathesis rule would ever use). This characterization is
+// tag-name-agnostic (it never matters whether the physically-last node happens to be tagged
+// `leftSwitch` or `rightSwitch`): it is a literal POSITIONAL swap of the window's two endpoint
+// slots, with any interior/exterior context passed through unchanged — exactly the shape a plain
+// foma `->` replace rule's own LHS/RHS concatenation can render directly, no new `foma`/`pg-fst`
+// primitive needed (contrast [`compile_rtl_branch_net`]'s own reversal construction, which DOES
+// need one).
+//
+// # The relation: per-branch literal cross product, unioned (mirrors `resolve_alpha_tuples`)
+// A switch (or any other pattern position) may be a natural-class UNION with more than one member,
+// and the value that matched at one endpoint must reappear, UNCHANGED, at its own (possibly
+// swapped) output position — an identity-preservation requirement a plain "[classA] ... [classB]
+// -> [classB] ... [classA]" rendering would NOT satisfy (foma's `->` builds a nondeterministic
+// cross product of the two SIDES' own languages when they are not both singletons, silently
+// pairing ANY classA member with ANY classB member rather than the one that actually matched at a
+// given occurrence — exactly the failure mode `resolve_alpha_tuples`'s own module doc already
+// found and fixed for alpha variables). [`compile_metathesis_rule`] applies the SAME fix: resolve
+// every slot's own candidate members, enumerate the full cross product (no joint-agreement filter
+// is needed here — unlike alpha variables, metathesis has no shared-`VarId` agreement constraint
+// linking two positions; every combination is independently a real candidate underlying shape),
+// and for each concrete assignment render ONE fully-literal branch — `"<pos0> <pos1> ... ->
+// <pos0'> <pos1'> ..."`, document order, every non-switch position IDENTICAL text on both sides,
+// the two switch positions' own concrete tokens TRANSPOSED — then union every branch together.
+// This union is safe for the SAME reason [`compile_rtl_branch_net`]'s own safety-net union is
+// (that function's own doc): each branch is a COMPLETE, fully-literal replace transducer with no
+// "did nothing" escape hatch at a position its own (fully concrete, non-overlapping-by-construction
+// — a real input position holds exactly one concrete token) literal context matches, so unioning
+// adds no spurious identity path.
+//
+// # Scope this change compiles faithfully vs. leaves honestly unsupported
+// **Faithful (`ConfirmOnly`, never `Admit` — ADR 0001, no proven no-false-negative admission-filter
+// argument exists):** `Dir::LeftToRight` only; the rule resolves to a real owning
+// [`CharDefTable`] ([`owning_table_for_metathesis`]); its WHOLE pattern (both switches, every
+// interior/exterior context node) is a shape [`pattern_slots`] accepts with no [`Slot::Alpha`]/
+// [`Slot::Repeat`] occurrence anywhere (no `AlphaVariable`/`OptionalSegmentSequence` is attested in
+// ANY `<MetathesisRule>` this crate has ever seen — the DTD's own `<MetathesisRule>` structural
+// description is a bare `<PhoneticSequence>` of `Segment`/`BoundaryMarker`/`SimpleContext` nodes,
+// module doc on [`MetathesisRuleDef`] — so this is a conservative, evidence-based scope line, not
+// an arbitrary one); `left_switch != right_switch` (the loader's own load-time invariant,
+// defensively re-checked here); and the full slot-candidate cross product stays within
+// `budget.tuple_cap()`.
+// **Honest-unsupported (`Ok(None)`, reported `skipped` — never a silent wrong compile):**
+// - `Dir::RightToLeft` — a genuine, tag-independent "prefer the rightmost overlapping match"
+//   construction (mirroring [`compile_rtl_branch_net`]'s reverse-mirror-then-[`fsm_reverse`]
+//   technique) is mechanically plausible here, but — unlike ordinary `Iterative` rewrite rules,
+//   which `compile_rtl_branch_net`'s own doc found to be empirically DIRECTION-BLIND in
+//   `pg_rules::rewrite` (justifying that function's safety-net union) — `pg_rules::metathesis`'s
+//   own `compile_switch_pattern` genuinely THREADS `dir` into which physical end of an overlapping
+//   candidate set wins (its own module doc's "Direction handling" section). A safety-net union
+//   built on the WRONG assumption (oracle direction-blindness) would be unsound here, not merely
+//   imprecise, so this change does not attempt it without its own dedicated oracle-matrix
+//   containment witness (design.md task 1: "Enumerate switch, direction, ... variants" — not done
+//   for `RightToLeft` in this pass). Flagged as a documented, evidence-based scope boundary for a
+//   follow-on change, exactly like [`RewriteMode::Simultaneous`]/`Dir::RightToLeft` rewrite
+//   compilation each shipped as their OWN separate `openspec` change before this one existed.
+// - Any pattern needing `Quantifier`/`Segments`/`Anchor`/a disagree-polarity alpha var anywhere
+//   (`pattern_slots`'s own scope line) — includes, notably, `finalBoundaryCondition`/
+//   `initialBoundaryCondition` (`mrComplexMeta`'s own shape): an anchor lowers to a
+//   `PatternNode::Anchor` node INSIDE `pattern.nodes` for a `MetathesisRuleDef` (`pg_grammar::load`'s
+//   `load_metathesis_rule`), and `pattern_slots` refuses ANY `Anchor` occurrence grammar-wide today
+//   (not a metathesis-specific gap — the identical refusal already applies to every
+//   `RewriteRuleDef` LHS/RHS/environment carrying one).
+// - A `Slot::Alpha`/`Slot::Repeat` occurrence anywhere in the pattern (not attested; see above).
+// - No resolvable owning table ([`owning_table_for_metathesis`] returning `None`).
+// - The slot-candidate cross product exceeds `budget.tuple_cap()` — reported via the SAME
+//   [`ComposeError::AlphaTupleBudgetExceeded`] variant `compile_rewrite_rule_subset`'s own alpha-
+//   tuple check uses (a deliberate reuse, not a new error variant: both are "how many concrete
+//   per-position assignments must this rule's cascade fold over", the same shape, just driven by
+//   slot-candidate cardinality here rather than `AlphaVar` occurrence cardinality).
+//
+// # Big-O
+// `O(P · N)` states/arcs for the WHOLE rule, where `P` is the surviving cross-product size (bounded
+// by `budget.tuple_cap()`, default 5,000 — module doc on [`ComposeBudget`]) and `N` is the
+// pattern's own node count (each branch is one small literal-concatenation `Fsm`, `fsm_union`-folded
+// `P` times) — linear in both, the same shape [`resolve_alpha_tuples`]'s own per-tuple fold already
+// has, never exponential.
+// =================================================================================================
+
+/// Every [`CharDefId`] a slot may concretely resolve to, in this rule's own document order — `None`
+/// for [`Slot::Alpha`]/[`Slot::Repeat`] (out of scope for metathesis, module doc above: not attested
+/// in any `<MetathesisRule>` this crate has seen).
+fn slot_candidates(slot: &Slot) -> Option<Vec<CharDefId>> {
+    match slot {
+        Slot::Fixed(cd) => Some(vec![*cd]),
+        Slot::Union(members) => Some(members.clone()),
+        Slot::Alpha { .. } | Slot::Repeat { .. } => None,
+    }
+}
+
+/// Compiles one [`MetathesisRuleDef`] into the dedicated swap relation (module doc above), or
+/// `Ok(None)` for a shape this change leaves honestly unsupported — the SAME "uncovered, caller
+/// reports it `skipped`" contract [`compile_rewrite_rule_subset`] already uses for an unsupported
+/// `RewriteRuleDef` pattern construct.
+pub(crate) fn compile_metathesis_rule(
+    opts: &FomaOptions,
+    g: &Grammar,
+    alphabet: &SegAlphabet,
+    rule: &MetathesisRuleDef,
+    budget: &ComposeBudget,
+) -> Result<Option<Fsm>, ComposeError> {
+    // `Dir::RightToLeft`: honestly unsupported (module doc's own "Scope" section) — never silently
+    // compiled as if `LeftToRight`.
+    if !matches!(rule.dir, Dir::LeftToRight) {
+        return Ok(None);
+    }
+    let Some(table) = owning_table_for_metathesis(g, rule) else {
+        return Ok(None);
+    };
+    let mut next_occurrence = 0usize;
+    let Some(slots) = pattern_slots(g, table, &rule.pattern, &mut next_occurrence) else {
+        return Ok(None);
+    };
+    let left_idx = rule.left_switch as usize;
+    let right_idx = rule.right_switch as usize;
+    if left_idx == right_idx || left_idx >= slots.len() || right_idx >= slots.len() {
+        // Defensive only: the loader's own `load_metathesis_rule` already refuses to build a
+        // `MetathesisRuleDef` with `left_switch == right_switch`, and both indices are resolved
+        // from `pattern.nodes` itself, so both are always in bounds by construction. Never reached
+        // by any grammar this crate's own loader can produce; honest-unsupported rather than a
+        // panic if that invariant is ever violated some other way.
+        return Ok(None);
+    }
+    let (lo, hi) = (left_idx.min(right_idx), left_idx.max(right_idx));
+
+    let mut candidates: Vec<Vec<CharDefId>> = Vec::with_capacity(slots.len());
+    for slot in &slots {
+        match slot_candidates(slot) {
+            Some(members) if !members.is_empty() => candidates.push(members),
+            _ => return Ok(None), // Slot::Alpha/Slot::Repeat, or a vacuous empty class.
+        }
+    }
+
+    // Cheapest-possible-predictor check (module doc's Big-O note; mirrors `resolve_alpha_tuples`'s
+    // own V3 discipline): computed BEFORE any regex is rendered or `Fsm` is built.
+    let total: usize = candidates.iter().map(Vec::len).product();
+    if total > budget.tuple_cap() {
+        return Err(ComposeError::AlphaTupleBudgetExceeded {
+            surviving: total,
+            limit: budget.tuple_cap(),
+            rule_xml_id: rule.xml_id.clone(),
+        });
+    }
+
+    // Full cross product, no joint-agreement filter (module doc: metathesis has no shared-`VarId`
+    // agreement constraint between positions — every combination is independently a real candidate
+    // underlying shape).
+    let mut assignments: Vec<Vec<CharDefId>> = vec![Vec::with_capacity(slots.len())];
+    for members in &candidates {
+        let mut next = Vec::with_capacity(assignments.len() * members.len());
+        for asg in &assignments {
+            for &cd in members {
+                let mut a = asg.clone();
+                a.push(cd);
+                next.push(a);
+            }
+        }
+        assignments = next;
+    }
+
+    let mut net: Option<Fsm> = None;
+    for asg in &assignments {
+        let mut rhs_vals = asg.clone();
+        rhs_vals.swap(lo, hi);
+        let lhs_text = asg
+            .iter()
+            .map(|cd| alphabet.token(*cd).to_string())
+            .collect::<Vec<_>>()
+            .join(" ");
+        let rhs_text = rhs_vals
+            .iter()
+            .map(|cd| alphabet.token(*cd).to_string())
+            .collect::<Vec<_>>()
+            .join(" ");
+        let regex = format!("{lhs_text} -> {rhs_text}");
+        let branch_net = fsm_parse_regex(opts, &regex, None, None).unwrap_or_else(|| {
+            panic!("foma rejected compiled metathesis regex for rule {}: {regex:?}", rule.xml_id)
+        });
+        net = Some(match net {
+            None => branch_net,
+            Some(prev) => union_checked(
+                opts,
+                prev,
+                branch_net,
+                budget,
+                "compile_metathesis_rule cross-product union",
+            )?,
+        });
+    }
+    Ok(net)
+}
 
 #[cfg(test)]
 mod compose_budget_tests {

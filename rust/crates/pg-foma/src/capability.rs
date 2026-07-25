@@ -221,7 +221,16 @@ impl CharacteristicKind {
             // `RightToLeftRewriteFaithfulReversalPredicate` proves `Admit` (it never does today --
             // see that predicate's own doc) or Refuses an out-of-shape rule.
             CharacteristicKind::RightToLeftRewrite => Disposition::ConfigPredicate,
-            CharacteristicKind::Metathesis => Disposition::FailClosed,
+            // `compile-fst-metathesis`: the dedicated swap-relation construction
+            // (`crate::replace::compile_metathesis_rule`) makes `Dir::LeftToRight` metathesis
+            // compilation faithful (never a silent wrong reorder) for the same
+            // `pattern_slots`-acceptable pattern shape any other rewrite rule already needs -- no
+            // longer bare FailClosed, but no proven no-false-negative admission-filter argument
+            // exists either (ADR 0001), so the resting disposition is the ConfigPredicate landing
+            // spot: ConfirmOnly unless/until `MetathesisFaithfulSwapPredicate` proves the shape is
+            // in scope (it never proves `Admit` today) or Refuses an out-of-shape/`Dir::RightToLeft`
+            // rule.
+            CharacteristicKind::Metathesis => Disposition::ConfigPredicate,
             CharacteristicKind::Epenthesis => Disposition::ConfigPredicate,
             CharacteristicKind::SubruleGating => Disposition::Proven,
             CharacteristicKind::CircumfixOutputAction => Disposition::ConfigPredicate,
@@ -368,6 +377,26 @@ pub struct RightToLeftRewriteDetail {
 /// compile-bounded-fst-quantifiers`): the two independent facts
 /// [`QuantifierBoundedExpansionPredicate`] needs about a rule observed to use
 /// `PatternNode::Quantifier` somewhere in its own LHS/RHS/environment patterns.
+/// [`ObservationDetail::Metathesis`]'s payload (`openspec/changes/compile-fst-metathesis`): the
+/// one structural fact [`MetathesisFaithfulSwapPredicate`] needs about a `PhonRuleDef::Metathesis`
+/// rule, computed once here (self-contained projection, same reasoning [`LoweredSpan`]'s own doc
+/// gives) rather than re-derived at `evaluate` time.
+#[derive(Debug, Clone, Copy)]
+pub struct MetathesisDetail {
+    pub rule: PRuleId,
+    /// `true` iff `crate::replace::compile_metathesis_rule`'s own structural admission floor is
+    /// met: `Dir::LeftToRight`, a resolvable owning table
+    /// ([`crate::replace::owning_table_for_metathesis`]), `left_switch != right_switch` both in
+    /// bounds, and the WHOLE pattern is a shape [`crate::replace::pattern_slots`] accepts with no
+    /// `crate::replace::Slot::Alpha`/`crate::replace::Slot::Repeat` occurrence anywhere (that
+    /// function's own module doc: no `AlphaVariable`/`OptionalSegmentSequence` is attested in any
+    /// `<MetathesisRule>` this crate has seen). Does NOT check the cross-product tuple-budget
+    /// dimension (`ComposeBudget::tuple_cap`) -- the same convention
+    /// [`RightToLeftRewriteDetail`]/[`QuantifierPatternDetail`] already use: a runtime resource
+    /// concern the D1 profile does not model, not a structural fact about the rule itself.
+    pub swap_construction_attempted: bool,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct QuantifierPatternDetail {
     pub rule: PRuleId,
@@ -403,6 +432,7 @@ pub enum ObservationDetail {
     MultiTable(MultiTableDetail),
     RightToLeftRewrite(RightToLeftRewriteDetail),
     QuantifierPattern(QuantifierPatternDetail),
+    Metathesis(MetathesisDetail),
 }
 
 /// One occurrence of a characteristic in a [`CharacteristicsProfile`] (design.md D1).
@@ -513,6 +543,16 @@ impl CharacteristicsProfile {
             _ => None,
         })
     }
+
+    /// `rule`'s own [`MetathesisDetail`], if it was observed as a `PhonRuleDef::Metathesis` rule at
+    /// all (`characterize`'s own `PhonRuleDef::Metathesis` arm; `openspec/changes/
+    /// compile-fst-metathesis`).
+    pub fn metathesis_detail(&self, rule: PRuleId) -> Option<&MetathesisDetail> {
+        self.observations.iter().find_map(|o| match &o.detail {
+            ObservationDetail::Metathesis(d) if d.rule == rule => Some(d),
+            _ => None,
+        })
+    }
 }
 
 // -------------------------------------------------------------------------------------------
@@ -562,6 +602,44 @@ fn rtl_reversal_construction_attempted(g: &Grammar, r: &pg_grammar::model::Rewri
         }
     }
     true
+}
+
+/// [`MetathesisDetail::swap_construction_attempted`]'s own computation (`openspec/changes/
+/// compile-fst-metathesis`): re-runs the SAME structural admission floor
+/// `crate::replace::compile_metathesis_rule` itself checks before ever rendering an xre regex --
+/// `Dir::LeftToRight`, a resolvable owning table, in-bounds distinct switch indices, and a whole
+/// pattern `crate::replace::pattern_slots` accepts with no `crate::replace::Slot::Alpha`/
+/// `crate::replace::Slot::Repeat` occurrence anywhere. Cheap and purely structural: no
+/// `foma::options::FomaOptions`/`crate::replace::SegAlphabet`/`ComposeBudget` needed, unlike the
+/// real compile (mirrors [`rtl_reversal_construction_attempted`]'s own convention).
+fn metathesis_swap_construction_attempted(
+    g: &Grammar,
+    m: &pg_grammar::model::MetathesisRuleDef,
+) -> bool {
+    if !matches!(m.dir, Dir::LeftToRight) {
+        return false;
+    }
+    let Some(table) = crate::replace::owning_table_for_metathesis(g, m) else {
+        return false;
+    };
+    if m.left_switch == m.right_switch {
+        return false;
+    }
+    let mut next_occurrence = 0usize;
+    let Some(slots) = crate::replace::pattern_slots(g, table, &m.pattern, &mut next_occurrence)
+    else {
+        return false;
+    };
+    let (li, ri) = (m.left_switch as usize, m.right_switch as usize);
+    if li >= slots.len() || ri >= slots.len() {
+        return false;
+    }
+    !slots.iter().any(|s| {
+        matches!(
+            s,
+            crate::replace::Slot::Alpha { .. } | crate::replace::Slot::Repeat { .. }
+        )
+    })
 }
 
 /// `true` iff `nodes` (at ANY nesting depth — a `PatternNode::Quantifier`'s own `children` is
@@ -1092,10 +1170,13 @@ pub fn characterize(g: &Grammar) -> CharacteristicsProfile {
                     ));
                 }
             }
-            PhonRuleDef::Metathesis(_) => observations.push(CharacteristicObservation::new(
+            PhonRuleDef::Metathesis(m) => observations.push(CharacteristicObservation::new(
                 CharacteristicKind::Metathesis,
                 ModelLocation::PhonRule(id),
-                ObservationDetail::None,
+                ObservationDetail::Metathesis(MetathesisDetail {
+                    rule: id,
+                    swap_construction_attempted: metathesis_swap_construction_attempted(g, m),
+                }),
             )),
         }
     }
@@ -1672,6 +1753,103 @@ impl CapabilityPredicate for RightToLeftRewriteFaithfulReversalPredicate {
 }
 
 // -------------------------------------------------------------------------------------------
+// Metathesis: the config-predicate `compile-fst-metathesis` registers
+// -------------------------------------------------------------------------------------------
+
+/// `openspec/changes/compile-fst-metathesis`'s own capability predicate: a `PhonRuleDef::Metathesis`
+/// rule is now faithfully COMPILABLE via `crate::replace::compile_metathesis_rule`'s dedicated swap
+/// relation (that function's own module doc: a per-branch literal cross-product union, mirroring
+/// `resolve_alpha_tuples`'s own identity-preservation fix) for the `Dir::LeftToRight`,
+/// `pattern_slots`-acceptable shape. `Dir::RightToLeft`, or any pattern needing `Quantifier`/
+/// `Segments`/`Anchor`/a disagree-polarity alpha var/`Slot::Alpha`/`Slot::Repeat` anywhere, stays
+/// exactly as unsupported as before this change (`crate::replace::compile_metathesis_rule` itself
+/// returns `Ok(None)`, honestly skipped).
+///
+/// # Disposition
+/// - **Not observed as `PhonRuleDef::Metathesis` at all**: vacuously `Admit` — nothing for this
+///   predicate to say (mirrors [`RightToLeftRewriteFaithfulReversalPredicate`]'s own "not
+///   applicable here" convention).
+/// - **Pattern shape within scope** (`swap_construction_attempted == true`):
+///   [`PredicateVerdict::ConfirmOnly`] — the cross-product swap-relation construction is a proven
+///   SAFE, FAITHFUL FST compile for the SUPPORTED case (this change's own containment fixture,
+///   `tests/phase_c_metathesis.rs`, proves oracle-EXACT equality against `pg_rules::metathesis`,
+///   not merely a safe superset), but no PROVEN no-false-negative admission-filter argument exists
+///   (ADR 0001's own bar for `Admit`) — confirm-only-by-default, the same landing spot every other
+///   `ConfigPredicate` characteristic in this registry already uses.
+/// - **Pattern shape outside scope** (`swap_construction_attempted == false` — `Dir::RightToLeft`
+///   (this change's own documented scope boundary, `crate::replace::compile_metathesis_rule`'s
+///   module doc: the oracle is direction-AWARE here, unlike ordinary rewrite rules, so a safety-net
+///   union built on an RTL-rewrite-style direction-blindness assumption would be unsound, not merely
+///   imprecise — deferred to a follow-on change with its own oracle-matrix witness), an
+///   unresolvable owning table, or a pattern `crate::replace::pattern_slots` refuses/that carries a
+///   `Slot::Alpha`/`Slot::Repeat` occurrence: [`PredicateVerdict::Refuse`] — the real compiler
+///   already honestly skips (`Ok(None)`) exactly this rule, never a silent wrong compile;
+///   overridable per ADR 0005.
+///
+/// # Provenance
+/// [`EvidenceProvenance::Structural`]: `swap_construction_attempted` reads directly-inspectable
+/// `model.rs`/`CharDefTable` data (the same structural facts `crate::replace::
+/// compile_metathesis_rule` itself checks before ever rendering an xre regex), no oracle witnesses
+/// needed to derive the VERDICT itself — the safe-recall argument for the SUPPORTED case (exact
+/// containment, not merely a safe superset) was separately, empirically verified against
+/// `pg_rules::metathesis` (this crate's own containment fixture), the same "oracle verified the
+/// construction, the predicate reads structure" split [`RightToLeftRewriteFaithfulReversalPredicate`]/
+/// [`MultiTableFaithfulThreadingPredicate`]'s own docs draw.
+///
+/// # Node applicability
+/// Like [`RightToLeftRewriteFaithfulReversalPredicate`]/[`QuantifierBoundedExpansionPredicate`],
+/// addressed via [`rewrite_rule_of`] at a rewrite-rule leaf node — the SAME plan-node-extraction
+/// helper reused rather than re-derived: `FragmentSpec::RewriteRule { rule: PRuleId }` is generic
+/// across BOTH `PhonRuleDef` variants (`crate::plan`'s own doc: "a single rewrite rule's
+/// transducer, addressed by its `PRuleId`" — no variant-specific fragment kind exists), so a
+/// `PhonRuleDef::Metathesis` leaf uses the identical node shape a `PhonRuleDef::Rewrite` leaf does.
+pub struct MetathesisFaithfulSwapPredicate;
+
+impl CapabilityPredicate for MetathesisFaithfulSwapPredicate {
+    fn id(&self) -> PredicateId {
+        "metathesis.faithful-swap-construction"
+    }
+
+    fn discharges(&self) -> &[CharacteristicKind] {
+        &[CharacteristicKind::Metathesis]
+    }
+
+    fn provenance(&self) -> EvidenceProvenance {
+        EvidenceProvenance::Structural
+    }
+
+    fn evaluate(
+        &self,
+        profile: &CharacteristicsProfile,
+        plan_node: &PlanNodeKind,
+    ) -> PredicateVerdict {
+        let Some(rule) = rewrite_rule_of(plan_node) else {
+            return PredicateVerdict::Admit;
+        };
+        let Some(detail) = profile.metathesis_detail(rule) else {
+            // Not observed as PhonRuleDef::Metathesis at all -- nothing for this predicate to say
+            // (module doc).
+            return PredicateVerdict::Admit;
+        };
+        if !detail.swap_construction_attempted {
+            return PredicateVerdict::Refuse(CapabilityDiagnostic {
+                predicate: self.id(),
+                construct: format!("prule {} (MetathesisRule)", rule.0),
+                witness: "this rule is Dir::RightToLeft (out of scope for this change's swap \
+                          construction, module doc on crate::replace::compile_metathesis_rule), \
+                          or its own pattern needs a construct crate::replace::pattern_slots does \
+                          not support (Quantifier/Segments/Anchor/disagree-polarity alpha var), \
+                          carries a Slot::Alpha/Slot::Repeat occurrence, or has no resolvable \
+                          owning character-definition table -- the real compiler already honestly \
+                          skips (Ok(None)) this exact rule rather than silently mis-compiling it"
+                    .to_string(),
+            });
+        }
+        PredicateVerdict::ConfirmOnly
+    }
+}
+
+// -------------------------------------------------------------------------------------------
 // QuantifierPattern: the config-predicate `compile-bounded-fst-quantifiers` registers
 // -------------------------------------------------------------------------------------------
 
@@ -1862,18 +2040,19 @@ impl PredicateRegistry {
     }
 }
 
-/// The registry this step ships: the four REAL predicates
+/// The registry this step ships: the five REAL predicates
 /// ([`SimultaneousSubruleOverlapPredicate`], [`MultiTableFaithfulThreadingPredicate`],
-/// [`RightToLeftRewriteFaithfulReversalPredicate`], [`QuantifierBoundedExpansionPredicate`]), plus
-/// an explicit [`FailClosedPlaceholder`] for every other `FailClosed`/`ConfigPredicate`
-/// characteristic — proving the coverage contract holds today without pretending any of those
-/// other constructs has a real proof yet.
+/// [`RightToLeftRewriteFaithfulReversalPredicate`], [`QuantifierBoundedExpansionPredicate`],
+/// [`MetathesisFaithfulSwapPredicate`]), plus an explicit [`FailClosedPlaceholder`] for every other
+/// `FailClosed`/`ConfigPredicate` characteristic — proving the coverage contract holds today
+/// without pretending any of those other constructs has a real proof yet.
 pub fn default_registry() -> PredicateRegistry {
     let mut r = PredicateRegistry::new();
     r.register(Box::new(SimultaneousSubruleOverlapPredicate));
     r.register(Box::new(MultiTableFaithfulThreadingPredicate));
     r.register(Box::new(RightToLeftRewriteFaithfulReversalPredicate));
     r.register(Box::new(QuantifierBoundedExpansionPredicate));
+    r.register(Box::new(MetathesisFaithfulSwapPredicate));
     r.register(Box::new(FailClosedPlaceholder::new(
         "compounding.placeholder",
         &[CharacteristicKind::Compounding],
@@ -1888,11 +2067,6 @@ pub fn default_registry() -> PredicateRegistry {
         "mpr-group-overwrite.placeholder",
         &[CharacteristicKind::MprGroupOverwrite],
         "cover-mpr-groups",
-    )));
-    r.register(Box::new(FailClosedPlaceholder::new(
-        "metathesis.placeholder",
-        &[CharacteristicKind::Metathesis],
-        "compile-fst-metathesis",
     )));
     r.register(Box::new(FailClosedPlaceholder::new(
         "epenthesis.placeholder",
@@ -2599,6 +2773,215 @@ mod tests {
                 assert_eq!(diag.predicate, "right-to-left-rewrite.faithful-reversal-construction");
             }
             other => panic!("expected Refuse for a Quantifier-shaped RTL rule, got {other:?}"),
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Metathesis (`openspec/changes/compile-fst-metathesis`)
+    // ---------------------------------------------------------------------------------------
+
+    /// Synthetic, delanguaged fixture: two adjacent, distinct, singleton-class switch segments,
+    /// no `multipleApplicationOrder` (defaults `Dir::LeftToRight`) -- the well-formed switch-tag
+    /// convention (`leftSwitch` on the node physically LAST), the exact shape
+    /// `tests/phase_c_metathesis.rs`'s own containment fixture proves oracle-exact.
+    const METATHESIS_PLAIN_XML: &str = r#"<HermitCrabInput><Language><Name>MetaPlain</Name>
+      <CharacterDefinitionTable id="t1"><Name>Main</Name>
+        <SegmentDefinitions>
+          <SegmentDefinition id="cq"><Representations><Representation>q</Representation></Representations></SegmentDefinition>
+          <SegmentDefinition id="cp"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
+        </SegmentDefinitions>
+      </CharacterDefinitionTable>
+      <NaturalClasses>
+        <SegmentNaturalClass id="ncQ"><Name>Q</Name><Segment segment="cq" /></SegmentNaturalClass>
+        <SegmentNaturalClass id="ncP"><Name>P</Name><Segment segment="cp" /></SegmentNaturalClass>
+      </NaturalClasses>
+      <PhonologicalRuleDefinitions>
+        <MetathesisRule id="mrPlain" leftSwitch="swP" rightSwitch="swQ">
+          <Name>metaPlainDemo</Name>
+          <StructuralDescription>
+            <PhoneticTemplate>
+              <PhoneticSequence>
+                <SimpleContext id="swQ" naturalClass="ncQ" />
+                <SimpleContext id="swP" naturalClass="ncP" />
+              </PhoneticSequence>
+            </PhoneticTemplate>
+          </StructuralDescription>
+        </MetathesisRule>
+      </PhonologicalRuleDefinitions>
+      <Strata><Stratum characterDefinitionTable="t1" phonologicalRules="mrPlain"><Name>S</Name></Stratum></Strata>
+    </Language></HermitCrabInput>"#;
+
+    /// `characterize` marks a plain, in-shape `Dir::LeftToRight` metathesis rule `ConfigPredicate`,
+    /// with `swap_construction_attempted == true` -- the swap construction can genuinely be
+    /// attempted for this rule's own pattern shape (two singleton-class switches, no environment).
+    #[test]
+    fn characterize_marks_metathesis_config_predicate_when_shape_supported() {
+        let g = load(METATHESIS_PLAIN_XML);
+        let PhonRuleDef::Metathesis(m) = &g.prules[0] else {
+            panic!("expected a Metathesis-kind rule");
+        };
+        assert_eq!(m.dir, Dir::LeftToRight);
+
+        let profile = characterize(&g);
+        assert!(
+            profile.observations().iter().any(|o| o.kind
+                == CharacteristicKind::Metathesis
+                && o.disposition == Disposition::ConfigPredicate),
+            "PhonRuleDef::Metathesis must characterize ConfigPredicate (no longer bare \
+             FailClosed): {:?}",
+            profile.observations()
+        );
+        let detail = profile
+            .metathesis_detail(PRuleId(0))
+            .expect("Metathesis must carry a MetathesisDetail");
+        assert!(
+            detail.swap_construction_attempted,
+            "a plain two-singleton-switch, no-environment rule is exactly the shape the swap \
+             construction supports"
+        );
+    }
+
+    /// Positive witness: [`MetathesisFaithfulSwapPredicate`] returns `ConfirmOnly` (never `Admit`
+    /// -- no proven no-false-negative admission filter exists, module doc) for an in-shape
+    /// `Dir::LeftToRight` metathesis rule.
+    #[test]
+    fn metathesis_predicate_confirm_only_for_supported_shape() {
+        let g = load(METATHESIS_PLAIN_XML);
+        let profile = characterize(&g);
+        let predicate = MetathesisFaithfulSwapPredicate;
+        assert_eq!(
+            predicate.evaluate(&profile, &leaf_for(PRuleId(0))),
+            PredicateVerdict::ConfirmOnly,
+            "an in-shape metathesis rule must be ConfirmOnly, never Refuse or Admit"
+        );
+    }
+
+    /// A grammar with no `PhonRuleDef::Metathesis` at all never observes `Metathesis`, and the
+    /// predicate vacuously `Admit`s -- the byte-identical, never-touched ordinary case.
+    #[test]
+    fn metathesis_predicate_admits_vacuously_for_rule_without_metathesis() {
+        let g = load(RTL_PLAIN_XML);
+        let profile = characterize(&g);
+        assert!(
+            !profile
+                .observations()
+                .iter()
+                .any(|o| o.kind == CharacteristicKind::Metathesis),
+            "a grammar with no MetathesisRule must never observe Metathesis at all"
+        );
+        let predicate = MetathesisFaithfulSwapPredicate;
+        assert_eq!(
+            predicate.evaluate(&profile, &leaf_for(PRuleId(0))),
+            PredicateVerdict::Admit
+        );
+    }
+
+    /// Negative witness: a `Dir::RightToLeft` metathesis rule -- this change's own documented scope
+    /// boundary (`crate::replace::compile_metathesis_rule`'s module doc: the oracle is direction-
+    /// AWARE for metathesis, so an RTL-rewrite-style safety-net union would be unsound here) -- must
+    /// characterize `swap_construction_attempted == false`, and the predicate must `Refuse` it
+    /// (never silently `ConfirmOnly`/`Admit` a rule the real compiler cannot even attempt).
+    #[test]
+    fn metathesis_predicate_refuses_right_to_left_rule() {
+        const XML: &str = r#"<HermitCrabInput><Language><Name>MetaRtl</Name>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions>
+              <SegmentDefinition id="cq"><Representations><Representation>q</Representation></Representations></SegmentDefinition>
+              <SegmentDefinition id="cp"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
+            </SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <NaturalClasses>
+            <SegmentNaturalClass id="ncQ"><Name>Q</Name><Segment segment="cq" /></SegmentNaturalClass>
+            <SegmentNaturalClass id="ncP"><Name>P</Name><Segment segment="cp" /></SegmentNaturalClass>
+          </NaturalClasses>
+          <PhonologicalRuleDefinitions>
+            <MetathesisRule id="mrRtl" leftSwitch="swP" rightSwitch="swQ" multipleApplicationOrder="rightToLeftIterative">
+              <Name>metaRtlDemo</Name>
+              <StructuralDescription>
+                <PhoneticTemplate>
+                  <PhoneticSequence>
+                    <SimpleContext id="swQ" naturalClass="ncQ" />
+                    <SimpleContext id="swP" naturalClass="ncP" />
+                  </PhoneticSequence>
+                </PhoneticTemplate>
+              </StructuralDescription>
+            </MetathesisRule>
+          </PhonologicalRuleDefinitions>
+          <Strata><Stratum characterDefinitionTable="t1" phonologicalRules="mrRtl"><Name>S</Name></Stratum></Strata>
+        </Language></HermitCrabInput>"#;
+        let g = load(XML);
+        let PhonRuleDef::Metathesis(m) = &g.prules[0] else {
+            panic!("expected a Metathesis-kind rule");
+        };
+        assert_eq!(m.dir, Dir::RightToLeft);
+
+        let profile = characterize(&g);
+        let detail = profile
+            .metathesis_detail(PRuleId(0))
+            .expect("Metathesis must carry a MetathesisDetail");
+        assert!(
+            !detail.swap_construction_attempted,
+            "Dir::RightToLeft is outside this change's own documented scope"
+        );
+
+        let predicate = MetathesisFaithfulSwapPredicate;
+        match predicate.evaluate(&profile, &leaf_for(PRuleId(0))) {
+            PredicateVerdict::Refuse(diag) => {
+                assert_eq!(diag.predicate, "metathesis.faithful-swap-construction");
+            }
+            other => panic!("expected Refuse for a Dir::RightToLeft metathesis rule, got {other:?}"),
+        }
+    }
+
+    /// Negative witness: a `finalBoundaryCondition="true"` metathesis pattern -- `pg_grammar::load`
+    /// lowers the boundary condition to a trailing `PatternNode::Anchor`, which
+    /// `crate::replace::pattern_slots` refuses grammar-wide (not a metathesis-specific gap) -- must
+    /// characterize `swap_construction_attempted == false`, and the predicate must `Refuse` it.
+    #[test]
+    fn metathesis_predicate_refuses_anchor_shaped_pattern() {
+        const XML: &str = r#"<HermitCrabInput><Language><Name>MetaAnchor</Name>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions>
+              <SegmentDefinition id="cq"><Representations><Representation>q</Representation></Representations></SegmentDefinition>
+              <SegmentDefinition id="cp"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
+            </SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <NaturalClasses>
+            <SegmentNaturalClass id="ncQ"><Name>Q</Name><Segment segment="cq" /></SegmentNaturalClass>
+            <SegmentNaturalClass id="ncP"><Name>P</Name><Segment segment="cp" /></SegmentNaturalClass>
+          </NaturalClasses>
+          <PhonologicalRuleDefinitions>
+            <MetathesisRule id="mrAnchor" leftSwitch="swP" rightSwitch="swQ">
+              <Name>metaAnchorDemo</Name>
+              <StructuralDescription>
+                <PhoneticTemplate finalBoundaryCondition="true">
+                  <PhoneticSequence>
+                    <SimpleContext id="swQ" naturalClass="ncQ" />
+                    <SimpleContext id="swP" naturalClass="ncP" />
+                  </PhoneticSequence>
+                </PhoneticTemplate>
+              </StructuralDescription>
+            </MetathesisRule>
+          </PhonologicalRuleDefinitions>
+          <Strata><Stratum characterDefinitionTable="t1" phonologicalRules="mrAnchor"><Name>S</Name></Stratum></Strata>
+        </Language></HermitCrabInput>"#;
+        let g = load(XML);
+        let profile = characterize(&g);
+        let detail = profile
+            .metathesis_detail(PRuleId(0))
+            .expect("Metathesis must carry a MetathesisDetail");
+        assert!(
+            !detail.swap_construction_attempted,
+            "an Anchor-carrying pattern is outside crate::replace::pattern_slots' own supported \
+             shape"
+        );
+
+        let predicate = MetathesisFaithfulSwapPredicate;
+        match predicate.evaluate(&profile, &leaf_for(PRuleId(0))) {
+            PredicateVerdict::Refuse(diag) => {
+                assert_eq!(diag.predicate, "metathesis.faithful-swap-construction");
+            }
+            other => panic!("expected Refuse for an Anchor-shaped metathesis pattern, got {other:?}"),
         }
     }
 
