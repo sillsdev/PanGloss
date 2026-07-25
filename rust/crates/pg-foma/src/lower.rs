@@ -5,51 +5,74 @@
 //! [`crate::capability::SimultaneousSubruleOverlapPredicate`]'s own doc for exactly what this
 //! replaces and how.
 //!
-//! # Scope of THIS step
+//! # Scope of the ORIGINAL step (D3's own worked predicate)
 //! `lower-fst-pattern-environments`'s own `design.md` asks for one lowering seam covering anchors,
 //! polarity, groups, alternation, table identity, and quantifier metadata, and migrating EVERY
-//! existing replacement caller (`replace.rs`/`gate.rs`) onto it (`tasks.md` 1.1-1.2, 2.1-2.3). This
-//! step is narrower, scoped to exactly what D3's worked predicate needs: [`lower_span`] lowers one
-//! subrule's `left_env · lhs_focus · right_env` triple (D3's own `span(s)` formula) into foma
-//! acceptors, and [`spans_overlap`] tests two such spans for a non-empty intersection at the
-//! shared focus position. `replace.rs`/`gate.rs` are UNTOUCHED beyond three visibility bumps
-//! (`pattern_slots`/`resolve_alpha_tuples`/`render_slots` go `pub(crate)`) so this module can
-//! REUSE their pattern semantics rather than re-derive it — see "What is reused" below. Migrating
+//! existing replacement caller (`replace.rs`/`gate.rs`) onto it (`tasks.md` 1.1-1.2, 2.1-2.3). The
+//! original step was narrower, scoped to exactly what D3's worked predicate needs: [`lower_span`]
+//! lowers one subrule's `left_env · lhs_focus · right_env` triple (D3's own `span(s)` formula) into
+//! foma acceptors, and [`spans_overlap`] tests two such spans for a non-empty intersection at the
+//! shared focus position. At that point `replace.rs`/`gate.rs` were UNTOUCHED beyond three
+//! visibility bumps (`pattern_slots`/`resolve_alpha_tuples`/`render_slots` going `pub(crate)`) so
+//! this module could REUSE their pattern semantics rather than re-derive it; migrating
 //! `replace.rs`'s OWN rewrite-rule compilation onto this seam (design.md's "Migrate existing
-//! replacement callers", `tasks.md` 2.1) is NOT attempted here; that is a separate, larger
-//! follow-on this step does not claim. Full Stage 1B coverage (multi-table ownership, alternation)
-//! is likewise future work — see [`UnsupportedPatternNode`]'s own doc for exactly which node kinds
-//! this step's [`lower_span`] does and does not represent. Quantifier metadata is PARTIALLY covered
-//! now, transparently: `openspec/changes/compile-bounded-fst-quantifiers` teaches
-//! [`crate::replace::pattern_slots`] itself to accept a finitely bounded, alpha-free
-//! `PatternNode::Quantifier` (a new `Slot::Repeat`, that module's own doc) — since [`lower_span`]
-//! calls `pattern_slots` directly (never re-deriving pattern coverage, this module's own "What is
-//! reused" convention), a bounded quantifier anywhere in `left_env`/`focus`/`right_env` now lowers
-//! for free, no code change needed HERE. A genuinely unbounded/inverted/over-budget/alpha-nested
-//! quantifier is UNCHANGED: `pattern_slots` still returns `None` for it, and
-//! [`UnsupportedPatternNode::Quantifier`] is still the typed reason [`diagnose_unsupported`] reports.
+//! replacement callers", `tasks.md` 2.1) was flagged as a separate, larger follow-on not attempted
+//! in that step. **That follow-on is THIS step** — see "What is reused vs. newly written vs. MOVED
+//! HERE" below for what changed. Full Stage 1B coverage (multi-table ownership, alternation) is
+//! still future work — see [`UnsupportedPatternNode`]'s own doc for exactly which node kinds
+//! [`lower_span`] does and does not represent. Quantifier metadata is PARTIALLY covered,
+//! transparently: `openspec/changes/compile-bounded-fst-quantifiers` teaches [`pattern_slots`]
+//! itself to accept a finitely bounded, alpha-free `PatternNode::Quantifier` (a new
+//! `Slot::Repeat`, that variant's own doc) — since [`lower_span`] calls `pattern_slots` directly
+//! (never re-deriving pattern coverage), a bounded quantifier anywhere in `left_env`/`focus`/
+//! `right_env` lowers for free, no code change needed for that. A genuinely unbounded/inverted/
+//! over-budget/alpha-nested quantifier is UNCHANGED: `pattern_slots` still returns `None` for it,
+//! and [`UnsupportedPatternNode::Quantifier`] is still the typed reason [`diagnose_unsupported`]
+//! reports.
 //!
-//! # What is reused vs. newly written
-//! Reused verbatim from [`crate::replace`] (visibility bumped `pub(crate)`, logic byte-for-byte
-//! untouched — no duplicated pattern semantics):
-//! - [`crate::replace::pattern_slots`] — `Pattern` → `Vec<Slot>`, the SAME node-kind coverage
-//!   `replace.rs`'s own rewrite-rule compiler already gives LHS/RHS/environment patterns (`Some`
-//!   for `CharDef`/agree-polarity `Context`, `None` on `Quantifier`/`Segments`/`Anchor`/disagree-
-//!   polarity `Context`).
-//! - [`crate::replace::resolve_alpha_tuples`] — the joint-agreement alpha-tuple cross product
-//!   (reports/08 §3.1's bound).
-//! - [`crate::replace::render_slots`] — slot list + concrete assignment → xre source text, same
-//!   PUA-token space, same load-bearing space-separation convention that module's doc records.
-//! - [`crate::replace::SegAlphabet`] — the char-def ↔ PUA-token codec (already `pub`, untouched).
+//! # What is reused vs. newly written vs. MOVED HERE (migration follow-on, this step)
+//! This step is the "migrate `replace.rs`'s own rewrite-rule pattern compilation onto the shared
+//! seam" follow-on the section above flags as NOT attempted in the original step — `tasks.md`
+//! 2.1's "adapt existing replacement callers without changing their network semantics". The
+//! dependency used to run backwards for a true seam (this module BORROWING `replace.rs`'s
+//! pattern-slot/alpha-tuple/rendering logic via three visibility bumps); it is now INVERTED:
+//! [`Slot`], [`pattern_slots`], [`slots_from_nodes`], [`resolve_alpha_tuples`], [`render_slots`],
+//! [`AlphaAssignment`], [`TupleReport`], `class_members`, `slots_contain_alpha`, and
+//! `MAX_QUANTIFIER_BOUND` (all formerly defined in `replace.rs`, `pub(crate)`-reused from there)
+//! now live HERE as this module's own canonical pattern-lowering vocabulary — moved byte-for-byte
+//! (logic untouched, only doc cross-references and a handful of `crate::replace` path prefixes
+//! updated to plain in-module names), not re-derived. `replace.rs` no longer defines any of them;
+//! it re-exports every one at its OLD path (`pub(crate) use crate::lower::{Slot, pattern_slots,
+//! resolve_alpha_tuples, render_slots};` / `pub use crate::lower::{AlphaAssignment, TupleReport};`)
+//! so every existing caller keeps compiling completely unmodified — `replace.rs`'s own
+//! rewrite-rule/metathesis compilation (`compile_rewrite_rule_subset`, `compile_metathesis_rule`,
+//! `compile_rtl_branch_net`, `slot_candidates`), `capability.rs`'s structural probes
+//! (`crate::replace::pattern_slots`/`crate::replace::Slot::Alpha`/`crate::replace::Slot::Repeat`,
+//! untouched — that file is a concurrent agent's exclusive territory this step does not open),
+//! every `tests/phase_c_*` gate, and every `pg_foma::replace::TupleReport`-importing example all
+//! resolve through the re-export, unchanged.
 //!
-//! Newly written here: [`lower_span`] itself (how to COMBINE the reused pieces into acceptors —
-//! the `Σ*`-padding construction its own doc works through), [`UnsupportedPatternNode`] (the typed
-//! disposition evidence design.md's `spec.md` asks for — "a typed unsupported disposition... does
-//! not omit or weaken the node"), and [`spans_overlap`] (the intersect-nonempty test over
+//! Two pieces deliberately did NOT move, kept in `replace.rs` on purpose:
+//! - [`crate::replace::SegAlphabet`] (the char-def ↔ PUA-token codec, still `pub`, untouched) —
+//!   general token-alphabet infrastructure `emit.rs`/`uflexc.rs`/`gate.rs`/`enumerate.rs`/
+//!   `oracle.rs`/`capability.rs`/`capability_entry.rs`/`plan_interaction_coverage.rs` all depend
+//!   on directly, not something this change's own scope (pattern/environment → FST lowering)
+//!   claims ownership of. Still imported here (below) exactly as before this step.
+//! - [`crate::replace::owning_table`]/[`crate::replace::owning_table_for_metathesis`] (rule →
+//!   owning-stratum → `CharDefTable` resolution) — rule/stratum bookkeeping, not pattern lowering;
+//!   [`lower_span`]'s own callers (`capability.rs`) already resolve the table themselves before
+//!   calling in (this function's own doc, "the caller's own contract"), so this module never
+//!   needed to call either function itself. Left in `replace.rs` as the more defensible home.
+//!
+//! Newly written in the ORIGINAL step, unchanged by this one: [`lower_span`] itself (how to
+//! COMBINE the pattern-lowering vocabulary above into acceptors — the `Σ*`-padding construction
+//! its own doc works through), [`UnsupportedPatternNode`] (the typed disposition evidence
+//! design.md's `spec.md` asks for — "a typed unsupported disposition... does not omit or weaken
+//! the node"), and [`spans_overlap`] (the intersect-nonempty test over
 //! `foma::constructions::{fsm_intersect, fsm_union, fsm_concat, fsm_universal}` /
-//! `foma::structures::fsm_isempty` — primitives this crate had never previously called at all,
-//! confirmed by grep before this step per `capability.rs`'s own prior doc: "no `lower.rs`/
-//! pattern-to-`Fsm` facility anywhere in `pg-fst`/`pg-foma`").
+//! `foma::structures::fsm_isempty`).
+
+use std::collections::HashSet;
 
 use foma::constructions::{fsm_concat, fsm_intersect, fsm_union, fsm_universal};
 use foma::options::FomaOptions;
@@ -57,9 +80,499 @@ use foma::regex::fsm_parse_regex;
 use foma::structures::{fsm_empty_set, fsm_empty_string, fsm_isempty};
 use foma::types::Fsm;
 
-use pg_grammar::model::{Grammar, Pattern, PatternNode};
+use pg_grammar::chardef::{CharDefId, CharDefKind, CharDefTable};
+use pg_grammar::model::{Grammar, NaturalClassKind, Pattern, PatternNode, VarId};
 
-use crate::replace::{pattern_slots, render_slots, resolve_alpha_tuples, SegAlphabet};
+use crate::replace::SegAlphabet;
+
+// =================================================================================================
+// Natural-class member resolution (exact, from the model's own `NaturalClassKind` — never
+// re-derived through a matcher-oriented helper whose semantics are tuned for a different job).
+//
+// MOVED HERE from `replace.rs` (`lower-fst-pattern-environments` Stage 1B migration follow-on,
+// module top doc) -- logic byte-for-byte unchanged, `replace.rs` re-exports the still-`pub(crate)`
+// names below it needs (`Slot`, `pattern_slots`) at their old paths.
+// =================================================================================================
+
+/// One class's members, resolved from [`NaturalClassKind`] with a given set of alpha-bound
+/// feature lanes excluded from the `Feature`-kind pin test (module doc: an alpha-bound feature is
+/// NOT a fixed pin — its value is resolved per tuple, see [`resolve_alpha_tuples`]).
+fn class_members(
+    g: &Grammar,
+    table: &CharDefTable,
+    nat_class: pg_grammar::model::NatClassId,
+    exclude_lanes: &HashSet<usize>,
+) -> Vec<CharDefId> {
+    match &g.natural_classes[nat_class.0 as usize].kind {
+        // Explicit segment list: verbatim, exact (module doc — never re-derived via a feature
+        // reconstruction that could silently diverge from the authored list).
+        NaturalClassKind::Segments(ids) => ids.clone(),
+        NaturalClassKind::Feature(pairs) => table
+            .iter()
+            .filter(|(_, cd)| cd.kind() == CharDefKind::Segment)
+            .filter(|(_, cd)| {
+                pairs.iter().all(|(f, bits)| {
+                    exclude_lanes.contains(&(f.0 as usize))
+                        || (cd.feature_lanes()[f.0 as usize] & bits.0 != 0)
+                })
+            })
+            .map(|(id, _)| id)
+            .collect(),
+    }
+}
+
+// =================================================================================================
+// Pattern -> slot list (one slot per PatternNode, in document order); `None` on any construct
+// this prototype doesn't render (Quantifier/Anchor/CharDef-of-unknown-kind never seen here).
+// =================================================================================================
+
+/// One position in a rendered pattern.
+///
+/// `pub(crate)`: this is the canonical definition (moved here, `lower-fst-pattern-environments`
+/// Stage 1B migration follow-on) -- `crate::replace` re-exports it at its OLD path
+/// (`pub(crate) use crate::lower::Slot;`) so `capability.rs`'s `crate::replace::Slot::Alpha`/
+/// `crate::replace::Slot::Repeat` pattern matches and `replace.rs`'s own `slot_candidates`/
+/// `reversed_slots`/`compile_rtl_branch_net` keep compiling unmodified.
+///
+/// `Clone` (`openspec/changes/compile-right-to-left-rewrites`): `replace.rs`'s RTL reversal
+/// construction needs a REVERSED copy of a subrule's own slot lists (`reversed_slots`, that
+/// file) alongside the original document-order lists it builds the safety-net `LeftToRight`-style
+/// branch from -- see that file's `compile_rtl_branch_net` doc.
+#[derive(Clone)]
+pub(crate) enum Slot {
+    /// A single fixed char-def (`PatternNode::CharDef`, or a `Context` with no alpha vars whose
+    /// class happens to be a singleton — kept general as [`Slot::Union`] instead, see below).
+    Fixed(CharDefId),
+    /// A natural class with no alpha binding at this occurrence: renders as a `[c1|c2|...]` union.
+    Union(Vec<CharDefId>),
+    /// A natural class occurrence bound to one OR MORE alpha variables (Amharic's CV-merger binds
+    /// up to 20 vars on a SINGLE `SimpleContext` — report-08 §3 item 1: "the 20 variables jointly
+    /// copy the feature bundles of one (C,V) segment pair"): resolved per-tuple by
+    /// [`resolve_alpha_tuples`], not fixed until a concrete assignment is chosen. `occurrence` is
+    /// this specific SLOT INSTANCE's own id (unique per occurrence, NOT per variable — two
+    /// occurrences of the same [`VarId`] almost always draw from two DIFFERENT classes, e.g.
+    /// Indonesian prule4's RHS `nc11` (the nasal output class) vs its right-environment `nc12`
+    /// (the following-obstruent class): they must agree on the var's FEATURE VALUE, not resolve
+    /// to the identical segment — see [`resolve_alpha_tuples`]'s doc for why this rules out a
+    /// same-var-implies-same-segment shortcut). `vars` is one `(VarId, feature lane)` pair per
+    /// `AlphaVariable` this ONE occurrence carries — all of them apply to the SAME concrete
+    /// segment eventually chosen for this occurrence.
+    Alpha {
+        vars: Vec<(VarId, pg_grammar::featsys::FlatIndex)>,
+        occurrence: usize,
+        base_members: Vec<CharDefId>,
+    },
+    /// `PatternNode::Quantifier { min, max: Some(max), children }` (`openspec/changes/
+    /// compile-bounded-fst-quantifiers`): a FINITELY bounded, alpha-free repetition of `children`'s
+    /// own rendered slots. Renders (`render_slots`) as `[<children text>]^{min,max}` — foma's own
+    /// native bounded-repetition xre operator (`replace.rs` module doc's "Bounded quantifiers"
+    /// section), never a hand-rolled expansion — so `[Slot::Repeat]`'s compiled size is exactly
+    /// foma's own `fsm_concat_m_n` construction: `min` mandatory copies of `children`'s own
+    /// compiled sub-net, then `max - min` further copies each individually optional (that
+    /// function's own doc, cited in `replace.rs`'s Big-O note).
+    ///
+    /// # Why `children: Vec<Slot>`, not a second `Pattern`
+    /// `slots_from_nodes` (this variant's own builder) already turns `PatternNode::Quantifier`'s
+    /// `children: Vec<PatternNode>` into slots via the IDENTICAL recursive call it uses for the
+    /// pattern's own top-level nodes — one node-to-slot mapping, reused, not re-derived (mirrors
+    /// this module's "resolve once, reuse everywhere" discipline for `pattern_slots`/
+    /// `resolve_alpha_tuples`/`render_slots` themselves). Storing already-resolved `Slot`s (rather
+    /// than the raw `PatternNode`s) means [`render_slots`] can render a nested quantifier the SAME
+    /// way it renders every other slot list, with no special-cased second PatternNode-to-text path.
+    ///
+    /// # Why no `Slot::Alpha` may ever appear (transitively) inside `children`
+    /// [`slots_from_nodes`] REFUSES (returns `None`) to build a `Slot::Repeat` whose own `children`
+    /// contain a `Slot::Alpha` occurrence at ANY nesting depth (checked recursively through any
+    /// further-nested `Slot::Repeat`, never just the immediate level) — [`resolve_alpha_tuples`]'s
+    /// own occurrence-flattening walks `slot_lists: &[&[Slot]]` at exactly ONE level (the top-level
+    /// LHS/RHS/left-env/right-env lists `replace.rs`'s `compile_rewrite_rule_subset`/this module's
+    /// own [`lower_span`] pass it), so an `Alpha` occurrence buried inside a `Slot::Repeat`'s own
+    /// `children` would never be discovered, never receive a resolved assignment, and would panic
+    /// [`render_slots`]'s own `.expect("every alpha slot's occurrence has a resolved assignment by
+    /// render time")` the first time anyone tried to render it. Refusing to BUILD the `Slot::Repeat`
+    /// in the first place (rather than teaching `resolve_alpha_tuples` to recurse) keeps that
+    /// invariant enforced at construction time, not merely by convention — an alpha variable nested
+    /// inside a quantifier's own children is therefore honestly out of scope for this change (`None`
+    /// from `slots_from_nodes`, exactly like an unbounded quantifier), not a latent panic risk.
+    Repeat {
+        min: u32,
+        max: u32,
+        children: Vec<Slot>,
+    },
+}
+
+/// `true` iff `slots` (or the `children` of any `Slot::Repeat` nested at ANY depth inside `slots`)
+/// contains at least one `Slot::Alpha` occurrence — [`Slot::Repeat`]'s own doc explains why a
+/// `Slot::Repeat` may never be built over such `children`: this is the recursive check
+/// [`slots_from_nodes`]'s own `PatternNode::Quantifier` arm uses to enforce that, checked at EVERY
+/// nesting depth (not just the immediate one) so a nested bounded-quantifier-inside-a-bounded-
+/// quantifier can never smuggle an alpha occurrence past a shallow, single-level check.
+fn slots_contain_alpha(slots: &[Slot]) -> bool {
+    slots.iter().any(|s| match s {
+        Slot::Alpha { .. } => true,
+        Slot::Repeat { children, .. } => slots_contain_alpha(children),
+        Slot::Fixed(_) | Slot::Union(_) => false,
+    })
+}
+
+/// Preflight ceiling on a [`PatternNode::Quantifier`]'s own `max` bound (`openspec/changes/
+/// compile-bounded-fst-quantifiers`, design.md: "Preflight the product of alternatives/repetitions
+/// and report a typed budget or unsupported result"). Checked in `slots_from_nodes` BEFORE any xre
+/// text is rendered or any `Fsm` is built at all — the cheapest possible predictor, the same "check
+/// the search result before the expensive part" principle `resolve_alpha_tuples`' own V3 alpha-tuple
+/// cap uses. `pattern_slots`/`slots_from_nodes` are pure structural walks with no
+/// [`crate::compose_budget::ComposeBudget`] threaded through them (a fixed, always-on structural
+/// ceiling rather than a new env-configurable budget dimension) — a `max` above this ceiling is
+/// honestly reported unsupported (`None`), never silently clamped down to it (that would be exactly
+/// the finite-cutoff-masquerading-as-something-else move ADR 0001 forbids, just at a different
+/// bound). Generous relative to any authored HC grammar this crate has ever seen
+/// (`OptionalSegmentSequence` bounds in the reference/synthetic grammars are single digits) while
+/// keeping even an UNCHECKED first branch net trivially bounded before any `ComposeBudget` size
+/// check ever runs.
+const MAX_QUANTIFIER_BOUND: u32 = 512;
+
+/// Walk `pattern`'s nodes into [`Slot`]s, numbering each `Alpha` occurrence sequentially from
+/// `*next_occurrence` (shared across LHS/RHS/left-env/right-env for one subrule — see
+/// `replace.rs`'s `compile_rewrite_rule`, or this module's own [`lower_span`], which resets its own
+/// FRESH counter per span). Returns `None` (uncovered) on `Segments`/`Anchor`/disagree-polarity
+/// `Context`, or an out-of-scope `Quantifier` (unbounded/inverted/over-budget/alpha-nested — see
+/// [`Slot::Repeat`]'s own doc) — this prototype's documented scope line.
+///
+/// `table`: every `Context` node's `NatClassId` is resolved against THIS table
+/// ([`class_members`]), never an implicit grammar-wide default
+/// (`openspec/changes/fix-multitable-fst-compilation`, design.md: "table zero is never an
+/// implicit default"). The caller is responsible for choosing the RIGHT table — see
+/// [`crate::replace::owning_table`]'s own doc for how `replace.rs`'s `compile_rewrite_rule_subset`
+/// picks it (the rule's own stratum's `StratumDef::table`), and [`lower_span`]'s own call sites for
+/// how THIS module picks it (`alphabet.table()`, already the correct per-caller table by that
+/// function's own contract).
+///
+/// `pub(crate)`: canonical definition (moved here, migration follow-on) -- `replace.rs`
+/// re-exports it at its OLD path so `capability.rs`'s structural probes and every existing
+/// `crate::replace::pattern_slots`/`pg_foma::replace::pattern_slots` caller keep compiling
+/// unmodified.
+pub(crate) fn pattern_slots(
+    g: &Grammar,
+    table: &CharDefTable,
+    pattern: &Pattern,
+    next_occurrence: &mut usize,
+) -> Option<Vec<Slot>> {
+    slots_from_nodes(g, table, &pattern.nodes, next_occurrence)
+}
+
+/// [`pattern_slots`]'s own per-node walk, factored out over a bare node slice (rather than a whole
+/// `&Pattern`) so [`PatternNode::Quantifier`]'s own `children` (`openspec/changes/
+/// compile-bounded-fst-quantifiers`) can recurse through the IDENTICAL per-node semantics
+/// `pattern_slots` already gives a whole pattern — one pattern-node-to-slot mapping, not two
+/// independently-maintained ones (mirrors this module's own "one shared occurrence counter"
+/// discipline for LHS/RHS/environment: `next_occurrence` threads through this recursion exactly
+/// like it already threads across a subrule's LHS/RHS/left-env/right-env calls).
+fn slots_from_nodes(
+    g: &Grammar,
+    table: &CharDefTable,
+    nodes: &[PatternNode],
+    next_occurrence: &mut usize,
+) -> Option<Vec<Slot>> {
+    let mut out = Vec::with_capacity(nodes.len());
+    for node in nodes {
+        match node {
+            PatternNode::CharDef(id) => out.push(Slot::Fixed(*id)),
+            PatternNode::Context(sc) => {
+                if sc.vars.is_empty() {
+                    let members = class_members(g, table, sc.nat_class, &HashSet::new());
+                    out.push(Slot::Union(members));
+                } else {
+                    if sc.vars.iter().any(|v| !v.plus) {
+                        // "disagree" polarity — documented gap, never seen in the reference
+                        // grammars (module doc).
+                        return None;
+                    }
+                    let excl: HashSet<usize> =
+                        sc.vars.iter().map(|v| v.feature.0 as usize).collect();
+                    let base = class_members(g, table, sc.nat_class, &excl);
+                    let occurrence = *next_occurrence;
+                    *next_occurrence += 1;
+                    let vars = sc.vars.iter().map(|v| (v.var, v.feature)).collect();
+                    out.push(Slot::Alpha {
+                        vars,
+                        occurrence,
+                        base_members: base,
+                    });
+                }
+            }
+            PatternNode::Quantifier { min, max, children } => {
+                // Genuinely unbounded (Kleene) -- ADR 0001: a finite cutoff must never masquerade
+                // as unbounded semantics, so this stays honestly unsupported (module doc's "Bounded
+                // quantifiers" section).
+                let Some(max_v) = max else {
+                    return None;
+                };
+                // Inverted bound -- no sound finite construction exists for it; conservative
+                // honest-unsupported rather than silently swapping/clamping min/max.
+                if min > max_v {
+                    return None;
+                }
+                // Preflight (design.md: "Preflight the product of alternatives/repetitions and
+                // report a typed budget or unsupported result") -- checked BEFORE recursing into
+                // children/rendering any xre text at all, the cheapest possible predictor.
+                if *max_v > MAX_QUANTIFIER_BOUND {
+                    return None;
+                }
+                let child_slots = slots_from_nodes(g, table, children, next_occurrence)?;
+                if child_slots.is_empty() {
+                    // No renderable child at all (an empty <OptionalSegmentSequence>) -- not a
+                    // shape any DTD-legal grammar this crate has seen produces; nothing to
+                    // bound-repeat, so honest-unsupported rather than rendering a vacuous group.
+                    return None;
+                }
+                if slots_contain_alpha(&child_slots) {
+                    // Alpha-bound occurrence nested inside a quantifier group -- out of scope for
+                    // this change (`Slot::Repeat`'s own doc: `resolve_alpha_tuples` does not
+                    // recurse into a `Slot::Repeat`'s own children) -- honest-unsupported rather
+                    // than risk an unresolved occurrence panicking at render time.
+                    return None;
+                }
+                out.push(Slot::Repeat {
+                    min: *min,
+                    max: *max_v,
+                    children: child_slots,
+                });
+            }
+            PatternNode::Segments { .. } | PatternNode::Anchor(_) => {
+                return None;
+            }
+        }
+    }
+    Some(out)
+}
+
+// =================================================================================================
+// Alpha-tuple resolution (reports/08 §3.1): cartesian product per variable, filtered by joint
+// agreement, generic over N variables / N slots-per-variable.
+//
+// MOVED HERE from `replace.rs` (migration follow-on, module top doc) -- logic byte-for-byte
+// unchanged, `replace.rs` re-exports `AlphaAssignment`/`TupleReport`/`resolve_alpha_tuples` at
+// their old paths.
+// =================================================================================================
+
+/// One assignment of every alpha slot OCCURRENCE (module doc on [`Slot::Alpha`] — keyed by
+/// occurrence id, NOT by [`VarId`]: two occurrences of the same variable generally resolve to
+/// two DIFFERENT concrete segments, e.g. prule4's nasal-output segment and its
+/// following-obstruent segment, which merely need to AGREE on the variable's feature value, not
+/// be the same segment) to a concrete [`CharDefId`], surviving the joint agreement filter.
+pub struct AlphaAssignment {
+    pub values: std::collections::HashMap<usize, CharDefId>,
+}
+
+/// Report for one alpha-bearing subrule: the naive per-slot product size (what a per-variable-name
+/// expander would enumerate before any filtering) vs. the number of tuples surviving the joint
+/// agreement constraint (reports/08's "count of segment tuples satisfying the joint constraint").
+#[derive(Debug, Clone, Copy)]
+pub struct TupleReport {
+    pub raw_product: usize,
+    pub surviving: usize,
+}
+
+/// Locate every [`Slot::Alpha`] occurrence across `slot_lists` (one `Vec<Slot>` per pattern zone:
+/// LHS, RHS, left-env, right-env — in that order, any of which may be empty), and enumerate the
+/// surviving tuple-indexed cross product: the FULL product of every occurrence's OWN candidate
+/// set (never a same-var intersection — see [`AlphaAssignment`]'s doc for why that shortcut is
+/// wrong), filtered to combinations where every pair of occurrences sharing a [`VarId`] AGREES —
+/// unify (bitwise-overlap, matching this codebase's own natural-class-membership idiom, not
+/// strict equality, since an underspecified segment's lane can carry more than one live bit) — at
+/// that variable's feature lane. This is reports/08 §3.1's "count of segment tuples satisfying
+/// the joint constraint" bound (Amharic's 20-var CV-merger: nc15=59 × nc16=6 ⇒ ≤354, never v^20),
+/// implemented generically over N variables and N occurrences per variable. Returns
+/// `(assignments, report)`; a rule with zero alpha slots returns one trivial
+/// `AlphaAssignment { values: {} }` and a `raw_product`/`surviving` of 1 (nothing to expand).
+///
+/// `table`: every alpha occurrence's feature-lane agreement test (`lane_value`, below) resolves
+/// against THIS table, never an implicit `g.char_tables[0]` default
+/// (`openspec/changes/fix-multitable-fst-compilation` — the second of the two hardcoded sites that
+/// change's design.md names, alongside [`pattern_slots`]'s own former `table_of` call). The
+/// `members: Vec<CharDefId>` each [`Slot::Alpha`] already carries were themselves resolved against
+/// this SAME table by [`pattern_slots`] (the caller's job: pass ONE consistent table to both), so
+/// this function's own `table` parameter must be the identical table [`pattern_slots`] used to
+/// build `slot_lists` in the first place — never a second, independently-chosen one.
+///
+/// `pub(crate)`: canonical definition (moved here, migration follow-on) -- `replace.rs`
+/// re-exports it at its OLD path (`pub(crate) use crate::lower::resolve_alpha_tuples;`) so its own
+/// `compile_rewrite_rule_subset` and every other existing caller keep compiling unmodified.
+pub(crate) fn resolve_alpha_tuples(
+    table: &CharDefTable,
+    slot_lists: &[&[Slot]],
+) -> (Vec<AlphaAssignment>, TupleReport) {
+    // Flatten to (occurrence, vars, members), document order (deterministic, not semantically
+    // load-bearing), plus the var-group membership needed for the filter step. One occurrence may
+    // carry MANY (var, feature) pairs at once (Amharic's CV-merger: up to 20 on one node) — all of
+    // them constrain the SAME concrete segment this occurrence resolves to.
+    struct Occ {
+        id: usize,
+        vars: Vec<(VarId, pg_grammar::featsys::FlatIndex)>,
+        members: Vec<CharDefId>,
+    }
+    let mut occs: Vec<Occ> = Vec::new();
+    for slots in slot_lists {
+        for slot in slots.iter() {
+            if let Slot::Alpha {
+                vars,
+                occurrence,
+                base_members,
+            } = slot
+            {
+                occs.push(Occ {
+                    id: *occurrence,
+                    vars: vars.clone(),
+                    members: base_members.clone(),
+                });
+            }
+        }
+    }
+    if occs.is_empty() {
+        return (
+            vec![AlphaAssignment {
+                values: std::collections::HashMap::new(),
+            }],
+            TupleReport {
+                raw_product: 1,
+                surviving: 1,
+            },
+        );
+    }
+    occs.sort_by_key(|o| o.id);
+
+    let raw_product: usize = occs.iter().map(|o| o.members.len().max(1)).product();
+
+    // Cross product across ALL occurrences (each occurrence independently ranges over its own
+    // candidate set).
+    let mut assignments: Vec<std::collections::HashMap<usize, CharDefId>> =
+        vec![std::collections::HashMap::new()];
+    for occ in &occs {
+        let mut next = Vec::with_capacity(assignments.len() * occ.members.len().max(1));
+        for asg in &assignments {
+            for &cd in &occ.members {
+                let mut a = asg.clone();
+                a.insert(occ.id, cd);
+                next.push(a);
+            }
+        }
+        assignments = next;
+    }
+
+    // Joint-agreement filter: for every pair of occurrences sharing a VarId, the two chosen
+    // segments must unify (bitwise overlap) at that variable's feature lane. An occurrence with
+    // MULTIPLE vars contributes one entry per var it carries.
+    let mut var_pairs: std::collections::HashMap<
+        VarId,
+        Vec<(usize, pg_grammar::featsys::FlatIndex)>,
+    > = std::collections::HashMap::new();
+    for occ in &occs {
+        for &(var, feature) in &occ.vars {
+            var_pairs.entry(var).or_default().push((occ.id, feature));
+        }
+    }
+    let lane_value = |cd: CharDefId, feature: pg_grammar::featsys::FlatIndex| -> u64 {
+        table.get(cd).feature_lanes()[feature.0 as usize]
+    };
+    let survivors: Vec<AlphaAssignment> = assignments
+        .into_iter()
+        .filter(|asg| {
+            var_pairs.values().all(|occs_for_var| {
+                occs_for_var.iter().all(|&(id_a, feat)| {
+                    occs_for_var.iter().all(|&(id_b, _)| {
+                        let a = lane_value(asg[&id_a], feat);
+                        let b = lane_value(asg[&id_b], feat);
+                        a & b != 0
+                    })
+                })
+            })
+        })
+        .map(|values| AlphaAssignment { values })
+        .collect();
+
+    let surviving = survivors.len();
+    (
+        survivors,
+        TupleReport {
+            raw_product,
+            surviving,
+        },
+    )
+}
+
+// =================================================================================================
+// Slot -> regex text (given a concrete alpha assignment).
+//
+// MOVED HERE from `replace.rs` (migration follow-on, module top doc) -- logic byte-for-byte
+// unchanged, `replace.rs` re-exports `render_slots` at its old path.
+// =================================================================================================
+
+/// Renders `slots` to xre source text, ONE SPACE between consecutive slots (never omitted — see
+/// the note below on why). A single space also separates union members inside one `[...]` group,
+/// same reason.
+///
+/// **Load-bearing finding (prototype report):** this vendored foma-rs's xre lexer (`nfst-xre`)
+/// does NOT reliably treat two ADJACENT non-ASCII (here: Private-Use-Area) codepoints written
+/// back-to-back with NO separator as two independent single-symbol atoms — confirmed by direct
+/// bisection (`examples/p6_bisect.rs`): `"t -> 0 || e n + _ u"` (PUA tokens, SPACE-separated)
+/// correctly deletes in context; the byte-identical rule written as `"e _ +t"` (the boundary and
+/// following consonant tokens concatenated with NO space) silently fails to match — no parse
+/// error, no panic, just a rule that never fires, the worst kind of failure to debug blind. ASCII
+/// letters tolerate bare concatenation fine (`"cat"` == `"c a t"`, both split per-character,
+/// verified by the vendored crate's own tests) — the gap is specific to non-ASCII/high-codepoint
+/// symbols, which is exactly what a char-def-identity token alphabet is built from. Mainline P6
+/// must carry this forward as a hard rule for ANY xre string this compiler emits.
+///
+/// `pub(crate)`: canonical definition (moved here, migration follow-on) -- `replace.rs`
+/// re-exports it at its old path so `replace.rs`'s own `render_branch_regex` and every other
+/// existing caller keep compiling unmodified.
+pub(crate) fn render_slots(
+    alphabet: &SegAlphabet,
+    slots: &[Slot],
+    assignment: &AlphaAssignment,
+) -> String {
+    let mut pieces: Vec<String> = Vec::with_capacity(slots.len());
+    for slot in slots {
+        let piece = match slot {
+            Slot::Fixed(cd) => alphabet.token(*cd).to_string(),
+            Slot::Union(members) => {
+                if members.len() == 1 {
+                    alphabet.token(members[0]).to_string()
+                } else {
+                    let inner: Vec<String> = members
+                        .iter()
+                        .map(|m| alphabet.token(*m).to_string())
+                        .collect();
+                    format!("[{}]", inner.join(" | "))
+                }
+            }
+            Slot::Alpha { occurrence, .. } => {
+                let cd = assignment.values.get(occurrence).expect(
+                    "every alpha slot's occurrence has a resolved assignment by render time",
+                );
+                alphabet.token(*cd).to_string()
+            }
+            Slot::Repeat {
+                min,
+                max,
+                children,
+            } => {
+                // `openspec/changes/compile-bounded-fst-quantifiers` ("Bounded quantifiers"):
+                // foma's own native bounded-repetition xre operator, `^{min,max}` (`nfst-xre`'s
+                // `CatenateNToK`, lexed as a POSTFIX operator over whatever `[...]`-grouped term
+                // precedes it -- `[...]` is foma's plain GROUPING bracket, distinct from `(...)`'s
+                // OPTIONALITY meaning `replace.rs`'s own `render_branch_regex` relies on for
+                // epenthesis). Recurses into `render_slots` for `children` -- the SAME rendering,
+                // same PUA-token space, same load-bearing space-separation rule this whole
+                // function's own doc already establishes; no second text-rendering path.
+                let inner = render_slots(alphabet, children, assignment);
+                format!("[{inner}]^{{{min},{max}}}")
+            }
+        };
+        pieces.push(piece);
+    }
+    pieces.join(" ")
+}
 
 /// A pattern node kind [`lower_span`] cannot yet represent (design.md `spec.md`'s "typed
 /// unsupported disposition... does not omit or weaken the node"). Named after the `model.rs`
