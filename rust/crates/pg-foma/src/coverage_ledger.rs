@@ -57,7 +57,7 @@
 //!   module's [`ContainmentEvidence`] cites EXISTING containment tests, it does not build new
 //!   oracle-identity infrastructure.
 //! - **3.1** ("convert `phase_c_multi_table`, `phase_c_right_to_left`, `phase_c_simultaneous`, and
-//!   `p6_aweti_gate` to the new contract") and **3.2** ("prove old word-level gates cannot silently
+//!   `p6_templated_morphotactics_gate` to the new contract") and **3.2** ("prove old word-level gates cannot silently
 //!   pass an analysis-loss fixture"): the THIRD merge unit (fixture migration) — not attempted here.
 //! - **3.3** ("validate all ledger rows have an explicit disposition and evidence owner; document
 //!   that any future model-shape change must reopen this audit rather than silently extending the
@@ -293,8 +293,8 @@ pub enum ContainmentEvidenceKind {
     Dedicated,
     /// No single dedicated fixture exists (or is needed): the characteristic is
     /// [`Disposition::Proven`] and is exercised pervasively, as ordinary background material, by
-    /// this crate's general full-grammar propose-confirm gates (`tests/f1_sena_gate.rs`, `tests/
-    /// f2_indonesian_gate.rs`, `tests/f4_composite_gate.rs`, etc.) rather than by any one
+    /// this crate's general full-grammar propose-confirm gates (`tests/f1_large_lexicon_gate.rs`, `tests/
+    /// f2_junction_gate.rs`, `tests/f4_composite_gate.rs`, etc.) rather than by any one
     /// construct-specific fixture.
     GeneralPervasive,
     /// The characteristic is [`Disposition::FailClosed`]: "containment" is not the applicable
@@ -338,7 +338,7 @@ pub fn containment_evidence_for(kind: CharacteristicKind) -> Option<ContainmentE
     Some(match kind {
         Affixation => ev(
             GeneralPervasive,
-            "tests/f1_sena_gate.rs, tests/f2_indonesian_gate.rs, tests/f4_composite_gate.rs",
+            "tests/f1_large_lexicon_gate.rs, tests/f2_junction_gate.rs, tests/f4_composite_gate.rs",
             "Ordinary AffixProcessRule prefixation/suffixation/infixation is the baseline every \
              full-grammar propose-confirm gate exercises continuously; Proven already licenses \
              unconditional admission-filtering, so no separate dedicated fixture is required.",
@@ -362,7 +362,7 @@ pub fn containment_evidence_for(kind: CharacteristicKind) -> Option<ContainmentE
         OrderedMorphRuleApplication => ev(
             GeneralPervasive,
             "tests/phase_c_strata_depth.rs (multi-stratum cascade recall-parity), tests/\
-             f1_sena_gate.rs, tests/f4_composite_gate.rs",
+             f1_large_lexicon_gate.rs, tests/f4_composite_gate.rs",
             "Linear rule-application order is the default cascade shape exercised by every \
              general gate; Proven, no dedicated fixture required.",
         ),
@@ -389,7 +389,7 @@ pub fn containment_evidence_for(kind: CharacteristicKind) -> Option<ContainmentE
         ),
         IterativeRewrite => ev(
             GeneralPervasive,
-            "tests/f1_sena_gate.rs, tests/f2_indonesian_gate.rs, tests/phase_c_right_to_left.rs \
+            "tests/f1_large_lexicon_gate.rs, tests/f2_junction_gate.rs, tests/phase_c_right_to_left.rs \
              (iterative baseline contrast)",
             "The default RewriteMode every general gate's phonological rules use; Proven, no \
              dedicated fixture required.",
@@ -403,7 +403,7 @@ pub fn containment_evidence_for(kind: CharacteristicKind) -> Option<ContainmentE
         ),
         LeftToRightRewrite => ev(
             GeneralPervasive,
-            "tests/f2_indonesian_gate.rs, tests/phase_c_right_to_left.rs (LTR is the implicit \
+            "tests/f2_junction_gate.rs, tests/phase_c_right_to_left.rs (LTR is the implicit \
              contrast baseline for every rtl_* case)",
             "The default Dir every general gate's phonological rules use; Proven, no dedicated \
              fixture required.",

@@ -31,3 +31,8 @@ rayon.workspace = true
 # `pg-foma`'s own `health.rs` two-line pattern).
 serde.workspace = true
 serde_json.workspace = true
+# `coverage.rs` (capability-coverage VISIBILITY): replays the in-repo SYNTHETIC conformance
+# fixtures (never real-language data) against `pg_parse::Morpher` to build the "passing conformance
+# construct" set `pg_foma::coverage_ledger::build_ledger` needs, mirroring
+# `pg-foma/tests/conformance_coverage_gate.rs`'s own dev-only helper as real (non-dev) CLI code.
+pg-conformance-fixtures.workspace = true

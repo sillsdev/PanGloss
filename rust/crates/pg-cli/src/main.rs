@@ -83,6 +83,7 @@ use pg_foma::composite::FomaAnalyzer;
 use pg_grammar::model::{Grammar, LexEntryId, MRuleId, MorphRuleDef};
 use pg_parse::{hc_parse_batch, GenMorpheme, Morpher, WordAnalysis};
 
+mod coverage;
 mod diagnostics;
 mod fst_health;
 mod pack;
@@ -198,6 +199,13 @@ fn run() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
+        Some("coverage") => match coverage::run_coverage(&args[2..]) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("pangloss coverage: {e}");
+                ExitCode::FAILURE
+            }
+        },
         // Hidden, internal compile-worker CHILD entry point (`harden-foma-resource-safety`
         // section 3/4; `pg_foma::worker`'s own doc). Spawned only by `pangloss pack --watchdog`
         // (`pack.rs::run_fst_health_under_watchdog`) via `pg_foma::worker::run_compile_worker`
@@ -224,6 +232,7 @@ fn run() -> ExitCode {
                  usage: pangloss diagnose <grammar> <words.txt> <out-dir>\n\
                  usage: pangloss pack <grammar> <out.pgpack> [--allow-unproven] [--authorized-by=<name>] [--reason=<text>] [--watchdog]\n\
                  usage: pangloss fst-health <grammar> [<words.txt>] [<out.json>]\n\
+                 usage: pangloss coverage [--json] [--grammar=<path>] [<out.json>]\n\
                  \n\
                  <grammar> is one of: a HermitCrab XML export (.xml, the legacy path), a\n\
                  pg-snapshot JSON file (.json, from `pangloss import` or any other producer), or a\n\
