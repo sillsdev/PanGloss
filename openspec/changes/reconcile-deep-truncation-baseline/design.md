@@ -1,7 +1,8 @@
 ## Decisions
 
 Execution order, prerequisites, and exclusive ownership are governed by
-`openspec/changes/STAGING.md`; exact baseline evidence precedes later Aweti compiler-gain claims.
+`openspec/changes/STAGING.md`; exact baseline evidence precedes later deep-truncation-chain
+compiler-gain claims.
 
 - At plan creation, 32/104 is the existing word-level any-analysis-reachability floor over 104 declared input words. It is not an analysis-recall fraction or certification evidence; the first task replaces it with exact per-word oracle-analysis containment counts.
 - The historic silent-but-lucky 68/104 result used a different rule-support manifest and is non-comparable.
@@ -13,4 +14,4 @@ Execution order, prerequisites, and exclusive ownership are governed by
 
 ## Dependencies
 
-Depends on `define-grammar-coverage-contract` and the diagnostic-event API from `add-grammar-diagnostics`. Correct RTL and Simultaneous compilers depend on the pinned manifest for Aweti evidence and may later raise results without rewriting history.
+Depends on `define-grammar-coverage-contract` and the diagnostic-event API from `add-grammar-diagnostics`. Correct RTL and Simultaneous compilers depend on the pinned manifest for the deep-truncation-chain-shaped synthetic grammar's evidence and may later raise results without rewriting history.

@@ -21,7 +21,7 @@ frozen-commit audit.
   current engine runs against the committed, oracle-authored `machine/conformance/` ground truth on
   every change, folded into the Stage 0A gate, not assembled once at a "final" commit.
 - Preserve the historical actual-language reports (Sena/Indonesian/Amharic/Aweti) as provenance only
-  (see `reconcile-aweti-baseline`); their data is not migrated into the synthetic conformance suite,
+  (see `reconcile-deep-truncation-baseline`); their data is not migrated into the synthetic conformance suite,
   and no identifier or fixture introduced by this change names an actual language.
 - Continue to consume the same versioned `add-grammar-diagnostics` / `profile-fst-compilation` /
   resource-policy reports for evidence without re-deriving those measurements, but the pass/fail

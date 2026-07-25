@@ -9,7 +9,7 @@ Execution order, prerequisites, and exclusive ownership are governed by
 
 ## Dependencies
 
-Depends on `define-grammar-coverage-contract`, `reconcile-aweti-baseline`, and merged `compile-right-to-left-rewrites`. It is the next exclusive owner of `replace.rs`, gated/ungated `gate.rs` entry points, and Simultaneous/Aweti evidence.
+Depends on `define-grammar-coverage-contract`, `reconcile-deep-truncation-baseline`, and merged `compile-right-to-left-rewrites`. It is the next exclusive owner of `replace.rs`, gated/ungated `gate.rs` entry points, and Simultaneous/deep-truncation-chain evidence.
 
 This change is authored on the reified compilation model (`reify-compilation-plans`) rather than the
 old hardcoded `should_run`/`probe_would_refuse`/`partition_entries` branching. Its subrule-overlap

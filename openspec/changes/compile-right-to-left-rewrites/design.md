@@ -9,7 +9,7 @@ Execution order, prerequisites, and exclusive ownership are governed by
 
 ## Dependencies
 
-Depends on `define-grammar-coverage-contract`, `reconcile-aweti-baseline`, and merged `fix-multitable-fst-compilation`. It is the next exclusive owner of `replace.rs`, gated/ungated `gate.rs` entry points, and RTL/Aweti evidence. It may add a post-baseline manifest but does not alter history.
+Depends on `define-grammar-coverage-contract`, `reconcile-deep-truncation-baseline`, and merged `fix-multitable-fst-compilation`. It is the next exclusive owner of `replace.rs`, gated/ungated `gate.rs` entry points, and RTL/deep-truncation-chain evidence. It may add a post-baseline manifest but does not alter history.
 
 This change is authored on the reified compilation model (`reify-compilation-plans`) rather than the
 old hardcoded `should_run`/`probe_would_refuse`/`partition_entries` branching: RTL direction reversal

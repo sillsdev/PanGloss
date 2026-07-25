@@ -1339,8 +1339,8 @@ fn emit_rule_allomorphs(
 /// level plus one token+arc path per rule allomorph). Always defines `{prefix}0`, even when
 /// `rules` is empty (a plain passthrough), so callers can reference it unconditionally.
 ///
-/// Two distinct level-assignment strategies, gated on `mode` (P6-Aweti chain-restriction finding,
-/// `docs/fst-plan/p6-aweti-truncation-chain-report.md`):
+/// Two distinct level-assignment strategies, gated on `mode` (P6 deep-truncation-chain
+/// chain-restriction finding, `docs/fst-plan/p6-deep-truncation-chain-report.md`):
 /// - [`TextMode::SurfaceProbed`] (legacy, unchanged): EVERY level offers EVERY rule in `rules`;
 ///   depth = `rules.len()` floored at [`DERIV_DEPTH_MIN`] (module doc: the engine-faithful bound
 ///   for `multipleApplication = 1` — each rule can apply at most once, so no derivation chain is
@@ -1360,7 +1360,7 @@ fn emit_rule_allomorphs(
 ///   SAME chain instance to `rules`' own document order (previously free at any two of the
 ///   `rules.len()` levels) — a real recall risk if some oracle analysis needs two standalone rules
 ///   in the OTHER order; the corpus recall gate is the judge (`docs/fst-plan/
-///   p6-aweti-truncation-chain-report.md` documents the measurement for Aweti specifically — no
+///   p6-deep-truncation-chain-report.md` documents the measurement for Aweti specifically — no
 ///   regression observed).
 ///
 /// `phon`/`exit_is_roots` (module doc, "Junction-aware affix/root emission"): `phon` is unioned

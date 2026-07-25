@@ -1,7 +1,7 @@
-# P6-Aweti: chain restriction (shipped) + truncation semantics (designed, NOT shipped)
+# P6 deep-truncation-chain: chain restriction (shipped) + truncation semantics (designed, NOT shipped)
 
-Follow-up to `p6-prototype-report.md` (§P6 items 1/2) and the P6-Aweti design investigation that
-produced `dfb5025` (`emit_underlying_templated` + the Aweti gate). That investigation found: the
+Follow-up to `p6-prototype-report.md` (§P6 items 1/2) and the P6 deep-truncation-chain design
+investigation that produced `dfb5025` (`emit_underlying_templated` + the Aweti gate). That investigation found: the
 composed net is acyclic but has `PATHCOUNT_OVERFLOW`-scale finite ambiguity; true corpus recall
 (composition-based) is 65/101 (equivalently 68/104 — see §4); 16/36 misses were *hypothesized* to
 be missing truncation-drop semantics (41 "structural" mrules); 20/36 unexplained; `apply_up`

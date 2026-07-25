@@ -1,4 +1,4 @@
-# Aweti correctness and performance completion design
+# Deep-truncation-chain correctness and performance completion design
 
 Date: 2026-07-20  
 Status: Approved for implementation

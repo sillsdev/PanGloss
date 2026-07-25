@@ -175,9 +175,9 @@ These assume shippable packs and trail the compilation spine:
 - `add-grammar-diagnostics` — **fix** the apply-path containment to ADR 0003's in-process cooperative
   magnitude budgets (not "the watchdog", which is compile-only).
 - `add-fst-compilation-health-audit`.
-- `reconcile-aweti-baseline` — folds into a synthetic Aweti-shaped conformance fixture + a
-  construct-driven target; the honest 32/104 floor and non-comparable 68/104 history are preserved as
-  provenance, not as actual-language data.
+- `reconcile-deep-truncation-baseline` — folds into a synthetic deep-truncation-chain-shaped
+  conformance fixture + a construct-driven target; the honest 32/104 floor and non-comparable
+  68/104 history are preserved as provenance, not as actual-language data.
 
 ## Merge hotspots
 
