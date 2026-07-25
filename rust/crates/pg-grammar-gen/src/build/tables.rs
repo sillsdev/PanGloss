@@ -29,7 +29,7 @@
 //! FEATURE STRUCT, not (only) its literal spelling/char-def identity. A second, per-segment-unique
 //! feature closes this: no two segments in the whole grammar share a feature vector, so this
 //! collision can never recur regardless of `segment_inventory`/`entries_per_stratum`. Mirrors
-//! `machine/conformance/languages/fusional-latin/grammar.xml`'s own `featId` feature and its own
+//! `machine/conformance/languages/fusional-realizational-morphology/grammar.xml`'s own `featId` feature and its own
 //! header comment explaining exactly this need (a fully-specified feature system, one unique value
 //! per segment, wherever a segment's identity must be recoverable from its feature struct alone).
 
@@ -104,7 +104,7 @@ const SYM_VOICE_MINUS_XML_ID: &str = "symVoiceMinus";
 // `featVoice` is meaningful to any natural class this module declares (`ncVoicedAny`/
 // `ncVoicelessAny` only ever pin `featVoice`) -- `featId` exists purely so no two segments in the
 // WHOLE grammar ever share an identical feature VECTOR, mirroring `machine/conformance/languages/
-// fusional-latin/grammar.xml`'s own `featId` ("id") feature and its own comment explaining exactly
+// fusional-realizational-morphology/grammar.xml`'s own `featId` ("id") feature and its own comment explaining exactly
 // this need (that file's header: a fully-specified feature system, one unique value per segment,
 // is required wherever a segment's identity must be recoverable from its feature struct alone).
 const FEAT_ID_XML_ID: &str = "featId";
@@ -120,7 +120,7 @@ const FEAT_ID_XML_ID: &str = "featId";
 /// `needs_boundary`: when `true`, table 0 also declares a single `<BoundaryDefinition>` (xml id
 /// returned as [`TablesBuild::boundary_xml_id`]) whose representation is the literal `"+"`
 /// character -- [`crate::build::compounding`]'s own compound-seam marker. Found empirically by
-/// reading `machine/conformance/languages/fusional-latin/grammar.xml`'s own header comment on its
+/// reading `machine/conformance/languages/fusional-realizational-morphology/grammar.xml`'s own header comment on its
 /// `cBnd` declaration: a compounding rule's `InsertSegments` boundary text must be declared as a
 /// `<BoundaryDefinition>`, NOT a plain `<SegmentDefinition>` -- that file's own comment records that
 /// declaring it as a plain segment "produced zero parses for every compound word (confirmed by
@@ -263,7 +263,7 @@ pub fn build(
 /// Xml id of the always-present universal wildcard natural class (matches every segment,
 /// regardless of table) -- every non-stage-1-stub builder that captures a root span
 /// (`MorphologicalInput`'s `OptionalSegmentSequence`) references this, mirroring every existing
-/// fixture's own `ncAny`/`Any` convention (e.g. `machine/conformance/languages/fusional-latin/
+/// fixture's own `ncAny`/`Any` convention (e.g. `machine/conformance/languages/fusional-realizational-morphology/
 /// grammar.xml`'s `ncAny`).
 pub fn nc_any_xml_id() -> &'static str {
     NC_ANY_XML_ID

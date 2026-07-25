@@ -2,7 +2,7 @@
 //! GATE 2's circumfix recipe requires: ONE template, ONE slot, wrapping whatever morphological
 //! rule ids the caller supplies -- the general slot/template XML shape follows `pg-foma/src/
 //! morphotactics.rs`'s own `FIXTURE_SLOTS`/`FIXTURE_STRATA` test fixtures and `machine/
-//! conformance/languages/fusional-latin/grammar.xml`'s real `<Slot morphologicalRules="...">`
+//! conformance/languages/fusional-realizational-morphology/grammar.xml`'s real `<Slot morphologicalRules="...">`
 //! shape, reduced here to depth 1 (one template, one slot). Growing this into a real multi-slot,
 //! multi-template builder (depth/slot-count/optional-fraction scale knobs,
 //! synthetic-stress-grammar-plan.md §2's "AffixTemplate morphotactics" row) is stage 2's job.

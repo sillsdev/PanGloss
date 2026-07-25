@@ -6,7 +6,7 @@
 //!
 //! XML shape: an ordinary unconditional `<PhonologicalRule>` (no environment, no MPR/POS gating --
 //! nothing here should trip any OTHER budget/skip path first) with
-//! `multipleApplicationOrder="simultaneous"` (`machine/conformance/languages/templatic-semitic/
+//! `multipleApplicationOrder="simultaneous"` (`machine/conformance/languages/templatic-root-modification/
 //! grammar.xml`'s own `prSimulFeeding`/`prEpenthesis` shape, reduced to the minimal unconditional
 //! case). Since `is_fully_supported_shape` rejects the WHOLE rule before `pattern_slots`/
 //! `resolve_alpha_tuples` ever run (module doc of that function), the rule's own LHS/RHS content

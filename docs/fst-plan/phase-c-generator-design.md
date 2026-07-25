@@ -17,7 +17,7 @@ The plan's original snapshot-JSON assumption is REJECTED with evidence — `comp
 | Multi strata | strata string ignored; hardcoded exactly 3 strata sharing table 0 |
 
 XML via the PRODUCTION loader (`pg-grammar/src/load.rs`, consumed by pg-cli/pg-ffi/pg-wasm)
-loads every §2 construct: circumfix (real conformance fixture, fusional-latin), Simultaneous
+loads every §2 construct: circumfix (real conformance fixture, fusional-realizational-morphology), Simultaneous
 (loader round-trip test), RTL (parses), quantifiers (pervasive), metathesis
 (`load_metathesis_rule` + csharp_port test), k-independent MPR gates (`gate.rs`'s
 `sixteen_group_fixture_xml` string-builds exactly this shape — the working precedent to

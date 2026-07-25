@@ -1,6 +1,6 @@
 //! Compounding-rule scale builder (synthetic-stress-grammar-plan.md §2 row `CompoundingRuleDef`;
 //! design doc §6 priority (6), first emit-scale exerciser). Mirrors `machine/conformance/languages/
-//! fusional-latin/grammar.xml`'s own `mrCompoundHN` shape (the only real `<CompoundingRule>` fixture
+//! fusional-realizational-morphology/grammar.xml`'s own `mrCompoundHN` shape (the only real `<CompoundingRule>` fixture
 //! in this repo): a head root + a non-head root, concatenated with a literal `+` compound-seam
 //! marker in between (`CopyFromInput(head) + InsertSegments("+") + CopyFromInput(nonhead)`). That
 //! same file's own header comment records a load-bearing finding this builder depends on: the `+`

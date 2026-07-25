@@ -380,9 +380,9 @@ confirm/multiplicity and preexpand.rs interdigitation coverage respectively), wh
 outside this P3 task's editable scope (owned by concurrent P1d/P2 agents) — reported, not
 patched. Indonesian: 121/121, 100%, confirming the `--engine=foma` CLI wiring itself is
 sound. 3b: 8 NEW conformance divergences beyond the one known one, spanning
-edge-cases/loader-pattern-shapes, edge-cases/truncate-morphotactic, languages/agglutinative-
-turkic, languages/austronesian-phase, languages/bantu-verbal, languages/fusional-latin,
-languages/polysynthetic-inuit, languages/templatic-semitic — every failure is the foma
+edge-cases/loader-pattern-shapes, edge-cases/truncate-morphotactic, languages/suffixing-vowel-harmony,
+languages/metathesis-phase-isolation, languages/suffixing-extension-slot-ordering, languages/fusional-realizational-morphology,
+languages/polysynthetic-stratal-derivation-chain, languages/templatic-root-modification — every failure is the foma
 engine returning signature `-` (zero analyses) on words the default engine parses
 correctly. This is the headline P3 finding: the emitter's v1 (lexc + pre-probed variants,
 plan D3) was built and gated ONLY against Sena/Indonesian/Amharic; the conformance suite's

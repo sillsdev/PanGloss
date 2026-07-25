@@ -291,7 +291,7 @@ pub struct EmitCounts {
     /// boundary fusion).
     pub composite_fusion_entries: usize,
     /// Composite lexc entries emitted by [`build_structural_composites`] (gate F3 3b,
-    /// `edge-cases/truncate-morphotactic`/`languages/agglutinative-turkic`): rules `crate::preexpand`
+    /// `edge-cases/truncate-morphotactic`/`languages/suffixing-vowel-harmony`): rules `crate::preexpand`
     /// cannot represent at all — `Role::None`/multi-part-LHS truncation, or (when
     /// [`probe_would_refuse`]) an ordinary `Prefix`/`Suffix`/`Infix` rule in a grammar whose own
     /// phonological cascade defeats `crate::preexpand`'s probe-based fusion mechanism entirely.
@@ -1140,8 +1140,8 @@ fn collect_roots(
                         .unwrap_or_default()
                 };
                 let mut variants = variants;
-                // Bare-root phonology (gate F3 3b, `languages/bantu-verbal`'s "mba" and
-                // `languages/agglutinative-turkic`'s "duy"/"sueb"): a grammar with real
+                // Bare-root phonology (gate F3 3b, `languages/suffixing-extension-slot-ordering`'s "mba" and
+                // `languages/suffixing-vowel-harmony`'s "duy"/"sueb"): a grammar with real
                 // phonological rules can obligatorily change a root's OWN surface even with no
                 // morphological rule applied at all (post-nasal voicing, vowel coalescence,
                 // gradation/epenthesis at a root-internal consonant cluster) — [`surface_variants`]
@@ -1158,7 +1158,7 @@ fn collect_roots(
                 // brief is exactly that POS-blindness for probing a bare AFFIX shape in isolation).
                 // For a BARE ROOT specifically, that is actively WRONG whenever the grammar scopes
                 // different phonological rules to different POS in the SAME stratum
-                // (`languages/polysynthetic-inuit`: `prDelReins` is `requiredPartsOfSpeech="posDelR"`
+                // (`languages/polysynthetic-stratal-derivation-chain`: `prDelReins` is `requiredPartsOfSpeech="posDelR"`
                 // only, but `probe_surface` applies it to `posMDC`'s "buiibuii" too, since an empty
                 // `FeatureStruct` vacuously satisfies every POS gate — found empirically: it returns
                 // "bubu", the OTHER probe root's answer, instead of "buuubuuu"). `generate_words`
@@ -1607,7 +1607,7 @@ fn build_slot_chain(
 // --- Structural composites: rules `crate::preexpand` cannot represent at all ---------------------
 //
 // Gate F3 3b (`docs/fst-plan/foma-fst-plan.md`): the conformance suite's `edge-cases/
-// truncate-morphotactic` and `languages/agglutinative-turkic` fixtures exercise two related gaps
+// truncate-morphotactic` and `languages/suffixing-vowel-harmony` fixtures exercise two related gaps
 // `crate::preexpand`'s rule-application composite mechanism (plan P1d) does not close:
 //
 // 1. **Truncation/subtraction rules.** [`classify_affix`] only inspects RHS `Copy`/`Insert`
@@ -1631,7 +1631,7 @@ fn build_slot_chain(
 //    arms) the moment its cascade reaches an epenthesis-kind rewrite subrule (empty
 //    `<PhoneticInput>`) or ANY `<MetathesisRule>` — REGARDLESS of whether that specific rule
 //    actually fires for the shape being probed. Verified empirically against `languages/
-//    agglutinative-turkic` (has a real `prEpenthesis`): `crate::preexpand` probes 16 candidate
+//    suffixing-vowel-harmony` (has a real `prEpenthesis`): `crate::preexpand` probes 16 candidate
 //    (root, rule) pairs and emits ZERO fusion/interdigitation composites — every one of the
 //    grammar's ordinary suffix rules (`mrPast`/`mrPres`/`mrPlural`/`mrAlphaSuf`) and its infix rule
 //    (`ruleInfixDemo`) needs the harmony/gradation/epenthesis cascade to reach its real surface
@@ -1709,7 +1709,7 @@ fn is_structural_rule(g: &Grammar, mid: MRuleId) -> bool {
         // wrapping the root on BOTH sides) is unconditionally unrepresentable by this emitter's
         // ordinary concatenative model (separate, independently-combinable prefix/suffix
         // derivation layers — module doc "Not emittable as literal lexc" lists it explicitly) --
-        // `austronesian-phase`'s "keadilan" (ke-adil-an) and `fusional-latin`'s "gelobt"/"gelobth"
+        // `metathesis-phase-isolation`'s "keadilan" (ke-adil-an) and `fusional-realizational-morphology`'s "gelobt"/"gelobth"
         // (ge-lob-t[-h]) need it, and neither grammar has a probe-refusing construct, so this is
         // ALWAYS-on, not gated by `probe_would_refuse` the way ordinary Prefix/Suffix/Infix is.
         Role::CircumfixPrefix => true,
@@ -1822,7 +1822,7 @@ fn probe_surface(
     })
 }
 
-/// Every `BoundaryDefinition` representation (NFD) in `table` — e.g. `austronesian-phase`'s "+".
+/// Every `BoundaryDefinition` representation (NFD) in `table` — e.g. `metathesis-phase-isolation`'s "+".
 /// Empty for a grammar with no boundary definitions (the common case), where boundary-insertion
 /// ([`with_boundary_insertions`]) is a pure no-op.
 fn boundary_reps(table: &CharDefTable) -> Vec<String> {
@@ -1840,7 +1840,7 @@ fn boundary_reps(table: &CharDefTable) -> Vec<String> {
 }
 
 /// `surface` plus every SINGLE-boundary-insertion variant (each rep in `bnd_reps` at each interior
-/// character gap). Gate F3 3b (`austronesian-phase`'s "mu+i"): a `MetathesisRule` can leave a
+/// character gap). Gate F3 3b (`metathesis-phase-isolation`'s "mu+i"): a `MetathesisRule` can leave a
 /// boundary character INSIDE the surface word (`mi` + suffix `+u` --metathesis--> `mu+i`), but the
 /// only mechanism that renders a metathesized surface at all — [`Morpher::generate_words`] — strips
 /// every boundary (`include_boundaries = false`, `pg_parse::surface::to_plain_string`'s only
@@ -2727,8 +2727,8 @@ pub(crate) fn emit_with_budget(
         if has_compounding_rules {
             write_bare(&mut out, "TLCmp", &mut counts);
             // Gate F3 3b: the compound EXTRA root may itself carry prefix-derivation morphology —
-            // a prefix on the compound's head span (`fusional-latin`'s "lexbedom" = lex + be- +
-            // dom, `LEX+BEPFX2+DOMV`; `polysynthetic-inuit`'s "silamanuk" = sila + ma- + nuk,
+            // a prefix on the compound's head span (`fusional-realizational-morphology`'s "lexbedom" = lex + be- +
+            // dom, `LEX+BEPFX2+DOMV`; `polysynthetic-stratal-derivation-chain`'s "silamanuk" = sila + ma- + nuk,
             // `SILA+MAPFX2+NUKV`). The engine's compound splitter unapplies a prefix cleanly from
             // the head span, so a bare extra-root slot (v1) under-generates every prefixed-head
             // compound. Wire a prefix-derivation chain before the extra root, exiting to a bounded
@@ -3015,7 +3015,7 @@ pub(crate) fn emit_with_budget(
     // An infix rule that matched zero roots keeps its uncovered items, honestly.
     //
     // Gate F3 3b: same drop for a `circumfix-prefix` rule [`build_structural_composites`] covered
-    // ([`StructAcc::covered_rules`]) — `austronesian-phase`'s "keadilan"/`fusional-latin`'s
+    // ([`StructAcc::covered_rules`]) — `metathesis-phase-isolation`'s "keadilan"/`fusional-realizational-morphology`'s
     // "gelobt"/"gelobth" need this so their now-representable circumfix rule stops being reported
     // uncovered.
     uncovered.retain(|u| {
@@ -3770,29 +3770,29 @@ mod structural_and_pattern_tests {
 
     /// [`probe_would_refuse`] must detect an empty-`<PhoneticInput>` (epenthesis-kind) rewrite
     /// subrule — the exact construct that makes `pg_rules::surface_probe::probe_synthesize`
-    /// unconditionally refuse for `languages/agglutinative-turkic` (its `prEpenthesis`).
+    /// unconditionally refuse for `languages/suffixing-vowel-harmony` (its `prEpenthesis`).
     #[test]
     fn probe_would_refuse_detects_epenthesis() {
-        let g = load("languages/agglutinative-turkic/grammar.xml");
+        let g = load("languages/suffixing-vowel-harmony/grammar.xml");
         assert!(probe_would_refuse(&g));
     }
 
     /// [`probe_would_refuse`] is `false` for a grammar with real phonology but no epenthesis/
-    /// metathesis construct (`languages/bantu-verbal`'s post-nasal-voicing rule has a real LHS
+    /// metathesis construct (`languages/suffixing-extension-slot-ordering`'s post-nasal-voicing rule has a real LHS
     /// segment) — the reference/edge-case grammars this gate must NOT perturb.
     #[test]
     fn probe_would_refuse_is_false_for_ordinary_rewrite_rules() {
-        let g = load("languages/bantu-verbal/grammar.xml");
+        let g = load("languages/suffixing-extension-slot-ordering/grammar.xml");
         assert!(!probe_would_refuse(&g));
     }
 
-    /// Gate F3 3b regression: `languages/bantu-verbal`'s "mba" — a BARE root ("mpa") whose surface
+    /// Gate F3 3b regression: `languages/suffixing-extension-slot-ordering`'s "mba" — a BARE root ("mpa") whose surface
     /// only exists via an obligatory post-nasal-voicing phonological rule, no morphological rule
     /// involved at all — must become proposable via the bare-root phonology enrichment in
     /// [`collect_roots`].
     #[test]
     fn bare_root_phonology_makes_post_nasal_voicing_proposable() {
-        let g = load("languages/bantu-verbal/grammar.xml");
+        let g = load("languages/suffixing-extension-slot-ordering/grammar.xml");
         let mut proposer = crate::analyzer::FomaProposer::new(&g).expect("compiles");
         assert!(
             !proposer.propose("mba").is_empty(),
@@ -3804,13 +3804,13 @@ mod structural_and_pattern_tests {
     /// (`pg_rules::rewrite::probe_apply_rule_cached` applies every phonological subrule in the
     /// stratum unconditionally, `FeatureStruct::EMPTY` vacuously satisfying every
     /// `requiredPartsOfSpeech` gate) — wrong for a bare root in a grammar that scopes DIFFERENT
-    /// phonological rules to different POS in the SAME stratum. `languages/polysynthetic-inuit`'s
+    /// phonological rules to different POS in the SAME stratum. `languages/polysynthetic-stratal-derivation-chain`'s
     /// "buiibuii" (posMDC) must raise to "buuubuuu" via its own `prMDC1`, NOT get caught by
     /// `prDelReins` (posDelR-only) the way a POS-blind probe would. [`Morpher::generate_words`] is
     /// the fix (real per-word pipeline, genuinely POS-gated) — this pins the fix, not just the bug.
     #[test]
     fn bare_root_phonology_prefers_the_pos_correct_generate_words_surface() {
-        let g = load("languages/polysynthetic-inuit/grammar.xml");
+        let g = load("languages/polysynthetic-stratal-derivation-chain/grammar.xml");
         let table = surface_table(&g);
         let cache = RuleCache::build(&g);
         let entry = &g.entries[entry_id_of(&g, "eBuiibuii").0 as usize];
@@ -3832,13 +3832,13 @@ mod structural_and_pattern_tests {
         );
     }
 
-    /// Gate F3 3b regression: `languages/agglutinative-turkic`'s full construct mix — ordinary
+    /// Gate F3 3b regression: `languages/suffixing-vowel-harmony`'s full construct mix — ordinary
     /// suffix rules needing the harmony/gradation/epenthesis cascade
     /// (`generate_words`-fallback composites), an infix rule in the SAME probe-refusing stratum,
     /// and bare-root vowel coalescence — must all be proposable together.
     #[test]
-    fn agglutinative_turkic_full_cascade_words_are_proposable() {
-        let g = load("languages/agglutinative-turkic/grammar.xml");
+    fn suffixing_vowel_harmony_full_cascade_words_are_proposable() {
+        let g = load("languages/suffixing-vowel-harmony/grammar.xml");
         let mut proposer = crate::analyzer::FomaProposer::new(&g).expect("compiles");
         for word in [
             "kutagida",
@@ -3876,31 +3876,31 @@ mod structural_and_pattern_tests {
     }
 
     /// Gate F3 3b regression: a prefix on the compound HEAD span — the compound extra-root slot
-    /// wired through a prefix-derivation chain (`fusional-latin`'s "lexbedom" = `LEX+BEPFX2+DOMV`;
-    /// `polysynthetic-inuit`'s "silamanuk" = `SILA+MAPFX2+NUKV`). The v1 bare extra-root slot could
+    /// wired through a prefix-derivation chain (`fusional-realizational-morphology`'s "lexbedom" = `LEX+BEPFX2+DOMV`;
+    /// `polysynthetic-stratal-derivation-chain`'s "silamanuk" = `SILA+MAPFX2+NUKV`). The v1 bare extra-root slot could
     /// not place a prefix between the two roots, so both under-generated (foma returned zero).
     #[test]
     fn compound_head_prefix_confirms() {
-        assert_confirms("languages/fusional-latin", &["lexbedom"]);
-        assert_confirms("languages/polysynthetic-inuit", &["silamanuk"]);
+        assert_confirms("languages/fusional-realizational-morphology", &["lexbedom"]);
+        assert_confirms("languages/polysynthetic-stratal-derivation-chain", &["silamanuk"]);
     }
 
     /// Gate F3 3b regression: `redupMorphType="prefix"` reduplication — the peel must PREPEND the
     /// redup morpheme (`[RED, root]`, root_index shifted) so `crate::confirm`'s positional match
-    /// succeeds (`austronesian-phase`'s "tutula" = `RDP+TULA`, "tulatula" = `RDPL+TULA`). The v1
+    /// succeeds (`metathesis-phase-isolation`'s "tutula" = `RDP+TULA`, "tulatula" = `RDPL+TULA`). The v1
     /// append-only peel produced `[root, RED]` which confirm rejected.
     #[test]
     fn prefix_reduplication_confirms() {
-        assert_confirms("languages/austronesian-phase", &["tutula", "tulatula"]);
+        assert_confirms("languages/metathesis-phase-isolation", &["tutula", "tulatula"]);
     }
 
     /// Gate F3 3b regression: metathesis that leaves a BoundaryDefinition char inside the surface
-    /// word (`austronesian-phase`'s "mu+i" = `mi` + suffix `+u` --metathesis--> `mu+i`,
+    /// word (`metathesis-phase-isolation`'s "mu+i" = `mi` + suffix `+u` --metathesis--> `mu+i`,
     /// `MI+3SGU`). `generate_words` strips the boundary ("mui"); [`with_boundary_insertions`]
     /// re-introduces it at every interior gap so the boundary-bearing query is reachable.
     #[test]
     fn metathesis_boundary_in_surface_confirms() {
-        assert_confirms("languages/austronesian-phase", &["mu+i"]);
+        assert_confirms("languages/metathesis-phase-isolation", &["mu+i"]);
     }
 
     /// [`with_boundary_insertions`] is a no-op without boundary reps and enumerates every interior

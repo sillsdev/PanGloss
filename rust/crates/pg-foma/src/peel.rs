@@ -141,7 +141,7 @@ impl ReduplicationPeeler {
         for l in 1..=max_copy_len {
             // Prefix copy: chars[0..l] repeats immediately (chars[l..2l]) -- strip it. The
             // reduplicant sits at the FRONT (surface position 0), so its morpheme PRECEDES the
-            // base's in ascending surface order — `prepend = true` (gate F3 3b: `austronesian-phase`'s
+            // base's in ascending surface order — `prepend = true` (gate F3 3b: `metathesis-phase-isolation`'s
             // `redupMorphType="prefix"` rules `mrRedupCV`/`mrRedupFull`, "tutula"/"tulatula", whose
             // engine analyses are `[RED, root]` root_index=1; the old unconditional append produced
             // `[root, RED]` root_index=0, which `crate::confirm`'s positional `analyses_match`

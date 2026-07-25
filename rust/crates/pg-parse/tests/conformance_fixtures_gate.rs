@@ -13,13 +13,13 @@
 //! affix-shapes/` directory that was never populated (see git blame — no commit ever created it).
 //! Investigation (docs/conformance-staging-plan.md task) found all four already covered upstream,
 //! under the SAME "W9.1 probe" provenance strings the dead tests' own doc comments cited:
-//! - infix (`AffixProcessRuleTests.InfixRules`) — `languages/austronesian-phase`'s `sumulat` word.
-//! - circumfix (`AffixProcessRuleTests.CircumfixRules`) — `languages/austronesian-phase`'s `keadilan`.
-//! - noncontiguous (`AffixProcessRuleTests.NonContiguousRules`) — `languages/austronesian-phase`'s
+//! - infix (`AffixProcessRuleTests.InfixRules`) — `languages/metathesis-phase-isolation`'s `sumulat` word.
+//! - circumfix (`AffixProcessRuleTests.CircumfixRules`) — `languages/metathesis-phase-isolation`'s `keadilan`.
+//! - noncontiguous (`AffixProcessRuleTests.NonContiguousRules`) — `languages/metathesis-phase-isolation`'s
 //!   `katibɯd` (+ its `katabɯd` obligatory-rewrite negative control).
 //! - truncate (`AffixProcessRuleTests.TruncateRules`) — `edge-cases/truncate-morphotactic`, whose
 //!   own module doc says outright "Converted from conformance/affix-shapes/truncate (v1)", AND
-//!   `languages/austronesian-phase`'s own `pur`/`pure` pair.
+//!   `languages/metathesis-phase-isolation`'s own `pur`/`pure` pair.
 //! `affix_shapes_conformance.rs` has been deleted; this file's generic replay exercises all four
 //! constructs for real (via the fixtures above) as part of the normal, non-ignored default suite —
 //! a strictly stronger gate than the dead placeholder ever ran, since it now runs unconditionally
@@ -93,9 +93,9 @@ fn w91_affix_shapes_covered_by_upstream_fixtures() {
     let fixtures = discover();
     let austronesian = fixtures
         .iter()
-        .find(|f| f.category == "languages" && f.name == "austronesian-phase")
+        .find(|f| f.category == "languages" && f.name == "metathesis-phase-isolation")
         .expect(
-            "languages/austronesian-phase must be discoverable (machine submodule initialized?)",
+            "languages/metathesis-phase-isolation must be discoverable (machine submodule initialized?)",
         );
     let truncate = fixtures
         .iter()
@@ -120,7 +120,7 @@ fn w91_affix_shapes_covered_by_upstream_fixtures() {
         "KTB+PERF|katibɯd"
     );
     assert_eq!(morpher.parse_word("katabɯd").signature(), "-");
-    // truncate (also present in austronesian-phase itself): pur = PURE + INCP.
+    // truncate (also present in metathesis-phase-isolation itself): pur = PURE + INCP.
     assert_eq!(morpher.parse_word("pur").signature(), "PURE+INCP|pur");
 
     let g2 = pg_grammar::load(&truncate.load_grammar_xml()).unwrap();

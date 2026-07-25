@@ -82,7 +82,7 @@ delete the dead tests), un-ignoring whatever survives.
 Author staged fixtures that MIMIC what is pathological in each real grammar (Sena, Amharic,
 Indonesian, Aweti) using fresh synthetic words/morphemes — NEVER copies of the real data
 (that's what makes them committable where `samples/data` is not). Existing machine fixtures
-may be hijacked as starting points (e.g. `languages/templatic-semitic` for interdigitation).
+may be hijacked as starting points (e.g. `languages/templatic-root-modification` for interdigitation).
 The pathology catalog, from this repo's own measured findings (dead-end census, E5
 investigation, P6 prototype, Aweti scale work):
 
