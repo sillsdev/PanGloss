@@ -196,10 +196,12 @@ use pg_rules::word::{MorphRecord, Word};
 use pg_shape::{EffectiveCdSet, NodeKind, Shape};
 
 use crate::compose_budget::ComposeBudget;
+use crate::enumerate::enumerate_default;
 use crate::junctions::PhonologyProbe;
 use crate::morphotactics::{
     ChainState, EnumerationBudget, ExploreMode, MorphotacticIndex, ProbeBudget,
 };
+use crate::plan::{FragmentSpec, Plan, PlanNodeKind};
 use crate::precision::{ConstraintCatalog, PrecisionConfig, PrecisionEmit};
 use crate::profile::{CompileProfileBuilder, CompileStage};
 use crate::replace::SegAlphabet;
@@ -1965,7 +1967,9 @@ pub(crate) fn probe_would_refuse(g: &Grammar) -> bool {
 /// `pub(crate)` (widened from private, no body change): see [`probe_would_refuse`]'s doc for why --
 /// same `reify-compilation-plans` Step 2 rationale, this is the other half of D2's row 2 seam
 /// (`crate::enumerate::enumerate_default` calls this directly to decide the structural-composite
-/// route's presence, matching `emit_with_budget`'s own `!struct_rules.is_empty()` gate exactly).
+/// route's presence). Task 1.3 (below, [`plan_topology_decisions`]) is what makes
+/// [`emit_with_budget_profiled`]'s own gate match this seam BY CONSTRUCTION rather than by two
+/// independently-written call sites happening to agree.
 pub(crate) fn structural_candidate_rules(g: &Grammar) -> Vec<MRuleId> {
     let broad = probe_would_refuse(g);
     (0..g.mrules.len() as u32)
@@ -1978,6 +1982,55 @@ pub(crate) fn structural_candidate_rules(g: &Grammar) -> Vec<MRuleId> {
                 || (broad && matches!(rule_role(g, mid), Role::Prefix | Role::Suffix | Role::Infix))
         })
         .collect()
+}
+
+/// `true` iff `plan` contains a [`PlanNodeKind::Leaf`] whose [`FragmentSpec`] equals `fragment` --
+/// the structural primitive [`plan_topology_decisions`] uses to read a topology decision back OFF
+/// an already-built [`Plan`] instead of recomputing it. Both marker fragments this crate uses today
+/// ([`FragmentSpec::CompositeEmissionMarker`]/[`FragmentSpec::StructuralCompositeMarker`]) are unit
+/// variants, so equality here is a plain content comparison, not a partial/fuzzy match.
+fn plan_has_leaf(plan: &Plan, fragment: &FragmentSpec) -> bool {
+    plan.iter()
+        .any(|(_, kind)| matches!(kind, PlanNodeKind::Leaf { fragment: f, .. } if f == fragment))
+}
+
+/// Task 1.3 (`openspec/changes/reify-compilation-plans`, design.md D2): builds `g`'s reified
+/// [`Plan`] (Step 2, [`crate::enumerate::enumerate_default`]) and returns
+/// [`emit_with_budget_profiled`]'s two topology decisions **derived from it** --
+/// `(plan wants the composite-emission subtree, plan wants the structural-composite subtree)` --
+/// rather than that function calling `crate::preexpand::should_run`/
+/// `structural_candidate_rules(...).is_empty()` a second, independently-derived time. This is the
+/// production flip D2 names: "the pre-refactor behavior SHALL be preserved as a specific enumerable
+/// plan" -- [`crate::enumerate::enumerate_default`] is now the ONE place these two seams are
+/// consulted to decide topology; this function only ever READS the plan it built. (D2's third seam,
+/// `gate::partition_entries`, is NOT wired here -- see [`emit_with_budget_profiled`]'s own doc for
+/// why: that seam belongs to `gate.rs`'s separate compile entry point, which this mainline
+/// lexc-emission path never calls at all.)
+///
+/// `prules_in_order`/`alphabet` mirror [`crate::capability_entry::evaluate_capability`]'s own
+/// construction of these same `enumerate_default` inputs (that module's own doc: this crate's
+/// mainline lexc-emission path doesn't build a `Replace` cascade at all, so `prules_in_order` isn't
+/// already a local anywhere in `emit.rs` -- built the same way every other real construction site in
+/// this crate does: `g`'s strata, in order, flattened over each stratum's own `phonologicalRules` id
+/// list, as literal borrows of `g.prules`).
+///
+/// Cheap and side-effect-free: [`crate::enumerate::enumerate_default`] builds plan DATA only
+/// (`crate::plan`'s own module doc: "no live `Fsm` is built here at all") -- calling it here does
+/// not build or compose any real FST, just the same handful of `Vec`/`HashMap` grammar-data scans
+/// `should_run`/`structural_candidate_rules`/`find_gated_subrules`/`partition_entries` already
+/// perform on their own.
+pub(crate) fn plan_topology_decisions(g: &Grammar, phon: Option<&PhonologyProbe>) -> (bool, bool) {
+    let prules_in_order: Vec<&PhonRuleDef> = g
+        .strata
+        .iter()
+        .flat_map(|s| &s.prules)
+        .map(|&id| &g.prules[id.0 as usize])
+        .collect();
+    let alphabet = SegAlphabet::new(surface_table(g));
+    let plan = enumerate_default(g, &alphabet, &prules_in_order, phon);
+    let wants_composite_emission = plan_has_leaf(&plan, &FragmentSpec::CompositeEmissionMarker);
+    let wants_structural_composite = plan_has_leaf(&plan, &FragmentSpec::StructuralCompositeMarker);
+    (wants_composite_emission, wants_structural_composite)
 }
 
 /// Stack size [`probe_surface`] runs on (module doc below): generous enough that a deep
@@ -2528,15 +2581,30 @@ pub(crate) fn emit_with_budget_profiled(
     // `tests/f1_sena_gate.rs`, depends on this).
     let phon = PhonologyProbe::new(g);
 
-    // Gate F3 3b ("Structural composites" section above): the candidate rule set is a cheap,
-    // purely-static computation over `g.mrules`/`g.prules`, so it's safe to compute unconditionally
-    // and use its emptiness to decide whether the (heavier) `Morpher`/`RuleCache` machinery is
-    // needed at all — zero-cost for Sena (empty `struct_rules`, `phon.is_none()`) and Indonesian
-    // (empty `struct_rules`; `phon.is_some()` but `RuleCache::build` alone is cheap — the same cost
-    // `crate::preexpand::build_composites` already pays for this grammar).
+    // reify-compilation-plans task 1.3 (design.md D2): build the reified Plan ONCE here and derive
+    // this function's two topology decisions from IT — see [`plan_topology_decisions`]'s own doc.
+    // Single source of truth: from this point on, `plan_wants_composite_emission`/
+    // `plan_wants_structural_composite` (NOT a second, independent call to
+    // `crate::preexpand::should_run`/`structural_candidate_rules(...).is_empty()`) are what decide
+    // whether the composite-emission/structural-composite machinery below runs.
+    let (plan_wants_composite_emission, plan_wants_structural_composite) =
+        plan_topology_decisions(g, phon.as_ref());
+
+    // Gate F3 3b ("Structural composites" section above): `struct_rules` is the actual candidate
+    // rule LIST [`build_structural_composites`] needs — a `Plan` leaf is an opaque marker
+    // ([`crate::plan::FragmentSpec::StructuralCompositeMarker`]'s own doc), so it does not carry
+    // rule content and this is still computed directly. It's a cheap, purely-static computation
+    // over `g.mrules`/`g.prules`, so it's safe to compute unconditionally; `plan_wants_structural_
+    // composite` (not `!struct_rules.is_empty()`) is what decides whether the (heavier) `Morpher`/
+    // `RuleCache` machinery is needed at all — zero-cost for Sena (`phon.is_none()`, plan says no)
+    // and Indonesian (plan says no; `phon.is_some()` but `RuleCache::build` alone is cheap — the
+    // same cost `crate::preexpand::build_composites` already pays for this grammar). The two are
+    // equal by construction (both trace back to the identical `structural_candidate_rules(g)` call
+    // — see [`plan_topology_decisions`]'s doc), which `tests::plan_topology_decisions_matches_real_
+    // seams_across_synthetic_grammars` below pins as an anti-drift guard.
     let struct_rules = structural_candidate_rules(g);
     let rule_cache = RuleCache::build(g);
-    let morpher = if phon.is_some() || !struct_rules.is_empty() {
+    let morpher = if phon.is_some() || plan_wants_structural_composite {
         Some(Morpher::new(g, usize::MAX))
     } else {
         None
@@ -2585,18 +2653,27 @@ pub(crate) fn emit_with_budget_profiled(
     // builder tracking (and independently overrunning) its own.
 
     // P1d (`crate::preexpand`, plan's Amharic capability stage): rule-application pre-expansion
-    // (interdigitation) + boundary-fusion composite probing. `should_run` short-circuits to zero
-    // pairs/zero composites for a grammar with no phonological rules AND no `Role::Infix` rule at
-    // all (Sena) — see that module's doc for why this keeps Sena's emitted lexc byte-for-byte.
-    let (mut composites, composite_report) = crate::preexpand::build_composites_with_mode(
-        g,
-        width,
-        phon.as_ref(),
-        &morphotactic_index,
-        explore_mode,
-        probe_budget,
-        &enum_budget,
-    );
+    // (interdigitation) + boundary-fusion composite probing. reify-compilation-plans task 1.3:
+    // `plan_wants_composite_emission` (D2 row 1, derived from the Plan built above) is what decides
+    // whether this mechanism runs at all — a grammar with no phonological rules AND no `Role::Infix`
+    // rule at all (Sena) has the composite-emission subtree ABSENT from the plan, so this call is
+    // skipped entirely rather than made and internally short-circuited by `crate::preexpand::
+    // should_run` a second time; either way the result is the identical zero pairs/zero composites
+    // (`build_composites_with_mode`'s own `should_run` check has no side effects when it trips), so
+    // this keeps Sena's emitted lexc byte-for-byte, exactly as before.
+    let (mut composites, composite_report) = if plan_wants_composite_emission {
+        crate::preexpand::build_composites_with_mode(
+            g,
+            width,
+            phon.as_ref(),
+            &morphotactic_index,
+            explore_mode,
+            probe_budget,
+            &enum_budget,
+        )
+    } else {
+        (Vec::new(), crate::preexpand::CompositeReport::default())
+    };
     counts.composite_pairs_probed = composite_report.pairs_probed;
     counts.composite_interdigitation_entries = composite_report.interdigitation_entries;
     counts.composite_fusion_entries = composite_report.fusion_entries;
@@ -2606,14 +2683,16 @@ pub(crate) fn emit_with_budget_profiled(
     stage_start = Instant::now();
 
     // Gate F3 3b: rules `crate::preexpand`'s own mechanism cannot represent at all ("Structural
-    // composites" section above) — `struct_rules.is_empty()` short-circuits this to zero cost/zero
-    // entries for every one of the three reference grammars (verified: none has a `Role::None`/
-    // multi-part-LHS rule, a `Role::CircumfixPrefix` rule, or a probe-refusing construct).
+    // composites" section above) — reify-compilation-plans task 1.3: `plan_wants_structural_
+    // composite` (D2 row 2, the SAME plan-derived decision that gated the `Morpher` build above)
+    // short-circuits this to zero cost/zero entries for every one of the three reference grammars
+    // (verified: none has a `Role::None`/multi-part-LHS rule, a `Role::CircumfixPrefix` rule, or a
+    // probe-refusing construct) — equal to the old `!struct_rules.is_empty()` gate by construction.
     let mut struct_covered_rules: BTreeSet<u32> = BTreeSet::new();
-    if !struct_rules.is_empty() {
+    if plan_wants_structural_composite {
         let m = morpher
             .as_ref()
-            .expect("morpher is built whenever struct_rules is non-empty");
+            .expect("morpher is built whenever plan_wants_structural_composite is true");
         let (struct_composites, covered) = build_structural_composites(
             g,
             width,
@@ -4692,5 +4771,228 @@ mod structural_and_pattern_tests {
         }
         let group_total: u64 = profile.group_lines.iter().map(|g| g.lines).sum();
         assert!(group_total <= profile.total_lexc_lines.unwrap());
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // reify-compilation-plans task 1.3 (design.md D2): anti-drift guard for `plan_topology_
+    // decisions`. Loads only inline, synthetic (delanguaged) fixtures -- no reference-grammar
+    // corpus dependency -- so this pins the INVARIANT itself (plan-derived decision == real seam
+    // result), not any one grammar's particular verdict.
+    // ---------------------------------------------------------------------------------------------
+
+    /// Asserts [`plan_topology_decisions`]'s two booleans equal the REAL, directly-called seam
+    /// functions' results for `g` -- the exact property task 1.3 exists to guarantee: if
+    /// `crate::enumerate::enumerate_default` (the plan enumerator) and this module's own topology
+    /// gates (`build_composites_with_mode`'s call, the `Morpher`/`build_structural_composites`
+    /// gate) ever disagree, this fails, not silently diverges. `expected` additionally pins the
+    /// literal verdict for each fixture, so a regression in EITHER side (not just a mismatch
+    /// between them) is caught.
+    fn assert_plan_topology_matches_real_seams(g: &Grammar, expected: (bool, bool)) {
+        let phon = PhonologyProbe::new(g);
+        let real_composite_emission = crate::preexpand::should_run(g, phon.as_ref());
+        let real_structural = !structural_candidate_rules(g).is_empty();
+        assert_eq!(
+            (real_composite_emission, real_structural),
+            expected,
+            "fixture's own expected topology is wrong -- fix the test, not the assertion below"
+        );
+
+        let (plan_composite_emission, plan_structural) = plan_topology_decisions(g, phon.as_ref());
+        assert_eq!(
+            plan_composite_emission, real_composite_emission,
+            "plan-derived composite-emission decision (D2 row 1) must equal preexpand::should_run"
+        );
+        assert_eq!(
+            plan_structural, real_structural,
+            "plan-derived structural-composite decision (D2 row 2) must equal \
+             !structural_candidate_rules(g).is_empty()"
+        );
+    }
+
+    fn load_xml(xml: &str) -> Grammar {
+        pg_grammar::load(xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"))
+    }
+
+    /// No `PhonologicalRuleDefinitions` at all (`phon` is `None`) and no rule of any kind (so no
+    /// `Role::Infix` rule either) -- both `should_run` and `structural_candidate_rules` must be
+    /// empty/false. The (composite-emission, structural-composite) baseline: neither subtree.
+    #[test]
+    fn plan_topology_decisions_matches_real_seams_bare_grammar() {
+        const XML: &str = r#"<HermitCrabInput><Language><Name>PlanTopologyBare</Name>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions>
+              <SegmentDefinition id="cp"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
+            </SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <Strata>
+            <Stratum characterDefinitionTable="t1">
+              <Name>S</Name>
+              <LexicalEntries>
+                <LexicalEntry id="e1">
+                  <Allomorphs><Allomorph id="a1"><PhoneticShape>p</PhoneticShape></Allomorph></Allomorphs>
+                  <Gloss>e1</Gloss>
+                </LexicalEntry>
+              </LexicalEntries>
+            </Stratum>
+          </Strata>
+        </Language></HermitCrabInput>"#;
+        assert_plan_topology_matches_real_seams(&load_xml(XML), (false, false));
+    }
+
+    /// A real (non-epenthesis, non-metathesis) phonological rewrite rule with no
+    /// morphological/structural construct at all: `phon.is_some()` alone makes `should_run` true;
+    /// `probe_would_refuse` is false and no rule classifies structural, so the structural route
+    /// stays absent. (composite-emission, structural-composite) = (true, false).
+    #[test]
+    fn plan_topology_decisions_matches_real_seams_ordinary_phonology_only() {
+        const XML: &str = r#"<HermitCrabInput><Language><Name>PlanTopologyOrdinaryPhon</Name>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions>
+              <SegmentDefinition id="cp"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
+              <SegmentDefinition id="cb"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
+            </SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <NaturalClasses>
+            <SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="cp" /></SegmentNaturalClass>
+          </NaturalClasses>
+          <PhonologicalRuleDefinitions>
+            <PhonologicalRule id="pr1">
+              <Name>PR</Name>
+              <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncAll" /></PhoneticSequence></PhoneticInput>
+              <PhonologicalSubrules>
+                <PhonologicalSubrule>
+                  <PhoneticOutput><PhoneticSequence><Segment segment="cb" /></PhoneticSequence></PhoneticOutput>
+                </PhonologicalSubrule>
+              </PhonologicalSubrules>
+            </PhonologicalRule>
+          </PhonologicalRuleDefinitions>
+          <Strata>
+            <Stratum characterDefinitionTable="t1" phonologicalRules="pr1">
+              <Name>S</Name>
+              <LexicalEntries>
+                <LexicalEntry id="e1">
+                  <Allomorphs><Allomorph id="a1"><PhoneticShape>p</PhoneticShape></Allomorph></Allomorphs>
+                  <Gloss>e1</Gloss>
+                </LexicalEntry>
+              </LexicalEntries>
+            </Stratum>
+          </Strata>
+        </Language></HermitCrabInput>"#;
+        assert_plan_topology_matches_real_seams(&load_xml(XML), (true, false));
+    }
+
+    /// An epenthesis-kind rewrite subrule (empty `<PhoneticInput>`, `probe_would_refuse` -> true)
+    /// PLUS an ordinary suffix morphological rule: `broad` widens `structural_candidate_rules` to
+    /// include that suffix rule (D2 row 2's "ADDITIONALLY every ordinary Prefix/Suffix/Infix rule
+    /// when probe_would_refuse holds"), and `phon.is_some()` alone already makes `should_run` true.
+    /// (composite-emission, structural-composite) = (true, true) -- both subtrees present at once.
+    #[test]
+    fn plan_topology_decisions_matches_real_seams_epenthesis_plus_suffix() {
+        const XML: &str = r#"<HermitCrabInput><Language><Name>PlanTopologyEpenthesisPlusSuffix</Name>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions>
+              <SegmentDefinition id="cx"><Representations><Representation>x</Representation></Representations></SegmentDefinition>
+              <SegmentDefinition id="ce"><Representations><Representation>e</Representation></Representations></SegmentDefinition>
+              <SegmentDefinition id="cy"><Representations><Representation>y</Representation></Representations></SegmentDefinition>
+            </SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <NaturalClasses>
+            <SegmentNaturalClass id="ncE"><Name>Epenthetic</Name><Segment segment="ce" /></SegmentNaturalClass>
+            <SegmentNaturalClass id="ncX"><Name>X</Name><Segment segment="cx" /></SegmentNaturalClass>
+            <SegmentNaturalClass id="ncY"><Name>Y</Name><Segment segment="cy" /></SegmentNaturalClass>
+            <SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="cx" /><Segment segment="ce" /><Segment segment="cy" /></SegmentNaturalClass>
+          </NaturalClasses>
+          <PhonologicalRuleDefinitions>
+            <PhonologicalRule id="prEpenthesis">
+              <Name>epenthesisAlone</Name>
+              <PhoneticInput><PhoneticSequence /></PhoneticInput>
+              <PhonologicalSubrules>
+                <PhonologicalSubrule>
+                  <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncE" /></PhoneticSequence></PhoneticOutput>
+                  <Environment>
+                    <LeftEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncX" /></PhoneticSequence></PhoneticTemplate></LeftEnvironment>
+                    <RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncY" /></PhoneticSequence></PhoneticTemplate></RightEnvironment>
+                  </Environment>
+                </PhonologicalSubrule>
+              </PhonologicalSubrules>
+            </PhonologicalRule>
+          </PhonologicalRuleDefinitions>
+          <Strata>
+            <Stratum characterDefinitionTable="t1" phonologicalRules="prEpenthesis" morphologicalRuleOrder="unordered" morphologicalRules="mr1">
+              <Name>S</Name>
+              <MorphologicalRuleDefinitions>
+                <MorphologicalRule id="mr1">
+                  <Name>-x</Name>
+                  <MorphologicalSubrules>
+                    <MorphologicalSubrule id="sub1">
+                      <MorphologicalInput>
+                        <PhoneticSequence id="stem"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAll" /></OptionalSegmentSequence></PhoneticSequence>
+                      </MorphologicalInput>
+                      <MorphologicalOutput>
+                        <CopyFromInput index="stem" />
+                        <InsertSegments><PhoneticShape>x</PhoneticShape></InsertSegments>
+                      </MorphologicalOutput>
+                    </MorphologicalSubrule>
+                  </MorphologicalSubrules>
+                </MorphologicalRule>
+              </MorphologicalRuleDefinitions>
+              <LexicalEntries>
+                <LexicalEntry id="e1">
+                  <Allomorphs><Allomorph id="a1"><PhoneticShape>xy</PhoneticShape></Allomorph></Allomorphs>
+                  <Gloss>e1</Gloss>
+                </LexicalEntry>
+              </LexicalEntries>
+            </Stratum>
+          </Strata>
+        </Language></HermitCrabInput>"#;
+        assert_plan_topology_matches_real_seams(&load_xml(XML), (true, true));
+    }
+
+    /// A lone circumfix rule (`Insert`, `Copy`, `Insert` -- both a leading AND a trailing insert
+    /// around one copied part), no `PhonologicalRuleDefinitions` at all and no infix rule: `phon` is
+    /// `None` and `any_infix_rule` is false, so `should_run` is false -- but [`is_structural_rule`]
+    /// admits `Role::CircumfixPrefix` UNCONDITIONALLY (not gated by `probe_would_refuse` at all), so
+    /// the structural route is present anyway. (composite-emission, structural-composite) =
+    /// (false, true) -- the complementary combination `ordinary_phonology_only` above doesn't cover,
+    /// completing the 2x2 over both booleans this task's two seams can independently produce.
+    #[test]
+    fn plan_topology_decisions_matches_real_seams_circumfix_only() {
+        const XML: &str = r#"<HermitCrabInput><Language><Name>PlanTopologyCircumfixOnly</Name>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions>
+              <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+            </SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /></SegmentNaturalClass></NaturalClasses>
+          <Strata>
+            <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" morphologicalRules="mr1">
+              <Name>S</Name>
+              <MorphologicalRuleDefinitions>
+                <MorphologicalRule id="mr1">
+                  <Name>circumfix</Name>
+                  <MorphologicalSubrules>
+                    <MorphologicalSubrule id="sub1">
+                      <MorphologicalInput>
+                        <PhoneticSequence id="stem"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAll" /></OptionalSegmentSequence></PhoneticSequence>
+                      </MorphologicalInput>
+                      <MorphologicalOutput>
+                        <InsertSegments><PhoneticShape>a</PhoneticShape></InsertSegments>
+                        <CopyFromInput index="stem" />
+                        <InsertSegments><PhoneticShape>a</PhoneticShape></InsertSegments>
+                      </MorphologicalOutput>
+                    </MorphologicalSubrule>
+                  </MorphologicalSubrules>
+                </MorphologicalRule>
+              </MorphologicalRuleDefinitions>
+              <LexicalEntries>
+                <LexicalEntry id="e1">
+                  <Allomorphs><Allomorph id="a1"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs>
+                  <Gloss>e1</Gloss>
+                </LexicalEntry>
+              </LexicalEntries>
+            </Stratum>
+          </Strata>
+        </Language></HermitCrabInput>"#;
+        assert_plan_topology_matches_real_seams(&load_xml(XML), (false, true));
     }
 }

@@ -2,15 +2,22 @@
 //! today's compilation topology as a single reified [`Plan`] (Step 1, `crate::plan`), verified
 //! structurally against the REAL seam functions rather than a re-derivation of their decisions.
 //!
-//! This module is purely **additive and behavior-preserving**: it does not flip any production
-//! compile path, does not implement a plan builder/interpreter (no live [`foma::types::Fsm`] is
-//! built anywhere here), and does not modify the bodies of the three seam functions it mirrors
-//! (their *visibility* was widened from private to `pub(crate)` so this module and its tests can
-//! call them directly — see [`crate::emit::probe_would_refuse`]/[`crate::emit::
-//! structural_candidate_rules`]'s own doc comments for that rationale; [`crate::preexpand::
-//! should_run`] and [`crate::gate::partition_entries`]/[`crate::gate::find_gated_subrules`] were
-//! already `pub(crate)`/`pub`). Building/executing a [`Plan`] into real FSTs and rewiring `emit` to
-//! go through it is Step 3 — explicitly out of scope here (`crate::plan`'s own module doc).
+//! This module is purely **additive and behavior-preserving**: it does not implement a plan
+//! builder/interpreter (no live [`foma::types::Fsm`] is built anywhere here), and does not modify
+//! the bodies of the three seam functions it mirrors (their *visibility* was widened from private
+//! to `pub(crate)` so this module and its tests can call them directly — see [`crate::emit::
+//! probe_would_refuse`]/[`crate::emit::structural_candidate_rules`]'s own doc comments for that
+//! rationale; [`crate::preexpand::should_run`] and [`crate::gate::partition_entries`]/
+//! [`crate::gate::find_gated_subrules`] were already `pub(crate)`/`pub`). Building/executing a
+//! [`Plan`] into real FSTs stays out of scope here (`crate::plan`'s own module doc; `crate::build`'s
+//! `build_controllable` is the one interpreter, over the CONTROLLABLE Gate/Replace/Compose subtree
+//! only). Task 1.3 (Step 3) DOES now flip a slice of a production compile path: `crate::emit::
+//! plan_topology_decisions` calls [`enumerate_default`] and reads the built `Plan`'s composite-
+//! emission/structural-composite marker presence to decide `emit_with_budget_profiled`'s own
+//! topology, replacing that function's independent `preexpand::should_run`/`structural_candidate_
+//! rules(...).is_empty()` calls — see that function's own doc. `gate::partition_entries` (D2's
+//! third seam) stays unwired into `emit.rs`'s mainline: that seam belongs to `gate.rs`'s own,
+//! separate compile entry point, which `emit.rs`'s lexc-emission path never calls at all.
 //!
 //! # The three seams, as D2's table names them, and how this module models each
 //!

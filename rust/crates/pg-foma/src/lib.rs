@@ -115,8 +115,13 @@ pub mod coverage_ledger;
 /// Step 2 of `openspec/changes/reify-compilation-plans` (design.md D2): `enumerate_default`, which
 /// builds today's compilation topology for a `Grammar` as a single reified [`plan::Plan`], verified
 /// structurally against the real `preexpand::should_run`/`emit::probe_would_refuse`/`gate::
-/// partition_entries` seams. Purely additive -- does not flip any production compile path, does
-/// not build/execute a `Plan` into real FSTs (Step 3); see that module's own doc for full scope and
+/// partition_entries` seams. Task 1.3 (Step 3, `crate::emit::plan_topology_decisions`) flips
+/// `emit.rs`'s own compile path to DERIVE its composite-emission/structural-composite topology
+/// decisions from a `Plan` this function builds, rather than re-deriving `should_run`/
+/// `probe_would_refuse`/`structural_candidate_rules` a second, independent time -- still does not
+/// build/execute a `Plan` into real FSTs itself (that stays data-only), and `gate::
+/// partition_entries` (D2's third seam) is not wired into `emit.rs`'s mainline at all -- it belongs
+/// to `gate.rs`'s own, separate compile entry point; see that module's own doc for full scope and
 /// the judgment calls it surfaces.
 pub mod enumerate;
 /// E2 feasibility probe (not mainline; see that module's doc): does token-space Infix-rule
