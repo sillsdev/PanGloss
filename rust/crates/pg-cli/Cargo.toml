@@ -22,3 +22,8 @@ pg-fwdata.workspace = true
 # `pg_foma::composite::FomaAnalyzer` instead of the default `pg_parse::Morpher` path.
 pg-foma.workspace = true
 rayon.workspace = true
+# `diagnostics.rs` (`openspec/changes/add-grammar-diagnostics`): `build.json`/`assessment.json`
+# canonical JSON. serde/serde_json are already pinned once at the workspace root (mirrors
+# `pg-foma`'s own `health.rs` two-line pattern).
+serde.workspace = true
+serde_json.workspace = true

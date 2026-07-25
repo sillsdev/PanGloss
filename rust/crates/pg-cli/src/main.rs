@@ -45,7 +45,16 @@
 //! separate since they come from different stages of the pipeline; exit is non-zero only on a
 //! hard `pg_fwdata::ImportError` (I/O failure / not-a-`.fwdata`-file), never on either warning list.
 //!
-//! Every other subcommand that takes a grammar path (`parse`, `batch`, `generate`)
+//! ## `diagnose` (`openspec/changes/add-grammar-diagnostics`, see `diagnostics.rs`'s own doc for
+//! this change's STAGING-reworked scope)
+//! `diagnose <grammar> <words.txt> <out-dir>` writes `<out-dir>/build.json` and
+//! `<out-dir>/assessment.json`: a build-side report (grammar identity/counts, an always-empty
+//! `pg_foma::health::HealthReport` until a real evaluator lands) and a word-run-side report whose
+//! entries reuse `pg_realize::word_gloss_signature` for gloss signatures and record each word's
+//! ADR-0003 in-process apply-path containment outcome
+//! (`pg_foma::analyzer::FomaProposer::propose_budgeted`) — never a watchdog, which is compile-only.
+//!
+//! Every other subcommand that takes a grammar path (`parse`, `batch`, `generate`, `diagnose`)
 //! now dispatches on the path's extension via [`load_grammar`]: `.xml` (or anything else) is the
 //! legacy HC-XML path (`pg_grammar::load`, unchanged, no warnings); `.json` loads a `pg-snapshot`
 //! `Snapshot` (`Snapshot::from_json`) and compiles it (`pg_grammar::compile_project`); `.fwdata`
@@ -66,6 +75,7 @@ use pg_foma::composite::FomaAnalyzer;
 use pg_grammar::model::{Grammar, LexEntryId, MRuleId, MorphRuleDef};
 use pg_parse::{hc_parse_batch, GenMorpheme, Morpher, WordAnalysis};
 
+mod diagnostics;
 mod trace_render;
 
 /// P3 (docs/fst-plan/foma-fst-plan.md, gate F3): which proposer/verifier path a `batch`/`parse`
@@ -157,6 +167,13 @@ fn run() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
+        Some("diagnose") => match diagnostics::run_diagnose(&args[2..]) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("pangloss diagnose: {e}");
+                ExitCode::FAILURE
+            }
+        },
         _ => {
             eprintln!(
                 "pangloss {} — HermitCrab Rust engine CLI\n\
@@ -164,6 +181,7 @@ fn run() -> ExitCode {
                  usage: pangloss generate <grammar> <root-morpheme-id> [other-morpheme-id ...]\n\
                  usage: pangloss parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--engine=default|foma] [--enforce-capability|--no-enforce-capability] [--allow-unproven]\n\
                  usage: pangloss import <project.fwdata> <out.json>\n\
+                 usage: pangloss diagnose <grammar> <words.txt> <out-dir>\n\
                  \n\
                  <grammar> is one of: a HermitCrab XML export (.xml, the legacy path), a\n\
                  pg-snapshot JSON file (.json, from `pangloss import` or any other producer), or a\n\
@@ -224,7 +242,7 @@ fn run_import(args: &[String]) -> Result<(), String> {
 /// never produces warnings of its own. Returns any compile/import warnings alongside the
 /// `Grammar` -- callers are responsible for printing them to stderr (never stdout; see the
 /// module doc).
-fn load_grammar(path: &str) -> Result<(Grammar, Vec<String>), String> {
+pub(crate) fn load_grammar(path: &str) -> Result<(Grammar, Vec<String>), String> {
     let ext = std::path::Path::new(path)
         .extension()
         .and_then(|e| e.to_str())
@@ -259,7 +277,7 @@ fn load_grammar(path: &str) -> Result<(Grammar, Vec<String>), String> {
 /// Print `load_grammar`'s warnings to stderr, one per line, prefixed so they're easy to grep out
 /// of a noisy log -- never to stdout (batch's TSV rows and parse's parity line are both
 /// parity-sensitive; see the module doc).
-fn print_grammar_warnings(warnings: &[String]) {
+pub(crate) fn print_grammar_warnings(warnings: &[String]) {
     for w in warnings {
         eprintln!("warning: {w}");
     }

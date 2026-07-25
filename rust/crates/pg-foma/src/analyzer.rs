@@ -19,7 +19,7 @@ use foma::types::ApplyHandle;
 
 use pg_grammar::model::Grammar;
 
-use crate::compose_budget::ComposeBudget;
+use crate::compose_budget::{ApplyBudget, ApplyDimension, ApplyOutcome, ComposeBudget};
 use crate::emit::{self, EmitReport};
 use crate::tags::{self, Candidate};
 
@@ -240,10 +240,46 @@ impl FomaProposer {
     /// arm) — leaving `last_net`/`statemap`/`sigmatch_array`/`sigma_trie` (the grammar-static
     /// tables) untouched, so repeated `up` calls on one handle are exactly the reuse this needs.
     pub fn propose(&mut self, word: &str) -> Vec<Candidate> {
+        match self.propose_budgeted(word, &ApplyBudget::unbounded()) {
+            ApplyOutcome::Complete(candidates) => candidates,
+            ApplyOutcome::Incomplete { .. } => {
+                unreachable!("ApplyBudget::unbounded() can never report Incomplete")
+            }
+        }
+    }
+
+    /// [`Self::propose`]'s core, plus ADR 0003's in-process cooperative magnitude containment
+    /// (`crate::compose_budget`'s own "Apply-path dimension" section doc): checks `budget`'s two
+    /// magnitude dimensions -- raw decoded-path count, distinct-candidate count -- as this word's
+    /// `apply_up` result iterator is walked, returning [`ApplyOutcome::Incomplete`] the instant
+    /// either cap is exceeded rather than continuing to decode/allocate further for this word. This
+    /// is deliberately NOT a watchdog: there is no worker process to spawn or kill here (ADR 0003:
+    /// "a native thread cannot be safely hard-killed in Rust"; this method runs entirely in the
+    /// caller's own process, on `self.handle`, exactly like [`Self::propose`] always has) -- the
+    /// containment is a plain deterministic counter, checked cooperatively, the same discipline
+    /// [`ComposeBudget::check_chain_depth`] already uses one call stack over in the compile-time
+    /// composition path.
+    ///
+    /// [`ApplyBudget::unbounded`] (what [`Self::propose`] passes) can never report `Incomplete` --
+    /// every check below is `Some(cap) if count > cap`, so a `None` cap is always `false` -- which
+    /// is exactly how [`Self::propose`] proves its own behavior is unchanged by this addition
+    /// without duplicating the decode loop.
+    pub fn propose_budgeted(&mut self, word: &str, budget: &ApplyBudget) -> ApplyOutcome<Vec<Candidate>> {
         let normalized = pg_grammar::nfd::nfd(word);
         let mut seen: HashSet<(Vec<u32>, i32)> = HashSet::new();
         let mut out = Vec::new();
+        let mut paths_decoded: usize = 0;
         for s in self.handle.up(&normalized) {
+            paths_decoded += 1;
+            if let Some(limit) = budget.path_cap() {
+                if paths_decoded > limit {
+                    return ApplyOutcome::Incomplete {
+                        dimension: ApplyDimension::DecodedPaths,
+                        value: paths_decoded,
+                        limit,
+                    };
+                }
+            }
             let Some(path) = tags::decode_path(&s) else {
                 continue;
             };
@@ -252,10 +288,19 @@ impl FomaProposer {
                     (c.morphemes.iter().map(|m| m.0).collect(), c.root_index);
                 if seen.insert(key) {
                     out.push(c);
+                    if let Some(limit) = budget.candidate_cap() {
+                        if out.len() > limit {
+                            return ApplyOutcome::Incomplete {
+                                dimension: ApplyDimension::Candidates,
+                                value: out.len(),
+                                limit,
+                            };
+                        }
+                    }
                 }
             }
         }
-        out
+        ApplyOutcome::Complete(out)
     }
 }
 
@@ -435,5 +480,136 @@ mod budget_tests {
             result.is_ok(),
             "an unbounded budget must never trip on a tiny, non-composite grammar"
         );
+    }
+}
+
+#[cfg(test)]
+mod apply_budget_tests {
+    //! ADR 0003's apply-path magnitude-only containment (`crate::compose_budget`'s own "Apply-path
+    //! dimension" section doc): [`FomaProposer::propose_budgeted`] must (1) behave byte-for-byte
+    //! identically to plain [`FomaProposer::propose`] when given [`ApplyBudget::unbounded`], and
+    //! (2) trip each dimension deterministically and cheaply, in-process, with no watchdog/worker
+    //! process involved anywhere in this call.
+
+    use super::*;
+    use crate::compose_budget::ApplyBudget;
+
+    /// A single-root, no-affix, no-rule fixture (same shape as `budget_tests::
+    /// tiny_grammar_never_trips_unbounded_budget`'s own `MtBudgetSmoke`, repeated locally per this
+    /// file's existing per-test-fixture convention): `propose("ka")` finds exactly the bare root
+    /// candidate, so a cap of 0 on either dimension trips on the very FIRST decoded path/candidate,
+    /// which is exactly the deterministic, cheap trip this containment is supposed to guarantee.
+    const FIXTURE: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
+<HermitCrabInput>
+  <Language>
+    <Name>ApplyBudgetSmoke</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cK"><Representations><Representation>k</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered">
+        <Name>Main</Name>
+        <LexicalEntries>
+          <LexicalEntry id="eK" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="aK"><PhoneticShape>ka</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>K</MorphemeId>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>"#;
+
+    fn proposer() -> FomaProposer {
+        let g = pg_grammar::load(FIXTURE).unwrap_or_else(|e| panic!("fixture failed to load: {e}"));
+        FomaProposer::new(&g).unwrap_or_else(|e| panic!("proposer build failed: {e}"))
+    }
+
+    #[test]
+    fn propose_budgeted_unbounded_matches_plain_propose_exactly() {
+        let mut p = proposer();
+        let via_budgeted = match p.propose_budgeted("ka", &ApplyBudget::unbounded()) {
+            ApplyOutcome::Complete(candidates) => candidates,
+            ApplyOutcome::Incomplete { .. } => {
+                panic!("ApplyBudget::unbounded() must never report Incomplete")
+            }
+        };
+        let mut p2 = proposer();
+        let via_plain = p2.propose("ka");
+        assert_eq!(
+            via_budgeted.len(),
+            via_plain.len(),
+            "propose_budgeted(unbounded) must find exactly as many candidates as propose()"
+        );
+        assert!(
+            !via_plain.is_empty(),
+            "the fixture's bare root must propose at least one candidate for this test to be \
+             meaningful"
+        );
+    }
+
+    #[test]
+    fn propose_budgeted_path_cap_zero_trips_on_first_decoded_path() {
+        let mut p = proposer();
+        let budget = ApplyBudget::with_caps(Some(0), None);
+        match p.propose_budgeted("ka", &budget) {
+            ApplyOutcome::Incomplete {
+                dimension,
+                value,
+                limit,
+            } => {
+                assert_eq!(dimension, ApplyDimension::DecodedPaths);
+                assert_eq!(value, 1, "must trip at exactly one past the cap, not later");
+                assert_eq!(limit, 0);
+            }
+            ApplyOutcome::Complete(candidates) => panic!(
+                "expected a path-cap=0 trip on a word with at least one apply_up result, got \
+                 Complete({candidates:?})"
+            ),
+        }
+    }
+
+    #[test]
+    fn propose_budgeted_candidate_cap_zero_trips_on_first_candidate() {
+        let mut p = proposer();
+        let budget = ApplyBudget::with_caps(None, Some(0));
+        match p.propose_budgeted("ka", &budget) {
+            ApplyOutcome::Incomplete {
+                dimension,
+                value,
+                limit,
+            } => {
+                assert_eq!(dimension, ApplyDimension::Candidates);
+                assert_eq!(value, 1);
+                assert_eq!(limit, 0);
+            }
+            ApplyOutcome::Complete(candidates) => panic!(
+                "expected a candidate-cap=0 trip on a word with at least one candidate, got \
+                 Complete({candidates:?})"
+            ),
+        }
+    }
+
+    #[test]
+    fn propose_budgeted_generous_caps_never_trip() {
+        let mut p = proposer();
+        let budget = ApplyBudget::with_caps(Some(1_000_000), Some(1_000_000));
+        match p.propose_budgeted("ka", &budget) {
+            ApplyOutcome::Complete(candidates) => assert!(!candidates.is_empty()),
+            ApplyOutcome::Incomplete { dimension, .. } => {
+                panic!("a generous cap must not trip on a tiny fixture (dimension: {dimension:?})")
+            }
+        }
     }
 }

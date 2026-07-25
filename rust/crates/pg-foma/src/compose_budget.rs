@@ -314,6 +314,172 @@ pub(crate) fn ordering_multiplicity_budget_from_env() -> usize {
         .unwrap_or(DEFAULT_ORDERING_MULTIPLICITY_BUDGET)
 }
 
+// --- Apply-path dimension (ADR 0003, `docs/adr/0003-apply-time-containment.md`;
+// `openspec/changes/add-grammar-diagnostics`'s STAGING rework: "fix the apply-path containment to
+// ADR 0003's in-process cooperative magnitude budgets (not 'the watchdog', which is compile-only)").
+// -----------------------------------------------------------------------------------------------
+//
+// Every dimension above this point guards `crate::replace`/`crate::gate`/`crate::emit`'s
+// COMPILE-time composition path -- one process, one grammar, killable in principle by a future
+// out-of-process worker (`openspec/changes/harden-foma-resource-safety`'s own scope). The apply
+// path is different in kind, not just in call site: `analyzer::FomaProposer::propose` drives
+// `foma::apply::apply_up` **in-process, per word, in the caller's own process** (`analyzer.rs`'s
+// own doc: the `ApplyHandle` is built once and reused across every `propose` call). ADR 0003 is
+// explicit that this can never be a watchdog's job: "a native thread cannot be safely hard-killed
+// in Rust" once it is running inside the same process serving the caller, and a per-word worker
+// process would defeat the whole point of reusing one compiled `ApplyHandle` (`analyzer.rs`'s own
+// "Reuses `self.handle` across calls rather than rebuilding it per word" doc). The only sound
+// containment left is exactly what ADR 0003 prescribes: a **deterministic, magnitude-only**
+// counter checked cooperatively while `propose` decodes `apply_up`'s own result iterator, mirroring
+// this module's own chain-depth dimension shape (`Option<usize>`, default off, a typed incomplete
+// outcome naming the dimension and value it hit) rather than a wall-clock kill.
+//
+// **What this closes, and what it does not.** [`FomaError::EnumerationBudgetExceeded`]'s own doc
+// names the motivating disaster (Aweti's eager-enumeration path: an ~8.8GB `apply_up` allocation
+// that killed the process outright) -- that is the ENTRY-side (lexc-emission) budget, already
+// shipped. This dimension is the OUTPUT side of the same call: even a grammar whose emitted lexc
+// source is modest in size can still compile to a network that proposes a combinatorially large
+// number of decoded paths/candidates for one particular pathological input word (a stress grammar
+// with heavy ambiguity, or an adversarial word crafted to hit every cycle in the network) --
+// `FomaProposer::propose`'s decode loop had no cap of its own before this dimension existed. Like
+// every other magnitude-only dimension in this module, a low or zero yield is never treated as
+// pathological (ADR 0003: "Magnitude-only, never yield-based... a low-yield / high-rejection
+// computation is not pathological") -- only the raw decoded-path count and the deduped-candidate
+// count are checked, never rejection share or confirm outcome.
+//
+// **Default `None` (unbounded/off) everywhere** ([`ApplyBudget::from_env`] when both
+// `HC_APPLY_PATH_BUDGET`/`HC_APPLY_CANDIDATE_BUDGET` are unset, [`ApplyBudget::unbounded`]) --
+// mirroring [`chain_depth_cap_from_env`]'s own "no calibrated default yet" shape rather than the
+// four compile-time size caps' default-ON shape: no real-grammar measurement of a legitimate
+// worst-case decoded-path/candidate count exists yet (`calibrate-fst-resource-envelopes`'s own
+// documented governance -- evidence + proposed diff + human-reviewed commit -- is where that
+// calibration happens). [`FomaProposer::propose`] (analyzer.rs) stays byte-for-byte unchanged
+// (it calls [`FomaProposer::propose_budgeted`] with [`ApplyBudget::unbounded`], which can never
+// trip) -- this is a zero-behavior-change-when-unset addition for every existing caller, exactly
+// like every other budget dimension in this module.
+//
+// `openspec/changes/add-grammar-diagnostics` is this dimension's first real (non-test) consumer:
+// its diagnostic report records each word's [`ApplyOutcome`] directly (Complete vs. Incomplete plus
+// the tripped dimension/value/limit) as the in-process, per-word containment evidence ADR 0003
+// calls for -- never a watchdog PID, never a wall-clock kill, for this dimension.
+
+/// `HC_APPLY_PATH_BUDGET`: ceiling on the raw number of `apply_up` result strings
+/// [`crate::analyzer::FomaProposer::propose_budgeted`] decodes for one word, checked as they are
+/// produced (before `tags::decode_path` even runs on the current one) -- the "check before the
+/// expensive part" discipline this module's every other dimension already uses, applied to the
+/// cheapest possible per-item test (an integer compare) so the cap itself never becomes the cost
+/// center it exists to prevent.
+pub(crate) fn apply_path_budget_from_env() -> Option<usize> {
+    std::env::var("HC_APPLY_PATH_BUDGET")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+}
+
+/// `HC_APPLY_CANDIDATE_BUDGET`: ceiling on the number of DISTINCT `(morphemes, root_index)`
+/// candidates [`crate::analyzer::FomaProposer::propose_budgeted`] has accumulated for one word,
+/// checked immediately after each new candidate is inserted into the dedup set -- catches a
+/// network that decodes few raw paths but each path fans out into many distinct candidates (e.g. a
+/// heavily compounding/templated grammar), a case [`apply_path_budget_from_env`]'s raw-path count
+/// alone would not bound.
+pub(crate) fn apply_candidate_budget_from_env() -> Option<usize> {
+    std::env::var("HC_APPLY_CANDIDATE_BUDGET")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+}
+
+/// Which magnitude [`ApplyOutcome::Incomplete`] reports tripped. Mirrors [`NetSizeMeasure`]'s own
+/// `label()` shape (a stable, short string for a caller-facing message/report field) one level up
+/// from the compile-time size dimensions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApplyDimension {
+    /// [`ApplyBudget::path_cap`]: raw `apply_up` result count.
+    DecodedPaths,
+    /// [`ApplyBudget::candidate_cap`]: distinct `(morphemes, root_index)` candidate count.
+    Candidates,
+}
+
+impl ApplyDimension {
+    pub const fn label(self) -> &'static str {
+        match self {
+            ApplyDimension::DecodedPaths => "decoded apply_up paths",
+            ApplyDimension::Candidates => "distinct candidates",
+        }
+    }
+}
+
+/// The ADR-0003 "a word either completes (possibly with zero analyses) or returns a typed
+/// incomplete outcome naming the dimension and value it hit" contract, generic over the completed
+/// payload (`Vec<Candidate>` for [`crate::analyzer::FomaProposer::propose_budgeted`]). Deliberately
+/// NOT a `Result`/`ComposeError`: this is not a compile-time failure to surface as `Err` up a
+/// `?`-chain, it is a normal, expected, reportable per-word outcome a diagnostic caller inspects
+/// directly (mirrors CONTEXT.md's own framing: "a word either completes ... or returns a typed
+/// incomplete outcome", never "fails").
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ApplyOutcome<T> {
+    /// The budget never tripped; `T` is the complete result (possibly empty -- a legitimate zero-
+    /// analysis outcome, ADR 0003: "Zero analyses is a valid complete result").
+    Complete(T),
+    /// A magnitude cap was reached before the traversal finished. `value` is the count at the
+    /// moment of the trip (always `limit + 1` by construction -- checked immediately after each
+    /// increment, the same "checked one past the limit" convention [`ComposeBudget::
+    /// check_chain_depth`] uses).
+    Incomplete {
+        dimension: ApplyDimension,
+        value: usize,
+        limit: usize,
+    },
+}
+
+/// In-process, cooperative, magnitude-only apply-path budget (ADR 0003; this section's own module
+/// doc). Unlike [`ComposeBudget`] (compile-time, checked between whole-network operations), both
+/// dimensions here are checked per-item inside a single word's decode loop -- see
+/// [`crate::analyzer::FomaProposer::propose_budgeted`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ApplyBudget {
+    path_cap: Option<usize>,
+    candidate_cap: Option<usize>,
+}
+
+impl ApplyBudget {
+    /// Production entry point: both caps from their own `HC_APPLY_*` env var, `None`
+    /// (unbounded/off) when unset or unparsable -- mirrors [`chain_depth_cap_from_env`]'s own
+    /// "no calibrated default yet" shape, not the four always-on compile-time size caps.
+    pub fn from_env() -> Self {
+        ApplyBudget {
+            path_cap: apply_path_budget_from_env(),
+            candidate_cap: apply_candidate_budget_from_env(),
+        }
+    }
+
+    /// Explicit-caps constructor for tests and callers (e.g.
+    /// `openspec/changes/add-grammar-diagnostics`'s diagnostic report) that want a deterministic
+    /// cap without touching process-global env state -- this module's own "explicit-caps
+    /// constructors, never env vars" test convention.
+    pub fn with_caps(path_cap: Option<usize>, candidate_cap: Option<usize>) -> Self {
+        ApplyBudget {
+            path_cap,
+            candidate_cap,
+        }
+    }
+
+    /// A budget that can never trip -- what [`crate::analyzer::FomaProposer::propose`] uses
+    /// internally so its own behavior is provably unchanged by this addition.
+    pub fn unbounded() -> Self {
+        ApplyBudget {
+            path_cap: None,
+            candidate_cap: None,
+        }
+    }
+
+    pub(crate) fn path_cap(&self) -> Option<usize> {
+        self.path_cap
+    }
+
+    pub(crate) fn candidate_cap(&self) -> Option<usize> {
+        self.candidate_cap
+    }
+}
+
 /// Which size measure [`ComposeError::NetSizeExceeded`] reports.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NetSizeMeasure {
@@ -1182,5 +1348,79 @@ mod compose_budget_tests {
         assert!(msg.contains('7'));
         assert!(msg.contains('6'));
         assert!(msg.contains("HC_COMPOSE_ORDERING_MULTIPLICITY_BUDGET"));
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Apply-path dimension (ADR 0003 / `add-grammar-diagnostics`'s STAGING rework). Schema/budget-
+    // type tests only, exercised directly against [`ApplyBudget`] -- the decode-loop wiring itself
+    // is `analyzer.rs`'s own `propose_budgeted` tests.
+    // ---------------------------------------------------------------------------------------
+
+    #[test]
+    fn apply_budget_unbounded_has_no_caps() {
+        let budget = ApplyBudget::unbounded();
+        assert_eq!(budget.path_cap(), None);
+        assert_eq!(budget.candidate_cap(), None);
+    }
+
+    #[test]
+    fn apply_budget_with_caps_round_trips_each_dimension_independently() {
+        let budget = ApplyBudget::with_caps(Some(10), None);
+        assert_eq!(budget.path_cap(), Some(10));
+        assert_eq!(budget.candidate_cap(), None);
+
+        let budget = ApplyBudget::with_caps(None, Some(5));
+        assert_eq!(budget.path_cap(), None);
+        assert_eq!(budget.candidate_cap(), Some(5));
+    }
+
+    #[test]
+    fn apply_budget_from_env_defaults_to_unbounded_when_unset() {
+        // Mirrors `chain_depth_cap_from_env`'s own default-off convention -- no calibrated default
+        // exists yet for either apply-path dimension. Reads real env (this crate's own convention:
+        // only `from_env` touches env, tests otherwise use `with_caps`/`unbounded`), so this only
+        // asserts the fallback given whatever this test process's env actually has -- consistent
+        // with `ordering_multiplicity_from_env_defaults_to_a_calibrated_bound`'s own shape one
+        // dimension up, adapted for an unset-by-default var.
+        if std::env::var("HC_APPLY_PATH_BUDGET").is_err() {
+            assert_eq!(ApplyBudget::from_env().path_cap(), None);
+        }
+        if std::env::var("HC_APPLY_CANDIDATE_BUDGET").is_err() {
+            assert_eq!(ApplyBudget::from_env().candidate_cap(), None);
+        }
+    }
+
+    #[test]
+    fn apply_dimension_label_is_stable_and_distinct() {
+        assert_eq!(ApplyDimension::DecodedPaths.label(), "decoded apply_up paths");
+        assert_eq!(ApplyDimension::Candidates.label(), "distinct candidates");
+        assert_ne!(
+            ApplyDimension::DecodedPaths.label(),
+            ApplyDimension::Candidates.label()
+        );
+    }
+
+    #[test]
+    fn apply_outcome_complete_and_incomplete_are_distinguishable() {
+        let complete: ApplyOutcome<Vec<u32>> = ApplyOutcome::Complete(vec![1, 2, 3]);
+        assert_eq!(complete, ApplyOutcome::Complete(vec![1, 2, 3]));
+
+        let incomplete: ApplyOutcome<Vec<u32>> = ApplyOutcome::Incomplete {
+            dimension: ApplyDimension::Candidates,
+            value: 11,
+            limit: 10,
+        };
+        match incomplete {
+            ApplyOutcome::Incomplete {
+                dimension,
+                value,
+                limit,
+            } => {
+                assert_eq!(dimension, ApplyDimension::Candidates);
+                assert_eq!(value, 11);
+                assert_eq!(limit, 10);
+            }
+            ApplyOutcome::Complete(_) => panic!("expected Incomplete"),
+        }
     }
 }
