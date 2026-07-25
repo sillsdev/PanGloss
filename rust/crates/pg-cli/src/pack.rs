@@ -28,17 +28,34 @@
 //!   reason: `FomaAnalyzer` does not expose its own internal proposer/profile for external reuse).
 //!
 //! # What is real vs. placeholder in the payload sections (read before trusting a produced pack)
-//! `pg-pack`'s own crate doc is explicit that "wiring a real compiler pass to produce the
-//! runtime/foma payload bytes... is later work" — no Rust-HermitCrab runtime-payload serializer
-//! exists anywhere in this workspace yet, and no foma binary-memory export (a
-//! `foma::io::fsm_write_binary_mem` equivalent) exists in `pg-foma` yet either. Rather than writing
-//! empty byte strings (indistinguishable from "a real, empty payload") or fabricating bytes that
-//! *look* like a compiled artifact, both payload sections carry a literal, human-readable
-//! [`PLACEHOLDER_RUNTIME_PAYLOAD`]/[`PLACEHOLDER_FOMA_PAYLOAD`] label as their actual content —
-//! unmissable to anyone who inspects a produced `.pgpack`'s raw bytes, and `run_pack`'s own stderr
-//! summary repeats the warning at pack time. **Everything else in the manifest — capability trust,
-//! required runtime features, FST health — is real, measured from this exact grammar, not a
-//! placeholder.**
+//! **The foma payload is now REAL.** `foma::io::fsm_write_binary` (a gzip'd write over any
+//! `std::io::Write`, mirroring the crate's own `fsm_write_binary_file`) turned out to already exist
+//! in the vendored `foma = "0.4.0"` dependency — `pg_foma::analyzer::FomaProposer::
+//! foma_binary_payload` serializes the SAME compiled network this command already builds once for
+//! `fst_health` (no third compile), and that is exactly the bytes written into the foma payload
+//! section below. This is foma's own existing binary-memory encoding, the same one
+//! `foma::io::fsm_read_binary_mem` reads back — no second network format was invented (R2A). The
+//! ONE case this command cannot produce real foma bytes for is when this same compile does not
+//! succeed (an emit/lexc-compile failure, an enumeration-budget refusal) or `--watchdog` is passed
+//! (its worker protocol ships back only a `HealthReport`, not the compiled network) — that pack's
+//! foma section falls back to the same honestly-labeled [`PLACEHOLDER_FOMA_PAYLOAD`] this module
+//! always used.
+//!
+//! **The runtime payload is still a placeholder.** No Rust-HermitCrab runtime-payload serializer
+//! exists anywhere in this workspace: `pg_grammar::model::Grammar` — the struct the
+//! `pg-parse`/`pg-rules` HermitCrab port actually analyzes against — derives `serde::Serialize` on
+//! almost none of its dozens of constituent types (only `StratumId`/`MprSet` do), and carries a
+//! `pg_featstruct::Interner<FeatureStruct>` whose generic `Interner<V>` container has no serde impl
+//! of its own either. Making the whole object graph round-trip is a large, separate serialization
+//! effort (dozens of new `#[derive(Serialize, Deserialize)]`s plus at least one hand-written
+//! `Interner` impl), not something this additive step invents. Rather than writing an empty byte
+//! string (indistinguishable from "a real, empty payload") or fabricating bytes that *look* like a
+//! real payload, the runtime section still carries the literal, human-readable
+//! [`PLACEHOLDER_RUNTIME_PAYLOAD`] label as its actual content — unmissable to anyone who inspects a
+//! produced `.pgpack`'s raw bytes, and `run_pack`'s own stderr summary repeats which section is
+//! real vs. placeholder at pack time. **Everything else in the manifest — capability trust,
+//! required runtime features, FST health, and (when the compile succeeds) the foma payload itself
+//! — is real, measured from/derived from this exact grammar, never a placeholder.**
 
 use std::fs;
 
@@ -64,11 +81,13 @@ const PLACEHOLDER_RUNTIME_PAYLOAD: &[u8] = b"PANGLOSS-PLACEHOLDER-RUNTIME-PAYLOA
 runtime-payload serializer exists yet anywhere in this workspace; this byte content is NOT a \
 compiled artifact and must never be loaded as one.";
 
-/// Honestly-labeled placeholder foma payload — see this module's top doc, "What is real vs.
-/// placeholder."
-const PLACEHOLDER_FOMA_PAYLOAD: &[u8] = b"PANGLOSS-PLACEHOLDER-FOMA-PAYLOAD: no foma binary-memory \
-(fsm_write_binary_mem-equivalent) export exists yet in pg-foma; this byte content is NOT a \
-compiled network and must never be loaded as one.";
+/// Honestly-labeled placeholder foma payload — used only as a FALLBACK now (see this module's top
+/// doc, "What is real vs. placeholder"): whenever this grammar's own foma compile succeeds (the
+/// common case, `--watchdog` not passed), `run_pack` writes the real
+/// `FomaProposer::foma_binary_payload()` bytes instead of this constant.
+const PLACEHOLDER_FOMA_PAYLOAD: &[u8] = b"PANGLOSS-PLACEHOLDER-FOMA-PAYLOAD: this grammar's foma \
+compile did not succeed (or --watchdog was passed), so no compiled network was available to \
+serialize; this byte content is NOT a compiled network and must never be loaded as one.";
 
 /// This crate's own `Cargo.toml` semantic version, read from the compile-time
 /// `CARGO_PKG_VERSION_*` environment variables — used as the Rust-HermitCrab port version this
@@ -239,28 +258,50 @@ pub fn run_pack(args: &[String]) -> Result<(), String> {
         extensions: Vec::new(),
     };
 
-    // ---- FST health: a standalone profiled compile, mirroring diagnostics.rs's own "a second
-    // compiled network is an acceptable one-time cost for an offline tool" judgment call ---------
+    // ---- FST health (+ the REAL foma payload, when this same compile succeeds): a standalone
+    // profiled compile, mirroring diagnostics.rs's own "a second compiled network is an acceptable
+    // one-time cost for an offline tool" judgment call ------------------------------------------
     // `--watchdog` (this module's own doc): OPT-IN. Default path (watchdog == false) is BYTE-FOR-
-    // BYTE the pre-existing in-process compile -- unchanged.
-    let fst_health = if watchdog {
-        run_fst_health_under_watchdog(grammar_path)?
+    // BYTE the pre-existing in-process compile -- unchanged, PLUS it now also serializes that same
+    // compiled network via [`pg_foma::analyzer::FomaProposer::foma_binary_payload`] (foma's own
+    // existing binary-memory encoding -- R2A forbids inventing a second network format) so this
+    // command no longer has to compile the grammar a THIRD time just to get the foma payload bytes.
+    // `--watchdog`'s worker protocol (`pg_foma::worker::WorkerOutcome`) only ships a `HealthReport`
+    // back across the process boundary today, never the compiled network itself, so the foma
+    // payload stays an honest placeholder on that path (see the stderr note below).
+    let (fst_health, real_foma_payload): (pg_foma::health::HealthReport, Option<Vec<u8>>) = if watchdog {
+        (run_fst_health_under_watchdog(grammar_path)?, None)
     } else {
         let (proposer_result, compile_profile) = FomaProposer::new_with_profile(&grammar);
         match &proposer_result {
             Ok(proposer) => {
-                evaluate_health(None, Some(&proposer.report), &[], &[], Some(&compile_profile))
+                let health =
+                    evaluate_health(None, Some(&proposer.report), &[], &[], Some(&compile_profile));
+                let foma_bytes = proposer.foma_binary_payload().map_err(|e| {
+                    format!(
+                        "serializing the compiled foma network to its binary-memory payload: {e}"
+                    )
+                })?;
+                (health, Some(foma_bytes))
             }
             Err(pg_foma::analyzer::FomaError::LexcCompileFailed(report)) => {
-                evaluate_health(None, Some(report), &[], &[], Some(&compile_profile))
+                (evaluate_health(None, Some(report), &[], &[], Some(&compile_profile)), None)
             }
-            Err(_) => evaluate_health(None, None, &[], &[], Some(&compile_profile)),
+            Err(_) => (evaluate_health(None, None, &[], &[], Some(&compile_profile)), None),
         }
     };
+    // `None` iff `--watchdog` was used, or this grammar's own foma compile did not succeed (its
+    // capability_trust may still be Proven/Overridden -- capability trust and foma-compile success
+    // are independent axes, see `pg_foma::capability_entry`'s own doc) -- either way, a real
+    // compiled network's bytes are simply not available to package, so this falls back to the same
+    // honestly-labeled placeholder this module always used for the foma section.
+    let foma_payload: &[u8] = real_foma_payload.as_deref().unwrap_or(PLACEHOLDER_FOMA_PAYLOAD);
 
-    // ---- Payloads: honestly-labeled placeholders (see this module's top doc) -------------------
+    // ---- Payloads: the foma section is REAL whenever `real_foma_payload` is `Some` (see above);
+    // the runtime section remains an honestly-labeled placeholder (see this module's top doc: no
+    // Rust-HermitCrab runtime-payload serializer exists anywhere in this workspace yet) ------------
     let package_fingerprint =
-        pg_pack::fingerprint_hex(PLACEHOLDER_RUNTIME_PAYLOAD, PLACEHOLDER_FOMA_PAYLOAD);
+        pg_pack::fingerprint_hex(PLACEHOLDER_RUNTIME_PAYLOAD, foma_payload);
 
     let grammar_id = grammar.name.clone().unwrap_or_else(|| {
         std::path::Path::new(grammar_path)
@@ -284,23 +325,28 @@ pub fn run_pack(args: &[String]) -> Result<(), String> {
         signature: None,
     };
 
-    let bytes = pg_pack::write_pack(
-        &manifest,
-        PLACEHOLDER_RUNTIME_PAYLOAD,
-        PLACEHOLDER_FOMA_PAYLOAD,
-    )
-    .map_err(|e| format!("write_pack: {e}"))?;
+    let bytes = pg_pack::write_pack(&manifest, PLACEHOLDER_RUNTIME_PAYLOAD, foma_payload)
+        .map_err(|e| format!("write_pack: {e}"))?;
     fs::write(out_path, &bytes).map_err(|e| format!("write {out_path}: {e}"))?;
 
     eprintln!(
         "pack complete: {out_path} ({} bytes) -- capability_trust={}, required_runtime_features={:?}, \
-         fst_health admission={:?}. NOTE: the runtime/foma payload sections are honestly-labeled \
-         PLACEHOLDER bytes (see this module's own doc for exactly what is real vs. placeholder in \
-         this pack) -- do not treat them as a usable compiled artifact.",
+         fst_health admission={:?}. NOTE: the runtime payload section is an honestly-labeled \
+         PLACEHOLDER (no Rust-HermitCrab runtime-payload serializer exists yet anywhere in this \
+         workspace -- see this module's own doc). The foma payload section is {} -- do not treat a \
+         placeholder section as a usable compiled artifact.",
         bytes.len(),
         if manifest.capability_trust.is_unproven() { "overridden/unproven" } else { "proven" },
         manifest.required_runtime_features.runtime_operations,
         manifest.fst_health.admission(),
+        if real_foma_payload.is_some() {
+            "REAL compiled-network bytes (foma::io::fsm_write_binary, the same encoding \
+             fsm_read_binary_mem reads back)"
+        } else {
+            "a PLACEHOLDER (this grammar's foma compile did not succeed, or --watchdog was passed \
+             and the worker protocol does not yet return the compiled network across the process \
+             boundary)"
+        },
     );
     Ok(())
 }
@@ -647,5 +693,70 @@ mod tests {
             }
             other => panic!("expected Overridden, got {other:?}"),
         }
+    }
+
+    /// The foma payload a real `pangloss pack` writes is REAL compiled-network bytes, not the
+    /// [`PLACEHOLDER_FOMA_PAYLOAD`] fallback -- and those bytes actually round-trip:
+    /// `pg_foma::analyzer::read_foma_binary_payload` (`foma::io::fsm_read_binary_mem` under the
+    /// hood) reconstructs a network with the SAME state/arc counts as an independent, from-scratch
+    /// compile of the identical grammar, and `apply_up` agrees on every word in this fixture's own
+    /// lexicon between the original compile and the reconstructed twin. This is the round-trip
+    /// evidence for "the gap" this module's top doc describes: a produced `.pgpack`'s foma section
+    /// is a genuine, reloadable compiled artifact, not a label pretending to be one.
+    #[test]
+    fn pack_foma_payload_is_real_and_round_trips_via_fsm_read_binary_mem() {
+        let (result, out_path) = run_pack_raw("foma-real-roundtrip", CLEAN_GRAMMAR_XML, &[]);
+        assert!(result.is_ok(), "clean grammar must pack successfully: {result:?}");
+
+        let bytes = std::fs::read(&out_path).expect("read out.pgpack");
+        let read = pg_pack::read_pack(&bytes).expect("a pack this command wrote must read back");
+
+        // Not the honest fallback placeholder -- this grammar's foma compile succeeds, so the
+        // packed foma section must be the real thing.
+        assert_ne!(
+            read.foma_payload, PLACEHOLDER_FOMA_PAYLOAD,
+            "a compilable grammar's foma payload must be real bytes, not the fallback placeholder"
+        );
+        assert!(!read.foma_payload.is_empty());
+
+        // Independent, from-scratch compile of the SAME grammar source -- this is the "expected"
+        // side the packed bytes are checked against, deliberately built via a fresh
+        // `FomaProposer::new` call (not reusing anything `run_pack` built) so this test actually
+        // exercises the serialized bytes end-to-end rather than comparing an object to itself.
+        let grammar_path = out_path.with_file_name("grammar.xml");
+        let (grammar, _warnings) = crate::load_grammar(&grammar_path.to_string_lossy())
+            .expect("reload the same grammar.xml run_pack_raw wrote");
+        let mut fresh_proposer =
+            FomaProposer::new(&grammar).expect("clean grammar must compile via a fresh FomaProposer");
+        let (expected_states, expected_arcs) = fresh_proposer.network_counts();
+
+        // Reconstruct the network from the PACKED bytes (never re-deriving it from the grammar) --
+        // this is the read side of the exact gap this task closes.
+        let reconstructed = pg_foma::analyzer::read_foma_binary_payload(&read.foma_payload)
+            .expect("a real foma payload must read back via fsm_read_binary_mem");
+        assert_eq!(
+            (reconstructed.statecount, reconstructed.arccount),
+            (expected_states, expected_arcs),
+            "reconstructed network's state/arc counts must match an independent fresh compile"
+        );
+
+        // `apply_up` agreement: the fixture's own lexicon entry ("kat", see CLEAN_GRAMMAR_XML)
+        // analyzes identically on the original LIVE compile (`apply_up_raw`, over
+        // `fresh_proposer`'s own handle) and the network reconstructed from the packed bytes
+        // (`apply_up_against`, over `reconstructed`) -- two independent code paths converging on
+        // the same network content, not one side re-deriving from the other.
+        let word = "kat";
+        let original = fresh_proposer.apply_up_raw(word);
+        let reconstructed_result = pg_foma::analyzer::apply_up_against(&reconstructed, word);
+        assert_eq!(
+            original, reconstructed_result,
+            "apply_up({word:?}) must agree between the original compile and the payload \
+             reconstructed from the packed bytes"
+        );
+        assert!(
+            !original.is_empty(),
+            "sanity: {word:?} is this fixture's own lexical entry and must analyze to \
+             something on the original compile"
+        );
     }
 }

@@ -19,12 +19,20 @@
 //! never gates a read.
 //!
 //! # What this crate is not (yet)
-//! **Purely additive.** Nothing in `pg-cli`, `pg-wasm`, or any production compile/analysis path
-//! constructs, writes, or reads a `.pgpack` file yet — this crate defines the format, a writer, a
-//! reader, and its own tests only, the same "define the data type, wire it up later" shape
-//! `pg_foma::health`/`pg_foma::plan`/`pg_foma::capability` used for their own Step 1s. Wiring a
-//! real compiler pass to produce the runtime/foma payload bytes, and wiring `pg-cli`/`pg-wasm` to
-//! consume them, is later work.
+//! `pg-cli`'s `pangloss pack` subcommand (`pg-cli/src/pack.rs`) is a real producer: it constructs a
+//! manifest from an actual compiled grammar and writes it via [`format::write_pack`]. `pg-wasm`
+//! (`pg-wasm/src/pack.rs`) is a real load-time consumer of the manifest/compatibility/trust
+//! sections. **The two payload sections are not both real yet, though.** The foma payload IS real
+//! whenever the grammar's foma compile succeeds — `pg_foma::analyzer::FomaProposer::
+//! foma_binary_payload` serializes the actually-compiled network via foma's own existing
+//! `fsm_write_binary` (no second network format; see [`format`]'s module doc). The **runtime**
+//! payload — the Rust-HermitCrab port's own analysis-time grammar data — is still an honestly-
+//! labeled placeholder: `pg_grammar::model::Grammar` (what `pg-parse`/`pg-rules` actually analyze
+//! against) derives `serde::Serialize` on almost none of its dozens of constituent types today, and
+//! its `pg_featstruct::Interner<FeatureStruct>` field has no serde impl of its own either — making
+//! it round-trip is a large, separate serialization effort this crate does not invent. Nothing
+//! (yet) constructs a working *analyzer* from a `.pgpack`'s payload bytes — `pg-wasm`'s own module
+//! doc names that as its separate, later "WASM analysis-only loading" scope.
 //!
 //! # Placement (why a new crate, not an extension of `pg-snapshot`)
 //! `pg-snapshot` is the **pre-compile** interchange format: "the interchange contract between

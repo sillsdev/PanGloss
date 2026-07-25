@@ -24,3 +24,12 @@ ed25519-dalek.workspace = true
 # anything yet (this change is purely additive/not wired in), so adding this dependency introduces
 # no cycle.
 pg-foma.workspace = true
+
+[dev-dependencies]
+# Round-trip tests exercising REAL foma binary-memory bytes (gzip magic bytes, non-UTF8 content)
+# instead of only the plain-ASCII synthetic byte-string fixtures this crate's tests otherwise use
+# -- built directly via `foma::lexcread::fsm_lexc_parse_string` + `foma::io::fsm_write_binary`, the
+# SAME functions `pg_foma::analyzer::FomaProposer::foma_binary_payload` calls in production. Pinned
+# to the identical exact version `pg-foma` compiles against. Dev-only: this does not add `foma` to
+# `pg-wasm`'s build graph (`pg-wasm` depends on this crate's LIBRARY, never its test binary).
+foma = "=0.4.0"

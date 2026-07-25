@@ -33,10 +33,16 @@
 //!
 //! The foma payload's *content* is an opaque byte blob in foma's own existing binary-memory
 //! encoding (`fsm_read_binary_mem`) -- this module never parses it, per the hard rule against
-//! inventing a second network format. The Rust-HermitCrab runtime payload is likewise opaque bytes
-//! from this module's point of view; this additive step does not yet define what a real HC runtime
-//! payload contains (that is `pg-grammar`/`pg-parse`'s eventual concern when this format is wired
-//! in), so tests use synthetic byte fixtures for both.
+//! inventing a second network format. `pg_foma::analyzer::FomaProposer::foma_binary_payload`
+//! (`pg-cli`'s `pack.rs` production caller) writes real bytes in exactly this encoding via
+//! `foma::io::fsm_write_binary`; this module's own tests below exercise both that real encoding
+//! (`round_trip_with_real_foma_binary_payload_not_just_synthetic_ascii`, gzip magic bytes and all)
+//! and plain-ASCII synthetic fixtures, since this module's byte-handling correctness must not
+//! depend on which kind of content either section happens to carry. The Rust-HermitCrab runtime
+//! payload is likewise opaque bytes from this module's point of view, but unlike the foma payload
+//! it has no real producer yet anywhere in this workspace (`pg_grammar::model::Grammar` is not
+//! serde-serializable today -- see `crate`'s own top-level doc, "What this crate is not (yet)") --
+//! its tests use only synthetic byte fixtures, honestly, because that is all that exists.
 
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -419,6 +425,80 @@ mod tests {
         assert_eq!(read.runtime_payload, SYNTHETIC_RUNTIME_PAYLOAD);
         assert_eq!(read.foma_payload, SYNTHETIC_FOMA_PAYLOAD);
         assert_eq!(read.signature_state, SignatureState::Unsigned);
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Real foma binary-memory bytes (not just the plain-ASCII synthetic fixtures above).
+    // ---------------------------------------------------------------------------------------
+
+    /// A tiny, deterministic, real compiled foma network (`LEXICON Root\ncat # ;\ndog # ;\n` --
+    /// the same minimal syntax `foma`'s own `lexcread.rs` test suite uses), built independently of
+    /// the whole HermitCrab grammar/emit pipeline via `foma::lexcread::fsm_lexc_parse_string` --
+    /// the exact same compiler entry point `pg_foma::analyzer::FomaProposer` calls in production.
+    const REAL_LEXC_SOURCE: &str = "LEXICON Root\ncat # ;\ndog # ;\n";
+
+    fn compile_real_network() -> foma::types::Fsm {
+        let opts = foma::options::FomaOptions::default();
+        foma::lexcread::fsm_lexc_parse_string(&opts, None, REAL_LEXC_SOURCE)
+            .expect("minimal lexc source must compile")
+    }
+
+    /// A REAL, gzip-compressed foma binary-memory payload -- `foma::io::fsm_write_binary`, the
+    /// SAME function [`crate::compat`]'s production caller (`pg_foma::analyzer::FomaProposer::
+    /// foma_binary_payload`) uses -- as opposed to the plain-ASCII `SYNTHETIC_FOMA_PAYLOAD` string
+    /// literal every other test in this module uses. This crate's container format must handle
+    /// genuine binary content (gzip magic bytes at the front, non-UTF8 bytes throughout, embedded
+    /// NUL bytes) exactly as well as it handles a human-readable ASCII fixture.
+    fn real_foma_payload_bytes() -> Vec<u8> {
+        let net = compile_real_network();
+        let mut bytes = Vec::new();
+        foma::io::fsm_write_binary(&net, &mut bytes).expect("fsm_write_binary must succeed");
+        bytes
+    }
+
+    #[test]
+    fn round_trip_with_real_foma_binary_payload_not_just_synthetic_ascii() {
+        let real_foma = real_foma_payload_bytes();
+        // Sanity: this really is gzip-compressed binary content (magic bytes 0x1f 0x8b), not a
+        // disguised ASCII string -- proves this test exercises materially different bytes than
+        // `SYNTHETIC_FOMA_PAYLOAD` above.
+        assert!(
+            real_foma.len() >= 2 && real_foma[0] == 0x1f && real_foma[1] == 0x8b,
+            "expected gzip magic bytes at the front of a real foma binary payload, got {:02x?}",
+            &real_foma[..real_foma.len().min(4)]
+        );
+
+        let manifest = synthetic_manifest_for(SYNTHETIC_RUNTIME_PAYLOAD, &real_foma);
+        let bytes = write_pack(&manifest, SYNTHETIC_RUNTIME_PAYLOAD, &real_foma).unwrap();
+        let read = read_pack(&bytes).unwrap();
+        assert_eq!(read.manifest, manifest);
+        assert_eq!(read.runtime_payload, SYNTHETIC_RUNTIME_PAYLOAD);
+        assert_eq!(read.foma_payload, real_foma);
+        assert_eq!(read.signature_state, SignatureState::Unsigned);
+
+        // Reconstruct the network from the PACKED bytes (never re-deriving it from `REAL_LEXC_SOURCE`
+        // directly) and confirm it is a genuinely equivalent, applyable network: same state/arc
+        // counts as an independent fresh compile, and `apply_up` agreement on every word in the
+        // tiny lexicon above.
+        let reconstructed = foma::io::fsm_read_binary_mem(&read.foma_payload)
+            .expect("a real foma payload read back out of this container must still be readable \
+                     by fsm_read_binary_mem");
+        let original = compile_real_network();
+        assert_eq!(reconstructed.statecount, original.statecount);
+        assert_eq!(reconstructed.arccount, original.arccount);
+
+        let mut original_handle = foma::apply::apply_init(&original);
+        let mut reconstructed_handle = foma::apply::apply_init(&reconstructed);
+        for word in ["cat", "dog"] {
+            let original_out: Vec<String> = original_handle.up(word).collect();
+            let reconstructed_out: Vec<String> = reconstructed_handle.up(word).collect();
+            assert_eq!(
+                original_out, reconstructed_out,
+                "apply_up({word:?}) must agree between the original compile and the network \
+                 reconstructed from this container's own packed bytes"
+            );
+            assert!(!original_out.is_empty(), "sanity: {word:?} is in REAL_LEXC_SOURCE's own lexicon");
+        }
     }
 
     #[test]
