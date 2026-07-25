@@ -180,9 +180,11 @@
 //! - Text that fails to re-segment against the surface table (defensive; the loader already
 //!   accepted it once).
 
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::time::Instant;
 
+use foma::lexcread::fsm_lexc_parse_string;
+use foma::options::FomaOptions;
 use foma::utf8::is_combining;
 use pg_featstruct::{is_unifiable, FeatureStruct, FsId};
 use pg_grammar::chardef::{CharDefId, CharDefKind, CharDefTable};
@@ -3597,6 +3599,105 @@ fn emit_line_budget_breach(
     }
 }
 
+/// Post-emission reachability verification (found during a 2026-07-25 regression investigation,
+/// `tests/p6_templated_morphotactics_gate.rs`'s own `BASELINE_MISSES` doc: Aweti's `mrule105`, a
+/// standalone `AffixProcess` rule on a stratum ABOVE the root/template stratum, is correctly
+/// classified `Role::Prefix`, included in `deriv_prefix`, has its `<M:0805>` tag declared in
+/// `Multichar_Symbols`, and gets its lexicon entries written at every derivation-chain call site —
+/// but the compiled network never actually offers it: its tag is simply absent from the compiled
+/// net's own sigma. That gap was previously NEVER reported in [`EmitReport::uncovered`] at all —
+/// pure silent recall loss, the worst class of gap under this crate's own "never silently drop"
+/// convention.
+///
+/// **Root cause is NOT a `lexc_source` text/graph-connectivity bug.** A synthetic delanguaged
+/// reproduction (many stratum-attached standalone rules chained via [`build_deriv_chain`], `>= ~9`
+/// levels) shows the SAME tags missing from the compiled net's sigma on BOTH this function's own
+/// [`TextMode::UnderlyingTokens`] path and the legacy [`TextMode::SurfaceProbed`] path used by
+/// [`emit_with_budget`]/[`emit`] — even though the two modes write completely different per-level
+/// content (one rule per level here vs. every rule at every level there) and the affected tag
+/// indices form no reachability-shaped pattern (a scattered, non-monotonic subset, not "every
+/// stratum above N" or "every level past some depth"). A purely textual/graph-BFS check over
+/// `lexc_source` (every `LEXICON` header is reachable from `Root` by construction, verified
+/// separately) would NOT catch this: the fragment genuinely IS wired in, but the vendored foma
+/// crate's own lexc reader (`foma::lexcread`, its `lexc_merge_states`/`lexc_suffix_hash` state-
+/// deduplication pass) silently drops some of these structurally-repetitive states/arcs at scale —
+/// a real compiler-level hazard, consistent with this crate's own prior documented experience of
+/// this vendored foma's epsilon/flag handling being "a real hazard, not folklore" (`gate.rs`'s
+/// module doc). Because the loss happens INSIDE the lexc compile step, the only reliable detector
+/// is an ACTUAL compile followed by a sigma-membership check — exactly what this function does.
+///
+/// This deliberately crosses `crate::profile`'s documented "`emit.rs` never calls
+/// `fsm_lexc_parse_string`" boundary (that module's own D2 doc): that boundary describes the
+/// PROFILING path's own no-extra-compile discipline, not a hard rule for every function in this
+/// module, and here an extra compile is the only way to see what this class of bug does. The cost
+/// (one additional lexc compile) is accepted as the price of turning a silent, unbounded-severity
+/// recall gap into a loud, itemized one -- the task's own explicit priority ("a loud gap is vastly
+/// better than a silent one").
+///
+/// Every declared tag (root and affix; `symbols`, this function's caller) that is NOT found in the
+/// freshly-compiled net's own sigma gets one [`UncoveredItem`] (kind
+/// `"unreachable-after-lexc-compile"`), naming the owning rule/root and why -- UNLESS that same
+/// rule/root already has some OTHER `uncovered` entry (e.g. a `"circumfix-prefix"`/`"infix"`/
+/// `"process-morph"` allomorph that was routed away and never got a lexc entry written for it AT
+/// ALL): that case is already loud, under its own, more specific reason, and adding a second,
+/// generic "not in sigma" entry for the exact same rule would be true but redundant noise, not a
+/// new finding. This keeps the new detection's own signal focused on what is actually novel: a tag
+/// that looks completely fine everywhere else (classified, declared, entries written) and is
+/// STILL silently dropped by the compiler. If `lexc_source` itself fails to compile, this function
+/// does nothing (a compile failure is the caller's own concern to surface -- e.g. every existing
+/// gate test already calls `fsm_lexc_parse_string` and panics on `None` -- not a NEW finding this
+/// pass should duplicate).
+fn verify_tags_reachable(
+    lexc_source: &str,
+    symbols: &BTreeSet<(bool, u32)>,
+    affix_owner_mrule: &HashMap<u32, MRuleId>,
+    width: usize,
+    uncovered: &mut Vec<UncoveredItem>,
+) {
+    let opts = FomaOptions::default();
+    let Some(net) = fsm_lexc_parse_string(&opts, None, lexc_source) else {
+        return;
+    };
+    let sigma: HashSet<&str> = net.sigma.iter().map(|s| s.symbol.as_str()).collect();
+    let already_reported: HashSet<String> = uncovered.iter().map(|u| u.id.clone()).collect();
+    let has_other_reason = |label: &str| -> bool {
+        already_reported.contains(label)
+            || already_reported
+                .iter()
+                .any(|id| id.starts_with(&format!("{label}#")))
+    };
+    for &(is_root, id) in symbols {
+        let mid = MorphemeId(id);
+        let (tag_text, label) = if is_root {
+            (
+                tags::root_tag_text(mid, width),
+                format!("root-morpheme{id}"),
+            )
+        } else {
+            let label = match affix_owner_mrule.get(&id) {
+                Some(mrid) => format!("mrule{}", mrid.0),
+                None => format!("morpheme{id}"),
+            };
+            (tags::morph_tag_text(mid, width), label)
+        };
+        if !sigma.contains(tag_text.as_str()) && !has_other_reason(&label) {
+            uncovered.push(UncoveredItem {
+                kind: "unreachable-after-lexc-compile".to_string(),
+                id: label.clone(),
+                reason: format!(
+                    "{label}'s tag {tag_text} is declared in Multichar_Symbols and its lexicon \
+                     entries are written, but the compiled lexc network's own alphabet does not \
+                     contain it -- this fragment is UNREACHABLE from Root even though it looks \
+                     fully wired in the emitted lexc source (often: a standalone rule whose owning \
+                     stratum sits above the base stratum, silently dropped by a lexc-compiler \
+                     state-merge quirk at scale rather than by anything this emitter's own \
+                     structure did -- see verify_tags_reachable's own doc)"
+                ),
+            });
+        }
+    }
+}
+
 pub fn emit_underlying_templated(
     g: &Grammar,
     alphabet: &SegAlphabet,
@@ -3767,17 +3868,26 @@ pub fn emit_underlying_templated(
     // combining-mark symbols here: no composite pipeline, no FST precision knob, and token space
     // is PUA codepoints, never Unicode combining marks).
     let mut symbols: BTreeSet<(bool, u32)> = BTreeSet::new();
+    // `verify_tags_reachable`'s own labeling (post-emission reachability check, below): which
+    // `MRuleId` owns each non-root morpheme, for a readable `UncoveredItem::id` ("mrule105" rather
+    // than a bare morpheme index) -- first-seen wins, harmless when several rules alias one
+    // morpheme (never happens today; defensive).
+    let mut affix_owner_mrule: HashMap<u32, MRuleId> = HashMap::new();
     for r in &roots {
         symbols.insert((true, r.morpheme.0));
     }
     for &mid in deriv_prefix.iter().chain(deriv_suffix.iter()) {
-        symbols.insert((false, owning_morpheme(g, mid).0));
+        let owner = owning_morpheme(g, mid);
+        symbols.insert((false, owner.0));
+        affix_owner_mrule.entry(owner.0).or_insert(mid);
     }
     for t in &g.templates {
         for slot in &t.slots {
             for &mid in &slot.rules {
                 if !matches!(g.mrules[mid.0 as usize], MorphRuleDef::Compounding(_)) {
-                    symbols.insert((false, owning_morpheme(g, mid).0));
+                    let owner = owning_morpheme(g, mid);
+                    symbols.insert((false, owner.0));
+                    affix_owner_mrule.entry(owner.0).or_insert(mid);
                 }
             }
         }
@@ -4188,6 +4298,11 @@ pub fn emit_underlying_templated(
             );
         }
     }
+
+    // Post-emission reachability check (`verify_tags_reachable`'s own doc): the ONLY reliable way
+    // to catch a declared-but-compiler-dropped tag, so run it before the final dedup/tier
+    // computation below folds any new findings in exactly like every other `uncovered` source.
+    verify_tags_reachable(&out, &symbols, &affix_owner_mrule, width, &mut uncovered);
 
     // Dedup uncovered reports (the same rule/allomorph can be visited from multiple slots/groups/
     // levels) — same convention as `emit_with_budget`.
