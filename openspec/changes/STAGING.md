@@ -3,6 +3,62 @@
 This is the authoritative dependency and worktree-ownership map for the active grammar-coverage
 changes. Change artifacts define behavior; this file defines dispatch and merge order.
 
+## Implementation status (2026-07-25)
+
+Roadmap-level record of what has actually landed on `main`. Per-change `tasks.md` checkboxes are the
+granular record; this is the spine-level view.
+
+**Stage 0 — LANDED.** Characteristics profile + exhaustive default-deny characterizer + predicate
+registry + envelope composition (`pg-foma/src/capability.rs`, `capability_entry.rs`); the gate runs on
+real grammars and is **default-enforcing on the FST/foma path** (`pg-cli`: `--no-enforce-capability`
+escapes, `--allow-unproven` overrides per ADR 0005). Conformance-coverage cross-check (advisory;
+build-breaking flip deferred). Chain-depth budget dimension (ADR 0003) + apply-path `ApplyBudget`.
+FST-health schema + evaluator (`health.rs`, `health_evaluator.rs`). Gloss-signature unit
+(`pg-realize/src/signature.rs`, PROTOCOL §3-4 / R4). CI conformance gate (`.github/workflows/
+conformance-ci.yml`).
+
+**Stage 1A (reify) — SUBSTRATE LANDED, production migration open.** Content-addressed AND-OR DAG
+(`plan.rs`), enumerator mirroring today's topology (`enumerate.rs`), controllable interpreter proven
+apply-equivalent to `compile_gated_grammar` (`build.rs`), differential-correctness oracle proven
+non-vacuous (`oracle.rs`), node purity (per-group `Replace` masks). OPEN: routing production `emit`
+through `build(plan)` (task 1.3) and capability-safe plan selection (2.x).
+
+**Stage 1B — SLICE LANDED.** Shared pattern-span lowering (`lower.rs`) + the real
+simultaneous-overlap automaton intersection. OPEN: migrating `replace.rs`'s own rewrite compilation
+onto the seam.
+
+**Stage 2 — ALL 11 CONSTRUCTS LANDED.** Every construct moved from unconditional fail-closed to an
+honest predicate, with proposer-to-confirm containment where the oracle supports it: multi-table
+(owning-table threading), RTL (reversal + recall-safe union), simultaneous (admitted non-overlap),
+bounded quantifiers (`^{min,max}`), metathesis (swap relation), circumfix/null-output (fixed a real
+multi-`InsertSegments` recall bug), template/truncation/reduplication (chain-depth-budgeted peel,
+incl. nested), realizational + constraints (already faithful; constraints are architecturally
+confirm-only), compounding (license-gated head×non-head cross product, budget-bounded; recursive
+fail-closed), unordered (existing derivation-chain superset + bounded/unbounded split), MPR groups
+(Append non-tracking baseline; Overwrite permanently fail-closed).
+
+**Downstream — LANDED.** `.pgpack` container + pack manifest (`pg-pack`: ADR 0004 feature set, ADR
+0005 trust stamp, health admission, non-gating Ed25519, validate-before-allocate). WASM load-compat
+reworked to `required ⊆ provided` + trust stamp (`pg-wasm/src/pack.rs`). Diagnostics
+(`pangloss diagnose`: build/assessment reports reusing the signature + health units). Health audit
+(the evaluator above).
+
+**Delanguaging — A + B LANDED.** Real-language data removed and artifacts renamed in-repo; the
+`machine` conformance fixtures renamed by inspected construct and pushed (`sillsdev/machine`
+`conformance-framework`). OPEN (Part C): the perf-benchmark tests still named/loading real grammars —
+coupled to synthetic stress-data synthesis.
+
+**Known confirm-engine (oracle) gaps found while implementing Stage 2** — these limit *end-to-end
+recall* for constructs the FST now proposes correctly; they never cause overclaiming (confirm-only
+means confirm decides): `pg_rules::rewrite` direction-blind iterative pick-order; `width_matches`
+cannot confirm a quantifier used as the LHS/RHS focus; `ana_epenthesis` finds no analysis for any
+direction; `pg_rules::metathesis`'s `build_analysis_pattern` disagrees with synthesis on reversed
+switch-tag order and drops a middle context node. Each is pinned by a test at its discovery site.
+
+**Still open:** Stage 1C compile profiling; Stage 3 tree-structured interaction fuzzing + calibration;
+Stage 4 synthetic-conformance-matrix reframe; the coverage ledger; the reify production flip; the
+confirm-engine gaps above; delanguaging Part C.
+
 This spine was reorganized on 2026-07-24 to reflect the honest-capability architecture recorded in
 `docs/adr/0001`–`0005`. The governing facts that reshaped it:
 
