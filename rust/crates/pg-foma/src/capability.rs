@@ -645,24 +645,53 @@ fn multi_table_detail(g: &Grammar) -> MultiTableDetail {
 /// `characterize`'s signature (`fn characterize(g: &Grammar) -> CharacteristicsProfile`, unchanged
 /// since Step 1 of `add-capability-characteristics-check`) untouched.
 ///
-/// Single-table assumption (`g.char_tables[0]`): this predicate's OWN documented gap, deliberately
-/// UNCHANGED by `openspec/changes/fix-multitable-fst-compilation`. That change's scope is
-/// `pg_foma::replace`'s rewrite-COMPILATION path (single-owner on `replace.rs`, its own tasks.md);
-/// [`SimultaneousSubruleOverlapPredicate`] is a DIFFERENT construct (simultaneous-rewrite overlap,
-/// owned by the future `compile-simultaneous-rewrites`), and several of this module's own minimal
-/// unit fixtures for it deliberately declare a `<PhonologicalRule>` with NO `<Strata>` block at
-/// all (no stratum to own it), which [`crate::replace::owning_table`] cannot resolve a table for
-/// by construction. Also guarded (rather than indexed unchecked) so this never panics on a
-/// `Grammar` with zero character tables at all.
+/// # `owning_table`, not `g.char_tables[0]` (`compile-simultaneous-rewrites`'s own fix)
+/// This function used to unconditionally read `g.char_tables.first()` — a single-table assumption
+/// `fix-multitable-fst-compilation` deliberately left unchanged (its own scope was
+/// `pg_foma::replace`'s rewrite-COMPILATION path, not this predicate). Now that
+/// `crate::replace::owning_table` exists, this function threads the rule's OWN owning table
+/// through, exactly like `replace.rs`'s own compile path does — closing the gap for a genuinely
+/// multi-table grammar (a real risk: table 0's alphabet is not guaranteed to be the natural-
+/// class/alpha-variable alphabet a rule wired to a DIFFERENT stratum's table actually resolves
+/// against, per `MultiTableFaithfulThreadingPredicate`'s own doc on why per-rule table identity
+/// matters). `owning_table` returning `None` (no `<Strata>` block wires this rule to any stratum at
+/// all — several of this module's own minimal unit fixtures deliberately omit `<Strata>` entirely)
+/// is handled gracefully, never a panic and never a wrong `Admit`:
+/// - **Exactly one table declared** (the ordinary single-table case, and every pre-existing unit
+///   fixture in this module's own test suite): falls back to that one table. Unambiguous by
+///   construction — there is no SECOND table `owning_table`'s `None` could have silently confused
+///   this with — so this preserves every existing test's behavior byte-for-byte.
+/// - **Zero or 2+ tables declared, but no owning stratum resolved**: genuinely ambiguous (which of
+///   several tables' alphabets should this rule's patterns resolve against?) or simply absent —
+///   conservatively `LoweredSpan::Unsupported` (D3's own "any approximation rounds toward Refuse"
+///   discipline), naming the table count, rather than guessing table 0.
 fn lower_subrule_span(
     g: &Grammar,
     rule: &pg_grammar::model::RewriteRuleDef,
     sr: &pg_grammar::model::RewriteSubruleDef,
 ) -> LoweredSpan {
-    let Some(table) = g.char_tables.first() else {
-        return LoweredSpan::Unsupported(
-            "grammar has no CharacterDefinitionTable at all; cannot lower any span".to_string(),
-        );
+    let table = match crate::replace::owning_table(g, rule) {
+        Some(t) => t,
+        None => match g.char_tables.len() {
+            0 => {
+                return LoweredSpan::Unsupported(
+                    "grammar has no CharacterDefinitionTable at all; cannot lower any span"
+                        .to_string(),
+                );
+            }
+            1 => &g.char_tables[0],
+            n => {
+                return LoweredSpan::Unsupported(format!(
+                    "rule {:?} has no owning stratum (owning_table returned None) and the \
+                     grammar declares {n} CharacterDefinitionTables -- cannot safely assume \
+                     which table's alphabet resolves this rule's natural classes/alpha \
+                     variables in a genuinely multi-table grammar; conservatively refusing \
+                     rather than guessing table 0 (the fix-multitable-fst-compilation gap this \
+                     function used to have)",
+                    rule.xml_id
+                ));
+            }
+        },
     };
     let alphabet = crate::replace::SegAlphabet::new(table);
     let opts = foma::options::FomaOptions::default();
@@ -1141,79 +1170,166 @@ impl CapabilityPredicate for SimultaneousSubruleOverlapPredicate {
             return PredicateVerdict::Admit;
         };
 
-        for i in 0..detail.subrules.len() {
-            for j in (i + 1)..detail.subrules.len() {
-                let a = &detail.subrules[i];
-                let b = &detail.subrules[j];
+        match subrules_pairwise_verdict(&detail.subrules) {
+            Ok(()) => PredicateVerdict::Admit,
+            Err((i, j, witness)) => PredicateVerdict::Refuse(CapabilityDiagnostic {
+                predicate: self.id(),
+                construct: format!("prule {} subrules {}/{}", rule.0, i, j),
+                witness,
+            }),
+        }
+    }
+}
 
-                // D3: "if either subrule is self_opaquing, do not attempt Admit" -- checked BEFORE
-                // the mpr-gate early-out, unconditionally.
-                if a.self_opaquing || b.self_opaquing {
-                    return PredicateVerdict::Refuse(CapabilityDiagnostic {
-                        predicate: self.id(),
-                        construct: format!(
-                            "prule {} subrules {}/{}",
-                            rule.0, a.index, b.index
-                        ),
-                        witness: format!(
-                            "subrule {} and/or {} is self_opaquing (analysis fixpoint reapply); \
-                             D3 rounds any self-opaquing pair to Refuse rather than attempt Admit",
-                            a.index, b.index
-                        ),
-                    });
-                }
+/// D3's own per-pair decision, over an ALREADY-lowered `&[SubruleGateInfo]` — factored out of
+/// [`SimultaneousSubruleOverlapPredicate::evaluate`] (this function's ONLY caller before
+/// `compile-simultaneous-rewrites`) so [`simultaneous_rule_admitted_for_compile`] (below, `crate::
+/// replace`'s own compile-time consumer) can share the IDENTICAL overlap algorithm rather than
+/// re-derive it — the gate (this predicate, used by [`compose_envelope`]) and the actual compiler
+/// (`crate::replace::is_fully_supported_shape`) must never disagree on what counts as a genuine
+/// overlap witness. `Ok(())` iff every unordered pair of `subrules` is provably safe to treat as
+/// non-overlapping; `Err((i, j, witness))` names the FIRST offending pair (document order) and a
+/// human-readable reason. Byte-for-byte the same three witness wordings this predicate has always
+/// used (self_opaquing / genuine lowered-span intersection / unsupported span) — moved, not
+/// reworded, so existing witness-text assertions in this module's own test suite are unaffected.
+fn subrules_pairwise_verdict(subrules: &[SubruleGateInfo]) -> Result<(), (usize, usize, String)> {
+    for i in 0..subrules.len() {
+        for j in (i + 1)..subrules.len() {
+            let a = &subrules[i];
+            let b = &subrules[j];
 
-                if mpr_gates_disjoint(a, b) {
-                    continue;
-                }
+            // D3: "if either subrule is self_opaquing, do not attempt Admit" -- checked BEFORE
+            // the mpr-gate early-out, unconditionally.
+            if a.self_opaquing || b.self_opaquing {
+                return Err((
+                    a.index,
+                    b.index,
+                    format!(
+                        "subrule {} and/or {} is self_opaquing (analysis fixpoint reapply); \
+                         D3 rounds any self-opaquing pair to Refuse rather than attempt Admit",
+                        a.index, b.index
+                    ),
+                ));
+            }
 
-                // Stage 1B: the real automaton intersection (see this type's own doc). Either
-                // span being Unsupported rounds to Refuse (D3: "any approximation rounds toward
-                // Refuse"), naming the unhandled construct rather than silently admitting it.
-                let opts = foma::options::FomaOptions::default();
-                match (&a.span, &b.span) {
-                    (LoweredSpan::Ok(span_a), LoweredSpan::Ok(span_b)) => {
-                        let overlaps = crate::lower::spans_overlap(&opts, span_a, span_b);
-                        if overlaps {
-                            return PredicateVerdict::Refuse(CapabilityDiagnostic {
-                                predicate: self.id(),
-                                construct: format!(
-                                    "prule {} subrules {}/{}",
-                                    rule.0, a.index, b.index
-                                ),
-                                witness: format!(
-                                    "subrules {} and {} are not mpr-gate-disjoint, and their \
-                                     lowered left_env/lhs_focus/right_env spans (Stage 1B, \
-                                     crate::lower) genuinely intersect at a shared focus \
-                                     position -- a real overlap witness, not an unproven \
-                                     approximation",
-                                    a.index, b.index
-                                ),
-                            });
-                        }
-                        // Proven non-overlapping: fall through to the next pair.
-                    }
-                    (LoweredSpan::Unsupported(reason), _) | (_, LoweredSpan::Unsupported(reason)) => {
-                        return PredicateVerdict::Refuse(CapabilityDiagnostic {
-                            predicate: self.id(),
-                            construct: format!(
-                                "prule {} subrules {}/{}",
-                                rule.0, a.index, b.index
-                            ),
-                            witness: format!(
-                                "subrules {} and {} are not mpr-gate-disjoint, and at least one \
-                                 span could not be lowered (Stage 1B, crate::lower): {reason}; \
-                                 conservatively rounding toward overlap-possible",
+            if mpr_gates_disjoint(a, b) {
+                continue;
+            }
+
+            // Stage 1B: the real automaton intersection (see this type's own doc). Either
+            // span being Unsupported rounds to Refuse (D3: "any approximation rounds toward
+            // Refuse"), naming the unhandled construct rather than silently admitting it.
+            let opts = foma::options::FomaOptions::default();
+            match (&a.span, &b.span) {
+                (LoweredSpan::Ok(span_a), LoweredSpan::Ok(span_b)) => {
+                    let overlaps = crate::lower::spans_overlap(&opts, span_a, span_b);
+                    if overlaps {
+                        return Err((
+                            a.index,
+                            b.index,
+                            format!(
+                                "subrules {} and {} are not mpr-gate-disjoint, and their \
+                                 lowered left_env/lhs_focus/right_env spans (Stage 1B, \
+                                 crate::lower) genuinely intersect at a shared focus \
+                                 position -- a real overlap witness, not an unproven \
+                                 approximation",
                                 a.index, b.index
                             ),
-                        });
+                        ));
                     }
+                    // Proven non-overlapping: fall through to the next pair.
+                }
+                (LoweredSpan::Unsupported(reason), _) | (_, LoweredSpan::Unsupported(reason)) => {
+                    return Err((
+                        a.index,
+                        b.index,
+                        format!(
+                            "subrules {} and {} are not mpr-gate-disjoint, and at least one \
+                             span could not be lowered (Stage 1B, crate::lower): {reason}; \
+                             conservatively rounding toward overlap-possible",
+                            a.index, b.index
+                        ),
+                    ));
                 }
             }
         }
-
-        PredicateVerdict::Admit
     }
+
+    Ok(())
+}
+
+/// `crate::replace`'s own compile-time consumer of D3 (`openspec/changes/
+/// compile-simultaneous-rewrites`; cites ADR 0001's own worked example): `Ok(())` iff `rule` is
+/// either not `Simultaneous` at all (nothing for this check to say — `is_fully_supported_shape`'s
+/// caller already treats `Iterative` as unconditionally in-shape) or is `Simultaneous` with
+/// subrules D3 proves pairwise non-overlapping, in which case the ADMITTED case's own defining
+/// property applies: simultaneous application == sequential application, so `crate::replace`'s
+/// existing plain/iterative sequential-compose machinery (fold every subrule's compiled branch via
+/// `fsm_compose`, unchanged) is CORRECT for it, not merely reused for convenience. `Err(reason)`
+/// otherwise — `crate::replace::compile_rewrite_rule_subset` treats that identically to any other
+/// unsupported shape (`Ok(None)`, honest-unsupported, never a wrong compile).
+///
+/// Computed FRESH against `g`/`rule` directly (no pre-built [`CharacteristicsProfile`] needed) --
+/// this runs at actual COMPILE time (once per rule), not characterization time (once per plan
+/// node the walk visits, [`node_decision`]'s own doc), so re-deriving [`SubruleGateInfo`] here
+/// (rather than requiring a caller to have already run [`characterize`]) is the right cost
+/// tradeoff, and lets a caller ask this question for one rule without characterizing the whole
+/// grammar. Reuses [`lower_subrule_span`] (this step's own `owning_table` fix, see that function's
+/// doc) and [`subrules_pairwise_verdict`] (the SAME overlap algorithm the capability GATE's own
+/// [`SimultaneousSubruleOverlapPredicate`] uses) — one shared proof, two call sites, so the gate
+/// and the compiler can never disagree about which configurations are faithful.
+///
+/// # Stricter than D3's own published pairwise algorithm, by one case
+/// D3's pairwise loop has no PAIR to examine when `rule.subrules.len() < 2`, so
+/// [`SimultaneousSubruleOverlapPredicate`] itself vacuously `Admit`s a *lone* self-opaquing
+/// subrule — correct for D3's own proof obligation (subrule-vs-subrule overlap only), but not
+/// sufficient for this function's SEPARATE obligation (never compile a configuration whose
+/// faithfulness against the actual confirm engine cannot be established): a self-opaquing subrule
+/// needs `pg_rules::rewrite`'s analysis-side repeat-until-fixpoint wrapper (`rust/docs/
+/// p13-simultaneous-design.md` §4.3/§4.4) to be faithfully ANALYZED, which the plain/iterative
+/// sequential-compose path this function admits into does not reproduce (one pass, never a
+/// fixpoint loop) — so this function refuses ANY self-opaquing subrule unconditionally, even one
+/// with no peer to overlap with. Strictly MORE conservative than D3's own algorithm (over-refuses
+/// further, never under-refuses) — the same discipline every predicate in this module already
+/// holds itself to; D3's own registered predicate is intentionally left unchanged by this
+/// addition (out of this change's scope — see this crate's own task report for why touching D3's
+/// published algorithm/tests was judged unnecessary risk for a case no existing fixture exercises).
+pub(crate) fn simultaneous_rule_admitted_for_compile(
+    g: &Grammar,
+    rule: &pg_grammar::model::RewriteRuleDef,
+) -> Result<(), String> {
+    if rule.mode != RewriteMode::Simultaneous {
+        return Ok(());
+    }
+
+    for (si, sr) in rule.subrules.iter().enumerate() {
+        if sr.self_opaquing {
+            return Err(format!(
+                "subrule {si} is self_opaquing with no peer subrule for D3's own pairwise \
+                 overlap check to ever examine (rule has {} subrule(s)) -- the plain/iterative \
+                 sequential-compose path this function admits into never reapplies to a \
+                 fixpoint (rust/docs/p13-simultaneous-design.md §4.3/§4.4), so a self-opaquing \
+                 subrule is refused here even though D3's own pairwise predicate has nothing to \
+                 say about a subrule with no peer",
+                rule.subrules.len()
+            ));
+        }
+    }
+
+    let subrules: Vec<SubruleGateInfo> = rule
+        .subrules
+        .iter()
+        .enumerate()
+        .map(|(si, sr)| SubruleGateInfo {
+            index: si,
+            required_mpr: sr.required_mpr,
+            excluded_mpr: sr.excluded_mpr,
+            self_opaquing: sr.self_opaquing,
+            span: lower_subrule_span(g, rule, sr),
+        })
+        .collect();
+
+    subrules_pairwise_verdict(&subrules).map_err(|(i, j, witness)| format!("subrules {i} and {j}: {witness}"))
 }
 
 // -------------------------------------------------------------------------------------------
@@ -2701,6 +2817,193 @@ mod tests {
                 );
             }
             other => panic!("expected conservative Refuse naming Anchor, got {other:?}"),
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // `openspec/changes/compile-simultaneous-rewrites`: the `owning_table` fix to
+    // `lower_subrule_span` (this step's own doc), and the compile-facing
+    // `simultaneous_rule_admitted_for_compile` consumer `crate::replace::is_fully_supported_shape`
+    // now calls.
+    // ---------------------------------------------------------------------------------------
+
+    /// Two `CharacterDefinitionTable`s; the Simultaneous rule is wired into the SECOND stratum
+    /// (`S1`, table `t1`, 5 segments/2 features) via its own `phonologicalRules` list. Table `t0`
+    /// (`S0`) is deliberately tiny (1 segment) and shares NO natural-class/feature apparatus with
+    /// `t1` at all -- if [`lower_subrule_span`] still defaulted to `g.char_tables.first()` (this
+    /// predicate's OWN pre-`compile-simultaneous-rewrites` gap), it would resolve `t0` instead of
+    /// `t1`, and none of `t1`'s own `CharDefId`s (which this rule's `<SimpleContext>` nodes
+    /// reference) exist in `t0`'s tiny inventory, so the real span lowering could not succeed the
+    /// way it does below.
+    const TWO_TABLE_SIMULTANEOUS_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+<HermitCrabInput>
+  <Language>
+    <Name>TwoTableSimultaneous</Name>
+    <PhonologicalFeatureSystem>
+      <SymbolicFeature id="featVoice"><Name>voice</Name><Symbols>
+        <Symbol id="symVless">vless</Symbol><Symbol id="symVd1">vd1</Symbol><Symbol id="symVd2">vd2</Symbol>
+      </Symbols></SymbolicFeature>
+      <SymbolicFeature id="featPlace"><Name>place</Name><Symbols>
+        <Symbol id="symFront">front</Symbol><Symbol id="symBack">back</Symbol><Symbol id="symNeutral">neutral</Symbol>
+      </Symbols></SymbolicFeature>
+    </PhonologicalFeatureSystem>
+    <CharacterDefinitionTable id="t0"><Name>T0</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="c0z"><Representations><Representation>z</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <CharacterDefinitionTable id="t1"><Name>T1</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cp"><Representations><Representation>p</Representation></Representations><FeatureValue feature="featVoice" symbolValues="symVless" /><FeatureValue feature="featPlace" symbolValues="symNeutral" /></SegmentDefinition>
+        <SegmentDefinition id="ci"><Representations><Representation>i</Representation></Representations><FeatureValue feature="featPlace" symbolValues="symFront" /><FeatureValue feature="featVoice" symbolValues="symVless" /></SegmentDefinition>
+        <SegmentDefinition id="cu"><Representations><Representation>u</Representation></Representations><FeatureValue feature="featPlace" symbolValues="symBack" /><FeatureValue feature="featVoice" symbolValues="symVless" /></SegmentDefinition>
+        <SegmentDefinition id="cb"><Representations><Representation>b</Representation></Representations><FeatureValue feature="featVoice" symbolValues="symVd1" /><FeatureValue feature="featPlace" symbolValues="symNeutral" /></SegmentDefinition>
+        <SegmentDefinition id="cd"><Representations><Representation>d</Representation></Representations><FeatureValue feature="featVoice" symbolValues="symVd2" /><FeatureValue feature="featPlace" symbolValues="symNeutral" /></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncStop"><Name>Stop</Name><FeatureValue feature="featVoice" symbolValues="symVless" /></FeatureNaturalClass>
+      <FeatureNaturalClass id="ncFront"><Name>Front</Name><FeatureValue feature="featPlace" symbolValues="symFront" /></FeatureNaturalClass>
+      <FeatureNaturalClass id="ncBack"><Name>Back</Name><FeatureValue feature="featPlace" symbolValues="symBack" /></FeatureNaturalClass>
+      <FeatureNaturalClass id="ncB"><Name>B</Name><FeatureValue feature="featVoice" symbolValues="symVd1" /></FeatureNaturalClass>
+      <FeatureNaturalClass id="ncD"><Name>D</Name><FeatureValue feature="featVoice" symbolValues="symVd2" /></FeatureNaturalClass>
+    </NaturalClasses>
+    <PhonologicalRuleDefinitions>
+      <PhonologicalRule id="prSimT1" multipleApplicationOrder="simultaneous">
+        <Name>simT1Demo</Name>
+        <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticInput>
+        <PhonologicalSubrules>
+          <PhonologicalSubrule>
+            <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncB" /></PhoneticSequence></PhoneticOutput>
+            <Environment><RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncFront" /></PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment>
+          </PhonologicalSubrule>
+          <PhonologicalSubrule>
+            <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncD" /></PhoneticSequence></PhoneticOutput>
+            <Environment><RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncBack" /></PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment>
+          </PhonologicalSubrule>
+        </PhonologicalSubrules>
+      </PhonologicalRule>
+    </PhonologicalRuleDefinitions>
+    <Strata>
+      <Stratum characterDefinitionTable="t0"><Name>S0</Name></Stratum>
+      <Stratum characterDefinitionTable="t1" phonologicalRules="prSimT1"><Name>S1</Name></Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>
+"#;
+
+    /// Positive witness (task 2, the `owning_table` fix): [`lower_subrule_span`] (via
+    /// [`simultaneous_rule_admitted_for_compile`]) must resolve THIS rule's span against table 1
+    /// (its own owning stratum's table, 5 segments), never table 0 (1 segment, unrelated) --
+    /// mirrors `crate::replace`'s own
+    /// `owning_table_resolves_to_the_rules_own_stratum_table_not_table_zero` witness, one level up
+    /// (the predicate/compile-admission consumer, not `owning_table` itself).
+    #[test]
+    fn lower_subrule_span_uses_the_rules_owning_table_not_table_zero() {
+        let g = load(TWO_TABLE_SIMULTANEOUS_XML);
+        assert_eq!(g.char_tables.len(), 2, "fixture must declare exactly 2 tables");
+        assert_eq!(g.char_tables[0].len(), 1, "table 0 must be the tiny, unrelated 1-segment table");
+        assert_eq!(g.char_tables[1].len(), 5, "table 1 must be the rule's own 5-segment inventory");
+
+        let PhonRuleDef::Rewrite(rule) = &g.prules[0] else {
+            panic!("expected a Rewrite-kind rule at prules[0]");
+        };
+        assert_eq!(rule.mode, RewriteMode::Simultaneous);
+        assert!(!rule.subrules[0].self_opaquing && !rule.subrules[1].self_opaquing);
+
+        let table = crate::replace::owning_table(&g, rule)
+            .expect("prSimT1 is wired into stratum S1's own phonologicalRules cascade");
+        assert_eq!(
+            table.len(),
+            5,
+            "owning_table must resolve to table 1 (5 segments) -- NOT table 0's 1-segment table"
+        );
+
+        // The real end-to-end proof: `simultaneous_rule_admitted_for_compile` (which calls
+        // `lower_subrule_span` internally) must ADMIT this genuinely non-overlapping rule using
+        // table 1's own Front/Back-distinguishing features -- table 0 has no such apparatus at
+        // all, so this could only succeed if the owning-table threading fix is actually wired in.
+        assert_eq!(
+            simultaneous_rule_admitted_for_compile(&g, rule),
+            Ok(()),
+            "the real per-owning-table lowering must Admit this genuinely non-overlapping rule"
+        );
+
+        // Cross-check against the registered predicate's own verdict (the capability GATE's own
+        // consumer, `SimultaneousSubruleOverlapPredicate`) -- both must agree, proving the gate and
+        // the compiler share one proof, never two that could silently diverge.
+        let profile = characterize(&g);
+        let predicate = SimultaneousSubruleOverlapPredicate;
+        assert_eq!(
+            predicate.evaluate(&profile, &leaf_for(PRuleId(0))),
+            PredicateVerdict::Admit,
+            "the registered predicate must also Admit, using the SAME owning-table-lowered spans \
+             `characterize` computed"
+        );
+    }
+
+    /// Negative witness (task 2, `lower_subrule_span`'s own doc): a rule with NO owning stratum at
+    /// all (declared but never wired into any stratum's `phonologicalRules` list) in a grammar with
+    /// MORE THAN ONE table is a genuinely ambiguous case -- `owning_table` returns `None`, and
+    /// `g.char_tables.len() == 2` (not `<= 1`), so [`lower_subrule_span`] must conservatively return
+    /// `LoweredSpan::Unsupported` rather than guess table 0. This is the residual case the fix's own
+    /// doc names ("zero or 2+ tables declared, but no owning stratum resolved").
+    #[test]
+    fn lower_subrule_span_refuses_conservatively_when_owning_table_is_ambiguous() {
+        const XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+<HermitCrabInput>
+  <Language>
+    <Name>TwoTableUnwiredSimultaneous</Name>
+    <CharacterDefinitionTable id="t0"><Name>T0</Name>
+      <SegmentDefinitions><SegmentDefinition id="c0z"><Representations><Representation>z</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <CharacterDefinitionTable id="t1"><Name>T1</Name>
+      <SegmentDefinitions><SegmentDefinition id="c1p"><Representations><Representation>p</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <SegmentNaturalClass id="ncStop"><Name>Stop</Name><Segment segment="c1p" /></SegmentNaturalClass>
+    </NaturalClasses>
+    <PhonologicalRuleDefinitions>
+      <PhonologicalRule id="prSimUnwired" multipleApplicationOrder="simultaneous">
+        <Name>simUnwiredDemo</Name>
+        <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticInput>
+        <PhonologicalSubrules>
+          <PhonologicalSubrule>
+            <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticOutput>
+          </PhonologicalSubrule>
+          <PhonologicalSubrule>
+            <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticOutput>
+          </PhonologicalSubrule>
+        </PhonologicalSubrules>
+      </PhonologicalRule>
+    </PhonologicalRuleDefinitions>
+    <Strata>
+      <Stratum characterDefinitionTable="t0"><Name>S0</Name></Stratum>
+      <Stratum characterDefinitionTable="t1"><Name>S1</Name></Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>
+"#;
+        let g = load(XML);
+        assert_eq!(g.char_tables.len(), 2, "fixture must declare exactly 2 tables");
+        let PhonRuleDef::Rewrite(rule) = &g.prules[0] else {
+            panic!("expected a Rewrite-kind rule at prules[0]");
+        };
+        assert!(
+            crate::replace::owning_table(&g, rule).is_none(),
+            "prSimUnwired must NOT be wired into any stratum's phonologicalRules cascade"
+        );
+
+        match simultaneous_rule_admitted_for_compile(&g, rule) {
+            Err(reason) => assert!(
+                reason.contains("no owning stratum") || reason.contains("CharacterDefinitionTable"),
+                "witness should name the ambiguous-table-selection cause: {reason}"
+            ),
+            Ok(()) => panic!(
+                "must NOT wrongly Admit an unresolvable-table rule in a genuinely multi-table \
+                 grammar -- that would be exactly the silent wrong-Admit this fix exists to \
+                 prevent"
+            ),
         }
     }
 

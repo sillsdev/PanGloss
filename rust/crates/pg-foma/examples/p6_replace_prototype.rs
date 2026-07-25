@@ -109,7 +109,7 @@ fn run() {
                 r.name,
                 r.mode,
                 r.dir,
-                is_fully_supported_shape(r)
+                is_fully_supported_shape(&g, r)
             ),
             PhonRuleDef::Metathesis(m) => println!("  {} (metathesis)", m.xml_id),
         }

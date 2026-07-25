@@ -49,15 +49,10 @@
 //!   [`pattern_slots`] returns `None` or bails when it meets one; a rule whose pattern needs it is
 //!   reported uncovered, not silently mis-rendered.
 //! - [`AlphaVar::plus`] == `false` ("disagree" polarity) — no reference-grammar rule needs it.
-//! - `RewriteMode::Simultaneous` — a genuinely different algorithm from the per-subrule/per-tuple
-//!   sequential-compose this module implements for `Iterative` (both directions); Phase C
-//!   (`docs/fst-plan/phase-c-generator-design.md` §5/§6) wired [`is_fully_supported_shape`] into
-//!   [`compile_rewrite_rule_subset`] so a `Simultaneous` rule is DETECTED and reported `skipped`
-//!   (module doc's "None -> caller reports it" contract), rather than silently compiled as if it
-//!   were `Iterative` — `openspec/changes/compile-right-to-left-rewrites`'s own design.md: "It is
-//!   separate from Simultaneous mode because both require different algorithms and share
-//!   high-conflict files." An actual `Simultaneous` compiler remains future work
-//!   (`compile-fst-simultaneous-rewrites`, or whichever change eventually claims it).
+//! - `RewriteMode::Simultaneous` whose subrules the `simultaneous.subrule-overlap` predicate (D3,
+//!   `crate::capability`) cannot prove pairwise non-overlapping (self-opaquing, an unresolved
+//!   overlap, or an unsupported pattern node in a lowered span) — see "`RewriteMode::Simultaneous`:
+//!   compiling the ADMITTED case" below for the (now real) admitted case.
 //! - MPR gating (`required_mpr`/`excluded_mpr` on a subrule) — flag-diacritic emission is P6
 //!   mainline work per the plan (`§P6` item 1's own text), not attempted in this slice.
 //!
@@ -111,6 +106,62 @@
 //! context matches), so `fsm_union`ing them adds no spurious third "nothing happened" path — see
 //! [`compile_rtl_branch_net`]'s own doc for why this differs from the alpha-tuple union-is-wrong
 //! finding above.
+//!
+//! ## `RewriteMode::Simultaneous`: compiling the ADMITTED case (`openspec/changes/
+//! compile-simultaneous-rewrites`)
+//! `RewriteMode::Simultaneous` used to be honestly skipped UNCONDITIONALLY (`Ok(None)` for every
+//! such rule, regardless of subrule shape — the same treatment metathesis and an unsupported
+//! pattern construct get). It still stays that way for a rule whose subrules the
+//! `simultaneous.subrule-overlap` predicate (D3, `crate::capability::
+//! SimultaneousSubruleOverlapPredicate`, already built by Stage 1B) cannot prove pairwise
+//! non-overlapping. What changes here: for a rule the predicate DOES admit —
+//! [`is_fully_supported_shape`] now asks `crate::capability::
+//! simultaneous_rule_admitted_for_compile` (that function's own doc: the SAME D3 proof, freshly
+//! computed, sharing its algorithm with the capability gate's own predicate so the two can never
+//! disagree) — this file's EXISTING plain/iterative sequential-compose machinery is reused UNCHANGED,
+//! not reimplemented: no new branch net construction, no new fold shape, nothing analogous to
+//! [`compile_rtl_branch_net`]'s mirror-plus-reverse-plus-union.
+//!
+//! **Why reuse, not a new algorithm, is actually correct here (not merely convenient).** D3's own
+//! Admit boundary is defined EXACTLY as "no two subrules' environments can ever match at the same
+//! input position" — precisely the condition under which HC's true `Simultaneous` semantics (find
+//! every match against ONE untouched input snapshot, then apply them all — `rust/docs/
+//! p13-simultaneous-design.md` §1.1's `SimultaneousPhonologicalPatternRule.Apply`) and a sequential
+//! per-subrule fold (this file's existing `Iterative`-labeled machinery) produce IDENTICAL output:
+//! with no shared focus position in contention, subrule application order can never change which
+//! subrule wins where, so "compose subrule 1's net, then subrule 2's net" (what this file already
+//! does for `Iterative`) and "collect all subrules' matches against the original input, then apply
+//! all of them" (true `Simultaneous`) coincide. A second, independently-confirmed reason this
+//! reuse is faithful, not just permitted: a plain foma `->` replace rule is ITSELF a single-pass,
+//! snapshot-style construction (Beesley & Karttunen's classical replace-rule automaton finds every
+//! non-overlapping match against the rule's own input tape and rewrites them all in one
+//! transduction — it cannot self-feed within one compiled expression the way `pg-rules`'
+//! `syn_feature`'s re-scan-after-every-mutation loop can, `p13-simultaneous-design.md` §2.2/§2.3's
+//! own finding that `syn_epenthesis` is "already Simultaneous-shaped" for exactly this reason). So
+//! this file's foma-`->`-based compile was ALREADY structurally closer to true `Simultaneous`
+//! semantics than to HC's `Iterative` re-scan semantics, for ANY rule it has ever compiled — the
+//! `Iterative` label on the existing machinery names which HC mode it happens to have been used
+//! for so far, not an inherent re-scan behavior the compiled net exhibits.
+//!
+//! **What `pg_rules::rewrite` (the confirm engine) actually does for `Simultaneous`.** Unlike the
+//! `RightToLeft` case above, `pg_rules::rewrite` is NOT mode-blind here: it dispatches
+//! `Kind::Feature`/`Kind::Narrow` synthesis to genuinely distinct `sim_feature`/`sim_narrow`
+//! functions (vs. `syn_feature`/`syn_narrow` for `Iterative`), and its analysis side wraps
+//! `ana_feature`/`ana_epenthesis` in a repeat-until-fixpoint loop whenever a subrule is
+//! `self_opaquing` (`p13-simultaneous-design.md` §1.3/§4.3-4.4) — a real, load-bearing mode
+//! dependence, ported and shipped (P13), not a gap this change needs to patch around. D3's own
+//! `self_opaquing`-Refuse early-out is exactly what keeps the ADMITTED case inside the region where
+//! this asymmetry never actually bites: `self_opaquing` is REQUIRED true for the repeat-wrapper to
+//! ever trigger, and D3 refuses any pair containing one (this crate's own
+//! `simultaneous_rule_admitted_for_compile` additionally refuses a LONE self-opaquing subrule too,
+//! stricter than D3's own pairwise-only algorithm — see that function's doc for why). So for every
+//! rule this file now actually compiles under `Simultaneous`, confirm's analysis side runs
+//! `ana_feature`/`ana_epenthesis` exactly once, per subrule, with no fixpoint loop — the SAME shape
+//! `Iterative` mode's analysis already uses (`p13-simultaneous-design.md` §1.3: "`ApplicationMode`
+//! has zero effect on which pattern rule analysis uses" for Feature subrules). No safety-net union
+//! is needed here (contrast [`compile_rtl_branch_net`]'s own documented judgment call): there is no
+//! known faithfulness gap between what this file compiles and what confirm accepts for the admitted
+//! case, so no superset-widening is required to stay recall-safe.
 
 use std::collections::HashSet;
 
@@ -772,18 +823,22 @@ pub fn compile_rewrite_rule(
 ///
 /// **Mode/dir detection (Phase C, `docs/fst-plan/phase-c-generator-design.md` §5/§6):**
 /// `rule.mode`/`rule.dir` are checked FIRST, via [`is_fully_supported_shape`] -- a rule outside
-/// that shape (`RewriteMode::Simultaneous`, any `Dir`) returns `Ok(None)` immediately, exactly the
-/// same "uncovered, caller reports it `skipped`" contract [`pattern_slots`] already uses for an
-/// unsupported PATTERN construct (Quantifier/Segments/Anchor). Before this check existed, an
-/// unsupported mode/dir was silently compiled via plain foma `->` as if it were
-/// Iterative/LeftToRight -- a WRONG network with no signal (design doc §5's "SILENT MIS-MAP" row).
-/// `Dir::RightToLeft` used to be gated out here too (`Ok(None)`, honestly skipped) until
-/// `openspec/changes/compile-right-to-left-rewrites` gave it real semantics
-/// ([`compile_rtl_branch_net`], module doc) -- both `Iterative` directions now compile; only
-/// `Simultaneous` (either direction) remains gated here. Every reference-grammar rule
-/// (Indonesian/Amharic/Sena) is already `Iterative`/`LeftToRight` (this function's own prior
-/// module-level doc), so NEITHER change alters any existing grammar's compiled output -- verified
-/// by `tests/p6_gate_parity.rs`'s byte-exact Amharic state/arc-count regression guard and
+/// that shape returns `Ok(None)` immediately, exactly the same "uncovered, caller reports it
+/// `skipped`" contract [`pattern_slots`] already uses for an unsupported PATTERN construct
+/// (Quantifier/Segments/Anchor). Before this check existed, an unsupported mode/dir was silently
+/// compiled via plain foma `->` as if it were Iterative/LeftToRight -- a WRONG network with no
+/// signal (design doc §5's "SILENT MIS-MAP" row). `Dir::RightToLeft` used to be gated out here too
+/// (`Ok(None)`, honestly skipped) until `openspec/changes/compile-right-to-left-rewrites` gave it
+/// real semantics ([`compile_rtl_branch_net`], module doc) -- both `Iterative` directions now
+/// compile unconditionally. `RewriteMode::Simultaneous` used to be gated out here UNCONDITIONALLY
+/// too, until `openspec/changes/compile-simultaneous-rewrites` gave `is_fully_supported_shape` a
+/// per-rule admission check for it (that function's own doc) -- a `Simultaneous` rule whose
+/// subrules the `simultaneous.subrule-overlap` predicate (D3) proves pairwise non-overlapping now
+/// compiles via this SAME sequential-compose loop, unmodified; one the predicate cannot clear
+/// stays gated here exactly as before. Every reference-grammar rule (Indonesian/Amharic/Sena) is
+/// already `Iterative`/`LeftToRight` (this function's own prior module-level doc), so none of
+/// these three changes alters any existing grammar's compiled output -- verified by
+/// `tests/p6_gate_parity.rs`'s byte-exact Amharic state/arc-count regression guard and
 /// `tests/f3_parity.rs`'s multiset parity gates staying green.
 pub fn compile_rewrite_rule_subset(
     opts: &FomaOptions,
@@ -793,7 +848,7 @@ pub fn compile_rewrite_rule_subset(
     allowed: &dyn Fn(usize) -> bool,
     budget: &ComposeBudget,
 ) -> Result<Option<(Fsm, Vec<TupleReport>)>, ComposeError> {
-    if !is_fully_supported_shape(rule) {
+    if !is_fully_supported_shape(g, rule) {
         return Ok(None);
     }
     // `openspec/changes/fix-multitable-fst-compilation`: resolved ONCE per rule (LHS is shared
@@ -1066,13 +1121,33 @@ pub fn compile_and_compose_rules_gated_with_budget(
     Ok(composed)
 }
 
-/// `true` iff `rule.mode` is a shape this file's compile functions claim fidelity for.
-/// `RewriteMode::Iterative` compiles under EITHER `Dir` (`Dir::LeftToRight` via the plain
-/// construction; `Dir::RightToLeft` via [`compile_rtl_branch_net`]'s reversal-plus-safety-net-union
-/// construction, `openspec/changes/compile-right-to-left-rewrites`). `RewriteMode::Simultaneous`
-/// remains outside this shape regardless of `Dir` -- a different algorithm, module doc.
-pub fn is_fully_supported_shape(rule: &RewriteRuleDef) -> bool {
-    matches!(rule.mode, RewriteMode::Iterative)
+/// `true` iff `rule.mode` (and, for `Simultaneous`, `rule`'s own subrule shape against `g`) is a
+/// shape this file's compile functions claim fidelity for. `RewriteMode::Iterative` compiles under
+/// EITHER `Dir` (`Dir::LeftToRight` via the plain construction; `Dir::RightToLeft` via
+/// [`compile_rtl_branch_net`]'s reversal-plus-safety-net-union construction, `openspec/changes/
+/// compile-right-to-left-rewrites`), unconditionally in-shape regardless of subrule content.
+///
+/// `RewriteMode::Simultaneous` (`openspec/changes/compile-simultaneous-rewrites`; ADR 0001, `docs/
+/// adr/0001-honest-capability-boundary.md`, the "simultaneous rewrite" worked example): NOT
+/// wholesale in/out of shape the way `Iterative`/`RightToLeft` are -- admitted *unless* two of
+/// `rule`'s own subrules' environments can match at the same input position
+/// (`crate::capability::simultaneous_rule_admitted_for_compile`, the SAME `simultaneous.subrule-
+/// overlap` proof (D3) the capability GATE's own `SimultaneousSubruleOverlapPredicate` uses — one
+/// shared algorithm, two call sites, so the gate and this compiler can never disagree). When
+/// admitted, this file's EXISTING plain/iterative sequential-compose machinery
+/// (`compile_rewrite_rule_subset`'s own per-subrule `fsm_compose` fold, unchanged code) is used
+/// as-is: the admitted case's own defining property is that simultaneous application == sequential
+/// application at every position (no two subrules can ever contest the same focus), so reusing
+/// that machinery is not an approximation, it is the correct construction. A rule the predicate
+/// cannot prove non-overlapping for (or with a self-opaquing subrule, or an unsupported pattern
+/// node in a lowered span) stays OUTSIDE this shape -- `compile_rewrite_rule_subset` returns
+/// `Ok(None)` for it exactly like any other unsupported construct, honest-unsupported, never a
+/// wrong compile.
+pub fn is_fully_supported_shape(g: &Grammar, rule: &RewriteRuleDef) -> bool {
+    match rule.mode {
+        RewriteMode::Iterative => true,
+        RewriteMode::Simultaneous => crate::capability::simultaneous_rule_admitted_for_compile(g, rule).is_ok(),
+    }
 }
 
 /// Convenience re-export so the driver doesn't need a second `use` line for the one subrule field

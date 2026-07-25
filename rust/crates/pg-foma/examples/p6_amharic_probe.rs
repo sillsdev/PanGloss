@@ -77,7 +77,7 @@ fn run() {
                 println!(
                     "{} {:?} mode={:?} dir={:?} fully-supported-shape={}: COMPILED in {elapsed:?} \
                      -> {} states, {} arcs",
-                    r.xml_id, r.name, r.mode, r.dir, is_fully_supported_shape(r),
+                    r.xml_id, r.name, r.mode, r.dir, is_fully_supported_shape(&g, r),
                     net.statecount, net.arccount
                 );
                 for tr in &reports {

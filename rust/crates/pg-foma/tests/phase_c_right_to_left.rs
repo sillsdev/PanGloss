@@ -167,7 +167,7 @@ fn rtl_plain_rule_now_compiles_and_matches_oracle() {
     };
     assert_eq!(rule.dir, Dir::RightToLeft);
     assert!(
-        is_fully_supported_shape(rule),
+        is_fully_supported_shape(&g, rule),
         "an Iterative RightToLeft rule must now be reported fully-supported"
     );
 
@@ -305,7 +305,7 @@ fn rtl_feature_environment_swap_matches_oracle() {
         panic!("expected a Rewrite-kind rule");
     };
     assert_eq!(rule.dir, Dir::RightToLeft);
-    assert!(is_fully_supported_shape(rule));
+    assert!(is_fully_supported_shape(&g, rule));
 
     let table = &g.char_tables[0];
     let alphabet = SegAlphabet::new(table);
@@ -440,7 +440,7 @@ fn rtl_deletion_matches_oracle() {
         panic!("expected a Rewrite-kind rule");
     };
     assert_eq!(rule.dir, Dir::RightToLeft);
-    assert!(is_fully_supported_shape(rule));
+    assert!(is_fully_supported_shape(&g, rule));
     assert!(rule.subrules[0].rhs.nodes.is_empty(), "deletion subrule must have an empty RHS pattern");
 
     let table = &g.char_tables[0];
@@ -571,7 +571,7 @@ fn rtl_epenthesis_construction_is_correct_at_the_fst_level() {
     };
     assert_eq!(rule.dir, Dir::RightToLeft);
     assert!(rule.lhs.nodes.is_empty(), "epenthesis rule must have an empty LHS pattern");
-    assert!(is_fully_supported_shape(rule));
+    assert!(is_fully_supported_shape(&g, rule));
 
     let table = &g.char_tables[0];
     let alphabet = SegAlphabet::new(table);
@@ -697,7 +697,7 @@ fn rtl_distinct_leftmost_rightmost_differs_from_ltr_and_is_recall_safe_against_t
         panic!("expected a Rewrite-kind rule");
     };
     assert_eq!(rule.dir, Dir::RightToLeft);
-    assert!(is_fully_supported_shape(rule));
+    assert!(is_fully_supported_shape(&g, rule));
 
     let table = &g.char_tables[0];
     let alphabet = SegAlphabet::new(table);
