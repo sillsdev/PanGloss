@@ -8,3 +8,6 @@ license.workspace = true
 [dependencies]
 pg-grammar.workspace = true
 pg-parse.workspace = true
+# `signature.rs`'s RFC 8785 canonical-JSON-string component encoding (Stage 0E,
+# `openspec/changes/IMPLEMENTATION-READINESS.md` R4); pinned once at the workspace root.
+serde_json.workspace = true

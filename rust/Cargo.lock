@@ -693,6 +693,7 @@ version = "0.1.0"
 dependencies = [
  "pg-grammar",
  "pg-parse",
+ "serde_json",
 ]
 
 [[package]]

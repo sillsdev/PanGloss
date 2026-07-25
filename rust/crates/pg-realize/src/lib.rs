@@ -28,6 +28,13 @@
 //! builds a [`RealizeMap`] straight from a grammar's affix glosses via a built-in English alias
 //! table, so grammars without a hand-authored sidecar still get natural-ish phrases. Wiring the
 //! inferred-map/sidecar-override precedence into `pg-wasm` is a separate, later phase.
+//!
+//! Stage 0E (`openspec/changes/IMPLEMENTATION-READINESS.md` R4) adds [`signature`]: the R4 gloss
+//! signature, a canonical string encoding of a word's whole analysis set (`gloss_bundle`'s tokens
+//! plus each analysis's surface shape) for `add-reference-hermitcrab-parity`'s and
+//! `add-grammar-diagnostics`'s shared use — see that module's doc for the full encoding, and its
+//! own top-of-file note for why it is a parallel format next to `pg_parse::result_signature`,
+//! never a change to it.
 #![forbid(unsafe_code)]
 
 use pg_grammar::model::Grammar;
@@ -37,12 +44,14 @@ pub mod infer;
 pub mod ir;
 pub mod map;
 pub mod realize;
+pub mod signature;
 pub mod table;
 
 pub use infer::infer_english;
 pub use ir::{to_ir, CaseRole, Concept, GlossIr, Num, Poss};
 pub use map::{FeatureAssignment, MapError, RealizeMap};
 pub use realize::{Realization, Realizer};
+pub use signature::{gloss_analysis_set_signature, gloss_signature_entry, word_gloss_signature};
 pub use table::TableRealizer;
 
 /// One morpheme's display data, resolved from `Grammar::morphemes` (or synthesized for the
