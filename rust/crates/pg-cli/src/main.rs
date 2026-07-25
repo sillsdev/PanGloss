@@ -260,6 +260,53 @@ fn print_grammar_warnings(warnings: &[String]) {
     }
 }
 
+/// `openspec/changes/add-capability-characteristics-check` (ADR 0001 `docs/adr/0001-honest-
+/// capability-boundary.md`; design.md D4): runs [`pg_foma::capability_entry::evaluate_capability`]
+/// over `g` and prints its [`pg_foma::capability::CompileDecision`] as a single labeled,
+/// **advisory/preview** line to stderr.
+///
+/// **Non-blocking, by design and unconditionally.** This is a preview of a gate that is not yet
+/// wired to anything: task 3.3 of that change (actually flipping a real compile seam to consult a
+/// `CompileDecision` and block/stamp on `Refuse`) is still pending. Calling this function has zero
+/// effect on `g`, on which route `batch`/`parse` take, on the compiled/analyzed artifact, or on the
+/// process exit code -- a `Refuse` here is REPORTED only; compilation and analysis proceed exactly
+/// as they did before this function existed, every time, regardless of the decision.
+///
+/// **Stderr, never stdout.** `batch`'s TSV rows are written to the `<out.tsv>` file (never stdout in
+/// the first place), but its own `LOADTIME`/`CANDSTATS`/etc. diagnostics and `print_grammar_warnings`
+/// above already establish "stderr for anything that isn't the parity-sensitive protocol output"
+/// as this file's own convention -- `parse`'s `word\tsignature` line IS that protocol output for
+/// `parse`, so this note is printed alongside the other stderr-only diagnostics, never interleaved
+/// with it. `rust/tools/run-conformance.sh`'s driver only ever reads the `{output}` TSV FILE `batch`
+/// writes (never `pangloss`'s own stderr, and `dotnet run`'s stdout carries only the C# driver's own
+/// `[PASS]`/`[FAIL]` lines) -- this note cannot pollute the conformance signature it parses.
+fn print_capability_advisory(g: &Grammar) {
+    use pg_foma::capability::CompileDecision;
+    match pg_foma::capability_entry::evaluate_capability(g) {
+        CompileDecision::Admit => {
+            eprintln!("capability: Admit [advisory/preview -- gate not yet enforced, see ADR 0001]");
+        }
+        CompileDecision::ConfirmOnly => {
+            eprintln!(
+                "capability: ConfirmOnly [advisory/preview -- gate not yet enforced, see ADR 0001]"
+            );
+        }
+        CompileDecision::Refuse(diags) => {
+            eprintln!(
+                "capability: Refuse ({} diagnostic(s)) [advisory/preview -- gate not yet enforced; \
+                 compilation/analysis proceeds unchanged, see ADR 0001]",
+                diags.len()
+            );
+            for d in &diags {
+                eprintln!(
+                    "  capability-refuse: predicate={} construct={} witness={}",
+                    d.predicate, d.construct, d.witness
+                );
+            }
+        }
+    }
+}
+
 /// P12 chunk 7 (design doc §4.3): `pangloss parse <grammar.xml> <word> [--trace[=<file>]]
 /// [--trace-format=text|json]` -- today's CLI only has `batch`/`generate`, neither the right shape
 /// for "trace exactly one word" (see the design doc's own rationale). `--trace` with no value
@@ -362,6 +409,7 @@ fn run_parse(args: &[String]) -> Result<(), String> {
 
     let (grammar, warnings) = load_grammar(grammar_path)?;
     print_grammar_warnings(&warnings);
+    print_capability_advisory(&grammar);
 
     // `--natural-gloss=eng` setup: the embedded English table + the per-grammar sidecar map, both
     // built once up front (not per-analysis) since neither depends on the word being parsed.
@@ -601,6 +649,9 @@ fn run_batch(args: &[String]) -> Result<(), String> {
     let (grammar, warnings) = load_grammar(grammar_path)?;
     print_grammar_warnings(&warnings);
     let grammar_load_ms = t_load.elapsed().as_secs_f64() * 1e3;
+    // Advisory-only (see this function's own doc): computed AFTER `grammar_load_ms` is captured so
+    // this preview note's own cost never perturbs the existing LOADTIME diagnostic's timing.
+    print_capability_advisory(&grammar);
 
     let words: Vec<String> = fs::read_to_string(words_path)
         .map_err(|e| format!("read {words_path}: {e}"))?

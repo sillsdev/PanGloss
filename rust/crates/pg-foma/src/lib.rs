@@ -68,6 +68,13 @@ pub mod analyzer;
 /// `gate.rs`/`replace.rs`/`preexpand.rs` bodies are untouched); see that module's own doc for full
 /// scope and the judgment calls it surfaces.
 pub mod capability;
+/// A production-shaped convenience entry point into [`capability::compose_envelope`]:
+/// [`capability_entry::evaluate_capability`] assembles `characterize` + `enumerate_default`'s
+/// inputs the way [`emit::emit_with_budget`]'s own setup does (`surface_table` + [`replace::
+/// SegAlphabet`], `PhonologyProbe::new`, stratum-cascade `prules_in_order`) and returns the
+/// resulting `CompileDecision` from one call. Still purely additive and check-only -- see that
+/// module's own doc.
+pub mod capability_entry;
 /// Step 3a of `openspec/changes/reify-compilation-plans` (design.md D3): [`build::
 /// build_controllable`], a [`plan::Plan`] interpreter for the controllable subtree (the `Gate`
 /// node and its per-group `Compose{LexiconFragment, Replace}` children [`enumerate::
