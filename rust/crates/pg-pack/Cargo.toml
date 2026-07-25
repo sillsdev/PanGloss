@@ -1,0 +1,26 @@
+[package]
+name = "pg-pack"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+# `.pgpack` container digest (R2A): SHA-256 over the container framing bytes; also used to derive
+# the anti-mix-across-grammars package fingerprint over both payloads.
+sha2.workspace = true
+# `.pgpack` optional publisher signature (R2A / make-wasm-analysis-only spec.md). See this crate's
+# `signature.rs` module doc for exactly which bytes are signed and why no `rand`/`rand_core`
+# dependency is needed (test keypairs are built from a fixed synthetic 32-byte seed via
+# `SigningKey::from_bytes`, never a CSPRNG, since this crate never generates a "real" production
+# keypair itself — that is external signing tooling's job per `make-wasm-analysis-only` design.md:
+# "signing tooling accepts the private key outside the package").
+ed25519-dalek.workspace = true
+# Reuses `HealthReport`/`Severity`/admission as-is for the manifest's FST-health field (task brief:
+# "do not redefine it") rather than duplicating the schema. `pg-pack` is not depended on by
+# anything yet (this change is purely additive/not wired in), so adding this dependency introduces
+# no cycle.
+pg-foma.workspace = true

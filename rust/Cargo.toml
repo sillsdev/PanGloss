@@ -20,6 +20,7 @@ members = [
     "crates/pg-fwdata",
     "crates/pg-conformance-fixtures",
     "crates/pg-grammar-gen",
+    "crates/pg-pack",
 ]
 
 [workspace.package]
@@ -49,6 +50,15 @@ serde_yaml = "0.9"
 # always-on O2 profiling counters (pg-fst::traverse, pg-rules::morph) that call Instant::now()
 # unconditionally on every parse, not just when a profiling env var is read (see pg-wasm).
 web-time = "1"
+# `.pgpack` container (`pg-pack`, `openspec/changes/IMPLEMENTATION-READINESS.md` R2A): SHA-256
+# structural-integrity digest over the container framing. Already present transitively in
+# Cargo.lock (via `foma`'s own dependency graph) at this exact version before this crate added it
+# as a direct dependency.
+sha2 = "0.10"
+# `.pgpack` container's optional publisher signature (R2A / `make-wasm-analysis-only` spec.md
+# "Publisher signatures are optional offline provenance"). Not previously in the workspace lockfile
+# for any crate; added here, pinned once, synced to Cargo.lock by this change.
+ed25519-dalek = "2"
 # internal crates
 pg-grammar = { path = "crates/pg-grammar" }
 pg-featstruct = { path = "crates/pg-featstruct" }
