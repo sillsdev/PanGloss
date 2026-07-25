@@ -59,10 +59,10 @@ fn run() {
     );
     if g.char_tables.len() > 1 {
         println!(
-            "NOTE: this prototype's `table_of` hardcodes `char_tables[0]` (documented gap) — a rule \
-             belonging to a DIFFERENT table would be resolved against the wrong table here. Reporting \
-             per-rule results regardless; treat any failure/wrong-looking tuple count on a non-table-0 \
-             rule as this gap, not a new finding."
+            "NOTE: this grammar has >1 CharacterDefinitionTable. pg_foma::replace now resolves \
+             each rule against its OWN owning stratum's table (fix-multitable-fst-compilation) -- \
+             this probe still prints table[0]'s own segment count below for a quick sanity look, \
+             not every table's."
         );
     }
     let table = &g.char_tables[0];

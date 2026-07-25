@@ -6,19 +6,27 @@
 //! `<SegmentDefinition>`s declare.
 //!
 //! ## Why GATE 1's tables are deliberately "out of phase"
-//! `pg_foma::replace::table_of` (that crate's own module doc, and the design doc §5/§1's "SILENT
-//! MIS-MAP" row) hardcodes `&g.char_tables[0]` for EVERY natural-class resolution, regardless of
-//! which table the rule's own stratum actually uses, and `SegAlphabet::token` (`pg-foma/src/
-//! replace.rs`) is a PURE function of a `CharDefId`'s raw numeric index (`PUA_BASE + cd.0`) --
-//! it never looks at which table that id came from. Composing those two facts: a natural class
-//! resolved against table 0 yields table-0-local `CharDefId`s, but the CALLER's alphabet (built,
-//! correctly, from whichever table the rule's own stratum actually uses) converts those same raw
-//! indices into ITS OWN table's tokens -- silently naming whatever segment happens to sit at that
-//! same positional index in the OTHER table. If every table assigned the same feature to the same
-//! index (the [`build`]'s `misaligned = false` case), this mix-up would coincidentally still name
-//! the linguistically-right segment -- useless for a detect-wrong gate. `misaligned = true` gives
-//! table 1 (and beyond) the OPPOSITE index/feature alignment table 0 uses, so the mix-up provably
-//! names the WRONG segment; `tests/phase_c_multi_table.rs` derives (and pins) exactly which one.
+//! `pg_foma::replace` used to hardcode `&g.char_tables[0]` for EVERY natural-class resolution
+//! (the former `table_of`/`resolve_alpha_tuples` sites, that crate's own module doc, and the
+//! design doc §5/§1's "SILENT MIS-MAP" row), regardless of which table the rule's own stratum
+//! actually uses, while `SegAlphabet::token` (`pg-foma/src/replace.rs`) is a PURE function of a
+//! `CharDefId`'s raw numeric index (`PUA_BASE + cd.0`) that never looks at which table that id
+//! came from. Composing those two facts: a natural class resolved against table 0 yielded
+//! table-0-local `CharDefId`s, but the CALLER's alphabet (built, correctly, from whichever table
+//! the rule's own stratum actually uses) converted those same raw indices into ITS OWN table's
+//! tokens -- silently naming whatever segment happens to sit at that same positional index in the
+//! OTHER table. If every table assigned the same feature to the same index (the [`build`]'s
+//! `misaligned = false` case), this mix-up would coincidentally still name the linguistically-right
+//! segment -- useless for a detect-wrong gate. `misaligned = true` gives table 1 (and beyond) the
+//! OPPOSITE index/feature alignment table 0 uses, so the mix-up provably named the WRONG segment.
+//!
+//! `openspec/changes/fix-multitable-fst-compilation` fixed both hardcoded sites (each rewrite rule
+//! now resolves against its OWN owning stratum's table, via `pg_foma::replace::owning_table`); this
+//! module's `misaligned = true` recipe is UNCHANGED -- it is now what proves the fix is real (a
+//! misaligned rule that resolved correctly by ACCIDENT, e.g. because both tables happened to agree,
+//! would be a much weaker witness than one that provably names the wrong segment pre-fix and the
+//! right one post-fix). `tests/phase_c_multi_table.rs` (formerly a DETECT-WRONG gate, now inverted)
+//! derives (and pins) exactly which segment is which.
 
 //! ## Why every segment ALSO gets a globally-unique `featId` value
 //! Found empirically while building GATE 2 (circumfix, single table, `misaligned = false`): with

@@ -150,6 +150,13 @@ pub enum CharacteristicKind {
     /// A `NaturalClassKind` variant (model.rs:361) — representational only, no capability
     /// implication either way; still matched exhaustively for the discipline.
     NaturalClassDefinition,
+    /// `Grammar::char_tables.len() > 1` (model.rs:1100): more than one
+    /// `CharacterDefinitionTable`, each stratum's own `StratumDef::table` (model.rs:1066)
+    /// potentially disagreeing about what a raw segment index means. NOT one variant of an
+    /// existing enum — a grammar-level configuration fact, discharged by
+    /// [`MultiTableFaithfulThreadingPredicate`] (`openspec/changes/fix-multitable-fst-compilation`).
+    /// See that predicate's own doc for the admit/confirm-only/refuse split.
+    MultiTable,
 }
 
 impl CharacteristicKind {
@@ -178,6 +185,7 @@ impl CharacteristicKind {
         CharacteristicKind::Reduplication,
         CharacteristicKind::CoOccurrenceConstraint,
         CharacteristicKind::NaturalClassDefinition,
+        CharacteristicKind::MultiTable,
     ];
 
     /// design.md D1's table, as code: this characteristic's disposition BEFORE any predicate runs.
@@ -203,6 +211,13 @@ impl CharacteristicKind {
             CharacteristicKind::Reduplication => Disposition::FailClosed,
             CharacteristicKind::CoOccurrenceConstraint => Disposition::ConfirmOnly,
             CharacteristicKind::NaturalClassDefinition => Disposition::Proven,
+            // `fix-multitable-fst-compilation`: rewrite-rule compilation now threads each rule's
+            // own owning table faithfully (no more implicit table-zero default), so multi-table is
+            // no longer bare FailClosed -- but no no-false-positive admission-filter proof exists
+            // yet (ADR 0001), so the resting disposition is the ConfigPredicate landing spot:
+            // ConfirmOnly unless/until `MultiTableFaithfulThreadingPredicate` proves `Admit` for
+            // the specific configuration observed (pairwise-disjoint table representations).
+            CharacteristicKind::MultiTable => Disposition::ConfigPredicate,
         }
     }
 }
@@ -276,14 +291,38 @@ pub struct SimultaneousRewriteDetail {
     pub subrules: Vec<SubruleGateInfo>,
 }
 
+/// [`ObservationDetail::MultiTable`]'s payload
+/// (`openspec/changes/fix-multitable-fst-compilation`): the structural fact
+/// [`MultiTableFaithfulThreadingPredicate`] needs, computed once here rather than re-derived at
+/// `evaluate` time (this profile is meant to be a self-contained projection, design.md D1 — same
+/// reasoning [`LoweredSpan`]'s own doc gives for pre-lowering D3's spans).
+#[derive(Debug, Clone)]
+pub struct MultiTableDetail {
+    /// `g.char_tables.len()`.
+    pub table_count: usize,
+    /// `true` iff NO two distinct tables share a normalized representation (spelling) — the
+    /// structural condition [`MultiTableFaithfulThreadingPredicate`]'s own doc explains: per-rule
+    /// table-correct resolution (this change's `pg_foma::replace::owning_table` fix) is faithful
+    /// with no residual cross-table token-collision risk exactly when every table's own character
+    /// inventory is disjoint from every other's.
+    pub representations_pairwise_disjoint: bool,
+    /// The first shared representation found (any two tables, document order), if
+    /// `representations_pairwise_disjoint` is `false` — a concrete witness for the diagnostic,
+    /// never just "some tables overlap somewhere".
+    pub shared_representation_witness: Option<String>,
+}
+
 /// Extra structured data an observation needs beyond `kind`/`disposition`/`location`, for the
 /// characteristics that a predicate must inspect at finer grain than "did this occur at all"
-/// (design.md D2/D3). Most characteristics carry `None` — only [`CharacteristicKind::
-/// SimultaneousRewrite`] needs [`Self::SimultaneousRewrite`] today (D3's worked example).
+/// (design.md D2/D3). Most characteristics carry `None` — [`CharacteristicKind::
+/// SimultaneousRewrite`] needs [`Self::SimultaneousRewrite`] (D3's worked example) and
+/// [`CharacteristicKind::MultiTable`] needs [`Self::MultiTable`]
+/// (`fix-multitable-fst-compilation`).
 #[derive(Debug, Clone)]
 pub enum ObservationDetail {
     None,
     SimultaneousRewrite(SimultaneousRewriteDetail),
+    MultiTable(MultiTableDetail),
 }
 
 /// One occurrence of a characteristic in a [`CharacteristicsProfile`] (design.md D1).
@@ -362,6 +401,16 @@ impl CharacteristicsProfile {
     pub fn simultaneous_detail(&self, rule: PRuleId) -> Option<&SimultaneousRewriteDetail> {
         self.observations.iter().find_map(|o| match &o.detail {
             ObservationDetail::SimultaneousRewrite(d) if d.rule == rule => Some(d),
+            _ => None,
+        })
+    }
+
+    /// The grammar-wide [`MultiTableDetail`], if `g.char_tables.len() > 1` was observed at all
+    /// ([`MultiTableFaithfulThreadingPredicate`]'s own lookup;
+    /// `openspec/changes/fix-multitable-fst-compilation`).
+    pub fn multi_table_detail(&self) -> Option<&MultiTableDetail> {
+        self.observations.iter().find_map(|o| match &o.detail {
+            ObservationDetail::MultiTable(d) => Some(d),
             _ => None,
         })
     }
@@ -457,6 +506,48 @@ fn co_occurrence_adjacency_label(
     }
 }
 
+/// Computes [`MultiTableDetail`] for `g` (`fix-multitable-fst-compilation`): every pair of
+/// distinct `char_tables` is checked for a shared normalized representation (any `<Representation>`
+/// text any `CharDef` in one table claims, NFD-normalized exactly like
+/// `pg_grammar::chardef::CharDefTable::lookup_nfd`'s own key) — `O(table_count^2 *
+/// avg_table_size)`, cheap for any grammar in scope (table counts are small; this is a
+/// characterization-time cost, not a per-word one). See
+/// [`MultiTableFaithfulThreadingPredicate`]'s own doc for why pairwise representation-disjointness
+/// is exactly the structural condition that makes per-rule table-correct resolution
+/// (`pg_foma::replace::owning_table`) faithful with no residual cross-table token-collision risk.
+fn multi_table_detail(g: &Grammar) -> MultiTableDetail {
+    let table_count = g.char_tables.len();
+    let rep_sets: Vec<HashSet<&str>> = g
+        .char_tables
+        .iter()
+        .map(|t| {
+            t.iter()
+                .flat_map(|(id, _)| t.get(id).representations_nfd().iter().map(String::as_str))
+                .collect()
+        })
+        .collect();
+
+    let mut witness: Option<String> = None;
+    'outer: for i in 0..rep_sets.len() {
+        for j in (i + 1)..rep_sets.len() {
+            if let Some(shared) = rep_sets[i].iter().find(|r| rep_sets[j].contains(*r)) {
+                witness = Some(format!(
+                    "tables {} and {} both claim representation {shared:?}",
+                    g.char_tables[i].xml_id(),
+                    g.char_tables[j].xml_id()
+                ));
+                break 'outer;
+            }
+        }
+    }
+
+    MultiTableDetail {
+        table_count,
+        representations_pairwise_disjoint: witness.is_none(),
+        shared_representation_witness: witness,
+    }
+}
+
 /// Lowers one `Simultaneous`-mode subrule's D3 span via [`crate::lower::lower_span`], for
 /// [`SubruleGateInfo::span`] — see that field's own doc for why this runs HERE (inside
 /// `characterize`, which owns a live `&Grammar`) rather than inside
@@ -468,12 +559,15 @@ fn co_occurrence_adjacency_label(
 /// `characterize`'s signature (`fn characterize(g: &Grammar) -> CharacteristicsProfile`, unchanged
 /// since Step 1 of `add-capability-characteristics-check`) untouched.
 ///
-/// Single-table assumption (`g.char_tables[0]`): the SAME documented gap
-/// `crate::replace::table_of` already carries ("a multi-table grammar would need the owning
-/// stratum threaded through") — not a new one this step introduces. Guarded (rather than indexed
-/// unchecked) so this never panics on a `Grammar` with zero character tables at all — not actually
-/// reachable for a real `Simultaneous` `PhonologicalRule` (its own `NaturalClass` references
-/// already require one), but defensive rather than assumed.
+/// Single-table assumption (`g.char_tables[0]`): this predicate's OWN documented gap, deliberately
+/// UNCHANGED by `openspec/changes/fix-multitable-fst-compilation`. That change's scope is
+/// `pg_foma::replace`'s rewrite-COMPILATION path (single-owner on `replace.rs`, its own tasks.md);
+/// [`SimultaneousSubruleOverlapPredicate`] is a DIFFERENT construct (simultaneous-rewrite overlap,
+/// owned by the future `compile-simultaneous-rewrites`), and several of this module's own minimal
+/// unit fixtures for it deliberately declare a `<PhonologicalRule>` with NO `<Strata>` block at
+/// all (no stratum to own it), which [`crate::replace::owning_table`] cannot resolve a table for
+/// by construction. Also guarded (rather than indexed unchecked) so this never panics on a
+/// `Grammar` with zero character tables at all.
 fn lower_subrule_span(
     g: &Grammar,
     rule: &pg_grammar::model::RewriteRuleDef,
@@ -770,6 +864,26 @@ pub fn characterize(g: &Grammar) -> CharacteristicsProfile {
         }
     }
 
+    // --- Grammar-level: Grammar::char_tables.len() > 1 (model.rs:1100) ----------------------
+    // (`fix-multitable-fst-compilation`). Attributed to the FIRST stratum whose own table
+    // differs from the base (stratum 0's) table -- a real `ModelLocation`, not a synthetic one,
+    // while the actual DETAIL below is grammar-wide (every table pair, not just that one stratum).
+    if g.char_tables.len() > 1 {
+        let detail = multi_table_detail(g);
+        let location = g
+            .strata
+            .iter()
+            .enumerate()
+            .find(|(_, s)| s.table != g.strata[0].table)
+            .map(|(i, _)| ModelLocation::Stratum(StratumId(i as u8)))
+            .unwrap_or(ModelLocation::Stratum(StratumId(0)));
+        observations.push(CharacteristicObservation::new(
+            CharacteristicKind::MultiTable,
+            location,
+            ObservationDetail::MultiTable(detail),
+        ));
+    }
+
     let cardinality = GrammarCardinality {
         entry_count: g.entries.len(),
         morpheme_count: g.morphemes.len(),
@@ -1011,6 +1125,100 @@ impl CapabilityPredicate for SimultaneousSubruleOverlapPredicate {
     }
 }
 
+// -------------------------------------------------------------------------------------------
+// MultiTable: the config-predicate `fix-multitable-fst-compilation` registers
+// -------------------------------------------------------------------------------------------
+
+/// `openspec/changes/fix-multitable-fst-compilation`'s own capability predicate: a `Grammar` with
+/// more than one `CharacterDefinitionTable` (D1's `MultiTable` characteristic) is faithfully
+/// compilable by `pg_foma::replace` now that every rewrite rule resolves its own natural
+/// classes/alpha variables against ITS OWNING stratum's table (`owning_table`, never an implicit
+/// `char_tables[0]` default — this change's whole `replace.rs`/`lower.rs` fix), PROVIDED no two
+/// tables share a literal representation (spelling).
+///
+/// # Why representation-disjointness is the proof obligation, not just "the fix landed"
+/// `pg_foma::replace::SegAlphabet::token` is (and remains, unchanged by this fix) a PURE function
+/// of a `CharDefId`'s raw per-table index (`PUA_BASE + cd.0`), not of which table that index came
+/// from. Threading each RULE to its own correct table (this change's fix) makes every rule's OWN
+/// natural-class/alpha resolution correct in isolation, but a composed cascade that mixes material
+/// from TWO tables (e.g. a root spelled via table A's lexicon flowing into a later stratum's
+/// table-B-resolved rule) could still, in principle, let table B's rule accidentally match a
+/// table-A-originated token that merely shares the same RAW index as one of table B's own
+/// segments — UNLESS the two tables' own character inventories are disjoint (no shared spelling),
+/// in which case no root/affix material ever legitimately carries the "other" table's tokens in
+/// the first place, so the collision is structurally unreachable. This predicate's own
+/// [`multi_table_detail`] computes exactly that pairwise check.
+///
+/// # Disposition
+/// - **Zero or one table observed at all:** vacuously `Admit` (this predicate has nothing to say —
+///   [`Disposition::Proven`] already covers the ordinary single-table case, D1's own resting
+///   disposition for every characteristic the grammar never exercises).
+/// - **Pairwise-disjoint tables:** [`PredicateVerdict::ConfirmOnly`] — per-rule table-correct
+///   resolution is now faithful (this change's fix + the disjointness argument above rule out the
+///   residual token-collision risk), but no PROVEN no-false-positive admission-filter argument
+///   exists yet (ADR 0001's own bar for `Admit`), so this is confirm-only-by-default, not `Admit`.
+///   The oracle (`pg_rules::rewrite`, which resolves every rule's table via an explicit `TableId`
+///   parameter with no PUA-token collapsing at all) prunes any residual over-generation the P6
+///   proposer's shared token space might still admit.
+/// - **Tables share a representation:** [`PredicateVerdict::Refuse`] — the residual case this
+///   change's threading fix cannot make faithful (module doc above); conservative, overridable per
+///   ADR 0005, never a silent wrong compile.
+///
+/// # Provenance
+/// [`EvidenceProvenance::Structural`]: `multi_table_detail`'s pairwise-representation check reads
+/// directly-inspectable `CharDefTable`/`CharDef` data, no oracle witnesses needed to derive it (the
+/// oracle IS still what discharges the `ConfirmOnly` verdict's own recall obligation, per the
+/// module doc above, but the PREDICATE's own verdict is a structural fact about the tables
+/// themselves).
+///
+/// # Node applicability
+/// Grammar-wide, not node-specific (same shape as the `FailClosedPlaceholder`s this module's own
+/// `compose_envelope` doc names as having "no corresponding `PlanNodeKind`" — `MultiTable`'s own
+/// `ModelLocation` is attributed to a representative stratum, but the DETAIL this predicate reads
+/// is grammar-wide): `evaluate` ignores `plan_node` entirely and returns the SAME verdict at every
+/// node the walk visits, which is safe (`node_decision`'s own doc: a predicate whose construct is
+/// absent is a no-op everywhere; here the construct, when present, gates the WHOLE grammar
+/// identically at every node, so calling it repeatedly is idempotent under `meet`).
+pub struct MultiTableFaithfulThreadingPredicate;
+
+impl CapabilityPredicate for MultiTableFaithfulThreadingPredicate {
+    fn id(&self) -> PredicateId {
+        "multi-table.faithful-table-threading"
+    }
+
+    fn discharges(&self) -> &[CharacteristicKind] {
+        &[CharacteristicKind::MultiTable]
+    }
+
+    fn provenance(&self) -> EvidenceProvenance {
+        EvidenceProvenance::Structural
+    }
+
+    fn evaluate(
+        &self,
+        profile: &CharacteristicsProfile,
+        _plan_node: &PlanNodeKind,
+    ) -> PredicateVerdict {
+        let Some(detail) = profile.multi_table_detail() else {
+            // Not observed at all (<= 1 table) -- nothing for this predicate to say (module doc).
+            return PredicateVerdict::Admit;
+        };
+        if !detail.representations_pairwise_disjoint {
+            return PredicateVerdict::Refuse(CapabilityDiagnostic {
+                predicate: self.id(),
+                construct: format!("{} character-definition tables", detail.table_count),
+                witness: detail
+                    .shared_representation_witness
+                    .clone()
+                    .unwrap_or_else(|| {
+                        "two tables share a representation (witness not captured)".to_string()
+                    }),
+            });
+        }
+        PredicateVerdict::ConfirmOnly
+    }
+}
+
 // =================================================================================================
 // The predicate registry (design.md D2's "no silent vacuous pass" coverage check)
 // =================================================================================================
@@ -1100,13 +1308,15 @@ impl PredicateRegistry {
     }
 }
 
-/// The minimal registry this step ships: the one REAL predicate
-/// ([`SimultaneousSubruleOverlapPredicate`]), plus an explicit [`FailClosedPlaceholder`] for every
-/// other `FailClosed`/`ConfigPredicate` characteristic — proving the coverage contract holds today
-/// without pretending any of those other constructs has a real proof yet.
+/// The minimal registry this step ships: the two REAL predicates
+/// ([`SimultaneousSubruleOverlapPredicate`], [`MultiTableFaithfulThreadingPredicate`]), plus an
+/// explicit [`FailClosedPlaceholder`] for every other `FailClosed`/`ConfigPredicate` characteristic
+/// — proving the coverage contract holds today without pretending any of those other constructs
+/// has a real proof yet.
 pub fn default_registry() -> PredicateRegistry {
     let mut r = PredicateRegistry::new();
     r.register(Box::new(SimultaneousSubruleOverlapPredicate));
+    r.register(Box::new(MultiTableFaithfulThreadingPredicate));
     r.register(Box::new(FailClosedPlaceholder::new(
         "compounding.placeholder",
         &[CharacteristicKind::Compounding],
@@ -1576,6 +1786,128 @@ mod tests {
             profile.observations()
         );
     }
+
+    /// `fix-multitable-fst-compilation`: two tables with DISJOINT representations characterize
+    /// `MultiTable`/`ConfigPredicate` (D1's table: `ConfirmOnly` unless/until a predicate proves
+    /// `Admit`) — never `FailClosed` outright, since the threading fix makes per-rule resolution
+    /// faithful.
+    #[test]
+    fn characterize_marks_disjoint_multi_table_config_predicate() {
+        let g = load(TWO_TABLE_DISJOINT_XML);
+        assert_eq!(g.char_tables.len(), 2);
+
+        let profile = characterize(&g);
+        assert!(
+            profile.observations().iter().any(|o| o.kind
+                == CharacteristicKind::MultiTable
+                && o.disposition == Disposition::ConfigPredicate),
+            "multi-table (disjoint) must characterize ConfigPredicate: {:?}",
+            profile.observations()
+        );
+        let detail = profile
+            .multi_table_detail()
+            .expect("MultiTable must carry a MultiTableDetail");
+        assert_eq!(detail.table_count, 2);
+        assert!(detail.representations_pairwise_disjoint);
+        assert!(detail.shared_representation_witness.is_none());
+    }
+
+    /// Positive witness (task 2.1): [`MultiTableFaithfulThreadingPredicate`] admits `ConfirmOnly`
+    /// (never `Refuse`) for two tables with disjoint representations — the exact
+    /// `two-table-symbol-divergence` shape `tests/two_table_symbol_divergence.rs` proves matches
+    /// the oracle end to end.
+    #[test]
+    fn multi_table_predicate_confirm_only_when_tables_disjoint() {
+        let g = load(TWO_TABLE_DISJOINT_XML);
+        let profile = characterize(&g);
+        let predicate = MultiTableFaithfulThreadingPredicate;
+        // Node-agnostic (module doc) -- any PlanNodeKind works; reuse `leaf_for` for convenience.
+        let verdict = predicate.evaluate(&profile, &leaf_for(PRuleId(0)));
+        assert_eq!(
+            verdict,
+            PredicateVerdict::ConfirmOnly,
+            "disjoint multi-table must be ConfirmOnly, not Refuse or Admit"
+        );
+    }
+
+    /// Negative witness (task 2.1): two tables that SHARE a literal representation (the residual
+    /// case the threading fix cannot make faithful, module doc) must `Refuse`, naming the shared
+    /// representation.
+    #[test]
+    fn multi_table_predicate_refuses_when_tables_share_a_representation() {
+        let g = load(TWO_TABLE_OVERLAPPING_XML);
+        assert_eq!(g.char_tables.len(), 2);
+        let profile = characterize(&g);
+        let detail = profile
+            .multi_table_detail()
+            .expect("MultiTable must carry a MultiTableDetail");
+        assert!(!detail.representations_pairwise_disjoint);
+        assert!(detail
+            .shared_representation_witness
+            .as_deref()
+            .unwrap_or_default()
+            .contains("\"p\""));
+
+        let predicate = MultiTableFaithfulThreadingPredicate;
+        match predicate.evaluate(&profile, &leaf_for(PRuleId(0))) {
+            PredicateVerdict::Refuse(diag) => {
+                assert_eq!(diag.predicate, "multi-table.faithful-table-threading");
+            }
+            other => panic!("expected Refuse for overlapping-representation tables, got {other:?}"),
+        }
+    }
+
+    /// A single-table grammar never observes `MultiTable` at all, and the predicate vacuously
+    /// `Admit`s -- the byte-identical, never-buggy ordinary case.
+    #[test]
+    fn multi_table_predicate_admits_vacuously_for_single_table_grammar() {
+        const XML: &str = r#"<HermitCrabInput><Language><Name>SingleTable</Name>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+          </CharacterDefinitionTable>
+        </Language></HermitCrabInput>"#;
+        let g = load(XML);
+        assert_eq!(g.char_tables.len(), 1);
+        let profile = characterize(&g);
+        assert!(
+            !profile
+                .observations()
+                .iter()
+                .any(|o| o.kind == CharacteristicKind::MultiTable),
+            "a single-table grammar must never observe MultiTable at all"
+        );
+        let predicate = MultiTableFaithfulThreadingPredicate;
+        assert_eq!(
+            predicate.evaluate(&profile, &leaf_for(PRuleId(0))),
+            PredicateVerdict::Admit
+        );
+    }
+
+    const TWO_TABLE_DISJOINT_XML: &str = r#"<HermitCrabInput><Language><Name>TwoTableDisjoint</Name>
+      <CharacterDefinitionTable id="t0"><Name>T0</Name>
+        <SegmentDefinitions><SegmentDefinition id="c0a"><Representations><Representation>p</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+      </CharacterDefinitionTable>
+      <CharacterDefinitionTable id="t1"><Name>T1</Name>
+        <SegmentDefinitions><SegmentDefinition id="c1a"><Representations><Representation>k</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+      </CharacterDefinitionTable>
+      <Strata>
+        <Stratum characterDefinitionTable="t0"><Name>S0</Name></Stratum>
+        <Stratum characterDefinitionTable="t1"><Name>S1</Name></Stratum>
+      </Strata>
+    </Language></HermitCrabInput>"#;
+
+    const TWO_TABLE_OVERLAPPING_XML: &str = r#"<HermitCrabInput><Language><Name>TwoTableOverlap</Name>
+      <CharacterDefinitionTable id="t0"><Name>T0</Name>
+        <SegmentDefinitions><SegmentDefinition id="c0a"><Representations><Representation>p</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+      </CharacterDefinitionTable>
+      <CharacterDefinitionTable id="t1"><Name>T1</Name>
+        <SegmentDefinitions><SegmentDefinition id="c1a"><Representations><Representation>p</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+      </CharacterDefinitionTable>
+      <Strata>
+        <Stratum characterDefinitionTable="t0"><Name>S0</Name></Stratum>
+        <Stratum characterDefinitionTable="t1"><Name>S1</Name></Stratum>
+      </Strata>
+    </Language></HermitCrabInput>"#;
 
     /// An ordinary affix + iterative-rewrite grammar (no Compounding, no Unordered strata, no MPR
     /// groups, no Simultaneous/RightToLeft/Metathesis rules, no true reduplication, no dropped-LHS
@@ -2060,7 +2392,11 @@ mod tests {
         for kind in CharacteristicKind::ALL {
             let _ = kind.default_disposition();
         }
-        assert_eq!(CharacteristicKind::ALL.len(), 18);
+        assert_eq!(
+            CharacteristicKind::ALL.len(),
+            19,
+            "bumped from 18 by fix-multitable-fst-compilation's new CharacteristicKind::MultiTable"
+        );
     }
 
     // ---------------------------------------------------------------------------------------

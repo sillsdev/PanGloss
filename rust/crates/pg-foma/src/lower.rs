@@ -199,24 +199,29 @@ pub fn lower_span(
     right_env: Option<&Pattern>,
 ) -> Result<(Fsm, Fsm), UnsupportedPatternNode> {
     let mut next_occurrence = 0usize;
+    // `openspec/changes/fix-multitable-fst-compilation`: `pattern_slots`/`resolve_alpha_tuples`
+    // now take an explicit table (no more implicit `g.char_tables[0]`) -- `alphabet.table()` is
+    // already the correct table for this call, by this function's OWN caller contract (module
+    // doc: `lower_span` is handed whichever `SegAlphabet` its caller already resolved correctly,
+    // e.g. `capability.rs`'s `lower_subrule_span` now resolves it via
+    // `crate::replace::owning_table` too -- see that function's own doc).
+    let table = alphabet.table();
 
     let left_slots = match left_env {
-        Some(p) => {
-            pattern_slots(g, p, &mut next_occurrence).ok_or_else(|| diagnose_unsupported(p))?
-        }
+        Some(p) => pattern_slots(g, table, p, &mut next_occurrence)
+            .ok_or_else(|| diagnose_unsupported(p))?,
         None => Vec::new(),
     };
-    let focus_slots =
-        pattern_slots(g, focus, &mut next_occurrence).ok_or_else(|| diagnose_unsupported(focus))?;
+    let focus_slots = pattern_slots(g, table, focus, &mut next_occurrence)
+        .ok_or_else(|| diagnose_unsupported(focus))?;
     let right_slots = match right_env {
-        Some(p) => {
-            pattern_slots(g, p, &mut next_occurrence).ok_or_else(|| diagnose_unsupported(p))?
-        }
+        Some(p) => pattern_slots(g, table, p, &mut next_occurrence)
+            .ok_or_else(|| diagnose_unsupported(p))?,
         None => Vec::new(),
     };
 
     let (assignments, _report) = resolve_alpha_tuples(
-        g,
+        table,
         &[
             left_slots.as_slice(),
             focus_slots.as_slice(),

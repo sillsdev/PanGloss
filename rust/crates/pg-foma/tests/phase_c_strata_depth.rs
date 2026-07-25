@@ -3,11 +3,13 @@
 //! construct).
 //!
 //! `pg_grammar_gen::build::strata`'s own module doc explains why every extra stratum REUSES table
-//! 0 rather than minting a new table per stratum: GATE 1 already covers multi-TABLE wrongness
-//! (`table_of`/`resolve_alpha_tuples`'s hardcoded `char_tables[0]`, design doc §5); this gate is
-//! about multi-STRATUM CASCADING specifically, which stays provably correct against a single,
-//! always-table-0 grammar and so can be recall-tested honestly without tripping the still-open
-//! multi-table gap a second time.
+//! 0 rather than minting a new table per stratum: GATE 1 already covers multi-TABLE correctness
+//! (`openspec/changes/fix-multitable-fst-compilation` fixed `pg_foma::replace`'s former
+//! `table_of`/`resolve_alpha_tuples` hardcoded `char_tables[0]` default, design doc §5 -- GATE 1's
+//! own `tests/phase_c_multi_table.rs` is now inverted to assert the correct compile instead of
+//! detecting the wrongness); this gate is about multi-STRATUM CASCADING specifically, and stays a
+//! deliberately single-table recipe (`table_count: 1`) so it stays a clean, orthogonal probe of
+//! stratum depth alone, not a second multi-table exercise.
 //!
 //! Uses the PRODUCTION `pg_foma::emit::emit` path (same as GATE 2/circumfix): each extra stratum's
 //! own obligatory `<MorphologicalRule>` is STRATUM-ATTACHED (wired via `<Stratum morphologicalRules

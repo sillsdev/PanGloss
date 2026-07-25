@@ -69,8 +69,8 @@ use foma::types::Fsm;
 
 use pg_grammar::chardef::{CharDefId, CharDefKind, CharDefTable};
 use pg_grammar::model::{
-    Dir, Grammar, NaturalClassKind, Pattern, PatternNode, PhonRuleDef, RewriteMode, RewriteRuleDef,
-    RewriteSubruleDef, VarId,
+    Dir, Grammar, NaturalClassKind, Pattern, PatternNode, PhonRuleDef, PRuleId, RewriteMode,
+    RewriteRuleDef, RewriteSubruleDef, VarId,
 };
 
 use crate::compose_budget::{compose_checked, ComposeBudget, ComposeError};
@@ -200,11 +200,24 @@ pub(crate) enum Slot {
 /// [`compile_rewrite_rule`]). Returns `None` (uncovered) on `Quantifier`/`Segments`/`Anchor`/
 /// disagree-polarity `Context` — this prototype's documented scope line (module doc).
 ///
+/// `table`: every `Context` node's `NatClassId` is resolved against THIS table
+/// ([`class_members`]), never an implicit grammar-wide default
+/// (`openspec/changes/fix-multitable-fst-compilation`, design.md: "table zero is never an
+/// implicit default"). The caller is responsible for choosing the RIGHT table — see
+/// [`owning_table`]'s own doc for how [`compile_rewrite_rule_subset`] picks it (the rule's own
+/// stratum's `StratumDef::table`), and [`crate::lower::lower_span`]'s call sites for how that
+/// module picks it (`alphabet.table()`, already the correct per-caller table by that module's own
+/// contract). This replaces the prior `table_of(g, _sc)` helper, which unconditionally returned
+/// `&g.char_tables[0]` regardless of which table the pattern's own rule actually belonged to — the
+/// exact bug `tests/phase_c_multi_table.rs` (formerly a DETECT-WRONG gate, now inverted to assert
+/// the correct compile) pins.
+///
 /// `pub(crate)`: reused by [`crate::lower`] (Stage 1B) to lower a subrule's environment/focus
 /// pattern the SAME way this file already lowers LHS/RHS/environment patterns — one pattern
 /// semantics, not two independently-maintained ones.
 pub(crate) fn pattern_slots(
     g: &Grammar,
+    table: &CharDefTable,
     pattern: &Pattern,
     next_occurrence: &mut usize,
 ) -> Option<Vec<Slot>> {
@@ -214,7 +227,7 @@ pub(crate) fn pattern_slots(
             PatternNode::CharDef(id) => out.push(Slot::Fixed(*id)),
             PatternNode::Context(sc) => {
                 if sc.vars.is_empty() {
-                    let members = class_members(g, table_of(g, sc), sc.nat_class, &HashSet::new());
+                    let members = class_members(g, table, sc.nat_class, &HashSet::new());
                     out.push(Slot::Union(members));
                 } else {
                     if sc.vars.iter().any(|v| !v.plus) {
@@ -224,7 +237,7 @@ pub(crate) fn pattern_slots(
                     }
                     let excl: HashSet<usize> =
                         sc.vars.iter().map(|v| v.feature.0 as usize).collect();
-                    let base = class_members(g, table_of(g, sc), sc.nat_class, &excl);
+                    let base = class_members(g, table, sc.nat_class, &excl);
                     let occurrence = *next_occurrence;
                     *next_occurrence += 1;
                     let vars = sc.vars.iter().map(|v| (v.var, v.feature)).collect();
@@ -245,14 +258,38 @@ pub(crate) fn pattern_slots(
     Some(out)
 }
 
-/// Every `Context` node in a `Pattern` carries `NatClassId`; resolving its table is a matter of
-/// which stratum owns the rule, but since `Grammar` doesn't expose a per-class table pointer,
-/// this prototype resolves natural classes against the SAME table every rule/lexicon in a
-/// single-table grammar uses (true for Indonesian — one `<CharacterDefinitionTable>`). A
-/// multi-table grammar would need the owning stratum threaded through; documented as a mainline
-/// gap (this prototype targets Indonesian, one table).
-fn table_of<'g>(g: &'g Grammar, _sc: &pg_grammar::model::SimpleContext) -> &'g CharDefTable {
-    &g.char_tables[0]
+/// Resolves `rule`'s OWNING [`CharDefTable`] via its owning stratum's `StratumDef::table`
+/// (`openspec/changes/fix-multitable-fst-compilation`, design.md: "Every compiled rule carries its
+/// owning character-table identity explicitly; table zero is never an implicit default").
+///
+/// `rule` is looked up in `g.prules` by `xml_id` (document-unique, per the DTD's own `xs:ID`
+/// discipline for every element's `id=` attribute — `pg_grammar::load`'s own convention) rather
+/// than by pointer identity: [`compile_rewrite_rule_subset`] receives `rule: &RewriteRuleDef`
+/// already unwrapped from its caller's own `&PhonRuleDef` reference, and every existing caller
+/// building a `prules_in_order` list (`gate.rs`, every `examples/p6_*` driver, every
+/// `tests/phase_c_*` gate) derives it by walking `g.strata`'s own `prules: Vec<PRuleId>` fields in
+/// stratum order — so the rule THOSE callers ask about always originates from EXACTLY one
+/// stratum's own `prules` list, by construction of how they build that list.
+///
+/// Returns `None` (never panics, never falls back to an implicit table-zero guess) when `rule`
+/// cannot be found in `g.prules` at all, OR — a real, DTD-legal shape this crate's own minimal
+/// unit fixtures exercise (a `<PhonologicalRule>` declared but not referenced by ANY `<Stratum
+/// phonologicalRules="...">`) — when no stratum's own `prules` list contains it: a rule
+/// unreachable from any stratum's own cascade has no owning table to report, and the conservative
+/// choice (matching this module's whole "approximate only upward, report don't hide" discipline)
+/// is an honest `None` a caller can route to its OWN "uncovered"/`Unsupported` handling, never a
+/// silent guess. [`compile_rewrite_rule_subset`] treats `None` exactly like an unsupported pattern
+/// construct (`Ok(None)`, reported `skipped` by its own caller); `capability.rs`'s
+/// `lower_subrule_span` rounds it to [`LoweredSpan::Unsupported`] (D3's own "any approximation
+/// rounds toward Refuse").
+pub(crate) fn owning_table<'g>(g: &'g Grammar, rule: &RewriteRuleDef) -> Option<&'g CharDefTable> {
+    let idx = g
+        .prules
+        .iter()
+        .position(|pr| matches!(pr, PhonRuleDef::Rewrite(r) if r.xml_id == rule.xml_id))?;
+    let target = PRuleId(idx as u32);
+    let stratum = g.strata.iter().find(|s| s.prules.contains(&target))?;
+    Some(&g.char_tables[stratum.table.0 as usize])
 }
 
 // =================================================================================================
@@ -291,14 +328,22 @@ pub struct TupleReport {
 /// `(assignments, report)`; a rule with zero alpha slots returns one trivial
 /// `AlphaAssignment { values: {} }` and a `raw_product`/`surviving` of 1 (nothing to expand).
 ///
+/// `table`: every alpha occurrence's feature-lane agreement test (`lane_value`, below) resolves
+/// against THIS table, never an implicit `g.char_tables[0]` default
+/// (`openspec/changes/fix-multitable-fst-compilation` — the second of the two hardcoded sites that
+/// change's design.md names, alongside [`pattern_slots`]'s own former `table_of` call). The
+/// `members: Vec<CharDefId>` each [`Slot::Alpha`] already carries were themselves resolved against
+/// this SAME table by [`pattern_slots`] (the caller's job: pass ONE consistent table to both), so
+/// this function's own `table` parameter must be the identical table [`pattern_slots`] used to
+/// build `slot_lists` in the first place — never a second, independently-chosen one.
+///
 /// `pub(crate)`: reused by [`crate::lower`] (Stage 1B) for the SAME reason [`pattern_slots`] is —
 /// a subrule's span lowering needs the identical joint-agreement resolution this file already
 /// gives LHS/RHS/environment compilation, not a second implementation of the same semantics.
 pub(crate) fn resolve_alpha_tuples(
-    g: &Grammar,
+    table: &CharDefTable,
     slot_lists: &[&[Slot]],
 ) -> (Vec<AlphaAssignment>, TupleReport) {
-    let table = &g.char_tables[0];
     // Flatten to (occurrence, vars, members), document order (deterministic, not semantically
     // load-bearing), plus the var-group membership needed for the filter step. One occurrence may
     // carry MANY (var, feature) pairs at once (Amharic's CV-merger: up to 20 on one node) — all of
@@ -545,6 +590,15 @@ pub fn compile_rewrite_rule_subset(
     if !is_fully_supported_shape(rule) {
         return Ok(None);
     }
+    // `openspec/changes/fix-multitable-fst-compilation`: resolved ONCE per rule (LHS is shared
+    // across every subrule, module doc), never re-derived per subrule/slot and never an implicit
+    // `g.char_tables[0]` default -- see [`owning_table`]'s own doc for how it finds the rule's
+    // owning stratum. `None` (rule not wired into any stratum's own cascade at all) is treated
+    // exactly like an unsupported pattern construct -- uncovered, reported `skipped` by this
+    // function's own callers, never a silent table-zero guess.
+    let Some(table) = owning_table(g, rule) else {
+        return Ok(None);
+    };
     let mut net: Option<Fsm> = None;
     let mut reports: Vec<TupleReport> = Vec::new();
 
@@ -557,21 +611,21 @@ pub fn compile_rewrite_rule_subset(
         // scoping is per-subrule, module doc), so `lhs_slots` is (re)computed here, not hoisted
         // above the loop.
         let mut next_occurrence = 0usize;
-        let Some(lhs_slots) = pattern_slots(g, &rule.lhs, &mut next_occurrence) else {
+        let Some(lhs_slots) = pattern_slots(g, table, &rule.lhs, &mut next_occurrence) else {
             return Ok(None);
         };
-        let Some(rhs_slots) = pattern_slots(g, &subrule.rhs, &mut next_occurrence) else {
+        let Some(rhs_slots) = pattern_slots(g, table, &subrule.rhs, &mut next_occurrence) else {
             return Ok(None);
         };
         let left_slots = match &subrule.left_env {
-            Some(p) => match pattern_slots(g, p, &mut next_occurrence) {
+            Some(p) => match pattern_slots(g, table, p, &mut next_occurrence) {
                 Some(s) => s,
                 None => return Ok(None),
             },
             None => Vec::new(),
         };
         let right_slots = match &subrule.right_env {
-            Some(p) => match pattern_slots(g, p, &mut next_occurrence) {
+            Some(p) => match pattern_slots(g, table, p, &mut next_occurrence) {
                 Some(s) => s,
                 None => return Ok(None),
             },
@@ -579,7 +633,7 @@ pub fn compile_rewrite_rule_subset(
         };
 
         let (assignments, report) = resolve_alpha_tuples(
-            g,
+            table,
             &[
                 lhs_slots.as_slice(),
                 rhs_slots.as_slice(),
@@ -1029,5 +1083,184 @@ mod compose_budget_tests {
         assert!(net.statecount > 0);
         assert_eq!(reports.len(), 1);
         assert_eq!(reports[0].surviving, 6);
+    }
+}
+
+/// `openspec/changes/fix-multitable-fst-compilation` task 1.1's positive witness: a synthetic,
+/// delanguaged "two-table-symbol-divergence" fixture -- two `<CharacterDefinitionTable>`s with
+/// DIFFERENT segment counts (2 vs 3), two strata (each owning one of the tables), and an
+/// alpha-bound `Simultaneous`-free rewrite rule on the SECOND stratum whose RHS natural class
+/// (`ncBig`, an "Any"-style `FeatureNaturalClass` with zero explicit `FeatureValue` constraints)
+/// matches EVERY segment of whichever table it is resolved against. The two tables' differing
+/// CARDINALITY (not just differing feature-to-index alignment, `tests/phase_c_multi_table.rs`'s
+/// own mechanism) makes this a doubly-independent proof: [`resolve_alpha_tuples`]'s own
+/// `surviving` tuple count is a DIRECT, deterministic readout of WHICH table `ncBig` resolved
+/// against (2 members if table 0, 3 if table 1) -- table 0's cardinality is the exact wrong answer
+/// the old hardcoded `let table = &g.char_tables[0]` default would have produced.
+#[cfg(test)]
+mod owning_table_tests {
+    use super::*;
+    use pg_grammar::model::PhonRuleDef;
+
+    /// Table 0 ("t0", stratum "S0"): 2 segments. Table 1 ("t1", stratum "S1"): 3 segments --
+    /// deliberately a DIFFERENT cardinality from table 0 (module doc), so a rule resolving `ncBig`
+    /// against the wrong table produces a DIFFERENT, wrong `surviving` count, not merely a
+    /// same-count coincidentally-plausible one. `prule_alpha_t1` belongs to stratum "S1" (table
+    /// "t1") via `phonologicalRules="prule_alpha_t1"`; stratum "S0" carries no rule of its own --
+    /// it exists purely so this grammar genuinely has TWO strata each owning ITS OWN table, the
+    /// design.md scenario ("two strata... tables"), not just two orphaned tables.
+    const TWO_TABLE_ALPHA_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+<HermitCrabInput>
+  <Language>
+    <Name>TwoTableSymbolDivergenceAlphaFixture</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <PhonologicalFeatureSystem>
+      <SymbolicFeature id="featA">
+        <Name>dummy</Name>
+        <Symbols>
+          <Symbol id="symA1">a</Symbol>
+          <Symbol id="symA2">b</Symbol>
+        </Symbols>
+      </SymbolicFeature>
+    </PhonologicalFeatureSystem>
+    <CharacterDefinitionTable id="t0">
+      <Name>Table0</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="c0a"><Representations><Representation>p</Representation></Representations><FeatureValue feature="featA" symbolValues="symA1" /></SegmentDefinition>
+        <SegmentDefinition id="c0b"><Representations><Representation>b</Representation></Representations><FeatureValue feature="featA" symbolValues="symA1" /></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <CharacterDefinitionTable id="t1">
+      <Name>Table1</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="c1a"><Representations><Representation>k</Representation></Representations><FeatureValue feature="featA" symbolValues="symA1" /></SegmentDefinition>
+        <SegmentDefinition id="c1b"><Representations><Representation>g</Representation></Representations><FeatureValue feature="featA" symbolValues="symA1" /></SegmentDefinition>
+        <SegmentDefinition id="c1c"><Representations><Representation>x</Representation></Representations><FeatureValue feature="featA" symbolValues="symA1" /></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncBig"><Name>Any</Name></FeatureNaturalClass>
+    </NaturalClasses>
+    <PhonologicalRuleDefinitions>
+      <PhonologicalRule id="prule_alpha_t1">
+        <Name>alpha rule on table 1</Name>
+        <VariableFeatures>
+          <VariableFeature id="var1" name="a" phonologicalFeature="featA" />
+        </VariableFeatures>
+        <PhoneticInput>
+          <PhoneticSequence>
+            <Segment segment="c1a" />
+          </PhoneticSequence>
+        </PhoneticInput>
+        <PhonologicalSubrules>
+          <PhonologicalSubrule>
+            <PhoneticOutput>
+              <PhoneticSequence>
+                <SimpleContext naturalClass="ncBig">
+                  <AlphaVariables>
+                    <AlphaVariable variableFeature="var1" />
+                  </AlphaVariables>
+                </SimpleContext>
+              </PhoneticSequence>
+            </PhoneticOutput>
+          </PhonologicalSubrule>
+        </PhonologicalSubrules>
+      </PhonologicalRule>
+    </PhonologicalRuleDefinitions>
+    <Strata>
+      <Stratum characterDefinitionTable="t0" morphologicalRuleOrder="unordered">
+        <Name>S0</Name>
+        <LexicalEntries>
+          <LexicalEntry id="entry0" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="allo0"><PhoneticShape>p</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>dummy0</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+      <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" phonologicalRules="prule_alpha_t1">
+        <Name>S1</Name>
+        <LexicalEntries>
+          <LexicalEntry id="entry1" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="allo1"><PhoneticShape>k</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>dummy1</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>
+"#;
+
+    fn two_table_alpha_grammar() -> Grammar {
+        pg_grammar::load(TWO_TABLE_ALPHA_XML).unwrap_or_else(|e| {
+            panic!("failed to load two-table-symbol-divergence alpha fixture: {e}\n{TWO_TABLE_ALPHA_XML}")
+        })
+    }
+
+    fn rewrite_rule_by_xml_id<'g>(g: &'g Grammar, xml_id: &str) -> &'g RewriteRuleDef {
+        for pr in &g.prules {
+            if let PhonRuleDef::Rewrite(r) = pr {
+                if r.xml_id == xml_id {
+                    return r;
+                }
+            }
+        }
+        panic!("prule {xml_id:?} not found in g.prules");
+    }
+
+    /// Positive witness (task 1.1): [`owning_table`] resolves `prule_alpha_t1` to table 1 (3
+    /// segments), never table 0 (2 segments) -- the fixture's own sanity check that the two
+    /// tables genuinely differ in cardinality, and that stratum "S1" (not "S0") owns this rule.
+    #[test]
+    fn owning_table_resolves_to_the_rules_own_stratum_table_not_table_zero() {
+        let g = two_table_alpha_grammar();
+        assert_eq!(g.char_tables.len(), 2, "fixture must declare exactly 2 tables");
+        assert_eq!(g.char_tables[0].len(), 2, "table 0 must have exactly 2 segments");
+        assert_eq!(g.char_tables[1].len(), 3, "table 1 must have exactly 3 segments");
+        assert_eq!(g.strata.len(), 2, "fixture must declare exactly 2 strata");
+
+        let rule = rewrite_rule_by_xml_id(&g, "prule_alpha_t1");
+        let table = owning_table(&g, rule)
+            .expect("prule_alpha_t1 is wired into stratum S1's own phonologicalRules cascade");
+        assert_eq!(
+            table.len(),
+            3,
+            "prule_alpha_t1 belongs to stratum S1 (table 1, 3 segments) -- owning_table must NOT \
+             return table 0's 2-segment table"
+        );
+    }
+
+    /// Positive witness (task 1.1), full compile-level proof: [`resolve_alpha_tuples`]'s own
+    /// `surviving` tuple count for `prule_alpha_t1`'s alpha-bound RHS (`ncBig`, matches every
+    /// segment of WHICHEVER table it resolves against) is EXACTLY 3 -- table 1's own cardinality,
+    /// reached by resolving against table 1 (this rule's real owning table, via [`owning_table`]),
+    /// never table 0's 2 (what the old hardcoded `g.char_tables[0]` default would have produced --
+    /// the NEGATIVE case this witness rules out).
+    #[test]
+    fn resolve_alpha_tuples_surviving_count_reflects_the_owning_table_not_table_zero() {
+        let g = two_table_alpha_grammar();
+        let rule = rewrite_rule_by_xml_id(&g, "prule_alpha_t1");
+        let table = owning_table(&g, rule).expect("prule_alpha_t1 has an owning stratum");
+        let alphabet = SegAlphabet::new(table);
+        let opts = FomaOptions::default();
+        let budget = ComposeBudget::unbounded();
+
+        let (net, reports) =
+            compile_rewrite_rule_subset(&opts, &g, &alphabet, rule, &|_| true, &budget)
+                .expect("unbounded budget must never trip")
+                .expect("prule_alpha_t1 must compile");
+        assert!(net.statecount > 0);
+        assert_eq!(reports.len(), 1, "exactly one alpha-bearing subrule");
+        assert_eq!(
+            reports[0].surviving, 3,
+            "surviving tuple count must equal table 1's own 3-member ncBig class -- 2 would mean \
+             this rule wrongly resolved against table 0 instead of its own stratum's table"
+        );
+        assert_eq!(
+            reports[0].raw_product, 3,
+            "a single alpha occurrence's raw product equals its own candidate set size"
+        );
     }
 }

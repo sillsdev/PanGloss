@@ -1,43 +1,59 @@
 //! GATE 1 (`docs/fst-plan/phase-c-generator-design.md` §5/§6, priority (1)): multi-table
-//! DETECT-WRONG gate.
+//! COMPILED-CORRECT gate.
 //!
-//! ## Initial gate mode: DETECT-WRONG, not recall-parity
-//! `pg_foma::replace::table_of` hardcodes `&g.char_tables[0]` for EVERY natural-class resolution,
-//! and `pg_foma::replace::SegAlphabet::token` is a pure function of a `CharDefId`'s raw numeric
-//! index (`PUA_BASE + cd.0`) with no awareness of which table that index belongs to. Composing
-//! those two facts (see `pg_grammar_gen::build::tables`'s module doc for the full derivation): a
-//! phonological rule compiled for a stratum whose OWN table is NOT table 0 gets its natural-class
-//! members resolved against table 0, then converted into tokens via the CALLER's (correctly
-//! table-1-scoped) alphabet -- silently naming whatever segment happens to sit at that same
-//! positional index in table 1, not the linguistically intended one.
+//! ## History: DETECT-WRONG -> COMPILED (inverted by `fix-multitable-fst-compilation`)
+//! Until `openspec/changes/fix-multitable-fst-compilation` landed, `pg_foma::replace::table_of`
+//! hardcoded `&g.char_tables[0]` for EVERY natural-class resolution (and `resolve_alpha_tuples`
+//! carried the identical hardcoded default), and `pg_foma::replace::SegAlphabet::token` is a pure
+//! function of a `CharDefId`'s raw numeric index (`PUA_BASE + cd.0`) with no awareness of which
+//! table that index belongs to. Composing those two facts (see `pg_grammar_gen::build::tables`'s
+//! module doc for the full derivation): a phonological rule compiled for a stratum whose OWN table
+//! was NOT table 0 got its natural-class members resolved against table 0, then converted into
+//! tokens via the CALLER's (correctly table-1-scoped) alphabet -- silently naming whatever segment
+//! happened to sit at that same positional index in table 1, not the linguistically intended one.
+//! This file used to pin exactly that wrongness (two concrete, deterministic wrong behaviors: the
+//! voice+ root never devoiced, and the voice- root got spuriously rewritten to the voice+ root's
+//! own spelling) as a DETECT-WRONG gate, per design doc §5's staged plan: "this gate's own module
+//! doc records that it FLIPS to a recall-parity mode once the two hardcoded sites (`table_of` in
+//! `pg_foma::replace`, and the analogous `resolve_alpha_tuples`) are fixed to thread the owning
+//! stratum's real table through."
+//!
+//! `fix-multitable-fst-compilation` did exactly that: [`pg_foma::replace`] no longer has a
+//! `table_of` function at all -- [`pg_foma::replace::pattern_slots`]/
+//! [`pg_foma::replace::resolve_alpha_tuples`] now take an explicit `&CharDefTable` parameter, and
+//! [`pg_foma::replace::compile_rewrite_rule_subset`] resolves it ONCE per rule via
+//! `pg_foma::replace::owning_table` (the rule's OWN stratum's `StratumDef::table` -- never an
+//! implicit table-zero default). This file is the inversion design doc §5 predicted: every
+//! assertion below is the OPPOSITE of what this file asserted before the fix, and now PASSES.
 //!
 //! This recipe deliberately misaligns table 1's voice-feature-to-index assignment relative to
 //! table 0's (`ConstructKnobs { table_count: 2, .. }` -> `build::tables::build`'s `misaligned =
-//! true` path), so the mix-up is not just theoretically wrong but PROVABLY names the wrong
-//! segment. The demo rule is an unconditional "devoice" rewrite (`ncVoicedAny -> ncVoicelessAny`,
-//! no environment) on stratum 1 (table 1). Worked through concretely (2 segments per table: table
-//! 0 = {voice+ at index 1, voice- at index 0}, table 1 = {voice+ at index 0, voice- at index 1}):
-//! - `table_of` resolves `ncVoicedAny`/`ncVoicelessAny` against TABLE 0, yielding table-0-local
-//!   `CharDefId(1)` (target) / `CharDefId(0)` (output).
-//! - The caller's (correct) table-1 alphabet converts those SAME raw indices into table 1's own
-//!   tokens: `CharDefId(1)` = table 1's voice- segment, `CharDefId(0)` = table 1's voice+ segment.
-//! - So the COMPILED rule, in table 1's real token semantics, silently reads as "voice- ->
-//!   voice+" -- the OPPOSITE of "devoice", targeting the WRONG segment.
+//! true` path), so a correct compile is not merely "coincidentally didn't break" but PROVABLY
+//! resolves the linguistically-intended segment despite the two tables disagreeing about which
+//! raw index means which voice value. The demo rule is an unconditional "devoice" rewrite
+//! (`ncVoicedAny -> ncVoicelessAny`, no environment) on stratum 1 (table 1). Worked through
+//! concretely (2 segments per table: table 0 = {voice+ at index 1, voice- at index 0}, table 1 =
+//! {voice+ at index 0, voice- at index 1}):
+//! - `owning_table` resolves `rule`'s owning stratum (stratum 1) and returns table 1 -- so
+//!   `ncVoicedAny`/`ncVoicelessAny` are now resolved against TABLE 1 ITSELF, yielding table-1-local
+//!   `CharDefId`s that name table 1's OWN voice+/voice- segments directly, not table 0's.
+//! - The SAME alphabet (also built from table 1) converts those table-1-local ids into table 1's
+//!   own tokens -- consistent, single-table-per-rule token space, no cross-table reinterpretation.
+//! - So the COMPILED rule, in table 1's real token semantics, correctly reads as "voice+ ->
+//!   voice-" -- true devoicing, targeting the RIGHT segment.
 //!
-//! Two concretely wrong, deterministic, assertable behaviors follow, both checked below via the
+//! Two concretely correct, deterministic, assertable behaviors follow, both checked below via the
 //! shared compose-recall helper (`tests/common/gate_template.rs`):
-//! 1. The root that SHOULD devoice (voice+) never changes -- its own unrewritten spelling is still
-//!    (wrongly) accepted as its surface realization, and the CORRECT devoiced form is NOT
-//!    reachable at all (genuine recall loss, not a harmless extra path).
-//! 2. The root that should stay unchanged (voice-, already voiceless) gets WRONGLY rewritten to
-//!    the other root's own spelling (a spurious change that should never happen).
+//! 1. The root that SHOULD devoice (voice+) has its own unrewritten spelling become UNREACHABLE as
+//!    its surface form (the obligatory rewrite fires), and its CORRECT devoiced form (the voiceless
+//!    root's own spelling) IS reachable.
+//! 2. The root that should stay unchanged (voice-, already voiceless) keeps its own spelling
+//!    reachable, and is never spuriously rewritten to the OTHER root's spelling.
 //!
-//! Per design doc §5, this gate's own module doc records that it FLIPS to a recall-parity mode
-//! once the two hardcoded sites (`table_of` in `pg_foma::replace`, and the analogous
-//! `resolve_alpha_tuples`) are fixed to thread the owning stratum's real table through -- at that
-//! point every assertion below should INVERT (the "wrong" behaviors become unreachable, the
-//! "correct" one becomes reachable), and this file's own assertions are what should fail first,
-//! signalling the fix landed.
+//! Single-table grammars are BYTE IDENTICAL under this fix: every stratum's `table: TableId` is 0
+//! in a single-table grammar, so `owning_table` always resolves to `g.char_tables[0]` -- the exact
+//! value the old hardcoded default returned. `tests/p6_gate_parity.rs`'s byte-exact Amharic
+//! state/arc-count regression guard (single-table) staying green is that invariant's own proof.
 
 mod common;
 
@@ -71,7 +87,7 @@ fn recipe() -> Recipe {
 }
 
 #[test]
-fn multi_table_wrongness_is_detected_and_precisely_characterized() {
+fn multi_table_rewrite_compiles_correctly_against_its_owning_table() {
     let recipe = recipe();
     let rendered = pg_grammar_gen::render_indexed(&recipe);
     let g = pg_grammar::load(&rendered.xml).unwrap_or_else(|e| {
@@ -119,9 +135,8 @@ fn multi_table_wrongness_is_detected_and_precisely_characterized() {
     let table1_chardef = &g.char_tables[1];
     let alphabet1 = SegAlphabet::new(table1_chardef);
     let opts = FomaOptions::default();
-    // Never usize::MAX / no artificial caps: this gate is about DETECTING the wrongness, not
-    // about the budget mechanism itself (that's `tests/common`'s honest-failure helper's job,
-    // exercised by GATE 2's own over-budget-shaped assertions if/when stage 2 adds them here).
+    // Never usize::MAX / no artificial caps: this gate is about the CORRECT compile, not about
+    // the budget mechanism itself.
     let budget = ComposeBudget::with_caps(
         usize::MAX,
         usize::MAX,
@@ -166,9 +181,8 @@ fn multi_table_wrongness_is_detected_and_precisely_characterized() {
         &budget,
     )
     .unwrap_or_else(|e| panic!("devoice rule compile must not hit any budget: {e}"));
-    // Detect-wrong's own "compile succeeds" half (design doc §5): the rule is NOT reported
-    // skipped, even though (as the assertions below show) its compiled effect is wrong. A
-    // production caller gets no signal at all that anything went wrong here.
+    // The rule must still compile (not be reported skipped) -- the fix changes WHICH table its
+    // natural classes resolve against, not whether the rule is a supported shape at all.
     assert!(
         skipped.is_empty(),
         "the devoice rule must compile (not be reported skipped): {skipped:?}"
@@ -190,41 +204,40 @@ fn multi_table_wrongness_is_detected_and_precisely_characterized() {
         .encode_query(&root_voiceless.ch.to_string())
         .expect("voiceless root's own character must segment against table 1");
 
-    // --- Wrongness 1: the root that SHOULD devoice never does. ---
+    // --- Correctness 1: the root that SHOULD devoice does, and only that way. ---
     assert!(
-        recall_reachable(&composed, &voiced_own_spelling, &[tag_voiced_root.clone()]),
-        "DETECT-WRONG assertion failed to reproduce: the voice+ root's own (unrewritten) spelling \
-         is no longer reachable as its surface form -- either the bug stopped reproducing, or this \
-         gate's own construction has drifted from the derivation in its module doc"
+        !recall_reachable(
+            &composed,
+            &voiced_own_spelling,
+            std::slice::from_ref(&tag_voiced_root)
+        ),
+        "COMPILED-CORRECT assertion failed: the voice+ root's own (unrewritten) spelling is STILL \
+         reachable as its surface form -- the obligatory devoice rewrite did not fire; either the \
+         fix regressed, or this gate's own construction has drifted from its module doc"
     );
-    assert!(
-        !recall_reachable(&composed, &voiceless_own_spelling, &[tag_voiced_root.clone()]),
-        "the voice+ root's CORRECT devoiced form (the voiceless root's own spelling) is reachable -- \
-         this would mean the rule fired correctly after all, contradicting this gate's own module doc"
-    );
-
-    // --- Wrongness 2: the root that should stay unchanged gets spuriously rewritten. ---
     assert!(
         recall_reachable(
             &composed,
-            &voiced_own_spelling,
-            &[tag_voiceless_root.clone()]
+            &voiceless_own_spelling,
+            std::slice::from_ref(&tag_voiced_root)
         ),
-        "DETECT-WRONG assertion failed to reproduce: the voice- root's spelling never gets \
-         (wrongly) rewritten to the voice+ root's own spelling -- either the bug stopped \
-         reproducing, or this gate's own construction has drifted from its module doc"
+        "the voice+ root's CORRECT devoiced form (the voiceless root's own spelling) is NOT \
+         reachable -- the devoice rewrite is not resolving the right target segment"
     );
-    // The buggy rule's compiled target is unconditional (obligatory, no environment) and happens
-    // to BE the voice- root's own segment (module doc's worked-through derivation) -- so, unlike
-    // an environment-gated rewrite, there is no "elsewhere identity" survivor here: the voice-
-    // root's ORIGINAL spelling is not merely also-reachable alongside the wrong one, it is GONE
-    // entirely. Verified empirically against the actual compiled net (not assumed): this is a
-    // stronger, but still honestly-characterized, form of the same wrongness -- a full obligatory
-    // mis-rewrite, not a partial one.
+
+    // --- Correctness 2: the root that should stay unchanged is never spuriously rewritten. ---
     assert!(
-        !recall_reachable(&composed, &voiceless_own_spelling, &[tag_voiceless_root]),
-        "the voice- root's own (correct, unchanged) spelling is unexpectedly STILL reachable -- \
-         the compiled rule is no longer an unconditional obligatory rewrite of this segment, \
-         contradicting this gate's own verified derivation"
+        !recall_reachable(
+            &composed,
+            &voiced_own_spelling,
+            std::slice::from_ref(&tag_voiceless_root)
+        ),
+        "the voice- root's spelling was WRONGLY rewritten to the voice+ root's own spelling -- \
+         this is the exact cross-root mix-up the pre-fix bug produced"
+    );
+    assert!(
+        recall_reachable(&composed, &voiceless_own_spelling, &[tag_voiceless_root]),
+        "the voice- root's own (correct, unchanged) spelling is NOT reachable -- an already- \
+         voiceless root must never lose its own surface form"
     );
 }

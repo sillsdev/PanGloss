@@ -88,6 +88,9 @@ use crate::capability::{CharacteristicKind, Disposition};
 ///
 /// An empty slice is a deliberate, documented "no corresponding coverage identifier exists" —
 /// [`CoverageStatus::Unmappable`]'s trigger, not an oversight:
+/// - [`CharacteristicKind::MultiTable`]: `constructs.txt` has no row tagging "more than one
+///   `CharacterDefinitionTable`, each stratum's own" as its own phenomenon — see this function's
+///   own match arm for the two near-miss rows considered and rejected.
 /// - [`CharacteristicKind::LeftToRightRewrite`] / [`CharacteristicKind::RightToLeftRewrite`]:
 ///   `constructs.txt`'s `RewriteRule Iterative (...)`/`RewriteRule Simultaneous` rows tag
 ///   *multiple-application order*, not *directionality* — no row anywhere names "left-to-right" or
@@ -139,6 +142,14 @@ pub fn construct_ids_for(kind: CharacteristicKind) -> &'static [&'static str] {
         NaturalClassDefinition => &[
             "NaturalClass: Segments vs FeatureNaturalClass/SegmentNaturalClass precision",
         ],
+        // `fix-multitable-fst-compilation`: no `constructs.txt` row distinctly tags "more than one
+        // CharacterDefinitionTable, each stratum's own" as its own phenomenon today (the two rows
+        // that mention `CharacterDefinitionTable` at all -- "Boundary markers" and "pattern
+        // shapes: optional group / Kleene star" -- are about segmentation/pattern constructs
+        // WITHIN one table, not about multiple tables disagreeing across strata) -- same
+        // documented, deliberate empty-mapping judgment call this function's own doc already makes
+        // for `LeftToRightRewrite`/`RightToLeftRewrite`/`SubruleGating`.
+        MultiTable => &[],
     }
 }
 
