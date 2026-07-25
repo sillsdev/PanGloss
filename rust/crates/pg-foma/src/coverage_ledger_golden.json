@@ -12,7 +12,7 @@
       "conformance_status": "covered",
       "containment": {
         "kind": "general_pervasive",
-        "citation": "tests/f1_sena_gate.rs, tests/f2_indonesian_gate.rs, tests/f4_composite_gate.rs",
+        "citation": "tests/f1_large_lexicon_gate.rs, tests/f2_junction_gate.rs, tests/f4_composite_gate.rs",
         "note": "Ordinary AffixProcessRule prefixation/suffixation/infixation is the baseline every full-grammar propose-confirm gate exercises continuously; Proven already licenses unconditional admission-filtering, so no separate dedicated fixture is required."
       }
     },
@@ -59,7 +59,7 @@
       "conformance_status": "covered",
       "containment": {
         "kind": "general_pervasive",
-        "citation": "tests/phase_c_strata_depth.rs (multi-stratum cascade recall-parity), tests/f1_sena_gate.rs, tests/f4_composite_gate.rs",
+        "citation": "tests/phase_c_strata_depth.rs (multi-stratum cascade recall-parity), tests/f1_large_lexicon_gate.rs, tests/f4_composite_gate.rs",
         "note": "Linear rule-application order is the default cascade shape exercised by every general gate; Proven, no dedicated fixture required."
       }
     },
@@ -130,7 +130,7 @@
       "conformance_status": "covered",
       "containment": {
         "kind": "general_pervasive",
-        "citation": "tests/f1_sena_gate.rs, tests/f2_indonesian_gate.rs, tests/phase_c_right_to_left.rs (iterative baseline contrast)",
+        "citation": "tests/f1_large_lexicon_gate.rs, tests/f2_junction_gate.rs, tests/phase_c_right_to_left.rs (iterative baseline contrast)",
         "note": "The default RewriteMode every general gate's phonological rules use; Proven, no dedicated fixture required."
       }
     },
@@ -161,7 +161,7 @@
       "conformance_status": "unmappable",
       "containment": {
         "kind": "general_pervasive",
-        "citation": "tests/f2_indonesian_gate.rs, tests/phase_c_right_to_left.rs (LTR is the implicit contrast baseline for every rtl_* case)",
+        "citation": "tests/f2_junction_gate.rs, tests/phase_c_right_to_left.rs (LTR is the implicit contrast baseline for every rtl_* case)",
         "note": "The default Dir every general gate's phonological rules use; Proven, no dedicated fixture required."
       }
     },

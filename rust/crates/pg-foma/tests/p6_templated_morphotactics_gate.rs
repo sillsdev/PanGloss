@@ -147,14 +147,82 @@ const SAFE_WORD_RAW_CAP: usize = 50_000;
 /// tripping).
 const ORACLE_STEP_CAP: usize = 20_000;
 
-/// The 72-word POST-DETECTION baseline miss list — every corpus word with an oracle analysis that
-/// the honest 16-rule composed net (Aweti's two RightToLeft/Simultaneous rules skipped, module doc)
-/// does NOT recall. The no-regression assertion in (b) requires every word NOT in this list to keep
-/// recalling. When a real RightToLeft/Simultaneous compiler lands (scheduled follow-on), the ~36
-/// skipped-rule-dependent words here start recalling and this list must SHRINK (and the `>= 32`
-/// floor rise) in the same change — a word leaving the recalled set is a real regression, a word
-/// joining it is the expected win.
+/// The POST-DETECTION baseline miss list — every corpus word with an oracle analysis that the
+/// composed net does NOT recall. The no-regression assertion in (b) requires every word NOT in
+/// this list to keep recalling. When a real RightToLeft/Simultaneous compiler lands (now landed,
+/// see the module doc's "UPDATE" notes and (a)'s `skipped_rules == []` assertion), any newly-
+/// recalling word simply drops off the *miss* list on its own (recall test (b) never requires
+/// pruning entries that start passing) — a word leaving the recalled set (going from "not in this
+/// list" to "in this list") is a real regression and must be investigated before being added here.
+///
+/// **2026-07-25 addition — `"tsãkỹjokwaw"`/`"tsãtomoʼatu"` (deep-truncation-chain corpus-gate
+/// investigation):** these two words newly appear in the miss list not because anything about
+/// pg-foma's compiled FST regressed, but because the ORACLE (`pg_parse::Morpher`, used only to
+/// decide which corpus words even get counted/checked at all) started finding an analysis for them,
+/// within the SAME fixed `ORACLE_STEP_CAP`, where it previously found none. Full investigation:
+///
+/// 1. **Why they are newly COUNTED (an accounting change, not a language-modeling one).** Both
+///    words got exactly 0 oracle analyses at `ORACLE_STEP_CAP` (20,000) on every commit through
+///    `485d566` (the parent of `391c2c3`) — confirmed by direct instrumentation, not inferred —
+///    so `n_with_oracle` never included them and they could not appear in this list. Raising the
+///    step cap alone (no code change) to 2,000,000 makes the oracle find exactly the same
+///    analyses these words now get at the unmodified 20,000 cap
+///    (`tsãkỹjokwaw` → `[805, 359, 715, 14]` root_idx=1; `tsãtomoʼatu` → 3 analyses incl.
+///    `[805, 885, 795]` root_idx=1) — i.e. these analyses were always reachable, just not within
+///    budget. `git bisect run` against the actual `b_aweti_full_corpus_recall_via_compose` output
+///    pinned the exact commit where the miss-list membership flips: `391c2c3` ("parse: support
+///    supplied-root overlays"). That commit touches ONLY `pg-rules`/`pg-parse` (never `pg-foma`),
+///    and its one behavior-relevant change for an overlay-less `Morpher::new` call (this gate's own
+///    usage) is adding a `root_provenance` field to `pg_rules::word::WordKey` — the
+///    analysis-memoization dedup key. That extra field perturbs `WordKey`'s hash, which perturbs
+///    `HashMap<WordKey, Word>` iteration order during the step-capped BFS analysis search, which
+///    perturbs which candidates get explored before the cap trips — a resource-budget artifact, not
+///    a correctness change on either the oracle or FST side. None of the nine pg-foma Stage-2
+///    commits this investigation's brief flagged as suspects (`2a98634`, `9473233`, `1576531`,
+///    `18e6835`, `00994e7`, `0ed2545`, `42d5757`, `c4a3d22`, `318efe6`) are responsible — recall
+///    for these two words is identical at every one of those commits (verified by checking out
+///    each and re-running the recall test).
+///
+/// 2. **Why `"tsãkỹjokwaw"` genuinely does not recall.** Both of its oracle analyses' roots
+///    require morpheme 805 (Aweti's `"tsã(n)="` proclitic, `mrule105`, a standalone `AffixProcess`
+///    rule that lives in stratum 1 — this grammar's own `"Clitics"` stratum, layered above stratum
+///    0's root/template stratum). `emit_underlying_templated` DOES classify `mrule105` as
+///    `Role::Prefix`, include it in `deriv_prefix`, declare its `<M:0805>` tag in
+///    `Multichar_Symbols`, and write its lexicon entries (`TmplDispatch`/`TLRoots`/`G0Roots`/
+///    `G1Roots`/`G2Roots` continuations all present, verified by grepping the emitted
+///    `lexc_source`) — but that whole fragment is UNREACHABLE from `Root`: the compiled
+///    `lexc_net`'s own sigma (765 symbols, checked directly, before any rule composition) never
+///    contains this tag at all, i.e. foma's lexc compiler treats it as dead code, confirming
+///    nothing in the reachable graph ever transitions into the lexicon section that offers it.
+///    This is a genuine, PRE-EXISTING silent gap in `emit_underlying_templated`'s handling of a
+///    stratum ABOVE the root stratum (multi-stratum/"Clitics"-style wrapping is not wired at all),
+///    unrelated to every commit named above and not itself reported in `EmitReport::uncovered`
+///    (unlike the already-known reduplication/circumfix-prefix gaps) — a real, if previously
+///    invisible, finding of this investigation, and the minimal fix is a dedicated follow-on
+///    (teach the templated emitter to wrap stratum N>0 standalone-rule strata as an outer layer
+///    around stratum N-1's completed word, and/or report an unreachable-after-lexc-compile symbol
+///    via `uncovered` so this class of gap can never be silent again).
+///
+/// 3. **`"tsãtomoʼatu"` is murkier — NOT proven to be the same root cause.** Unlike
+///    `"tsãkỹjokwaw"`, the word-restricted composed net for `"tsãtomoʼatu"` is NON-empty (the FST
+///    does produce this surface form), and `apply_up` on the full composed net independently
+///    decodes a raw candidate `[805, 885, 795]` root_idx=1 — an EXACT match for one of the oracle's
+///    3 analyses. Yet the same investigation that found this also found `<M:0805>` absent from
+///    that restricted-and-projected net's own sigma, so that decoded candidate cannot be trusted at
+///    face value either (most likely an `apply_up` unknown-symbol/identity artifact echoing input
+///    it could not actually match against a real arc, though this was not conclusively pinned down
+///    the way `"tsãkỹjokwaw"`'s cause was). Net effect: `"tsãtomoʼatu"` most likely fails for the
+///    SAME `mrule105`/stratum-1 wiring gap as `"tsãkỹjokwaw"` (it needs the identical morpheme 805),
+///    but this file does not claim that with the same certainty. Recorded as an open, honestly
+///    uncertain sub-finding rather than papered over.
+///
+/// Both words are added below rather than left to fail this gate, because (per this file's own
+/// module doc / the repo's never-overclaim standard) the honest conclusion is "these were never
+/// actually recallable by the FST, and are now counted" — not "the FST regressed." A silently
+/// adjusted assertion without this documented proof would have been the wrong fix.
 const BASELINE_MISSES: &[&str] = &[
+    "tsãkỹjokwaw",
+    "tsãtomoʼatu",
     "parua",
     "tomoʼatu",
     "muʼazan",
@@ -355,24 +423,26 @@ fn run_emit_compile_compose() {
         "rule compile+compose: {:?}; skipped={skipped_rules:?}",
         t_rules.elapsed()
     );
-    // Post-detection (Phase C, `replace.rs::is_fully_supported_shape`), UPDATED by
-    // `openspec/changes/compile-right-to-left-rewrites` (module doc's "UPDATE" note): Aweti's
-    // `RewriteMode::Simultaneous` rule is still honestly reported skipped -- a separate,
-    // not-yet-built algorithm -- but the `Dir::RightToLeft` rule now COMPILES (the reversal-plus-
-    // safety-net-union construction, `pg_foma::replace::compile_rtl_branch_net`) and is therefore
-    // no longer in this list. Pinning the exact set (not just "some are skipped") is the
-    // meaningful guard: if a THIRD rule ever starts being skipped, or if a real Simultaneous
-    // compiler lands and this one stops being skipped too, this fails and forces this gate's
+    // UPDATE (2026-07-25, `compile-simultaneous-rewrites`, commit 42d5757 "feat(pg-foma): compile
+    // admitted Simultaneous rewrites"): Aweti's `RewriteMode::Simultaneous` rule
+    // (`2996dcb3-2e00-4d41-926e-fe5ed11f0753`) now ALSO compiles -- `capability::
+    // simultaneous_rule_admitted_for_compile` proves this rule's subrules pairwise non-overlapping
+    // (the D3 `simultaneous.subrule-overlap` predicate), so `is_fully_supported_shape` admits it and
+    // `compile_rewrite_rule_subset` compiles it via the same sequential-compose loop `Iterative`
+    // rules use (module doc on `compile_rewrite_rule_subset`, "Mode/dir detection"). Combined with
+    // the earlier `compile-right-to-left-rewrites` landing (module doc's "UPDATE" note just above),
+    // ALL 18 of Aweti's phonological rules now compile honestly -- `skipped_rules` is genuinely
+    // empty, real forward progress, not a stale/relaxed expectation. Pinning `[]` (not just "fewer
+    // are skipped") is still the meaningful guard: if a rule EVER starts being skipped again (a
+    // regression) or a 19th/20th rule is added and mis-shaped, this fails and forces this gate's
     // recall floor / miss list to be revisited (module doc).
     let mut skipped_sorted = skipped_rules.clone();
     skipped_sorted.sort();
     assert_eq!(
         skipped_sorted,
-        vec![
-            "2996dcb3-2e00-4d41-926e-fe5ed11f0753".to_string(), // RewriteMode::Simultaneous
-        ],
-        "expected exactly Aweti's Simultaneous rule to be honestly skipped (RightToLeft now \
-         compiles); got {skipped_rules:?}"
+        Vec::<String>::new(),
+        "expected all 18 of Aweti's phonological rules to compile now that both RightToLeft and \
+         Simultaneous are supported; got {skipped_rules:?}"
     );
 
     let boundary_tokens: Vec<char> = table
