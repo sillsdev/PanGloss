@@ -124,10 +124,10 @@
             <MorphemeId>KOLO</MorphemeId>
             <Gloss>root.kolo</Gloss>
           </LexicalEntry>
-          <!-- Free-fluctuation multiplicity ("the mbali shape"): two lexically distinct roots that
-               happen to share one phonetic shape, both posV, so the bare surface "mbili" is
-               genuinely ambiguous between them -- a large(r)-than-one analysis multiset for one
-               surface, the Sena free-fluctuation pathology in miniature. -->
+          <!-- Free-fluctuation multiplicity: two lexically distinct roots that happen to share one
+               phonetic shape, both posV, so the bare surface "mbili" is genuinely ambiguous between
+               them -- a large(r)-than-one analysis multiset for one surface. The
+               agglutinative-Bantoid reference corpus's free-fluctuation pathology in miniature. -->
           <LexicalEntry id="eMbiliA" partOfSpeech="posV">
             <Allomorphs><Allomorph id="aMbiliA"><PhoneticShape>mbili</PhoneticShape></Allomorph></Allomorphs>
             <MorphemeId>MBILIA</MorphemeId>

@@ -12,9 +12,8 @@ ordering dead-end class** that this project's own dead-end census found dominate
 confirm cost (`docs/fst-plan/foma-fst-plan.md` Phase 0 census, 2026-07-17: "d5 ordering dominates
 Sena/Ind[onesian]").
 
-The same grammar also pins Sena's **free-fluctuation multiplicity** ("the mbali shape" in the
-project's own vocabulary): one surface string with more than one equally-valid analysis, from two
-lexically distinct roots that happen to share a phonetic shape.
+The same grammar also pins **free-fluctuation multiplicity**: one surface string with more than one
+equally-valid analysis, from two lexically distinct roots that happen to share a phonetic shape.
 
 And it declares **zero phonological rules** (`requires: []`), matching real Sena's own
 zero-rewrite-rule shape (per the dead-end census's own finding: "Sena has 72 env constraints and

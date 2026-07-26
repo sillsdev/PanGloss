@@ -1,10 +1,14 @@
 //! NON-BLOCKING PREVIEW of task 5.1 (`openspec/changes/add-capability-characteristics-check`, ADR
-//! 0001, `docs/adr/0001-honest-capability-boundary.md`): the conformance-coverage cross-check.
+//! 0001, `docs/adr/0001-honest-capability-boundary.md`): the conformance-coverage cross-check,
+//! **widened ledger-wide (G8) and re-mapped (G9)**.
 //!
-//! This test computes which `Proven` ("supported") `CharacteristicKind`s (`pg_foma::capability`)
-//! lack a covering, PASSING conformance fixture, and PRINTS the full advisory report — it asserts
-//! only that the check RUNS and produces output, **never that the gap set is empty**. Turning this
-//! into a hard gate is task 5.1's own later, deliberate step (mechanically: replace this file's
+//! This test computes, for EVERY `CharacteristicKind` (`pg_foma::capability`) — not just the
+//! `Proven` ("supported") subset — whether the evidence its own disposition demands exists: a
+//! covering, PASSING conformance fixture for `Proven`/`ConfigPredicate`/`ConfirmOnly`, or a
+//! curated REFUSAL witness for `FailClosed` (see `pg_foma::conformance_coverage::
+//! evidence_requirement_for`). It PRINTS the full advisory report — it asserts only that the
+//! check RUNS and produces output, **never that the gap set is empty**. Turning this into a hard
+//! gate is task 5.1's own later, deliberate step (mechanically: replace this file's
 //! non-assertion with `assert!(gaps.is_empty(), ...)`) — see `pg_foma::conformance_coverage`'s own
 //! module doc for the mapping contract, why this is deferred, and what "passing" means here.
 //!
@@ -27,8 +31,30 @@
 use std::collections::HashSet;
 
 use pg_conformance_fixtures::discover;
+use pg_foma::capability::CharacteristicKind;
 use pg_foma::conformance_coverage::{supported_coverage_report, CoverageStatus};
+use pg_foma::coverage_ledger::{containment_evidence_for, ContainmentEvidenceKind};
 use pg_parse::Morpher;
+
+/// G8's second evidence set: every [`CharacteristicKind`] for which this crate's own curated
+/// containment table ([`containment_evidence_for`]) names a genuine
+/// [`ContainmentEvidenceKind::RefusalWitness`] — the "FailClosed needs a refusal witness, not a
+/// passing fixture" evidence [`pg_foma::conformance_coverage::supported_coverage_report`]'s second
+/// parameter expects. Built here (not in `conformance_coverage.rs` itself) to keep that module
+/// free of any dependency on `coverage_ledger`'s curated table — this gate test is the natural
+/// place two independent evidence sources get composed for the cross-check's own sake.
+fn refusal_witnessed_kinds() -> HashSet<CharacteristicKind> {
+    CharacteristicKind::ALL
+        .iter()
+        .copied()
+        .filter(|&k| {
+            matches!(
+                containment_evidence_for(k),
+                Some(ev) if ev.kind == ContainmentEvidenceKind::RefusalWitness
+            )
+        })
+        .collect()
+}
 
 /// Replays every discovered fixture (`machine/conformance/**` + `conformance-staging/**`) against
 /// `pg_parse::Morpher` — the same oracle `pg-parse`'s own `conformance_fixtures_gate.rs` runs the
@@ -83,55 +109,72 @@ fn passing_covered_constructs() -> HashSet<String> {
     covered
 }
 
-/// The advisory cross-check itself. See this file's own top-doc for exactly what it does and does
-/// not assert.
+/// The advisory cross-check itself, **widened ledger-wide (G8) and re-mapped (G9)**. See this
+/// file's own top-doc for exactly what it does and does not assert.
 #[test]
 fn supported_construct_conformance_coverage_report_advisory() {
     let covered = passing_covered_constructs();
     let covered_refs: HashSet<&str> = covered.iter().map(String::as_str).collect();
-    let report = supported_coverage_report(&covered_refs);
+    let witnessed = refusal_witnessed_kinds();
+    let report = supported_coverage_report(&covered_refs, &witnessed);
 
     // The only real assertion this test makes: the mechanism runs and reports something for every
-    // Proven CharacteristicKind. It must NEVER assert gaps == 0 -- see the module doc.
+    // CharacteristicKind. It must NEVER assert gaps == 0 -- see the module doc.
     assert!(
         !report.is_empty(),
-        "the coverage report must enumerate at least one Proven (\"supported\") \
-         CharacteristicKind"
+        "the coverage report must enumerate at least one CharacteristicKind"
     );
 
     let mut covered_n = 0usize;
     let mut uncovered = Vec::new();
     let mut unmappable = Vec::new();
+    // G8: staged-flip preview -- split the non-Covered set by disposition, since a real flip
+    // should gate Proven (hard error) ahead of ConfigPredicate/ConfirmOnly (also required, but
+    // stageable) and FailClosed (needs a refusal witness, not a passing fixture).
+    let mut proven_gaps = Vec::new();
+    let mut config_or_confirm_gaps = Vec::new();
+    let mut fail_closed_gaps = Vec::new();
     for row in &report {
         match row.status {
             CoverageStatus::Covered => covered_n += 1,
             CoverageStatus::Uncovered => uncovered.push(row.kind),
             CoverageStatus::Unmappable => unmappable.push(row.kind),
         }
+        if row.status != CoverageStatus::Covered {
+            match row.disposition {
+                pg_foma::capability::Disposition::Proven => proven_gaps.push(row.kind),
+                pg_foma::capability::Disposition::ConfigPredicate
+                | pg_foma::capability::Disposition::ConfirmOnly => {
+                    config_or_confirm_gaps.push(row.kind)
+                }
+                pg_foma::capability::Disposition::FailClosed => fail_closed_gaps.push(row.kind),
+            }
+        }
     }
 
     eprintln!(
-        "=== ADVISORY conformance-coverage cross-check (task 5.1 preview, ADR 0001) ===\n\
-         supported-but-uncovered will become a hard CI gate later -- this run does NOT fail the \
-         build on gaps.\n\
-         Proven (\"supported\") CharacteristicKinds: {} total | {covered_n} covered | \
-         {} uncovered | {} unmappable (no constructs.txt id exists for this kind at all)",
+        "=== ADVISORY conformance-coverage cross-check (task 5.1 preview, ADR 0001, G8-widened \
+         ledger-wide, G9-remapped) ===\n\
+         this will become a hard CI gate later -- this run does NOT fail the build on gaps.\n\
+         CharacteristicKinds: {} total | {covered_n} covered | {} uncovered | {} unmappable (no \
+         constructs.txt id exists for this kind at all -- should be 0 after G9)",
         report.len(),
         uncovered.len(),
         unmappable.len(),
     );
     for row in &report {
         eprintln!(
-            "  {:?}: {:?} (mapped construct ids: {:?})",
-            row.kind, row.status, row.construct_ids
+            "  {:?}: disposition={:?} requirement={:?} status={:?} (mapped construct ids: {:?})",
+            row.kind, row.disposition, row.evidence_requirement, row.status, row.construct_ids
         );
     }
-    if !uncovered.is_empty() {
-        eprintln!(
-            "SUPPORTED-BUT-UNCOVERED (advisory today; task 5.1 proper will hard-fail CI on this): \
-             {uncovered:?}"
-        );
-    }
+    eprintln!(
+        "--- Rows that would FAIL a build-breaking flip TODAY, staged by disposition ---\n\
+         Proven (would be a hard error immediately): {proven_gaps:?}\n\
+         ConfigPredicate/ConfirmOnly (also required by ADR 0001, but stageable after Proven): \
+         {config_or_confirm_gaps:?}\n\
+         FailClosed (needs a curated refusal witness, not a passing fixture): {fail_closed_gaps:?}"
+    );
     if !unmappable.is_empty() {
         eprintln!(
             "UNMAPPABLE (mapping-contract gap: no constructs.txt row corresponds to this \

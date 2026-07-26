@@ -570,12 +570,30 @@ impl CoverageLedger {
 ///
 /// `conformance_status`'s classification is the identical three-way rule
 /// [`crate::conformance_coverage::supported_coverage_report`]'s own inner closure uses
-/// (`construct_ids.is_empty()` -> [`CoverageStatus::Unmappable`]; any id present in the passing set
-/// -> [`CoverageStatus::Covered`]; otherwise [`CoverageStatus::Uncovered`]) — necessarily
-/// re-stated here (not called directly) because that module's own public entry points restrict
-/// themselves to [`crate::conformance_coverage::supported_kinds`] (the `Proven`-only subset), while
-/// this ledger needs every kind; the underlying contract ([`construct_ids_for`] plus
-/// [`CoverageStatus`] itself) is reused unchanged, never re-derived.
+/// (`construct_ids.is_empty()` -> [`CoverageStatus::Unmappable`]; the row's own
+/// [`crate::conformance_coverage::EvidenceRequirement`] satisfied -> [`CoverageStatus::Covered`];
+/// otherwise [`CoverageStatus::Uncovered`]) — re-stated here rather than called, because the two
+/// callers thread their evidence sets differently, not because the two scopes differ. **G8 note:**
+/// `supported_kinds` used to be the `Proven`-only subset while this ledger walked all 20 kinds;
+/// that asymmetry is GONE — `supported_kinds` now returns every [`crate::capability::
+/// CharacteristicKind`], so both sides cover the same rows and differ only in plumbing. The
+/// underlying contract ([`construct_ids_for`] plus [`CoverageStatus`] itself) is reused unchanged,
+/// never re-derived.
+///
+/// # G8 fix: `FailClosed` rows are graded by refusal-witness evidence, not `passing_covered_constructs`
+/// Before this fix, EVERY row -- `FailClosed` included -- was graded uniformly against
+/// `passing_covered_constructs` alone. That is unsound for a [`Disposition::FailClosed`] row:
+/// nothing compiles for a refused construct, so a passing ANALYSIS fixture can never exist for it,
+/// and worse, a `FailClosed` kind sharing a `constructs.txt` id with a non-`FailClosed` sibling
+/// could show `Covered` purely because the SIBLING's passing fixture tagged the same shared id --
+/// exactly [`CharacteristicKind::MprGroupOverwrite`] (`FailClosed`) sharing `"MPR
+/// features/groups"` with [`CharacteristicKind::MprGroupAppend`] (`ConfirmOnly`). This function
+/// now uses [`crate::conformance_coverage::evidence_requirement_for`] to pick the right evidence
+/// source per row: `FailClosed` rows are `Covered` iff [`containment_evidence_for`] names a
+/// [`ContainmentEvidenceKind::RefusalWitness`] for that kind (a hand-curated fact, independent of
+/// `passing_covered_constructs` entirely); every other disposition keeps the original
+/// passing-fixture rule. No new parameter was needed: the refusal-witness signal was already
+/// computed locally as `containment` below, just not consulted for `conformance_status` before.
 pub fn build_ledger(
     registry: &PredicateRegistry,
     passing_covered_constructs: &HashSet<&str>,
@@ -599,18 +617,29 @@ pub fn build_ledger(
             let construct_ids_static = construct_ids_for(kind);
             let construct_ids: Vec<String> =
                 construct_ids_static.iter().map(|s| s.to_string()).collect();
+            let containment = containment_evidence_for(kind);
+
             let conformance_status = if construct_ids_static.is_empty() {
                 CoverageStatus::Unmappable
-            } else if construct_ids_static
-                .iter()
-                .any(|c| passing_covered_constructs.contains(c))
-            {
-                CoverageStatus::Covered
             } else {
-                CoverageStatus::Uncovered
+                use crate::conformance_coverage::EvidenceRequirement;
+                let is_evidenced = match crate::conformance_coverage::evidence_requirement_for(
+                    disposition,
+                ) {
+                    EvidenceRequirement::PassingFixture => construct_ids_static
+                        .iter()
+                        .any(|c| passing_covered_constructs.contains(c)),
+                    EvidenceRequirement::RefusalWitness => matches!(
+                        &containment,
+                        Some(ev) if ev.kind == ContainmentEvidenceKind::RefusalWitness
+                    ),
+                };
+                if is_evidenced {
+                    CoverageStatus::Covered
+                } else {
+                    CoverageStatus::Uncovered
+                }
             };
-
-            let containment = containment_evidence_for(kind);
 
             LedgerRow {
                 kind,
@@ -742,9 +771,15 @@ mod tests {
     // ---------------------------------------------------------------------------------------
 
     #[test]
-    fn build_ledger_with_empty_passing_set_never_marks_a_row_covered() {
+    fn build_ledger_with_empty_passing_set_never_marks_a_fixture_evidenced_row_covered() {
         let ledger = build_ledger(&default_registry(), &HashSet::new());
         for row in &ledger.rows {
+            if row.disposition == Disposition::FailClosed {
+                // FailClosed rows are graded by refusal-witness evidence (see build_ledger's own
+                // G8-fix doc), independent of the passing-fixture set entirely -- covered below by
+                // `fail_closed_row_is_covered_via_refusal_witness_regardless_of_passing_set`.
+                continue;
+            }
             assert_ne!(
                 row.conformance_status,
                 CoverageStatus::Covered,
@@ -752,6 +787,30 @@ mod tests {
                 row.kind
             );
         }
+    }
+
+    /// G8 regression pin: a `FailClosed` row (`MprGroupOverwrite`) is `Covered` purely via its
+    /// curated refusal witness, EVEN with a completely empty passing-fixture set -- proving the
+    /// old cross-contamination bug (a `FailClosed` row showing `Covered` only because a sibling's
+    /// passing fixture tagged the same shared `constructs.txt` id) can no longer happen, and that
+    /// a genuine refusal witness is honored on its own terms.
+    #[test]
+    fn fail_closed_row_is_covered_via_refusal_witness_regardless_of_passing_set() {
+        let ledger = build_ledger(&default_registry(), &HashSet::new());
+        let row = ledger
+            .row(CharacteristicKind::MprGroupOverwrite)
+            .expect("MprGroupOverwrite row must exist");
+        assert_eq!(row.disposition, Disposition::FailClosed);
+        assert_eq!(
+            row.conformance_status,
+            CoverageStatus::Covered,
+            "a FailClosed row with a curated RefusalWitness must be Covered even with zero \
+             passing-fixture evidence"
+        );
+        assert_eq!(
+            row.containment.as_ref().map(|c| c.kind),
+            Some(ContainmentEvidenceKind::RefusalWitness)
+        );
     }
 
     #[test]
@@ -774,6 +833,32 @@ mod tests {
                     row.kind
                 );
             }
+        }
+    }
+
+    /// G9: after adding the 4 missing `constructs.txt` rows upstream and mapping them in
+    /// `conformance_coverage::construct_ids_for`, zero ledger rows are `Unmappable` any more --
+    /// this is unconditional (depends only on `construct_ids_for` being non-empty per kind, never
+    /// on the passing-fixture set), matching `conformance_coverage`'s own `zero_unmappable_after_g9`.
+    #[test]
+    fn zero_unmappable_rows_after_g9() {
+        let ledger = build_ledger(&default_registry(), &HashSet::new());
+        let unmappable: Vec<CharacteristicKind> = ledger
+            .rows
+            .iter()
+            .filter(|r| r.conformance_status == CoverageStatus::Unmappable)
+            .map(|r| r.kind)
+            .collect();
+        assert!(
+            unmappable.is_empty(),
+            "G9 must leave zero Unmappable ledger rows; found {unmappable:?}"
+        );
+        for row in &ledger.rows {
+            assert!(
+                !row.construct_ids.is_empty(),
+                "{:?} still has no constructs.txt mapping after G9",
+                row.kind
+            );
         }
     }
 

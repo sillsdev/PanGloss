@@ -157,8 +157,10 @@
       "kind": "left_to_right_rewrite",
       "disposition": "proven",
       "discharging_predicates": [],
-      "construct_ids": [],
-      "conformance_status": "unmappable",
+      "construct_ids": [
+        "RewriteRule direction (Dir): left-to-right"
+      ],
+      "conformance_status": "covered",
       "containment": {
         "kind": "general_pervasive",
         "citation": "tests/f2_junction_gate.rs, tests/phase_c_right_to_left.rs (LTR is the implicit contrast baseline for every rtl_* case)",
@@ -174,8 +176,10 @@
           "provenance": "structural"
         }
       ],
-      "construct_ids": [],
-      "conformance_status": "unmappable",
+      "construct_ids": [
+        "RewriteRule direction (Dir): right-to-left"
+      ],
+      "conformance_status": "covered",
       "containment": {
         "kind": "dedicated",
         "citation": "tests/phase_c_right_to_left.rs::rtl_plain_rule_now_compiles_and_matches_oracle (+ rtl_feature_environment_swap_matches_oracle, rtl_deletion_matches_oracle)",
@@ -224,8 +228,10 @@
       "kind": "subrule_gating",
       "disposition": "proven",
       "discharging_predicates": [],
-      "construct_ids": [],
-      "conformance_status": "unmappable",
+      "construct_ids": [
+        "RewriteSubruleDef gating: required/excluded POS or MPR at the subrule level"
+      ],
+      "conformance_status": "covered",
       "containment": {
         "kind": "dedicated",
         "citation": "tests/p6_gate_parity.rs::synthetic_pos_gate_matches_oracle (+ ungated_cascade_would_have_missed_the_noun_entry); scale: tests/phase_c_partition_k.rs::partition_k_recall_parity_via_generator_and_oracle",
@@ -302,8 +308,10 @@
           "provenance": "structural"
         }
       ],
-      "construct_ids": [],
-      "conformance_status": "unmappable",
+      "construct_ids": [
+        "CharacterDefinitionTable: more than one table, one per stratum"
+      ],
+      "conformance_status": "covered",
       "containment": {
         "kind": "dedicated",
         "citation": "tests/phase_c_multi_table.rs::multi_table_rewrite_compiles_correctly_against_its_owning_table; stronger claim: tests/two_table_symbol_divergence.rs::stratum_1_devoice_rewrite_proposer_confirm_matches_oracle",
