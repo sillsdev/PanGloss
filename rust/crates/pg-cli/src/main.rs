@@ -225,9 +225,9 @@ fn run() -> ExitCode {
         _ => {
             eprintln!(
                 "pangloss {} — HermitCrab Rust engine CLI\n\
-                 usage: pangloss batch <grammar> <words.txt> <out.tsv> [--step-cap N] [--word-timeout-ms N] [--memo=on|off] [--threads N] [--start N] [--engine=default|foma] [--enforce-capability|--no-enforce-capability] [--allow-unproven]\n\
+                 usage: pangloss batch <grammar> <words.txt> <out.tsv> [--step-cap N] [--word-timeout-ms N] [--memo=on|off] [--threads N] [--start N] [--engine=default|foma] [--enforce-capability|--no-enforce-capability] [--allow-unproven] [--guess]\n\
                  usage: pangloss generate <grammar> <root-morpheme-id> [other-morpheme-id ...]\n\
-                 usage: pangloss parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--engine=default|foma] [--enforce-capability|--no-enforce-capability] [--allow-unproven]\n\
+                 usage: pangloss parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--engine=default|foma] [--enforce-capability|--no-enforce-capability] [--allow-unproven] [--guess]\n\
                  usage: pangloss import <project.fwdata> <out.json>\n\
                  usage: pangloss diagnose <grammar> <words.txt> <out-dir>\n\
                  usage: pangloss pack <grammar> <out.pgpack> [--allow-unproven] [--authorized-by=<name>] [--reason=<text>] [--watchdog]\n\
@@ -244,7 +244,15 @@ fn run() -> ExitCode {
                  HC-oracle path) is never enforced, regardless of any flag. `pack`'s own\n\
                  --allow-unproven is unconditional (packing is always capability-checked) and its\n\
                  override is PERSISTENT, written into the .pgpack manifest itself -- not the\n\
-                 session-only stderr marker batch/parse emit (see `pack.rs`'s module doc).",
+                 session-only stderr marker batch/parse emit (see `pack.rs`'s module doc).\n\
+                 \n\
+                 --guess (`batch`/`parse`, --engine=default only; HC-rust port gap G3,\n\
+                 docs/hermitcrab-rust-port-audit.md sec 2/3 item 1): OFF by default, byte-identical\n\
+                 to the pre-existing behavior. When passed, an out-of-lexicon word whose normal\n\
+                 analysis is empty is retried via the lexical-pattern guesser (P11,\n\
+                 docs/p11-guesser-api-design.md); a resulting analysis is always clearly marked\n\
+                 guessed, never presented as confirmed -- `parse` prints an extra `guessed:` line,\n\
+                 `batch` appends a 6th `guessed` TSV column, both only when --guess is passed.",
                 env!("CARGO_PKG_VERSION")
             );
             ExitCode::FAILURE
@@ -601,6 +609,18 @@ fn run_capability_gate(g: &Grammar, enforce: bool, allow_unproven: bool) -> Resu
 /// `--natural-gloss` implies building the gloss bundle -> IR -> realization chain internally, but
 /// deliberately does NOT imply `--gloss`'s own `gloss:` line -- the two flags are independent.
 ///
+/// `--guess` (HC-rust port gap G3, `docs/hermitcrab-rust-port-audit.md` sec 2/3 item 1;
+/// `docs/p11-guesser-api-design.md`): OFF by default -- omitted, `ParseOptions::default()` is
+/// built and passed everywhere a `ParseOptions` is needed, which is byte-identical to this
+/// function's pre-existing behavior (`Morpher::parse_word`/`parse_word_traced` with the default
+/// options; see `pg-parse/tests/guesser_gate.rs`'s own pin of that equivalence). When passed, an
+/// out-of-lexicon word whose normal analysis is empty is retried via the lexical-pattern guesser;
+/// an extra `guessed:\ttrue|false` line is printed (after the parity line, before any
+/// `--gloss`/`--natural-gloss` lines) so a guessed analysis is never silently indistinguishable
+/// from a confirmed one. `--engine=default` only -- `--engine=foma` has no guesser of its own
+/// (the FST proposer only ever proposes real-lexicon candidates), so `--guess --engine=foma` is a
+/// hard error rather than a silent no-op.
+///
 /// `--realize-map=<path>` overrides the sidecar `pg_realize::RealizeMap` used to build each
 /// analysis's `GlossIr`; omitted, it defaults to `<grammar-dir>/<grammar-stem-with-"-hc"-suffix-
 /// stripped>-realize.toml` (e.g. `samples/data/amharic-hc.xml` -> `samples/data/amharic-
@@ -623,6 +643,8 @@ fn run_parse(args: &[String]) -> Result<(), String> {
     // `--no-enforce-capability`; resolved to a plain bool below, once `engine` is final.
     let mut enforce_capability_flag: Option<bool> = None;
     let mut allow_unproven = false;
+    // HC-rust port gap G3: OFF by default -- see this function's own `--guess` doc above.
+    let mut guess = false;
 
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -663,6 +685,7 @@ fn run_parse(args: &[String]) -> Result<(), String> {
             "--enforce-capability" => enforce_capability_flag = Some(true),
             "--no-enforce-capability" => enforce_capability_flag = Some(false),
             "--allow-unproven" => allow_unproven = true,
+            "--guess" => guess = true,
             s => positional.push(s),
         }
     }
@@ -679,6 +702,13 @@ fn run_parse(args: &[String]) -> Result<(), String> {
                 .into(),
         );
     }
+    if engine == Engine::Foma && guess {
+        return Err(
+            "--guess is not supported with --engine=foma (the foma path proposes only from the \
+             real lexicon; use the default engine for the lexical-pattern guesser)"
+                .into(),
+        );
+    }
     if let Some(v) = &natural_gloss {
         if v != "eng" {
             return Err(format!(
@@ -687,7 +717,7 @@ fn run_parse(args: &[String]) -> Result<(), String> {
         }
     }
     let [grammar_path, word] = positional[..] else {
-        return Err("usage: parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--engine=default|foma] [--enforce-capability|--no-enforce-capability] [--allow-unproven]".into());
+        return Err("usage: parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--engine=default|foma] [--enforce-capability|--no-enforce-capability] [--allow-unproven] [--guess]".into());
     };
 
     let (grammar, warnings) = load_grammar(grammar_path)?;
@@ -727,11 +757,16 @@ fn run_parse(args: &[String]) -> Result<(), String> {
     }
 
     let morpher = Morpher::new(&grammar, usize::MAX);
+    // `--guess` (HC-rust port gap G3, see this function's own doc above): omitted, this is exactly
+    // `ParseOptions::default()`, so every call below is byte-identical to the pre-existing
+    // unconditional-default-options behavior.
+    let opts = pg_parse::ParseOptions::default().with_guess_root(guess);
 
     if let Some(dest) = trace_dest {
         let sink = pg_rules::trace::TreeTraceSink::new();
-        let outcome = morpher.parse_word_traced(word, &pg_parse::ParseOptions::default(), &sink);
+        let outcome = morpher.parse_word_traced(word, &opts, &sink);
         println!("{}\t{}", word, outcome.signature());
+        print_guessed_line(guess, outcome.guessed);
         print_realize_lines(&grammar, &outcome.structured, word, gloss, natural.as_ref());
 
         let rendered = match sink.root() {
@@ -747,11 +782,22 @@ fn run_parse(args: &[String]) -> Result<(), String> {
         }
     } else {
         // No --trace: behave like a minimal, single-word `batch` (the parse result only).
-        let outcome = morpher.parse_word(word);
+        let outcome = morpher.parse_word_opts(word, &opts);
         println!("{}\t{}", word, outcome.signature());
+        print_guessed_line(guess, outcome.guessed);
         print_realize_lines(&grammar, &outcome.structured, word, gloss, natural.as_ref());
     }
     Ok(())
+}
+
+/// `--guess`'s own output marker (HC-rust port gap G3): printed only when `--guess` was passed at
+/// all (guess omitted -> zero output change, not even a `guessed:\tfalse` line) — right after the
+/// parity `word\tsignature` line and before any `--gloss`/`--natural-gloss` lines, so a guessed
+/// result is never silently indistinguishable from a confirmed one when guessing was requested.
+fn print_guessed_line(guess_requested: bool, guessed: bool) {
+    if guess_requested {
+        println!("guessed:\t{guessed}");
+    }
 }
 
 /// `--gloss`/`--natural-gloss=eng`'s per-analysis output (N0/N2): for each `outcome.structured[i]`
@@ -830,6 +876,69 @@ fn default_realize_map_path(grammar_path: &str) -> std::path::PathBuf {
     dir.join(format!("{stem}-realize.toml"))
 }
 
+/// Writes one `batch` TSV result row. Byte-identical to the pre-existing 5-column row
+/// (`idx\tword\tms\tstatus\tsignature`) when `guess_requested` is `false` — the default,
+/// `--guess`-omitted path. Only when `--guess` was passed does a 6th `guessed` column (`true`/
+/// `false`) get appended, so a guessed row is never silently indistinguishable from a confirmed
+/// one in the TSV, while every existing `--guess`-less invocation's output is untouched (HC-rust
+/// port gap G3).
+fn write_batch_row<W: Write>(
+    w: &mut W,
+    idx: usize,
+    word: &str,
+    elapsed_ms: u128,
+    status: &str,
+    signature: &str,
+    // (guess_requested, guessed) -- bundled into one tuple to stay at clippy's 7-argument limit.
+    guess: (bool, bool),
+) -> std::io::Result<()> {
+    let (guess_requested, guessed) = guess;
+    if guess_requested {
+        writeln!(w, "{idx}\t{word}\t{elapsed_ms}\t{status}\t{signature}\t{guessed}")
+    } else {
+        writeln!(w, "{idx}\t{word}\t{elapsed_ms}\t{status}\t{signature}")
+    }
+}
+
+/// `--guess`'s own parallel batch dispatch (HC-rust port gap G3): `pg_parse::hc_parse_batch` (the
+/// pre-existing free function `--threads > 1` otherwise uses) has no `ParseOptions` parameter, so
+/// it cannot express "guess on" — this is a minimal, additive sibling that does, over the exact
+/// same `Morpher` engine, called ONLY when `--guess` was actually passed (the `--guess`-omitted
+/// path keeps calling the pre-existing `hc_parse_batch` unchanged, byte-identical to before this
+/// flag existed). Deliberately simpler than `hc_parse_batch`'s own longest-surface-first dispatch
+/// scheduling (a throughput optimization, not a correctness requirement) — order-preserving via
+/// `rayon`'s indexed `par_iter().map().collect()`, which is sufficient for an opt-in diagnostic
+/// flag's parallel path.
+fn parse_batch_with_opts(
+    morpher: &Morpher,
+    words: &[String],
+    max_threads: usize,
+    opts: &pg_parse::ParseOptions,
+) -> Vec<pg_parse::BatchWordOutcome> {
+    use rayon::prelude::*;
+    if words.is_empty() {
+        return Vec::new();
+    }
+    let mut pool_builder = rayon::ThreadPoolBuilder::new().stack_size(1 << 30);
+    if max_threads > 0 {
+        pool_builder = pool_builder.num_threads(max_threads);
+    }
+    let pool = pool_builder
+        .build()
+        .expect("build rayon pool for --guess batch dispatch");
+    pool.install(|| {
+        words
+            .par_iter()
+            .map(|word| {
+                let start = Instant::now();
+                let outcome = morpher.parse_word_opts(word, opts);
+                let elapsed = start.elapsed();
+                pg_parse::BatchWordOutcome { outcome, elapsed }
+            })
+            .collect()
+    })
+}
+
 fn run_batch(args: &[String]) -> Result<(), String> {
     let mut positional: Vec<&str> = Vec::new();
     let mut step_cap: usize = usize::MAX;
@@ -857,6 +966,11 @@ fn run_batch(args: &[String]) -> Result<(), String> {
     // `--no-enforce-capability`; resolved to a plain bool below, once `engine` is final.
     let mut enforce_capability_flag: Option<bool> = None;
     let mut allow_unproven = false;
+    // HC-rust port gap G3 (`docs/hermitcrab-rust-port-audit.md` sec 2/3 item 1;
+    // `docs/p11-guesser-api-design.md`): OFF by default -- see `run_parse`'s own `--guess` doc for
+    // the shared contract (default-off byte-identical behavior, guessed rows always marked,
+    // --engine=default only).
+    let mut guess = false;
     let parse_memo = |v: &str| match v {
         "on" | "true" | "1" => Ok(true),
         "off" | "false" | "0" => Ok(false),
@@ -920,6 +1034,7 @@ fn run_batch(args: &[String]) -> Result<(), String> {
             "--enforce-capability" => enforce_capability_flag = Some(true),
             "--no-enforce-capability" => enforce_capability_flag = Some(false),
             "--allow-unproven" => allow_unproven = true,
+            "--guess" => guess = true,
             s => positional.push(s),
         }
     }
@@ -927,9 +1042,16 @@ fn run_batch(args: &[String]) -> Result<(), String> {
     if threads == 0 {
         return Err("--threads must be >= 1".into());
     }
+    if engine == Engine::Foma && guess {
+        return Err(
+            "--guess is not supported with --engine=foma (the foma path proposes only from the \
+             real lexicon; use the default engine for the lexical-pattern guesser)"
+                .into(),
+        );
+    }
     let [grammar_path, words_path, out_path] = positional.as_slice() else {
         return Err(
-            "usage: batch <grammar> <words.txt> <out.tsv> [--step-cap N] [--word-timeout-ms N] [--memo=on|off] [--threads N] [--start N] [--engine=default|foma] [--enforce-capability|--no-enforce-capability] [--allow-unproven]"
+            "usage: batch <grammar> <words.txt> <out.tsv> [--step-cap N] [--word-timeout-ms N] [--memo=on|off] [--threads N] [--start N] [--engine=default|foma] [--enforce-capability|--no-enforce-capability] [--allow-unproven] [--guess]"
                 .into(),
         );
     };
@@ -1097,6 +1219,11 @@ fn run_batch(args: &[String]) -> Result<(), String> {
         "LOADTIME\tengine=default\tgrammar_load_ms={grammar_load_ms:.3}\tmorpher_build_ms={morpher_build_ms:.3}\ttotal_ms={:.3}",
         grammar_load_ms + morpher_build_ms
     );
+    // `--guess` (HC-rust port gap G3): omitted, this is exactly `ParseOptions::default()`, so
+    // `morpher.parse_word_opts(word, &opts)` below is byte-identical to `morpher.parse_word(word)`
+    // (see `pg-parse/tests/guesser_gate.rs`'s own pin of that equivalence) — the pre-existing
+    // behavior is untouched when `--guess` is never passed.
+    let opts = pg_parse::ParseOptions::default().with_guess_root(guess);
 
     if threads == 1 {
         // Legacy sequential path (C# `RunSequential` equivalent): STARTED sentinel + per-line
@@ -1113,7 +1240,7 @@ fn run_batch(args: &[String]) -> Result<(), String> {
             // word on resume either way).
             w.flush().map_err(|e| e.to_string())?;
             let start = Instant::now();
-            let outcome = morpher.parse_word(word);
+            let outcome = morpher.parse_word_opts(word, &opts);
             let elapsed_ms = start.elapsed().as_millis();
             let (status, signature) = if outcome.invalid_shape {
                 skipped += 1;
@@ -1179,8 +1306,16 @@ fn run_batch(args: &[String]) -> Result<(), String> {
                     dedup_ns as f64 / 1e6,
                 );
             }
-            writeln!(w, "{i}\t{word}\t{elapsed_ms}\t{status}\t{signature}")
-                .map_err(|e| e.to_string())?;
+            write_batch_row(
+                &mut w,
+                i,
+                word,
+                elapsed_ms,
+                status,
+                &signature,
+                (guess, outcome.guessed),
+            )
+            .map_err(|e| e.to_string())?;
             w.flush().map_err(|e| e.to_string())?; // per-line flush (AutoFlush), crash/monitor resumable
         }
     } else {
@@ -1191,7 +1326,14 @@ fn run_batch(args: &[String]) -> Result<(), String> {
         // `--start` here only skips work (no per-word crash-resume is possible in this mode, same
         // as C#'s RunParallel — see module doc); indices are offset back to the original numbering.
         let remaining = &words[start_idx..];
-        let results = hc_parse_batch(&morpher, remaining, threads);
+        // `--guess` (HC-rust port gap G3): `hc_parse_batch` (pre-existing, guess-off) stays the
+        // exact call it always was when `--guess` is omitted -- only the `--guess` path routes
+        // through the additive `parse_batch_with_opts` sibling instead.
+        let results = if guess {
+            parse_batch_with_opts(&morpher, remaining, threads, &opts)
+        } else {
+            hc_parse_batch(&morpher, remaining, threads)
+        };
         for (j, (word, r)) in remaining.iter().zip(results.iter()).enumerate() {
             let i = start_idx + j;
             let elapsed_ms = r.elapsed.as_millis();
@@ -1213,8 +1355,16 @@ fn run_batch(args: &[String]) -> Result<(), String> {
                 }
                 ("ok", r.outcome.signature())
             };
-            writeln!(w, "{i}\t{word}\t{elapsed_ms}\t{status}\t{signature}")
-                .map_err(|e| e.to_string())?;
+            write_batch_row(
+                &mut w,
+                i,
+                word,
+                elapsed_ms,
+                status,
+                &signature,
+                (guess, r.outcome.guessed),
+            )
+            .map_err(|e| e.to_string())?;
         }
     }
     w.flush().map_err(|e| e.to_string())?;
@@ -1368,12 +1518,24 @@ mod tests {
     /// Run `batch` with `extra_args` appended after the 3 positional args, returning the written
     /// TSV's lines.
     fn run_batch_tsv(tag: &str, extra_args: &[&str]) -> Vec<String> {
+        run_batch_tsv_custom(tag, MINI_GRAMMAR_XML, "kat\n", extra_args)
+    }
+
+    /// Like [`run_batch_tsv`], but with a caller-supplied grammar/word-list body (used by the
+    /// `--guess` tests below, whose grammar needs a lexical pattern `MINI_GRAMMAR_XML` doesn't
+    /// have).
+    fn run_batch_tsv_custom(
+        tag: &str,
+        grammar_xml: &str,
+        words_text: &str,
+        extra_args: &[&str],
+    ) -> Vec<String> {
         let dir = scratch_dir(tag);
         let grammar_path = dir.join("grammar.xml");
         let words_path = dir.join("words.txt");
         let out_path = dir.join("out.tsv");
-        fs::write(&grammar_path, MINI_GRAMMAR_XML).expect("write grammar");
-        fs::write(&words_path, "kat\n").expect("write words");
+        fs::write(&grammar_path, grammar_xml).expect("write grammar");
+        fs::write(&words_path, words_text).expect("write words");
 
         let mut args: Vec<String> = vec![
             grammar_path.to_string_lossy().into_owned(),
@@ -1446,6 +1608,182 @@ mod tests {
                 fields[4], "-",
                 "threads={threads}: \"kat\" should analyze to a real signature"
             );
+        }
+    }
+
+    /// HC-rust port gap G3 (`docs/hermitcrab-rust-port-audit.md` sec 2/3 item 1;
+    /// `docs/p11-guesser-api-design.md`): end-to-end `--guess` gate through `run_batch` itself,
+    /// covering both `--threads` writer paths (the sequential loop and the `parse_batch_with_opts`
+    /// rayon path each needed their own wiring above). Uses the same synthetic lexical-pattern
+    /// grammar shape as `conformance-staging/edge-cases/guesser-pattern-root-fallback/grammar.xml`
+    /// (that fixture's own gate lives in `tests/guesser_conformance_gate.rs`, which drives the
+    /// engine directly rather than through this binary's `run_batch`/TSV surface).
+    mod guess_tests {
+        use super::run_batch_tsv_custom;
+
+        /// One lexical PATTERN entry ("[Any]*", empty-FS natural class -- matches every segment,
+        /// so it is partitioned out of ordinary root lookup, P11 chunk 1/2) plus one ordinary root
+        /// ("kad") as the negative control. Mirrors
+        /// `conformance-staging/edge-cases/guesser-pattern-root-fallback/grammar.xml` exactly (kept
+        /// as an independent literal here rather than a shared `include_str!`, matching this
+        /// module's existing convention of self-contained inline fixtures).
+        const GUESS_GRAMMAR_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+<HermitCrabInput>
+  <Language>
+    <Name>GuessCliTest</Name>
+    <PartsOfSpeech><PartOfSpeech id="posV"><Name>Verb</Name></PartOfSpeech></PartsOfSpeech>
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cG"><Representations><Representation>g</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cD"><Representations><Representation>d</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cK"><Representations><Representation>k</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+      <BoundaryDefinitions>
+        <BoundaryDefinition id="cPlus"><Representations><Representation>+</Representation></Representations></BoundaryDefinition>
+      </BoundaryDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum characterDefinitionTable="t1" morphologicalRules="mrPast">
+        <Name>Morphophonemic</Name>
+        <MorphologicalRuleDefinitions>
+          <MorphologicalRule id="mrPast" requiredPartsOfSpeech="posV">
+            <Name>past_suffix</Name>
+            <MorphemeId>PAST</MorphemeId>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subPast">
+                <MorphologicalInput>
+                  <PhoneticSequence id="stem">
+                    <OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence>
+                  </PhoneticSequence>
+                </MorphologicalInput>
+                <MorphologicalOutput>
+                  <CopyFromInput index="stem" />
+                  <InsertSegments><PhoneticShape>+d</PhoneticShape></InsertSegments>
+                </MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <LexicalEntries>
+          <LexicalEntry id="ePattern">
+            <MorphemeId>PATTERN</MorphemeId>
+            <Allomorphs><Allomorph id="aPattern"><PhoneticShape>[Any]*</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>pattern</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="eKad" partOfSpeech="posV">
+            <MorphemeId>KAD</MorphemeId>
+            <Allomorphs><Allomorph id="aKad"><PhoneticShape>kad</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>kad</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>
+"#;
+
+        /// Gate 1 + gate 4 (default OFF, byte-identical to pre-existing behavior): omitting
+        /// `--guess` must keep the pre-existing 5-column row shape and never analyze the
+        /// out-of-lexicon word "gag", in both thread modes.
+        #[test]
+        fn guess_omitted_keeps_five_column_rows_and_finds_nothing_for_pattern_only_word() {
+            for (tag, threads) in [("guess-off-seq", "1"), ("guess-off-par", "2")] {
+                let lines = run_batch_tsv_custom(
+                    tag,
+                    GUESS_GRAMMAR_XML,
+                    "gag\n",
+                    &["--threads", threads],
+                );
+                assert_eq!(lines.len(), if threads == "1" { 2 } else { 1 }, "{lines:?}");
+                let result_line = lines.last().unwrap();
+                let fields: Vec<&str> = result_line.split('\t').collect();
+                assert_eq!(
+                    fields.len(),
+                    5,
+                    "threads={threads}: --guess omitted must keep the pre-existing 5-column row: {fields:?}"
+                );
+                assert_eq!(fields[3], "ok");
+                assert_eq!(
+                    fields[4], "-",
+                    "threads={threads}: guessing off must find nothing for the pattern-only word"
+                );
+            }
+        }
+
+        /// Gate 2: `--guess` analyzes the out-of-lexicon word ("gag", matched only by the
+        /// grammar's lexical pattern) and appends a 6th `guessed` column marked `true` -- in both
+        /// thread modes (the sequential loop and the `parse_batch_with_opts` rayon path).
+        #[test]
+        fn guess_flag_analyzes_pattern_only_word_and_marks_the_row_guessed() {
+            for (tag, threads) in [("guess-on-seq", "1"), ("guess-on-par", "2")] {
+                let lines = run_batch_tsv_custom(
+                    tag,
+                    GUESS_GRAMMAR_XML,
+                    "gag\n",
+                    &["--threads", threads, "--guess"],
+                );
+                let result_line = lines.last().unwrap();
+                let fields: Vec<&str> = result_line.split('\t').collect();
+                assert_eq!(
+                    fields.len(),
+                    6,
+                    "threads={threads}: --guess must append a 6th `guessed` column: {fields:?}"
+                );
+                assert_eq!(fields[3], "ok");
+                assert_eq!(
+                    fields[4], "gag|gag",
+                    "threads={threads}: guessing on must analyze \"gag\" via the lexical pattern"
+                );
+                assert_eq!(
+                    fields[5], "true",
+                    "threads={threads}: a guessed analysis must be clearly marked, not silently \
+                     indistinguishable from a confirmed one: {fields:?}"
+                );
+            }
+        }
+
+        /// Gate 3 (negative control): the ordinary lexical root "kad" is never marked guessed, on
+        /// or off, in either thread mode -- the guesser only fires on a genuine total miss.
+        #[test]
+        fn guess_flag_never_marks_the_ordinary_root_guessed() {
+            for (tag, threads) in [("guess-control-seq", "1"), ("guess-control-par", "2")] {
+                let lines =
+                    run_batch_tsv_custom(tag, GUESS_GRAMMAR_XML, "kad\n", &["--threads", threads, "--guess"]);
+                let result_line = lines.last().unwrap();
+                let fields: Vec<&str> = result_line.split('\t').collect();
+                assert_eq!(fields.len(), 6, "{fields:?}");
+                assert_eq!(fields[4], "KAD|kad");
+                assert_eq!(
+                    fields[5], "false",
+                    "threads={threads}: an ordinary lexical hit must never be marked guessed: {fields:?}"
+                );
+            }
+        }
+
+        /// `--guess --engine=foma` must be a hard, explicit error (the foma path has no guesser of
+        /// its own), never a silent no-op.
+        #[test]
+        fn guess_with_foma_engine_is_a_hard_error() {
+            let dir = super::scratch_dir("guess-foma-conflict");
+            let grammar_path = dir.join("grammar.xml");
+            let words_path = dir.join("words.txt");
+            let out_path = dir.join("out.tsv");
+            std::fs::write(&grammar_path, GUESS_GRAMMAR_XML).unwrap();
+            std::fs::write(&words_path, "gag\n").unwrap();
+            let args = vec![
+                grammar_path.to_string_lossy().into_owned(),
+                words_path.to_string_lossy().into_owned(),
+                out_path.to_string_lossy().into_owned(),
+                "--engine=foma".to_string(),
+                "--guess".to_string(),
+            ];
+            let err = super::run_batch(&args).expect_err("--guess --engine=foma must error");
+            assert!(err.contains("--guess"), "{err}");
         }
     }
 
