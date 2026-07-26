@@ -462,8 +462,8 @@ actionable the pattern basis above makes them):
 2. `MultiTable` — shared-representation configuration (`bistratal-overlapping-segment-representation`) — ready to author, but the underlying token-space fix is itself a larger design task.
 3. `SubruleGating` — its own tagged phenomenon (`subrule-morphosyntactic-gating`) — ready to author now (compiler already handles it correctly; the fixture is pure conformance-coverage value).
 4. `RightToLeftRewrite` — the excluded pattern shapes (`right-to-left-bounded-quantifier-rewrite` and siblings) — ready to author per-shape, each independently.
-5. `Metathesis` — right-to-left direction — pattern basis ready, but blocked on a human NEEDS-DECISION (build a from-scratch construction at all?) before a fixture would be meaningful.
-6. `QuantifierPattern` — unbounded configuration — pattern basis ready, but blocked on a human NEEDS-DECISION (is unbounded compilation feasible at all?) before a fixture shape (pass vs. `expect_fail`) can be chosen.
+5. `Metathesis` — right-to-left direction — **UNBLOCKED 2026-07-25** (`docs/conformance/needs-decision-resolutions.md`: build it; the construction is not from scratch — `replace.rs`'s existing mirror-and-reverse RTL machinery transfers). Fixture shape: **pass**, lands `ConfirmOnly`. Ready to author once the construction lands (tasks.md 4.6).
+6. `QuantifierPattern` — unbounded configuration — **UNBLOCKED 2026-07-25** (same record: unattempted, not infeasible — foma has a native exact `^>N`/`*` construction, and `max = -1` is the loader/DTD default). Fixture shape: **pass**, lands `ConfirmOnly`. Ready to author once the construction lands (tasks.md 4.5).
 7. `CircumfixOutputAction` — missing structural-composite shapes — blocked on a census this document cannot substitute for; no fixture proposed.
 8. `Tracing (TraceType)` — not a pattern gap at all; flagged as out of scope for typological research.
 

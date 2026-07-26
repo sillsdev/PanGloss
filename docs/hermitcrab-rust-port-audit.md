@@ -84,6 +84,36 @@ Items are numbered to match §3.
   "Optional-skip reaches one position too far" was investigated and is **not** a bug — it is a faithful
   port of `TraversalMethodBase.Initialize` (`cs:203-222`).
 
+**§3 item 2 (analysis-side tracing) — scope narrowed, and the doc's wording is partly stale.** "stratum/
+template/rule bookends on the unapplication side aren't traced" over-states it: the **rule** level IS
+wired. `morphological_rule_unapplied`/`_not_unapplied` fire from `pg-rules/src/morph.rs:371-494`,
+`phonological_rule_unapplied` from `rewrite.rs:1815`/`:1940` and `metathesis.rs:770`. What is genuinely
+unwired is exactly **five** `TraceSink` methods with **zero** pipeline call sites (the trait declares
+them; only the no-op impl uses them), each with a precise C# counterpart:
+
+| Unwired `TraceSink` method | C# call site(s) |
+|---|---|
+| `begin_unapply_stratum` | `AnalysisStratumRule.cs:105` |
+| `end_unapply_stratum` | `AnalysisStratumRule.cs:125`, `:143` (two exits) |
+| `begin_unapply_template` | `AnalysisAffixTemplateRule.cs:44` |
+| `end_unapply_template` | `AnalysisAffixTemplateRule.cs:72`, `:78`, `:108`, `:117` (four sites; the `false`/`true` arg is the unapplied flag) |
+| `lexical_lookup` | `Morpher.cs:352`, `:379` — **not previously recorded as a gap at all**; it is an analysis-side event and is likewise never fired |
+
+Verified by counting pipeline call sites per event: all four apply-side bookends have 1-2 call sites
+each, all four unapply-side bookends and `lexical_lookup` have 0.
+
+**§3 item 7 (`FailureReason` order) — mechanism now pinned exactly; it is a fixable divergence, not an
+inherent one.** The two gates are the syn-FS unify gate and the non-final-template prohibition, in
+`synth_affix`/`synth_affix_cached` (`pg-rules/src/morph.rs`, the gate at `:1669` vs the one at `:1681`).
+C#'s `SynthesisAffixProcessRule.Apply` checks, in order: `MaxApplicationCount` →
+`NonPartialRuleProhibitedAfterFinalTemplate` → `NonPartialRuleRequiredAfterNonFinalTemplate` →
+`RequiredStemName` → `RequiredSyntacticFeatureStruct` (`SynthesisAffixProcessRule.cs:44-131`, syn-FS
+**last**). Rust checks syn-FS **first**, so the port is inverted on exactly that pair. Every one of these
+gates returns empty on failure, so the surviving-word set is order-independent — only the reported first
+reason differs, which is why this is trace-only. **Resolution: align to C# order** (move the syn-FS gate
+after the stem-name gate) rather than documenting the divergence as accepted; the C# order is cited and
+the change cannot alter parse outcomes.
+
 **Newly found (not in §3):**
 
 - **`max_stem_count` is hardcoded to `2`** inside `Morpher::parse_word_opts`, so the confirm engine

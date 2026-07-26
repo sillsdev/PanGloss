@@ -40,17 +40,48 @@
       test + new `edge-cases` fixture
 - [ ] 4.2 `RightToLeftRewrite`: extend `compile_rtl_branch_net` to currently-excluded pattern shapes,
       one shape at a time, each with its own fixture
-- [ ] 4.3 `CircumfixOutputAction`: census which allomorph shapes fail `is_structural_rule`/
-      `build_structural_composites` today, then extend the builder to cover them
+- [x] 4.3 `CircumfixOutputAction`: census which allomorph shapes fail `is_structural_rule`/
+      `build_structural_composites` today — **DONE 2026-07-25**,
+      `docs/conformance/circumfix-structural-composite-census.md`. Key finding: the *mechanism* is
+      allomorph-complete (`struct_extend` delegates to `pg_rules::morph::synthesize`, `emit.rs:2272`);
+      every gap is in candidate *selection*, and all fail over-refusing (honest/fail-closed, no
+      overclaim). Three named shapes, split out below.
+- [ ] 4.3a **C1** — `rule_role` (`emit.rs:555-560`) classifies a rule by allomorph **0 only**, so a
+      circumfix-shaped allomorph at index ≥ 1 never becomes a structural candidate (and the gap
+      appears/disappears as an author reorders allomorphs). Fix: allomorph-wise `any` in
+      `is_structural_rule`, without changing `rule_role`'s contract for its other callers. Fixture: a
+      rule whose non-first allomorph is circumfix-shaped. **Highest priority of the three.**
+- [ ] 4.3b **C3** — `classify_affix`'s interior-action test (`emit.rs:434-440`) returns `Role::Infix`
+      before the leading-AND-trailing test (`:441-453`) can return `CircumfixPrefix`, so a
+      simultaneously-circumfixing-and-infixing RHS is routed to `preexpand` instead of the structural
+      mechanism `emit.rs:1928-1934` says is required. Fix: let `CircumfixPrefix` win when both hold,
+      with its own recall argument. Fixture: such an RHS.
+- [ ] 4.3c **C2** — `classify_affix`'s reduplication test (`emit.rs:408-414`) likewise preempts the
+      circumfix test. **Do NOT schedule independently** — which role wins decides which mechanism
+      claims the allomorph, so this is a joint decision with row 11's `Reduplication` carve-out
+      boundary and needs both recall arguments re-checked together.
 - [ ] 4.4 `MultiTable`: design and build a disjoint-token-range encoding across `CharacterDefinitionTable`s
       to close the shared-representation `Refuse` split
 
 ## 5. Escalate NEEDS-DECISION and NEEDS-ORACLE items (hand-off)
 
-- [ ] 5.1 Record a human/architect decision (new short ADR or dated `STAGING.md` note) on: `Metathesis`'s
+- [x] 5.1 Record a human/architect decision (new short ADR or dated `STAGING.md` note) on: `Metathesis`'s
       from-scratch RTL swap construction (build it, or declare a permanent scope boundary?);
       `QuantifierPattern`'s genuinely-unbounded case (structurally infeasible, or simply unattempted?);
       whether either, if greenlit, also warrants a C#-oracle re-verification pass
+      — **DONE 2026-07-25**, record: `docs/conformance/needs-decision-resolutions.md`. Both rows resolve
+      **PROVABLE, build, no carve-out**; neither needs a C#-oracle precondition (`pangloss` is the oracle
+      per the standing `conformance-grammars` rule). `SimultaneousRewrite`'s overlap case stays
+      oracle-blocked (5.2), unswept. The two builds become 4.5 and 4.6 below.
+- [ ] 4.5 `QuantifierPattern` unbounded (`max == -1`): `Slot::Repeat.max` → `Option<u32>`; `render_slots`
+      emits `[inner]*` (min 0) / `[inner]^>{min-1}` (min ≥ 1) instead of `^{min,max}`;
+      `MAX_QUANTIFIER_BOUND` applies to finite bounds only; audit every finite-max reader for a
+      no-finite-max path (never a defaulted number). `slot_candidates` still refuses `Slot::Repeat`
+      (unchanged, honest). Fixture: `unbounded-iterative-quantifier-expansion`
+- [ ] 4.6 `Metathesis` `Dir::RightToLeft`: drop `compile_metathesis_rule`'s `Dir::LeftToRight` early
+      return in favour of the mirror-and-reverse construction (`reversed_slots` + mirrored
+      `left_switch`/`right_switch` remap + `fsm_reverse` + `fsm_union` with the plain net), mirroring
+      `compile_rtl_branch_net`. Fixture: `right-to-left-metathesis-reversal`
 - [ ] 5.2 Resume `add-reference-hermitcrab-parity` §§2-5 far enough to independently verify
       `SimultaneousRewrite`'s overlapping-subrule configuration against `hc.dll` (design.md D6)
 
