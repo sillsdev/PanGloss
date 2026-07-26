@@ -116,10 +116,51 @@
 //! flip-ready but deliberately does NOT flip it — a real flip should stage `Proven` rows (a hard
 //! error) ahead of `ConfigPredicate`/`ConfirmOnly` rows (also required, but distinguishable via
 //! `disposition` so they can gate on a later date), per the task's own framing.
+//!
+//! # The structural-witness gate: closing the last silent-inheritance hole before a flip
+//! [`construct_ids_for`] maps some `constructs.txt` row ids from MORE THAN ONE [`CharacteristicKind`]
+//! (a coarser characteristic and a finer one genuinely sharing the same upstream row — `constructs.
+//! txt` has no finer-grained id for either). That is fine for the coarser kind, but it means the
+//! finer kind's `Covered` status is, MECHANICALLY, satisfied by ANY passing fixture tagging that id
+//! — including one that only ever exercised the coarser sibling. [`supported_coverage_report`]
+//! cannot tell "this fixture genuinely exercises the finer construct" from "this fixture exercises
+//! the coarser one and happens to share the finer one's row id" — both look identical to a plain
+//! set-membership check over `exercises:` tags. A row can therefore report `Covered` forever even if
+//! the ONE fixture that ever genuinely exercised the finer construct is deleted, so long as some
+//! other, coarser-only fixture keeps tagging the shared id. That silent-rot risk is exactly what
+//! makes flipping this cross-check to build-breaking on faith irresponsible.
+//!
+//! [`shared_construct_ids`] computes every such shared id directly from [`construct_ids_for`] (never
+//! hardcoded — a future mapping edit is picked up automatically). [`passing_fixture_shared_construct_ids`]
+//! narrows that to the ids actually AT RISK of this inheritance: both sharing kinds must independently
+//! need [`EvidenceRequirement::PassingFixture`] (a kind needing [`EvidenceRequirement::RefusalWitness`]
+//! instead — [`Disposition::FailClosed`] — can never inherit a sibling's passing fixture, since
+//! `supported_coverage_report` never consults `passing_covered_constructs` for it at all; see
+//! [`fail_closed_row_never_covered_by_a_siblings_passing_fixture`]). Today that is exactly three ids
+//! (`Stratum (Linear/Unordered rule order)`, `RewriteRule Iterative (...)`, `AffixProcessRule: prefix/
+//! suffix/circumfix/infix`) — the fourth, `MPR features/groups`, is a genuine shared id too but is
+//! NOT at risk, because [`CharacteristicKind::MprGroupOverwrite`] moved to `FailClosed`/
+//! `RefusalWitness` (see this module's own G8 section above), so it structurally cannot inherit
+//! [`CharacteristicKind::MprGroupAppend`]'s passing-fixture evidence any more.
+//!
+//! [`registered_structural_witnesses`] pairs each of today's three at-risk ids with a
+//! [`StructuralWitness`]: a predicate over the LOADED [`pg_grammar::model::Grammar`] (never a second
+//! hand-rolled definition of the construct, never a regex over the source XML) that decides whether
+//! a grammar structurally exhibits the FINER characteristic — independent of whatever `exercises:`
+//! tag a fixture happens to carry. `tests/structural_witness_gate.rs` (this crate) is what actually
+//! RUNS these predicates against every discovered, PASSING fixture and asserts each one is satisfied
+//! by at least one fixture that *also* tags the shared id on a passing word/parse — pinning the
+//! finer characteristic's evidence mechanically rather than leaving it to only ever have been
+//! verified by hand. `every_passing_fixture_shared_id_has_a_registered_structural_witness` (below,
+//! this module) is the generic, string-driven half that needs no fixture I/O at all: it fails loudly
+//! if [`construct_ids_for`] ever grows a NEW at-risk shared id with no registered witness, so this
+//! protection cannot be silently defeated by a future mapping edit the way the original four ids
+//! went unnoticed.
 
 use std::collections::HashSet;
 
 use crate::capability::{CharacteristicKind, Disposition};
+use pg_grammar::model::{Grammar, MorphRuleOrder, PhonRuleDef};
 
 /// Deliverable 1, THE CONTRACT: `kind`'s corresponding `machine/conformance/constructs.txt`
 /// identifier(s), verbatim (byte-for-byte matching what a `words.yaml` `exercises:` entry would
@@ -477,6 +518,149 @@ pub fn supported_uncovered(
         .collect()
 }
 
+/// Every `constructs.txt` row id mapped by MORE THAN ONE [`CharacteristicKind`] — computed
+/// directly from [`construct_ids_for`] over [`CharacteristicKind::ALL`], never a hardcoded list.
+/// See this module's own "structural-witness gate" top-doc section for why this matters and what
+/// it is the mechanical half of. Deterministic order (`BTreeMap`) so callers/tests get stable
+/// output regardless of [`CharacteristicKind::ALL`]'s own declaration order.
+pub fn shared_construct_ids() -> Vec<(&'static str, Vec<CharacteristicKind>)> {
+    let mut by_id: std::collections::BTreeMap<&'static str, Vec<CharacteristicKind>> =
+        std::collections::BTreeMap::new();
+    for &kind in CharacteristicKind::ALL {
+        for &id in construct_ids_for(kind) {
+            by_id.entry(id).or_default().push(kind);
+        }
+    }
+    by_id
+        .into_iter()
+        .filter(|(_, kinds)| kinds.len() > 1)
+        .collect()
+}
+
+/// The subset of [`shared_construct_ids`] genuinely AT RISK of one kind's `Covered` status
+/// silently inheriting from a sibling's passing fixture: at least two of the sharing kinds must
+/// independently resolve to [`EvidenceRequirement::PassingFixture`] (computed via
+/// [`evidence_requirement_for`], never hardcoded either). A kind needing
+/// [`EvidenceRequirement::RefusalWitness`] instead can never be satisfied by a sibling's passing
+/// fixture in the first place — [`supported_coverage_report`] never even looks at
+/// `passing_covered_constructs` for it — so a shared id where only ONE sharing kind needs a
+/// passing fixture (today: `MPR features/groups`, since [`CharacteristicKind::MprGroupOverwrite`]
+/// is `FailClosed`) is a genuine shared id but not one this gate needs to structurally pin.
+pub fn passing_fixture_shared_construct_ids() -> Vec<(&'static str, Vec<CharacteristicKind>)> {
+    shared_construct_ids()
+        .into_iter()
+        .filter(|(_, kinds)| {
+            kinds
+                .iter()
+                .filter(|&&k| {
+                    evidence_requirement_for(k.default_disposition())
+                        == EvidenceRequirement::PassingFixture
+                })
+                .count()
+                >= 2
+        })
+        .collect()
+}
+
+/// One at-risk shared id's structural witness: a predicate over the LOADED grammar model that
+/// decides whether a grammar structurally exhibits `finer_kind` — independent of any
+/// `exercises:` tag. See [`registered_structural_witnesses`] for today's three, and each
+/// predicate function's own doc for exactly where it reads its facts from.
+pub struct StructuralWitness {
+    pub construct_id: &'static str,
+    /// The finer characteristic sharing `construct_id` that this predicate specifically pins
+    /// structural evidence for. The coarser sibling needs no predicate of its own — an ordinary
+    /// passing fixture already proves it, with no inheritance risk in that direction.
+    pub finer_kind: CharacteristicKind,
+    pub predicate: fn(&Grammar) -> bool,
+}
+
+impl std::fmt::Debug for StructuralWitness {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StructuralWitness")
+            .field("construct_id", &self.construct_id)
+            .field("finer_kind", &self.finer_kind)
+            .finish()
+    }
+}
+
+/// [`CharacteristicKind::UnorderedMorphRuleApplication`]'s structural predicate: does any stratum
+/// in the loaded [`Grammar`] declare `morphologicalRuleOrder="unordered"`
+/// ([`MorphRuleOrder::Unordered`], `pg_grammar::load`'s own parse of that attribute)? Reads the
+/// LOADED model (`StratumDef::mrule_order`), never the raw XML — the same field
+/// `tests/cover_unordered_morph_rules.rs` asserts against directly.
+pub fn grammar_has_unordered_stratum(g: &Grammar) -> bool {
+    g.strata
+        .iter()
+        .any(|s| s.mrule_order == MorphRuleOrder::Unordered)
+}
+
+/// [`CharacteristicKind::Epenthesis`]'s structural predicate: does any phonological rewrite rule
+/// in the loaded [`Grammar`] have an EMPTY `PhoneticInput` — [`pg_grammar::model::RewriteRuleDef`]'s
+/// own doc: "empty pattern if absent (epenthesis rules)"? Reads the LOADED model
+/// (`RewriteRuleDef::lhs.nodes.is_empty()`), not a regex over `grammar.xml`'s `<PhoneticInput/>`
+/// tag — deliberately: the DTD's insertion-only convention is that an ABSENT/empty
+/// `<PhoneticInput>` element compiles to an empty [`pg_grammar::model::Pattern`] (zero
+/// [`pg_grammar::model::PatternNode`]s), and reading the compiled model is the same fact
+/// `tests/epenthesis_structural_route_containment.rs::fixture_has_epenthesis_and_composes_to_confirm_only`
+/// already asserts on directly, rather than this gate re-deriving its own independent (and
+/// possibly drifting) idea of what "empty" looks like in the source XML — e.g. a
+/// self-closing `<PhoneticInput/>` vs. an empty `<PhoneticInput><PhoneticSequence/></PhoneticInput>`
+/// are two different XML spellings of the identical loaded fact, and only the loaded model
+/// treats them identically for free.
+pub fn grammar_has_empty_lhs_rewrite_rule(g: &Grammar) -> bool {
+    g.prules.iter().any(|pr| {
+        matches!(pr, PhonRuleDef::Rewrite(r) if r.lhs.nodes.is_empty())
+    })
+}
+
+/// [`CharacteristicKind::CircumfixOutputAction`]'s structural predicate: does ANY allomorph of ANY
+/// morphological rule in the loaded [`Grammar`] classify as `Role::CircumfixPrefix` under
+/// [`crate::emit::classify_affix`] — the COMPILER'S OWN classifier, called here directly rather
+/// than re-implemented, so this gate and the compiler cannot drift apart. Deliberately scans
+/// EVERY allomorph of every rule (`MorphRuleDef::affix_allomorphs`), not just allomorph 0 —
+/// `docs/conformance/circumfix-structural-composite-census.md`'s "C1" finding is that
+/// `crate::emit::rule_role` (the compiler's OWN candidate-selection path) classifies a rule by its
+/// FIRST allomorph only, so a rule whose non-first allomorph is circumfix-shaped is a real,
+/// order-of-declaration-dependent gap on the COMPILE side — this predicate must not repeat that
+/// gap on the GATE side too, or a circumfix-shaped allomorph hiding behind a non-circumfix
+/// allomorph 0 would make this witness silently fail to find a fixture that visibly has one.
+pub fn grammar_has_circumfix_shaped_allomorph(g: &Grammar) -> bool {
+    g.mrules.iter().any(|def| {
+        def.affix_allomorphs().is_some_and(|allomorphs| {
+            allomorphs
+                .iter()
+                .any(|a| crate::emit::classify_affix(&a.rhs) == crate::emit::Role::CircumfixPrefix)
+        })
+    })
+}
+
+/// Today's three live [`StructuralWitness`]es — one per at-risk shared id
+/// ([`passing_fixture_shared_construct_ids`]'s current three-element result). The `MPR
+/// features/groups` id is deliberately NOT here: it is shared but not at-risk (this module's own
+/// top-doc), so [`CharacteristicKind::MprGroupOverwrite`]'s `RefusalWitness` evidence (a curated
+/// [`crate::coverage_ledger`] citation, not a structural grammar predicate) is the correct — and
+/// already-existing — mechanism for it.
+pub fn registered_structural_witnesses() -> Vec<StructuralWitness> {
+    vec![
+        StructuralWitness {
+            construct_id: construct_ids_for(CharacteristicKind::UnorderedMorphRuleApplication)[0],
+            finer_kind: CharacteristicKind::UnorderedMorphRuleApplication,
+            predicate: grammar_has_unordered_stratum,
+        },
+        StructuralWitness {
+            construct_id: construct_ids_for(CharacteristicKind::Epenthesis)[0],
+            finer_kind: CharacteristicKind::Epenthesis,
+            predicate: grammar_has_empty_lhs_rewrite_rule,
+        },
+        StructuralWitness {
+            construct_id: construct_ids_for(CharacteristicKind::CircumfixOutputAction)[0],
+            finer_kind: CharacteristicKind::CircumfixOutputAction,
+            predicate: grammar_has_circumfix_shaped_allomorph,
+        },
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -642,5 +826,128 @@ mod tests {
             .map(|r| r.kind)
             .collect();
         assert_eq!(uncovered, expected);
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Structural-witness gate: the generic, non-fixture, string-driven half (see this module's
+    // own top-doc section). The fixture-scanning half — actually running each registered
+    // predicate against every discovered, PASSING fixture — lives in
+    // `tests/structural_witness_gate.rs` (needs `pg_conformance_fixtures`/`pg_parse` replay,
+    // dev-dependency-only glue this module deliberately stays free of, same split
+    // `conformance_coverage_gate.rs`'s own top-doc already established for `supported_kinds`).
+    // ---------------------------------------------------------------------------------------
+
+    /// [`shared_construct_ids`] must find the known four shared ids today (belt-and-suspenders on
+    /// top of the generic check below, which is what actually protects against a NEW one) —
+    /// pinning today's exact shape so a silent change to `construct_ids_for` shows up here too.
+    #[test]
+    fn shared_construct_ids_finds_the_four_known_pairs() {
+        let shared = shared_construct_ids();
+        let pairs_containing = |a: CharacteristicKind, b: CharacteristicKind| {
+            shared
+                .iter()
+                .any(|(_, kinds)| kinds.contains(&a) && kinds.contains(&b))
+        };
+        assert!(
+            pairs_containing(
+                CharacteristicKind::OrderedMorphRuleApplication,
+                CharacteristicKind::UnorderedMorphRuleApplication
+            ),
+            "{shared:?}"
+        );
+        assert!(
+            pairs_containing(CharacteristicKind::IterativeRewrite, CharacteristicKind::Epenthesis),
+            "{shared:?}"
+        );
+        assert!(
+            pairs_containing(CharacteristicKind::Affixation, CharacteristicKind::CircumfixOutputAction),
+            "{shared:?}"
+        );
+        assert!(
+            pairs_containing(CharacteristicKind::MprGroupAppend, CharacteristicKind::MprGroupOverwrite),
+            "{shared:?}"
+        );
+        assert_eq!(shared.len(), 4, "{shared:?}");
+    }
+
+    /// The core distinction [`passing_fixture_shared_construct_ids`] exists to draw: the MPR pair
+    /// is a genuine shared id (still reported by [`shared_construct_ids`]) but is NOT at-risk —
+    /// [`CharacteristicKind::MprGroupOverwrite`]'s `FailClosed` disposition needs a REFUSAL
+    /// witness, so it structurally cannot inherit [`CharacteristicKind::MprGroupAppend`]'s
+    /// passing-fixture evidence the way the other three pairs could.
+    #[test]
+    fn mpr_pair_is_shared_but_not_passing_fixture_at_risk() {
+        let shared = shared_construct_ids();
+        assert!(
+            shared.iter().any(|(_, kinds)| kinds
+                .contains(&CharacteristicKind::MprGroupAppend)
+                && kinds.contains(&CharacteristicKind::MprGroupOverwrite)),
+            "{shared:?}"
+        );
+
+        let at_risk = passing_fixture_shared_construct_ids();
+        assert!(
+            !at_risk
+                .iter()
+                .any(|(_, kinds)| kinds.contains(&CharacteristicKind::MprGroupOverwrite)),
+            "MprGroupOverwrite must not appear in the at-risk set: {at_risk:?}"
+        );
+    }
+
+    /// Today's exact three at-risk shared ids — pinned so a silent shape change shows up here,
+    /// on top of (not instead of) the generic witness-coverage check below.
+    #[test]
+    fn passing_fixture_shared_construct_ids_is_exactly_three_today() {
+        let at_risk = passing_fixture_shared_construct_ids();
+        assert_eq!(at_risk.len(), 3, "{at_risk:?}");
+    }
+
+    /// **The generic drift guard.** Every AT-RISK shared id must have a registered
+    /// [`StructuralWitness`] — computed here with NO hardcoded id list on either side, so a
+    /// future `construct_ids_for` edit that introduces a new coarser/finer shared-id pair with no
+    /// structural predicate fails LOUDLY, rather than silently reintroducing the exact inheritance
+    /// risk this whole gate exists to close.
+    #[test]
+    fn every_passing_fixture_shared_id_has_a_registered_structural_witness() {
+        let at_risk = passing_fixture_shared_construct_ids();
+        assert!(
+            !at_risk.is_empty(),
+            "the at-risk-shared-id scan found nothing -- construct_ids_for's shape changed and \
+             this check went vacuous, which is worse than a failure (see this module's own \
+             top-doc on silent rot)"
+        );
+
+        let registered: HashSet<&str> = registered_structural_witnesses()
+            .iter()
+            .map(|w| w.construct_id)
+            .collect();
+        assert!(!registered.is_empty(), "no structural witnesses registered at all");
+
+        let missing: Vec<String> = at_risk
+            .iter()
+            .filter(|(id, _)| !registered.contains(id))
+            .map(|(id, kinds)| {
+                format!("{id:?} (shared by {kinds:?}) has no registered StructuralWitness")
+            })
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "new at-risk shared construct id(s) with no structural witness -- add one to \
+             registered_structural_witnesses before trusting these ids' Covered status:\n  {}",
+            missing.join("\n  ")
+        );
+    }
+
+    /// Each registered witness's [`StructuralWitness::construct_id`] must actually be one of
+    /// [`construct_ids_for`]'s ids for its own [`StructuralWitness::finer_kind`] — catches a
+    /// witness accidentally pointing at the wrong kind's id.
+    #[test]
+    fn each_registered_witness_construct_id_matches_its_finer_kind() {
+        for w in registered_structural_witnesses() {
+            assert!(
+                construct_ids_for(w.finer_kind).contains(&w.construct_id),
+                "{w:?}: construct_id is not among construct_ids_for(finer_kind)"
+            );
+        }
     }
 }
