@@ -32,6 +32,7 @@ use std::rc::Rc;
 use pg_grammar::chardef::{CharDefId, CharDefTable};
 use pg_grammar::model::{AllomorphId, Grammar, LexEntryId, MorphemeId};
 use pg_rules::shape_feat::segment_with_features;
+use pg_rules::trace::{TraceHandle, TraceSink};
 use pg_rules::word::{GuessedRoot, MorphRecord, Word};
 use pg_shape::{CdSet, NodeKind, Shape, NO_CHAR_DEF};
 use rustc_hash::FxHashSet as HashSet;
@@ -331,7 +332,18 @@ pub fn lexical_guess(
     g: &Grammar,
     lexical_patterns: &[(AllomorphId, LexEntryId)],
     aw: &Word,
+    trace: &dyn TraceSink,
+    parent: TraceHandle,
 ) -> Vec<Word> {
+    // G4: `Morpher.cs:378-379` -- `LexicalGuess`'s own `if (_traceManager.IsTracing)
+    // _traceManager.LexicalLookup(input.Stratum, input);`, the SAME `TraceType::LexicalLookup`
+    // hook `Morpher::lexical_lookup_filtered` fires for the real-lexicon path (see that method's
+    // doc) -- structurally the analogous entry point here (once per call, before any pattern
+    // matching), with the same `aw.trace.unwrap_or(parent)` resolved-cursor idiom.
+    if trace.is_tracing() {
+        let node_parent = aw.trace.unwrap_or(parent);
+        trace.lexical_lookup(node_parent, aw.stratum, aw);
+    }
     let table = &g.char_tables[g.strata[aw.stratum.0 as usize].table.0 as usize];
     let feat_width = g.phon_features.len();
     let input_nodes = nodes_of(&aw.shape, table, feat_width);

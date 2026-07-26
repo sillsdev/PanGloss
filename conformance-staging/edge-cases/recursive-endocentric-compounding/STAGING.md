@@ -64,3 +64,19 @@ to actually support this construct.
 Not yet proposed upstream. Candidate destination:
 `machine/conformance/edge-cases/recursive-endocentric-compounding/`. On acceptance, delete this staged
 copy in the same change (graduation guard enforces this mechanically).
+
+## G11 addendum (2026-07-25)
+
+The `AnalyzerConfig::max_stem_count = 2` ceiling described above turned out to be a **faithful
+default, not a permanent wall**: C#'s own `Morpher.MaxStemCount` (`Morpher.cs:72`) is a settable
+per-instance property (ctor default `2`, `Morpher.cs:56`) that C#'s own
+`CompoundingRuleTests.SimpleRules` (cs:87,105) raises to `3` to confirm a genuine 3-root compound.
+`pg_parse::Morpher` previously hardcoded `2` with no way for any caller to raise it -- that missing
+knob (not the value `2` itself) was the actual gap; see `pg-parse/src/morpher.rs`'s
+`Morpher::with_max_stem_count`. This fixture's own ground truth is UNCHANGED: it still drives the
+*default* `Morpher::new` (no override), so `tevimaflisra`'s zero-analyses pin above remains accurate
+and was not touched. A genuine 3-stem compound of this exact shape DOES confirm today if a caller
+opts in via `.with_max_stem_count(3)` -- pinned not here (this fixture is about the default oracle),
+but in `rust/crates/pg-parse/tests/csharp_port_compounding.rs`'s
+`simple_rules_4_three_root_compound_single_rule`/`simple_rules_5_three_root_compound_two_rules`,
+which port C#'s own previously-omitted `MaxStemCount = 3` reconfiguration directly.

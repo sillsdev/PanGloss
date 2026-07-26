@@ -1549,10 +1549,16 @@ fn root_stem_name(g: &Grammar, word: &Word) -> Option<pg_grammar::model::StemNam
 }
 
 fn synth_affix(g: &Grammar, word: &Word, rule: &AffixProcessRuleDef) -> Vec<Word> {
-    // Rule-level required syntactic FS gate + output FS.
-    let Some(new_syn) = synth_syn_fs(g, rule.required_syn_fs, rule.out_syn_fs, word) else {
-        return Vec::new();
-    };
+    // G5 (`SynthesisAffixProcessRule.cs:44-131`): C# checks, in order, `MaxApplicationCount` (not
+    // enforced by this port — see `guided_synth`'s doc), the final-template prohibition, the
+    // non-final-template requirement, `RequiredStemName`, and — LAST — the required-syntactic-FS
+    // unify. This function used to check the syn-FS gate FIRST; moved here, after the stem-name
+    // gate, to match. Outcome-invariant: `synth_syn_fs` is a pure function of `(g, req, out, word)`
+    // with no side effects and no interaction with the other three gates (which read only
+    // `rule`/`word.flags`/`word.mpr`/the root allomorph's stem name, never `word.syn_fs`), so
+    // moving WHEN it runs cannot change WHETHER it succeeds or what it returns — only which
+    // `FailureReason` is reported first when two gates would both reject. `new_syn` is still
+    // computed once, before the allomorph loop, and consumed there exactly as before.
 
     // NonFinal / partial gating that is computable without the deferred rule-count machinery.
     // Plan §6 item 6 / W1.6: both checks are C# `!_rule.IsTemplateRule && ...`
@@ -1585,6 +1591,12 @@ fn synth_affix(g: &Grammar, word: &Word, rule: &AffixProcessRuleDef) -> Vec<Word
     if rule.required_stem_name.is_some() && rule.required_stem_name != root_stem_name(g, word) {
         return Vec::new();
     }
+
+    // Rule-level required syntactic FS gate + output FS — C#'s LAST gate (`SynthesisAffixProcessRule
+    // .cs:121-135`), moved here (G5) from its former first-checked position above.
+    let Some(new_syn) = synth_syn_fs(g, rule.required_syn_fs, rule.out_syn_fs, word) else {
+        return Vec::new();
+    };
 
     let (segs, node_of) = segs_of(g, &word.shape, true);
     let mut output = Vec::new();
@@ -1665,10 +1677,16 @@ fn synth_affix_cached(
             return Vec::new();
         }};
     }
-    let Some(new_syn) = synth_syn_fs(g, rule.required_syn_fs, rule.out_syn_fs, word) else {
-        not_applied!(FailureReason::RequiredSyntacticFeatureStruct);
-    };
-    // Plan §6 item 6 / W1.6: `!rule.is_template_rule &&` guard on both — see the twin site in
+    // G5 (`SynthesisAffixProcessRule.cs:44-131`): C# checks, in order, `MaxApplicationCount` (not
+    // enforced by this port — see `guided_synth`'s doc), the final-template prohibition, the
+    // non-final-template requirement, `RequiredStemName`, and — LAST — the required-syntactic-FS
+    // unify. This function used to check the syn-FS gate FIRST (reporting
+    // `RequiredSyntacticFeatureStruct` before the two template-prohibition reasons whenever both
+    // would fire); moved below, after the stem-name gate, to match C#'s order and its
+    // first-`FailureReason`-wins semantics. See the twin site in `synth_affix` above for the full
+    // outcome-invariance argument (pure function, no interaction with the other gates' inputs).
+    //
+    // Plan §6 item 6 / W1.6: `!rule.is_template_rule &&` guard on both below — see the twin site in
     // `synth_affix` above for the full citation.
     // (a) SynthesisAffixProcessRule.cs:64-82 (final-template prohibition).
     if !rule.is_template_rule
@@ -1691,6 +1709,12 @@ fn synth_affix_cached(
     if rule.required_stem_name.is_some() && rule.required_stem_name != root_stem_name(g, word) {
         not_applied!(FailureReason::RequiredStemName);
     }
+
+    // Rule-level required syntactic FS gate + output FS — C#'s LAST gate (`SynthesisAffixProcessRule
+    // .cs:121-135`), moved here (G5) from its former first-checked position above.
+    let Some(new_syn) = synth_syn_fs(g, rule.required_syn_fs, rule.out_syn_fs, word) else {
+        not_applied!(FailureReason::RequiredSyntacticFeatureStruct);
+    };
 
     let (segs, node_of) = segs_of(g, &word.shape, true);
     let mut output = Vec::new();

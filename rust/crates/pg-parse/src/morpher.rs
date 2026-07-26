@@ -77,6 +77,29 @@ pub struct Morpher<'g> {
     /// (`hc_parse_batch` holds `&Morpher`, never a mutable one, once construction finishes). See
     /// `pg_rules::cache`'s module doc for the full rationale and per-site accounting.
     cache: RuleCache,
+    /// C# `Morpher.MaxStemCount` (`{ get; set; }`, Morpher.cs:72; ctor default `2`, Morpher.cs:56):
+    /// a per-INSTANCE knob, not a fixed constant — `AnalysisCompoundingRule.Apply`
+    /// (AnalysisCompoundingRule.cs:45) reads `_morpher.MaxStemCount` off whichever `Morpher` is
+    /// running, and C#'s own `CompoundingRuleTests.SimpleRules` (cs:87,105) constructs a
+    /// `new Morpher(...) { MaxStemCount = 3 }` to confirm a genuine 3-root compound
+    /// ("pʰutdatpip" -> "5 8 41"/"5 9 41"). G11: this field used to be a `2` baked directly into the
+    /// `AnalyzerConfig` literal inside [`Self::parse_word_core_selected`], with — unlike C# — no way
+    /// for any caller to reach 3+ stems through the public API at all. `2` was always a faithful
+    /// **default** (it matches C#'s own ctor default byte-for-byte), but hardcoding it also silently
+    /// dropped C#'s per-instance configurability, which is the actual gap: a genuine 3-stem compound
+    /// is a real construct C# supports out of the box (via this exact property), not a hole in C#'s
+    /// design. Default `2` here too; raise via [`Self::with_max_stem_count`].
+    ///
+    /// Raising this is NOT a new "never explode" risk: the gate this field feeds
+    /// (`pg_rules::stratum::AnalyzerConfig::max_stem_count`, checked in
+    /// `StratumAnalyzer::apply_one_mrule`) is one of several independent admission gates over the
+    /// SAME shared, per-`parse_word` [`pg_rules::stratum::StepBudget`]/`--word-timeout-ms` deadline
+    /// (`self.cap`/`self.word_timeout`, already armed regardless of this field's value) — raising the
+    /// stem cap only lets more compounding candidates reach that budget, it does not remove the
+    /// budget. A grammar that explodes under a raised stem count still terminates with a typed
+    /// `ParseOutcome { capped: true, .. }` or `timed_out: true`, exactly as any other pathological
+    /// grammar does today, never a hang.
+    max_stem_count: u32,
 }
 
 /// Shared instrumentation and hard limits for bounded synthesis across multiple derivations.
@@ -220,6 +243,7 @@ impl<'g> Morpher<'g> {
             memo: true,
             word_timeout: None,
             cache: RuleCache::build(g),
+            max_stem_count: 2, // C# `Morpher.MaxStemCount` ctor default (Morpher.cs:56)
         }
     }
 
@@ -261,6 +285,20 @@ impl<'g> Morpher<'g> {
     /// `new`) is a complete no-op — `parse_word` behaves byte-identically to before this existed.
     pub fn with_word_timeout(mut self, timeout: Option<Duration>) -> Self {
         self.word_timeout = timeout;
+        self
+    }
+
+    /// G11: the per-instance analog of C#'s settable `Morpher.MaxStemCount` property
+    /// (Morpher.cs:72; ctor default `2`, Morpher.cs:56) — see [`Self::max_stem_count`]'s field doc
+    /// for the full C# citation trail and why raising this cannot turn into an unbounded search
+    /// (`self.cap`/`self.word_timeout`'s shared [`pg_rules::stratum::StepBudget`] already bounds
+    /// every `parse_word` call independently of this gate). `2` (the default from `new`) reproduces
+    /// `parse_word`'s pre-G11 behavior byte-for-byte; every existing call site is unaffected.
+    ///
+    /// Mirrors C#'s own `CompoundingRuleTests.SimpleRules` usage
+    /// (`new Morpher(...) { MaxStemCount = 3 }`, cs:87/105) to confirm a genuine 3-stem compound.
+    pub fn with_max_stem_count(mut self, max_stem_count: u32) -> Self {
+        self.max_stem_count = max_stem_count;
         self
     }
 
@@ -440,7 +478,12 @@ impl<'g> Morpher<'g> {
         let cfg = AnalyzerConfig {
             merge_equivalent: !trace.is_tracing(), // Tier-2 #14 — see module docs
             max_unapplications: 0,
-            max_stem_count: 2, // C# `Morpher.MaxStemCount` default (Morpher.cs:108)
+            // G11: was a hardcoded `2` here with no way for any caller to change it — C#'s own
+            // `Morpher.MaxStemCount` (Morpher.cs:72) is a settable per-instance property, not a
+            // fixed constant. Now reads `self.max_stem_count` (default `2`, matching C#'s ctor
+            // default byte-for-byte; see that field's doc for the full citation trail and the
+            // "never explode" argument for why raising it is safe).
+            max_stem_count: self.max_stem_count,
         };
         // ONE step budget for this whole `parse_word` call (see `pg_rules::stratum::StepBudget`'s
         // doc / `docs/budget-model.md`): shared, by reference, across every stratum × every
@@ -528,7 +571,7 @@ impl<'g> Morpher<'g> {
         let mut matches: HashMap<WordKey, Word> = HashMap::default();
         if !opts.guess_only {
             for aw in results.values() {
-                for syn_word in self.lexical_lookup_filtered(aw, lex_entry_filter) {
+                for syn_word in self.lexical_lookup_filtered(aw, lex_entry_filter, trace, root) {
                     // `synthesisWord.ExpandAlternatives()` (Morpher.cs:478): recover the shape-equivalent
                     // candidates `MergeEquivalentAnalyses` folded away, each with the deeper strata's
                     // rules replayed, then synthesize every one of them.
@@ -563,7 +606,8 @@ impl<'g> Morpher<'g> {
                 // `LexicalGuess(analysisWord).Distinct()` — the `.Distinct()` is a documented C#
                 // no-op (§1.2): every yielded `Word` is a fresh clone with no `Equals` override,
                 // so consuming `guess::lexical_guess`'s `Vec<Word>` directly is faithful.
-                for synthesis_word in guess::lexical_guess(g, &self.lexical_patterns, aw) {
+                for synthesis_word in guess::lexical_guess(g, &self.lexical_patterns, aw, trace, root)
+                {
                     for alt in synthesis_word.expand_alternatives() {
                         for vw in self.synthesis_pipeline_traced(alt, trace, root, &budget) {
                             candidates_generated += 1;
@@ -630,7 +674,18 @@ impl<'g> Morpher<'g> {
         &self,
         aw: &Word,
         lex_entry_filter: Option<&dyn Fn(LexEntryId) -> bool>,
+        trace: &dyn TraceSink,
+        parent: TraceHandle,
     ) -> Vec<Word> {
+        // G4: `Morpher.cs:351-352` -- `if (_traceManager.IsTracing) _traceManager.LexicalLookup(
+        // input.Stratum, input);` fires once per call, at the very top, before any root-allomorph
+        // search. `aw.trace.unwrap_or(parent)` is the same resolved-cursor idiom the analysis-side
+        // stratum bookends use: `aw` is one of `results.values()` (an analysis-cascade survivor),
+        // whose `.trace` was reassigned by whichever rule/stratum event last fired on it.
+        if trace.is_tracing() {
+            let node_parent = aw.trace.unwrap_or(parent);
+            trace.lexical_lookup(node_parent, aw.stratum, aw);
+        }
         let g = self.g;
         let matched = self.search_roots(aw.stratum, &aw.shape);
         // Distinct entries in first-seen order (C# `.Distinct()` on the entry sequence), filtered by

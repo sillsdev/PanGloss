@@ -1125,9 +1125,19 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
             return Vec::new();
         }
         let fs = unify(&input.syn_fs, req).unwrap_or_else(|| input.syn_fs.clone());
+        // G4: `AnalysisAffixTemplateRule.cs:43-44` -- `BeginUnapplyTemplate` fires once per `Apply`
+        // call, right after the required-syn-FS gate passes and before the slot walk starts (cs:46
+        // clones/freezes `inWord` next; this port has no separate freeze step, so the call sits at
+        // the same logical point: gate passed, about to descend). `input.trace` unchanged by
+        // anything above, so resolving the parent once and reusing it below matches the
+        // `analyze()`/`begin_unapply_stratum` idiom just above this method.
+        let node_parent = input.trace.unwrap_or(self.parent);
+        if self.trace.is_tracing() {
+            self.trace.begin_unapply_template(node_parent, tid, input);
+        }
         let mut out: HashMap<WordKey, Word> = HashMap::default();
         // `ApplySlots(inWord, _rules.Count - 1, output)` — descend from the last slot.
-        self.template_unapply_slots(tmpl, input, tmpl.slots.len() as isize - 1, &mut out);
+        self.template_unapply_slots(tid, tmpl, input, tmpl.slots.len() as isize - 1, &mut out);
         let mut result: Vec<Word> = out.into_values().collect();
         // `outWord.SyntacticFeatureStruct.Add(fs)` (cs:66) — union, not overwrite; see `add`'s doc.
         for w in &mut result {
@@ -1140,8 +1150,20 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
     /// unapply its rule batch and recurse into earlier slots; a **non-optional** slot that is
     /// reached forces a `return` (its material had to be consumed here — the path only survives via
     /// the recursion its batch spawned). Falling past slot 0 adds the (fully-unapplied) word.
+    ///
+    /// G4 `EndUnapplyTemplate` note: C# ships TWO implementations of `ApplySlots` behind an
+    /// `#if SINGLE_THREADED` switch — a sequential one (cs:62-80) and a `Parallel.ForEach` one
+    /// (cs:82-129) — each firing the SAME two logical events (`unapplied=false` when a non-optional
+    /// slot forces an early return, cs:71-72/107-108; `unapplied=true` at the natural fall-through,
+    /// cs:77-78/116-117), once per implementation. That is why the design doc cites FOUR C# line
+    /// pairs for what is structurally only TWO distinct trace events. This port has no
+    /// parallel/sequential split — one walk, below — so both C# implementations collapse onto it;
+    /// the sequential citations (cs:71-72, cs:77-78) are wired here as the faithful placement, and
+    /// the parallel citations are the SAME two events under the other `#if` branch, not additional
+    /// real occurrences this port is missing.
     fn template_unapply_slots(
         &self,
+        tid: TemplateId,
         tmpl: &pg_grammar::model::AffixTemplateDef,
         in_word: &Word,
         index: isize,
@@ -1154,12 +1176,26 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         while i >= 0 {
             let slot = &tmpl.slots[i as usize];
             for ow in self.apply_slot_batch(slot, in_word) {
-                self.template_unapply_slots(tmpl, &ow, i - 1, out);
+                self.template_unapply_slots(tid, tmpl, &ow, i - 1, out);
             }
             if !slot_optional(slot) {
+                // G4: `AnalysisAffixTemplateRule.cs:71-72` -- this recursion level's own `in_word`
+                // could not get past a non-optional slot; `unapplied = false`.
+                if self.trace.is_tracing() {
+                    let node_parent = in_word.trace.unwrap_or(self.parent);
+                    self.trace
+                        .end_unapply_template(node_parent, tid, in_word, false);
+                }
                 return;
             }
             i -= 1;
+        }
+        // G4: `AnalysisAffixTemplateRule.cs:77-78` -- fell through every slot (all optional or
+        // consumed); `unapplied = true`.
+        if self.trace.is_tracing() {
+            let node_parent = in_word.trace.unwrap_or(self.parent);
+            self.trace
+                .end_unapply_template(node_parent, tid, in_word, true);
         }
         out.entry(in_word.dedup_key())
             .or_insert_with(|| in_word.clone());
@@ -1182,6 +1218,19 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
 
     /// Port of `AnalysisStratumRule.Apply` (cs:114-186).
     fn analyze(&self, mut input: Word) -> StratumAnalysis {
+        // G4: `AnalysisStratumRule.cs:104-105` -- `BeginUnapplyStratum(_stratum, input)` fires
+        // before `origInput = input`/`input.Clone()`, i.e. against the word exactly as this
+        // function received it. `input.trace` is untouched by the mutation below (only rule-level
+        // events reassign a word's OWN `.trace`, never this local binding), so resolving the
+        // parent once here and reusing it for the matching `EndUnapplyStratum` calls below mirrors
+        // C#'s "never reassigns the cursor" bookend discipline (same idiom as `begin_apply_stratum`/
+        // `end_apply_stratum` on the synthesis side, `synthesize_stratum_traced`).
+        let node_parent = input.trace.unwrap_or(self.parent);
+        if self.trace.is_tracing() {
+            self.trace
+                .begin_unapply_stratum(node_parent, self.stratum_id, &input);
+        }
+
         // `Word origInput = input; input = input.Clone();` (cs:104-106): every word produced by this
         // stratum records `origInput` as its `Source` (the seed via the clone, cs:106; each mrule
         // output explicitly, cs:165), so `expand_alternatives` can later walk the per-stratum spine.
@@ -1261,6 +1310,19 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
             }
         }
 
+        // G4: `AnalysisStratumRule.cs:124-125` -- the FIRST `EndUnapplyStratum` exit, fired for
+        // `input` itself (the post-prule, pre-mrule/-template candidate that always survives as its
+        // own analysis). C#'s `mruleOutWords` (cs:120) is a lazy `IEnumerable` at this point --
+        // `Concat` does not actually run `ApplyTemplates`/`ApplyMorphologicalRules` until the
+        // `foreach` at cs:126 enumerates it -- so this event fires BEFORE any nested
+        // template/mrule trace event. This port evaluates `apply_templates`/`apply_mrules` eagerly
+        // (below), so the call is placed textually here, ahead of that computation, to reproduce
+        // C#'s event ORDER despite the eager/lazy architecture difference.
+        if self.trace.is_tracing() {
+            self.trace
+                .end_unapply_stratum(node_parent, self.stratum_id, &input);
+        }
+
         // mruleOutWords = ApplyTemplates(input).Concat(ApplyMorphologicalRules(input)) (cs:158).
         let mut mrule_out = self.apply_templates(&input);
         mrule_out.extend(self.apply_mrules(&input));
@@ -1287,6 +1349,22 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
                     words[idx].alternatives.push(w);
                     continue;
                 }
+            }
+            // G4: `AnalysisStratumRule.cs:141-143` -- the SECOND `EndUnapplyStratum` exit, once per
+            // surviving `mruleOutWord`. C# calls `output.Add(mruleOutWord)` (cs:141, a `HashSet`
+            // whose return value is ignored) UNCONDITIONALLY before this trace call -- an exact
+            // key-duplicate still fires the event, only the shape-merge `continue` above skips it.
+            // So this must NOT be gated on `output_keys.insert(...)`'s own dedup result below; it
+            // fires for every `w` that reaches this point. `w.trace.unwrap_or(node_parent)` is the
+            // same resolved-cursor idiom the synthesis-side sibling (`synthesize_stratum_traced`'s
+            // `w_parent`) already uses: `w.trace` was reassigned by whichever mrule/template event
+            // last fired on this candidate (already-wired rule-level tracing, `morph.rs`), falling
+            // back to this stratum's own `BeginUnapplyStratum` parent for a candidate no rule
+            // touched (a template-only pass-through).
+            if self.trace.is_tracing() {
+                let w_parent = w.trace.unwrap_or(node_parent);
+                self.trace
+                    .end_unapply_stratum(w_parent, self.stratum_id, &w);
             }
             if output_keys.insert(w.dedup_key(), ()).is_none() {
                 if self.cfg.merge_equivalent {

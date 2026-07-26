@@ -296,14 +296,38 @@ mod tests {
         // chain now correctly nests under it (its input IS that unapplication's output). Same class
         // of change as `pg-parse/tests/trace_rule_sequence_gate.rs`'s direct-child -> descendant
         // loosening, and a more faithful trace (C# traces analysis as well), not a regression.
+        //
+        // 2026-07-25 (G4: the five previously-unwired trace events --
+        // `begin_unapply_stratum`/`end_unapply_stratum`/`begin_unapply_template`/
+        // `end_unapply_template`/`lexical_lookup` -- see `pg-rules/src/stratum.rs`'s `analyze`/
+        // `template_unapply_slots` and `pg-parse/src/morpher.rs`'s `lexical_lookup_filtered`):
+        // regenerated from this test's own computed `rendered` value (never hand-typed) after
+        // wiring those call sites. Five new nodes for this golden grammar (no `<AffixTemplate>`, so
+        // `begin_unapply_template`/`end_unapply_template` don't fire on this particular path):
+        // `StratumAnalysisInput "S"` (`BeginUnapplyStratum`, direct child of root, no cursor
+        // reassignment -- fires before the mrule/template cascade), `StratumAnalysisOutput "S"
+        // shape=sagd` (`EndUnapplyStratum`'s first exit, for "sagd" itself, `AnalysisStratumRule.
+        // cs:124-125` -- also a direct child of root), a SECOND `StratumAnalysisOutput "S"
+        // shape=sag` (`EndUnapplyStratum`'s per-survivor exit, `cs:141-143` -- nests under the
+        // `MorphologicalRuleAnalysis` event that produced "sag", since that word's cursor was
+        // already reassigned), and two `LexicalLookup "S"` nodes (`Morpher.cs:349-371`'s real-
+        // lexicon-path call, once for "sag" right before synthesis-confirmation starts, once for
+        // "sagd" itself at the very end -- both structurally correct: this grammar's stratum has a
+        // real lexical entry, so BOTH "sagd" and unapplied "sag" reach the real-lexicon lookup, not
+        // the guesser).
         let expected = "WordAnalysis  input=sagd\n\
+                         \x20 StratumAnalysisInput \"S\"  input=sagd\n\
+                         \x20 StratumAnalysisOutput \"S\"  shape=sagd\n\
                          \x20 MorphologicalRuleAnalysis \"ed_suffix\" subrule=0  shape=sag\n\
+                         \x20   StratumAnalysisOutput \"S\"  shape=sag\n\
+                         \x20   LexicalLookup \"S\"  input=sag\n\
                          \x20   StratumSynthesisInput \"S\"  input=sag\n\
                          \x20   MorphologicalRuleSynthesis \"ed_suffix\" subrule=0  shape=sagd\n\
                          \x20     StratumSynthesisOutput \"S\"  shape=sagd\n\
                          \x20     Successful  shape=sagd\n\
                          \x20   MorphologicalRuleSynthesis \"ed_suffix\"  [NonPartialRuleProhibitedAfterFinalTemplate]  input=sag\n\
-                         \x20   Failed  [PartialParse]  shape=sag\n";
+                         \x20   Failed  [PartialParse]  shape=sag\n\
+                         \x20 LexicalLookup \"S\"  input=sagd\n";
         assert_eq!(
             rendered, expected,
             "golden text-tree render changed:\n{rendered}"

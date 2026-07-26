@@ -8,11 +8,24 @@
 //! steps 1/3 previously inherited the homophone-collapse finding documented below, now fixed --
 //! not a new divergence).
 //!
-//! `SimpleRules` omits its final reconfiguration (`rule1.MaxApplicationCount = 2` + `Morpher.
-//! MaxStemCount = 3`, three-root compounding "pʰutdatpip"): `pg_parse::Morpher` hardcodes
-//! `max_stem_count: 2` in its `AnalyzerConfig` (see `pg-parse/src/morpher.rs`'s `parse_word`) with no
-//! constructor knob to raise it, so this sub-case has no way to reach 3 roots through the public API --
-//! confirms the coverage map's own note ("`MaxStemCount` itself untested") rather than a new finding.
+//! `SimpleRules` used to omit its final reconfiguration (`rule1.MaxApplicationCount = 2` +
+//! `Morpher.MaxStemCount = 3`, three-root compounding "pʰutdatpip"): `pg_parse::Morpher` hardcoded
+//! `max_stem_count: 2` in its `AnalyzerConfig` with no constructor knob to raise it, so this
+//! sub-case had no way to reach 3 roots through the public API -- confirmed the coverage map's own
+//! note ("`MaxStemCount` itself untested") rather than a new finding.
+//!
+//! **G11 (2026-07-25): closed.** C#'s `Morpher.MaxStemCount` (Morpher.cs:72) is a settable
+//! per-INSTANCE property, ctor default `2` (Morpher.cs:56) — `2` was always a faithful *default*,
+//! but hardcoding it in `pg_parse::Morpher` also dropped C#'s configurability, which is what
+//! actually blocked a genuine 3-stem compound (a real, supported C# construct, not a design gap).
+//! `Morpher` now carries a `max_stem_count` field (default `2`, unchanged) plus a builder,
+//! [`Morpher::with_max_stem_count`], mirroring C#'s `new Morpher(...) { MaxStemCount = 3 }` usage
+//! exactly (see `pg-parse/src/morpher.rs`'s field doc on `max_stem_count` for the full citation
+//! trail and the "never explode" argument -- the existing per-`parse_word` step budget/timeout
+//! already bounds every candidate regardless of this gate's value). The two below,
+//! [`simple_rules_4_three_root_compound_single_rule`] and
+//! [`simple_rules_5_three_root_compound_two_rules`], port `SimpleRules`' previously-omitted final
+//! reconfiguration (cs:76-108) now that the knob exists.
 //!
 //! Two further findings surfaced while porting the remaining `SimpleRules` reconfigurations:
 //! `simple_rules_1_homophone_disjunction_finding` (P4, 2026-07-09: FIXED -- see that test's doc
@@ -370,4 +383,105 @@ fn prod_restrict_rule() {
     let out6 = m6.parse_word("pʰutdat");
     assert_morphs_eq(&out6, &["5 8"]);
     assert_eq!(root_gloss_set(&out6), BTreeSet::from(["5".to_string()]));
+}
+
+// =================================================================================================
+// G11 gate: `Morpher::with_max_stem_count` (previously a hardcoded `2` with no public knob to raise
+// it). Ports `CompoundingRuleTests.SimpleRules`' final reconfiguration (cs:76-108), the one this
+// file's module doc used to note as omitted for exactly this reason.
+// =================================================================================================
+
+const RULE1_HEAD_NONHEAD_MAX_APP_2: &str = r#"
+  <CompoundingRule id="mrC" multipleApplication="2">
+    <Name>rule1</Name>
+    <CompoundingSubrules><CompoundingSubrule>
+      <HeadMorphologicalInput><PhoneticSequence id="head"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></HeadMorphologicalInput>
+      <NonHeadMorphologicalInput><PhoneticSequence id="nonHead"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></NonHeadMorphologicalInput>
+      <MorphologicalOutput><CopyFromInput index="head" /><InsertSegments><PhoneticShape>+</PhoneticShape></InsertSegments><CopyFromInput index="nonHead" /></MorphologicalOutput>
+    </CompoundingSubrule></CompoundingSubrules>
+  </CompoundingRule>
+"#;
+
+/// Ports `CompoundingRuleTests.SimpleRules` cs:76-90: ONE self-recursive compounding rule
+/// (`rule1.MaxApplicationCount = 2`, head+"+"+nonHead order — the same shape as
+/// [`SIMPLE_RULES_MRULES_1`]) over a genuine 3-root word, `morpher = new Morpher(...) { MaxStemCount
+/// = 3 }`. Analysis: outer split head="pʰutdat"/nonHead="pip"(41, a bare root), then rule1
+/// self-applies a SECOND time on the head (`NonHeadCount+1 == 2 < MaxStemCount(3)`, and rule1's own
+/// `MaxApplicationCount == 2` is not yet exceeded) splitting head="pʰut"(5)/nonHead="dat"(8 or 9) --
+/// exactly C#'s `MaxStemCount` depth gate letting a 2nd compounding-rule unapplication through.
+/// Root stays "5" (the ultimate head chain), so [`root_gloss_set`]'s first-morpheme heuristic
+/// applies here (head-first order throughout).
+#[test]
+fn simple_rules_4_three_root_compound_single_rule() {
+    let g = build_grammar("", "", RULE1_HEAD_NONHEAD_MAX_APP_2, "mrC", "");
+    let m = Morpher::new(&g, usize::MAX).with_max_stem_count(3);
+    assert_empty(&Morpher::new(&g, usize::MAX).parse_word("pʰutdatpip")); // default (2) still refuses -- unaffected
+    let out = m.parse_word("pʰutdatpip");
+    assert_morphs_eq(&out, &["5 8 41", "5 9 41"]);
+    assert_eq!(root_gloss_set(&out), BTreeSet::from(["5".to_string()]));
+}
+
+const TWO_RULES_HEAD_NONHEAD_AND_NONHEAD_HEAD: &str = r#"
+  <CompoundingRule id="mrC">
+    <Name>rule1</Name>
+    <CompoundingSubrules><CompoundingSubrule>
+      <HeadMorphologicalInput><PhoneticSequence id="head"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></HeadMorphologicalInput>
+      <NonHeadMorphologicalInput><PhoneticSequence id="nonHead"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></NonHeadMorphologicalInput>
+      <MorphologicalOutput><CopyFromInput index="head" /><InsertSegments><PhoneticShape>+</PhoneticShape></InsertSegments><CopyFromInput index="nonHead" /></MorphologicalOutput>
+    </CompoundingSubrule></CompoundingSubrules>
+  </CompoundingRule>
+  <CompoundingRule id="mrC2">
+    <Name>rule2</Name>
+    <CompoundingSubrules><CompoundingSubrule>
+      <HeadMorphologicalInput><PhoneticSequence id="head"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></HeadMorphologicalInput>
+      <NonHeadMorphologicalInput><PhoneticSequence id="nonHead"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></NonHeadMorphologicalInput>
+      <MorphologicalOutput><CopyFromInput index="nonHead" /><InsertSegments><PhoneticShape>+</PhoneticShape></InsertSegments><CopyFromInput index="head" /></MorphologicalOutput>
+    </CompoundingSubrule></CompoundingSubrules>
+  </CompoundingRule>
+"#;
+
+/// Ports `CompoundingRuleTests.SimpleRules` cs:92-108: TWO compounding rules, each with the DTD
+/// default `MaxApplicationCount == 1` (`rule1.MaxApplicationCount` reset back to 1 at cs:92; `rule2`
+/// never sets it) -- `rule1` head+"+"+nonHead order, `rule2` nonHead+"+"+head order, both active in
+/// one (unordered) stratum. Same 3-root word, same `MaxStemCount = 3`: this time the 2 splits come
+/// from two DIFFERENT rules (each individually still capped at 1 application), rather than one rule
+/// re-entering itself. `AssertRootAllomorphsEquals(output, "8", "9")` (cs:108): the root is now
+/// `rule1`'s head position at the INNER split ("dat"), not the outer word's first morpheme --
+/// [`root_gloss_set`]'s first-morpheme heuristic does not apply here (same reason
+/// [`simple_rules_3_prefix_commutes_with_compounding`] uses `root_morpheme_index` instead), so this
+/// asserts via that index directly, exactly as that test does.
+///
+/// Note: `AssertMorphsEqual`/`AssertRootAllomorphsEquals` are both defined over a C# `HashSet`/
+/// `.Distinct()` (`HermitCrabTestBase.cs:869-887`, `CompoundingRuleTests.cs:241-244`) -- set
+/// membership only, not raw analysis *count* -- matching [`assert_morphs_eq`]/this test's own
+/// root-set check, both of which dedupe the same way. Rust may (and empirically does) surface the
+/// same final compound via more than one derivation history when two distinct rules can each supply
+/// either split point in an unordered cascade; that duplication is exactly as C#-faithful as the
+/// count-blind assertions it is checked against.
+#[test]
+fn simple_rules_5_three_root_compound_two_rules() {
+    let g = build_grammar(
+        "",
+        "",
+        TWO_RULES_HEAD_NONHEAD_AND_NONHEAD_HEAD,
+        "mrC mrC2",
+        "",
+    );
+    let m = Morpher::new(&g, usize::MAX).with_max_stem_count(3);
+    let out = m.parse_word("pʰutdatpip");
+    assert_morphs_eq(&out, &["5 8 41", "5 9 41"]);
+
+    let root8 = csharp_port_common::morpheme_ordinal(&g, "8");
+    let root9 = csharp_port_common::morpheme_ordinal(&g, "9");
+    assert!(
+        !out.structured.is_empty(),
+        "expected at least one surviving analysis"
+    );
+    for wa in &out.structured {
+        let root = wa.morpheme_ids[wa.root_morpheme_index as usize];
+        assert!(
+            root == root8 || root == root9,
+            "root must be entry 8 or 9 (dat), got ordinal {root}"
+        );
+    }
 }
