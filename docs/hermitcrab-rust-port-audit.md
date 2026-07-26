@@ -65,6 +65,20 @@ evolves into its broader FST-hybrid scope.
 The §3 list below is the **squash-copy-era** inventory. This section supersedes it where they differ.
 Items are numbered to match §3.
 
+**§3 item 5 (no benchmark matrix) — CLOSED 2026-07-26**, `docs/benchmark-matrix.md`. The measurement
+turned up something more important than the latency numbers: **all three reference grammars are
+REFUSED by the `--engine=foma` optimized path under default capability enforcement** — Indonesian on
+`quantifier.bounded-expansion` (the unbounded quantifier resolved PROVABLE the previous day), Amharic
+on `mpr-group.overwrite-output` (a permanent carve-out), Sena on both `compounding.non-recursive` and
+that same MPR carve-out. So the coverage cross-check reporting 20/20 Covered and the optimized path
+not running on any reference grammar are both true at once; they are different claims. And because
+`MprGroupOverwrite` is a *permanent* carve-out present in two of the three, "the FST path runs all
+three reference grammars with enforcement on" is not reachable by design — only via the ADR 0005
+override, stamped `trust=unproven`. Oracle-path tail latency is the other finding: Amharic p99
+105 s, worst word 7.6 min; Sena worst 10.3 min (Sena's run is partial and labelled as such).
+Force-compiled Indonesian on the foma path is ~11× faster end-to-end with byte-identical signatures
+for all 121 words.
+
 **Resolved 2026-07-25 (later in the same day — these supersede the entries further down this section):**
 
 - **§3 item 1 (guesser surface) — CLOSED.** `--guess` on `pangloss batch`/`parse` (default off, output
