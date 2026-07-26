@@ -35,6 +35,6 @@
 - [x] 5.2 All five coverage gates green (conformance cross-check, plan-interaction, citation liveness,
       tag liveness, structural witness)
 - [x] 5.3 Conformance suite at its established baseline; `p6_gate_parity` including ignored
-- [ ] 5.4 `f3_parity --include-ignored` fully observed — the Indonesian and Sena legs passed; the
-      Amharic leg (~20 min) was started but not observed to completion. Re-run:
-      `cargo test -p pg-foma --release --test f3_parity -- --include-ignored`
+- [x] 5.4 `f3_parity --include-ignored` **fully observed 2026-07-26: 3 passed, 0 failed** in 957 s —
+      all three legs (Indonesian, Sena, Amharic). The implementing task saw only the first two and
+      correctly reported the Amharic leg as unobserved rather than passing; re-run to completion here.
