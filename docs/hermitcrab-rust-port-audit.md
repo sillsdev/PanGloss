@@ -60,6 +60,62 @@ evolves into its broader FST-hybrid scope.
 | Rule-by-rule tracing (`TraceManager`/`ITraceManager`) | **Mostly ported** | synthesis-side tracing fully wired including phonological rules; analysis-side stratum/template/rule bookends remain untraced |
 | `XmlLanguageWriter` round-trip (grammar → XML export) | **Not ported** | explicitly deferred, not a permanent non-goal |
 
+## 3a. Update (2026-07-25) — resolutions and newly-found gaps
+
+The §3 list below is the **squash-copy-era** inventory. This section supersedes it where they differ.
+Items are numbered to match §3.
+
+**Resolved since the squash copy:**
+
+- **§3 item 4 (differential fuzzing) — BUILT.** The doc's "scoped in a design doc, never built" is
+  stale. `pg_foma::oracle` implements the differential-correctness oracle (build ≥2 capability-passing
+  plans, assert identical results per word, report the shortest disagreeing word plus the symmetric
+  difference), proven non-vacuous by a test that deliberately breaks a plan and confirms the oracle
+  catches it. `pg_foma::plan_interaction_coverage` adds a subtree-fuzz slice that runs as a hard
+  assertion over every corpus fixture with ≥2 gate groups. What remains is seeded random subtree
+  mutation, second-topology generators for node kinds other than `Gate`, and failure minimisation to a
+  named recipe.
+- **§3 item 6 (`syn_epenthesis` spurious insertion) — FIXED.** Two real causes, both cited to C#: the
+  site-enumeration loop treated a `Boundary` node's own slot as an epenthesis site (C#'s empty-LHS
+  pattern is `Symbol(Segment, Anchor)` and can never match at a boundary,
+  `SynthesisRewriteRuleSpec.cs:26-29`), and `bridge.rs::nat_class_lanes` never pinned the synthetic
+  `Type=Segment` feature that C#'s `NaturalClass` ctor stamps unconditionally (`NaturalClass.cs:9-13`).
+  The C#-parity test `epenthesis_rules` is now un-ignored and green. The originally-suspected
+  "Optional-skip reaches one position too far" was investigated and is **not** a bug — it is a faithful
+  port of `TraversalMethodBase.Initialize` (`cs:203-222`).
+
+**Newly found (not in §3):**
+
+- **`max_stem_count` is hardcoded to `2`** inside `Morpher::parse_word_opts`, so the confirm engine
+  cannot confirm more than one compounding application — a genuine three-stem compound yields zero
+  analyses regardless of what the proposer offers. Recursive compounding is therefore blocked at two
+  independent layers. Open question: is `2` faithful to C#, a deliberate guard, or an arbitrary cap?
+  Pinned by `conformance-staging/edge-cases/recursive-endocentric-compounding`.
+- **`syn_epenthesis` is structurally Simultaneous-shaped regardless of a rule's declared `Iterative`
+  mode** (`docs/p13-simultaneous-design.md` §2.3 / §7 item 2 — previously flagged there but undecided).
+  Two cascading Iterative epenthesis rules over-fire relative to C#'s true cursor walk. Pinned by the
+  `#[ignore]`d `epenthesis_rules_iterative_cascade_finding`, re-verified against the live C# oracle.
+  Fixing it means a real cursor-walk rewrite.
+- **Surface tokenization uses only the last stratum's character table**, so inner-stratum roots in a
+  multi-table grammar cannot be tokenized at all. Architectural, consistent with
+  `two_table_symbol_divergence.rs`'s documented convention — recorded so it is not re-diagnosed as a
+  MultiTable bug. Pinned by `conformance-staging/edge-cases/bistratal-overlapping-segment-representation`.
+- **Declared morpheme tags can vanish from the compiled lexc alphabet at stratum depth**, silently.
+  `pg_foma::emit::verify_tags_reachable` now reports these via `EmitReport::uncovered`
+  (`kind: "unreachable-after-lexc-compile"`). The cause is downstream of our lexc generation — the same
+  tags disappear under two different generation strategies — and is under investigation in the `foma`
+  crate's lexc state-deduplication. **Severity is not yet settled**: if the network's language is
+  unchanged and only `sigma` bookkeeping differs, this is bookkeeping, not recall loss. Also affects
+  mainline `emit()` at depth, where it is still undetected.
+- **The tracked description of the one known conformance divergence is stale** — it says "no output"
+  while the current baseline already shows "produced output", independent of any recent change.
+
+**§4's parity numbers are superseded.** Re-measured 2026-07-25 against the same corpora (release):
+large-lexicon 326/326 engine analyses; junction 97/97; interdigitation multiset parity 29/29 with 0
+mismatches; `f3_parity` 0 mismatches across all three corpora; the gated composed net still exactly
+82 states / 1,110,358 arcs. Treat those as the current anchor, and re-derive rather than trusting
+either list.
+
 ## 3. Known open gaps (as of the squash-copy)
 
 1. **Guesser CLI/FFI surface** — engine logic works, no external surface yet (see §2).
