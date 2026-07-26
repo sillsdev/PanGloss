@@ -86,3 +86,13 @@ test that should FAIL (prompting deliberate review) the day this specific exclud
 Not yet proposed upstream. Candidate destination:
 `machine/conformance/edge-cases/right-to-left-bounded-quantifier-rewrite/`. On acceptance, delete this
 staged copy in the same change (graduation guard enforces this mechanically).
+
+## Coverage-tag correction (post-G9)
+
+`constructs.txt` row 30 (`sillsdev/machine` PR #465, "G9") added
+`"RewriteRule direction (Dir): right-to-left"` as this construct's own dedicated row. `words.yaml`'s
+`exercises:` entries here previously read the bare characteristic name `"RightToLeftRewrite"`, which
+is NOT a `constructs.txt` row id and therefore matched nothing in
+`conformance_coverage::construct_ids_for`'s byte-for-byte cross-check -- the tag silently contributed
+zero coverage despite this fixture genuinely exercising the construct. Fixed to the exact row-30
+string; no signature, `parses:`, or ground truth changed.

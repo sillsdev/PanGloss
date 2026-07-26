@@ -68,3 +68,15 @@ suite) — that test is what actually gates CI; the throwaway dump test was dele
 Not yet proposed upstream. Candidate destination:
 `machine/conformance/edge-cases/mpr-gated-exception/`. On acceptance, delete this staged copy in the
 same change (graduation guard enforces this mechanically).
+
+## Coverage-tag addition: `LeftToRightRewrite` (post-G9)
+
+`CharacteristicKind::LeftToRightRewrite` (`Disposition::Proven`) had NO fixture tagging it at all
+before this change, anywhere in the suite -- left-to-right is the pervasive default rewrite direction
+(`Dir::LeftToRight` whenever a `PhonologicalRule` omits `multipleApplicationOrder="rightToLeftIterative"`),
+so it is easy to exercise by accident and easy to forget to tag on purpose. `menulik`'s parse above now
+carries `exercises: ["RewriteRule direction (Dir): left-to-right"]` (`constructs.txt` row 29): both
+`prNasalAssimAlveolar` and `prObstruentDeletion` genuinely have no `multipleApplicationOrder` attribute
+(confirmed against this directory's own `grammar.xml`, not assumed), and both rules actually FIRE to
+produce this word's surface form -- not merely present-but-unused. No signature, `parses:`, or ground
+truth changed; this is a tag addition only.

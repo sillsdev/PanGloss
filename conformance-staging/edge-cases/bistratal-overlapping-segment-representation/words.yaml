@@ -20,7 +20,7 @@ words:
       - signature: "ROOT3|des"
         rules: []
         exercises:
-          - "MultiTable"
+          - "CharacterDefinitionTable: more than one table, one per stratum"
 
   - word: sed
     note: ROOT4, also Outer-stratum, also using t2's own "s" -- a second positive control (different root, same table).
@@ -29,7 +29,7 @@ words:
       - signature: "ROOT4|sed"
         rules: []
         exercises:
-          - "MultiTable"
+          - "CharacterDefinitionTable: more than one table, one per stratum"
 
   - word: basi
     note: >-
@@ -48,14 +48,14 @@ words:
     provenance: "rust/crates/pg-foma/tests/two_table_symbol_divergence.rs module doc"
     expect_skip: true
     exercises:
-      - "MultiTable"
+      - "CharacterDefinitionTable: more than one table, one per stratum"
 
   - word: abis
     note: ROOT2, also Inner-stratum -- same architectural non-reachability as basi.
     provenance: "rust/crates/pg-foma/tests/two_table_symbol_divergence.rs module doc"
     expect_skip: true
     exercises:
-      - "MultiTable"
+      - "CharacterDefinitionTable: more than one table, one per stratum"
 
   - word: eds
     note: >-
@@ -64,4 +64,4 @@ words:
       coverage alone doesn't manufacture spurious analyses.
     expect_fail: true
     exercises:
-      - "MultiTable"
+      - "CharacterDefinitionTable: more than one table, one per stratum"

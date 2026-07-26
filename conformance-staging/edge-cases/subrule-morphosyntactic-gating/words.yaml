@@ -28,7 +28,7 @@ words:
       - signature: "ROOT1|pat"
         rules: []
         exercises:
-          - "SubruleGating"
+          - "RewriteSubruleDef gating: required/excluded POS or MPR at the subrule level"
 
   - word: bat
     note: >-
@@ -43,4 +43,4 @@ words:
       - signature: "ROOT1+DERIVE|bat"
         rules: [mrDerive]
         exercises:
-          - "SubruleGating"
+          - "RewriteSubruleDef gating: required/excluded POS or MPR at the subrule level"

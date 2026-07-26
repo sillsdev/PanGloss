@@ -34,6 +34,15 @@ words:
     parses:
       - signature: "NPFX+TULIK|menulik"
         rules: [mrNPfx]
+        # LeftToRightRewrite (constructs.txt row 29): prNasalAssimAlveolar/prObstruentDeletion both
+        # carry no multipleApplicationOrder attribute, so pg-grammar's own loader
+        # (load_rewrite_rule, rust/crates/pg-grammar/src/load.rs) gives each Dir::LeftToRight by
+        # default -- and this word is the fixture's strongest positive witness: BOTH rules actually
+        # fire in sequence (assimilation then deletion) to produce this surface form, not merely
+        # present-but-unused. Previously untagged -- constructs.txt had no row for this
+        # characteristic until G9 (sillsdev/machine PR #465) added row 29.
+        exercises:
+          - "RewriteRule direction (Dir): left-to-right"
 
   - word: balo
     note: BALO bare root -- a plain control.

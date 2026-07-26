@@ -27,7 +27,7 @@ words:
       - signature: "ROOT1|acet"
         rules: []
         exercises:
-          - "RightToLeftRewrite"
+          - "RewriteRule direction (Dir): right-to-left"
           - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
 
   - word: ecct
@@ -41,7 +41,7 @@ words:
       - signature: "ROOT2|ecct"
         rules: []
         exercises:
-          - "RightToLeftRewrite"
+          - "RewriteRule direction (Dir): right-to-left"
           - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
 
   - word: accct
@@ -57,7 +57,7 @@ words:
       - signature: "ROOT3|accct"
         rules: []
         exercises:
-          - "RightToLeftRewrite"
+          - "RewriteRule direction (Dir): right-to-left"
           - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
 
   - word: acat
@@ -69,11 +69,11 @@ words:
     provenance: "docs/conformance/representative-typology-basis.md S1.2.2"
     expect_fail: true
     exercises:
-      - "RightToLeftRewrite"
+      - "RewriteRule direction (Dir): right-to-left"
 
   - word: acct
     note: ROOT2's own RAW underlying shape, queried directly -- same reasoning as acat (should have rewritten to "ecct").
     provenance: "docs/conformance/representative-typology-basis.md S1.2.2"
     expect_fail: true
     exercises:
-      - "RightToLeftRewrite"
+      - "RewriteRule direction (Dir): right-to-left"

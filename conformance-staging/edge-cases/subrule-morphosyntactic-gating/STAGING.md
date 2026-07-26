@@ -71,7 +71,14 @@ regression gate.
 
 Not yet proposed upstream. Candidate destination:
 `machine/conformance/edge-cases/subrule-morphosyntactic-gating/`. On acceptance, delete this staged
-copy in the same change (graduation guard enforces this mechanically). Landing the upstream
-`constructs.txt` row design.md D5 proposes for `SubruleGating` is a separate, not-yet-taken step; this
-fixture's own `exercises: ["SubruleGating"]` entries will register as a soft (non-fatal) coverage
-warning until that row lands.
+copy in the same change (graduation guard enforces this mechanically).
+
+## Coverage-tag correction (post-G9)
+
+`constructs.txt` row 31 (`sillsdev/machine` PR #465, "G9") added
+`"RewriteSubruleDef gating: required/excluded POS or MPR at the subrule level"` as this construct's
+own dedicated row. `words.yaml`'s `exercises:` entries here previously read the bare characteristic
+name `"SubruleGating"`, which is NOT a `constructs.txt` row id and therefore matched nothing in
+`conformance_coverage::construct_ids_for`'s byte-for-byte cross-check -- the tag silently contributed
+zero coverage despite this fixture genuinely exercising the construct (see "What it pins" above).
+Fixed to the exact row-31 string; no signature, `parses:`, or ground truth changed.
