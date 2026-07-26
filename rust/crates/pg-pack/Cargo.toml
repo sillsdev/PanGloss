@@ -32,4 +32,5 @@ pg-foma.workspace = true
 # SAME functions `pg_foma::analyzer::FomaProposer::foma_binary_payload` calls in production. Pinned
 # to the identical exact version `pg-foma` compiles against. Dev-only: this does not add `foma` to
 # `pg-wasm`'s build graph (`pg-wasm` depends on this crate's LIBRARY, never its test binary).
-foma = "=0.4.0"
+# Bumped to 0.4.2 alongside pg-foma's own Cargo.toml (2026-07-25) — see that file's comment.
+foma = "=0.4.2"

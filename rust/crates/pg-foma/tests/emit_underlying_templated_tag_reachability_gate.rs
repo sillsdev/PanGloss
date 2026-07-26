@@ -1,27 +1,39 @@
 //! Gate for `pg_foma::emit::verify_tags_reachable` (`emit.rs`'s own doc on that function): the
-//! post-emission detection added to close a SILENT recall-loss class in
-//! [`pg_foma::emit::emit_underlying_templated`].
+//! post-emission detection originally added to close what was BELIEVED to be a silent recall-loss
+//! class in [`pg_foma::emit::emit_underlying_templated`].
 //!
 //! ## Background (2026-07-25 regression investigation)
 //! `tests/p6_templated_morphotactics_gate.rs`'s own `BASELINE_MISSES` doc found that Aweti's
 //! `mrule105` (a standalone `AffixProcess` rule on a stratum ABOVE the root/template stratum) was
 //! correctly classified, declared, and had its lexicon entries written -- yet its tag was entirely
-//! absent from the compiled lexc network's own sigma, and NOTHING reported this: pure silent recall
-//! loss, undetectable from `EmitReport` alone.
+//! absent from the compiled lexc network's own sigma, and NOTHING reported this.
 //!
-//! ## Why the trigger here is "many stratum-attached standalone rules", not literally "stratum > 0"
-//! A synthetic reproduction (this file) shows the underlying mechanism is NOT a graph-reachability
-//! bug in this crate's own `lexc_source` construction (every `LEXICON` block here really is wired
-//! in from `Root` by construction -- `build_deriv_chain`'s every level has an unconditional bare
-//! skip arc to the next). It reproduces identically on BOTH `emit_underlying_templated`'s
-//! `TextMode::UnderlyingTokens` strategy and `pg_foma::emit::emit`'s legacy `TextMode::
-//! SurfaceProbed` strategy, even though the two write completely different per-level content --
-//! and the affected tag set is a scattered, non-monotonic subset (not "every level past some
-//! depth"). This is consistent with a state-deduplication quirk in the vendored `foma` crate's own
-//! lexc reader (`foma::lexcread`'s `lexc_merge_states`/`lexc_suffix_hash`) at scale, not a defect
-//! in this crate's own structural wiring -- see `emit.rs`'s `verify_tags_reachable` doc for the
-//! full reasoning. Whatever the exact mechanism, the OUTCOME (a declared, fully-wired tag silently
-//! missing from the compiled net) is real and reproducible, which is what this gate pins.
+//! ## 2026-07-25 correction: root cause is NOT `lexc_merge_states`, and it is NOT recall loss
+//! A follow-up investigation built a minimal reproduction depending on nothing but the `foma`
+//! crate (no PanGloss code at all) and found the true mechanism: `foma::lexcread`'s own
+//! `lexc_string_to_tokens` (the ENTRY-text tokenizer) fails to recognize a declared multichar
+//! symbol as one atomic token whenever its name contains a literal `0` digit (spelled `%0` in lexc
+//! source, since a bare `0` is the alignment epsilon) -- a declaration-vs-tokenization
+//! `@ZERO@`-marker normalization-order bug, filed upstream as `divvun/foma-rs` (see that issue for
+//! the exact repro and a comparison showing the original C foma reader does not have this defect).
+//! This reproduces with a SINGLE `Multichar_Symbols` declaration and a SINGLE entry -- no chaining,
+//! no scale, and no synthetic states for `lexc_merge_states` to act on at all, so the "many
+//! stratum-attached standalone rules" shape below is NOT what triggers it; what actually explains
+//! the previously-observed "scattered, non-monotonic" tag set is simpler: it is exactly the set of
+//! tags whose zero-padded numeral text happens to contain a `0` digit (`tags::tag_width` only
+//! zero-pads once the grammar has more than 10 morphemes, so this affects most real grammars, not
+//! specifically deep/chained ones).
+//!
+//! Verified directly via `foma::apply::apply_down` (not assumed): every tag this gate used to
+//! flag is still reachable at the LANGUAGE level -- the network's actual recognized strings are
+//! unaffected, only `sigma`'s bookkeeping is incomplete for these symbols. `emit.rs`'s
+//! `verify_tags_reachable` was corrected accordingly (it no longer flags a tag absent from `sigma`
+//! when the tag text contains `0` and every one of its individual characters IS present in
+//! `sigma` -- the signature of this exact decomposition artifact), so this recipe below now
+//! correctly reports ZERO `unreachable-after-lexc-compile` findings; see
+//! `detection_does_not_false_positive_on_the_historical_zero_escape_shape` below. The detector
+//! itself is KEPT (not deleted) as a safety net for a genuinely different future defect -- see
+//! `emit.rs`'s doc on `verify_tags_reachable` for the full reasoning.
 //!
 //! Kept as a small, fast, delanguaged synthetic fixture (via `pg_grammar_gen`, this crate's own
 //! stress-grammar generator) specifically so this gate runs in ordinary CI -- unlike
@@ -39,9 +51,11 @@ const UNREACHABLE_KIND: &str = "unreachable-after-lexc-compile";
 /// rule wrapped in a single-slot `AffixTemplate`, `ConstructKnobs::circumfix_count`) -- the exact
 /// "standalone rule on a stratum above a templated root stratum" shape the module doc's background
 /// section describes, built at Aweti's own real per-zone rule-count scale (`docs/fst-plan/
-/// p6-deep-truncation-chain-report.md`'s "11-rule prefix / 24-rule suffix" figure) so the vendored
-/// foma lexc-compiler quirk this gate pins actually fires (verified directly: it does not fire at
-/// `extra_strata: 1`, only once there are enough structurally-similar chained levels).
+/// p6-deep-truncation-chain-report.md`'s "11-rule prefix / 24-rule suffix" figure). This shape is
+/// kept as the HISTORICAL recipe that used to trip the `%0`-escape sigma artifact (module doc's
+/// correction) -- 24 morphemes pushes `tags::tag_width` to 2 digits, so ids 0-10 and 20 all get a
+/// zero-padded `0` in their tag text -- not because chaining/scale is actually load-bearing for the
+/// artifact (it isn't; the minimal upstream repro needs neither).
 fn stratum_scale_recipe() -> Recipe {
     Recipe {
         name: "reachability-gate-stratum-scale",
@@ -61,11 +75,18 @@ fn stratum_scale_recipe() -> Recipe {
     }
 }
 
-/// (1) Detection FIRES: a synthetic, delanguaged multi-stratum grammar where a stratum-N (N > 0)
-/// standalone rule's tag is declared but genuinely unreachable in the compiled net must now surface
-/// through `EmitReport::uncovered` under `UNREACHABLE_KIND`, never silently.
+/// (1) No false positive on the HISTORICAL trigger shape: this recipe used to make
+/// `verify_tags_reachable` report several tags (any whose zero-padded numeral text contains a `0`
+/// digit) as `UNREACHABLE_KIND`, but the 2026-07-25 follow-up investigation proved (via
+/// `foma::apply::apply_down` against the actual compiled net, both for this recipe and for a
+/// foma-crate-only minimal reproduction at the same "many chained levels" scale) that every one of
+/// those tags is genuinely reachable at the LANGUAGE level -- only the vendored `foma` crate's
+/// `sigma` bookkeeping was incomplete for them (a narrow upstream bug, filed as `divvun/foma-rs`;
+/// see `emit.rs`'s `verify_tags_reachable` doc). `verify_tags_reachable` was corrected to recognize
+/// this exact artifact (tag text contains `0` AND every individual character of it IS present in
+/// `sigma`) and no longer flag it, so this recipe must now report ZERO `UNREACHABLE_KIND` findings.
 #[test]
-fn detection_fires_on_stratum_scale_gap() {
+fn detection_does_not_false_positive_on_the_historical_zero_escape_shape() {
     let recipe = stratum_scale_recipe();
     let rendered = pg_grammar_gen::render_indexed(&recipe);
     let g = pg_grammar::load(&rendered.xml)
@@ -77,8 +98,7 @@ fn detection_fires_on_stratum_scale_gap() {
     let alphabet = SegAlphabet::new(table);
     let result = emit_underlying_templated(&g, &alphabet, None);
 
-    // Sanity: this recipe's lexc source must still compile (the detection itself depends on a
-    // successful compile; a compile failure would be a different, already-loud problem).
+    // Sanity: this recipe's lexc source must still compile.
     let opts = foma::options::FomaOptions::default();
     let _net = foma::lexcread::fsm_lexc_parse_string(&opts, None, &result.lexc_source)
         .unwrap_or_else(|| panic!("emitted lexc must compile:\n{}", result.lexc_source));
@@ -90,19 +110,11 @@ fn detection_fires_on_stratum_scale_gap() {
         .filter(|u| u.kind == UNREACHABLE_KIND)
         .collect();
     assert!(
-        !unreachable.is_empty(),
-        "expected at least one {UNREACHABLE_KIND:?} finding for this stratum-scale recipe (a real, \
-         reproducible gap this gate exists to catch); full uncovered list: {:?}",
-        result.report.uncovered
+        unreachable.is_empty(),
+        "this recipe's tags are all genuinely reachable (verified via apply_down -- see this \
+         test's own doc); the known %0-escape sigma artifact must not be reported as a gap: {:?}",
+        unreachable
     );
-    for u in &unreachable {
-        assert!(
-            u.reason.contains("Root") || u.reason.to_lowercase().contains("unreachable"),
-            "unreachable-after-lexc-compile reason should name the reachability problem plainly: {:?}",
-            u.reason
-        );
-        println!("detected: [{}] {} -- {}", u.kind, u.id, u.reason);
-    }
 }
 
 /// (2) No false positive: an ORDINARY single-stratum templated grammar (this crate's own GATE 2

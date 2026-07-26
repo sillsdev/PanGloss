@@ -347,9 +347,9 @@ checksum = "d9c4f5dac5e15c24eb999c26181a6ca40b39fe946cbe4c263c7209467bc83af2"
 
 [[package]]
 name = "foma"
-version = "0.4.0"
+version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b2a225142148b0b05ca763ff04c2ae9391988cceeb763edf5fe053380f8cc8e7"
+checksum = "7b42b42a8125bc2c69aadd9ad2f0592c940cc85da59b9fb24425d83cfd95f7ca"
 dependencies = [
  "bitflags",
  "flate2",
