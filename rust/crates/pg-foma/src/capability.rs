@@ -163,11 +163,13 @@ pub enum CharacteristicKind {
     MultiTable,
     /// A `PatternNode::Quantifier` (`<OptionalSegmentSequence min max>`) occurrence anywhere in a
     /// `RewriteRuleDef`'s own LHS, or any of its subrules' RHS/left-env/right-env patterns
-    /// (`openspec/changes/compile-bounded-fst-quantifiers`). NOT one variant of `RewriteMode`/`Dir`
-    /// (those already have their own characteristics) — a grammar-level structural fact about
-    /// WHICH pattern nodes a rule's own patterns use, discharged by
-    /// [`QuantifierBoundedExpansionPredicate`]. See that predicate's own doc for the bounded/
-    /// unbounded split.
+    /// (`openspec/changes/compile-bounded-fst-quantifiers`, widened to the genuinely unbounded case
+    /// by `openspec/changes/build-unbounded-quantifier-support`). NOT one variant of
+    /// `RewriteMode`/`Dir` (those already have their own characteristics) — a grammar-level
+    /// structural fact about WHICH pattern nodes a rule's own patterns use, discharged by
+    /// [`QuantifierBoundedExpansionPredicate`]. See that predicate's own doc for the
+    /// compile-attempted split (bounded and unbounded both compile now; `all_bounded` is
+    /// informational only, see [`QuantifierPatternDetail`]'s own doc).
     QuantifierPattern,
 }
 
@@ -283,12 +285,15 @@ impl CharacteristicKind {
             // ConfirmOnly unless/until `MultiTableFaithfulThreadingPredicate` proves `Admit` for
             // the specific configuration observed (pairwise-disjoint table representations).
             CharacteristicKind::MultiTable => Disposition::ConfigPredicate,
-            // `compile-bounded-fst-quantifiers`: a finitely bounded, alpha-free quantifier now
-            // compiles faithfully (`crate::replace::Slot::Repeat`), but no proven no-false-negative
+            // `compile-bounded-fst-quantifiers`, widened by `build-unbounded-quantifier-support`: a
+            // finitely bounded OR genuinely unbounded, alpha-free quantifier now compiles faithfully
+            // (`crate::replace::Slot::Repeat`'s `max: Option<u32>`), but no proven no-false-negative
             // admission-filter argument exists (ADR 0001) -- ConfirmOnly-by-default landing spot,
-            // same shape `RightToLeftRewrite`/`MultiTable` already use. A genuinely unbounded (or
-            // otherwise out-of-scope) quantifier stays refused, per
-            // `QuantifierBoundedExpansionPredicate`'s own split.
+            // same shape `RightToLeftRewrite`/`MultiTable` already use. A rule whose pattern shape
+            // blocks `crate::replace::pattern_slots` from even ATTEMPTING to compile it (an inverted
+            // or over-budget-finite or alpha-nested quantifier, or some other unsupported construct
+            // elsewhere in the same rule) stays refused, per `QuantifierBoundedExpansionPredicate`'s
+            // own split -- an unbounded quantifier is no longer, by itself, such a case.
             CharacteristicKind::QuantifierPattern => Disposition::ConfigPredicate,
         }
     }
@@ -389,9 +394,15 @@ pub struct MultiTableDetail {
 /// reversal construction can even be ATTEMPTED for this specific `Dir::RightToLeft` rule —
 /// computed once here (self-contained projection, same reasoning [`LoweredSpan`]'s own doc gives)
 /// by re-running the SAME structural pattern-shape check `crate::replace::compile_rewrite_rule_
-/// subset` itself gates on (every LHS/RHS/environment pattern must avoid `Quantifier`/`Segments`/
-/// `Anchor` and disagree-polarity alpha vars, and the rule must resolve to a real owning table) —
-/// via [`crate::replace::pattern_slots`]/[`crate::replace::owning_table`] directly, WITHOUT
+/// subset` itself gates on (every LHS/RHS/environment pattern must avoid `Segments`/`Anchor`/
+/// disagree-polarity alpha vars, and any `Quantifier` it contains must be WELL-FORMED --
+/// non-inverted if finitely bounded, at or under `MAX_QUANTIFIER_BOUND` if finite, alpha-free in
+/// its own children; a genuinely UNBOUNDED quantifier, `max=-1`, is no longer by itself
+/// disqualifying, `openspec/changes/build-unbounded-quantifier-support` -- stale wording fixed here,
+/// this doc used to (wrongly) list `Quantifier` alongside `Segments`/`Anchor` as something every
+/// pattern must avoid outright, back when `pattern_slots` refused EVERY quantifier unconditionally
+/// -- and the rule must resolve to a real owning table) — via [`crate::replace::pattern_slots`]/
+/// [`crate::replace::owning_table`] directly, WITHOUT
 /// compiling any foma automaton (cheap, purely structural, no `FomaOptions`/`SegAlphabet` needed).
 /// `Simultaneous` mode is handled by its own [`CharacteristicKind::SimultaneousRewrite`]
 /// observation, so this detail is only ever computed for `Dir::RightToLeft` rules (`characterize`'s
@@ -403,8 +414,9 @@ pub struct MultiTableDetail {
 pub struct RightToLeftRewriteDetail {
     pub rule: PRuleId,
     /// `true` iff every LHS/RHS/environment pattern in this rule's subrules is a shape
-    /// [`crate::replace::pattern_slots`] accepts (no `Quantifier`/`Segments`/`Anchor`, no
-    /// disagree-polarity alpha var) AND the rule resolves to a real owning
+    /// [`crate::replace::pattern_slots`] accepts (no `Segments`/`Anchor`/disagree-polarity alpha
+    /// var, and any `Quantifier` present is well-formed -- see this struct's own top doc for
+    /// exactly which shapes that excludes) AND the rule resolves to a real owning
     /// [`pg_grammar::chardef::CharDefTable`] — i.e. exactly the construct-shape floor
     /// `compile_rewrite_rule_subset` itself requires before it ever calls [`fsm_reverse`
     /// ](foma::reverse::fsm_reverse). `false` means the rule is STILL honestly skipped
@@ -443,6 +455,15 @@ pub struct QuantifierPatternDetail {
     /// subrule's RHS/left-env/right-env, at ANY nesting depth) has a concrete `max` bound
     /// (`rule_has_unbounded_quantifier`'s own negation) — `false` means at least one is genuinely
     /// unbounded (`max == None`, the DTD's `max="-1"` Kleene sentinel).
+    ///
+    /// **Informational only, since `openspec/changes/build-unbounded-quantifier-support`**:
+    /// [`QuantifierBoundedExpansionPredicate`] no longer branches on this field at all (a genuinely
+    /// unbounded quantifier compiles via the SAME `crate::replace::Slot::Repeat` construction a
+    /// bounded one does, `compile_attempted` below is the only fact that matters for disposition
+    /// now) — `all_bounded` is retained purely as structural evidence for OTHER consumers,
+    /// specifically `crate::preflight`'s own per-rule cost-uncertainty health finding (an unbounded
+    /// quantifier's own FST-compile cost is not preflight-boundable ahead of time, a `Warning`-level
+    /// observation independent of whether the grammar's capability gate admits the rule).
     pub all_bounded: bool,
     /// `true` iff [`rtl_reversal_construction_attempted`] accepts this rule's WHOLE pattern shape
     /// (every LHS/RHS/environment pattern is `crate::replace::pattern_slots`-acceptable and the
@@ -2018,8 +2039,11 @@ impl CapabilityPredicate for MultiTableFaithfulThreadingPredicate {
 ///   admission-filter argument exists (ADR 0001's own bar for `Admit`) — so this is confirm-only-
 ///   by-default, never `Admit`.
 /// - **Pattern shape outside scope** (`reversal_construction_attempted == false` — the rule's own
-///   LHS/RHS/environment needs `Quantifier`/`Segments`/`Anchor`, a disagree-polarity alpha var, or
-///   has no resolvable owning table): [`PredicateVerdict::Refuse`] — the real compiler already
+///   LHS/RHS/environment needs `Segments`/`Anchor` or a disagree-polarity alpha var, or contains a
+///   malformed `Quantifier` (inverted, over-budget-finite, alpha-nested -- a genuinely UNBOUNDED
+///   quantifier is no longer, by itself, out of scope, `openspec/changes/
+///   build-unbounded-quantifier-support`), or has no resolvable owning table):
+///   [`PredicateVerdict::Refuse`] — the real compiler already
 ///   honestly skips (`Ok(None)`) exactly this rule (never a silent LTR fallback), so a grammar
 ///   depending on it must be refused rather than silently missing recall; overridable per ADR 0005.
 ///
@@ -2068,10 +2092,12 @@ impl CapabilityPredicate for RightToLeftRewriteFaithfulReversalPredicate {
                 predicate: self.id(),
                 construct: format!("prule {} (Dir::RightToLeft)", rule.0),
                 witness: "this rule's own LHS/RHS/environment pattern needs a construct \
-                          `crate::replace::pattern_slots` does not support (Quantifier/Segments/ \
-                          Anchor, or a disagree-polarity alpha var), or the rule has no resolvable \
-                          owning character-definition table -- the real compiler already honestly \
-                          skips (Ok(None)) this exact rule rather than silently mis-compiling it"
+                          `crate::replace::pattern_slots` does not support (Segments/Anchor, a \
+                          disagree-polarity alpha var, or a malformed Quantifier -- inverted, \
+                          over-budget-finite, or alpha-nested; a genuinely unbounded quantifier is \
+                          NOT by itself such a construct), or the rule has no resolvable owning \
+                          character-definition table -- the real compiler already honestly skips \
+                          (Ok(None)) this exact rule rather than silently mis-compiling it"
                     .to_string(),
             });
         }
@@ -2791,43 +2817,50 @@ impl CapabilityPredicate for MprGroupOverwriteFailClosedPredicate {
 // QuantifierPattern: the config-predicate `compile-bounded-fst-quantifiers` registers
 // -------------------------------------------------------------------------------------------
 
-/// `openspec/changes/compile-bounded-fst-quantifiers`'s own capability predicate: a
+/// `openspec/changes/compile-bounded-fst-quantifiers`'s own capability predicate, WIDENED by
+/// `openspec/changes/build-unbounded-quantifier-support` to cover the genuinely unbounded case too: a
 /// `PatternNode::Quantifier` occurrence is now faithfully COMPILABLE (`crate::replace::Slot::Repeat`,
-/// foma's own native `^{min,max}` bounded-repetition construction) PROVIDED every quantifier the
-/// rule's own patterns use is finitely bounded (never a finite cutoff standing in for genuinely
-/// unbounded Kleene semantics, ADR 0001) AND the rule's whole pattern shape is otherwise one
-/// `crate::replace::compile_rewrite_rule_subset` actually attempts
-/// ([`QuantifierPatternDetail::compile_attempted`]).
+/// whose `max: Option<u32>` renders EITHER foma's native `^{min,max}` bounded-repetition operator or
+/// its native `*`/`^>N` unbounded-repetition operator, `crate::lower::render_slots`'s own doc)
+/// PROVIDED the rule's whole pattern shape is otherwise one `crate::replace::compile_rewrite_rule_
+/// subset` actually attempts ([`QuantifierPatternDetail::compile_attempted`]) — `all_bounded` is no
+/// longer, by itself, a disposition-driving fact (see "Disposition" below); it stays on
+/// [`QuantifierPatternDetail`] purely as informational structural evidence (consumed by
+/// `crate::preflight`'s own cost-uncertainty health finding for an unbounded rule, NOT by this
+/// predicate).
 ///
 /// # Disposition
 /// - **Not observed to use `Quantifier` at all**: vacuously `Admit` — nothing for this predicate to
 ///   say (mirrors [`RightToLeftRewriteFaithfulReversalPredicate`]'s own "not applicable here"
 ///   convention).
-/// - **Every quantifier bounded, and the rule's whole pattern shape compiles**
-///   (`all_bounded && compile_attempted`): [`PredicateVerdict::ConfirmOnly`] — bounded expansion is
-///   a genuinely faithful FST construction for the SUPPORTED case (this change's own containment
-///   fixture, `tests/phase_c_quantifier.rs`, proves oracle-exact equality for a quantifier used in
-///   an ENVIRONMENT — see that module's own doc for why a LHS/RHS-focus-quantified rule's full
-///   containment against `pg_rules::rewrite` is a SEPARATE, documented, pre-existing confirm-engine
-///   gap this change surfaces but does not fix, `crate::replace` module doc's "Confirm-engine
-///   finding"), but no PROVEN no-false-negative admission-filter argument exists for the construct
-///   in general (ADR 0001's own bar for `Admit`) — so this is confirm-only-by-default, the same
-///   landing spot [`RightToLeftRewriteFaithfulReversalPredicate`]/[`MultiTableFaithfulThreadingPredicate`]
-///   already use.
-/// - **At least one quantifier is genuinely unbounded** (`!all_bounded`): [`PredicateVerdict::Refuse`]
-///   — a finite cutoff must never masquerade as unbounded Kleene semantics; the real compiler
-///   already honestly skips (`Ok(None)`) exactly this rule, never a silent wrong compile.
-/// - **Every quantifier is bounded, but the rule's pattern shape does not compile at all**
-///   (`all_bounded && !compile_attempted`): [`PredicateVerdict::Refuse`] — some OTHER unsupported
-///   construct (`Segments`/`Anchor`/disagree-polarity alpha var elsewhere in the rule's own
-///   patterns) or an unresolvable owning table blocks the real compiler; this predicate never
-///   claims more than the real compiler actually attempts.
+/// - **The rule's whole pattern shape compiles** (`compile_attempted`, REGARDLESS of `all_bounded`):
+///   [`PredicateVerdict::ConfirmOnly`] — bounded OR unbounded native-operator expansion is a
+///   genuinely faithful FST construction for the SUPPORTED case (this change's own containment
+///   fixtures, `tests/phase_c_quantifier.rs`, prove oracle-exact equality for a quantifier used in
+///   an ENVIRONMENT, both bounded and unbounded — see that module's own doc for why a LHS/RHS-
+///   focus-quantified rule's full containment against `pg_rules::rewrite` is a SEPARATE,
+///   documented, pre-existing confirm-engine gap this change surfaces but does not fix,
+///   `crate::replace` module doc's "Confirm-engine finding"), but no PROVEN no-false-negative
+///   admission-filter argument exists for the construct in general (ADR 0001's own bar for `Admit`)
+///   — so this is confirm-only-by-default, the same landing spot
+///   [`RightToLeftRewriteFaithfulReversalPredicate`]/[`MultiTableFaithfulThreadingPredicate`]
+///   already use. **A genuinely unbounded quantifier (`!all_bounded`) is no longer, by itself, a
+///   reason to withhold this** — the ORIGINAL version of this predicate `Refuse`d unconditionally
+///   whenever `!all_bounded`, because the real compiler used to bail (`None`) on every unbounded
+///   quantifier regardless of shape; now that `pattern_slots` actually accepts a well-formed
+///   unbounded quantifier, refusing it here too would just be a SECOND, redundant conservative
+///   check the real compiler's own `compile_attempted` fact already supersedes.
+/// - **The rule's pattern shape does not compile at all** (`!compile_attempted` — an inverted or
+///   over-budget-finite or alpha-nested quantifier, or some OTHER unsupported construct,
+///   `Segments`/`Anchor`/disagree-polarity alpha var, elsewhere in the rule's own patterns, or an
+///   unresolvable owning table): [`PredicateVerdict::Refuse`] — this predicate never claims more
+///   than the real compiler actually attempts.
 ///
 /// # Provenance
-/// [`EvidenceProvenance::Structural`]: both `all_bounded`/`compile_attempted` read directly-
-/// inspectable `model.rs` data (no oracle witnesses needed to derive the verdict itself) — the
-/// SUPPORTED case's own safe-recall argument was separately, empirically verified for the
-/// environment-quantifier shape (`tests/phase_c_quantifier.rs`'s own containment fixture), the same
+/// [`EvidenceProvenance::Structural`]: `compile_attempted` reads directly-inspectable `model.rs`
+/// data (no oracle witnesses needed to derive the verdict itself) — the SUPPORTED case's own
+/// safe-recall argument was separately, empirically verified for the environment-quantifier shape,
+/// both bounded and unbounded (`tests/phase_c_quantifier.rs`'s own containment fixtures), the same
 /// "oracle verified the construction, the predicate reads structure" split
 /// [`MultiTableFaithfulThreadingPredicate`]'s own doc draws.
 ///
@@ -2862,26 +2895,24 @@ impl CapabilityPredicate for QuantifierBoundedExpansionPredicate {
             // Not observed to use Quantifier at all -- nothing for this predicate to say (doc).
             return PredicateVerdict::Admit;
         };
-        if !detail.all_bounded {
-            return PredicateVerdict::Refuse(CapabilityDiagnostic {
-                predicate: self.id(),
-                construct: format!("prule {} (Quantifier/OptionalSegmentSequence)", rule.0),
-                witness: "an unbounded quantifier (max=-1, OptionalSegmentSequence's own Kleene \
-                          sentinel, or a bounded outer quantifier nesting an unbounded inner one) \
-                          is out of scope: a finite cutoff must never masquerade as unbounded \
-                          Kleene semantics (ADR 0001), so this stays honestly unsupported"
-                    .to_string(),
-            });
-        }
+        // `openspec/changes/build-unbounded-quantifier-support`: `detail.all_bounded` is no longer
+        // consulted here at all -- a genuinely unbounded quantifier is no longer, by itself, a
+        // reason to Refuse (doc above, "Disposition"). Whether THIS rule's whole pattern shape
+        // actually compiles (bounded or unbounded) is exactly what `detail.compile_attempted`
+        // already answers, so that is now the ONLY gate this predicate checks.
         if !detail.compile_attempted {
             return PredicateVerdict::Refuse(CapabilityDiagnostic {
                 predicate: self.id(),
                 construct: format!("prule {} (Quantifier/OptionalSegmentSequence)", rule.0),
-                witness: "every quantifier in this rule is finitely bounded, but some OTHER \
-                          LHS/RHS/environment construct (Segments/Anchor/disagree-polarity alpha \
-                          var), or an unresolvable owning character-definition table, blocks \
-                          crate::replace::pattern_slots from accepting this rule's whole pattern \
-                          shape at all"
+                witness: "some LHS/RHS/environment construct this rule's own patterns use -- \
+                          Segments/Anchor/disagree-polarity alpha var, an inverted (min > max, \
+                          both concrete) or over-budget-finite (max > MAX_QUANTIFIER_BOUND) or \
+                          alpha-nested quantifier, or an unresolvable owning character-definition \
+                          table -- blocks crate::replace::pattern_slots from accepting this rule's \
+                          whole pattern shape at all. (A GENUINELY unbounded quantifier, max=-1, is \
+                          NOT by itself such a construct: crate::replace::Slot::Repeat's \
+                          max: Option<u32> widening compiles it via foma's own native E*/E^>N xre \
+                          operator, openspec/changes/build-unbounded-quantifier-support.)"
                     .to_string(),
             });
         }
@@ -4091,13 +4122,18 @@ mod tests {
         );
     }
 
-    /// Negative witness: a `Dir::RightToLeft` rule whose LHS needs a `Quantifier`
-    /// (`OptionalSegmentSequence`) -- a construct `crate::replace::pattern_slots` does not support
-    /// for ANY rewrite rule, RTL or not -- must characterize `reversal_construction_attempted ==
-    /// false`, and the predicate must `Refuse` it (never silently `ConfirmOnly`/`Admit` a rule the
-    /// real compiler cannot even attempt).
+    /// **Was a negative witness (Refuse); now a positive one (ConfirmOnly)**, since
+    /// `openspec/changes/build-unbounded-quantifier-support`: a `Dir::RightToLeft` rule whose LHS
+    /// is a genuinely UNBOUNDED (`max="-1"`) `Quantifier` (`OptionalSegmentSequence`) -- this used
+    /// to be a construct `crate::replace::pattern_slots` refused for ANY rewrite rule, RTL or not,
+    /// so this test used to pin `reversal_construction_attempted == false` and a `Refuse` verdict.
+    /// `pattern_slots` now ACCEPTS a well-formed unbounded quantifier (`crate::replace::Slot::Repeat`'s
+    /// `max: Option<u32>` widening), so `rtl_reversal_construction_attempted` (the SAME Dir-agnostic
+    /// structural probe [`QuantifierPatternDetail::compile_attempted`] also reuses) now succeeds for
+    /// this rule too, and the predicate must `ConfirmOnly` it instead (never silently `Admit` --
+    /// still no proven no-false-positive admission-filter argument, ADR 0001).
     #[test]
-    fn right_to_left_predicate_refuses_quantifier_shaped_rule() {
+    fn right_to_left_predicate_confirm_only_for_unbounded_quantifier_shaped_rule() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>RtlQuantifier</Name>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions>
@@ -4132,17 +4168,17 @@ mod tests {
             .right_to_left_detail(PRuleId(0))
             .expect("RightToLeftRewrite must carry a RightToLeftRewriteDetail");
         assert!(
-            !detail.reversal_construction_attempted,
-            "a Quantifier-shaped LHS is outside crate::replace::pattern_slots' own supported shape"
+            detail.reversal_construction_attempted,
+            "a well-formed unbounded Quantifier-shaped LHS is now within \
+             crate::replace::pattern_slots' own supported shape"
         );
 
         let predicate = RightToLeftRewriteFaithfulReversalPredicate;
-        match predicate.evaluate(&profile, &leaf_for(PRuleId(0))) {
-            PredicateVerdict::Refuse(diag) => {
-                assert_eq!(diag.predicate, "right-to-left-rewrite.faithful-reversal-construction");
-            }
-            other => panic!("expected Refuse for a Quantifier-shaped RTL rule, got {other:?}"),
-        }
+        assert_eq!(
+            predicate.evaluate(&profile, &leaf_for(PRuleId(0))),
+            PredicateVerdict::ConfirmOnly,
+            "an unbounded Quantifier-shaped RTL rule must be ConfirmOnly, never Refuse or Admit"
+        );
     }
 
     // ---------------------------------------------------------------------------------------
@@ -4849,7 +4885,10 @@ mod tests {
     }
 
     /// `characterize` marks a rule using an UNBOUNDED environment quantifier with
-    /// `all_bounded == false`.
+    /// `all_bounded == false` -- still an accurate STRUCTURAL fact (`QuantifierPatternDetail::
+    /// all_bounded`'s own doc: informational only since `build-unbounded-quantifier-support`, no
+    /// longer disposition-driving -- see `quantifier_predicate_confirm_only_for_unbounded_shape`
+    /// immediately below for what actually drives this rule's verdict now).
     #[test]
     fn characterize_marks_quantifier_unbounded_as_not_all_bounded() {
         let g = load(QUANT_UNBOUNDED_ENV_XML);
@@ -4863,19 +4902,32 @@ mod tests {
         );
     }
 
-    /// Negative witness: [`QuantifierBoundedExpansionPredicate`] `Refuse`s a genuinely unbounded
-    /// quantifier rule, never silently `ConfirmOnly`/`Admit`s it.
+    /// **Was a negative witness (Refuse); now a positive one (ConfirmOnly)**, since
+    /// `openspec/changes/build-unbounded-quantifier-support`: [`QuantifierBoundedExpansionPredicate`]
+    /// no longer `Refuse`s a rule merely for using a genuinely unbounded quantifier -- this fixture's
+    /// quantifier is used in a RIGHT ENVIRONMENT (well-formed, alpha-free, non-empty children), so
+    /// `crate::replace::pattern_slots` now accepts the rule's whole pattern shape
+    /// (`compile_attempted == true`), and the predicate must `ConfirmOnly` it (never `Admit` --
+    /// still no proven no-false-negative admission-filter argument, ADR 0001).
     #[test]
-    fn quantifier_predicate_refuses_unbounded_quantifier() {
+    fn quantifier_predicate_confirm_only_for_unbounded_shape() {
         let g = load(QUANT_UNBOUNDED_ENV_XML);
         let profile = characterize(&g);
+        let detail = profile
+            .quantifier_detail(PRuleId(0))
+            .expect("QuantifierPattern must carry a QuantifierPatternDetail");
+        assert!(
+            detail.compile_attempted,
+            "an unbounded quantifier used in a well-formed right-environment is exactly the shape \
+             crate::replace::pattern_slots now accepts"
+        );
         let predicate = QuantifierBoundedExpansionPredicate;
-        match predicate.evaluate(&profile, &leaf_for(PRuleId(0))) {
-            PredicateVerdict::Refuse(diag) => {
-                assert_eq!(diag.predicate, "quantifier.bounded-expansion");
-            }
-            other => panic!("expected Refuse for an unbounded quantifier rule, got {other:?}"),
-        }
+        assert_eq!(
+            predicate.evaluate(&profile, &leaf_for(PRuleId(0))),
+            PredicateVerdict::ConfirmOnly,
+            "an unbounded, compile-attempted quantifier rule must be ConfirmOnly, never Admit or \
+             Refuse"
+        );
     }
 
     /// A rule that never uses `Quantifier` at all never observes `QuantifierPattern`, and the

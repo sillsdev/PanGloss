@@ -1,14 +1,13 @@
 //! GATE (`docs/fst-plan/phase-c-generator-design.md` §6, priority (7)): quantifier /
-//! `OptionalSegmentSequence` HONEST-SKIP bail gate -- pure test-writing, the loader/compiler already
-//! reports this construct as `skipped`; this gate pins that it stays that way (never silently
-//! mis-compiled) for the genuinely OUT-OF-SCOPE configurations.
+//! `OptionalSegmentSequence` compile gate -- pure test-writing, this pins the loader/compiler's
+//! ACTUAL disposition per shape, so a regression (a genuinely out-of-scope shape silently
+//! mis-compiling, or a now-supported shape silently regressing back to a bail) is caught.
 //!
 //! `pg_foma::replace::pattern_slots` returns `None` on any out-of-scope `PatternNode::Quantifier`
-//! it meets in a REWRITE rule's own LHS/RHS/environment (genuinely unbounded/inverted/over-budget/
+//! it meets in a REWRITE rule's own LHS/RHS/environment (inverted-finite/over-budget-finite/
 //! alpha-nested), which `compile_rewrite_rule_subset` turns into `Ok(None)` for the whole rule;
 //! `compile_and_compose_rules_with_budget` reports that via `skipped.push(rule.xml_id.clone())`
-//! (design doc §5's "Honest skip now" list). `quantifier_rule_is_honestly_reported_skipped` (below)
-//! still pins exactly that for the construct's ORIGINAL, unbounded (`max="-1"`) shape.
+//! (design doc §5's "Honest skip now" list).
 //!
 //! ## Bounded quantifiers now compile (`openspec/changes/compile-bounded-fst-quantifiers`)
 //! A FINITELY bounded, alpha-free quantifier (`min`/`max` both concrete) compiles now, via
@@ -18,6 +17,18 @@
 //! environment, proposer-to-confirm CONTAINMENT-checked against `pg_parse::Morpher` (this codebase's
 //! own full-HC oracle) at BOTH its `min` and `max` boundary occurrence counts, plus a negative
 //! control below `min`.
+//!
+//! ## Genuinely unbounded quantifiers ALSO now compile (`openspec/changes/
+//! build-unbounded-quantifier-support`, tasks.md 4.5)
+//! The construct's own ORIGINAL, unbounded (`max="-1"`) shape used to be this file's own
+//! honest-skip witness (`quantifier_rule_is_honestly_reported_skipped`, the generator-produced
+//! LHS-focus fixture, and `quantifier_unbounded_environment_stays_honestly_unsupported`, the
+//! right-environment fixture) -- `pg_foma::replace::Slot::Repeat`'s `max: Option<u32>` widening now
+//! compiles this shape too (foma's native `*`/`^>N` unbounded-repetition xre operator instead of
+//! `^{min,max}`), so BOTH witnesses below are renamed and flipped to prove the NEW disposition
+//! (compiles, no longer skipped) instead of the old one. `MAX_QUANTIFIER_BOUND`/the inverted-bound
+//! check still apply ONLY to a FINITE `max` -- an inverted-finite or over-budget-finite or
+//! alpha-nested quantifier stays exactly as unsupported as before (unaffected by this widening).
 //!
 //! **Why the environment, not the LHS/RHS focus** (a documented, load-bearing choice, not an
 //! arbitrary one): `pg_rules::rewrite::width_matches`'s own doc names a "Shared width-mismatch
@@ -43,7 +54,7 @@ mod common;
 
 use std::collections::HashSet;
 
-use foma::apply::apply_init;
+use foma::apply::{apply_down, apply_init};
 use foma::constructions::fsm_compose;
 use foma::lexcread::fsm_lexc_parse_string;
 use foma::minimize::fsm_minimize;
@@ -78,8 +89,18 @@ fn rules_in_order(g: &Grammar) -> Vec<&PhonRuleDef> {
         .collect()
 }
 
+/// **Was honestly skipped; now compiles** (`openspec/changes/build-unbounded-quantifier-support`):
+/// the generator's own `build::quantifier` builder (`pg-grammar-gen/src/build/quantifier.rs`)
+/// always mints a genuinely UNBOUNDED (`max="-1"`) quantifier occupying the rule's WHOLE LHS focus
+/// (`<PhoneticInput>`) -- `pg_foma::replace::Slot::Repeat`'s `max: Option<u32>` widening now renders
+/// this via foma's native `E^>N`/`E*` operator (`crate::lower::render_slots`'s own doc), so this
+/// rule compiles to `Some(net)`, no longer `skipped`. (This rule's own FULL-RECALL containment
+/// against `pg_rules::rewrite` is a separate, documented, pre-existing confirm-engine gap for ANY
+/// LHS/RHS-focus-quantified rule regardless of occurrence-count shape -- `crate::replace` module
+/// doc's "Confirm-engine finding" -- this unit test only exercises the FST COMPILE side, same as
+/// this file's other two witnesses.)
 #[test]
-fn quantifier_rule_is_honestly_reported_skipped() {
+fn quantifier_unbounded_lhs_focus_now_compiles() {
     let recipe = recipe();
     let rendered = pg_grammar_gen::render_indexed(&recipe);
     let g = pg_grammar::load(&rendered.xml).unwrap_or_else(|e| {
@@ -122,21 +143,25 @@ fn quantifier_rule_is_honestly_reported_skipped() {
     )
     .unwrap_or_else(|e| panic!("compile must not hit any budget: {e}"));
 
-    // The construct's own generator-doc contract: the quantifier-bearing rule is DETECTED and
-    // reported -- not silently mis-compiled into a wrong network (design doc §5).
+    // Post-`build-unbounded-quantifier-support`: the quantifier-bearing rule is no longer skipped
+    // at all -- it compiles to a real network, alpha-free (a trivial 1-entry tuple report).
+    assert!(
+        skipped.is_empty(),
+        "the unbounded LHS-focus quantifier rule must no longer be skipped: {skipped:?}"
+    );
+    assert!(
+        composed.is_some(),
+        "an unbounded LHS-focus quantifier must compile to a real network, not a no-op cascade"
+    );
     assert_eq!(
-        skipped,
-        vec![quantifier.rule_xml_id.clone()],
-        "the quantifier rule must be the ONLY skipped rule, and must be reported (never silent)"
+        tuple_reports.len(),
+        1,
+        "exactly one compiled (alpha-free) rule contributes a trivial tuple report"
     );
-    assert!(
-        composed.is_none(),
-        "zero compilable rules -- the cascade must be a no-op, never a wrong network"
-    );
-    assert!(
-        tuple_reports.is_empty(),
-        "a skipped rule contributes no alpha-tuple report"
-    );
+    assert_eq!(tuple_reports[0].0, quantifier.rule_xml_id);
+    assert_eq!(tuple_reports[0].1.len(), 1, "one alpha-free subrule");
+    assert_eq!(tuple_reports[0].1[0].raw_product, 1);
+    assert_eq!(tuple_reports[0].1[0].surviving, 1);
 }
 
 // =================================================================================================
@@ -396,13 +421,18 @@ fn quantifier_bounded_environment_compiles_and_matches_oracle() {
     );
 }
 
-/// **Out-of-scope, stays unsupported.** Same shape, but the right-environment quantifier's own
-/// `max` is the DTD's unbounded Kleene sentinel (`max="-1"`) -- `pg_foma::replace::pattern_slots`
-/// must still return `None` for it (a finite cutoff must never masquerade as unbounded Kleene
-/// semantics, ADR 0001), so the rule is honestly reported `skipped`, never silently compiled as if
-/// it were bounded.
+/// **Was out-of-scope; now compiles, oracle-exact containment** (`openspec/changes/
+/// build-unbounded-quantifier-support`): same shape as
+/// `quantifier_bounded_environment_compiles_and_matches_oracle` above, but the right-environment
+/// quantifier's own `max` is the DTD's unbounded Kleene sentinel (`max="-1"`) --
+/// `pg_foma::replace::pattern_slots` now ACCEPTS this (`crate::replace::Slot::Repeat`'s
+/// `max: Option<u32>` widening, foma's native `E^>N` operator), so the rule compiles instead of
+/// being `skipped`. Mirrors the bounded fixture's own min/below-min boundary containment proof
+/// against `pg_parse::Morpher`, and additionally proves GENUINE unboundedness directly at the FST
+/// level (a 3rd occurrence count -- above the bounded fixture's own `max="2"` -- still matches,
+/// which a merely-widened-but-still-secretly-bounded compile would fail).
 #[test]
-fn quantifier_unbounded_environment_stays_honestly_unsupported() {
+fn quantifier_unbounded_environment_compiles_and_matches_oracle() {
     let g = load(&quantifier_env_xml("-1"));
     let PhonRuleDef::Rewrite(rule) = &g.prules[0] else {
         panic!("expected a Rewrite-kind rule");
@@ -415,7 +445,11 @@ fn quantifier_unbounded_environment_stays_honestly_unsupported() {
 
     let table = &g.char_tables[0];
     let alphabet = SegAlphabet::new(table);
-    let opts = FomaOptions::default();
+
+    let entry_min = common::gate_template::entry_id_of(&g, "entryMin");
+    let entry_max = common::gate_template::entry_id_of(&g, "entryMax");
+    let entry_below_min = common::gate_template::entry_id_of(&g, "entryBelowMin");
+
     let budget = ComposeBudget::with_caps(
         usize::MAX,
         usize::MAX,
@@ -424,11 +458,75 @@ fn quantifier_unbounded_environment_stays_honestly_unsupported() {
         usize::MAX,
         None,
     );
+    let entries: HashSet<LexEntryId> = [entry_min, entry_max, entry_below_min].into_iter().collect();
+    let uemit = emit_underlying_filtered_with_budget(&g, &alphabet, Some(&entries), &budget)
+        .unwrap_or_else(|e| panic!("lexc emission must not hit any budget: {e}"));
+    assert!(uemit.skipped.is_empty());
 
+    let net = compile_net(&g, &alphabet, &g.prules[0], &uemit.lexc_source);
+    let morpher = Morpher::new(&g, usize::MAX);
+
+    let allowed: HashSet<u32> = [
+        g.entries[entry_min.0 as usize].morpheme.0,
+        g.entries[entry_max.0 as usize].morpheme.0,
+        g.entries[entry_below_min.0 as usize].morpheme.0,
+    ]
+    .into_iter()
+    .collect();
+
+    // --- min boundary: exactly 1 occurrence ("az" -> "bz"). ---
+    let query_min = alphabet.encode_query("bz").expect("'bz' must segment");
+    let fst_min = fst_candidate_set(&net, &query_min);
+    let oracle_min = oracle_candidate_set(&morpher, "bz", &allowed);
+    assert_eq!(
+        oracle_min.len(),
+        1,
+        "oracle must recall entryMin for 'bz' (1 z, satisfies min=1..unbounded): {oracle_min:?}"
+    );
+    assert_eq!(fst_min, oracle_min, "CONTAINMENT for 'bz' (min-boundary, 1 occurrence)");
+
+    // --- 2 occurrences ("azz" -> "bzz") -- also within the unbounded range. ---
+    let query_two = alphabet.encode_query("bzz").expect("'bzz' must segment");
+    let fst_two = fst_candidate_set(&net, &query_two);
+    let oracle_two = oracle_candidate_set(&morpher, "bzz", &allowed);
+    assert_eq!(
+        oracle_two.len(),
+        1,
+        "oracle must recall entryMax for 'bzz' (2 z's, satisfies min=1..unbounded): {oracle_two:?}"
+    );
+    assert_eq!(fst_two, oracle_two, "CONTAINMENT for 'bzz' (2 occurrences)");
+
+    // Both roots' own RAW (un-rewritten) spellings must never surface (obligatory rule).
+    let oracle_raw_min = oracle_candidate_set(&morpher, "az", &allowed);
+    assert!(
+        oracle_raw_min.is_empty(),
+        "'az' (obligatorily rewritten) must have no oracle analysis: {oracle_raw_min:?}"
+    );
+    let oracle_raw_two = oracle_candidate_set(&morpher, "azz", &allowed);
+    assert!(
+        oracle_raw_two.is_empty(),
+        "'azz' (obligatorily rewritten) must have no oracle analysis: {oracle_raw_two:?}"
+    );
+
+    // --- below min: 0 occurrences ("a" alone) -- environment does NOT hold, rule must NOT fire. ---
+    let query_below = alphabet.encode_query("a").expect("'a' must segment");
+    let fst_below = fst_candidate_set(&net, &query_below);
+    let oracle_below = oracle_candidate_set(&morpher, "a", &allowed);
+    assert_eq!(
+        oracle_below.len(),
+        1,
+        "oracle must recall entryBelowMin unchanged for 'a' (0 z's, below min=1): {oracle_below:?}"
+    );
+    assert_eq!(
+        fst_below, oracle_below,
+        "CONTAINMENT for 'a' (below-min: the quantifier's own min correctly gates the rule off)"
+    );
+
+    // Post-`build-unbounded-quantifier-support`: no longer skipped at all.
     let mut skipped = Vec::new();
     let mut tuple_reports = Vec::new();
     let composed = compile_and_compose_rules_with_budget(
-        &opts,
+        &FomaOptions::default(),
         &g,
         &alphabet,
         &[&g.prules[0]],
@@ -438,18 +536,32 @@ fn quantifier_unbounded_environment_stays_honestly_unsupported() {
     )
     .unwrap_or_else(|e| panic!("compile must not hit any budget: {e}"));
 
+    assert!(
+        skipped.is_empty(),
+        "an unbounded environment quantifier must no longer be skipped: {skipped:?}"
+    );
+    let rule_only_net = composed
+        .expect("an unbounded environment quantifier must compile to a real network");
+    assert_eq!(tuple_reports.len(), 1, "one compiled (alpha-free) rule");
+
+    // --- GENUINE unboundedness, FST-only against the BARE rule net (no lexicon involved -- the
+    // full lexc-composed `net` above has no LexicalEntry spelling 3 z's at all, so testing THAT
+    // would conflate lexicon coverage with environment matching). Applied "down" (underlying "a"
+    // side -> surface "b" side, this file's own `Dir::LeftToRight`-style plain rule convention):
+    // 3 occurrences of 'z' (above the bounded fixture's own max=2) must STILL obligatorily rewrite
+    // -- an accidentally-still-capped compile would instead pass "azzz" through unchanged. ---
+    let underlying_three = alphabet
+        .encode_query("azzz")
+        .expect("'azzz' must segment against this fixture's own table");
+    let expected_surface_three = alphabet
+        .encode_query("bzzz")
+        .expect("'bzzz' must segment against this fixture's own table");
+    let mut h = apply_init(&rule_only_net);
     assert_eq!(
-        skipped,
-        vec![rule.xml_id.clone()],
-        "an unbounded environment quantifier must be honestly reported skipped, never silently \
-         compiled: {skipped:?}"
-    );
-    assert!(
-        composed.is_none(),
-        "zero compilable rules -- the cascade must be a no-op, never a wrong network"
-    );
-    assert!(
-        tuple_reports.is_empty(),
-        "a skipped rule contributes no alpha-tuple report"
+        apply_down(&mut h, Some(&underlying_three)),
+        Some(expected_surface_three),
+        "3 occurrences (above the bounded fixture's own max=2) must still satisfy an UNBOUNDED \
+         right-environment and obligatorily rewrite -- an accidentally-still-capped compile would \
+         leave 'azzz' unchanged instead"
     );
 }

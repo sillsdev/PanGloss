@@ -45,14 +45,17 @@
 //! rule without modification.
 //!
 //! ## What this module does NOT attempt (see the prototype report for the full list)
-//! - [`PatternNode::Quantifier`] (`OptionalSegmentSequence`) whose own bound is genuinely UNBOUNDED
-//!   (`max == None`, the DTD's `max="-1"` sentinel), inverted (`min > max`), pathologically large
-//!   (past [`MAX_QUANTIFIER_BOUND`]), or carries an alpha-bound occurrence anywhere in its own
-//!   children — [`pattern_slots`] still returns `None`/bails for exactly these configurations (a
-//!   rule whose pattern needs one is reported uncovered, not silently mis-rendered). A FINITELY
-//!   bounded, alpha-free quantifier (`min`/`max` both concrete, `min <= max <= MAX_QUANTIFIER_BOUND`)
-//!   DOES compile now, via [`Slot::Repeat`] (`openspec/changes/compile-bounded-fst-quantifiers`) —
-//!   see that variant's own doc for the construction, and "Bounded quantifiers" below for the
+//! - [`PatternNode::Quantifier`] (`OptionalSegmentSequence`) that is inverted (`min > max`, `max`
+//!   concrete), pathologically large (a concrete `max` past [`MAX_QUANTIFIER_BOUND`]), or carries
+//!   an alpha-bound occurrence anywhere in its own children — [`pattern_slots`] still returns
+//!   `None`/bails for exactly these configurations (a rule whose pattern needs one is reported
+//!   uncovered, not silently mis-rendered). A FINITELY bounded, alpha-free quantifier (`min`/`max`
+//!   both concrete, `min <= max <= MAX_QUANTIFIER_BOUND`) compiles via [`Slot::Repeat`]
+//!   (`openspec/changes/compile-bounded-fst-quantifiers`), and — `openspec/changes/
+//!   build-unbounded-quantifier-support` — a genuinely UNBOUNDED, alpha-free quantifier (`max ==
+//!   None`, the DTD's `max="-1"` sentinel) now ALSO compiles, via that SAME `Slot::Repeat`
+//!   (`max: Option<u32>`), rendered with foma's native `E*`/`E^>N` operator instead of `E^{min,max}`
+//!   — see that variant's own doc for the construction, and "Bounded quantifiers" below for the
 //!   compiled-vs-still-unsupported line and the confirm-engine finding that motivates it.
 //! - [`AlphaVar::plus`] == `false` ("disagree" polarity) — no reference-grammar rule needs it.
 //! - `RewriteMode::Simultaneous` whose subrules the `simultaneous.subrule-overlap` predicate (D3,
@@ -183,12 +186,44 @@
 //! foma's own `fsm_concat_m_n` construction (`foma = "0.4.0"`'s own `src/constructions/boolean.rs`:
 //! `min` mandatory concatenated copies of the child net, then `max - min` further copies each
 //! wrapped in `fsm_optionality` — i.e. **exactly** the "bounded concatenation/optionality"
-//! construction this change's own proposal names, not an approximation of it) for free. Genuinely
-//! unbounded (`max == None`, the DTD's `max="-1"` Kleene sentinel), inverted (`min > max`, no sound
-//! finite construction), over-[`MAX_QUANTIFIER_BOUND`], or alpha-nested quantifiers are UNCHANGED:
-//! still `None`, still honestly reported uncovered by every existing caller — ADR 0001 forbids a
-//! finite cutoff masquerading as unbounded Kleene semantics, so an out-of-scope config is never
-//! silently rounded down to "the biggest bound we felt like compiling."
+//! construction this change's own proposal names, not an approximation of it) for free. Inverted
+//! (`min > max`, `max` concrete, no sound finite construction), over-[`MAX_QUANTIFIER_BOUND`]
+//! (`max` concrete), or alpha-nested quantifiers are UNCHANGED: still `None`, still honestly
+//! reported uncovered by every existing caller.
+//!
+//! ## Unbounded quantifiers (`openspec/changes/build-unbounded-quantifier-support`; ADR 0001, `docs/
+//! adr/0001-honest-capability-boundary.md`)
+//! A genuinely UNBOUNDED, alpha-free quantifier — `max == None`, the DTD's `max="-1"` Kleene
+//! sentinel, the loader's own DEFAULT when the attribute is absent (`XmlLanguageLoader.cs`, the
+//! DTD's own `#IMPLIED` doc: "-1 or higher") — used to be refused for exactly the same reason a
+//! bounded one used to be: `pattern_slots`' unconditional bail, inherited from the ORIGINAL
+//! `compile-bounded-fst-quantifiers` step's own narrower scope line, never a feasibility finding
+//! (that step's own design.md never claimed the unbounded case was uncompilable, only that it was
+//! out of scope for that step). It compiles now, via the SAME [`Slot::Repeat`] (widened to
+//! `max: Option<u32>`), rendered as foma's own native `E*`/`E^>N` xre operator instead of
+//! `E^{min,max}` (`crate::lower::render_slots`'s own doc has the exact operator-selection rule):
+//! `min == 0` ("zero or more") is plain `*` (`nfst-xre`'s `Token::Star`, `foma-0.4.2`'s
+//! `UnaryOp::Star` -> `fsm_kleene_star`); `min >= 1` ("`min` or more") is `E^>(min-1)`
+//! (`nfst-xre`'s `CatenateNPlus`/`RepeatNPlus`, `foma-0.4.2/src/regex.rs:258-268`'s own
+//! `concat(concat_n(net, N), kleene_plus(net))` — **`E^>N` means MORE THAN `N`, i.e. `N+1` or more,
+//! not `N` or more**, the off-by-one `crate::lower::render_slots` is careful to get right by
+//! rendering `min-1`, never `min`). [`MAX_QUANTIFIER_BOUND`] is never checked for this case
+//! (`crate::lower`'s own doc on that constant): a Kleene star/plus's own compiled net size does not
+//! depend on any repetition count at all, so "the bound is above the ceiling" is not even a
+//! meaningful question to ask of `max: None` — this is a DIFFERENT native construction, not a
+//! finite one that happens to be very large, and `max: None` is never coerced to a concrete number
+//! anywhere in this path (ADR 0001: a finite cutoff must never masquerade as unbounded semantics —
+//! this is the SAME rule the original refusal existed to enforce, now honored by actually building
+//! the unbounded construction instead of refusing every quantifier that might need it). Inverted/
+//! over-[`MAX_QUANTIFIER_BOUND`]/alpha-nested quantifiers stay `None` exactly as before — those
+//! checks are about a FINITE `max`'s own value and do not apply when there is no finite value to
+//! check (`crate::lower::slots_from_nodes`'s own Quantifier arm skips them entirely for `max: None`).
+//!
+//! **Big-O.** `E*`/`E^>N`'s compiled size is `fsm_kleene_star`/`fsm_kleene_plus`'s own native
+//! construction over the child automaton `E` (a small, constant number of extra states/arcs beyond
+//! `E` itself, `N` sequential copies of `E` for the `E^>N` case's own mandatory prefix) — LINEAR in
+//! `min`, and, unlike the finite `E^{min,max}` case, INDEPENDENT of any upper occurrence count (there
+//! is none to be linear or exponential IN).
 //!
 //! **Big-O.** `A^{min,max}`'s compiled size is `O(max · |A|)` states/arcs (`max` sequential copies
 //! of the child automaton `A`, `fsm_concat_m_n`'s own doc above) — LINEAR in the bound, never
@@ -388,11 +423,44 @@ fn owning_table_for_prule_position(g: &Grammar, idx: usize) -> Option<&CharDefTa
 }
 
 /// `slots` in REVERSE document order (`openspec/changes/compile-right-to-left-rewrites`'s mirror-
-/// rule construction, module doc): a plain `.iter().rev().cloned()` copy, never mutated in place,
-/// so the caller's own document-order `Vec<Slot>` (needed unchanged for the safety-net plain
-/// branch, [`compile_rtl_branch_net`]'s doc) is untouched.
+/// rule construction, module doc): never mutates in place, so the caller's own document-order
+/// `Vec<Slot>` (needed unchanged for the safety-net plain branch, [`compile_rtl_branch_net`]'s doc)
+/// is untouched.
+///
+/// # Recurses into a `Slot::Repeat`'s own `children` (task #32 fix, REPRODUCED before being applied
+/// -- see this crate's own `rtl_repeat_children_reversal_tests` module below for the concrete
+/// witness)
+/// A `Slot::Repeat{children, ..}` is NOT an atomic, single-token "position" the way
+/// `Slot::Fixed`/`Slot::Union`/`Slot::Alpha` are — it is itself a variable-length SEQUENCE (each
+/// repetition contributes `children.len()` tokens, repeated some number of times). Reversing the
+/// TRUE flattened token sequence such a group can produce requires reversing the ORDER of tokens
+/// WITHIN each repetition too — i.e. recursing into `children` — not merely reordering which
+/// TOP-LEVEL slot comes before/after which other one while leaving `children` in document order.
+/// A shallow `.iter().rev().cloned()` (this function's own PRE-FIX shape) gets this wrong whenever
+/// a `Repeat`'s own `children` has 2+ HETEROGENEOUS entries: `reversing([Fixed(y), Repeat{[a,b]},
+/// Fixed(x)])` must give `[Fixed(x), Repeat{[b,a]}, Fixed(y)]` (the quantifier group's own interior
+/// reversed too, not just its position among its siblings) — `rtl_repeat_children_reversal_tests`
+/// (below) demonstrates the shallow version compiles a `Dir::RightToLeft` reversed branch net whose
+/// own language is provably NOT the true reverse (the compiled net requires the WRONG, swapped
+/// environment content) BEFORE this recursive fix, and the true reverse AFTER it. Recursing is safe
+/// for the SAME reason the top-level reversal is: `Slot::Repeat`'s own `min`/`max` bound is
+/// direction-invariant (reversing a language does not change how many times a repeated group can
+/// occur), so only `children`'s own internal order needs to flip, never `min`/`max` themselves —
+/// including the `max: None` (genuinely unbounded, `openspec/changes/
+/// build-unbounded-quantifier-support`) case, which carries no numeric bound to touch at all.
 fn reversed_slots(slots: &[Slot]) -> Vec<Slot> {
-    slots.iter().rev().cloned().collect()
+    slots
+        .iter()
+        .rev()
+        .map(|s| match s {
+            Slot::Repeat { min, max, children } => Slot::Repeat {
+                min: *min,
+                max: *max,
+                children: reversed_slots(children),
+            },
+            other => other.clone(),
+        })
+        .collect()
 }
 
 /// Renders one COMPLETE branch's xre source text (`"LHS -> RHS"`, optionally with `|| L _`/`|| _
@@ -1554,5 +1622,281 @@ mod owning_table_tests {
             reports[0].raw_product, 3,
             "a single alpha occurrence's raw product equals its own candidate set size"
         );
+    }
+}
+
+// =================================================================================================
+// Task #32: the RTL + Repeat-children mirror bug. `reversed_slots`' own doc (above) already
+// explains WHY a shallow, non-recursing reversal is wrong for a `Slot::Repeat` with 2+ heterogeneous
+// `children`; this module is the REPRODUCTION that justifies actually applying that fix (the task's
+// own "reproduce it first" instruction) rather than fixing it on reasoning alone.
+// =================================================================================================
+
+#[cfg(test)]
+mod rtl_repeat_children_reversal_tests {
+    //! Task #32 reproduction: does the SHALLOW, non-recursing `slots.iter().rev().cloned()`
+    //! `reversed_slots` used to have (before this crate's own fix, above) actually compile a WRONG
+    //! `Dir::RightToLeft` reversed branch net for a rule whose quantifier group has 2+ HETEROGENEOUS
+    //! children? The existing conformance-staging fixture (`conformance-staging/edge-cases/
+    //! right-to-left-bounded-quantifier-rewrite`) does NOT detect this: its quantifier wraps a
+    //! single `<SimpleContext>` (one child), trivially palindromic under any reversal (correct or
+    //! shallow), so the shallow bug was accidentally invisible there. This module authors a
+    //! synthetic RTL rule whose quantifier group has TWO heterogeneous children (`a` then `b`, never
+    //! equal) and demonstrates the defect CONCRETELY: the compiled mirror net's own language, built
+    //! via the shallow (pre-fix) reversal, differs from the true reverse.
+    //!
+    //! # Why a `Slot::Repeat` needs recursion, not just top-level reordering
+    //! A `Slot::Repeat{children, ..}` is not an atomic, single-token "position" the way
+    //! `Slot::Fixed`/`Slot::Union`/`Slot::Alpha` are -- it is itself a variable-length SEQUENCE (each
+    //! repetition contributes `children.len()` tokens). Reversing the TRUE flattened token sequence
+    //! such a group can produce requires reversing the order of tokens WITHIN each repetition too,
+    //! not merely reordering which TOP-LEVEL slot comes before/after which other one while leaving
+    //! `children` in document order -- `reversed_slots`' own doc (above) has the full argument.
+    //!
+    //! # Reproduction strategy: isolate the `reversed_net`, don't just inspect `Slot` data
+    //! Rather than merely inspecting the shallow reversal's OUTPUT `Slot` structure (a real bug
+    //! either way, but not yet proof it changes compiled BEHAVIOR), this builds the actual
+    //! `Dir::RightToLeft` mirror-then-[`fsm_reverse`] construction TWICE -- once via
+    //! [`shallow_reversed_slots_pre_fix`] (the OLD, pre-fix shape, kept here purely as a historical/
+    //! regression witness), once via the crate's own (now-fixed, recursing) [`super::reversed_slots`]
+    //! -- and runs `apply_down` on concrete underlying strings through EACH resulting `reversed_net`
+    //! in ISOLATION (before the safety-net union with `plain_net`, module doc's "safety-net union"
+    //! section -- unioning would let `plain_net` mask the divergence for a same-position match,
+    //! since `plain_net` already covers the environment's TRUE content regardless of this bug). The
+    //! two isolated nets disagree concretely on which underlying string gets rewritten (below) --
+    //! REPRODUCED, not merely theorized -- which is why `reversed_slots` above was actually changed
+    //! to recurse, not left alone on reasoning-only grounds.
+    //!
+    //! # The two tasks interact (per this crate's own task instructions)
+    //! `build-unbounded-quantifier-support` (task 4.5) widens `Slot::Repeat.max` to `Option<u32>`,
+    //! so a genuinely UNBOUNDED (`max: None`) quantifier is now ALSO a case `reversed_slots` must
+    //! handle correctly -- [`reproduce_for_max_attr`] (below) is parameterized over the DTD's own
+    //! `max` attribute text and is run for BOTH a finitely bounded (`"2"`) and a genuinely unbounded
+    //! (`"-1"`) quantifier group, proving the fix covers both, not just the pre-existing bounded case.
+
+    use std::collections::HashMap;
+
+    use foma::apply::apply_init;
+
+    use super::*;
+
+    /// The historical, PRE-FIX `reversed_slots` shape: a shallow `.rev().cloned()` that does not
+    /// recurse into a `Slot::Repeat`'s own `children`. Kept ONLY in this test module (never in
+    /// production) as a concrete negative witness -- proof the recursive fix above was not a no-op.
+    fn shallow_reversed_slots_pre_fix(slots: &[Slot]) -> Vec<Slot> {
+        slots.iter().rev().cloned().collect()
+    }
+
+    /// Builds `fsm_reverse(mirror rule net)` for a rule whose ONLY environment is `right_slots`
+    /// (mirrors [`compile_rtl_branch_net`]'s own `Dir::RightToLeft` arm exactly, that function's own
+    /// worked-example doc), using WHICHEVER `reverse_fn` the caller supplies for `Slot` reversal --
+    /// letting this test compile the SAME construction via [`shallow_reversed_slots_pre_fix`] and via
+    /// the crate's own (fixed) [`super::reversed_slots`] for direct, isolated comparison (no
+    /// safety-net union with `plain_net` -- this function only ever returns the REVERSED branch).
+    fn isolated_reversed_env_net(
+        opts: &FomaOptions,
+        alphabet: &SegAlphabet,
+        lhs_slots: &[Slot],
+        rhs_slots: &[Slot],
+        right_slots: &[Slot],
+        asg: &AlphaAssignment,
+        reverse_fn: impl Fn(&[Slot]) -> Vec<Slot>,
+    ) -> Fsm {
+        let mirror_lhs = reverse_fn(lhs_slots);
+        let mirror_rhs = reverse_fn(rhs_slots);
+        // Swap, mirroring `compile_rtl_branch_net`'s own convention: the mirror rule's own left
+        // environment is the reversed ORIGINAL right environment; there is no left_env in this
+        // fixture, so the mirror's own right environment is simply empty.
+        let mirror_left = reverse_fn(right_slots);
+        let mirror_right: Vec<Slot> = Vec::new();
+        let mirror_regex = render_branch_regex(
+            alphabet,
+            &mirror_lhs,
+            &mirror_rhs,
+            &mirror_left,
+            &mirror_right,
+            asg,
+        );
+        let mirror_net = fsm_parse_regex(opts, &mirror_regex, None, None)
+            .unwrap_or_else(|| panic!("foma rejected mirror regex {mirror_regex:?}"));
+        fsm_reverse(mirror_net)
+    }
+
+    /// Every `apply_down` result for `word` against `net` (order-independent set-free collection --
+    /// this fixture's own nets are deterministic per word, so a single-element `Vec` is expected
+    /// throughout).
+    fn apply_down_all(net: &Fsm, word: &str) -> Vec<String> {
+        let mut h = apply_init(net);
+        h.down(word).collect()
+    }
+
+    fn load(xml: &str) -> Grammar {
+        pg_grammar::load(xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"))
+    }
+
+    /// Synthetic, delanguaged fixture: an RTL rewrite rule `t -> d`, gated by a right environment
+    /// `(a b)^{1,max_attr}` -- TWO heterogeneous children (`a` then `b`, never equal), non-
+    /// palindromic, so a correct reversal must swap them to `(b a)^{1,max_attr}`. `max_attr` is
+    /// either a concrete bound (`"2"`, `compile-bounded-fst-quantifiers`'s own shape) or `"-1"`
+    /// (genuinely unbounded, `build-unbounded-quantifier-support`) -- the bug is in `reversed_slots`
+    /// itself, independent of which quantifier variant carries it, so both are exercised below (this
+    /// module's own top doc, "The two tasks interact").
+    fn rtl_hetero_repeat_xml(max_attr: &str) -> String {
+        format!(
+            r#"<HermitCrabInput><Language><Name>RtlHeteroRepeat</Name>
+      <CharacterDefinitionTable id="t1"><Name>Main</Name>
+        <SegmentDefinitions>
+          <SegmentDefinition id="ct"><Representations><Representation>t</Representation></Representations></SegmentDefinition>
+          <SegmentDefinition id="cd"><Representations><Representation>d</Representation></Representations></SegmentDefinition>
+          <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+          <SegmentDefinition id="cb"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
+        </SegmentDefinitions>
+      </CharacterDefinitionTable>
+      <PhonologicalRuleDefinitions>
+        <PhonologicalRule id="prRtlHeteroRepeat" multipleApplicationOrder="rightToLeftIterative">
+          <Name>rtlHeteroRepeatDemo</Name>
+          <PhoneticInput><PhoneticSequence><Segment segment="ct" /></PhoneticSequence></PhoneticInput>
+          <PhonologicalSubrules>
+            <PhonologicalSubrule>
+              <PhoneticOutput><PhoneticSequence><Segment segment="cd" /></PhoneticSequence></PhoneticOutput>
+              <Environment><RightEnvironment><PhoneticTemplate><PhoneticSequence>
+                <OptionalSegmentSequence min="1" max="{max_attr}">
+                  <Segment segment="ca" /><Segment segment="cb" />
+                </OptionalSegmentSequence>
+              </PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment>
+            </PhonologicalSubrule>
+          </PhonologicalSubrules>
+        </PhonologicalRule>
+      </PhonologicalRuleDefinitions>
+      <Strata><Stratum characterDefinitionTable="t1" phonologicalRules="prRtlHeteroRepeat"><Name>S</Name></Stratum></Strata>
+    </Language></HermitCrabInput>"#
+        )
+    }
+
+    /// Shared body: builds the isolated reversed-branch net both ways for `max_attr`, and
+    /// demonstrates the divergence between the pre-fix shallow reversal and the crate's own (fixed)
+    /// `reversed_slots`.
+    fn reproduce_for_max_attr(max_attr: &str) {
+        let g = load(&rtl_hetero_repeat_xml(max_attr));
+        let PhonRuleDef::Rewrite(rule) = &g.prules[0] else {
+            panic!("expected a Rewrite-kind rule");
+        };
+        assert_eq!(rule.dir, Dir::RightToLeft);
+        let subrule = &rule.subrules[0];
+        let right_env = subrule
+            .right_env
+            .as_ref()
+            .expect("fixture declares a right environment");
+
+        let table = owning_table(&g, rule).expect("rule is wired into stratum S's own cascade");
+        let alphabet = SegAlphabet::new(table);
+        let opts = FomaOptions::default();
+
+        let mut next_occurrence = 0usize;
+        let lhs_slots = pattern_slots(&g, table, &rule.lhs, &mut next_occurrence)
+            .expect("fixed-segment LHS must lower");
+        let rhs_slots = pattern_slots(&g, table, &subrule.rhs, &mut next_occurrence)
+            .expect("fixed-segment RHS must lower");
+        let right_slots = pattern_slots(&g, table, right_env, &mut next_occurrence).expect(
+            "a well-formed 2-child quantifier group must lower (bounded: \
+             compile-bounded-fst-quantifiers; max=\"-1\": build-unbounded-quantifier-support)",
+        );
+
+        // Sanity: exactly one top-level `Slot::Repeat`, with 2 HETEROGENEOUS children -- the exact
+        // shape task #32 flags (module doc): a shallow reversal only reorders the OUTER,
+        // single-element list (a no-op here), never the Repeat's own 2-element `children`.
+        assert_eq!(right_slots.len(), 1);
+        match &right_slots[0] {
+            Slot::Repeat { children, .. } => {
+                assert_eq!(children.len(), 2, "quantifier group must have exactly 2 children");
+            }
+            _ => panic!("expected the right environment to lower to a single Slot::Repeat"),
+        }
+
+        let asg = AlphaAssignment { values: HashMap::new() };
+
+        // The crate's own (now-fixed, recursing) construction.
+        let reversed_fixed = isolated_reversed_env_net(
+            &opts,
+            &alphabet,
+            &lhs_slots,
+            &rhs_slots,
+            &right_slots,
+            &asg,
+            reversed_slots,
+        );
+        // The OLD, shallow, pre-fix construction -- kept as a historical/regression witness (module
+        // doc).
+        let reversed_old_shallow = isolated_reversed_env_net(
+            &opts,
+            &alphabet,
+            &lhs_slots,
+            &rhs_slots,
+            &right_slots,
+            &asg,
+            shallow_reversed_slots_pre_fix,
+        );
+
+        let query_tab = alphabet.encode_query("tab").expect("'tab' must segment");
+        let query_tba = alphabet.encode_query("tba").expect("'tba' must segment");
+        let query_dab = alphabet.encode_query("dab").expect("'dab' must segment");
+        let query_dba = alphabet.encode_query("dba").expect("'dba' must segment");
+
+        // --- The FIXED (recursing) construction matches the rule's OWN stated environment: 't'
+        // followed by 'a' THEN 'b' (never 'b' then 'a'). ---
+        assert_eq!(
+            apply_down_all(&reversed_fixed, &query_tab),
+            vec![query_dab.clone()],
+            "FIXED reversed_net: 't' followed by 'ab' satisfies the rule's own right_env -- must \
+             rewrite (max={max_attr:?})"
+        );
+        assert_eq!(
+            apply_down_all(&reversed_fixed, &query_tba),
+            vec![query_tba.clone()],
+            "FIXED reversed_net: 't' followed by 'ba' does NOT satisfy the rule's own right_env -- \
+             must pass through unchanged (max={max_attr:?})"
+        );
+
+        // --- The OLD, shallow (pre-fix) construction gets this BACKWARDS: it silently left the
+        // quantifier's own 2 children in DOCUMENT order instead of reversing them, so its own
+        // compiled language requires 'b' THEN 'a' -- the WRONG environment, exactly the swap of what
+        // the rule declares. ---
+        assert_eq!(
+            apply_down_all(&reversed_old_shallow, &query_tab),
+            vec![query_tab.clone()],
+            "BUG (task #32, pre-fix): the shallow reversed_net does NOT rewrite 't' before 'ab' -- \
+             it silently misses the rule's own real right-environment entirely, because a shallow \
+             reversal never recurses into the Repeat's own children (max={max_attr:?})"
+        );
+        assert_eq!(
+            apply_down_all(&reversed_old_shallow, &query_tba),
+            vec![query_dba.clone()],
+            "BUG (task #32, pre-fix): the shallow reversed_net WRONGLY rewrites 't' before 'ba' -- \
+             the children order a shallow reversal leaves in DOCUMENT order instead of reversing it \
+             (max={max_attr:?})"
+        );
+
+        assert_ne!(
+            apply_down_all(&reversed_old_shallow, &query_tab),
+            apply_down_all(&reversed_fixed, &query_tab),
+            "the pre-fix shallow reversed_net's own compiled language genuinely differs from the \
+             true reverse construction's -- task #32 REPRODUCED (max={max_attr:?})"
+        );
+    }
+
+    /// Reproduction + regression pin, FINITELY bounded quantifier (`max="2"`,
+    /// `compile-bounded-fst-quantifiers`'s own pre-existing shape).
+    #[test]
+    fn rtl_repeat_children_reversal_bug_reproduced_and_fixed_bounded() {
+        reproduce_for_max_attr("2");
+    }
+
+    /// Reproduction + regression pin, GENUINELY UNBOUNDED quantifier (`max="-1"`,
+    /// `build-unbounded-quantifier-support`'s new case) -- pins this task's own "the two tasks
+    /// interact" note: `max: None` inside a reversed slot list hits the SAME defect as the bounded
+    /// case, and the SAME fix covers it.
+    #[test]
+    fn rtl_repeat_children_reversal_bug_reproduced_and_fixed_unbounded() {
+        reproduce_for_max_attr("-1");
     }
 }

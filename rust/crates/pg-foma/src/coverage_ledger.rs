@@ -474,10 +474,11 @@ pub fn containment_evidence_for(kind: CharacteristicKind) -> Option<ContainmentE
         QuantifierPattern => ev(
             Dedicated,
             "tests/phase_c_quantifier.rs::quantifier_bounded_environment_compiles_and_matches_\
-             oracle (+ quantifier_unbounded_environment_stays_honestly_unsupported for the scope \
-             boundary)",
-            "Bounded-quantifier containment against the real oracle at both min/max boundary \
-             occurrence counts; genuinely unbounded quantifiers stay honestly unsupported.",
+             oracle (+ quantifier_unbounded_environment_compiles_and_matches_oracle for the \
+             genuinely-unbounded case, openspec/changes/build-unbounded-quantifier-support)",
+            "Bounded- AND unbounded-quantifier containment against the real oracle, both at \
+             min-boundary occurrence counts; an inverted/over-budget-finite/alpha-nested \
+             quantifier stays honestly unsupported.",
         ),
     })
 }

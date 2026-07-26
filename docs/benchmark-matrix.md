@@ -19,11 +19,28 @@ completing in under 1 ms lands in the 0 bucket; those are shown as `<1`, never a
 **All three reference grammars are REFUSED by the `--engine=foma` (optimized) path under default
 capability enforcement.** Each for a different, specific reason:
 
-| Grammar | Refusing predicate | Construct | Status of that gap |
-|---|---|---|---|
-| Indonesian | `quantifier.bounded-expansion` | `prule 2`, unbounded quantifier (`max=-1`) | **PROVABLE, resolved 2026-07-25** — `docs/conformance/needs-decision-resolutions.md`, build is tasks.md 4.5 |
-| Amharic | `mpr-group.overwrite-output` | `MprGroup 0` (`Overwrite`) | **PERMANENT CARVE-OUT** — structurally unsound for a monotone admission filter; ADR 0005 override is the only on-ramp |
-| Sena | `compounding.non-recursive` **and** `mpr-group.overwrite-output` | `mrule 0` (recursive `CompoundingRule`), `MprGroup 0` | recursive compounding is **PROVABLE** (tasks.md 4.1); the MPR group is the same permanent carve-out |
+> **CORRECTION 2026-07-26.** The first version of this table listed ONE refusal for Indonesian. That
+> was wrong — an artifact of reading only the tail of the diagnostic output instead of counting every
+> `capability-refuse` line. Indonesian has **three**. The corrected table is below, and it makes the
+> conclusion *stronger*, not weaker: `mpr-group.overwrite-output` is present in **all three**
+> reference grammars, not two.
+
+| Grammar | Refusing predicates (complete) | Status of each gap |
+|---|---|---|
+| Indonesian | `quantifier.bounded-expansion` (`prule 2`), `compounding.non-recursive` (`mrule 0`), `mpr-group.overwrite-output` (`MprGroup 0`) | quantifier **CLOSED 2026-07-26** (tasks.md 4.5); compounding **PROVABLE** (4.1); MPR **PERMANENT CARVE-OUT** |
+| Amharic | `mpr-group.overwrite-output` (`MprGroup 0`) | **PERMANENT CARVE-OUT** — structurally unsound for a monotone admission filter; the ADR 0005 override is the only on-ramp |
+| Sena | `compounding.non-recursive` (`mrule 0`), `mpr-group.overwrite-output` (`MprGroup 0`) | compounding **PROVABLE** (4.1); MPR the same permanent carve-out |
+
+**So no reference grammar can EVER clear the `--engine=foma` capability gate**, at any point in the
+future, without `--allow-unproven`. All three carry `MprGroupOverwrite`, whose refusal is not an
+unfinished construction but a structural impossibility for a monotone-accumulation admission filter
+(`pg_grammar::model::mpr_add_output`'s own doc; ADR 0001's worked confirm-only trap). Closing 4.5 and
+4.1 reduces each grammar's refusal set but cannot empty any of them.
+
+That is a designed-in property of the honest-boundary architecture, not a defect and not a roadmap
+item. What it means practically: the FST path ships for grammars that avoid `Overwrite` MPR groups,
+and for the reference corpora it is exercised under the ADR 0005 override with a `trust=unproven`
+stamp — which is exactly what that override exists for.
 
 Two consequences worth stating plainly, because they are easy to mis-read:
 
@@ -33,16 +50,16 @@ Two consequences worth stating plainly, because they are easy to mis-read:
    *particular grammar* clears the capability gate. Both statements are true simultaneously and
    neither implies the other. (`docs/conformance/shared-construct-id-analysis.md` says the same thing
    about row-level vs configuration-level completeness.)
-2. **Two of the three reference grammars contain a permanently carved-out construct**
-   (`MprGroupOverwrite`). So "the FST path runs all three reference grammars with capability
-   enforcement on" is **not reachable by design**, now or later — only via the documented ADR 0005
-   override, which stamps the result `trust=unproven`. That is the honest boundary, not a defect to
-   be fixed.
+2. **All three reference grammars contain a permanently carved-out construct**
+   (`MprGroupOverwrite`). So "the FST path runs the reference grammars with capability enforcement on"
+   is **not reachable by design**, now or later — only via the documented ADR 0005 override, which
+   stamps the result `trust=unproven`. That is the honest boundary, not a defect to be fixed.
 
 This also settles a question the unbounded-quantifier decision left open. That record argued the
 construct mattered because `max=-1` is the DTD/loader **default** and so likely common; it turns out
-to be load-bearing in a *reference grammar*, where it single-handedly blocks the optimized path on
-Indonesian. tasks.md 4.5's priority should be read accordingly.
+to be load-bearing in a *reference grammar* (Indonesian's `prule 2`), which is stronger evidence than
+the DTD-default argument alone. It was **not** Indonesian's only blocker — see the correction above —
+but it was a real one, and it is now closed.
 
 ---
 

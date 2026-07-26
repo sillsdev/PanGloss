@@ -23,12 +23,15 @@
 //! [`lower_span`] does and does not represent. Quantifier metadata is PARTIALLY covered,
 //! transparently: `openspec/changes/compile-bounded-fst-quantifiers` teaches [`pattern_slots`]
 //! itself to accept a finitely bounded, alpha-free `PatternNode::Quantifier` (a new
-//! `Slot::Repeat`, that variant's own doc) — since [`lower_span`] calls `pattern_slots` directly
-//! (never re-deriving pattern coverage), a bounded quantifier anywhere in `left_env`/`focus`/
-//! `right_env` lowers for free, no code change needed for that. A genuinely unbounded/inverted/
-//! over-budget/alpha-nested quantifier is UNCHANGED: `pattern_slots` still returns `None` for it,
-//! and [`UnsupportedPatternNode::Quantifier`] is still the typed reason [`diagnose_unsupported`]
-//! reports.
+//! `Slot::Repeat`, that variant's own doc), and `openspec/changes/build-unbounded-quantifier-support`
+//! widens that SAME acceptance to a genuinely UNBOUNDED, alpha-free `Quantifier` too (`max: None`,
+//! `Slot::Repeat`'s own doc for the native `E*`/`E^>N` construction) — since [`lower_span`] calls
+//! `pattern_slots` directly (never re-deriving pattern coverage), either shape anywhere in
+//! `left_env`/`focus`/`right_env` lowers for free, no code change needed for that. An inverted-bound
+//! (`min > max`, `max` concrete), over-budget-finite (`max` concrete but past
+//! [`MAX_QUANTIFIER_BOUND`]), or alpha-nested quantifier is UNCHANGED: `pattern_slots` still returns
+//! `None` for it, and [`UnsupportedPatternNode::Quantifier`] is still the typed reason
+//! [`diagnose_unsupported`] reports.
 //!
 //! # What is reused vs. newly written vs. MOVED HERE (migration follow-on, this step)
 //! This step is the "migrate `replace.rs`'s own rewrite-rule pattern compilation onto the shared
@@ -162,14 +165,43 @@ pub(crate) enum Slot {
         occurrence: usize,
         base_members: Vec<CharDefId>,
     },
-    /// `PatternNode::Quantifier { min, max: Some(max), children }` (`openspec/changes/
-    /// compile-bounded-fst-quantifiers`): a FINITELY bounded, alpha-free repetition of `children`'s
-    /// own rendered slots. Renders (`render_slots`) as `[<children text>]^{min,max}` — foma's own
-    /// native bounded-repetition xre operator (`replace.rs` module doc's "Bounded quantifiers"
-    /// section), never a hand-rolled expansion — so `[Slot::Repeat]`'s compiled size is exactly
-    /// foma's own `fsm_concat_m_n` construction: `min` mandatory copies of `children`'s own
-    /// compiled sub-net, then `max - min` further copies each individually optional (that
-    /// function's own doc, cited in `replace.rs`'s Big-O note).
+    /// `PatternNode::Quantifier { min, max, children }` (`openspec/changes/
+    /// compile-bounded-fst-quantifiers` for the originally-supported FINITE case;
+    /// `openspec/changes/build-unbounded-quantifier-support` widens this to the genuinely
+    /// UNBOUNDED case too): an alpha-free repetition of `children`'s own rendered slots, either
+    /// FINITELY bounded (`max: Some(max)`, `min <= max <= MAX_QUANTIFIER_BOUND`) or genuinely
+    /// UNBOUNDED (`max: None`, the DTD's `max="-1"` Kleene sentinel). Renders (`render_slots`) as
+    /// foma's own NATIVE repetition xre operator — `[<children text>]^{min,max}` for the finite
+    /// case, `[<children text>]*`/`[<children text>]^>{min-1}` for the unbounded case (that
+    /// function's own doc has the exact operator-selection rule and the off-by-one it depends on)
+    /// — never a hand-rolled expansion, so `[Slot::Repeat]`'s compiled size is exactly foma's own
+    /// construction: `fsm_concat_m_n` for the finite case (`min` mandatory copies of `children`'s
+    /// own compiled sub-net, then `max - min` further copies each individually optional, that
+    /// function's own doc, cited in `replace.rs`'s Big-O note) or `fsm_kleene_star`/
+    /// `concat(concat_n(net, N), fsm_kleene_plus(net))` for the unbounded case (`foma-0.4.2/src/
+    /// regex.rs`'s own `UnaryOp::Star`/`XreExpr::RepeatNPlus` arms) — LINEAR in `min`, and, for the
+    /// unbounded case, INDEPENDENT of any repetition count at all (there is none to bound: a native
+    /// Kleene star/plus's own compiled net size does not scale with how many times it can match).
+    ///
+    /// # Why `max: Option<u32>`, not always a concrete bound
+    /// `PatternNode::Quantifier`'s own `max` field is already `Option<u32>` (`model.rs`: `None` ⇔
+    /// the DTD's `max="-1"` unbounded sentinel, the C# loader's own default — `XmlLanguageLoader.cs`
+    /// defaults an absent `max` attribute to `-1`, and the DTD's own `#IMPLIED` doc calls it
+    /// "-1 or higher", i.e. unbounded is the DTD's DEFAULT, not an exotic corner). This variant used
+    /// to narrow that down to a concrete `u32` because ONLY the finite case compiled
+    /// (`compile-bounded-fst-quantifiers`'s own original scope, `slots_from_nodes`'s prior
+    /// `let Some(max_v) = max else { return None }` bail). `build-unbounded-quantifier-support`
+    /// removes that narrowing: the backend has a native, exact, finite-SIZE construction for the
+    /// unbounded case too (`nfst-xre` parses `E^>N`/`E*`; `foma-0.4.2/src/regex.rs`'s own
+    /// `RepeatNPlus`/`Star` arms build them with no cutoff anywhere) — refusing it was a SCOPE line
+    /// inherited from the original step, never a feasibility finding (that step's own design.md).
+    /// [`MAX_QUANTIFIER_BOUND`] applies ONLY when `max` is `Some(_)` (`slots_from_nodes`'s own
+    /// Quantifier arm never even evaluates it when `max` is `None`) — an unbounded quantifier's own
+    /// compiled net size does not depend on any repetition count, so there is nothing for that
+    /// ceiling to bound; treating `max: None` as "a bound above the ceiling" and silently clamping
+    /// it to a finite number would be exactly the ADR 0001 violation the original refusal existed
+    /// to avoid, and it stays forbidden here too — `max: None` is never coerced to `Some(_)`
+    /// anywhere in this module.
     ///
     /// # Why `children: Vec<Slot>`, not a second `Pattern`
     /// `slots_from_nodes` (this variant's own builder) already turns `PatternNode::Quantifier`'s
@@ -196,7 +228,7 @@ pub(crate) enum Slot {
     /// from `slots_from_nodes`, exactly like an unbounded quantifier), not a latent panic risk.
     Repeat {
         min: u32,
-        max: u32,
+        max: Option<u32>,
         children: Vec<Slot>,
     },
 }
@@ -215,28 +247,39 @@ fn slots_contain_alpha(slots: &[Slot]) -> bool {
     })
 }
 
-/// Preflight ceiling on a [`PatternNode::Quantifier`]'s own `max` bound (`openspec/changes/
+/// Preflight ceiling on a [`PatternNode::Quantifier`]'s own FINITE `max` bound (`openspec/changes/
 /// compile-bounded-fst-quantifiers`, design.md: "Preflight the product of alternatives/repetitions
 /// and report a typed budget or unsupported result"). Checked in `slots_from_nodes` BEFORE any xre
 /// text is rendered or any `Fsm` is built at all — the cheapest possible predictor, the same "check
 /// the search result before the expensive part" principle `resolve_alpha_tuples`' own V3 alpha-tuple
 /// cap uses. `pattern_slots`/`slots_from_nodes` are pure structural walks with no
 /// [`crate::compose_budget::ComposeBudget`] threaded through them (a fixed, always-on structural
-/// ceiling rather than a new env-configurable budget dimension) — a `max` above this ceiling is
-/// honestly reported unsupported (`None`), never silently clamped down to it (that would be exactly
-/// the finite-cutoff-masquerading-as-something-else move ADR 0001 forbids, just at a different
-/// bound). Generous relative to any authored HC grammar this crate has ever seen
+/// ceiling rather than a new env-configurable budget dimension) — a finite `max` above this ceiling
+/// is honestly reported unsupported (`None`), never silently clamped down to it (that would be
+/// exactly the finite-cutoff-masquerading-as-something-else move ADR 0001 forbids, just at a
+/// different bound). Generous relative to any authored HC grammar this crate has ever seen
 /// (`OptionalSegmentSequence` bounds in the reference/synthetic grammars are single digits) while
 /// keeping even an UNCHECKED first branch net trivially bounded before any `ComposeBudget` size
 /// check ever runs.
+///
+/// **Never applied to a genuinely UNBOUNDED quantifier** (`openspec/changes/
+/// build-unbounded-quantifier-support`): `max: None` is not "a bound above this ceiling" — it is a
+/// DIFFERENT construction entirely (foma's native `E*`/`E^>N` Kleene star/plus, [`Slot::Repeat`]'s
+/// own doc), whose compiled net size does not scale with any repetition count at all, so there is
+/// nothing here for this ceiling to usefully bound. `slots_from_nodes`'s own Quantifier arm never
+/// evaluates this constant when `max` is `None` — silently coercing an unbounded quantifier into a
+/// finite one just to run this check would itself be the ADR 0001 violation this ceiling exists to
+/// prevent for the FINITE case, so that path is never taken.
 const MAX_QUANTIFIER_BOUND: u32 = 512;
 
 /// Walk `pattern`'s nodes into [`Slot`]s, numbering each `Alpha` occurrence sequentially from
 /// `*next_occurrence` (shared across LHS/RHS/left-env/right-env for one subrule — see
 /// `replace.rs`'s `compile_rewrite_rule`, or this module's own [`lower_span`], which resets its own
 /// FRESH counter per span). Returns `None` (uncovered) on `Segments`/`Anchor`/disagree-polarity
-/// `Context`, or an out-of-scope `Quantifier` (unbounded/inverted/over-budget/alpha-nested — see
-/// [`Slot::Repeat`]'s own doc) — this prototype's documented scope line.
+/// `Context`, or an out-of-scope `Quantifier` (inverted/over-budget-finite/alpha-nested/empty-
+/// children — see [`Slot::Repeat`]'s own doc; a genuinely UNBOUNDED quantifier is no longer, by
+/// itself, out of scope, `openspec/changes/build-unbounded-quantifier-support`) — this prototype's
+/// documented scope line.
 ///
 /// `table`: every `Context` node's `NatClassId` is resolved against THIS table
 /// ([`class_members`]), never an implicit grammar-wide default
@@ -301,22 +344,28 @@ fn slots_from_nodes(
                 }
             }
             PatternNode::Quantifier { min, max, children } => {
-                // Genuinely unbounded (Kleene) -- ADR 0001: a finite cutoff must never masquerade
-                // as unbounded semantics, so this stays honestly unsupported (module doc's "Bounded
-                // quantifiers" section).
-                let Some(max_v) = max else {
-                    return None;
-                };
-                // Inverted bound -- no sound finite construction exists for it; conservative
-                // honest-unsupported rather than silently swapping/clamping min/max.
-                if min > max_v {
-                    return None;
-                }
-                // Preflight (design.md: "Preflight the product of alternatives/repetitions and
-                // report a typed budget or unsupported result") -- checked BEFORE recursing into
-                // children/rendering any xre text at all, the cheapest possible predictor.
-                if *max_v > MAX_QUANTIFIER_BOUND {
-                    return None;
+                // `openspec/changes/build-unbounded-quantifier-support`: a genuinely unbounded
+                // quantifier (`max == None`, the DTD's `max="-1"` Kleene sentinel) is ACCEPTED here
+                // now -- it has its own native, exact, finite-SIZE foma construction (`render_slots`'
+                // own doc: `E*`/`E^>N`), so refusing it was a scope line, not a feasibility finding.
+                // The checks below (inverted bound, `MAX_QUANTIFIER_BOUND` preflight) apply ONLY to
+                // a FINITE bound -- neither is well-formed to ask of `None` (there is no upper value
+                // to compare, and no repetition count for the ceiling to bound, `Slot::Repeat`'s own
+                // doc) -- so both are skipped entirely for the unbounded case; `max` is never
+                // silently coerced to a concrete number to force them to run (ADR 0001: a finite
+                // cutoff must never masquerade as unbounded semantics).
+                if let Some(max_v) = max {
+                    // Inverted bound -- no sound finite construction exists for it; conservative
+                    // honest-unsupported rather than silently swapping/clamping min/max.
+                    if min > max_v {
+                        return None;
+                    }
+                    // Preflight (design.md: "Preflight the product of alternatives/repetitions and
+                    // report a typed budget or unsupported result") -- checked BEFORE recursing into
+                    // children/rendering any xre text at all, the cheapest possible predictor.
+                    if *max_v > MAX_QUANTIFIER_BOUND {
+                        return None;
+                    }
                 }
                 let child_slots = slots_from_nodes(g, table, children, next_occurrence)?;
                 if child_slots.is_empty() {
@@ -334,7 +383,7 @@ fn slots_from_nodes(
                 }
                 out.push(Slot::Repeat {
                     min: *min,
-                    max: *max_v,
+                    max: *max,
                     children: child_slots,
                 });
             }
@@ -557,16 +606,35 @@ pub(crate) fn render_slots(
                 max,
                 children,
             } => {
-                // `openspec/changes/compile-bounded-fst-quantifiers` ("Bounded quantifiers"):
-                // foma's own native bounded-repetition xre operator, `^{min,max}` (`nfst-xre`'s
-                // `CatenateNToK`, lexed as a POSTFIX operator over whatever `[...]`-grouped term
-                // precedes it -- `[...]` is foma's plain GROUPING bracket, distinct from `(...)`'s
-                // OPTIONALITY meaning `replace.rs`'s own `render_branch_regex` relies on for
-                // epenthesis). Recurses into `render_slots` for `children` -- the SAME rendering,
-                // same PUA-token space, same load-bearing space-separation rule this whole
-                // function's own doc already establishes; no second text-rendering path.
+                // Recurses into `render_slots` for `children` -- the SAME rendering, same PUA-token
+                // space, same load-bearing space-separation rule this whole function's own doc
+                // already establishes; no second text-rendering path, for either arm below.
                 let inner = render_slots(alphabet, children, assignment);
-                format!("[{inner}]^{{{min},{max}}}")
+                match max {
+                    // `openspec/changes/compile-bounded-fst-quantifiers` ("Bounded quantifiers"):
+                    // foma's own native bounded-repetition xre operator, `^{min,max}` (`nfst-xre`'s
+                    // `CatenateNToK`, lexed as a POSTFIX operator over whatever `[...]`-grouped term
+                    // precedes it -- `[...]` is foma's plain GROUPING bracket, distinct from `(...)`'s
+                    // OPTIONALITY meaning `replace.rs`'s own `render_branch_regex` relies on for
+                    // epenthesis).
+                    Some(max_v) => format!("[{inner}]^{{{min},{max_v}}}"),
+                    // `openspec/changes/build-unbounded-quantifier-support`: `max: None`, the DTD's
+                    // `max="-1"` Kleene sentinel. `min == 0` ("zero or more") is foma's plain `*`
+                    // postfix (`nfst-xre`'s `Token::Star`, `UnaryOp::Star` -> `fsm_kleene_star`).
+                    // `min >= 1` ("`min` or more") needs `nfst-xre`'s `E^>N` ("MORENCONCAT",
+                    // `CatenateNPlus`) -- **load-bearing off-by-one**: `foma-0.4.2/src/regex.rs`'s own
+                    // `XreExpr::RepeatNPlus(inner, n)` arm builds `concat(concat_n(net, n),
+                    // kleene_plus(net))`, i.e. `n` mandatory copies followed by ONE OR MORE further
+                    // copies -- `n` mandatory + >=1 more = STRICTLY MORE THAN `n` copies, i.e. `n+1`
+                    // copies or more. So `^>N` means "more than N", NOT "N or more": rendering
+                    // `min` "or more" therefore requires `^>(min-1)`, never `^>min` (which would
+                    // wrongly demand `min+1` or more, off by one) -- pinned by
+                    // `render_slots_unbounded_min_off_by_one_boundary` (this module's own test
+                    // module), which distinguishes `min` occurrences (must match) from `min-1`
+                    // (must not).
+                    None if *min == 0 => format!("[{inner}]*"),
+                    None => format!("[{inner}]^>{}", min - 1),
+                }
             }
         };
         pieces.push(piece);
@@ -997,5 +1065,274 @@ mod tests {
             spans_overlap(&opts, &span_a, &span_b),
             "two unconstrained same-focus subrules must overlap"
         );
+    }
+
+    // =============================================================================================
+    // `openspec/changes/build-unbounded-quantifier-support` (tasks.md 4.5): `Slot::Repeat.max`
+    // widened to `Option<u32>` -- a genuinely unbounded (`max: None`) quantifier now compiles via
+    // foma's own native `E*`/`E^>N` operator, `MAX_QUANTIFIER_BOUND`/the inverted-bound check apply
+    // ONLY to a finite `max`, and every OTHER out-of-scope shape (inverted finite, over-budget
+    // finite, alpha-nested) stays exactly as unsupported as before.
+    // =============================================================================================
+
+    use foma::apply::{apply_init, apply_up};
+
+    /// One `<CharacterDefinitionTable>` (a single segment `c1`) and five `<PhonologicalRule>`s, each
+    /// a bare `Segment`-focused LHS with ONE quantifier-bearing probe -- no `Environment`/`RHS`
+    /// content is load-bearing here (these fixtures are never compiled/composed, only fed straight
+    /// to [`pattern_slots`] via each rule's own `lhs`), mirroring `OVERLAP_LOWER_PROBE_XML`'s own
+    /// "cheap structural probe, not an end-to-end compile" convention.
+    const QUANTIFIER_SCOPE_PROBE_XML: &str = r#"<HermitCrabInput><Language><Name>QuantifierScopeProbe</Name>
+      <PhonologicalFeatureSystem>
+        <SymbolicFeature id="featA"><Name>a</Name>
+          <Symbols><Symbol id="symX">x</Symbol><Symbol id="symY">y</Symbol></Symbols>
+        </SymbolicFeature>
+      </PhonologicalFeatureSystem>
+      <CharacterDefinitionTable id="t1"><Name>Main</Name>
+        <SegmentDefinitions>
+          <SegmentDefinition id="c1"><Representations><Representation>a</Representation></Representations>
+            <FeatureValue feature="featA" symbolValues="symX" />
+          </SegmentDefinition>
+        </SegmentDefinitions>
+      </CharacterDefinitionTable>
+      <NaturalClasses>
+        <SegmentNaturalClass id="ncC1"><Name>C1</Name><Segment segment="c1" /></SegmentNaturalClass>
+      </NaturalClasses>
+      <PhonologicalRuleDefinitions>
+        <PhonologicalRule id="prUnboundedMinZero"><Name>demo0</Name>
+          <PhoneticInput><PhoneticSequence>
+            <OptionalSegmentSequence min="0" max="-1"><SimpleContext naturalClass="ncC1" /></OptionalSegmentSequence>
+          </PhoneticSequence></PhoneticInput>
+          <PhonologicalSubrules><PhonologicalSubrule><PhoneticOutput><PhoneticSequence><Segment segment="c1" /></PhoneticSequence></PhoneticOutput></PhonologicalSubrule></PhonologicalSubrules>
+        </PhonologicalRule>
+        <PhonologicalRule id="prUnboundedLargeMin"><Name>demo1</Name>
+          <PhoneticInput><PhoneticSequence>
+            <OptionalSegmentSequence min="1000" max="-1"><SimpleContext naturalClass="ncC1" /></OptionalSegmentSequence>
+          </PhoneticSequence></PhoneticInput>
+          <PhonologicalSubrules><PhonologicalSubrule><PhoneticOutput><PhoneticSequence><Segment segment="c1" /></PhoneticSequence></PhoneticOutput></PhonologicalSubrule></PhonologicalSubrules>
+        </PhonologicalRule>
+        <PhonologicalRule id="prInvertedFinite"><Name>demo2</Name>
+          <PhoneticInput><PhoneticSequence>
+            <OptionalSegmentSequence min="5" max="2"><SimpleContext naturalClass="ncC1" /></OptionalSegmentSequence>
+          </PhoneticSequence></PhoneticInput>
+          <PhonologicalSubrules><PhonologicalSubrule><PhoneticOutput><PhoneticSequence><Segment segment="c1" /></PhoneticSequence></PhoneticOutput></PhonologicalSubrule></PhonologicalSubrules>
+        </PhonologicalRule>
+        <PhonologicalRule id="prOverBudgetFinite"><Name>demo3</Name>
+          <PhoneticInput><PhoneticSequence>
+            <OptionalSegmentSequence min="1" max="600"><SimpleContext naturalClass="ncC1" /></OptionalSegmentSequence>
+          </PhoneticSequence></PhoneticInput>
+          <PhonologicalSubrules><PhonologicalSubrule><PhoneticOutput><PhoneticSequence><Segment segment="c1" /></PhoneticSequence></PhoneticOutput></PhonologicalSubrule></PhonologicalSubrules>
+        </PhonologicalRule>
+        <PhonologicalRule id="prAlphaNestedUnbounded"><Name>demo4</Name>
+          <VariableFeatures><VariableFeature id="var1" name="a" phonologicalFeature="featA" /></VariableFeatures>
+          <PhoneticInput><PhoneticSequence>
+            <OptionalSegmentSequence min="1" max="-1">
+              <SimpleContext naturalClass="ncC1"><AlphaVariables><AlphaVariable variableFeature="var1" /></AlphaVariables></SimpleContext>
+            </OptionalSegmentSequence>
+          </PhoneticSequence></PhoneticInput>
+          <PhonologicalSubrules><PhonologicalSubrule><PhoneticOutput><PhoneticSequence><Segment segment="c1" /></PhoneticSequence></PhoneticOutput></PhonologicalSubrule></PhonologicalSubrules>
+        </PhonologicalRule>
+      </PhonologicalRuleDefinitions>
+    </Language></HermitCrabInput>"#;
+
+    fn quantifier_probe_rule<'g>(
+        g: &'g pg_grammar::model::Grammar,
+        xml_id: &str,
+    ) -> &'g pg_grammar::model::RewriteRuleDef {
+        for pr in &g.prules {
+            if let PhonRuleDef::Rewrite(r) = pr {
+                if r.xml_id == xml_id {
+                    return r;
+                }
+            }
+        }
+        panic!("rule {xml_id:?} not found");
+    }
+
+    /// Positive witness: a genuinely unbounded (`max="-1"`), `min="0"` quantifier now lowers to
+    /// `Some(_)` (a `Slot::Repeat { min: 0, max: None, .. }`) -- it used to be an unconditional
+    /// `None` regardless of `min`/`max` (module doc's ORIGINAL scope line).
+    #[test]
+    fn unbounded_quantifier_min_zero_is_accepted_not_refused() {
+        let g = load(QUANTIFIER_SCOPE_PROBE_XML);
+        let table = &g.char_tables[0];
+        let rule = quantifier_probe_rule(&g, "prUnboundedMinZero");
+        let mut next_occurrence = 0usize;
+        let slots = pattern_slots(&g, table, &rule.lhs, &mut next_occurrence)
+            .expect("a well-formed unbounded (min=0), alpha-free quantifier must now lower");
+        assert_eq!(slots.len(), 1);
+        match &slots[0] {
+            Slot::Repeat { min, max, .. } => {
+                assert_eq!(*min, 0);
+                assert_eq!(*max, None);
+            }
+            _ => panic!("expected a Slot::Repeat"),
+        }
+    }
+
+    /// Positive witness: [`MAX_QUANTIFIER_BOUND`] (512) is NEVER checked against an unbounded
+    /// quantifier's own `min` -- `min=1000` (well past 512) must still lower to `Some(_)`, proving
+    /// the ceiling is skipped entirely for `max: None`, not merely "not tripped by coincidence".
+    #[test]
+    fn unbounded_quantifier_large_min_is_never_checked_against_max_quantifier_bound() {
+        let g = load(QUANTIFIER_SCOPE_PROBE_XML);
+        let table = &g.char_tables[0];
+        let rule = quantifier_probe_rule(&g, "prUnboundedLargeMin");
+        let mut next_occurrence = 0usize;
+        let slots = pattern_slots(&g, table, &rule.lhs, &mut next_occurrence).expect(
+            "min=1000 (> MAX_QUANTIFIER_BOUND=512) must NOT be refused for an unbounded (max=None) \
+             quantifier -- that ceiling only bounds a FINITE max, never `None`",
+        );
+        match &slots[0] {
+            Slot::Repeat { min, max, .. } => {
+                assert_eq!(*min, 1000);
+                assert_eq!(*max, None);
+            }
+            _ => panic!("expected a Slot::Repeat"),
+        }
+    }
+
+    /// Negative witness: an inverted FINITE bound (`min=5 > max=2`, both concrete) has no sound
+    /// finite construction and must stay refused, unaffected by the unbounded-quantifier widening.
+    #[test]
+    fn inverted_finite_quantifier_still_unsupported() {
+        let g = load(QUANTIFIER_SCOPE_PROBE_XML);
+        let table = &g.char_tables[0];
+        let rule = quantifier_probe_rule(&g, "prInvertedFinite");
+        let mut next_occurrence = 0usize;
+        assert!(
+            pattern_slots(&g, table, &rule.lhs, &mut next_occurrence).is_none(),
+            "min=5 > max=2 (both concrete) must stay refused"
+        );
+    }
+
+    /// Negative witness: a FINITE `max` past [`MAX_QUANTIFIER_BOUND`] (512) must stay refused, never
+    /// silently clamped down to the ceiling -- unaffected by the unbounded-quantifier widening
+    /// (which only ever ADDS a new accepted shape, `max: None`; it never loosens the finite check).
+    #[test]
+    fn over_budget_finite_quantifier_still_unsupported() {
+        let g = load(QUANTIFIER_SCOPE_PROBE_XML);
+        let table = &g.char_tables[0];
+        let rule = quantifier_probe_rule(&g, "prOverBudgetFinite");
+        let mut next_occurrence = 0usize;
+        assert!(
+            pattern_slots(&g, table, &rule.lhs, &mut next_occurrence).is_none(),
+            "max=600 exceeds MAX_QUANTIFIER_BOUND=512 -- must stay refused, never silently clamped"
+        );
+    }
+
+    /// Negative witness: an `AlphaVariable` occurrence inside a quantifier's own children is out of
+    /// scope regardless of whether the quantifier itself is bounded or unbounded ([`Slot::Repeat`]'s
+    /// own doc) -- `max="-1"` here does not change that.
+    #[test]
+    fn alpha_nested_unbounded_quantifier_still_unsupported() {
+        let g = load(QUANTIFIER_SCOPE_PROBE_XML);
+        let table = &g.char_tables[0];
+        let rule = quantifier_probe_rule(&g, "prAlphaNestedUnbounded");
+        let mut next_occurrence = 0usize;
+        assert!(
+            pattern_slots(&g, table, &rule.lhs, &mut next_occurrence).is_none(),
+            "an AlphaVariable occurrence inside a quantifier's own children is out of scope \
+             regardless of whether the quantifier itself is bounded or unbounded"
+        );
+    }
+
+    /// **Load-bearing off-by-one, pinned at the COMPILED FST level, not just the rendered text.**
+    /// Foma's own `E^>N` xre operator means "MORE THAN `N`", i.e. `N+1` or more (`nfst-xre`'s
+    /// `RepeatNPlus`, `foma-0.4.2/src/regex.rs:258-268`'s own `concat(concat_n(net, N),
+    /// kleene_plus(net))`) -- so rendering "`min` or more" needs `^>(min-1)`, never `^>min`. `min=2`
+    /// must render `^>1` and its compiled net must accept exactly 2 (and 3+) occurrences while
+    /// REJECTING 1 -- if `render_slots` instead emitted `^>min` (`^>2`), exactly 2 occurrences would
+    /// wrongly fail to match (this test would catch that regression).
+    #[test]
+    fn render_slots_unbounded_min_off_by_one_boundary() {
+        let g = load(QUANTIFIER_SCOPE_PROBE_XML);
+        let table = &g.char_tables[0];
+        let alphabet = SegAlphabet::new(table);
+        let opts = FomaOptions::default();
+        let (cd, _) = table
+            .iter()
+            .next()
+            .expect("QUANTIFIER_SCOPE_PROBE_XML's table must have exactly 1 segment");
+        let tok = alphabet.token(cd).to_string();
+
+        let slots = vec![Slot::Repeat {
+            min: 2,
+            max: None,
+            children: vec![Slot::Fixed(cd)],
+        }];
+        let asg = AlphaAssignment {
+            values: std::collections::HashMap::new(),
+        };
+        let text = render_slots(&alphabet, &slots, &asg);
+        assert_eq!(
+            text,
+            format!("[{tok}]^>1"),
+            "min=2 (\"2 or more\") must render as ^>1 (min-1), never ^>2 (min)"
+        );
+
+        let net = fsm_parse_regex(&opts, &text, None, None)
+            .expect("rendered unbounded-quantifier text must compile");
+        let one = tok.clone();
+        let two = format!("{tok}{tok}");
+        let three = format!("{tok}{tok}{tok}");
+
+        let mut h = apply_init(&net);
+        assert_eq!(
+            apply_up(&mut h, Some(&one)),
+            None,
+            "1 occurrence (below min=2) must NOT match"
+        );
+        let mut h = apply_init(&net);
+        assert_eq!(
+            apply_up(&mut h, Some(&two)),
+            Some(two.clone()),
+            "exactly min=2 occurrences must match -- the off-by-one this test pins"
+        );
+        let mut h = apply_init(&net);
+        assert_eq!(
+            apply_up(&mut h, Some(&three)),
+            Some(three.clone()),
+            "MORE than min (3) must ALSO match -- genuinely unbounded, not a min..min+1 accident"
+        );
+    }
+
+    /// `min == 0` ("zero or more") renders as plain `*` (foma's native Kleene star), matching zero,
+    /// one, or many occurrences -- distinct code path from the `min >= 1` `^>` case above.
+    #[test]
+    fn render_slots_unbounded_min_zero_is_kleene_star() {
+        let g = load(QUANTIFIER_SCOPE_PROBE_XML);
+        let table = &g.char_tables[0];
+        let alphabet = SegAlphabet::new(table);
+        let opts = FomaOptions::default();
+        let (cd, _) = table
+            .iter()
+            .next()
+            .expect("QUANTIFIER_SCOPE_PROBE_XML's table must have exactly 1 segment");
+        let tok = alphabet.token(cd).to_string();
+
+        let slots = vec![Slot::Repeat {
+            min: 0,
+            max: None,
+            children: vec![Slot::Fixed(cd)],
+        }];
+        let asg = AlphaAssignment {
+            values: std::collections::HashMap::new(),
+        };
+        let text = render_slots(&alphabet, &slots, &asg);
+        assert_eq!(text, format!("[{tok}]*"), "min=0 or more must render as a plain Kleene star");
+
+        let net = fsm_parse_regex(&opts, &text, None, None)
+            .expect("rendered unbounded-quantifier text must compile");
+        let zero = String::new();
+        let one = tok.clone();
+        let two = format!("{tok}{tok}");
+
+        let mut h = apply_init(&net);
+        assert_eq!(apply_up(&mut h, Some(&zero)), Some(zero.clone()), "0 occurrences must match");
+        let mut h = apply_init(&net);
+        assert_eq!(apply_up(&mut h, Some(&one)), Some(one.clone()), "1 occurrence must match");
+        let mut h = apply_init(&net);
+        assert_eq!(apply_up(&mut h, Some(&two)), Some(two.clone()), "2 occurrences must match");
     }
 }
