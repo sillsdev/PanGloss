@@ -56,14 +56,36 @@ evolves into its broader FST-hybrid scope.
 | MPR features/groups | Ported | |
 | Disjunctive allomorphs / free-fluctuation | Ported | the null/zero-allomorph arm of a disjunctive slot was a real gap, fixed (P10) — this was the dominant cause of a ~50%→98.4% jump in Sena corpus parity |
 | Stem names | Ported | |
-| Guesser API (`guessRoot`/`LexicalGuess`) | **Partially ported** | engine logic (fabricate an out-of-lexicon root, re-run synthesis) is implemented and verified against the C# unit test's literal expected values; the CLI flag, FFI wire-format bit, and oracle-verified conformance fixtures are not yet done |
-| Rule-by-rule tracing (`TraceManager`/`ITraceManager`) | **Mostly ported** | synthesis-side tracing fully wired including phonological rules; analysis-side stratum/template/rule bookends remain untraced |
-| `XmlLanguageWriter` round-trip (grammar → XML export) | **Not ported** | explicitly deferred, not a permanent non-goal |
+| Guesser API (`guessRoot`/`LexicalGuess`) | **Ported** (2026-07-25) | engine logic, plus `--guess` on `batch`/`parse` (default off) and additive `hc_parse_word_opts`/`hc_parse_batch_opts` carrying an explicit `guessed` byte at word and analysis level, plus a conformance fixture. See §3a. The old `hc_parse_word`/`hc_parse_batch` deliberately return NO guesses — their wire format cannot mark one |
+| Rule-by-rule tracing (`TraceManager`/`ITraceManager`) | **Ported** (2026-07-25) | synthesis side was already complete; the five unwired analysis-side events (`begin`/`end_unapply_stratum`, `begin`/`end_unapply_template`, `lexical_lookup`) are now wired against their C# call sites. See §3a — the earlier "rule bookends untraced" wording overstated the gap, since the rule level was already wired |
+| `XmlLanguageWriter` round-trip (grammar → XML export) | **WON'T DO** (2026-07-26) | not a capability gap. The 2026-07-16 data-format decisions sunset HC XML in PanGloss, and the grammar→external round-trip is served by `lcm-grammar` v1 (`GrammarJsonServices.ExportGrammar`, sillsdev/liblcm#392) byte-gated against `pg-fwdata`. Full reasoning in §3a |
 
 ## 3a. Update (2026-07-25) — resolutions and newly-found gaps
 
 The §3 list below is the **squash-copy-era** inventory. This section supersedes it where they differ.
 Items are numbered to match §3.
+
+**§3 item 3 (`XmlLanguageWriter` round-trip) — CLOSED 2026-07-26 as WON'T-DO, superseding "explicitly
+deferred, not a permanent non-goal".** §2's classification predates the 2026-07-16 data-format
+decisions, which retire the format this port would target:
+
+- **LibLCM is and remains the authoritative store**; PanGloss is a pure function over grammars
+  (verification + field deployment), never a writer back into the authority's format.
+- **HC XML importing in PanGloss is being sunset** — fwdata plus snapshot JSON only. Deletion is
+  staged (the XML loader is still load-bearing for ~92 gate-test fixtures) but the direction is
+  settled, and the standing instruction is explicit: *do not add features to the HC-XML loader; route
+  new work through fwdata/snapshot.*
+- **The replacement round-trip already exists and is better.** The grammar → external-format
+  round-trip is served by `lcm-grammar` v1 (`GrammarJsonServices.ExportGrammar`, shipped in
+  sillsdev/liblcm#392 with a published JSON Schema), gated byte-identical against `pg-fwdata` on real
+  projects. That gate is what replaces the HC-XML oracle.
+
+So porting C#'s 1,321-line `XmlLanguageWriter` would build an exporter for a format we are removing,
+duplicating a round-trip that already has an authority-owned implementation and a stronger
+two-implementation byte gate. Reclassified as a **permanent non-goal for the HC-XML format
+specifically** — not a capability gap. If a grammar→XML export is ever genuinely needed (e.g. to feed
+a legacy tool), it should be re-opened as its own change with that consumer named, not carried as an
+unclosed port gap.
 
 **§3 item 5 (no benchmark matrix) — CLOSED 2026-07-26**, `docs/benchmark-matrix.md`. The measurement
 turned up something more important than the latency numbers: **all three reference grammars are
@@ -232,6 +254,12 @@ mismatches; `f3_parity` 0 mismatches across all three corpora; the gated compose
 either list.
 
 ## 3. Known open gaps (as of the squash-copy)
+
+> **This list is HISTORICAL — §3a supersedes it.** Status as of 2026-07-26: items 1, 2, 4, 5, 6 and 7
+> are **closed**, and item 3 is **won't-do** (see §3a for each). The only entry still genuinely open is
+> the remaining *depth* of item 4 — seeded random subtree mutation, second-topology generators for node
+> kinds other than `Gate`, and failure minimisation to a named recipe. Read §3a first; this section is
+> kept verbatim for provenance, not as a to-do list.
 
 1. **Guesser CLI/FFI surface** — engine logic works, no external surface yet (see §2).
 2. **Analysis-side tracing** — stratum/template/rule bookends on the unapplication side aren't
