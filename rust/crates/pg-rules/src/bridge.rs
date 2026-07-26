@@ -270,6 +270,38 @@ impl<'g> PatternBridge<'g> {
                 for (flat, bits) in pairs {
                     lanes[flat.0 as usize] = bits.0;
                 }
+                // C# `NaturalClass` ctor (`NaturalClass.cs:9-13`): every FeatureNaturalClass's
+                // FeatureStruct is stamped `fs.AddValue(HCFeatureSystem.Type, HCFeatureSystem.
+                // Segment)` at construction (unless already frozen — never true for an
+                // author-loaded `<FeatureNaturalClass>`, `XmlLanguageLoader.cs:702`), so a bare
+                // natural-class pattern node can only ever match a real Segment annotation, never
+                // a Boundary one — even though a `Boundary`-kind shape node's OTHER phonological
+                // lanes are all-unconstrained and would otherwise unify trivially with any
+                // authored feature pair. Without this pin, `nat_class_lanes` left the synthetic
+                // `Type` lane at `UNCONSTRAINED`, so a plain `<SimpleContext naturalClass=...>`
+                // environment constraint could spuriously *directly* match a `Boundary` node
+                // wherever one sits at a position an anchored environment check lands on with no
+                // legitimate skip available (e.g. a boundary as the very last matcher-stream
+                // entry, where `pg_fst::traverse::Transduce::initialize`'s own faithfully-ported
+                // `start_anchor && optional` skip-arm has nothing beyond it to skip to — see
+                // `TraversalMethodBase.cs:203-222`, which this port's `initialize()` mirrors
+                // exactly and is NOT itself a bug). Confirmed independently real by direct
+                // instrumentation (this port's own probe: a `RightEnvironment=[ncHighV]` check
+                // anchored exactly at root 19's ("b+ubu") internal boundary node returned a
+                // spurious direct match pre-fix), even though on *that* specific site the
+                // downstream observable symptom turned out to be masked by the legitimate skip
+                // arm succeeding too — the true decisive bug for `csharp_port_rewrite.rs::
+                // epenthesis_rules` sub-cases (2)/(5) was a separate, independent site-enumeration
+                // bug in `pg_rules::rewrite::syn_epenthesis` (see that function's updated doc).
+                // `NaturalClassKind::Segments` needs no equivalent pin here: its lanes are already
+                // the union of real member char-defs' own `feature_lanes()`, each of which carries
+                // its own genuine `Type` pin (`pg_grammar::chardef::CharDef::feature_lanes` doc),
+                // and a `SegmentNaturalClass` (`<SegmentNaturalClass>`, C# `SegmentNaturalClass.
+                // cs`) only ever lists real `<Segment>` members, never boundaries — so that union
+                // already comes out Segment-only, matching C#'s equivalent (member-FeatureStruct-
+                // union, no explicit stamp needed) exactly.
+                lanes[self.grammar.phon_features.type_flat().0 as usize] =
+                    pg_grammar::featsys::TYPE_SEGMENT_BITS;
                 Ok(lanes)
             }
             NaturalClassKind::Segments(segs) => {

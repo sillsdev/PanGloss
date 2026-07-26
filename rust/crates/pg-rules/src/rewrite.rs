@@ -2921,6 +2921,28 @@ fn syn_epenthesis(
         sites.push(0);
     }
     for (site, &node) in node_of.iter().enumerate() {
+        // A `Boundary` entry in `node_of` (present here because `segs(true)` feeds boundaries
+        // into the matcher stream as transparently-skippable Optional segments — needed so an
+        // environment can see *through* an internal morpheme boundary to a real segment beyond
+        // it) is never itself a valid epenthesis TARGET/site. C#'s empty-LHS pattern is a single
+        // `Symbol(HCFeatureSystem.Segment, HCFeatureSystem.Anchor)` constraint
+        // (`SynthesisRewriteRuleSpec.cs:26-29`) — `Segment|Anchor`, never `Boundary` — so the
+        // general pattern matcher never produces an LHS match sitting AT a boundary node, and
+        // `RewriteRuleSpec.MatchSubrule`'s `rightNode = match.Range.End.Next` is therefore always
+        // the shape's structural next node (which MAY be a boundary, matched transparently by the
+        // right-environment traversal itself, but is never a *distinct* match position in its own
+        // right). Without this guard, treating a boundary's own `node_of` slot as a candidate site
+        // double-counts it: the REAL preceding segment's own site already reaches past the
+        // boundary via the shared transparent-skip mechanism (`TraversalMethodBase.cs:203-222`,
+        // ported by `pg_fst::traverse::Transduce::initialize`'s `start_anchor && optional` arm),
+        // so re-checking the identical environment one node later (now anchored directly at the
+        // real segment beyond the boundary, needing no skip at all) manufactures a second,
+        // C#-nonexistent site — confirmed root cause of `csharp_port_rewrite.rs::epenthesis_rules`
+        // sub-cases (2)/(5): root 19's shape "b+ubu" produced 3 "i" epenthesis sites (one per real
+        // high vowel, PLUS one spurious extra at the boundary's own slot) instead of the correct 2.
+        if ms.nodes[node].kind == NodeKind::Boundary {
+            continue;
+        }
         let left_end = site + 1;
         let right_start = site + 1;
         if left_env_ok(left, &segs, left_end) && right_env_ok(right, &segs, right_start) {

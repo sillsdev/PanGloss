@@ -480,7 +480,8 @@ fn common_feature_rules() {
 
 /// Ports `RewriteRuleTests.EpenthesisRules` (RewriteRuleTests.cs:1144-1342), the non-alpha-variable,
 /// non-infinite-loop reconfigurations (1,2,3,4,5,7 of the C# test's 9; see file doc for the two
-/// omitted).
+/// omitted, and [`epenthesis_rules_iterative_cascade_finding`] for the 9th, which is a separate,
+/// still-open finding, not part of this test).
 ///
 /// CORRECTED FINDING (plan item 1 / wave-3): this test's actual blocker was mis-attributed to the
 /// char_def-staleness "major finding" -- it is really the SAME `RewriteMode::Simultaneous` load-time
@@ -504,51 +505,57 @@ fn common_feature_rules() {
 ///   the OTHER live C# use of root 18 (`RewriteRuleTests.cs:1256-1289`'s alpha-variable
 ///   reconfiguration, `"biibuu"` -- not ported here, see below, but independently consistent with the
 ///   corrected "bibu" shape): root 18 is "bibu", not "bibabi". Fixed at the fixture, not the engine.
-/// - **Sub-cases (2) and (5) reveal a genuine, separate, PRE-EXISTING Rust bug -- confirmed against
-///   the real oracle, not just hypothesized, and confirmed NOT specific to `RewriteMode::Simultaneous`
-///   (sub-case (5) is plain Iterative and fails identically).** Both insert an epenthetic segment
-///   adjacent to root `"19"`'s own internal morpheme boundary (`"b+ubu"`,
-///   `deletion_rules_multi_position_reinsertion`'s doc / the `simultaneous-epenthesis` conformance
-///   fixture's README document this same root's real shape). Direct diagnosis (`pg_rules::rewrite
-///   ::synthesize` on the bare root, plus a `TreeTraceSink` trace of the full `parse_word`) found
-///   `syn_epenthesis`'s `RightEnvironment` check at the gap immediately BEFORE the boundary (between
-///   the first "b" and "+") spuriously succeeds, inserting a THIRD "i" that should not exist -- giving
-///   `"bi+iubiu"` instead of `"b+iubiu"` (8 rendered segments instead of 7), a surface that no longer
-///   matches the input word, so the real root never round-trips (`SurfaceFormMismatch`). The real C#
-///   test (`RewriteRuleTests.cs:1201-1254`) asserts BOTH sub-cases succeed, so this is not a case where
-///   Rust's extra site might be the "more correct" answer -- it is a confirmed divergence. Root cause
-///   (not yet fixed, and not fully disambiguated between two candidate mechanisms observed while
-///   diagnosing this -- narrowing further needs closer inspection of `compile_env`'s generated FST,
-///   which was not done in this pass):
-///   (a) this port's environment patterns compiled from a bare phonological `FeatureNaturalClass`
-///   (e.g. "highVowel") carry no `Type=Segment` constraint bit (this module's own top-of-file doc
-///   already flags `Type` as a symbolic feature the frozen `pg_shape`/`pg_fst` contracts do not encode
-///   as a lane, handled today only by WHICH node kinds are fed into the matcher stream), so a
-///   `Boundary` node's all-unconstrained phonological lanes could satisfy a bare natural-class
-///   environment constraint that ought to require a real Segment; or
-///   (b) the boundary is being transparently skipped over by the same Optional-skip matching
-///   mechanism `pg-rules/tests/rewrite_gate.rs`'s
-///   `feature_change_synthesis_rejects_an_over_wide_optional_skip_span` gate test exercises for real
-///   Optional segments, landing the environment check one position further out than it should reach.
-///   Either way this is a real, separate, non-trivial fix (touches the same environment-compilation/
-///   matching machinery every other rewrite/allomorph environment check shares) -- deliberately NOT
-///   attempted inside this P13 pass given the blast radius; flagged here as a new, confirmed
-///   divergence (mechanism not yet pinned down to one of the two candidates above) for a future
-///   dedicated pass, not silently patched or hidden. Both sub-cases stay
-///   part of THIS test (matching `anchor_rules`'s established convention of keeping a partially-
-///   passing C# port together with a doc note, rather than splitting it), so the whole function stays
-///   `#[ignore]`d -- (1), (3), (4), (7), (9) all verified passing individually; only (2)/(5) block a
-///   clean run.
+/// - **Sub-cases (2) and (5) revealed a genuine, separate, PRE-EXISTING Rust bug -- now FIXED
+///   (P-rewrite-boundary-fix pass).** Both insert an epenthetic segment adjacent to root `"19"`'s
+///   own internal morpheme boundary (`"b+ubu"`, `deletion_rules_multi_position_reinsertion`'s doc /
+///   the `simultaneous-epenthesis` conformance fixture's README document this same root's real
+///   shape). Direct instrumentation (temporary probes on `right_env_match`/`nat_class_lanes`, not
+///   checked in) disambiguated the two originally-named candidate mechanisms and found the true root
+///   cause was a THIRD thing neither had precisely named:
+///   1. **A real, independently-confirmed bug (candidate (a), now fixed, but not itself decisive for
+///      this symptom):** `pg_rules::bridge::PatternBridge::nat_class_lanes`'s `NaturalClassKind::
+///      Feature` arm never pinned the synthetic `Type` lane, unlike C#'s `NaturalClass` ctor, which
+///      unconditionally stamps `fs.AddValue(HCFeatureSystem.Type, HCFeatureSystem.Segment)`
+///      (`NaturalClass.cs:9-13`, loaded via `XmlLanguageLoader.cs:702`) on every author-loaded
+///      `<FeatureNaturalClass>`. Fixed by pinning `lanes[type_flat] = TYPE_SEGMENT_BITS` there too
+///      (`NaturalClassKind::Segments` needed no change: its member-union already inherits a correct
+///      `Type` pin from each real member char-def). Confirmed real via direct instrumentation
+///      (pre-fix, a `RightEnvironment=[ncHighV]` check anchored exactly at root 19's boundary node
+///      returned a spurious direct match), but this specific symptom turned out to survive the fix
+///      unchanged on its own, because of finding 3 below.
+///   2. **Candidate (b) as originally named ("Optional-skip landing one position too far") is NOT a
+///      bug.** `pg_fst::traverse::Transduce::initialize`'s `start_anchor && optional` skip-arm
+///      faithfully ports C#'s own `TraversalMethodBase.Initialize` (`TraversalMethodBase.cs:
+///      203-222`), which has the exact same "an anchored match may transparently skip a leading
+///      Optional (e.g. boundary) annotation" behavior. Confirmed by reading the C# source directly:
+///      this is deliberate, shared, correct behavior (it is what lets an environment "see through" a
+///      transparent morpheme boundary to a real segment beyond it), not a Rust-only overreach.
+///   3. **The actual decisive bug: `syn_epenthesis`'s OUTER site-enumeration loop treated a
+///      `Boundary` node's own `node_of` slot as a candidate epenthesis TARGET/site.** C#'s empty-LHS
+///      pattern is a single `Symbol(HCFeatureSystem.Segment, HCFeatureSystem.Anchor)` constraint
+///      (`SynthesisRewriteRuleSpec.cs:26-29`) -- `Segment` or `Anchor`, **never** `Boundary` -- so
+///      C#'s general pattern matcher can never produce an LHS match sitting AT a boundary node; a
+///      boundary is only ever traversed transparently WITHIN a left/right environment check (see
+///      finding 2), never itself a distinct match position. Rust's `node_of` (from `ms.segs(true)`)
+///      includes boundaries (needed so environment checks can see through them), and the site loop
+///      iterated every `node_of` entry as a candidate site including boundary ones -- double-
+///      counting root 19's boundary: the REAL preceding segment's own site already reaches past the
+///      boundary via the shared transparent-skip mechanism (finding 2), so re-checking the identical
+///      environment one node later (now anchored directly at the real segment beyond the boundary,
+///      needing no skip at all) manufactured a second, C#-nonexistent site, giving `"bi+iubiu"`
+///      instead of `"b+iubiu"` (8 rendered segments instead of 7, `SurfaceFormMismatch`). Fixed by
+///      skipping `NodeKind::Boundary` entries in `syn_epenthesis`'s site loop (`pg-rules/src/
+///      rewrite.rs`). This alone (independent of finding 1) resolves the observed symptom; finding 1
+///      is kept because it is independently real (confirmed by direct instrumentation) and would
+///      cause a genuine divergence in an anchored-check-at-a-trailing-boundary-with-no-real-segment-
+///      beyond-it scenario, where finding 2's legitimate skip has nothing to skip to.
+///   The real C# test (`RewriteRuleTests.cs:1201-1254`) asserts both sub-cases succeed; both now do.
+/// - **A NINTH sub-case, previously believed "verified passing individually," is in fact a separate,
+///   pre-existing, confirmed-but-not-fixed divergence** — split out to
+///   [`epenthesis_rules_iterative_cascade_finding`] (its own doc has the full mechanism).
+///
+/// This test is now un-ignored and green: (1), (2), (3), (4), (5), (7) all pass.
 #[test]
-#[ignore = "P13: the Simultaneous load-time lint is gone (multiple_application_rules is now fully \
-            green) and sub-case (7)'s root-18 fixture shape is fixed, but sub-cases (2)/(5) surface \
-            a separate, confirmed, pre-existing (not Simultaneous-specific) Rust bug: syn_epenthesis's \
-            environment check spuriously matches root 19's internal morpheme boundary ('b+ubu'), \
-            inserting an extra epenthetic segment the real C# oracle does not (RewriteRuleTests.cs: \
-            1201-1254 both pass in C#). Mechanism not fully pinned down between two candidates (a \
-            missing Type=Segment gate on natural-class environments, or an Optional-skip matcher \
-            reaching one position too far) -- see doc comment. Deliberately not fixed here (real, \
-            separate root-cause fix, out of P13's scope)."]
 fn epenthesis_rules() {
     // (1) Simultaneous epenthesis: insert a high-front-unrounded vowel after any high vowel.
     let g1 = build_grammar(
@@ -654,8 +661,65 @@ fn epenthesis_rules() {
     );
     let m7 = Morpher::new(&g7, usize::MAX);
     assert_morphs_eq(&m7.parse_word("biiibuii"), &["18"]);
+}
 
-    // (9, the last reconfiguration): a NEW rule2 devoicing/vowel epenthesis composition.
+/// **FINDING (confirmed against the live C# oracle, NOT fixed here — see doc).** Ports
+/// `RewriteRuleTests.EpenthesisRules`'s LAST reconfiguration (RewriteRuleTests.cs:1370-1394): two
+/// bare `RewriteRule`s (`rule1`/`rule2`, both default `ApplicationMode=Iterative` — neither sets
+/// `Simultaneous`) composed in one stratum — `rule1` epenthesizes a back-round vowel after any
+/// back-round vowel, `rule2` epenthesizes "t" between any two vowels — applied to root `"25"`
+/// (`"buibu"`), expected surface `"butubu"`.
+///
+/// This sub-case was carried in `epenthesis_rules` itself through P13 (that test's doc claimed
+/// "(1),(3),(4),(7),(9) all verified passing individually"), but re-verified here (P-rewrite-
+/// boundary-fix pass) once (2)/(5) were actually fixed and the whole function could finally run to
+/// completion: (9) does NOT pass — `m.parse_word("butubu")` returns EMPTY, not `{"25"}`. The C#
+/// oracle itself was re-run directly (`dotnet test ... --filter FullyQualifiedName~RewriteRuleTests.
+/// EpenthesisRules`) and passes clean, confirming this is a genuine Rust divergence, not a stale/
+/// wrong expectation, and NOT the same root-19-boundary bug the rest of this file's `epenthesis_
+/// rules` was blocked on (root 25's shape has no morpheme boundary at all).
+///
+/// **Root cause: a separate, PRE-EXISTING, already-documented-but-undecided gap** —
+/// `docs/p13-simultaneous-design.md` §2.3/§7 item 2 ("Faithful-Iterative epenthesis cascade"):
+/// `pg_rules::rewrite::syn_epenthesis` collects every candidate site against ONE unmutated snapshot
+/// of the shape and then splices all accepted sites in, unconditionally, regardless of the rule's
+/// declared `RewriteMode` — i.e. it is structurally **Simultaneous-shaped** even when a rule (like
+/// this one, both `rule1`/`rule2` default to `Iterative`) asks for `Iterative` semantics. C#'s real
+/// `IterativePhonologicalPatternRule` finds ONE match, applies it (mutating the live `Word`), and
+/// only THEN looks for the next match, now checking environments against the partially-rewritten
+/// shape (`docs/p13-simultaneous-design.md`'s own citation, `SimultaneousPhonologicalPatternRule.cs:
+/// 22-36` contrasted with the Iterative sibling) — a fundamentally different fixpoint walk than
+/// "collect all candidate sites up front, then apply every one." Direct instrumentation here (a
+/// throwaway probe calling `pg_rules::rewrite::synthesize` directly on root 25's segmented shape,
+/// not checked in) confirms the mechanism precisely: `rule1` alone already produces its two
+/// insertions correctly (after each of the root's two back-round vowels, giving a 7-segment
+/// intermediate shape), but `rule2`'s `[V]_[V]` environment then finds **three** separate V-V
+/// adjacencies in that 7-segment intermediate (each of `rule1`'s two freshly-inserted, natural-
+/// class-typed vowel nodes creates a NEW adjacent vowel-vowel pair with its already-vowel neighbor)
+/// and inserts a "t" at all three, producing a 10-interior-segment shape whose surface no longer
+/// matches "butubu" at all (`SurfaceFormMismatch`, hence the empty parse) — where C#'s true
+/// iterative cursor, which never re-visits a position it has already advanced past, would only ever
+/// accept a subset of those. This is the exact, single, general mechanism the design doc's §2.3
+/// already named and explicitly left as an **undecided** open question for a future implementer
+/// (§7 item 2: "Decide and document ... whether this is an accepted permanent scope cut or a
+/// follow-up ticket") — not a new discovery, but this is its first live reference-test-shaped
+/// trigger (§2.3's own probe was a hand-built self-referential fixture, not a ported C# test).
+///
+/// Deliberately NOT fixed here: making `syn_epenthesis` faithfully Iterative (a real per-rule-mode
+/// cursor-walk rewrite of the epenthesis synthesis path, touching the same function every other
+/// epenthesis reconfiguration in this file depends on) is a substantially larger, separate change
+/// from this pass's assigned root-19-boundary/site-enumeration fix, and risks regressing the
+/// now-passing (2)/(5)/(7) sub-cases and every other epenthesis fixture in the suite. Left
+/// `#[ignore]`d, split out of `epenthesis_rules` so that test's other 6 (now-passing) sub-cases can
+/// be un-ignored and gate on their own.
+#[test]
+#[ignore = "confirmed pre-existing (not root-19-boundary-related) Rust divergence: syn_epenthesis \
+            is structurally Simultaneous-shaped regardless of a rule's declared Iterative mode \
+            (docs/p13-simultaneous-design.md §2.3/§7 item 2, an already-flagged but undecided open \
+            question), so composing two Iterative epenthesis rules whose outputs create new \
+            adjacent-vowel sites over-fires relative to C#'s true iterative cursor walk -- see doc \
+            comment for the full mechanism and the direct C#-oracle re-verification."]
+fn epenthesis_rules_iterative_cascade_finding() {
     let g9 = build_grammar(
         r#"<PhonologicalRule id="pr4"><Name>rule4</Name>
              <PhonologicalSubrules><PhonologicalSubrule>
