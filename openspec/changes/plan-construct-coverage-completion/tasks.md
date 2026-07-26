@@ -22,17 +22,24 @@
 
 ## 2. Upstream constructs.txt task (hand-off, tracked here — not implemented by this change)
 
-- [ ] 2.1 Open a PR against `sillsdev/machine` (`conformance-framework` branch) adding constructs.txt
-      rows for rewrite direction, subrule-level MPR/POS gating, and multi-table threading (design.md D5)
-- [ ] 2.2 On acceptance, bump the `machine` submodule pointer and update `conformance_coverage.rs::
-      construct_ids_for`'s four empty-slice arms to the new ids
+- [x] 2.1 **DONE 2026-07-25** — sillsdev/machine#465 against `conformance-framework`, adding all four
+      rows (rewrite direction left-to-right and right-to-left, subrule-level required/excluded POS-or-MPR
+      gating, multiple character-definition tables).
+- [x] 2.2 **DONE 2026-07-25** — submodule pointer bumped to the branch tip (`4560e9e2`) and all four
+      `construct_ids_for` arms mapped, taking `Unmappable` to zero. Note the PR is **open, not yet
+      merged upstream**, so the pointer references a branch tip rather than an accepted commit —
+      re-point it on merge.
 
 ## 3. Fix the conformance-coverage gate's scope before flipping it (hand-off)
 
-- [ ] 3.1 Widen `conformance_coverage.rs`'s cross-check from `supported_kinds()` (Proven-only) to a
-      ledger-wide check over all 20 `CharacteristicKind`s, excluding permanently-carved-out `Refuse`
-      configurations the same way `plan_interaction_coverage::TupleStatus::ContainsUnsupported`
-      excludes them (design.md D7 step 2)
+- [x] 3.1 **DONE 2026-07-25 (G8)** — `supported_kinds()` returns all 20 `CharacteristicKind`s; a new
+      `EvidenceRequirement`/`evidence_requirement_for(Disposition)` encodes the per-disposition rule
+      (`PassingFixture` for `Proven`/`ConfigPredicate`/`ConfirmOnly`, `RefusalWitness` for
+      `FailClosed`), and `disposition` is carried on every `CoverageReportRow` so a flip can stage
+      `Proven` first. This also fixed a real overclaim rather than only widening scope: `build_ledger`
+      had been grading **every** row against the passing-fixture set, so `MprGroupOverwrite`
+      (`FailClosed`) could report `Covered` purely because its sibling `MprGroupAppend` tagged the
+      shared `"MPR features/groups"` id, with the refusal never exercised.
 
 ## 4. Close PROVABLE rows, one construct at a time (hand-off, Stage-2-style full kits)
 
@@ -122,19 +129,24 @@ not mechanically checkable and so can decay into a false claim with nothing fail
 build-breaking gate that can silently start lying is worse than an advisory report, because the green
 light is what gets cited — and it would sit next to a documented census of open circumfix gaps.
 
-- [ ] 6.0 **PREREQUISITE for 6.2** — structural witness gate for the shared ids: assert that some
-      *passing* fixture whose GRAMMAR exhibits the finer construct is among those tagging each shared
-      id (unordered rule order → `UnorderedMorphRuleApplication`; empty-LHS rewrite rule →
-      `Epenthesis`; a `Role::CircumfixPrefix` allomorph RHS via the compiler's own
-      `emit::classify_affix`, scanning ALL allomorphs → `CircumfixOutputAction`). The
-      `MprGroupAppend`/`MprGroupOverwrite` pair needs nothing: G8 moved `Overwrite` to a
-      `RefusalWitness`, itself now proven live by `tests/coverage_citation_liveness.rs`. The
-      shared-id list must be COMPUTED from `construct_ids_for`, never hardcoded, and a newly-shared
-      id with no witness must fail — otherwise a future mapping quietly reintroduces inheritance.
+- [x] 6.0 **DONE 2026-07-25** — `rust/crates/pg-foma/tests/structural_witness_gate.rs`. All three
+      predicates read the loaded `pg_grammar` model, not raw XML; the circumfix one calls the
+      compiler's own `emit::classify_affix` over EVERY allomorph. Witnesses:
+      `polysynthetic-stratal-derivation-chain` / `suffixing-vowel-harmony` /
+      `fusional-realizational-morphology`, each confirmed structurally matching AND tagging the
+      shared id on a *passing* word. Shared-id list computed from `construct_ids_for`; the MPR pair
+      is excluded by derivation (it needs `RefusalWitness`), not by assertion. Proven non-vacuous
+      four ways. Honest detail: narrowing the circumfix predicate to allomorph-0-only still passed,
+      so census C1's preemption does not affect qualification today — the all-allomorph scan is
+      correct-by-design rather than load-bearing.
+- [x] 6.2 **DONE 2026-07-25 — THE FLIP.** `tests/conformance_coverage_gate.rs`'s
+      `supported_construct_conformance_coverage_has_no_gaps` now fails the build on any `Uncovered`
+      or `Unmappable` row, with per-disposition messages naming the two likely causes. Non-vacuity is
+      itself asserted (the report must enumerate every `CharacteristicKind`), and the gate was proven
+      to bite: sabotaging one `Proven` row's tag produced `COVERAGE REGRESSION (Proven):
+      [SubruleGating] …`, reverted clean, all four coverage gates re-run green.
 - [ ] 6.1 Re-run `plan_interaction_coverage`'s report after every promotion in section 4; confirm the
       7-tuple set stays closed and both existing retirements still hold
-- [ ] 6.2 Flip the ledger-wide conformance-coverage cross-check (section 3) from advisory to
-      build-breaking
 - [ ] 6.3 Flip `plan_interaction_coverage`'s own gate from advisory to build-breaking
 - [ ] 6.4 Confirm the definition of done (design.md D7): zero un-evidenced ledger rows, zero
       `Unmappable` rows, zero unresolved NEEDS-DECISION rows, both gates build-breaking

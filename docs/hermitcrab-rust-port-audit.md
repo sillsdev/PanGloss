@@ -65,6 +65,34 @@ evolves into its broader FST-hybrid scope.
 The §3 list below is the **squash-copy-era** inventory. This section supersedes it where they differ.
 Items are numbered to match §3.
 
+**Resolved 2026-07-25 (later in the same day — these supersede the entries further down this section):**
+
+- **§3 item 1 (guesser surface) — CLOSED.** `--guess` on `pangloss batch`/`parse` (default off, output
+  byte-identical without it); `hc_parse_word_opts`/`hc_parse_batch_opts` as additive FFI symbols with
+  their own magic carrying an explicit `guessed` byte at word *and* analysis level; ABI 2 → 3; fixture
+  `conformance-staging/edge-cases/guesser-pattern-root-fallback` with engine-derived ground truth. The
+  adjacent overclaim found while building it (see "OVERCLAIM in shipping code" below) is also closed:
+  the `pg_lexicon` retry is now explicit opt-in defaulting off, the two old symbols pass `false`, and
+  the old format's encoder additionally *filters* guessed analyses so a future caller cannot
+  reintroduce it. `pg-wasm` opts back in explicitly at both call sites — the default flip would
+  otherwise have silently stopped the demo guessing, which its own doc says is deliberate.
+- **§3 item 2 (analysis-side tracing) — CLOSED.** All five previously-unwired events now fire:
+  `begin_unapply_stratum` (`stratum.rs::analyze`), `end_unapply_stratum` at both C# exits,
+  `begin_unapply_template`, `end_unapply_template`, and `lexical_lookup` at both the real-lexicon and
+  guesser sites. The four C# `end_unapply_template` line-pairs collapse onto two Rust call sites
+  because C# has `#if SINGLE_THREADED` and `Parallel.ForEach` implementations of `ApplySlots` each
+  firing the same two logical events — a structural fact, not under-wiring.
+- **§3 item 7 (`FailureReason` order) — CLOSED, aligned to C# rather than accepted.** The syn-FS gate
+  moved to C#'s position (last) in both `synth_affix` and `synth_affix_cached`. Outcome invariance
+  verified by reading: the three intervening gates read only `rule`/`word.flags`/`word.mpr`/the root
+  allomorph's stem name, never `word.syn_fs`, and `synth_syn_fs` is pure. The analysis-side twin was
+  checked and correctly left alone — it has only the one gate, so there is no order to fix.
+- **`max_stem_count` — CLOSED.** Not wrong as a default (`Morpher.cs:56` sets `2` too), but C# exposes
+  `MaxStemCount` as a settable per-instance property (`Morpher.cs:72`, read at
+  `AnalysisCompoundingRule.cs:45`) and raises it to 3 in its own tests
+  (`CompoundingRuleTests.cs:87,105`). The gap was the hardcoding; a `with_max_stem_count` builder now
+  exposes it, default unchanged.
+
 **Resolved since the squash copy:**
 
 - **§3 item 4 (differential fuzzing) — BUILT.** The doc's "scoped in a design doc, never built" is
