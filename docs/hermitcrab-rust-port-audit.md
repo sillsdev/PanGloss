@@ -116,6 +116,49 @@ the change cannot alter parse outcomes.
 
 **Newly found (not in §3):**
 
+- **OVERCLAIM in shipping code — `hc_parse_word`/`hc_parse_batch` can return a guessed analysis
+  unmarked.** `pg_lexicon::analysis` retries via the guesser (`ParseOptions::default()
+  .with_guess_only(true)`, `analysis.rs:127-129`) **unconditionally** whenever a word produces zero
+  analyses and the shape was valid — there is no on/off switch. `UnifiedAnalysis` and each
+  `WordAnalysis` both carry the `guessed`/`provenance` fact correctly (`analysis.rs:51`, `:136`), so
+  the information survives all the way to the FFI boundary — and is then **discarded** there, because
+  `hc_parse_word`/`hc_parse_batch`'s wire format has no guessed field. A caller of those two symbols
+  therefore receives guessed analyses byte-indistinguishable from confirmed ones. This is the ONE
+  invariant (never overclaim) being violated in shipping code rather than in a plan. Found while
+  building G3's guesser surface; correctly left alone by that task (different crate, additive-only
+  scope) and escalated here. **Decision (2026-07-25):** the fix is NOT to add a bit to the existing
+  format — that would break every existing native decoder. `hc_parse_word`/`hc_parse_batch` must
+  instead behave as guess-OFF (return no guessed analyses at all), since they cannot mark what they
+  return; callers who want guessing use the `_opts` symbols G3 added, whose format carries an explicit
+  `guessed` byte at both word and analysis level. Existing callers lose results they were silently
+  being handed, which is the correct direction: a dropped guess is a recoverable disappointment, an
+  unmarked guess is a false claim.
+
+- **Structural recall-loss risk: `Dir::RightToLeft` + a bounded `Quantifier` builds a WRONG mirror.**
+  `reversed_slots` (`pg-foma/src/replace.rs:394-396`) is a **shallow** reverse —
+  `slots.iter().rev().cloned()` — and does not recurse into a `Slot::Repeat`'s own `children`. The
+  RTL construction (`compile_rtl_branch_net`, `:502-507`) applies it to the LHS, RHS, and both
+  environments to build the mirror rule. For a slot list containing a `Repeat` whose children are not
+  palindromic, the mirror is not the reverse of the original: reversing
+  `[Fixed(y), Repeat{[a,b]}, Fixed(x)]` must yield `[Fixed(x), Repeat{[b,a]}, Fixed(y)]`, but the
+  shallow reverse leaves the group's interior in document order.
+
+  The combination is **reachable**: `is_fully_supported_shape` (`:965-970`) gates only on
+  `RewriteMode`, returning `true` unconditionally for `Iterative`, and `pattern_slots` has ACCEPTED
+  bounded quantifiers since `compile-bounded-fst-quantifiers` (it builds `Slot::Repeat`). So the
+  capability side's `RightToLeftRewriteDetail::reversal_construction_attempted` — which re-runs
+  `pattern_slots` — now reports `true` for these rules and the predicate admits them at
+  `ConfirmOnly`. `ConfirmOnly` protects against over-generation, not omission, so a missed
+  RTL-preferred outcome would be silent and unrecoverable. Note the two changes were each correct in
+  isolation; the hole is in their interaction, and `capability.rs:391-395`'s doc claiming the check
+  "must avoid `Quantifier`" is now **stale** as a description of what `pattern_slots` does.
+
+  **Not yet reproduced — deliberately stated as structural, not measured.** The existing fixture
+  `conformance-staging/edge-cases/right-to-left-bounded-quantifier-rewrite` does not detect it: its
+  quantifier wraps a SINGLE `<SimpleContext>` (`grammar.xml:78`), so its children list is trivially
+  palindromic and the shallow reverse is accidentally correct. The first task of any fix is to author
+  a multi-child-quantifier RTL fixture and confirm the miss before changing `reversed_slots`.
+
 - **`max_stem_count` is hardcoded to `2`** inside `Morpher::parse_word_opts`, so the confirm engine
   cannot confirm more than one compounding application — a genuine three-stem compound yields zero
   analyses regardless of what the proposer offers. Recursive compounding is therefore blocked at two
