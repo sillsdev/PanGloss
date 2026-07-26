@@ -135,13 +135,30 @@ actual languages. The always-on CI gate it describes is the committed `conforman
 - **`reify-compilation-plans`' parked follow-on** (`add-compilation-cost-planner`): the projected-cost
   model with error bounds, the committed-plan cache, and profile-guided autotuning — parked by ADR 0002
   itself until real multi-topology pressure exists.
-- **`plan-construct-coverage-completion`** — the plan is written (per-construct verdicts, the upstream
-  `constructs.txt` PR, the oracle-vs-self-verifiable split, the definition of done), but every downstream
-  item it schedules is itself open: the upstream PR is not filed, the conformance-coverage gate's
-  `Proven`-only scope gap is not fixed, none of the four PROVABLE construct rows (`Compounding.recursive`,
-  `RightToLeftRewrite`'s extra shapes, `CircumfixOutputAction`'s census-then-fix, `MultiTable`'s
-  disjoint-encoding) are closed, and the two NEEDS-DECISION rows (`Metathesis` RTL,
-  `QuantifierPattern` unbounded) await a human decision record.
+- **`plan-construct-coverage-completion`** — **substantially executed as of 2026-07-26; this entry is
+  superseded by the "Stage 3+ status" block below.** Closed since it was written: the upstream
+  `constructs.txt` PR is filed (sillsdev/machine#465) and `Unmappable` is zero; the gate's
+  `Proven`-only scope gap is fixed *and* found to have been hiding a real overclaim; both
+  NEEDS-DECISION rows were resolved **PROVABLE** with a written record rather than deferred;
+  `CircumfixOutputAction`'s census is done and split into three named gaps; `MultiTable`'s design is
+  done and **withdrew the disjoint-encoding approach as the wrong fix** (it entrenches a
+  false-*negative*); the unbounded-quantifier build landed with its own openspec change; and both
+  finish-line gates are flipped. Still genuinely open: tasks.md §4's remaining builds
+  (`Compounding.recursive`, `RightToLeftRewrite`'s extra shapes, circumfix C1/C3/C2, `MultiTable`
+  4.4b, `Metathesis` RTL) — each with a written design, none blocked on a decision.
+- **The `machine` submodule pointer is a live fragility, not a nicety.** It references
+  `4560e9e`, which exists on the remote only as PR #465's head branch — **not** on
+  `origin/conformance-framework`. It resolves today and will dangle the moment that PR merges and its
+  branch is deleted. Since the coverage cross-check is now build-breaking and needs those four
+  `constructs.txt` rows to resolve, a deleted branch takes the build down. Re-point on merge
+  (tasks.md 2.3).
+- **The upstream conformance suite still contains actual-language DATA.**
+  `machine/conformance/languages/` was delanguaged by *name* only — 8 fixtures, 217 words, with real
+  lexemes and glosses under construct-named directories. Deliberately not acted on: it is SIL's suite
+  on a shared branch, rewriting it is outward-facing, and it would mean re-deriving every ground-truth
+  signature the conformance baseline rests on. **Needs a human decision** on whether the
+  synthetic-only rule was meant to reach the pre-existing upstream suite or only fixtures we author.
+  Our own `conformance-staging/` fixtures are genuinely synthetic (verified).
 
 Everything else in this spine is implemented. `partition_entries` remains the one seam not derived from
 the plan (it belongs to `gate.rs`'s separate compile entry point; wiring it means merging the two entry
@@ -296,6 +313,46 @@ the production network constructor used for lookup. Before that switch, cascade 
   ADR 0003 chain-depth and pre-allocation logical-memory dimensions. Governance: evidence + proposed
   diff + human-reviewed committed policy version; no automatic write-back. Also serves as ADR 0002's
   periodic re-validation of projected-cost estimates.
+
+### Stage 3+ status, 2026-07-26 — BOTH FINISH-LINE GATES ARE FLIPPED
+
+The plan below is largely executed. What actually happened, since the plan's own prose now reads as
+future tense:
+
+**Both gates are build-breaking.** `conformance_coverage_gate.rs` asserts zero `Uncovered`/`Unmappable`
+across all 20 `CharacteristicKind`s (tasks.md 6.2); `plan_interaction_coverage_gate.rs` asserts zero
+uncovered required adjacency tuples (6.3). Each was proven to bite by sabotage-then-revert, and each
+asserts its own non-vacuity so a shrunken report cannot pass trivially.
+
+**Three prerequisite gates had to be built first**, because the naive flip would have enshrined an
+overclaim rather than prevented one:
+- `coverage_citation_liveness.rs` — a `FailClosed` row's `Covered` verdict rests entirely on a
+  hand-written citation string; nothing had checked those resolved. It caught a real dangling citation
+  on its first encounter with live work.
+- `exercises_tag_liveness.rs` — three fixtures tagged *characteristic names* where a `constructs.txt`
+  **row id** is required, so their evidence had been counting for nothing, silently.
+  `constructs.txt`'s own header explains how that went unnoticed: an unknown tag is "a soft
+  warning… never a hard error."
+- `structural_witness_gate.rs` — four row ids are each mapped by TWO characteristics, so the finer one
+  could report `Covered` on the coarser sibling's evidence. Three now have a mechanized grammar-shape
+  witness; the fourth pair is excluded by derivation. Reasoning:
+  `docs/conformance/shared-construct-id-analysis.md`.
+
+**The governing rule that came out of it:** *a green build-breaking gate that can silently start lying
+is worse than an advisory report, because the green light is what gets cited.* 20/20 Covered was true
+before the witnesses existed — and still not sufficient to flip.
+
+**Two things will never close, and are not gaps.** `MprGroupOverwrite` is a permanent carve-out
+present in **all three** reference grammars (`docs/benchmark-matrix.md`), so no reference grammar can
+ever clear the `--engine=foma` gate without the ADR 0005 override — by design, not by omission. And
+`SimultaneousRewrite`'s overlapping-subrule configuration stays oracle-blocked until a real `hc.dll`
+harness exists, which ADR 0001 itself names.
+
+**Do not read row-level coverage as completeness.** `Covered` means "evidenced at its own
+disposition," never `Admit` (ten rows are `ConfigPredicate`, three `ConfirmOnly`) and never
+"every configuration inside the row is closed." The open configuration work is
+`plan-construct-coverage-completion` tasks.md §4, with per-item designs in
+`docs/conformance/{circumfix-structural-composite-census,needs-decision-resolutions,multitable-shared-representation-design}.md`.
 
 ### Stage 3+ — construct coverage completion (successor to Stage 2/3's per-construct work)
 
