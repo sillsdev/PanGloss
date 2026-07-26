@@ -1,0 +1,13 @@
+# Python / packaging build artifacts -- local to this subproject, not the real-data rule
+# (that one lives in the root .gitignore, for data/local/).
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+
+# CLI demo output (spellcheck-research run) -- regenerated on demand, not source.
+runs/
+runs_demo/
