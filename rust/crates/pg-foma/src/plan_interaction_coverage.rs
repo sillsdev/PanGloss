@@ -6,14 +6,26 @@
 //! plan DAG's composition nodes are exactly where constructs meet and emergent hazards
 //! (feeding/bleeding, order-dependence) actually arise.
 //!
-//! **Purely additive, ADVISORY-FIRST** — same non-blocking-first discipline
-//! [`crate::conformance_coverage`] already established (that module's own doc; ADR 0001's
-//! "'Supported' is mechanically gated..." precedent): this module and its own integration test
-//! (`tests/plan_interaction_coverage_gate.rs`) PRINT a report and assert only that it RUNS and is
-//! non-empty, never that `uncovered == 0`. Turning this into a hard CI gate is deferred, exactly the
-//! way `conformance_coverage.rs`'s own "End state" section defers its build-breaking flip. Nothing
-//! in `plan.rs`/`enumerate.rs`/`build.rs`/`oracle.rs`/`capability.rs` is modified by this module —
-//! read/reuse only.
+//! **BUILD-BREAKING as of 2026-07-26** (`openspec/changes/plan-construct-coverage-completion`
+//! tasks.md 6.3, design.md §D7 step 7 — "Flip both cross-checks ... This is the finish line, not a
+//! follow-on cleanup step"): this module's own integration test (`tests/
+//! plan_interaction_coverage_gate.rs`) now asserts `uncovered().is_empty()` over the full
+//! discovered corpus, not merely that the report runs and is non-empty. The flip followed the same
+//! discipline `conformance_coverage_gate.rs`'s own flip did (that module's own doc; ADR 0001's
+//! "'Supported' is mechanically gated..." precedent; a green build-breaking gate that can silently
+//! start lying is worse than an advisory report, because the green light is what gets cited):
+//! **zero `Uncovered` required tuples** confirmed against the real corpus; non-vacuity re-checked
+//! (the 7-shape closed set, `unexpected_tuples.is_empty()`, and a non-empty discovered-fixture
+//! corpus are all still independently asserted); and — unlike the sibling flip
+//! (`docs/conformance/shared-construct-id-analysis.md`) — **no analogous "shared coarser id"
+//! inheritance risk exists here**: every [`AdjacencyTuple`] is already this module's own
+//! finest-grained unit (there is no coarser sibling tuple a finer one could borrow evidence from),
+//! and [`observed_adjacency_tuples`]/[`compute_interaction_coverage`] only ever credit a tuple from
+//! an actual parent-child edge present in a caller-supplied, per-fixture reified [`Plan`] — a tuple
+//! cannot be marked `Covered` by a fixture that merely contains both node kinds somewhere without
+//! the specific edge between them. See "The coverage report" section below for the fuller argument.
+//! Nothing in `plan.rs`/`enumerate.rs`/`build.rs`/`oracle.rs`/`capability.rs` is modified by this
+//! module — read/reuse only.
 //!
 //! # The tuple model (deliverable 1)
 //! An [`AdjacencyTuple`] is a `(parent PlanNodeKind kind_name, child kind_name, child's own Leaf-
@@ -107,6 +119,33 @@
 //! empty given `enumerate_default`'s fixed shape, reported rather than silently dropped if it ever
 //! isn't (a genuine finding, not a bug in this module).
 //!
+//! ## Why this report cannot silently start lying the way the sibling gate could
+//! Before flipping this module's own gate to build-breaking, the same question
+//! `shared-construct-id-analysis.md` asked of the conformance-coverage cross-check was asked here:
+//! can a tuple read `Covered` without the specific interaction actually having been exercised? The
+//! sibling's defect required TWO conditions that do not both hold here: (a) two semantically
+//! distinct things sharing one coarser identifier, so a finer claim could ride on a coarser one's
+//! evidence, and (b) a set-membership check (`exercises:` tag vs. construct id) that cannot tell
+//! *which* of the two actually produced the tag. Neither holds for adjacency tuples: (a) an
+//! [`AdjacencyTuple`] is already this module's own atomic, finest-grained unit — `legal_adjacency_tuples`
+//! never defines a coarser tuple that a finer one could be a special case of, so there is no sibling
+//! for evidence to leak from; (b) `compute_interaction_coverage`'s classification is not a tag-set
+//! match at all — it walks a caller-supplied [`Plan`]'s actual `(NodeId, children())` graph
+//! (`observed_adjacency_tuples`/the loop in `compute_interaction_coverage`) and only credits a tuple
+//! when a literal parent-child edge between exactly those two node kinds exists in that fixture's
+//! own reified plan. A fixture cannot credit `(Gate, Compose)` by containing a `Gate` node and a
+//! `Compose` node somewhere unconnected — the edge itself must exist. The one honest limitation this
+//! module still has (flagged, not fixed, because it cannot produce a false `Covered`): non-`Proven`,
+//! non-rule-keyed characteristics (`representative_kinds`) fold onto the single representative
+//! `Gate` node GRAMMAR-WIDE rather than being attributed to a specific branch, so a fixture with an
+//! unrelated `FailClosed` characteristic anywhere gets its whole `(Gate, Compose)` occurrence marked
+//! `ContainsUnsupported` for that fixture even if the refusing construct lives in a different branch.
+//! This can only make the gate MORE conservative (an occurrence that should count as clean gets
+//! excluded, pushing a tuple toward `Uncovered`/`ContainsUnsupported`), never less — it cannot turn a
+//! genuinely-unexercised tuple into a false `Covered`. That asymmetry is exactly why it is safe to
+//! flip on this analysis alone, without first mechanizing a mitigation the way the sibling flip
+//! needed `structural_witness_gate.rs` before it could go build-breaking.
+//!
 //! # Fuzz slice (deliverable 5)
 //! [`fuzz_gate_group_reordering_for_grammar`] is TARGETED subtree fuzzing for the `Gate` node — the
 //! one node kind this crate's own history shows is genuinely non-orthogonal in the small (task 1.4's
@@ -114,9 +153,10 @@
 //! end-to-end: [`crate::enumerate::enumerate_default`] + [`crate::oracle::permute_gate_groups`] +
 //! [`crate::oracle::differential_oracle`], exactly the task's own suggested shape. It is a
 //! CORRECTNESS check, not a coverage-completeness claim — `tests/plan_interaction_coverage_gate.rs`
-//! runs it as a HARD assertion (not advisory) for every discovered fixture with >=2 Gate partition
-//! groups, because a real disagreement here would mean retirement #2 above is WRONG for that
-//! grammar, a genuine regression, never something to paper over.
+//! runs it as a hard assertion for every discovered fixture with >=2 Gate partition groups (it
+//! always did, even before the coverage-report half's own 2026-07-26 flip above), because a real
+//! disagreement here would mean retirement #2 above is WRONG for that grammar, a genuine
+//! regression, never something to paper over.
 //!
 //! A FULLER fuzzer (out of scope here, per this step's own "do NOT build a general CIT engine"
 //! instruction) would need: (a) seeded RANDOM subtree mutation (not just the one deterministic
@@ -433,7 +473,7 @@ pub struct TupleReport {
     pub unsupported_fixtures: Vec<String>,
 }
 
-/// The full advisory report (deliverables 3-4): every [`legal_adjacency_tuples`] entry as a
+/// The full report (deliverables 3-4): every [`legal_adjacency_tuples`] entry as a
 /// [`TupleReport`], the [`retired_interactions`] evidence table, and any OBSERVED tuple outside the
 /// documented legal set (expected empty — see this module's top-doc).
 #[derive(Debug, Clone, Default)]
@@ -444,10 +484,16 @@ pub struct InteractionCoverageReport {
 }
 
 impl InteractionCoverageReport {
-    /// Convenience projection: every required tuple NOT `Covered` (i.e. `Uncovered` or
-    /// `ContainsUnsupported`) — mirrors [`crate::conformance_coverage::supported_uncovered`]'s own
-    /// convenience method. **NON-BLOCKING**: callers must not assert this is empty — see this
-    /// module's own top-doc.
+    /// Convenience projection: every required tuple with status `Uncovered` — mirrors
+    /// [`crate::conformance_coverage::supported_uncovered`]'s own convenience method, but NOTE the
+    /// analogy is not exact: unlike that method, this one does NOT also include
+    /// `ContainsUnsupported` rows (the `filter` below reads `TupleStatus::Uncovered` only). That is
+    /// deliberate, not a mismatch to fix — a `ContainsUnsupported` tuple was never a candidate for
+    /// "needs a covering fixture" to begin with (`TupleStatus`'s own doc; the
+    /// `compute_interaction_coverage_flags_contains_unsupported_for_overwrite_tagged_gate_edge` test
+    /// below pins exactly this exclusion). **BUILD-BREAKING as of 2026-07-26**:
+    /// `tests/plan_interaction_coverage_gate.rs` now asserts this is empty over the full discovered
+    /// corpus — see this module's own top-doc for why that flip is honest.
     pub fn uncovered(&self) -> Vec<&TupleReport> {
         self.required
             .iter()

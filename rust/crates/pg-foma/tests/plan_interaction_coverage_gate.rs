@@ -1,28 +1,46 @@
-//! ADVISORY-FIRST integration test for Stage 3 of `openspec/changes/
-//! add-pairwise-grammar-interaction-coverage` (the REFRAMED design: tree-structured node/subtree
-//! interaction coverage over the reified compilation plan, not pairwise covering arrays over raw
-//! grammar "knobs" -- see that change's `design.md`/`proposal.md`/`specs/grammar-interactions/
-//! spec.md`, and `docs/adr/0001-honest-capability-boundary.md`).
+//! Integration test for Stage 3 of `openspec/changes/add-pairwise-grammar-interaction-coverage`
+//! (the REFRAMED design: tree-structured node/subtree interaction coverage over the reified
+//! compilation plan, not pairwise covering arrays over raw grammar "knobs" -- see that change's
+//! `design.md`/`proposal.md`/`specs/grammar-interactions/spec.md`, and `docs/adr/
+//! 0001-honest-capability-boundary.md`). **BUILD-BREAKING as of 2026-07-26**
+//! (`openspec/changes/plan-construct-coverage-completion` tasks.md 6.3, design.md §D7 step 7 --
+//! "Flip both cross-checks ... This is the finish line, not a follow-on cleanup step").
 //!
 //! Computes [`pg_foma::plan_interaction_coverage::compute_interaction_coverage`]'s report over every
 //! discoverable conformance fixture (`pg_conformance_fixtures::discover()` -- `machine/conformance/
-//! **` + `conformance-staging/**`), and PRINTS it -- mirroring `conformance_coverage_gate.rs`'s own
-//! non-blocking discipline exactly: this test asserts only that the mechanism RUNS and reports
-//! something non-empty, **never that `uncovered().is_empty()`**. See
-//! `pg_foma::plan_interaction_coverage`'s own module doc for the tuple model, the orthogonality-
-//! retirement evidence, and why the build-breaking flip is deferred (the corpus does not cover
-//! everything yet -- e.g. no discovered fixture declares a circumfix/dropped-material construct
-//! today, so the `StructuralCompositeMarker` tuple is expected `Uncovered`).
+//! **` + `conformance-staging/**`), prints it, and now **fails the build** if any required
+//! [`pg_foma::plan_interaction_coverage::AdjacencyTuple`] is `Uncovered`. This mirrors
+//! `conformance_coverage_gate.rs`'s own flip discipline exactly (that module's own doc;
+//! `docs/conformance/shared-construct-id-analysis.md`'s "a green build-breaking gate that can
+//! silently start lying is worse than an advisory report, because the green light is what gets
+//! cited" rule). See `pg_foma::plan_interaction_coverage`'s own module top-doc for the tuple model,
+//! the orthogonality-retirement evidence, and -- the pre-flip question this task required be asked
+//! and answered, not assumed -- why this flip does NOT face the sibling's "shared coarser construct
+//! id lets a finer characteristic inherit unfalsifiable coverage" problem: every `AdjacencyTuple` is
+//! already this module's own finest-grained unit, and a tuple can only be credited from an actual
+//! parent-child edge present in a caller-supplied, per-fixture reified `Plan`, never from the mere
+//! co-presence of both node kinds somewhere in the same grammar.
 //!
-//! # The fuzz slice (deliverable 5) -- a HARD assertion, not advisory
+//! # What this gate does NOT assert (unchanged by the flip)
+//! - That every tag on a tuple's `tags` field was itself exercised BY that specific edge -- `tags`
+//!   is informative context (which characteristics were observed anywhere on the tuple's endpoints
+//!   across the corpus), never the coverage signal itself (`TupleStatus`'s own doc).
+//! - That every characteristic/configuration reachable through a covered tuple is itself proven --
+//!   e.g. `(Union, Leaf/StructuralCompositeMarker)` being `Covered` says a fixture's plan realizes
+//!   that SHAPE, not that every circumfix candidate-selection gap
+//!   (`docs/conformance/circumfix-structural-composite-census.md`) is closed. Tuple-level coverage
+//!   and configuration-level completeness are different questions, the same distinction
+//!   `conformance_coverage_gate.rs`'s own doc draws for its 20 `CharacteristicKind` rows.
+//!
+//! # The fuzz slice (deliverable 5) -- also a hard assertion, unchanged by this flip
 //! For every discovered fixture whose plan's `Gate` node has >=2 partition groups,
 //! [`pg_foma::plan_interaction_coverage::fuzz_gate_group_reordering_for_grammar`] builds the
 //! grammar's default plan and its `permute_gate_groups` twin and asserts `differential_oracle`
-//! reports `Agree`. Unlike the coverage report above, THIS assertion is NOT advisory: it re-confirms
-//! a mechanized correctness property (Gate-group order-invariance, `crate::gate`'s own "why the
-//! union is safe here" argument plus union commutativity) on every REAL corpus grammar, not a
-//! coverage-completeness claim that is expected to have gaps today. A real disagreement here would
-//! be a genuine regression, never something to paper over.
+//! reports `Agree`. This assertion was already hard before today's flip of the coverage-report half
+//! above: it re-confirms a mechanized correctness property (Gate-group order-invariance,
+//! `crate::gate`'s own "why the union is safe here" argument plus union commutativity) on every REAL
+//! corpus grammar, not a coverage-completeness claim. A real disagreement here would be a genuine
+//! regression, never something to paper over.
 //!
 //! # Non-blocking, additive: what this file does NOT do
 //! - Does not modify `machine/conformance/` fixtures, `conformance-staging/`, or any production
@@ -41,10 +59,10 @@ use pg_foma::plan_interaction_coverage::{
     plan_and_profile, TupleStatus,
 };
 
-/// The advisory coverage-report half. See this file's own top-doc for exactly what it does and does
-/// not assert.
+/// The coverage-report half, **build-breaking as of 2026-07-26**. See this file's own top-doc for
+/// exactly what it does and does not assert.
 #[test]
-fn plan_interaction_coverage_report_advisory() {
+fn plan_interaction_coverage_has_no_uncovered_required_tuples() {
     let mut owned: Vec<(String, Plan, CharacteristicsProfile)> = Vec::new();
 
     for f in discover() {
@@ -70,13 +88,18 @@ fn plan_interaction_coverage_report_advisory() {
         .collect();
     let report = compute_interaction_coverage(&refs);
 
-    // The only real assertions this test makes: the mechanism runs, reports something for every
-    // documented legal tuple, and never observes a tuple outside that documented set. It must NEVER
-    // assert uncovered() is empty -- see the module doc.
+    // Non-vacuity first, same order the sibling gate uses: a report that enumerated nothing (or
+    // shrank/grew the tuple set silently) would make the build-breaking assertion below pass
+    // trivially, which is the failure mode this whole subsystem's gates are written against. The
+    // literal `7`/`2` here are pinned constants (not derived from `legal_adjacency_tuples()`/
+    // `retired_interactions()` themselves, which would be tautological), so a future change to
+    // either function's returned count fails this assertion loudly rather than silently.
     assert_eq!(
         report.required.len(),
         7,
-        "must report on all 7 documented legal adjacency tuples"
+        "must report on all 7 documented legal adjacency tuples -- a shrunk or grown \
+         legal_adjacency_tuples() set would otherwise make the assertion below vacuous or miss a \
+         real gap"
     );
     assert!(
         report.unexpected_tuples.is_empty(),
@@ -101,9 +124,7 @@ fn plan_interaction_coverage_report_advisory() {
         .count();
 
     eprintln!(
-        "=== ADVISORY plan-node/subtree interaction coverage (Stage 3 preview, ADR 0001) ===\n\
-         uncovered-required will NOT become a hard CI gate in this step -- this run does NOT fail \
-         the build on gaps.\n\
+        "=== plan-node/subtree interaction coverage (Stage 3, ADR 0001) BUILD-BREAKING ===\n\
          Required adjacency tuples: {} total | {covered_n} covered | {} uncovered | \
          {unsupported_n} contains-unsupported",
         report.required.len(),
@@ -115,16 +136,28 @@ fn plan_interaction_coverage_report_advisory() {
             row.tuple, row.status, row.tags, row.covering_fixtures, row.unsupported_fixtures
         );
     }
-    if !uncovered.is_empty() {
-        eprintln!(
-            "UNCOVERED REQUIRED TUPLES (advisory today; a later step may hard-fail CI on this): {:?}",
-            uncovered.iter().map(|r| &r.tuple).collect::<Vec<_>>()
-        );
-    }
     eprintln!("RETIRED (proven orthogonal, never fuzzed):");
     for r in &report.retired {
         eprintln!("  {}: {}", r.label, r.evidence);
     }
+
+    // The gate. A `ContainsUnsupported` tuple is deliberately NOT included in `uncovered()` (that
+    // status was never a candidate for "needs a covering fixture" -- see `TupleStatus`'s own doc),
+    // so this assertion is exactly "every required, coverable tuple has at least one clean
+    // occurrence in the discovered corpus", not "every tuple is Covered".
+    assert!(
+        uncovered.is_empty(),
+        "COVERAGE REGRESSION: {} required adjacency tuple(s) have zero clean covering fixture in \
+         the discovered corpus (machine/conformance/** + conformance-staging/**): {:?}\n\
+         Either an existing fixture regressed (its plan no longer realizes this tuple shape, or \
+         every occurrence of it is now FailClosed-tagged and so counts as contains-unsupported \
+         instead), or the corpus lost its only fixture exercising this shape. Author or restore a \
+         conformance fixture whose grammar structurally realizes this tuple -- see \
+         legal_adjacency_tuples()'s own doc (this module's top-doc \"The tuple model\" section) for \
+         what each of the 7 shapes requires. Full report above.",
+        uncovered.len(),
+        uncovered.iter().map(|r| &r.tuple).collect::<Vec<_>>()
+    );
 }
 
 /// The fuzz-slice half (deliverable 5). See this file's own top-doc for why this IS a hard

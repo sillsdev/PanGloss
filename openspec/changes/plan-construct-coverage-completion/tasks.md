@@ -151,8 +151,48 @@ light is what gets cited — and it would sit next to a documented census of ope
       itself asserted (the report must enumerate every `CharacteristicKind`), and the gate was proven
       to bite: sabotaging one `Proven` row's tag produced `COVERAGE REGRESSION (Proven):
       [SubruleGating] …`, reverted clean, all four coverage gates re-run green.
-- [ ] 6.1 Re-run `plan_interaction_coverage`'s report after every promotion in section 4; confirm the
-      7-tuple set stays closed and both existing retirements still hold
-- [ ] 6.3 Flip `plan_interaction_coverage`'s own gate from advisory to build-breaking
+- [x] 6.1 **DONE 2026-07-26** — re-ran the report against the real corpus:
+      `cargo test -p pg-foma --test plan_interaction_coverage_gate -- --nocapture` reports **7/7
+      required tuples Covered, 0 Uncovered, 0 ContainsUnsupported**, `unexpected_tuples` empty, 2
+      `retired_interactions()`. The 7-shape set's closure was re-verified against `plan.rs`'s 5
+      `PlanNodeKind` variants (`Leaf`/`Compose`/`Union`/`Gate`/`Replace`) and `enumerate.rs`'s own
+      "Shape" doc + actual node-construction call sites — `enumerate_default` still only ever builds
+      the same 7 edges (no `GuardAutomaton` leaf is ever constructed, consistent with it being absent
+      from the legal set). Both retirements re-checked against current code, not assumed: retirement 1
+      (`mpr-group.append-output` × `unordered-application`) against `cover-mpr-groups design.md` D4's
+      "load-bearing, not open" text (unchanged) plus `capability.rs`'s current disposition table
+      (`MprGroupAppend` still `ConfirmOnly`, `MprGroupOverwrite` still `FailClosed`); retirement 2
+      (Gate-group sibling reordering) against `gate.rs`'s "why the union is safe here" doc,
+      `build.rs`'s `union_checked` call site, and `oracle.rs`'s `permute_gate_groups` +
+      `differential_oracle_agrees_on_permuted_gate_groups_of_the_same_grammar` — all still present
+      and unchanged. Fuzz slice (deliverable 5): 6 multi-group fixtures checked, all `Agree`, 22
+      single/no-group fixtures skipped, 0 unloadable.
+- [x] 6.3 **DONE 2026-07-26 — THE FLIP.** `tests/plan_interaction_coverage_gate.rs`'s
+      `plan_interaction_coverage_has_no_uncovered_required_tuples` (renamed from
+      `..._report_advisory`) now fails the build if `report.uncovered().is_empty()` does not hold,
+      naming the specific uncovered `AdjacencyTuple`(s). Pre-flip criteria established, not assumed:
+      (1) zero `Uncovered` required tuples, confirmed live (6.1 above); (2) non-vacuity —
+      `report.required.len() == 7` and `report.retired.len() == 2` are pinned literal-count
+      assertions (not derived from the functions under test, so a silent shrink/grow of either set
+      fails loudly), plus `unexpected_tuples.is_empty()` and a non-empty discovered-fixture corpus,
+      all already present and now paired with the new hard assertion; (3) no inherited/unfalsifiable
+      coverage — analysed and found NOT to reproduce the sibling gate's shared-construct-id defect:
+      every `AdjacencyTuple` is already this module's own finest-grained unit (no coarser sibling
+      tuple exists for a finer one to borrow evidence from, unlike `constructs.txt`'s coarser ids),
+      and `compute_interaction_coverage` credits a tuple only from an actual parent-child edge
+      present in a caller-supplied, per-fixture reified `Plan` — never from mere co-presence of both
+      node kinds in the same grammar. The one flagged judgment call (non-rule-keyed characteristics
+      folding onto the single representative `Gate` node grammar-wide, not per-branch) only pushes
+      classification toward `Uncovered`/`ContainsUnsupported`, never toward a false `Covered`, so it
+      cannot make the gate lie in the dangerous direction. Full reasoning recorded in this module's
+      own top-doc ("Why this report cannot silently start lying the way the sibling gate could").
+      (4) Proven non-vacuous by sabotage: temporarily skipped crediting the
+      `(Replace, Leaf/RewriteRule)` tuple in `compute_interaction_coverage`'s per-fixture loop →
+      `COVERAGE REGRESSION: 1 required adjacency tuple(s) ... [AdjacencyTuple { parent_kind:
+      "Replace", child_kind: "Leaf", child_detail: Some("RewriteRule"), compose_strategy: None }]`;
+      reverted (`git diff` clean, no sabotage remnants); re-ran green (7/7 Covered again). Module
+      top-doc and the gate test's own top-doc updated from ADVISORY-FIRST to BUILD-BREAKING; the
+      stale `uncovered()` doc comment (which claimed `ContainsUnsupported` rows were included) was
+      also corrected to match the method's actual `TupleStatus::Uncovered`-only filter.
 - [ ] 6.4 Confirm the definition of done (design.md D7): zero un-evidenced ledger rows, zero
       `Unmappable` rows, zero unresolved NEEDS-DECISION rows, both gates build-breaking

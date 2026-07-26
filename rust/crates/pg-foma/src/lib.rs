@@ -181,10 +181,10 @@ pub mod plan;
 /// invented), [`plan_interaction_coverage::compute_interaction_coverage`] (the required/covered/
 /// uncovered/contains-unsupported report), and [`plan_interaction_coverage::
 /// fuzz_gate_group_reordering_for_grammar`] (targeted Gate-node subtree fuzzing via
-/// [`oracle::permute_gate_groups`] + [`oracle::differential_oracle`]). **ADVISORY-FIRST**, same
-/// non-blocking discipline [`conformance_coverage`] already established: see that module's own doc
-/// for the mapping, today's reported gaps (`tests/plan_interaction_coverage_gate.rs`), and the
-/// deferred build-breaking end state.
+/// [`oracle::permute_gate_groups`] + [`oracle::differential_oracle`]). **BUILD-BREAKING as of
+/// 2026-07-26** (`openspec/changes/plan-construct-coverage-completion` tasks.md 6.3): see that
+/// module's own doc for the mapping and `tests/plan_interaction_coverage_gate.rs` for the flipped
+/// gate.
 pub mod plan_interaction_coverage;
 pub mod precision;
 pub(crate) mod preexpand;
