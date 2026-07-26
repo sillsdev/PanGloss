@@ -190,18 +190,27 @@ const ORACLE_STEP_CAP: usize = 20_000;
 ///    `Role::Prefix`, include it in `deriv_prefix`, declare its `<M:0805>` tag in
 ///    `Multichar_Symbols`, and write its lexicon entries (`TmplDispatch`/`TLRoots`/`G0Roots`/
 ///    `G1Roots`/`G2Roots` continuations all present, verified by grepping the emitted
-///    `lexc_source`) — but that whole fragment is UNREACHABLE from `Root`: the compiled
-///    `lexc_net`'s own sigma (765 symbols, checked directly, before any rule composition) never
-///    contains this tag at all, i.e. foma's lexc compiler treats it as dead code, confirming
-///    nothing in the reachable graph ever transitions into the lexicon section that offers it.
-///    This is a genuine, PRE-EXISTING silent gap in `emit_underlying_templated`'s handling of a
-///    stratum ABOVE the root stratum (multi-stratum/"Clitics"-style wrapping is not wired at all),
-///    unrelated to every commit named above and not itself reported in `EmitReport::uncovered`
-///    (unlike the already-known reduplication/circumfix-prefix gaps) — a real, if previously
-///    invisible, finding of this investigation, and the minimal fix is a dedicated follow-on
-///    (teach the templated emitter to wrap stratum N>0 standalone-rule strata as an outer layer
-///    around stratum N-1's completed word, and/or report an unreachable-after-lexc-compile symbol
-///    via `uncovered` so this class of gap can never be silent again).
+///    `lexc_source`).
+///
+///    **CORRECTION (2026-07-25) — the sigma-based explanation below was WRONG; the CONCLUSION
+///    (this word does not recall) is nevertheless still correct and re-verified.** The original
+///    reasoning was: `<M:0805>` is absent from the compiled `lexc_net`'s sigma, therefore foma
+///    treats the fragment as dead code, therefore the stratum-1 layer is unreachable. That
+///    inference is invalid. A dedicated investigation of the `foma` crate found a narrow port
+///    defect (filed as `divvun/foma-rs#2`): any `Multichar_Symbols` name containing a literal `0`
+///    digit is silently omitted from `sigma` because the declaration path normalizes the lexer's
+///    `@ZERO@` marker while the entry tokenizer still looks for the un-normalized form. `0805`
+///    contains zeros, so its absence from `sigma` is that bookkeeping artifact — NOT evidence of
+///    unreachability. `apply_down` traverses such tags fine; the network's language is intact.
+///    C foma does not have this defect (`lexc_deescape_string` normalizes in one unified pass).
+///
+///    So: `"tsãkỹjokwaw"` IS still genuinely missed — re-measured against the real corpus on
+///    2026-07-25 after upgrading to foma 0.4.2, RECALL 68/106 with this word still in the miss
+///    list — but **the true cause is NOT YET DETERMINED.** The stratum-above-root wrapping
+///    hypothesis is plausible and unrefuted, but it is no longer supported by the sigma evidence
+///    that originally motivated it, and must be re-established (or discarded) by a fresh
+///    investigation that does not rely on `sigma` for reachability. Recorded this way deliberately:
+///    an unexplained-but-verified miss is honest; a confidently-wrong explanation is not.
 ///
 /// 3. **`"tsãtomoʼatu"` is murkier — NOT proven to be the same root cause.** Unlike
 ///    `"tsãkỹjokwaw"`, the word-restricted composed net for `"tsãtomoʼatu"` is NON-empty (the FST
