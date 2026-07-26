@@ -108,6 +108,29 @@
 
 ## 6. The finish line (hand-off)
 
+**Status 2026-07-25.** The cross-check now reports **20 rows / 20 Covered / 0 Uncovered / 0
+Unmappable** — the four blocking rows were not missing evidence, their `exercises:` tags were
+characteristic NAMES rather than `constructs.txt` row ids and so credited nothing (fixed, plus
+`tests/exercises_tag_liveness.rs` to gate the class). `Unmappable` reached zero via
+sillsdev/machine#465.
+
+**The flip is deliberately NOT done yet, and 20/20 is not the reason to hold — this is:** four row
+ids are each mapped by TWO characteristics, so the finer one can report `Covered` on its coarser
+sibling's evidence. I hand-verified all four are genuinely evidenced today (record + citations:
+`docs/conformance/shared-construct-id-analysis.md`), so the number is true, **but three of them are
+not mechanically checkable and so can decay into a false claim with nothing failing.** A green
+build-breaking gate that can silently start lying is worse than an advisory report, because the green
+light is what gets cited — and it would sit next to a documented census of open circumfix gaps.
+
+- [ ] 6.0 **PREREQUISITE for 6.2** — structural witness gate for the shared ids: assert that some
+      *passing* fixture whose GRAMMAR exhibits the finer construct is among those tagging each shared
+      id (unordered rule order → `UnorderedMorphRuleApplication`; empty-LHS rewrite rule →
+      `Epenthesis`; a `Role::CircumfixPrefix` allomorph RHS via the compiler's own
+      `emit::classify_affix`, scanning ALL allomorphs → `CircumfixOutputAction`). The
+      `MprGroupAppend`/`MprGroupOverwrite` pair needs nothing: G8 moved `Overwrite` to a
+      `RefusalWitness`, itself now proven live by `tests/coverage_citation_liveness.rs`. The
+      shared-id list must be COMPUTED from `construct_ids_for`, never hardcoded, and a newly-shared
+      id with no witness must fail — otherwise a future mapping quietly reintroduces inheritance.
 - [ ] 6.1 Re-run `plan_interaction_coverage`'s report after every promotion in section 4; confirm the
       7-tuple set stays closed and both existing retirements still hold
 - [ ] 6.2 Flip the ledger-wide conformance-coverage cross-check (section 3) from advisory to
