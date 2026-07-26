@@ -255,11 +255,19 @@ either list.
 
 ## 3. Known open gaps (as of the squash-copy)
 
-> **This list is HISTORICAL — §3a supersedes it.** Status as of 2026-07-26: items 1, 2, 4, 5, 6 and 7
-> are **closed**, and item 3 is **won't-do** (see §3a for each). The only entry still genuinely open is
-> the remaining *depth* of item 4 — seeded random subtree mutation, second-topology generators for node
-> kinds other than `Gate`, and failure minimisation to a named recipe. Read §3a first; this section is
-> kept verbatim for provenance, not as a to-do list.
+> **This list is HISTORICAL and now fully resolved — §3a supersedes it.** Status as of 2026-07-26:
+> items 1, 2, 4, 5, 6 and 7 are **closed**; item 3 is **won't-do**. Item 4's remaining depth (seeded
+> random subtree mutation, second-topology generators beyond `Gate`, failure minimisation to a named
+> recipe) closed the same day — `Union` got a sound generator, and `Compose`/`Replace` were declined
+> with `#[should_panic]` proof that `build_controllable` mechanically rejects the unsound reorderings.
+> Read §3a; this section is kept verbatim for provenance, not as a to-do list.
+>
+> **Open work that remains is NOT in this list** — it is the construct/configuration backlog in
+> `openspec/changes/plan-construct-coverage-completion/tasks.md` §4 (circumfix C1/C3/C2, `MultiTable`
+> aliasing, recursive compounding, the quantifier and RTL-metathesis builds), plus two things that will
+> never close and should not be counted as gaps: `MprGroupOverwrite` is a permanent carve-out present
+> in two of the three reference grammars, and `SimultaneousRewrite`'s overlapping-subrule
+> configuration stays oracle-blocked until a real `hc.dll` harness exists (ADR 0001 names it).
 
 1. **Guesser CLI/FFI surface** — engine logic works, no external surface yet (see §2).
 2. **Analysis-side tracing** — stratum/template/rule bookends on the unapplication side aren't
