@@ -60,8 +60,29 @@
       circumfix test. **Do NOT schedule independently** — which role wins decides which mechanism
       claims the allomorph, so this is a joint decision with row 11's `Reduplication` carve-out
       boundary and needs both recall arguments re-checked together.
-- [ ] 4.4 `MultiTable`: design and build a disjoint-token-range encoding across `CharacterDefinitionTable`s
-      to close the shared-representation `Refuse` split
+- [x] 4.4a `MultiTable`: **DESIGN DONE 2026-07-25**,
+      `docs/conformance/multitable-shared-representation-design.md`. **The disjoint-token-range
+      encoding this task originally named is the WRONG fix** and is withdrawn: the token is a
+      table-blind per-table index (`replace.rs:275-277`), so two tables sharing a spelling at
+      *different* indices make a rule fail to fire on the other table's material — a
+      **false-negative** (unrecoverable under propose-and-confirm), not the false-positive the
+      predicate's doc describes. Range separation would entrench that. Recommended instead:
+      **cross-table representation aliasing** — render an atom as a union over every table's token
+      for the same normalized spelling, at `render_slots` only, leaving per-table resolution
+      (`owning_table`) untouched. Recall-safe by construction (only ever adds alternatives), needs no
+      `model.rs` change (so R1's frozen-model audit stays closed), and sidesteps PUA capacity
+      entirely. Supporting fact: `bridge.rs:260-300` shows the oracle matches classes by feature
+      lanes, not char-def identity, so the proposer should not enforce a distinction the oracle
+      does not make.
+- [ ] 4.4b `MultiTable`: build it — representation→`(TableId, CharDefId)` multimap (same NFD
+      normalization as `CharDefTable::lookup`/`surface_variants`); thread `TableId` into
+      `SegAlphabet` (no defaulted id — same mistake class as the `char_tables[0]` default
+      `owning_table` removed); alias-expand in `render_slots`' `Fixed`/`Union` arms only, never in
+      `class_members`; leave `encode_shape`/`encode_query` un-aliased; flip the predicate's
+      shared-representation arm `Refuse`→`ConfirmOnly` and correct its "why disjointness is the
+      proof obligation" doc section. Fixture: a two-table grammar sharing a spelling where a
+      second-table rule must fire on first-table material — i.e. one that LOSES an analysis today
+      (`bistratal-overlapping-segment-representation`'s recall-side counterpart).
 
 ## 5. Escalate NEEDS-DECISION and NEEDS-ORACLE items (hand-off)
 
