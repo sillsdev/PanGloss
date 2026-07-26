@@ -461,7 +461,16 @@ impl PanGlossGrammar {
                                 candidates_generated: outcome.candidates_generated,
                             }
                         });
-                        let outcome = self.runtime.analyze_word(&lexical, official);
+                        // `guess_fallback: true` -- explicit, and load-bearing. The guesser retry
+                        // used to be unconditional inside `pg_lexicon`; it is now opt-in, defaulting
+                        // OFF, because `hc_parse_word`/`hc_parse_batch`'s wire format cannot mark a
+                        // guessed analysis and so must never return one. This demo is the opposite
+                        // case: its own `analyze_text` doc states that unknown words producing a
+                        // guessed-root analysis is "part of what the demo is for, not a fallback to
+                        // hide", and `UnifiedAnalysisOut` carries the `guessed` flag through to JS,
+                        // so a guess here is always presented AS a guess. Passing `true` preserves
+                        // this crate's pre-existing behavior exactly across that default flip.
+                        let outcome = self.runtime.analyze_word_opts(&lexical, official, true);
                         let structured = outcome.structured;
                         let capped = outcome.capped;
                         let invalid_shape = outcome.invalid_shape;
@@ -643,6 +652,11 @@ impl PanGlossGrammar {
         }
     }
 
+    /// `guess_fallback: true` at the `analyze_word_opts` call below -- see the twin call site in
+    /// `analyze_text` for the full rationale. Short version: `pg_lexicon`'s guesser retry is now
+    /// opt-in and defaults OFF (so the FFI wire formats that cannot mark a guess never return one),
+    /// and this crate is the case that genuinely wants it, because every guess it returns reaches JS
+    /// carrying `UnifiedAnalysisOut`'s own `guessed` flag.
     fn analyze_unified(&mut self, word: &str) -> pg_lexicon::UnifiedAnalysis {
         self.ensure_foma();
         let mut foma = FomaCheckout::new(&mut self.foma, &self.grammar);
@@ -654,7 +668,7 @@ impl PanGlossGrammar {
                 candidates_generated: outcome.candidates_generated,
             }
         });
-        self.runtime.analyze_word(word, official)
+        self.runtime.analyze_word_opts(word, official, true)
     }
 }
 

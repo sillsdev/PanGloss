@@ -4,6 +4,33 @@
 //! for `hc_parse_batch`, the call-scoped unified-analysis Rayon pool, so a panic
 //! raised inside a worker thread and propagated out through `par_iter`/`.install()` is caught
 //! here, not left to unwind across the `extern "C"` frame.
+//!
+//! ## Guess-off overclaim fix (2026-07-25)
+//! These two used to retry through `pg_lexicon`'s guesser unconditionally on a total analysis
+//! miss and encode the result through this module's `guessed`-less wire format — a guessed
+//! analysis was byte-indistinguishable from a confirmed one. Both now pass `guess_fallback: false`
+//! into `GrammarHandle::analyze_word`/`analyze_words` (which forward it to
+//! `pg_lexicon::SuppliedLexiconRuntime::analyze_word_opts`), so a total miss stays a total miss
+//! here — zero analyses, never an unmarked guess. Callers that want guessing use
+//! `hc_parse_word_opts`/`hc_parse_batch_opts` below, whose wire format can mark it honestly. See
+//! `crate::buffer`'s `write_word` for the belt-and-braces encoder-side guard that makes this format
+//! unable to emit a guessed analysis even if a future change to this file passed `true`.
+//!
+//! ## `hc_parse_word_opts` / `hc_parse_batch_opts` (HC-rust port gap G3, ABI v3)
+//! Additive siblings of the two entry points above, closing
+//! `docs/hermitcrab-rust-port-audit.md` sec 2/3 item 1: the Guesser (`guessRoot`/`LexicalGuess`,
+//! `docs/p11-guesser-api-design.md`) engine logic was ported and unit-tested but had no FFI
+//! surface. These two route through the grammar handle's plain `pg_parse::Morpher` (`gh.morpher`
+//! — the SAME engine `pg-cli`'s `pangloss batch/parse --guess` uses), **not** the supplied-
+//! lexicon/foma union `hc_parse_word`/`hc_parse_batch` use, so `guess_root == 0` reproduces
+//! `Morpher::parse_word` byte-for-byte (the default, pre-existing behavior) and the CLI/FFI/
+//! library paths are all provably the same computation (see `tests/parse_opts_gate.rs`). They
+//! encode through [`crate::buffer::encode_single_guess`]/[`crate::buffer::encode_batch_guess`] —
+//! a distinct wire format/magic from `hc_parse_word`/`hc_parse_batch`'s, carrying the `guessed`
+//! bit `ParseOutcome`/`WordAnalysis` already track — so a guessed analysis is never wire-
+//! indistinguishable from a confirmed one. `hc_parse_word`/`hc_parse_batch` themselves, and their
+//! existing wire format, are completely untouched by this addition (purely additive, per ABI
+//! discipline — see `crate::HC_ABI_VERSION`'s doc).
 
 use crate::error::{
     write_buf, write_empty_buf, HcResultBuf, HC_ERR_INVALID_ARG, HC_ERR_NULL_ARG, HC_ERR_PANIC,
@@ -53,7 +80,10 @@ pub unsafe extern "C" fn hc_parse_word(
             unsafe { std::slice::from_raw_parts(word_utf8, len) }
         };
         let word = std::str::from_utf8(bytes).map_err(|_| HC_ERR_UTF8)?;
-        let outcome = unified_to_parse(gh.analyze_word(word));
+        // `guess_fallback: false` -- this entry point's wire format (`crate::buffer::MAGIC`) has
+        // no `guessed` bit, so a guess must never come back from this call at all (see this
+        // module's own doc, and `pg_lexicon::analysis`'s `analyze_word`/`analyze_word_opts` docs).
+        let outcome = unified_to_parse(gh.analyze_word(word, false));
         Ok(crate::buffer::encode_single(&outcome))
     });
     finish(result, out)
@@ -119,8 +149,10 @@ pub unsafe extern "C" fn hc_parse_batch(
             let s = std::str::from_utf8(bytes).map_err(|_| HC_ERR_UTF8)?;
             rust_words.push(s.to_string());
         }
+        // `guess_fallback: false` -- same reasoning as `hc_parse_word`'s own call, immediately
+        // above in this file.
         let outcomes: Vec<_> = gh
-            .analyze_words(&rust_words, max_threads as usize)
+            .analyze_words(&rust_words, max_threads as usize, false)
             .map_err(|_| HC_ERR_INVALID_ARG)?
             .into_iter()
             .map(|(outcome, elapsed)| pg_parse::BatchWordOutcome {
@@ -131,6 +163,140 @@ pub unsafe extern "C" fn hc_parse_batch(
         Ok(crate::buffer::encode_batch(&outcomes))
     });
     finish(result, out)
+}
+
+/// `hc_parse_word_opts(HcGrammarHandle, const uint8_t* word_utf8, size_t len, int32_t guess_root,
+/// HcResultBuf* out)` (HC-rust port gap G3 — see this module's own doc). `guess_root == 0`
+/// reproduces `Morpher::parse_word`/`hc_parse_word`'s pre-existing analysis set byte-for-byte
+/// (guess off, the default); nonzero enables the P11 lexical-pattern guesser on a total
+/// normal-lexicon miss. Parses one word on the caller's own thread, exactly like
+/// [`hc_parse_word`]. Encodes through [`crate::buffer::encode_single_guess`] (see module doc).
+///
+/// Returns/leaves `*out` under the same contract as [`hc_parse_word`].
+///
+/// # Safety
+/// Same preconditions as [`hc_parse_word`].
+#[no_mangle]
+pub unsafe extern "C" fn hc_parse_word_opts(
+    handle: HcGrammarHandle,
+    word_utf8: *const u8,
+    len: usize,
+    guess_root: i32,
+    out: *mut HcResultBuf,
+) -> i32 {
+    let result = std::panic::catch_unwind(|| -> Result<Vec<u8>, i32> {
+        // SAFETY: `handle` validity is this function's documented precondition.
+        let gh = unsafe { crate::grammar::borrow(handle) }.ok_or(HC_ERR_NULL_ARG)?;
+        if len > 0 && word_utf8.is_null() {
+            return Err(HC_ERR_NULL_ARG);
+        }
+        // SAFETY: `word_utf8`/`len` validity is this function's documented precondition; the
+        // null+zero-length case never dereferences the pointer.
+        let bytes: &[u8] = if len == 0 {
+            &[]
+        } else {
+            unsafe { std::slice::from_raw_parts(word_utf8, len) }
+        };
+        let word = std::str::from_utf8(bytes).map_err(|_| HC_ERR_UTF8)?;
+        let opts = pg_parse::ParseOptions::default().with_guess_root(guess_root != 0);
+        let outcome = gh.morpher.parse_word_opts(word, &opts);
+        Ok(crate::buffer::encode_single_guess(&outcome))
+    });
+    finish(result, out)
+}
+
+/// `hc_parse_batch_opts(HcGrammarHandle, const HcStr* words, size_t n, int32_t max_threads,
+/// int32_t guess_root, HcResultBuf* out)` (HC-rust port gap G3 — see this module's own doc).
+/// `guess_root == 0` reproduces the pre-existing guess-off analysis set byte-for-byte, per word;
+/// nonzero enables the guesser for every word in the batch. Internally parallel (rayon) via
+/// [`parse_batch_with_opts`] — a smaller, additive sibling of `pg_parse::hc_parse_batch` that
+/// threads a `ParseOptions` through (that free function has none). Encodes through
+/// [`crate::buffer::encode_batch_guess`].
+///
+/// Returns/leaves `*out` under the same contract as [`hc_parse_batch`].
+///
+/// # Safety
+/// Same preconditions as [`hc_parse_batch`].
+#[no_mangle]
+pub unsafe extern "C" fn hc_parse_batch_opts(
+    handle: HcGrammarHandle,
+    words: *const HcStr,
+    n: usize,
+    max_threads: i32,
+    guess_root: i32,
+    out: *mut HcResultBuf,
+) -> i32 {
+    let result = std::panic::catch_unwind(|| -> Result<Vec<u8>, i32> {
+        // SAFETY: `handle` validity is this function's documented precondition.
+        let gh = unsafe { crate::grammar::borrow(handle) }.ok_or(HC_ERR_NULL_ARG)?;
+        if n > 0 && words.is_null() {
+            return Err(HC_ERR_NULL_ARG);
+        }
+        if max_threads < 0 {
+            return Err(HC_ERR_INVALID_ARG);
+        }
+        let mut rust_words: Vec<String> = Vec::with_capacity(n);
+        for i in 0..n {
+            // SAFETY: `words` points to `n` valid entries (documented precondition); `i < n`.
+            let hs = unsafe { &*words.add(i) };
+            if hs.len > 0 && hs.ptr.is_null() {
+                return Err(HC_ERR_NULL_ARG);
+            }
+            // SAFETY: each entry's `(ptr, len)` validity is this function's documented
+            // precondition; the null+zero-length case never dereferences the pointer.
+            let bytes: &[u8] = if hs.len == 0 {
+                &[]
+            } else {
+                unsafe { std::slice::from_raw_parts(hs.ptr, hs.len) }
+            };
+            let s = std::str::from_utf8(bytes).map_err(|_| HC_ERR_UTF8)?;
+            rust_words.push(s.to_string());
+        }
+        let opts = pg_parse::ParseOptions::default().with_guess_root(guess_root != 0);
+        let outcomes = parse_batch_with_opts(&gh.morpher, &rust_words, max_threads as usize, &opts);
+        Ok(crate::buffer::encode_batch_guess(&outcomes))
+    });
+    finish(result, out)
+}
+
+/// `--guess`'s own parallel batch dispatch (mirrors `pg-cli`'s identically-named/-shaped private
+/// helper in `main.rs`): `pg_parse::hc_parse_batch` has no `ParseOptions` parameter, so it cannot
+/// express "guess on" — this additive sibling does, over the exact same `Morpher` engine.
+/// Deliberately simpler than `hc_parse_batch`'s own longest-surface-first dispatch scheduling (a
+/// throughput optimization, not a correctness requirement) — order-preserving via rayon's indexed
+/// `par_iter().map().collect()`, sufficient for this opt-in entry point. Also honors the
+/// `test-panic-hook` sentinel (`pg_parse::batch::test_panic_if_requested`) for parity with
+/// `hc_parse_batch`'s own abort-safety coverage, though no test currently drives a panic through
+/// this specific path.
+fn parse_batch_with_opts(
+    morpher: &pg_parse::Morpher,
+    words: &[String],
+    max_threads: usize,
+    opts: &pg_parse::ParseOptions,
+) -> Vec<pg_parse::BatchWordOutcome> {
+    use rayon::prelude::*;
+    if words.is_empty() {
+        return Vec::new();
+    }
+    let mut pool_builder = rayon::ThreadPoolBuilder::new().stack_size(1 << 30);
+    if max_threads > 0 {
+        pool_builder = pool_builder.num_threads(max_threads);
+    }
+    let pool = pool_builder
+        .build()
+        .expect("build rayon pool for hc_parse_batch_opts");
+    pool.install(|| {
+        words
+            .par_iter()
+            .map(|word| {
+                pg_parse::batch::test_panic_if_requested(word);
+                let start = std::time::Instant::now();
+                let outcome = morpher.parse_word_opts(word, opts);
+                let elapsed = start.elapsed();
+                pg_parse::BatchWordOutcome { outcome, elapsed }
+            })
+            .collect()
+    })
 }
 
 /// Shared tail for every result-producing entry point (`hc_parse_word`/`hc_parse_batch`/

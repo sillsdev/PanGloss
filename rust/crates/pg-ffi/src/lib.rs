@@ -3,11 +3,18 @@
 //! pointers) — every other crate in this workspace is `#![forbid(unsafe_code)]`. `extern "C"`,
 //! UTF-8 in/out, `x86_64-pc-windows-msvc`.
 //!
-//! ## The entry points (plan §4.2; W7 adds the seventh)
+//! ## The entry points (plan §4.2; W7 adds the seventh; ABI v3 adds the guess-opt-in pair)
 //! - [`hc_abi_version`] — version probe, no grammar needed.
 //! - [`grammar::hc_grammar_load`] / [`grammar::hc_grammar_free`] — load/free a compiled grammar.
 //! - [`parse::hc_parse_word`] — parse one word on the caller's thread.
 //! - [`parse::hc_parse_batch`] — parse many words, internally parallel (rayon).
+//! - [`parse::hc_parse_word_opts`] / [`parse::hc_parse_batch_opts`] (HC-rust port gap G3,
+//!   `docs/hermitcrab-rust-port-audit.md` sec 2/3 item 1) — additive `guess_root`-parameterized
+//!   siblings of the two entry points above, routing through the plain `pg_parse::Morpher` (the
+//!   same engine `pg-cli`'s `--guess` flag uses) rather than the supplied-lexicon/foma union;
+//!   encode through a distinct wire format (`buffer::encode_single_guess`/`encode_batch_guess`)
+//!   carrying the `guessed` bit so a guessed analysis is never wire-indistinguishable from a
+//!   confirmed one. See `parse` module's own doc for the full contract.
 //! - [`parse::hc_buf_free`] — free a result/error-message buffer.
 //! - [`generate::hc_generate_words`] — generate surface forms from a `WordAnalysis`-shaped
 //!   morpheme sequence (C# `Morpher.GenerateWords(WordAnalysis)`, W7).
@@ -43,8 +50,9 @@ pub mod json;
 pub mod parse;
 
 pub use buffer::{
-    decode, decode_generated_words, encode_batch, encode_generated_words, encode_single,
-    DecodedAnalysis, DecodedWord,
+    decode, decode_generated_words, decode_guess, encode_batch, encode_batch_guess,
+    encode_generated_words, encode_single, encode_single_guess, DecodedAnalysis,
+    DecodedAnalysisGuess, DecodedWord, DecodedWordGuess,
 };
 pub use error::{
     HcError, HcResultBuf, HC_ERR_GRAMMAR_LOAD, HC_ERR_INVALID_ARG, HC_ERR_NULL_ARG, HC_ERR_PANIC,
@@ -55,11 +63,21 @@ pub use grammar::{
     hc_grammar_free, hc_grammar_load, HcGrammarHandle, DEFAULT_MEMO, DEFAULT_STEP_CAP,
 };
 pub use json::*;
-pub use parse::{hc_buf_free, hc_parse_batch, hc_parse_word, HcStr};
+pub use parse::{
+    hc_buf_free, hc_parse_batch, hc_parse_batch_opts, hc_parse_word, hc_parse_word_opts, HcStr,
+};
 
 /// ABI version — bump on any struct layout or semantic change so the managed side can detect a
 /// mismatched native DLL and fall back to the managed engine (plan §4.2).
-pub const HC_ABI_VERSION: i32 = 2;
+///
+/// - `2`: binary parse ABI unchanged; JSON API added.
+/// - `3` (HC-rust port gap G3, `docs/hermitcrab-rust-port-audit.md` sec 2/3 item 1): purely
+///   additive — `hc_parse_word`/`hc_parse_batch` and their existing wire format are completely
+///   untouched. Adds `hc_parse_word_opts`/`hc_parse_batch_opts` (a `guess_root: i32` opt-in
+///   surface for the P11 lexical-pattern guesser) plus their own distinct wire format/magic
+///   (`buffer::encode_single_guess`/`encode_batch_guess`, decoded by `buffer::decode_guess`)
+///   carrying a `guessed` bit per word and per analysis.
+pub const HC_ABI_VERSION: i32 = 3;
 
 /// `hc_abi_version()` — the managed loader checks this before trusting the DLL.
 #[no_mangle]

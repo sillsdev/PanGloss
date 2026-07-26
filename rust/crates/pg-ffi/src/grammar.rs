@@ -161,7 +161,13 @@ impl GrammarHandle {
         })
     }
 
-    pub(crate) fn analyze_word(&self, word: &str) -> pg_lexicon::UnifiedAnalysis {
+    /// `guess_fallback` is forwarded verbatim to `pg_lexicon::SuppliedLexiconRuntime::analyze_word_opts`
+    /// — `false` for `hc_parse_word`/`hc_parse_batch` (their wire format has no `guessed` bit, so a
+    /// guess must never come back unmarked, see `pg-lexicon::analysis`'s own doc), `true` for
+    /// `hc_analyze_word_json` (which already carries `guessed` honestly at both word and analysis
+    /// level, so it keeps the pre-existing retry-on behavior explicitly rather than losing it as a
+    /// side effect of the default flip).
+    pub(crate) fn analyze_word(&self, word: &str, guess_fallback: bool) -> pg_lexicon::UnifiedAnalysis {
         let mut backend = self
             .official_backend
             .lock()
@@ -179,7 +185,7 @@ impl GrammarHandle {
                 drop(backend);
                 // `None` deliberately selects the unified runtime's authoritative grammar
                 // Morpher, not an overlay-only path.
-                return self.runtime.analyze_word(word, None);
+                return self.runtime.analyze_word_opts(word, None, guess_fallback);
             }
         };
         let attempted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -209,7 +215,8 @@ impl GrammarHandle {
             Ok((official, state)) => {
                 *backend = OfficialBackend::Foma(Box::new(state));
                 drop(backend);
-                self.runtime.analyze_word(word, Some(official))
+                self.runtime
+                    .analyze_word_opts(word, Some(official), guess_fallback)
             }
             Err(payload) => {
                 *backend = match FomaState::new(&self.grammar) {
@@ -229,6 +236,7 @@ impl GrammarHandle {
         &self,
         words: &[String],
         max_threads: usize,
+        guess_fallback: bool,
     ) -> Result<Vec<(pg_lexicon::UnifiedAnalysis, std::time::Duration)>, ()> {
         for word in words {
             pg_parse::batch::test_panic_if_requested(word);
@@ -248,7 +256,7 @@ impl GrammarHandle {
             OfficialBackend::MorpherFallback { diagnostic } => {
                 *backend = OfficialBackend::MorpherFallback { diagnostic };
                 drop(backend);
-                return Ok(self.analyze_words_without_official(words, &pool));
+                return Ok(self.analyze_words_without_official(words, &pool, guess_fallback));
             }
             OfficialBackend::Foma(state) => {
                 let state = *state;
@@ -293,7 +301,7 @@ impl GrammarHandle {
             proposed,
             &pool,
         );
-        Ok(self.union_official_batch(words, official, &pool))
+        Ok(self.union_official_batch(words, official, &pool, guess_fallback))
     }
 
     fn build_batch_pool(&self, max_threads: usize) -> Result<rayon::ThreadPool, ()> {
@@ -319,10 +327,11 @@ impl GrammarHandle {
         &self,
         words: &[String],
         pool: &rayon::ThreadPool,
+        guess_fallback: bool,
     ) -> Vec<(pg_lexicon::UnifiedAnalysis, std::time::Duration)> {
         self.parallel_map(words, pool, |word| {
             let started = std::time::Instant::now();
-            let outcome = self.runtime.analyze_word(word, None);
+            let outcome = self.runtime.analyze_word_opts(word, None, guess_fallback);
             (outcome, started.elapsed())
         })
     }
@@ -332,17 +341,19 @@ impl GrammarHandle {
         words: &[String],
         official: Vec<(pg_foma::composite::FomaOutcome, std::time::Duration)>,
         pool: &rayon::ThreadPool,
+        guess_fallback: bool,
     ) -> Vec<(pg_lexicon::UnifiedAnalysis, std::time::Duration)> {
         let inputs: Vec<_> = words.iter().zip(official).collect();
         self.parallel_map(&inputs, pool, |(word, (outcome, elapsed))| {
             let started = std::time::Instant::now();
-            let unified = self.runtime.analyze_word(
+            let unified = self.runtime.analyze_word_opts(
                 word,
                 Some(pg_lexicon::OfficialOutcome {
                     analyses: outcome.analyses.clone(),
                     structured: outcome.structured.clone(),
                     candidates_generated: outcome.candidates_generated,
                 }),
+                guess_fallback,
             );
             (unified, *elapsed + started.elapsed())
         })
@@ -534,7 +545,7 @@ mod runtime_backend_tests {
     fn foma_initialization_failure_explicitly_falls_back_to_official_morpher_analysis() {
         let grammar = pg_grammar::load(XML).unwrap();
         let handle = GrammarHandle::new_with_foma_result(grammar, XML, Err("forced".into()));
-        let result = handle.analyze_word("a");
+        let result = handle.analyze_word("a", false);
         assert!(result
             .structured
             .iter()
@@ -588,12 +599,11 @@ mod runtime_backend_tests {
         let first = GrammarHandle::new(pg_grammar::load(XML).unwrap(), XML);
         let second = GrammarHandle::new(pg_grammar::load(XML).unwrap(), XML);
         first.force_next_foma_panic();
-        assert!(!second.analyze_word("a").structured.is_empty());
-        assert!(
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| first.analyze_word("a")))
-                .is_err()
-        );
-        assert!(!first.analyze_word("a").structured.is_empty());
+        assert!(!second.analyze_word("a", false).structured.is_empty());
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| first
+            .analyze_word("a", false)))
+        .is_err());
+        assert!(!first.analyze_word("a", false).structured.is_empty());
     }
 
     #[test]
@@ -645,14 +655,14 @@ mod runtime_backend_tests {
         let handle = GrammarHandle::new(pg_grammar::load(XML).unwrap(), XML);
         let words = vec!["a".to_string(); 8];
         pg_foma::composite::test_confirmation_concurrency::arm();
-        let sequential = handle.analyze_words(&words, 1).unwrap();
+        let sequential = handle.analyze_words(&words, 1, false).unwrap();
         assert_eq!(
             pg_foma::composite::test_confirmation_concurrency::max_active(),
             1
         );
         pg_foma::composite::test_confirmation_concurrency::arm();
         let pools_before = handle.pool_build_count_for_test();
-        let outcomes = handle.analyze_words(&words, 2).unwrap();
+        let outcomes = handle.analyze_words(&words, 2, false).unwrap();
         assert_eq!(outcomes.len(), words.len());
         assert_eq!(
             pg_foma::composite::test_confirmation_concurrency::max_active(),

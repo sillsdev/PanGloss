@@ -17,6 +17,7 @@ void pangloss_header_c_smoke(void) {
     hc_grammar_free(handle);
 
     (void)&hc_parse_word; (void)&hc_parse_batch; (void)&hc_generate_words;
+    (void)&hc_parse_word_opts; (void)&hc_parse_batch_opts;
     (void)&hc_lexicon_catalog_json; (void)&hc_lexicon_add_json;
     (void)&hc_lexicon_get_json; (void)&hc_lexicon_list_json;
     (void)&hc_lexicon_search_json; (void)&hc_lexicon_update_json;

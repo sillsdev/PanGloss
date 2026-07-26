@@ -87,12 +87,39 @@ impl AnalysisCache {
 }
 
 impl SuppliedLexiconRuntime {
+    /// Unions a confirmed grammar-only proposer result with the overlay-aware authoritative engine,
+    /// with the guesser retry left **off** (`guess_fallback: false` — see
+    /// [`Self::analyze_word_opts`]). This is the shape every existing caller of this exact method
+    /// name gets: in particular `hc_parse_word`/`hc_parse_batch`'s wire format
+    /// (`pg-ffi::buffer::MAGIC`) has no `guessed` field at all, so those two entry points must
+    /// never see a guessed analysis out of this call, on pain of returning a guess
+    /// wire-indistinguishable from a confirmed analysis (the overclaim this method's `_opts`
+    /// sibling exists to let a caller safely opt back into — see that method's own doc for why the
+    /// retry is opt-in rather than unconditional).
+    pub fn analyze_word(&self, word: &str, official: Option<OfficialOutcome>) -> UnifiedAnalysis {
+        self.analyze_word_opts(word, official, false)
+    }
+
     /// Unions a confirmed grammar-only proposer result with the overlay-aware authoritative engine.
     /// `official = None` means no proposer is available, so the engine supplies official analyses
     /// too. `Some`, including an empty confirmed result, means the proposer is authoritative for
-    /// official roots; the engine contributes supplied roots only. Guessing is retried exactly once
-    /// and only after that complete union is empty.
-    pub fn analyze_word(&self, word: &str, official: Option<OfficialOutcome>) -> UnifiedAnalysis {
+    /// official roots; the engine contributes supplied roots only.
+    ///
+    /// `guess_fallback` controls whether a *total* miss (the complete union above comes back empty
+    /// on a validly-shaped word) retries once through the guesser. This used to be unconditional
+    /// (always on) here; it is now explicit opt-in, defaulting to off in [`Self::analyze_word`],
+    /// because a guessed analysis is only ever safe to hand back through a wire format that can
+    /// *mark* it as guessed (`WordAnalysis::guessed`/`UnifiedAnalysis::guessed` are carried
+    /// correctly regardless of this flag — see each field's own doc — but a caller encoding into a
+    /// format with no `guessed` bit at all must keep this off, or it silently reintroduces a
+    /// guessed analysis as if it were confirmed). Callers that can honestly express `guessed` in
+    /// their own output (the `pg-ffi` JSON API, `pg-wasm`'s bindings) pass `true` explicitly.
+    pub fn analyze_word_opts(
+        &self,
+        word: &str,
+        official: Option<OfficialOutcome>,
+        guess_fallback: bool,
+    ) -> UnifiedAnalysis {
         let snapshot = self.snapshot();
         let morpher = self.morpher(&snapshot);
         let normal_options = ParseOptions::default();
@@ -124,7 +151,7 @@ impl SuppliedLexiconRuntime {
         let mut capped = normal.capped;
         let mut invalid_shape = normal.invalid_shape;
         let mut timed_out = normal.timed_out;
-        if structured.is_empty() && !invalid_shape {
+        if structured.is_empty() && !invalid_shape && guess_fallback {
             let guess_options = ParseOptions::default().with_guess_only(true);
             let fallback = morpher.parse_word_opts(word, &guess_options);
             candidates_generated += fallback.candidates_generated;
