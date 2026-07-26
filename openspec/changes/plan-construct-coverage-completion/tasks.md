@@ -25,10 +25,16 @@
 - [x] 2.1 **DONE 2026-07-25** — sillsdev/machine#465 against `conformance-framework`, adding all four
       rows (rewrite direction left-to-right and right-to-left, subrule-level required/excluded POS-or-MPR
       gating, multiple character-definition tables).
-- [x] 2.2 **DONE 2026-07-25** — submodule pointer bumped to the branch tip (`4560e9e2`) and all four
-      `construct_ids_for` arms mapped, taking `Unmappable` to zero. Note the PR is **open, not yet
-      merged upstream**, so the pointer references a branch tip rather than an accepted commit —
-      re-point it on merge.
+- [x] 2.2 **DONE 2026-07-25** — submodule pointer bumped to `4560e9e` and all four
+      `construct_ids_for` arms mapped, taking `Unmappable` to zero.
+- [ ] 2.3 **FRAGILITY TO CLOSE — re-point the submodule when #465 merges.** Verified 2026-07-25:
+      `4560e9e` is **not** on `origin/conformance-framework` (which is at `dd8f95c`); it exists on the
+      remote only as `refs/heads/g9-add-missing-construct-rows`, PR #465's own head branch. So the
+      pointer is fetchable today but **will dangle the moment that PR is merged and its branch
+      deleted**, which is the default on most merges. This is now load-bearing: task 6.2 made the
+      coverage cross-check BUILD-BREAKING, and it needs those four `constructs.txt` rows to resolve —
+      so a deleted PR branch would take the build down, not merely degrade a report. On merge, re-point
+      the submodule at the merged commit on `conformance-framework`.
 
 ## 3. Fix the conformance-coverage gate's scope before flipping it (hand-off)
 
