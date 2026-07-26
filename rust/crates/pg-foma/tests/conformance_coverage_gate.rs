@@ -1,16 +1,21 @@
-//! NON-BLOCKING PREVIEW of task 5.1 (`openspec/changes/add-capability-characteristics-check`, ADR
-//! 0001, `docs/adr/0001-honest-capability-boundary.md`): the conformance-coverage cross-check,
-//! **widened ledger-wide (G8) and re-mapped (G9)**.
+//! THE conformance-coverage cross-check (`openspec/changes/add-capability-characteristics-check`
+//! task 5.1; `plan-construct-coverage-completion` tasks.md 6.2 / design.md §D7 step 7), ADR 0001
+//! (`docs/adr/0001-honest-capability-boundary.md`): **BUILD-BREAKING as of 2026-07-25**.
 //!
 //! This test computes, for EVERY `CharacteristicKind` (`pg_foma::capability`) — not just the
 //! `Proven` ("supported") subset — whether the evidence its own disposition demands exists: a
 //! covering, PASSING conformance fixture for `Proven`/`ConfigPredicate`/`ConfirmOnly`, or a
 //! curated REFUSAL witness for `FailClosed` (see `pg_foma::conformance_coverage::
-//! evidence_requirement_for`). It PRINTS the full advisory report — it asserts only that the
-//! check RUNS and produces output, **never that the gap set is empty**. Turning this into a hard
-//! gate is task 5.1's own later, deliberate step (mechanically: replace this file's
-//! non-assertion with `assert!(gaps.is_empty(), ...)`) — see `pg_foma::conformance_coverage`'s own
-//! module doc for the mapping contract, why this is deferred, and what "passing" means here.
+//! evidence_requirement_for`). It prints the full report on every run **and fails the build** if
+//! any row lacks its required evidence.
+//!
+//! It was deliberately non-blocking for a long time, and the flip was gated on four fixes rather
+//! than done when the count first looked good — a green build-breaking gate that can silently
+//! start lying is worse than an advisory report, because the green light is what gets cited. See
+//! `supported_construct_conformance_coverage_has_no_gaps`'s own doc for the four, for what this
+//! gate still does not assert, and for why row-level coverage is not the same claim as
+//! configuration-level completeness. `pg_foma::conformance_coverage`'s module doc has the mapping
+//! contract and what "passing" means here.
 //!
 //! # Home
 //! `pg-foma` (this crate) because `capability.rs`'s disposition table — the registry side of the
@@ -109,20 +114,66 @@ fn passing_covered_constructs() -> HashSet<String> {
     covered
 }
 
-/// The advisory cross-check itself, **widened ledger-wide (G8) and re-mapped (G9)**. See this
-/// file's own top-doc for exactly what it does and does not assert.
+/// The ledger-wide cross-check, now **BUILD-BREAKING** (`openspec/changes/
+/// plan-construct-coverage-completion` tasks.md 6.2, design.md §D7 step 7: "This is the finish line,
+/// not a follow-on cleanup step"). Widened ledger-wide by G8, re-mapped by G9, flipped here.
+///
+/// # What flipping asserts, and what had to be true first
+/// It asserts **zero `Uncovered` and zero `Unmappable` rows** across all 20 `CharacteristicKind`s,
+/// each graded against its own [`EvidenceRequirement`] (`PassingFixture` for
+/// `Proven`/`ConfigPredicate`/`ConfirmOnly`; `RefusalWitness` for `FailClosed`, since nothing
+/// compiles for a refused construct and demanding a passing analysis fixture for one would be
+/// incoherent).
+///
+/// The flip waited on four things, because a green build-breaking gate that can silently start
+/// lying is worse than an advisory report — the green light is what gets cited:
+/// 1. **G9** — `Unmappable` had to reach zero; 4 `constructs.txt` rows were missing entirely
+///    (sillsdev/machine#465).
+/// 2. **G8** — the check had to cover all 20 rows, not just the 6 `Proven` ones, and had to stop
+///    grading `FailClosed` rows against the passing-fixture set (which let `MprGroupOverwrite`
+///    report `Covered` off its sibling's shared construct id, refusal never exercised).
+/// 3. **`tests/exercises_tag_liveness.rs`** — three fixtures tagged CHARACTERISTIC NAMES where a
+///    row id is required, so their evidence silently counted for nothing. An unknown tag is now a
+///    hard error rather than `constructs.txt`'s own documented "soft warning".
+/// 4. **`tests/structural_witness_gate.rs`** — four row ids are each mapped by two characteristics,
+///    so the finer one could report `Covered` on the coarser sibling's evidence. Three now have a
+///    mechanized grammar-shape witness; the fourth pair is excluded by derivation, not assertion
+///    (`MprGroupOverwrite` needs a `RefusalWitness`). Full reasoning:
+///    `docs/conformance/shared-construct-id-analysis.md`.
+///
+/// Plus `tests/coverage_citation_liveness.rs`, which keeps the `RefusalWitness` citations from
+/// becoming dangling pointers — the one place a row's `Covered` verdict rests on a hand-written
+/// string.
+///
+/// # What it still does NOT assert
+/// - That a fixture tags the RIGHT construct. A tag claiming something the fixture does not
+///   exercise stays a human-authoring risk; no string or shape check closes it in general.
+/// - That `Covered` means `Admit`. Ten rows are `ConfigPredicate` and three `ConfirmOnly`;
+///   `Covered` means "evidenced at its own disposition" (§D1: `ConfirmOnly → Admit` is a separate,
+///   optional track).
+/// - That every CONFIGURATION inside a covered row is closed. Row-level coverage and
+///   configuration-level completeness are different questions, and §D7 requires both — see the
+///   open splits in `docs/conformance/circumfix-structural-composite-census.md`,
+///   `needs-decision-resolutions.md`, and `multitable-shared-representation-design.md`.
+///
+/// The full report still prints on every run: a failure must say WHICH row regressed and how, not
+/// merely that a count moved.
 #[test]
-fn supported_construct_conformance_coverage_report_advisory() {
+fn supported_construct_conformance_coverage_has_no_gaps() {
     let covered = passing_covered_constructs();
     let covered_refs: HashSet<&str> = covered.iter().map(String::as_str).collect();
     let witnessed = refusal_witnessed_kinds();
     let report = supported_coverage_report(&covered_refs, &witnessed);
 
-    // The only real assertion this test makes: the mechanism runs and reports something for every
-    // CharacteristicKind. It must NEVER assert gaps == 0 -- see the module doc.
-    assert!(
-        !report.is_empty(),
-        "the coverage report must enumerate at least one CharacteristicKind"
+    // Non-vacuity first: a report that enumerated nothing would make every assertion below pass
+    // trivially, which is the failure mode this whole subsystem's gates are written against.
+    assert_eq!(
+        report.len(),
+        pg_foma::capability::CharacteristicKind::ALL.len(),
+        "the coverage report must enumerate EVERY CharacteristicKind ({} expected, {} reported) -- \
+         a short report would make the build-breaking assertions below vacuous",
+        pg_foma::capability::CharacteristicKind::ALL.len(),
+        report.len()
     );
 
     let mut covered_n = 0usize;
@@ -153,11 +204,9 @@ fn supported_construct_conformance_coverage_report_advisory() {
     }
 
     eprintln!(
-        "=== ADVISORY conformance-coverage cross-check (task 5.1 preview, ADR 0001, G8-widened \
-         ledger-wide, G9-remapped) ===\n\
-         this will become a hard CI gate later -- this run does NOT fail the build on gaps.\n\
-         CharacteristicKinds: {} total | {covered_n} covered | {} uncovered | {} unmappable (no \
-         constructs.txt id exists for this kind at all -- should be 0 after G9)",
+        "=== conformance-coverage cross-check (ADR 0001; ledger-wide per G8, remapped per G9) \
+         BUILD-BREAKING ===\n\
+         CharacteristicKinds: {} total | {covered_n} covered | {} uncovered | {} unmappable",
         report.len(),
         uncovered.len(),
         unmappable.len(),
@@ -168,17 +217,47 @@ fn supported_construct_conformance_coverage_report_advisory() {
             row.kind, row.disposition, row.evidence_requirement, row.status, row.construct_ids
         );
     }
-    eprintln!(
-        "--- Rows that would FAIL a build-breaking flip TODAY, staged by disposition ---\n\
-         Proven (would be a hard error immediately): {proven_gaps:?}\n\
-         ConfigPredicate/ConfirmOnly (also required by ADR 0001, but stageable after Proven): \
-         {config_or_confirm_gaps:?}\n\
-         FailClosed (needs a curated refusal witness, not a passing fixture): {fail_closed_gaps:?}"
+    // The gate. Reported by disposition rather than as one undifferentiated count, so a failure
+    // says what KIND of evidence is missing and therefore what would fix it.
+    assert!(
+        unmappable.is_empty(),
+        "MAPPING-CONTRACT REGRESSION: {} CharacteristicKind(s) have no constructs.txt row at all: \
+         {unmappable:?}\n\
+         This is a vocabulary gap, not a fixture gap -- a row must be added upstream (see G9 / \
+         sillsdev/machine#465 for the precedent) and mapped in \
+         `conformance_coverage::construct_ids_for`. Full report above.",
+        unmappable.len()
     );
-    if !unmappable.is_empty() {
-        eprintln!(
-            "UNMAPPABLE (mapping-contract gap: no constructs.txt row corresponds to this \
-             CharacteristicKind at all): {unmappable:?}"
-        );
-    }
+    assert!(
+        proven_gaps.is_empty(),
+        "COVERAGE REGRESSION (Proven): {proven_gaps:?} are admission-filtered unconditionally yet \
+         have no passing conformance fixture tagging their construct id.\n\
+         A Proven construct with no covering fixture is the strongest form of this gap: the \
+         compiler admits it with no evidence. Either a fixture regressed (check whether its words \
+         still pass -- a FAILING word's exercises: tags do not count), or a tag is not a literal \
+         constructs.txt row id (tests/exercises_tag_liveness.rs catches that specifically). Full \
+         report above."
+    );
+    assert!(
+        config_or_confirm_gaps.is_empty(),
+        "COVERAGE REGRESSION (ConfigPredicate/ConfirmOnly): {config_or_confirm_gaps:?} are \
+         compiled and relied upon, and ADR 0001 requires them evidenced too -- ConfirmOnly means \
+         'the oracle prunes over-generation', never 'no fixture needed'. Same two likely causes as \
+         the Proven case above. Full report above."
+    );
+    assert!(
+        fail_closed_gaps.is_empty(),
+        "REFUSAL-WITNESS REGRESSION (FailClosed): {fail_closed_gaps:?} need a curated \
+         ContainmentEvidenceKind::RefusalWitness in `coverage_ledger::containment_evidence_for`, \
+         NOT a passing analysis fixture -- nothing compiles for a refused construct. If the \
+         citation exists, tests/coverage_citation_liveness.rs will tell you whether it still \
+         resolves to a real #[test]. Full report above."
+    );
+    assert_eq!(
+        covered_n,
+        report.len(),
+        "internal inconsistency: {covered_n} of {} rows are Covered yet every gap list above is \
+         empty -- the status/disposition split in this test has drifted from CoverageStatus",
+        report.len()
+    );
 }
