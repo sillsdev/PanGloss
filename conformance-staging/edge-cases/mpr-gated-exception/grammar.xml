@@ -3,18 +3,19 @@
 <HermitCrabInput>
   <Language>
     <Name>Ranavu</Name>
-    <!-- Indonesian-shaped pathology mimic (docs/conformance-staging-plan.md's pathology catalog):
+    <!-- agglutinative-Austronesian reference corpus's pathology mimic (docs/conformance-staging-plan.md's
+         pathology catalog):
          (1) "placeholder-nasal assimilation + junction deletion (deletion-junction model)":
          mrNPfx inserts a placeholder nasal ("N") before the root; prNasalAssimBilabial/
          prNasalAssimAlveolar rewrite it to a real place-matching nasal (m/n) depending on the
          root-initial consonant's place; prObstruentDeletion then deletes a VOICELESS obstruent
-         immediately after the resulting real nasal -- the deletion-junction cascade behind real
-         Indonesian meN+tulis -> menulis (voiceless "t" deletes after the assimilated nasal)
+         immediately after the resulting real nasal -- the deletion-junction cascade behind that
+         corpus's own meN+tulis -> menulis (voiceless "t" deletes after the assimilated nasal)
          vs. meN+bawa -> membawa (voiced "b" survives). Invented roots ("tulik"/"balo"), not the
          real corpus lexicon.
          (2) "an MPR-gated rule exception (excludedMPRFeatures) where a corpus word's correct
          parse REQUIRES the exception to be honored (the P6 flag-diacritics recall case --
-         Indonesian's own corpus happens not to exercise it; the mimic must)": mrSuf's
+         that corpus happens not to exercise it; the mimic must)": mrSuf's
          MorphologicalInput carries excludedMPRFeatures="mprException"; eVokad carries that
          feature (ruleFeatures="mprException") and so must be BLOCKED from mrSuf, forcing its
          only correct derivation through the unrelated mrSufAlt rule instead -- see words.yaml's
@@ -92,9 +93,9 @@
           <FeatureValue feature="featHigh" symbolValues="fHighMid" /><FeatureValue feature="featBack" symbolValues="fBackBack" />
         </SegmentDefinition>
         <!-- Placeholder nasal -- capital "N" is its own segment, distinct from lowercase "n"
-             below, standing in for the underspecified morphophoneme mrNPfx inserts (real HC/
-             Indonesian analyses use exactly this device: a placeholder that phonological rules
-             later resolve to a real place). -->
+             below, standing in for the underspecified morphophoneme mrNPfx inserts (real HC
+             analyses of that agglutinative-Austronesian reference corpus use exactly this device:
+             a placeholder that phonological rules later resolve to a real place). -->
         <SegmentDefinition id="cNph"><Representations><Representation>N</Representation></Representations>
           <FeatureValue feature="featCons" symbolValues="fConsPlus" /><FeatureValue feature="featVoc" symbolValues="fVocMinus" />
           <FeatureValue feature="featVoice" symbolValues="fVoicePlus" /><FeatureValue feature="featNasal" symbolValues="fNasalPlus" />
@@ -202,10 +203,10 @@
         </PhonologicalSubrules>
       </PhonologicalRule>
       <!-- Junction deletion: a VOICELESS obstruent immediately after a (now-real, place-assimilated)
-           nasal deletes entirely -- the deletion-junction model behind real Indonesian
-           meN+tulis -> menulis (voiceless "t" deletes) vs meN+bawa -> membawa ("b" is voiced,
-           survives). Must run AFTER both assimilation rules above (stratum's phonologicalRules
-           order) so its LeftEnvironment sees the real nasal, not the placeholder. -->
+           nasal deletes entirely -- the deletion-junction model behind that agglutinative-Austronesian
+           reference corpus's own meN+tulis -> menulis (voiceless "t" deletes) vs meN+bawa -> membawa
+           ("b" is voiced, survives). Must run AFTER both assimilation rules above (stratum's
+           phonologicalRules order) so its LeftEnvironment sees the real nasal, not the placeholder. -->
       <PhonologicalRule id="prObstruentDeletion">
         <Name>obstruentDeletion</Name>
         <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncVoicelessObstruent" /></PhoneticSequence></PhoneticInput>

@@ -2,23 +2,23 @@
 
 ## Why this fixture exists
 
-Mimics the **Sena-shaped** pathology named in `docs/conformance-staging-plan.md`'s pathology
+Mimics the **agglutinative-Bantoid** pathology named in `docs/conformance-staging-plan.md`'s pathology
 catalog: several `AffixTemplate`s collapsed onto one shared `requiredPartsOfSpeech` category, so a
 foma-lexc encoding that flattens every rule into one shared per-category continuation class (rather
 than preserving per-template exclusivity) can synthesize a candidate that mixes template A's prefix
 slot with template B's suffix slot — a structurally invalid derivation that real HermitCrab
 morphotactics never permits (no single `AffixTemplate` contains both rules). This is the **d5
-ordering dead-end class** that this project's own dead-end census found dominates Sena's real
-confirm cost (`docs/fst-plan/foma-fst-plan.md` Phase 0 census, 2026-07-17: "d5 ordering dominates
-Sena/Ind[onesian]").
+ordering dead-end class** that this project's own dead-end census found dominates that reference
+corpus's real confirm cost (`docs/fst-plan/foma-fst-plan.md` Phase 0 census, 2026-07-17 found d5
+ordering dominates the corresponding agglutinative reference corpora).
 
 The same grammar also pins **free-fluctuation multiplicity**: one surface string with more than one
 equally-valid analysis, from two lexically distinct roots that happen to share a phonetic shape.
 
-And it declares **zero phonological rules** (`requires: []`), matching real Sena's own
-zero-rewrite-rule shape (per the dead-end census's own finding: "Sena has 72 env constraints and
-zero rewrite rules") — this exercises the `should_run` phonology short-circuit path with nothing to
-do.
+And it declares **zero phonological rules** (`requires: []`), matching that reference corpus's own
+zero-rewrite-rule shape (per the dead-end census's own finding for that corpus: 72 env constraints
+and zero rewrite rules) — this exercises the `should_run` phonology short-circuit path with nothing
+to do.
 
 ## What it pins
 

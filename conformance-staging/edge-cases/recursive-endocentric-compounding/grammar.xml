@@ -10,7 +10,7 @@
          one of its own input parts-of-speech, so the compounding rule can in principle re-apply to
          its own output indefinitely -- the ordinary engine behind English-style compound stacking
          ("state government tax policy committee meeting") and general N-N-recursive compounding
-         rules. Germanic (English, German, Dutch) and Sinitic compounding are the families most
+         rules. Germanic and Sinitic compounding are the families most
          commonly cited for unbounded endocentric N-N stacking (see the doc's own citations); the
          phenomenon itself is not family-specific.
 

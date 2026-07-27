@@ -2,10 +2,10 @@
 
 ## Why this fixture exists
 
-Mimics the **Aweti-shaped** pathology named in `docs/conformance-staging-plan.md`'s pathology
-catalog, at deliberately miniature scale (8 roots / 3 templates / 6 rules vs. real Aweti's 855
-roots / 47 fusion-eligible rules — see
-`docs/fst-plan/morphotactic-composite-pruning.md`'s 2026-07-18 "Aweti end-to-end result" section for
+Mimics the **composite-explosion** pathology named in `docs/conformance-staging-plan.md`'s pathology
+catalog, at deliberately miniature scale (8 roots / 3 templates / 6 rules vs. that reference corpus's
+855 roots / 47 fusion-eligible rules — see
+`docs/fst-plan/morphotactic-composite-pruning.md`'s 2026-07-18 "end-to-end result" section for
 the measured finding this pins). The plan doc is explicit that a miniature version is the intended
 scope here: "the point is exercising the code paths (pruning automaton, struct composites, fusion
 classes), not reproducing the blow-up."
@@ -15,8 +15,8 @@ foma/emit scale:
 
 1. **Composite-explosion structure**: three `AffixTemplate`s share one `requiredPartsOfSpeech`
    (`posAweti`) on an `Unordered` stratum, mostly-optional slots — the same shared-category idea as
-   this repo's own `template-category-sharing` (Sena) fixture, widened to 3 templates and a
-   genuinely mandatory slot.
+   this repo's own `template-category-sharing` fixture, widened to 3 templates and a genuinely
+   mandatory slot.
 2. **Vacuous (zero-morph) rules in MANDATORY slots** — the recall trap in the morphotactic-pruning
    automaton that `docs/fst-plan/morphotactic-composite-pruning.md` names directly. `mrVacuous`
    occupies template2's one non-optional slot; its `MorphologicalOutput` is pure `CopyFromInput`,
@@ -33,7 +33,7 @@ root is spelled with U+02BC MODIFIER LETTER APOSTROPHE (ʼ), exercised through a
 derivation (`katoʼata`), not just a bare-tokenization smoke test.
 
 All lexemes (`sipu`, `monu`, `waru`, `toʼa`, `kidi`, `nasu`, `lemo`, `dosi`) are invented; none are
-copied from the real (gitignored, uncommitted) Aweti corpus.
+copied from the real (gitignored, uncommitted) reference corpus.
 
 ## What it pins
 
@@ -53,7 +53,7 @@ copied from the real (gitignored, uncommitted) Aweti corpus.
 An earlier draft listed every rule (`mrOpt1`...`mrOpt5`, `mrVacuous`, `mrTrunc`) in the Stratum's own
 `morphologicalRules=` attribute, in addition to each rule's own template `Slot`. Measured
 consequence: templates could recursively cross-compose (the same engine behavior found independently
-while authoring `template-category-sharing`/Sena — see that fixture's own `STAGING.md` section on
+while authoring `template-category-sharing` — see that fixture's own `STAGING.md` section on
 this for the full mechanism citation). Concretely, `mrOpt3` (nominally "template2's own slot 1")
 turned out to also be reachable as a free-standing rule WITHOUT template2's mandatory `mrVacuous` at
 all, and several affixed words (`kasiputa`, `katoʼata`) produced the SAME signature two, four, or
@@ -68,7 +68,7 @@ Re-verified: every affixed word now has exactly one signature; only the delibera
 
 This fixture pins Morpher-level (`pg_parse`) parse correctness only. It does **not** reproduce or
 assert on the actual composite-generation/pruning-automaton COST behavior (`pg_foma::emit`,
-`pg_foma::morphotactics`) that motivated the real Aweti investigation — doing so at any
+`pg_foma::morphotactics`) that motivated the real reference-corpus investigation — doing so at any
 representative scale would defeat the point of a small, committed, non-ignored, always-green fixture.
 A future `pg-foma`-level test loading this same `grammar.xml` to exercise `emit()`/pruning directly
 (checking it doesn't crash and reports the expected `Tier`) would be a natural, separately-scoped

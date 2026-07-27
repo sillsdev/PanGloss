@@ -2,18 +2,18 @@
 
 ## Why this fixture exists
 
-Mimics two of the **Indonesian-shaped** pathologies named in `docs/conformance-staging-plan.md`'s
+Mimics two of the **agglutinative-Austronesian** pathologies named in `docs/conformance-staging-plan.md`'s
 pathology catalog:
 
 1. **Placeholder-nasal assimilation + junction deletion (deletion-junction model).** `mrNPfx` inserts
    a placeholder nasal segment before the root; `prNasalAssimBilabial`/`prNasalAssimAlveolar` resolve
    it to a real place-matching nasal depending on the root-initial consonant; `prObstruentDeletion`
-   then deletes a following VOICELESS obstruent — the cascade behind real Indonesian
+   then deletes a following VOICELESS obstruent — the cascade behind that reference corpus's own
    `meN+tulis -> menulis` (voiceless obstruent deletes) vs. `meN+bawa -> membawa` (voiced obstruent
    survives), with invented roots (`tulik`/`balo`) standing in for the real corpus lexicon.
 2. **An MPR-gated rule exception (`excludedMPRFeatures`) where a corpus word's correct parse
    REQUIRES the exception to be honored** — the P6 flag-diacritics recall case named in the plan
-   doc ("Indonesian's own corpus happens not to exercise it; the mimic must"). `mrSuf`'s
+   doc ("that reference corpus happens not to exercise it; the mimic must"). `mrSuf`'s
    `MorphologicalInput` carries `excludedMPRFeatures="mprException"`; `eVokad` carries that feature
    (`ruleFeatures="mprException"`), so `mrSuf` must be blocked for it, forcing its only correct
    derivation through the unrelated, ungated `mrSufAlt`.

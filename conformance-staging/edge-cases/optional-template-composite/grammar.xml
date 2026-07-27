@@ -2,10 +2,11 @@
 <!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
 <HermitCrabInput>
   <Language>
-    <Name>Awetimic</Name>
-    <!-- Aweti-shaped pathology mimic (docs/conformance-staging-plan.md's pathology catalog;
-         see also docs/fst-plan/morphotactic-composite-pruning.md's 2026-07-18 Aweti end-to-end
-         result section for the measured finding this pins). Real Aweti: 855 roots x 47
+    <Name>Kotavu</Name>
+    <!-- composite-explosion reference corpus's pathology mimic (docs/conformance-staging-plan.md's
+         pathology catalog; see also docs/fst-plan/morphotactic-composite-pruning.md's 2026-07-18
+         end-to-end result section for the measured finding this pins). That reference corpus: 855
+         roots x 47
          fusion-eligible rules across several mostly-optional AffixTemplates on an Unordered
          stratum -- a combinatorial composite-generation/pruning-automaton stress case, NOT
          reproduced at scale here (this fixture has 8 roots / 3 templates / 6 rules, deliberately
@@ -15,7 +16,7 @@
            1. Several mostly-optional AffixTemplates sharing one requiredPartsOfSpeech (posAweti)
               on an Unordered stratum -- the composite-explosion STRUCTURE (candidate space =
               roots x templates x slot-rule choices), same shared-category idea as this repo's
-              own template-category-sharing (Sena) fixture, here with 3 templates instead of 2 and
+              own template-category-sharing fixture, here with 3 templates instead of 2 and
               a genuinely mandatory slot (below) rather than all-optional.
            2. mrVacuous: a MANDATORY (non-optional) slot whose rule's own MorphologicalOutput is
               PURE CopyFromInput -- no InsertSegments at all, i.e. a real morpheme that changes
@@ -28,10 +29,10 @@
            3. mrTrunc: a truncation-shaped AffixProcessRule (structural-composite path, same
               mechanism as edge-cases/truncate-morphotactic's mruleTruncTrail) -- a literal
               trailing segment is dropped from the copied stem, not just appended-to.
-         Plus one root ("toʼa") spelled with U+02BC MODIFIER LETTER APOSTROPHE, mirroring Aweti's
-         own non-ASCII root-spelling glyphs (the tokenization-bug family) -- exercised through a
-         real affixed derivation (katoʼata), not just a bare-tokenization smoke test. All lexemes
-         invented; none copied from the real (gitignored) Aweti corpus. -->
+         Plus one root ("toʼa") spelled with U+02BC MODIFIER LETTER APOSTROPHE, mirroring that
+         reference corpus's own non-ASCII root-spelling glyphs (the tokenization-bug family) --
+         exercised through a real affixed derivation (katoʼata), not just a bare-tokenization smoke
+         test. All lexemes invented; none copied from the real (gitignored) corpus. -->
     <PartsOfSpeech>
       <PartOfSpeech id="posAweti"><Name>vAweti</Name></PartOfSpeech>
     </PartsOfSpeech>
@@ -190,16 +191,16 @@
             <MorphemeId>WARU</MorphemeId>
             <Gloss>root.waru</Gloss>
           </LexicalEntry>
-          <!-- Non-ASCII root spelling: U+02BC MODIFIER LETTER APOSTROPHE (Aweti's own
-               tokenization-bug family). -->
+          <!-- Non-ASCII root spelling: U+02BC MODIFIER LETTER APOSTROPHE (that reference corpus's
+               own tokenization-bug family). -->
           <LexicalEntry id="eToa" partOfSpeech="posAweti">
             <Allomorphs><Allomorph id="aToa"><PhoneticShape>toʼa</PhoneticShape></Allomorph></Allomorphs>
             <MorphemeId>TOA</MorphemeId>
             <Gloss>root.toa</Gloss>
           </LexicalEntry>
           <!-- Structural bulk only (no dedicated words.yaml rows) -- widening the roots x
-               templates combinatorial space a little further, gesturing at Aweti's real "dozens
-               of roots" without inflating this fixture's own verification burden. -->
+               templates combinatorial space a little further, gesturing at that reference corpus's
+               real "dozens of roots" without inflating this fixture's own verification burden. -->
           <LexicalEntry id="eKidi" partOfSpeech="posAweti">
             <Allomorphs><Allomorph id="aKidi"><PhoneticShape>kidi</PhoneticShape></Allomorph></Allomorphs>
             <MorphemeId>KIDI</MorphemeId>

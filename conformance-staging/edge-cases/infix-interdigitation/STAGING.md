@@ -2,17 +2,17 @@
 
 ## Why this fixture exists
 
-Mimics two of the **Amharic-shaped** pathologies named in `docs/conformance-staging-plan.md`'s
+Mimics two of the **templatic-Semitic** pathologies named in `docs/conformance-staging-plan.md`'s
 pathology catalog:
 
 1. **Infix interdigitation rules (`InsertSegments` around a root Copy).** `mrPfv`/`mrConv` each
    split the root after its first consonant and insert a literal marker in the gap — the same
-   mechanism `machine/conformance/languages/austronesian-phase`'s `mrInfixUm` (Tagalog `-um-`)
-   already exercises, here modeling Ge'ez/Amharic-style templatic perfective/converb marking instead.
+   mechanism `machine/conformance/languages/austronesian-phase`'s `mrInfixUm` (that fixture's own
+   infix, `-um-`) already exercises, here modeling templatic perfective/converb marking instead.
 2. **A merged letter-series (two unifiable `CharDef`s sharing a phoneme).** `cSTz`'s
    `SegmentDefinition` carries TWO `<Representation>` strings (U+1338 ጸ, U+1268 ፀ) for the SAME
    segment — the general "two graphemes, one phoneme" render-variant trap the project's own
-   pathology catalog names via Amharic's real ጸ/ፀ pair. No existing `machine/conformance` fixture
+   pathology catalog names via a templatic-Semitic reference corpus's real ጸ/ፀ pair. No existing `machine/conformance` fixture
    declares more than one `<Representation>` per `SegmentDefinition` (checked: all 130 existing
    `SegmentDefinition`/`BoundaryDefinition` blocks across every language/edge-case fixture carry
    exactly one), so this is new coverage — distinct from `edge-cases/strrep-identity`, which is

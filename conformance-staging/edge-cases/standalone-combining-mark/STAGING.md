@@ -14,8 +14,8 @@ swallowed into whatever base char-def precedes it in the emitted lexc surface te
 (`rust/crates/pg-foma/src/emit.rs`), declares every such cross-boundary run in `Multichar_Symbols`
 so foma's tokenizer sees it as one atomic unit instead of merging across the boundary unasked.
 
-This fixture is not one of the four named language-shaped pathology mimics in
-`docs/conformance-staging-plan.md`'s catalog (Sena/Amharic/Indonesian/Aweti) — it is a narrower,
+This fixture is not one of the four named reference-corpus-shaped pathology mimics in
+`docs/conformance-staging-plan.md`'s catalog — it is a narrower,
 construct-specific probe for this one tokenizer bug, in the same spirit as
 `docs/fst-plan/foma-fst-plan.md`'s "non-Latin/non-ASCII robustness follow-up" note (combining marks,
 NFC vs NFD inputs, as a named future-fixture target).
