@@ -128,8 +128,18 @@
       return in favour of the mirror-and-reverse construction (`reversed_slots` + mirrored
       `left_switch`/`right_switch` remap + `fsm_reverse` + `fsm_union` with the plain net), mirroring
       `compile_rtl_branch_net`. Fixture: `right-to-left-metathesis-reversal`
-- [ ] 5.2 Resume `add-reference-hermitcrab-parity` §§2-5 far enough to independently verify
-      `SimultaneousRewrite`'s overlapping-subrule configuration against `hc.dll` (design.md D6)
+- [x] 5.2 **DONE 2026-07-26** — `SimultaneousRewrite`'s overlapping-subrule configuration is now
+      independently verified against `hc.dll`. The premise that this needed
+      `add-reference-hermitcrab-parity` §§2-5 built first was **wrong**: `hc.dll` builds from the pinned
+      submodule in ~3 s, and `machine/conformance/adapters/hc-dotnet-wrapper.sh` already bridges it to
+      PROTOCOL.md §7's 3-arg contract, so the harness was substantially already there and the "zero
+      code exists" note was stale. Fixture:
+      `conformance-staging/edge-cases/simultaneous-subrule-genuine-overlap`, the repo's first with
+      founding-oracle ground truth. `hc.dll` compiled the overlapping grammar cleanly and its
+      `(word, signature)` output is byte-identical to `pg_parse::Morpher`'s on all 9 words — and the
+      agreement discriminates resolution order (`be` analyzes, `de` does not) rather than being a
+      shared silence on the underlying form. ADR 0001's oracle-trust blocker for this configuration is
+      discharged; the proposer-side refusal stands unchanged, being a construction question.
 
 ## 6. The finish line (hand-off)
 
