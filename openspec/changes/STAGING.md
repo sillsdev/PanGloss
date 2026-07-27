@@ -381,6 +381,52 @@ CI gate. Actual-language data (Sena/Amharic/Indonesian/Aweti) is **not** migrate
 coverage is expanded only with synthetic fixtures named by construct/composition (see the hard rule
 above).
 
+## Stage 5 — language readiness: make the compiler's answer visible and formal *(NET-NEW 2026-07-26)*
+
+Requested directly. Four deliverables that turn "the compiler works" into "this language will work on a
+device, and here is the evidence". Two changes, because visualization is genuinely useful alone while
+the other three form a dependency chain.
+
+`visualize-compilation-plan` *(NET-NEW)*: serialize a `Plan` to versioned JSON, render it as mermaid.
+This is what ADR 0002's reified plan was for — the DAG already exists and every node's identity is a
+content address, so a diagram is stable across runs and diffable between grammar revisions **for
+free**. Nodes are labelled by the linguistic work they do (stratum, template, rule class, construct),
+not by node kind, because the question is "how is my language handled". Two constraints that keep it
+honest: a plan over a realistic lexicon must summarize rather than emit an unreadable graph *and say it
+summarized*; and a node's capability verdict must be rendered from the real evaluation, never inferred
+from the node's presence — a node exists in the plan whether or not it was admitted, so an
+inferred-from-presence label would make the picture lie more persuasively than prose could.
+
+`certify-language-readiness` *(NET-NEW)*: timing → thresholds → report.
+1. **Timing in the conformance suite**, both engine modes, CSV plus a markdown table, with speedup
+   attributable **per typology** — the fixtures are named by construct, so that is the question worth
+   answering. Two measured constraints from `docs/benchmark-matrix.md` are folded in as requirements:
+   `elapsed_ms` is integer milliseconds so a sub-ms result must never be emitted as `0`, and a
+   capability refusal must be recorded as its own outcome rather than a zero or a missing row — since
+   refusal is the *common* case on the compiled path, not an edge case.
+2. **A tiered certification** over declared, versioned thresholds (size, lexicon scale, token analysis
+   rate, p50/p90/p99 against a named device class). The tiering is the design's core: **not-yet**
+   (thresholds missed — the language team can act) is kept distinct from **not-supported** (a refused
+   construct — only compiler work moves it), and the second tier names the refusing predicate. That
+   second tier is the point: it flags languages that need support so someone can ask for it.
+3. **`pangloss make-report`**: one markdown file per language — build time, size, percentiles, the plan
+   diagram, and the conformance verdict with **every failing point named**, because a bare "not passing"
+   is useless to someone deciding whether to ask for support.
+
+**The honesty rules here are load-bearing and specified as requirements, not aspirations.** A
+certificate is a green light, and green lights get cited — the same reasoning that gated the
+conformance-gate flip. So: a `trust=unproven` pack (ADR 0005 override) can **never** certify, or the
+override becomes the shortest path to a stamp and the stamp becomes decorative; "held out of authoring"
+is recorded as an **attestation with an attestor**, because nothing in the artifact can verify it and a
+check that cannot fail is not a check; coverage is worded as a **token-level analysis rate**, never as
+accuracy, since a token can receive a wrong analysis and still count; and an unassessed check must
+never render as a passed one.
+
+**Expected first result, stated up front so it is not mistaken for a bug:** per
+`docs/benchmark-matrix.md`, all three reference grammars are currently refused on the compiled path,
+two of them by a permanent carve-out. Under an honest bar **none of them certifies today**. That is the
+correct output of a bar set honestly, and the change must not be softened to produce cheerful output.
+
 ## Downstream — post-multi-topology, pre-ship
 
 These assume shippable packs and trail the compilation spine:
