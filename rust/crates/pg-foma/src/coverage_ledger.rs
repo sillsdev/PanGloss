@@ -418,10 +418,17 @@ pub fn containment_evidence_for(kind: CharacteristicKind) -> Option<ContainmentE
         Metathesis => ev(
             Dedicated,
             "tests/phase_c_metathesis.rs::metathesis_adjacent_singleton_swap_matches_oracle_\
-             exactly (+ metathesis_right_to_left_stays_honestly_unsupported for the scope \
-             boundary)",
-            "Dedicated swap-relation containment against the real oracle; Dir::RightToLeft stays \
-             a documented, honestly-unsupported scope boundary.",
+             exactly (+ metathesis_right_to_left_reversal_matches_oracle_exactly for the \
+             Dir::RightToLeft mirror construction, and \
+             metathesis_right_to_left_differs_from_compiling_as_left_to_right for the \
+             direction-blindness guard)",
+            "Dedicated swap-relation containment against the real oracle in BOTH directions -- \
+             Dir::RightToLeft is no longer a scope boundary (openspec/changes/\
+             build-unbounded-quantifier-support's sibling task, plan-construct-coverage-completion \
+             tasks.md 4.6): it compiles via the same mirror-and-reverse construction \
+             compile_rtl_branch_net uses, so the union is a superset the oracle prunes. The \
+             remaining refusals are pattern-shape ones (Anchor, and any Slot::Repeat -- \
+             slot_candidates enumerates concrete alternatives), never the direction itself.",
         ),
         Epenthesis => ev(
             Dedicated,
@@ -902,6 +909,20 @@ mod tests {
             golden_ledger().schema_version,
             COVERAGE_LEDGER_SCHEMA_VERSION
         );
+    }
+
+    #[test]
+    #[ignore = "regeneration helper, not a gate: run with --ignored to rewrite the golden from this \
+                test's own computation after a reviewed citation/predicate change"]
+    fn regenerate_coverage_ledger_golden_json() {
+        let json = golden_ledger()
+            .to_json()
+            .expect("serialization must succeed");
+        std::fs::write(
+            concat!(env!("CARGO_MANIFEST_DIR"), "/src/coverage_ledger_golden.json"),
+            json,
+        )
+        .expect("golden must be writable");
     }
 
     #[test]

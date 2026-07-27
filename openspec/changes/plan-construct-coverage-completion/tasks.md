@@ -59,16 +59,28 @@
       allomorph-complete (`struct_extend` delegates to `pg_rules::morph::synthesize`, `emit.rs:2272`);
       every gap is in candidate *selection*, and all fail over-refusing (honest/fail-closed, no
       overclaim). Three named shapes, split out below.
-- [ ] 4.3a **C1** — `rule_role` (`emit.rs:555-560`) classifies a rule by allomorph **0 only**, so a
+- [x] 4.3a **C1 — DONE 2026-07-26** — `rule_role` (`emit.rs:555-560`) classifies a rule by allomorph **0 only**, so a
       circumfix-shaped allomorph at index ≥ 1 never becomes a structural candidate (and the gap
       appears/disappears as an author reorders allomorphs). Fix: allomorph-wise `any` in
       `is_structural_rule`, without changing `rule_role`'s contract for its other callers. Fixture: a
       rule whose non-first allomorph is circumfix-shaped. **Highest priority of the three.**
-- [ ] 4.3b **C3** — `classify_affix`'s interior-action test (`emit.rs:434-440`) returns `Role::Infix`
+      **Outcome:** done exactly that way — `rule_role` untouched. Pinned by
+      `circumfix_allomorph_selection_is_order_independent`, which declares the same rule with its
+      allomorphs in BOTH orders and requires identical selection, since order-dependence was the
+      actual defect. Fixture `circumfix-non-first-allomorph-selection`.
+- [x] 4.3b **C3 — DONE 2026-07-26** — `classify_affix`'s interior-action test (`emit.rs:434-440`) returns `Role::Infix`
       before the leading-AND-trailing test (`:441-453`) can return `CircumfixPrefix`, so a
       simultaneously-circumfixing-and-infixing RHS is routed to `preexpand` instead of the structural
       mechanism `emit.rs:1928-1934` says is required. Fix: let `CircumfixPrefix` win when both hold,
       with its own recall argument. Fixture: such an RHS.
+      **Outcome:** leading-AND-trailing now tested before the interior-action test. Two independent
+      reasons recorded rather than one — `Infix` is the wrong label regardless of consequences, AND
+      `build_structural_composites`' `CircumfixPrefix` admission is unconditional whereas the
+      `preexpand` `Infix` route would make the predicate refuse on grammars `preexpand` cannot serve.
+      Mechanism hand-off checked explicitly, not assumed: `preexpand` selects on `rule_role` matching
+      `Infix`/`Prefix`/`Suffix`, so it drops the rule cleanly rather than both mechanisms claiming it or
+      both dropping it (`circumfix_infix_ownership_handoff_is_clean`). Fixture
+      `circumfix-infix-interior-action-precedence`. C2 verified unaffected by the reordering.
 - [ ] 4.3c **C2** — `classify_affix`'s reduplication test (`emit.rs:408-414`) likewise preempts the
       circumfix test. **Do NOT schedule independently** — which role wins decides which mechanism
       claims the allomorph, so this is a joint decision with row 11's `Reduplication` carve-out

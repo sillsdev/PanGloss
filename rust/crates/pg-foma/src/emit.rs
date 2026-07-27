@@ -431,6 +431,68 @@ pub(crate) fn classify_affix(rhs: &[OutputAction]) -> Role {
         };
     };
 
+    // Census C3 (`docs/conformance/circumfix-structural-composite-census.md`): the leading-AND-
+    // trailing test used to run AFTER the interior-action test below, so an RHS that is
+    // SIMULTANEOUSLY circumfixing (insert before the first Copy, insert after the last) AND
+    // infixing (a non-Copy action strictly between two Copy actions) classified `Infix` -- the
+    // wrong taxonomic label for a morph that genuinely wraps the root on both sides, and one that
+    // routed the rule to `crate::preexpand` (scoped by that module's own doc to "Interdigitation
+    // (Role::Infix)"/"boundary fusion (Prefix/Suffix)", never to circumfix) instead of
+    // `build_structural_composites`, whose OWN comment two sections up names circumfix explicitly
+    // as needing this unconditional (`probe_would_refuse`-independent) path. `CircumfixPrefix` must
+    // win whenever both hold, so this check now runs FIRST.
+    //
+    // Recall argument, EMPIRICALLY CHECKED, not merely reasoned about (a fixture-backed claim was
+    // corrected here after testing it): the naive version of this argument ("preexpand can only
+    // splice literal text and cannot represent a root wrapped on both sides at all") is WRONG.
+    // `crate::preexpand::extend` (its own module doc) ALSO calls `pg_rules::morph::synthesize_cached`
+    // -- the SAME real engine `struct_extend` calls -- so an Infix-classified rule with this exact
+    // simultaneously-circumfixing-and-infixing RHS is, in fact, already correctly resynthesized by
+    // `crate::preexpand` today: verified directly by temporarily reverting this reordering and
+    // re-running `rust/crates/pg-foma/tests/circumfix_candidate_selection.rs`'s
+    // `circumfix_infix_interior_action_recall_parity` -- it PASSED even without this fix (recall was
+    // never actually lost for this construct). What the fix demonstrably changes instead (same test
+    // file's `circumfix_infix_ownership_handoff_is_clean`, confirmed to FAIL without this fix): which
+    // mechanism's candidate set claims the rule. That matters for three reasons, none of them "recall
+    // was silently lost": (1) taxonomic correctness -- the rule genuinely IS a circumfix, and
+    // `Role::Infix` is simply the wrong label regardless of downstream consequences; (2) robustness --
+    // `build_structural_composites`'s `CircumfixPrefix` admission is unconditional
+    // (`is_structural_rule`'s own comment), while relying on `preexpand`'s Infix route for a
+    // wrap-both-sides shape depends on a property that module was never DESIGNED around (its doc
+    // frames its whole mechanism as interdigitation/boundary-fusion) merely happening to also hold,
+    // not on a documented guarantee; (3) the capability layer (`crate::capability::
+    // CircumfixStructuralCompositePredicate`) reads `is_structural_rule` as its OWN ground truth for
+    // whether a drops-material allomorph's owning rule is covered -- before this fix, a rule
+    // misclassified `Infix` here would make that predicate REFUSE even on a grammar `preexpand`
+    // already covers, an over-refusal consistent with the census's own "every gap fails
+    // over-refusing, never a silent overclaim" finding. What would FALSIFY the NARROWER claim this
+    // fix actually rests on (that `build_structural_composites` is the architecturally correct,
+    // unconditionally-guaranteed home for this shape): discovering that `pg_rules::morph::synthesize`
+    // (or anything `struct_extend`/`preexpand::extend` calls) special-cases the RHS action sequence's
+    // SHAPE rather than just replaying it in order -- no such special-casing exists in either caller
+    // today (both are shape-agnostic pure functions of the RHS action list); if one is ever added,
+    // this argument must be re-checked.
+    //
+    // Ownership handoff, checked (not assumed): `crate::preexpand::candidate_rules` (read-only here,
+    // not owned by this task) selects by `rule_role(g, mid)` matching `Infix`/`Prefix`/`Suffix` on
+    // the rule's FIRST allomorph. When allomorph 0 itself is this simultaneously-circumfixing-and-
+    // infixing shape, `rule_role` (which just calls `classify_affix` on allomorph 0) now returns
+    // `CircumfixPrefix` instead of `Infix`, so `preexpand`'s candidate set drops the rule cleanly the
+    // same moment `is_structural_rule` (via the allomorph-wise scan added for census C1) picks it up
+    // — no version of this rule is ever claimed by both mechanisms or by neither (confirmed by
+    // `circumfix_infix_ownership_handoff_is_clean` reading `emit::composite_candidate_rules`, the
+    // public diagnostic that exposes both mechanisms' candidate sets side by side).
+    //
+    // Interaction with census C2 (checked, not touched): the reduplication test above this function
+    // returns EARLY, unconditionally, before `first_copy`/`last_copy` are even computed — this
+    // reordering only touches code that runs after that early return, so it cannot change which RHS
+    // shapes classify `Reduplication`. C2 stays exactly as census-left, untouched by this fix.
+    let leading_insert = first_copy > 0;
+    let trailing_insert = last_copy < rhs.len() - 1;
+    if leading_insert && trailing_insert {
+        return Role::CircumfixPrefix;
+    }
+
     if first_copy < last_copy {
         for action in &rhs[first_copy + 1..last_copy] {
             if !matches!(action, OutputAction::Copy(_)) {
@@ -439,11 +501,7 @@ pub(crate) fn classify_affix(rhs: &[OutputAction]) -> Role {
         }
     }
 
-    let leading_insert = first_copy > 0;
-    let trailing_insert = last_copy < rhs.len() - 1;
-    if leading_insert && trailing_insert {
-        Role::CircumfixPrefix
-    } else if leading_insert {
+    if leading_insert {
         Role::Prefix
     } else if trailing_insert {
         Role::Suffix
@@ -1920,7 +1978,38 @@ fn rhs_drops_lhs_material(a: &AffixAllomorphDef) -> bool {
 /// same "predicate reads the identical structural fact the real compile path branches on, not a
 /// re-derivation of it" precedent [`probe_would_refuse`]/[`structural_candidate_rules`] already set
 /// for `reify-compilation-plans`.
+/// Whether ANY allomorph of `mid` classifies [`Role::CircumfixPrefix`] — unlike [`rule_role`],
+/// which inspects allomorph 0 only. [`is_structural_rule`]'s own question is "would ANY allomorph of
+/// this rule need [`build_structural_composites`]", so it must not miss a circumfix-shaped allomorph
+/// declared at index ≥ 1 merely because allomorph 0 happens to classify as something else (census
+/// C1, `docs/conformance/circumfix-structural-composite-census.md`: this gap is order-of-
+/// declaration-dependent — it appears and disappears purely as a grammar author reorders a rule's
+/// allomorphs, which is what makes it worth fixing here rather than documenting as a boundary).
+///
+/// Deliberately NOT a change to `rule_role`'s own contract: `rule_role`'s other call sites
+/// (`slot_role`/`classify_template` — deciding a template slot's prefix/suffix zone — and the
+/// standalone-derivation-rule classification duplicated in `emit_with_budget_profiled`, both
+/// faithful ports of `trie.rs`'s own "a rule's primary role, from its FIRST allomorph" convention,
+/// `rule_role`'s own doc comment) answer a DIFFERENT question — which concatenative zone a rule's
+/// literal-lexc tag belongs in — where "primary allomorph decides" is the intended, HC-faithful
+/// semantics, not an oversight. `crate::peel::is_reduplication_rule` does not call `rule_role` at
+/// all; it already calls `classify_affix` directly with its own `.any()` scan for the same reason
+/// this helper exists (that function's own doc contrasts the two aggregations explicitly). Adding a
+/// second, narrowly-scoped helper here keeps every one of those other sites byte-for-byte unchanged.
+fn any_allomorph_is_circumfix_prefix(g: &Grammar, mid: MRuleId) -> bool {
+    allomorphs_of(g, mid)
+        .iter()
+        .any(|a| classify_affix(&a.rhs) == Role::CircumfixPrefix)
+}
+
 pub(crate) fn is_structural_rule(g: &Grammar, mid: MRuleId) -> bool {
+    // Census C1 fix: check EVERY allomorph for `CircumfixPrefix`, not just the one `rule_role`
+    // reports from allomorph 0. Safe to check unconditionally before the `match` below — if
+    // allomorph 0 itself is `CircumfixPrefix`, `rule_role` already agrees and the `match` arm just
+    // below would return `true` anyway; this only ADDS the case `rule_role` used to miss.
+    if any_allomorph_is_circumfix_prefix(g, mid) {
+        return true;
+    }
     match rule_role(g, mid) {
         Role::None | Role::Prefix | Role::Suffix => {
             allomorphs_of(g, mid).iter().any(rhs_drops_lhs_material)
@@ -1932,6 +2021,8 @@ pub(crate) fn is_structural_rule(g: &Grammar, mid: MRuleId) -> bool {
         // `metathesis-phase-isolation`'s "keadilan" (ke-adil-an) and `fusional-realizational-morphology`'s "gelobt"/"gelobth"
         // (ge-lob-t[-h]) need it, and neither grammar has a probe-refusing construct, so this is
         // ALWAYS-on, not gated by `probe_would_refuse` the way ordinary Prefix/Suffix/Infix is.
+        // (Reached only when allomorph 0 itself is `CircumfixPrefix` — the check above already
+        // returned `true` for any OTHER allomorph being `CircumfixPrefix`.)
         Role::CircumfixPrefix => true,
         _ => false,
     }

@@ -436,15 +436,36 @@ pub struct RightToLeftRewriteDetail {
 pub struct MetathesisDetail {
     pub rule: PRuleId,
     /// `true` iff `crate::replace::compile_metathesis_rule`'s own structural admission floor is
-    /// met: `Dir::LeftToRight`, a resolvable owning table
-    /// ([`crate::replace::owning_table_for_metathesis`]), `left_switch != right_switch` both in
-    /// bounds, and the WHOLE pattern is a shape [`crate::replace::pattern_slots`] accepts with no
-    /// `crate::replace::Slot::Alpha`/`crate::replace::Slot::Repeat` occurrence anywhere (that
-    /// function's own module doc: no `AlphaVariable`/`OptionalSegmentSequence` is attested in any
-    /// `<MetathesisRule>` this crate has seen). Does NOT check the cross-product tuple-budget
-    /// dimension (`ComposeBudget::tuple_cap`) -- the same convention
-    /// [`RightToLeftRewriteDetail`]/[`QuantifierPatternDetail`] already use: a runtime resource
-    /// concern the D1 profile does not model, not a structural fact about the rule itself.
+    /// met: a resolvable owning table ([`crate::replace::owning_table_for_metathesis`]),
+    /// `left_switch != right_switch` both in bounds, and the WHOLE pattern is a shape
+    /// [`crate::replace::pattern_slots`] accepts with no `crate::replace::Slot::Alpha`/
+    /// `crate::replace::Slot::Repeat` occurrence anywhere.
+    ///
+    /// **Dir-agnostic since `openspec/changes/plan-construct-coverage-completion` task 4.6**
+    /// (`docs/conformance/needs-decision-resolutions.md` row 8): this field no longer gates on
+    /// `Dir::LeftToRight` at all -- `crate::replace::compile_metathesis_rule` now compiles
+    /// `Dir::RightToLeft` too, via the SAME mirror-and-reverse construction
+    /// `compile_rtl_branch_net` already uses for RTL rewrite rules (that function's own module
+    /// doc, "`Dir::RightToLeft`" section), so the structural admission floor is identical for
+    /// either direction -- mirrors [`RightToLeftRewriteDetail::reversal_construction_attempted`]'s
+    /// own already-Dir-agnostic convention (that field characterizes pattern-shape support
+    /// independent of `rule.dir` too).
+    ///
+    /// A `Slot::Alpha` occurrence is genuinely STRUCTURALLY IMPOSSIBLE for a `<MetathesisRule>`
+    /// (not merely unattested): `pg_grammar::load::load_metathesis_rule` resolves every pattern
+    /// node against an EMPTY `VarTable::default()` (no `<Variables>` scope exists for a
+    /// `<MetathesisRule>` at all), so any `<AlphaVariable>` inside one errors the WHOLE grammar
+    /// load before a `Slot::Alpha` could ever be produced -- see `crate::replace::
+    /// compile_metathesis_rule`'s own module doc for the full citation. A `Slot::Repeat`
+    /// occurrence, by contrast, IS structurally reachable (`OptionalSegmentSequence` is DTD-legal
+    /// inside a `<MetathesisRule>`'s own `<PhoneticSequence>`, just never attested in any fixture
+    /// this crate has authored) -- `crate::replace::slot_candidates` refuses it regardless of
+    /// `Dir`, so this stays an honest, reachable (not vacuous) scope line for either direction.
+    ///
+    /// Does NOT check the cross-product tuple-budget dimension (`ComposeBudget::tuple_cap`) -- the
+    /// same convention [`RightToLeftRewriteDetail`]/[`QuantifierPatternDetail`] already use: a
+    /// runtime resource concern the D1 profile does not model, not a structural fact about the
+    /// rule itself.
     pub swap_construction_attempted: bool,
 }
 
@@ -494,17 +515,24 @@ pub struct CircumfixOutputActionDetail {
     /// candidate surface via the REAL morphological engine (`pg_rules::morph::synthesize`) rather
     /// than splicing literal `InsertSegments` text, and so is faithful (never a silent wrong
     /// compile) for whatever shape a rule routed there actually has, `OutputAction` variant
-    /// notwithstanding. `is_structural_rule` itself is per-RULE (its own doc: role classification
-    /// comes from the rule's FIRST allomorph), so every allomorph of a covered rule shares this same
-    /// `true`/`false` value — computed once per allomorph anyway (not memoized across allomorphs of
-    /// the same rule) to keep this detail self-contained per observation, mirroring
-    /// [`MetathesisDetail`]/[`RightToLeftRewriteDetail`]'s own "cheap, recompute don't share"
-    /// convention.
+    /// notwithstanding. `is_structural_rule` is per-RULE: since census C1
+    /// (`docs/conformance/circumfix-structural-composite-census.md`) it admits a rule whenever ANY
+    /// of its allomorphs classifies `Role::CircumfixPrefix` (not only allomorph 0 — `rule_role`'s
+    /// own first-allomorph contract is unchanged and unrelated; `is_structural_rule` asks its own
+    /// allomorph-wise question via a dedicated helper), so a rule with a mix of plain and
+    /// circumfix-shaped allomorphs is admitted as soon as ONE allomorph qualifies. Every allomorph of
+    /// a covered rule still shares this same `true`/`false` value (computed once per allomorph
+    /// anyway, not memoized across allomorphs of the same rule, to keep this detail self-contained
+    /// per observation, mirroring [`MetathesisDetail`]/[`RightToLeftRewriteDetail`]'s own "cheap,
+    /// recompute don't share" convention) — because `build_structural_composites` synthesizes the
+    /// WHOLE rule's surface via `pg_rules::morph::synthesize`, which does not special-case by
+    /// allomorph, once the rule is admitted every allomorph rides along.
     ///
-    /// `false` means the rule's own role (from ITS FIRST allomorph — `Role::Infix`/
-    /// `Role::Reduplication`/`Role::Process`/`Role::CircumfixSuffix`, per `crate::emit::classify_
-    /// affix`) falls outside `is_structural_rule`'s covered set even though THIS allomorph still
-    /// drops real LHS material -- e.g. a rule whose primary shape is genuine interdigitation
+    /// `false` means NO allomorph of this rule is `CircumfixPrefix` AND allomorph 0's role
+    /// (`Role::Infix`/`Role::Reduplication`/`Role::Process`/`Role::CircumfixSuffix`/`Role::None`\
+    /// `Prefix`\`Suffix` with no LHS-material-dropping allomorph, per `crate::emit::classify_affix`)
+    /// falls outside `is_structural_rule`'s covered set even though THIS allomorph still drops real
+    /// LHS material -- e.g. a rule whose primary shape is genuine interdigitation
     /// (`crate::preexpand`'s own job) or whose RHS uses `OutputAction::Modify`/`InsertContext`
     /// (`Role::Process`, never compilable as a literal string at all, module doc "Not emittable as
     /// literal lexc"). The real compiler already honestly skips such an allomorph everywhere (never
@@ -829,20 +857,24 @@ fn rtl_reversal_construction_attempted(g: &Grammar, r: &pg_grammar::model::Rewri
 }
 
 /// [`MetathesisDetail::swap_construction_attempted`]'s own computation (`openspec/changes/
-/// compile-fst-metathesis`): re-runs the SAME structural admission floor
-/// `crate::replace::compile_metathesis_rule` itself checks before ever rendering an xre regex --
-/// `Dir::LeftToRight`, a resolvable owning table, in-bounds distinct switch indices, and a whole
-/// pattern `crate::replace::pattern_slots` accepts with no `crate::replace::Slot::Alpha`/
-/// `crate::replace::Slot::Repeat` occurrence anywhere. Cheap and purely structural: no
-/// `foma::options::FomaOptions`/`crate::replace::SegAlphabet`/`ComposeBudget` needed, unlike the
-/// real compile (mirrors [`rtl_reversal_construction_attempted`]'s own convention).
+/// compile-fst-metathesis`; widened to be Dir-agnostic by `openspec/changes/
+/// plan-construct-coverage-completion` task 4.6, `docs/conformance/needs-decision-resolutions.md`
+/// row 8): re-runs the SAME structural admission floor `crate::replace::compile_metathesis_rule`
+/// itself checks before ever rendering an xre regex -- a resolvable owning table, in-bounds
+/// distinct switch indices, and a whole pattern `crate::replace::pattern_slots` accepts with no
+/// `crate::replace::Slot::Alpha`/`crate::replace::Slot::Repeat` occurrence anywhere. Deliberately
+/// does NOT branch on `m.dir` any more: `crate::replace::compile_metathesis_rule` now compiles
+/// `Dir::RightToLeft` via the SAME mirror-and-reverse construction `compile_rtl_branch_net` uses
+/// for RTL rewrite rules, over this IDENTICAL structural floor (that function's own module doc,
+/// "switch-index remap, worked out" -- the remap is pure index arithmetic over an already-checked
+/// slot list, introducing no NEW way to fail), so the floor is genuinely Dir-agnostic now, not
+/// merely relaxed. Cheap and purely structural: no `foma::options::FomaOptions`/`crate::replace::
+/// SegAlphabet`/`ComposeBudget` needed, unlike the real compile (mirrors
+/// [`rtl_reversal_construction_attempted`]'s own already-Dir-agnostic convention).
 fn metathesis_swap_construction_attempted(
     g: &Grammar,
     m: &pg_grammar::model::MetathesisRuleDef,
 ) -> bool {
-    if !matches!(m.dir, Dir::LeftToRight) {
-        return false;
-    }
     let Some(table) = crate::replace::owning_table_for_metathesis(g, m) else {
         return false;
     };
@@ -2110,43 +2142,53 @@ impl CapabilityPredicate for RightToLeftRewriteFaithfulReversalPredicate {
 // -------------------------------------------------------------------------------------------
 
 /// `openspec/changes/compile-fst-metathesis`'s own capability predicate: a `PhonRuleDef::Metathesis`
-/// rule is now faithfully COMPILABLE via `crate::replace::compile_metathesis_rule`'s dedicated swap
+/// rule is faithfully COMPILABLE via `crate::replace::compile_metathesis_rule`'s dedicated swap
 /// relation (that function's own module doc: a per-branch literal cross-product union, mirroring
-/// `resolve_alpha_tuples`'s own identity-preservation fix) for the `Dir::LeftToRight`,
-/// `pattern_slots`-acceptable shape. `Dir::RightToLeft`, or any pattern needing `Quantifier`/
-/// `Segments`/`Anchor`/a disagree-polarity alpha var/`Slot::Alpha`/`Slot::Repeat` anywhere, stays
-/// exactly as unsupported as before this change (`crate::replace::compile_metathesis_rule` itself
-/// returns `Ok(None)`, honestly skipped).
+/// `resolve_alpha_tuples`'s own identity-preservation fix) for a `pattern_slots`-acceptable shape,
+/// EITHER `Dir` since `openspec/changes/plan-construct-coverage-completion` task 4.6
+/// (`docs/conformance/needs-decision-resolutions.md` row 8): `Dir::RightToLeft` now additionally
+/// mirrors the pattern, remaps the two switch indices, reverses, and unions with the plain net --
+/// the SAME construction `compile_rtl_branch_net` uses for RTL rewrite rules (that function's own
+/// module doc, "`Dir::RightToLeft`" section, has the full derivation this predicate's disposition
+/// below relies on). Any pattern needing `Quantifier`/`Segments`/`Anchor`/a disagree-polarity alpha
+/// var/`Slot::Alpha`/`Slot::Repeat` anywhere, or with no resolvable owning table, stays exactly as
+/// unsupported as before this change (`crate::replace::compile_metathesis_rule` itself returns
+/// `Ok(None)`, honestly skipped) -- direction was never what made those shapes unsupported.
 ///
 /// # Disposition
 /// - **Not observed as `PhonRuleDef::Metathesis` at all**: vacuously `Admit` — nothing for this
 ///   predicate to say (mirrors [`RightToLeftRewriteFaithfulReversalPredicate`]'s own "not
 ///   applicable here" convention).
-/// - **Pattern shape within scope** (`swap_construction_attempted == true`):
-///   [`PredicateVerdict::ConfirmOnly`] — the cross-product swap-relation construction is a proven
-///   SAFE, FAITHFUL FST compile for the SUPPORTED case (this change's own containment fixture,
-///   `tests/phase_c_metathesis.rs`, proves oracle-EXACT equality against `pg_rules::metathesis`,
-///   not merely a safe superset), but no PROVEN no-false-negative admission-filter argument exists
-///   (ADR 0001's own bar for `Admit`) — confirm-only-by-default, the same landing spot every other
-///   `ConfigPredicate` characteristic in this registry already uses.
-/// - **Pattern shape outside scope** (`swap_construction_attempted == false` — `Dir::RightToLeft`
-///   (this change's own documented scope boundary, `crate::replace::compile_metathesis_rule`'s
-///   module doc: the oracle is direction-AWARE here, unlike ordinary rewrite rules, so a safety-net
-///   union built on an RTL-rewrite-style direction-blindness assumption would be unsound, not merely
-///   imprecise — deferred to a follow-on change with its own oracle-matrix witness), an
-///   unresolvable owning table, or a pattern `crate::replace::pattern_slots` refuses/that carries a
-///   `Slot::Alpha`/`Slot::Repeat` occurrence: [`PredicateVerdict::Refuse`] — the real compiler
-///   already honestly skips (`Ok(None)`) exactly this rule, never a silent wrong compile;
-///   overridable per ADR 0005.
+/// - **Pattern shape within scope** (`swap_construction_attempted == true`, EITHER `Dir`):
+///   [`PredicateVerdict::ConfirmOnly`] — never `Admit`, for two independent reasons layered on top
+///   of each other. `Dir::LeftToRight`'s own cross-product swap-relation construction is a proven
+///   SAFE, FAITHFUL FST compile for the SUPPORTED case (`tests/phase_c_metathesis.rs`'s
+///   `metathesis_adjacent_singleton_swap_matches_oracle_exactly` proves oracle-EXACT equality
+///   against `pg_rules::metathesis`, not merely a safe superset) but still has no PROVEN
+///   no-false-negative admission-filter argument (ADR 0001's own bar for `Admit`). `Dir::
+///   RightToLeft` additionally unions in the reversed-mirror branch (module doc above) — a proven
+///   SUPERSET of the true RTL relation, sound under propose-and-confirm (the proposer may
+///   over-approximate; it must never omit — `tests/phase_c_metathesis.rs`'s own `Dir::RightToLeft`
+///   containment witness checks exactly this), but NOT proven exact — the SAME reason RTL rewrite
+///   is `ConfirmOnly` rather than `Admit`. Either way, confirm-only-by-default, the same landing
+///   spot every other `ConfigPredicate` characteristic in this registry already uses.
+/// - **Pattern shape outside scope** (`swap_construction_attempted == false` — an unresolvable
+///   owning table, `left_switch == right_switch` or out of bounds, or a pattern
+///   `crate::replace::pattern_slots` refuses/that carries a `Slot::Alpha`/`Slot::Repeat`
+///   occurrence — `crate::replace::compile_metathesis_rule`'s own module doc, "Scope" section, has
+///   the full, evidence-based account of which of these is genuinely reachable): [`PredicateVerdict
+///   ::Refuse`] — the real compiler already honestly skips (`Ok(None)`) exactly this rule, never a
+///   silent wrong compile; overridable per ADR 0005.
 ///
 /// # Provenance
 /// [`EvidenceProvenance::Structural`]: `swap_construction_attempted` reads directly-inspectable
 /// `model.rs`/`CharDefTable` data (the same structural facts `crate::replace::
 /// compile_metathesis_rule` itself checks before ever rendering an xre regex), no oracle witnesses
-/// needed to derive the VERDICT itself — the safe-recall argument for the SUPPORTED case (exact
-/// containment, not merely a safe superset) was separately, empirically verified against
-/// `pg_rules::metathesis` (this crate's own containment fixture), the same "oracle verified the
-/// construction, the predicate reads structure" split [`RightToLeftRewriteFaithfulReversalPredicate`]/
+/// needed to derive the VERDICT itself — the safe-recall argument for the SUPPORTED case (oracle-
+/// exact for `Dir::LeftToRight`; a proven safe superset, not proven exact, for `Dir::RightToLeft`)
+/// was separately, empirically verified against `pg_rules::metathesis` (this crate's own
+/// containment fixtures for both directions), the same "oracle verified the construction, the
+/// predicate reads structure" split [`RightToLeftRewriteFaithfulReversalPredicate`]/
 /// [`MultiTableFaithfulThreadingPredicate`]'s own docs draw.
 ///
 /// # Node applicability
@@ -2188,13 +2230,22 @@ impl CapabilityPredicate for MetathesisFaithfulSwapPredicate {
             return PredicateVerdict::Refuse(CapabilityDiagnostic {
                 predicate: self.id(),
                 construct: format!("prule {} (MetathesisRule)", rule.0),
-                witness: "this rule is Dir::RightToLeft (out of scope for this change's swap \
-                          construction, module doc on crate::replace::compile_metathesis_rule), \
-                          or its own pattern needs a construct crate::replace::pattern_slots does \
-                          not support (Quantifier/Segments/Anchor/disagree-polarity alpha var), \
-                          carries a Slot::Alpha/Slot::Repeat occurrence, or has no resolvable \
-                          owning character-definition table -- the real compiler already honestly \
-                          skips (Ok(None)) this exact rule rather than silently mis-compiling it"
+                witness: "this rule's own pattern needs a construct crate::replace::pattern_slots \
+                          does not support (Quantifier/Segments/Anchor/disagree-polarity alpha \
+                          var), carries a Slot::Repeat occurrence (DTD-legal inside a \
+                          MetathesisRule's own PhoneticSequence, though never attested in any \
+                          fixture this crate has authored -- Slot::Alpha is additionally \
+                          structurally IMPOSSIBLE here, not merely unsupported: \
+                          pg_grammar::load::load_metathesis_rule resolves every node against an \
+                          EMPTY VarTable, so any AlphaVariable inside a MetathesisRule errors the \
+                          whole grammar load before reaching this predicate at all), or has no \
+                          resolvable owning character-definition table -- NOT a direction, since \
+                          openspec/changes/plan-construct-coverage-completion task 4.6 (docs/\
+                          conformance/needs-decision-resolutions.md row 8): Dir::RightToLeft \
+                          compiles via the same mirror-and-reverse construction \
+                          compile_rtl_branch_net uses for RTL rewrite rules -- the real compiler \
+                          already honestly skips (Ok(None)) this exact rule rather than silently \
+                          mis-compiling it"
                     .to_string(),
             });
         }
@@ -2219,13 +2270,42 @@ impl CapabilityPredicate for MetathesisFaithfulSwapPredicate {
 /// (`crate::emit::insert_action_texts`) this change also ships for the allomorphs that stay on the
 /// ordinary (non-structural) emission path.
 ///
-/// A rule whose own role (from its FIRST allomorph, per `crate::emit::classify_affix`) is
-/// `Role::Infix`/`Role::Reduplication`/`Role::Process`/`Role::CircumfixSuffix` stays OUTSIDE
-/// `is_structural_rule`'s admitted set even when one of its allomorphs drops LHS material too —
-/// e.g. a rule whose RHS uses `OutputAction::Modify`/`InsertContext` (ablaut/simulfix-style
-/// "process morphs", D1's own "not compilable as strings" citation) is never routed there, and the
-/// ordinary emission path already honestly reports it `uncovered` (`crate::emit::
-/// emit_rule_allomorphs`'s `has_unemittable_action` check) rather than silently mis-compiling it.
+/// A rule stays OUTSIDE `is_structural_rule`'s admitted set only when NONE of its allomorphs
+/// classifies `Role::CircumfixPrefix` AND its allomorph-0 role (per `crate::emit::classify_affix`)
+/// is `Role::Infix`/`Role::Reduplication`/`Role::Process` with no allomorph dropping LHS material —
+/// e.g. a rule whose RHS uses `OutputAction::Modify`/`InsertContext` (ablaut/simulfix-style "process
+/// morphs", D1's own "not compilable as strings" citation) is never routed there, and the ordinary
+/// emission path already honestly reports it `uncovered` (`crate::emit::emit_rule_allomorphs`'s
+/// `has_unemittable_action` check) rather than silently mis-compiling it. Before census C1's fix
+/// (`docs/conformance/circumfix-structural-composite-census.md`), a rule whose allomorph 0 was one
+/// of those other roles but whose allomorph 1..n was circumfix-shaped was ALSO wrongly excluded —
+/// `is_structural_rule` now scans every allomorph for `CircumfixPrefix` before falling back to
+/// allomorph-0-only classification, so that gap is closed and the exclusion above is exhaustive.
+///
+/// Since census C3's fix to `crate::emit::classify_affix` (same census document), an RHS that is
+/// simultaneously circumfixing (insert before the first `Copy`, insert after the last) AND infixing
+/// (a non-`Copy` action strictly between two `Copy`s) now classifies `CircumfixPrefix` rather than
+/// `Infix`, so it is admitted here instead of being routed to `crate::preexpand`.
+///
+/// This is NOT primarily a raw-recall fix — checked empirically, not merely reasoned about:
+/// `crate::preexpand::extend` (its own module doc) ALSO calls `pg_rules::morph::synthesize_cached`,
+/// the SAME real engine `build_structural_composites` uses, so an `Infix`-misclassified rule with
+/// this exact shape was ALREADY correctly resynthesized by `crate::preexpand` before this fix
+/// (confirmed by temporarily reverting `classify_affix`'s reordering and re-running
+/// `rust/crates/pg-foma/tests/circumfix_candidate_selection.rs`'s
+/// `circumfix_infix_interior_action_recall_parity` — it passed either way). What the fix
+/// demonstrably changes is OWNERSHIP, not recall (the same test file's
+/// `circumfix_infix_ownership_handoff_is_clean` DOES fail without this fix): `crate::preexpand`
+/// relinquishes the rule and `build_structural_composites` claims it instead. That still matters
+/// here specifically, because THIS predicate reads `is_structural_rule` as its own ground truth for
+/// `structural_composite_attempted` — before the fix, a rule misclassified `Infix` here made this
+/// predicate `Refuse` a grammar `crate::preexpand` was already covering correctly, an over-refusal
+/// (never a silent overclaim) consistent with the census's own finding that every one of these gaps
+/// fails in the honest, fail-closed direction. `build_structural_composites` remains the
+/// architecturally correct home regardless: its `CircumfixPrefix` admission is unconditional
+/// (`is_structural_rule`'s own comment), where `crate::preexpand`'s Infix coverage of this shape is
+/// real but incidental to a module whose own doc scopes it to interdigitation/boundary-fusion, never
+/// to circumfix.
 ///
 /// # Disposition
 /// - **Not observed at all** (no allomorph drops LHS material anywhere in the grammar): vacuously
@@ -2293,9 +2373,11 @@ impl CapabilityPredicate for CircumfixStructuralCompositePredicate {
                         "mrule {} allomorph #{} (LHS-material-dropping output action)",
                         detail.rule.0, detail.allomorph_index
                     ),
-                    witness: "this allomorph's own rule does not classify as crate::emit::Role::\
-                              None/Prefix/Suffix/CircumfixPrefix from its first allomorph (crate::\
-                              emit::classify_affix), or uses OutputAction::Modify/InsertContext, \
+                    witness: "no allomorph of this allomorph's own rule classifies as crate::emit::\
+                              Role::CircumfixPrefix (crate::emit::classify_affix, scanned over \
+                              every allomorph), and its first allomorph does not classify as \
+                              crate::emit::Role::None/Prefix/Suffix with LHS-material-dropping \
+                              content either, or the rule uses OutputAction::Modify/InsertContext, \
                               so crate::emit::is_structural_rule never routes it through the \
                               faithful build_structural_composites construction -- the real \
                               compiler already honestly skips (reports uncovered) this exact \
@@ -4281,13 +4363,23 @@ mod tests {
         );
     }
 
-    /// Negative witness: a `Dir::RightToLeft` metathesis rule -- this change's own documented scope
-    /// boundary (`crate::replace::compile_metathesis_rule`'s module doc: the oracle is direction-
-    /// AWARE for metathesis, so an RTL-rewrite-style safety-net union would be unsound here) -- must
-    /// characterize `swap_construction_attempted == false`, and the predicate must `Refuse` it
-    /// (never silently `ConfirmOnly`/`Admit` a rule the real compiler cannot even attempt).
+    /// Positive witness (was `metathesis_predicate_refuses_right_to_left_rule` -- RENAMED, see this
+    /// module's own top-of-task note and `docs/conformance/needs-decision-resolutions.md` row 8):
+    /// a `Dir::RightToLeft` metathesis rule, otherwise identical in shape to `METATHESIS_PLAIN_XML`
+    /// above, now characterizes `swap_construction_attempted == true` and the predicate returns
+    /// `ConfirmOnly` -- `openspec/changes/plan-construct-coverage-completion` task 4.6 built the
+    /// mirror-and-reverse construction (`crate::replace::compile_metathesis_rule`'s module doc,
+    /// "`Dir::RightToLeft`" section) that makes this rule genuinely compilable now, matching
+    /// `RightToLeftRewrite`'s own disposition and for the identical reason (a proven superset of
+    /// the true RTL relation, sound under propose-and-confirm, not proven exact -- never `Admit`).
+    /// The construction's own exactness against `pg_rules::metathesis` (the containment obligation)
+    /// and its genuine divergence from compiling as if `Dir::LeftToRight` are pinned at the FST
+    /// level in `rust/crates/pg-foma/tests/phase_c_metathesis.rs`
+    /// (`metathesis_right_to_left_reversal_matches_oracle_exactly`/
+    /// `metathesis_right_to_left_differs_from_compiling_as_left_to_right`), not here -- this test's
+    /// own job is only the capability-gate verdict.
     #[test]
-    fn metathesis_predicate_refuses_right_to_left_rule() {
+    fn metathesis_predicate_confirm_only_for_right_to_left_rule() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>MetaRtl</Name>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions>
@@ -4325,17 +4417,19 @@ mod tests {
             .metathesis_detail(PRuleId(0))
             .expect("Metathesis must carry a MetathesisDetail");
         assert!(
-            !detail.swap_construction_attempted,
-            "Dir::RightToLeft is outside this change's own documented scope"
+            detail.swap_construction_attempted,
+            "Dir::RightToLeft is now IN scope (task 4.6): the structural admission floor is \
+             Dir-agnostic, and this rule's own pattern shape (two singleton-class switches, no \
+             environment) is exactly what it accepts"
         );
 
         let predicate = MetathesisFaithfulSwapPredicate;
-        match predicate.evaluate(&profile, &leaf_for(PRuleId(0))) {
-            PredicateVerdict::Refuse(diag) => {
-                assert_eq!(diag.predicate, "metathesis.faithful-swap-construction");
-            }
-            other => panic!("expected Refuse for a Dir::RightToLeft metathesis rule, got {other:?}"),
-        }
+        assert_eq!(
+            predicate.evaluate(&profile, &leaf_for(PRuleId(0))),
+            PredicateVerdict::ConfirmOnly,
+            "a Dir::RightToLeft metathesis rule with an otherwise-supported pattern shape must be \
+             ConfirmOnly, never Refuse or Admit"
+        );
     }
 
     /// Negative witness: a `finalBoundaryCondition="true"` metathesis pattern -- `pg_grammar::load`

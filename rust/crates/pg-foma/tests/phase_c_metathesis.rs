@@ -1,11 +1,17 @@
 //! `openspec/changes/compile-fst-metathesis`: `PhonRuleDef::Metathesis` real FST semantics, via
 //! [`pg_foma::replace::compile_metathesis_rule`]'s dedicated swap relation (that function's own
 //! module doc: a per-branch literal cross-product union, mirroring `resolve_alpha_tuples`'s own
-//! identity-preservation fix). BEFORE this change, every `<MetathesisRule>` was unconditionally
-//! reported `skipped` (`"{xml_id} (metathesis, unhandled)"`, this file's OLD sole test). Now a
-//! `Dir::LeftToRight` rule whose whole pattern is a shape `pg_foma::replace::pattern_slots` accepts
-//! (no `Quantifier`/`Segments`/`Anchor`, no `Slot::Alpha`/`Slot::Repeat` anywhere) compiles to a
-//! real swap relation, oracle-exact for the well-formed switch-tag convention (below).
+//! identity-preservation fix). BEFORE that change, every `<MetathesisRule>` was unconditionally
+//! reported `skipped` (`"{xml_id} (metathesis, unhandled)"`, this file's OLD sole test). Now any
+//! rule whose whole pattern is a shape `pg_foma::replace::pattern_slots` accepts (no `Quantifier`/
+//! `Segments`/`Anchor`, no `Slot::Alpha`/`Slot::Repeat` anywhere) compiles to a real swap relation,
+//! oracle-exact for the well-formed switch-tag convention (below) — for `Dir::LeftToRight`. As of
+//! `openspec/changes/plan-construct-coverage-completion` task 4.6 (`docs/conformance/
+//! needs-decision-resolutions.md` row 8), `Dir::RightToLeft` compiles too, via the SAME
+//! mirror-and-reverse construction `compile_rtl_branch_net` already uses for RTL rewrite rules
+//! (`pg_foma::replace`'s own module doc, "`Dir::RightToLeft`" section, has the full derivation) —
+//! a proven SAFE SUPERSET of the true RTL relation (`ConfirmOnly`, never `Admit`), not proven
+//! oracle-exact the way the `Dir::LeftToRight` case is.
 //!
 //! Synthetic, delanguaged fixtures (`openspec/changes/STAGING.md`'s "Hard rule: synthetic data
 //! only"), named by construct. Each compilable fixture is checked against `pg_parse::Morpher`
@@ -15,15 +21,47 @@
 //!
 //! ## Scope this change compiles faithfully vs. leaves honestly unsupported
 //! See `pg_foma::replace`'s own module doc (the "Metathesis" section, right above
-//! `compile_metathesis_rule`) for the full, cited scope line. In short: `Dir::LeftToRight` only
-//! (`Dir::RightToLeft` is a documented, evidence-based scope boundary —
-//! `metathesis_right_to_left_stays_honestly_unsupported`, below — deferred to a follow-on change
-//! with its own oracle-matrix witness); no `Anchor` (`initialBoundaryCondition`/
-//! `finalBoundaryCondition`) anywhere in the pattern
+//! `compile_metathesis_rule`) for the full, cited scope line. In short, EITHER `Dir` now: no
+//! `Anchor` (`initialBoundaryCondition`/`finalBoundaryCondition`) anywhere in the pattern
 //! (`metathesis_anchor_pattern_stays_honestly_unsupported`, below — not a metathesis-specific gap,
 //! the identical refusal already applies to every `RewriteRuleDef` LHS/RHS/environment carrying
-//! one); no `Quantifier`/`Segments`/disagree-polarity alpha var/`Slot::Alpha` anywhere (not
-//! attested in any `<MetathesisRule>` this crate has seen).
+//! one); no `Quantifier`/`Segments`/disagree-polarity alpha var/`Slot::Alpha` anywhere. `Slot::Alpha`
+//! is structurally IMPOSSIBLE for a `<MetathesisRule>` (not merely unattested — `pg_grammar::load::
+//! load_metathesis_rule` resolves every node against an EMPTY `VarTable`, so an `<AlphaVariable>`
+//! inside one errors the whole grammar load); a `Slot::Repeat` occurrence (a `<MetathesisRule>`'s
+//! own `<PhoneticSequence>` is DTD-legal for `<OptionalSegmentSequence>` too) IS structurally
+//! reachable, just never attested in any fixture this crate has authored, and stays refused for
+//! either direction (`pg_foma::replace`'s own module doc has the full citation trail).
+//!
+//! ## `Dir::RightToLeft`: what changed (task 4.6) and what this file pins for it
+//! `metathesis_right_to_left_reversal_matches_oracle_exactly` (below, RENAMED from
+//! `metathesis_right_to_left_stays_honestly_unsupported` — that old name and behavior no longer
+//! hold) is the load-bearing Stage-2 containment witness: every analysis `pg_parse::Morpher` finds
+//! for its own words is a member of the FST proposer's candidate set. It reuses `RIGHT_TO_LEFT_XML`
+//! (below) unchanged — that grammar has exactly ONE valid switch window per lexical entry, so it
+//! cannot by itself distinguish `Dir::RightToLeft` from `Dir::LeftToRight` (see the empirical
+//! finding two paragraphs down). `metathesis_right_to_left_differs_from_compiling_as_left_to_right`
+//! (below) is the complementary, oracle-free witness that the CONSTRUCTION itself (not merely its
+//! containment obligation) is genuinely direction-aware, mirroring `tests/
+//! phase_c_right_to_left.rs`'s own "aa -> b" worked example.
+//! `metathesis_right_to_left_switch_index_remap_matches_the_derived_formula` (below) is an
+//! end-to-end behavioral confirmation of the remap `pg_foma::replace::
+//! metathesis_mirror_switch_index_remap_tests` (in-crate) already pins arithmetically.
+//!
+//! **Empirical finding: `pg_rules::metathesis` is direction-blind, at least for the shape checked.**
+//! A throwaway probe (deleted after recording this finding here) declared the SAME
+//! two-adjacent-same-class-switch `MetathesisRule` under both `Dir::LeftToRight` and
+//! `Dir::RightToLeft` and called `pg_rules::metathesis::synthesize` directly on an OVERLAPPING-
+//! window input ("pqp", positions 0-1 and 1-2 both matching the switch pattern): both directions
+//! synthesized identically ("qpp", the LEFTMOST window's swap) — `pg_rules::metathesis::
+//! match_candidates` sorts candidates ascending (leftmost-first) REGARDLESS of `rule.dir`, and the
+//! application loop always takes the first (i.e. leftmost) sorted candidate. This is the SAME
+//! empirical shape `tests/phase_c_right_to_left.rs`'s own top doc found (BEFORE its own fix) for
+//! ordinary `Iterative` rewrite rules — direction-blind pick-order, not direction-aware — and is
+//! exactly why this file's containment witness reuses a NO-OVERLAP grammar (oracle recall for it is
+//! byte-identical whichever direction is declared) while the DIFFERS-FROM-LTR witness is bare-
+//! automaton and oracle-free (the one place an overlap genuinely needs to be constructed, and the
+//! oracle's own behavior on it is irrelevant to what that witness checks).
 //!
 //! ## Two confirm-engine (`pg_rules::metathesis`) gaps found while building this containment suite
 //! **UPDATE (2026-07-25): both gaps below are now FIXED** (a follow-on task, `pg_rules::
@@ -94,11 +132,13 @@ mod common;
 
 use std::collections::HashSet;
 
-use foma::apply::apply_init;
+use foma::apply::{apply_down, apply_init};
 use foma::constructions::fsm_compose;
 use foma::lexcread::fsm_lexc_parse_string;
 use foma::minimize::fsm_minimize;
 use foma::options::FomaOptions;
+use foma::regex::fsm_parse_regex;
+use foma::reverse::fsm_reverse;
 
 use pg_foma::compose_budget::ComposeBudget;
 use pg_foma::replace::{compile_and_compose_rules_with_budget, SegAlphabet};
@@ -654,10 +694,14 @@ fn metathesis_grammar_gen_recipe_confirms_the_reversed_tag_round_trip() {
 }
 
 // =================================================================================================
-// metathesis-right-to-left: `Dir::RightToLeft` stays honestly unsupported (this change's own
-// documented scope boundary -- `pg_foma::replace`'s module doc: the oracle is direction-AWARE for
-// metathesis, unlike ordinary rewrite rules, so a safety-net union built on an RTL-rewrite-style
-// direction-blindness assumption would be unsound here, not merely imprecise).
+// metathesis-right-to-left: `Dir::RightToLeft` now compiles (`openspec/changes/
+// plan-construct-coverage-completion` task 4.6; `docs/conformance/needs-decision-resolutions.md`
+// row 8) via the SAME mirror-and-reverse construction `compile_rtl_branch_net` already uses for RTL
+// rewrite rules -- see `pg_foma::replace`'s own module doc, "`Dir::RightToLeft`" section, for the
+// full construction and the empirical finding (recorded there and in this file's own top doc) that
+// `pg_rules::metathesis` is direction-BLIND, at least for the overlapping-window shape checked,
+// mirroring what `tests/phase_c_right_to_left.rs`'s own top doc found (before its own fix) for
+// ordinary rewrite rules.
 // =================================================================================================
 
 const RIGHT_TO_LEFT_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
@@ -710,45 +754,219 @@ const RIGHT_TO_LEFT_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 </HermitCrabInput>
 "#;
 
+/// RENAMED from `metathesis_right_to_left_stays_honestly_unsupported` (that old name/behavior no
+/// longer hold -- `Dir::RightToLeft` now compiles, task 4.6). **This is the load-bearing Stage-2
+/// containment witness**: every analysis `pg_parse::Morpher` finds for `entryQP`'s own words is a
+/// member of `pg_foma::replace::compile_metathesis_rule`'s FST proposer candidate set -- turning
+/// "the union is a superset, never an omission" from an argument into a checked claim, exactly the
+/// same obligation `tests/phase_c_right_to_left.rs`'s own RTL containment witnesses discharge for
+/// rewrite rules. `RIGHT_TO_LEFT_XML` has exactly ONE valid switch window (no overlap), so this
+/// word alone cannot distinguish `Dir::RightToLeft` from `Dir::LeftToRight` -- see this file's own
+/// top doc, "Empirical finding", for why that is a deliberate, honest choice, not an oversight:
+/// this test's job is containment, not showing directional divergence (that is
+/// `metathesis_right_to_left_differs_from_compiling_as_left_to_right`, below).
 #[test]
-fn metathesis_right_to_left_stays_honestly_unsupported() {
+fn metathesis_right_to_left_reversal_matches_oracle_exactly() {
     let g = load(RIGHT_TO_LEFT_XML);
     let PhonRuleDef::Metathesis(rule) = &g.prules[0] else {
         panic!("expected a Metathesis-kind rule");
     };
     assert_eq!(rule.dir, pg_grammar::model::Dir::RightToLeft);
 
+    let metathesis_rules =
+        g.prules.iter().filter(|p| matches!(p, PhonRuleDef::Metathesis(_))).count();
+    assert_eq!(metathesis_rules, 1);
+
+    // Same structural shape as `ADJACENT_SINGLETON_XML` above (leftSwitch tags the physically-last
+    // node, the well-formed convention): underlying "qp" obligatorily metathesizes to "pq".
+    full_containment_check(&g, "entryQP", "pq", "qp");
+}
+
+/// The complementary, oracle-free witness that the CONSTRUCTION itself is genuinely direction-
+/// aware -- mirroring `tests/phase_c_right_to_left.rs`'s own "aa -> b" worked example exactly (bare
+/// automaton, single-shot `apply_down`, no grammar/oracle involved at all). Needed because
+/// `metathesis_right_to_left_reversal_matches_oracle_exactly` above deliberately uses a NO-OVERLAP
+/// grammar (this file's top doc explains why) and so cannot, by itself, rule out the construction
+/// silently degenerating to "compiled as if `Dir::LeftToRight`" -- without THIS test, that
+/// regression would leave every other test in this file still green. See the test body's own
+/// trailing comment for why this stays bare-automaton-only rather than also reproducing the proof
+/// against a full grammar-level compile (tried, then deliberately removed).
+///
+/// # The bare-automaton proof
+/// A metathesis switch pattern can never exhibit a genuine SAME-BRANCH overlap at width 2 (the
+/// two switch positions would have to hold EQUAL values, making the swap a no-op) -- but a 4-node
+/// pattern `[v0, v1, v2, v3]` with switches at `{0, 3}` and a period-2 assignment `[a, b, a, b]`
+/// genuinely self-overlaps (shift 2) against the input `"ababab"`. The literal branch for this ONE
+/// assignment is `"a b a b -> b b a a"` (module doc on `compile_metathesis_swap_net`: `rhs_vals`
+/// with positions 0 and 3 transposed). Plain foma `->` prefers the LEFTMOST non-overlapping match
+/// (window 0-3 first): `apply_down` on `"ababab"` gives `"bbaaab"`. The mirror rule for switches
+/// `{0, 3}` in a 4-slot pattern remaps to `{n - 1 - 0, n - 1 - 3} = {3, 0}` -- the SAME set (this
+/// specific placement's own `four_slot_outer_placement_is_its_own_mirror_set_...` unit test in
+/// `pg_foma::replace` documents exactly this non-load-bearing coincidence) -- so the mirror pattern
+/// is `reversed_slots([a,b,a,b]) = [b,a,b,a]`, and its own swap (positions 0,3 transposed) gives
+/// mirror-RHS `[a,a,b,b]`, i.e. the branch `"b a b a -> a a b b"`. `fsm_reverse` of that compiled
+/// branch, applied (single-shot `apply_down`) to the SAME `"ababab"`, gives `"abbbaa"` -- the
+/// RIGHTMOST-preferring result (window 2-5 first) -- PROVABLY DIFFERENT from the plain branch's own
+/// `"bbaaab"`, entirely independent of any oracle. (The FULL, all-paths `.down()` enumeration of
+/// either branch already contains BOTH strings -- metathesis's own per-assignment full
+/// literalization construction, module doc on `compile_metathesis_swap_net`, is nondeterministic
+/// across valid tilings even before any reversal; what genuinely differs, and what the real FST
+/// propose-then-confirm pipeline never even asks about, is single-shot `apply_down`'s own preferred
+/// ordering -- the SAME distinction `tests/phase_c_right_to_left.rs`'s own worked example draws.)
+#[test]
+fn metathesis_right_to_left_differs_from_compiling_as_left_to_right() {
+    let opts = FomaOptions::default();
+
+    let plain = fsm_parse_regex(&opts, "a b a b -> b b a a", None, None).expect("plain compiles");
+    let mut h = apply_init(&plain);
+    assert_eq!(
+        apply_down(&mut h, Some("ababab")),
+        Some("bbaaab".to_string()),
+        "plain LeftToRight-style compile must prefer the LEFTMOST non-overlapping match"
+    );
+
+    let mirror = fsm_parse_regex(&opts, "b a b a -> a a b b", None, None).expect("mirror compiles");
+    let reversed = fsm_reverse(mirror);
+    let mut h2 = apply_init(&reversed);
+    assert_eq!(
+        apply_down(&mut h2, Some("ababab")),
+        Some("abbbaa".to_string()),
+        "the reversal construction alone must prefer the RIGHTMOST non-overlapping match -- \
+         PROVABLY DIFFERENT from the plain/LeftToRight-style branch above, entirely independent of \
+         any oracle"
+    );
+
+    // Deliberately NOT extended to a full grammar-level `compile_and_compose_rules_with_budget`
+    // comparison (tried while authoring this test, then removed): once the plain/reversed-mirror
+    // branches above are unioned with the OTHER cross-product branches a real multi-position
+    // natural-class pattern needs (module doc on `compile_metathesis_swap_net`'s own per-assignment
+    // literalization -- most of those other branches are pure identity on any one specific probe
+    // string), `apply_down`'s own single-shot exploration order over the LARGER unioned automaton
+    // stopped reliably favoring the "abab"-literal branch's own transformation at all (empirically:
+    // it found an IDENTITY path first for BOTH the real RTL compile and a `dir`-forced-LeftToRight
+    // clone of the SAME rule, even with only one non-identity branch among four). That is an
+    // artifact of `fsm_union`'s own state-numbering/exploration order, not evidence the underlying
+    // MECHANISM stopped being direction-aware -- the bare two-branch proof above isolates that
+    // mechanism directly and is the same scope `tests/phase_c_right_to_left.rs`'s own "aa -> b"
+    // worked example uses for the identical claim (that test's own grammar-level portion instead
+    // establishes ORACLE correctness, a claim this file's own empirical finding -- `pg_rules::
+    // metathesis` is direction-blind, top doc -- makes inapplicable to metathesis).
+}
+
+/// Behavioral confirmation, end-to-end, of the switch-index remap
+/// `pg_foma::replace::metathesis_mirror_switch_index_remap_tests` already pins arithmetically
+/// in-crate: an ASYMMETRIC 5-node pattern (`Segment`s `a,b,c,d,e`, switches at indices 0 and 1,
+/// three trailing fixed context nodes) has no natural-class alternation at all (every position is
+/// a singleton `Segment`, cross product size 1), so its ENTIRE compiled relation is exactly one
+/// literal mapping -- any remap error (an off-by-one landing on the WRONG pair of the mirror's own
+/// slots, module doc on `metathesis_mirror_switch_indices`) would either panic (`Vec::swap` on an
+/// out-of-bounds index) or silently produce a DIFFERENT literal output than the one derived by
+/// hand below, so this test fails loudly either way under a regression.
+#[test]
+fn metathesis_right_to_left_switch_index_remap_matches_the_derived_formula() {
+    // Pattern (document order): [a(swA=leftSwitch), b(swB=rightSwitch), c, d, e] -- switches at
+    // indices 0,1, three trailing context nodes. Synthesis swaps positions 0,1: "a b c d e" ->
+    // "b a c d e". Since there is only ONE possible assignment (every position a singleton
+    // segment), Dir::RightToLeft's mirror-then-reverse branch must derive the SAME relation (no
+    // overlap is possible with a single occurrence of the whole 5-node pattern) -- confirming the
+    // remap lands on the CORRECT pair, not a shifted one that would swap some OTHER pair of
+    // positions and so produce a visibly wrong output.
+    const XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+<HermitCrabInput>
+  <Language>
+    <Name>MetathesisRtlRemapPin</Name>
+    <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
+    <PhonologicalFeatureSystem>
+      <SymbolicFeature id="featId">
+        <Name>id</Name>
+        <Symbols>
+          <Symbol id="symA">a</Symbol><Symbol id="symB">b</Symbol><Symbol id="symC">c</Symbol>
+          <Symbol id="symD">d</Symbol><Symbol id="symE">e</Symbol>
+        </Symbols>
+      </SymbolicFeature>
+    </PhonologicalFeatureSystem>
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations><FeatureValue feature="featId" symbolValues="symA" /></SegmentDefinition>
+        <SegmentDefinition id="cB"><Representations><Representation>b</Representation></Representations><FeatureValue feature="featId" symbolValues="symB" /></SegmentDefinition>
+        <SegmentDefinition id="cC"><Representations><Representation>c</Representation></Representations><FeatureValue feature="featId" symbolValues="symC" /></SegmentDefinition>
+        <SegmentDefinition id="cD"><Representations><Representation>d</Representation></Representations><FeatureValue feature="featId" symbolValues="symD" /></SegmentDefinition>
+        <SegmentDefinition id="cE"><Representations><Representation>e</Representation></Representations><FeatureValue feature="featId" symbolValues="symE" /></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <PhonologicalRuleDefinitions>
+      <MetathesisRule id="mrRemap" leftSwitch="swA" rightSwitch="swB" multipleApplicationOrder="rightToLeftIterative">
+        <Name>metaRemap</Name>
+        <StructuralDescription>
+          <PhoneticTemplate>
+            <PhoneticSequence>
+              <Segment id="swA" segment="cA" />
+              <Segment id="swB" segment="cB" />
+              <Segment segment="cC" />
+              <Segment segment="cD" />
+              <Segment segment="cE" />
+            </PhoneticSequence>
+          </PhoneticTemplate>
+        </StructuralDescription>
+      </MetathesisRule>
+    </PhonologicalRuleDefinitions>
+    <Strata>
+      <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" phonologicalRules="mrRemap">
+        <Name>S</Name>
+        <LexicalEntries>
+          <LexicalEntry id="entryDummy" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="alloDummy"><PhoneticShape>abcde</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>dummy</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>
+"#;
+    let g = load(XML);
+    let PhonRuleDef::Metathesis(rule) = &g.prules[0] else {
+        panic!("expected a Metathesis-kind rule");
+    };
+    assert_eq!(rule.dir, pg_grammar::model::Dir::RightToLeft);
+    assert_eq!((rule.left_switch, rule.right_switch), (0, 1));
+
     let table = &g.char_tables[0];
     let alphabet = SegAlphabet::new(table);
     let opts = FomaOptions::default();
-    let budget = ComposeBudget::with_caps(
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        None,
-    );
+    let budget = ComposeBudget::with_caps(usize::MAX, usize::MAX, usize::MAX, usize::MAX, usize::MAX, None);
     let mut skipped = Vec::new();
     let mut tuple_reports = Vec::new();
-    let composed = compile_and_compose_rules_with_budget(
-        &opts,
-        &g,
-        &alphabet,
-        &[&g.prules[0]],
-        &mut skipped,
-        &mut tuple_reports,
-        &budget,
+    let net = compile_and_compose_rules_with_budget(
+        &opts, &g, &alphabet, &[&g.prules[0]], &mut skipped, &mut tuple_reports, &budget,
     )
-    .unwrap_or_else(|e| panic!("compile must not hit any budget: {e}"));
+    .unwrap_or_else(|e| panic!("compile must not hit any budget: {e}"))
+    .expect("RTL metathesis rule must compile to Some(net)");
+    assert!(skipped.is_empty());
 
-    assert!(
-        composed.is_none(),
-        "a Dir::RightToLeft metathesis rule must stay honestly unsupported, never a silent wrong \
-         compile"
+    // Single-shot AND full enumeration must both agree on exactly "bacde" (positions 0,1
+    // transposed, 2-4 untouched) -- there is only one possible assignment, so there is no
+    // leftmost/rightmost ambiguity for the remap to get wrong in a DIFFERENT way (that concern is
+    // `metathesis_right_to_left_differs_from_compiling_as_left_to_right`'s own job); a wrong remap
+    // here would swap some OTHER pair of the 5 positions and so produce a value other than "bacde".
+    let query = alphabet.encode_query("abcde").expect("'abcde' must segment");
+    let mut h = apply_init(&net);
+    let single = apply_down(&mut h, Some(&query));
+    let expected = alphabet.encode_query("bacde").expect("'bacde' must segment");
+    assert_eq!(
+        single,
+        Some(expected.clone()),
+        "the Dir::RightToLeft compile must swap positions 0,1 exactly (leaving 2,3,4 untouched) -- \
+         an off-by-one remap would transpose a DIFFERENT pair and so miss this exact value"
     );
-    assert_eq!(skipped, vec!["mrRtl (metathesis, unhandled)".to_string()]);
-    assert!(tuple_reports.is_empty());
+    let mut h2 = apply_init(&net);
+    let all: Vec<String> = h2.down(&query).collect();
+    assert!(
+        all.iter().all(|s| *s == expected),
+        "every path in the full relation must agree (no alternate-pair transposition sneaking in \
+         from a wrong remap): {all:?}"
+    );
 }
 
 // =================================================================================================

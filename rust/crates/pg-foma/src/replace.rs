@@ -1086,32 +1086,82 @@ pub type Subrule = RewriteSubruleDef;
 // — a real input position holds exactly one concrete token) literal context matches, so unioning
 // adds no spurious identity path.
 //
+// # `Dir::RightToLeft`: the SAME mirror-and-reverse construction (`openspec/changes/
+// plan-construct-coverage-completion` task 4.6; `docs/conformance/needs-decision-resolutions.md`
+// row 8)
+// Row 8's own resolution: a from-scratch RTL-metathesis construction was never actually needed —
+// [`compile_rtl_branch_net`]'s reverse-mirror-then-[`fsm_reverse`] technique is not rewrite-rule-
+// specific (it operates on `Vec<Slot>` and `Fsm`), so it transfers directly. [`compile_metathesis_
+// rule`] now runs the SAME four moves for `Dir::RightToLeft`: (1) [`reversed_slots`] over the
+// rule's own pattern (`pattern_slots`' output, document order) gives the MIRROR pattern, and
+// `left_switch`/`right_switch` are remapped to their mirrored indices — since a `MetathesisRuleDef`
+// pattern can never carry a [`Slot::Repeat`]/[`Slot::Alpha`] occurrence by the time this remap runs
+// ([`slot_candidates`] already refused any such shape for EITHER direction, see below), every slot
+// is atomic ([`Slot::Fixed`]/[`Slot::Union`]), so [`reversed_slots`] is a PURE index reversal here:
+// index `i` in the `N`-slot original moves to index `N - 1 - i` in the mirror — `mirror_left_idx =
+// N - 1 - left_idx`, `mirror_right_idx = N - 1 - right_idx`. (2) [`compile_metathesis_swap_net`] (the
+// SAME per-branch literal cross-product-union construction below, factored out so both the plain and
+// mirror orientations share it byte-for-byte) runs on the mirror pattern with the REMAPPED indices,
+// giving the mirror-rule's own swap relation. (3) [`fsm_reverse`] of that mirror net. (4)
+// [`fsm_union`] with the PLAIN net (the SAME `Dir::LeftToRight`-style compile over the ORIGINAL,
+// un-mirrored pattern/indices — the safety-net floor, identical role to [`compile_rtl_branch_net`]'s
+// own `plain_net`).
+//
+// **The switch-index remap, worked out.** Let `P` be the original `N`-slot pattern, `S` be `P` with
+// the two switch positions `lo`/`hi` (`= left_idx.min(right_idx)`/`.max(...)`) transposed (the
+// literal metathesis relation), and `R(X)` be `X` reversed. The mirror construction needs `R(S)` —
+// the reverse of the SWAPPED pattern — expressed as "`R(P)` with SOME pair of positions swapped",
+// since that is the only shape [`compile_metathesis_swap_net`] knows how to build. Direct
+// index algebra: for `mlo = N - 1 - hi`, `mhi = N - 1 - lo`, `R(S)` equals `R(P)` with positions
+// `mlo`/`mhi` transposed, verified position-by-position: at `j = mlo` (so `N - 1 - j = hi`),
+// `R(S)[mlo] = S[hi] = P[lo]`, matching "`R(P)` with `mlo`/`mhi` swapped"'s own `R(P)[mhi] = P[N - 1
+// - mhi] = P[lo]` at that same position; symmetrically at `j = mhi`; and for every OTHER `j` (so
+// `N - 1 - j = k \notin \{lo, hi\}`), `R(S)[j] = S[k] = P[k] = R(P)[j]` unchanged either way. So the
+// mirror rule is exactly: pattern `R(P)` (i.e. [`reversed_slots`] of the original), switches at
+// `N - 1 - left_idx`/`N - 1 - right_idx` (equivalently `mlo`/`mhi` as a SET — [`compile_metathesis_
+// swap_net`]'s own `lo`/`hi` re-derivation via `.min()`/`.max()` makes which named argument holds
+// which value immaterial). Pinned by `tests/phase_c_metathesis.rs`'s own
+// `metathesis_right_to_left_switch_index_remap_is_pinned_against_an_off_by_one`, which asserts the
+// REMAPPED indices exactly (an off-by-one — e.g. `N - left_idx` instead of `N - 1 - left_idx` —
+// would silently transpose the WRONG pair of the mirror's own slots).
+//
+// **Empirical finding: `pg_rules::metathesis` is direction-BLIND, at least for the shape checked**
+// (mirrors [`compile_rtl_branch_net`]'s own citation of the identical pre-fix finding for ordinary
+// `Iterative` rewrite rules): a throwaway probe (`rust/crates/pg-foma/tests/
+// zzz_scratch_metathesis_dir_probe.rs`, deleted after recording this finding) declared the SAME
+// two-adjacent-same-class-switch `MetathesisRule` under both `Dir::LeftToRight` and
+// `Dir::RightToLeft` and called `pg_rules::metathesis::synthesize` directly on an OVERLAPPING-window
+// input ("pqp", where positions 0-1 and 1-2 both match the switch pattern): both directions
+// synthesized identically ("qpp", the LEFTMOST window's swap) — `pg_rules::metathesis::
+// match_candidates` sorts candidates ascending (leftmost-first) REGARDLESS of `rule.dir`, and the
+// application loop always takes the first (i.e. leftmost) sorted candidate. This is exactly the
+// justification [`compile_rtl_branch_net`]'s own safety-net union already relies on for rewrite
+// rules, transferred to metathesis on the SAME evidence (not assumed to transfer): a
+// theoretically-faithful reversal-only compile would under-propose relative to what THIS repo's own
+// confirm engine actually needs for recall, so the union with the plain branch is the
+// recall-safe choice, not merely a defensive one.
+//
+// # Disposition: `ConfirmOnly`, never `Admit` (ADR 0001), for BOTH directions now
+// The per-branch cross-product union (below) is already not proven oracle-exact beyond the
+// specific attested shapes `tests/phase_c_metathesis.rs` checks, and the ADDITIONAL `Dir::
+// RightToLeft` safety-net union (`plain ∪ reverse(mirror)`) is, like [`compile_rtl_branch_net`]'s
+// own, a proven SUPERSET of the true relation, never proven exact — so `Dir::RightToLeft` shares
+// the SAME `ConfirmOnly` disposition [`Dir::LeftToRight`] already had, for the identical reason RTL
+// rewrite is `ConfirmOnly` rather than `Admit`. See `crate::capability::
+// MetathesisFaithfulSwapPredicate`'s own doc.
+//
 // # Scope this change compiles faithfully vs. leaves honestly unsupported
 // **Faithful (`ConfirmOnly`, never `Admit` — ADR 0001, no proven no-false-negative admission-filter
-// argument exists):** `Dir::LeftToRight` only; the rule resolves to a real owning
-// [`CharDefTable`] ([`owning_table_for_metathesis`]); its WHOLE pattern (both switches, every
-// interior/exterior context node) is a shape [`pattern_slots`] accepts with no [`Slot::Alpha`]/
-// [`Slot::Repeat`] occurrence anywhere (no `AlphaVariable`/`OptionalSegmentSequence` is attested in
-// ANY `<MetathesisRule>` this crate has ever seen — the DTD's own `<MetathesisRule>` structural
-// description is a bare `<PhoneticSequence>` of `Segment`/`BoundaryMarker`/`SimpleContext` nodes,
-// module doc on [`MetathesisRuleDef`] — so this is a conservative, evidence-based scope line, not
-// an arbitrary one); `left_switch != right_switch` (the loader's own load-time invariant,
+// argument exists), EITHER `Dir`:** the rule resolves to a real owning [`CharDefTable`]
+// ([`owning_table_for_metathesis`]); its WHOLE pattern (both switches, every interior/exterior
+// context node) is a shape [`pattern_slots`] accepts with no [`Slot::Alpha`]/[`Slot::Repeat`]
+// occurrence anywhere; `left_switch != right_switch` (the loader's own load-time invariant,
 // defensively re-checked here); and the full slot-candidate cross product stays within
-// `budget.tuple_cap()`.
-// **Honest-unsupported (`Ok(None)`, reported `skipped` — never a silent wrong compile):**
-// - `Dir::RightToLeft` — a genuine, tag-independent "prefer the rightmost overlapping match"
-//   construction (mirroring [`compile_rtl_branch_net`]'s reverse-mirror-then-[`fsm_reverse`]
-//   technique) is mechanically plausible here, but — unlike ordinary `Iterative` rewrite rules,
-//   which `compile_rtl_branch_net`'s own doc found to be empirically DIRECTION-BLIND in
-//   `pg_rules::rewrite` (justifying that function's safety-net union) — `pg_rules::metathesis`'s
-//   own `compile_switch_pattern` genuinely THREADS `dir` into which physical end of an overlapping
-//   candidate set wins (its own module doc's "Direction handling" section). A safety-net union
-//   built on the WRONG assumption (oracle direction-blindness) would be unsound here, not merely
-//   imprecise, so this change does not attempt it without its own dedicated oracle-matrix
-//   containment witness (design.md task 1: "Enumerate switch, direction, ... variants" — not done
-//   for `RightToLeft` in this pass). Flagged as a documented, evidence-based scope boundary for a
-//   follow-on change, exactly like [`RewriteMode::Simultaneous`]/`Dir::RightToLeft` rewrite
-//   compilation each shipped as their OWN separate `openspec` change before this one existed.
+// `budget.tuple_cap()` (checked independently for the plain and, for `Dir::RightToLeft`, the mirror
+// orientation too — though the two totals are always EQUAL, since reordering a pattern's own slots
+// never changes the product of their candidate-set sizes).
+// **Honest-unsupported (`Ok(None)`, reported `skipped` — never a silent wrong compile), EITHER
+// `Dir`:**
 // - Any pattern needing `Quantifier`/`Segments`/`Anchor`/a disagree-polarity alpha var anywhere
 //   (`pattern_slots`'s own scope line) — includes, notably, `finalBoundaryCondition`/
 //   `initialBoundaryCondition` (`mrComplexMeta`'s own shape): an anchor lowers to a
@@ -1119,7 +1169,26 @@ pub type Subrule = RewriteSubruleDef;
 //   `load_metathesis_rule`), and `pattern_slots` refuses ANY `Anchor` occurrence grammar-wide today
 //   (not a metathesis-specific gap — the identical refusal already applies to every
 //   `RewriteRuleDef` LHS/RHS/environment carrying one).
-// - A `Slot::Alpha`/`Slot::Repeat` occurrence anywhere in the pattern (not attested; see above).
+// - A `Slot::Alpha` occurrence anywhere in the pattern — genuinely STRUCTURALLY IMPOSSIBLE for a
+//   `<MetathesisRule>`, not merely unattested: `pg_grammar::load::load_metathesis_rule` calls
+//   `load_one_pattern_node` with an EMPTY `VarTable::default()` (no `<Variables>` scope exists for a
+//   `<MetathesisRule>` at all — the DTD gives it none), so `load_simple_context`'s own
+//   `vars.by_xml_id(var_xml)` lookup for ANY `<AlphaVariable>` inside a `<MetathesisRule>`'s
+//   `<SimpleContext>` always fails, erroring the WHOLE grammar load
+//   (`GrammarError::Unsupported("AlphaVariable ... referenced outside a variable scope")`) before a
+//   `Slot::Alpha` could ever be produced. A grammar carrying one never reaches this function at all.
+// - A `Slot::Repeat` occurrence anywhere in the pattern — by contrast, GENUINELY REACHABLE: the DTD
+//   (`HermitCrabInput.dtd`: `<!ELEMENT PhoneticSequence (Segment | Segments | SimpleContext |
+//   OptionalSegmentSequence | BoundaryMarker)*>`) is the SAME element a `<MetathesisRule>`'s own
+//   `<StructuralDescription><PhoneticTemplate><PhoneticSequence>` uses, and `load_one_pattern_node`
+//   (`pg_grammar::load`) handles `OptionalSegmentSequence` unconditionally, independent of the empty
+//   `vars` table that blocks `Slot::Alpha` above (a quantifier's own `min`/`max` carry no variable
+//   reference at all) — so a `<MetathesisRule>` pattern CAN structurally contain an
+//   `OptionalSegmentSequence`, DTD-legal and loader-legal, just never attested in any fixture this
+//   crate has authored. [`slot_candidates`] refuses ANY `Slot::Repeat` regardless of `Dir` (it
+//   always did, for `Dir::LeftToRight`, before this change), so this stays an honest, REACHABLE
+//   scope line for both directions after this change too — not silently inherited, stated here and
+//   in `crate::capability::MetathesisFaithfulSwapPredicate`'s own witness text.
 // - No resolvable owning table ([`owning_table_for_metathesis`] returning `None`).
 // - The slot-candidate cross product exceeds `budget.tuple_cap()` — reported via the SAME
 //   [`ComposeError::AlphaTupleBudgetExceeded`] variant `compile_rewrite_rule_subset`'s own alpha-
@@ -1136,8 +1205,9 @@ pub type Subrule = RewriteSubruleDef;
 // =================================================================================================
 
 /// Every [`CharDefId`] a slot may concretely resolve to, in this rule's own document order — `None`
-/// for [`Slot::Alpha`]/[`Slot::Repeat`] (out of scope for metathesis, module doc above: not attested
-/// in any `<MetathesisRule>` this crate has seen).
+/// for [`Slot::Alpha`] (structurally impossible for a `<MetathesisRule>`, module doc above) or
+/// [`Slot::Repeat`] (structurally reachable but never attested — module doc above; out of scope
+/// EITHER `Dir`, unchanged by the RTL construction added here).
 fn slot_candidates(slot: &Slot) -> Option<Vec<CharDefId>> {
     match slot {
         Slot::Fixed(cd) => Some(vec![*cd]),
@@ -1146,43 +1216,34 @@ fn slot_candidates(slot: &Slot) -> Option<Vec<CharDefId>> {
     }
 }
 
-/// Compiles one [`MetathesisRuleDef`] into the dedicated swap relation (module doc above), or
-/// `Ok(None)` for a shape this change leaves honestly unsupported — the SAME "uncovered, caller
-/// reports it `skipped`" contract [`compile_rewrite_rule_subset`] already uses for an unsupported
-/// `RewriteRuleDef` pattern construct.
-pub(crate) fn compile_metathesis_rule(
+/// The per-branch literal cross-product swap construction (module doc's "The relation" section),
+/// factored out of [`compile_metathesis_rule`] so BOTH the plain orientation (document-order
+/// `slots`, `Dir::LeftToRight`'s own compile and `Dir::RightToLeft`'s safety-net floor) and the
+/// mirror orientation ([`reversed_slots`] of `slots`, plus the correspondingly remapped switch
+/// indices — module doc's "The switch-index remap, worked out") share EXACTLY the same candidate-
+/// resolution, budget-check, and cross-product-union logic, never two independently-maintained
+/// copies. `left_idx`/`right_idx` are indices into `slots` itself (the caller's own orientation —
+/// this function never reorders/remaps anything, that is entirely the caller's job).
+///
+/// Returns `Ok(None)` for the same honest-unsupported reasons [`compile_metathesis_rule`]'s own doc
+/// lists (a `Slot::Alpha`/`Slot::Repeat`/vacuous-empty-class occurrence anywhere in `slots`), and
+/// `Err(ComposeError::AlphaTupleBudgetExceeded)` if the candidate cross product exceeds
+/// `budget.tuple_cap()` — both checked BEFORE any regex is rendered or `Fsm` is built (module doc's
+/// Big-O note).
+#[allow(clippy::too_many_arguments)]
+fn compile_metathesis_swap_net(
     opts: &FomaOptions,
-    g: &Grammar,
     alphabet: &SegAlphabet,
-    rule: &MetathesisRuleDef,
+    slots: &[Slot],
+    left_idx: usize,
+    right_idx: usize,
     budget: &ComposeBudget,
+    rule_xml_id: &str,
 ) -> Result<Option<Fsm>, ComposeError> {
-    // `Dir::RightToLeft`: honestly unsupported (module doc's own "Scope" section) — never silently
-    // compiled as if `LeftToRight`.
-    if !matches!(rule.dir, Dir::LeftToRight) {
-        return Ok(None);
-    }
-    let Some(table) = owning_table_for_metathesis(g, rule) else {
-        return Ok(None);
-    };
-    let mut next_occurrence = 0usize;
-    let Some(slots) = pattern_slots(g, table, &rule.pattern, &mut next_occurrence) else {
-        return Ok(None);
-    };
-    let left_idx = rule.left_switch as usize;
-    let right_idx = rule.right_switch as usize;
-    if left_idx == right_idx || left_idx >= slots.len() || right_idx >= slots.len() {
-        // Defensive only: the loader's own `load_metathesis_rule` already refuses to build a
-        // `MetathesisRuleDef` with `left_switch == right_switch`, and both indices are resolved
-        // from `pattern.nodes` itself, so both are always in bounds by construction. Never reached
-        // by any grammar this crate's own loader can produce; honest-unsupported rather than a
-        // panic if that invariant is ever violated some other way.
-        return Ok(None);
-    }
     let (lo, hi) = (left_idx.min(right_idx), left_idx.max(right_idx));
 
     let mut candidates: Vec<Vec<CharDefId>> = Vec::with_capacity(slots.len());
-    for slot in &slots {
+    for slot in slots {
         match slot_candidates(slot) {
             Some(members) if !members.is_empty() => candidates.push(members),
             _ => return Ok(None), // Slot::Alpha/Slot::Repeat, or a vacuous empty class.
@@ -1196,7 +1257,7 @@ pub(crate) fn compile_metathesis_rule(
         return Err(ComposeError::AlphaTupleBudgetExceeded {
             surviving: total,
             limit: budget.tuple_cap(),
-            rule_xml_id: rule.xml_id.clone(),
+            rule_xml_id: rule_xml_id.to_string(),
         });
     }
 
@@ -1232,7 +1293,7 @@ pub(crate) fn compile_metathesis_rule(
             .join(" ");
         let regex = format!("{lhs_text} -> {rhs_text}");
         let branch_net = fsm_parse_regex(opts, &regex, None, None).unwrap_or_else(|| {
-            panic!("foma rejected compiled metathesis regex for rule {}: {regex:?}", rule.xml_id)
+            panic!("foma rejected compiled metathesis regex for rule {rule_xml_id}: {regex:?}")
         });
         net = Some(match net {
             None => branch_net,
@@ -1246,6 +1307,153 @@ pub(crate) fn compile_metathesis_rule(
         });
     }
     Ok(net)
+}
+
+/// The `Dir::RightToLeft` mirror's own switch indices, given the ORIGINAL (document-order) pattern's
+/// slot count `n` and its own `left_idx`/`right_idx` (module doc's "switch-index remap, worked out"
+/// section has the full derivation this pins). Since [`reversed_slots`] is a PURE index reversal for
+/// a metathesis pattern (no `Slot::Repeat`/`Slot::Alpha` can survive to this point — [`compile_
+/// metathesis_rule`]'s own doc), index `i` in the `n`-slot original moves to index `n - 1 - i` in the
+/// mirror: `(n - 1 - left_idx, n - 1 - right_idx)`. Factored into its own function (rather than left
+/// inline) specifically so `metathesis_mirror_switch_index_remap_tests` (below) can pin the exact
+/// arithmetic independently of building a whole `Fsm` — the single most likely bug in this
+/// construction (module doc, task 4.6's own final report), so it gets its own direct, off-by-one-
+/// sensitive regression test rather than only an indirect behavioral one.
+fn metathesis_mirror_switch_indices(n: usize, left_idx: usize, right_idx: usize) -> (usize, usize) {
+    (n - 1 - left_idx, n - 1 - right_idx)
+}
+
+#[cfg(test)]
+mod metathesis_mirror_switch_index_remap_tests {
+    //! Pins [`metathesis_mirror_switch_indices`]'s exact arithmetic against an off-by-one in either
+    //! direction (`n - left_idx` / `n - 2 - left_idx` instead of the correct `n - 1 - left_idx`) —
+    //! module doc's "switch-index remap, worked out" derivation, and task 4.6's own final report.
+    use super::metathesis_mirror_switch_indices;
+
+    /// An ASYMMETRIC placement (switches at the two lowest indices of a 5-slot pattern, not
+    /// centered/self-mirroring) — chosen so an off-by-one in EITHER direction lands on a
+    /// DIFFERENT, still in-bounds pair rather than panicking or coincidentally landing on the
+    /// correct answer (a symmetric placement like `n=4, {0,3}` is its own mirror image under a
+    /// `n - left_idx` off-by-one too, in a way that could mask a bug — see the second case below
+    /// for that contrast).
+    #[test]
+    fn asymmetric_five_slot_placement_matches_the_derived_formula_exactly() {
+        let n = 5;
+        let (left_idx, right_idx) = (0, 1);
+        assert_eq!(
+            metathesis_mirror_switch_indices(n, left_idx, right_idx),
+            (4, 3),
+            "correct remap: n - 1 - left_idx, n - 1 - right_idx"
+        );
+        // An off-by-one toward `n - left_idx` (no `- 1` at all) would give (5, 4) -- OUT OF BOUNDS
+        // for a 5-slot pattern (valid indices 0..=4) -- and an off-by-one the OTHER way (`n - 2 -
+        // left_idx`) would give (3, 2), a DIFFERENT, still in-bounds pair. Neither equals the
+        // correct (4, 3) pinned above, so a regression to either formula fails this assertion
+        // directly (never silently, and never merely by panicking on an out-of-bounds index that
+        // some OTHER off-by-one direction might not even trigger).
+        assert_ne!((n - left_idx, n - right_idx), (4, 3), "sanity: the n-left_idx off-by-one truly differs");
+        assert_ne!(
+            (n - 2 - left_idx, n - 2 - right_idx),
+            (4, 3),
+            "sanity: the n-2-left_idx off-by-one truly differs"
+        );
+    }
+
+    /// A 4-slot pattern with switches at the two OUTER positions (`{0, 3}`) — included to document
+    /// (not to rely on for the actual pin above) that this SPECIFIC symmetric placement is its own
+    /// mirror image (`{0,3}` remaps to `{3,0}`, the same SET) under the CORRECT formula, so it alone
+    /// would not distinguish the correct formula from every possible off-by-one and is not this
+    /// test module's load-bearing case — `asymmetric_five_slot_placement_...` above is.
+    #[test]
+    fn four_slot_outer_placement_is_its_own_mirror_set_not_a_useful_off_by_one_witness() {
+        let (mirror_left, mirror_right) = metathesis_mirror_switch_indices(4, 0, 3);
+        let mut got = [mirror_left, mirror_right];
+        got.sort_unstable();
+        assert_eq!(got, [0, 3], "documented, not load-bearing: see this test's own doc");
+    }
+}
+
+/// Compiles one [`MetathesisRuleDef`] into the dedicated swap relation (module doc above), or
+/// `Ok(None)` for a shape this change leaves honestly unsupported — the SAME "uncovered, caller
+/// reports it `skipped`" contract [`compile_rewrite_rule_subset`] already uses for an unsupported
+/// `RewriteRuleDef` pattern construct.
+///
+/// `Dir::LeftToRight` compiles via [`compile_metathesis_swap_net`] alone (byte-identical to what
+/// this function has always done — no behavior change for any `Dir::LeftToRight` rule).
+/// `Dir::RightToLeft` (`openspec/changes/plan-construct-coverage-completion` task 4.6; module doc's
+/// own "`Dir::RightToLeft`" section above for the full construction/remap derivation) additionally
+/// mirrors the pattern via [`reversed_slots`], remaps the two switch indices, compiles the mirror's
+/// own swap net, [`fsm_reverse`]s it, and unions that with the plain net — the SAME four moves
+/// [`compile_rtl_branch_net`] already makes for RTL rewrite rules.
+pub(crate) fn compile_metathesis_rule(
+    opts: &FomaOptions,
+    g: &Grammar,
+    alphabet: &SegAlphabet,
+    rule: &MetathesisRuleDef,
+    budget: &ComposeBudget,
+) -> Result<Option<Fsm>, ComposeError> {
+    let Some(table) = owning_table_for_metathesis(g, rule) else {
+        return Ok(None);
+    };
+    let mut next_occurrence = 0usize;
+    let Some(slots) = pattern_slots(g, table, &rule.pattern, &mut next_occurrence) else {
+        return Ok(None);
+    };
+    let left_idx = rule.left_switch as usize;
+    let right_idx = rule.right_switch as usize;
+    if left_idx == right_idx || left_idx >= slots.len() || right_idx >= slots.len() {
+        // Defensive only: the loader's own `load_metathesis_rule` already refuses to build a
+        // `MetathesisRuleDef` with `left_switch == right_switch`, and both indices are resolved
+        // from `pattern.nodes` itself, so both are always in bounds by construction. Never reached
+        // by any grammar this crate's own loader can produce; honest-unsupported rather than a
+        // panic if that invariant is ever violated some other way.
+        return Ok(None);
+    }
+
+    let Some(plain_net) =
+        compile_metathesis_swap_net(opts, alphabet, &slots, left_idx, right_idx, budget, &rule.xml_id)?
+    else {
+        return Ok(None);
+    };
+
+    match rule.dir {
+        Dir::LeftToRight => Ok(Some(plain_net)),
+        Dir::RightToLeft => {
+            // Module doc's "switch-index remap, worked out": `slots` never contains a
+            // `Slot::Repeat`/`Slot::Alpha` here (the plain compile above already returned early
+            // otherwise), so every slot is atomic and `reversed_slots` is a pure index reversal —
+            // index `i` moves to `n - 1 - i`.
+            let mirror_slots = reversed_slots(&slots);
+            let (mirror_left_idx, mirror_right_idx) =
+                metathesis_mirror_switch_indices(slots.len(), left_idx, right_idx);
+            let Some(mirror_net) = compile_metathesis_swap_net(
+                opts,
+                alphabet,
+                &mirror_slots,
+                mirror_left_idx,
+                mirror_right_idx,
+                budget,
+                &rule.xml_id,
+            )?
+            else {
+                // Unreachable in practice: `mirror_slots` is the same multiset of atomic slots as
+                // `slots` (just reordered), so if the plain compile above didn't already refuse,
+                // neither can this — kept as an honest `Ok(None)` rather than an `unreachable!`
+                // panic, matching this file's own "approximate only upward, report don't hide"
+                // discipline.
+                return Ok(None);
+            };
+            let reversed_net = fsm_reverse(mirror_net);
+            let unioned = union_checked(
+                opts,
+                plain_net,
+                reversed_net,
+                budget,
+                "compile_metathesis_rule RTL safety-net union",
+            )?;
+            Ok(Some(unioned))
+        }
+    }
 }
 
 #[cfg(test)]

@@ -102,6 +102,29 @@ the structural-composite path, and it is honest reporting rather than a silent s
 `CircumfixPrefix` rule reaching `build_structural_composites` is unaffected by it. Recorded so it is
 not re-diagnosed.
 
+## Status 2026-07-26 — C1 and C3 are BUILT; C2 remains deliberately coupled
+
+- **C1 — closed.** `is_structural_rule` now admits a rule when **any** allomorph classifies
+  `Role::CircumfixPrefix`, not only allomorph 0. `rule_role`'s own contract was left alone, per this
+  census's recommendation, because its other callers may want first-allomorph semantics. Pinned by
+  `tests/circumfix_candidate_selection.rs::circumfix_allomorph_selection_is_order_independent` — the
+  invariant the bug actually violated was order-*dependence*, so the test declares the same rule with
+  its allomorphs in both orders and requires identical selection. Fixture:
+  `conformance-staging/edge-cases/circumfix-non-first-allomorph-selection`.
+- **C3 — closed.** `classify_affix`'s leading-AND-trailing test now runs **before** the
+  interior-action test, so a simultaneously-circumfixing-and-infixing RHS classifies
+  `CircumfixPrefix` rather than `Infix`. Two reasons were recorded rather than one: `Infix` is simply
+  the wrong label regardless of downstream consequences, and `build_structural_composites`'
+  `CircumfixPrefix` admission is unconditional whereas routing through `preexpand`'s `Infix` path
+  would make the predicate refuse on grammars `preexpand` cannot serve. The mechanism hand-off was
+  checked explicitly — `preexpand`'s candidate set selects on `rule_role` matching
+  `Infix`/`Prefix`/`Suffix`, so it drops the rule cleanly rather than both mechanisms claiming or both
+  dropping it (pinned by `circumfix_infix_ownership_handoff_is_clean`). Fixture:
+  `conformance-staging/edge-cases/circumfix-infix-interior-action-precedence`.
+- **C2 — still open, still coupled.** Unchanged by C3's reordering. It remains a joint decision with
+  row 11's `Reduplication` carve-out boundary, because which role wins decides which *mechanism*
+  claims the allomorph, and both recall arguments have to be re-checked together.
+
 ## Verdict
 
 Row 10's **PROVABLE** verdict stands, and the census sharpens it into three concrete work items of
