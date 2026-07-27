@@ -61,7 +61,7 @@ fixture is proposed for any of these; each entry below is deliberately brief per
 | `AffixProcessRule: reduplication (ReduplicationHint)` | `metathesis-phase-isolation`, `suffixing-extension-slot-ordering` | Canonical partial/total reduplication (WALS Ch. 27, Rubino: https://wals.info/chapter/27). |
 | `AffixProcessRule: subtraction/truncation` | `metathesis-phase-isolation`, `conformance-staging/edge-cases/truncate-morphotactic` | Subtractive/truncating morphology (a marked but well-documented process type; folded into `CharacteristicKind::Affixation` per design.md D3's own judgment call — no distinct characteristic exists). |
 | `RealizationalAffixProcessRule` | `fusional-realizational-morphology` | Word-and-paradigm / realizational exponence: ablaut as sole exponent, syncretism, inflection-class-conditioned blocking (Stump 2001 *Inflectional Morphology: A Theory of Paradigm Structure*; realizational-morphology overview: https://grokipedia.com/page/realizational_morphology). |
-| `CompoundingRule` | `fusional-realizational-morphology`, `polysynthetic-stratal-derivation-chain`, `conformance-staging/edge-cases/compounding-non-recursive` | Endocentric head/non-head compounding with a bounded (`MaxApplicationCount`-capped) application count — see §1.2 Compounding for the still-open *unbounded/self-feeding* configuration. |
+| `CompoundingRule` | `fusional-realizational-morphology`, `polysynthetic-stratal-derivation-chain`, `conformance-staging/edge-cases/compounding-non-recursive` | Endocentric head/non-head compounding with a bounded (`MaxApplicationCount`-capped) application count — the recursive/self-feeding configuration closed 2026-07-26, tasks.md 4.1 — see §1.2 Compounding for the pattern basis. |
 | `MorphologicalOutputAction: CopyFromInput/InsertSegments` | all 8 languages | Ordinary concatenative affixation output. |
 | `MorphologicalOutputAction: ModifyFromInput/InsertSimpleContext` | `fusional-realizational-morphology` (ablaut via `ModifyFromInput`), `templatic-root-modification` (`InsertSimpleContext`) | Non-concatenative stem modification: ablaut/mutation as the sole realizer of a feature, and template-internal vocalic insertion (root-and-pattern morphology; Britannica "Root-and-pattern system": https://www.britannica.com/topic/root-and-pattern-system). |
 | `RewriteRule Iterative (epenthesis/deletion/feature/expansion/merge)` | `suffixing-vowel-harmony`, `templatic-root-modification`, `polysynthetic-stratal-derivation-chain` | Iterative (rule-reapplies-until-no-longer-applicable) phonological rule application — the classic SPE/Chomsky-Halle iterative-rule model. |
@@ -456,16 +456,40 @@ for "overlooked."
 | SimultaneousRewrite (genuine overlap) | none yet (oracle-gated) | Overlapping rewrite-subrule environments | Needs oracle, not pattern |
 | **Tracing (TraceType)** | none | **No typological pattern exists — not a linguistic phenomenon** | **No, and none applies** |
 
-**The real gap list** (constructs genuinely lacking a representative fixture today, ranked by how
-actionable the pattern basis above makes them):
-1. `Compounding` — recursive/self-feeding configuration (`recursive-endocentric-compounding`) — ready to author.
-2. `MultiTable` — shared-representation configuration (`bistratal-overlapping-segment-representation`) — ready to author, but the underlying token-space fix is itself a larger design task.
-3. `SubruleGating` — its own tagged phenomenon (`subrule-morphosyntactic-gating`) — ready to author now (compiler already handles it correctly; the fixture is pure conformance-coverage value).
-4. `RightToLeftRewrite` — the excluded pattern shapes (`right-to-left-bounded-quantifier-rewrite` and siblings) — ready to author per-shape, each independently.
-5. `Metathesis` — right-to-left direction — **UNBLOCKED 2026-07-25** (`docs/conformance/needs-decision-resolutions.md`: build it; the construction is not from scratch — `replace.rs`'s existing mirror-and-reverse RTL machinery transfers). Fixture shape: **pass**, lands `ConfirmOnly`. Ready to author once the construction lands (tasks.md 4.6).
-6. `QuantifierPattern` — unbounded configuration — **UNBLOCKED 2026-07-25** (same record: unattempted, not infeasible — foma has a native exact `^>N`/`*` construction, and `max = -1` is the loader/DTD default). Fixture shape: **pass**, lands `ConfirmOnly`. Ready to author once the construction lands (tasks.md 4.5).
-7. `CircumfixOutputAction` — missing structural-composite shapes — blocked on a census this document cannot substitute for; no fixture proposed.
-8. `Tracing (TraceType)` — not a pattern gap at all; flagged as out of scope for typological research.
+**The real gap list.** Almost all of it closed on 2026-07-25/26; the list is kept with outcomes rather
+than rewritten, so the pattern research that motivated each fixture stays traceable to what shipped.
+
+1. `Compounding` — recursive/self-feeding — **CLOSED 2026-07-26** (tasks.md 4.1). Fixture
+   `recursive-endocentric-compounding`; the compound loop now unrolls `max_depth - 1` levels from an
+   exact, always-finite per-rule bound, and the predicate is `ConfirmOnly` unconditionally.
+2. `MultiTable` — shared representation — **CLOSED 2026-07-26** (4.4b). Fixture
+   `two-table-shared-representation-recall`; note the token-space fix turned out *smaller* than this
+   list feared, because the original disjoint-range approach was withdrawn as the wrong fix (it
+   entrenched a false negative) in favour of render-time cross-table aliasing.
+3. `SubruleGating` — **CLOSED**. Fixture `subrule-morphosyntactic-gating`; and its `exercises:` tag had
+   to be corrected from a characteristic name to the real `constructs.txt` row id, without which it was
+   silently crediting nothing.
+4. `RightToLeftRewrite` — excluded pattern shapes — **PARTIALLY CLOSED**. The bounded-quantifier shape
+   landed (`right-to-left-bounded-quantifier-rewrite`), and building it exposed a real recall bug:
+   `reversed_slots` was a shallow reverse that left a repetition group's contents in document order, so
+   the mirror was not the reverse of the original. Remaining shapes are tasks.md 4.2.
+5. `Metathesis` — right-to-left — **CLOSED 2026-07-26** (4.6). Fixture
+   `right-to-left-metathesis-reversal`, `ConfirmOnly` as predicted.
+6. `QuantifierPattern` — unbounded — **CLOSED 2026-07-26** (4.5). Fixture
+   `unbounded-iterative-quantifier-expansion`. This one mattered more than the research predicted: it
+   was blocking a *reference* grammar on the compiled path, not just a coverage row.
+7. `CircumfixOutputAction` — **CENSUS DONE, two of three closed** (4.3a/4.3b;
+   `docs/conformance/circumfix-structural-composite-census.md`). The census found the *mechanism* was
+   already allomorph-complete and every gap was in candidate *selection*. C2 stays open and is
+   deliberately coupled to row 11's `Reduplication` carve-out.
+8. `SimultaneousRewrite` — genuine overlap — **ORACLE GAP DISCHARGED 2026-07-26**, which this table
+   above still lists as "Needs oracle, not pattern". Fixture
+   `simultaneous-subrule-genuine-overlap`, the repo's first with `hc.dll` ground truth: the two engines
+   agree, and the agreement *discriminates* resolution order rather than being a shared silence. The
+   proposer-side refusal is unchanged and correct — that was always a construction question, not an
+   oracle one.
+9. `Tracing (TraceType)` — not a pattern gap at all; still out of scope for typological research, and
+   still the one row this document honestly reports as having no typological basis.
 
 ## Confirmation
 
