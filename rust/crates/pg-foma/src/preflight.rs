@@ -439,43 +439,33 @@ mod tests {
         );
     }
 
-    /// Task 1.3's semantic-uncertainty scenario: a self-feeding (`multipleApplication="2"`)
-    /// `Compounding` rule resolves to `CompileDecision::Refuse` (`capability_entry`'s own
-    /// `evaluate_capability_refuses_recursive_compounding_grammar` fixture, ported verbatim -- this
-    /// crate's repo-wide "port a fixture across a module boundary" convention) — preflight must
-    /// report it as a `Critical` `UnknownUnboundedConstruct` finding naming the Compounding
-    /// construct, before foma ever runs.
+    /// Task 1.3's semantic-uncertainty scenario: an `Overwrite`-output `MprGroup` resolves to
+    /// `CompileDecision::Refuse` (`capability.rs`'s own `compose_envelope_refuses_for_overwrite_
+    /// group_alone` fixture, ported verbatim -- this crate's repo-wide "port a fixture across a
+    /// module boundary" convention) — preflight must report it as a `Critical`
+    /// `UnknownUnboundedConstruct` finding naming the Overwrite construct, before foma ever runs.
+    /// Originally used a self-feeding (`multipleApplication="2"`) `Compounding` rule for this same
+    /// purpose; `plan-construct-coverage-completion` task 4.1 promoted `compounding.recursive` to
+    /// `ConfirmOnly` (`crate::capability::CompoundingRecursionSafePredicate`'s own doc), so that
+    /// fixture no longer refuses and this test needed a different, still-permanently-refusing
+    /// construct — `MprGroupOverwrite` (`MprGroupOverwriteFailClosedPredicate`, unconditional) is
+    /// this crate's clearest such carve-out.
     #[test]
     fn preflight_raises_critical_finding_for_refuse_verdict() {
         const REFUSE_XML: &str = r#"<HermitCrabInput><Language><Name>PreflightRefuseFixture</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
+          <MorphologicalPhonologicalRuleFeatures>
+            <MorphologicalPhonologicalRuleFeature id="mprA">A</MorphologicalPhonologicalRuleFeature>
+            <MorphologicalPhonologicalRuleFeatureGroup matchType="all" outputType="overwrite" features="mprA"><Name>GOverwrite</Name></MorphologicalPhonologicalRuleFeatureGroup>
+          </MorphologicalPhonologicalRuleFeatures>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
           </CharacterDefinitionTable>
-          <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /></SegmentNaturalClass></NaturalClasses>
           <Strata>
-            <Stratum characterDefinitionTable="t1" morphologicalRules="cr1">
+            <Stratum characterDefinitionTable="t1">
               <Name>S</Name>
-              <MorphologicalRuleDefinitions>
-                <CompoundingRule id="cr1" multipleApplication="2">
-                  <Name>Compound</Name>
-                  <CompoundingSubrules>
-                    <CompoundingSubrule>
-                      <HeadMorphologicalInput>
-                        <PhoneticSequence id="h0"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
-                      </HeadMorphologicalInput>
-                      <NonHeadMorphologicalInput>
-                        <PhoneticSequence id="n0"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
-                      </NonHeadMorphologicalInput>
-                      <MorphologicalOutput>
-                        <CopyFromInput index="n0" />
-                        <CopyFromInput index="h0" />
-                      </MorphologicalOutput>
-                    </CompoundingSubrule>
-                  </CompoundingSubrules>
-                </CompoundingRule>
-              </MorphologicalRuleDefinitions>
               <LexicalEntries>
-                <LexicalEntry id="e1"><Allomorphs><Allomorph id="a1"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs></LexicalEntry>
+                <LexicalEntry id="e1" partOfSpeech="posV"><Allomorphs><Allomorph id="a1"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs></LexicalEntry>
               </LexicalEntries>
             </Stratum>
           </Strata>
@@ -496,8 +486,8 @@ mod tests {
         assert_eq!(finding.phase, Phase::Preflight);
         assert_eq!(finding.provenance, ValueProvenance::Observed);
         assert!(
-            finding.affected.iter().any(|a| a.contains("Compounding")),
-            "expected the Compounding construct named: {finding:?}"
+            finding.affected.iter().any(|a| a.contains("Overwrite")),
+            "expected the Overwrite MprGroup construct named: {finding:?}"
         );
     }
 

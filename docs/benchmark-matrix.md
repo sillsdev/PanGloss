@@ -24,6 +24,22 @@ capability enforcement.** Each for a different, specific reason:
 > `capability-refuse` line. Indonesian has **three**. The corrected table is below, and it makes the
 > conclusion *stronger*, not weaker: `mpr-group.overwrite-output` is present in **all three**
 > reference grammars, not two.
+>
+> **UPDATE, later the same day — the reducible refusals are gone.** After the unbounded-quantifier
+> build (tasks.md 4.5) and the recursive-compounding promotion (4.1), re-counting every
+> `capability-refuse` line against a freshly built release binary gives:
+>
+> | Grammar | Refusing predicates, now |
+> |---|---|
+> | Indonesian | `mpr-group.overwrite-output` |
+> | Amharic | `mpr-group.overwrite-output` |
+> | Sena | `mpr-group.overwrite-output` |
+>
+> Every reference grammar is now down to **exactly one** refusal, and it is the permanent carve-out in
+> all three. `quantifier.bounded-expansion` and `compounding.non-recursive` are gone from all of them.
+> This is precisely what the paragraph below predicted — closing those two "reduces each grammar's
+> refusal set but cannot empty any of them" — so the prediction held, and the residue is now the
+> irreducible part rather than a mix of reducible and irreducible.
 
 | Grammar | Refusing predicates (complete) | Status of each gap |
 |---|---|---|

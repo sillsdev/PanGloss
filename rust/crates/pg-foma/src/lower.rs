@@ -575,6 +575,21 @@ pub(crate) fn resolve_alpha_tuples(
 /// `pub(crate)`: canonical definition (moved here, migration follow-on) -- `replace.rs`
 /// re-exports it at its old path so `replace.rs`'s own `render_branch_regex` and every other
 /// existing caller keep compiling unmodified.
+/// Render an already-deduplicated token set as one atom: a bare char for a singleton (the ordinary
+/// case, and the ONLY case for every pre-aliasing caller/grammar), or foma's own `[a | b | ...]`
+/// union syntax for two-or-more — the exact same shape [`render_slots`]'s `Slot::Union` arm always
+/// rendered for a multi-member natural class, reused here so an aliased [`Slot::Fixed`] atom or an
+/// aliased-and-unioned [`Slot::Union`] atom look identical to a caller that never observes aliasing
+/// at all.
+fn format_union_tokens(chars: &[char]) -> String {
+    if chars.len() == 1 {
+        chars[0].to_string()
+    } else {
+        let inner: Vec<String> = chars.iter().map(|c| c.to_string()).collect();
+        format!("[{}]", inner.join(" | "))
+    }
+}
+
 pub(crate) fn render_slots(
     alphabet: &SegAlphabet,
     slots: &[Slot],
@@ -583,17 +598,28 @@ pub(crate) fn render_slots(
     let mut pieces: Vec<String> = Vec::with_capacity(slots.len());
     for slot in slots {
         let piece = match slot {
-            Slot::Fixed(cd) => alphabet.token(*cd).to_string(),
+            // `Slot::Fixed`/`Slot::Union`: render-time cross-table alias expansion
+            // (`docs/conformance/multitable-shared-representation-design.md` item 3 — "in
+            // `lower::render_slots`' `Slot::Fixed`/`Slot::Union` arms, NOT in `class_members`").
+            // `alphabet.render_tokens(cd)` is exactly `vec![alphabet.token(cd)]` (byte-identical
+            // to the pre-aliasing rendering below) whenever `alphabet` carries no table identity
+            // (every existing caller, built via `SegAlphabet::new`) or `cd`'s spelling is unique to
+            // its own table — `format_union_tokens` degenerates to the same bare-char/`[a | b]`
+            // shapes this function always rendered. `Slot::Alpha` deliberately does NOT alias here
+            // (design's own scope: only the two class/fixed-atom arms) — an alpha occurrence's
+            // resolved segment is chosen per-tuple from `class_members`' own single-table
+            // resolution, out of this step's scope.
+            Slot::Fixed(cd) => format_union_tokens(&alphabet.render_tokens(*cd)),
             Slot::Union(members) => {
-                if members.len() == 1 {
-                    alphabet.token(members[0]).to_string()
-                } else {
-                    let inner: Vec<String> = members
-                        .iter()
-                        .map(|m| alphabet.token(*m).to_string())
-                        .collect();
-                    format!("[{}]", inner.join(" | "))
+                let mut chars: Vec<char> = Vec::with_capacity(members.len());
+                for m in members {
+                    for c in alphabet.render_tokens(*m) {
+                        if !chars.contains(&c) {
+                            chars.push(c);
+                        }
+                    }
                 }
+                format_union_tokens(&chars)
             }
             Slot::Alpha { occurrence, .. } => {
                 let cd = assignment.values.get(occurrence).expect(
@@ -1334,5 +1360,74 @@ mod tests {
         assert_eq!(apply_up(&mut h, Some(&one)), Some(one.clone()), "1 occurrence must match");
         let mut h = apply_init(&net);
         assert_eq!(apply_up(&mut h, Some(&two)), Some(two.clone()), "2 occurrences must match");
+    }
+
+    /// Cross-table representation aliasing (`docs/conformance/multitable-shared-representation-
+    /// design.md` item 3): `render_slots`' `Slot::Fixed`/`Slot::Union` arms, not `class_members`.
+    /// Two tables (t0: one segment "x"; t1: "z"/"x"/"y", "x" deliberately at a DIFFERENT raw index
+    /// than t0's own) -- an alphabet built via `SegAlphabet::with_table_id(table_b, ..)` must
+    /// render t1's own "x" atom as the bracketed union of BOTH tables' tokens, while `SegAlphabet::
+    /// new` (no table identity, every pre-existing call site) renders the SAME slot bare, byte-
+    /// identical to pre-aliasing behavior.
+    #[test]
+    fn render_slots_aliases_fixed_and_union_atoms_across_tables() {
+        const XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+<HermitCrabInput><Language><Name>RenderSlotsAliasProbe</Name>
+  <CharacterDefinitionTable id="t0"><Name>TableA</Name>
+    <SegmentDefinitions>
+      <SegmentDefinition id="c0x"><Representations><Representation>x</Representation></Representations></SegmentDefinition>
+    </SegmentDefinitions>
+  </CharacterDefinitionTable>
+  <CharacterDefinitionTable id="t1"><Name>TableB</Name>
+    <SegmentDefinitions>
+      <SegmentDefinition id="c1z"><Representations><Representation>z</Representation></Representations></SegmentDefinition>
+      <SegmentDefinition id="c1x"><Representations><Representation>x</Representation></Representations></SegmentDefinition>
+      <SegmentDefinition id="c1y"><Representations><Representation>y</Representation></Representations></SegmentDefinition>
+    </SegmentDefinitions>
+  </CharacterDefinitionTable>
+</Language></HermitCrabInput>"#;
+        let g = load(XML);
+        let table_a = &g.char_tables[0];
+        let table_b = &g.char_tables[1];
+        let cd_a_x = table_a.lookup_nfd("x").unwrap();
+        let cd_b_x = table_b.lookup_nfd("x").unwrap();
+        let cd_b_y = table_b.lookup_nfd("y").unwrap();
+        assert_ne!(cd_a_x.0, cd_b_x.0, "the fixture's own misalignment must hold");
+
+        let alias_map = crate::replace::RepresentationAliasMap::build(&g);
+        let aliased = SegAlphabet::with_table_id(table_b, pg_grammar::model::TableId(1), &alias_map);
+        let bare = SegAlphabet::new(table_b);
+        let asg = AlphaAssignment {
+            values: std::collections::HashMap::new(),
+        };
+
+        // Slot::Fixed: the shared "x" atom aliases under `aliased`, stays bare under `bare`.
+        let fixed_slots = vec![Slot::Fixed(cd_b_x)];
+        let aliased_text = render_slots(&aliased, &fixed_slots, &asg);
+        let bare_text = render_slots(&bare, &fixed_slots, &asg);
+        assert_eq!(
+            bare_text,
+            bare.token(cd_b_x).to_string(),
+            "unaliased rendering must stay exactly the single bare token"
+        );
+        assert_ne!(
+            aliased_text, bare_text,
+            "aliased rendering of a shared atom must differ from the unaliased rendering"
+        );
+        assert!(
+            aliased_text.contains(&bare.token(cd_b_x).to_string())
+                && aliased_text.contains(&SegAlphabet::new(table_a).token(cd_a_x).to_string()),
+            "aliased rendering must contain BOTH tables' own tokens for the shared spelling: \
+             {aliased_text:?}"
+        );
+
+        // Slot::Union: an unshared atom ("y") degenerates to the SAME bare rendering as `bare`,
+        // aliased or not -- aliasing only ever adds, never touches a spelling unique to its table.
+        let union_slots = vec![Slot::Union(vec![cd_b_y])];
+        assert_eq!(
+            render_slots(&aliased, &union_slots, &asg),
+            render_slots(&bare, &union_slots, &asg),
+            "an unshared atom's rendering must be unaffected by aliasing"
+        );
     }
 }

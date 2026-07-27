@@ -30,11 +30,13 @@
 
          Per pg-foma::capability's own multi_table_detail (rust/crates/pg-foma/src/capability.rs),
          this shared representation makes representations_pairwise_disjoint == false, and
-         MultiTableFaithfulThreadingPredicate Refuses it (see the paired rust/crates/pg-foma/tests/
-         cover_bistratal_overlapping_segment_representation.rs regression test) -- this fixture's
-         job is to pin that REFUSAL honestly, plus the oracle's (pg_parse::Morpher, which resolves
-         every rule's table via an explicit TableId with no PUA-token collapsing at all) own
-         correct, unaffected analysis of every word below. -->
+         MultiTableFaithfulThreadingPredicate ConfirmOnlys it (flipped from Refuse by
+         plan-construct-coverage-completion task 4.4b -- render-time cross-table representation
+         aliasing, docs/conformance/multitable-shared-representation-design.md -- see the paired
+         rust/crates/pg-foma/tests/cover_bistratal_overlapping_segment_representation.rs regression
+         test) -- this fixture's job is to pin that verdict honestly, plus the oracle's
+         (pg_parse::Morpher, which resolves every rule's table via an explicit TableId with no
+         PUA-token collapsing at all) own correct, unaffected analysis of every word below. -->
     <CharacterDefinitionTable id="t1">
       <Name>Inner</Name>
       <SegmentDefinitions>

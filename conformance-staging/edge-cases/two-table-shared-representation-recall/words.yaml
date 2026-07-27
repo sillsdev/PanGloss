@@ -1,0 +1,63 @@
+# Synthetic construct-shaped mimic -- see STAGING.md and grammar.xml's own header comment. Oracle:
+# pangloss (`pg_parse::Morpher`, driven directly -- see STAGING.md's "Verification" section), NOT the
+# C# founding oracle -- authored and verified against this repo's own Rust engine only. Signatures
+# below are transcribed verbatim from that run, not hand-derived.
+
+language: TwoTableSharedRepresentationRecall
+inspired_by: ["synthetic bistratal shared-representation recall probe (not modeling any real language)"]
+sources:
+  - "docs/conformance/representative-typology-basis.md S1.2.5 (Multi-table: shared-representation-across-tables configuration)"
+  - "docs/conformance/multitable-shared-representation-design.md"
+requires: [phonology]
+words:
+  - word: y
+    note: >-
+      ROOT1, entered on the Inner stratum (table t0, whose only segment is "x"), correctly devoiced
+      by the Outer stratum's (table t1) obligatory "x -> y" phonological rule -- table t1 spells "x"
+      at a DIFFERENT raw index than table t0 does, the deliberate misalignment
+      `rust/crates/pg-foma/tests/two_table_shared_representation_recall.rs` demonstrates a table-
+      blind FST proposer would miss (pre-fix) and the cross-table representation aliasing fix
+      (`crate::replace::RepresentationAliasMap`/`SegAlphabet::render_tokens`) now correctly proposes
+      and confirms. NOTE (transcribed as-is, not hand-derived): the signature's surface half renders
+      empty rather than "y" -- a separate, orthogonal, out-of-scope `pg_parse`/`pg_rules` finding
+      (this fixture's own paired Rust test module doc has the full account); the MORPHEME-level
+      analysis (root identity) is exactly correct, which is what the paired Rust containment test
+      checks directly via `structured`, not via this signature's surface text.
+    provenance: "rust/crates/pg-foma/tests/two_table_shared_representation_recall.rs"
+    parses:
+      - signature: "ROOT1|"
+        rules: []
+        exercises:
+          - "CharacterDefinitionTable: more than one table, one per stratum"
+
+  - word: x
+    note: >-
+      ROOT1's own raw (undevoiced) spelling -- the phonological rule is obligatory (phonological
+      rules always apply where their context matches, no optionality), so this must never be a
+      valid surface form.
+    provenance: "rust/crates/pg-foma/tests/two_table_shared_representation_recall.rs"
+    expect_fail: true
+    exercises:
+      - "CharacterDefinitionTable: more than one table, one per stratum"
+
+  - word: z
+    note: >-
+      Table B's own decoy segment (deliberately declared FIRST in t1's SegmentDefinitions, so t1's
+      own "x" sits at raw index 1, not 0 -- the misalignment this fixture's whole premise depends
+      on). Unattached to any entry or rule output -- a plain negative control.
+    provenance: "rust/crates/pg-foma/tests/two_table_shared_representation_recall.rs"
+    expect_fail: true
+    exercises:
+      - "CharacterDefinitionTable: more than one table, one per stratum"
+
+  - word: q
+    note: >-
+      ROOT2, entered directly on the Outer stratum (table t1) -- a same-table positive control,
+      entirely unaffected by the cross-table rule, proving ordinary same-table recall is untouched
+      by the aliasing fix.
+    provenance: "rust/crates/pg-foma/tests/two_table_shared_representation_recall.rs"
+    parses:
+      - signature: "ROOT2|q"
+        rules: []
+        exercises:
+          - "CharacterDefinitionTable: more than one table, one per stratum"

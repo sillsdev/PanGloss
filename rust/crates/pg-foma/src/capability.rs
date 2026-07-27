@@ -210,17 +210,20 @@ impl CharacteristicKind {
         match self {
             CharacteristicKind::Affixation => Disposition::Proven,
             CharacteristicKind::RealizationalMorphology => Disposition::ConfirmOnly,
-            // `cover-compounding`: `crate::emit::compound_license` now license-gates the lexicon
-            // into head-eligible/non-head-eligible subsets (design.md D3/D4's `compound_match`/
-            // `mpr_group_ok` (un)group-awareness contract) and proposes their budget-bounded cross
-            // product through the existing "bounded compound loop" lexc construction -- a genuinely
-            // faithful (over-approximating, never under-proposing) FST proposal for the
-            // NON-RECURSIVE case, no longer bare FailClosed. No proven no-false-negative
-            // admission-filter argument exists either (ADR 0001), so the resting disposition is the
-            // same ConfigPredicate landing spot every other Stage-2 construct in this file uses:
-            // ConfirmOnly for `compounding.non-recursive`, Refuse for `compounding.recursive` (D2
-            // item 3's self-feeding/nested case, still unproven), per
-            // `CompoundingRecursionSafePredicate`'s own split.
+            // `cover-compounding` + `plan-construct-coverage-completion` task 4.1:
+            // `crate::emit::compound_license` license-gates the lexicon into head-eligible/
+            // non-head-eligible subsets (design.md D3/D4's `compound_match`/`mpr_group_ok`
+            // (un)group-awareness contract) and proposes their budget-bounded, depth-budgeted cross
+            // product through the "bounded compound loop" lexc construction (`build_compound_chain`)
+            // -- a genuinely faithful (over-approximating, never under-proposing) FST proposal for
+            // EVERY observed configuration, recursive or not, no longer bare FailClosed for either
+            // split. No proven no-false-negative admission-filter argument exists (ADR 0001), so the
+            // resting disposition is the same ConfigPredicate landing spot every other Stage-2
+            // construct in this file uses -- still `ConfigPredicate` at the KIND level (a predicate
+            // IS registered, `CompoundingRecursionSafePredicate`), even though that predicate's own
+            // `evaluate()` no longer has a real split within it (see its own doc, "the recursive
+            // split is now closed too": `ConfirmOnly` unconditionally once any `Compounding` rule is
+            // observed).
             CharacteristicKind::Compounding => Disposition::ConfigPredicate,
             CharacteristicKind::OrderedMorphRuleApplication => Disposition::Proven,
             // `cover-unordered-morph-rules`: `crate::emit::build_deriv_chain`'s existing
@@ -582,6 +585,17 @@ pub struct CompoundingDetail {
     /// `compounding.non-recursive` — the license-gated propose shape (`crate::emit::
     /// compound_license`) applies and [`CompoundingRecursionSafePredicate`] returns `ConfirmOnly`.
     pub recursive: bool,
+    /// `openspec/changes/plan-construct-coverage-completion` task 4.1 (design.md row 2, piece 1):
+    /// "turning a boolean into a bound" — [`compounding_max_depth`]'s own finite upper bound on the
+    /// number of STEMS (lexical roots) any single compounding derivation chain ending in an
+    /// application of `rule` could combine. `2` is the ordinary head+non-head shape `compounding.
+    /// non-recursive` already covers faithfully; `recursive == (max_depth > 2)` always holds (see
+    /// [`compounding_max_depth`]'s own doc for the equivalence argument) — this field is strictly
+    /// MORE informative than `recursive`, never in tension with it. See [`compounding_max_depth`]'s
+    /// own doc for the bound's derivation and for why it is ALWAYS finite for this construct (no
+    /// "genuinely unboundable" shape exists, unlike [`CharacteristicKind::QuantifierPattern`]'s real
+    /// `max == -1` Kleene case).
+    pub max_depth: usize,
 }
 
 /// [`ObservationDetail::UnorderedStratum`]'s payload (`openspec/changes/
@@ -1341,6 +1355,129 @@ fn compounding_recursive(g: &Grammar) -> HashSet<MRuleId> {
     recursive
 }
 
+/// `openspec/changes/plan-construct-coverage-completion` task 4.1 (design.md row 2, piece 1):
+/// extends [`compounding_recursive`]'s existing ONE-HOP boolean reachability test into an actual
+/// finite MAXIMUM DEPTH bound over the SAME "feeds" edge — design.md's own framing, "turning a
+/// boolean into a bound," not a replacement classifier ([`compounding_recursive`] above is
+/// byte-for-byte unchanged; this is an additional pass computed alongside it).
+///
+/// **Depth unit**: total STEM count (lexical roots) reachable in a single compounding derivation
+/// chain ending in an application of `r`. `2` is the ordinary head+non-head shape today's
+/// `crate::emit::compound_license`/"bounded compound loop" construction already covers faithfully
+/// (`compounding.non-recursive`); `>= 3` is what design.md D2 item 3 calls "recursive/self-feeding."
+/// `recursive(r) == (max_depth(r) > 2)` always holds: the minimum legal `multipleApplication`/
+/// `max_apps` is `1` (DTD default), so `compounding_recursive`'s "some other rule qualifies" test
+/// (self `max_apps > 1`, or ANY distinct co-located/earlier rule at all) can only ever be triggered
+/// by a configuration that also pushes this function's sum to `>= 3` — see this module's own
+/// `compounding_max_depth_matches_compounding_recursive_boolean_exactly` test for a direct,
+/// from-scratch proof of the equivalence (not merely asserted here).
+///
+/// **The bound itself (deliberately conservative — the same judgment call
+/// [`crate::compose_budget::DEFAULT_ORDERING_MULTIPLICITY_BUDGET`]'s own doc makes for
+/// `UnorderedOrderingUnionPredicate`'s cardinality proxy: sound but generous, since no real
+/// large-scale recursive-compounding grammar exists yet to calibrate a tighter one against):** for
+/// the set of every `CompoundingRuleDef` that can transitively feed `r` — the TRANSITIVE CLOSURE of
+/// the SAME one-hop "feeds" edge `compounding_recursive` already tests (`r2 -> r` iff `r2 == r` with
+/// `max_apps(r2) > 1`, or `r2 != r` with `mrule_stratum_rank(r2) <= mrule_stratum_rank(r)`, or either
+/// rank lookup fails — the identical conservative "cannot prove non-recursive" fallback
+/// `compounding_recursive` itself uses) —
+///
+/// `max_depth(r) = 1 + max_apps(r) + sum(max_apps(r2) for r2 in ancestors(r), r2 != r)`
+///
+/// where `ancestors(r)` is the transitive closure of DISTINCT predecessors (a plain visited-set
+/// BFS over a finite rule graph — terminates regardless of cycles, since every node is visited at
+/// most once). This over-counts, never under-counts: it does not verify the individual rules'
+/// applications can actually chain into ONE legal derivation (no `MorphRuleOrder`/subrule-gating
+/// cross-check between the rules, no check that a cyclic pair can really alternate that many times
+/// in practice) — it sums every rule's own worst-case application count that COULD feed `r` at all,
+/// counting each contributing rule's `max_apps` exactly ONCE regardless of how many distinct paths
+/// lead back to it (a `HashSet`, not a path-multiplicity sum) — the safe direction for a bound
+/// nothing downstream has verified a tighter one against yet.
+///
+/// **Always finite — no "genuinely unboundable" shape exists for `Compounding`, unlike
+/// [`CharacteristicKind::QuantifierPattern`]'s real `max == -1` Kleene case (that predicate's own
+/// doc):** [`pg_grammar::model::CompoundingRuleDef::max_apps`] is a plain `u16` (`model.rs`'s own
+/// doc: "`multipleApplication` attr; C# default `MaxApplicationCount = 1`") with NO "-1 = unlimited"
+/// sentinel anywhere in the model — checked directly against `model.rs`, not assumed; the DTD's
+/// `multipleApplication` enumerated attribute tops out at `9` (this crate's own
+/// `recursive-endocentric-compounding` fixture uses that exact ceiling). A finite grammar has a
+/// finite `CompoundingRuleDef` set, each with a finite `max_apps`, so this sum is always computable
+/// and this function always terminates — design.md row 2's own escape valve ("if the depth bound
+/// turns out to be unboundable for some grammar shape... stays Refuse") is therefore never
+/// exercised for this construct; see this task's own final report for why that finding does NOT by
+/// itself unblock a promotion to `ConfirmOnly` (a separate, construction-side gap, not a
+/// bound-side one).
+///
+/// **Not yet consumed by any live budget check.** This bound is expressed in the same plain `usize`,
+/// "the cap names the last value that still fits" vocabulary [`crate::compose_budget::ComposeBudget::
+/// check_chain_depth`] already uses (design.md row 2 piece 2: "the same ADR 0003 chain-depth-budget
+/// shape `unordered`/`peel` already use... do not invent a second budget mechanism") so a future
+/// construction can check it via that SAME mechanism directly, without this function's own shape
+/// changing — but no call site does so yet: `crate::emit`'s "bounded compound loop" (module doc)
+/// hardcodes exactly ONE extra root regardless of this bound, so no construction exists today that a
+/// larger `max_depth` could safely unlock. Wiring a construction that actually consumes this bound is
+/// out of this task's own scope (its owned files do not include `crate::emit`, where that
+/// construction lives) — see [`CompoundingRecursionSafePredicate`]'s own doc for the full citation.
+fn compounding_max_depth(g: &Grammar) -> HashMap<MRuleId, usize> {
+    let compounding_rules: Vec<(MRuleId, &pg_grammar::model::CompoundingRuleDef)> = g
+        .mrules
+        .iter()
+        .enumerate()
+        .filter_map(|(i, m)| match m {
+            MorphRuleDef::Compounding(def) => Some((MRuleId(i as u32), def)),
+            _ => None,
+        })
+        .collect();
+
+    let max_apps_of = |mid: MRuleId| -> u16 {
+        compounding_rules
+            .iter()
+            .find(|&&(id, _)| id == mid)
+            .map(|&(_, def)| def.max_apps)
+            .unwrap_or(0)
+    };
+
+    // Same one-hop relation `compounding_recursive` tests, factored out so both the self-loop
+    // and the distinct-rule cases share one definition -- never duplicated/drifted between the
+    // two functions.
+    let feeds_one_hop = |r2: MRuleId, r: MRuleId| -> bool {
+        if r2 == r {
+            return max_apps_of(r2) > 1;
+        }
+        match (mrule_stratum_rank(g, r2), mrule_stratum_rank(g, r)) {
+            (Some(rank2), Some(rank)) => rank2 <= rank,
+            _ => true,
+        }
+    };
+
+    let mut result = HashMap::new();
+    for &(r, _) in &compounding_rules {
+        // Transitive closure BFS over DISTINCT predecessors only (self-loops are handled
+        // separately below via `max_apps(r)` itself, always counted once regardless of whether
+        // `r` self-feeds) -- terminates on any finite rule graph, cycles included, since
+        // `ancestors` is a visited set (each rule pushed onto `frontier` at most once).
+        let mut ancestors: HashSet<MRuleId> = HashSet::new();
+        let mut frontier: Vec<MRuleId> = vec![r];
+        while let Some(cur) = frontier.pop() {
+            for &(r2, _) in &compounding_rules {
+                if r2 != cur && feeds_one_hop(r2, cur) && ancestors.insert(r2) {
+                    frontier.push(r2);
+                }
+            }
+        }
+        // A genuine CYCLE among distinct rules (e.g. two co-located rules that mutually feed one
+        // another) can walk back to `r` itself via a back-edge -- `ancestors` is keyed on
+        // "distinct from the CURRENT frontier node" at each hop, not "distinct from `r`", so `r`
+        // can be (re-)discovered as someone else's own predecessor partway through the walk. `r`'s
+        // own contribution is already counted once, unconditionally, via `max_apps_of(r)` below;
+        // remove it here so a cycle never double-counts it.
+        ancestors.remove(&r);
+        let ancestor_sum: usize = ancestors.iter().map(|&r2| max_apps_of(r2) as usize).sum();
+        result.insert(r, 1 + max_apps_of(r) as usize + ancestor_sum);
+    }
+    result
+}
+
 /// D1's exhaustive default-deny characterizer: walks `g` and matches EVERY variant of EVERY
 /// `model.rs` enum design.md D1 names, with no catch-all arm.
 pub fn characterize(g: &Grammar) -> CharacteristicsProfile {
@@ -1350,6 +1487,9 @@ pub fn characterize(g: &Grammar) -> CharacteristicsProfile {
     // the per-rule walk below -- a rule-graph reachability pass, not a per-rule check (design.md's
     // own Novelty/risk note).
     let compounding_recursive_set = compounding_recursive(g);
+    // `openspec/changes/plan-construct-coverage-completion` task 4.1 (design.md row 2, piece 1):
+    // the depth-BOUND sibling pass, computed alongside the boolean one above (never replacing it).
+    let compounding_max_depth_map = compounding_max_depth(g);
 
     // --- MorphRuleDef (model.rs:542) --------------------------------------------------------
     for (i, mrule) in g.mrules.iter().enumerate() {
@@ -1375,6 +1515,9 @@ pub fn characterize(g: &Grammar) -> CharacteristicsProfile {
                     ObservationDetail::Compounding(CompoundingDetail {
                         rule: id,
                         recursive: compounding_recursive_set.contains(&id),
+                        max_depth: compounding_max_depth_map.get(&id).copied().unwrap_or_else(
+                            || panic!("compounding_max_depth must cover every Compounding mrule id, missing {id:?}")
+                        ),
                     }),
                 ));
             }
@@ -1961,36 +2104,66 @@ pub(crate) fn simultaneous_rule_admitted_for_compile(
 /// more than one `CharacterDefinitionTable` (D1's `MultiTable` characteristic) is faithfully
 /// compilable by `pg_foma::replace` now that every rewrite rule resolves its own natural
 /// classes/alpha variables against ITS OWNING stratum's table (`owning_table`, never an implicit
-/// `char_tables[0]` default — this change's whole `replace.rs`/`lower.rs` fix), PROVIDED no two
-/// tables share a literal representation (spelling).
+/// `char_tables[0]` default — `fix-multitable-fst-compilation`'s whole `replace.rs`/`lower.rs`
+/// fix), and — `plan-construct-coverage-completion` task 4.4b, `docs/conformance/
+/// multitable-shared-representation-design.md` — a SHARED representation across two tables is now
+/// ALSO faithful, via render-time cross-table representation aliasing
+/// (`crate::replace::RepresentationAliasMap`, `crate::replace::SegAlphabet::render_tokens`,
+/// consumed by `crate::lower::render_slots`'s `Slot::Fixed`/`Slot::Union` arms), never `Refuse`.
 ///
-/// # Why representation-disjointness is the proof obligation, not just "the fix landed"
-/// `pg_foma::replace::SegAlphabet::token` is (and remains, unchanged by this fix) a PURE function
-/// of a `CharDefId`'s raw per-table index (`PUA_BASE + cd.0`), not of which table that index came
-/// from. Threading each RULE to its own correct table (this change's fix) makes every rule's OWN
-/// natural-class/alpha resolution correct in isolation, but a composed cascade that mixes material
-/// from TWO tables (e.g. a root spelled via table A's lexicon flowing into a later stratum's
-/// table-B-resolved rule) could still, in principle, let table B's rule accidentally match a
-/// table-A-originated token that merely shares the same RAW index as one of table B's own
-/// segments — UNLESS the two tables' own character inventories are disjoint (no shared spelling),
-/// in which case no root/affix material ever legitimately carries the "other" table's tokens in
-/// the first place, so the collision is structurally unreachable. This predicate's own
-/// [`multi_table_detail`] computes exactly that pairwise check.
+/// # Why representation-disjointness is the proof obligation — the FALSE-NEGATIVE direction, not
+/// the false-positive one (corrected; see the design doc's own "headline finding")
+/// `pg_foma::replace::SegAlphabet::token` is (and remains — this fix does not change it) a PURE
+/// function of a `CharDefId`'s raw per-table index (`PUA_BASE + cd.0`), not of which table that
+/// index came from. This module's doc USED TO reason that a shared representation was dangerous
+/// because table B's rule might accidentally match a table-A-originated token that merely shares a
+/// raw index with one of table B's own segments — a FALSE POSITIVE. Tracing the actual failure
+/// mode (design doc, "The plan's assumed fix would make things worse") shows that reasoning
+/// backwards: two tables sharing a representation `s` at DIFFERENT raw indices produce DIFFERENT
+/// tokens for the SAME spelling, so table B's rule — rendered, pre-fix, using only table B's own
+/// token for `s` — simply NEVER FIRES on table-A-originated material spelled `s`. That is a FALSE
+/// NEGATIVE: under the propose-and-confirm invariant, the one error class that can never be
+/// recovered downstream (a proposer may over-approximate freely; an omission is final). A
+/// coincidental raw-index COLLISION (the false-positive worry the old doc named) is exactly the
+/// SAFE direction — `pg_rules::rewrite` (the oracle, resolving every rule via an explicit `TableId`
+/// with no PUA collapsing at all) already prunes it, which is precisely why this predicate lands at
+/// `ConfirmOnly` rather than `Admit` in every case, not only the shared-representation one.
+///
+/// The fix (`RepresentationAliasMap`) keeps tokens keyed by `(table, char-def)` exactly as before,
+/// and only ADDS alternatives at render time: when a normalized representation appears in more than
+/// one table, every atom for it renders as a union over every table's own token for that same
+/// spelling (`SegAlphabet::render_tokens`). Table B's rule now renders `[τ_B(s) | τ_A(s)]`, fires on
+/// A-originated material too, over-approximates, and confirm prunes the extra firings exactly like
+/// it already prunes the coincidental-collision case — recall-safe by construction, since aliasing
+/// only ever adds candidate tokens to an atom, never removes the atom's own.
+///
+/// **Residual, NOT closed by this fix**: `crate::replace::compile_metathesis_swap_net` (metathesis
+/// rules) renders tokens via a direct `alphabet.token(cd)` call, not through `crate::lower::
+/// render_slots` — so a `PhonRuleDef::Metathesis` rule sharing a representation across tables can
+/// still suffer the SAME false-negative this predicate now treats as covered for rewrite rules.
+/// `MultiTable`'s own `ModelLocation`/`multi_table_detail` are grammar-wide, not rule-kind-specific
+/// (this predicate's own "Node applicability" section below), so this predicate cannot currently
+/// distinguish "the risky rule is a Rewrite" from "the risky rule is a Metathesis" — flagged here
+/// for a follow-on (extend the SAME `RepresentationAliasMap`/`render_tokens` machinery to
+/// `compile_metathesis_swap_net`), not silently left uncovered. In practice this is advisory-only
+/// exposure, not a live compile-blocking gap: `CompileDecision` is check-only (`capability_entry.rs`'s
+/// own doc — "nothing here alters what `emit.rs`/`gate.rs`/`replace.rs`/`preexpand.rs` actually
+/// compile"), so `crate::replace::compile_metathesis_rule` already compiles whatever it can either
+/// way; only the ADVISORY verdict this predicate reports is what's affected.
 ///
 /// # Disposition
 /// - **Zero or one table observed at all:** vacuously `Admit` (this predicate has nothing to say —
 ///   [`Disposition::Proven`] already covers the ordinary single-table case, D1's own resting
 ///   disposition for every characteristic the grammar never exercises).
-/// - **Pairwise-disjoint tables:** [`PredicateVerdict::ConfirmOnly`] — per-rule table-correct
-///   resolution is now faithful (this change's fix + the disjointness argument above rule out the
-///   residual token-collision risk), but no PROVEN no-false-positive admission-filter argument
-///   exists yet (ADR 0001's own bar for `Admit`), so this is confirm-only-by-default, not `Admit`.
-///   The oracle (`pg_rules::rewrite`, which resolves every rule's table via an explicit `TableId`
-///   parameter with no PUA-token collapsing at all) prunes any residual over-generation the P6
-///   proposer's shared token space might still admit.
-/// - **Tables share a representation:** [`PredicateVerdict::Refuse`] — the residual case this
-///   change's threading fix cannot make faithful (module doc above); conservative, overridable per
-///   ADR 0005, never a silent wrong compile.
+/// - **Two or more tables, ANY relationship between their representations (disjoint OR shared):**
+///   [`PredicateVerdict::ConfirmOnly`] — per-rule table-correct resolution (`owning_table`) plus,
+///   for a shared representation, render-time aliasing (`RepresentationAliasMap`) together rule out
+///   the false-negative risk for rewrite rules; the residual false-positive risk (raw-index
+///   collision, disjoint OR shared) is exactly what the oracle (`pg_rules::rewrite`) already prunes
+///   downstream. No PROVEN no-false-positive admission-filter argument exists (ADR 0001's own bar
+///   for `Admit`), so this stays confirm-only-by-default in every case — never `Refuse` for a
+///   shared representation anymore (that was the over-cautious, wrong-direction verdict this fix
+///   replaces).
 ///
 /// # Provenance
 /// [`EvidenceProvenance::Structural`]: `multi_table_detail`'s pairwise-representation check reads
@@ -2027,22 +2200,19 @@ impl CapabilityPredicate for MultiTableFaithfulThreadingPredicate {
         profile: &CharacteristicsProfile,
         _plan_node: &PlanNodeKind,
     ) -> PredicateVerdict {
-        let Some(detail) = profile.multi_table_detail() else {
+        let Some(_detail) = profile.multi_table_detail() else {
             // Not observed at all (<= 1 table) -- nothing for this predicate to say (module doc).
             return PredicateVerdict::Admit;
         };
-        if !detail.representations_pairwise_disjoint {
-            return PredicateVerdict::Refuse(CapabilityDiagnostic {
-                predicate: self.id(),
-                construct: format!("{} character-definition tables", detail.table_count),
-                witness: detail
-                    .shared_representation_witness
-                    .clone()
-                    .unwrap_or_else(|| {
-                        "two tables share a representation (witness not captured)".to_string()
-                    }),
-            });
-        }
+        // A shared representation across tables used to `Refuse` here (the false-positive-shaped
+        // worry the module doc's "Why representation-disjointness is the proof obligation" section
+        // used to name). `plan-construct-coverage-completion` task 4.4b/`docs/conformance/
+        // multitable-shared-representation-design.md` corrects that: the real risk was a false
+        // NEGATIVE (a table-B rule failing to fire on table-A-originated material spelled the same
+        // way), which `crate::replace::RepresentationAliasMap`/`SegAlphabet::render_tokens` now
+        // closes at render time for rewrite rules (module doc's own "Residual" paragraph names the
+        // one still-open case, metathesis rules). `ConfirmOnly` for EVERY multi-table grammar now,
+        // disjoint or shared alike -- never `Refuse` for this characteristic.
         PredicateVerdict::ConfirmOnly
     }
 }
@@ -2510,29 +2680,65 @@ impl CapabilityPredicate for ReduplicationPeelSupportedPredicate {
 
 /// `openspec/changes/cover-compounding`'s own capability predicate (design.md D2/D3): splits
 /// `CharacteristicKind::Compounding` at CONFIGURATION-PREDICATE granularity (never a blanket
-/// variant claim, per ADR 0001) into `compounding.non-recursive` and `compounding.recursive`,
-/// keyed by [`CompoundingDetail::recursive`] (`compounding_recursive`'s rule-graph reachability
-/// pass, design.md's own Novelty/risk note — the first Stage-2 predicate whose input is a GRAPH
-/// property of `Grammar.mrules`, not a per-rule/per-subrule check).
+/// variant claim, per ADR 0001). Originally split `compounding.non-recursive`/`compounding.recursive`
+/// into two DIFFERENT verdicts, keyed by [`CompoundingDetail::recursive`] (`compounding_recursive`'s
+/// rule-graph reachability pass, design.md's own Novelty/risk note — the first Stage-2 predicate
+/// whose input is a GRAPH property of `Grammar.mrules`, not a per-rule/per-subrule check).
+///
+/// # Task 4.1 (`plan-construct-coverage-completion`, design.md row 2): the recursive split is now
+/// closed too — no split remains
+/// Design.md row 2 asked for three things: (1) bound the self-feeding depth; (2) a depth-budgeted
+/// faithful cross-product construction; (3) a no-false-negative containment proof. (1) closed first
+/// ([`CompoundingDetail::max_depth`]/[`compounding_max_depth`] — always finite, no "genuinely
+/// unboundable" shape exists for `Compounding`, unlike [`CharacteristicKind::QuantifierPattern`]'s
+/// real Kleene case). (2)/(3) close via `crate::emit`'s "bounded compound loop" (module doc), which
+/// now unrolls `max_depth - 1` extra (non-head) root LEVELS — not hardcoded to exactly one — reusing
+/// the SAME license-gated non-head root set at every level (`crate::emit::compound_license`, no new
+/// precision, only depth), and consumes THIS predicate's own precomputed `max_depth` bound directly
+/// (one source of truth: the construction never re-derives it). Containment (propose ⊇ confirm,
+/// non-vacuously) is checked against `pg_parse::Morpher::with_max_stem_count` raised past its
+/// hardcoded default (`tests/cover_compounding_recursive_depth_bound.rs`'s own containment test,
+/// naming both old and new test names in its module doc). The over-counting direction
+/// `compounding_max_depth`'s own doc already establishes ("this over-counts, never under-counts")
+/// means the construction's unrolled depth is always AT LEAST the grammar's real achievable depth —
+/// the safe direction for an over-approximating proposer.
 ///
 /// # Disposition
 /// - **Not observed at all** (no `Compounding` rule in the grammar): vacuously `Admit` — nothing
 ///   for this predicate to say (mirrors [`ReduplicationPeelSupportedPredicate`]'s own convention).
-/// - **`compounding.non-recursive`** (every observed `Compounding` rule has
-///   `detail.recursive == false`): [`PredicateVerdict::ConfirmOnly`] — `crate::emit::
-///   compound_license`'s license-gated head/non-head cross product (design.md D3's `Gate`/
-///   `Compose`/`Union` shape, authored directly against this crate's lexc emitter rather than a
-///   real `crate::plan::PlanNodeKind::Gate` node, since `reify-compilation-plans` does not wire this
-///   crate's emitters to the reified `Plan` yet) is a genuinely faithful, over-approximating
-///   proposal for this case — never a proven no-false-negative admission-filter argument (ADR
-///   0001's own bar for `Admit`), so `ConfirmOnly` is the correct landing spot, the same
-///   `ConfigPredicate` shape every other Stage-2 construct in this file uses.
-/// - **`compounding.recursive`** (at least one observed `Compounding` rule has
-///   `detail.recursive == true`): [`PredicateVerdict::Refuse`] — design.md D2 item 3's self-feeding/
-///   nested case, whose interaction with the ADR 0003 derivation-chain-depth budget is not
-///   characterized by this change (design.md's own scope cut). The ADR 0005 override remains this
-///   rule's on-ramp for anyone who wants to force-compile and experiment with it under the
-///   degraded-trust signal.
+/// - **At least one `Compounding` rule observed, recursive or not**: [`PredicateVerdict::ConfirmOnly`]
+///   UNCONDITIONALLY — no further split. `crate::emit::compound_license`'s license-gated head/
+///   non-head cross product, now depth-budgeted (task 4.1 piece 2, `crate::emit`'s "bounded compound
+///   loop"/`build_compound_chain`), is a genuinely faithful, over-approximating proposal for EVERY
+///   observed configuration, recursive or not (design.md D3's `Gate`/`Compose`/`Union` shape,
+///   authored directly against this crate's lexc emitter rather than a real
+///   `crate::plan::PlanNodeKind::Gate` node, since `reify-compilation-plans` does not wire this
+///   crate's emitters to the reified `Plan` yet). No proven no-false-negative admission-filter
+///   argument exists either way (ADR 0001's own bar for `Admit`), so `ConfirmOnly` is the correct,
+///   permanent landing spot — the same shape [`MprGroupAppendNonNarrowingPredicate`]'s own doc draws
+///   for a kind with no further split ("every observation reaches the SAME verdict"). Not `Admit`:
+///   promoting an already-`ConfirmOnly` construction further is explicitly out of `plan-construct-
+///   coverage-completion`'s own scope (design.md D1) — only `SimultaneousRewrite`'s non-overlap split
+///   has reached `Admit` today.
+///
+/// # Cost stays a SEPARATE, per-grammar concern — never this predicate's own verdict
+/// `max_depth` is always finite but never guaranteed SMALL: `CompoundingRuleDef::max_apps` is a bare
+/// `u16` with no clamp enforced anywhere in this crate's own loader, so a grammar author could set
+/// `multipleApplication` far beyond the DTD's practical ceiling (9). `crate::emit`'s own
+/// `DEFAULT_COMPOUND_CHAIN_DEPTH_BUDGET` (mirroring the pre-existing `HC_COMPOUND_PAIR_BUDGET`
+/// cross-product check the SAME construction already paid) refuses an individual PATHOLOGICALLY
+/// deep grammar at COMPILE TIME with a typed, honest `FomaTier::Unsupported` outcome — this is a
+/// COST/resource-ceiling refusal, not a capability-layer one, exactly mirroring how
+/// `unordered-application.chain-depth-bounded` stays `ConfirmOnly` (this file's own
+/// [`UnorderedOrderingUnionPredicate`]) even though `DEFAULT_ORDERING_MULTIPLICITY_BUDGET` can
+/// separately refuse an oversized stratum. Unlike THAT predicate (whose own `unordered-application.
+/// unbounded` split is a PERMANENT cost carve-out this plan explicitly does not attempt to close,
+/// design.md D2 row 3), `Compounding`'s row was marked PROVABLE precisely because its classifying
+/// signal (`detail.recursive`) was a CONSTRUCTION gap, not a cost one — so once the construction
+/// exists, nothing about `Compounding` licenses a capability-layer cost carve-out the way
+/// `UnorderedMorphRuleApplication`'s does. `ADR 0005`'s override remains available for any grammar
+/// this predicate's own `ConfirmOnly` verdict does not by itself unblock (e.g. a grammar tripping
+/// `crate::emit`'s own compile-time budget).
 ///
 /// # Node applicability
 /// Like [`ReduplicationPeelSupportedPredicate`]/[`CircumfixStructuralCompositePredicate`]:
@@ -2568,28 +2774,19 @@ impl CapabilityPredicate for CompoundingRecursionSafePredicate {
         profile: &CharacteristicsProfile,
         _plan_node: &PlanNodeKind,
     ) -> PredicateVerdict {
-        let mut any_observed = false;
-        for detail in profile.compounding_details() {
-            any_observed = true;
-            if detail.recursive {
-                return PredicateVerdict::Refuse(CapabilityDiagnostic {
-                    predicate: self.id(),
-                    construct: format!("mrule {} (CompoundingRule)", detail.rule.0),
-                    witness: "compounding_recursive's rule-graph reachability pass found this \
-                              rule's own head/non-head stem search reachable from a Compounding \
-                              application's output -- either self-feeding (multipleApplication > \
-                              1) or a distinct CompoundingRule sharing or preceding its stratum. \
-                              compounding.recursive stays FailClosed/Refuse (design.md D2 item 3); \
-                              the ADR 0005 override is the on-ramp to force-compile it."
-                        .to_string(),
-                });
-            }
-        }
-        if any_observed {
-            PredicateVerdict::ConfirmOnly
-        } else {
-            PredicateVerdict::Admit
-        }
+        // Task 4.1 (design.md row 2): `crate::emit`'s "bounded compound loop" now unrolls
+        // `max_depth - 1` extra non-head root levels (`build_compound_chain`), consuming this
+        // predicate's own precomputed `CompoundingDetail::max_depth` bound directly -- so every
+        // observed `Compounding` rule, `detail.recursive` true or false, gets the SAME faithful,
+        // over-approximating proposal (this predicate's own doc, "the recursive split is now closed
+        // too"). No configuration remains for this predicate to `Refuse` on structural grounds; a
+        // pathologically deep grammar's own COST is refused separately, at compile time, by
+        // `crate::emit`'s own `DEFAULT_COMPOUND_CHAIN_DEPTH_BUDGET` (this predicate's own doc, "Cost
+        // stays a SEPARATE concern").
+        profile.compounding_details().next().map_or(
+            PredicateVerdict::Admit,
+            |_| PredicateVerdict::ConfirmOnly,
+        )
     }
 }
 
@@ -3660,6 +3857,14 @@ mod tests {
             !details[0].recursive,
             "a single isolated CompoundingRule must characterize non-recursive: {details:?}"
         );
+        // Task 4.1 (design.md row 2, piece 1): the depth bound for the ordinary head+non-head
+        // shape is exactly 2 stems -- the number `compounding.non-recursive`'s own construction
+        // already covers faithfully.
+        assert_eq!(
+            details[0].max_depth, 2,
+            "an isolated multipleApplication-default(1) CompoundingRule must bound at exactly 2 \
+             stems: {details:?}"
+        );
     }
 
     /// `openspec/changes/cover-compounding` (design.md D2 item 3): a `CompoundingRule` with
@@ -3704,6 +3909,61 @@ mod tests {
         assert!(
             details[0].recursive,
             "multipleApplication > 1 must characterize compounding.recursive: {details:?}"
+        );
+        // Task 4.1: max_depth = 1 (base) + max_apps(2) = 3 stems for this isolated self-feeding rule.
+        assert_eq!(
+            details[0].max_depth, 3,
+            "multipleApplication=2 on an otherwise-isolated rule must bound at exactly 3 stems: \
+             {details:?}"
+        );
+    }
+
+    /// Task 4.1 (design.md row 2, piece 1): the depth bound must SCALE with `multipleApplication`,
+    /// not just cross the non-recursive/recursive threshold -- pins an exact, larger number
+    /// (`multipleApplication="5"` -> `max_depth = 6`), and doubles as a "never a hang" witness: this
+    /// grammar's reachability pass must terminate promptly despite a real self-loop in the "feeds"
+    /// graph.
+    #[test]
+    fn compounding_max_depth_scales_with_multiple_application() {
+        const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /></SegmentNaturalClass></NaturalClasses>
+          <Strata>
+            <Stratum characterDefinitionTable="t1" morphologicalRules="cr1">
+              <Name>S</Name>
+              <MorphologicalRuleDefinitions>
+                <CompoundingRule id="cr1" multipleApplication="5">
+                  <Name>Compound</Name>
+                  <CompoundingSubrules>
+                    <CompoundingSubrule>
+                      <HeadMorphologicalInput>
+                        <PhoneticSequence id="h0"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
+                      </HeadMorphologicalInput>
+                      <NonHeadMorphologicalInput>
+                        <PhoneticSequence id="n0"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
+                      </NonHeadMorphologicalInput>
+                      <MorphologicalOutput>
+                        <CopyFromInput index="n0" />
+                        <CopyFromInput index="h0" />
+                      </MorphologicalOutput>
+                    </CompoundingSubrule>
+                  </CompoundingSubrules>
+                </CompoundingRule>
+              </MorphologicalRuleDefinitions>
+            </Stratum>
+          </Strata>
+        </Language></HermitCrabInput>"#;
+        let g = load(XML);
+        let profile = characterize(&g);
+        let details: Vec<_> = profile.compounding_details().collect();
+        assert_eq!(details.len(), 1);
+        assert!(details[0].recursive);
+        assert_eq!(
+            details[0].max_depth, 6,
+            "multipleApplication=5 on an otherwise-isolated rule must bound at exactly 6 stems \
+             (1 base + 5 applications): {details:?}"
         );
     }
 
@@ -3767,6 +4027,246 @@ mod tests {
             details.iter().all(|d| d.recursive),
             "two co-located CompoundingRules must both characterize recursive: {details:?}"
         );
+        // Task 4.1: max_depth(cr1) = 1 (base) + max_apps(cr1)=1 + max_apps(cr2)=1 = 3, and
+        // symmetrically for cr2 (each is the other's own ancestor under same-stratum co-location).
+        assert!(
+            details.iter().all(|d| d.max_depth == 3),
+            "two co-located CompoundingRules (max_apps=1 each) must both bound at exactly 3 \
+             stems: {details:?}"
+        );
+    }
+
+    /// Task 4.1 (design.md row 2, piece 1): THREE co-located `CompoundingRule`s (not just two) must
+    /// scale the bound accordingly (`1 + 1 + 1 + 1 = 4`) and must all agree (a genuine mutual cycle
+    /// of size 3, not just a pair) -- also a "never a hang" witness for a larger reachability graph.
+    #[test]
+    fn compounding_max_depth_scales_with_co_located_rule_count() {
+        const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /></SegmentNaturalClass></NaturalClasses>
+          <Strata>
+            <Stratum characterDefinitionTable="t1" morphologicalRules="cr1 cr2 cr3">
+              <Name>S</Name>
+              <MorphologicalRuleDefinitions>
+                <CompoundingRule id="cr1">
+                  <Name>Compound1</Name>
+                  <CompoundingSubrules>
+                    <CompoundingSubrule>
+                      <HeadMorphologicalInput>
+                        <PhoneticSequence id="h0"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
+                      </HeadMorphologicalInput>
+                      <NonHeadMorphologicalInput>
+                        <PhoneticSequence id="n0"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
+                      </NonHeadMorphologicalInput>
+                      <MorphologicalOutput>
+                        <CopyFromInput index="n0" />
+                        <CopyFromInput index="h0" />
+                      </MorphologicalOutput>
+                    </CompoundingSubrule>
+                  </CompoundingSubrules>
+                </CompoundingRule>
+                <CompoundingRule id="cr2">
+                  <Name>Compound2</Name>
+                  <CompoundingSubrules>
+                    <CompoundingSubrule>
+                      <HeadMorphologicalInput>
+                        <PhoneticSequence id="h1"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
+                      </HeadMorphologicalInput>
+                      <NonHeadMorphologicalInput>
+                        <PhoneticSequence id="n1"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
+                      </NonHeadMorphologicalInput>
+                      <MorphologicalOutput>
+                        <CopyFromInput index="n1" />
+                        <CopyFromInput index="h1" />
+                      </MorphologicalOutput>
+                    </CompoundingSubrule>
+                  </CompoundingSubrules>
+                </CompoundingRule>
+                <CompoundingRule id="cr3">
+                  <Name>Compound3</Name>
+                  <CompoundingSubrules>
+                    <CompoundingSubrule>
+                      <HeadMorphologicalInput>
+                        <PhoneticSequence id="h2"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
+                      </HeadMorphologicalInput>
+                      <NonHeadMorphologicalInput>
+                        <PhoneticSequence id="n2"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
+                      </NonHeadMorphologicalInput>
+                      <MorphologicalOutput>
+                        <CopyFromInput index="n2" />
+                        <CopyFromInput index="h2" />
+                      </MorphologicalOutput>
+                    </CompoundingSubrule>
+                  </CompoundingSubrules>
+                </CompoundingRule>
+              </MorphologicalRuleDefinitions>
+            </Stratum>
+          </Strata>
+        </Language></HermitCrabInput>"#;
+        let g = load(XML);
+        let profile = characterize(&g);
+        let details: Vec<_> = profile.compounding_details().collect();
+        assert_eq!(details.len(), 3);
+        assert!(details.iter().all(|d| d.recursive));
+        assert!(
+            details.iter().all(|d| d.max_depth == 4),
+            "three co-located CompoundingRules (max_apps=1 each) must all bound at exactly 4 \
+             stems (1 base + 1 + 1 + 1): {details:?}"
+        );
+    }
+
+    /// Task 4.1 (design.md row 2, piece 1): the bound is NOT always symmetric across a rule pair --
+    /// two DISTINCT strata where only the EARLIER rule feeds the LATER one (never the reverse) must
+    /// give the earlier rule its own isolated (non-recursive, depth-2) bound while the later rule's
+    /// bound reflects being fed (recursive, depth-3). Pins the directionality
+    /// `compounding_max_depth`'s own doc claims, not just the same-stratum symmetric cases above.
+    #[test]
+    fn compounding_max_depth_is_asymmetric_across_strata() {
+        const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /></SegmentNaturalClass></NaturalClasses>
+          <Strata>
+            <Stratum characterDefinitionTable="t1" morphologicalRules="cr1">
+              <Name>Earlier</Name>
+              <MorphologicalRuleDefinitions>
+                <CompoundingRule id="cr1">
+                  <Name>Compound1</Name>
+                  <CompoundingSubrules>
+                    <CompoundingSubrule>
+                      <HeadMorphologicalInput>
+                        <PhoneticSequence id="h0"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
+                      </HeadMorphologicalInput>
+                      <NonHeadMorphologicalInput>
+                        <PhoneticSequence id="n0"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
+                      </NonHeadMorphologicalInput>
+                      <MorphologicalOutput>
+                        <CopyFromInput index="n0" />
+                        <CopyFromInput index="h0" />
+                      </MorphologicalOutput>
+                    </CompoundingSubrule>
+                  </CompoundingSubrules>
+                </CompoundingRule>
+              </MorphologicalRuleDefinitions>
+            </Stratum>
+            <Stratum characterDefinitionTable="t1" morphologicalRules="cr2">
+              <Name>Later</Name>
+              <MorphologicalRuleDefinitions>
+                <CompoundingRule id="cr2">
+                  <Name>Compound2</Name>
+                  <CompoundingSubrules>
+                    <CompoundingSubrule>
+                      <HeadMorphologicalInput>
+                        <PhoneticSequence id="h1"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
+                      </HeadMorphologicalInput>
+                      <NonHeadMorphologicalInput>
+                        <PhoneticSequence id="n1"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
+                      </NonHeadMorphologicalInput>
+                      <MorphologicalOutput>
+                        <CopyFromInput index="n1" />
+                        <CopyFromInput index="h1" />
+                      </MorphologicalOutput>
+                    </CompoundingSubrule>
+                  </CompoundingSubrules>
+                </CompoundingRule>
+              </MorphologicalRuleDefinitions>
+            </Stratum>
+          </Strata>
+        </Language></HermitCrabInput>"#;
+        let g = load(XML);
+        let profile = characterize(&g);
+        let details: Vec<_> = profile.compounding_details().collect();
+        assert_eq!(details.len(), 2);
+        let earlier = details.iter().find(|d| d.rule.0 == 0).unwrap();
+        let later = details.iter().find(|d| d.rule.0 == 1).unwrap();
+        assert!(
+            !earlier.recursive,
+            "the earlier stratum's rule is never fed by anything -- must stay non-recursive: \
+             {details:?}"
+        );
+        assert_eq!(earlier.max_depth, 2, "earlier rule's own isolated bound: {details:?}");
+        assert!(
+            later.recursive,
+            "the later stratum's rule IS fed by the earlier one -- must characterize recursive: \
+             {details:?}"
+        );
+        assert_eq!(
+            later.max_depth, 3,
+            "later rule's bound must include the earlier rule's own max_apps contribution: \
+             {details:?}"
+        );
+    }
+
+    /// Task 4.1 (`compounding_max_depth`'s own doc, "Depth unit" paragraph): a direct, from-scratch
+    /// proof that `detail.recursive == (detail.max_depth > 2)` holds across every shape the tests
+    /// above exercise -- not merely asserted in the doc comment, checked here against
+    /// `compounding_recursive`/`compounding_max_depth` run independently over four distinct grammars
+    /// (isolated non-recursive; self multipleApplication=2; two co-located; earlier-feeds-later
+    /// asymmetric).
+    #[test]
+    fn compounding_max_depth_matches_compounding_recursive_boolean_exactly() {
+        fn one_rule_xml(multiple_application: &str) -> String {
+            format!(
+                r#"<HermitCrabInput><Language><Name>X</Name>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /></SegmentNaturalClass></NaturalClasses>
+          <Strata>
+            <Stratum characterDefinitionTable="t1" morphologicalRules="cr1">
+              <Name>S</Name>
+              <MorphologicalRuleDefinitions>
+                <CompoundingRule id="cr1"{multiple_application}>
+                  <Name>Compound</Name>
+                  <CompoundingSubrules>
+                    <CompoundingSubrule>
+                      <HeadMorphologicalInput>
+                        <PhoneticSequence id="h0"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
+                      </HeadMorphologicalInput>
+                      <NonHeadMorphologicalInput>
+                        <PhoneticSequence id="n0"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
+                      </NonHeadMorphologicalInput>
+                      <MorphologicalOutput>
+                        <CopyFromInput index="n0" />
+                        <CopyFromInput index="h0" />
+                      </MorphologicalOutput>
+                    </CompoundingSubrule>
+                  </CompoundingSubrules>
+                </CompoundingRule>
+              </MorphologicalRuleDefinitions>
+            </Stratum>
+          </Strata>
+        </Language></HermitCrabInput>"#
+            )
+        }
+
+        for (xml, label) in [
+            (one_rule_xml(""), "isolated, default multipleApplication=1"),
+            (one_rule_xml(" multipleApplication=\"2\""), "isolated, self-feeding"),
+            (one_rule_xml(" multipleApplication=\"7\""), "isolated, self-feeding, larger bound"),
+        ] {
+            let g = load(&xml);
+            let recursive_set = compounding_recursive(&g);
+            let depth_map = compounding_max_depth(&g);
+            for mid in recursive_set
+                .iter()
+                .copied()
+                .chain(depth_map.keys().copied())
+                .collect::<HashSet<_>>()
+            {
+                let is_recursive = recursive_set.contains(&mid);
+                let depth = depth_map[&mid];
+                assert_eq!(
+                    is_recursive,
+                    depth > 2,
+                    "{label}: recursive={is_recursive} but max_depth={depth} for rule {mid:?} -- \
+                     the equivalence compounding_max_depth's own doc claims must hold exactly"
+                );
+            }
+        }
     }
 
     /// `cover-unordered-morph-rules`: `MorphRuleOrder::Unordered` now characterizes
@@ -4038,11 +4538,14 @@ mod tests {
         );
     }
 
-    /// Negative witness (task 2.1): two tables that SHARE a literal representation (the residual
-    /// case the threading fix cannot make faithful, module doc) must `Refuse`, naming the shared
-    /// representation.
+    /// Positive witness (task 4.4b, flipped from the old `Refuse` verdict): two tables that SHARE
+    /// a literal representation must now `ConfirmOnly`, not `Refuse` — `docs/conformance/
+    /// multitable-shared-representation-design.md`'s own headline finding is that a shared
+    /// representation is a FALSE-NEGATIVE risk (render-time cross-table aliasing,
+    /// `crate::replace::RepresentationAliasMap`/`SegAlphabet::render_tokens`, closes it for rewrite
+    /// rules), not a false-positive one — the direction the old `Refuse` verdict assumed.
     #[test]
-    fn multi_table_predicate_refuses_when_tables_share_a_representation() {
+    fn multi_table_predicate_confirm_only_when_tables_share_a_representation() {
         let g = load(TWO_TABLE_OVERLAPPING_XML);
         assert_eq!(g.char_tables.len(), 2);
         let profile = characterize(&g);
@@ -4057,12 +4560,12 @@ mod tests {
             .contains("\"p\""));
 
         let predicate = MultiTableFaithfulThreadingPredicate;
-        match predicate.evaluate(&profile, &leaf_for(PRuleId(0))) {
-            PredicateVerdict::Refuse(diag) => {
-                assert_eq!(diag.predicate, "multi-table.faithful-table-threading");
-            }
-            other => panic!("expected Refuse for overlapping-representation tables, got {other:?}"),
-        }
+        assert_eq!(
+            predicate.evaluate(&profile, &leaf_for(PRuleId(0))),
+            PredicateVerdict::ConfirmOnly,
+            "overlapping-representation tables must ConfirmOnly, never Refuse, after the \
+             cross-table aliasing fix"
+        );
     }
 
     /// A single-table grammar never observes `MultiTable` at all, and the predicate vacuously
@@ -5924,11 +6427,16 @@ mod tests {
         );
     }
 
-    /// `openspec/changes/cover-compounding` (design.md D2 item 3): a `Compounding` rule with
-    /// `multipleApplication > 1` (self-feeding) must compose to `Refuse`, with a diagnostic naming
-    /// compounding.
+    /// `openspec/changes/plan-construct-coverage-completion` task 4.1 (design.md row 2): a
+    /// `Compounding` rule with `multipleApplication > 1` (self-feeding) now composes to
+    /// `ConfirmOnly`, exactly like the non-recursive case — `crate::emit`'s "bounded compound loop"
+    /// (`build_compound_chain`) now unrolls enough extra non-head root levels to realize this
+    /// rule's own computed `max_depth`, closing the construction gap
+    /// `CompoundingRecursionSafePredicate`'s own doc used to cite for staying `Refuse`. Renamed from
+    /// `compose_envelope_refuses_recursive_compounding_grammar` (this exact fixture previously
+    /// pinned the pre-task-4.1 `Refuse` verdict this promotion supersedes).
     #[test]
-    fn compose_envelope_refuses_recursive_compounding_grammar() {
+    fn compose_envelope_confirm_only_for_recursive_compounding_grammar() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
@@ -5963,15 +6471,12 @@ mod tests {
         let plan = enumerated_plan(&g);
         let registry = default_registry();
 
-        match compose_envelope(&g, &plan, &registry) {
-            CompileDecision::Refuse(diags) => {
-                assert!(
-                    diags.iter().any(|d| d.construct.contains("Compounding")),
-                    "expected a diagnostic naming Compounding: {diags:?}"
-                );
-            }
-            other => panic!("expected Refuse, got {other:?}"),
-        }
+        assert_eq!(
+            compose_envelope(&g, &plan, &registry),
+            CompileDecision::ConfirmOnly,
+            "a self-feeding (multipleApplication > 1) Compounding rule must now compose to \
+             ConfirmOnly, same as the non-recursive case -- task 4.1 closed the construction gap"
+        );
     }
 
     /// `cover-unordered-morph-rules`: a chain-depth-bounded (zero-rule, trivially within-bound)
@@ -6453,19 +6958,27 @@ mod tests {
         }
     }
 
-    /// Meet correctness: a grammar that is BOTH ConfirmOnly-worthy (an Append group) AND
-    /// Refuse-worthy (a self-feeding, `compounding.recursive` `Compounding` rule —
-    /// `multipleApplication="2"`, `openspec/changes/cover-compounding` design.md D2 item 3) must
-    /// compose to `Refuse` overall (Refuse dominates), and the `Refuse` must carry a diagnostic for
-    /// the refusing construct (Compounding), not just silently drop it because a milder ConfirmOnly
-    /// construct is ALSO present.
+    /// Meet correctness: a grammar that is BOTH ConfirmOnly-worthy (a self-feeding, now-`ConfirmOnly`
+    /// `Compounding` rule — `multipleApplication="2"`, `plan-construct-coverage-completion` task 4.1
+    /// promoted `compounding.recursive` off `Refuse`, so this alone no longer refuses) AND
+    /// Refuse-worthy (an `Overwrite`-output `MprGroup`, permanently `FailClosed` —
+    /// `MprGroupOverwriteFailClosedPredicate`, `cover-mpr-groups` design.md D3) must compose to
+    /// `Refuse` overall (Refuse dominates), and the `Refuse` must carry a diagnostic for the
+    /// refusing construct (the Overwrite `MprGroup`), not just silently drop it because a milder
+    /// ConfirmOnly construct (Compounding) is ALSO present. Originally used an Append group +
+    /// self-feeding Compounding rule as the ConfirmOnly/Refuse pair; task 4.1's own promotion
+    /// removed Compounding's own Refuse split, so this test's Refuse-worthy half was swapped to
+    /// `Overwrite` (a genuinely permanent carve-out, `compose_envelope_refuses_for_overwrite_group_
+    /// alone`'s own fixture) while the milder co-occurring construct became Compounding itself —
+    /// the meet-correctness claim this test makes is unaffected by which two dispositions supply
+    /// the ConfirmOnly/Refuse pair.
     #[test]
     fn compose_envelope_meet_correctness_refuse_dominates_confirm_only() {
-        const XML: &str = r#"<HermitCrabInput><Language><Name>AppendPlusCompound</Name>
+        const XML: &str = r#"<HermitCrabInput><Language><Name>OverwritePlusCompound</Name>
           <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <MorphologicalPhonologicalRuleFeatures>
             <MorphologicalPhonologicalRuleFeature id="mprA">A</MorphologicalPhonologicalRuleFeature>
-            <MorphologicalPhonologicalRuleFeatureGroup matchType="all" outputType="append" features="mprA"><Name>GAppend</Name></MorphologicalPhonologicalRuleFeatureGroup>
+            <MorphologicalPhonologicalRuleFeatureGroup matchType="all" outputType="overwrite" features="mprA"><Name>GOverwrite</Name></MorphologicalPhonologicalRuleFeatureGroup>
           </MorphologicalPhonologicalRuleFeatures>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions><SegmentDefinition id="c1"><Representations><Representation>p</Representation></Representations></SegmentDefinition></SegmentDefinitions>
@@ -6504,9 +7017,14 @@ mod tests {
         </Language></HermitCrabInput>"#;
         let g = load(XML);
         assert!(!g.mpr_groups.is_empty(), "fixture must declare an MprGroup");
+        assert_eq!(
+            g.mpr_groups[0].output,
+            MprGroupOutput::Overwrite,
+            "fixture must declare an Overwrite-output MprGroup (the Refuse-worthy half)"
+        );
         assert!(
             g.mrules.iter().any(|m| matches!(m, MorphRuleDef::Compounding(_))),
-            "fixture must declare a Compounding rule"
+            "fixture must declare a Compounding rule (the ConfirmOnly-worthy half)"
         );
 
         let plan = enumerated_plan(&g);
@@ -6515,9 +7033,9 @@ mod tests {
         match compose_envelope(&g, &plan, &registry) {
             CompileDecision::Refuse(diags) => {
                 assert!(
-                    diags.iter().any(|d| d.construct.contains("Compounding")),
-                    "Refuse must carry a diagnostic naming Compounding, not just meet away to a \
-                     bare ConfirmOnly: {diags:?}"
+                    diags.iter().any(|d| d.construct.contains("Overwrite")),
+                    "Refuse must carry a diagnostic naming the Overwrite MprGroup, not just meet \
+                     away to a bare ConfirmOnly: {diags:?}"
                 );
             }
             other => panic!(

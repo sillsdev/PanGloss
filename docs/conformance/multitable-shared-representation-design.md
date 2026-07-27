@@ -137,6 +137,44 @@ test is a check on the implementation rather than on the argument — but it mus
 "only ever adds" is exactly the kind of claim that a stray `class_members` change could silently
 falsify later.
 
+## Status 2026-07-26 — BUILT, and the recall loss was confirmed by measurement
+
+Implemented as designed. The one thing this document deliberately left open — whether the recall loss
+is *reachable* rather than merely structural — is now settled by demonstration rather than argument:
+
+- **The loss is real.** `tests/two_table_shared_representation_recall.rs::
+  pre_fix_equivalent_rule_never_fires_on_table_a_originated_material` builds a pre-fix-equivalent rule
+  net (bare `SegAlphabet::token`, no aliasing) and shows it leaves table-A-originated material
+  **unchanged** — the rule silently fails to fire. Its sibling
+  `current_compile_fires_on_table_a_originated_material` shows the aliased path now rewrites it. So the
+  false-negative direction this document argued for was correct, and it was reproduced before being
+  closed.
+- Fixture: `conformance-staging/edge-cases/two-table-shared-representation-recall` — a root on an inner
+  stratum's table and an obligatory rule on an outer stratum's table, sharing a spelling at a
+  deliberately **misaligned raw index**, which is the precise condition that makes the tokens differ.
+- Containment holds across the table boundary, compared at the `structured` morpheme-id level (the
+  methodology `two_table_symbol_divergence.rs` already established).
+- `encode_query` verified to stay single-token, per item 4 — a query must not become ambiguous.
+- The predicate's shared-representation arm is `Refuse` → `ConfirmOnly`, and its "why disjointness is
+  the proof obligation" section is rewritten to name the false-negative direction as the real risk.
+
+Implementation note worth recording: threading `TableId` cost **one** changed call site rather than
+the ~40 the design feared. `SegAlphabet` gained an optional aliasing field plus a `with_table_id`
+constructor, leaving `SegAlphabet::new` untouched, and only `compile_rewrite_rule_subset` — which
+already resolves the rule's owning table — builds the alias-aware alphabet. No public signature
+changed.
+
+### Residual gap this fix does NOT close
+
+`compile_metathesis_swap_net` renders tokens **directly** rather than through `render_slots`, so the
+alias expansion never reaches it. A `Metathesis` rule in a grammar whose tables share a normalized
+representation remains exposed to exactly the false negative aliasing fixed everywhere else. The
+exposure is advisory-only today (the predicate is `ConfirmOnly` and `CompileDecision` is check-only),
+but the honest boundary moved without this path being covered, and the exposure widened slightly when
+right-to-left metathesis began compiling more shapes. Either route metathesis rendering through the
+alias-expanded path — preferred — or name "Metathesis plus shared cross-table representations" as a
+refused shape in the predicate's witness. Tracked.
+
 ## What this design does NOT settle
 
 - **Whether the false-negative I describe is reachable today.** It is currently unreachable *by

@@ -3,12 +3,24 @@
 //! behavior for a two-table grammar whose tables share a literal representation ("s") denoting a
 //! DIFFERENT segment identity in each --
 //!
-//! 1. the capability gate's `Refuse` verdict (`multi-table.faithful-table-threading`), and
+//! 1. the capability gate's `ConfirmOnly` verdict (`multi-table.faithful-table-threading`), and
 //! 2. the oracle's (`pg_parse::Morpher`) own correct, unaffected analysis of every reachable word.
 //!
-//! This test is the one that should FAIL -- prompting deliberate review -- the day
-//! `MultiTableFaithfulThreadingPredicate` is promoted to admit a shared-representation
-//! configuration (e.g. via the PUA-reserved-range-per-table encoding design.md's own doc proposes).
+//! ## Flipped from `Refuse` (`plan-construct-coverage-completion` task 4.4b)
+//! This test used to pin a `Refuse` verdict, with a doc note that it "is the one that should FAIL
+//! -- prompting deliberate review -- the day `MultiTableFaithfulThreadingPredicate` is promoted to
+//! admit a shared-representation configuration". That day is this task: `docs/conformance/
+//! multitable-shared-representation-design.md`'s own headline finding is that a shared
+//! representation is a FALSE-NEGATIVE risk (a table-B rule failing to fire on table-A-originated
+//! material spelled the same way), not the false-POSITIVE risk the predicate's old doc assumed --
+//! and `crate::replace::RepresentationAliasMap`/`SegAlphabet::render_tokens` (render-time
+//! cross-table token aliasing) closes that gap for rewrite rules, so `Refuse` was strictly more
+//! conservative than the real risk warranted. This fixture's OWN grammar has no rule threading
+//! material between the two tables at all (each stratum's own lexicon is independent, STAGING.md's
+//! own "Verification" note) — a plain, uncomplicated shared-representation grammar with nothing for
+//! the aliasing fix to actually exercise — so it stays exactly the right fixture to pin the
+//! predicate's OWN verdict; `tests/two_table_shared_representation_recall.rs` (this same task) is
+//! the fixture that actually exercises aliasing firing on cross-table material.
 
 use std::fs;
 use std::path::Path;
@@ -31,23 +43,18 @@ fn load() -> Grammar {
     pg_grammar::load(&xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"))
 }
 
-/// The capability gate's own verdict: `Refuse`, naming `MultiTable`, for the two tables' shared
+/// The capability gate's own verdict: `ConfirmOnly` (never `Refuse`), for the two tables' shared
 /// "s" representation.
 #[test]
-fn capability_gate_refuses_shared_representation_across_tables() {
+fn capability_gate_confirm_only_for_shared_representation_across_tables() {
     let g = load();
     assert_eq!(g.char_tables.len(), 2, "fixture must declare exactly 2 tables");
-    match evaluate_capability(&g) {
-        CompileDecision::Refuse(diags) => {
-            assert!(
-                diags.iter().any(|d| d.predicate == "multi-table.faithful-table-threading"),
-                "expected the multi-table.faithful-table-threading predicate to refuse: {diags:?}"
-            );
-        }
-        other => panic!(
-            "expected Refuse for two tables sharing a representation, got {other:?}"
-        ),
-    }
+    assert_eq!(
+        evaluate_capability(&g),
+        CompileDecision::ConfirmOnly,
+        "two tables sharing a representation must ConfirmOnly, never Refuse or Admit, after the \
+         cross-table aliasing fix"
+    );
 }
 
 /// The Outer stratum's own roots (table t2, the grammar's LAST/surface table) parse correctly via

@@ -280,10 +280,12 @@ use foma::regex::fsm_parse_regex;
 use foma::reverse::fsm_reverse;
 use foma::types::Fsm;
 
+use std::collections::HashMap;
+
 use pg_grammar::chardef::{CharDefId, CharDefTable};
 use pg_grammar::model::{
     Dir, Grammar, MetathesisRuleDef, PhonRuleDef, PRuleId, RewriteMode, RewriteRuleDef,
-    RewriteSubruleDef,
+    RewriteSubruleDef, TableId,
 };
 
 use crate::compose_budget::{compose_checked, union_checked, ComposeBudget, ComposeError};
@@ -293,16 +295,115 @@ use crate::compose_budget::{compose_checked, union_checked, ComposeBudget, Compo
 /// overflow the PUA block.
 const PUA_BASE: u32 = 0xE000;
 
+/// Cross-table representation aliasing (`docs/conformance/multitable-shared-representation-
+/// design.md`, "The recommended fix: cross-table representation aliasing"): a normalized
+/// representation -> every `(TableId, CharDefId)` across the WHOLE grammar that spells it,
+/// built once per grammar. **Same NFD normalization as [`CharDefTable::lookup_nfd`]/
+/// [`crate::emit::surface_variants`]** — this reuses [`pg_grammar::chardef::CharDef::
+/// representations_nfd`] directly (the exact keys `CharDefTable`'s own internal `lookup` map is
+/// built from, `pg-grammar/src/chardef.rs`'s `from_raw`), never a second, independently-derived
+/// normalization.
+///
+/// Mirrors `capability.rs`'s own `multi_table_detail` pairwise-disjointness check (same source
+/// data, same normalization), but keeps every table's own contribution instead of only recording
+/// whether an overlap exists at all — [`Self::aliases_for`] is the render-time consumer.
+pub(crate) struct RepresentationAliasMap {
+    by_repr: HashMap<String, Vec<(TableId, CharDefId)>>,
+}
+
+impl RepresentationAliasMap {
+    /// Cheap: `O(total char-defs across every table)`, a characterization-time cost identical in
+    /// shape to `multi_table_detail`'s own pairwise scan (that function's own doc: "cheap for any
+    /// grammar in scope — table counts are small"). Built fresh per call (not memoized across
+    /// rules) — deliberately simple for now; alias-set size/rebuild cost is a `ComposeBudget`
+    /// question the design doc's own "What this design does NOT settle" section defers to future
+    /// measurement on a real multi-table grammar, not something to guess a cache shape for here.
+    pub(crate) fn build(g: &Grammar) -> Self {
+        let mut by_repr: HashMap<String, Vec<(TableId, CharDefId)>> = HashMap::new();
+        for (ti, table) in g.char_tables.iter().enumerate() {
+            let table_id = TableId(ti as u16);
+            for (cd_id, cd) in table.iter() {
+                for rep in cd.representations_nfd() {
+                    by_repr.entry(rep.clone()).or_default().push((table_id, cd_id));
+                }
+            }
+        }
+        RepresentationAliasMap { by_repr }
+    }
+
+    /// Every `(TableId, CharDefId)` — ALWAYS including `(table_id, cd)` itself — that shares any
+    /// normalized representation with `cd` (resolved in `table`, which the caller asserts is
+    /// `table_id`'s own table). Order is insertion order (grammar's own `char_tables` order, then
+    /// each table's own char-def order) and deduplicated, so a single-table grammar (or a
+    /// multi-table grammar where `cd`'s spelling happens to be unique to its own table) always
+    /// returns exactly `[(table_id, cd)]` — the design's own recall-safety argument ("only ever
+    /// ADDS alternatives") made concrete: this never returns an EMPTY set, and never omits the
+    /// atom's own table/cd pair.
+    fn aliases_for(&self, table: &CharDefTable, table_id: TableId, cd: CharDefId) -> Vec<(TableId, CharDefId)> {
+        let mut out: Vec<(TableId, CharDefId)> = Vec::new();
+        for rep in table.get(cd).representations_nfd() {
+            if let Some(group) = self.by_repr.get(rep) {
+                for &pair in group {
+                    if !out.contains(&pair) {
+                        out.push(pair);
+                    }
+                }
+            }
+        }
+        if !out.contains(&(table_id, cd)) {
+            // Defensive only: `cd`'s own representations always index back to `(table_id, cd)`
+            // itself in `by_repr` (built from the same `CharDefTable::iter`/
+            // `representations_nfd` data) -- this branch exists so a future change to how the
+            // map is built/consulted can never silently DROP the atom's own token, never to
+            // paper over a real bug (see `RepresentationAliasMap` build's own doc).
+            out.push((table_id, cd));
+        }
+        out
+    }
+}
+
 /// Maps [`CharDefId`]s to/from single Private-Use-Area codepoints (module doc). Cheap to
 /// construct (`table` borrow only); one instance is shared across rule compilation, lexc
 /// emission, and query encoding for one grammar/table pair.
 pub struct SegAlphabet<'t> {
     table: &'t CharDefTable,
+    /// This alphabet's own table identity plus the grammar-wide [`RepresentationAliasMap`],
+    /// together — only ever both-or-neither (`docs/conformance/multitable-shared-representation-
+    /// design.md` item 2: "no defaulted `TableId`" — a `TableId` with no alias map to consult
+    /// would be exactly the same "implicit default" mistake class [`owning_table`] was introduced
+    /// to remove; an alias map with no `TableId` to alias FROM is meaningless). `None` for every
+    /// call site built via [`Self::new`] (every pre-existing caller in this crate: `emit.rs`,
+    /// `uflexc.rs`, `gate.rs`, `enumerate.rs`, `oracle.rs`, `capability.rs`, `capability_entry.rs`,
+    /// `plan_interaction_coverage.rs`, every test module) — `None` is an honest "this alphabet was
+    /// never asked to alias," never a silent guess of table 0. Only [`Self::render_tokens`] reads
+    /// this field; every other method ([`Self::token`]/[`Self::encode_shape`]/
+    /// [`Self::encode_query`]) is completely unaffected by it (design item 4: query/shape encoding
+    /// must never alias).
+    aliasing: Option<(TableId, &'t RepresentationAliasMap)>,
 }
 
 impl<'t> SegAlphabet<'t> {
     pub fn new(table: &'t CharDefTable) -> Self {
-        SegAlphabet { table }
+        SegAlphabet {
+            table,
+            aliasing: None,
+        }
+    }
+
+    /// The constructor the design mandates for a multi-table-aware, render-time-aliasing caller:
+    /// takes `table` AND its own `table_id` together, never separately/defaulted (design item 2).
+    /// The only production caller is [`compile_rewrite_rule_subset`], which builds one of these
+    /// per rule from [`owning_table`]/[`owning_table_id`]'s own resolution — never `g.char_tables
+    /// [0]`.
+    pub(crate) fn with_table_id(
+        table: &'t CharDefTable,
+        table_id: TableId,
+        aliases: &'t RepresentationAliasMap,
+    ) -> Self {
+        SegAlphabet {
+            table,
+            aliasing: Some((table_id, aliases)),
+        }
     }
 
     /// The single codepoint standing in for `cd` everywhere (lexc lower-tape text, rule regex
@@ -311,11 +412,49 @@ impl<'t> SegAlphabet<'t> {
         char::from_u32(PUA_BASE + cd.0).expect("char table too large for the PUA token scheme")
     }
 
+    /// Every token that should stand for `cd` when RENDERING a pattern atom (a rule's LHS/RHS/
+    /// environment text — [`crate::lower::render_slots`]'s `Slot::Fixed`/`Slot::Union` arms,
+    /// design item 3) — the render-time cross-table alias-expansion union. Exactly `[self.token
+    /// (cd)]`, in the same order, whenever this alphabet carries no [`Self::aliasing`] (built via
+    /// [`Self::new`]) OR `cd`'s own spelling happens to be unique to this table — i.e. byte-
+    /// identical to the pre-aliasing behavior for every existing single-table grammar and every
+    /// multi-table grammar with no shared representation, which is exactly why
+    /// `tests/p6_gate_parity.rs`/`tests/f3_parity.rs` stay green (module doc, "no reference
+    /// grammar is multi-table with shared representations"). When `cd`'s spelling IS shared with
+    /// another table, returns the union over every `(table, cd')` sharing it (deduplicated,
+    /// [`RepresentationAliasMap::aliases_for`]'s own contract) — this only ever ADDS alternatives,
+    /// never removes [`Self::token`]`(cd)` itself, the design's own recall-safety argument.
+    pub(crate) fn render_tokens(&self, cd: CharDefId) -> Vec<char> {
+        match self.aliasing {
+            None => vec![self.token(cd)],
+            Some((table_id, aliases)) => {
+                let mut chars: Vec<char> = aliases
+                    .aliases_for(self.table, table_id, cd)
+                    .into_iter()
+                    .map(|(_tid, acd)| {
+                        // `PUA_BASE + acd.0` -- table-blind by construction (module doc's own
+                        // "Symbol alphabet" section), which is exactly the mechanism this alias
+                        // union relies on: the SAME formula every alphabet already uses for its
+                        // own table's tokens, applied here to ANOTHER table's char-def.
+                        char::from_u32(PUA_BASE + acd.0)
+                            .expect("char table too large for the PUA token scheme")
+                    })
+                    .collect();
+                chars.sort_unstable();
+                chars.dedup();
+                chars
+            }
+        }
+    }
+
     /// Encode a [`pg_shape::Shape`]'s interior nodes (module doc's "already-segmented" shortcut —
     /// root/affix authored text is segmented once at grammar load; this just replays that Shape,
     /// never re-parsing the text) into one token string, Segment and Boundary nodes both kept (a
     /// rule's own context can reference either kind — Indonesian's boundary `char30` is itself
     /// just another char-def with its own token here, module doc).
+    ///
+    /// **Never aliases** (design item 4) — a concrete allomorph's own underlying spelling is not a
+    /// rule pattern; this always calls [`Self::token`] directly, regardless of [`Self::aliasing`].
     pub fn encode_shape(&self, shape: &pg_shape::Shape) -> String {
         shape
             .interior()
@@ -327,6 +466,10 @@ impl<'t> SegAlphabet<'t> {
     /// `pg_grammar::segment::segment_phonemes_only` (drop boundaries — a real surface word never
     /// contains a literal morpheme-boundary character). `None` if the word fails to segment
     /// against this grammar's own surface table (same failure mode `emit.rs`'s query path has).
+    ///
+    /// **Never aliases** (design item 4: "`encode_shape`/`encode_query` must NOT alias... aliasing
+    /// there would make a query word ambiguous") — always [`Self::token`], regardless of
+    /// [`Self::aliasing`].
     pub fn encode_query(&self, word: &str) -> Option<String> {
         let shape = pg_grammar::segment::segment_phonemes_only(self.table, word).ok()?;
         Some(
@@ -360,6 +503,147 @@ impl<'t> SegAlphabet<'t> {
 pub(crate) use crate::lower::{pattern_slots, render_slots, resolve_alpha_tuples, Slot};
 pub use crate::lower::{AlphaAssignment, TupleReport};
 
+#[cfg(test)]
+mod representation_alias_map_tests {
+    //! Unit-level proof for [`RepresentationAliasMap`]/[`SegAlphabet::render_tokens`]
+    //! (`plan-construct-coverage-completion` task 4.4b, `docs/conformance/
+    //! multitable-shared-representation-design.md`) -- narrower and faster than the full
+    //! grammar-level containment gate (`tests/two_table_shared_representation_recall.rs`), pinning
+    //! the aliasing MECHANISM directly: the multimap's own contents, and `render_tokens`' union/
+    //! degenerate-singleton contract.
+    use super::*;
+
+    fn two_table_shared_repr_grammar() -> Grammar {
+        // Table A ("t0"): one segment, "x", at raw index 0. Table B ("t1"): "z" (index 0, decoy --
+        // deliberately misaligns "x"'s own index across the two tables, module doc), "x" (index 1,
+        // the SHARED representation), "y" (index 2). No rules/strata needed at all for this
+        // unit-level probe -- only `Grammar::char_tables` matters to `RepresentationAliasMap`.
+        const XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+<HermitCrabInput>
+  <Language>
+    <Name>AliasMapUnitProbe</Name>
+    <CharacterDefinitionTable id="t0">
+      <Name>TableA</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="c0x"><Representations><Representation>x</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <CharacterDefinitionTable id="t1">
+      <Name>TableB</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="c1z"><Representations><Representation>z</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="c1x"><Representations><Representation>x</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="c1y"><Representations><Representation>y</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+  </Language>
+</HermitCrabInput>
+"#;
+        pg_grammar::load(XML).unwrap_or_else(|e| panic!("alias-map unit probe failed to load: {e}"))
+    }
+
+    /// The multimap itself: "x" (shared) maps to BOTH tables' own `(TableId, CharDefId)`; "z"/"y"
+    /// (unique to table B) map to exactly their own single pair.
+    #[test]
+    fn build_maps_shared_representation_to_every_owning_table_and_cd() {
+        let g = two_table_shared_repr_grammar();
+        let map = RepresentationAliasMap::build(&g);
+
+        let table_a = &g.char_tables[0];
+        let table_b = &g.char_tables[1];
+        let cd_a_x = table_a.lookup_nfd("x").expect("table A declares x");
+        let cd_b_z = table_b.lookup_nfd("z").expect("table B declares z");
+        let cd_b_x = table_b.lookup_nfd("x").expect("table B declares x");
+        let cd_b_y = table_b.lookup_nfd("y").expect("table B declares y");
+        // Misalignment sanity: the shared spelling "x" really does sit at DIFFERENT raw indices in
+        // the two tables -- the whole reason this fix is needed at all.
+        assert_ne!(cd_a_x.0, cd_b_x.0, "the fixture's own misalignment must hold");
+
+        let aliases_x = map.aliases_for(table_b, TableId(1), cd_b_x);
+        assert_eq!(
+            aliases_x.len(),
+            2,
+            "\"x\" is shared by both tables -- aliases_for must return BOTH pairs: {aliases_x:?}"
+        );
+        assert!(aliases_x.contains(&(TableId(0), cd_a_x)));
+        assert!(aliases_x.contains(&(TableId(1), cd_b_x)));
+
+        // "z"/"y" are unique to table B -- aliases_for degenerates to the singleton, exactly
+        // [`Self::token`]'s own pre-aliasing behavior (recall-safety: only ever ADDS, never
+        // removes or alters the unshared case).
+        assert_eq!(map.aliases_for(table_b, TableId(1), cd_b_z), vec![(TableId(1), cd_b_z)]);
+        assert_eq!(map.aliases_for(table_b, TableId(1), cd_b_y), vec![(TableId(1), cd_b_y)]);
+    }
+
+    /// [`SegAlphabet::render_tokens`]: an alphabet built via [`SegAlphabet::new`] (no table
+    /// identity -- every pre-existing call site in this crate) never aliases, REGARDLESS of
+    /// whether the grammar has a shared representation -- `[self.token(cd)]` always, the
+    /// byte-identical-to-today behavior `tests/p6_gate_parity.rs`/`tests/f3_parity.rs` depend on.
+    #[test]
+    fn render_tokens_never_aliases_without_a_table_id() {
+        let g = two_table_shared_repr_grammar();
+        let table_b = &g.char_tables[1];
+        let cd_b_x = table_b.lookup_nfd("x").unwrap();
+        let alphabet = SegAlphabet::new(table_b);
+        assert_eq!(alphabet.render_tokens(cd_b_x), vec![alphabet.token(cd_b_x)]);
+    }
+
+    /// [`SegAlphabet::render_tokens`] via [`SegAlphabet::with_table_id`]: the shared "x" atom
+    /// renders as the UNION of both tables' own tokens (deduplicated, and ALWAYS including the
+    /// alphabet's own `token(cd)` -- the "only ever ADDS" recall-safety property made concrete),
+    /// while the unshared "z"/"y" atoms degenerate to exactly the single-token case.
+    #[test]
+    fn render_tokens_aliases_the_shared_atom_and_degenerates_for_the_unshared_ones() {
+        let g = two_table_shared_repr_grammar();
+        let table_a = &g.char_tables[0];
+        let table_b = &g.char_tables[1];
+        let cd_a_x = table_a.lookup_nfd("x").unwrap();
+        let cd_b_z = table_b.lookup_nfd("z").unwrap();
+        let cd_b_x = table_b.lookup_nfd("x").unwrap();
+        let cd_b_y = table_b.lookup_nfd("y").unwrap();
+        let map = RepresentationAliasMap::build(&g);
+        let alphabet_b = SegAlphabet::with_table_id(table_b, TableId(1), &map);
+
+        let alphabet_a_bare = SegAlphabet::new(table_a);
+        let mut tokens_x = alphabet_b.render_tokens(cd_b_x);
+        tokens_x.sort_unstable();
+        let mut expected_x = vec![alphabet_b.token(cd_b_x), alphabet_a_bare.token(cd_a_x)];
+        expected_x.sort_unstable();
+        assert_eq!(
+            tokens_x, expected_x,
+            "the shared \"x\" atom must render as the union of BOTH tables' own tokens"
+        );
+        assert_eq!(tokens_x.len(), 2, "must actually be two DISTINCT tokens, not a collapsed one");
+
+        assert_eq!(alphabet_b.render_tokens(cd_b_z), vec![alphabet_b.token(cd_b_z)]);
+        assert_eq!(alphabet_b.render_tokens(cd_b_y), vec![alphabet_b.token(cd_b_y)]);
+    }
+
+    /// Design item 4: `encode_shape`/`encode_query` never alias, regardless of whether the
+    /// alphabet was built via [`SegAlphabet::new`] or [`SegAlphabet::with_table_id`] -- a query
+    /// word must stay single-token, never ambiguous.
+    #[test]
+    fn encode_query_is_unaffected_by_table_id_aliasing() {
+        let g = two_table_shared_repr_grammar();
+        let table_b = &g.char_tables[1];
+        let map = RepresentationAliasMap::build(&g);
+        let bare = SegAlphabet::new(table_b);
+        let aliased = SegAlphabet::with_table_id(table_b, TableId(1), &map);
+
+        let bare_query = bare.encode_query("x").expect("\"x\" must segment against table B");
+        let aliased_query = aliased.encode_query("x").expect("\"x\" must segment against table B");
+        assert_eq!(
+            bare_query, aliased_query,
+            "encode_query must be byte-identical whether or not the alphabet carries a TableId"
+        );
+        assert_eq!(
+            bare_query.chars().count(),
+            1,
+            "a single-segment query must encode to exactly one token, never a bracketed union"
+        );
+    }
+}
+
 /// Resolves `rule`'s OWNING [`CharDefTable`] via its owning stratum's `StratumDef::table`
 /// (`openspec/changes/fix-multitable-fst-compilation`, design.md: "Every compiled rule carries its
 /// owning character-table identity explicitly; table zero is never an implicit default").
@@ -392,6 +676,21 @@ pub(crate) fn owning_table<'g>(g: &'g Grammar, rule: &RewriteRuleDef) -> Option<
     owning_table_for_prule_position(g, idx)
 }
 
+/// [`owning_table`]'s sibling returning the resolved [`TableId`] itself rather than the
+/// `&CharDefTable` — needed by [`compile_rewrite_rule_subset`] to build a [`SegAlphabet::
+/// with_table_id`] alphabet that can name itself for cross-table representation aliasing
+/// (`docs/conformance/multitable-shared-representation-design.md`). Shares
+/// [`owning_table_id_for_prule_position`] with [`owning_table_for_prule_position`] (both derive
+/// from the exact SAME stratum lookup, never two independently-derived resolutions that could
+/// silently disagree).
+pub(crate) fn owning_table_id(g: &Grammar, rule: &RewriteRuleDef) -> Option<TableId> {
+    let idx = g
+        .prules
+        .iter()
+        .position(|pr| matches!(pr, PhonRuleDef::Rewrite(r) if r.xml_id == rule.xml_id))?;
+    owning_table_id_for_prule_position(g, idx)
+}
+
 /// [`owning_table`]'s sibling for a [`MetathesisRuleDef`] (`openspec/changes/compile-fst-metathesis`,
 /// design.md/ADR 0001): identical reasoning, just matched against the `PhonRuleDef::Metathesis`
 /// variant instead of `PhonRuleDef::Rewrite` — a `MetathesisRuleDef` lives in the SAME `g.prules`
@@ -417,9 +716,17 @@ pub(crate) fn owning_table_for_metathesis<'g>(
 /// contains it — see [`owning_table`]'s own doc for the full "unreachable from any stratum" case
 /// this covers.
 fn owning_table_for_prule_position(g: &Grammar, idx: usize) -> Option<&CharDefTable> {
+    let table_id = owning_table_id_for_prule_position(g, idx)?;
+    Some(&g.char_tables[table_id.0 as usize])
+}
+
+/// [`owning_table_for_prule_position`]'s own `TableId` half, factored out so
+/// [`owning_table_id`] never re-derives the stratum lookup independently (see that function's own
+/// doc for why: two independent derivations could silently disagree; sharing this one cannot).
+fn owning_table_id_for_prule_position(g: &Grammar, idx: usize) -> Option<TableId> {
     let target = PRuleId(idx as u32);
     let stratum = g.strata.iter().find(|s| s.prules.contains(&target))?;
-    Some(&g.char_tables[stratum.table.0 as usize])
+    Some(stratum.table)
 }
 
 /// `slots` in REVERSE document order (`openspec/changes/compile-right-to-left-rewrites`'s mirror-
@@ -690,10 +997,22 @@ pub fn compile_rewrite_rule(
 /// these three changes alters any existing grammar's compiled output -- verified by
 /// `tests/p6_gate_parity.rs`'s byte-exact Amharic state/arc-count regression guard and
 /// `tests/f3_parity.rs`'s multiset parity gates staying green.
+///
+/// # `_alphabet` is unused (`docs/conformance/multitable-shared-representation-design.md`)
+/// Every existing caller (this file's own `compile_and_compose_rules(_gated)_with_budget`, every
+/// `tests/phase_c_*`/example driver) passes a single, grammar-wide `&SegAlphabet` built once
+/// (typically `SegAlphabet::new(surface_table(g))`, the LAST stratum's table) and reused across
+/// EVERY rule in the cascade, regardless of which table that rule actually owns — exactly the
+/// table-blind assumption the design doc's fix targets. Since [`owning_table`]/[`owning_table_id`]
+/// already resolve THIS rule's own correct table below, this function now builds its OWN
+/// [`SegAlphabet::with_table_id`] (`render_alphabet`) for every render call instead of trusting the
+/// caller's possibly-unrelated one — so the parameter is kept (removing it would ripple through
+/// every one of those call sites, most outside this task's own single-owner boundary) but no
+/// longer read. Renamed rather than silently unused to make that explicit.
 pub fn compile_rewrite_rule_subset(
     opts: &FomaOptions,
     g: &Grammar,
-    alphabet: &SegAlphabet,
+    _alphabet: &SegAlphabet,
     rule: &RewriteRuleDef,
     allowed: &dyn Fn(usize) -> bool,
     budget: &ComposeBudget,
@@ -710,6 +1029,18 @@ pub fn compile_rewrite_rule_subset(
     let Some(table) = owning_table(g, rule) else {
         return Ok(None);
     };
+    // `owning_table_id` derives from the exact same stratum lookup as `owning_table` just above
+    // (`owning_table_id_for_prule_position`/`owning_table_for_prule_position` share
+    // `owning_table_id_for_prule_position`), so it is guaranteed `Some` here too.
+    let table_id = owning_table_id(g, rule)
+        .expect("owning_table_id shares owning_table's own lookup, which just resolved Some");
+    // Cross-table representation aliasing (design doc): built once per rule (cheap,
+    // `RepresentationAliasMap::build`'s own doc) rather than threaded down from the outer
+    // cascade functions, so this fix stays entirely inside `compile_rewrite_rule_subset` --
+    // `compile_and_compose_rules(_gated)_with_budget`'s own public signatures (external callers
+    // in `gate.rs`/`build.rs`) need no change at all.
+    let alias_map = RepresentationAliasMap::build(g);
+    let render_alphabet = SegAlphabet::with_table_id(table, table_id, &alias_map);
     let mut net: Option<Fsm> = None;
     let mut reports: Vec<TupleReport> = Vec::new();
 
@@ -767,7 +1098,7 @@ pub fn compile_rewrite_rule_subset(
         for asg in &assignments {
             let branch_net = compile_rtl_branch_net(
                 opts,
-                alphabet,
+                &render_alphabet,
                 rule.dir,
                 &lhs_slots,
                 &rhs_slots,

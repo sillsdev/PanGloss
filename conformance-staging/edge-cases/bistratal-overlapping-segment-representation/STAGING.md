@@ -13,11 +13,22 @@ phenomenon (Kiparsky 1982; see the research doc's own citations). This fixture p
 1. **The structural characterization.** `pg-foma::capability::multi_table_detail` computes
    `representations_pairwise_disjoint == false` for this grammar's two tables, with
    `shared_representation_witness` naming the shared spelling "s".
-2. **The capability gate's honest Refuse.** `MultiTableFaithfulThreadingPredicate`
-   (`multi-table.faithful-table-threading`) Refuses this grammar via `evaluate_capability` --
-   `pg_foma::replace::SegAlphabet::token`'s raw-per-table-index token scheme cannot, even after
-   `fix-multitable-fst-compilation`'s per-rule table-threading fix, rule out a residual cross-table
-   token collision once two tables share a representation (that predicate's own module doc).
+2. **The capability gate's `ConfirmOnly` verdict** (flipped from `Refuse` by
+   `plan-construct-coverage-completion` task 4.4b, `docs/conformance/multitable-shared-
+   representation-design.md`). `MultiTableFaithfulThreadingPredicate`
+   (`multi-table.faithful-table-threading`) used to `Refuse` this grammar via
+   `evaluate_capability`, reasoning that `pg_foma::replace::SegAlphabet::token`'s raw-per-table-
+   index token scheme could not rule out a residual cross-table token COLLISION (a false positive)
+   once two tables share a representation. The design doc's own headline finding is that this
+   reasoning pointed the wrong way: the real risk of a shared representation is a false NEGATIVE (a
+   table-B rule failing to fire on table-A-originated material spelled the same way), which
+   `crate::replace::RepresentationAliasMap`/`SegAlphabet::render_tokens` (render-time cross-table
+   token aliasing, consumed by `crate::lower::render_slots`) now closes for rewrite rules, while the
+   false-positive collision risk was ALREADY safe (the oracle, `pg_rules::rewrite`, prunes it). This
+   fixture's own grammar has no rule threading material between its two tables at all ("Verification"
+   below), so it exercises the predicate's OWN verdict, not the aliasing mechanism itself --
+   `rust/crates/pg-foma/tests/two_table_shared_representation_recall.rs` (same task) is the fixture
+   that exercises aliasing actually firing on cross-table material.
 3. **A separate, honestly-documented architectural fact**, NOT a MultiTable-specific bug: this
    codebase's own surface-tokenization convention (`pg_foma::emit::surface_table`, mirrored by
    `pg_parse::Morpher`'s own initial input segmentation) uses ONLY the grammar's LAST stratum's own
@@ -57,10 +68,10 @@ lexicon independent (no rule threads material between the two tables), matching
 `two_table_symbol_divergence.rs`'s own established "scope: stratum 1 (last stratum) only" precedent.
 Cross-checked in-repo by `rust/crates/pg-parse/tests/conformance_fixtures_gate.rs`'s
 `all_discovered_fixtures_match_oracle` test (dual-root discovery, default `cargo test --workspace`
-suite) -- that test is what actually gates CI. The capability-gate Refuse verdict is additionally
-pinned directly by `rust/crates/pg-foma/tests/
-cover_bistratal_overlapping_segment_representation.rs`, which asserts `evaluate_capability` returns
-`CompileDecision::Refuse` naming `MultiTable`/`multi-table.faithful-table-threading`.
+suite) -- that test is what actually gates CI. The capability-gate verdict is additionally pinned
+directly by `rust/crates/pg-foma/tests/cover_bistratal_overlapping_segment_representation.rs`, which
+asserts `evaluate_capability` returns `CompileDecision::ConfirmOnly` (task 4.4b: no longer `Refuse` --
+see that test's own updated doc).
 
 ## Graduation
 

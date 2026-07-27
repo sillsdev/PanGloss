@@ -1801,40 +1801,40 @@ mod tests {
         use std::fs;
         use std::sync::atomic::{AtomicU32, Ordering};
 
-        /// A `Compounding`-bearing grammar (same fixture shape as
-        /// `pg_foma::capability_entry::tests::evaluate_capability_refuses_compounding_grammar`,
-        /// ported verbatim into this crate rather than importing a `#[cfg(test)]`-only item
-        /// across the crate boundary) — `default_registry`'s `FailClosedPlaceholder` for
-        /// `Compounding` always `Refuse`s this, unconditionally, regardless of enforcement.
-        const COMPOUNDING_GRAMMAR_XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
+        /// An `Overwrite`-output `MprGroup` grammar -- `MprGroupOverwriteFailClosedPredicate`
+        /// (`crate::capability` in `pg-foma`) `Refuse`s this UNCONDITIONALLY and PERMANENTLY: a
+        /// monotone-accumulation admission filter is structurally unsound for history-dependent
+        /// `Overwrite` replace semantics (`pg_grammar::model::mpr_add_output`'s own doc), so there
+        /// is no promotion path that could ever flip this fixture's own verdict the way a
+        /// `ConfigPredicate` construct's could. **Originally a self-feeding `CompoundingRule`
+        /// (`multipleApplication` absent, isolated) was used here** as the "known-Refuse" stand-in
+        /// for this whole test module's capability-gate-ENFORCEMENT tests (none of which are about
+        /// compounding specifically) -- `openspec/changes/plan-construct-coverage-completion` task
+        /// 4.1 promoted `compounding.recursive` to `ConfirmOnly`, which broke that assumption for
+        /// this exact fixture. **Do not point a future "known-Refuse" test fixture at any
+        /// `ConfigPredicate`-disposition construct again** (`Compounding`, `UnorderedMorphRuleApplication`,
+        /// `RightToLeftRewrite`, `CircumfixOutputAction`, `Reduplication`, `MultiTable`,
+        /// `QuantifierPattern`, `SimultaneousRewrite` -- every one of these has at least one
+        /// configuration that is ELIGIBLE for promotion and will eventually be promoted, per
+        /// `docs/benchmark-matrix.md`'s own coverage table) -- only `MprGroupOverwrite` (this
+        /// fixture) and `MprGroupOverwrite`'s sibling permanent carve-outs
+        /// (`RealizationalMorphology`/`MprGroupAppend`/`CoOccurrenceConstraint`, though those are
+        /// always `ConfirmOnly`/`Admit`, never `Refuse`, so they cannot serve this fixture's own
+        /// purpose) are stable, by-construction-permanent `Refuse` verdicts.
+        const PERMANENTLY_REFUSED_GRAMMAR_XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
+          <MorphologicalPhonologicalRuleFeatures>
+            <MorphologicalPhonologicalRuleFeature id="mprA">A</MorphologicalPhonologicalRuleFeature>
+            <MorphologicalPhonologicalRuleFeatureGroup matchType="all" outputType="overwrite" features="mprA"><Name>GOverwrite</Name></MorphologicalPhonologicalRuleFeatureGroup>
+          </MorphologicalPhonologicalRuleFeatures>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
           </CharacterDefinitionTable>
-          <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /></SegmentNaturalClass></NaturalClasses>
           <Strata>
             <Stratum characterDefinitionTable="t1">
               <Name>S</Name>
-              <MorphologicalRuleDefinitions>
-                <CompoundingRule id="cr1">
-                  <Name>Compound</Name>
-                  <CompoundingSubrules>
-                    <CompoundingSubrule>
-                      <HeadMorphologicalInput>
-                        <PhoneticSequence id="h0"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
-                      </HeadMorphologicalInput>
-                      <NonHeadMorphologicalInput>
-                        <PhoneticSequence id="n0"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
-                      </NonHeadMorphologicalInput>
-                      <MorphologicalOutput>
-                        <CopyFromInput index="n0" />
-                        <CopyFromInput index="h0" />
-                      </MorphologicalOutput>
-                    </CompoundingSubrule>
-                  </CompoundingSubrules>
-                </CompoundingRule>
-              </MorphologicalRuleDefinitions>
               <LexicalEntries>
-                <LexicalEntry id="e1">
+                <LexicalEntry id="e1" partOfSpeech="posV">
                   <Allomorphs><Allomorph id="a1"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs>
                 </LexicalEntry>
               </LexicalEntries>
@@ -1855,13 +1855,13 @@ mod tests {
         #[test]
         fn capability_gate_no_flags_never_blocks_either_grammar() {
             let clean = load(super::MINI_GRAMMAR_XML);
-            let compounding = load(COMPOUNDING_GRAMMAR_XML);
+            let refused = load(PERMANENTLY_REFUSED_GRAMMAR_XML);
 
             let g1 = capability_gate(&clean, false, false);
             assert!(g1.proceed, "advisory-only must never block an Admit grammar");
             assert!(!g1.overridden);
 
-            let g2 = capability_gate(&compounding, false, false);
+            let g2 = capability_gate(&refused, false, false);
             assert!(
                 g2.proceed,
                 "advisory-only must never block even a Refuse grammar (unchanged default \
@@ -1882,14 +1882,14 @@ mod tests {
         /// `--enforce-capability` alone (no override) on a `Refuse` grammar: must refuse, with
         /// typed diagnostics naming the construct, and must NOT be marked `overridden`.
         #[test]
-        fn capability_gate_enforce_refuses_compounding_without_override() {
-            let compounding = load(COMPOUNDING_GRAMMAR_XML);
-            let g = capability_gate(&compounding, true, false);
+        fn capability_gate_enforce_refuses_permanently_refused_without_override() {
+            let refused = load(PERMANENTLY_REFUSED_GRAMMAR_XML);
+            let g = capability_gate(&refused, true, false);
             assert!(!g.proceed, "a Refuse verdict must block under --enforce-capability");
             assert!(!g.overridden, "no override was requested");
             assert!(
-                g.stderr_lines.iter().any(|l| l.contains("Compounding")),
-                "expected a diagnostic naming Compounding: {:?}",
+                g.stderr_lines.iter().any(|l| l.contains("Overwrite")),
+                "expected a diagnostic naming the Overwrite MprGroup: {:?}",
                 g.stderr_lines
             );
         }
@@ -1900,8 +1900,8 @@ mod tests {
         /// diagnostic(s) by name.
         #[test]
         fn capability_gate_override_force_compiles_and_marks_trust_unproven() {
-            let compounding = load(COMPOUNDING_GRAMMAR_XML);
-            let g = capability_gate(&compounding, true, true);
+            let refused = load(PERMANENTLY_REFUSED_GRAMMAR_XML);
+            let g = capability_gate(&refused, true, true);
             assert!(g.proceed, "--allow-unproven must force-compile a Refuse verdict");
             assert!(g.overridden, "must be flagged as an overridden run");
             assert!(
@@ -1917,7 +1917,7 @@ mod tests {
                 g.stderr_lines
             );
             assert!(
-                g.stderr_lines.iter().any(|l| l.contains("Compounding")),
+                g.stderr_lines.iter().any(|l| l.contains("Overwrite")),
                 "the override record must still name which construct was force-compiled: {:?}",
                 g.stderr_lines
             );
@@ -1969,9 +1969,9 @@ mod tests {
         /// sits before `FomaAnalyzer::new` in `run_batch`'s control flow, so this refusal happens
         /// before any foma compile is even attempted.
         #[test]
-        fn run_batch_foma_engine_default_enforces_refuses_compounding_with_no_flags() {
+        fn run_batch_foma_engine_default_enforces_refuses_permanently_refused_with_no_flags() {
             let (result, out_path) =
-                run_batch_raw("foma-default-refuse", COMPOUNDING_GRAMMAR_XML, &["--engine=foma"]);
+                run_batch_raw("foma-default-refuse", PERMANENTLY_REFUSED_GRAMMAR_XML, &["--engine=foma"]);
             assert!(
                 result.is_err(),
                 "--engine=foma must refuse a Refuse-verdict grammar BY DEFAULT, with no flags: \
@@ -1987,10 +1987,10 @@ mod tests {
         /// same `Refuse`-verdict grammar must now proceed (unenforced), matching the pre-flip
         /// behavior exactly.
         #[test]
-        fn run_batch_foma_engine_no_enforce_capability_proceeds_for_compounding() {
+        fn run_batch_foma_engine_no_enforce_capability_proceeds_for_permanently_refused() {
             let (result, out_path) = run_batch_raw(
                 "foma-no-enforce",
-                COMPOUNDING_GRAMMAR_XML,
+                PERMANENTLY_REFUSED_GRAMMAR_XML,
                 &["--engine=foma", "--no-enforce-capability"],
             );
             assert!(
@@ -2009,7 +2009,7 @@ mod tests {
         fn run_batch_foma_engine_allow_unproven_overrides_default_enforcement() {
             let (result, out_path) = run_batch_raw(
                 "foma-override",
-                COMPOUNDING_GRAMMAR_XML,
+                PERMANENTLY_REFUSED_GRAMMAR_XML,
                 &["--engine=foma", "--allow-unproven"],
             );
             assert!(
@@ -2044,7 +2044,7 @@ mod tests {
         fn run_batch_default_engine_never_enforces_even_with_explicit_flag() {
             let (result, out_path) = run_batch_raw(
                 "default-flag-noop",
-                COMPOUNDING_GRAMMAR_XML,
+                PERMANENTLY_REFUSED_GRAMMAR_XML,
                 &["--enforce-capability"],
             );
             assert!(
@@ -2058,8 +2058,8 @@ mod tests {
         /// default`): today's exact unchanged behavior -- `run_batch` must still succeed and
         /// still write output.
         #[test]
-        fn run_batch_no_flags_still_proceeds_for_compounding_grammar() {
-            let (result, out_path) = run_batch_raw("no-flags-compounding", COMPOUNDING_GRAMMAR_XML, &[]);
+        fn run_batch_no_flags_still_proceeds_for_permanently_refused_grammar() {
+            let (result, out_path) = run_batch_raw("no-flags-permanently-refused", PERMANENTLY_REFUSED_GRAMMAR_XML, &[]);
             assert!(
                 result.is_ok(),
                 "default (no-flag) behavior must be unchanged -- never blocks: {result:?}"

@@ -49,7 +49,7 @@
 
 ## 4. Close PROVABLE rows, one construct at a time (hand-off, Stage-2-style full kits)
 
-- [ ] 4.1 `Compounding.recursive`: rule-graph reachability + depth-budgeted construction + containment
+- [x] 4.1 **DONE 2026-07-26** `Compounding.recursive`: rule-graph reachability + depth-budgeted construction + containment
       test + new `edge-cases` fixture
 - [ ] 4.2 `RightToLeftRewrite`: extend `compile_rtl_branch_net` to currently-excluded pattern shapes,
       one shape at a time, each with its own fixture
@@ -99,7 +99,7 @@
       entirely. Supporting fact: `bridge.rs:260-300` shows the oracle matches classes by feature
       lanes, not char-def identity, so the proposer should not enforce a distinction the oracle
       does not make.
-- [ ] 4.4b `MultiTable`: build it — representation→`(TableId, CharDefId)` multimap (same NFD
+- [x] 4.4b **DONE 2026-07-26** `MultiTable`: build it — representation→`(TableId, CharDefId)` multimap (same NFD
       normalization as `CharDefTable::lookup`/`surface_variants`); thread `TableId` into
       `SegAlphabet` (no defaulted id — same mistake class as the `char_tables[0]` default
       `owning_table` removed); alias-expand in `render_slots`' `Fixed`/`Union` arms only, never in

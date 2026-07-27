@@ -391,37 +391,31 @@ mod tests {
         </Language></HermitCrabInput>"#
     }
 
-    /// A self-feeding (`multipleApplication="2"`) `Compounding` rule (`capability_entry.rs`'s own
-    /// `Refuse` fixture, reused verbatim) -- `compose_envelope` must `Refuse` it, so a selector run
-    /// over this grammar's own candidates must find NONE admissible.
-    fn refuse_recursive_compounding_fixture_xml() -> &'static str {
+    /// An `Overwrite`-output `MprGroup` (`capability.rs`'s own `compose_envelope_refuses_for_
+    /// overwrite_group_alone` fixture, reused verbatim) -- `compose_envelope` must permanently
+    /// `Refuse` it (`MprGroupOverwriteFailClosedPredicate`, unconditional), so a selector run over
+    /// this grammar's own candidates must find NONE admissible. Originally a self-feeding
+    /// (`multipleApplication="2"`) `Compounding` rule served this purpose;
+    /// `plan-construct-coverage-completion` task 4.1 promoted `compounding.recursive` to
+    /// `ConfirmOnly`, so this helper (and its one caller,
+    /// `select_plan_excludes_a_refusing_grammars_only_candidate`) was renamed from
+    /// `refuse_recursive_compounding_fixture_xml` and switched to a construct that still refuses.
+    fn refuse_overwrite_mpr_group_fixture_xml() -> &'static str {
         r#"<HermitCrabInput><Language><Name>X</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
+          <MorphologicalPhonologicalRuleFeatures>
+            <MorphologicalPhonologicalRuleFeature id="mprA">A</MorphologicalPhonologicalRuleFeature>
+            <MorphologicalPhonologicalRuleFeatureGroup matchType="all" outputType="overwrite" features="mprA"><Name>GOverwrite</Name></MorphologicalPhonologicalRuleFeatureGroup>
+          </MorphologicalPhonologicalRuleFeatures>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
           </CharacterDefinitionTable>
-          <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /></SegmentNaturalClass></NaturalClasses>
           <Strata>
-            <Stratum characterDefinitionTable="t1" morphologicalRules="cr1">
+            <Stratum characterDefinitionTable="t1">
               <Name>S</Name>
-              <MorphologicalRuleDefinitions>
-                <CompoundingRule id="cr1" multipleApplication="2">
-                  <Name>Compound</Name>
-                  <CompoundingSubrules>
-                    <CompoundingSubrule>
-                      <HeadMorphologicalInput>
-                        <PhoneticSequence id="h0"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
-                      </HeadMorphologicalInput>
-                      <NonHeadMorphologicalInput>
-                        <PhoneticSequence id="n0"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
-                      </NonHeadMorphologicalInput>
-                      <MorphologicalOutput>
-                        <CopyFromInput index="n0" />
-                        <CopyFromInput index="h0" />
-                      </MorphologicalOutput>
-                    </CompoundingSubrule>
-                  </CompoundingSubrules>
-                </CompoundingRule>
-              </MorphologicalRuleDefinitions>
+              <LexicalEntries>
+                <LexicalEntry id="e1" partOfSpeech="posV"><Allomorphs><Allomorph id="a1"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs></LexicalEntry>
+              </LexicalEntries>
             </Stratum>
           </Strata>
         </Language></HermitCrabInput>"#
@@ -606,7 +600,7 @@ mod tests {
     /// Compounding) must select NOTHING -- every candidate excluded.
     #[test]
     fn select_plan_excludes_a_refusing_grammars_only_candidate() {
-        let g = load(refuse_recursive_compounding_fixture_xml());
+        let g = load(refuse_overwrite_mpr_group_fixture_xml());
         let alphabet = SegAlphabet::new(&g.char_tables[0]);
         let ro = prules_in_order(&g);
         let phon = PhonologyProbe::new(&g);
@@ -628,7 +622,7 @@ mod tests {
         );
         match &outcome.considered[0].decision {
             CompileDecision::Refuse(diags) => {
-                assert!(diags.iter().any(|d| d.construct.contains("Compounding")))
+                assert!(diags.iter().any(|d| d.construct.contains("Overwrite")))
             }
             other => panic!("expected Refuse, got {other:?}"),
         }

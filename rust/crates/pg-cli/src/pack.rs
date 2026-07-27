@@ -440,40 +440,32 @@ mod tests {
 </HermitCrabInput>
 "#;
 
-    /// A self-feeding (`multipleApplication="2"`) `Compounding` rule -- `evaluate_capability`'s own
-    /// `Refuse` case, ported verbatim from `main.rs`'s `capability_gate_tests::COMPOUNDING_GRAMMAR_XML`
-    /// / `pg_foma::capability_entry::tests::evaluate_capability_refuses_recursive_compounding_grammar`
-    /// (same fixture shape, this crate's repo-wide convention of porting a fixture verbatim across a
-    /// crate boundary rather than sharing a `#[cfg(test)]`-only item).
+    /// An `Overwrite`-output `MprGroup` -- `MprGroupOverwriteFailClosedPredicate` (`pg_foma::
+    /// capability`) `Refuse`s this UNCONDITIONALLY and PERMANENTLY (a monotone-accumulation
+    /// admission filter is structurally unsound for history-dependent `Overwrite` replace
+    /// semantics, `pg_grammar::model::mpr_add_output`'s own doc) -- no promotion can ever flip this
+    /// fixture's own verdict. **Originally a self-feeding (`multipleApplication="2"`) `Compounding`
+    /// rule** served as this module's "known-Refuse" fixture; `openspec/changes/
+    /// plan-construct-coverage-completion` task 4.1 promoted `compounding.recursive` to
+    /// `ConfirmOnly`, breaking that assumption. Do not point a future "known-Refuse" fixture at any
+    /// `ConfigPredicate`-disposition construct again (every one of those has at least one promotable
+    /// configuration, `docs/benchmark-matrix.md`'s own coverage table) -- `MprGroupOverwrite` is the
+    /// stable, by-construction-permanent choice (`main.rs`'s own
+    /// `capability_gate_tests::PERMANENTLY_REFUSED_GRAMMAR_XML`, same swap, same rationale).
     const REFUSE_GRAMMAR_XML: &str = r#"<HermitCrabInput><Language><Name>PackRefuseFixture</Name>
+      <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
+      <MorphologicalPhonologicalRuleFeatures>
+        <MorphologicalPhonologicalRuleFeature id="mprA">A</MorphologicalPhonologicalRuleFeature>
+        <MorphologicalPhonologicalRuleFeatureGroup matchType="all" outputType="overwrite" features="mprA"><Name>GOverwrite</Name></MorphologicalPhonologicalRuleFeatureGroup>
+      </MorphologicalPhonologicalRuleFeatures>
       <CharacterDefinitionTable id="t1"><Name>Main</Name>
         <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
       </CharacterDefinitionTable>
-      <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /></SegmentNaturalClass></NaturalClasses>
       <Strata>
-        <Stratum characterDefinitionTable="t1" morphologicalRules="cr1">
+        <Stratum characterDefinitionTable="t1">
           <Name>S</Name>
-          <MorphologicalRuleDefinitions>
-            <CompoundingRule id="cr1" multipleApplication="2">
-              <Name>Compound</Name>
-              <CompoundingSubrules>
-                <CompoundingSubrule>
-                  <HeadMorphologicalInput>
-                    <PhoneticSequence id="h0"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
-                  </HeadMorphologicalInput>
-                  <NonHeadMorphologicalInput>
-                    <PhoneticSequence id="n0"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
-                  </NonHeadMorphologicalInput>
-                  <MorphologicalOutput>
-                    <CopyFromInput index="n0" />
-                    <CopyFromInput index="h0" />
-                  </MorphologicalOutput>
-                </CompoundingSubrule>
-              </CompoundingSubrules>
-            </CompoundingRule>
-          </MorphologicalRuleDefinitions>
           <LexicalEntries>
-            <LexicalEntry id="e1">
+            <LexicalEntry id="e1" partOfSpeech="posV">
               <Allomorphs><Allomorph id="a1"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs>
             </LexicalEntry>
           </LexicalEntries>
@@ -609,8 +601,8 @@ mod tests {
                     record
                         .overridden_configs
                         .iter()
-                        .any(|c| c.construct.contains("Compounding")),
-                    "expected a refused config naming Compounding: {:?}",
+                        .any(|c| c.construct.contains("Overwrite")),
+                    "expected a refused config naming the Overwrite MprGroup: {:?}",
                     record.overridden_configs
                 );
             }

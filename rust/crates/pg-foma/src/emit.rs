@@ -197,7 +197,7 @@ use pg_rules::cache::RuleCache;
 use pg_rules::word::{MorphRecord, Word};
 use pg_shape::{EffectiveCdSet, NodeKind, Shape};
 
-use crate::compose_budget::ComposeBudget;
+use crate::compose_budget::{ComposeBudget, ComposeError};
 use crate::enumerate::enumerate_default;
 use crate::junctions::PhonologyProbe;
 use crate::morphotactics::{
@@ -250,6 +250,48 @@ const MAX_DEDICATED_LEVELS_PER_RULE: usize = 4;
 /// Cap on the representation-variant cartesian product per emitted morph surface (module doc,
 /// "Surface spelling"). Overflow is reported as an uncovered item, never silent.
 pub const REP_VARIANT_CAP: usize = 64;
+
+/// `openspec/changes/plan-construct-coverage-completion` task 4.1 piece 2 (design.md row 2): cap on
+/// how many extra (non-head) compound-root LEVELS the depth-budgeted "bounded compound loop"
+/// (module doc, "Bounded compound loop") will unroll for one compile. This consumes
+/// `crate::capability::characterize`'s already-computed `CompoundingDetail::max_depth` bound (one
+/// source of truth -- this crate never re-derives it) -- but "always finite" (`compounding_max_depth`'s
+/// own doc) is a different claim from "small": `CompoundingRuleDef::max_apps` is a bare `u16` with
+/// no clamp enforced anywhere in this crate's own loader (`pg_grammar::load.rs`), and multiple
+/// co-feeding rules SUM their `max_apps` into the bound, so an adversarial or merely mistaken
+/// `multipleApplication` value far beyond the DTD's PRACTICAL ceiling (9 -- this crate's own
+/// `recursive-endocentric-compounding` fixture uses that exact ceiling) could otherwise make this
+/// loop unroll arbitrarily many levels. Checked eagerly, BEFORE any of the chain's own lexc text is
+/// written (`emit_with_budget_profiled`'s own compound head x non-head cross-product check, right
+/// above the call site that reads this constant, already establishes that "check the search result
+/// before the expensive part" discipline for this exact construct).
+///
+/// Reuses `crate::compose_budget::ComposeBudget::check_chain_depth`'s existing MECHANISM/SHAPE (a
+/// `ChainDepthExceeded` outcome, "the cap names the last value that still fits") rather than
+/// inventing a second one, per that function's own doc ("do not invent a second budget mechanism").
+/// Deliberately its OWN dimension, not a reuse of `ComposeBudget::chain_depth_cap`'s SHARED field/
+/// `HC_COMPOSE_CHAIN_DEPTH_BUDGET` (`crate::peel::ReduplicationPeeler`'s own per-word APPLY-TIME
+/// recursion-depth dimension, default OFF/uncalibrated by that field's own doc): this loop's depth is
+/// a COMPILE-TIME, one-shot static-unrolling count for the WHOLE grammar, a different quantity in
+/// kind from a per-word runtime recursion counter that merely happens to share a "how many times does
+/// a chain repeat" shape -- reusing the same field/env var for both would let one dimension's
+/// calibration silently move the other's, exactly the trap `DEFAULT_COMPOUND_PAIR_BUDGET`'s own doc
+/// (`crate::compose_budget`) already names for keeping THAT dimension separate from
+/// `DEFAULT_TUPLE_BUDGET`. Unlike `chain_depth_cap` (opt-in, no calibrated default yet), this
+/// dimension defaults ON, mirroring `DEFAULT_COMPOUND_PAIR_BUDGET`'s own always-on convention:
+/// "never blow up on any grammar" (`build-for-full-scale-grammars`) is a standing requirement, not an
+/// opt-in safety net. Generous headroom above the DTD's practical ceiling (9) while still catching a
+/// pathological grammar before this loop's own (linear-in-depth, see `build_compound_chain`'s own
+/// doc) lexc emission grows unreasonably large. `HC_COMPOUND_CHAIN_DEPTH_BUDGET` overrides it.
+const DEFAULT_COMPOUND_CHAIN_DEPTH_BUDGET: usize = 200;
+
+/// `HC_COMPOUND_CHAIN_DEPTH_BUDGET`: see [`DEFAULT_COMPOUND_CHAIN_DEPTH_BUDGET`]'s own doc.
+fn compound_chain_depth_budget() -> usize {
+    std::env::var("HC_COMPOUND_CHAIN_DEPTH_BUDGET")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(DEFAULT_COMPOUND_CHAIN_DEPTH_BUDGET)
+}
 
 // --- Report types -----------------------------------------------------------------------------
 
@@ -3041,6 +3083,110 @@ pub(crate) fn emit_with_budget_profiled(
         };
     let all_roots: Vec<&RootRec> = roots.iter().collect();
 
+    // `openspec/changes/plan-construct-coverage-completion` task 4.1 piece 2 (design.md row 2): the
+    // depth-budgeted extension of the "bounded compound loop" (module doc) -- a chain of `levels`
+    // license-gated non-head-root LEVELS under `base` (e.g. `"TLCmp"`/`"G3Cmp"`), each with its own
+    // optional prefix-derivation hop (Gate F3 3b -- a prefix on the compound's non-head span,
+    // `lexbedom`/`silamanuk`, module doc's "Bounded compound loop" citation), realizing every
+    // compound depth from 2 stems (head + 1 extra root) up to `1 + levels` stems (head + `levels`
+    // extra roots) as accepted paths through ONE compiled network, not `levels` separately-sized
+    // copies -- `compound_license`'s own license-gated non-head set is reused, UNCHANGED, at every
+    // level (this adds depth, never new precision, matching every other over-approximating
+    // simplification the module doc's "Deliberate supersets" section already accepts).
+    //
+    // **Byte-identical to the pre-existing single-level construction when `levels == 1`** (every
+    // grammar this task did not change stays byte-for-byte the same): level 1 reuses the EXACT
+    // pre-existing names (`{base}`, `{base}Pfx`, `{base}Roots`[`Stripped`]) and, since `levels == 1`
+    // makes it also the LAST level, its root entries continue DIRECTLY to `exit` -- no dispatcher
+    // lexicon is ever written for the single-level case. Level `k >= 2` (only emitted when
+    // `levels >= 2`, a genuinely recursive/self-feeding `CompoundingRuleDef`) uses
+    // `{base}{k}`/`{base}{k}Pfx`/`{base}{k}Roots`; a level's root entries continue to `exit` directly
+    // when it is the LAST level, or to a small `{base}{k}Next` dispatcher (bare-redirecting to BOTH
+    // `exit` and level `k+1`'s own entry) otherwise -- so every intermediate depth from 2 up to
+    // `1 + levels` stems is a real accepted path, not just the maximum.
+    //
+    // Growth is LINEAR in `levels` (one more `{Pfx,Roots,Next}` triple per level, each sized by the
+    // license-gated non-head root count -- the SAME per-level cost the pre-existing single level
+    // already paid), never exponential in emitted TEXT size -- the exponential-looking "up to
+    // non_head_count^levels distinct compound shapes" is a property of the LANGUAGE the compiled net
+    // accepts, the ordinary and intended benefit of using an automaton, not of how much lexc source
+    // this loop writes. `DEFAULT_COMPOUND_CHAIN_DEPTH_BUDGET`'s own doc is the containment for the
+    // one input that can still make `levels` itself unreasonably large.
+    //
+    // The caller wires its own first hop into `{base}` (a bare redirect from wherever the head
+    // root's own post-root continuation lives, e.g. `TLPost`'s `TLCmp` bare line) -- this closure
+    // only writes `{base}` onward. Reuses `write_root_entries`/`write_stripped_root_entries` (just
+    // above) and `all_roots`/`width`/`deriv_prefix`/`phon`/`g`/`table` (already in scope) rather than
+    // re-deriving any of them -- this closure adds only the depth loop, no new leaf-text logic.
+    #[allow(clippy::too_many_arguments)]
+    let build_compound_chain = |out: &mut String,
+                                 base: &str,
+                                 levels: usize,
+                                 non_head_roots: &[&RootRec],
+                                 exit: &str,
+                                 uncovered: &mut Vec<UncoveredItem>,
+                                 counts: &mut EmitCounts,
+                                 pk: &mut PrecisionEmit| {
+        let levels = levels.max(1);
+        for k in 1..=levels {
+            let entry_name = if k == 1 {
+                base.to_string()
+            } else {
+                format!("{base}{k}")
+            };
+            let pfx_base = if k == 1 {
+                format!("{base}Pfx")
+            } else {
+                format!("{base}{k}Pfx")
+            };
+            let roots_name = if k == 1 {
+                format!("{base}Roots")
+            } else {
+                format!("{base}{k}Roots")
+            };
+            let continuation = if k == levels {
+                exit.to_string()
+            } else {
+                format!("{base}{k}Next")
+            };
+
+            write_lexicon_header(out, &entry_name);
+            write_bare(out, &format!("{pfx_base}0"), counts);
+            build_deriv_chain(
+                out,
+                g,
+                table,
+                &pfx_base,
+                Role::Prefix,
+                &deriv_prefix,
+                width,
+                &roots_name,
+                uncovered,
+                counts,
+                phon.as_ref(),
+                true,
+                pk,
+                TextMode::SurfaceProbed,
+            );
+            write_lexicon_header(out, &roots_name);
+            write_root_entries(out, non_head_roots, &continuation, counts, pk);
+            if phon.is_some() {
+                write_lexicon_header(out, &format!("{roots_name}Stripped"));
+                write_stripped_root_entries(out, &all_roots, &continuation, counts, pk);
+            }
+
+            if k < levels {
+                write_lexicon_header(out, &continuation);
+                write_bare(out, exit, counts);
+                write_bare(out, &format!("{base}{}", k + 1), counts);
+            }
+        }
+    };
+    // Overwritten below (inside the `has_compounding_rules` gate) with the real computed bound;
+    // stays `1` (the pre-existing "exactly one extra root" shape) for every no-compounding grammar,
+    // where `build_compound_chain` is never even called.
+    let mut compound_extra_levels: usize = 1;
+
     // `openspec/changes/cover-compounding` (design.md D2/D3/D4, tasks.md 2/5): the license-gated
     // head/non-head subsets + the compound-pair budget check, computed once, right after `all_roots`
     // and before any lexc text is written (fail fast, mirroring the enum-budget check above). `None`
@@ -3080,6 +3226,64 @@ pub(crate) fn emit_with_budget_profiled(
                     enum_budget_exceeded: Some(EnumBudgetExceeded {
                         measure: "compound head x non-head root pairs",
                         value: cross,
+                        limit,
+                    }),
+                },
+            };
+        }
+
+        // `openspec/changes/plan-construct-coverage-completion` task 4.1 piece 2 (design.md row 2):
+        // consume the precomputed depth bound (`crate::capability::characterize`'s
+        // `CompoundingDetail::max_depth`, exposed via `compounding_details()` -- `capability.rs`'s
+        // own "one source of truth" for this number; this crate never re-derives it) so
+        // `build_compound_chain` below unrolls enough NON-HEAD levels to realize every self-feeding
+        // depth this grammar's own `multipleApplication` values license, not just one. `max_depth` is
+        // TOTAL stem count (head + every extra root) and is a MAXIMUM across every observed
+        // `CompoundingRuleDef` (grammar-wide, not per-rule -- mirrors `compound_license`'s own
+        // grammar-wide union, module doc "Grammar-scoped, not per-rule"). `compound_extra_levels` is
+        // the number of NON-HEAD levels to chain (`max_depth - 1`, floored at 1 so an ordinary
+        // non-recursive grammar -- `max_depth == 2` -- gets EXACTLY the pre-existing "one extra root"
+        // shape, never fewer).
+        let compound_depth_bound = crate::capability::characterize(g)
+            .compounding_details()
+            .map(|d| d.max_depth)
+            .max()
+            .unwrap_or(2);
+        compound_extra_levels = compound_depth_bound.saturating_sub(1).max(1);
+
+        // Depth-budget check (`DEFAULT_COMPOUND_CHAIN_DEPTH_BUDGET`'s own doc): checked BEFORE any
+        // of the chain's own lexc text is written, same "check the search result before the
+        // expensive part" discipline as the cross-product check just above. Reuses
+        // `crate::compose_budget::ComposeBudget::check_chain_depth`'s MECHANISM (a
+        // `ChainDepthExceeded` outcome) with an explicit LOCAL cap rather than the shared
+        // `chain_depth_cap`/`HC_COMPOSE_CHAIN_DEPTH_BUDGET` field (`DEFAULT_COMPOUND_CHAIN_DEPTH_
+        // BUDGET`'s own doc explains why) -- so this does not reuse `ComposeError::ChainDepthExceeded`'s
+        // own `Display` text either (it names the WRONG env var for this call site); this builds its
+        // own message instead.
+        let chain_budget =
+            ComposeBudget::from_env().with_chain_depth_cap(compound_chain_depth_budget());
+        if let Err(ComposeError::ChainDepthExceeded { depth, limit, .. }) = chain_budget
+            .check_chain_depth(compound_extra_levels, "compound loop (extra non-head root levels)")
+        {
+            let reason = format!(
+                "compound chain depth ({depth} extra non-head compound-root level(s), from a \
+                 computed max_depth of {compound_depth_bound} total stems across this grammar's \
+                 CompoundingRule(s)) exceeds this path's compound chain-depth budget (limit \
+                 {limit}). This grammar's self-feeding compounding recursion is deeper than this \
+                 construction will unroll -- raise HC_COMPOUND_CHAIN_DEPTH_BUDGET only if you \
+                 understand why this grammar's compounding recursion is this deep, or fall back to \
+                 another engine for this grammar. Never silently truncated: an honest refusal, not a \
+                 partial/unsound network."
+            );
+            return EmitResult {
+                lexc_source: String::new(),
+                report: EmitReport {
+                    uncovered,
+                    counts,
+                    tier: FomaTier::Unsupported { reason },
+                    enum_budget_exceeded: Some(EnumBudgetExceeded {
+                        measure: "compound chain depth (extra non-head root levels)",
+                        value: depth,
                         limit,
                     }),
                 },
@@ -3234,51 +3438,36 @@ pub(crate) fn emit_with_budget_profiled(
         write_bare(&mut out, "TLSfx0", &mut counts);
         if has_compounding_rules {
             write_bare(&mut out, "TLCmp", &mut counts);
-            // Gate F3 3b: the compound EXTRA root may itself carry prefix-derivation morphology —
-            // a prefix on the compound's head span (`fusional-realizational-morphology`'s "lexbedom" = lex + be- +
-            // dom, `LEX+BEPFX2+DOMV`; `polysynthetic-stratal-derivation-chain`'s "silamanuk" = sila + ma- + nuk,
-            // `SILA+MAPFX2+NUKV`). The engine's compound splitter unapplies a prefix cleanly from
-            // the head span, so a bare extra-root slot (v1) under-generates every prefixed-head
-            // compound. Wire a prefix-derivation chain before the extra root, exiting to a bounded
-            // `TLCmpRoots` (no further compound loop from here — one extra root, same bound as
-            // trie's `build_compound_loop`).
-            write_lexicon_header(&mut out, "TLCmp");
-            write_bare(&mut out, "TLCmpPfx0", &mut counts);
-            build_deriv_chain(
-                &mut out,
-                g,
-                table,
-                "TLCmpPfx",
-                Role::Prefix,
-                &deriv_prefix,
-                width,
-                "TLCmpRoots",
-                &mut uncovered,
-                &mut counts,
-                phon.as_ref(),
-                true,
-                &mut pk,
-                TextMode::SurfaceProbed,
-            );
-            write_lexicon_header(&mut out, "TLCmpRoots");
+            // Gate F3 3b: the compound EXTRA root(s) may themselves carry prefix-derivation
+            // morphology — a prefix on the compound's head span (`fusional-realizational-morphology`'s
+            // "lexbedom" = lex + be- + dom, `LEX+BEPFX2+DOMV`; `polysynthetic-stratal-derivation-chain`'s
+            // "silamanuk" = sila + ma- + nuk, `SILA+MAPFX2+NUKV`). The engine's compound splitter
+            // unapplies a prefix cleanly from the head span, so a bare extra-root slot under-generates
+            // every prefixed-head compound. `build_compound_chain` (task 4.1 piece 2, above) wires a
+            // prefix-derivation chain before EVERY extra root, up to `compound_extra_levels` of them —
+            // `compound_extra_levels == 1` (the ordinary non-recursive case) reproduces this exact
+            // one-extra-root/`TLCmp`/`TLCmpPfx`/`TLCmpRoots` shape byte-for-byte (that closure's own doc).
+            //
             // `openspec/changes/cover-compounding` (design.md D3 non-head Gate): the compound EXTRA
-            // ("non-head") root position, narrowed from `all_roots` to the licensed non-head subset
-            // -- `TLCmpRoots` serves ONLY this compound continuation (nothing else reaches it), so
-            // narrowing here never touches ordinary non-compound word formation. `None` (no compound
-            // license computed) falls back to `all_roots`, matching the pre-gating behavior exactly.
+            // ("non-head") root position, narrowed from `all_roots` to the licensed non-head subset --
+            // every `{base}NRoots` level in the chain serves ONLY this compound continuation (nothing
+            // else reaches it), so narrowing here never touches ordinary non-compound word formation.
+            // `None` (no compound license computed) falls back to `all_roots`, matching the
+            // pre-gating behavior exactly.
             let tl_non_head_roots: Vec<&RootRec> = match &compound_license {
                 Some(license) => filter_roots_by_license(g, &all_roots, &license.non_head_eligible),
                 None => all_roots.clone(),
             };
-            write_root_entries(&mut out, &tl_non_head_roots, "TLSfx0", &mut counts, &mut pk);
-            if phon.is_some() {
-                // `TLCmpRoots`' `Stripped` sibling — `TLCmpPfx`'s final level routes every
-                // deletion-junction hit here (module doc, "Junction-aware affix/root emission").
-                // Deliberately left unfiltered (`all_roots`, not `tl_non_head_roots`) -- same
-                // documented simplification as `TLRootsStripped` above (a strict, safe superset).
-                write_lexicon_header(&mut out, "TLCmpRootsStripped");
-                write_stripped_root_entries(&mut out, &all_roots, "TLSfx0", &mut counts, &mut pk);
-            }
+            build_compound_chain(
+                &mut out,
+                "TLCmp",
+                compound_extra_levels,
+                &tl_non_head_roots,
+                "TLSfx0",
+                &mut uncovered,
+                &mut counts,
+                &mut pk,
+            );
         }
         if !tl_head_no.is_empty() {
             // The head-ineligible twin of `TLPost`: only `TLSfx0` (no `TLCmp`) -- written AFTER the
@@ -3370,60 +3559,29 @@ pub(crate) fn emit_with_budget_profiled(
         if has_compounding_rules {
             let cmp_name = format!("G{gi}Cmp");
             write_bare(&mut out, &cmp_name, &mut counts);
-            // Gate F3 3b: the compound extra root may carry prefix-derivation morphology (a prefix
-            // on the compound's head span) — see the template-less `TLCmp` comment above for the
-            // full rationale (`lexbedom`/`silamanuk`). Same fix per group: a prefix-derivation
-            // chain before the extra root, exiting to a bounded `G{gi}CmpRoots`.
-            let cmp_pfx = format!("G{gi}CmpPfx");
-            let cmp_roots = format!("G{gi}CmpRoots");
-            write_lexicon_header(&mut out, &cmp_name);
-            write_bare(&mut out, &format!("{cmp_pfx}0"), &mut counts);
-            build_deriv_chain(
-                &mut out,
-                g,
-                table,
-                &cmp_pfx,
-                Role::Prefix,
-                &deriv_prefix,
-                width,
-                &cmp_roots,
-                &mut uncovered,
-                &mut counts,
-                phon.as_ref(),
-                true,
-                &mut pk,
-                TextMode::SurfaceProbed,
-            );
-            write_lexicon_header(&mut out, &cmp_roots);
-            // `openspec/changes/cover-compounding` (design.md D3 non-head Gate): same narrowing as
-            // the template-less `TLCmpRoots` section above -- `G{gi}CmpRoots` serves ONLY the
-            // compound continuation, so filtering to the licensed non-head subset never touches
-            // ordinary non-compound word formation in this group. The HEAD side of this per-group
-            // section is deliberately left ungated (matches `eligible_roots`' own pre-existing
-            // full-broadening-when-compounding comment just below) -- template+compounding
-            // interaction is an unproven composition node (design.md D4), so this change does not
-            // add new precision there, only preserves the existing safe-over-approximation shape.
+            // Gate F3 3b: the compound extra root(s) may carry prefix-derivation morphology (a
+            // prefix on the compound's head span) — see the template-less `TLCmp` comment above for
+            // the full rationale (`lexbedom`/`silamanuk`). Same fix per group, via the SAME
+            // `build_compound_chain` depth-budgeted chain (task 4.1 piece 2, above) — the HEAD side
+            // of this per-group section is deliberately left ungated (matches `eligible_roots`' own
+            // pre-existing full-broadening-when-compounding comment just below) -- template+
+            // compounding interaction is an unproven composition node (design.md D4), so this change
+            // does not add new precision there, only preserves the existing safe-over-approximation
+            // shape.
             let group_non_head_roots: Vec<&RootRec> = match &compound_license {
                 Some(license) => filter_roots_by_license(g, &all_roots, &license.non_head_eligible),
                 None => all_roots.clone(),
             };
-            write_root_entries(
+            build_compound_chain(
                 &mut out,
+                &cmp_name,
+                compound_extra_levels,
                 &group_non_head_roots,
                 &sfx_deriv_entry,
+                &mut uncovered,
                 &mut counts,
                 &mut pk,
             );
-            if phon.is_some() {
-                write_lexicon_header(&mut out, &format!("{cmp_roots}Stripped"));
-                write_stripped_root_entries(
-                    &mut out,
-                    &all_roots,
-                    &sfx_deriv_entry,
-                    &mut counts,
-                    &mut pk,
-                );
-            }
         }
 
         let roots_name = format!("G{gi}Roots");
