@@ -274,6 +274,51 @@
 //! FST-side, but its full-recall containment against `pg_rules::rewrite` is a documented, pre-
 //! existing gap this change surfaces rather than silently works around — flagged for a follow-on
 //! entirely outside `replace.rs`'s single-owner boundary, exactly like the RTL gap above.
+//!
+//! ## Additional `RightToLeftRewrite` pattern shapes (`openspec/changes/
+//! plan-construct-coverage-completion` task 4.2)
+//! Before this task, `pattern_slots` refused `PatternNode::Segments`/`PatternNode::Anchor`
+//! unconditionally, for EVERY caller alike — the RTL predicate's own witness listed them alongside
+//! a malformed `Quantifier`/a disagree-polarity alpha var as the shapes `compile_rtl_branch_net`
+//! excludes. Re-examining each one at the reversal construction's own level (`crate::lower::
+//! PatternLowerScope`'s own doc has the full per-consumer boundary this section only summarizes):
+//! - **`Segments` (same table as the pattern's own).** A pre-segmented literal shape lowers to a
+//!   run of plain [`crate::lower::Slot::Fixed`] atoms, one per interior char-def — structurally
+//!   IDENTICAL to what an equivalent run of `<Segment>` references already lowers to, so nothing
+//!   about `reversed_slots`/`compile_rtl_branch_net` needed to change: the existing "atomic slot,
+//!   reversed by pure position" handling already covers it. Only a `Segments` node referencing a
+//!   DIFFERENT table than the pattern's own stays refused (a raw char-def `u32` index has no
+//!   meaning across two tables' own id spaces) — genuinely out of scope, not merely deferred.
+//! - **`Anchor` (word-boundary condition).** Lowers to a new [`crate::lower::Slot::Anchor`],
+//!   rendered as foma's own `.#.` xre atom — IDENTICAL text regardless of [`pg_grammar::model::
+//!   AnchorSide`] (`Slot::Anchor`'s own doc has the full argument for why the tag itself never
+//!   needs inspecting: POSITION, not the tag, conveys word-initial vs. word-final). This is exactly
+//!   why the mirror-and-reverse construction swaps an anchor to the CORRECT opposite edge with
+//!   ZERO new code in [`compile_rtl_branch_net`]/[`reversed_slots`] themselves: an `Anchor(Right)`
+//!   that is the LAST slot of the original `right_env` becomes, via the EXISTING `reversed_slots`
+//!   (pure position reversal, no anchor-specific case) plus the EXISTING left/right swap, the FIRST
+//!   slot of the mirror's own `left_env` — a leading `.#.` there means "start of the
+//!   mirror/reversed representation", which [`fsm_reverse`] then correctly turns into "end of the
+//!   real string" for the final network, by the SAME "reversing a network that operates on
+//!   reversed strings gives back a network operating on normal strings" argument this file's own
+//!   RTL section above already makes for ordinary content. Pinned empirically (not just argued):
+//!   `tests/phase_c_right_to_left.rs`'s `rtl_anchor_reversal_swaps_the_correct_edge`.
+//! - **A disagree-polarity alpha var** (`AlphaVar::plus == false`) stays refused, deliberately, on
+//!   BOTH `Dir`s and EVERY caller — this is genuinely orthogonal to reversal (it is a gap in
+//!   `resolve_alpha_tuples`' own joint-agreement filter, which only ever implements "agree" via
+//!   bitwise overlap, never "disagree" via bitwise non-overlap/complement — the SAME gap for an
+//!   ordinary `LeftToRight` rule), not something the mirror-and-reverse construction has any
+//!   bearing on; building "disagree" semantics is a standalone `resolve_alpha_tuples` feature, out
+//!   of this task's own scope (`crate::lower::UnsupportedPatternNode::AlphaDisagreePolarity`'s own
+//!   doc; `crate::capability::RightToLeftRewriteFaithfulReversalPredicate`'s own tests pin this
+//!   refusal with this specific named witness).
+//! - **This widening is scope-gated** (`crate::lower::PatternLowerScope`), NOT a blanket change to
+//!   `pattern_slots` for every caller: `crate::lower::lower_span` (`SimultaneousRewrite`'s own
+//!   `hc.dll`-oracle-verified span-intersection test) and `compile_metathesis_rule` (below,
+//!   `Metathesis`'s own already-closed task-4.6 row) both deliberately stay on the UNWIDENED
+//!   `PatternLowerScope::Baseline` tier — this task's own ownership boundary is `RightToLeftRewrite`
+//!   only, and a pattern-shape-lowering change must never silently reopen a DIFFERENT
+//!   characteristic's own closed/verified scope as a side effect.
 
 use foma::options::FomaOptions;
 use foma::regex::fsm_parse_regex;
@@ -997,8 +1042,11 @@ pub fn compile_rewrite_rule(
 /// **Mode/dir detection (Phase C, `docs/fst-plan/phase-c-generator-design.md` §5/§6):**
 /// `rule.mode`/`rule.dir` are checked FIRST, via [`is_fully_supported_shape`] -- a rule outside
 /// that shape returns `Ok(None)` immediately, exactly the same "uncovered, caller reports it
-/// `skipped`" contract [`pattern_slots`] already uses for an unsupported PATTERN construct
-/// (Quantifier/Segments/Anchor). Before this check existed, an unsupported mode/dir was silently
+/// `skipped`" contract [`pattern_slots`] already uses for an unsupported PATTERN construct (a
+/// malformed `Quantifier`, a cross-table `Segments`, or a disagree-polarity alpha var -- a
+/// same-table `Segments` and any `Anchor` no longer disqualify a rewrite rule's own pattern at all,
+/// `openspec/changes/plan-construct-coverage-completion` task 4.2, this function's own
+/// `PatternLowerScope::RewriteRuleCompile` call below). Before this check existed, an unsupported mode/dir was silently
 /// compiled via plain foma `->` as if it were Iterative/LeftToRight -- a WRONG network with no
 /// signal (design doc §5's "SILENT MIS-MAP" row). `Dir::RightToLeft` used to be gated out here too
 /// (`Ok(None)`, honestly skipped) until `openspec/changes/compile-right-to-left-rewrites` gave it
@@ -1069,21 +1117,31 @@ pub fn compile_rewrite_rule_subset(
         // scoping is per-subrule, module doc), so `lhs_slots` is (re)computed here, not hoisted
         // above the loop.
         let mut next_occurrence = 0usize;
-        let Some(lhs_slots) = pattern_slots(g, table, &rule.lhs, &mut next_occurrence) else {
+        // `PatternLowerScope::RewriteRuleCompile` (`openspec/changes/
+        // plan-construct-coverage-completion` task 4.2): this is the ONE real production compile
+        // path for an ordinary rewrite rule, EITHER `Dir` -- widening it to additionally accept a
+        // same-table `Segments`/any `Anchor` (`crate::lower::PatternLowerScope`'s own doc) benefits
+        // `Dir::LeftToRight` and `Dir::RightToLeft` alike, since this floor has always been Dir-
+        // agnostic (`is_fully_supported_shape`'s own doc). `crate::capability::
+        // rtl_reversal_construction_attempted` MUST pass this SAME scope value, or the capability
+        // predicate and this real compiler could silently diverge on which rules are admitted.
+        let scope = crate::lower::PatternLowerScope::RewriteRuleCompile;
+        let Some(lhs_slots) = pattern_slots(g, table, &rule.lhs, &mut next_occurrence, scope) else {
             return Ok(None);
         };
-        let Some(rhs_slots) = pattern_slots(g, table, &subrule.rhs, &mut next_occurrence) else {
+        let Some(rhs_slots) = pattern_slots(g, table, &subrule.rhs, &mut next_occurrence, scope)
+        else {
             return Ok(None);
         };
         let left_slots = match &subrule.left_env {
-            Some(p) => match pattern_slots(g, table, p, &mut next_occurrence) {
+            Some(p) => match pattern_slots(g, table, p, &mut next_occurrence, scope) {
                 Some(s) => s,
                 None => return Ok(None),
             },
             None => Vec::new(),
         };
         let right_slots = match &subrule.right_env {
-            Some(p) => match pattern_slots(g, table, p, &mut next_occurrence) {
+            Some(p) => match pattern_slots(g, table, p, &mut next_occurrence, scope) {
                 Some(s) => s,
                 None => return Ok(None),
             },
@@ -1553,13 +1611,19 @@ pub type Subrule = RewriteSubruleDef;
 // never changes the product of their candidate-set sizes).
 // **Honest-unsupported (`Ok(None)`, reported `skipped` — never a silent wrong compile), EITHER
 // `Dir`:**
-// - Any pattern needing `Quantifier`/`Segments`/`Anchor`/a disagree-polarity alpha var anywhere
-//   (`pattern_slots`'s own scope line) — includes, notably, `finalBoundaryCondition`/
-//   `initialBoundaryCondition` (`mrComplexMeta`'s own shape): an anchor lowers to a
-//   `PatternNode::Anchor` node INSIDE `pattern.nodes` for a `MetathesisRuleDef` (`pg_grammar::load`'s
-//   `load_metathesis_rule`), and `pattern_slots` refuses ANY `Anchor` occurrence grammar-wide today
-//   (not a metathesis-specific gap — the identical refusal already applies to every
-//   `RewriteRuleDef` LHS/RHS/environment carrying one).
+// - Any pattern needing a malformed `Quantifier`, a disagree-polarity alpha var, or (for THIS
+//   function specifically — see below) `Segments`/`Anchor` anywhere. `openspec/changes/
+//   plan-construct-coverage-completion` task 4.2 widens `pattern_slots` to additionally accept a
+//   same-table `Segments`/any `Anchor` for the ORDINARY rewrite-rule compile path
+//   (`compile_rewrite_rule_subset`, via `crate::lower::PatternLowerScope::RewriteRuleCompile`) --
+//   `compile_metathesis_rule` (this function) deliberately stays on `PatternLowerScope::Baseline`
+//   instead (that call site's own doc has the full reasoning: `Metathesis`'s own admitted set is
+//   task 4.6's already-closed row, not task 4.2's to reopen; `slot_candidates` below would refuse
+//   an `Anchor` occurrence independently anyway, so this is a deliberate scope choice, not a
+//   residual gap). So `finalBoundaryCondition`/`initialBoundaryCondition` (`mrComplexMeta`'s own
+//   shape: an anchor lowers to a `PatternNode::Anchor` node INSIDE `pattern.nodes` for a
+//   `MetathesisRuleDef`, `pg_grammar::load::load_metathesis_rule`) still refuses HERE, even though
+//   an ordinary `RewriteRuleDef` carrying the identical node kind no longer does.
 // - A `Slot::Alpha` occurrence anywhere in the pattern — genuinely STRUCTURALLY IMPOSSIBLE for a
 //   `<MetathesisRule>`, not merely unattested: `pg_grammar::load::load_metathesis_rule` calls
 //   `load_one_pattern_node` with an EMPTY `VarTable::default()` (no `<Variables>` scope exists for a
@@ -1606,9 +1670,18 @@ pub type Subrule = RewriteSubruleDef;
 /// every member whose spelling is unique to its own table ([`RepresentationAliasMap::aliases_for`]'s
 /// own contract) — byte-identical for every grammar with no shared cross-table representation.
 ///
-/// `None` for [`Slot::Alpha`] (structurally impossible for a `<MetathesisRule>`, module doc above) or
+/// `None` for [`Slot::Alpha`] (structurally impossible for a `<MetathesisRule>`, module doc above),
 /// [`Slot::Repeat`] (structurally reachable but never attested — module doc above; out of scope
-/// EITHER `Dir`, unchanged by the RTL construction added here).
+/// EITHER `Dir`, unchanged by the RTL construction added here), or [`Slot::Anchor`] (an anchor is a
+/// word-edge CONDITION, not a candidate segment value to enumerate/transpose — there is no sound
+/// notion of "the anchor that matched" reappearing, unchanged, at a swapped output position, unlike
+/// an ordinary segment). This last arm is unreachable in PRACTICE today: `compile_metathesis_rule`'s
+/// own `pattern_slots` call stays on `crate::lower::PatternLowerScope::Baseline`
+/// (`openspec/changes/plan-construct-coverage-completion` task 4.2's own scope boundary, that
+/// function's doc), which already refuses ANY `Anchor` occurrence before a `Slot::Anchor` value
+/// could ever reach this function — kept here anyway because `Slot` is a shared enum this match must
+/// stay exhaustive over (adding a variant elsewhere in this crate must not silently compile a
+/// wrong/no-op arm here).
 fn slot_candidates(
     slot: &Slot,
     table: &CharDefTable,
@@ -1629,7 +1702,7 @@ fn slot_candidates(
     match slot {
         Slot::Fixed(cd) => Some(expand(std::slice::from_ref(cd))),
         Slot::Union(members) => Some(expand(members)),
-        Slot::Alpha { .. } | Slot::Repeat { .. } => None,
+        Slot::Alpha { .. } | Slot::Repeat { .. } | Slot::Anchor(_) => None,
     }
 }
 
@@ -1836,7 +1909,16 @@ pub(crate) fn compile_metathesis_rule(
         .expect("owning_table_id_for_metathesis shares owning_table_for_metathesis's own lookup, which just resolved Some");
     let alias_map = RepresentationAliasMap::build(g);
     let mut next_occurrence = 0usize;
-    let Some(slots) = pattern_slots(g, table, &rule.pattern, &mut next_occurrence) else {
+    // `PatternLowerScope::Baseline`, deliberately (`openspec/changes/
+    // plan-construct-coverage-completion` task 4.2's own scope boundary): `Metathesis`'s own
+    // admitted set is task 4.6's already-closed row, not this task's to reopen -- widening it here
+    // would be a silent, unowned side effect of a DIFFERENT task's own pattern-shape lowering
+    // change. This costs nothing in practice: `slot_candidates` (below) independently refuses any
+    // `Slot::Anchor`/cross-table-`Segments` occurrence anyway, so the observable behavior would be
+    // identical either way -- `Baseline` is simply the more conservative, more obviously-correct
+    // choice, not a compromise.
+    let scope = crate::lower::PatternLowerScope::Baseline;
+    let Some(slots) = pattern_slots(g, table, &rule.pattern, &mut next_occurrence, scope) else {
         return Ok(None);
     };
     let left_idx = rule.left_switch as usize;
@@ -2454,11 +2536,12 @@ mod rtl_repeat_children_reversal_tests {
         let opts = FomaOptions::default();
 
         let mut next_occurrence = 0usize;
-        let lhs_slots = pattern_slots(&g, table, &rule.lhs, &mut next_occurrence)
+        let scope = crate::lower::PatternLowerScope::RewriteRuleCompile;
+        let lhs_slots = pattern_slots(&g, table, &rule.lhs, &mut next_occurrence, scope)
             .expect("fixed-segment LHS must lower");
-        let rhs_slots = pattern_slots(&g, table, &subrule.rhs, &mut next_occurrence)
+        let rhs_slots = pattern_slots(&g, table, &subrule.rhs, &mut next_occurrence, scope)
             .expect("fixed-segment RHS must lower");
-        let right_slots = pattern_slots(&g, table, right_env, &mut next_occurrence).expect(
+        let right_slots = pattern_slots(&g, table, right_env, &mut next_occurrence, scope).expect(
             "a well-formed 2-child quantifier group must lower (bounded: \
              compile-bounded-fst-quantifiers; max=\"-1\": build-unbounded-quantifier-support)",
         );

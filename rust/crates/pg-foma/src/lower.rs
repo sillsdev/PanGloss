@@ -84,7 +84,7 @@ use foma::structures::{fsm_empty_set, fsm_empty_string, fsm_isempty};
 use foma::types::Fsm;
 
 use pg_grammar::chardef::{CharDefId, CharDefKind, CharDefTable};
-use pg_grammar::model::{Grammar, NaturalClassKind, Pattern, PatternNode, VarId};
+use pg_grammar::model::{AnchorSide, Grammar, NaturalClassKind, Pattern, PatternNode, VarId};
 
 use crate::replace::SegAlphabet;
 
@@ -129,6 +129,49 @@ fn class_members(
 // this prototype doesn't render (Quantifier/Anchor/CharDef-of-unknown-kind never seen here).
 // =================================================================================================
 
+/// Which additional pattern-node shapes a particular [`pattern_slots`]/[`slots_from_nodes`] CALLER
+/// may accept, beyond the floor every caller has always shared (`Context`/`CharDef`/a well-formed
+/// `Quantifier`). `pattern_slots` is a single shared lowering seam deliberately reused by THREE
+/// independent consumers with DIFFERENT verification obligations (module top doc's own "reuse, not
+/// re-derive" discipline: [`lower_span`] for `crate::capability::SimultaneousSubruleOverlapPredicate`
+/// (D3's `hc.dll`-oracle-verified span-intersection test), `crate::replace::compile_rewrite_rule_
+/// subset`/`crate::replace::compile_metathesis_rule` for the real rewrite-rule/metathesis compile) --
+/// widening what ONE consumer accepts must never silently widen what an UNRELATED consumer accepts
+/// too, since each consumer's own soundness argument is independently made and independently
+/// verified. This enum makes that boundary an explicit, typed parameter rather than a single shared
+/// default a later change could accidentally loosen for everyone at once.
+///
+/// `openspec/changes/plan-construct-coverage-completion` task 4.2 introduces this split: before it,
+/// `PatternNode::Segments`/`PatternNode::Anchor` were an unconditional `None` for every caller ALIKE.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PatternLowerScope {
+    /// Every consumer's floor before task 4.2: `PatternNode::Segments`/`PatternNode::Anchor` still
+    /// refuse unconditionally (`None`), byte-identical to this crate's pre-4.2 behavior.
+    /// [`lower_span`]'s own callers stay on this tier PERMANENTLY by this task's own explicit
+    /// ownership boundary -- widening `SimultaneousRewrite`'s own admitted set is a DIFFERENT
+    /// characteristic's oracle-verification question (D6), not something a pattern-shape-lowering
+    /// change gets to answer as a side effect. `crate::replace::compile_metathesis_rule` also stays
+    /// on this tier deliberately (not because it couldn't be widened -- `slot_candidates` would
+    /// refuse an `Anchor`/cross-table-`Segments` occurrence independently anyway -- but because
+    /// `Metathesis`'s own admitted set is `openspec/changes/plan-construct-coverage-completion` task
+    /// 4.6's already-closed row, not this task's to reopen).
+    Baseline,
+    /// Task 4.2's own widening, for the rewrite-rule compile path
+    /// (`crate::replace::compile_rewrite_rule_subset`/`crate::capability::
+    /// rtl_reversal_construction_attempted`, which MUST stay in lockstep with each other -- see that
+    /// function's own doc): additionally accepts (1) a `PatternNode::Segments` whose OWN declared
+    /// table is the SAME table as this call's own `table` parameter (lowers to a literal run of
+    /// [`Slot::Fixed`], one per the pre-segmented shape's own interior node, byte-identical to what
+    /// an equivalent run of plain `<Segment>` references would produce) -- a Segments node
+    /// referencing a DIFFERENT table still refuses, honestly, never silently misinterpreting
+    /// another table's char-def id SPACE (a raw `u32` index has no meaning across tables) -- and (2)
+    /// any `PatternNode::Anchor` (lowers to [`Slot::Anchor`], rendered as foma's own `.#.`
+    /// word-boundary xre atom). A disagree-polarity alpha var and a malformed `Quantifier` still
+    /// refuse under this tier too -- widening is strictly ADDITIVE, never a blanket "accept
+    /// everything" switch.
+    RewriteRuleCompile,
+}
+
 /// One position in a rendered pattern.
 ///
 /// `pub(crate)`: this is the canonical definition (moved here, `lower-fst-pattern-environments`
@@ -141,7 +184,7 @@ fn class_members(
 /// construction needs a REVERSED copy of a subrule's own slot lists (`reversed_slots`, that
 /// file) alongside the original document-order lists it builds the safety-net `LeftToRight`-style
 /// branch from -- see that file's `compile_rtl_branch_net` doc.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub(crate) enum Slot {
     /// A single fixed char-def (`PatternNode::CharDef`, or a `Context` with no alpha vars whose
     /// class happens to be a singleton — kept general as [`Slot::Union`] instead, see below).
@@ -231,6 +274,41 @@ pub(crate) enum Slot {
         max: Option<u32>,
         children: Vec<Slot>,
     },
+    /// `PatternNode::Anchor` (`initialBoundaryCondition`/`finalBoundaryCondition` on a
+    /// `<PhoneticTemplate>`, or a bare leading/trailing `#` in an environment string --
+    /// `openspec/changes/plan-construct-coverage-completion` task 4.2): accepted only under
+    /// [`PatternLowerScope::RewriteRuleCompile`] ([`PatternLowerScope`]'s own doc). Renders
+    /// ([`render_slots`]) as foma's own `.#.` xre atom -- "signifies both end and beginning of
+    /// word/string" (`foma-0.4.2/src/iface/print.rs`'s own built-in help text for the operator,
+    /// `regex.rs`'s `XreExpr::BoundaryMarker => fsm_symbol(".#.")`) -- IDENTICALLY regardless of
+    /// which [`AnchorSide`] this occurrence carries: the compiled meaning ("start of word" vs "end
+    /// of word") comes entirely from WHICH SIDE of the rule's own `_` focus marker the rendered text
+    /// sits on (leading in a left environment = word-initial; trailing in a right environment =
+    /// word-final -- `pg_grammar::compile::rules.rs`'s own construction: `Anchor(Left)` is always
+    /// PREPENDED to `left_env`, `Anchor(Right)` always APPENDED to `right_env`), never from the tag
+    /// itself. This is exactly what makes [`crate::replace::compile_rtl_branch_net`]'s existing
+    /// mirror-and-reverse construction swap an anchor to the CORRECT opposite edge with NO
+    /// anchor-specific code in that function at all: `reversed_slots` reverses this slot's own
+    /// POSITION within its containing environment list (an atomic slot, no internal reversal, same
+    /// as [`Slot::Fixed`]/[`Slot::Union`]) and swaps left_env<->right_env wholesale, so a
+    /// `Right`-anchor that was the LAST slot of the original `right_env` becomes the FIRST slot of
+    /// the mirror's own `left_env` -- rendered as a LEADING `.#.` there, meaning "start of the
+    /// mirror/reversed representation", which `fsm_reverse` then correctly turns into "end of the
+    /// real string" for the final network (the SAME "reversing a network that operates on reversed
+    /// strings gives back a network operating on normal strings" argument the module's own top doc
+    /// already makes for ordinary content, here applied to a boundary symbol instead of a
+    /// character). Pinned empirically, not just argued: `tests/phase_c_right_to_left.rs`'s
+    /// `rtl_anchor_reversal_swaps_the_correct_edge`.
+    ///
+    /// `#[allow(dead_code)]`: the carried [`AnchorSide`] is never actually READ by this crate today
+    /// (this doc's own argument for why [`render_slots`] can render `.#.` unconditionally,
+    /// regardless of side) -- kept anyway, not collapsed to a unit variant, because it is real
+    /// structural information a future caller (a diagnostic, or a stricter position-validity check)
+    /// may legitimately want, and because `PatternNode::Anchor(AnchorSide)` (the node this variant
+    /// mirrors) carries it too — dropping it here would be a lossy projection for no code-size
+    /// benefit worth mentioning.
+    #[allow(dead_code)]
+    Anchor(AnchorSide),
 }
 
 /// `true` iff `slots` (or the `children` of any `Slot::Repeat` nested at ANY depth inside `slots`)
@@ -243,7 +321,7 @@ fn slots_contain_alpha(slots: &[Slot]) -> bool {
     slots.iter().any(|s| match s {
         Slot::Alpha { .. } => true,
         Slot::Repeat { children, .. } => slots_contain_alpha(children),
-        Slot::Fixed(_) | Slot::Union(_) => false,
+        Slot::Fixed(_) | Slot::Union(_) | Slot::Anchor(_) => false,
     })
 }
 
@@ -275,11 +353,14 @@ const MAX_QUANTIFIER_BOUND: u32 = 512;
 /// Walk `pattern`'s nodes into [`Slot`]s, numbering each `Alpha` occurrence sequentially from
 /// `*next_occurrence` (shared across LHS/RHS/left-env/right-env for one subrule — see
 /// `replace.rs`'s `compile_rewrite_rule`, or this module's own [`lower_span`], which resets its own
-/// FRESH counter per span). Returns `None` (uncovered) on `Segments`/`Anchor`/disagree-polarity
-/// `Context`, or an out-of-scope `Quantifier` (inverted/over-budget-finite/alpha-nested/empty-
-/// children — see [`Slot::Repeat`]'s own doc; a genuinely UNBOUNDED quantifier is no longer, by
-/// itself, out of scope, `openspec/changes/build-unbounded-quantifier-support`) — this prototype's
-/// documented scope line.
+/// FRESH counter per span). Returns `None` (uncovered) on a disagree-polarity `Context`; an
+/// out-of-scope `Quantifier` (inverted/over-budget-finite/alpha-nested/empty-children — see
+/// [`Slot::Repeat`]'s own doc; a genuinely UNBOUNDED quantifier is no longer, by itself, out of
+/// scope, `openspec/changes/build-unbounded-quantifier-support`); or, when `scope` is
+/// [`PatternLowerScope::Baseline`], any `Segments`/`Anchor` node at all (when `scope` is
+/// [`PatternLowerScope::RewriteRuleCompile`], a `Segments` node referencing a DIFFERENT table than
+/// `table` still refuses, but a same-table `Segments` and any `Anchor` now lower successfully --
+/// `openspec/changes/plan-construct-coverage-completion` task 4.2, [`PatternLowerScope`]'s own doc).
 ///
 /// `table`: every `Context` node's `NatClassId` is resolved against THIS table
 /// ([`class_members`]), never an implicit grammar-wide default
@@ -288,7 +369,10 @@ const MAX_QUANTIFIER_BOUND: u32 = 512;
 /// [`crate::replace::owning_table`]'s own doc for how `replace.rs`'s `compile_rewrite_rule_subset`
 /// picks it (the rule's own stratum's `StratumDef::table`), and [`lower_span`]'s own call sites for
 /// how THIS module picks it (`alphabet.table()`, already the correct per-caller table by that
-/// function's own contract).
+/// function's own contract). A `PatternNode::Segments`' OWN declared table is compared against THIS
+/// SAME `table` by pointer identity (`std::ptr::eq`, both being borrowed from the same `g.char_tables`
+/// vec this pattern's own grammar owns) -- cheap, exact, and needs no new `TableId`-threading
+/// through this function's signature.
 ///
 /// `pub(crate)`: canonical definition (moved here, migration follow-on) -- `replace.rs`
 /// re-exports it at its OLD path so `capability.rs`'s structural probes and every existing
@@ -299,8 +383,9 @@ pub(crate) fn pattern_slots(
     table: &CharDefTable,
     pattern: &Pattern,
     next_occurrence: &mut usize,
+    scope: PatternLowerScope,
 ) -> Option<Vec<Slot>> {
-    slots_from_nodes(g, table, &pattern.nodes, next_occurrence)
+    slots_from_nodes(g, table, &pattern.nodes, next_occurrence, scope)
 }
 
 /// [`pattern_slots`]'s own per-node walk, factored out over a bare node slice (rather than a whole
@@ -309,12 +394,15 @@ pub(crate) fn pattern_slots(
 /// `pattern_slots` already gives a whole pattern — one pattern-node-to-slot mapping, not two
 /// independently-maintained ones (mirrors this module's own "one shared occurrence counter"
 /// discipline for LHS/RHS/environment: `next_occurrence` threads through this recursion exactly
-/// like it already threads across a subrule's LHS/RHS/left-env/right-env calls).
+/// like it already threads across a subrule's LHS/RHS/left-env/right-env calls). `scope` threads
+/// through the SAME way, unchanged across the whole recursion -- a `Quantifier`'s own `children`
+/// never gets a more permissive (or stricter) scope than its parent pattern.
 fn slots_from_nodes(
     g: &Grammar,
     table: &CharDefTable,
     nodes: &[PatternNode],
     next_occurrence: &mut usize,
+    scope: PatternLowerScope,
 ) -> Option<Vec<Slot>> {
     let mut out = Vec::with_capacity(nodes.len());
     for node in nodes {
@@ -367,7 +455,7 @@ fn slots_from_nodes(
                         return None;
                     }
                 }
-                let child_slots = slots_from_nodes(g, table, children, next_occurrence)?;
+                let child_slots = slots_from_nodes(g, table, children, next_occurrence, scope)?;
                 if child_slots.is_empty() {
                     // No renderable child at all (an empty <OptionalSegmentSequence>) -- not a
                     // shape any DTD-legal grammar this crate has seen produces; nothing to
@@ -387,8 +475,43 @@ fn slots_from_nodes(
                     children: child_slots,
                 });
             }
-            PatternNode::Segments { .. } | PatternNode::Anchor(_) => {
-                return None;
+            PatternNode::Segments {
+                table: seg_table_id,
+                shape,
+            } => {
+                if scope != PatternLowerScope::RewriteRuleCompile {
+                    return None;
+                }
+                // Cross-table `Segments`: the node's own declared table differs from the table
+                // THIS call is lowering against -- a raw `char_def: u32` index has no meaning
+                // across two different `CharDefTable`s' own `defs` vecs (chardef.rs's own
+                // `CharDefTable::get`: `&self.defs[id.0 as usize]`, silently wrong or panicking if
+                // misapplied to another table), so this stays honestly out of scope rather than
+                // risk misinterpreting another table's char-def id space (`PatternLowerScope`'s own
+                // doc). Pointer identity is exact here: both references are borrowed from the SAME
+                // `g.char_tables` vec this pattern's own grammar owns.
+                let seg_table = &g.char_tables[seg_table_id.0 as usize];
+                if !std::ptr::eq(seg_table, table) {
+                    return None;
+                }
+                // Same-table: a pre-segmented literal shape lowers to one `Slot::Fixed` per
+                // interior node (bridge.rs's own `PatternNode::Segments` handling does the
+                // identical `shape.shape.interior()` walk for its own, differently-shaped FST
+                // backend -- this is not a re-derivation of new segmentation logic, just this
+                // module's OWN `Slot` vocabulary applied to the same already-segmented data).
+                // `interior()` already excludes the two bracketing anchor nodes `pg_shape::Shape`
+                // wraps every shape in (its own doc: "everything but the two anchors") -- an
+                // entirely different, lower-level concept than this module's own `Slot::Anchor`
+                // (a grammar-level `PatternNode::Anchor` word-boundary CONDITION), never conflated.
+                for (_, _kind, char_def, _flags) in shape.shape.interior() {
+                    out.push(Slot::Fixed(CharDefId(char_def)));
+                }
+            }
+            PatternNode::Anchor(side) => {
+                if scope != PatternLowerScope::RewriteRuleCompile {
+                    return None;
+                }
+                out.push(Slot::Anchor(*side));
             }
         }
     }
@@ -662,6 +785,11 @@ pub(crate) fn render_slots(
                     None => format!("[{inner}]^>{}", min - 1),
                 }
             }
+            // `openspec/changes/plan-construct-coverage-completion` task 4.2: foma's own `.#.`
+            // word-boundary xre atom, IDENTICAL text regardless of `AnchorSide` -- [`Slot::Anchor`]'s
+            // own doc has the full argument for why the side never needs to be inspected here (the
+            // rendered POSITION, not the tag, is what conveys "word-initial" vs "word-final").
+            Slot::Anchor(_) => ".#.".to_string(),
         };
         pieces.push(piece);
     }
@@ -680,21 +808,35 @@ pub enum UnsupportedPatternNode {
     /// `PatternNode::Quantifier` (`<OptionalSegmentSequence min max>`) that
     /// [`crate::replace::pattern_slots`] still refuses: genuinely UNBOUNDED (`max == None`),
     /// inverted (`min > max`), pathologically large (past
-    /// [`crate::replace`]'s own preflight bound), or carrying an alpha-bound occurrence anywhere in
+    /// [`crate::replace`]'s own preflight bound), carrying an alpha-bound occurrence anywhere in
     /// its own children (`openspec/changes/compile-bounded-fst-quantifiers`, that module's own
-    /// `Slot::Repeat` doc names exactly this scope line). A FINITELY bounded, alpha-free quantifier
-    /// no longer reaches this variant at all — `pattern_slots` accepts it directly (a new
-    /// `Slot::Repeat`), so [`lower_span`] lowers it transparently, same as any other supported node.
+    /// `Slot::Repeat` doc names exactly this scope line), or with no renderable child at all. A
+    /// FINITELY bounded, alpha-free quantifier no longer reaches this variant at all — `pattern_slots`
+    /// accepts it directly (a new `Slot::Repeat`), so [`lower_span`] lowers it transparently, same as
+    /// any other supported node.
     Quantifier,
-    /// `PatternNode::Segments` (`<Segments><PhoneticShape>`) — an inline pre-segmented literal
-    /// shape group.
+    /// `PatternNode::Segments` (`<Segments><PhoneticShape>`) — an inline pre-segmented literal shape
+    /// group. Under [`PatternLowerScope::Baseline`] ANY `Segments` node triggers this (unchanged,
+    /// pre-4.2 behavior); under [`PatternLowerScope::RewriteRuleCompile`]
+    /// (`openspec/changes/plan-construct-coverage-completion` task 4.2) a SAME-table `Segments` no
+    /// longer reaches this variant at all (it lowers to a literal run of `Slot::Fixed`) — only a
+    /// `Segments` node referencing a DIFFERENT table than the pattern's own still does, since a raw
+    /// char-def index has no meaning across two tables' own id spaces.
     Segments,
-    /// `PatternNode::Anchor` (`initialBoundaryCondition`/`finalBoundaryCondition`) — a word-
-    /// boundary constraint.
+    /// `PatternNode::Anchor` (`initialBoundaryCondition`/`finalBoundaryCondition`, or a bare
+    /// leading/trailing `#` in an environment string) — a word-boundary condition. Under
+    /// [`PatternLowerScope::Baseline`] this triggers unconditionally (unchanged, pre-4.2 behavior);
+    /// under [`PatternLowerScope::RewriteRuleCompile`] (task 4.2) `Anchor` no longer reaches this
+    /// variant AT ALL — it always lowers to [`Slot::Anchor`] instead.
     Anchor,
     /// A `PatternNode::Context` carrying an [`pg_grammar::model::AlphaVar`] with `plus == false`
     /// ("disagree" polarity) — not a distinct node KIND, but the same "cannot lower faithfully"
-    /// outcome [`pattern_slots`] already reports as unrendered.
+    /// outcome [`pattern_slots`] already reports as unrendered. Scope-independent: no
+    /// [`PatternLowerScope`] tier accepts this shape (`openspec/changes/
+    /// plan-construct-coverage-completion` task 4.2 deliberately leaves it refused — an orthogonal,
+    /// pre-existing gap in `resolve_alpha_tuples`' own joint-agreement filter, unrelated to
+    /// direction/reversal, and out of this task's own scope; see that task's final report for the
+    /// full reasoning).
     AlphaDisagreePolarity,
 }
 
@@ -712,27 +854,119 @@ impl std::fmt::Display for UnsupportedPatternNode {
     }
 }
 
-/// Scans `pattern` for the FIRST node [`pattern_slots`] cannot lower, to recover a typed reason
-/// after `pattern_slots` has already returned `None` for it. Never called on a pattern
-/// `pattern_slots` actually accepted — `unreachable!` guards that invariant rather than silently
-/// reporting a wrong/default reason (this module's own conservative discipline: a diagnostic that
-/// mis-names its cause is worse than no diagnostic).
-fn diagnose_unsupported(pattern: &Pattern) -> UnsupportedPatternNode {
-    for node in &pattern.nodes {
+/// Scans `pattern` for the FIRST node [`pattern_slots`] (called with this SAME `g`/`table`/`scope`)
+/// cannot lower, to recover a typed reason after `pattern_slots` has already returned `None` for it.
+/// `pub(crate)` (`openspec/changes/plan-construct-coverage-completion` task 4.2): exposed so
+/// `capability.rs`'s `RightToLeftRewriteFaithfulReversalPredicate` can name the EXACT failing shape
+/// in its own `Refuse` witness, rather than a laundry-list "could be any of these" message — the
+/// task's own "make the predicate's witness name that specific shape" requirement.
+///
+/// Recurses into a `Quantifier`'s own `children` ([`diagnose_unsupported_nodes`]) rather than
+/// assuming the FIRST `Quantifier` node encountered is automatically the culprit: a well-formed
+/// quantifier earlier in document order than the REAL failing node would otherwise be mis-blamed
+/// (this function's own precision bar, matching [`slots_from_nodes`]'s actual accept/reject order
+/// exactly — a diagnostic that mis-names its cause is worse than no diagnostic).
+///
+/// Never called on a pattern `pattern_slots` actually accepted for this SAME `scope` — `unreachable!`
+/// guards that invariant rather than silently reporting a wrong/default reason.
+pub(crate) fn diagnose_unsupported(
+    g: &Grammar,
+    table: &CharDefTable,
+    pattern: &Pattern,
+    scope: PatternLowerScope,
+) -> UnsupportedPatternNode {
+    diagnose_unsupported_nodes(g, table, &pattern.nodes, scope).unwrap_or_else(|| {
+        unreachable!(
+            "pg_foma::lower::diagnose_unsupported called on a pattern pattern_slots did not \
+             actually reject under scope {scope:?}: {pattern:?} (a caller bug, not a \
+             grammar-authoring one)"
+        )
+    })
+}
+
+/// `true` iff `nodes` (at ANY nesting depth through a `Quantifier`'s own `children`) contains a
+/// `PatternNode::Context` carrying at least one `AlphaVar` — the same "would this node list produce
+/// a `Slot::Alpha` occurrence somewhere" question [`slots_contain_alpha`] asks of an already-lowered
+/// `&[Slot]`, re-derived here at the `PatternNode` level (before lowering) so
+/// [`diagnose_unsupported_nodes`]'s own `Quantifier` arm can check it WITHOUT first building
+/// `Slot`s for a subtree it may still end up rejecting for an entirely different reason.
+/// Disagree-polarity vars are covered too (a disagree-polarity `Context` still carries a non-empty
+/// `vars` list) — harmless double-coverage, since [`diagnose_unsupported_nodes`]'s own `Context` arm
+/// always reports the MORE SPECIFIC `AlphaDisagreePolarity` reason first, before this function is
+/// ever consulted for that same node.
+fn nodes_contain_alpha_context(nodes: &[PatternNode]) -> bool {
+    nodes.iter().any(|n| match n {
+        PatternNode::Context(sc) => !sc.vars.is_empty(),
+        PatternNode::Quantifier { children, .. } => nodes_contain_alpha_context(children),
+        PatternNode::CharDef(_) | PatternNode::Segments { .. } | PatternNode::Anchor(_) => false,
+    })
+}
+
+/// [`diagnose_unsupported`]'s own recursive walk, mirroring [`slots_from_nodes`]'s EXACT accept/
+/// reject decisions node-by-node (never a re-derived, independently-drifting approximation) so the
+/// reason it reports is always the REAL one. Returns `None` when `nodes` is (as far as this function
+/// can tell) fully lowerable — the top-level [`diagnose_unsupported`] treats that as a caller-bug
+/// `unreachable!`, since it is only ever invoked after `pattern_slots` has already rejected this
+/// exact `nodes` list.
+fn diagnose_unsupported_nodes(
+    g: &Grammar,
+    table: &CharDefTable,
+    nodes: &[PatternNode],
+    scope: PatternLowerScope,
+) -> Option<UnsupportedPatternNode> {
+    for node in nodes {
         match node {
-            PatternNode::Quantifier { .. } => return UnsupportedPatternNode::Quantifier,
-            PatternNode::Segments { .. } => return UnsupportedPatternNode::Segments,
-            PatternNode::Anchor(_) => return UnsupportedPatternNode::Anchor,
-            PatternNode::Context(sc) if sc.vars.iter().any(|v| !v.plus) => {
-                return UnsupportedPatternNode::AlphaDisagreePolarity;
+            PatternNode::CharDef(_) => {}
+            PatternNode::Context(sc) => {
+                if sc.vars.iter().any(|v| !v.plus) {
+                    return Some(UnsupportedPatternNode::AlphaDisagreePolarity);
+                }
             }
-            PatternNode::Context(_) | PatternNode::CharDef(_) => {}
+            PatternNode::Quantifier { min, max, children } => {
+                if let Some(max_v) = max {
+                    if min > max_v || *max_v > MAX_QUANTIFIER_BOUND {
+                        return Some(UnsupportedPatternNode::Quantifier);
+                    }
+                }
+                if children.is_empty() {
+                    return Some(UnsupportedPatternNode::Quantifier);
+                }
+                // A well-formed quantifier's own children might STILL hide the true failing node
+                // (a nested Segments/Anchor/disagree-polarity var, or a nested malformed
+                // quantifier) -- recurse rather than assume THIS quantifier is the culprit just
+                // because it is the first one seen.
+                if let Some(reason) = diagnose_unsupported_nodes(g, table, children, scope) {
+                    return Some(reason);
+                }
+                // Children lower cleanly on their own, but an alpha-bound occurrence anywhere
+                // inside them still makes the OUTER `Slot::Repeat` unbuildable
+                // (`slots_from_nodes`'s own final `slots_contain_alpha(&child_slots)` check) --
+                // the true reason in that case IS this quantifier (a well-formed quantifier that
+                // simply may never wrap an alpha occurrence).
+                if nodes_contain_alpha_context(children) {
+                    return Some(UnsupportedPatternNode::Quantifier);
+                }
+            }
+            PatternNode::Segments {
+                table: seg_table_id,
+                ..
+            } => {
+                if scope != PatternLowerScope::RewriteRuleCompile {
+                    return Some(UnsupportedPatternNode::Segments);
+                }
+                let seg_table = &g.char_tables[seg_table_id.0 as usize];
+                if !std::ptr::eq(seg_table, table) {
+                    return Some(UnsupportedPatternNode::Segments);
+                }
+            }
+            PatternNode::Anchor(_) => {
+                if scope != PatternLowerScope::RewriteRuleCompile {
+                    return Some(UnsupportedPatternNode::Anchor);
+                }
+            }
         }
     }
-    unreachable!(
-        "pg_foma::lower::diagnose_unsupported called on a pattern pattern_slots did not actually \
-         reject: {pattern:?} (a lower_span caller bug, not a grammar-authoring one)"
-    );
+    None
 }
 
 /// Compiles `text` to an [`Fsm`] acceptor, treating an empty rendered string as the empty-string
@@ -833,16 +1067,21 @@ pub fn lower_span(
     // `crate::replace::owning_table` too -- see that function's own doc).
     let table = alphabet.table();
 
+    // `PatternLowerScope::Baseline`: `lower_span` is `SimultaneousSubruleOverlapPredicate`'s own
+    // machinery (D3's `hc.dll`-oracle-verified span-intersection test, module top doc) -- it MUST
+    // stay on this tier permanently, unaffected by task 4.2's `RewriteRuleCompile` widening
+    // elsewhere in this module (`PatternLowerScope`'s own doc).
+    let scope = PatternLowerScope::Baseline;
     let left_slots = match left_env {
-        Some(p) => pattern_slots(g, table, p, &mut next_occurrence)
-            .ok_or_else(|| diagnose_unsupported(p))?,
+        Some(p) => pattern_slots(g, table, p, &mut next_occurrence, scope)
+            .ok_or_else(|| diagnose_unsupported(g, table, p, scope))?,
         None => Vec::new(),
     };
-    let focus_slots = pattern_slots(g, table, focus, &mut next_occurrence)
-        .ok_or_else(|| diagnose_unsupported(focus))?;
+    let focus_slots = pattern_slots(g, table, focus, &mut next_occurrence, scope)
+        .ok_or_else(|| diagnose_unsupported(g, table, focus, scope))?;
     let right_slots = match right_env {
-        Some(p) => pattern_slots(g, table, p, &mut next_occurrence)
-            .ok_or_else(|| diagnose_unsupported(p))?,
+        Some(p) => pattern_slots(g, table, p, &mut next_occurrence, scope)
+            .ok_or_else(|| diagnose_unsupported(g, table, p, scope))?,
         None => Vec::new(),
     };
 
@@ -1184,7 +1423,7 @@ mod tests {
         let table = &g.char_tables[0];
         let rule = quantifier_probe_rule(&g, "prUnboundedMinZero");
         let mut next_occurrence = 0usize;
-        let slots = pattern_slots(&g, table, &rule.lhs, &mut next_occurrence)
+        let slots = pattern_slots(&g, table, &rule.lhs, &mut next_occurrence, PatternLowerScope::Baseline)
             .expect("a well-formed unbounded (min=0), alpha-free quantifier must now lower");
         assert_eq!(slots.len(), 1);
         match &slots[0] {
@@ -1205,7 +1444,7 @@ mod tests {
         let table = &g.char_tables[0];
         let rule = quantifier_probe_rule(&g, "prUnboundedLargeMin");
         let mut next_occurrence = 0usize;
-        let slots = pattern_slots(&g, table, &rule.lhs, &mut next_occurrence).expect(
+        let slots = pattern_slots(&g, table, &rule.lhs, &mut next_occurrence, PatternLowerScope::Baseline).expect(
             "min=1000 (> MAX_QUANTIFIER_BOUND=512) must NOT be refused for an unbounded (max=None) \
              quantifier -- that ceiling only bounds a FINITE max, never `None`",
         );
@@ -1227,7 +1466,7 @@ mod tests {
         let rule = quantifier_probe_rule(&g, "prInvertedFinite");
         let mut next_occurrence = 0usize;
         assert!(
-            pattern_slots(&g, table, &rule.lhs, &mut next_occurrence).is_none(),
+            pattern_slots(&g, table, &rule.lhs, &mut next_occurrence, PatternLowerScope::Baseline).is_none(),
             "min=5 > max=2 (both concrete) must stay refused"
         );
     }
@@ -1242,7 +1481,7 @@ mod tests {
         let rule = quantifier_probe_rule(&g, "prOverBudgetFinite");
         let mut next_occurrence = 0usize;
         assert!(
-            pattern_slots(&g, table, &rule.lhs, &mut next_occurrence).is_none(),
+            pattern_slots(&g, table, &rule.lhs, &mut next_occurrence, PatternLowerScope::Baseline).is_none(),
             "max=600 exceeds MAX_QUANTIFIER_BOUND=512 -- must stay refused, never silently clamped"
         );
     }
@@ -1257,7 +1496,7 @@ mod tests {
         let rule = quantifier_probe_rule(&g, "prAlphaNestedUnbounded");
         let mut next_occurrence = 0usize;
         assert!(
-            pattern_slots(&g, table, &rule.lhs, &mut next_occurrence).is_none(),
+            pattern_slots(&g, table, &rule.lhs, &mut next_occurrence, PatternLowerScope::Baseline).is_none(),
             "an AlphaVariable occurrence inside a quantifier's own children is out of scope \
              regardless of whether the quantifier itself is bounded or unbounded"
         );

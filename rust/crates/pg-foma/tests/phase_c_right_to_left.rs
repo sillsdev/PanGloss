@@ -41,6 +41,7 @@
 mod common;
 
 use std::collections::HashSet;
+use std::path::Path;
 
 use foma::apply::{apply_down, apply_init};
 use foma::constructions::fsm_compose;
@@ -745,5 +746,361 @@ fn rtl_distinct_leftmost_rightmost_differs_from_ltr_and_is_recall_safe_against_t
     assert!(
         oracle_ba.is_subset(&fst_ba),
         "recall safety must still hold for 'ba' (trivially, since the oracle no longer claims it at all)"
+    );
+}
+
+// =================================================================================================
+// `openspec/changes/plan-construct-coverage-completion` task 4.2: `PatternNode::Anchor`/
+// `PatternNode::Segments` are no longer disqualifying for a `Dir::RightToLeft` rewrite rule (a
+// same-table `Segments`, any `Anchor` -- `crate::lower::PatternLowerScope::RewriteRuleCompile`'s own
+// doc). Before this task, `pattern_slots` refused BOTH grammar-wide, for every rewrite-rule compile.
+// =================================================================================================
+
+/// **Particular care, per the task's own instruction**: an anchor is a claim about a WORD EDGE, and
+/// reversal SWAPS which edge is which. This is the bare-automaton-level proof (independent of any
+/// grammar/oracle, mirroring `rtl_distinct_leftmost_rightmost...`'s own first half) that
+/// `compile_rtl_branch_net`'s mirror-and-reverse construction swaps an `Anchor(Right)` to the
+/// CORRECT opposite edge, not the wrong one.
+///
+/// # Why this is the right shape of "differs from LeftToRight" proof for `Anchor` specifically
+/// Unlike the leftmost/rightmost-ambiguity trick (`rtl_distinct_leftmost_rightmost...`), an
+/// anchor-bearing environment, when it is the sole deciding factor, structurally FORCES a UNIQUE
+/// match position (that is the entire point of an anchor -- pin absolutely to one edge) --
+/// regardless of whether the owning rule is declared `LeftToRight` or `RightToLeft`, a CORRECT
+/// compile of either direction recognizes the identical final language for this shape (both
+/// correctly identify the one true word-final occurrence). A full grammar-level "compile as RTL vs.
+/// compile as LTR, compare the accepted languages" black-box test would therefore see NO difference
+/// even for a perfectly correct implementation, and — worse — would ALSO see no difference for a
+/// broken one that silently no-ops the reversed branch, making that style of test unable to catch
+/// the exact mistake this task's own instructions warn about ("getting this backwards would
+/// silently mis-anchor every RTL rule with a boundary"). The right proof is instead this WHITE-BOX
+/// one: compile the reversed branch ALONE (mirror + `fsm_reverse`, no union) and confirm it
+/// independently computes the SAME correct, word-final answer the plain branch does -- exercising
+/// genuinely direction-relevant machinery (the swap-then-reverse), not a no-op, and DEMONSTRABLY
+/// capable of catching a backwards swap (the final negative-control assertion below shows the
+/// naive, unreversed hypothesis really does give a DIFFERENT, wrong answer).
+#[test]
+fn rtl_anchor_reversal_swaps_the_correct_edge() {
+    let opts = FomaOptions::default();
+
+    // Plain (un-reversed) compile: "a -> b || _ .#." means "rewrite 'a' to 'b' only when
+    // immediately followed by the end of the word" -- unambiguous regardless of any leftmost/
+    // rightmost preference (a width-1 LHS never overlaps itself). Applied to "aaa" (three 'a's),
+    // only the LAST one is genuinely word-final.
+    let plain = fsm_parse_regex(&opts, "a -> b || _ .#.", None, None).expect("plain compiles");
+    let mut h = apply_init(&plain);
+    assert_eq!(
+        apply_down(&mut h, Some("aaa")),
+        Some("aab".to_string()),
+        "the ORIGINAL rule's own plain compile must rewrite only the word-FINAL 'a'"
+    );
+
+    // `compile_rtl_branch_net`'s own mirror construction, reproduced by hand (module doc's worked
+    // recipe, `Slot::Anchor`'s own doc): reverse LHS/RHS (both palindromic single characters here,
+    // unchanged), and SWAP the environment while reversing it -- `mirror_left = reverse(right_env)`.
+    // `right_env` here is JUST an `Anchor(Right)` node (a one-element slot list), so its own
+    // reversal is itself, and it becomes the MIRROR rule's own LEFT environment: rendered as `.#. _`
+    // (an anchor at the very front of the LEFT side), meaning "must be at the START of the
+    // mirror/reversed representation" in the intermediate (still-forward) mirror compile.
+    let mirror = fsm_parse_regex(&opts, "a -> b || .#. _", None, None).expect("mirror compiles");
+    let reversed = fsm_reverse(mirror);
+    let mut h = apply_init(&reversed);
+    assert_eq!(
+        apply_down(&mut h, Some("aaa")),
+        Some("aab".to_string()),
+        "the REVERSED branch must independently agree the word-FINAL 'a' is the one that rewrites \
+         -- if the anchor swap were backwards this would instead rewrite the word-INITIAL 'a', \
+         giving \"baa\""
+    );
+
+    // Load-bearing NEGATIVE control: the WRONG hypothesis (anchor treated as "word-initial" instead
+    // of "word-final", exactly what SKIPPING the reverse step -- or getting the swap backwards --
+    // would produce) really does give a DIFFERENT, wrong answer, confirming `fsm_reverse` is
+    // load-bearing here, not incidentally a no-op that happened to still look right above.
+    let mut h = apply_init(&mirror_unreversed_hypothesis(&opts));
+    assert_eq!(
+        apply_down(&mut h, Some("aaa")),
+        Some("baa".to_string()),
+        "sanity: naively applying `.#. _` directly to the ORIGINAL orientation (i.e. skipping the \
+         reverse-the-whole-automaton step) gives a DIFFERENT, WRONG answer -- rewriting the \
+         word-INITIAL 'a' instead of the word-final one -- proving the assertion above is a REAL \
+         proof, not a coincidence"
+    );
+}
+
+fn mirror_unreversed_hypothesis(opts: &FomaOptions) -> foma::types::Fsm {
+    fsm_parse_regex(opts, "a -> b || .#. _", None, None).expect("wrong-hypothesis compiles")
+}
+
+fn anchor_fixture_path() -> std::path::PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../conformance-staging/edge-cases/right-to-left-anchor-environment/grammar.xml")
+}
+
+fn segments_environment_fixture_path() -> std::path::PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join(
+        "../../../conformance-staging/edge-cases/right-to-left-segments-environment/grammar.xml",
+    )
+}
+
+fn load_fixture(path: std::path::PathBuf) -> Grammar {
+    let xml = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    load(&xml)
+}
+
+/// **Containment test** for the `Anchor` shape (`conformance-staging/edge-cases/
+/// right-to-left-anchor-environment`): the REAL compiled path
+/// (`compile_and_compose_rules_with_budget`, via `compile_rewrite_rule_subset` ->
+/// `compile_rtl_branch_net`) must propose EXACTLY what `pg_parse::Morpher` confirms, for the
+/// correctly-rewritten surface AND for the raw, un-rewritten one (which the oracle must reject
+/// outright, the obligatory-rule witness).
+#[test]
+fn rtl_anchor_fixture_matches_oracle() {
+    let g = load_fixture(anchor_fixture_path());
+    let PhonRuleDef::Rewrite(rule) = &g.prules[0] else {
+        panic!("expected a Rewrite-kind rule");
+    };
+    assert_eq!(rule.dir, Dir::RightToLeft);
+    assert!(
+        is_fully_supported_shape(&g, rule),
+        "an Anchor-shaped RTL rule must now be reported fully-supported (task 4.2)"
+    );
+
+    let table = &g.char_tables[0];
+    let alphabet = SegAlphabet::new(table);
+    let root1 = entry_id_of(&g, "eRoot1");
+    let root2 = entry_id_of(&g, "eRoot2");
+    let allowed: HashSet<u32> = [
+        g.entries[root1.0 as usize].morpheme.0,
+        g.entries[root2.0 as usize].morpheme.0,
+    ]
+    .into_iter()
+    .collect();
+
+    let budget = ComposeBudget::with_caps(usize::MAX, usize::MAX, usize::MAX, usize::MAX, usize::MAX, None);
+    let entries: HashSet<LexEntryId> = [root1, root2].into_iter().collect();
+    let uemit = emit_underlying_filtered_with_budget(&g, &alphabet, Some(&entries), &budget)
+        .unwrap_or_else(|e| panic!("lexc emission must not hit any budget: {e}"));
+    assert!(uemit.skipped.is_empty());
+
+    let net = compile_net(&g, &alphabet, &g.prules[0], &uemit.lexc_source);
+    let morpher = Morpher::new(&g, usize::MAX);
+
+    // "aae"/"ae": the roots' own correctly-rewritten surfaces (only the word-final "a" rewrites).
+    for (word, expected_root_entry) in [("aae", root1), ("ae", root2)] {
+        let query = alphabet.encode_query(word).unwrap_or_else(|| panic!("{word:?} must segment"));
+        let fst_out = fst_candidate_set(&net, &query);
+        let oracle_out = oracle_candidate_set(&morpher, word, &allowed);
+        assert_eq!(oracle_out.len(), 1, "oracle must recall exactly one analysis for {word:?}: {oracle_out:?}");
+        assert_eq!(fst_out, oracle_out, "CONTAINMENT for {word:?}");
+        let _ = expected_root_entry; // named for readability only
+    }
+
+    // "aaa"/"aa": the roots' own RAW, un-rewritten underlying shapes -- obligatory rule, never a
+    // valid surface for either root.
+    for word in ["aaa", "aa"] {
+        let oracle_raw = oracle_candidate_set(&morpher, word, &allowed);
+        assert!(oracle_raw.is_empty(), "{word:?} (obligatorily rewritten) must have no oracle analysis");
+    }
+}
+
+/// **Containment test** for the `Segments` shape (`conformance-staging/edge-cases/
+/// right-to-left-segments-environment`): the REAL compiled path must propose exactly what
+/// `pg_parse::Morpher` confirms, for a `Segments`-authored right environment (same table as the
+/// rule's own stratum).
+#[test]
+fn rtl_segments_environment_fixture_matches_oracle() {
+    let g = load_fixture(segments_environment_fixture_path());
+    let PhonRuleDef::Rewrite(rule) = &g.prules[0] else {
+        panic!("expected a Rewrite-kind rule");
+    };
+    assert_eq!(rule.dir, Dir::RightToLeft);
+    assert!(
+        matches!(
+            rule.subrules[0].right_env.as_ref().unwrap().nodes.as_slice(),
+            [PatternNode::Segments { .. }]
+        ),
+        "fixture must lower to a right_env containing a Segments node: {:?}",
+        rule.subrules[0].right_env
+    );
+    assert!(
+        is_fully_supported_shape(&g, rule),
+        "a same-table-Segments-shaped RTL rule must now be reported fully-supported (task 4.2)"
+    );
+
+    let table = &g.char_tables[0];
+    let alphabet = SegAlphabet::new(table);
+    let root1 = entry_id_of(&g, "eRoot1");
+    let root2 = entry_id_of(&g, "eRoot2");
+    let allowed: HashSet<u32> = [
+        g.entries[root1.0 as usize].morpheme.0,
+        g.entries[root2.0 as usize].morpheme.0,
+    ]
+    .into_iter()
+    .collect();
+
+    let budget = ComposeBudget::with_caps(usize::MAX, usize::MAX, usize::MAX, usize::MAX, usize::MAX, None);
+    let entries: HashSet<LexEntryId> = [root1, root2].into_iter().collect();
+    let uemit = emit_underlying_filtered_with_budget(&g, &alphabet, Some(&entries), &budget)
+        .unwrap_or_else(|e| panic!("lexc emission must not hit any budget: {e}"));
+    assert!(uemit.skipped.is_empty());
+
+    let net = compile_net(&g, &alphabet, &g.prules[0], &uemit.lexc_source);
+    let morpher = Morpher::new(&g, usize::MAX);
+
+    // "ey": ROOT1's correctly-rewritten surface (followed by the Segments-authored literal "y").
+    let query = alphabet.encode_query("ey").expect("'ey' must segment");
+    let fst_out = fst_candidate_set(&net, &query);
+    let oracle_out = oracle_candidate_set(&morpher, "ey", &allowed);
+    assert_eq!(oracle_out.len(), 1, "oracle must recall entryRoot1 for 'ey': {oracle_out:?}");
+    assert_eq!(fst_out, oracle_out, "CONTAINMENT for 'ey'");
+
+    // "ay": the raw spelling must never surface (obligatory rewrite).
+    let oracle_raw = oracle_candidate_set(&morpher, "ay", &allowed);
+    assert!(oracle_raw.is_empty(), "'ay' (obligatorily rewritten) must have no oracle analysis");
+
+    // "a": ROOT2's own (unchanged) spelling -- no "y" follows, so the Segments-authored right
+    // environment correctly fails to match.
+    let query_a = alphabet.encode_query("a").expect("'a' must segment");
+    let fst_a = fst_candidate_set(&net, &query_a);
+    let oracle_a = oracle_candidate_set(&morpher, "a", &allowed);
+    assert_eq!(oracle_a.len(), 1, "oracle must recall entryRoot2 unchanged for 'a': {oracle_a:?}");
+    assert_eq!(fst_a, oracle_a, "CONTAINMENT for 'a' (environment correctly fails to gate)");
+}
+
+/// **Genuinely-differs-from-LeftToRight test** for the `Segments` shape (no oracle dependency --
+/// `pg_rules::rewrite`'s own pre-existing `width_matches` limitation for a `Segments`-shaped LHS,
+/// documented in `conformance-staging/edge-cases/right-to-left-segments-environment/STAGING.md`'s
+/// "A design note", makes an oracle-containment check unusable for THIS specific shape).
+///
+/// # Two things this test establishes, and why the SECOND is the "differs from LTR" proof
+/// 1. **End-to-end acceptance is real, both directions.** A real grammar whose LHS is authored as
+///    ONE inline `Segments` literal (`<Segments><PhoneticShape>aa</PhoneticShape></Segments>`)
+///    instead of two `<SimpleContext>` nodes now reports `is_fully_supported_shape() == true` and
+///    actually compiles (`compile_net` does not panic) — before task 4.2, `pattern_slots` refused
+///    ANY `Segments` occurrence unconditionally, so BOTH the `LeftToRight`- and `RightToLeft`-
+///    declared versions of this exact rule would have been silently skipped (`Ok(None)`).
+/// 2. **The reversal construction itself is genuinely direction-relevant, not a no-op, for THIS
+///    shape.** A candid finding from building this test: comparing the FULL compiled nets'
+///    `fst_candidate_set`s for `Dir::LeftToRight` vs. `Dir::RightToLeft` does NOT distinguish them
+///    here — a plain, unqualified `"a a -> b"` replace rule is a genuinely NONDETERMINISTIC
+///    transducer whose own admitted RELATION already contains both "aaa:ba" and "aaa:ab" pairs
+///    (verified directly: even the `Dir::LeftToRight` compile's `fst_candidate_set` proposes both),
+///    so the `Dir::RightToLeft` union adds nothing NEW at that level of observation for an
+///    unconstrained (no-environment) rule — a real, useful negative finding, not a bug to chase.
+///    The genuine divergence lives at `apply_down`'s single-PREFERRED-realization level (exactly
+///    what `rtl_distinct_leftmost_rightmost_...`'s own bare-automaton half already established for
+///    ordinary `<SimpleContext>`-authored "aa"): since [`crate::lower::render_slots`]'s
+///    `Slot::Fixed` arm renders identically regardless of whether the `CharDefId` came from a
+///    `PatternNode::CharDef`/`Context` or a `PatternNode::Segments` node (`Slot::Fixed` carries only
+///    the `CharDefId`, never its provenance), the Segments-authored LHS compiles to the EXACT SAME
+///    xre text ("a a -> b") that test already pins as direction-discriminating at the `apply_down`
+///    level — so that existing, already-verified proof transfers here VERBATIM, not by assumption:
+///    reproduced below (not merely cited) so this test stands on its own.
+#[test]
+fn rtl_segments_lhs_differs_from_left_to_right_at_the_fst_level() {
+    fn xml(dir_attr: &str) -> String {
+        format!(
+            r#"<?xml version="1.0" encoding="utf-8"?>
+<HermitCrabInput>
+  <Language>
+    <Name>RtlSegmentsLhsDiffers</Name>
+    <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
+    <PhonologicalFeatureSystem>
+      <SymbolicFeature id="featId">
+        <Name>id</Name>
+        <Symbols><Symbol id="symA">a</Symbol><Symbol id="symB">b</Symbol></Symbols>
+      </SymbolicFeature>
+    </PhonologicalFeatureSystem>
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations><FeatureValue feature="featId" symbolValues="symA" /></SegmentDefinition>
+        <SegmentDefinition id="cb"><Representations><Representation>b</Representation></Representations><FeatureValue feature="featId" symbolValues="symB" /></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <PhonologicalRuleDefinitions>
+      <PhonologicalRule id="prAaBSegments" {dir_attr}>
+        <Name>aaToBSegmentsDemo</Name>
+        <PhoneticInput><PhoneticSequence>
+          <Segments><PhoneticShape>aa</PhoneticShape></Segments>
+        </PhoneticSequence></PhoneticInput>
+        <PhonologicalSubrules>
+          <PhonologicalSubrule>
+            <PhoneticOutput><PhoneticSequence><Segment segment="cb" /></PhoneticSequence></PhoneticOutput>
+          </PhonologicalSubrule>
+        </PhonologicalSubrules>
+      </PhonologicalRule>
+    </PhonologicalRuleDefinitions>
+    <Strata>
+      <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" phonologicalRules="prAaBSegments">
+        <Name>S</Name>
+        <LexicalEntries>
+          <LexicalEntry id="entryAaa" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="alloAaa"><PhoneticShape>aaa</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>aaa</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>
+"#
+        )
+    }
+
+    // 1. End-to-end acceptance, both directions.
+    for (dir_attr, expected_dir) in [
+        ("", Dir::LeftToRight),
+        (r#"multipleApplicationOrder="rightToLeftIterative""#, Dir::RightToLeft),
+    ] {
+        let g = load(&xml(dir_attr));
+        let PhonRuleDef::Rewrite(r) = &g.prules[0] else {
+            panic!("expected a Rewrite-kind rule");
+        };
+        assert_eq!(r.dir, expected_dir);
+        assert!(
+            matches!(r.lhs.nodes.as_slice(), [PatternNode::Segments { .. }]),
+            "fixture must lower to a Segments-shaped LHS: {:?}",
+            r.lhs.nodes
+        );
+        assert!(
+            is_fully_supported_shape(&g, r),
+            "a Segments-shaped LHS rule (dir {expected_dir:?}) must now be reported \
+             fully-supported (task 4.2) -- before this task ANY Segments occurrence refused \
+             pattern_slots unconditionally, for EVERY direction"
+        );
+
+        let table = &g.char_tables[0];
+        let alphabet = SegAlphabet::new(table);
+        let entries: HashSet<LexEntryId> = [LexEntryId(0)].into_iter().collect();
+        let budget = ComposeBudget::with_caps(usize::MAX, usize::MAX, usize::MAX, usize::MAX, usize::MAX, None);
+        let uemit = emit_underlying_filtered_with_budget(&g, &alphabet, Some(&entries), &budget)
+            .unwrap_or_else(|e| panic!("lexc emission must not hit any budget: {e}"));
+        assert!(uemit.skipped.is_empty());
+        // Must not panic -- the real, previously-refused compile path now succeeds end-to-end.
+        let _net = compile_net(&g, &alphabet, &g.prules[0], &uemit.lexc_source);
+    }
+
+    // 2. The reversal construction is genuinely direction-relevant for this shape -- reproduced
+    // (not merely cited) from `rtl_distinct_leftmost_rightmost_...`'s own bare-automaton half,
+    // because a Segments-authored LHS provably renders to this EXACT text (module doc above).
+    let opts = FomaOptions::default();
+    let plain = fsm_parse_regex(&opts, "a a -> b", None, None).expect("plain compiles");
+    let mut h = apply_init(&plain);
+    assert_eq!(
+        apply_down(&mut h, Some("aaa")),
+        Some("ba".to_string()),
+        "the plain/LeftToRight-style compile must prefer the LEFTMOST non-overlapping match"
+    );
+    let mirror = fsm_parse_regex(&opts, "a a -> b", None, None).expect("mirror compiles");
+    let reversed = fsm_reverse(mirror);
+    let mut h = apply_init(&reversed);
+    assert_eq!(
+        apply_down(&mut h, Some("aaa")),
+        Some("ab".to_string()),
+        "the reversal construction ALONE must prefer the RIGHTMOST non-overlapping match -- \
+         PROVABLY DIFFERENT from the plain/LeftToRight-style branch above, for the EXACT text a \
+         Segments-authored LHS compiles to"
     );
 }

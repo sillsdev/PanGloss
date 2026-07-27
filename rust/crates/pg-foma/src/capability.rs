@@ -393,22 +393,23 @@ pub struct MultiTableDetail {
 }
 
 /// [`ObservationDetail::RightToLeftRewrite`]'s payload (`openspec/changes/
-/// compile-right-to-left-rewrites`): whether [`crate::replace::compile_rtl_branch_net`]'s
-/// reversal construction can even be ATTEMPTED for this specific `Dir::RightToLeft` rule —
-/// computed once here (self-contained projection, same reasoning [`LoweredSpan`]'s own doc gives)
-/// by re-running the SAME structural pattern-shape check `crate::replace::compile_rewrite_rule_
-/// subset` itself gates on (every LHS/RHS/environment pattern must avoid `Segments`/`Anchor`/
-/// disagree-polarity alpha vars, and any `Quantifier` it contains must be WELL-FORMED --
-/// non-inverted if finitely bounded, at or under `MAX_QUANTIFIER_BOUND` if finite, alpha-free in
+/// compile-right-to-left-rewrites`; widened `openspec/changes/plan-construct-coverage-completion`
+/// task 4.2): whether [`crate::replace::compile_rtl_branch_net`]'s reversal construction can even be
+/// ATTEMPTED for this specific `Dir::RightToLeft` rule — computed once here (self-contained
+/// projection, same reasoning [`LoweredSpan`]'s own doc gives) by re-running the SAME structural
+/// pattern-shape check `crate::replace::compile_rewrite_rule_subset` itself gates on: every
+/// LHS/RHS/environment pattern must avoid a disagree-polarity alpha var and a malformed `Quantifier`
+/// (non-inverted if finitely bounded, at or under `MAX_QUANTIFIER_BOUND` if finite, alpha-free in
 /// its own children; a genuinely UNBOUNDED quantifier, `max=-1`, is no longer by itself
-/// disqualifying, `openspec/changes/build-unbounded-quantifier-support` -- stale wording fixed here,
-/// this doc used to (wrongly) list `Quantifier` alongside `Segments`/`Anchor` as something every
-/// pattern must avoid outright, back when `pattern_slots` refused EVERY quantifier unconditionally
-/// -- and the rule must resolve to a real owning table) — via [`crate::replace::pattern_slots`]/
-/// [`crate::replace::owning_table`] directly, WITHOUT
-/// compiling any foma automaton (cheap, purely structural, no `FomaOptions`/`SegAlphabet` needed).
-/// `Simultaneous` mode is handled by its own [`CharacteristicKind::SimultaneousRewrite`]
-/// observation, so this detail is only ever computed for `Dir::RightToLeft` rules (`characterize`'s
+/// disqualifying, `openspec/changes/build-unbounded-quantifier-support`), and — since task 4.2 —
+/// `Segments`/`Anchor` no longer disqualify EITHER, provided any `Segments` node shares the rule's
+/// own owning table (`crate::lower::PatternLowerScope::RewriteRuleCompile`'s own doc has the full,
+/// current exclusion list) — via [`crate::replace::pattern_slots`]/[`crate::replace::owning_table`]
+/// directly, WITHOUT compiling any foma automaton (cheap, purely structural, no
+/// `FomaOptions`/`SegAlphabet` needed). `Simultaneous` mode is handled by its own
+/// [`CharacteristicKind::SimultaneousRewrite`] observation (whose own admitted set this task's
+/// widening does NOT touch — `crate::lower::lower_span` stays on `PatternLowerScope::Baseline`,
+/// unaffected), so this detail is only ever computed for `Dir::RightToLeft` rules (`characterize`'s
 /// own `Dir::RightToLeft` arm) — a rule that is BOTH `Simultaneous` and `RightToLeft` gets both
 /// observations, and `RightToLeftRewriteFaithfulReversalPredicate`'s own verdict is irrelevant
 /// there since `SimultaneousRewrite`'s `FailClosed`-by-default disposition already dominates under
@@ -417,14 +418,23 @@ pub struct MultiTableDetail {
 pub struct RightToLeftRewriteDetail {
     pub rule: PRuleId,
     /// `true` iff every LHS/RHS/environment pattern in this rule's subrules is a shape
-    /// [`crate::replace::pattern_slots`] accepts (no `Segments`/`Anchor`/disagree-polarity alpha
-    /// var, and any `Quantifier` present is well-formed -- see this struct's own top doc for
-    /// exactly which shapes that excludes) AND the rule resolves to a real owning
-    /// [`pg_grammar::chardef::CharDefTable`] — i.e. exactly the construct-shape floor
+    /// [`crate::replace::pattern_slots`] accepts under `PatternLowerScope::RewriteRuleCompile` (no
+    /// disagree-polarity alpha var, no malformed `Quantifier`, no cross-table `Segments` -- see this
+    /// struct's own top doc for exactly which shapes that excludes) AND the rule resolves to a real
+    /// owning [`pg_grammar::chardef::CharDefTable`] — i.e. exactly the construct-shape floor
     /// `compile_rewrite_rule_subset` itself requires before it ever calls [`fsm_reverse`
     /// ](foma::reverse::fsm_reverse). `false` means the rule is STILL honestly skipped
     /// (`Ok(None)`) by the real compiler, same as any other unsupported pattern construct.
     pub reversal_construction_attempted: bool,
+    /// The SPECIFIC reason `reversal_construction_attempted` is `false`, if it IS `false` and the
+    /// reason is a pattern-shape one — `None` when `reversal_construction_attempted` is `true`
+    /// (nothing to diagnose), or when the rule has no resolvable owning table at all (a
+    /// non-pattern-shape reason [`crate::lower::UnsupportedPatternNode`] has no variant for).
+    /// `openspec/changes/plan-construct-coverage-completion` task 4.2's own "make the predicate's
+    /// witness name that specific shape, not a generic 'unsupported pattern'" requirement —
+    /// [`RightToLeftRewriteFaithfulReversalPredicate::evaluate`] reads this to build a precise
+    /// `Refuse` witness instead of a laundry-list "could be any of these" message.
+    pub unsupported_reason: Option<crate::lower::UnsupportedPatternNode>,
 }
 
 /// [`ObservationDetail::QuantifierPattern`]'s payload (`openspec/changes/
@@ -829,20 +839,49 @@ impl CharacteristicsProfile {
 /// (`openspec/changes/compile-right-to-left-rewrites`): re-runs [`crate::replace::pattern_slots`]
 /// over every LHS/RHS/environment pattern this rule's subrules carry, EXACTLY the same shape
 /// [`crate::replace::compile_rewrite_rule_subset`] itself checks before ever compiling a foma
-/// automaton — `false` the instant any one of them returns `None` (an unsupported pattern
-/// construct: `Quantifier`/`Segments`/`Anchor`, or a disagree-polarity alpha var), or the rule has
-/// no resolvable owning table ([`crate::replace::owning_table`] returning `None`). Cheap and
-/// purely structural: no [`foma::options::FomaOptions`]/[`crate::replace::SegAlphabet`] needed,
-/// unlike the real compile.
+/// automaton — `false` the instant any one of them returns `None` (a malformed `Quantifier`, a
+/// disagree-polarity alpha var, or -- since `openspec/changes/plan-construct-coverage-completion`
+/// task 4.2 -- a cross-table `Segments`; a same-table `Segments` and any `Anchor` no longer
+/// disqualify), or the rule has no resolvable owning table ([`crate::replace::owning_table`]
+/// returning `None`). Cheap and purely structural: no [`foma::options::FomaOptions`]/
+/// [`crate::replace::SegAlphabet`] needed, unlike the real compile.
 ///
-/// Despite its RTL-flavored name (this function predates the second use), this check is entirely
-/// `Dir`-agnostic — it never reads `r.dir` at all — so `characterize`'s own quantifier-scan block
+/// Thin `bool` wrapper over [`rtl_reversal_diagnosis`] (task 4.2): kept as its own named function,
+/// unchanged in SIGNATURE, because `characterize`'s own quantifier-scan block
 /// (`openspec/changes/compile-bounded-fst-quantifiers`) reuses it VERBATIM for
 /// [`QuantifierPatternDetail::compile_attempted`] rather than re-deriving the identical "is this
-/// rule's whole pattern shape compilable at all" structural probe a second time.
+/// rule's whole pattern shape compilable at all" structural probe a second time -- that reuse site
+/// only ever needed the `bool`, never the richer diagnosis. Despite its RTL-flavored name (this
+/// function predates the second use), this check is entirely `Dir`-agnostic — it never reads
+/// `r.dir` at all.
 fn rtl_reversal_construction_attempted(g: &Grammar, r: &pg_grammar::model::RewriteRuleDef) -> bool {
+    rtl_reversal_diagnosis(g, r).is_ok()
+}
+
+/// [`RightToLeftRewriteDetail::unsupported_reason`]'s own computation
+/// (`openspec/changes/plan-construct-coverage-completion` task 4.2's own "name the specific shape"
+/// requirement): the SAME structural probe [`rtl_reversal_construction_attempted`] runs, but
+/// returning `Ok(())` (attempted) or `Err(reason)` instead of collapsing straight to a `bool` --
+/// `Err(None)` for "no resolvable owning table" (a non-pattern-shape reason
+/// [`crate::lower::UnsupportedPatternNode`] has no variant for), `Err(Some(reason))` for the FIRST
+/// pattern this rule's subrules carry that [`crate::replace::pattern_slots`] itself would reject,
+/// via [`crate::lower::diagnose_unsupported`] (checked in LHS, RHS, left-env, right-env order,
+/// subrules in document order -- the same order `crate::replace::compile_rewrite_rule_subset`'s own
+/// loop checks them in, so the reported reason is always the REAL first-encountered one, never a
+/// re-derived approximation that could silently name the wrong node).
+///
+/// `PatternLowerScope::RewriteRuleCompile` (task 4.2): MUST be the identical scope
+/// `compile_rewrite_rule_subset` itself passes to `pattern_slots` — passing a different one here
+/// would let this predicate and the real compiler silently disagree on which rules are admitted,
+/// exactly the class of bug `crate::lower::PatternLowerScope`'s own doc warns against.
+fn rtl_reversal_diagnosis(
+    g: &Grammar,
+    r: &pg_grammar::model::RewriteRuleDef,
+) -> Result<(), Option<crate::lower::UnsupportedPatternNode>> {
+    use crate::lower::{diagnose_unsupported, PatternLowerScope};
+    let scope = PatternLowerScope::RewriteRuleCompile;
     let Some(table) = crate::replace::owning_table(g, r) else {
-        return false;
+        return Err(None);
     };
     for sr in &r.subrules {
         // Mirrors `compile_rewrite_rule_subset`'s own loop: a fresh occurrence counter per
@@ -850,24 +889,25 @@ fn rtl_reversal_construction_attempted(g: &Grammar, r: &pg_grammar::model::Rewri
         // this Some/None-only probe the actual occurrence NUMBERING is irrelevant -- only whether
         // `pattern_slots` returns `None` anywhere matters.
         let mut next_occurrence = 0usize;
-        if crate::replace::pattern_slots(g, table, &r.lhs, &mut next_occurrence).is_none() {
-            return false;
+        if crate::replace::pattern_slots(g, table, &r.lhs, &mut next_occurrence, scope).is_none() {
+            return Err(Some(diagnose_unsupported(g, table, &r.lhs, scope)));
         }
-        if crate::replace::pattern_slots(g, table, &sr.rhs, &mut next_occurrence).is_none() {
-            return false;
+        if crate::replace::pattern_slots(g, table, &sr.rhs, &mut next_occurrence, scope).is_none()
+        {
+            return Err(Some(diagnose_unsupported(g, table, &sr.rhs, scope)));
         }
         if let Some(p) = &sr.left_env {
-            if crate::replace::pattern_slots(g, table, p, &mut next_occurrence).is_none() {
-                return false;
+            if crate::replace::pattern_slots(g, table, p, &mut next_occurrence, scope).is_none() {
+                return Err(Some(diagnose_unsupported(g, table, p, scope)));
             }
         }
         if let Some(p) = &sr.right_env {
-            if crate::replace::pattern_slots(g, table, p, &mut next_occurrence).is_none() {
-                return false;
+            if crate::replace::pattern_slots(g, table, p, &mut next_occurrence, scope).is_none() {
+                return Err(Some(diagnose_unsupported(g, table, p, scope)));
             }
         }
     }
-    true
+    Ok(())
 }
 
 /// [`MetathesisDetail::swap_construction_attempted`]'s own computation (`openspec/changes/
@@ -896,7 +936,14 @@ fn metathesis_swap_construction_attempted(
         return false;
     }
     let mut next_occurrence = 0usize;
-    let Some(slots) = crate::replace::pattern_slots(g, table, &m.pattern, &mut next_occurrence)
+    // `PatternLowerScope::Baseline` -- MUST be the identical scope
+    // `crate::replace::compile_metathesis_rule` itself passes (that function's own doc: task 4.2
+    // deliberately leaves `Metathesis`'s own admitted set untouched, task 4.6's already-closed row).
+    // Passing a different scope here than the real compile uses would let this predicate and the
+    // real compiler silently disagree on which rules are admitted.
+    let scope = crate::lower::PatternLowerScope::Baseline;
+    let Some(slots) =
+        crate::replace::pattern_slots(g, table, &m.pattern, &mut next_occurrence, scope)
     else {
         return false;
     };
@@ -1638,16 +1685,22 @@ pub fn characterize(g: &Grammar) -> CharacteristicsProfile {
                         ModelLocation::PhonRule(id),
                         ObservationDetail::None,
                     )),
-                    Dir::RightToLeft => observations.push(CharacteristicObservation::new(
-                        CharacteristicKind::RightToLeftRewrite,
-                        ModelLocation::PhonRule(id),
-                        ObservationDetail::RightToLeftRewrite(RightToLeftRewriteDetail {
-                            rule: id,
-                            reversal_construction_attempted: rtl_reversal_construction_attempted(
-                                g, r,
-                            ),
-                        }),
-                    )),
+                    Dir::RightToLeft => {
+                        // Computed via `rtl_reversal_diagnosis` directly (not
+                        // `rtl_reversal_construction_attempted` + a second re-derivation) so
+                        // `reversal_construction_attempted`/`unsupported_reason` can never disagree
+                        // with each other -- one call, one shared source of truth.
+                        let diagnosis = rtl_reversal_diagnosis(g, r);
+                        observations.push(CharacteristicObservation::new(
+                            CharacteristicKind::RightToLeftRewrite,
+                            ModelLocation::PhonRule(id),
+                            ObservationDetail::RightToLeftRewrite(RightToLeftRewriteDetail {
+                                rule: id,
+                                reversal_construction_attempted: diagnosis.is_ok(),
+                                unsupported_reason: diagnosis.err().flatten(),
+                            }),
+                        ));
+                    }
                 }
                 // "Epenthesis" (D1) is an empty-`lhs` RULE, not a subrule field (model.rs:417's
                 // own doc: "empty pattern if absent (epenthesis rules)" is on `RewriteRuleDef.lhs`
@@ -2255,14 +2308,19 @@ impl CapabilityPredicate for MultiTableFaithfulThreadingPredicate {
 ///   reversed branch only ever ADDS candidates, never drops one), but no PROVEN no-false-positive
 ///   admission-filter argument exists (ADR 0001's own bar for `Admit`) — so this is confirm-only-
 ///   by-default, never `Admit`.
-/// - **Pattern shape outside scope** (`reversal_construction_attempted == false` — the rule's own
-///   LHS/RHS/environment needs `Segments`/`Anchor` or a disagree-polarity alpha var, or contains a
-///   malformed `Quantifier` (inverted, over-budget-finite, alpha-nested -- a genuinely UNBOUNDED
-///   quantifier is no longer, by itself, out of scope, `openspec/changes/
-///   build-unbounded-quantifier-support`), or has no resolvable owning table):
-///   [`PredicateVerdict::Refuse`] — the real compiler already
-///   honestly skips (`Ok(None)`) exactly this rule (never a silent LTR fallback), so a grammar
-///   depending on it must be refused rather than silently missing recall; overridable per ADR 0005.
+/// - **Pattern shape outside scope** (`reversal_construction_attempted == false` — after
+///   `openspec/changes/plan-construct-coverage-completion` task 4.2, the REMAINING reasons are: the
+///   rule's own LHS/RHS/environment needs a cross-table `Segments` or a disagree-polarity alpha
+///   var, or contains a malformed `Quantifier` (inverted, over-budget-finite, alpha-nested -- a
+///   genuinely UNBOUNDED quantifier is no longer, by itself, out of scope, `openspec/changes/
+///   build-unbounded-quantifier-support`); or the rule has no resolvable owning table. A same-table
+///   `Segments` and any `Anchor` no longer trigger `Refuse` at all (task 4.2's own widening,
+///   `crate::lower::PatternLowerScope::RewriteRuleCompile`)):
+///   [`PredicateVerdict::Refuse`], NAMING the exact failing shape via
+///   [`RightToLeftRewriteDetail::unsupported_reason`] (task 4.2's own "make the witness name that
+///   specific shape" requirement) — the real compiler already honestly skips (`Ok(None)`) exactly
+///   this rule (never a silent LTR fallback), so a grammar depending on it must be refused rather
+///   than silently missing recall; overridable per ADR 0005.
 ///
 /// # Provenance
 /// [`EvidenceProvenance::Structural`]: `rtl_reversal_construction_attempted` reads directly-
@@ -2305,17 +2363,27 @@ impl CapabilityPredicate for RightToLeftRewriteFaithfulReversalPredicate {
             return PredicateVerdict::Admit;
         };
         if !detail.reversal_construction_attempted {
+            // `openspec/changes/plan-construct-coverage-completion` task 4.2: name the SPECIFIC
+            // failing shape when one was found (`unsupported_reason`), rather than a laundry-list
+            // "could be any of these" message -- falling back to the "no owning table" phrasing
+            // only for the one case `crate::lower::UnsupportedPatternNode` has no variant for.
+            let witness = match detail.unsupported_reason {
+                Some(reason) => format!(
+                    "this rule's own LHS/RHS/environment pattern needs a construct \
+                     `crate::replace::pattern_slots` does not support (under \
+                     `crate::lower::PatternLowerScope::RewriteRuleCompile`): {reason} -- the real \
+                     compiler already honestly skips (Ok(None)) this exact rule rather than \
+                     silently mis-compiling it"
+                ),
+                None => "this rule has no resolvable owning character-definition table -- the \
+                          real compiler already honestly skips (Ok(None)) this exact rule rather \
+                          than silently mis-compiling it"
+                    .to_string(),
+            };
             return PredicateVerdict::Refuse(CapabilityDiagnostic {
                 predicate: self.id(),
                 construct: format!("prule {} (Dir::RightToLeft)", rule.0),
-                witness: "this rule's own LHS/RHS/environment pattern needs a construct \
-                          `crate::replace::pattern_slots` does not support (Segments/Anchor, a \
-                          disagree-polarity alpha var, or a malformed Quantifier -- inverted, \
-                          over-budget-finite, or alpha-nested; a genuinely unbounded quantifier is \
-                          NOT by itself such a construct), or the rule has no resolvable owning \
-                          character-definition table -- the real compiler already honestly skips \
-                          (Ok(None)) this exact rule rather than silently mis-compiling it"
-                    .to_string(),
+                witness,
             });
         }
         PredicateVerdict::ConfirmOnly
@@ -4840,6 +4908,288 @@ mod tests {
             PredicateVerdict::ConfirmOnly,
             "an unbounded Quantifier-shaped RTL rule must be ConfirmOnly, never Refuse or Admit"
         );
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // `openspec/changes/plan-construct-coverage-completion` task 4.2: `Anchor`/`Segments` no
+    // longer disqualify a `Dir::RightToLeft` rule (a same-table `Segments`, any `Anchor`); a
+    // cross-table `Segments` and a disagree-polarity alpha var still do, now with a PRECISE named
+    // witness (`unsupported_reason`) instead of a laundry-list message.
+    // ---------------------------------------------------------------------------------------
+
+    /// Positive witness: an `Anchor`-shaped `Dir::RightToLeft` rule (right environment is JUST
+    /// `finalBoundaryCondition="true"`, an empty `<PhoneticSequence/>`) now characterizes
+    /// `reversal_construction_attempted == true` (was `false` before task 4.2), and the predicate
+    /// `ConfirmOnly`s it.
+    #[test]
+    fn right_to_left_predicate_confirm_only_for_anchor_shaped_rule() {
+        const XML: &str = r#"<HermitCrabInput><Language><Name>RtlAnchor</Name>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions>
+              <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+              <SegmentDefinition id="cb"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
+            </SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <PhonologicalRuleDefinitions>
+            <PhonologicalRule id="prRtlAnchor" multipleApplicationOrder="rightToLeftIterative">
+              <Name>rtlAnchorDemo</Name>
+              <PhoneticInput><PhoneticSequence><Segment segment="ca" /></PhoneticSequence></PhoneticInput>
+              <PhonologicalSubrules>
+                <PhonologicalSubrule>
+                  <PhoneticOutput><PhoneticSequence><Segment segment="cb" /></PhoneticSequence></PhoneticOutput>
+                  <Environment><RightEnvironment><PhoneticTemplate finalBoundaryCondition="true"><PhoneticSequence /></PhoneticTemplate></RightEnvironment></Environment>
+                </PhonologicalSubrule>
+              </PhonologicalSubrules>
+            </PhonologicalRule>
+          </PhonologicalRuleDefinitions>
+          <Strata><Stratum characterDefinitionTable="t1" phonologicalRules="prRtlAnchor"><Name>S</Name></Stratum></Strata>
+        </Language></HermitCrabInput>"#;
+        let g = load(XML);
+        let PhonRuleDef::Rewrite(r) = &g.prules[0] else {
+            panic!("expected a Rewrite-kind rule");
+        };
+        assert_eq!(r.dir, Dir::RightToLeft);
+        assert!(
+            matches!(
+                r.subrules[0].right_env.as_ref().unwrap().nodes.as_slice(),
+                [pg_grammar::model::PatternNode::Anchor(
+                    pg_grammar::model::AnchorSide::Right
+                )]
+            ),
+            "fixture must lower to a right_env containing JUST a trailing Anchor(Right) node: {:?}",
+            r.subrules[0].right_env
+        );
+
+        let profile = characterize(&g);
+        let detail = profile
+            .right_to_left_detail(PRuleId(0))
+            .expect("RightToLeftRewrite must carry a RightToLeftRewriteDetail");
+        assert!(
+            detail.reversal_construction_attempted,
+            "an Anchor-shaped right environment is now within crate::replace::pattern_slots' own \
+             supported shape (task 4.2)"
+        );
+        assert_eq!(
+            detail.unsupported_reason, None,
+            "nothing to diagnose once the construction is attempted"
+        );
+
+        let predicate = RightToLeftRewriteFaithfulReversalPredicate;
+        assert_eq!(
+            predicate.evaluate(&profile, &leaf_for(PRuleId(0))),
+            PredicateVerdict::ConfirmOnly,
+            "an Anchor-shaped RTL rule must be ConfirmOnly, never Refuse or Admit"
+        );
+    }
+
+    /// Positive witness: a same-table `Segments` node (`<Segments><PhoneticShape>a</PhoneticShape>`,
+    /// no `characterDefinitionTable` attribute -- defaults to the pattern's own table) in a
+    /// `Dir::RightToLeft` rule's own right environment now characterizes
+    /// `reversal_construction_attempted == true`, and the predicate `ConfirmOnly`s it.
+    #[test]
+    fn right_to_left_predicate_confirm_only_for_same_table_segments_shaped_rule() {
+        const XML: &str = r#"<HermitCrabInput><Language><Name>RtlSegments</Name>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions>
+              <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+              <SegmentDefinition id="cb"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
+            </SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <PhonologicalRuleDefinitions>
+            <PhonologicalRule id="prRtlSeg" multipleApplicationOrder="rightToLeftIterative">
+              <Name>rtlSegmentsDemo</Name>
+              <PhoneticInput><PhoneticSequence><Segment segment="ca" /></PhoneticSequence></PhoneticInput>
+              <PhonologicalSubrules>
+                <PhonologicalSubrule>
+                  <PhoneticOutput><PhoneticSequence><Segment segment="cb" /></PhoneticSequence></PhoneticOutput>
+                  <Environment><RightEnvironment><PhoneticTemplate><PhoneticSequence>
+                    <Segments><PhoneticShape>a</PhoneticShape></Segments>
+                  </PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment>
+                </PhonologicalSubrule>
+              </PhonologicalSubrules>
+            </PhonologicalRule>
+          </PhonologicalRuleDefinitions>
+          <Strata><Stratum characterDefinitionTable="t1" phonologicalRules="prRtlSeg"><Name>S</Name></Stratum></Strata>
+        </Language></HermitCrabInput>"#;
+        let g = load(XML);
+        let PhonRuleDef::Rewrite(r) = &g.prules[0] else {
+            panic!("expected a Rewrite-kind rule");
+        };
+        assert_eq!(r.dir, Dir::RightToLeft);
+        assert!(
+            matches!(
+                r.subrules[0].right_env.as_ref().unwrap().nodes.as_slice(),
+                [pg_grammar::model::PatternNode::Segments { .. }]
+            ),
+            "fixture must lower to a right_env containing a Segments node: {:?}",
+            r.subrules[0].right_env
+        );
+
+        let profile = characterize(&g);
+        let detail = profile
+            .right_to_left_detail(PRuleId(0))
+            .expect("RightToLeftRewrite must carry a RightToLeftRewriteDetail");
+        assert!(
+            detail.reversal_construction_attempted,
+            "a same-table Segments node is now within crate::replace::pattern_slots' own \
+             supported shape (task 4.2)"
+        );
+        assert_eq!(detail.unsupported_reason, None);
+
+        let predicate = RightToLeftRewriteFaithfulReversalPredicate;
+        assert_eq!(
+            predicate.evaluate(&profile, &leaf_for(PRuleId(0))),
+            PredicateVerdict::ConfirmOnly,
+            "a same-table-Segments-shaped RTL rule must be ConfirmOnly, never Refuse or Admit"
+        );
+    }
+
+    /// Negative witness: a `Segments` node referencing a DIFFERENT `CharacterDefinitionTable` than
+    /// the rule's own owning table stays refused -- `unsupported_reason` names it precisely
+    /// (`UnsupportedPatternNode::Segments`), and the predicate `Refuse`s naming the same construct
+    /// (task 4.2's own "make the witness name that specific shape" requirement).
+    #[test]
+    fn right_to_left_predicate_refuses_cross_table_segments_shaped_rule() {
+        const XML: &str = r#"<HermitCrabInput><Language><Name>RtlCrossTableSegments</Name>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions>
+              <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+              <SegmentDefinition id="cb"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
+            </SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <CharacterDefinitionTable id="t2"><Name>Other</Name>
+            <SegmentDefinitions>
+              <SegmentDefinition id="cx"><Representations><Representation>x</Representation></Representations></SegmentDefinition>
+            </SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <PhonologicalRuleDefinitions>
+            <PhonologicalRule id="prRtlCrossSeg" multipleApplicationOrder="rightToLeftIterative">
+              <Name>rtlCrossTableSegmentsDemo</Name>
+              <PhoneticInput><PhoneticSequence><Segment segment="ca" /></PhoneticSequence></PhoneticInput>
+              <PhonologicalSubrules>
+                <PhonologicalSubrule>
+                  <PhoneticOutput><PhoneticSequence><Segment segment="cb" /></PhoneticSequence></PhoneticOutput>
+                  <Environment><RightEnvironment><PhoneticTemplate><PhoneticSequence>
+                    <Segments characterDefinitionTable="t2"><PhoneticShape>x</PhoneticShape></Segments>
+                  </PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment>
+                </PhonologicalSubrule>
+              </PhonologicalSubrules>
+            </PhonologicalRule>
+          </PhonologicalRuleDefinitions>
+          <Strata><Stratum characterDefinitionTable="t1" phonologicalRules="prRtlCrossSeg"><Name>S</Name></Stratum></Strata>
+        </Language></HermitCrabInput>"#;
+        let g = load(XML);
+        let PhonRuleDef::Rewrite(r) = &g.prules[0] else {
+            panic!("expected a Rewrite-kind rule");
+        };
+        assert_eq!(r.dir, Dir::RightToLeft);
+        assert_eq!(g.char_tables.len(), 2, "fixture must declare two distinct tables");
+
+        let profile = characterize(&g);
+        let detail = profile
+            .right_to_left_detail(PRuleId(0))
+            .expect("RightToLeftRewrite must carry a RightToLeftRewriteDetail");
+        assert!(
+            !detail.reversal_construction_attempted,
+            "a Segments node referencing a DIFFERENT table than the rule's own owning table must \
+             stay refused -- a raw char-def index has no meaning across two tables' own id spaces"
+        );
+        assert_eq!(
+            detail.unsupported_reason,
+            Some(crate::lower::UnsupportedPatternNode::Segments),
+            "the witness must name Segments specifically, not a generic unsupported-pattern reason"
+        );
+
+        let predicate = RightToLeftRewriteFaithfulReversalPredicate;
+        match predicate.evaluate(&profile, &leaf_for(PRuleId(0))) {
+            PredicateVerdict::Refuse(diag) => {
+                assert_eq!(diag.predicate, "right-to-left-rewrite.faithful-reversal-construction");
+                assert!(
+                    diag.witness.contains("Segments"),
+                    "witness must name the specific failing shape (Segments): {diag:?}"
+                );
+            }
+            other => panic!("expected Refuse naming Segments, got {other:?}"),
+        }
+    }
+
+    /// Negative witness: a disagree-polarity (`polarity="minus"`) `AlphaVariable` stays refused --
+    /// deliberately, NOT because of anything reversal-specific (`crate::replace` module doc's own
+    /// "Additional RightToLeftRewrite pattern shapes" section: this is an orthogonal,
+    /// pre-existing gap in `resolve_alpha_tuples`' own joint-agreement filter, unrelated to
+    /// direction). `unsupported_reason` names it precisely
+    /// (`UnsupportedPatternNode::AlphaDisagreePolarity`), and the predicate `Refuse`s naming the
+    /// same construct.
+    #[test]
+    fn right_to_left_predicate_refuses_disagree_polarity_alpha_var_shaped_rule() {
+        const XML: &str = r#"<HermitCrabInput><Language><Name>RtlDisagree</Name>
+          <PhonologicalFeatureSystem>
+            <SymbolicFeature id="featA"><Name>a</Name><Symbols><Symbol id="symX">x</Symbol><Symbol id="symY">y</Symbol></Symbols></SymbolicFeature>
+          </PhonologicalFeatureSystem>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions>
+              <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations><FeatureValue feature="featA" symbolValues="symX" /></SegmentDefinition>
+              <SegmentDefinition id="cb"><Representations><Representation>b</Representation></Representations><FeatureValue feature="featA" symbolValues="symY" /></SegmentDefinition>
+            </SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /></SegmentNaturalClass></NaturalClasses>
+          <PhonologicalRuleDefinitions>
+            <PhonologicalRule id="prRtlDisagree" multipleApplicationOrder="rightToLeftIterative">
+              <Name>rtlDisagreeDemo</Name>
+              <VariableFeatures><VariableFeature id="var1" name="a" phonologicalFeature="featA" /></VariableFeatures>
+              <PhoneticInput><PhoneticSequence>
+                <SimpleContext naturalClass="ncAll"><AlphaVariables><AlphaVariable variableFeature="var1" polarity="minus" /></AlphaVariables></SimpleContext>
+              </PhoneticSequence></PhoneticInput>
+              <PhonologicalSubrules>
+                <PhonologicalSubrule>
+                  <PhoneticOutput><PhoneticSequence><Segment segment="cb" /></PhoneticSequence></PhoneticOutput>
+                </PhonologicalSubrule>
+              </PhonologicalSubrules>
+            </PhonologicalRule>
+          </PhonologicalRuleDefinitions>
+          <Strata><Stratum characterDefinitionTable="t1" phonologicalRules="prRtlDisagree"><Name>S</Name></Stratum></Strata>
+        </Language></HermitCrabInput>"#;
+        let g = load(XML);
+        let PhonRuleDef::Rewrite(r) = &g.prules[0] else {
+            panic!("expected a Rewrite-kind rule");
+        };
+        assert_eq!(r.dir, Dir::RightToLeft);
+        let pg_grammar::model::PatternNode::Context(sc) = &r.lhs.nodes[0] else {
+            panic!("expected a Context node at lhs.nodes[0]: {:?}", r.lhs.nodes);
+        };
+        assert!(
+            sc.vars.iter().any(|v| !v.plus),
+            "fixture must actually carry a disagree-polarity (plus == false) AlphaVar: {sc:?}"
+        );
+
+        let profile = characterize(&g);
+        let detail = profile
+            .right_to_left_detail(PRuleId(0))
+            .expect("RightToLeftRewrite must carry a RightToLeftRewriteDetail");
+        assert!(
+            !detail.reversal_construction_attempted,
+            "a disagree-polarity alpha var must stay refused -- resolve_alpha_tuples only \
+             implements agree (bitwise overlap), never disagree"
+        );
+        assert_eq!(
+            detail.unsupported_reason,
+            Some(crate::lower::UnsupportedPatternNode::AlphaDisagreePolarity),
+            "the witness must name the disagree-polarity alpha var specifically, not a generic \
+             unsupported-pattern reason"
+        );
+
+        let predicate = RightToLeftRewriteFaithfulReversalPredicate;
+        match predicate.evaluate(&profile, &leaf_for(PRuleId(0))) {
+            PredicateVerdict::Refuse(diag) => {
+                assert_eq!(diag.predicate, "right-to-left-rewrite.faithful-reversal-construction");
+                assert!(
+                    diag.witness.contains("disagree-polarity"),
+                    "witness must name the specific failing shape (disagree-polarity alpha var): \
+                     {diag:?}"
+                );
+            }
+            other => panic!("expected Refuse naming the disagree-polarity alpha var, got {other:?}"),
+        }
     }
 
     // ---------------------------------------------------------------------------------------

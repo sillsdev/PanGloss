@@ -53,6 +53,21 @@
       test + new `edge-cases` fixture
 - [ ] 4.2 `RightToLeftRewrite`: extend `compile_rtl_branch_net` to currently-excluded pattern shapes,
       one shape at a time, each with its own fixture
+      **PARTIALLY CLOSED 2026-07-27 — two additional shapes.**
+      `PatternNode::Anchor` now lowers to foma's native `.#.` boundary atom, and a same-table
+      `PatternNode::Segments` now lowers to the same fixed-slot sequence as equivalent segment
+      references. The widening is typed and scope-gated: ordinary rewrite compilation receives it;
+      simultaneous-overlap lowering and metathesis stay on the pre-existing baseline.
+      Each shape has its own staged fixture (`right-to-left-anchor-environment`,
+      `right-to-left-segments-environment`), dedicated proposer-to-`pg_parse::Morpher` containment
+      tests (`rtl_anchor_fixture_matches_oracle`, `rtl_segments_environment_fixture_matches_oracle`),
+      and capability cross-checks proving `ConfirmOnly`. Red/green mutation checks established that
+      disabling either admission makes only its corresponding containment test fail at the real
+      `compile_rewrite_rule_subset` → `compile_rtl_branch_net` boundary, then pass again on restore.
+      The parent queue remains open for the honest residual exclusions: cross-table `Segments`
+      requires a table-aware slot representation; disagree-polarity alpha variables require general
+      alpha-lowering semantics (not an RTL reversal special case); malformed/resource-exceeding
+      quantifiers and a rule with no owning table remain explicit `Refuse` witnesses.
 - [x] 4.3 `CircumfixOutputAction`: census which allomorph shapes fail `is_structural_rule`/
       `build_structural_composites` today — **DONE 2026-07-25**,
       `docs/conformance/circumfix-structural-composite-census.md`. Key finding: the *mechanism* is
@@ -134,15 +149,20 @@
       **PROVABLE, build, no carve-out**; neither needs a C#-oracle precondition (`pangloss` is the oracle
       per the standing `conformance-grammars` rule). `SimultaneousRewrite`'s overlap case stays
       oracle-blocked (5.2), unswept. The two builds become 4.5 and 4.6 below.
-- [ ] 4.5 `QuantifierPattern` unbounded (`max == -1`): `Slot::Repeat.max` → `Option<u32>`; `render_slots`
+- [x] 4.5 **DONE 2026-07-26** — `QuantifierPattern` unbounded (`max == -1`): `Slot::Repeat.max` → `Option<u32>`; `render_slots`
       emits `[inner]*` (min 0) / `[inner]^>{min-1}` (min ≥ 1) instead of `^{min,max}`;
       `MAX_QUANTIFIER_BOUND` applies to finite bounds only; audit every finite-max reader for a
       no-finite-max path (never a defaulted number). `slot_candidates` still refuses `Slot::Repeat`
       (unchanged, honest). Fixture: `unbounded-iterative-quantifier-expansion`
-- [ ] 4.6 `Metathesis` `Dir::RightToLeft`: drop `compile_metathesis_rule`'s `Dir::LeftToRight` early
+      Landed in `8fbad70` (an ancestor of current `HEAD`); its dedicated OpenSpec checklist is fully
+      checked. Re-verified 2026-07-27 by `phase_c_quantifier` (3/3) and the filtered pg-foma
+      quantifier unit/capability suite (11/11).
+- [x] 4.6 **DONE 2026-07-26** — `Metathesis` `Dir::RightToLeft`: drop `compile_metathesis_rule`'s `Dir::LeftToRight` early
       return in favour of the mirror-and-reverse construction (`reversed_slots` + mirrored
       `left_switch`/`right_switch` remap + `fsm_reverse` + `fsm_union` with the plain net), mirroring
       `compile_rtl_branch_net`. Fixture: `right-to-left-metathesis-reversal`
+      Landed in `97f656e` (an ancestor of current `HEAD`). Re-verified 2026-07-27 by
+      `phase_c_metathesis` (8/8) and the filtered pg-foma metathesis unit/capability suite (8/8).
 - [x] 5.2 **DONE 2026-07-26** — `SimultaneousRewrite`'s overlapping-subrule configuration is now
       independently verified against `hc.dll`. The premise that this needed
       `add-reference-hermitcrab-parity` §§2-5 built first was **wrong**: `hc.dll` builds from the pinned
