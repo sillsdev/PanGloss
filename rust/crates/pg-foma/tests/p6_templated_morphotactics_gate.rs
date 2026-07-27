@@ -797,3 +797,152 @@ fn run_spot_check() {
          blowup regression is a real finding"
     );
 }
+
+/// (d) Bare-root TAG ATOMICITY boundary (2026-07-27 templated-morphotactics recall investigation,
+/// docs/superpowers/plans/2026-07-21-aweti-correctness-performance-plan.md Tasks 2/3): pins the
+/// EXACT boundary where the historically-missing bare root `"mã"` (morpheme 400) diverged from a
+/// recalled bare root of the same entry shape, and stands as a permanent regression guard for the
+/// root cause.
+///
+/// ## The divergence, established by direct investigation (not inspection)
+/// `foma::apply::apply_up` on the FULLY COMPOSED net finds the correct `<R:400>` tag for `"mã"`
+/// directly, at every pipeline stage (lexc alone, lexc+rules, lexc+rules+cleanup, minimized) --
+/// proving the compiled network's LANGUAGE always contained this analysis. Yet
+/// `b_full_corpus_recall_via_compose`'s own compose-restrict-project-intersect recall-counting
+/// technique reported it MISSING (along with 31 other words) before the fix below. The FIRST place
+/// the two techniques diverge is `foma::constructions::fsm_intersect`: it requires the tag to be
+/// registered as ONE atomic multichar symbol in both operands' `sigma`, and the restricted net's own
+/// `upper.sigma` was missing the exact string `"<R:400>"` even though `apply_up` finds it fine.
+/// `pg_foma::tags`'s own module doc (point 3) explains why: a `divvun/foma-rs` upstream defect in
+/// `lexc_string_to_tokens` silently decomposes any `Multichar_Symbols` declaration whose NAME
+/// contains a literal `0` digit into a run of single-character arcs -- invisible to `apply_up`/
+/// `apply_down` (the concatenated string is identical either way) but fatal to any construction,
+/// like `fsm_intersect`, that expects the tag to be one indivisible alphabet symbol. Every one of
+/// the 32 words this fix newly recalls has a morpheme id whose zero-padded numeral contains a `0`;
+/// every remaining miss does not (see `BASELINE_MISSES` and the current miss list).
+///
+/// **This is NOT the already-fixed combining-mark boundary bug**
+/// (`pg_foma::emit::boundary_combining_run_symbols`): `"mã"`'s own char-def is ONE precomposed
+/// segment (not a base char-def immediately followed by a standalone-combining-mark char-def
+/// straddling the boundary that fix covers), and other combining-mark-bearing roots recall fine
+/// (e.g. `"kitã"`, morpheme 395, probed below) -- the divergence tracks the tag NUMBER (does its
+/// zero-padded id contain a `0`?), never the word's own spelling.
+#[test]
+#[ignore = "needs local gitignored corpus data (samples/data/aweti.json); run with --include-ignored"]
+fn d_bare_root_tag_atomicity_boundary() {
+    if !have("aweti.json") {
+        eprintln!("skipping: aweti.json not present on disk");
+        return;
+    }
+    let handle = std::thread::Builder::new()
+        .stack_size(STACK_BYTES)
+        .spawn(run_tag_atomicity_boundary)
+        .expect("spawn large-stack worker thread");
+    handle
+        .join()
+        .expect("tag atomicity boundary worker thread panicked");
+}
+
+fn run_tag_atomicity_boundary() {
+    let g = load_grammar();
+    let table = &g.char_tables[0];
+    let alphabet = SegAlphabet::new(table);
+    let opts = FomaOptions::default();
+    let width = tags::tag_width(g.morphemes.len());
+
+    let result = emit_underlying_templated(&g, &alphabet, None);
+    let lexc_net = fsm_lexc_parse_string(&opts, None, &result.lexc_source)
+        .unwrap_or_else(|| panic!("Aweti templated lexc failed to foma-compile"));
+
+    let mut rules_in_order: Vec<&PhonRuleDef> = Vec::new();
+    for st in &g.strata {
+        for &prid in &st.prules {
+            rules_in_order.push(&g.prules[prid.0 as usize]);
+        }
+    }
+    let mut skipped_rules: Vec<String> = Vec::new();
+    let mut tuple_reports = Vec::new();
+    let rule_net = compile_and_compose_rules(
+        &opts,
+        &g,
+        &alphabet,
+        &rules_in_order,
+        &mut skipped_rules,
+        &mut tuple_reports,
+    )
+    .expect("compose budget ok")
+    .expect("Aweti's 18 rules must compile");
+
+    let boundary_tokens: Vec<char> = table
+        .iter()
+        .filter(|(_, cd)| cd.kind() == CharDefKind::Boundary)
+        .map(|(id, _)| alphabet.token(id))
+        .collect();
+    let cleanup_regex = boundary_tokens
+        .iter()
+        .map(|c| format!("{c} -> 0"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let cleanup_net = fsm_parse_regex(&opts, &cleanup_regex, None, None)
+        .unwrap_or_else(|| panic!("boundary cleanup regex failed to compile: {cleanup_regex:?}"));
+
+    let composed = fsm_compose(&opts, lexc_net, rule_net);
+    let composed = fsm_compose(&opts, composed, cleanup_net);
+    let composed = fsm_minimize(&opts, composed);
+
+    // Four bare-root probes, all `root_index==0`/zero-affix single-morpheme entries:
+    //   - "mã" (400): the historically-missing word this whole investigation started from.
+    //   - "ma" (69): plain ASCII, ALSO historically missing -- rules out a combining-mark cause
+    //     (no diacritic at all, yet the same divergence: 69's zero-padded id also contains a `0`).
+    //   - "ta" (894): recalled control, no `0` in its zero-padded id.
+    //   - "kitã" (395): recalled control that DOES carry a combining-mark root, no `0` in its
+    //     zero-padded id -- proves the boundary-combining-mark fix is irrelevant to this bug.
+    let probes = [("mã", 400u32), ("ma", 69u32), ("ta", 894u32), ("kitã", 395u32)];
+
+    for (word, mid) in probes {
+        let query = alphabet
+            .encode_query(word)
+            .unwrap_or_else(|| panic!("{word:?} failed to segment into token space"));
+        let tag = tags::root_tag_text(pg_grammar::model::MorphemeId(mid), width);
+
+        // Boundary 1: apply_up on the FULLY COMPOSED net finds the tag directly, for every probe
+        // (module doc: "the compiled network's language is unaffected"). Rules out "the network
+        // never contained this path at all".
+        let mut handle = apply_init(&composed);
+        let found_via_apply_up = handle.up(&query).any(|s| s.contains(&tag));
+        assert!(
+            found_via_apply_up,
+            "{word:?}: apply_up on the composed net must find {tag:?} directly (the network's own \
+             language always contains this bare-root analysis)"
+        );
+
+        // Boundary 2: the compose-restrict-project-intersect technique
+        // (`b_full_corpus_recall_via_compose`'s own method) -- restrict to the query, project
+        // upper, and check whether the exact tag string is registered as one atomic symbol in the
+        // restricted net's own sigma. THIS is where the divergence used to live: pre-fix,
+        // "mã"/"ma" (ids containing a `0`) failed this exact check while "ta"/"kitã" (no `0`)
+        // passed -- not because the language differed, but because `tags.rs`'s numeral encoding
+        // used to let a literal `0` reach the compiled `Multichar_Symbols` name (see that module's
+        // doc, point 3, for the upstream `lexc_string_to_tokens` mechanism).
+        let word_fsm = linear_identity_fsm("word", &query);
+        let restricted = fsm_minimize(&opts, fsm_compose(&opts, composed.clone(), word_fsm));
+        let upper = fsm_minimize(&opts, fsm_upper(restricted));
+        let in_sigma = upper.sigma.iter().any(|s| s.symbol == tag.as_str());
+        assert!(
+            in_sigma,
+            "{word:?}: expected tag {tag:?} to be registered as ONE atomic symbol in the \
+             restricted net's own sigma table (tags.rs module doc point 3) -- its absence here is \
+             exactly the boundary that made the corpus recall check misreport {word:?} as missing \
+             even though apply_up (boundary 1, just above) proves the network's language already \
+             contains it"
+        );
+
+        // Boundary 3: the actual intersect-based recall check itself must now succeed too.
+        let tag_fsm = tag_string_fsm("tagcheck", std::slice::from_ref(&tag));
+        let mut intersected = fsm_intersect(&opts, upper, tag_fsm);
+        assert!(
+            !fsm_isempty(&opts, &mut intersected),
+            "{word:?}: compose-restrict-project-intersect must recall the bare-root tag {tag:?}"
+        );
+    }
+}

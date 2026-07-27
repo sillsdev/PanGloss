@@ -2503,6 +2503,25 @@ impl CapabilityPredicate for MetathesisFaithfulSwapPredicate {
 /// real but incidental to a module whose own doc scopes it to interdigitation/boundary-fusion, never
 /// to circumfix.
 ///
+/// Since census C2's fix (same census document, `plan-construct-coverage-completion` task 4.3c), an
+/// RHS that is simultaneously circumfixing AND reduplicating (some `Copy`d part echoed >= 2 times)
+/// ALSO now classifies `CircumfixPrefix` rather than `Reduplication`, so `structural_composite_
+/// attempted` becomes `true` for it too. Unlike C3, this one is NOT merely an ownership relabeling of
+/// an already-correct outcome: `crate::peel::ReduplicationPeeler`'s four scan kinds (that module's own
+/// doc) are each a one-sided surface-string match and have no shape that recalls a genuine
+/// wrap-both-sides-plus-reduplication surface, so before this fix such a rule (when `AffixProcess`-
+/// kind, i.e. peel-eligible per [`ReduplicationPeelSupportedPredicate`]) risked a REAL recall gap
+/// dressed up as a `ConfirmOnly` verdict — the peel claimed it but could not actually recall it.
+/// `build_structural_composites` resynthesizes it correctly instead (same "shape-agnostic replay of
+/// `pg_rules::morph::synthesize`" argument this predicate's C1/C3 paragraphs already make), proven
+/// non-vacuous by `tests/circumfix_candidate_selection.rs`'s C2 section (full proposer-to-confirm
+/// containment against `pg_parse::Morpher` for a real circumfix-plus-reduplication surface, plus a
+/// check that `crate::peel::ReduplicationPeeler::new(&g).has_redup_rules()` is `false` for that same
+/// grammar — the peel relinquishes the rule cleanly). See
+/// [`ReduplicationPeelSupportedPredicate`]'s own doc for why its `peel_eligible_rule_kind` field can
+/// still read `true` for an `AffixProcess` rule with this exact combined shape without that being a
+/// stale or false claim.
+///
 /// # Disposition
 /// - **Not observed at all** (no allomorph drops LHS material anywhere in the grammar): vacuously
 ///   `Admit` — nothing for this predicate to say (mirrors [`RightToLeftRewriteFaithfulReversalPredicate`]'s
@@ -2624,6 +2643,35 @@ impl CapabilityPredicate for CircumfixStructuralCompositePredicate {
 ///   faithfully-preserved C# quirk, that function's own doc), so the peel never proposes it at
 ///   all; a grammar depending on it must be refused rather than silently missing recall,
 ///   overridable per ADR 0005.
+///
+/// # Census C2's interaction with `peel_eligible_rule_kind` (checked, deliberately left unchanged)
+/// `peel_eligible_rule_kind` (`characterize_allomorph`'s own computation site,
+/// `matches!(g.mrules[rule.0 as usize], MorphRuleDef::AffixProcess(_))`) is a RULE-KIND check only —
+/// it mirrors `crate::peel::is_reduplication_rule`'s OWN `AffixProcess`-vs-`Realizational` split
+/// (row 11's carve-out), not that function's full `classify_affix`-based per-allomorph test. Since
+/// census C2's fix (`docs/conformance/circumfix-structural-composite-census.md`,
+/// `plan-construct-coverage-completion` task 4.3c), an allomorph can have `rhs_has_true_
+/// reduplication == true` (this predicate's own trigger, which only counts repeated `Copy`/`Modify`
+/// occurrences and does not consult `Role` at all) while `crate::emit::classify_affix` classifies it
+/// `CircumfixPrefix` rather than `Reduplication` — i.e. an `AffixProcess` allomorph that is
+/// simultaneously circumfix-and-reduplication-shaped. For exactly that allomorph,
+/// `peel_eligible_rule_kind` stays `true` even though `crate::peel::is_reduplication_rule`'s own
+/// `.any()` scan (which DOES call `classify_affix`) no longer picks this specific allomorph up —
+/// the peel is not, in fact, the mechanism that covers it. This is deliberately left as `true`
+/// rather than "fixed" to track `classify_affix`'s Role exactly, because doing so would make this
+/// predicate `Refuse` a configuration that IS genuinely coverable, just by a different mechanism:
+/// whenever `rhs_has_true_reduplication` holds for an allomorph AND `classify_affix` returns
+/// `CircumfixPrefix` for that SAME allomorph, `crate::emit::is_structural_rule` is UNCONDITIONALLY
+/// `true` for its owning rule (`any_allomorph_is_circumfix_prefix` scans the very allomorph being
+/// characterized here), so `build_structural_composites` — a real, oracle-backed construction, not a
+/// hand-wave — is guaranteed to attempt it. The `ConfirmOnly` verdict this predicate reports therefore
+/// stays TRUE in outcome for this shape; only the predicate's own CITATION of "the peel covers it" is
+/// imprecise for this one combined case, and [`CircumfixStructuralCompositePredicate`]'s own doc (see
+/// its C2 paragraph) is where the actually-operative construction and its containment proof are
+/// recorded. `rhs_has_true_reduplication == true` with `classify_affix` returning anything OTHER than
+/// `CircumfixPrefix` or `Reduplication` cannot happen (`classify_affix`'s own structure: the
+/// reduplication check is the only other place `is_reduplicating` is consulted, immediately after the
+/// circumfix test), so this is an exhaustive two-way split, not a partial account.
 ///
 /// # Deep/nested reduplication chains stay a SEPARATE, cost (not capability), concern
 /// `crate::peel::ReduplicationPeeler`'s nested-reduplication recursion (its own module doc, "Chain

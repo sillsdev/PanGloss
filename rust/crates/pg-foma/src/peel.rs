@@ -141,6 +141,28 @@ const CHAIN_DEPTH_SITE: &str = "peel::ReduplicationPeeler::propose_for_residual"
 /// for a deliberately different question: emit's `rule_role` asks "how does this rule's PRIMARY
 /// allomorph route in the morphotactic chain", this asks "does ANY allomorph of this rule
 /// reduplicate").
+///
+/// **Census C2, re-checked after C3's reordering — still faithful, no code change needed here**
+/// (`docs/conformance/circumfix-structural-composite-census.md`, `openspec/changes/
+/// plan-construct-coverage-completion` task 4.3c). `classify_affix` now lets `Role::CircumfixPrefix`
+/// win whenever an RHS is SIMULTANEOUSLY circumfix-shaped (leading AND trailing insert) and
+/// reduplication-shaped (some `Copy`d part echoed >= 2 times) — this function's `.any()` scan calls
+/// that exact same port, so an allomorph with that combined shape now silently drops out of THIS
+/// scan too (it is no longer `Role::Reduplication`, so `.any()` no longer sees it), without touching
+/// a single line of this file. That is the CORRECT outcome, not an accidental side effect: this
+/// module's four scan kinds (module doc: prefix-copy, suffix-copy, separator+tail-copy,
+/// separator+suffix-peel) are each a ONE-SIDED surface-string match, none of which searches for a
+/// repeated span with independent material wrapping it on BOTH sides — the peel was never able to
+/// recall a genuine circumfix-plus-reduplication surface faithfully in the first place, so
+/// `crate::emit::build_structural_composites` (which resynthesizes via the real engine regardless of
+/// shape) claiming the rule instead is a strictly BETTER outcome, not merely a lateral handoff. The
+/// carve-out this function's own doc names above (`RealizationalRule` never peel-eligible) is
+/// UNCHANGED and orthogonal: it is a rule-KIND distinction (`AffixProcess` vs `Realizational`),
+/// while C2 is a Role-shape distinction that applies identically to either rule kind — a
+/// `RealizationalRule` allomorph that is simultaneously circumfix-and-reduplication-shaped was
+/// ALREADY excluded from this function (the `_ => false` arm fires on rule kind alone, before
+/// `classify_affix` is even consulted), so C2's fix changes nothing about that pre-existing
+/// exclusion.
 fn is_reduplication_rule(def: &MorphRuleDef) -> bool {
     match def {
         MorphRuleDef::AffixProcess(d) => d

@@ -1,6 +1,6 @@
-//! Containment + order-independence tests for census C1/C3
+//! Containment + order-independence tests for census C1/C2/C3
 //! (`docs/conformance/circumfix-structural-composite-census.md`,
-//! `openspec/changes/plan-construct-coverage-completion` tasks 4.3a/4.3b).
+//! `openspec/changes/plan-construct-coverage-completion` tasks 4.3a/4.3b/4.3c).
 //!
 //! ## C1 (`emit::rule_role`/`emit::is_structural_rule` — non-first-allomorph selection)
 //! [`non_first_allomorph_circumfix_recall_parity`] is the proposer-to-confirm containment check for
@@ -22,6 +22,20 @@
 //! (`crate::preexpand`, read via the same public [`pg_foma::emit::composite_candidate_rules`]
 //! diagnostic) drops this rule cleanly the moment it reclassifies `CircumfixPrefix` — so the two
 //! composite mechanisms never both claim it and never both drop it.
+//!
+//! ## C2 (`emit::classify_affix` — reduplication-preempts-circumfix precedence; task 4.3c)
+//! [`circumfix_reduplication_recall_parity`] is the proposer-to-confirm containment check for
+//! `conformance-staging/edge-cases/circumfix-reduplication-precedence` (the staged fixture: one
+//! allomorph that is simultaneously circumfixing AND reduplicating — the same LHS part `Copy`d
+//! twice, wrapped by a leading and a trailing insert). Unlike C3, this is not merely an ownership
+//! relabeling of an already-correct outcome: [`peel_relinquishes_circumfix_reduplication_cleanly`]
+//! checks the OTHER mechanism this Role feeds (`crate::peel::ReduplicationPeeler`, whose four scan
+//! kinds are each one-sided surface matches that cannot recall a genuine wrap-both-sides-plus-
+//! reduplication surface) drops the rule cleanly — `has_redup_rules()` must be `false` for this
+//! grammar once `classify_affix` stops calling this shape `Role::Reduplication`.
+//! [`c1_and_c3_selection_is_unperturbed_by_the_c2_fix`] re-runs C1's and C3's own staged fixtures
+//! through the same public diagnostics C1/C3's own tests use, pinning that neither's selection
+//! outcome moved as a side effect of the C2 fix.
 
 mod common;
 
@@ -31,6 +45,7 @@ use foma::lexcread::fsm_lexc_parse_string;
 use foma::options::FomaOptions;
 
 use pg_foma::emit;
+use pg_foma::peel::ReduplicationPeeler;
 use pg_foma::tags;
 use pg_grammar::model::{Grammar, MorphemeId};
 use pg_parse::{Morpher, ParseOptions};
@@ -286,4 +301,79 @@ fn circumfix_infix_ownership_handoff_is_clean() {
         diag.structural_candidate_count, 1,
         "mrCircInfix must be exactly the one structural-composite candidate in this grammar"
     );
+}
+
+// =================================================================================================
+// C2: circumfix-reduplication-precedence (task 4.3c, jointly decided with row 11's carve-out)
+// =================================================================================================
+
+#[test]
+fn circumfix_reduplication_recall_parity() {
+    let g = load_staged("circumfix-reduplication-precedence");
+    assert_full_containment(&g, "ketamtaman");
+}
+
+/// The ownership-handoff check task 4.3c asks for -- the OTHER direction from C1/C3's
+/// `crate::preexpand` handoff: once `mrCircRedup`'s allomorph reclassifies `CircumfixPrefix`
+/// (instead of `Reduplication`), `crate::peel::ReduplicationPeeler` must relinquish it cleanly, not
+/// merely stop being the PREFERRED mechanism while still nominally claiming the rule.
+/// `ReduplicationPeeler::new` builds its `redup_rules` list by calling `is_reduplication_rule`,
+/// which itself calls `classify_affix` per allomorph (`peel.rs`) -- since this grammar's ONLY
+/// `MorphologicalRule` is `mrCircRedup`, and its one allomorph no longer classifies
+/// `Role::Reduplication` after the C2 fix, `has_redup_rules()` must be `false` for the whole
+/// grammar. This is the stronger claim census C2's own reasoning rests on (not merely "a different
+/// mechanism ALSO covers it" the way C3's `preexpand` finding turned out): the peel's four scan
+/// kinds cannot recall this wrap-both-sides-plus-reduplication shape at all (see this file's own
+/// top-doc and the fixture's STAGING.md), so it matters that the peel is not even attempted here.
+#[test]
+fn peel_relinquishes_circumfix_reduplication_cleanly() {
+    let g = load_staged("circumfix-reduplication-precedence");
+    let peeler = ReduplicationPeeler::new(&g);
+    assert!(
+        !peeler.has_redup_rules(),
+        "mrCircRedup must NOT be classified as a reduplication rule by \
+         crate::peel::ReduplicationPeeler once its allomorph reclassifies CircumfixPrefix -- the \
+         peel's one-sided scan kinds cannot recall a genuine wrap-both-sides-plus-reduplication \
+         surface, so it must relinquish this rule entirely, not merely stop being preferred"
+    );
+
+    let diag = emit::composite_candidate_rules(&g);
+    assert_eq!(
+        diag.structural_candidate_count, 1,
+        "mrCircRedup must be exactly the one structural-composite candidate in this grammar"
+    );
+}
+
+/// Task 4.3c's own required pin: C1's and C3's selection outcomes must be UNPERTURBED by the C2
+/// fix. Re-runs both fixtures through the exact same public diagnostics
+/// (`emit::composite_candidate_rules`) their own dedicated tests above already use, asserting the
+/// identical expected values those tests assert -- if the C2 reordering had shifted anything about
+/// how `classify_affix` treats a non-reduplicating RHS, either assertion below would fail.
+#[test]
+fn c1_and_c3_selection_is_unperturbed_by_the_c2_fix() {
+    // C1: circumfix-non-first-allomorph-selection -- allomorph 1 (circumfix, declared second)
+    // must still be selected, and the ordinary allomorph 0 (plain suffix) must still be harmless.
+    let g_c1 = load_staged("circumfix-non-first-allomorph-selection");
+    let diag_c1 = emit::composite_candidate_rules(&g_c1);
+    assert_eq!(
+        diag_c1.structural_candidate_count, 1,
+        "C2's fix must not change C1's own structural-candidate selection count"
+    );
+    assert_full_containment(&g_c1, "mits");
+    assert_full_containment(&g_c1, "kemitan");
+
+    // C3: circumfix-infix-interior-action-precedence -- still CircumfixPrefix, still handed off
+    // cleanly away from crate::preexpand.
+    let g_c3 = load_staged("circumfix-infix-interior-action-precedence");
+    let diag_c3 = emit::composite_candidate_rules(&g_c3);
+    assert!(
+        diag_c3.preexpand_candidates.is_empty(),
+        "C2's fix must not resurrect mrCircInfix in crate::preexpand's own candidate set: {:?}",
+        diag_c3.preexpand_candidates
+    );
+    assert_eq!(
+        diag_c3.structural_candidate_count, 1,
+        "C2's fix must not change C3's own structural-candidate selection count"
+    );
+    assert_full_containment(&g_c3, "kebzatan");
 }

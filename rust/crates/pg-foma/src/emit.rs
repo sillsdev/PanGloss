@@ -447,12 +447,21 @@ pub(crate) fn classify_affix(rhs: &[OutputAction]) -> Role {
             }
         })
         .collect();
-    if copy_parts
+    // C2 fix (`docs/conformance/circumfix-structural-composite-census.md`,
+    // `openspec/changes/plan-construct-coverage-completion` task 4.3c): this USED TO be an
+    // unconditional early return, computed and consulted before `first_copy`/`last_copy` even
+    // existed -- so an RHS that was SIMULTANEOUSLY circumfixing (insert before the first `Copy`,
+    // insert after the last) AND reduplicating (some `PartRef` echoed by >= 2 `Copy` actions)
+    // always classified `Reduplication`, before the leading-AND-trailing test further down ever ran.
+    // That preemption is now resolved the SAME direction census C3 resolved the interior-action
+    // preemption: `CircumfixPrefix` wins whenever both hold (see the long comment below the
+    // leading/trailing test for the full recall argument and the reasons this is not merely
+    // "recall was at risk"). `is_reduplicating` is only a boolean now -- consulted further down,
+    // AFTER the circumfix test -- rather than an early return, so this function can compute
+    // `first_copy`/`last_copy` first and let the circumfix test run before it.
+    let is_reduplicating = copy_parts
         .iter()
-        .any(|p| copy_parts.iter().filter(|&&q| q == *p).count() >= 2)
-    {
-        return Role::Reduplication;
-    }
+        .any(|p| copy_parts.iter().filter(|&&q| q == *p).count() >= 2);
 
     let mut first_copy: Option<usize> = None;
     let mut last_copy: usize = 0;
@@ -466,6 +475,8 @@ pub(crate) fn classify_affix(rhs: &[OutputAction]) -> Role {
     }
 
     let Some(first_copy) = first_copy else {
+        // `is_reduplicating` requires >= 2 `Copy` occurrences of the SAME part, so it is always
+        // `false` on this branch (no `Copy` at all) -- nothing to reconcile here.
         return if rhs.iter().any(|a| matches!(a, OutputAction::Modify(_, _))) {
             Role::Process
         } else {
@@ -525,14 +536,53 @@ pub(crate) fn classify_affix(rhs: &[OutputAction]) -> Role {
     // `circumfix_infix_ownership_handoff_is_clean` reading `emit::composite_candidate_rules`, the
     // public diagnostic that exposes both mechanisms' candidate sets side by side).
     //
-    // Interaction with census C2 (checked, not touched): the reduplication test above this function
-    // returns EARLY, unconditionally, before `first_copy`/`last_copy` are even computed — this
-    // reordering only touches code that runs after that early return, so it cannot change which RHS
-    // shapes classify `Reduplication`. C2 stays exactly as census-left, untouched by this fix.
+    // Census C2 -- RESOLVED (`docs/conformance/circumfix-structural-composite-census.md`,
+    // `openspec/changes/plan-construct-coverage-completion` task 4.3c): `CircumfixPrefix` also wins
+    // over `Reduplication` whenever an RHS is simultaneously circumfix-shaped (leading AND trailing
+    // insert) and reduplication-shaped (some `Copy`d part echoed >= 2 times) -- see `is_reduplicating`
+    // below, checked AFTER this test rather than before it. DTD-reachable, not a vacuous case:
+    // `MorphologicalOutput` is declared `(CopyFromInput | InsertSimpleContext | ModifyFromInput |
+    // InsertSegments)*` (`HermitCrabInput.dtd:420`) -- an unconstrained repeated choice group, so
+    // `<CopyFromInput index="p1"/>` appearing twice around a leading/trailing `<InsertSegments>` is
+    // fully DTD-legal, and `pg_grammar::load` (`load.rs:1896-1901`) places no uniqueness constraint
+    // on `index` either (it only checks the referenced part exists). This decision was made JOINTLY
+    // with row 11's `Reduplication` carve-out (`crate::peel::is_reduplication_rule`'s own doc), not
+    // in isolation, because the two mechanisms this Role feeds are NOT equally general for this
+    // combined shape: `crate::peel::ReduplicationPeeler`'s four scan kinds (module doc: prefix-copy,
+    // suffix-copy, separator+tail-copy, separator+suffix-peel) are each a ONE-SIDED surface-string
+    // match (the repeated span sits at the very front, the very back, or against one separator
+    // character) -- none of them searches for a repeated span with INDEPENDENT material on BOTH
+    // sides at once, which is exactly what a genuine circumfix-plus-reduplication surface has. So
+    // leaving `Reduplication` in control here would not merely mis-attribute a still-correct
+    // construction (the way C3's Infix/preexpand case turned out) -- it would hand the shape to a
+    // mechanism structurally unable to recall it, while `build_structural_composites` handles it
+    // correctly BY CONSTRUCTION, for the identical reason C1/C3 already established: `struct_extend`
+    // calls `pg_rules::morph::synthesize` directly (`emit.rs`, `struct_extend`'s own body), which
+    // replays every `OutputAction` in RHS document order with no reference to `Role` and no
+    // assumption that a `Copy` run is contiguous or occurs only once per part (`pg_rules::morph::
+    // synth_process_allomorph`'s own per-action loop over `allo.rhs`, plus that crate's own "Tier-2
+    // #8 (reduplication morph attribution)" handling of a repeated `Input` part) -- so a rule
+    // reaching `build_structural_composites` with this shape is resynthesized faithfully, reduplicated
+    // copies and wrapping inserts alike, not merely "accepted." Checked, not assumed: see
+    // `rust/crates/pg-foma/tests/circumfix_candidate_selection.rs`'s C2 section, which proves full
+    // proposer-to-confirm containment for a real circumfix-plus-reduplication surface AND that
+    // `crate::peel::ReduplicationPeeler::new(&g).has_redup_rules()` is `false` for that same grammar
+    // (the peel relinquishes the rule cleanly the moment `classify_affix` stops calling it
+    // `Reduplication` -- `crate::peel::is_reduplication_rule`'s own `.any()` scan calls this exact
+    // function per allomorph, so no code change was needed there at all, only this reordering).
+    //
+    // Ordering relative to Infix is UNCHANGED by this fix: `is_reduplicating` is still consulted
+    // before the interior-action (Infix) test below, exactly as the old unconditional-early-return
+    // did — this reordering only moves the reduplication check to AFTER the circumfix test, never
+    // past the infix test.
     let leading_insert = first_copy > 0;
     let trailing_insert = last_copy < rhs.len() - 1;
     if leading_insert && trailing_insert {
         return Role::CircumfixPrefix;
+    }
+
+    if is_reduplicating {
+        return Role::Reduplication;
     }
 
     if first_copy < last_copy {
@@ -3980,6 +4030,22 @@ fn emit_line_budget_breach(
 ///   original C reader does not have this defect, since it de-escapes `%0` to a literal byte in a
 ///   single unambiguous pass before any multichar matching happens), not a recall bug, and not this
 ///   emitter's own structural fault either.
+///
+/// ## 2026-07-27 update: the trigger is now avoided at the source, not just tolerated here
+/// A second, more damaging consequence of the SAME upstream defect was found in the templated-
+/// morphotactics recall investigation (`tests/p6_templated_morphotactics_gate.rs`'s
+/// `d_bare_root_tag_atomicity_boundary`): a tag whose text got decomposed into single-character
+/// arcs (rather than staying one atomic `Multichar_Symbols` arc) still traverses fine via
+/// `apply_up`/`apply_down` (as this doc already established), but silently fails ANY construction
+/// that expects it to be one indivisible alphabet symbol — e.g. `foma::constructions::
+/// fsm_intersect`, which the corpus recall gate's own compose-restrict-project-intersect technique
+/// uses. That is a real, silent recall-COUNTING bug (not a language bug), and it is what actually
+/// held Aweti's measured recall at 68/106 for weeks. `pg_foma::tags` (module doc, point 3) now
+/// fixes this at the SOURCE — no tag numeral this crate emits ever contains a literal `0` byte, so
+/// the `lexc_string_to_tokens`/`@ZERO@`-normalization mismatch below can never trigger in the first
+/// place — rather than continuing to special-case its symptom here. This function's own detection
+/// logic is UNCHANGED and kept as a defensive safety net (a future code path could still declare a
+/// zero-containing multichar symbol some other way), but it should not normally fire again.
 ///
 /// ## What this function actually checks, given that finding
 ///
