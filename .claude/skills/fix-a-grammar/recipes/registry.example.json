@@ -1,0 +1,59 @@
+{
+  "registry_version": 1,
+  "recipes": [
+    {
+      "id": "gated-replace-partition",
+      "summary": "Partition gate-dependent entries, compile a group-specific rewrite cascade, then union the groups.",
+      "feature_predicates": ["has_mpr_or_syntactic_gate", "ordered_rewrite_cascade"],
+      "interaction_edges": ["gate-key -> rewrite-subrule", "lexicon-group -> cascade"],
+      "parameters": {
+        "partition_key": "grammar-derived boolean vector",
+        "compose_strategy": ["Static"],
+        "max_groups": 16
+      },
+      "plan_template": {
+        "root": "all-groups",
+        "nodes": [
+          {"id": "lexicon", "kind": "Leaf", "parameters": {"fragment": "lexicon-group"}},
+          {"id": "cascade", "kind": "Replace", "parameters": {"rules": "group-filtered"}},
+          {"id": "group", "kind": "Compose", "inputs": ["lexicon", "cascade"], "parameters": {"strategy": "Static"}},
+          {"id": "all-groups", "kind": "Gate", "inputs": ["group"], "parameters": {"partition": "derived"}}
+        ]
+      },
+      "constraints": ["oracle_recall == 100%", "gate_children_match_partition_groups"],
+      "objectives": ["build_wall_ms", "states", "arcs", "payload_bytes", "proposal_p95_ms"],
+      "planner_eligibility": "documented",
+      "evidence": {
+        "trials": [{"grammar": "example-only", "outcome": "not-run", "wall_clock_build_ms": 0, "notes": "Schema example; not production evidence."}],
+        "correctness_gate": "oracle recall parity plus Plan Gate invariant",
+        "cross_grammar_gate": "both-engine conformance across affected grammars"
+      }
+    },
+    {
+      "id": "shared-prefix-branch-union",
+      "summary": "Share a common lexicon prefix, branch independent construction paths, and union only valid alternatives.",
+      "feature_predicates": ["independent_alternative_paths", "shared_lexicon_prefix"],
+      "interaction_edges": ["shared-prefix -> branch", "branch -> boundary-cleanup"],
+      "parameters": {"branch_limit": 8, "compose_strategy": ["Static", "LazyLookahead"]},
+      "plan_template": {
+        "root": "alternatives",
+        "nodes": [
+          {"id": "prefix", "kind": "Leaf", "parameters": {"fragment": "shared-prefix"}},
+          {"id": "branch-a", "kind": "Leaf", "parameters": {"fragment": "alternative-a"}},
+          {"id": "branch-b", "kind": "Leaf", "parameters": {"fragment": "alternative-b"}},
+          {"id": "path-a", "kind": "Compose", "inputs": ["prefix", "branch-a"], "parameters": {"strategy": "Static"}},
+          {"id": "path-b", "kind": "Compose", "inputs": ["prefix", "branch-b"], "parameters": {"strategy": "Static"}},
+          {"id": "alternatives", "kind": "Union", "inputs": ["path-a", "path-b"]}
+        ]
+      },
+      "constraints": ["oracle_recall == 100%", "branch_count <= branch_limit"],
+      "objectives": ["node_reuse", "build_wall_ms", "states", "proposal_p95_ms"],
+      "planner_eligibility": "documented",
+      "evidence": {
+        "trials": [{"grammar": "example-only", "outcome": "not-run", "wall_clock_build_ms": 0, "notes": "Schema example; LazyLookahead is not assumed built."}],
+        "correctness_gate": "oracle recall parity",
+        "cross_grammar_gate": "Plan interaction coverage and corpus parity"
+      }
+    }
+  ]
+}

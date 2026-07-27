@@ -1,0 +1,23 @@
+{
+  "skill_name": "fix-a-grammar",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Aweti now has full recall but compile time has doubled after adding several gated phonological rules. Give me three different FST construction candidates and tell me which is best.",
+      "expected_output": "Characterizes the baseline, extracts the gate/rewrite interaction graph, provides three structurally different plans over the five primitives, names bounded search and correctness gates, and returns a bounded optimum or Pareto frontier rather than an unsupported global winner.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "A new grammar has optional templates, a rule cascade, and a 50 MB payload. I want it to automatically choose a recipe when it is imported. Design the registry entry and rollout plan.",
+      "expected_output": "Separates documented, validated, and automated recipes; includes finite parameters, feature extraction, builder/evidence prerequisites, wall-clock and structural objectives, capability/recall/conformance gates, and does not claim that automatic planning already exists.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "We have eight plausible compose orders and several gate partitions, but each full build takes 20 minutes. How should we search the combinations without losing correctness?",
+      "expected_output": "Selects or compares the three search methods, explains budgeted sequential allocation for this expensive uncertain space, preserves real Plan representation and all correctness gates, and states stopping/confidence criteria plus an honest Pareto result contract.",
+      "files": []
+    }
+  ]
+}
