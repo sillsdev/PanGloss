@@ -196,6 +196,22 @@ pub mod plan_interaction_coverage;
 pub mod plan_diagram;
 pub mod precision;
 pub(crate) mod preexpand;
+/// Section 2 of `openspec/changes/certify-language-readiness` (tasks.md §2): the declared,
+/// versioned threshold policy — [`readiness_policy::ThresholdPolicy`]/[`readiness_policy::
+/// Threshold`]/[`readiness_policy::Calibration`] — a certification verdict ([`readiness_verdict`])
+/// is measured against. Purely additive data/schema, same "define the versioned schema" precedent
+/// as [`health`]/[`plan_diagram`]. See that module's own doc for exactly which seeded values are
+/// measured vs. explicitly-marked un-calibrated placeholders.
+pub mod readiness_policy;
+/// Section 3 of `openspec/changes/certify-language-readiness` (tasks.md §3): the tiered
+/// certification verdict — [`readiness_verdict::certify`] evaluates a grammar's REAL capability
+/// decision (always calling [`capability_entry::evaluate_capability`] itself), its ADR-0005 trust
+/// status, and its measured facts against a [`readiness_policy::ThresholdPolicy`], producing a
+/// [`readiness_verdict::ReadinessReport`] that distinguishes `not-yet` (actionable by the language
+/// team) from `not-supported` (actionable only by compiler work) and never lets an override-
+/// trusted or unassessed check render as passing. See that module's own doc for the full honesty-
+/// rule contract.
+pub mod readiness_verdict;
 /// `openspec/changes/add-fst-compilation-health-audit`, tasks.md section 1 ("Preflight"): the
 /// cheap, pre-compile health pass -- [`preflight::preflight_findings`] turns
 /// [`capability::characterize`]'s already-computed [`capability::CharacteristicsProfile`] and

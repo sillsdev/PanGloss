@@ -1158,7 +1158,11 @@ pub(crate) fn synthesize_with_mpr_cached(
     mpr: MprSet,
     cache: &crate::cache::RuleCache,
 ) -> Vec<Shape> {
-    let table_id = TableId(0);
+    // `pid` (a grammar-resident cache key -- every call site derived it from `g.prules`) resolves
+    // this rule's OWN owning stratum's table (`crate::cache::owning_table_for_prule`), never an
+    // implicit table-zero default -- see that function's doc for the fallback contract (an
+    // orphaned-but-grammar-resident prule, provably unreachable via this cached path in practice).
+    let table_id = crate::cache::owning_table_for_prule(g, pid).unwrap_or(TableId(0));
     let table = &g.char_tables[table_id.0 as usize];
     let mut ms = MutShape::from_shape(input);
     let mut applied = false;
@@ -1342,7 +1346,8 @@ pub fn synthesize_with_mpr_traced(
     if !trace.is_tracing() {
         return synthesize_with_mpr(g, rule, input, syn_fs, mpr);
     }
-    let table_id = TableId(0);
+    // See `synthesize_with_mpr_cached`'s doc for the owning-table resolution rationale.
+    let table_id = crate::cache::owning_table_for_prule(g, pid).unwrap_or(TableId(0));
     let table = &g.char_tables[table_id.0 as usize];
     let mut ms = MutShape::from_shape(input);
     let mut applied = false;
@@ -1435,7 +1440,8 @@ pub fn synthesize_with_mpr_cached_traced(
             cache,
         );
     }
-    let table_id = TableId(0);
+    // See `synthesize_with_mpr_cached`'s doc for the owning-table resolution rationale.
+    let table_id = crate::cache::owning_table_for_prule(g, pid).unwrap_or(TableId(0));
     let table = &g.char_tables[table_id.0 as usize];
     let mut ms = MutShape::from_shape(&input.shape);
     let mut applied = false;
@@ -1618,7 +1624,8 @@ pub(crate) fn analyze_cached(
     input: &Shape,
     cache: &crate::cache::RuleCache,
 ) -> Vec<Shape> {
-    let table_id = TableId(0);
+    // See `synthesize_with_mpr_cached`'s doc for the owning-table resolution rationale.
+    let table_id = crate::cache::owning_table_for_prule(g, pid).unwrap_or(TableId(0));
     let table = &g.char_tables[table_id.0 as usize];
     let mut ms = MutShape::from_shape(input);
     let mut applied = false;
@@ -1752,7 +1759,8 @@ pub fn analyze_traced(
     if !trace.is_tracing() {
         return analyze(g, rule, input);
     }
-    let table_id = TableId(0);
+    // See `synthesize_with_mpr_cached`'s doc for the owning-table resolution rationale.
+    let table_id = crate::cache::owning_table_for_prule(g, pid).unwrap_or(TableId(0));
     let table = &g.char_tables[table_id.0 as usize];
     let mut ms = MutShape::from_shape(input);
     let mut applied = false;
@@ -1844,7 +1852,8 @@ pub fn analyze_cached_traced(
     if !trace.is_tracing() {
         return analyze_cached(g, pid, rule, input, cache);
     }
-    let table_id = TableId(0);
+    // See `synthesize_with_mpr_cached`'s doc for the owning-table resolution rationale.
+    let table_id = crate::cache::owning_table_for_prule(g, pid).unwrap_or(TableId(0));
     let table = &g.char_tables[table_id.0 as usize];
     let mut ms = MutShape::from_shape(input);
     let mut applied = false;
@@ -3503,7 +3512,8 @@ pub(crate) fn probe_apply_rule_cached(
     ms: &mut MutShape,
     cache: &crate::cache::RuleCache,
 ) -> ProbeOutcome {
-    let table_id = TableId(0);
+    // See `synthesize_with_mpr_cached`'s doc for the owning-table resolution rationale.
+    let table_id = crate::cache::owning_table_for_prule(g, pid).unwrap_or(TableId(0));
     let table = &g.char_tables[table_id.0 as usize];
     let pc = cache.prule_rewrite(pid);
     let mut applied = false;

@@ -1,0 +1,105 @@
+{
+  "report_schema_version": 1,
+  "policy_id": "readiness-policy-v1",
+  "device_class": "dev-workstation-v1 (Windows 11 x64, single-threaded `pangloss batch --threads 1`, release build -- the exact configuration docs/benchmark-matrix.md measured 2026-07-26 at commit 85f25dc, and the machine rust/tools/typology-speedup.sh runs on locally. NOT a mobile/embedded target device -- no such device has been benchmarked yet, and a certificate under this policy version must not be read as evidence about any other device class.)",
+  "tier": "certified",
+  "capability": {
+    "decision": "admit"
+  },
+  "trust": {
+    "status": "proven"
+  },
+  "checks": [
+    {
+      "kind": "pack_size",
+      "outcome": {
+        "outcome": "pass",
+        "measured": {
+          "kind": "bytes",
+          "value": 12345
+        }
+      },
+      "threshold": {
+        "kind": "bytes",
+        "value": 100000000
+      }
+    },
+    {
+      "kind": "lexicon_scale",
+      "outcome": {
+        "outcome": "pass",
+        "measured": {
+          "kind": "count",
+          "value": 2000
+        }
+      },
+      "threshold": {
+        "kind": "count",
+        "value": 1000
+      }
+    },
+    {
+      "kind": "coverage_analysis_rate",
+      "outcome": {
+        "outcome": "pass",
+        "measured": {
+          "kind": "rate",
+          "value": 0.95
+        }
+      },
+      "threshold": {
+        "kind": "rate",
+        "value": 0.9
+      },
+      "statements": [
+        "Coverage is a token-level ANALYSIS RATE: the fraction of tokens receiving at least one analysis. A token may receive an INCORRECT analysis and still count -- this is not an accuracy or correctness measurement. Correctness is the conformance suite's job.",
+        "Held-out status is an ATTESTATION, not a measurement: nothing in the artifact records what its author read while authoring, and PanGloss does not train. This property is UNVERIFIED beyond the named attestor's own claim."
+      ]
+    },
+    {
+      "kind": "latency_p50",
+      "outcome": {
+        "outcome": "pass",
+        "measured": {
+          "kind": "millis",
+          "value": 0.5
+        }
+      },
+      "threshold": {
+        "kind": "millis",
+        "value": 1.0
+      }
+    },
+    {
+      "kind": "latency_p90",
+      "outcome": {
+        "outcome": "pass",
+        "measured": {
+          "kind": "millis",
+          "value": 2.0
+        }
+      },
+      "threshold": {
+        "kind": "millis",
+        "value": 5.0
+      }
+    },
+    {
+      "kind": "latency_p99",
+      "outcome": {
+        "outcome": "pass",
+        "measured": {
+          "kind": "millis",
+          "value": 10.0
+        }
+      },
+      "threshold": {
+        "kind": "millis",
+        "value": 20.0
+      }
+    }
+  ],
+  "notes": [
+    "CERTIFIED: every declared threshold passed under this policy version, on the checks this report performed. See `checks` for exactly what was and was not assessed."
+  ]
+}

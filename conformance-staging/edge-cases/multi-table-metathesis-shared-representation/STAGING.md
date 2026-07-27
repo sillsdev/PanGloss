@@ -69,6 +69,51 @@ the compiled net in `rust/crates/pg-foma/tests/multi_table_metathesis_shared_rep
 bypassing this separate oracle gap entirely (the same "hand-render the pre-fix-equivalent net
 directly" technique `two_table_shared_representation_recall.rs`'s own steps 1-2 already established).
 
+## 2026-07-27 follow-up: the oracle-side `TableId(0)` defect is now fixed; "xm" still fails, root
+## cause now precisely pinned (not just "not fully isolated")
+
+The oracle-wide sweep this finding above called for landed (`rust/crates/pg-rules/src/cache.rs`,
+`rust/crates/pg-rules/src/metathesis.rs`): every phonological-rule/allomorph char-def resolution in
+`pg-rules` now threads the rule's/allomorph's OWN owning stratum's `TableId` (new
+`owning_table_for_prule`/`owning_table_for_metathesis_rule`/`owning_table_for_allomorph` helpers in
+`cache.rs`, mirroring `pg_foma::replace::owning_table`'s contract) instead of the module-level
+`const TABLE: TableId = TableId(0)` constants finding-item-1 above named. Point 2's own "coincidence"
+probe result is now simply always true: `metathesis::synthesize`/`analyze` resolve
+`mrCrossTableSwap`'s real owning table (`t1`/Outer) correctly by construction, not by accident.
+
+Re-running the oracle against this fixture's own `grammar.xml` after that fix (a throwaway probe
+driving `pg_parse::Morpher::parse_word` over every word, deleted after transcription, mirroring this
+file's own "Oracle discipline" section below): **`"xm"` still finds zero analyses.** `words.yaml`'s
+`xm`/`mx` entries are UNCHANGED (`expect_fail: true` stands, transcribed as observed, not flipped).
+
+This time the remaining mechanism WAS fully isolated (direct pipeline instrumentation, reverted
+after transcription): the candidate for "xm" is correctly found by root-allomorph lookup and
+correctly resynthesizes to a valid, passing word -- it is rejected only at the FINAL surface-match
+gate, `pg_parse::Morpher::is_match_traced` (`pg-parse/src/morpher.rs`), which renders the accepted
+candidate's concrete char-def identities via `matching_reps_for_node`
+(`pg-parse/src/surface.rs`) using the grammar's OUTERMOST stratum's table unconditionally
+(`g.strata[n-1].table` -- itself a *third*, independent instance of the same "assume one table,
+usually table 0 or the last one" antipattern family, this time in `pg-parse`, which this task did not
+own). That table mismatch is only exposed here because `pg_rules::metathesis::synthesis_reorder`
+(`pg-rules/src/metathesis.rs`) -- unlike every rewrite-rule synthesis path that changes a node's
+identity (`pg_rules::rewrite::syn_feature`/`sim_feature`, which reset a changed node's `char_def` to
+`NO_CHAR_DEF`) -- physically relocates a segment without ever resetting its `char_def`, so a
+metathesized root's segments keep carrying their ORIGIN table's raw char-def indices
+(ROOT1/Inner/`t0`) all the way to `is_match`, which then compares them against `t1`'s own raw
+indices -- an apples-to-oranges collision specific to metathesis (the only rule kind that moves
+material without also erasing its concrete identity). The same-table ROOT2 control never exercises
+this (its segments are `t1`-native already), and the sibling `two-table-shared-representation-recall`
+fixture's own passing rewrite-rule case never exercises it either (its feature-changing rule resets
+to `NO_CHAR_DEF` before `is_match` ever runs).
+
+**Not fixed here**: this is a distinct defect from the one `pg-rules/src/cache.rs`/`metathesis.rs`'s
+fix closes, it spans two files across two crates (`pg_rules::metathesis::synthesis_reorder`,
+`pg-rules`; `pg_parse::Morpher::is_match_traced`/`matching_reps_for_node`, `pg-parse`), and the
+second crate was outside this task's ownership. Recorded here, transcribed honestly, for a follow-on
+-- not silently worked around, and not blocking the `TableId(0)` fix this file's earlier finding
+already asked for (which IS now fully applied, and does not regress `two-table-shared-representation-
+recall`'s own already-passing oracle recall or this fixture's own `xw`/`wx`/`z` controls).
+
 ## Oracle discipline
 
 **Oracle: `pangloss` (this repo's own Rust engine), NOT the C# founding oracle.** Authored fresh for

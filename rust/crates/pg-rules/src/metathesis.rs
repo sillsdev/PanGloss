@@ -494,7 +494,18 @@ fn ana_union(ms: &mut MutShape, left: &[usize], right: &[usize]) {
 /// rule at all (see `MetathesisRuleDef`'s doc) — unlike `rewrite::synthesize_with_mpr`, there is no
 /// `_with_mpr` sibling to call instead.
 pub fn synthesize(g: &Grammar, rule: &MetathesisRuleDef, input: &Shape) -> Vec<Shape> {
-    let table_id = TableId(0);
+    // Resolve `rule`'s own owning stratum's table (`crate::cache::owning_table_for_metathesis_rule`
+    // -- the fix for the "implicit table-zero default" defect this function used to have: it
+    // previously hardcoded `TableId(0)` regardless of which table the rule's own stratum actually
+    // owns, the exact antipattern `pg_foma::replace::owning_table` was introduced to remove on the
+    // compiled side; see `docs/conformance/multitable-shared-representation-design.md`'s "residual
+    // gap" section and the `multi-table-metathesis-shared-representation` fixture's own STAGING.md
+    // finding). Falls back to `TableId(0)` only when `rule` is NOT grammar-resident at all (never
+    // registered into any `Grammar`'s `prules` -- this crate's well-established "standalone rule"
+    // fixture pattern, `crate::cache`'s module doc; e.g. `tests/metathesis_gate.rs`'s hand-built
+    // rules, never loaded via `pg_grammar::load`), where there is no owning-stratum concept to
+    // resolve and every such fixture grammar this crate's tests use is single-table anyway.
+    let table_id = crate::cache::owning_table_for_metathesis_rule(g, rule).unwrap_or(TableId(0));
     let dir = dir_from_model(rule.dir);
     let left_idx = compiled_index(&rule.pattern, rule.left_switch);
     let right_idx = compiled_index(&rule.pattern, rule.right_switch);
@@ -643,7 +654,9 @@ fn report_metathesis_synth(
 /// Un-apply `rule` to `input` (C# `AnalysisMetathesisRule.Apply`). Returns the un-applied shape in a
 /// one-element vec if the rule un-applied, else empty.
 pub fn analyze(g: &Grammar, rule: &MetathesisRuleDef, input: &Shape) -> Vec<Shape> {
-    let table_id = TableId(0);
+    // See `synthesize`'s doc for the full rationale -- same owning-table resolution, same fallback
+    // contract, applied to the analysis (un-apply) direction.
+    let table_id = crate::cache::owning_table_for_metathesis_rule(g, rule).unwrap_or(TableId(0));
     let dir = reverse(dir_from_model(rule.dir));
     let (ana_pattern, left_idx_full, right_idx_full) =
         build_analysis_pattern(g, table_id, &rule.pattern, rule.left_switch, rule.right_switch);
