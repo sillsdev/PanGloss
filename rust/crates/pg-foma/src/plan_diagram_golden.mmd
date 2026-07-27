@@ -1,0 +1,20 @@
+%% pg-foma compilation-plan diagram
+%% summarization: not applied (threshold=24)
+%% nodes emitted: 7 of 7 reachable
+flowchart TD
+classDef pgAdmit fill:#dcffe4,stroke:#1a7f37,color:#0a3622;
+classDef pgConfirm fill:#fff8c5,stroke:#9a6700,color:#4d3800;
+classDef pgRefuse fill:#ffebe9,stroke:#cf222e,color:#82071e;
+  nb965800b64a9746c["Union of 2 branch(es)\n(Union . Admit)"]:::pgAdmit
+  nb965800b64a9746c --> n14f7346493ce0972
+  nb965800b64a9746c --> n16efab68d1b57e80
+  n16efab68d1b57e80["Composite-emission subtree (multi-tag composite entries)\n(Leaf . Admit)"]:::pgAdmit
+  n14f7346493ce0972["Gate: 1 partition group(s) (ungated)\n(Gate . Admit)"]:::pgAdmit
+  n14f7346493ce0972 --> na1eb75955e8bdcd3
+  na1eb75955e8bdcd3["Composition (Static)\n(Compose . Admit)"]:::pgAdmit
+  na1eb75955e8bdcd3 --> nc12bc7cb22fb3a8e
+  na1eb75955e8bdcd3 --> nf6c0a1b1aa9b6af5
+  nf6c0a1b1aa9b6af5["Lexicon fragment: 1 entries (stratum OnlyStratum)\n(Leaf . Admit)"]:::pgAdmit
+  nc12bc7cb22fb3a8e["Rewrite cascade: 1 rule(s) [PR]\n(Replace . Admit)"]:::pgAdmit
+  nc12bc7cb22fb3a8e --> ndb1deadceaef43f5
+  ndb1deadceaef43f5["Rewrite rule 'PR' -- stratum OnlyStratum (Iterative, LeftToRight)\n(Leaf . Admit)"]:::pgAdmit

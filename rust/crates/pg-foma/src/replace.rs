@@ -709,6 +709,22 @@ pub(crate) fn owning_table_for_metathesis<'g>(
     owning_table_for_prule_position(g, idx)
 }
 
+/// [`owning_table_for_metathesis`]'s sibling returning the resolved [`TableId`] itself, needed by
+/// [`compile_metathesis_rule`] to build a [`SegAlphabet::with_table_id`]-shaped alias context for
+/// cross-table representation aliasing (`docs/conformance/multitable-shared-representation-
+/// design.md`'s "Residual gap this fix does NOT close" section — this closes it). Mirrors
+/// [`owning_table_id`]'s own relationship to [`owning_table`]: shares
+/// [`owning_table_id_for_prule_position`] with [`owning_table_for_metathesis`] (both derive from the
+/// exact same stratum lookup, never two independently-derived resolutions that could silently
+/// disagree).
+pub(crate) fn owning_table_id_for_metathesis(g: &Grammar, rule: &MetathesisRuleDef) -> Option<TableId> {
+    let idx = g
+        .prules
+        .iter()
+        .position(|pr| matches!(pr, PhonRuleDef::Metathesis(r) if r.xml_id == rule.xml_id))?;
+    owning_table_id_for_prule_position(g, idx)
+}
+
 /// Shared tail of [`owning_table`]/[`owning_table_for_metathesis`]: given a rule's own position
 /// (`PRuleId`, found by the caller's own variant-specific `xml_id` lookup) in `g.prules`, find the
 /// stratum whose `prules` list contains it and return that stratum's own `CharDefTable`. `None`
@@ -1417,6 +1433,50 @@ pub type Subrule = RewriteSubruleDef;
 // — a real input position holds exactly one concrete token) literal context matches, so unioning
 // adds no spurious identity path.
 //
+// # Cross-table representation aliasing, closing the residual gap (`docs/conformance/
+// multitable-shared-representation-design.md`'s "Residual gap this fix does NOT close" section)
+// `docs/conformance/multitable-shared-representation-design.md`'s 4.4b fix renders an ordinary
+// rewrite rule's atoms via [`SegAlphabet::render_tokens`] — a render-TIME union over every table
+// sharing a spelling, applied in [`crate::lower::render_slots`]'s `Slot::Fixed`/`Slot::Union` arms.
+// That shape is WRONG for this construction: [`slot_candidates`] feeds directly into the per-branch
+// literal cross product above, whose whole point is identity preservation between a matched value
+// and its (possibly swapped) output position — exactly the same reason [`render_slots`]'s own
+// `Slot::Alpha` arm deliberately does NOT alias (that function's own doc: "an alpha occurrence's
+// resolved segment is chosen per-tuple ... out of this step's scope"). Rendering LHS position `lo`
+// as a bracketed union `[τ_A(s) | τ_B(s)]` and RHS position `hi` as the SAME independently-rendered
+// union would let foma's `->` pair EITHER alias on the input with EITHER alias on the output — an
+// input token from table A could emit table B's token at the swapped position, a new correctness
+// bug strictly worse than the false negative being fixed (module doc above already names this exact
+// failure mode for natural-class unions; a text-level cross-table union is the identical mistake,
+// just introduced at a different axis).
+//
+// The fix instead pushes the aliasing DOWN into [`slot_candidates`] itself: every slot's own
+// candidate `CharDefId` set is expanded, member-by-member, to every `(table, cd)` pair sharing that
+// member's normalized representation ([`RepresentationAliasMap::aliases_for`], the SAME grammar-wide
+// multimap 4.4b built, reused unchanged). This composes cleanly with the existing cross-product
+// construction with NO change to that construction's own shape: each branch still fixes exactly ONE
+// concrete `CharDefId` per slot (now possibly drawn from another table, but still a single value,
+// never a union), and `rhs_vals.swap(lo, hi)` still transposes that SAME `Vec<CharDefId>` element —
+// so whichever alias's token matched at `lo` is EXACTLY the token emitted at `hi`, by construction,
+// for every branch. Switch-position identity is therefore preserved by the SAME argument the module
+// doc already makes for ordinary natural-class members (each branch is a single point in the cross
+// product, not a union), extended one level: "candidate member" now ranges over aliased
+// `(table, cd)` pairs instead of only this table's own char-defs, but the per-branch enumeration
+// that keeps the swap identity-preserving is untouched. `tests/
+// multi_table_metathesis_shared_representation.rs`'s own
+// `current_compile_fires_on_table_a_originated_material_and_preserves_identity` pins this directly:
+// with a shared representation across two tables AND a multi-member switch class, every combination
+// of aliased/non-aliased candidates at both switch positions is checked to reproduce EXACTLY the fed
+// values at their transposed positions, never substituting a different alias — the same precision
+// property `metathesis_multi_member_classes_transpose_precisely_not_naively`
+// (`tests/phase_c_metathesis.rs`) already established for the single-table case, extended to the
+// cross-table one.
+//
+// Degenerates to byte-identical behavior for every existing (non-shared-representation) grammar:
+// [`RepresentationAliasMap::aliases_for`]'s own contract guarantees the expansion is exactly
+// `[cd]` — no reordering, no duplication — whenever `cd`'s spelling is unique to its own table,
+// which is every grammar `tests/phase_c_metathesis.rs`/`tests/p6_gate_parity.rs` already cover.
+//
 // # `Dir::RightToLeft`: the SAME mirror-and-reverse construction (`openspec/changes/
 // plan-construct-coverage-completion` task 4.6; `docs/conformance/needs-decision-resolutions.md`
 // row 8)
@@ -1535,14 +1595,40 @@ pub type Subrule = RewriteSubruleDef;
 // has, never exponential.
 // =================================================================================================
 
-/// Every [`CharDefId`] a slot may concretely resolve to, in this rule's own document order — `None`
-/// for [`Slot::Alpha`] (structurally impossible for a `<MetathesisRule>`, module doc above) or
+/// Every [`CharDefId`] a slot may concretely resolve to, in this rule's own document order, WITH
+/// cross-table representation aliasing applied member-by-member (module doc's "Cross-table
+/// representation aliasing" section, closing `docs/conformance/multitable-shared-representation-
+/// design.md`'s residual gap): each member is expanded to every `(table, cd)` pair sharing its own
+/// normalized representation ([`RepresentationAliasMap::aliases_for`]), deduplicated, in insertion
+/// order. `table`/`table_id` are this rule's own owning table/id (the caller's job to resolve
+/// correctly and pass together — never defaulted, same discipline [`SegAlphabet::with_table_id`]'s
+/// own doc requires). Degenerates to EXACTLY the pre-aliasing `[cd]`/`members.clone()` shape for
+/// every member whose spelling is unique to its own table ([`RepresentationAliasMap::aliases_for`]'s
+/// own contract) — byte-identical for every grammar with no shared cross-table representation.
+///
+/// `None` for [`Slot::Alpha`] (structurally impossible for a `<MetathesisRule>`, module doc above) or
 /// [`Slot::Repeat`] (structurally reachable but never attested — module doc above; out of scope
 /// EITHER `Dir`, unchanged by the RTL construction added here).
-fn slot_candidates(slot: &Slot) -> Option<Vec<CharDefId>> {
+fn slot_candidates(
+    slot: &Slot,
+    table: &CharDefTable,
+    table_id: TableId,
+    aliases: &RepresentationAliasMap,
+) -> Option<Vec<CharDefId>> {
+    let expand = |members: &[CharDefId]| -> Vec<CharDefId> {
+        let mut out: Vec<CharDefId> = Vec::with_capacity(members.len());
+        for &cd in members {
+            for (_tid, acd) in aliases.aliases_for(table, table_id, cd) {
+                if !out.contains(&acd) {
+                    out.push(acd);
+                }
+            }
+        }
+        out
+    };
     match slot {
-        Slot::Fixed(cd) => Some(vec![*cd]),
-        Slot::Union(members) => Some(members.clone()),
+        Slot::Fixed(cd) => Some(expand(std::slice::from_ref(cd))),
+        Slot::Union(members) => Some(expand(members)),
         Slot::Alpha { .. } | Slot::Repeat { .. } => None,
     }
 }
@@ -1561,6 +1647,11 @@ fn slot_candidates(slot: &Slot) -> Option<Vec<CharDefId>> {
 /// `Err(ComposeError::AlphaTupleBudgetExceeded)` if the candidate cross product exceeds
 /// `budget.tuple_cap()` — both checked BEFORE any regex is rendered or `Fsm` is built (module doc's
 /// Big-O note).
+///
+/// `table`/`table_id`/`aliases` thread the rule's own owning table plus the grammar-wide
+/// [`RepresentationAliasMap`] into [`slot_candidates`] (module doc's "Cross-table representation
+/// aliasing" section) — the SAME triple for both the plain and (for `Dir::RightToLeft`) the mirror
+/// orientation's call, since aliasing is a per-member expansion that does not depend on slot order.
 #[allow(clippy::too_many_arguments)]
 fn compile_metathesis_swap_net(
     opts: &FomaOptions,
@@ -1570,12 +1661,15 @@ fn compile_metathesis_swap_net(
     right_idx: usize,
     budget: &ComposeBudget,
     rule_xml_id: &str,
+    table: &CharDefTable,
+    table_id: TableId,
+    aliases: &RepresentationAliasMap,
 ) -> Result<Option<Fsm>, ComposeError> {
     let (lo, hi) = (left_idx.min(right_idx), left_idx.max(right_idx));
 
     let mut candidates: Vec<Vec<CharDefId>> = Vec::with_capacity(slots.len());
     for slot in slots {
-        match slot_candidates(slot) {
+        match slot_candidates(slot, table, table_id, aliases) {
             Some(members) if !members.is_empty() => candidates.push(members),
             _ => return Ok(None), // Slot::Alpha/Slot::Repeat, or a vacuous empty class.
         }
@@ -1710,12 +1804,20 @@ mod metathesis_mirror_switch_index_remap_tests {
 /// `RewriteRuleDef` pattern construct.
 ///
 /// `Dir::LeftToRight` compiles via [`compile_metathesis_swap_net`] alone (byte-identical to what
-/// this function has always done — no behavior change for any `Dir::LeftToRight` rule).
+/// this function has always done for a grammar with no cross-table shared representation — no
+/// behavior change for any such `Dir::LeftToRight` rule).
 /// `Dir::RightToLeft` (`openspec/changes/plan-construct-coverage-completion` task 4.6; module doc's
 /// own "`Dir::RightToLeft`" section above for the full construction/remap derivation) additionally
 /// mirrors the pattern via [`reversed_slots`], remaps the two switch indices, compiles the mirror's
 /// own swap net, [`fsm_reverse`]s it, and unions that with the plain net — the SAME four moves
 /// [`compile_rtl_branch_net`] already makes for RTL rewrite rules.
+///
+/// Builds its own [`RepresentationAliasMap`]/owning [`TableId`] and threads them into every
+/// [`compile_metathesis_swap_net`] call (module doc's "Cross-table representation aliasing"
+/// section) — mirroring [`compile_rewrite_rule_subset`]'s own per-rule alias-map construction, so a
+/// `MetathesisRule` in a grammar whose tables share a normalized representation gets the SAME
+/// render-time recall fix a `RewriteRuleDef` already does, closing `docs/conformance/
+/// multitable-shared-representation-design.md`'s residual gap.
 pub(crate) fn compile_metathesis_rule(
     opts: &FomaOptions,
     g: &Grammar,
@@ -1726,6 +1828,13 @@ pub(crate) fn compile_metathesis_rule(
     let Some(table) = owning_table_for_metathesis(g, rule) else {
         return Ok(None);
     };
+    // Shares `owning_table_for_prule_position`'s own lookup with `owning_table_for_metathesis`
+    // (both derive from the exact same stratum search), so this is guaranteed `Some` here too --
+    // same discipline `compile_rewrite_rule_subset`'s own `owning_table`/`owning_table_id` pair
+    // uses.
+    let table_id = owning_table_id_for_metathesis(g, rule)
+        .expect("owning_table_id_for_metathesis shares owning_table_for_metathesis's own lookup, which just resolved Some");
+    let alias_map = RepresentationAliasMap::build(g);
     let mut next_occurrence = 0usize;
     let Some(slots) = pattern_slots(g, table, &rule.pattern, &mut next_occurrence) else {
         return Ok(None);
@@ -1741,8 +1850,18 @@ pub(crate) fn compile_metathesis_rule(
         return Ok(None);
     }
 
-    let Some(plain_net) =
-        compile_metathesis_swap_net(opts, alphabet, &slots, left_idx, right_idx, budget, &rule.xml_id)?
+    let Some(plain_net) = compile_metathesis_swap_net(
+        opts,
+        alphabet,
+        &slots,
+        left_idx,
+        right_idx,
+        budget,
+        &rule.xml_id,
+        table,
+        table_id,
+        &alias_map,
+    )?
     else {
         return Ok(None);
     };
@@ -1765,6 +1884,9 @@ pub(crate) fn compile_metathesis_rule(
                 mirror_right_idx,
                 budget,
                 &rule.xml_id,
+                table,
+                table_id,
+                &alias_map,
             )?
             else {
                 // Unreachable in practice: `mirror_slots` is the same multiset of atomic slots as

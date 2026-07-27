@@ -87,6 +87,7 @@ mod coverage;
 mod diagnostics;
 mod fst_health;
 mod pack;
+mod plan_diagram;
 mod trace_render;
 
 /// P3 (docs/fst-plan/foma-fst-plan.md, gate F3): which proposer/verifier path a `batch`/`parse`
@@ -206,6 +207,13 @@ fn run() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
+        Some("plan-diagram") => match plan_diagram::run_plan_diagram(&args[2..]) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("pangloss plan-diagram: {e}");
+                ExitCode::FAILURE
+            }
+        },
         // Hidden, internal compile-worker CHILD entry point (`harden-foma-resource-safety`
         // section 3/4; `pg_foma::worker`'s own doc). Spawned only by `pangloss pack --watchdog`
         // (`pack.rs::run_fst_health_under_watchdog`) via `pg_foma::worker::run_compile_worker`
@@ -233,6 +241,7 @@ fn run() -> ExitCode {
                  usage: pangloss pack <grammar> <out.pgpack> [--allow-unproven] [--authorized-by=<name>] [--reason=<text>] [--watchdog]\n\
                  usage: pangloss fst-health <grammar> [<words.txt>] [<out.json>]\n\
                  usage: pangloss coverage [--json] [--grammar=<path>] [<out.json>]\n\
+                 usage: pangloss plan-diagram <grammar> [--json] [--full] [--threshold=N] [<out>]\n\
                  \n\
                  <grammar> is one of: a HermitCrab XML export (.xml, the legacy path), a\n\
                  pg-snapshot JSON file (.json, from `pangloss import` or any other producer), or a\n\

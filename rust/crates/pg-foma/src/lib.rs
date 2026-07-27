@@ -186,6 +186,14 @@ pub mod plan;
 /// module's own doc for the mapping and `tests/plan_interaction_coverage_gate.rs` for the flipped
 /// gate.
 pub mod plan_interaction_coverage;
+/// `openspec/changes/visualize-compilation-plan`: renders a [`plan::Plan`] as a versioned JSON
+/// document ([`plan_diagram::PlanDocument`], schema-versioned like [`coverage_ledger`]/[`health`])
+/// and, from that document, a mermaid diagram ([`plan_diagram::render_mermaid`]) labelled by the
+/// linguistic work each node performs and marked with its REAL [`capability`] verdict (never
+/// inferred from a node's mere presence). Read-only over `plan`/`enumerate`/`capability`/
+/// `plan_interaction_coverage` — no compile path is touched. See that module's own doc for the full
+/// contract, including the honest summarization convention for large plans.
+pub mod plan_diagram;
 pub mod precision;
 pub(crate) mod preexpand;
 /// `openspec/changes/add-fst-compilation-health-audit`, tasks.md section 1 ("Preflight"): the

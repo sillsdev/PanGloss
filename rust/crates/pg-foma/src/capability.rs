@@ -2137,16 +2137,31 @@ pub(crate) fn simultaneous_rule_admitted_for_compile(
 /// it already prunes the coincidental-collision case — recall-safe by construction, since aliasing
 /// only ever adds candidate tokens to an atom, never removes the atom's own.
 ///
-/// **Residual, NOT closed by this fix**: `crate::replace::compile_metathesis_swap_net` (metathesis
-/// rules) renders tokens via a direct `alphabet.token(cd)` call, not through `crate::lower::
-/// render_slots` — so a `PhonRuleDef::Metathesis` rule sharing a representation across tables can
-/// still suffer the SAME false-negative this predicate now treats as covered for rewrite rules.
+/// **Residual gap CLOSED** (`docs/conformance/multitable-shared-representation-design.md`'s own
+/// "Residual gap this fix does NOT close" section, now resolved): `crate::replace::
+/// compile_metathesis_swap_net` used to render tokens via a direct `alphabet.token(cd)` call, not
+/// through `crate::lower::render_slots`, so a `PhonRuleDef::Metathesis` rule sharing a
+/// representation across tables kept the SAME false negative this predicate already treated as
+/// covered for rewrite rules. It is fixed the SAME way `MultiTableFaithfulThreadingPredicate`'s own
+/// rewrite-rule fix is, but via a DIFFERENT mechanism, since text-level render-time unioning is
+/// UNSAFE for metathesis (see `crate::replace`'s own module doc, "Cross-table representation
+/// aliasing" section under "Metathesis", for the full argument: independently unioning a matched
+/// LHS position and its swapped RHS position would let the compiled transducer pair a matched alias
+/// with a DIFFERENT alias's token — a new correctness bug, not merely a missed optimization).
+/// Instead, `crate::replace::slot_candidates` alias-expands each switch position's own candidate
+/// `CharDefId` SET (every `(table, cd)` pair sharing a member's normalized representation, via the
+/// SAME `RepresentationAliasMap`), and the pre-existing per-branch cross-product construction (built
+/// for exactly this "reproduce the SAME matched value at its swapped position" reason,
+/// `resolve_alpha_tuples`'s own identity-preservation precedent) does the rest unmodified: each
+/// branch fixes ONE concrete candidate per position and the swap only permutes that literal
+/// assignment, so switch-position identity holds by the SAME argument that already covers ordinary
+/// (non-aliased) multi-member natural classes — extended one level, not weakened.
 /// `MultiTable`'s own `ModelLocation`/`multi_table_detail` are grammar-wide, not rule-kind-specific
-/// (this predicate's own "Node applicability" section below), so this predicate cannot currently
-/// distinguish "the risky rule is a Rewrite" from "the risky rule is a Metathesis" — flagged here
-/// for a follow-on (extend the SAME `RepresentationAliasMap`/`render_tokens` machinery to
-/// `compile_metathesis_swap_net`), not silently left uncovered. In practice this is advisory-only
-/// exposure, not a live compile-blocking gap: `CompileDecision` is check-only (`capability_entry.rs`'s
+/// (this predicate's own "Node applicability" section below), so this predicate could never
+/// distinguish "the risky rule is a Rewrite" from "the risky rule is a Metathesis" anyway — moot now
+/// that both kinds are covered by the same recall argument. In practice this was advisory-only
+/// exposure even before the fix, never a live compile-blocking gap: `CompileDecision` is check-only
+/// (`capability_entry.rs`'s
 /// own doc — "nothing here alters what `emit.rs`/`gate.rs`/`replace.rs`/`preexpand.rs` actually
 /// compile"), so `crate::replace::compile_metathesis_rule` already compiles whatever it can either
 /// way; only the ADVISORY verdict this predicate reports is what's affected.
@@ -2324,6 +2339,17 @@ impl CapabilityPredicate for RightToLeftRewriteFaithfulReversalPredicate {
 /// var/`Slot::Alpha`/`Slot::Repeat` anywhere, or with no resolvable owning table, stays exactly as
 /// unsupported as before this change (`crate::replace::compile_metathesis_rule` itself returns
 /// `Ok(None)`, honestly skipped) -- direction was never what made those shapes unsupported.
+///
+/// **Cross-table shared-representation recall** (`docs/conformance/
+/// multitable-shared-representation-design.md`'s own "Residual gap this fix does NOT close"
+/// section, now resolved): `crate::replace::slot_candidates` alias-expands every switch position's
+/// own candidate set via the SAME `RepresentationAliasMap` `MultiTableFaithfulThreadingPredicate`'s
+/// own rewrite-rule fix uses, so a `MetathesisRule` in a grammar whose tables share a normalized
+/// representation is no longer exposed to the false negative that predicate's own doc used to flag
+/// as residual here. This predicate's own disposition is unaffected either way (`ConfirmOnly` is
+/// already the ceiling for `swap_construction_attempted == true`, cross-table or not) -- the fix
+/// only ever REMOVES a recall gap this predicate's `ConfirmOnly` verdict already had to tolerate,
+/// never changes which shapes this predicate itself admits or refuses.
 ///
 /// # Disposition
 /// - **Not observed as `PhonRuleDef::Metathesis` at all**: vacuously `Admit` — nothing for this
@@ -4542,8 +4568,10 @@ mod tests {
     /// a literal representation must now `ConfirmOnly`, not `Refuse` — `docs/conformance/
     /// multitable-shared-representation-design.md`'s own headline finding is that a shared
     /// representation is a FALSE-NEGATIVE risk (render-time cross-table aliasing,
-    /// `crate::replace::RepresentationAliasMap`/`SegAlphabet::render_tokens`, closes it for rewrite
-    /// rules), not a false-positive one — the direction the old `Refuse` verdict assumed.
+    /// `crate::replace::RepresentationAliasMap`/`SegAlphabet::render_tokens` for rewrite rules,
+    /// `crate::replace::slot_candidates`'s own alias-expanded candidate sets for `MetathesisRule`,
+    /// closes it for both), not a false-positive one — the direction the old `Refuse` verdict
+    /// assumed.
     #[test]
     fn multi_table_predicate_confirm_only_when_tables_share_a_representation() {
         let g = load(TWO_TABLE_OVERLAPPING_XML);

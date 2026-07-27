@@ -164,16 +164,57 @@ constructor, leaving `SegAlphabet::new` untouched, and only `compile_rewrite_rul
 already resolves the rule's owning table — builds the alias-aware alphabet. No public signature
 changed.
 
-### Residual gap this fix does NOT close
+### Residual gap this fix does NOT close — CLOSED 2026-07-27
 
-`compile_metathesis_swap_net` renders tokens **directly** rather than through `render_slots`, so the
-alias expansion never reaches it. A `Metathesis` rule in a grammar whose tables share a normalized
-representation remains exposed to exactly the false negative aliasing fixed everywhere else. The
-exposure is advisory-only today (the predicate is `ConfirmOnly` and `CompileDecision` is check-only),
-but the honest boundary moved without this path being covered, and the exposure widened slightly when
-right-to-left metathesis began compiling more shapes. Either route metathesis rendering through the
-alias-expanded path — preferred — or name "Metathesis plus shared cross-table representations" as a
-refused shape in the predicate's witness. Tracked.
+`compile_metathesis_swap_net` rendered tokens **directly** rather than through `render_slots`, so the
+alias expansion never reached it. A `Metathesis` rule in a grammar whose tables share a normalized
+representation remained exposed to exactly the false negative aliasing fixed everywhere else. The
+exposure was advisory-only (the predicate is `ConfirmOnly` and `CompileDecision` is check-only), but
+the honest boundary had moved without this path being covered, and the exposure widened slightly when
+right-to-left metathesis began compiling more shapes.
+
+**Closed by routing metathesis through the alias-expanded path, not by text-level unioning.** A
+first-principles re-check found that reusing `render_slots`'s own render-time union (a bracketed
+`[τ_A | τ_B]` at each position) would have been UNSAFE for metathesis specifically, even though it is
+safe for ordinary rewrite rules: a metathesis swap must reproduce the *same* value at its (possibly
+transposed) output position, and independently rendering a union at both the matched position and its
+swapped destination would let the compiled transducer pair a matched alias with a *different* alias's
+token — a new correctness bug strictly worse than the false negative being fixed. (Ordinary rewrite
+rules don't have this hazard: a rewrite's RHS is a genuine re-specification, always resolved via the
+rule's own owning table regardless of which alias matched on the LHS, and an environment/context
+position is passed through as literal identity by foma's own replace-rule semantics regardless of
+which literal alias satisfied it — neither role requires "the output must echo exactly what matched
+elsewhere," the property a metathesis swap uniquely needs.)
+
+The actual fix lives one level down: `crate::replace::slot_candidates` (the function that resolves
+each switch position's *concrete* candidate `CharDefId`s for the pre-existing per-branch
+cross-product construction) now expands every member to every `(table, cd)` pair sharing its own
+normalized representation, via the SAME `RepresentationAliasMap`. The pre-existing per-branch
+construction — built originally so that a multi-member natural class's own matched value transposes
+correctly, never nondeterministically cross-pairing with another class member — needed no change at
+all: each branch still fixes exactly ONE concrete candidate per position (now possibly drawn from
+another table, but never a union), and the swap still only *permutes* that literal assignment vector.
+Switch-position identity therefore holds by the same argument that already covered ordinary
+(non-aliased) multi-member classes, extended one level: "candidate member" now ranges over aliased
+`(table, cd)` pairs instead of only the rule's own table's char-defs, but the enumeration shape that
+keeps the swap identity-preserving is unchanged.
+
+Verified: `rust/crates/pg-foma/tests/multi_table_metathesis_shared_representation.rs` reproduces the
+pre-fix loss directly (a hand-rendered, pre-fix-equivalent swap net never fires on table-A-originated
+material), confirms the fix closes it over the real production compile path, and exhaustively checks
+every combination of aliased/non-aliased candidates at both switch positions never substitutes a
+different alias at the transposed output position. Fixture:
+`conformance-staging/edge-cases/multi-table-metathesis-shared-representation`.
+
+**A separate, out-of-scope finding surfaced while verifying this.** `pg_parse::Morpher` itself (via
+`pg_rules::metathesis`/`pg_rules::bridge`, not `pg_foma::replace`) currently fails to analyze a
+genuinely cross-table metathesis case at all — confirmed reproducible, narrowed to raw-index
+misalignment (not solely `pg_rules::metathesis`'s own hardcoded `TableId(0)` at
+`metathesis.rs:497,646`, since making that hardcoding coincidentally correct did not fix it either),
+but not fully root-caused within this task's `pg-foma`-only boundary. This is unrelated to, and does
+not block, the fix described above — the fixture's own `STAGING.md` has the full account, mirroring
+the "discovered, out-of-scope, reported not hidden" precedent `two-table-shared-representation-recall`
+already established for its own unrelated finding.
 
 ## What this design does NOT settle
 
