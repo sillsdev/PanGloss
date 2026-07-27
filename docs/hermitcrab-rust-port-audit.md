@@ -237,6 +237,27 @@ the change cannot alter parse outcomes.
   multi-table grammar cannot be tokenized at all. Architectural, consistent with
   `two_table_symbol_divergence.rs`'s documented convention — recorded so it is not re-diagnosed as a
   MultiTable bug. Pinned by `conformance-staging/edge-cases/bistratal-overlapping-segment-representation`.
+
+  **It WAS re-diagnosed anyway, on 2026-07-26, so here is the disposal in full.** The observable
+  symptom is `Morpher::signature()` rendering an **empty surface half** for a cross-stratum word whose
+  morpheme-level analysis is entirely correct — which looks like a signature bug and was reported as
+  one, with the hypothesis that synthesis never updates a candidate `Word`'s `.stratum` the way
+  `analyze()` does. **Both halves of that are wrong**, checked directly:
+  - The Rust behaviour is **faithful**. `AnalysisStratumRule.cs:109` (`input.Stratum = _stratum`) is
+    the *only* site in the entire C# HermitCrab that assigns a `Word`'s stratum during parsing, and C#
+    synthesis never reassigns it either — exactly matching this port, where the sole assignment is in
+    `pg_rules::stratum::analyze` (`stratum.rs:1242`) and the synthesis path only ever *reads*
+    `input.stratum` as a depth guard.
+  - The empty half follows from **this** limitation, not from stratum bookkeeping: C# renders a
+    surface via `Stratum.CharacterDefinitionTable` (`Word.cs:555`), so a word whose shape carries
+    inner-stratum char-defs while its stratum is the outer one has no representations to render.
+  So: no code change is warranted, and a `signature`-level workaround would be treating a symptom.
+  Note the practical consequence, since it is easy to trip over — a cross-stratum fixture must compare
+  at the `structured` morpheme-id level rather than on `signature`, which is what
+  `two_table_symbol_divergence.rs` established and what
+  `two_table_shared_representation_recall.rs` follows. **Lifting the limitation itself** (so
+  inner-stratum roots do render) is a separate, larger piece of work in surface tokenization and should
+  be opened as that, never as a signature bug.
 - **Declared morpheme tags can vanish from the compiled lexc alphabet at stratum depth**, silently.
   `pg_foma::emit::verify_tags_reachable` now reports these via `EmitReport::uncovered`
   (`kind: "unreachable-after-lexc-compile"`). The cause is downstream of our lexc generation — the same
