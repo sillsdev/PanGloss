@@ -81,10 +81,25 @@
       `Infix`/`Prefix`/`Suffix`, so it drops the rule cleanly rather than both mechanisms claiming it or
       both dropping it (`circumfix_infix_ownership_handoff_is_clean`). Fixture
       `circumfix-infix-interior-action-precedence`. C2 verified unaffected by the reordering.
-- [ ] 4.3c **C2** — `classify_affix`'s reduplication test (`emit.rs:408-414`) likewise preempts the
-      circumfix test. **Do NOT schedule independently** — which role wins decides which mechanism
-      claims the allomorph, so this is a joint decision with row 11's `Reduplication` carve-out
-      boundary and needs both recall arguments re-checked together.
+- [x] 4.3c **C2 — DONE 2026-07-27** — `classify_affix`'s reduplication test (`emit.rs`) preempted the
+      circumfix test. Decided jointly with row 11's `Reduplication` carve-out boundary, as required.
+      **Reachability confirmed**: `HermitCrabInput.dtd:420`'s `MorphologicalOutput` is an
+      unconstrained repeated-choice group and `load.rs:1896-1901` places no uniqueness constraint on
+      `CopyFromInput`'s `index`, so a simultaneously-circumfixing-and-reduplicating RHS is DTD-legal.
+      **Outcome:** `CircumfixPrefix` wins (mirrors C3), and unlike C3 this closes a REAL recall gap:
+      `crate::peel::ReduplicationPeeler`'s four one-sided scan kinds cannot recall a genuine
+      wrap-both-sides-plus-reduplication surface, so an `AffixProcessRule` with this shape was
+      claimed-but-not-actually-recalled by the peel before this fix; `build_structural_composites`
+      (delegating to `pg_rules::morph::synthesize`) resynthesizes it correctly instead. **Row 11's
+      carve-out re-checked, found unchanged and still faithful**: `crate::peel::is_reduplication_rule`
+      excludes `RealizationalRule` on rule KIND alone (checked before `classify_affix` runs at all) —
+      orthogonal to C2's Role-shape distinction. No code change was needed in `peel.rs` (its own
+      `.any()` scan already calls `classify_affix`, so it relinquishes the combined shape
+      automatically); only its doc comment was updated. Pinned by
+      `tests/circumfix_candidate_selection.rs`'s C2 section (`circumfix_reduplication_recall_parity`,
+      `peel_relinquishes_circumfix_reduplication_cleanly`,
+      `c1_and_c3_selection_is_unperturbed_by_the_c2_fix`). Fixture:
+      `circumfix-reduplication-precedence`.
 - [x] 4.4a `MultiTable`: **DESIGN DONE 2026-07-25**,
       `docs/conformance/multitable-shared-representation-design.md`. **The disjoint-token-range
       encoding this task originally named is the WRONG fix** and is withdrawn: the token is a

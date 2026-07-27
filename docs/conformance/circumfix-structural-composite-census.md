@@ -102,7 +102,7 @@ the structural-composite path, and it is honest reporting rather than a silent s
 `CircumfixPrefix` rule reaching `build_structural_composites` is unaffected by it. Recorded so it is
 not re-diagnosed.
 
-## Status 2026-07-26 — C1 and C3 are BUILT; C2 remains deliberately coupled
+## Status 2026-07-27 — C1, C2, and C3 are all BUILT
 
 - **C1 — closed.** `is_structural_rule` now admits a rule when **any** allomorph classifies
   `Role::CircumfixPrefix`, not only allomorph 0. `rule_role`'s own contract was left alone, per this
@@ -121,9 +121,35 @@ not re-diagnosed.
   `Infix`/`Prefix`/`Suffix`, so it drops the rule cleanly rather than both mechanisms claiming or both
   dropping it (pinned by `circumfix_infix_ownership_handoff_is_clean`). Fixture:
   `conformance-staging/edge-cases/circumfix-infix-interior-action-precedence`.
-- **C2 — still open, still coupled.** Unchanged by C3's reordering. It remains a joint decision with
-  row 11's `Reduplication` carve-out boundary, because which role wins decides which *mechanism*
-  claims the allomorph, and both recall arguments have to be re-checked together.
+- **C2 — RESOLVED 2026-07-27** (`plan-construct-coverage-completion` task 4.3c). Decided jointly with
+  row 11's `Reduplication` carve-out, as flagged. **Reachability checked first**:
+  `MorphologicalOutput` is declared `(CopyFromInput | InsertSimpleContext | ModifyFromInput |
+  InsertSegments)*` (`HermitCrabInput.dtd:420`, an unconstrained repeated-choice group) and
+  `pg_grammar::load` places no uniqueness constraint on `CopyFromInput`'s `index` (`load.rs:1896-
+  1901`, existence-only check) — so an RHS that is simultaneously circumfix-shaped and
+  reduplication-shaped is fully DTD-legal and loader-legal, not a vacuous case. **`CircumfixPrefix`
+  now wins** (mirrors C3's own resolution), and unlike C3 this closes a REAL recall gap, not merely
+  an ownership relabeling: `crate::peel::ReduplicationPeeler`'s four scan kinds (module doc:
+  prefix-copy, suffix-copy, separator+tail-copy, separator+suffix-peel) are each a ONE-SIDED
+  surface-string match, and none of them searches for a repeated span with independent material
+  wrapping it on BOTH sides — so before this fix, an `AffixProcessRule` with this combined shape was
+  claimed by the peel (peel-eligible by rule kind) but the peel's own scans could not actually
+  recall the wrapped reduplicated surface. `build_structural_composites` handles it correctly
+  instead, by the same "shape-agnostic replay of `pg_rules::morph::synthesize`" argument C1/C3
+  already established (confirmed here too: `pg_rules::morph::synth_process_allomorph`'s own
+  per-action loop over `allo.rhs`, plus that crate's "Tier-2 #8 (reduplication morph attribution)"
+  handling of a repeated `Input` part). **Row 11's carve-out is unchanged and still faithful**:
+  `crate::peel::is_reduplication_rule` excludes a `RealizationalRule` on rule KIND alone, checked
+  BEFORE `classify_affix` is even consulted — orthogonal to C2's Role-shape distinction, which
+  applies identically regardless of rule kind. **No code change was needed in `peel.rs`**:
+  `is_reduplication_rule`'s own `.any()` scan already calls `classify_affix` per allomorph, so once
+  that function stops returning `Role::Reduplication` for this combined shape, the peel relinquishes
+  it automatically — mechanically identical to how C3 closed the `crate::preexpand` handoff by only
+  touching `classify_affix`. Pinned by `tests/circumfix_candidate_selection.rs`'s C2 section:
+  `circumfix_reduplication_recall_parity` (full proposer-to-confirm containment),
+  `peel_relinquishes_circumfix_reduplication_cleanly` (`ReduplicationPeeler::has_redup_rules() ==
+  false` for this grammar), and `c1_and_c3_selection_is_unperturbed_by_the_c2_fix` (C1/C3 re-verified
+  unchanged). Fixture: `conformance-staging/edge-cases/circumfix-reduplication-precedence`.
 
 ## Verdict
 
@@ -134,13 +160,14 @@ very different sizes:
 |---|---|---|---|
 | **C1** first-allomorph-only selection | allomorph-wise `any` in `is_structural_rule` | small, mechanical | yes |
 | **C3** infix preempts circumfix | reorder `classify_affix`'s tests; argue recall | small, needs an argument | yes |
-| **C2** reduplication preempts circumfix | joint decision with row 11's carve-out | not mechanical | **no** — couples to row 11 |
+| **C2** reduplication preempts circumfix | reorder `classify_affix`'s tests (redup after circumfix); `CircumfixPrefix` wins | small, needed its own joint argument | **RESOLVED 2026-07-27** — decided jointly with row 11, closes a real recall gap (not just relabeling) |
 | C4, C5 | none needed | — | checked, not gaps |
 
-Each of C1 and C3 wants its own fixture per the standard Stage-2 kit (a rule whose non-first
-allomorph is circumfix-shaped; a simultaneously-circumfixing-and-infixing RHS), both synthetic and
-delanguaged, ground truth derived by running the engine. C2 should not be scheduled until row 11's
-`Reduplication` carve-out boundary is revisited.
+Each of C1, C2, and C3 got its own fixture per the standard Stage-2 kit (a rule whose non-first
+allomorph is circumfix-shaped; a simultaneously-circumfixing-and-reduplicating RHS; a
+simultaneously-circumfixing-and-infixing RHS), all synthetic and delanguaged, ground truth derived
+by running the engine. C2's own resolution is recorded above, jointly with row 11's `Reduplication`
+carve-out boundary (re-checked there, found unchanged and still faithful to C#).
 
 ## Delanguaging leak found in passing
 

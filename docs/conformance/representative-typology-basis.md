@@ -478,10 +478,15 @@ than rewritten, so the pattern research that motivated each fixture stays tracea
 6. `QuantifierPattern` — unbounded — **CLOSED 2026-07-26** (4.5). Fixture
    `unbounded-iterative-quantifier-expansion`. This one mattered more than the research predicted: it
    was blocking a *reference* grammar on the compiled path, not just a coverage row.
-7. `CircumfixOutputAction` — **CENSUS DONE, two of three closed** (4.3a/4.3b;
+7. `CircumfixOutputAction` — **CENSUS DONE, all three closed** (4.3a/4.3b/4.3c;
    `docs/conformance/circumfix-structural-composite-census.md`). The census found the *mechanism* was
-   already allomorph-complete and every gap was in candidate *selection*. C2 stays open and is
-   deliberately coupled to row 11's `Reduplication` carve-out.
+   already allomorph-complete and every gap was in candidate *selection*. C2 — **CLOSED 2026-07-27**,
+   decided jointly with row 11's `Reduplication` carve-out as flagged: `CircumfixPrefix` now wins over
+   `Reduplication` when an RHS is both circumfix- and reduplication-shaped, which closes a genuine
+   recall gap (`crate::peel::ReduplicationPeeler`'s one-sided scans cannot recall that combined
+   shape), not merely an ownership relabeling like C3. Row 11's carve-out itself is unchanged — it is
+   a rule-kind distinction, orthogonal to C2's Role-shape one. Fixture
+   `circumfix-reduplication-precedence`.
 8. `SimultaneousRewrite` — genuine overlap — **ORACLE GAP DISCHARGED 2026-07-26**, which this table
    above still lists as "Needs oracle, not pattern". Fixture
    `simultaneous-subrule-genuine-overlap`, the repo's first with `hc.dll` ground truth: the two engines
