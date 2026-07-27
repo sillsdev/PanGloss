@@ -105,7 +105,7 @@ pub fn environments_ok(
     if envs.is_empty() {
         return true;
     }
-    let (segs, _node_of) = segs_of(g, shape, true);
+    let (segs, _node_of) = segs_of(g, TABLE, shape, true);
     envs.iter().any(|env| {
         let left = compile_env_allomorph(g, TABLE, env.left.as_ref());
         let right = compile_env_allomorph(g, TABLE, env.right.as_ref());
@@ -128,7 +128,7 @@ fn environments_ok_cached(
     if envs.is_empty() {
         return true;
     }
-    let (segs, _node_of) = segs_of(g, shape, true);
+    let (segs, _node_of) = segs_of(g, TABLE, shape, true);
     envs.iter()
         .zip(env_cache)
         .any(|(env, (left, right))| env_side_ok(env, left, right, &segs, start, end))

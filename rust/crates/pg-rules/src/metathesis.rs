@@ -86,8 +86,9 @@
 //! instead, so a future "fix" adding an `MprSet`/POS parameter to `synthesize`/`analyze` here has to
 //! first explain what XML would ever set it.
 
+use pg_featstruct::flat_unifiable;
 use pg_fst::{CompileNode, Direction, Fst, Segment, Transduce, ENTIRE_MATCH};
-use pg_grammar::chardef::CharDefKind;
+use pg_grammar::chardef::{CharDefId, CharDefKind, CharDefTable};
 use pg_grammar::model::{
     Grammar, MetathesisRuleDef, PRuleId, Pattern, PatternNode, StratumId, TableId,
 };
@@ -347,7 +348,15 @@ fn seg_range_to_nodes(node_of: &[usize], range: (usize, usize)) -> Vec<usize> {
 /// for, mirrored here by resolving everything to concrete `MutNode` data up front and performing one
 /// final `Vec::splice`, rather than mutating `ms.nodes` in place through a sequence of index-shifting
 /// operations).
-fn synthesis_reorder(ms: &mut MutShape, left: &[usize], right: &[usize]) {
+///
+/// `table` (2026-07-27 follow-up) is the metathesis rule's own owning table (`crate::cache::
+/// owning_table_for_metathesis_rule`'s result at the caller, never an implicit table-0 default) --
+/// consulted below to decide, PER MOVED NODE, whether that node's own `char_def` still means
+/// anything once re-interpreted against `table` (see the inline comment at the actual check for the
+/// full "one code path, correct for one table and N tables alike" argument -- this is deliberately
+/// NOT a blanket "is this grammar multi-table" toggle, which would silently re-encode "table 0 is
+/// fine" as this function's own hidden default rather than actually checking).
+fn synthesis_reorder(ms: &mut MutShape, left: &[usize], right: &[usize], table: &CharDefTable) {
     let lo = *left
         .iter()
         .chain(right)
@@ -390,6 +399,52 @@ fn synthesis_reorder(ms: &mut MutShape, left: &[usize], right: &[usize]) {
             let mut n = window[i].clone();
             if moved.contains(&i) {
                 n.dirty = true;
+                // 2026-07-27 follow-up (STAGING.md's "cross-table surface-match gate" finding,
+                // `multi-table-metathesis-shared-representation`): every OTHER identity-changing
+                // rewrite path (`rewrite::syn_feature`/`sim_feature`) resets a touched node's
+                // `char_def` to `NO_CHAR_DEF` once its post-rule state can no longer be trusted to
+                // mean what its ORIGINAL literal char-def said (see `syn_feature`'s own doc for the
+                // full "archiphoneme" precedent this mirrors) -- this reorder used to be the one
+                // exception: a relocated segment kept its pre-move `char_def` verbatim forever, so
+                // on a multi-table grammar (this rule's own owning stratum's table can differ from
+                // wherever the segment was originally spelled) the node went on carrying its ORIGIN
+                // table's raw char-def index into `pg_parse::Morpher::is_match_traced`, which always
+                // renders against the grammar's OUTERMOST stratum's table -- an apples-to-oranges
+                // raw-index collision specific to metathesis (the only rule kind that moves material
+                // without also erasing its concrete identity).
+                //
+                // Rather than a blanket "clear it whenever the grammar happens to be multi-table"
+                // toggle (which would just re-encode "table 0/the origin table is fine" as this
+                // function's own hidden default in the false branch -- exactly the antipattern
+                // `owning_table` exists to remove), this checks THIS node's own `char_def` directly
+                // against `table` (the rule's OWN table, already correctly resolved by the caller,
+                // never a guess): valid (in bounds AND its lanes still unify with the node's current
+                // lanes, `flat_unifiable` -- the identical predicate `pg_parse::surface::
+                // matching_reps_for_node`'s own fallback path already uses) iff re-interpreting
+                // `char_def` against `table` still denotes a real, meaning-consistent entry. One code
+                // path, correct whether the grammar has one table or many: on a single-table grammar
+                // `char_def` was always resolved against this SAME table to begin with, so the check
+                // ALWAYS passes and NOTHING is ever cleared there (confirmed by `pg-foma`'s own
+                // `phase_c_metathesis.rs::metathesis_grammar_gen_recipe_confirms_the_reversed_tag_
+                // round_trip`, which indexes a synthesized node's `char_def` straight into its single
+                // table and would panic on a wrongly-cleared `NO_CHAR_DEF`/`u32::MAX`); on a
+                // multi-table grammar a genuinely cross-table node's raw index either falls out of
+                // `table`'s own bounds or denotes a different, non-unifying entry (this fixture's own
+                // deliberately-misaligned-indices design), so the check correctly detects and clears
+                // ONLY that staleness -- and, symmetrically, a moved node whose raw index HAPPENS to
+                // still denote the right entry in `table` (a genuine cross-table alias) keeps its
+                // real identity rather than losing it for no reason. Clearing (when it fires) makes
+                // `to_shape`'s plain `push_segment_with_lanes` path fall through to the node's
+                // (default `Unrestricted`) stored `CdSet` -- i.e. lane-based unification against
+                // `table`, exactly like every other reset site; an untouched node elsewhere in the
+                // shape keeps its identity lock, so this does not reopen the Sena zero-feature "match
+                // the whole inventory" bug the lock exists to prevent.
+                let still_valid = n.char_def != pg_shape::NO_CHAR_DEF
+                    && (n.char_def as usize) < table.len()
+                    && flat_unifiable(&n.lanes, table.get(CharDefId(n.char_def)).feature_lanes());
+                if !still_valid {
+                    n.char_def = pg_shape::NO_CHAR_DEF;
+                }
             }
             n
         })
@@ -512,22 +567,31 @@ pub fn synthesize(g: &Grammar, rule: &MetathesisRuleDef, input: &Shape) -> Vec<S
     let compiled =
         compile_switch_pattern(g, table_id, &rule.pattern, left_idx, right_idx, dir, true);
     let pattern_len = non_anchor_count(&rule.pattern.nodes);
-    synthesize_with_pattern(&compiled, pattern_len, input)
+    // `table` is `synthesis_reorder`'s own per-node validity check's target -- see its doc.
+    let table = &g.char_tables[table_id.0 as usize];
+    synthesize_with_pattern(&compiled, pattern_len, input, table)
 }
 
+/// `g` is needed only to resolve [`MetaCache::table_id`] into the actual [`CharDefTable`]
+/// `synthesis_reorder`'s own per-node validity check reads (see its doc); every OTHER input here is
+/// already fully precompiled. Every production call site (`crate::stratum::StratumAnalyzer`) already
+/// holds `self.g`, so this is a cheap, already-in-scope reference, not a new lookup.
 pub(crate) fn synthesize_cached(
+    g: &Grammar,
     rule: &MetathesisRuleDef,
     input: &Shape,
     cache: &MetaCache,
 ) -> Vec<Shape> {
     let pattern_len = non_anchor_count(&rule.pattern.nodes);
-    synthesize_with_pattern(&cache.syn, pattern_len, input)
+    let table = &g.char_tables[cache.table_id.0 as usize];
+    synthesize_with_pattern(&cache.syn, pattern_len, input, table)
 }
 
 fn synthesize_with_pattern(
     pattern: &CompiledSwitchPattern,
     pattern_len: usize,
     input: &Shape,
+    table: &CharDefTable,
 ) -> Vec<Shape> {
     let mut ms = MutShape::from_shape(input);
     let mut applied = false;
@@ -547,7 +611,7 @@ fn synthesize_with_pattern(
             {
                 continue; // Modified=Clean: only the switch nodes are gated (see module doc).
             }
-            synthesis_reorder(&mut ms, &left_nodes, &right_nodes);
+            synthesis_reorder(&mut ms, &left_nodes, &right_nodes, table);
             applied = true;
             acted = true;
             break;
@@ -599,7 +663,9 @@ pub fn synthesize_traced(
 /// `PhonRuleDef::Metathesis` arm). Takes the real `&Word` so the trace snapshot carries the word's
 /// actual full state and `node_parent` can fall back to `input.trace`, exactly like
 /// `pg_rules::rewrite::synthesize_with_mpr_cached_traced`.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn synthesize_cached_traced(
+    g: &Grammar,
     pid: PRuleId,
     rule: &MetathesisRuleDef,
     input: &Word,
@@ -607,7 +673,7 @@ pub(crate) fn synthesize_cached_traced(
     trace: &dyn TraceSink,
     parent: TraceHandle,
 ) -> Vec<Shape> {
-    let result = synthesize_cached(rule, &input.shape, cache);
+    let result = synthesize_cached(g, rule, &input.shape, cache);
     if trace.is_tracing() {
         let node_parent = input.trace.unwrap_or(parent);
         let mut out_word = input.clone();
@@ -803,6 +869,13 @@ pub(crate) struct MetaCache {
     /// earlier revision did) because that rebuild is now `&Grammar`-aware ([`is_boundary_node`]),
     /// and `analyze_cached` itself has no `&Grammar` in scope (only [`build_meta_cache`] does).
     ana_pattern_len: usize,
+    /// The rule's own owning table (already resolved once by `crate::cache::
+    /// owning_table_for_prule`/[`RuleCache::build`](crate::cache::RuleCache::build), never a
+    /// guess) -- [`synthesize_cached`] resolves this back into the actual [`CharDefTable`]
+    /// `synthesis_reorder`'s own per-node validity check reads (see that function's doc); stored as
+    /// an id rather than a borrowed table reference to sidestep this cache's own lifetime (it
+    /// outlives any one `&Grammar` borrow across `pg-parse::Morpher::new`'s construction).
+    table_id: TableId,
 }
 
 pub(crate) fn build_meta_cache(
@@ -843,5 +916,6 @@ pub(crate) fn build_meta_cache(
         syn,
         ana,
         ana_pattern_len,
+        table_id,
     }
 }

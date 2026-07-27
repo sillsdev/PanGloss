@@ -40,25 +40,27 @@ words:
     note: >-
       ROOT1's (Inner stratum, table t0) expected, correctly-metathesized surface -- "m"/"x" are
       declared in BOTH tables at DELIBERATELY MISALIGNED raw indices (the same premise
-      `two-table-shared-representation-recall` uses for an ordinary rewrite rule). TRANSCRIBED AS
-      OBSERVED: the oracle (`pg_parse::Morpher`) currently finds ZERO analyses here, not one naming
-      ROOT1 as expected. This is a SEPARATE, out-of-scope, `pg_rules`/`pg_parse`-side finding
-      discovered while authoring this fixture (NOT the `pg_foma::replace` gap this fixture's own
-      task closes) -- see STAGING.md's "A second, separate discovered finding" section for the full
-      account (`pg_rules::metathesis::synthesize`/`analyze` hardcode `TableId(0)` at
-      `metathesis.rs:497,646`, and cross-table recognition still fails even when that hardcoding is
-      made to coincidentally match the rule's own table, so a deeper, not-fully-isolated mechanism is
-      also involved). Pinned here `expect_fail: true` as the HONEST, current, real engine output --
-      never hand-derived to what it "should" be -- exactly the discipline
-      `two-table-shared-representation-recall`'s own STAGING.md precedent establishes for its own
-      unrelated discovered anomaly. The paired Rust test proves the `pg_foma::replace`-level fix
-      (this task's actual scope) directly against the compiled net, bypassing this separate oracle
-      gap entirely.
+      `two-table-shared-representation-recall` uses for an ordinary rewrite rule). 2026-07-27
+      follow-up: the oracle-side `TableId(0)` hardcoding this note originally cited
+      (`pg_rules::metathesis::synthesize`/`analyze`) was fixed by the `pg-rules/src/cache.rs`
+      owning-table sweep, and the SEPARATE, then-not-fully-isolated mechanism this note also flagged
+      is now root-caused and fixed too: `pg_rules::metathesis::synthesis_reorder` physically
+      relocated a segment without ever resetting its `char_def` (unlike every rewrite-rule
+      identity-changing path, `syn_feature`/`sim_feature`, which reset a changed node's `char_def` to
+      `NO_CHAR_DEF`), so a metathesized root kept carrying its ORIGIN table's raw char-def index all
+      the way to `pg_parse::Morpher::is_match_traced`'s surface-match gate, which renders against the
+      grammar's OUTERMOST stratum's table -- an apples-to-oranges collision. TRANSCRIBED AS OBSERVED
+      after both fixes: the oracle now finds exactly ROOT1's own analysis here. Re-derived directly
+      (not hand-derived) via a throwaway probe driving `pg_parse::Morpher::parse_word` over every
+      word in this fixture, deleted after transcription, per this file's own "Oracle discipline"
+      section. See STAGING.md's dated follow-up section for the full account.
     provenance: "rust/crates/pg-foma/tests/multi_table_metathesis_shared_representation.rs"
-    expect_fail: true
-    exercises:
-      - "MetathesisRule"
-      - "CharacterDefinitionTable: more than one table, one per stratum"
+    parses:
+      - signature: "ROOT1|xm"
+        rules: []
+        exercises:
+          - "MetathesisRule"
+          - "CharacterDefinitionTable: more than one table, one per stratum"
 
   - word: mx
     note: >-

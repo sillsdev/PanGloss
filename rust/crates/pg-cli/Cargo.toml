@@ -36,3 +36,8 @@ serde_json.workspace = true
 # construct" set `pg_foma::coverage_ledger::build_ledger` needs, mirroring
 # `pg-foma/tests/conformance_coverage_gate.rs`'s own dev-only helper as real (non-dev) CLI code.
 pg-conformance-fixtures.workspace = true
+# `make_report.rs` (`openspec/changes/certify-language-readiness` section 4): hashes the grammar/
+# pack/corpus files a readiness report pins as its re-derivation record. Already a workspace
+# dependency of `pg-pack` (its own `.pgpack` container digest) -- reused here rather than a second,
+# independently-pinned copy.
+sha2.workspace = true

@@ -114,6 +114,57 @@ second crate was outside this task's ownership. Recorded here, transcribed hones
 already asked for (which IS now fully applied, and does not regress `two-table-shared-representation-
 recall`'s own already-passing oracle recall or this fixture's own `xw`/`wx`/`z` controls).
 
+## 2026-07-27 follow-up #2: both remaining `TableId(0)`/stale-identity antipathogen instances closed;
+## "xm" now analyzes
+
+Both instances this file's own follow-up above named as still-open are now fixed:
+
+1. **`pg-rules/src/morph.rs`'s own module-level `const TABLE: TableId = TableId(0)`** (the last
+   `pg-rules`-side instance, backing `compile_parts`/`cd_lanes`/`ctx_pins`/`ctx_lanes`/`ctx_cd_set`/
+   `segs_of`'s id lane, and hence an affix allomorph's own LHS/RHS *pattern* — the environment half
+   was already fixed by this file's earlier follow-up, but the pattern half was not). Every function
+   that read that constant now takes an explicit `table: TableId`, resolved once per rule
+   application via `crate::cache::owning_table_for_morpheme` (`AffixProcess`/`Realizational`) or
+   `crate::cache::owning_table_for_mrule`/`owning_table_for_compounding_rule` (`Compounding`, which
+   mints no `AllomorphOwner` for `owning_table_for_allomorph` to resolve through) and threaded down,
+   never re-resolved per helper call. `pg-rules/src/validity.rs`'s own `const TABLE` was confirmed
+   already correct as a side effect of the earlier sweep (its cached production path reads
+   `cache.allomorph(id).envs`, built with the right table; only its standalone, non-grammar-resident
+   entry point still hardcodes table 0, which is the honest, documented fallback for that case) and
+   was left alone.
+2. **The cross-table surface-match gate** this section's predecessor root-caused but did not fix
+   (outside this task's original crate boundary): `pg_rules::metathesis::synthesis_reorder`
+   (`pg-rules/src/metathesis.rs`) now resets a relocated segment's `char_def` to `NO_CHAR_DEF` when
+   marking it dirty, mirroring `pg_rules::rewrite::syn_feature`/`sim_feature`'s identical convention
+   for every OTHER identity-changing rewrite path. This was chosen over teaching
+   `pg_parse::Morpher::is_match_traced`/`surface::matching_reps_for_node` to resolve "the node's own
+   owning table" instead of the outermost stratum's: no per-node table-provenance metadata exists
+   anywhere in `pg_shape::Shape`/`MutNode` today, so that alternative would have required inventing a
+   new field threaded through every shape/node consumer (`root_trie.rs`, `guess.rs`,
+   `RootAllomorphIndex`, and more), a much larger and riskier change, and would not have removed the
+   actual staleness -- only taught one comparison site to tolerate it, which risks a coincidental
+   raw-index collision producing a false POSITIVE elsewhere (worse than this bug's false negative).
+   Resetting `char_def` at the point of relocation is the minimal, precedent-matching fix, and (per
+   `MutShape::to_shape`'s existing plain `push_segment_with_lanes` path, already relied on by
+   `syn_feature`/`sim_feature`) requires no new machinery at all.
+
+Re-running the oracle after both fixes (a throwaway probe driving `pg_parse::Morpher::parse_word`
+over every word in this fixture, deleted after transcription, mirroring this file's own "Oracle
+discipline" section): `"xm"` now analyzes as `"ROOT1|xm"`. `"mx"`/`"wx"`/`"z"` are unchanged (still
+correctly `expect_fail: true`); `"xw"` is unchanged (`"ROOT2|xw"`). `words.yaml`'s `xm` entry has been
+flipped from `expect_fail: true` to a `parses:` entry with `signature: "ROOT1|xm"`, reflecting this
+observed, re-derived (not hand-derived) result.
+
+**Possible related, NOT-yet-isolated finding, flagged rather than chased**: `synthesis_reorder`'s
+fix closes the one case this fixture demonstrates (a metathesis-relocated node crossing a table
+boundary). Whether an ORDINARY (non-metathesis, non-feature-changing) morphological copy-through
+(`pg_rules::morph::copy_part`'s plain `CopyFromInput` branch, which also never resets `char_def`)
+could carry the same kind of stale, origin-table-relative identity across a stratum/table boundary
+for a root that is never otherwise touched by an identity-resetting rule is a real question this
+fixture's own two-root design does not exercise (`ROOT2` never crosses tables at all; `ROOT1` is only
+ever observed via the metathesis path this fix already closes) — recorded here as a candidate for a
+follow-on isolation, not fixed speculatively without a reproducing fixture.
+
 ## Oracle discipline
 
 **Oracle: `pangloss` (this repo's own Rust engine), NOT the C# founding oracle.** Authored fresh for

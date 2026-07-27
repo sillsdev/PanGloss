@@ -78,3 +78,9 @@ pg-grammar-gen = { workspace = true, features = ["oracle"] }
 # Dev-dependency only, same as every other example/test-only dependency above -- no cycle, since
 # `pg-conformance-fixtures` depends on `pg-grammar`/`pg-parse` only, never back on this crate.
 pg-conformance-fixtures.workspace = true
+# tests/segment_natural_class_table_binding_discriminates.rs: inspects the `CompileNode` shape
+# `pg_rules::bridge::PatternBridge::compile_pattern` returns, to compare a natural class's compiled
+# constraint lanes under a correct-table vs. wrong-table resolution directly (rather than editing
+# any crate's `src/`). Already a transitive dependency (via `pg-rules`/`pg-parse`) -- this only makes
+# it nameable from this crate's own tests, same rationale as the other dev-only entries above.
+pg-fst.workspace = true

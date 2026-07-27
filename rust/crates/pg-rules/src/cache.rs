@@ -36,8 +36,8 @@
 
 use pg_fst::Fst;
 use pg_grammar::model::{
-    AllomorphId, AllomorphOwner, Grammar, MRuleId, MetathesisRuleDef, MorphRuleDef, PRuleId,
-    PhonRuleDef, TableId,
+    AllomorphId, AllomorphOwner, CompoundingRuleDef, Grammar, MRuleId, MetathesisRuleDef,
+    MorphRuleDef, MorphemeId, PRuleId, PhonRuleDef, TableId,
 };
 
 use crate::metathesis::{self, MetaCache};
@@ -86,20 +86,28 @@ pub(crate) fn owning_table_for_metathesis_rule(
     owning_table_for_prule(g, PRuleId(idx as u32))
 }
 
+/// Resolve the table a stratum-resident `MorphemeId` belongs to (`morpheme -> its stratum -> that
+/// stratum's table`) -- the common tail [`owning_table_for_allomorph`]'s two `AllomorphOwner` arms
+/// both reduce to, factored out so `pg_rules::morph`'s own per-rule (not per-allomorph) call sites
+/// can resolve the SAME way directly from an `AffixProcessRuleDef`'s/`RealizationalRuleDef`'s own
+/// `morpheme` field, without needing to first reconstruct an `AllomorphId`/`AllomorphOwner` they
+/// don't have in hand (`morph::synth_affix`/`ana_affix`/`synth_realizational`/`ana_realizational`
+/// and their `_cached` siblings all receive the rule def directly, never an `AllomorphOwner`).
+/// `.get()`-based, never a raw index -- see [`owning_table_for_allomorph`]'s doc for why (hand-built
+/// test `Grammar`s with a bare opaque `morpheme` tag and no backing `g.morphemes` entry).
+pub(crate) fn owning_table_for_morpheme(g: &Grammar, morpheme: MorphemeId) -> Option<TableId> {
+    let stratum = g.morphemes.get(morpheme.0 as usize)?.stratum;
+    g.strata.get(stratum.0 as usize).map(|s| s.table)
+}
+
 /// Resolve the table that owns an allomorph (root or affix): a `LexEntryDef`'s/
 /// `AffixProcessRuleDef`'s/`RealizationalRuleDef`'s own `MorphemeId` names a stratum-resident
 /// morpheme for every grammar `pg_grammar::load` produces (that loader's stratum-index-minting
 /// discipline never lets this dangle -- confirmed by direct investigation, not merely assumed;
 /// mirrors `morph::seed_from_entry`'s identical `entry.morpheme -> stratum -> table` derivation for
-/// a root entry). `.get()`-based, never a raw index, because this crate's OWN test suite also
-/// builds `Grammar`s by hand (pushing straight into `g.mrules`/`g.allomorph_owners`, bypassing the
-/// loader entirely -- e.g. `stratum_gate.rs`'s `push_cache_suffix_rule`), where a rule's `morpheme`
-/// field is sometimes used as a bare opaque distinguishing tag with no backing `g.morphemes` entry
-/// at all; `None` there, not a panic, is the honest answer -- callers fall back to `TableId(0)`,
-/// matching every other "not really grammar-resident" fallback in this module (single-table
-/// fixtures throughout). `AllomorphOwner::Affix` never legitimately names a `Compounding` rule
-/// (compounding rules mint no `AllomorphId` at all -- `MorphRuleDef::affix_allomorphs`'s own doc),
-/// so that arm is `unreachable!()`, a real invariant rather than a test-fixture concern.
+/// a root entry). `AllomorphOwner::Affix` never legitimately names a `Compounding` rule (compounding
+/// rules mint no `AllomorphId` at all -- `MorphRuleDef::affix_allomorphs`'s own doc), so that arm is
+/// `unreachable!()`, a real invariant rather than a test-fixture concern.
 pub(crate) fn owning_table_for_allomorph(g: &Grammar, owner: AllomorphOwner) -> Option<TableId> {
     let morpheme = match owner {
         AllomorphOwner::Root(le, _) => g.entries.get(le.0 as usize)?.morpheme,
@@ -111,8 +119,44 @@ pub(crate) fn owning_table_for_allomorph(g: &Grammar, owner: AllomorphOwner) -> 
             ),
         },
     };
-    let stratum = g.morphemes.get(morpheme.0 as usize)?.stratum;
-    g.strata.get(stratum.0 as usize).map(|s| s.table)
+    owning_table_for_morpheme(g, morpheme)
+}
+
+/// [`owning_table_for_prule`]'s sibling over `g.strata[..].mrules` instead of `.prules` --
+/// [`owning_table_for_allomorph`] cannot resolve a [`MorphRuleDef::Compounding`] rule at all (it
+/// mints no `AllomorphOwner`, unlike `AffixProcess`/`Realizational`, both of which carry their own
+/// `MorphemeId` and so resolve via [`owning_table_for_morpheme`] instead of needing this). This is
+/// NOT a fourth independent resolution strategy: it is `owning_table_for_prule`'s own "which
+/// stratum's own cascade contains this id" algorithm, applied to the one `Grammar` list
+/// (`mrules`) that algorithm doesn't already cover -- the minimal completion `morph::
+/// build_compound_cache`'s own table-threading needs, named explicitly per this task's own
+/// "architectural additions must be flagged, not papered over" instruction. `None` under the
+/// identical two conditions `owning_table_for_prule`'s doc names (an orphaned-but-resident rule, or
+/// a non-loader test fixture with no strata wiring at all).
+pub(crate) fn owning_table_for_mrule(g: &Grammar, mrid: MRuleId) -> Option<TableId> {
+    g.strata
+        .iter()
+        .find(|s| s.mrules.contains(&mrid))
+        .map(|s| s.table)
+}
+
+/// [`owning_table_for_mrule`]'s sibling for a caller that holds a [`CompoundingRuleDef`] value but
+/// not its [`MRuleId`] -- `morph::synth_compound`/`ana_compound`, the standalone (uncached,
+/// non-grammar-resident-fixture-friendly) entry points reached via `morph::synthesize`/`analyze`
+/// with no `MRuleId` in scope at all, exactly mirroring [`owning_table_for_metathesis_rule`]'s own
+/// "resolve by `xml_id`, then delegate" shape for the identical reason (`metathesis::synthesize`/
+/// `analyze` have the same no-id-in-scope shape one crate module over). `None` both when `rule`
+/// isn't grammar-resident (a hand-built fixture) and when it is resident but orphaned; callers fall
+/// back to `TableId(0)` only in that non-resident case, matching every other standalone entry point
+/// in this crate.
+pub(crate) fn owning_table_for_compounding_rule(
+    g: &Grammar,
+    rule: &CompoundingRuleDef,
+) -> Option<TableId> {
+    let idx = g.mrules.iter().position(
+        |mr| matches!(mr, MorphRuleDef::Compounding(def) if def.xml_id == rule.xml_id),
+    )?;
+    owning_table_for_mrule(g, MRuleId(idx as u32))
 }
 
 /// Per-[`AllomorphId`] precompiled matchers, shared by root and affix allomorphs (both draw from the
@@ -201,8 +245,15 @@ impl RuleCache {
         let compounds = g
             .mrules
             .iter()
-            .map(|mr| match mr {
-                MorphRuleDef::Compounding(def) => Some(morph::build_compound_cache(g, def)),
+            .enumerate()
+            .map(|(idx, mr)| match mr {
+                MorphRuleDef::Compounding(def) => {
+                    // See `owning_table_for_mrule`'s own doc for why this exists (Compounding mints
+                    // no `AllomorphOwner` for `owning_table_for_allomorph` to resolve through).
+                    let table =
+                        owning_table_for_mrule(g, MRuleId(idx as u32)).unwrap_or(TableId(0));
+                    Some(morph::build_compound_cache(g, table, def))
+                }
                 MorphRuleDef::AffixProcess(_) | MorphRuleDef::Realizational(_) => None,
             })
             .collect();
@@ -264,7 +315,7 @@ fn build_allomorph_cache(g: &Grammar, owner: &AllomorphOwner) -> AllomorphCache 
                 .affix_allomorphs()
                 .expect("compounding rules mint no AllomorphId (no per-allomorph registry entry)");
             let def = &allos[idx as usize];
-            let lhs = morph::build_allomorph_lhs_cache(g, def);
+            let lhs = morph::build_allomorph_lhs_cache(g, table, def);
             AllomorphCache {
                 envs: build_env_cache(g, table, &def.environments),
                 synth_lhs: lhs.synth_lhs,
@@ -442,6 +493,149 @@ mod owning_table_tests {
             out[0].node_lanes(interior[0]).to_vec(),
             p_lanes,
             "the rewritten node must carry ncP's (t1's \"p\") own lanes"
+        );
+    }
+
+    /// 2026-07-27 follow-up (defect (a), `pg-rules/src/morph.rs`'s own module-level `const TABLE`):
+    /// the SAME regression this module's two tests above pin for a phonological rule, but for an
+    /// **affix allomorph's own LHS/RHS pattern** (`morph::compile_parts`/`morph::build_ana_affix_lhs`,
+    /// threaded via `morph::build_allomorph_lhs_cache`) -- the "environment half" of an allomorph
+    /// (`build_env_cache`, this module) was fixed by the earlier sweep, but its LHS/RHS *pattern*
+    /// stayed hardcoded at `TableId(0)` until this task's own fix. Two tables/strata, deliberately
+    /// misaligned raw indices, mirroring the phonological-rule probe's own fixture exactly: `t0`
+    /// (stratum `S0`, no rules) has one decoy segment "z" (`f`=`+`, raw index 0); `t1` (stratum
+    /// `S1`, owning the affix rule below) has "q" (`f`=`-`, raw index 0) and "p" (`f`=`+`, raw index
+    /// 1). `mrQtoQP`'s single allomorph's LHS is `ncQ`, a `SegmentNaturalClass` (table-DEPENDENT by
+    /// construction, unlike every pre-existing multi-table fixture's `FeatureNaturalClass` --
+    /// `PatternBridge::nat_class_lanes`'s `Feature` branch never reads `self.table` at all, so this
+    /// crate's whole pre-existing conformance suite could not see this bug class; see this fixture's
+    /// own STAGING.md follow-up note). If `ncQ` is ever wrongly compiled against table 0 again, its
+    /// constraint becomes `t0`'s "z" (`f`=`+`) instead of `t1`'s real "q" (`f`=`-`) -- a real `t1`
+    /// "q" root's own lanes (`f`=`-`) then fail to match the allomorph's LHS FST at all, synthesis
+    /// finds nothing, and this test fails (empty output, not a silently-passing wrong answer). The
+    /// RHS's `InsertSegments` literal "p" additionally exercises `cd_lanes`'s own table resolution
+    /// in the same pass.
+    #[test]
+    fn cached_affix_synthesis_resolves_the_allomorphs_own_lhs_rhs_pattern_against_its_own_table_not_table_zero()
+     {
+        const XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+<HermitCrabInput>
+  <Language>
+    <Name>OwningTableAffixProbe</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <HeadFeatures />
+    <PhonologicalFeatureSystem>
+      <SymbolicFeature id="featF">
+        <Name>f</Name>
+        <Symbols><Symbol id="fp">+</Symbol><Symbol id="fm">-</Symbol></Symbols>
+      </SymbolicFeature>
+    </PhonologicalFeatureSystem>
+    <CharacterDefinitionTable id="t0">
+      <Name>T0</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="c0z">
+          <Representations><Representation>z</Representation></Representations>
+          <FeatureValue feature="featF" symbolValues="fp" />
+        </SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <CharacterDefinitionTable id="t1">
+      <Name>T1</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="c1q">
+          <Representations><Representation>q</Representation></Representations>
+          <FeatureValue feature="featF" symbolValues="fm" />
+        </SegmentDefinition>
+        <SegmentDefinition id="c1p">
+          <Representations><Representation>p</Representation></Representations>
+          <FeatureValue feature="featF" symbolValues="fp" />
+        </SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <SegmentNaturalClass id="ncQ"><Name>Q</Name><Segment segment="c1q" /></SegmentNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum characterDefinitionTable="t0" morphologicalRuleOrder="unordered">
+        <Name>S0</Name>
+      </Stratum>
+      <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" morphologicalRules="mrQtoQP">
+        <Name>S1</Name>
+        <MorphologicalRuleDefinitions>
+          <MorphologicalRule id="mrQtoQP" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
+            <Name>plus-p</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subQP">
+                <MorphologicalInput>
+                  <PhoneticSequence id="stem"><SimpleContext naturalClass="ncQ" /></PhoneticSequence>
+                </MorphologicalInput>
+                <MorphologicalOutput>
+                  <CopyFromInput index="stem" />
+                  <InsertSegments><PhoneticShape>p</PhoneticShape></InsertSegments>
+                </MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <LexicalEntries>
+          <LexicalEntry id="eQ" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="aQ"><PhoneticShape>q</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>root</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>
+"#;
+        let g = pg_grammar::load(XML)
+            .unwrap_or_else(|e| panic!("owning-table affix probe grammar loads: {e}"));
+        assert_eq!(g.char_tables.len(), 2, "fixture must declare exactly 2 tables");
+        assert_eq!(g.strata.len(), 2, "fixture must declare exactly 2 strata");
+        assert_eq!(g.mrules.len(), 1, "fixture declares exactly 1 morphological rule");
+        assert_eq!(g.entries.len(), 1, "fixture declares exactly 1 lexical entry");
+
+        let cache = RuleCache::build(&g);
+        let mrid = MRuleId(0);
+        let rule = &g.mrules[0];
+
+        let word = morph::seed_from_entry(&g, pg_grammar::model::LexEntryId(0), FeatureStruct::EMPTY);
+        assert_eq!(
+            word.stratum,
+            pg_grammar::model::StratumId(1),
+            "the root entry must load onto S1 (table t1), not S0"
+        );
+
+        let out = morph::synthesize_cached(&g, mrid, &word, rule, &cache);
+        assert_eq!(
+            out.len(),
+            1,
+            "mrQtoQP must fire on a genuine t1 \"q\" root when ncQ (its allomorph's own LHS \
+             pattern) is resolved against t1 (its real owning table); an empty result here means \
+             ncQ was wrongly compiled against table 0 instead"
+        );
+
+        let w = &out[0];
+        let interior: Vec<usize> = (0..w.shape.len())
+            .filter(|&i| matches!(w.shape.kind(i), pg_shape::NodeKind::Segment))
+            .collect();
+        assert_eq!(interior.len(), 2, "the root \"q\" plus the inserted \"p\"");
+
+        let t1 = &g.char_tables[1];
+        let q_lanes = t1.get(pg_grammar::chardef::CharDefId(0)).feature_lanes().to_vec();
+        let p_lanes = t1.get(pg_grammar::chardef::CharDefId(1)).feature_lanes().to_vec();
+        assert_eq!(
+            w.shape.node_lanes(interior[0]).to_vec(),
+            q_lanes,
+            "the copied root node must keep t1's own \"q\" lanes"
+        );
+        assert_eq!(
+            w.shape.node_lanes(interior[1]).to_vec(),
+            p_lanes,
+            "the inserted node must carry t1's own \"p\" lanes (cd_lanes resolved against t1), \
+             not t0's"
         );
     }
 }

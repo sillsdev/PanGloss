@@ -64,6 +64,7 @@ use pg_foma::capability::CompileDecision;
 use pg_foma::capability_entry::evaluate_capability;
 use pg_foma::health_evaluator::evaluate_health;
 use pg_foma::peel::{ReduplicationPeeler, RUNTIME_FEATURE_REDUPLICATION_PEEL};
+use pg_grammar::model::Grammar;
 use pg_pack::{
     CapabilityOverrideRecord, CapabilityTrust, OverriddenConfig, PackManifest,
     RequiredRuntimeFeatures, MANIFEST_FORMAT_TAG, MANIFEST_SCHEMA_VERSION,
@@ -180,8 +181,72 @@ pub fn run_pack(args: &[String]) -> Result<(), String> {
     let (grammar, warnings) = crate::load_grammar(grammar_path)?;
     crate::print_grammar_warnings(&warnings);
 
+    let built = build_pack(
+        grammar_path,
+        &grammar,
+        allow_unproven,
+        authorized_by.as_deref(),
+        reason.as_deref(),
+        watchdog,
+    )?;
+
+    fs::write(out_path, &built.bytes).map_err(|e| format!("write {out_path}: {e}"))?;
+
+    eprintln!(
+        "pack complete: {out_path} ({} bytes) -- capability_trust={}, required_runtime_features={:?}, \
+         fst_health admission={:?}. NOTE: the runtime payload section is an honestly-labeled \
+         PLACEHOLDER (no Rust-HermitCrab runtime-payload serializer exists yet anywhere in this \
+         workspace -- see this module's own doc). The foma payload section is {} -- do not treat a \
+         placeholder section as a usable compiled artifact.",
+        built.bytes.len(),
+        if built.manifest.capability_trust.is_unproven() { "overridden/unproven" } else { "proven" },
+        built.manifest.required_runtime_features.runtime_operations,
+        built.manifest.fst_health.admission(),
+        if built.foma_payload_is_real {
+            "REAL compiled-network bytes (foma::io::fsm_write_binary, the same encoding \
+             fsm_read_binary_mem reads back)"
+        } else {
+            "a PLACEHOLDER (this grammar's foma compile did not succeed, or --watchdog was passed \
+             and the worker protocol does not yet return the compiled network across the process \
+             boundary)"
+        },
+    );
+    Ok(())
+}
+
+/// The result of one `.pgpack` build: the assembled manifest, the full container bytes
+/// ([`pg_pack::write_pack`]'s own output), and whether the foma payload section inside those bytes
+/// is real compiled-network bytes or the honestly-labeled placeholder fallback (see this module's
+/// top doc, "What is real vs. placeholder"). Factored out of [`run_pack`] (`openspec/changes/
+/// certify-language-readiness` task 4: `pangloss make-report` needs the SAME real pack-build logic
+/// — a real trust stamp and a real artifact size — without going through `run_pack`'s own CLI
+/// arg-parsing/file-writing/stderr-summary shell) so both call sites share one implementation
+/// rather than `make-report` re-deriving a second, potentially-drifting notion of "what a pack is."
+pub(crate) struct BuiltPack {
+    pub manifest: PackManifest,
+    pub bytes: Vec<u8>,
+    /// `true` iff [`BuiltPack::bytes`]'s foma payload section is the grammar's own real compiled
+    /// network (`FomaProposer::foma_binary_payload`), `false` iff it is the honestly-labeled
+    /// [`PLACEHOLDER_FOMA_PAYLOAD`] fallback (compile did not succeed, or `watchdog` was requested).
+    pub foma_payload_is_real: bool,
+}
+
+/// Builds one `.pgpack` in memory: the ADR 0001/0005 capability-trust stamp, the ADR 0004
+/// required-runtime-feature set, the FST-health report (+ the real foma payload when this same
+/// compile succeeds), and the assembled, written [`pg_pack::write_pack`] container bytes — see
+/// [`run_pack`]'s own top-of-module doc for the full contract this implements (every side effect
+/// and stderr diagnostic below is identical to what `run_pack` always printed; this function is a
+/// pure extraction, not a behavior change).
+pub(crate) fn build_pack(
+    grammar_path: &str,
+    grammar: &Grammar,
+    allow_unproven: bool,
+    authorized_by: Option<&str>,
+    reason: Option<&str>,
+    watchdog: bool,
+) -> Result<BuiltPack, String> {
     // ---- ADR 0001/0005: the capability-trust stamp ---------------------------------------------
-    let decision = evaluate_capability(&grammar);
+    let decision = evaluate_capability(grammar);
     let capability_trust = match &decision {
         CompileDecision::Admit => {
             eprintln!("capability: Admit -- packing a proven-clean grammar (capability_trust=Proven)");
@@ -212,10 +277,10 @@ pub fn run_pack(args: &[String]) -> Result<(), String> {
             }
             let record = CapabilityOverrideRecord {
                 authorized_by: authorized_by
-                    .clone()
+                    .map(|s| s.to_string())
                     .unwrap_or_else(|| "unspecified (--allow-unproven with no --authorized-by given)".to_string()),
                 reason: reason
-                    .clone()
+                    .map(|s| s.to_string())
                     .unwrap_or_else(|| "--allow-unproven (no --reason given)".to_string()),
                 recorded_at: now_string(),
                 overridden_configs: diags
@@ -245,7 +310,7 @@ pub fn run_pack(args: &[String]) -> Result<(), String> {
     };
 
     // ---- ADR 0004: the required-runtime-feature set --------------------------------------------
-    let peeler = ReduplicationPeeler::new(&grammar);
+    let peeler = ReduplicationPeeler::new(grammar);
     let mut runtime_operations = Vec::new();
     if peeler.has_redup_rules() {
         runtime_operations.push(RUNTIME_FEATURE_REDUPLICATION_PEEL.to_string());
@@ -272,7 +337,7 @@ pub fn run_pack(args: &[String]) -> Result<(), String> {
     let (fst_health, real_foma_payload): (pg_foma::health::HealthReport, Option<Vec<u8>>) = if watchdog {
         (run_fst_health_under_watchdog(grammar_path)?, None)
     } else {
-        let (proposer_result, compile_profile) = FomaProposer::new_with_profile(&grammar);
+        let (proposer_result, compile_profile) = FomaProposer::new_with_profile(grammar);
         match &proposer_result {
             Ok(proposer) => {
                 let health =
@@ -325,30 +390,15 @@ pub fn run_pack(args: &[String]) -> Result<(), String> {
         signature: None,
     };
 
+    let foma_payload_is_real = real_foma_payload.is_some();
     let bytes = pg_pack::write_pack(&manifest, PLACEHOLDER_RUNTIME_PAYLOAD, foma_payload)
         .map_err(|e| format!("write_pack: {e}"))?;
-    fs::write(out_path, &bytes).map_err(|e| format!("write {out_path}: {e}"))?;
 
-    eprintln!(
-        "pack complete: {out_path} ({} bytes) -- capability_trust={}, required_runtime_features={:?}, \
-         fst_health admission={:?}. NOTE: the runtime payload section is an honestly-labeled \
-         PLACEHOLDER (no Rust-HermitCrab runtime-payload serializer exists yet anywhere in this \
-         workspace -- see this module's own doc). The foma payload section is {} -- do not treat a \
-         placeholder section as a usable compiled artifact.",
-        bytes.len(),
-        if manifest.capability_trust.is_unproven() { "overridden/unproven" } else { "proven" },
-        manifest.required_runtime_features.runtime_operations,
-        manifest.fst_health.admission(),
-        if real_foma_payload.is_some() {
-            "REAL compiled-network bytes (foma::io::fsm_write_binary, the same encoding \
-             fsm_read_binary_mem reads back)"
-        } else {
-            "a PLACEHOLDER (this grammar's foma compile did not succeed, or --watchdog was passed \
-             and the worker protocol does not yet return the compiled network across the process \
-             boundary)"
-        },
-    );
-    Ok(())
+    Ok(BuiltPack {
+        manifest,
+        bytes,
+        foma_payload_is_real,
+    })
 }
 
 /// `grammar_path`'s extension -> [`pg_foma::worker::GrammarFormat`], mirroring `crate::

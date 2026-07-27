@@ -1848,6 +1848,7 @@ pub fn synthesize_stratum_traced(
                 }
                 pg_grammar::model::PhonRuleDef::Metathesis(r) => {
                     metathesis::synthesize_cached_traced(
+                        g,
                         pid,
                         r,
                         &nw,

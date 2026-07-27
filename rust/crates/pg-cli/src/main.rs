@@ -86,6 +86,7 @@ use pg_parse::{hc_parse_batch, GenMorpheme, Morpher, WordAnalysis};
 mod coverage;
 mod diagnostics;
 mod fst_health;
+mod make_report;
 mod pack;
 mod plan_diagram;
 mod trace_render;
@@ -214,6 +215,13 @@ fn run() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
+        Some("make-report") => match make_report::run_make_report(&args[2..]) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("pangloss make-report: {e}");
+                ExitCode::FAILURE
+            }
+        },
         // Hidden, internal compile-worker CHILD entry point (`harden-foma-resource-safety`
         // section 3/4; `pg_foma::worker`'s own doc). Spawned only by `pangloss pack --watchdog`
         // (`pack.rs::run_fst_health_under_watchdog`) via `pg_foma::worker::run_compile_worker`
@@ -242,6 +250,7 @@ fn run() -> ExitCode {
                  usage: pangloss fst-health <grammar> [<words.txt>] [<out.json>]\n\
                  usage: pangloss coverage [--json] [--grammar=<path>] [<out.json>]\n\
                  usage: pangloss plan-diagram <grammar> [--json] [--full] [--threshold=N] [<out>]\n\
+                 usage: pangloss make-report <grammar> <out.md> [--pack=<path>] [--words=<path>] [--corpus=<path> --attestor=<name> --attested-on=<date>] [--policy=<path>] [--allow-unproven] [--authorized-by=<name>] [--reason=<text>] [--repeats=N]\n\
                  \n\
                  <grammar> is one of: a HermitCrab XML export (.xml, the legacy path), a\n\
                  pg-snapshot JSON file (.json, from `pangloss import` or any other producer), or a\n\
