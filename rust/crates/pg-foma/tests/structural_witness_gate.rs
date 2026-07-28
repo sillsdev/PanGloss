@@ -110,7 +110,7 @@ fn passing_ids_from_structurally_matching_fixtures(
     (ids, structurally_matching_fixtures)
 }
 
-/// **The deliverable itself.** For each of today's three registered structural witnesses: at
+/// **The deliverable itself.** For each of today's four registered structural witnesses: at
 /// least one fixture must structurally exhibit the finer construct AND have a passing word/parse
 /// tagging the shared id — proving the finer characteristic's evidence is pinned to a real
 /// grammar shape, not merely inherited from a coarser sibling's unrelated passing fixture.
@@ -119,8 +119,8 @@ fn every_registered_structural_witness_is_satisfied_by_a_passing_fixture() {
     let witnesses = registered_structural_witnesses();
     assert_eq!(
         witnesses.len(),
-        3,
-        "expected exactly today's three live at-risk-shared-id witnesses: {witnesses:?}"
+        4,
+        "expected exactly today's four live at-risk-shared-id witnesses: {witnesses:?}"
     );
 
     let mut total_structurally_matching = 0usize;

@@ -382,8 +382,8 @@ pub fn containment_evidence_for(kind: CharacteristicKind) -> Option<ContainmentE
              order-invariance witness design.md D4 names.",
         ),
         MprGroupOverwrite => ev(
-            RefusalWitness,
-            "tests/cover_mpr_groups.rs::overwrite_group_composes_to_refuse",
+            Dedicated,
+            "tests/cover_mpr_groups.rs::overwrite_group_composes_to_confirm_only",
             "FailClosed: containment is not the applicable property here -- this witness proves \
              compose_envelope genuinely Refuses whenever MprGroupOutput::Overwrite is observed.",
         ),
@@ -697,7 +697,7 @@ mod tests {
     /// compile-time backstop against a variant that VANISHES here silently.
     #[test]
     fn every_characteristic_kind_appears_exactly_once() {
-        let ledger = build_ledger(&default_registry(), &HashSet::new());
+        let ledger = build_ledger(&default_registry(), &fully_covered_constructs());
         assert_eq!(ledger.rows.len(), CharacteristicKind::ALL.len());
         for &kind in CharacteristicKind::ALL {
             let count = ledger.rows.iter().filter(|r| r.kind == kind).count();
@@ -710,7 +710,7 @@ mod tests {
     /// independently-computed value.
     #[test]
     fn ledger_disposition_never_diverges_from_default_disposition() {
-        let ledger = build_ledger(&default_registry(), &HashSet::new());
+        let ledger = build_ledger(&default_registry(), &fully_covered_constructs());
         for row in &ledger.rows {
             assert_eq!(
                 row.disposition,
@@ -804,11 +804,11 @@ mod tests {
     /// a genuine refusal witness is honored on its own terms.
     #[test]
     fn fail_closed_row_is_covered_via_refusal_witness_regardless_of_passing_set() {
-        let ledger = build_ledger(&default_registry(), &HashSet::new());
+        let ledger = build_ledger(&default_registry(), &fully_covered_constructs());
         let row = ledger
             .row(CharacteristicKind::MprGroupOverwrite)
             .expect("MprGroupOverwrite row must exist");
-        assert_eq!(row.disposition, Disposition::FailClosed);
+        assert_eq!(row.disposition, Disposition::ConfigPredicate);
         assert_eq!(
             row.conformance_status,
             CoverageStatus::Covered,
@@ -817,7 +817,7 @@ mod tests {
         );
         assert_eq!(
             row.containment.as_ref().map(|c| c.kind),
-            Some(ContainmentEvidenceKind::RefusalWitness)
+            Some(ContainmentEvidenceKind::Dedicated)
         );
     }
 
@@ -850,7 +850,7 @@ mod tests {
     /// on the passing-fixture set), matching `conformance_coverage`'s own `zero_unmappable_after_g9`.
     #[test]
     fn zero_unmappable_rows_after_g9() {
-        let ledger = build_ledger(&default_registry(), &HashSet::new());
+        let ledger = build_ledger(&default_registry(), &fully_covered_constructs());
         let unmappable: Vec<CharacteristicKind> = ledger
             .rows
             .iter()
@@ -872,7 +872,7 @@ mod tests {
 
     #[test]
     fn row_accessor_finds_every_kind_exactly_once() {
-        let ledger = build_ledger(&default_registry(), &HashSet::new());
+        let ledger = build_ledger(&default_registry(), &fully_covered_constructs());
         for &kind in CharacteristicKind::ALL {
             assert!(
                 ledger.row(kind).is_some(),

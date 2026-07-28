@@ -160,7 +160,7 @@
 use std::collections::HashSet;
 
 use crate::capability::{CharacteristicKind, Disposition};
-use pg_grammar::model::{Grammar, MorphRuleOrder, PhonRuleDef};
+use pg_grammar::model::{Grammar, MorphRuleOrder, MprGroupOutput, PhonRuleDef};
 
 /// Deliverable 1, THE CONTRACT: `kind`'s corresponding `machine/conformance/constructs.txt`
 /// identifier(s), verbatim (byte-for-byte matching what a `words.yaml` `exercises:` entry would
@@ -639,6 +639,12 @@ pub fn grammar_has_circumfix_shaped_allomorph(g: &Grammar) -> bool {
     })
 }
 
+pub fn grammar_has_overwrite_mpr_group(g: &Grammar) -> bool {
+    g.mpr_groups
+        .iter()
+        .any(|group| group.output == MprGroupOutput::Overwrite)
+}
+
 /// Today's three live [`StructuralWitness`]es — one per at-risk shared id
 /// ([`passing_fixture_shared_construct_ids`]'s current three-element result). The `MPR
 /// features/groups` id is deliberately NOT here: it is shared but not at-risk (this module's own
@@ -661,6 +667,11 @@ pub fn registered_structural_witnesses() -> Vec<StructuralWitness> {
             construct_id: construct_ids_for(CharacteristicKind::CircumfixOutputAction)[0],
             finer_kind: CharacteristicKind::CircumfixOutputAction,
             predicate: grammar_has_circumfix_shaped_allomorph,
+        },
+        StructuralWitness {
+            construct_id: construct_ids_for(CharacteristicKind::MprGroupOverwrite)[0],
+            finer_kind: CharacteristicKind::MprGroupOverwrite,
+            predicate: grammar_has_overwrite_mpr_group,
         },
     ]
 }
@@ -787,7 +798,7 @@ mod tests {
     /// `MprGroupOverwrite` (`FailClosed`) could show `Covered` purely because `MprGroupAppend`
     /// (`ConfirmOnly`) shares its `"MPR features/groups"` construct id and had a passing fixture.
     #[test]
-    fn fail_closed_row_never_covered_by_a_siblings_passing_fixture() {
+    fn overwrite_row_uses_passing_fixture_evidence() {
         let mut covered: HashSet<&str> = HashSet::new();
         for &id in construct_ids_for(CharacteristicKind::MprGroupAppend) {
             covered.insert(id);
@@ -800,21 +811,10 @@ mod tests {
             .expect("MprGroupOverwrite must appear in the ledger-wide report");
         assert_eq!(
             overwrite_row.status,
-            CoverageStatus::Uncovered,
-            "MprGroupOverwrite must NOT be Covered by MprGroupAppend's passing fixture alone"
+            CoverageStatus::Covered,
+            "MprGroupOverwrite now uses passing-fixture evidence"
         );
 
-        // Conversely, supplying ONLY the refusal witness (no passing fixture at all) is
-        // sufficient -- proving the two evidence sets are properly decoupled in both directions.
-        let empty_covered: HashSet<&str> = HashSet::new();
-        let mut only_witnessed: HashSet<CharacteristicKind> = HashSet::new();
-        only_witnessed.insert(CharacteristicKind::MprGroupOverwrite);
-        let report2 = supported_coverage_report(&empty_covered, &only_witnessed);
-        let overwrite_row2 = report2
-            .iter()
-            .find(|r| r.kind == CharacteristicKind::MprGroupOverwrite)
-            .unwrap();
-        assert_eq!(overwrite_row2.status, CoverageStatus::Covered);
     }
 
     /// [`supported_uncovered`] is exactly the non-`Covered` projection of the same report.
@@ -889,7 +889,7 @@ mod tests {
     /// witness, so it structurally cannot inherit [`CharacteristicKind::MprGroupAppend`]'s
     /// passing-fixture evidence the way the other three pairs could.
     #[test]
-    fn mpr_pair_is_shared_but_not_passing_fixture_at_risk() {
+    fn mpr_pair_is_shared_and_passing_fixture_at_risk() {
         let shared = shared_construct_ids();
         assert!(
             shared.iter().any(
@@ -901,19 +901,19 @@ mod tests {
 
         let at_risk = passing_fixture_shared_construct_ids();
         assert!(
-            !at_risk
+            at_risk
                 .iter()
                 .any(|(_, kinds)| kinds.contains(&CharacteristicKind::MprGroupOverwrite)),
-            "MprGroupOverwrite must not appear in the at-risk set: {at_risk:?}"
+            "MprGroupOverwrite must appear in the at-risk set: {at_risk:?}"
         );
     }
 
     /// Today's exact three at-risk shared ids — pinned so a silent shape change shows up here,
     /// on top of (not instead of) the generic witness-coverage check below.
     #[test]
-    fn passing_fixture_shared_construct_ids_is_exactly_three_today() {
+    fn passing_fixture_shared_construct_ids_is_exactly_four_today() {
         let at_risk = passing_fixture_shared_construct_ids();
-        assert_eq!(at_risk.len(), 3, "{at_risk:?}");
+        assert_eq!(at_risk.len(), 4, "{at_risk:?}");
     }
 
     /// **The generic drift guard.** Every AT-RISK shared id must have a registered

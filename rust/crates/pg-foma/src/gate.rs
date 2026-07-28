@@ -350,7 +350,19 @@ pub fn compile_gated_grammar_with_budget(
                 .position(|gs| gs.rule_pos == rule_pos && gs.sub_idx == sub_idx)
             {
                 None => true, // ungated subrule: always included
-                Some(gate_index) => group.key[gate_index],
+                Some(gate_index) => {
+                    let gs = gated[gate_index];
+                    let PhonRuleDef::Rewrite(rule) = prules_in_order[gs.rule_pos] else {
+                        unreachable!("GatedSubrule always indexes a Rewrite rule")
+                    };
+                    let sr = &rule.subrules[gs.sub_idx];
+                    // A morphological rule may change POS after the lexical-entry partition was
+                    // computed. In that case the root-static key is not a sound admission filter:
+                    // include the subrule as a proposal superset and let confirmation evaluate the
+                    // derived word's exact POS. Grammars without morphology retain exact static
+                    // partitioning.
+                    group.key[gate_index] || (sr.required_pos.is_some() && !g.mrules.is_empty())
+                }
             }
         };
         let mut group_skipped_rules = Vec::new();

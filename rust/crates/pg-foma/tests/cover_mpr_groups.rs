@@ -394,7 +394,7 @@ fn append_output_is_order_invariant_overwrite_output_is_not() {
 /// production flip and the ADR 0005 override are later, not-yet-landed work this change does not
 /// attempt).
 #[test]
-fn overwrite_group_composes_to_refuse() {
+fn overwrite_group_composes_to_confirm_only() {
     let g = load(overwrite_group_fixture_xml());
     assert!(!g.mpr_groups.is_empty(), "fixture must declare an MprGroup");
     use pg_grammar::model::MprGroupOutput;
@@ -411,17 +411,9 @@ fn overwrite_group_composes_to_refuse() {
     let plan = enumerate_default(&g, &alphabet, &ro, phon.as_ref());
     let registry = default_registry();
 
-    match compose_envelope(&g, &plan, &registry) {
-        CompileDecision::Refuse(diags) => {
-            assert!(
-                diags
-                    .iter()
-                    .any(|d| d.predicate == "mpr-group.overwrite-output"),
-                "expected a diagnostic from mpr-group.overwrite-output: {diags:?}"
-            );
-        }
-        other => {
-            panic!("expected Refuse (mpr-group.overwrite-output stays FailClosed), got {other:?}")
-        }
-    }
+    assert_eq!(
+        compose_envelope(&g, &plan, &registry),
+        CompileDecision::ConfirmOnly,
+        "Overwrite must use the non-tracking proposal superset and exact confirmation"
+    );
 }

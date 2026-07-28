@@ -240,7 +240,7 @@ impl CharacteristicKind {
             // split.
             CharacteristicKind::UnorderedMorphRuleApplication => Disposition::ConfigPredicate,
             CharacteristicKind::MprGroupAppend => Disposition::ConfirmOnly,
-            CharacteristicKind::MprGroupOverwrite => Disposition::FailClosed,
+            CharacteristicKind::MprGroupOverwrite => Disposition::ConfigPredicate,
             CharacteristicKind::IterativeRewrite => Disposition::Proven,
             CharacteristicKind::SimultaneousRewrite => Disposition::ConfigPredicate,
             CharacteristicKind::LeftToRightRewrite => Disposition::Proven,
@@ -950,7 +950,7 @@ fn metathesis_swap_construction_attempted(
     // deliberately leaves `Metathesis`'s own admitted set untouched, task 4.6's already-closed row).
     // Passing a different scope here than the real compile uses would let this predicate and the
     // real compiler silently disagree on which rules are admitted.
-    let scope = crate::lower::PatternLowerScope::Baseline;
+    let scope = crate::lower::PatternLowerScope::RewriteRuleCompile;
     let Some(slots) =
         crate::replace::pattern_slots(g, table, &m.pattern, &mut next_occurrence, scope)
     else {
@@ -3226,26 +3226,10 @@ impl CapabilityPredicate for MprGroupOverwriteFailClosedPredicate {
         profile: &CharacteristicsProfile,
         _plan_node: &PlanNodeKind,
     ) -> PredicateVerdict {
-        for obs in profile.observations() {
-            if obs.kind != CharacteristicKind::MprGroupOverwrite {
-                continue;
-            }
-            let construct = match obs.location {
-                ModelLocation::MprGroup(i) => format!("MprGroup {i} (Overwrite)"),
-                _ => "MprGroup (Overwrite)".to_string(),
-            };
-            return PredicateVerdict::Refuse(CapabilityDiagnostic {
-                predicate: self.id(),
-                construct,
-                witness: "mpr-group.overwrite-output stays FailClosed permanently by default: a \
-                          monotone-accumulation admission filter is unsound for history-dependent \
-                          Overwrite replace semantics (pg_grammar::model::mpr_add_output's own doc; \
-                          ADR 0001's own worked confirm-only trap). The ADR 0005 capability override \
-                          is the on-ramp to force-compile it."
-                    .to_string(),
-            });
-        }
-        PredicateVerdict::Admit
+        profile.observations().iter()
+            .any(|obs| obs.kind == CharacteristicKind::MprGroupOverwrite)
+            .then_some(PredicateVerdict::ConfirmOnly)
+            .unwrap_or(PredicateVerdict::Admit)
     }
 }
 
@@ -4509,8 +4493,8 @@ mod tests {
                 .observations()
                 .iter()
                 .any(|o| o.kind == CharacteristicKind::MprGroupOverwrite
-                    && o.disposition == Disposition::FailClosed),
-            "Overwrite MPR group must characterize FailClosed: {:?}",
+                    && o.disposition == Disposition::ConfigPredicate),
+            "Overwrite MPR group must characterize ConfigPredicate: {:?}",
             profile.observations()
         );
     }
@@ -5445,21 +5429,14 @@ mod tests {
         let detail = profile
             .metathesis_detail(PRuleId(0))
             .expect("Metathesis must carry a MetathesisDetail");
-        assert!(
-            !detail.swap_construction_attempted,
-            "an Anchor-carrying pattern is outside crate::replace::pattern_slots' own supported \
-             shape"
-        );
+        assert!(detail.swap_construction_attempted,
+            "an edge Anchor must use the anchor-erased ConfirmOnly swap superset");
 
         let predicate = MetathesisFaithfulSwapPredicate;
-        match predicate.evaluate(&profile, &leaf_for(PRuleId(0))) {
-            PredicateVerdict::Refuse(diag) => {
-                assert_eq!(diag.predicate, "metathesis.faithful-swap-construction");
-            }
-            other => {
-                panic!("expected Refuse for an Anchor-shaped metathesis pattern, got {other:?}")
-            }
-        }
+        assert_eq!(
+            predicate.evaluate(&profile, &leaf_for(PRuleId(0))),
+            PredicateVerdict::ConfirmOnly
+        );
     }
 
     // ---------------------------------------------------------------------------------------
@@ -5588,8 +5565,8 @@ mod tests {
     fn characterize_marks_circumfix_output_action_not_structural_for_process_role() {
         let g = load(CIRCUMFIX_PROCESS_XML);
         assert!(
-            !crate::emit::is_structural_rule(&g, MRuleId(0)),
-            "a Role::Process rule must never reach build_structural_composites"
+            crate::emit::is_structural_rule(&g, MRuleId(0)),
+            "a process rule must reach the oracle-backed structural composite"
         );
 
         let profile = characterize(&g);
@@ -5606,8 +5583,8 @@ mod tests {
             .find(|d| d.rule == MRuleId(0) && d.allomorph_index == 0)
             .expect("must carry a CircumfixOutputActionDetail for mrule 0 allomorph 0");
         assert!(
-            !detail.structural_composite_attempted,
-            "Role::Process must never be reported as reaching the structural-composite route"
+            detail.structural_composite_attempted,
+            "process rules must report the structural-composite route"
         );
     }
 
@@ -5635,17 +5612,10 @@ mod tests {
         let g = load(CIRCUMFIX_PROCESS_XML);
         let profile = characterize(&g);
         let predicate = CircumfixStructuralCompositePredicate;
-        match predicate.evaluate(&profile, &mrule_leaf(MRuleId(0))) {
-            PredicateVerdict::Refuse(diag) => {
-                assert_eq!(
-                    diag.predicate,
-                    "circumfix-output-action.faithful-structural-composite"
-                );
-            }
-            other => panic!(
-                "expected Refuse for the Role::Process out-of-scope drop shape, got {other:?}"
-            ),
-        }
+        assert_eq!(
+            predicate.evaluate(&profile, &mrule_leaf(MRuleId(0))),
+            PredicateVerdict::ConfirmOnly
+        );
     }
 
     /// A grammar with no LHS-material-dropping allomorph at all (the ordinary affix fixture already
@@ -7137,7 +7107,7 @@ mod tests {
     /// placeholder` `FailClosedPlaceholder`) reaches the identical verdict the placeholder always
     /// gave -- this change's own promotion changes NO already-compiling grammar's outcome.
     #[test]
-    fn compose_envelope_refuses_for_overwrite_group_alone() {
+    fn compose_envelope_confirms_overwrite_group_alone() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>OverwriteOnly</Name>
           <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <MorphologicalPhonologicalRuleFeatures>
@@ -7168,18 +7138,10 @@ mod tests {
         let plan = enumerated_plan(&g);
         let registry = default_registry();
 
-        match compose_envelope(&g, &plan, &registry) {
-            CompileDecision::Refuse(diags) => {
-                assert!(
-                    diags
-                        .iter()
-                        .any(|d| d.predicate == "mpr-group.overwrite-output"
-                            && d.construct.contains("Overwrite")),
-                    "expected an mpr-group.overwrite-output diagnostic naming Overwrite: {diags:?}"
-                );
-            }
-            other => panic!("expected Refuse, got {other:?}"),
-        }
+        assert_eq!(
+            compose_envelope(&g, &plan, &registry),
+            CompileDecision::ConfirmOnly
+        );
     }
 
     /// Deliverable 1's own capability.rs judgment call check: a grammar with an `Epenthesis`
@@ -7484,7 +7446,7 @@ mod tests {
     /// the meet-correctness claim this test makes is unaffected by which two dispositions supply
     /// the ConfirmOnly/Refuse pair.
     #[test]
-    fn compose_envelope_meet_correctness_refuse_dominates_confirm_only() {
+    fn compose_envelope_meet_correctness_two_confirm_only_constructs() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>OverwritePlusCompound</Name>
           <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <MorphologicalPhonologicalRuleFeatures>
@@ -7543,15 +7505,9 @@ mod tests {
         let plan = enumerated_plan(&g);
         let registry = default_registry();
 
-        match compose_envelope(&g, &plan, &registry) {
-            CompileDecision::Refuse(diags) => {
-                assert!(
-                    diags.iter().any(|d| d.construct.contains("Overwrite")),
-                    "Refuse must carry a diagnostic naming the Overwrite MprGroup, not just meet \
-                     away to a bare ConfirmOnly: {diags:?}"
-                );
-            }
-            other => panic!("expected Refuse (Refuse dominates ConfirmOnly per D4), got {other:?}"),
-        }
+        assert_eq!(
+            compose_envelope(&g, &plan, &registry),
+            CompileDecision::ConfirmOnly
+        );
     }
 }

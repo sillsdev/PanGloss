@@ -103,7 +103,7 @@
     },
     {
       "kind": "mpr_group_overwrite",
-      "disposition": "fail_closed",
+      "disposition": "config_predicate",
       "discharging_predicates": [
         {
           "id": "mpr-group.overwrite-output",
@@ -115,8 +115,8 @@
       ],
       "conformance_status": "covered",
       "containment": {
-        "kind": "refusal_witness",
-        "citation": "tests/cover_mpr_groups.rs::overwrite_group_composes_to_refuse",
+        "kind": "dedicated",
+        "citation": "tests/cover_mpr_groups.rs::overwrite_group_composes_to_confirm_only",
         "note": "FailClosed: containment is not the applicable property here -- this witness proves compose_envelope genuinely Refuses whenever MprGroupOutput::Overwrite is observed."
       }
     },

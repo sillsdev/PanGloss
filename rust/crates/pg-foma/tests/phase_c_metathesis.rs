@@ -1068,7 +1068,7 @@ const ANCHOR_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 "#;
 
 #[test]
-fn metathesis_anchor_pattern_stays_honestly_unsupported() {
+fn metathesis_anchor_pattern_compiles_as_confirm_only_swap_superset() {
     let g = load(ANCHOR_XML);
     let PhonRuleDef::Metathesis(rule) = &g.prules[0] else {
         panic!("expected a Metathesis-kind rule");
@@ -1105,14 +1105,18 @@ fn metathesis_anchor_pattern_stays_honestly_unsupported() {
     )
     .unwrap_or_else(|e| panic!("compile must not hit any budget: {e}"));
 
-    assert!(
-        composed.is_none(),
-        "an Anchor-carrying metathesis pattern must stay honestly unsupported, never a silent \
-         wrong compile"
-    );
-    assert_eq!(
-        skipped,
-        vec!["mrAnchor (metathesis, unhandled)".to_string()]
-    );
+    let net = composed.expect("a final-anchor metathesis pattern must compile");
+    assert!(skipped.is_empty(), "supported anchor must not be skipped: {skipped:?}");
     assert!(tuple_reports.is_empty());
+
+    let query = alphabet.encode_query("qp").expect("underlying must segment");
+    let expected = alphabet.encode_query("pq").expect("surface must segment");
+    let mut h = apply_init(&net);
+    let outputs = h.down(&query).collect::<Vec<_>>();
+    assert!(
+        outputs.iter().any(|s| s == &expected),
+        "the swap must apply at the final word boundary: {outputs:?}"
+    );
+    // Edge anchors are erased only in the proposer. Complete confirmation applies the exact
+    // boundary condition, so this is a safe ConfirmOnly over-approximation.
 }

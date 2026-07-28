@@ -1892,10 +1892,25 @@ fn compile_metathesis_swap_net(
     table_id: TableId,
     aliases: &RepresentationAliasMap,
 ) -> Result<Option<Fsm>, ComposeError> {
-    let (lo, hi) = (left_idx.min(right_idx), left_idx.max(right_idx));
+    let leading_anchor = matches!(slots.first(), Some(Slot::Anchor(_)));
+    let trailing_anchor = matches!(slots.last(), Some(Slot::Anchor(_)));
+    let start = usize::from(leading_anchor);
+    let end = slots.len().saturating_sub(usize::from(trailing_anchor));
+    if slots[start..end].iter().any(|slot| matches!(slot, Slot::Anchor(_)))
+        || left_idx < start
+        || right_idx < start
+        || left_idx >= end
+        || right_idx >= end
+    {
+        return Ok(None);
+    }
+    let effective_slots = &slots[start..end];
+    let adjusted_left = left_idx - start;
+    let adjusted_right = right_idx - start;
+    let (lo, hi) = (adjusted_left.min(adjusted_right), adjusted_left.max(adjusted_right));
 
-    let mut candidates: Vec<Vec<CharDefId>> = Vec::with_capacity(slots.len());
-    for slot in slots {
+    let mut candidates: Vec<Vec<CharDefId>> = Vec::with_capacity(effective_slots.len());
+    for slot in effective_slots {
         match slot_candidates(slot, table, table_id, aliases) {
             Some(members) if !members.is_empty() => candidates.push(members),
             _ => return Ok(None), // Slot::Alpha/Slot::Repeat, or a vacuous empty class.
@@ -1916,7 +1931,7 @@ fn compile_metathesis_swap_net(
     // Full cross product, no joint-agreement filter (module doc: metathesis has no shared-`VarId`
     // agreement constraint between positions — every combination is independently a real candidate
     // underlying shape).
-    let mut assignments: Vec<Vec<CharDefId>> = vec![Vec::with_capacity(slots.len())];
+    let mut assignments: Vec<Vec<CharDefId>> = vec![Vec::with_capacity(effective_slots.len())];
     for members in &candidates {
         let mut next = Vec::with_capacity(assignments.len() * members.len());
         for asg in &assignments {
@@ -2079,7 +2094,7 @@ pub(crate) fn compile_metathesis_rule(
     // `Slot::Anchor`/cross-table-`Segments` occurrence anyway, so the observable behavior would be
     // identical either way -- `Baseline` is simply the more conservative, more obviously-correct
     // choice, not a compromise.
-    let scope = crate::lower::PatternLowerScope::Baseline;
+    let scope = crate::lower::PatternLowerScope::RewriteRuleCompile;
     let Some(slots) = pattern_slots(g, table, &rule.pattern, &mut next_occurrence, scope) else {
         return Ok(None);
     };

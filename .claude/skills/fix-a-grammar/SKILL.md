@@ -157,6 +157,10 @@ Measurements (including wall-clock):
 Registry evidence and next automation status:
 ```
 
+## Proven four-construct recipes
+
+Aweti established reusable candidates: non-tracking MPR overwrite plus exact confirmation; edge-anchor-erased metathesis proposal plus exact confirmation; structural oracle replay for process/zero-derivation rules; and widened derived-POS subrule gates plus confirmation. Probe once without capability enforcement to separate classifier refusal from compiler recall. Rank these with at least two structurally different alternatives using hard recall/conformance constraints, then Pareto-rank build cost, states/arcs, bytes, candidates, and latency. Call a winner optimal only within declared combinations and bounds.
+
 ## Evaluation assets
 
 `evals/evals.json` contains realistic prompts for this skill. Treat them as a regression suite

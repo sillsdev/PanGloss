@@ -2326,11 +2326,20 @@ fn any_allomorph_is_circumfix_prefix(g: &Grammar, mid: MRuleId) -> bool {
 }
 
 pub(crate) fn is_structural_rule(g: &Grammar, mid: MRuleId) -> bool {
+    if let MorphRuleDef::AffixProcess(def) = &g.mrules[mid.0 as usize] {
+        if !g.fs_interner.get(def.out_syn_fs).is_empty()
+            && allomorphs_of(g, mid).iter().all(|a| classify_affix(&a.rhs) == Role::None)
+        {
+            return true;
+        }
+    }
     // Census C1 fix: check EVERY allomorph for `CircumfixPrefix`, not just the one `rule_role`
     // reports from allomorph 0. Safe to check unconditionally before the `match` below — if
     // allomorph 0 itself is `CircumfixPrefix`, `rule_role` already agrees and the `match` arm just
     // below would return `true` anyway; this only ADDS the case `rule_role` used to miss.
-    if any_allomorph_is_circumfix_prefix(g, mid) {
+    if any_allomorph_is_circumfix_prefix(g, mid)
+        || allomorphs_of(g, mid).iter().any(|a| has_unemittable_action(&a.rhs))
+    {
         return true;
     }
     match rule_role(g, mid) {
@@ -2347,6 +2356,10 @@ pub(crate) fn is_structural_rule(g: &Grammar, mid: MRuleId) -> bool {
         // (Reached only when allomorph 0 itself is `CircumfixPrefix` — the check above already
         // returned `true` for any OTHER allomorph being `CircumfixPrefix`.)
         Role::CircumfixPrefix => true,
+        // Process allomorphs cannot be emitted literally, but the structural-composite builder
+        // replays `pg_rules::morph::synthesize` and therefore handles Modify/InsertContext without
+        // approximating their segment effects. Keep the complete analyzer as confirmation.
+        Role::Process => true,
         _ => false,
     }
 }
