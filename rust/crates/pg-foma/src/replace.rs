@@ -320,6 +320,7 @@
 //!   only, and a pattern-shape-lowering change must never silently reopen a DIFFERENT
 //!   characteristic's own closed/verified scope as a side effect.
 
+use foma::constructions::fsm_universal;
 use foma::options::FomaOptions;
 use foma::regex::fsm_parse_regex;
 use foma::reverse::fsm_reverse;
@@ -329,7 +330,7 @@ use std::collections::HashMap;
 
 use pg_grammar::chardef::{CharDefId, CharDefTable};
 use pg_grammar::model::{
-    Dir, Grammar, MetathesisRuleDef, PhonRuleDef, PRuleId, RewriteMode, RewriteRuleDef,
+    Dir, Grammar, MetathesisRuleDef, PRuleId, PhonRuleDef, RewriteMode, RewriteRuleDef,
     RewriteSubruleDef, TableId,
 };
 
@@ -369,7 +370,10 @@ impl RepresentationAliasMap {
             let table_id = TableId(ti as u16);
             for (cd_id, cd) in table.iter() {
                 for rep in cd.representations_nfd() {
-                    by_repr.entry(rep.clone()).or_default().push((table_id, cd_id));
+                    by_repr
+                        .entry(rep.clone())
+                        .or_default()
+                        .push((table_id, cd_id));
                 }
             }
         }
@@ -384,7 +388,12 @@ impl RepresentationAliasMap {
     /// returns exactly `[(table_id, cd)]` — the design's own recall-safety argument ("only ever
     /// ADDS alternatives") made concrete: this never returns an EMPTY set, and never omits the
     /// atom's own table/cd pair.
-    fn aliases_for(&self, table: &CharDefTable, table_id: TableId, cd: CharDefId) -> Vec<(TableId, CharDefId)> {
+    fn aliases_for(
+        &self,
+        table: &CharDefTable,
+        table_id: TableId,
+        cd: CharDefId,
+    ) -> Vec<(TableId, CharDefId)> {
         let mut out: Vec<(TableId, CharDefId)> = Vec::new();
         for rep in table.get(cd).representations_nfd() {
             if let Some(group) = self.by_repr.get(rep) {
@@ -602,7 +611,10 @@ mod representation_alias_map_tests {
         let cd_b_y = table_b.lookup_nfd("y").expect("table B declares y");
         // Misalignment sanity: the shared spelling "x" really does sit at DIFFERENT raw indices in
         // the two tables -- the whole reason this fix is needed at all.
-        assert_ne!(cd_a_x.0, cd_b_x.0, "the fixture's own misalignment must hold");
+        assert_ne!(
+            cd_a_x.0, cd_b_x.0,
+            "the fixture's own misalignment must hold"
+        );
 
         let aliases_x = map.aliases_for(table_b, TableId(1), cd_b_x);
         assert_eq!(
@@ -616,8 +628,14 @@ mod representation_alias_map_tests {
         // "z"/"y" are unique to table B -- aliases_for degenerates to the singleton, exactly
         // [`Self::token`]'s own pre-aliasing behavior (recall-safety: only ever ADDS, never
         // removes or alters the unshared case).
-        assert_eq!(map.aliases_for(table_b, TableId(1), cd_b_z), vec![(TableId(1), cd_b_z)]);
-        assert_eq!(map.aliases_for(table_b, TableId(1), cd_b_y), vec![(TableId(1), cd_b_y)]);
+        assert_eq!(
+            map.aliases_for(table_b, TableId(1), cd_b_z),
+            vec![(TableId(1), cd_b_z)]
+        );
+        assert_eq!(
+            map.aliases_for(table_b, TableId(1), cd_b_y),
+            vec![(TableId(1), cd_b_y)]
+        );
     }
 
     /// [`SegAlphabet::render_tokens`]: an alphabet built via [`SegAlphabet::new`] (no table
@@ -658,10 +676,20 @@ mod representation_alias_map_tests {
             tokens_x, expected_x,
             "the shared \"x\" atom must render as the union of BOTH tables' own tokens"
         );
-        assert_eq!(tokens_x.len(), 2, "must actually be two DISTINCT tokens, not a collapsed one");
+        assert_eq!(
+            tokens_x.len(),
+            2,
+            "must actually be two DISTINCT tokens, not a collapsed one"
+        );
 
-        assert_eq!(alphabet_b.render_tokens(cd_b_z), vec![alphabet_b.token(cd_b_z)]);
-        assert_eq!(alphabet_b.render_tokens(cd_b_y), vec![alphabet_b.token(cd_b_y)]);
+        assert_eq!(
+            alphabet_b.render_tokens(cd_b_z),
+            vec![alphabet_b.token(cd_b_z)]
+        );
+        assert_eq!(
+            alphabet_b.render_tokens(cd_b_y),
+            vec![alphabet_b.token(cd_b_y)]
+        );
     }
 
     /// Design item 4: `encode_shape`/`encode_query` never alias, regardless of whether the
@@ -675,8 +703,12 @@ mod representation_alias_map_tests {
         let bare = SegAlphabet::new(table_b);
         let aliased = SegAlphabet::with_table_id(table_b, TableId(1), &map);
 
-        let bare_query = bare.encode_query("x").expect("\"x\" must segment against table B");
-        let aliased_query = aliased.encode_query("x").expect("\"x\" must segment against table B");
+        let bare_query = bare
+            .encode_query("x")
+            .expect("\"x\" must segment against table B");
+        let aliased_query = aliased
+            .encode_query("x")
+            .expect("\"x\" must segment against table B");
         assert_eq!(
             bare_query, aliased_query,
             "encode_query must be byte-identical whether or not the alphabet carries a TableId"
@@ -762,7 +794,10 @@ pub(crate) fn owning_table_for_metathesis<'g>(
 /// [`owning_table_id_for_prule_position`] with [`owning_table_for_metathesis`] (both derive from the
 /// exact same stratum lookup, never two independently-derived resolutions that could silently
 /// disagree).
-pub(crate) fn owning_table_id_for_metathesis(g: &Grammar, rule: &MetathesisRuleDef) -> Option<TableId> {
+pub(crate) fn owning_table_id_for_metathesis(
+    g: &Grammar,
+    rule: &MetathesisRuleDef,
+) -> Option<TableId> {
     let idx = g
         .prules
         .iter()
@@ -949,12 +984,13 @@ fn compile_rtl_branch_net(
                 &mirror_right,
                 asg,
             );
-            let mirror_net = fsm_parse_regex(opts, &mirror_regex, None, None).unwrap_or_else(|| {
-                panic!(
-                    "foma rejected compiled mirror-rule regex for rule {rule_xml_id}: \
+            let mirror_net =
+                fsm_parse_regex(opts, &mirror_regex, None, None).unwrap_or_else(|| {
+                    panic!(
+                        "foma rejected compiled mirror-rule regex for rule {rule_xml_id}: \
                      {mirror_regex:?}"
-                )
-            });
+                    )
+                });
             let reversed_net = fsm_reverse(mirror_net);
             union_checked(
                 opts,
@@ -1126,7 +1162,8 @@ pub fn compile_rewrite_rule_subset(
         // rtl_reversal_construction_attempted` MUST pass this SAME scope value, or the capability
         // predicate and this real compiler could silently diverge on which rules are admitted.
         let scope = crate::lower::PatternLowerScope::RewriteRuleCompile;
-        let Some(lhs_slots) = pattern_slots(g, table, &rule.lhs, &mut next_occurrence, scope) else {
+        let Some(lhs_slots) = pattern_slots(g, table, &rule.lhs, &mut next_occurrence, scope)
+        else {
             return Ok(None);
         };
         let Some(rhs_slots) = pattern_slots(g, table, &subrule.rhs, &mut next_occurrence, scope)
@@ -1246,6 +1283,31 @@ pub fn compile_and_compose_rules(
     )
 }
 
+/// Compile the same ordered cascade for a propose-then-confirm caller, but preserve an identity
+/// alternative at every RTL rewrite. The RTL construction is deliberately a safe superset rather
+/// than an exact relation, so making that individual stage optional prevents an over-proposal from
+/// destroying an otherwise valid analysis before the confirm engine can reject false positives.
+pub fn compile_and_compose_rules_recall_safe(
+    opts: &FomaOptions,
+    g: &Grammar,
+    alphabet: &SegAlphabet,
+    prules_in_order: &[&PhonRuleDef],
+    skipped: &mut Vec<String>,
+    tuple_reports: &mut Vec<(String, Vec<TupleReport>)>,
+) -> Result<Option<Fsm>, ComposeError> {
+    let budget = ComposeBudget::from_env();
+    compile_and_compose_rules_internal(
+        opts,
+        g,
+        alphabet,
+        prules_in_order,
+        skipped,
+        tuple_reports,
+        &budget,
+        true,
+    )
+}
+
 /// [`compile_and_compose_rules`]'s core, with the [`ComposeBudget`] threaded in explicitly rather
 /// than read from env -- what tests call directly (design doc §6: "explicit-caps constructors,
 /// never env vars").
@@ -1258,6 +1320,29 @@ pub fn compile_and_compose_rules_with_budget(
     skipped: &mut Vec<String>,
     tuple_reports: &mut Vec<(String, Vec<TupleReport>)>,
     budget: &ComposeBudget,
+) -> Result<Option<Fsm>, ComposeError> {
+    compile_and_compose_rules_internal(
+        opts,
+        g,
+        alphabet,
+        prules_in_order,
+        skipped,
+        tuple_reports,
+        budget,
+        false,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn compile_and_compose_rules_internal(
+    opts: &FomaOptions,
+    g: &Grammar,
+    alphabet: &SegAlphabet,
+    prules_in_order: &[&PhonRuleDef],
+    skipped: &mut Vec<String>,
+    tuple_reports: &mut Vec<(String, Vec<TupleReport>)>,
+    budget: &ComposeBudget,
+    optional_rtl: bool,
 ) -> Result<Option<Fsm>, ComposeError> {
     let mut composed: Option<Fsm> = None;
     for pr in prules_in_order {
@@ -1296,6 +1381,17 @@ pub fn compile_and_compose_rules_with_budget(
         match compile_rewrite_rule_subset(opts, g, alphabet, rule, &|_| true, budget)? {
             Some((net, reports)) => {
                 tuple_reports.push((rule.xml_id.clone(), reports));
+                let net = if optional_rtl && rule.dir == Dir::RightToLeft {
+                    union_checked(
+                        opts,
+                        net,
+                        fsm_universal(),
+                        budget,
+                        "compile_and_compose_rules recall-safe RTL identity union",
+                    )?
+                } else {
+                    net
+                };
                 composed = Some(match composed {
                     None => net,
                     Some(prev) => compose_checked(
@@ -1438,7 +1534,9 @@ pub fn compile_and_compose_rules_gated_with_budget(
 pub fn is_fully_supported_shape(g: &Grammar, rule: &RewriteRuleDef) -> bool {
     match rule.mode {
         RewriteMode::Iterative => true,
-        RewriteMode::Simultaneous => crate::capability::simultaneous_rule_admitted_for_compile(g, rule).is_ok(),
+        RewriteMode::Simultaneous => {
+            crate::capability::simultaneous_rule_admitted_for_compile(g, rule).is_ok()
+        }
     }
 }
 
@@ -1849,7 +1947,11 @@ mod metathesis_mirror_switch_index_remap_tests {
         // correct (4, 3) pinned above, so a regression to either formula fails this assertion
         // directly (never silently, and never merely by panicking on an out-of-bounds index that
         // some OTHER off-by-one direction might not even trigger).
-        assert_ne!((n - left_idx, n - right_idx), (4, 3), "sanity: the n-left_idx off-by-one truly differs");
+        assert_ne!(
+            (n - left_idx, n - right_idx),
+            (4, 3),
+            "sanity: the n-left_idx off-by-one truly differs"
+        );
         assert_ne!(
             (n - 2 - left_idx, n - 2 - right_idx),
             (4, 3),
@@ -1867,7 +1969,11 @@ mod metathesis_mirror_switch_index_remap_tests {
         let (mirror_left, mirror_right) = metathesis_mirror_switch_indices(4, 0, 3);
         let mut got = [mirror_left, mirror_right];
         got.sort_unstable();
-        assert_eq!(got, [0, 3], "documented, not load-bearing: see this test's own doc");
+        assert_eq!(
+            got,
+            [0, 3],
+            "documented, not load-bearing: see this test's own doc"
+        );
     }
 }
 
@@ -2319,9 +2425,21 @@ mod owning_table_tests {
     #[test]
     fn owning_table_resolves_to_the_rules_own_stratum_table_not_table_zero() {
         let g = two_table_alpha_grammar();
-        assert_eq!(g.char_tables.len(), 2, "fixture must declare exactly 2 tables");
-        assert_eq!(g.char_tables[0].len(), 2, "table 0 must have exactly 2 segments");
-        assert_eq!(g.char_tables[1].len(), 3, "table 1 must have exactly 3 segments");
+        assert_eq!(
+            g.char_tables.len(),
+            2,
+            "fixture must declare exactly 2 tables"
+        );
+        assert_eq!(
+            g.char_tables[0].len(),
+            2,
+            "table 0 must have exactly 2 segments"
+        );
+        assert_eq!(
+            g.char_tables[1].len(),
+            3,
+            "table 1 must have exactly 3 segments"
+        );
         assert_eq!(g.strata.len(), 2, "fixture must declare exactly 2 strata");
 
         let rule = rewrite_rule_by_xml_id(&g, "prule_alpha_t1");
@@ -2552,12 +2670,18 @@ mod rtl_repeat_children_reversal_tests {
         assert_eq!(right_slots.len(), 1);
         match &right_slots[0] {
             Slot::Repeat { children, .. } => {
-                assert_eq!(children.len(), 2, "quantifier group must have exactly 2 children");
+                assert_eq!(
+                    children.len(),
+                    2,
+                    "quantifier group must have exactly 2 children"
+                );
             }
             _ => panic!("expected the right environment to lower to a single Slot::Repeat"),
         }
 
-        let asg = AlphaAssignment { values: HashMap::new() };
+        let asg = AlphaAssignment {
+            values: HashMap::new(),
+        };
 
         // The crate's own (now-fixed, recursing) construction.
         let reversed_fixed = isolated_reversed_env_net(

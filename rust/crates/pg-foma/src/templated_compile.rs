@@ -14,7 +14,7 @@ use pg_grammar::model::{Grammar, PhonRuleDef};
 
 use crate::analyzer::{prepare_network_for_apply, FomaProposer};
 use crate::emit::emit_underlying_templated;
-use crate::replace::{compile_and_compose_rules, SegAlphabet, TupleReport};
+use crate::replace::{compile_and_compose_rules_recall_safe, SegAlphabet, TupleReport};
 
 /// Timings and sizes from each exact stage of the P6 pipeline.
 pub struct TemplatedCompileProfile {
@@ -97,7 +97,7 @@ pub fn compile_templated_morphotactics(
     let mut skipped_rules = Vec::new();
     let mut tuple_reports = Vec::new();
     let started = Instant::now();
-    let rule_net = compile_and_compose_rules(
+    let rule_net = compile_and_compose_rules_recall_safe(
         &opts,
         g,
         &alphabet,

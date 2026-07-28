@@ -98,6 +98,70 @@ cross-grammar conformance. Tag atomicity is diagnostic evidence, not a substitut
 complete analysis–surface intersection gate. Only then compare build time, size, states/arcs, or
 latency using one of the three recipe-search methods.
 
+## Approved Aweti structural-allomorph design
+
+The Aweti residual investigation established two independent failures and therefore two independent
+recipe dimensions:
+
+- An RTL phonological rule is compiled as a confirmation-only superset. In a propose-then-confirm
+  pipeline, preserve an identity alternative at that individual RTL stage so an over-proposal
+  cannot destroy an otherwise valid analysis before HermitCrab confirms it. Do not make the whole
+  cascade optional: the global optional cascade exceeded the diagnostic cap, while the targeted
+  exact-analysis-first variant stayed bounded and recovered `tsãn`.
+- The templated lexc emitter concatenates literal `InsertSegments` and deliberately skips global
+  structural-composite enumeration. That loses affine suffix processes whose RHS copies a stem
+  variable but drops or replaces a matched tail. For example, Aweti `-aw` has an allomorph matching
+  `variable + ou` and producing `copy(variable) + w + +aw`; literal concatenation produces the
+  wrong `...oko+aw`, while the intended relation produces `...okw+aw`.
+
+The approved general repair is a bounded local structural-rewrite layer:
+
+1. During templated emission, give each supported structural allomorph an opaque, allomorph-owned
+   marker instead of pretending its inserted text is a complete underlying realization.
+2. Compile that allomorph's local LHS/RHS relation over char-definition tokens, including natural
+   class membership, copied parts, dropped matched material, inserted boundaries, and inserted
+   segments.
+3. Compose this structural layer immediately after templated lexc and before phonological rules.
+   Union it with the old literal/identity path while the proposer remains confirmation-only; never
+   remove an existing proposal until exact relation parity is proven.
+4. Scope compilation to adjacent, single-sided affine affix processes first. Refuse or report
+   unsupported `Modify`, `InsertContext`, nonlocal copying, reduplication, and unbounded recursion
+   rather than silently approximating them.
+5. Key and memoize local transducers by normalized action shape, table, natural-class membership,
+   and inserted token sequence. This avoids the rejected `roots × rules^depth` enumeration and
+   makes cost depend on distinct structural shapes instead of lexical root count.
+
+A minimal conformance fixture must discriminate `stem + class` → `stem + replacement + suffix`
+from literal suffix concatenation. The Aweti gates then require exact pairs for both `kỹjokwaw` and
+`tsãkỹjokwaw`, plus the full corpus and cross-grammar recall gates.
+
+## Three scriptable maps of recipe space
+
+For a new grammar, materialize the same finite candidate registry and interaction graph, then map
+and search it in three complementary ways:
+
+1. **Constraint lattice / bounded enumeration.** Encode each legal choice—source allocation,
+   `Compose` order and grouping, `Union` fallback, `Gate` key, `Replace` cascade, and structural
+   rewrite family—as a finite variable. Apply capability, ordering, recall, and resource
+   constraints before building. Exhaust the remaining combinations within declared bounds and
+   return the Pareto frontier. This is the strongest “optimal within this finite space” claim and
+   is best when the legal space is small.
+2. **Interaction graph / dynamic programming.** Decompose the FST plan at separators whose
+   subgraphs share only a declared interface alphabet or gate key. Memoize non-dominated partial
+   plans by interface signature, then combine frontiers bottom-up. Use this when subtrees repeat or
+   most choices are locally independent; fall back to joint enumeration for every connected
+   interaction component.
+3. **Empirical portfolio / sequential allocation.** Seed at least three structurally distinct
+   recipes, run cheap recall/capability gates first, then allocate progressively larger corpus and
+   timing budgets to surviving candidates using successive halving or confidence-bound racing.
+   Return the best three non-dominated feasible candidates when the budget expires. This is best
+   when build cost and interaction effects cannot be predicted reliably; its optimality claim is
+   “best observed under the registered budget,” never global.
+
+The script should run all three when affordable and report agreement or disagreement. A winner is
+eligible only if exact-pair and full-oracle recall are green. If all three maps reject every
+combination, return a semantic/compiler defect with the first failing boundary instead of choosing
+the least-bad recipe.
 ## Aweti-derived cautions that generalize
 
 - Cluster related misses by shared root, affix chain, or rule path so one mechanism is tested by a

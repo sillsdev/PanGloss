@@ -26,7 +26,7 @@
 //! 1's enumeration budget, `docs/fst-plan/p6-prototype-report.md` §5.2/§6 item 2). Test (a) below
 //! is the first thing that gets Aweti's templated (`<AffixTemplate>`-based) morphotactics past
 //! that wall at all, via [`pg_foma::emit::emit_underlying_templated`] + the P6 replace-rule
-//! cascade (`pg_foma::replace::compile_and_compose_rules`) — this IS the P6 milestone, and it is
+//! cascade (`pg_foma::replace::compile_and_compose_rules_recall_safe`) — this IS the P6 milestone, and it is
 //! fully achieved and asserted here: valid `tier`, plausible counts, clean lexc/rule compile,
 //! successful `.o.` composition + minimize (35,846 states / 800,354 arcs).
 //!
@@ -103,25 +103,28 @@
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use foma::apply::apply_init;
-use foma::constructions::{fsm_compose, fsm_intersect};
+use foma::constructions::{fsm_compose, fsm_intersect, fsm_union, fsm_universal};
 use foma::dynarray::{
     fsm_construct_add_arc, fsm_construct_done, fsm_construct_init, fsm_construct_set_final,
     fsm_construct_set_initial,
 };
 use foma::extract::fsm_upper;
+use foma::lexcread::fsm_lexc_parse_string;
 use foma::minimize::fsm_minimize;
 use foma::options::FomaOptions;
+use foma::regex::fsm_parse_regex;
 use foma::structures::fsm_isempty;
 use foma::types::Fsm;
 
-use pg_foma::emit::FomaTier;
-use pg_foma::replace::SegAlphabet;
+use pg_foma::emit::{emit_underlying_templated, FomaTier};
+use pg_foma::replace::{compile_and_compose_rules_recall_safe, SegAlphabet};
 use pg_foma::tags;
 use pg_foma::templated_compile::compile_templated_morphotactics;
-use pg_grammar::model::Grammar;
+use pg_grammar::chardef::{CharDefId, CharDefKind};
+use pg_grammar::model::{Grammar, MorphemeId, PhonRuleDef};
 use pg_parse::{Morpher, ParseOptions};
 
 /// Same large-stack convention `p6_gate_parity.rs`'s Amharic regression test and every P6
@@ -785,4 +788,894 @@ fn run_tag_atomicity_boundary() {
             "{word:?}: compose-restrict-project-intersect must recall the bare-root tag {tag:?}"
         );
     }
+}
+/// Diagnostic ceilings are checked after each synchronous foma operation returns. They classify
+/// evidence as inconclusive but cannot interrupt an individual vendored-foma call in flight.
+const DIAGNOSTIC_STATE_CAP: i32 = 2_000_000;
+const DIAGNOSTIC_ARC_CAP: i32 = 20_000_000;
+const DIAGNOSTIC_OPERATION_SECS: u64 = 60;
+const DIAGNOSTIC_ORACLE_TIMEOUT_SECS: u64 = 10;
+
+const RESIDUAL_DIAGNOSTIC_PROBES: &[(&str, &str)] = &[
+    ("shared-(z)an", "muʼazan"),
+    ("kyj-oko-aw-plus-clitic", "tsãkỹjokwaw"),
+    ("shared-(z)an", "moʼazan"),
+    ("bare-tsan-ambiguity", "tsãn"),
+    ("moa-plus-distinct-za", "moʼaza"),
+    ("kyj-oko-aw", "kỹjokwaw"),
+];
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DiagnosticCell {
+    Present,
+    Absent,
+    InconclusiveBudgetExceeded,
+    HarnessMismatch,
+    NotRun,
+}
+
+impl DiagnosticCell {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Present => "present",
+            Self::Absent => "absent",
+            Self::InconclusiveBudgetExceeded => "inconclusive_budget_exceeded",
+            Self::HarnessMismatch => "harness_mismatch",
+            Self::NotRun => "not_run",
+        }
+    }
+}
+
+struct DiagnosticStageStats {
+    name: &'static str,
+    elapsed: Duration,
+    states: i32,
+    arcs: i32,
+}
+
+struct DiagnosticPipeline {
+    lexc: Fsm,
+    post_rules: Fsm,
+    final_network: Fsm,
+    boundary_tokens: Vec<char>,
+    stats: Vec<DiagnosticStageStats>,
+}
+
+impl DiagnosticPipeline {
+    /// Mirror `templated_compile.rs` locally because its public result intentionally exposes only
+    /// the final network. Aweti's production disposition is 18 selected rules and zero skips.
+    fn compile(g: &Grammar) -> Result<Self, String> {
+        let table = g
+            .char_tables
+            .first()
+            .ok_or("grammar has no character table")?;
+        let alphabet = SegAlphabet::new(table);
+        let opts = FomaOptions::default();
+        let mut stats = Vec::new();
+
+        let started = Instant::now();
+        let emitted = emit_underlying_templated(g, &alphabet, None);
+        if emitted.report.enum_budget_exceeded.is_some()
+            || matches!(emitted.report.tier, FomaTier::Unsupported { .. })
+        {
+            return Err(format!(
+                "templated emission is not diagnostic-ready: {:?}",
+                emitted.report.tier
+            ));
+        }
+        let lexc = fsm_lexc_parse_string(&opts, None, &emitted.lexc_source)
+            .ok_or("templated lexc failed to compile")?;
+        let elapsed = started.elapsed();
+        diagnostic_budget("lexc", &lexc, elapsed)?;
+        stats.push(DiagnosticStageStats {
+            name: "lexc",
+            elapsed,
+            states: lexc.statecount,
+            arcs: lexc.arccount,
+        });
+
+        let rules_in_order: Vec<&PhonRuleDef> = g
+            .strata
+            .iter()
+            .flat_map(|stratum| stratum.prules.iter().map(|id| &g.prules[id.0 as usize]))
+            .collect();
+        if rules_in_order.len() != 18 {
+            return Err(format!(
+                "selected {} rules; Aweti production expects 18",
+                rules_in_order.len()
+            ));
+        }
+        let mut skipped = Vec::new();
+        let mut tuple_reports = Vec::new();
+        let started = Instant::now();
+        let rule_net = compile_and_compose_rules_recall_safe(
+            &opts,
+            g,
+            &alphabet,
+            &rules_in_order,
+            &mut skipped,
+            &mut tuple_reports,
+        )
+        .map_err(|error| format!("rule compile/compose failed: {error}"))?
+        .ok_or("no phonological rule compiled")?;
+        if !skipped.is_empty() {
+            return Err(format!(
+                "diagnostic skipped rules unlike production: {skipped:?}"
+            ));
+        }
+        let post_rules = fsm_compose(&opts, lexc.clone(), rule_net);
+        let elapsed = started.elapsed();
+        diagnostic_budget("post_rules", &post_rules, elapsed)?;
+        stats.push(DiagnosticStageStats {
+            name: "post_rules",
+            elapsed,
+            states: post_rules.statecount,
+            arcs: post_rules.arccount,
+        });
+
+        let boundary_tokens: Vec<char> = table
+            .iter()
+            .filter(|(_, definition)| definition.kind() == CharDefKind::Boundary)
+            .map(|(id, _)| alphabet.token(id))
+            .collect();
+        if boundary_tokens.is_empty() {
+            return Err("no boundary tokens for cleanup".into());
+        }
+        let cleanup_regex = boundary_tokens
+            .iter()
+            .map(|token| format!("{token} -> 0"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let cleanup = fsm_parse_regex(&opts, &cleanup_regex, None, None)
+            .ok_or_else(|| format!("cleanup regex failed: {cleanup_regex:?}"))?;
+        let started = Instant::now();
+        let final_network = fsm_minimize(&opts, fsm_compose(&opts, post_rules.clone(), cleanup));
+        let elapsed = started.elapsed();
+        diagnostic_budget("final", &final_network, elapsed)?;
+        if final_network.statecount == 0 {
+            return Err("diagnostic final network is empty".into());
+        }
+        stats.push(DiagnosticStageStats {
+            name: "final",
+            elapsed,
+            states: final_network.statecount,
+            arcs: final_network.arccount,
+        });
+        Ok(Self {
+            lexc,
+            post_rules,
+            final_network,
+            boundary_tokens,
+            stats,
+        })
+    }
+}
+
+fn diagnostic_budget(stage: &str, net: &Fsm, elapsed: Duration) -> Result<(), String> {
+    if elapsed > Duration::from_secs(DIAGNOSTIC_OPERATION_SECS) {
+        return Err(format!(
+            "{stage} exceeded {}s: {elapsed:?}",
+            DIAGNOSTIC_OPERATION_SECS
+        ));
+    }
+    if net.statecount > DIAGNOSTIC_STATE_CAP || net.arccount > DIAGNOSTIC_ARC_CAP {
+        return Err(format!(
+            "{stage} exceeded network caps: {} states / {} arcs",
+            net.statecount, net.arccount
+        ));
+    }
+    Ok(())
+}
+
+/// Accept one encoded surface with cleanup-deleted boundaries before, between, and after tokens.
+fn boundary_flexible_identity_fsm(name: &str, token_string: &str, boundaries: &[char]) -> Fsm {
+    let mut handle = fsm_construct_init(name);
+    let chars: Vec<char> = token_string.chars().collect();
+    for state in 0..=chars.len() {
+        for boundary in boundaries {
+            let symbol = boundary.to_string();
+            fsm_construct_add_arc(&mut handle, state as i32, state as i32, &symbol, &symbol);
+        }
+        if let Some(token) = chars.get(state) {
+            let symbol = token.to_string();
+            fsm_construct_add_arc(
+                &mut handle,
+                state as i32,
+                (state + 1) as i32,
+                &symbol,
+                &symbol,
+            );
+        }
+    }
+    fsm_construct_set_initial(&mut handle, 0);
+    fsm_construct_set_final(&mut handle, chars.len() as i32);
+    fsm_construct_done(handle)
+}
+
+fn diagnostic_tag_texts(ids: &[u32], root: i32, width: usize) -> Option<Vec<String>> {
+    if ids.is_empty() || root < 0 || root as usize >= ids.len() {
+        return None;
+    }
+    Some(
+        ids.iter()
+            .enumerate()
+            .map(|(index, &id)| {
+                let id = MorphemeId(id);
+                if index as i32 == root {
+                    tags::root_tag_text(id, width)
+                } else {
+                    tags::morph_tag_text(id, width)
+                }
+            })
+            .collect(),
+    )
+}
+
+fn complete_analysis_in_lexc(net: &Fsm, tags: &[String]) -> DiagnosticCell {
+    let opts = FomaOptions::default();
+    let started = Instant::now();
+    let upper = fsm_minimize(&opts, fsm_upper(net.clone()));
+    if diagnostic_budget("lexc_probe", &upper, started.elapsed()).is_err() {
+        return DiagnosticCell::InconclusiveBudgetExceeded;
+    }
+    let mut hit = fsm_intersect(&opts, upper, tag_string_fsm("diagnostic-lexc-tags", tags));
+    if fsm_isempty(&opts, &mut hit) {
+        DiagnosticCell::Absent
+    } else {
+        DiagnosticCell::Present
+    }
+}
+
+fn exact_analysis_surface_pair(
+    net: &Fsm,
+    matcher: Fsm,
+    tags: &[String],
+) -> (DiagnosticCell, Option<bool>) {
+    let opts = FomaOptions::default();
+    let started = Instant::now();
+    let restricted = fsm_minimize(&opts, fsm_compose(&opts, net.clone(), matcher));
+    if diagnostic_budget("pair_probe", &restricted, started.elapsed()).is_err() {
+        return (DiagnosticCell::InconclusiveBudgetExceeded, None);
+    }
+    let upper = fsm_minimize(&opts, fsm_upper(restricted));
+    let atomic = tags
+        .iter()
+        .all(|tag| upper.sigma.iter().any(|symbol| symbol.symbol == *tag));
+    let mut hit = fsm_intersect(&opts, upper, tag_string_fsm("diagnostic-pair-tags", tags));
+    let cell = if fsm_isempty(&opts, &mut hit) {
+        DiagnosticCell::Absent
+    } else {
+        DiagnosticCell::Present
+    };
+    (cell, Some(atomic))
+}
+
+struct DiagnosticRow {
+    cluster: &'static str,
+    word: &'static str,
+    analysis_index: Option<usize>,
+    morpheme_ids: Vec<u32>,
+    root_index: i32,
+    oracle: DiagnosticCell,
+    oracle_partial: bool,
+    lexc: DiagnosticCell,
+    post_rules: DiagnosticCell,
+    final_pair: DiagnosticCell,
+    final_tags_atomic: Option<bool>,
+}
+
+impl DiagnosticRow {
+    fn earliest_failure(&self) -> &'static str {
+        for (stage, cell) in [
+            ("oracle", self.oracle),
+            ("lexc", self.lexc),
+            ("post_rules", self.post_rules),
+            ("final", self.final_pair),
+        ] {
+            if cell != DiagnosticCell::Present {
+                return stage;
+            }
+        }
+        "none"
+    }
+}
+
+/// Compile stages once and print the earliest observed failing boundary for every complete oracle
+/// analysis of all six pinned residual misses. It is intentionally red until those misses are fixed.
+#[test]
+#[ignore = "needs local gitignored corpus data (samples/data/aweti.json); run with --include-ignored"]
+fn e_residual_misses_report_first_failing_stage() {
+    if !have("aweti.json") {
+        eprintln!("skipping: aweti.json not present on disk");
+        return;
+    }
+    std::thread::Builder::new()
+        .stack_size(STACK_BYTES)
+        .spawn(run_residual_miss_diagnostic)
+        .expect("spawn residual diagnostic worker")
+        .join()
+        .expect("residual diagnostic panicked");
+}
+
+fn run_residual_miss_diagnostic() {
+    let g = load_grammar();
+    let table = &g.char_tables[0];
+    let alphabet = SegAlphabet::new(table);
+    let width = tags::tag_width(g.morphemes.len());
+    let morpher = Morpher::new(&g, ORACLE_STEP_CAP)
+        .with_word_timeout(Some(Duration::from_secs(DIAGNOSTIC_ORACLE_TIMEOUT_SECS)));
+    let popts = ParseOptions::default();
+    let pipeline = DiagnosticPipeline::compile(&g);
+    if let Ok(pipeline) = &pipeline {
+        println!("diagnostic-bounds\toracle_steps={ORACLE_STEP_CAP}\toracle_timeout_s={DIAGNOSTIC_ORACLE_TIMEOUT_SECS}\toperation_s={DIAGNOSTIC_OPERATION_SECS}\tstate_cap={DIAGNOSTIC_STATE_CAP}\tarc_cap={DIAGNOSTIC_ARC_CAP}");
+        for stage in &pipeline.stats {
+            println!(
+                "diagnostic-stage\t{}\t{:?}\t{}\t{}",
+                stage.name, stage.elapsed, stage.states, stage.arcs
+            );
+        }
+    }
+    let mut rows = Vec::new();
+    for &(cluster, word) in RESIDUAL_DIAGNOSTIC_PROBES {
+        let outcome = morpher.parse_word_opts(word, &popts);
+        let partial = outcome.capped || outcome.timed_out;
+        if outcome.structured.is_empty() {
+            rows.push(DiagnosticRow {
+                cluster,
+                word,
+                analysis_index: None,
+                morpheme_ids: vec![],
+                root_index: -1,
+                oracle: if partial {
+                    DiagnosticCell::InconclusiveBudgetExceeded
+                } else if outcome.invalid_shape {
+                    DiagnosticCell::HarnessMismatch
+                } else {
+                    DiagnosticCell::Absent
+                },
+                oracle_partial: partial,
+                lexc: DiagnosticCell::NotRun,
+                post_rules: DiagnosticCell::NotRun,
+                final_pair: DiagnosticCell::NotRun,
+                final_tags_atomic: None,
+            });
+            continue;
+        }
+        for (analysis_index, analysis) in outcome.structured.iter().enumerate() {
+            let Some(tag_texts) =
+                diagnostic_tag_texts(&analysis.morpheme_ids, analysis.root_morpheme_index, width)
+            else {
+                rows.push(DiagnosticRow {
+                    cluster,
+                    word,
+                    analysis_index: Some(analysis_index),
+                    morpheme_ids: analysis.morpheme_ids.clone(),
+                    root_index: analysis.root_morpheme_index,
+                    oracle: DiagnosticCell::HarnessMismatch,
+                    oracle_partial: partial,
+                    lexc: DiagnosticCell::NotRun,
+                    post_rules: DiagnosticCell::NotRun,
+                    final_pair: DiagnosticCell::NotRun,
+                    final_tags_atomic: None,
+                });
+                continue;
+            };
+            let Some(query) = alphabet.encode_query(word) else {
+                rows.push(DiagnosticRow {
+                    cluster,
+                    word,
+                    analysis_index: Some(analysis_index),
+                    morpheme_ids: analysis.morpheme_ids.clone(),
+                    root_index: analysis.root_morpheme_index,
+                    oracle: DiagnosticCell::HarnessMismatch,
+                    oracle_partial: partial,
+                    lexc: DiagnosticCell::NotRun,
+                    post_rules: DiagnosticCell::NotRun,
+                    final_pair: DiagnosticCell::NotRun,
+                    final_tags_atomic: None,
+                });
+                continue;
+            };
+            let decoded_query: Vec<String> = query
+                .chars()
+                .map(|token| {
+                    let definition = table.get(CharDefId((token as u32).saturating_sub(0xE000)));
+                    definition
+                        .representations()
+                        .first()
+                        .cloned()
+                        .unwrap_or_else(|| definition.xml_id().to_string())
+                })
+                .collect();
+            println!("diagnostic-query\t{}\t{:?}", word, decoded_query);
+            let (lexc, post_rules, final_pair, atomic) = match &pipeline {
+                Ok(p) => {
+                    let mut lexc_apply = apply_init(&p.lexc);
+                    let underlying: Vec<Vec<String>> = lexc_apply
+                        .down(&tag_texts.concat())
+                        .take(32)
+                        .map(|encoded| {
+                            encoded
+                                .chars()
+                                .map(|token| {
+                                    let id = CharDefId((token as u32).saturating_sub(0xE000));
+                                    let definition = table.get(id);
+                                    let representation = definition
+                                        .representations()
+                                        .first()
+                                        .cloned()
+                                        .unwrap_or_else(|| definition.xml_id().to_string());
+                                    if definition.kind() == CharDefKind::Boundary {
+                                        format!("<{representation}>")
+                                    } else {
+                                        representation
+                                    }
+                                })
+                                .collect()
+                        })
+                        .collect();
+                    println!(
+                        "diagnostic-underlying\t{}\t{:?}\t{:?}",
+                        word, analysis_index, underlying
+                    );
+                    let lexc = complete_analysis_in_lexc(&p.lexc, &tag_texts);
+                    let (post, _) = exact_analysis_surface_pair(
+                        &p.post_rules,
+                        boundary_flexible_identity_fsm(
+                            "diagnostic-post-word",
+                            &query,
+                            &p.boundary_tokens,
+                        ),
+                        &tag_texts,
+                    );
+                    let (final_pair, atomic) = exact_analysis_surface_pair(
+                        &p.final_network,
+                        linear_identity_fsm("diagnostic-final-word", &query),
+                        &tag_texts,
+                    );
+                    (lexc, post, final_pair, atomic)
+                }
+                Err(_) => (
+                    DiagnosticCell::HarnessMismatch,
+                    DiagnosticCell::HarnessMismatch,
+                    DiagnosticCell::HarnessMismatch,
+                    None,
+                ),
+            };
+            rows.push(DiagnosticRow {
+                cluster,
+                word,
+                analysis_index: Some(analysis_index),
+                morpheme_ids: analysis.morpheme_ids.clone(),
+                root_index: analysis.root_morpheme_index,
+                oracle: DiagnosticCell::Present,
+                oracle_partial: partial,
+                lexc,
+                post_rules,
+                final_pair,
+                final_tags_atomic: atomic,
+            });
+        }
+    }
+    println!("cluster\tword\tanalysis_index\tmorpheme_ids\troot_index\toracle\toracle_partial\tlexc_complete\tpost_rules_exact_pair\tfinal_exact_pair\tfinal_tags_atomic_diagnostic_only\tfirst_failure");
+    for row in &rows {
+        println!(
+            "{}\t{}\t{:?}\t{:?}\t{}\t{}\t{}\t{}\t{}\t{}\t{:?}\t{}",
+            row.cluster,
+            row.word,
+            row.analysis_index,
+            row.morpheme_ids,
+            row.root_index,
+            row.oracle.label(),
+            row.oracle_partial,
+            row.lexc.label(),
+            row.post_rules.label(),
+            row.final_pair.label(),
+            row.final_tags_atomic,
+            row.earliest_failure()
+        );
+    }
+    if let Ok(pipeline) = &pipeline {
+        let recovered = diagnostic_optional_marker_cleanup(&g, &alphabet, pipeline, &rows, width);
+        println!(
+            "recipe-candidate\toptional-floating-marker-cleanup\t{}",
+            recovered.join(",")
+        );
+    }
+
+    if let Some(trace_word) = std::env::var_os("PANGLOSS_AWETI_TRACE_WORD") {
+        let trace_word = trace_word.to_string_lossy();
+        if let Ok(pipeline) = &pipeline {
+            for row in rows.iter().filter(|row| row.word == trace_word) {
+                trace_analysis_through_rules(&g, &alphabet, pipeline, row, width);
+            }
+        }
+    }
+
+    if std::env::var_os("PANGLOSS_AWETI_RULE_VARIATIONS").is_some() {
+        if let Ok(pipeline) = &pipeline {
+            run_rule_variation_diagnostics(&g, &alphabet, pipeline, &rows, width);
+        }
+    }
+
+    assert!(
+        rows.iter().all(|row| row.analysis_index.is_some()),
+        "every residual word must supply an oracle analysis; see matrix above"
+    );
+    let failures: Vec<_> = rows
+        .iter()
+        .filter(|row| row.earliest_failure() != "none")
+        .map(|row| {
+            format!(
+                "{} analysis {:?}: {}",
+                row.word,
+                row.analysis_index,
+                row.earliest_failure()
+            )
+        })
+        .collect();
+    assert!(
+        failures.is_empty(),
+        "residual exact relations remain red:\n{}",
+        failures.join("\n")
+    );
+}
+/// Try three bounded cascade algorithms after stage localization: prefix reachability,
+/// leave-one-out ablation, and adjacent swaps. These are diagnostic experiments only.
+fn run_rule_variation_diagnostics(
+    g: &Grammar,
+    alphabet: &SegAlphabet,
+    pipeline: &DiagnosticPipeline,
+    rows: &[DiagnosticRow],
+    width: usize,
+) {
+    let indexed_rules: Vec<(u32, &PhonRuleDef)> = g
+        .strata
+        .iter()
+        .flat_map(|stratum| {
+            stratum
+                .prules
+                .iter()
+                .map(|id| (id.0, &g.prules[id.0 as usize]))
+        })
+        .collect();
+    let baseline_order: Vec<&PhonRuleDef> = indexed_rules.iter().map(|(_, rule)| *rule).collect();
+    for (position, (id, rule)) in indexed_rules.iter().enumerate() {
+        match rule {
+            PhonRuleDef::Rewrite(rule) => println!(
+                "rule-order\t{position}\t{id}\t{}\t{:?}\t{:?}",
+                rule.xml_id, rule.name, rule.dir
+            ),
+            PhonRuleDef::Metathesis(rule) => println!(
+                "rule-order\t{position}\t{id}\t{}\t{:?}\t{:?}",
+                rule.xml_id, rule.name, rule.dir
+            ),
+        }
+    }
+
+    println!("rule-variation\talgorithm\tvariant\trecovered_exact_pairs");
+    let opts = FomaOptions::default();
+    let mut optional_rules = Vec::new();
+    for (position, rule) in baseline_order.iter().enumerate() {
+        let mut skipped = Vec::new();
+        let mut reports = Vec::new();
+        let compiled = compile_and_compose_rules_recall_safe(
+            &opts,
+            g,
+            alphabet,
+            std::slice::from_ref(rule),
+            &mut skipped,
+            &mut reports,
+        );
+        let Ok(Some(rule_net)) = compiled else {
+            println!(
+                "rule-variation\ttargeted-optional\tposition={position}\tharness_compile_failure"
+            );
+            optional_rules.clear();
+            break;
+        };
+        if !skipped.is_empty() {
+            println!("rule-variation\ttargeted-optional\tposition={position}\tharness_skipped={skipped:?}");
+            optional_rules.clear();
+            break;
+        }
+        optional_rules.push(fsm_union(&opts, rule_net, fsm_universal()));
+    }
+    if optional_rules.len() == baseline_order.len() {
+        let outcomes =
+            targeted_optional_recoveries(alphabet, pipeline, rows, width, &optional_rules);
+        println!(
+            "rule-variation\ttargeted-optional\texact-analysis-first\t{}",
+            outcomes.join(",")
+        );
+    }
+    for prefix_len in 0..=baseline_order.len() {
+        let rules = &baseline_order[..prefix_len];
+        let recovered = diagnostic_variant_recoveries(g, alphabet, pipeline, rows, width, rules);
+        if !recovered.is_empty() {
+            println!(
+                "rule-variation\tprefix\t{prefix_len}\t{}",
+                recovered.join(",")
+            );
+        }
+    }
+
+    for omitted in 0..baseline_order.len() {
+        let rules: Vec<&PhonRuleDef> = baseline_order
+            .iter()
+            .enumerate()
+            .filter_map(|(index, rule)| (index != omitted).then_some(*rule))
+            .collect();
+        let recovered = diagnostic_variant_recoveries(g, alphabet, pipeline, rows, width, &rules);
+        if !recovered.is_empty() {
+            println!(
+                "rule-variation\tleave-one-out\tposition={omitted};prule={}\t{}",
+                indexed_rules[omitted].0,
+                recovered.join(",")
+            );
+        }
+    }
+
+    for left in 0..baseline_order.len().saturating_sub(1) {
+        let mut rules = baseline_order.clone();
+        rules.swap(left, left + 1);
+        let recovered = diagnostic_variant_recoveries(g, alphabet, pipeline, rows, width, &rules);
+        if !recovered.is_empty() {
+            println!(
+                "rule-variation\tadjacent-swap\tpositions={left},{};prules={},{}\t{}",
+                left + 1,
+                indexed_rules[left].0,
+                indexed_rules[left + 1].0,
+                recovered.join(",")
+            );
+        }
+    }
+}
+
+fn targeted_optional_recoveries(
+    alphabet: &SegAlphabet,
+    pipeline: &DiagnosticPipeline,
+    rows: &[DiagnosticRow],
+    width: usize,
+    optional_rules: &[Fsm],
+) -> Vec<String> {
+    let opts = FomaOptions::default();
+    let mut outcomes = Vec::new();
+    for row in rows.iter().filter(|row| row.analysis_index.is_some()) {
+        let Some(tags) = diagnostic_tag_texts(&row.morpheme_ids, row.root_index, width) else {
+            continue;
+        };
+        let Some(query) = alphabet.encode_query(row.word) else {
+            continue;
+        };
+        let mut net = fsm_minimize(
+            &opts,
+            fsm_compose(
+                &opts,
+                tag_string_fsm("diagnostic-target-tags", &tags),
+                pipeline.lexc.clone(),
+            ),
+        );
+        let mut over_budget = None;
+        for (position, rule) in optional_rules.iter().enumerate() {
+            net = fsm_minimize(&opts, fsm_compose(&opts, net, rule.clone()));
+            if diagnostic_budget("targeted_optional", &net, Duration::ZERO).is_err() {
+                over_budget = Some(position);
+                break;
+            }
+        }
+        if let Some(position) = over_budget {
+            outcomes.push(format!(
+                "{}#{:?}=budget@{position}",
+                row.word, row.analysis_index
+            ));
+            continue;
+        }
+        let matcher = boundary_flexible_identity_fsm(
+            "diagnostic-target-word",
+            &query,
+            &pipeline.boundary_tokens,
+        );
+        let result = exact_analysis_surface_pair(&net, matcher, &tags).0;
+        outcomes.push(format!(
+            "{}#{:?}={}",
+            row.word,
+            row.analysis_index,
+            result.label()
+        ));
+    }
+    outcomes
+}
+
+fn diagnostic_net_recoveries(
+    alphabet: &SegAlphabet,
+    pipeline: &DiagnosticPipeline,
+    rows: &[DiagnosticRow],
+    width: usize,
+    post_rules: &Fsm,
+) -> Vec<String> {
+    let mut recovered = Vec::new();
+    for row in rows.iter().filter(|row| row.analysis_index.is_some()) {
+        let Some(tags) = diagnostic_tag_texts(&row.morpheme_ids, row.root_index, width) else {
+            continue;
+        };
+        let Some(query) = alphabet.encode_query(row.word) else {
+            continue;
+        };
+        let matcher = boundary_flexible_identity_fsm(
+            "diagnostic-net-word",
+            &query,
+            &pipeline.boundary_tokens,
+        );
+        if exact_analysis_surface_pair(post_rules, matcher, &tags).0 == DiagnosticCell::Present {
+            recovered.push(format!("{}#{:?}", row.word, row.analysis_index));
+        }
+    }
+    recovered
+}
+
+fn diagnostic_variant_recoveries(
+    g: &Grammar,
+    alphabet: &SegAlphabet,
+    pipeline: &DiagnosticPipeline,
+    rows: &[DiagnosticRow],
+    width: usize,
+    rules: &[&PhonRuleDef],
+) -> Vec<String> {
+    let opts = FomaOptions::default();
+    let post_rules = if rules.is_empty() {
+        pipeline.lexc.clone()
+    } else {
+        let mut skipped = Vec::new();
+        let mut reports = Vec::new();
+        let Ok(Some(rule_net)) = compile_and_compose_rules_recall_safe(
+            &opts,
+            g,
+            alphabet,
+            rules,
+            &mut skipped,
+            &mut reports,
+        ) else {
+            return vec!["harness_compile_failure".into()];
+        };
+        if !skipped.is_empty() {
+            return vec![format!("harness_skipped={skipped:?}")];
+        }
+        fsm_compose(&opts, pipeline.lexc.clone(), rule_net)
+    };
+    let mut recovered = Vec::new();
+    for row in rows.iter().filter(|row| row.analysis_index.is_some()) {
+        let Some(tags) = diagnostic_tag_texts(&row.morpheme_ids, row.root_index, width) else {
+            continue;
+        };
+        let Some(query) = alphabet.encode_query(row.word) else {
+            continue;
+        };
+        let matcher = boundary_flexible_identity_fsm(
+            "diagnostic-variant-word",
+            &query,
+            &pipeline.boundary_tokens,
+        );
+        if exact_analysis_surface_pair(&post_rules, matcher, &tags).0 == DiagnosticCell::Present {
+            recovered.push(format!("{}#{:?}", row.word, row.analysis_index));
+        }
+    }
+    recovered
+}
+fn trace_analysis_through_rules(
+    g: &Grammar,
+    alphabet: &SegAlphabet,
+    pipeline: &DiagnosticPipeline,
+    row: &DiagnosticRow,
+    width: usize,
+) {
+    let Some(tags) = diagnostic_tag_texts(&row.morpheme_ids, row.root_index, width) else {
+        return;
+    };
+    let tag_input = tags.concat();
+    let opts = FomaOptions::default();
+    let mut net = fsm_minimize(
+        &opts,
+        fsm_compose(
+            &opts,
+            tag_string_fsm("diagnostic-trace-tags", &tags),
+            pipeline.lexc.clone(),
+        ),
+    );
+    print_trace_outputs(g, row.word, "lexc", &net, &tag_input);
+    let indexed_rules: Vec<(u32, &PhonRuleDef)> = g
+        .strata
+        .iter()
+        .flat_map(|stratum| {
+            stratum
+                .prules
+                .iter()
+                .map(|id| (id.0, &g.prules[id.0 as usize]))
+        })
+        .collect();
+    for (position, (id, rule)) in indexed_rules.into_iter().enumerate() {
+        let mut skipped = Vec::new();
+        let mut reports = Vec::new();
+        let Ok(Some(rule_net)) = compile_and_compose_rules_recall_safe(
+            &opts,
+            g,
+            alphabet,
+            &[rule],
+            &mut skipped,
+            &mut reports,
+        ) else {
+            println!(
+                "rule-trace\t{}\t{position}\t{id}\tharness_compile_failure",
+                row.word
+            );
+            return;
+        };
+        net = fsm_minimize(&opts, fsm_compose(&opts, net, rule_net));
+        print_trace_outputs(g, row.word, &format!("{position}:{id}"), &net, &tag_input);
+    }
+}
+
+fn print_trace_outputs(g: &Grammar, word: &str, stage: &str, net: &Fsm, tag_input: &str) {
+    let table = &g.char_tables[0];
+    let mut handle = apply_init(net);
+    let outputs: Vec<String> = handle
+        .down(tag_input)
+        .take(32)
+        .map(|encoded| {
+            encoded
+                .chars()
+                .map(|token| {
+                    let id = CharDefId((token as u32).saturating_sub(0xE000));
+                    let definition = table.get(id);
+                    let representation = definition
+                        .representations()
+                        .first()
+                        .map(String::as_str)
+                        .unwrap_or_else(|| definition.xml_id());
+                    if definition.kind() == CharDefKind::Boundary {
+                        format!("<{representation}>")
+                    } else {
+                        representation.to_string()
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("")
+        })
+        .collect();
+    println!("rule-trace\t{word}\t{stage}\t{outputs:?}");
+}
+fn diagnostic_optional_marker_cleanup(
+    g: &Grammar,
+    alphabet: &SegAlphabet,
+    pipeline: &DiagnosticPipeline,
+    rows: &[DiagnosticRow],
+    width: usize,
+) -> Vec<String> {
+    let table = &g.char_tables[0];
+    let marker_tokens: Vec<char> = ["ᵀ", "°"]
+        .iter()
+        .filter_map(|representation| table.lookup_nfd(representation))
+        .map(|id| alphabet.token(id))
+        .collect();
+    if marker_tokens.len() != 2 {
+        return vec![format!("harness_marker_count={}", marker_tokens.len())];
+    }
+    let regex = marker_tokens
+        .iter()
+        .map(|token| format!("{token} -> 0"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let opts = FomaOptions::default();
+    let Some(delete_markers) = fsm_parse_regex(&opts, &regex, None, None) else {
+        return vec!["harness_marker_regex_failed".into()];
+    };
+    let optional_cleanup = fsm_union(&opts, delete_markers, fsm_universal());
+    let candidate = fsm_minimize(
+        &opts,
+        fsm_compose(&opts, pipeline.post_rules.clone(), optional_cleanup),
+    );
+    if let Err(error) = diagnostic_budget("optional_marker_cleanup", &candidate, Duration::ZERO) {
+        return vec![format!("budget={error}")];
+    }
+    diagnostic_net_recoveries(alphabet, pipeline, rows, width, &candidate)
 }
