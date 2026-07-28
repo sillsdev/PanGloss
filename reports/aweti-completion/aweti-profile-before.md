@@ -1,11 +1,11 @@
 # Aweti bounded profile before Task 5
 
-Date: 2026-07-27  
-Platform: Windows, `x86_64-pc-windows-msvc`  
+Date: 2026-07-27
+Platform: Windows, `x86_64-pc-windows-msvc`
 Toolchain: `rustc 1.96.1 (31fca3adb 2026-06-26)`,
-`cargo 1.96.1 (356927216 2026-06-26)`  
-Instrumentation commit: `bed809d`  
-Corrected shared P6 compiler commit: `09a5e48`  
+`cargo 1.96.1 (356927216 2026-06-26)`
+Instrumentation commit: `bed809d`
+Corrected shared P6 compiler commit: `09a5e48`
 External watchdog: 120 seconds
 
 ## Commands and provenance

@@ -258,7 +258,7 @@ remains below 100%, report concrete progress and keep the goal open.
 
 ---
 
-## Execution status, 2026-07-27 (Tasks 1-3 DONE; 4-9 open)
+## Execution status, 2026-07-28 (Tasks 1-6 DONE; 7-9 open)
 
 Recorded here so this plan is the live record for the remainder rather than a
 historical artifact. This doc had never been committed before now.
@@ -279,6 +279,36 @@ does not exist — the relevant compilation lives in `src/replace.rs`/`src/lower
 the baseline denominator is 106, not the 104 written above (numerator was
 unchanged at 68, so this was never a regression); the `ae87f0c` isolated-worktree
 instruction is obsolete.
+
+### Task 4 — DONE: exact bounded P6 instrumentation
+
+Commits `bed809d` and `09a5e48` provide the bounded proposal/confirmation diagnostics and the
+corrected shared P6 compiler/trace. The measured trace now executes the exact Aweti templated
+pipeline once and reuses its precompiled proposer in the composite analyzer with one shared
+50,000-path allowance per word. The earlier generic eager-compiler result — composite entries
+`200657 > 200000` — is retained only as typed preflight-refusal evidence. It is not a P6 compile or
+runtime timing and is not used in the Task 5 comparison.
+
+### Task 5 — DONE: outgoing-arc preparation ships
+
+The measured change prepares the precompiled P6 network's outgoing arcs once (`apply_prepare` =
+**5.364 ms**). Under Task 4's identical release command and 120-second watchdog, traversal changed as
+follows: `parua` 0.302 → 0.190 ms (-37.1%, 1.59x), `an` 0.429 → 0.224 ms (-47.8%, 1.92x), and
+`ti` 1.428 → 0.475 ms (-66.7%, 3.01x). Aggregate traversal fell from 2.159 to 0.889 ms (-58.8%,
+2.43x). The 1.270 ms saving per three-word pass repays the one-time preparation in 4.2 passes,
+approximately 13 lookups.
+
+All measured identities remained exact: `parua` retained `12/168/12/12/1`, `an`
+`48/672/48/48/1`, and `ti` `33/525/33/33/2` for raw paths/raw bytes/unique candidates/final
+candidates/confirmed analyses. The full P6 gate remains **100/106** with the same six misses,
+**10,609 states / 298,830 arcs**, and all **18** phonological rules compiled with no skips. Verdict:
+**SHIP**. The authoritative before/after records are
+`reports/aweti-completion/aweti-profile-before.md` and
+`reports/aweti-completion/aweti-profile-after.md`.
+
+Tasks 7–9 remain open. Aweti recall is still 100/106, not 100%; the six residual morphology/rule
+gaps remain explicitly unresolved, so these performance results do not claim full Aweti
+correctness or completion of the overall plan.
 
 ### Root cause (Task 2), and why it was NOT the obvious one
 
