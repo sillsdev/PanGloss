@@ -304,6 +304,18 @@ const BASELINE_MISSES: &[&str] = &[
     "tsãnutu",
 ];
 
+/// Current achieved recall, promoted from Task 7 output to an executable
+/// regression boundary. Correctness work must update this list and the exact
+/// numerator together; performance-only changes must preserve both.
+const CURRENT_EXPECTED_MISSES: &[&str] = &[
+    "muʼazan",
+    "tsãkỹjokwaw",
+    "moʼazan",
+    "tsãn",
+    "moʼaza",
+    "kỹjokwaw",
+];
+
 fn sample_path(name: &str) -> PathBuf {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     manifest_dir.join("../../../samples/data").join(name)
@@ -435,10 +447,11 @@ fn tag_string_fsm(name: &str, tags: &[String]) -> Fsm {
 /// analysis, restricts the composed net to exactly that word's own token string (`fsm_compose`
 /// with a linear identity transducer), projects the UPPER (tag) tape, and checks whether ANY
 /// oracle analysis's own tag sequence intersects it non-emptily. Prints the full recall figure and
-/// the miss list; asserts the ACHIEVED honest recall (`>= 32/104` — module doc explains the
-/// 68→32 drop from honestly skipping Aweti's two RightToLeft/Simultaneous rules) and that no
-/// previously-recalled word has regressed (every corpus word NOT in [`BASELINE_MISSES`] must
-/// still recall).
+/// the miss list; retains the historical `>= 32`/no-new-baseline-miss checks, then enforces the
+/// current achieved boundary exactly: 100/106 and [`CURRENT_EXPECTED_MISSES`]. A correctness
+/// change must deliberately update that tuple; performance-only changes must preserve it. Every
+/// corpus word not in [`BASELINE_MISSES`] must still recall independently of the exact-current
+/// assertion.
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/aweti.json); run with --include-ignored"]
 fn b_full_corpus_recall_via_compose() {
@@ -558,6 +571,16 @@ fn run_full_corpus_recall() {
     assert!(
         newly_missed.is_empty(),
         "words recalled at baseline are now MISSED (a real regression): {newly_missed:?}"
+    );
+
+    let mut expected_misses = CURRENT_EXPECTED_MISSES.to_vec();
+    expected_misses.sort_unstable();
+    let mut actual_misses: Vec<&str> = missed_words.iter().map(String::as_str).collect();
+    actual_misses.sort_unstable();
+    assert_eq!(
+        (n_recalled, n_with_oracle, actual_misses),
+        (100, 106, expected_misses),
+        "current Aweti recall boundary changed; correctness work must update the exact numerator/denominator/miss set deliberately"
     );
 }
 

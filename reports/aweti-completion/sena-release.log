@@ -32,3 +32,4 @@ test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
    Compiling pg-foma v0.1.0 (C:\Users\johnm\Documents\repos\PanGloss\rust\crates\pg-foma)
     Finished `release` profile [optimized] target(s) in 57.11s
      Running tests\f1_large_lexicon_gate.rs (target\release\deps\f1_large_lexicon_gate-f483efa8e1e36ec8.exe)
+```

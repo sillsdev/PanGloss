@@ -36,3 +36,40 @@ The ranked, safety-bounded follow-on experiments are documented in
 - [Indonesian release log](indonesian-release.log)
 - [Amharic release transcript](amharic-release.log)
 - [Aweti release log](aweti-release.log)
+
+## Task 9 completion audit — evidence status: in progress
+
+This is an audit of evidence, not a declaration of full Aweti correctness. The approved design is restored verbatim from `ae87f0c` at `docs/superpowers/specs/2026-07-20-aweti-correctness-performance-design.md`; its permanent 100% proposer-recall requirement remains unmet.
+
+| Objective / criterion | Authoritative source | Test / exact command | Observed result | Audit status |
+|---|---|---|---|---|
+| Preserve baseline recall while raising Aweti recall | `tags.rs`; [baseline record](baseline-retrospective.log); [Aweti release log](aweti-release.log) | `cargo test -p pg-foma --release --test p6_templated_morphotactics_gate -- --include-ignored --nocapture --test-threads=1` | Fresh final run: 100/106 (94.3%), exact six misses; executable assertion enforces numerator, denominator, and miss set | **Proven** by the repaired gate and fresh 4/4 release run. |
+| Fix the demonstrated bare-root/tag boundary at the source | `tags.rs` `ZERO_GLYPH`; `p6_templated_morphotactics_gate` test `d_bare_root_tag_atomicity_boundary` | Same P6 release gate | Literal `0` is avoided in emitted tag numerals and decoded reversibly; atomicity boundary test passes | Proven by source/test and recorded gate. |
+| Preserve exact proposal/confirmation behavior under bounded diagnostics | [before profile](aweti-profile-before.md), [after profile](aweti-profile-after.md), `p6_aweti_perf_trace.rs` | `cargo run --release -p pg-foma --example p6_aweti_perf_trace` | Shared 50,000-path allowance; `parua`/`an`/`ti` candidate and confirmed-analysis identities exact | Proven for bounded probes; not a claim about unmeasured inputs. |
+| Ship only a measured recall-preserving speedup | `templated_compile.rs`; [after profile](aweti-profile-after.md) | Trace command above plus the P6 release gate | Prepared outgoing arcs: 5.364-ms one-time cost; traversal 2.159 → 0.889 ms (2.43x); recall/network/rules unchanged | Proven by Task 5 evidence. |
+| Compile supported Aweti phonology without silent skips | [Aweti release log](aweti-release.log) | P6 release gate above | All 18 phonological rules compiled; `skipped=[]`; final 10,609 states / 298,830 arcs | Proven by recorded release gate. |
+| Phase C stage-2 coverage is parity, honest skip, or detected failure | Plan Task 6 execution record; Phase C integration tests | Recorded Phase C batches plus fresh `cargo test -p pg-foma --test phase_c_right_to_left -- --nocapture --test-threads=1` | Recorded 18/18 then 13/13; fresh RTL 9/9; fresh coverage gates 1/1 and 2/2 | **Proven** for the integrated focused regression scope. |
+| Four-language release evidence has real denominators and exclusions | This matrix and four linked release logs | The four commands in the Task 7 plan block, each with `--include-ignored --nocapture --test-threads=1` | Sena 326/326 analyses; Indonesian 97/97 with 7 redup exclusions; Amharic 31/31 after 6 engine timeouts; Aweti 100/106 | **Proven** by durable captures; Amharic is explicitly transcript provenance. |
+| Publish a safe prioritized performance plan | [Aweti performance follow-on](../../docs/fst-plan/aweti-performance-follow-on.md) | Reader-tested documentation review; future candidate commands are specified in that plan | Six ranked options each map to red test, metric, bounded experiment, equality invariant, and ship rule; shortcuts rejected | Proven as a planning deliverable, not an implemented performance gain. |
+| Final focused/regression verification and independent evidence review | Task 9 plan gate | P6 release gate; `phase_c_right_to_left`; `conformance_coverage_gate`; `plan_interaction_coverage_gate`; independent Luna review | Working-tree results: P6 4/4 at exact 100/106; RTL 9/9; coverage 1/1 and 2/2. Review found the weak recall assertion, which was repaired and red/green mutation-tested. | **Pending final-commit rerun**; Task 9 is not yet complete. |
+
+### Unresolved Aweti miss classes and completion decision
+
+The unresolved words are `muʼazan`, `tsãkỹjokwaw`, `moʼazan`, `tsãn`, `moʼaza`, and `kỹjokwaw`. They are six genuine **morphology/rule gaps**: not the fixed zero-digit tag/sigma defect, not the combining-mark red herring, not a candidate-cap result, and not a test timeout. Their finer linguistic subclasses remain uninvestigated; this audit does not invent them.
+
+The overall Aweti correctness goal remains **open**. Current recall is **100/106 (94.3%)**, not 100%. The approved design and Task 1/2 retrospective records are present, but Task 1's required raw logs are not, and Task 9 still needs verification from the final commit.
+
+### Final-verification qualification (discovered during Task 9)
+
+Independent review found that the historical gate could pass at only 32 recalls. The repaired `p6_templated_morphotactics_gate` now sorts and compares the exact miss set and asserts the `(100, 106)` result. Its fresh release rerun passed all four tests, so 100/106 is now a durable regression boundary rather than output-only evidence.
+
+### Coverage corrections from independent reader review
+
+The Amharic matrix row means **six engine timeouts**, not six exclusions; its denominator policy remains 31/31 analyses across 29 analyzed words, with parity restricted after those timeouts.
+
+| Plan task / criterion | Source / command / observation | Evidence status |
+|---|---|---|
+| Task 1 — clean bounded baseline | Commit `f892cfd` records Tasks 1–3 and broad verification; [retrospective baseline](baseline-retrospective.log) preserves the exported 68/106 and network measurements. The required contemporaneous commands, toolchain, wall times, watchdog outcomes, and three non-Aweti raw baseline logs were never committed. | **Partially evidenced**; retrospective data is not misrepresented as verbatim raw capture. |
+| Task 2 — isolate bare-root failure | Commit `f892cfd`, [diagnostic record](bare-root-diagnostic.md), `tags.rs`, and `d_bare_root_tag_atomicity_boundary` identify the first failing `fsm_intersect`/sigma boundary, record the RED sigma-membership assertion, and reject the combining-mark hypothesis. | **Contemporaneously evidenced and regression-tested.** |
+
+Accordingly, the engineering changes are locatable and verified, but the completion audit remains open for two independent reasons: Task 1's required raw evidence was not preserved, and the six genuine morphology/rule misses keep proposer recall below the approved 100% requirement.

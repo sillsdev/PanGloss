@@ -50,3 +50,4 @@ test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 ## Raw stderr (`C:\tmp\pangloss-aweti-release.stderr.log`)
 ```text
    Compiling pg-foma v0.1.0 (C:\Users\johnm\Documents\repos\PanGloss\rust\crates\pg-foma)
+```

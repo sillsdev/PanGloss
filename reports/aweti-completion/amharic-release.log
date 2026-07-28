@@ -27,3 +27,5 @@ test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 ```
 
 ## Transcript stderr
+
+No separate stderr stream was retained for this transcript capture.

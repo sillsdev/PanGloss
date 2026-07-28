@@ -351,9 +351,29 @@ Network shape changed as a side effect: lexc net 13,899 states / 93,429 arcs ->
 11,530 / 114,616 (fewer states, more arcs — atomic tags no longer decompose into
 per-character arc chains).
 
-### Tasks 4-9: still open
+### Tasks 4-9: executed; correctness goal remains open
 
 Perf instrumentation, one measured recall-preserving speedup, Phase C stage-2
 review, the fresh four-language matrix, the published speedup plan, and the final
 completion audit. Task 9's own gate stands and is being honoured: **recall is
 below 100%, so completion is not claimed and the goal stays open.**
+
+### Current execution status — supersedes earlier status lines (2026-07-28)
+
+**Tasks 1–8: engineering executed.** Task 7 has durable four-language release evidence in
+`reports/aweti-completion/`; Task 8's reader-tested follow-on plan is
+`docs/fst-plan/aweti-performance-follow-on.md`. Tasks 1–6 are recorded above,
+including bounded diagnostics, the shipped preparation speedup, and Phase C
+review.
+
+**Task 9: IN PROGRESS.** The audit is in
+`reports/aweti-completion/four-language-results.md`. Independent review exposed
+the weak historical recall floor; the gate now enforces exactly 100/106 and the
+six-word miss set. Task 1's contemporaneous raw command/toolchain/watchdog logs
+were never committed and cannot honestly be reconstructed as verbatim output.
+
+**Overall goal: OPEN.** Aweti is 100/106, not 100%; the six residual words are
+genuine morphology/rule gaps. The approved design from `ae87f0c` and the
+provenance-labelled Task 1/2 evidence records are restored at their advertised
+paths, but Task 1's retrospective record is not a substitute for its missing raw
+logs. Neither that record nor the measured progress turns 94.3% recall into completion.

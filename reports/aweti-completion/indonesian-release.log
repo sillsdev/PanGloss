@@ -49,3 +49,4 @@ test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 ## Raw stderr (`C:\tmp\pangloss-indonesian-release.stderr.log`)
 ```text
     Finished `release` profile [optimized] target(s) in 0.15s
+```
