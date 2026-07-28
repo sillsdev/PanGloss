@@ -1,0 +1,51 @@
+# Task 7 fresh release evidence — Indonesian
+
+Final matrix source SHA: `b819eb706c0fa42b9404636cb2ae4e142aafc984`.
+Toolchain: `rustc 1.96.1 (31fca3adb 2026-06-26)`; `cargo 1.96.1 (356927216 2026-06-26)`.
+
+Exact command, run from `rust/`:
+```powershell
+cargo test -p pg-foma --release --test f2_junction_gate -- --include-ignored --nocapture --test-threads=1
+```
+Exit code: `0`. Cargo-reported build time: `0.15s`; Cargo-reported test elapsed: `0.63s`.
+No independent process-wall stopwatch was captured; the Cargo timings below are authoritative.
+
+## Raw stdout (`C:\tmp\pangloss-indonesian-release.stdout.log`)
+```text
+running 4 tests
+test a_emits_and_compiles ... indonesian emit: 85.7049ms; emit+foma-compile: 88.7883ms; lexc lines: 896; lexc bytes: 30126; tier: Partial { uncovered: 3 }; uncovered: 3
+  uncovered: [reduplication] mrule6 — standalone rule's primary allomorph classifies as Reduplication; not representable (v1)
+  uncovered: [reduplication] mrule12 — standalone rule's primary allomorph classifies as Reduplication; not representable (v1)
+  uncovered: [reduplication] mrule14 — standalone rule's primary allomorph classifies as Reduplication; not representable (v1)
+ok
+test b_recall_full_corpus_minus_redup ... --- excluded (reduplication, P2 peel) ---
+EXCLUDED "membagi-bagi": reduplication — P2 peel
+EXCLUDED "memijit-mijit": reduplication — P2 peel
+EXCLUDED "meminta-minta": reduplication — P2 peel
+EXCLUDED "mengamat-amati": reduplication — P2 peel
+EXCLUDED "mengayuh-ngayuh": reduplication — P2 peel
+EXCLUDED "menulis-nulis": reduplication — P2 peel
+EXCLUDED "menyewa-nyewa": reduplication — P2 peel
+recall: 97/97 engine analyses covered across 96 analyzed words (of 121 corpus words, 7 excluded)
+engine total: 148.2457ms; propose total: 392.8µs; propose max/word: 14.3µs; propose mean/word: 4.091µs
+ok
+test c_junction_spot_checks ... "membaca" (N-assimilation without deletion (meN+baca -> membaca, b retained)): engine 1 distinct sequence(s), proposer 1 candidate(s)
+  engine seq root_index=1 morphemes=[11(mrule14/AV), 26(entry14/read)] -> COVERED
+"menulis" (N-assimilation WITH root-initial deletion (meN+tulis -> menulis, t deleted)): engine 1 distinct sequence(s), proposer 1 candidate(s)
+  engine seq root_index=1 morphemes=[11(mrule14/AV), 52(entry40/write)] -> COVERED
+"memukul" (N-assimilation WITH root-initial deletion (meN+pukul -> memukul, p deleted)): engine 1 distinct sequence(s), proposer 1 candidate(s)
+  engine seq root_index=1 morphemes=[11(mrule14/AV), 47(entry35/hit)] -> COVERED
+"mengkhawatirkan" (meN- + root + -kan suffix): engine 1 distinct sequence(s), proposer 1 candidate(s)
+  engine seq root_index=1 morphemes=[11(mrule14/AV), 48(entry36/worry), 1(mrule4/Caus)] -> COVERED
+"tulis" (plain unprefixed root): engine 1 distinct sequence(s), proposer 1 candidate(s)
+  engine seq root_index=0 morphemes=[52(entry40/write)] -> COVERED
+ok
+test d_nonsense_word_proposes_nothing ... zzzq: 0 candidates in 3.9µs
+ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.63s
+```
+
+## Raw stderr (`C:\tmp\pangloss-indonesian-release.stderr.log`)
+```text
+    Finished `release` profile [optimized] target(s) in 0.15s

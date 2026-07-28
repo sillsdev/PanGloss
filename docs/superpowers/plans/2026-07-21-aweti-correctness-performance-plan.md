@@ -200,10 +200,11 @@ integration landed no accidental formatting churn.
 Run serially from `rust/` on an idle machine:
 
 ```powershell
-cargo test -p pg-foma --release --test f1_sena_gate -- --include-ignored --nocapture --test-threads=1
-cargo test -p pg-foma --release --test f2_indonesian_gate -- --include-ignored --nocapture --test-threads=1
-cargo test -p pg-foma --release --test f3_amharic_gate -- --include-ignored --nocapture --test-threads=1
-cargo test -p pg-foma --release --test p6_aweti_gate -- --include-ignored --nocapture --test-threads=1
+cargo test -p pg-foma --release --test f1_large_lexicon_gate -- --include-ignored --nocapture --test-threads=1
+cargo test -p pg-foma --release --test f2_junction_gate -- --include-ignored --nocapture --test-threads=1
+cargo test -p pg-foma --release --test f3_interdigitation_gate -- --include-ignored --nocapture --test-threads=1
+cargo test -p pg-foma --release --test p6_templated_morphotactics_gate -- --include-ignored --nocapture --test-threads=1
+# Task 7 execution status (2026-07-28): DONE — durable logs and matrix: reports/aweti-completion/{sena,indonesian,amharic,aweti}-release.log and four-language-results.md; final matrix SHA b819eb706c0fa42b9404636cb2ae4e142aafc984.
 ```
 
 1. Capture stdout, stderr, exit code, wall time, toolchain, and commit SHA.
