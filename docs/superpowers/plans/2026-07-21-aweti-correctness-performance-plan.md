@@ -160,6 +160,33 @@ plan rather than shipping it.
 Gate: every Phase C item is gated as parity, honest skip, or detected failure;
 no accidental formatting churn lands.
 
+### Execution status — DONE (2026-07-28)
+
+The lineage review found that `bbb230c` was a parallel development line relative to
+`2985dca`, not a descendant that should be replayed wholesale. Later mainline commits
+superseded its substantive hunks. The review therefore classified the intended work —
+partition-k, alpha-scale, strata-depth, compounding scale/budgets, quantifiers,
+metathesis, Simultaneous, RightToLeft, and multi-table correctness — against the landed
+implementation and did not cherry-pick or recreate workspace-wide formatting changes.
+
+Fresh Phase C gate batches from `rust/`:
+
+```powershell
+cargo test -p pg-foma --test phase_c_partition_k --test phase_c_alpha_scale --test phase_c_strata_depth --test phase_c_compounding --test phase_c_quantifier --test phase_c_metathesis
+# 18/18 passed
+cargo test -p pg-foma --test phase_c_multi_table --test phase_c_simultaneous --test phase_c_right_to_left
+# 13/13 passed
+```
+
+Fresh Aweti templated-gate evidence compiled all 18 phonological rules with
+`skipped=[]`. Stage measurements were: templated emit **1.326 s**, lexc compile
+**964 ms**, rule compile/compose **179 ms**, and final compose/minimize **2.017 s**.
+The final network contained **10,609 states / 298,830 arcs**. The corpus gate recalled
+**100/106** oracle-bearing words in **50.453 s** with no regression in the previously
+recalled set. The six residual misses are `muʼazan`, `tsãkỹjokwaw`, `moʼazan`, `tsãn`,
+`moʼaza`, and `kỹjokwaw`; they remain genuine morphology/rule gaps. The reviewed
+integration landed no accidental formatting churn.
+
 ## Task 7: Run the fresh four-language matrix
 
 **Files:**
