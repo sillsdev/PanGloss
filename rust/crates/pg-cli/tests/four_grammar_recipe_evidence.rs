@@ -15,15 +15,27 @@ fn repo_file(relative: &str) -> PathBuf {
 }
 
 fn word_file(fixture: &str, root: &Path) -> PathBuf {
-    let yaml = fs::read_to_string(repo_file(&format!(
-        "machine/conformance/{fixture}/words.yaml"
-    )))
-    .expect("read fixture words.yaml");
+    word_file_from(
+        &format!("machine/conformance/{fixture}/words.yaml"),
+        fixture,
+        root,
+        |words| words,
+    )
+}
+
+fn word_file_from(
+    relative: &str,
+    fixture: &str,
+    root: &Path,
+    select: impl FnOnce(Vec<String>) -> Vec<String>,
+) -> PathBuf {
+    let yaml = fs::read_to_string(repo_file(relative)).expect("read fixture words.yaml");
     let words = yaml
         .lines()
         .filter_map(|line| line.trim().strip_prefix("- word:"))
-        .map(|word| word.trim().trim_matches(['\"', '\'']))
+        .map(|word| word.trim().trim_matches(['\"', '\'']).to_owned())
         .collect::<Vec<_>>();
+    let words = select(words);
     assert!(!words.is_empty(), "fixture must contain words: {fixture}");
     let path = root.join(fixture.replace('/', "-") + ".txt");
     fs::write(&path, words.join("\n") + "\n").expect("write derived word list");
@@ -50,6 +62,45 @@ fn run_fixture(fixture: &str, root: &Path) -> Value {
         .status()
         .expect("production recipe-optimize must start");
     assert!(status.success(), "recipe-optimize failed for {fixture}");
+    serde_json::from_str(&fs::read_to_string(out.join("report.json")).unwrap()).unwrap()
+}
+
+fn run_template_characterization(root: &Path) -> Value {
+    let fixture = "edge-cases/recipe-template-generic";
+    let out = root.join(fixture.replace('/', "-"));
+    let words = word_file_from(
+        "conformance-staging/edge-cases/recipe-template-generic/words.yaml",
+        fixture,
+        root,
+        |words| {
+            // Characterization deliberately uses the C(12, 0)=1 boundary
+            // observation. The C(12, 6)=924 midpoint and C(12, 12) endpoint
+            // remain in the promoted full-HC oracle, outside this bounded pilot.
+            vec![words.first().unwrap().clone()]
+        },
+    );
+    let grammar = repo_file("conformance-staging/edge-cases/recipe-template-generic/grammar.xml");
+    let status = Command::new(env!("CARGO_BIN_EXE_pangloss"))
+        .args([
+            "recipe-optimize",
+            grammar.to_str().unwrap(),
+            words.to_str().unwrap(),
+            out.to_str().unwrap(),
+            "--seed",
+            "17",
+            "--candidates",
+            "8",
+            "--evaluations",
+            "8",
+            "--elapsed-ns",
+            "5000000000",
+        ])
+        .status()
+        .expect("bounded template characterization must start");
+    assert!(
+        status.success(),
+        "bounded template characterization must complete"
+    );
     serde_json::from_str(&fs::read_to_string(out.join("report.json")).unwrap()).unwrap()
 }
 
@@ -139,6 +190,20 @@ fn four_promoted_grammars_have_truthful_recipe_evidence() {
             candidate["certification"]["status"] == "multiplicity-mismatch"
                 && candidate["certification"]["word"] == "akutat"
         }));
+
+    let template = run_template_characterization(&root);
+    assert_eq!(template["termination"], "complete");
+    assert_eq!(template["quality"], "exact");
+    assert_eq!(template["counts"]["syntactic"], 7);
+    assert_eq!(template["counts"]["attested"], 7);
+    assert_eq!(template["counts"]["static_count"], 1);
+    assert_eq!(template["counts"]["feasible"]["kind"], "exact");
+    assert_eq!(template["counts"]["feasible"]["value"], 1);
+    assert_eq!(template["pilot"]["sample_size"], 1);
+    assert_eq!(template["pruning"]["duplicates"], 3);
+    assert_eq!(template["pruning"]["evaluated"], 1);
+    assert_eq!(template["pruning"]["confirmed"], 1);
+    assert_eq!(template["strategy"], "exhaustive");
 
     let deep_fixture = "edge-cases/deep-optional-affix-nesting";
     let deep_out = root.join("deep-timeout");

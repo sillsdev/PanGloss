@@ -47,10 +47,10 @@
 
 ## 7. Four-Grammar Measurement Run
 
-- [ ] 7.1 On a quiet machine, characterize all four promoted grammars and check in raw/static/feasible counts, pruning waterfall, pilot distributions, chosen algorithms, budgets, and environment metadata.
+- [x] 7.1 On a quiet machine, characterize all four promoted grammars and check in raw/static/feasible counts, pruning waterfall, pilot distributions, chosen algorithms, budgets, and environment metadata.
 - [x] 7.2 Build and fully confirm at least two distinct recipes per grammar where admissible; record every candidate's analysis-level/multiplicity verdict, size, build/apply cost, proposal count, confirmation work, and termination status.
-- [ ] 7.3 Compare exhaustive results on tractable reduced fixtures against approximate strategies to measure regret, coverage, and runtime; use the evidence to calibrate pilot size, beam width, reserve fraction, and the third-strategy selector.
-- [ ] 7.4 Publish the most informative grammar as a detailed Markdown case study with baseline/winner diagrams, Pareto frontier, eliminated alternatives, and a precise non-optimality statement where applicable.
+- [x] 7.3 Compare exhaustive results on tractable reduced fixtures against approximate strategies to measure regret, coverage, and runtime; use the evidence to calibrate pilot size, beam width, reserve fraction, and the third-strategy selector.
+- [x] 7.4 Publish the most informative grammar as a detailed Markdown case study with baseline/winner diagrams, Pareto frontier, eliminated alternatives, and a precise non-optimality statement where applicable.
 - [x] 7.5 Add a synthetic adversarial interaction fixture combining deletion, reduplication repair, and lexical exceptions, then verify full-HC identity and multiplicity for all surviving recipes.
 
 ## 8. Integration and Certification
