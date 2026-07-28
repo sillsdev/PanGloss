@@ -411,9 +411,10 @@ pub fn containment_evidence_for(kind: CharacteristicKind) -> Option<ContainmentE
         RightToLeftRewrite => ev(
             Dedicated,
             "tests/phase_c_right_to_left.rs::rtl_plain_rule_now_compiles_and_matches_oracle (+ \
-             rtl_feature_environment_swap_matches_oracle, rtl_deletion_matches_oracle)",
-            "Reversal-plus-safety-net-union containment against the real oracle across five \
-             named RTL fixture shapes.",
+             rtl_feature_environment_swap_matches_oracle, rtl_deletion_matches_oracle, \
+             rtl_cross_table_segments_environment_matches_oracle)",
+            "Reversal-plus-safety-net-union containment against the real oracle, including a \
+             table-qualified cross-table Segments feature constraint.",
         ),
         Metathesis => ev(
             Dedicated,

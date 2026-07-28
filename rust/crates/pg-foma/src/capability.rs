@@ -2324,11 +2324,11 @@ impl CapabilityPredicate for MultiTableFaithfulThreadingPredicate {
 ///   by-default, never `Admit`.
 /// - **Pattern shape outside scope** (`reversal_construction_attempted == false` — after
 ///   `openspec/changes/plan-construct-coverage-completion` task 4.2, the REMAINING reasons are: the
-///   rule's own LHS/RHS/environment needs a cross-table `Segments` or a disagree-polarity alpha
-///   var, or contains a malformed `Quantifier` (inverted, over-budget-finite, alpha-nested -- a
-///   genuinely UNBOUNDED quantifier is no longer, by itself, out of scope, `openspec/changes/
-///   build-unbounded-quantifier-support`); or the rule has no resolvable owning table. A same-table
-///   `Segments` and any `Anchor` no longer trigger `Refuse` at all (task 4.2's own widening,
+///   rule's own LHS/RHS/environment needs a disagree-polarity alpha var, contains a malformed
+///   `Quantifier` (inverted, over-budget-finite, alpha-nested -- a genuinely UNBOUNDED quantifier
+///   is no longer out of scope, `openspec/changes/build-unbounded-quantifier-support`), or has no
+///   resolvable owning table. Same-table or table-qualified cross-table `Segments` and any `Anchor`
+///   no longer trigger `Refuse` at all (task 4.2's own widening,
 ///   `crate::lower::PatternLowerScope::RewriteRuleCompile`)):
 ///   [`PredicateVerdict::Refuse`], NAMING the exact failing shape via
 ///   [`RightToLeftRewriteDetail::unsupported_reason`] (task 4.2's own "make the witness name that
@@ -5091,12 +5091,11 @@ mod tests {
         );
     }
 
-    /// Negative witness: a `Segments` node referencing a DIFFERENT `CharacterDefinitionTable` than
-    /// the rule's own owning table stays refused -- `unsupported_reason` names it precisely
-    /// (`UnsupportedPatternNode::Segments`), and the predicate `Refuse`s naming the same construct
-    /// (task 4.2's own "make the witness name that specific shape" requirement).
+    /// Positive witness: a `Segments` node referencing a DIFFERENT `CharacterDefinitionTable` is
+    /// admitted to candidate construction as a table-qualified feature constraint. It remains
+    /// `ConfirmOnly`, since confirmation prunes the deliberately recall-safe token union.
     #[test]
-    fn right_to_left_predicate_refuses_cross_table_segments_shaped_rule() {
+    fn right_to_left_predicate_accepts_cross_table_segments_for_confirmation() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>RtlCrossTableSegments</Name>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
             <SegmentDefinitions>
@@ -5141,30 +5140,17 @@ mod tests {
             .right_to_left_detail(PRuleId(0))
             .expect("RightToLeftRewrite must carry a RightToLeftRewriteDetail");
         assert!(
-            !detail.reversal_construction_attempted,
-            "a Segments node referencing a DIFFERENT table than the rule's own owning table must \
-             stay refused -- a raw char-def index has no meaning across two tables' own id spaces"
+            detail.reversal_construction_attempted,
+            "cross-table Segments must retain table identity and reach reversal construction"
         );
-        assert_eq!(
-            detail.unsupported_reason,
-            Some(crate::lower::UnsupportedPatternNode::Segments),
-            "the witness must name Segments specifically, not a generic unsupported-pattern reason"
-        );
+        assert_eq!(detail.unsupported_reason, None);
 
         let predicate = RightToLeftRewriteFaithfulReversalPredicate;
-        match predicate.evaluate(&profile, &leaf_for(PRuleId(0))) {
-            PredicateVerdict::Refuse(diag) => {
-                assert_eq!(
-                    diag.predicate,
-                    "right-to-left-rewrite.faithful-reversal-construction"
-                );
-                assert!(
-                    diag.witness.contains("Segments"),
-                    "witness must name the specific failing shape (Segments): {diag:?}"
-                );
-            }
-            other => panic!("expected Refuse naming Segments, got {other:?}"),
-        }
+        assert_eq!(
+            predicate.evaluate(&profile, &leaf_for(PRuleId(0))),
+            PredicateVerdict::ConfirmOnly,
+            "cross-table Segments must be recall-safe candidate generation, never Refuse or Admit"
+        );
     }
 
     /// Negative witness: a disagree-polarity (`polarity="minus"`) `AlphaVariable` stays refused --

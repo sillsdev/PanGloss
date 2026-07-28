@@ -282,13 +282,11 @@
 //! a malformed `Quantifier`/a disagree-polarity alpha var as the shapes `compile_rtl_branch_net`
 //! excludes. Re-examining each one at the reversal construction's own level (`crate::lower::
 //! PatternLowerScope`'s own doc has the full per-consumer boundary this section only summarizes):
-//! - **`Segments` (same table as the pattern's own).** A pre-segmented literal shape lowers to a
-//!   run of plain [`crate::lower::Slot::Fixed`] atoms, one per interior char-def — structurally
-//!   IDENTICAL to what an equivalent run of `<Segment>` references already lowers to, so nothing
-//!   about `reversed_slots`/`compile_rtl_branch_net` needed to change: the existing "atomic slot,
-//!   reversed by pure position" handling already covers it. Only a `Segments` node referencing a
-//!   DIFFERENT table than the pattern's own stays refused (a raw char-def `u32` index has no
-//!   meaning across two tables' own id spaces) — genuinely out of scope, not merely deferred.
+//! - **`Segments` (same or different table).** Same-table literals lower to ordinary
+//!   [`crate::lower::Slot::Fixed`] atoms. Cross-table literals lower to table-qualified
+//!   [`crate::lower::Slot::ForeignFixed`] atoms and render as the union of owning-table tokens whose
+//!   feature lanes unify with the foreign segment, matching the oracle without reinterpreting raw
+//!   ids across tables. Both remain atomic under reversal.
 //! - **`Anchor` (word-boundary condition).** Lowers to a new [`crate::lower::Slot::Anchor`],
 //!   rendered as foma's own `.#.` xre atom — IDENTICAL text regardless of [`pg_grammar::model::
 //!   AnchorSide`] (`Slot::Anchor`'s own doc has the full argument for why the tag itself never
@@ -328,6 +326,7 @@ use foma::types::Fsm;
 
 use std::collections::HashMap;
 
+use pg_featstruct::flat_unifiable;
 use pg_grammar::chardef::{CharDefId, CharDefTable};
 use pg_grammar::model::{
     Dir, Grammar, MetathesisRuleDef, PRuleId, PhonRuleDef, RewriteMode, RewriteRuleDef,
@@ -355,6 +354,7 @@ const PUA_BASE: u32 = 0xE000;
 /// whether an overlap exists at all — [`Self::aliases_for`] is the render-time consumer.
 pub(crate) struct RepresentationAliasMap {
     by_repr: HashMap<String, Vec<(TableId, CharDefId)>>,
+    by_feature_constraint: HashMap<(TableId, CharDefId), Vec<(TableId, CharDefId)>>,
 }
 
 impl RepresentationAliasMap {
@@ -377,7 +377,29 @@ impl RepresentationAliasMap {
                 }
             }
         }
-        RepresentationAliasMap { by_repr }
+        let mut by_feature_constraint = HashMap::new();
+        for (source_ti, source_table) in g.char_tables.iter().enumerate() {
+            let source_table_id = TableId(source_ti as u16);
+            for (source_cd, source_definition) in source_table.iter() {
+                let mut compatible = Vec::new();
+                for (target_ti, target_table) in g.char_tables.iter().enumerate() {
+                    let target_table_id = TableId(target_ti as u16);
+                    for (target_cd, target_definition) in target_table.iter() {
+                        if flat_unifiable(
+                            target_definition.feature_lanes(),
+                            source_definition.feature_lanes(),
+                        ) {
+                            compatible.push((target_table_id, target_cd));
+                        }
+                    }
+                }
+                by_feature_constraint.insert((source_table_id, source_cd), compatible);
+            }
+        }
+        RepresentationAliasMap {
+            by_repr,
+            by_feature_constraint,
+        }
     }
 
     /// Every `(TableId, CharDefId)` — ALWAYS including `(table_id, cd)` itself — that shares any
@@ -413,6 +435,16 @@ impl RepresentationAliasMap {
             out.push((table_id, cd));
         }
         out
+    }
+    fn feature_constraint_aliases_for(
+        &self,
+        table: TableId,
+        cd: CharDefId,
+    ) -> &[(TableId, CharDefId)] {
+        self.by_feature_constraint
+            .get(&(table, cd))
+            .map(Vec::as_slice)
+            .expect("foreign constraint must name a character definition from this grammar")
     }
 }
 
@@ -501,6 +533,28 @@ impl<'t> SegAlphabet<'t> {
         }
     }
 
+    /// Render a table-qualified cross-table `Segments` atom using the same feature-unification
+    /// semantics as `pg_rules::bridge`. Raw ids are never reinterpreted in the owning table.
+    pub(crate) fn render_foreign_constraint_tokens(
+        &self,
+        source_table: TableId,
+        cd: CharDefId,
+    ) -> Vec<char> {
+        let (_, aliases) = self.aliasing.expect(
+            "foreign Segments rendering requires a grammar-aware, table-qualified alphabet",
+        );
+        let mut chars: Vec<char> = aliases
+            .feature_constraint_aliases_for(source_table, cd)
+            .iter()
+            .map(|(_, candidate)| {
+                char::from_u32(PUA_BASE + candidate.0)
+                    .expect("char table too large for the PUA token scheme")
+            })
+            .collect();
+        chars.sort_unstable();
+        chars.dedup();
+        chars
+    }
     /// Encode a [`pg_shape::Shape`]'s interior nodes (module doc's "already-segmented" shortcut —
     /// root/affix authored text is segmented once at grammar load; this just replays that Shape,
     /// never re-parsing the text) into one token string, Segment and Boundary nodes both kept (a
@@ -1079,8 +1133,8 @@ pub fn compile_rewrite_rule(
 /// `rule.mode`/`rule.dir` are checked FIRST, via [`is_fully_supported_shape`] -- a rule outside
 /// that shape returns `Ok(None)` immediately, exactly the same "uncovered, caller reports it
 /// `skipped`" contract [`pattern_slots`] already uses for an unsupported PATTERN construct (a
-/// malformed `Quantifier`, a cross-table `Segments`, or a disagree-polarity alpha var -- a
-/// same-table `Segments` and any `Anchor` no longer disqualify a rewrite rule's own pattern at all,
+/// malformed `Quantifier` or a disagree-polarity alpha var -- cross-table and same-table
+/// `Segments` plus any `Anchor` no longer disqualify a rewrite rule's own pattern at all,
 /// `openspec/changes/plan-construct-coverage-completion` task 4.2, this function's own
 /// `PatternLowerScope::RewriteRuleCompile` call below). Before this check existed, an unsupported mode/dir was silently
 /// compiled via plain foma `->` as if it were Iterative/LeftToRight -- a WRONG network with no
@@ -1800,7 +1854,9 @@ fn slot_candidates(
     match slot {
         Slot::Fixed(cd) => Some(expand(std::slice::from_ref(cd))),
         Slot::Union(members) => Some(expand(members)),
-        Slot::Alpha { .. } | Slot::Repeat { .. } | Slot::Anchor(_) => None,
+        Slot::ForeignFixed { .. } | Slot::Alpha { .. } | Slot::Repeat { .. } | Slot::Anchor(_) => {
+            None
+        }
     }
 }
 

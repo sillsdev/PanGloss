@@ -84,7 +84,9 @@ use foma::structures::{fsm_empty_set, fsm_empty_string, fsm_isempty};
 use foma::types::Fsm;
 
 use pg_grammar::chardef::{CharDefId, CharDefKind, CharDefTable};
-use pg_grammar::model::{AnchorSide, Grammar, NaturalClassKind, Pattern, PatternNode, VarId};
+use pg_grammar::model::{
+    AnchorSide, Grammar, NaturalClassKind, Pattern, PatternNode, TableId, VarId,
+};
 
 use crate::replace::SegAlphabet;
 
@@ -160,11 +162,10 @@ pub(crate) enum PatternLowerScope {
     /// (`crate::replace::compile_rewrite_rule_subset`/`crate::capability::
     /// rtl_reversal_construction_attempted`, which MUST stay in lockstep with each other -- see that
     /// function's own doc): additionally accepts (1) a `PatternNode::Segments` whose OWN declared
-    /// table is the SAME table as this call's own `table` parameter (lowers to a literal run of
-    /// [`Slot::Fixed`], one per the pre-segmented shape's own interior node, byte-identical to what
-    /// an equivalent run of plain `<Segment>` references would produce) -- a Segments node
-    /// referencing a DIFFERENT table still refuses, honestly, never silently misinterpreting
-    /// another table's char-def id SPACE (a raw `u32` index has no meaning across tables) -- and (2)
+    /// table is the SAME table as this call's own `table` parameter (lowering to [`Slot::Fixed`])
+    /// or a DIFFERENT table (lowering to table-qualified [`Slot::ForeignFixed`], rendered as an
+    /// oracle-equivalent union of feature-unifiable owning-table tokens; raw ids are never
+    /// reinterpreted across tables) -- and (2)
     /// any `PatternNode::Anchor` (lowers to [`Slot::Anchor`], rendered as foma's own `.#.`
     /// word-boundary xre atom). A disagree-polarity alpha var and a malformed `Quantifier` still
     /// refuse under this tier too -- widening is strictly ADDITIVE, never a blanket "accept
@@ -189,6 +190,10 @@ pub(crate) enum Slot {
     /// A single fixed char-def (`PatternNode::CharDef`, or a `Context` with no alpha vars whose
     /// class happens to be a singleton — kept general as [`Slot::Union`] instead, see below).
     Fixed(CharDefId),
+    /// One literal segment from a `PatternNode::Segments` node explicitly segmented against a
+    /// table other than the rewrite rule's owning table. The dense id has meaning only with its
+    /// source table; render-time lowering uses the oracle's cross-table feature constraint.
+    ForeignFixed { table: TableId, cd: CharDefId },
     /// A natural class with no alpha binding at this occurrence: renders as a `[c1|c2|...]` union.
     Union(Vec<CharDefId>),
     /// A natural class occurrence bound to one OR MORE alpha variables (Amharic's CV-merger binds
@@ -321,7 +326,7 @@ fn slots_contain_alpha(slots: &[Slot]) -> bool {
     slots.iter().any(|s| match s {
         Slot::Alpha { .. } => true,
         Slot::Repeat { children, .. } => slots_contain_alpha(children),
-        Slot::Fixed(_) | Slot::Union(_) | Slot::Anchor(_) => false,
+        Slot::Fixed(_) | Slot::ForeignFixed { .. } | Slot::Union(_) | Slot::Anchor(_) => false,
     })
 }
 
@@ -358,8 +363,8 @@ const MAX_QUANTIFIER_BOUND: u32 = 512;
 /// [`Slot::Repeat`]'s own doc; a genuinely UNBOUNDED quantifier is no longer, by itself, out of
 /// scope, `openspec/changes/build-unbounded-quantifier-support`); or, when `scope` is
 /// [`PatternLowerScope::Baseline`], any `Segments`/`Anchor` node at all (when `scope` is
-/// [`PatternLowerScope::RewriteRuleCompile`], a `Segments` node referencing a DIFFERENT table than
-/// `table` still refuses, but a same-table `Segments` and any `Anchor` now lower successfully --
+/// [`PatternLowerScope::RewriteRuleCompile`], both same-table and table-qualified cross-table
+/// `Segments` plus any `Anchor` lower successfully --
 /// `openspec/changes/plan-construct-coverage-completion` task 4.2, [`PatternLowerScope`]'s own doc).
 ///
 /// `table`: every `Context` node's `NatClassId` is resolved against THIS table
@@ -482,29 +487,20 @@ fn slots_from_nodes(
                 if scope != PatternLowerScope::RewriteRuleCompile {
                     return None;
                 }
-                // Cross-table `Segments`: the node's own declared table differs from the table
-                // THIS call is lowering against -- a raw `char_def: u32` index has no meaning
-                // across two different `CharDefTable`s' own `defs` vecs (chardef.rs's own
-                // `CharDefTable::get`: `&self.defs[id.0 as usize]`, silently wrong or panicking if
-                // misapplied to another table), so this stays honestly out of scope rather than
-                // risk misinterpreting another table's char-def id space (`PatternLowerScope`'s own
-                // doc). Pointer identity is exact here: both references are borrowed from the SAME
-                // `g.char_tables` vec this pattern's own grammar owns.
+                // Preserve a foreign `(TableId, CharDefId)` through lowering rather than
+                // reinterpreting its dense id in the owning table. Same-table Segments keep the
+                // exact pre-existing Fixed path.
                 let seg_table = &g.char_tables[seg_table_id.0 as usize];
-                if !std::ptr::eq(seg_table, table) {
-                    return None;
-                }
-                // Same-table: a pre-segmented literal shape lowers to one `Slot::Fixed` per
-                // interior node (bridge.rs's own `PatternNode::Segments` handling does the
-                // identical `shape.shape.interior()` walk for its own, differently-shaped FST
-                // backend -- this is not a re-derivation of new segmentation logic, just this
-                // module's OWN `Slot` vocabulary applied to the same already-segmented data).
-                // `interior()` already excludes the two bracketing anchor nodes `pg_shape::Shape`
-                // wraps every shape in (its own doc: "everything but the two anchors") -- an
-                // entirely different, lower-level concept than this module's own `Slot::Anchor`
-                // (a grammar-level `PatternNode::Anchor` word-boundary CONDITION), never conflated.
                 for (_, _kind, char_def, _flags) in shape.shape.interior() {
-                    out.push(Slot::Fixed(CharDefId(char_def)));
+                    let cd = CharDefId(char_def);
+                    if std::ptr::eq(seg_table, table) {
+                        out.push(Slot::Fixed(cd));
+                    } else {
+                        out.push(Slot::ForeignFixed {
+                            table: *seg_table_id,
+                            cd,
+                        });
+                    }
                 }
             }
             PatternNode::Anchor(side) => {
@@ -733,6 +729,9 @@ pub(crate) fn render_slots(
             // resolved segment is chosen per-tuple from `class_members`' own single-table
             // resolution, out of this step's scope.
             Slot::Fixed(cd) => format_union_tokens(&alphabet.render_tokens(*cd)),
+            Slot::ForeignFixed { table, cd } => {
+                format_union_tokens(&alphabet.render_foreign_constraint_tokens(*table, *cd))
+            }
             Slot::Union(members) => {
                 let mut chars: Vec<char> = Vec::with_capacity(members.len());
                 for m in members {
@@ -814,10 +813,9 @@ pub enum UnsupportedPatternNode {
     /// `PatternNode::Segments` (`<Segments><PhoneticShape>`) — an inline pre-segmented literal shape
     /// group. Under [`PatternLowerScope::Baseline`] ANY `Segments` node triggers this (unchanged,
     /// pre-4.2 behavior); under [`PatternLowerScope::RewriteRuleCompile`]
-    /// (`openspec/changes/plan-construct-coverage-completion` task 4.2) a SAME-table `Segments` no
-    /// longer reaches this variant at all (it lowers to a literal run of `Slot::Fixed`) — only a
-    /// `Segments` node referencing a DIFFERENT table than the pattern's own still does, since a raw
-    /// char-def index has no meaning across two tables' own id spaces.
+    /// (`openspec/changes/plan-construct-coverage-completion` task 4.2), neither same-table nor
+    /// table-qualified cross-table `Segments` reaches this variant; both preserve table semantics
+    /// and lower successfully. This variant remains the baseline-scope refusal only.
     Segments,
     /// `PatternNode::Anchor` (`initialBoundaryCondition`/`finalBoundaryCondition`, or a bare
     /// leading/trailing `#` in an environment string) — a word-boundary condition. Under
@@ -943,15 +941,8 @@ fn diagnose_unsupported_nodes(
                     return Some(UnsupportedPatternNode::Quantifier);
                 }
             }
-            PatternNode::Segments {
-                table: seg_table_id,
-                ..
-            } => {
+            PatternNode::Segments { .. } => {
                 if scope != PatternLowerScope::RewriteRuleCompile {
-                    return Some(UnsupportedPatternNode::Segments);
-                }
-                let seg_table = &g.char_tables[seg_table_id.0 as usize];
-                if !std::ptr::eq(seg_table, table) {
                     return Some(UnsupportedPatternNode::Segments);
                 }
             }

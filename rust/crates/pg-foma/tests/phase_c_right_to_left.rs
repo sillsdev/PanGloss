@@ -941,6 +941,11 @@ fn segments_environment_fixture_path() -> std::path::PathBuf {
         "../../../conformance-staging/edge-cases/right-to-left-segments-environment/grammar.xml",
     )
 }
+fn cross_table_segments_environment_fixture_path() -> std::path::PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join(
+        "../../../conformance-staging/edge-cases/right-to-left-cross-table-segments-environment/grammar.xml",
+    )
+}
 
 fn load_fixture(path: std::path::PathBuf) -> Grammar {
     let xml =
@@ -1110,6 +1115,63 @@ fn rtl_segments_environment_fixture_matches_oracle() {
     );
 }
 
+/// Cross-table `Segments` containment: the node is segmented against table 0 while the RTL rule
+/// belongs to table 1, with the shared `y` deliberately stored at different raw indices.
+#[test]
+fn rtl_cross_table_segments_environment_matches_oracle() {
+    let g = load_fixture(cross_table_segments_environment_fixture_path());
+    let PhonRuleDef::Rewrite(rule) = &g.prules[0] else {
+        panic!("expected a Rewrite-kind rule");
+    };
+    assert_eq!(rule.dir, Dir::RightToLeft);
+    let PatternNode::Segments { table, .. } = &rule.subrules[0]
+        .right_env
+        .as_ref()
+        .expect("right environment")
+        .nodes[0]
+    else {
+        panic!("fixture must contain a Segments right environment");
+    };
+    assert_ne!(
+        *table, g.strata[1].table,
+        "Segments must name the foreign table"
+    );
+    assert!(
+        is_fully_supported_shape(&g, rule),
+        "cross-table Segments must reach the table-aware RTL construction"
+    );
+
+    let table = &g.char_tables[1];
+    let alphabet = SegAlphabet::new(table);
+    let root1 = entry_id_of(&g, "eRoot1");
+    let root2 = entry_id_of(&g, "eRoot2");
+    let allowed: HashSet<u32> = [root1, root2]
+        .into_iter()
+        .map(|id| g.entries[id.0 as usize].morpheme.0)
+        .collect();
+    let budget = ComposeBudget::with_caps(
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        None,
+    );
+    let entries: HashSet<LexEntryId> = [root1, root2].into_iter().collect();
+    let uemit = emit_underlying_filtered_with_budget(&g, &alphabet, Some(&entries), &budget)
+        .expect("lexc emission");
+    let net = compile_net(&g, &alphabet, &g.prules[0], &uemit.lexc_source);
+    let morpher = Morpher::new(&g, usize::MAX);
+
+    for word in ["ey", "a", "ay"] {
+        let fst = alphabet
+            .encode_query(word)
+            .map(|query| fst_candidate_set(&net, &query))
+            .unwrap_or_default();
+        let oracle = oracle_candidate_set(&morpher, word, &allowed);
+        assert_eq!(fst, oracle, "cross-table RTL containment for {word:?}");
+    }
+}
 /// **Genuinely-differs-from-LeftToRight test** for the `Segments` shape (no oracle dependency --
 /// `pg_rules::rewrite`'s own pre-existing `width_matches` limitation for a `Segments`-shaped LHS,
 /// documented in `conformance-staging/edge-cases/right-to-left-segments-environment/STAGING.md`'s

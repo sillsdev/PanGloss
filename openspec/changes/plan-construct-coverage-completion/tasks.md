@@ -53,23 +53,18 @@
 
 - [x] 4.1 **DONE 2026-07-26** `Compounding.recursive`: rule-graph reachability + depth-budgeted construction + containment
       test + new `edge-cases` fixture
-- [ ] 4.2 `RightToLeftRewrite`: extend `compile_rtl_branch_net` to currently-excluded pattern shapes,
-      one shape at a time, each with its own fixture
-      **PARTIALLY CLOSED 2026-07-27 — two additional shapes.**
-      `PatternNode::Anchor` now lowers to foma's native `.#.` boundary atom, and a same-table
-      `PatternNode::Segments` now lowers to the same fixed-slot sequence as equivalent segment
-      references. The widening is typed and scope-gated: ordinary rewrite compilation receives it;
-      simultaneous-overlap lowering and metathesis stay on the pre-existing baseline.
-      Each shape has its own staged fixture (`right-to-left-anchor-environment`,
-      `right-to-left-segments-environment`), dedicated proposer-to-`pg_parse::Morpher` containment
-      tests (`rtl_anchor_fixture_matches_oracle`, `rtl_segments_environment_fixture_matches_oracle`),
-      and capability cross-checks proving `ConfirmOnly`. Red/green mutation checks established that
-      disabling either admission makes only its corresponding containment test fail at the real
-      `compile_rewrite_rule_subset` → `compile_rtl_branch_net` boundary, then pass again on restore.
-      The parent queue remains open for the honest residual exclusions: cross-table `Segments`
-      requires a table-aware slot representation; disagree-polarity alpha variables require general
-      alpha-lowering semantics (not an RTL reversal special case); malformed/resource-exceeding
-      quantifiers and a rule with no owning table remain explicit `Refuse` witnesses.
+- [x] 4.2 **DONE 2026-07-28** `RightToLeftRewrite`: extend `compile_rtl_branch_net` to
+      additional pattern shapes, one shape at a time, each with its own fixture.
+      `PatternNode::Anchor`, same-table `Segments`, and table-qualified cross-table `Segments` now
+      compile on the rewrite-only lowering tier while simultaneous-overlap and metathesis retain
+      their baseline scope. Cross-table segments preserve `(TableId, CharDefId)` in
+      `Slot::ForeignFixed` and render as the recall-safe union of owning-table tokens whose feature
+      lanes unify with the foreign constraint, matching `pg_rules::bridge` without reinterpreting
+      raw ids across tables. Dedicated staged fixtures and proposer-to-`pg_parse::Morpher`
+      containment tests cover all three shapes; the cross-table fixture deliberately misaligns `y`
+      at raw indices 0 and 3. Capability characterization now reaches reversal construction and
+      remains `ConfirmOnly`. Disagree-polarity alpha variables, malformed/resource-exceeding
+      quantifiers, and rules without an owning table remain explicit, orthogonal `Refuse` witnesses.
 - [x] 4.3 `CircumfixOutputAction`: census which allomorph shapes fail `is_structural_rule`/
       `build_structural_composites` today — **DONE 2026-07-25**,
       `docs/conformance/circumfix-structural-composite-census.md`. Key finding: the *mechanism* is
@@ -253,5 +248,7 @@ light is what gets cited — and it would sit next to a documented census of ope
       top-doc and the gate test's own top-doc updated from ADVISORY-FIRST to BUILD-BREAKING; the
       stale `uncovered()` doc comment (which claimed `ContainsUnsupported` rows were included) was
       also corrected to match the method's actual `TupleStatus::Uncovered`-only filter.
-- [ ] 6.4 Confirm the definition of done (design.md D7): zero un-evidenced ledger rows, zero
-      `Unmappable` rows, zero unresolved NEEDS-DECISION rows, both gates build-breaking
+- [x] 6.4 **DONE 2026-07-28** Confirm the definition of done (design.md D7): the
+      build-breaking conformance gate reports 20/20 covered and zero unmappable rows; the
+      build-breaking interaction gate reports all 7/7 required tuples covered; the ledger and
+      structural-witness liveness gates are green; no unresolved NEEDS-DECISION rows remain.

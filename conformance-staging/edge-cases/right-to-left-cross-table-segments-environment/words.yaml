@@ -1,0 +1,40 @@
+language: RightToLeftCrossTableSegmentsEnvironment
+inspired_by: ["synthetic cross-table right-to-left Segments environment probe"]
+sources:
+  - "openspec/changes/plan-construct-coverage-completion task 4.2"
+requires: [phonology]
+words:
+  - word: ey
+    note: ROOT1's obligatory rewritten surface; the foreign-table y constraint matches owning-table y by features.
+    provenance: "openspec/changes/plan-construct-coverage-completion task 4.2"
+    parses:
+      - signature: "ROOT1|ey"
+        rules: []
+        exercises:
+          - "RewriteRule direction (Dir): right-to-left"
+  - word: a
+    note: ROOT2 remains unchanged because no y follows.
+    provenance: "openspec/changes/plan-construct-coverage-completion task 4.2"
+    parses:
+      - signature: "ROOT2|a"
+        rules: []
+        exercises:
+          - "RewriteRule direction (Dir): right-to-left"
+  - word: ay
+    note: ROOT1's raw form is invalid because the matching RTL rewrite is obligatory.
+    provenance: "openspec/changes/plan-construct-coverage-completion task 4.2"
+    expect_fail: true
+    exercises:
+      - "RewriteRule direction (Dir): right-to-left"
+  - word: e
+    note: Rewritten a without the licensing y is invalid.
+    provenance: "openspec/changes/plan-construct-coverage-completion task 4.2"
+    expect_fail: true
+    exercises:
+      - "RewriteRule direction (Dir): right-to-left"
+  - word: y
+    note: A bare environment segment is not a root.
+    provenance: "openspec/changes/plan-construct-coverage-completion task 4.2"
+    expect_fail: true
+    exercises:
+      - "RewriteRule direction (Dir): right-to-left"
