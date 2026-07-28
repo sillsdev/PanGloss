@@ -7,9 +7,9 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use pg_foma::analyzer::FomaProposer;
 use pg_foma::compose_budget::ApplyBudget;
 use pg_foma::composite::{FomaAnalyzer, ProfiledFomaApplyOutcome};
+use pg_foma::templated_compile::{compile_templated_morphotactics, TemplatedCompileOutput};
 use pg_grammar::model::Grammar;
 
 const APPLY_PATH_CAP: usize = 50_000;
@@ -61,34 +61,47 @@ fn run() -> ExitCode {
     }
 
     let grammar = load_aweti();
-    let (compiled, profile) = FomaProposer::new_with_profile(&grammar);
-    let proposer = match compiled {
-        Ok(proposer) => proposer,
+    let compiled = match compile_templated_morphotactics(&grammar) {
+        Ok(compiled) => compiled,
         Err(error) => {
-            eprintln!("UNMEASURED stage=compile reason=unsupported error={error}");
+            eprintln!("UNMEASURED stage=p6-templated-compile reason=unsupported error={error}");
             return ExitCode::from(2);
         }
     };
-    let (states, arcs) = proposer.network_counts();
+    let TemplatedCompileOutput {
+        network: _,
+        proposer,
+        profile,
+    } = compiled;
     println!(
-        "COMPILE total_ms={} states={} arcs={} lexc_lines={:?}",
-        profile.total_elapsed_millis, states, arcs, profile.total_lexc_lines
+        "COMPILE states={} arcs={} lexc_states={} lexc_arcs={} rules={} skipped_rules={} \
+         tuple_report_rules={} lexc_lines={}",
+        profile.final_state_count,
+        profile.final_arc_count,
+        profile.lexc_state_count,
+        profile.lexc_arc_count,
+        profile.phonological_rule_count,
+        profile.skipped_rules.len(),
+        profile.tuple_reports.len(),
+        proposer.report.counts.lexc_lines,
     );
-    for stage in &profile.stages {
+    for (stage, elapsed) in [
+        ("templated_emit", profile.templated_emit_elapsed),
+        ("lexc_compile", profile.lexc_compile_elapsed),
+        ("rule_compile_compose", profile.rule_compile_compose_elapsed),
+        ("cleanup_compile", profile.cleanup_compile_elapsed),
+        (
+            "final_compose_minimize",
+            profile.final_compose_minimize_elapsed,
+        ),
+    ] {
         println!(
-            "COMPILE_STAGE stage={:?} elapsed_ms={}",
-            stage.stage, stage.elapsed_millis
+            "COMPILE_STAGE stage={stage} elapsed_ms={:.3}",
+            elapsed.as_secs_f64() * 1_000.0
         );
     }
-    drop(proposer);
 
-    let mut analyzer = match FomaAnalyzer::new(&grammar) {
-        Ok(analyzer) => analyzer,
-        Err(error) => {
-            eprintln!("UNMEASURED stage=composite-build reason=unsupported error={error}");
-            return ExitCode::from(2);
-        }
-    };
+    let mut analyzer = FomaAnalyzer::from_precompiled_proposer(&grammar, proposer);
     let budget = ApplyBudget::with_caps(Some(APPLY_PATH_CAP), None);
     for word in words {
         match analyzer.analyze_word_with_diagnostics_budgeted(&word, &budget) {

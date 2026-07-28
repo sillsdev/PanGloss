@@ -237,6 +237,17 @@ impl<'g> FomaAnalyzer<'g> {
         })
     }
 
+    /// Build the ordinary propose→peel→confirm analyzer around an already-compiled proposer.
+    /// Every non-proposer field is initialized identically to [`Self::new`].
+    pub fn from_precompiled_proposer(g: &'g Grammar, proposer: FomaProposer) -> Self {
+        Self::from_cached(
+            g,
+            proposer,
+            ReduplicationPeeler::new(g),
+            confirm::build_morpheme_owners(g),
+        )
+    }
+
     /// `propose(word)` UNION `peel_candidates(word, propose)` (deduped by `(morphemes, root_index)`,
     /// first-seen order) → `confirm_all` on every surviving candidate → concatenate every match.
     /// Empty (never panics) for a word neither the proposer nor the peel can reach at all, and for
@@ -911,6 +922,39 @@ mod tests {
             profiled.diagnostics.confirmed_analyses,
             profiled.outcome.confirmed
         );
+        assert_eq!(
+            profiled.diagnostics.proposal.raw_paths,
+            profiled.diagnostics.proposal.decoded_paths
+                + profiled.diagnostics.proposal.malformed_paths
+        );
+    }
+
+    #[test]
+    fn from_precompiled_proposer_matches_normal_results_and_capped_diagnostics() {
+        let g = pg_grammar::load(DIAGNOSTICS_FIXTURE)
+            .unwrap_or_else(|e| panic!("fixture failed to load: {e}"));
+        let mut normal = FomaAnalyzer::new(&g).expect("normal analyzer compiles");
+        let expected = normal.analyze_word("ka");
+
+        let proposer = FomaProposer::new(&g).expect("precompiled proposer compiles");
+        let mut precompiled = FomaAnalyzer::from_precompiled_proposer(&g, proposer);
+        let budget = ApplyBudget::with_caps(Some(100), Some(100));
+        let profiled = match precompiled.analyze_word_with_diagnostics_budgeted("ka", &budget) {
+            ProfiledFomaApplyOutcome::Complete(profiled) => profiled,
+            ProfiledFomaApplyOutcome::Incomplete { dimension, .. } => {
+                panic!("generous tiny-fixture budget tripped: {dimension:?}")
+            }
+        };
+
+        assert_eq!(
+            pg_parse::result_signature(&profiled.outcome.analyses),
+            pg_parse::result_signature(&expected.analyses)
+        );
+        assert_eq!(
+            profiled.outcome.candidates_generated,
+            expected.candidates_generated
+        );
+        assert_eq!(profiled.outcome.confirmed, expected.confirmed);
         assert_eq!(
             profiled.diagnostics.proposal.raw_paths,
             profiled.diagnostics.proposal.decoded_paths

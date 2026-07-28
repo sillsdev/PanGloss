@@ -61,6 +61,15 @@
 #![forbid(unsafe_code)]
 
 pub mod analyzer;
+/// Step 3a of `openspec/changes/reify-compilation-plans` (design.md D3): [`build::
+/// build_controllable`], a [`plan::Plan`] interpreter for the controllable subtree (the `Gate`
+/// node and its per-group `Compose{LexiconFragment, Replace}` children [`enumerate::
+/// enumerate_default`] emits) into a real, composed [`foma::types::Fsm`] -- proven equivalent to
+/// [`gate::compile_gated_grammar_with_budget`]'s own direct-compile output by an apply-based test.
+/// Composite/structural-composite markers stay out of scope (that path's artifact type is a lexc
+/// `String`, not this module's `Fsm`); see that module's own doc for the full scope and the
+/// per-group-Replace-variance obstacle this step surfaced.
+pub mod build;
 /// Step 1 of `openspec/changes/add-capability-characteristics-check` (design.md D1/D2/D3): the
 /// `CharacteristicsProfile` projection, the `CapabilityPredicate` trait + `PredicateVerdict`, the
 /// exhaustive default-deny `characterize`, and the worked `simultaneous.subrule-overlap`
@@ -75,6 +84,13 @@ pub mod capability;
 /// resulting `CompileDecision` from one call. Still purely additive and check-only -- see that
 /// module's own doc.
 pub mod capability_entry;
+/// Phase B composition-path budget guards (`docs/fst-plan/phase-b-compose-budget-design.md`):
+/// [`morphotactics::EnumerationBudget`]'s sibling for the P6 composition path ([`replace`],
+/// [`gate`], [`uflexc`]) -- size/count caps plus an opt-in wall-clock deadline for every
+/// compose/union/minimize call on that path. See that module's own doc for the full design.
+pub mod compose_budget;
+pub mod composite;
+pub mod confirm;
 /// Task 5.1 of `openspec/changes/add-capability-characteristics-check` (ADR 0001): the
 /// conformance-coverage cross-check — [`conformance_coverage::construct_ids_for`] (the
 /// [`capability::CharacteristicKind`] → `machine/conformance/constructs.txt` identifier mapping,
@@ -85,22 +101,6 @@ pub mod capability_entry;
 /// state. The fixture-replay glue that builds the "passing" set lives in
 /// `tests/conformance_coverage_gate.rs` (dev-dependency-only).
 pub mod conformance_coverage;
-/// Step 3a of `openspec/changes/reify-compilation-plans` (design.md D3): [`build::
-/// build_controllable`], a [`plan::Plan`] interpreter for the controllable subtree (the `Gate`
-/// node and its per-group `Compose{LexiconFragment, Replace}` children [`enumerate::
-/// enumerate_default`] emits) into a real, composed [`foma::types::Fsm`] -- proven equivalent to
-/// [`gate::compile_gated_grammar_with_budget`]'s own direct-compile output by an apply-based test.
-/// Composite/structural-composite markers stay out of scope (that path's artifact type is a lexc
-/// `String`, not this module's `Fsm`); see that module's own doc for the full scope and the
-/// per-group-Replace-variance obstacle this step surfaced.
-pub mod build;
-/// Phase B composition-path budget guards (`docs/fst-plan/phase-b-compose-budget-design.md`):
-/// [`morphotactics::EnumerationBudget`]'s sibling for the P6 composition path ([`replace`],
-/// [`gate`], [`uflexc`]) -- size/count caps plus an opt-in wall-clock deadline for every
-/// compose/union/minimize call on that path. See that module's own doc for the full design.
-pub mod compose_budget;
-pub mod composite;
-pub mod confirm;
 /// `openspec/changes/define-grammar-coverage-contract` (demoted to an evidence role — `docs/adr/
 /// 0001-honest-capability-boundary.md`; `openspec/changes/STAGING.md` Stage 0B): the one-time,
 /// audited coverage LEDGER over the frozen `pg-grammar/src/model.rs` construct set —
@@ -112,6 +112,11 @@ pub mod confirm;
 /// that module's own doc for the full per-task assessment of what already existed vs. what this
 /// module adds.
 pub mod coverage_ledger;
+/// E2 feasibility probe (not mainline; see that module's doc): does token-space Infix-rule
+/// splicing (Amharic root-and-pattern interdigitation) reach 100% recall composed with
+/// [`replace`]'s rule cascade? Standalone, additive, same status as [`replace`]/[`uflexc`].
+pub mod e2_infix_probe;
+pub mod emit;
 /// Step 2 of `openspec/changes/reify-compilation-plans` (design.md D2): `enumerate_default`, which
 /// builds today's compilation topology for a `Grammar` as a single reified [`plan::Plan`], verified
 /// structurally against the real `preexpand::should_run`/`emit::probe_would_refuse`/`gate::
@@ -124,11 +129,6 @@ pub mod coverage_ledger;
 /// to `gate.rs`'s own, separate compile entry point; see that module's own doc for full scope and
 /// the judgment calls it surfaces.
 pub mod enumerate;
-/// E2 feasibility probe (not mainline; see that module's doc): does token-space Infix-rule
-/// splicing (Amharic root-and-pattern interdigitation) reach 100% recall composed with
-/// [`replace`]'s rule cascade? Standalone, additive, same status as [`replace`]/[`uflexc`].
-pub mod e2_infix_probe;
-pub mod emit;
 /// P6 feasibility prototype sibling of [`replace`]/[`uflexc`]: static MPR/POS subrule gating (the
 /// `docs/fst-plan/p6-prototype-report.md` §6 item 4 gap). See that module's doc for the design and
 /// why it is a flag-free static partition rather than a flag-diacritics encoding.
@@ -174,6 +174,14 @@ pub mod peel;
 /// content-addressed compilation-`Plan` data type. Purely additive -- does not rewire
 /// [`replace`]/[`gate`]/[`emit`]/[`preexpand`]; see that module's own doc for full scope.
 pub mod plan;
+/// `openspec/changes/visualize-compilation-plan`: renders a [`plan::Plan`] as a versioned JSON
+/// document ([`plan_diagram::PlanDocument`], schema-versioned like [`coverage_ledger`]/[`health`])
+/// and, from that document, a mermaid diagram ([`plan_diagram::render_mermaid`]) labelled by the
+/// linguistic work each node performs and marked with its REAL [`capability`] verdict (never
+/// inferred from a node's mere presence). Read-only over `plan`/`enumerate`/`capability`/
+/// `plan_interaction_coverage` — no compile path is touched. See that module's own doc for the full
+/// contract, including the honest summarization convention for large plans.
+pub mod plan_diagram;
 /// Stage 3 of `openspec/changes/add-pairwise-grammar-interaction-coverage` (the REFRAMED design):
 /// tree-structured node/subtree interaction coverage over the reified compilation plan --
 /// [`plan_interaction_coverage::AdjacencyTuple`] extraction + tagging,
@@ -186,32 +194,8 @@ pub mod plan;
 /// module's own doc for the mapping and `tests/plan_interaction_coverage_gate.rs` for the flipped
 /// gate.
 pub mod plan_interaction_coverage;
-/// `openspec/changes/visualize-compilation-plan`: renders a [`plan::Plan`] as a versioned JSON
-/// document ([`plan_diagram::PlanDocument`], schema-versioned like [`coverage_ledger`]/[`health`])
-/// and, from that document, a mermaid diagram ([`plan_diagram::render_mermaid`]) labelled by the
-/// linguistic work each node performs and marked with its REAL [`capability`] verdict (never
-/// inferred from a node's mere presence). Read-only over `plan`/`enumerate`/`capability`/
-/// `plan_interaction_coverage` — no compile path is touched. See that module's own doc for the full
-/// contract, including the honest summarization convention for large plans.
-pub mod plan_diagram;
 pub mod precision;
 pub(crate) mod preexpand;
-/// Section 2 of `openspec/changes/certify-language-readiness` (tasks.md §2): the declared,
-/// versioned threshold policy — [`readiness_policy::ThresholdPolicy`]/[`readiness_policy::
-/// Threshold`]/[`readiness_policy::Calibration`] — a certification verdict ([`readiness_verdict`])
-/// is measured against. Purely additive data/schema, same "define the versioned schema" precedent
-/// as [`health`]/[`plan_diagram`]. See that module's own doc for exactly which seeded values are
-/// measured vs. explicitly-marked un-calibrated placeholders.
-pub mod readiness_policy;
-/// Section 3 of `openspec/changes/certify-language-readiness` (tasks.md §3): the tiered
-/// certification verdict — [`readiness_verdict::certify`] evaluates a grammar's REAL capability
-/// decision (always calling [`capability_entry::evaluate_capability`] itself), its ADR-0005 trust
-/// status, and its measured facts against a [`readiness_policy::ThresholdPolicy`], producing a
-/// [`readiness_verdict::ReadinessReport`] that distinguishes `not-yet` (actionable by the language
-/// team) from `not-supported` (actionable only by compiler work) and never lets an override-
-/// trusted or unassessed check render as passing. See that module's own doc for the full honesty-
-/// rule contract.
-pub mod readiness_verdict;
 /// `openspec/changes/add-fst-compilation-health-audit`, tasks.md section 1 ("Preflight"): the
 /// cheap, pre-compile health pass -- [`preflight::preflight_findings`] turns
 /// [`capability::characterize`]'s already-computed [`capability::CharacteristicsProfile`] and
@@ -229,6 +213,22 @@ pub mod preflight;
 /// own doc for the Phase B gate this stays clear of, and [`health_evaluator::profile_findings`]
 /// for how this feeds the previously-unpopulated profile-sourced health findings.
 pub mod profile;
+/// Section 2 of `openspec/changes/certify-language-readiness` (tasks.md §2): the declared,
+/// versioned threshold policy — [`readiness_policy::ThresholdPolicy`]/[`readiness_policy::
+/// Threshold`]/[`readiness_policy::Calibration`] — a certification verdict ([`readiness_verdict`])
+/// is measured against. Purely additive data/schema, same "define the versioned schema" precedent
+/// as [`health`]/[`plan_diagram`]. See that module's own doc for exactly which seeded values are
+/// measured vs. explicitly-marked un-calibrated placeholders.
+pub mod readiness_policy;
+/// Section 3 of `openspec/changes/certify-language-readiness` (tasks.md §3): the tiered
+/// certification verdict — [`readiness_verdict::certify`] evaluates a grammar's REAL capability
+/// decision (always calling [`capability_entry::evaluate_capability`] itself), its ADR-0005 trust
+/// status, and its measured facts against a [`readiness_policy::ThresholdPolicy`], producing a
+/// [`readiness_verdict::ReadinessReport`] that distinguishes `not-yet` (actionable by the language
+/// team) from `not-supported` (actionable only by compiler work) and never lets an override-
+/// trusted or unassessed check render as passing. See that module's own doc for the full honesty-
+/// rule contract.
+pub mod readiness_verdict;
 /// P6 feasibility prototype (docs/fst-plan/p6-prototype-report.md): replace-rule compilation +
 /// underlying-form lexc, NOT wired into the mainline `emit`/`analyzer` path. See that module's doc.
 pub mod replace;
@@ -242,8 +242,18 @@ pub mod replace;
 /// to `add-compilation-cost-planner`.
 pub mod selection;
 pub mod tags;
+/// Exact shared P6 templated-morphotactics compile pipeline and its stage profile.
+pub mod templated_compile;
 /// P6 feasibility prototype sibling of [`replace`]: the underlying-form lexc emitter.
 pub mod uflexc;
+/// `openspec/changes/cover-unordered-morph-rules`: the `MorphRuleOrder::Unordered` chain-depth-
+/// bounded/unbounded compile-time cardinality gate -- [`unordered::check_unordered_strata_bound`],
+/// wired into [`analyzer::FomaProposer::new_with_budget`], the second real production consumer of
+/// [`compose_budget::ComposeBudget`]'s chain-depth-shaped budget discipline after
+/// [`peel::ReduplicationPeeler`]. See that module's own doc for the full design, including this
+/// change's own load-bearing finding that the "ordering-union proposal" design.md calls for is an
+/// EXISTING mechanism (`crate::emit::build_deriv_chain`), not a new one.
+pub(crate) mod unordered;
 /// `openspec/changes/harden-foma-resource-safety` section 3/4 (`openspec/changes/
 /// IMPLEMENTATION-READINESS.md` R2): the compile-worker watchdog -- a versioned request/result
 /// protocol, a killable native worker process (`std::process::Command`/`Child::try_wait`/
@@ -255,14 +265,6 @@ pub mod uflexc;
 /// dependencies are scoped to the identical target cfg in `Cargo.toml`.
 #[cfg(not(target_arch = "wasm32"))]
 pub mod worker;
-/// `openspec/changes/cover-unordered-morph-rules`: the `MorphRuleOrder::Unordered` chain-depth-
-/// bounded/unbounded compile-time cardinality gate -- [`unordered::check_unordered_strata_bound`],
-/// wired into [`analyzer::FomaProposer::new_with_budget`], the second real production consumer of
-/// [`compose_budget::ComposeBudget`]'s chain-depth-shaped budget discipline after
-/// [`peel::ReduplicationPeeler`]. See that module's own doc for the full design, including this
-/// change's own load-bearing finding that the "ordering-union proposal" design.md calls for is an
-/// EXISTING mechanism (`crate::emit::build_deriv_chain`), not a new one.
-pub(crate) mod unordered;
 
 /// Re-exported so downstream crates (and the P0 tests) have a single, versioned door into the
 /// `foma` runtime rather than depending on it directly.

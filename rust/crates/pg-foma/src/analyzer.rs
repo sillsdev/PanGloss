@@ -18,6 +18,7 @@ use foma::options::FomaOptions;
 use foma::structures::fsm_sort_arcs;
 use foma::types::ApplyHandle;
 
+use pg_grammar::chardef::{CharDefKind, CharDefTable};
 use pg_grammar::model::Grammar;
 
 use crate::compose_budget::{ApplyBudget, ApplyDimension, ApplyOutcome, ComposeBudget};
@@ -147,9 +148,72 @@ pub struct FomaProposer {
     // is consumed by `apply_init` and can be (is) dropped once the handle exists.
     handle: Box<ApplyHandle>,
     pub report: EmitReport,
+    query_encoder: Option<SegmentQueryEncoder>,
+}
+
+/// Owned form of [`crate::replace::SegAlphabet::encode_query`]. P6's compiled network is in
+/// char-def-token space, but a proposer must outlive the borrowed `SegAlphabet` used to build it.
+struct SegmentQueryEncoder {
+    /// NFD representations, longest first, paired with their PUA token.
+    representations: Vec<(Vec<char>, char)>,
+}
+
+impl SegmentQueryEncoder {
+    fn new(table: &CharDefTable) -> Self {
+        let alphabet = crate::replace::SegAlphabet::new(table);
+        let mut representations: Vec<(Vec<char>, char)> = Vec::new();
+        for (id, definition) in table.iter() {
+            if definition.kind() != CharDefKind::Segment {
+                continue;
+            }
+            for representation in definition.representations_nfd() {
+                representations.push((representation.chars().collect(), alphabet.token(id)));
+            }
+        }
+        representations.sort_by_key(|(representation, _)| std::cmp::Reverse(representation.len()));
+        SegmentQueryEncoder { representations }
+    }
+
+    fn encode(&self, word: &str) -> Option<String> {
+        let normalized: Vec<char> = pg_grammar::nfd::nfd(word).chars().collect();
+        let mut encoded = String::with_capacity(normalized.len());
+        let mut position = 0;
+        while position < normalized.len() {
+            let (representation, token) = self
+                .representations
+                .iter()
+                .find(|(representation, _)| normalized[position..].starts_with(representation))?;
+            encoded.push(*token);
+            position += representation.len();
+        }
+        Some(encoded)
+    }
 }
 
 impl FomaProposer {
+    /// Build a proposer around an already-compiled network. This constructor performs exactly one
+    /// [`apply_init`] and does not emit, compile, sort, compose, or minimize the supplied network.
+    pub fn from_precompiled_network(net: &foma::types::Fsm, report: EmitReport) -> Self {
+        FomaProposer {
+            handle: apply_init(net),
+            query_encoder: None,
+            report,
+        }
+    }
+
+    /// Attach P6's representation-to-token query encoding to a precompiled proposer.
+    pub(crate) fn with_segment_query_encoder(mut self, table: &CharDefTable) -> Self {
+        self.query_encoder = Some(SegmentQueryEncoder::new(table));
+        self
+    }
+
+    fn encode_query(&self, word: &str) -> Option<String> {
+        match &self.query_encoder {
+            Some(encoder) => encoder.encode(word),
+            None => Some(pg_grammar::nfd::nfd(word)),
+        }
+    }
+
     /// Emit `g`'s lexc source, compile it, and build the (word-independent) `ApplyHandle` once.
     /// `Err` iff `foma`'s lexc compiler itself rejects the source (a bug in this crate's emitter,
     /// not a grammar-content problem — the emitter's own `uncovered` list is how grammar CONTENT
@@ -273,6 +337,7 @@ impl FomaProposer {
                 let proposer = FomaProposer {
                     handle: apply_init(&net),
                     report: result.report,
+                    query_encoder: None,
                 };
                 (
                     Ok(proposer),
@@ -332,7 +397,9 @@ impl FomaProposer {
         word: &str,
         budget: &ApplyBudget,
     ) -> ApplyOutcome<Vec<Candidate>> {
-        let normalized = pg_grammar::nfd::nfd(word);
+        let Some(normalized) = self.encode_query(word) else {
+            return ApplyOutcome::Complete(Vec::new());
+        };
         let mut seen: HashSet<(Vec<u32>, i32)> = HashSet::new();
         let mut out = Vec::new();
         let mut paths_decoded: usize = 0;
@@ -393,7 +460,12 @@ impl FomaProposer {
         word: &str,
         budget: &ApplyBudget,
     ) -> (ApplyOutcome<Vec<Candidate>>, ProposalDiagnostics) {
-        let normalized = pg_grammar::nfd::nfd(word);
+        let Some(normalized) = self.encode_query(word) else {
+            return (
+                ApplyOutcome::Complete(Vec::new()),
+                ProposalDiagnostics::default(),
+            );
+        };
         let mut seen: HashSet<(Vec<u32>, i32)> = HashSet::new();
         let mut out = Vec::new();
         let mut diagnostics = ProposalDiagnostics::default();
@@ -900,6 +972,38 @@ mod apply_budget_tests {
             diagnostics.decoded_paths + diagnostics.malformed_paths
         );
         assert_eq!(diagnostics.unique_candidates, 0);
+    }
+
+    #[test]
+    fn from_precompiled_network_matches_normal_candidates_and_diagnostics() {
+        let mut normal = proposer();
+        let net = normal.network().clone();
+        let report = normal.report.clone();
+        let expected = normal.propose("ka");
+
+        let mut precompiled = FomaProposer::from_precompiled_network(&net, report);
+        let (actual, diagnostics) = precompiled.propose_with_diagnostics("ka");
+        let identities = |candidates: &[Candidate]| {
+            candidates
+                .iter()
+                .map(|candidate| {
+                    (
+                        candidate
+                            .morphemes
+                            .iter()
+                            .map(|morpheme| morpheme.0)
+                            .collect::<Vec<_>>(),
+                        candidate.root_index,
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(identities(&actual), identities(&expected));
+        assert_eq!(
+            diagnostics.raw_paths,
+            diagnostics.decoded_paths + diagnostics.malformed_paths
+        );
+        assert_eq!(diagnostics.unique_candidates, actual.len());
     }
 }
 

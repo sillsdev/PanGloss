@@ -112,18 +112,16 @@ use foma::dynarray::{
     fsm_construct_set_initial,
 };
 use foma::extract::fsm_upper;
-use foma::lexcread::fsm_lexc_parse_string;
 use foma::minimize::fsm_minimize;
 use foma::options::FomaOptions;
-use foma::regex::fsm_parse_regex;
 use foma::structures::fsm_isempty;
 use foma::types::Fsm;
 
-use pg_foma::emit::{emit_underlying_templated, FomaTier};
-use pg_foma::replace::{compile_and_compose_rules, SegAlphabet};
+use pg_foma::emit::FomaTier;
+use pg_foma::replace::SegAlphabet;
 use pg_foma::tags;
-use pg_grammar::chardef::CharDefKind;
-use pg_grammar::model::{Grammar, PhonRuleDef};
+use pg_foma::templated_compile::compile_templated_morphotactics;
+use pg_grammar::model::Grammar;
 use pg_parse::{Morpher, ParseOptions};
 
 /// Same large-stack convention `p6_gate_parity.rs`'s Amharic regression test and every P6
@@ -352,133 +350,56 @@ fn a_templated_emit_compile_and_compose() {
 
 fn run_emit_compile_compose() {
     let g = load_grammar();
-    let table = &g.char_tables[0];
-    let alphabet = SegAlphabet::new(table);
-    let opts = FomaOptions::default();
-
-    let t_emit = Instant::now();
-    let result = emit_underlying_templated(&g, &alphabet, None);
-    let emit_elapsed = t_emit.elapsed();
+    let compiled =
+        compile_templated_morphotactics(&g).expect("Aweti templated compile pipeline must succeed");
+    let report = &compiled.proposer.report;
+    let profile = &compiled.profile;
     println!(
-        "aweti templated emit: {emit_elapsed:?}; tier={:?}; uncovered={}",
-        result.report.tier,
-        result.report.uncovered.len()
+        "aweti templated emit: {:?}; tier={:?}; uncovered={}",
+        profile.templated_emit_elapsed,
+        report.tier,
+        report.uncovered.len()
     );
-    for u in &result.report.uncovered {
-        println!("  uncovered: [{}] {} -- {}", u.kind, u.id, u.reason);
+    for uncovered in &report.uncovered {
+        println!(
+            "  uncovered: [{}] {} -- {}",
+            uncovered.kind, uncovered.id, uncovered.reason
+        );
     }
-
     assert!(
-        !matches!(result.report.tier, FomaTier::Unsupported { .. }),
+        !matches!(report.tier, FomaTier::Unsupported { .. }),
         "emit_underlying_templated must not be Unsupported for Aweti: {:?}",
-        result.report.tier
+        report.tier
     );
-    assert!(
-        result.report.enum_budget_exceeded.is_none(),
-        "the enumeration budget must not trip for the templated path (it never calls the \
-         composite pipeline that trips it for the mainline emit()): {:?}",
-        result.report.enum_budget_exceeded
-    );
-    assert!(
-        result.report.counts.entries >= 855,
-        "counts.entries={} looks too small for the real Aweti grammar (expected >= 855)",
-        result.report.counts.entries
-    );
-    assert!(
-        result.report.counts.rules >= 135,
-        "counts.rules={} looks too small for the real Aweti grammar (expected >= 135)",
-        result.report.counts.rules
-    );
-    assert!(
-        result.report.counts.lexc_lines > 0,
-        "expected at least one lexc line"
-    );
-
-    let t_lexc = Instant::now();
-    let lexc_net = fsm_lexc_parse_string(&opts, None, &result.lexc_source)
-        .unwrap_or_else(|| panic!("Aweti templated lexc failed to foma-compile"));
-    let lexc_elapsed = t_lexc.elapsed();
-    println!(
-        "lexc compile: {lexc_elapsed:?}; net: {} states, {} arcs",
-        lexc_net.statecount, lexc_net.arccount
-    );
-
-    let mut rules_in_order: Vec<&PhonRuleDef> = Vec::new();
-    for st in &g.strata {
-        for &prid in &st.prules {
-            rules_in_order.push(&g.prules[prid.0 as usize]);
-        }
-    }
+    assert!(report.enum_budget_exceeded.is_none());
+    assert!(report.counts.entries >= 855);
+    assert!(report.counts.rules >= 135);
+    assert!(report.counts.lexc_lines > 0);
     assert_eq!(
-        rules_in_order.len(),
-        18,
+        profile.phonological_rule_count, 18,
         "Aweti declares exactly 18 phonological rules"
     );
-
-    let mut skipped_rules: Vec<String> = Vec::new();
-    let mut tuple_reports = Vec::new();
-    let t_rules = Instant::now();
-    let rule_net = compile_and_compose_rules(
-        &opts,
-        &g,
-        &alphabet,
-        &rules_in_order,
-        &mut skipped_rules,
-        &mut tuple_reports,
-    )
-    .expect("compose budget ok")
-    .expect("Aweti's 18 rules must compile");
     println!(
-        "rule compile+compose: {:?}; skipped={skipped_rules:?}",
-        t_rules.elapsed()
+        "lexc compile: {:?}; net: {} states, {} arcs",
+        profile.lexc_compile_elapsed, profile.lexc_state_count, profile.lexc_arc_count
     );
-    // UPDATE (2026-07-25, `compile-simultaneous-rewrites`, commit 42d5757 "feat(pg-foma): compile
-    // admitted Simultaneous rewrites"): Aweti's `RewriteMode::Simultaneous` rule
-    // (`2996dcb3-2e00-4d41-926e-fe5ed11f0753`) now ALSO compiles -- `capability::
-    // simultaneous_rule_admitted_for_compile` proves this rule's subrules pairwise non-overlapping
-    // (the D3 `simultaneous.subrule-overlap` predicate), so `is_fully_supported_shape` admits it and
-    // `compile_rewrite_rule_subset` compiles it via the same sequential-compose loop `Iterative`
-    // rules use (module doc on `compile_rewrite_rule_subset`, "Mode/dir detection"). Combined with
-    // the earlier `compile-right-to-left-rewrites` landing (module doc's "UPDATE" note just above),
-    // ALL 18 of Aweti's phonological rules now compile honestly -- `skipped_rules` is genuinely
-    // empty, real forward progress, not a stale/relaxed expectation. Pinning `[]` (not just "fewer
-    // are skipped") is still the meaningful guard: if a rule EVER starts being skipped again (a
-    // regression) or a 19th/20th rule is added and mis-shaped, this fails and forces this gate's
-    // recall floor / miss list to be revisited (module doc).
-    let mut skipped_sorted = skipped_rules.clone();
+    println!(
+        "rule compile+compose: {:?}; skipped={:?}",
+        profile.rule_compile_compose_elapsed, profile.skipped_rules
+    );
+    let mut skipped_sorted = profile.skipped_rules.clone();
     skipped_sorted.sort();
     assert_eq!(
         skipped_sorted,
         Vec::<String>::new(),
-        "expected all 18 of Aweti's phonological rules to compile now that both RightToLeft and \
-         Simultaneous are supported; got {skipped_rules:?}"
+        "expected all 18 Aweti phonological rules to compile"
     );
-
-    let boundary_tokens: Vec<char> = table
-        .iter()
-        .filter(|(_, cd)| cd.kind() == CharDefKind::Boundary)
-        .map(|(id, _)| alphabet.token(id))
-        .collect();
-    let cleanup_regex = boundary_tokens
-        .iter()
-        .map(|c| format!("{c} -> 0"))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let cleanup_net = fsm_parse_regex(&opts, &cleanup_regex, None, None)
-        .unwrap_or_else(|| panic!("boundary cleanup regex failed to compile: {cleanup_regex:?}"));
-
-    let t_compose = Instant::now();
-    let composed = fsm_compose(&opts, lexc_net, rule_net);
-    let composed = fsm_compose(&opts, composed, cleanup_net);
-    let composed = fsm_minimize(&opts, composed);
     println!(
         "full composition + minimize: {:?}; final net: {} states, {} arcs",
-        t_compose.elapsed(),
-        composed.statecount,
-        composed.arccount
+        profile.final_compose_minimize_elapsed, profile.final_state_count, profile.final_arc_count
     );
     assert!(
-        composed.statecount > 0,
+        compiled.network.statecount > 0,
         "composed network must be non-empty"
     );
 }
@@ -541,53 +462,17 @@ fn run_full_corpus_recall() {
     let opts = FomaOptions::default();
     let width = tags::tag_width(g.morphemes.len());
 
-    let result = emit_underlying_templated(&g, &alphabet, None);
-    let lexc_net = fsm_lexc_parse_string(&opts, None, &result.lexc_source)
-        .unwrap_or_else(|| panic!("Aweti templated lexc failed to foma-compile"));
+    let compiled =
+        compile_templated_morphotactics(&g).expect("Aweti templated compile pipeline must succeed");
     println!(
         "lexc net: {} states, {} arcs",
-        lexc_net.statecount, lexc_net.arccount
+        compiled.profile.lexc_state_count, compiled.profile.lexc_arc_count
     );
-
-    let mut rules_in_order: Vec<&PhonRuleDef> = Vec::new();
-    for st in &g.strata {
-        for &prid in &st.prules {
-            rules_in_order.push(&g.prules[prid.0 as usize]);
-        }
-    }
-    let mut skipped_rules: Vec<String> = Vec::new();
-    let mut tuple_reports = Vec::new();
-    let rule_net = compile_and_compose_rules(
-        &opts,
-        &g,
-        &alphabet,
-        &rules_in_order,
-        &mut skipped_rules,
-        &mut tuple_reports,
-    )
-    .expect("compose budget ok")
-    .expect("Aweti's 18 rules must compile");
-
-    let boundary_tokens: Vec<char> = table
-        .iter()
-        .filter(|(_, cd)| cd.kind() == CharDefKind::Boundary)
-        .map(|(id, _)| alphabet.token(id))
-        .collect();
-    let cleanup_regex = boundary_tokens
-        .iter()
-        .map(|c| format!("{c} -> 0"))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let cleanup_net = fsm_parse_regex(&opts, &cleanup_regex, None, None)
-        .unwrap_or_else(|| panic!("boundary cleanup regex failed to compile: {cleanup_regex:?}"));
-
-    let composed = fsm_compose(&opts, lexc_net, rule_net);
-    let composed = fsm_compose(&opts, composed, cleanup_net);
-    let composed = fsm_minimize(&opts, composed);
     println!(
         "composed net (lexc+rules+cleanup): {} states, {} arcs",
-        composed.statecount, composed.arccount
+        compiled.profile.final_state_count, compiled.profile.final_arc_count
     );
+    let composed = compiled.network;
 
     let morpher = Morpher::new(&g, ORACLE_STEP_CAP);
     let popts = ParseOptions::default();
@@ -700,47 +585,10 @@ fn run_spot_check() {
     let g = load_grammar();
     let table = &g.char_tables[0];
     let alphabet = SegAlphabet::new(table);
-    let opts = FomaOptions::default();
 
-    let result = emit_underlying_templated(&g, &alphabet, None);
-    let lexc_net = fsm_lexc_parse_string(&opts, None, &result.lexc_source)
-        .unwrap_or_else(|| panic!("Aweti templated lexc failed to foma-compile"));
-
-    let mut rules_in_order: Vec<&PhonRuleDef> = Vec::new();
-    for st in &g.strata {
-        for &prid in &st.prules {
-            rules_in_order.push(&g.prules[prid.0 as usize]);
-        }
-    }
-    let mut skipped_rules: Vec<String> = Vec::new();
-    let mut tuple_reports = Vec::new();
-    let rule_net = compile_and_compose_rules(
-        &opts,
-        &g,
-        &alphabet,
-        &rules_in_order,
-        &mut skipped_rules,
-        &mut tuple_reports,
-    )
-    .expect("compose budget ok")
-    .expect("Aweti's 18 rules must compile");
-
-    let boundary_tokens: Vec<char> = table
-        .iter()
-        .filter(|(_, cd)| cd.kind() == CharDefKind::Boundary)
-        .map(|(id, _)| alphabet.token(id))
-        .collect();
-    let cleanup_regex = boundary_tokens
-        .iter()
-        .map(|c| format!("{c} -> 0"))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let cleanup_net = fsm_parse_regex(&opts, &cleanup_regex, None, None)
-        .unwrap_or_else(|| panic!("boundary cleanup regex failed to compile: {cleanup_regex:?}"));
-
-    let composed = fsm_compose(&opts, lexc_net, rule_net);
-    let composed = fsm_compose(&opts, composed, cleanup_net);
-    let composed = fsm_minimize(&opts, composed);
+    let compiled =
+        compile_templated_morphotactics(&g).expect("Aweti templated compile pipeline must succeed");
+    let composed = compiled.network;
     let mut handle = apply_init(&composed);
 
     let morpher = Morpher::new(&g, ORACLE_STEP_CAP);
@@ -850,45 +698,9 @@ fn run_tag_atomicity_boundary() {
     let opts = FomaOptions::default();
     let width = tags::tag_width(g.morphemes.len());
 
-    let result = emit_underlying_templated(&g, &alphabet, None);
-    let lexc_net = fsm_lexc_parse_string(&opts, None, &result.lexc_source)
-        .unwrap_or_else(|| panic!("Aweti templated lexc failed to foma-compile"));
-
-    let mut rules_in_order: Vec<&PhonRuleDef> = Vec::new();
-    for st in &g.strata {
-        for &prid in &st.prules {
-            rules_in_order.push(&g.prules[prid.0 as usize]);
-        }
-    }
-    let mut skipped_rules: Vec<String> = Vec::new();
-    let mut tuple_reports = Vec::new();
-    let rule_net = compile_and_compose_rules(
-        &opts,
-        &g,
-        &alphabet,
-        &rules_in_order,
-        &mut skipped_rules,
-        &mut tuple_reports,
-    )
-    .expect("compose budget ok")
-    .expect("Aweti's 18 rules must compile");
-
-    let boundary_tokens: Vec<char> = table
-        .iter()
-        .filter(|(_, cd)| cd.kind() == CharDefKind::Boundary)
-        .map(|(id, _)| alphabet.token(id))
-        .collect();
-    let cleanup_regex = boundary_tokens
-        .iter()
-        .map(|c| format!("{c} -> 0"))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let cleanup_net = fsm_parse_regex(&opts, &cleanup_regex, None, None)
-        .unwrap_or_else(|| panic!("boundary cleanup regex failed to compile: {cleanup_regex:?}"));
-
-    let composed = fsm_compose(&opts, lexc_net, rule_net);
-    let composed = fsm_compose(&opts, composed, cleanup_net);
-    let composed = fsm_minimize(&opts, composed);
+    let compiled =
+        compile_templated_morphotactics(&g).expect("Aweti templated compile pipeline must succeed");
+    let composed = compiled.network;
 
     // Four bare-root probes, all `root_index==0`/zero-affix single-morpheme entries:
     //   - "mã" (400): the historically-missing word this whole investigation started from.
@@ -897,7 +709,12 @@ fn run_tag_atomicity_boundary() {
     //   - "ta" (894): recalled control, no `0` in its zero-padded id.
     //   - "kitã" (395): recalled control that DOES carry a combining-mark root, no `0` in its
     //     zero-padded id -- proves the boundary-combining-mark fix is irrelevant to this bug.
-    let probes = [("mã", 400u32), ("ma", 69u32), ("ta", 894u32), ("kitã", 395u32)];
+    let probes = [
+        ("mã", 400u32),
+        ("ma", 69u32),
+        ("ta", 894u32),
+        ("kitã", 395u32),
+    ];
 
     for (word, mid) in probes {
         let query = alphabet
