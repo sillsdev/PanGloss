@@ -26,9 +26,13 @@ These separate Aweti trace results are included for Task 4/5 evidence, not compa
 
 Authoritative detail: [before](aweti-profile-before.md) and [after](aweti-profile-after.md).
 
+The ranked, safety-bounded follow-on experiments are documented in
+[Aweti performance follow-on](../../docs/fst-plan/aweti-performance-follow-on.md).
+
 ## Durable evidence
 
 - [Sena release log](sena-release.log)
+
 - [Indonesian release log](indonesian-release.log)
 - [Amharic release transcript](amharic-release.log)
 - [Aweti release log](aweti-release.log)
