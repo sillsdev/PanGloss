@@ -366,12 +366,12 @@ below 100%, so completion is not claimed and the goal stays open.**
 including bounded diagnostics, the shipped preparation speedup, and Phase C
 review.
 
-**Task 9: IN PROGRESS.** The audit is in
+**Task 9: DONE.** The audit is in
 `reports/aweti-completion/four-language-results.md`. Independent review exposed
 the weak historical recall floor; the gate now enforces exactly 100/106 and the
-six-word miss set. Task 1 has now been freshly reproduced from the clean
-`fa81ec8` worktree with exact command/toolchain/wall/watchdog metadata and raw
-stdout/stderr for all seven commands. Final-commit verification remains.
+six-word miss set. Task 1 was freshly reproduced from the clean `fa81ec8`
+worktree with complete raw evidence. Commit `313a9d2` passed the exact P6 release
+gate (4/4, 100/106) and strict OpenSpec validation (30/30).
 
 **Overall goal: OPEN.** Aweti is 100/106, not 100%; the six residual words are
 genuine morphology/rule gaps. The approved design from `ae87f0c` and the

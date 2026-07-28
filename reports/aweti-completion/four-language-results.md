@@ -37,7 +37,7 @@ The ranked, safety-bounded follow-on experiments are documented in
 - [Amharic release transcript](amharic-release.log)
 - [Aweti release log](aweti-release.log)
 
-## Task 9 completion audit — evidence status: in progress
+## Task 9 completion audit — evidence status: complete
 
 This is an audit of evidence, not a declaration of full Aweti correctness. The approved design is restored verbatim from `ae87f0c` at `docs/superpowers/specs/2026-07-20-aweti-correctness-performance-design.md`; its permanent 100% proposer-recall requirement remains unmet.
 
@@ -51,7 +51,7 @@ This is an audit of evidence, not a declaration of full Aweti correctness. The a
 | Phase C stage-2 coverage is parity, honest skip, or detected failure | Plan Task 6 execution record; Phase C integration tests | Recorded Phase C batches plus fresh `cargo test -p pg-foma --test phase_c_right_to_left -- --nocapture --test-threads=1` | Recorded 18/18 then 13/13; fresh RTL 9/9; fresh coverage gates 1/1 and 2/2 | **Proven** for the integrated focused regression scope. |
 | Four-language release evidence has real denominators and exclusions | This matrix and four linked release logs | The four commands in the Task 7 plan block, each with `--include-ignored --nocapture --test-threads=1` | Sena 326/326 analyses; Indonesian 97/97 with 7 redup exclusions; Amharic 31/31 after 6 engine timeouts; Aweti 100/106 | **Proven** by durable captures; Amharic is explicitly transcript provenance. |
 | Publish a safe prioritized performance plan | [Aweti performance follow-on](../../docs/fst-plan/aweti-performance-follow-on.md) | Reader-tested documentation review; future candidate commands are specified in that plan | Six ranked options each map to red test, metric, bounded experiment, equality invariant, and ship rule; shortcuts rejected | Proven as a planning deliverable, not an implemented performance gain. |
-| Final focused/regression verification and independent evidence review | Task 9 plan gate | P6 release gate; `phase_c_right_to_left`; `conformance_coverage_gate`; `plan_interaction_coverage_gate`; independent Luna review | Working-tree results: P6 4/4 at exact 100/106; RTL 9/9; coverage 1/1 and 2/2. Review found the weak recall assertion, which was repaired and red/green mutation-tested. | **Pending final-commit rerun**; Task 9 is not yet complete. |
+| Final focused/regression verification and independent evidence review | Task 9 plan gate | P6 release gate; `phase_c_right_to_left`; `conformance_coverage_gate`; `plan_interaction_coverage_gate`; independent Luna review | Commit `313a9d2`: P6 4/4 at exact 100/106 and OpenSpec 30/30; earlier integrated run: RTL 9/9 and coverage 1/1 plus 2/2. Review found the weak recall assertion, which was repaired and red/green mutation-tested. | **Proven**; Task 9 evidence audit is complete. |
 
 ### Unresolved Aweti miss classes and completion decision
 
@@ -59,7 +59,7 @@ The unresolved words are `muʼazan`, `tsãkỹjokwaw`, `moʼazan`, `tsãn`, `mo�
 
 [Residual miss cluster investigation](residual-miss-clusters.md) narrows the six words into four evidence-backed diagnostic groups and specifies the next red probes without claiming unproven root causes.
 
-The overall Aweti correctness goal remains **open**. Current recall is **100/106 (94.3%)**, not 100%. The approved design and Task 1/2 evidence are present, including the freshly reproduced raw Task 1 captures; Task 9 still needs verification from the final commit.
+The overall Aweti correctness goal remains **open**. Current recall is **100/106 (94.3%)**, not 100%. The approved design, Task 1/2 evidence, and Task 9 final-commit verification are present; the six residual misses remain.
 
 ### Final-verification qualification (discovered during Task 9)
 
@@ -74,4 +74,4 @@ The Amharic matrix row means **six engine timeouts**, not six exclusions; its de
 | Task 1 — clean bounded baseline | [Fresh historical reproduction](baseline-fa81ec8/SUMMARY.md) contains metadata and raw stdout/stderr for library, Sena, Indonesian, Amharic, and separately bounded Aweti a/b/c at clean `fa81ec8`. | **Proven**: 7/7 exit 0; Aweti 68/104, 14,806/270,541; a/b/c within 60/120/30 seconds. |
 | Task 2 — isolate bare-root failure | Commit `f892cfd`, [diagnostic record](bare-root-diagnostic.md), `tags.rs`, and `d_bare_root_tag_atomicity_boundary` identify the first failing `fsm_intersect`/sigma boundary, record the RED sigma-membership assertion, and reject the combining-mark hypothesis. | **Contemporaneously evidenced and regression-tested.** |
 
-Accordingly, every requested artifact and verification input is now locatable. The completion audit still awaits its final-commit rerun, and the higher-level correctness goal remains open because six genuine morphology/rule misses keep proposer recall below the approved 100% requirement.
+Accordingly, every requested artifact and verification input is locatable and Task 9's evidence audit is complete. The higher-level correctness goal remains open because six genuine morphology/rule misses keep proposer recall below the approved 100% requirement.
