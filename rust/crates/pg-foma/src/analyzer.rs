@@ -60,10 +60,7 @@ pub enum FomaError {
     /// the SAME [`crate::compose_budget::ComposeError`] this crate's other typed budget errors
     /// carry, unwrapped to this variant's own fields for a caller that never needs to depend on
     /// `crate::compose_budget` directly.
-    UnorderedOrderingMultiplicityExceeded {
-        rule_count: usize,
-        limit: usize,
-    },
+    UnorderedOrderingMultiplicityExceeded { rule_count: usize, limit: usize },
 }
 
 impl fmt::Display for FomaError {
@@ -108,6 +105,19 @@ impl fmt::Display for FomaError {
 impl std::error::Error for FomaError {}
 
 pub type Result<T> = std::result::Result<T, FomaError>;
+
+/// Opt-in per-word proposal measurements. These counters describe only paths actually pulled from
+/// foma before completion or a cooperative [`ApplyBudget`] trip.
+#[derive(Clone, Debug, Default)]
+pub struct ProposalDiagnostics {
+    pub raw_paths: usize,
+    pub raw_bytes: usize,
+    pub decoded_paths: usize,
+    pub malformed_paths: usize,
+    pub unique_candidates: usize,
+    pub traversal_elapsed: std::time::Duration,
+    pub decode_dedup_elapsed: std::time::Duration,
+}
 
 /// Minimum arc count before `FomaProposer::new` pays `fsm_sort_arcs`'s one-time cost to switch
 /// `apply_up`'s per-word traversal from foma's linear arc-scan branch to its binary-search branch
@@ -317,7 +327,11 @@ impl FomaProposer {
     /// every check below is `Some(cap) if count > cap`, so a `None` cap is always `false` -- which
     /// is exactly how [`Self::propose`] proves its own behavior is unchanged by this addition
     /// without duplicating the decode loop.
-    pub fn propose_budgeted(&mut self, word: &str, budget: &ApplyBudget) -> ApplyOutcome<Vec<Candidate>> {
+    pub fn propose_budgeted(
+        &mut self,
+        word: &str,
+        budget: &ApplyBudget,
+    ) -> ApplyOutcome<Vec<Candidate>> {
         let normalized = pg_grammar::nfd::nfd(word);
         let mut seen: HashSet<(Vec<u32>, i32)> = HashSet::new();
         let mut out = Vec::new();
@@ -354,6 +368,102 @@ impl FomaProposer {
             }
         }
         ApplyOutcome::Complete(out)
+    }
+
+    /// Opt-in diagnostic sibling of [`Self::propose`]. The ordinary proposal APIs do not call a
+    /// clock or allocate diagnostic state; callers pay this instrumentation cost only here.
+    pub fn propose_with_diagnostics(
+        &mut self,
+        word: &str,
+    ) -> (Vec<Candidate>, ProposalDiagnostics) {
+        let (outcome, diagnostics) =
+            self.propose_with_diagnostics_budgeted(word, &ApplyBudget::unbounded());
+        match outcome {
+            ApplyOutcome::Complete(candidates) => (candidates, diagnostics),
+            ApplyOutcome::Incomplete { .. } => {
+                unreachable!("ApplyBudget::unbounded() can never report Incomplete")
+            }
+        }
+    }
+
+    /// [`Self::propose_budgeted`] with opt-in path, byte, decode, dedup, and timing diagnostics.
+    /// Budget dimensions and first-seen candidate order are identical to the ordinary path.
+    pub fn propose_with_diagnostics_budgeted(
+        &mut self,
+        word: &str,
+        budget: &ApplyBudget,
+    ) -> (ApplyOutcome<Vec<Candidate>>, ProposalDiagnostics) {
+        let normalized = pg_grammar::nfd::nfd(word);
+        let mut seen: HashSet<(Vec<u32>, i32)> = HashSet::new();
+        let mut out = Vec::new();
+        let mut diagnostics = ProposalDiagnostics::default();
+        let mut paths = self.handle.up(&normalized);
+
+        loop {
+            let traversal_start = Instant::now();
+            let raw = paths.next();
+            diagnostics.traversal_elapsed += traversal_start.elapsed();
+            let Some(raw) = raw else { break };
+
+            let decode_start = Instant::now();
+            diagnostics.raw_paths += 1;
+            diagnostics.raw_bytes += raw.len();
+            let path = match tags::decode_path(&raw) {
+                Some(path) => {
+                    diagnostics.decoded_paths += 1;
+                    Some(path)
+                }
+                None => {
+                    diagnostics.malformed_paths += 1;
+                    None
+                }
+            };
+
+            if let Some(limit) = budget.path_cap() {
+                if diagnostics.raw_paths > limit {
+                    diagnostics.decode_dedup_elapsed += decode_start.elapsed();
+                    return (
+                        ApplyOutcome::Incomplete {
+                            dimension: ApplyDimension::DecodedPaths,
+                            value: diagnostics.raw_paths,
+                            limit,
+                        },
+                        diagnostics,
+                    );
+                }
+            }
+
+            let Some(path) = path else {
+                diagnostics.decode_dedup_elapsed += decode_start.elapsed();
+                continue;
+            };
+            for candidate in tags::to_candidates(&path) {
+                let key = (
+                    candidate.morphemes.iter().map(|m| m.0).collect(),
+                    candidate.root_index,
+                );
+                if seen.insert(key) {
+                    out.push(candidate);
+                    diagnostics.unique_candidates = out.len();
+                    if let Some(limit) = budget.candidate_cap() {
+                        if out.len() > limit {
+                            diagnostics.decode_dedup_elapsed += decode_start.elapsed();
+                            return (
+                                ApplyOutcome::Incomplete {
+                                    dimension: ApplyDimension::Candidates,
+                                    value: out.len(),
+                                    limit,
+                                },
+                                diagnostics,
+                            );
+                        }
+                    }
+                }
+            }
+            diagnostics.decode_dedup_elapsed += decode_start.elapsed();
+        }
+
+        (ApplyOutcome::Complete(out), diagnostics)
     }
 
     /// Serializes this proposer's own compiled network to foma's existing binary-memory encoding
@@ -408,7 +518,9 @@ impl FomaProposer {
 /// packaged-analyzer loader, can reconstruct the compiled network from `.pgpack` bytes using the
 /// SAME entry point `make-wasm-analysis-only/design.md` names (`fsm_read_binary_mem`), never a
 /// second parser.
-pub fn read_foma_binary_payload(bytes: &[u8]) -> std::result::Result<foma::types::Fsm, foma::error::FomaError> {
+pub fn read_foma_binary_payload(
+    bytes: &[u8],
+) -> std::result::Result<foma::types::Fsm, foma::error::FomaError> {
     foma::io::fsm_read_binary_mem(bytes)
 }
 
@@ -731,6 +843,63 @@ mod apply_budget_tests {
                 panic!("a generous cap must not trip on a tiny fixture (dimension: {dimension:?})")
             }
         }
+    }
+
+    #[test]
+    fn propose_with_diagnostics_matches_plain_candidates_and_accounts_for_every_raw_path() {
+        let mut plain = proposer();
+        let expected = plain.propose("ka");
+
+        let mut profiled = proposer();
+        let (actual, diagnostics) = profiled.propose_with_diagnostics("ka");
+
+        let identities = |candidates: &[Candidate]| {
+            candidates
+                .iter()
+                .map(|c| {
+                    (
+                        c.morphemes.iter().map(|m| m.0).collect::<Vec<_>>(),
+                        c.root_index,
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(identities(&actual), identities(&expected));
+        assert_eq!(
+            diagnostics.raw_paths,
+            diagnostics.decoded_paths + diagnostics.malformed_paths
+        );
+        assert!(
+            diagnostics.raw_paths > 0,
+            "fixture must exercise apply_up traversal"
+        );
+        assert!(
+            diagnostics.raw_bytes > 0,
+            "raw path byte accounting must be populated"
+        );
+        assert_eq!(diagnostics.unique_candidates, actual.len());
+    }
+
+    #[test]
+    fn propose_with_diagnostics_budgeted_preserves_the_first_path_budget_trip() {
+        let mut p = proposer();
+        let budget = ApplyBudget::with_caps(Some(0), None);
+        let (outcome, diagnostics) = p.propose_with_diagnostics_budgeted("ka", &budget);
+
+        assert!(matches!(
+            outcome,
+            ApplyOutcome::Incomplete {
+                dimension: ApplyDimension::DecodedPaths,
+                value: 1,
+                limit: 0,
+            }
+        ));
+        assert_eq!(diagnostics.raw_paths, 1);
+        assert_eq!(
+            diagnostics.raw_paths,
+            diagnostics.decoded_paths + diagnostics.malformed_paths
+        );
+        assert_eq!(diagnostics.unique_candidates, 0);
     }
 }
 

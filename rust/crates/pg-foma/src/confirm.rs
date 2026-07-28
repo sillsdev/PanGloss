@@ -30,6 +30,15 @@ use crate::tags::Candidate;
 /// searches on rule-diverse words). 3 measured best on the Sena 40-word set.
 pub const RULE_UNION_SLACK: usize = 3;
 
+/// True execution topology for one [`confirm_batch_with_diagnostics`] call. `confirmation_groups`
+/// counts fused internal work groups; each group currently performs exactly one restricted
+/// `Morpher::parse_word_selected` call, counted separately in `confirmation_calls`.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct ConfirmBatchDiagnostics {
+    pub confirmation_groups: usize,
+    pub confirmation_calls: usize,
+}
+
 /// Which grammar object owns a given [`MorphemeId`] — ported from `hc-hybrid/src/replay.rs`'s
 /// `MorphemeOwner` (`replay.rs:70-74`) verbatim. See that module's doc for the full quirk-8
 /// rationale (why a `CompoundingRule` never owns a morpheme and so is never this enum's `MRule`
@@ -258,6 +267,32 @@ pub fn confirm_batch(
     candidates: &[Candidate],
     word: &str,
 ) -> Vec<Vec<(EngineAnalysis, String, String)>> {
+    confirm_batch_impl(g, owners, morpher, candidates, word, None)
+}
+
+pub(crate) fn confirm_batch_with_diagnostics(
+    g: &Grammar,
+    owners: &[Option<MorphemeOwner>],
+    morpher: &Morpher,
+    candidates: &[Candidate],
+    word: &str,
+) -> (
+    Vec<Vec<(EngineAnalysis, String, String)>>,
+    ConfirmBatchDiagnostics,
+) {
+    let mut diagnostics = ConfirmBatchDiagnostics::default();
+    let buckets = confirm_batch_impl(g, owners, morpher, candidates, word, Some(&mut diagnostics));
+    (buckets, diagnostics)
+}
+
+fn confirm_batch_impl(
+    g: &Grammar,
+    owners: &[Option<MorphemeOwner>],
+    morpher: &Morpher,
+    candidates: &[Candidate],
+    word: &str,
+    mut diagnostics: Option<&mut ConfirmBatchDiagnostics>,
+) -> Vec<Vec<(EngineAnalysis, String, String)>> {
     let mut buckets: Vec<Vec<(EngineAnalysis, String, String)>> =
         (0..candidates.len()).map(|_| Vec::new()).collect();
 
@@ -355,6 +390,10 @@ pub fn confirm_batch(
             });
     }
 
+    if let Some(diagnostics) = diagnostics.as_deref_mut() {
+        diagnostics.confirmation_groups = fused.len();
+    }
+
     for chunk in fused.values() {
         let members = &chunk.members;
         let union_rules = &chunk.union_rules;
@@ -385,6 +424,9 @@ pub fn confirm_batch(
             }
         };
 
+        if let Some(diagnostics) = diagnostics.as_deref_mut() {
+            diagnostics.confirmation_calls += 1;
+        }
         let outcome = morpher.parse_word_selected(
             word,
             &ParseOptions::default(),

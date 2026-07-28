@@ -19,8 +19,10 @@ use rayon::prelude::*;
 use pg_grammar::model::Grammar;
 use pg_parse::{Morpher, WordAnalysis};
 
-use crate::analyzer::{FomaError, FomaProposer};
-use crate::compose_budget::{ComposeBudget, ComposeError};
+use crate::analyzer::{FomaError, FomaProposer, ProposalDiagnostics};
+use crate::compose_budget::{
+    ApplyBudget, ApplyDimension, ApplyOutcome, ComposeBudget, ComposeError,
+};
 use crate::confirm::{self, MorphemeOwner};
 use crate::peel::ReduplicationPeeler;
 use crate::tags::Candidate;
@@ -143,6 +145,58 @@ pub struct FomaOutcome {
     pub peel_chain_depth_error: Option<ComposeError>,
 }
 
+/// Opt-in runtime measurements for the exact proposal/peel/confirm pipeline used by
+/// [`FomaAnalyzer::analyze_word_with_diagnostics`]. Proposal counters are summed across the direct
+/// word proposal and every root proposal requested by reduplication peeling.
+#[derive(Clone, Debug, Default)]
+pub struct FomaWordDiagnostics {
+    pub proposal: ProposalDiagnostics,
+    pub proposal_calls: usize,
+    pub confirm_batch_calls: usize,
+    pub confirmation_groups: usize,
+    pub confirmation_calls: usize,
+    pub confirmed_analyses: usize,
+    pub confirmation_elapsed: Duration,
+}
+
+/// A complete ordinary [`FomaOutcome`] paired with opt-in runtime diagnostics.
+pub struct ProfiledFomaOutcome {
+    pub outcome: FomaOutcome,
+    pub diagnostics: FomaWordDiagnostics,
+}
+
+/// Bounded diagnostics result. An incomplete proposal is never sent to confirmation.
+pub enum ProfiledFomaApplyOutcome {
+    Complete(ProfiledFomaOutcome),
+    Incomplete {
+        dimension: ApplyDimension,
+        value: usize,
+        limit: usize,
+        diagnostics: FomaWordDiagnostics,
+    },
+}
+
+fn accumulate_proposal_diagnostics(total: &mut ProposalDiagnostics, next: ProposalDiagnostics) {
+    total.raw_paths += next.raw_paths;
+    total.raw_bytes += next.raw_bytes;
+    total.decoded_paths += next.decoded_paths;
+    total.malformed_paths += next.malformed_paths;
+    total.unique_candidates += next.unique_candidates;
+    total.traversal_elapsed += next.traversal_elapsed;
+    total.decode_dedup_elapsed += next.decode_dedup_elapsed;
+}
+
+fn remaining_apply_budget(budget: &ApplyBudget, used: &ProposalDiagnostics) -> ApplyBudget {
+    ApplyBudget::with_caps(
+        budget
+            .path_cap()
+            .map(|limit| limit.saturating_sub(used.raw_paths)),
+        budget
+            .candidate_cap()
+            .map(|limit| limit.saturating_sub(used.unique_candidates)),
+    )
+}
+
 /// One grammar's compiled foma proposer, uncapped verify [`Morpher`], prebuilt morpheme-owner map,
 /// and redup peeler, owned together (plan §1: "propose→confirm composite"). `'g` ties this to the
 /// same `&Grammar` borrow the verify `Morpher` itself needs.
@@ -226,6 +280,187 @@ impl<'g> FomaAnalyzer<'g> {
             peel_used,
             peel_chain_depth_error,
         }
+    }
+
+    /// Opt-in diagnostic sibling of [`Self::analyze_word`].
+    pub fn analyze_word_with_diagnostics(&mut self, word: &str) -> ProfiledFomaOutcome {
+        match self.analyze_word_with_diagnostics_budgeted(word, &ApplyBudget::unbounded()) {
+            ProfiledFomaApplyOutcome::Complete(profiled) => profiled,
+            ProfiledFomaApplyOutcome::Incomplete { .. } => {
+                unreachable!("ApplyBudget::unbounded() can never report Incomplete")
+            }
+        }
+    }
+
+    /// Bounded diagnostic pipeline. One shared [`ApplyBudget`] is consumed by the direct proposal
+    /// and every proposal requested by reduplication peeling. A trip returns diagnostics for the
+    /// measured prefix and never confirms partial candidates.
+    pub fn analyze_word_with_diagnostics_budgeted(
+        &mut self,
+        word: &str,
+        budget: &ApplyBudget,
+    ) -> ProfiledFomaApplyOutcome {
+        let proposed = self.propose_candidates_with_diagnostics_budgeted(word, budget);
+        let (candidates, peel_used, peel_chain_depth_error, proposal, proposal_calls) =
+            match proposed {
+                Ok(complete) => complete,
+                Err((dimension, value, limit, proposal, proposal_calls)) => {
+                    return ProfiledFomaApplyOutcome::Incomplete {
+                        dimension,
+                        value,
+                        limit,
+                        diagnostics: FomaWordDiagnostics {
+                            proposal,
+                            proposal_calls,
+                            ..FomaWordDiagnostics::default()
+                        },
+                    };
+                }
+            };
+
+        let confirmation_timer = word_timer::start();
+        let (buckets, confirmation) = confirm::confirm_batch_with_diagnostics(
+            self.g,
+            &self.owners,
+            &self.morpher,
+            &candidates,
+            word,
+        );
+        let confirmation_elapsed = confirmation_timer.elapsed();
+        let mut analyses = Vec::new();
+        let mut structured = Vec::new();
+        for bucket in buckets {
+            for (analysis, join, surface) in bucket {
+                structured.push(analysis);
+                analyses.push((join, surface));
+            }
+        }
+        let outcome = FomaOutcome {
+            confirmed: structured.len(),
+            analyses,
+            structured,
+            candidates_generated: candidates.len(),
+            peel_used,
+            peel_chain_depth_error,
+        };
+        let diagnostics = FomaWordDiagnostics {
+            proposal,
+            proposal_calls,
+            confirm_batch_calls: 1,
+            confirmation_groups: confirmation.confirmation_groups,
+            confirmation_calls: confirmation.confirmation_calls,
+            confirmed_analyses: outcome.confirmed,
+            confirmation_elapsed,
+        };
+        ProfiledFomaApplyOutcome::Complete(ProfiledFomaOutcome {
+            outcome,
+            diagnostics,
+        })
+    }
+
+    fn propose_candidates_with_diagnostics_budgeted(
+        &mut self,
+        word: &str,
+        budget: &ApplyBudget,
+    ) -> std::result::Result<
+        (
+            Vec<Candidate>,
+            bool,
+            Option<ComposeError>,
+            ProposalDiagnostics,
+            usize,
+        ),
+        (ApplyDimension, usize, usize, ProposalDiagnostics, usize),
+    > {
+        let mut proposal = ProposalDiagnostics::default();
+        let mut proposal_calls = 1;
+        let direct_budget = remaining_apply_budget(budget, &proposal);
+        let (direct, direct_diagnostics) = self
+            .proposer
+            .propose_with_diagnostics_budgeted(word, &direct_budget);
+        accumulate_proposal_diagnostics(&mut proposal, direct_diagnostics);
+        let mut candidates = match direct {
+            ApplyOutcome::Complete(candidates) => candidates,
+            ApplyOutcome::Incomplete { dimension, .. } => {
+                let (value, limit) = match dimension {
+                    ApplyDimension::DecodedPaths => (
+                        proposal.raw_paths,
+                        budget.path_cap().expect("path trip requires a path cap"),
+                    ),
+                    ApplyDimension::Candidates => (
+                        proposal.unique_candidates,
+                        budget
+                            .candidate_cap()
+                            .expect("candidate trip requires a candidate cap"),
+                    ),
+                };
+                return Err((dimension, value, limit, proposal, proposal_calls));
+            }
+        };
+
+        let peel_budget = self.peel_budget;
+        let mut incomplete_dimension = None;
+        let peel_result = {
+            let proposer = &mut self.proposer;
+            let mut propose_fn = |root: &str| {
+                if incomplete_dimension.is_some() {
+                    return Vec::new();
+                }
+                let call_budget = remaining_apply_budget(budget, &proposal);
+                let (outcome, next) =
+                    proposer.propose_with_diagnostics_budgeted(root, &call_budget);
+                proposal_calls += 1;
+                accumulate_proposal_diagnostics(&mut proposal, next);
+                match outcome {
+                    ApplyOutcome::Complete(candidates) => candidates,
+                    ApplyOutcome::Incomplete { dimension, .. } => {
+                        incomplete_dimension = Some(dimension);
+                        Vec::new()
+                    }
+                }
+            };
+            self.peeler
+                .peel_candidates(self.g, word, &peel_budget, &mut propose_fn)
+        };
+
+        if let Some(dimension) = incomplete_dimension {
+            let (value, limit) = match dimension {
+                ApplyDimension::DecodedPaths => (
+                    proposal.raw_paths,
+                    budget.path_cap().expect("path trip requires a path cap"),
+                ),
+                ApplyDimension::Candidates => (
+                    proposal.unique_candidates,
+                    budget
+                        .candidate_cap()
+                        .expect("candidate trip requires a candidate cap"),
+                ),
+            };
+            return Err((dimension, value, limit, proposal, proposal_calls));
+        }
+
+        let (peeled, peel_chain_depth_error) = match peel_result {
+            Ok(peeled) => (peeled, None),
+            Err(error) => (Vec::new(), Some(error)),
+        };
+        let peel_used = !peeled.is_empty();
+        for candidate in peeled {
+            let already_present = candidates.iter().any(|existing| {
+                existing.root_index == candidate.root_index
+                    && existing.morphemes == candidate.morphemes
+            });
+            if !already_present {
+                candidates.push(candidate);
+            }
+        }
+
+        Ok((
+            candidates,
+            peel_used,
+            peel_chain_depth_error,
+            proposal,
+            proposal_calls,
+        ))
     }
 
     /// `propose(word)` UNION `peel_candidates(word, propose)`, deduped by `(morphemes,
@@ -349,8 +584,7 @@ impl<'g> FomaAnalyzer<'g> {
             .iter()
             .map(|word| {
                 let t0 = word_timer::start();
-                let (candidates, peel_used, peel_chain_depth_error) =
-                    self.propose_candidates(word);
+                let (candidates, peel_used, peel_chain_depth_error) = self.propose_candidates(word);
                 ProposedWord {
                     candidates,
                     peel_used,
@@ -614,6 +848,144 @@ mod tests {
         assert_eq!(
             sequential, parallel,
             "analyze_words must match analyze_word per word, in order"
+        );
+    }
+
+    const DIAGNOSTICS_FIXTURE: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
+<HermitCrabInput>
+  <Language>
+    <Name>CompositeDiagnosticsSmoke</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cK"><Representations><Representation>k</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered">
+        <Name>Main</Name>
+        <LexicalEntries>
+          <LexicalEntry id="eK" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="aK"><PhoneticShape>ka</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>K</MorphemeId>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>"#;
+
+    #[test]
+    fn analyze_word_with_diagnostics_matches_normal_pipeline_and_accounts_exactly() {
+        let g = pg_grammar::load(DIAGNOSTICS_FIXTURE)
+            .unwrap_or_else(|e| panic!("fixture failed to load: {e}"));
+        let mut normal = FomaAnalyzer::new(&g).expect("normal analyzer compiles");
+        let expected = normal.analyze_word("ka");
+        let mut diagnostic = FomaAnalyzer::new(&g).expect("diagnostic analyzer compiles");
+        let profiled = diagnostic.analyze_word_with_diagnostics("ka");
+
+        assert_eq!(
+            pg_parse::result_signature(&profiled.outcome.analyses),
+            pg_parse::result_signature(&expected.analyses)
+        );
+        assert_eq!(
+            profiled.outcome.candidates_generated,
+            expected.candidates_generated
+        );
+        assert_eq!(profiled.outcome.confirmed, expected.confirmed);
+        assert_eq!(profiled.diagnostics.confirm_batch_calls, 1);
+        assert_eq!(
+            profiled.diagnostics.confirmation_calls,
+            profiled.diagnostics.confirmation_groups
+        );
+        assert!(profiled.diagnostics.confirmation_groups <= profiled.outcome.candidates_generated);
+        assert_eq!(
+            profiled.diagnostics.confirmed_analyses,
+            profiled.outcome.confirmed
+        );
+        assert_eq!(
+            profiled.diagnostics.proposal.raw_paths,
+            profiled.diagnostics.proposal.decoded_paths
+                + profiled.diagnostics.proposal.malformed_paths
+        );
+    }
+
+    #[test]
+    fn analyze_word_with_diagnostics_budgeted_stops_before_confirming_partial_candidates() {
+        let g = pg_grammar::load(DIAGNOSTICS_FIXTURE)
+            .unwrap_or_else(|e| panic!("fixture failed to load: {e}"));
+        let mut analyzer = FomaAnalyzer::new(&g).expect("analyzer compiles");
+        let budget = crate::compose_budget::ApplyBudget::with_caps(Some(0), None);
+
+        match analyzer.analyze_word_with_diagnostics_budgeted("ka", &budget) {
+            ProfiledFomaApplyOutcome::Incomplete {
+                dimension,
+                value,
+                limit,
+                diagnostics,
+            } => {
+                assert_eq!(
+                    dimension,
+                    crate::compose_budget::ApplyDimension::DecodedPaths
+                );
+                assert_eq!(value, 1);
+                assert_eq!(limit, 0);
+                assert_eq!(diagnostics.confirm_batch_calls, 0);
+                assert_eq!(diagnostics.confirmation_calls, 0);
+                assert_eq!(diagnostics.confirmation_groups, 0);
+                assert_eq!(
+                    diagnostics.proposal.raw_paths,
+                    diagnostics.proposal.decoded_paths + diagnostics.proposal.malformed_paths
+                );
+            }
+            ProfiledFomaApplyOutcome::Complete(_) => {
+                panic!("path-cap=0 must not confirm a partial proposal")
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with --include-ignored"]
+    fn sena_diagnostics_preserve_results_and_report_real_confirmation_topology() {
+        let Some(g) = load_sena() else {
+            eprintln!("skipping: sena-hc.xml not present on disk");
+            return;
+        };
+        let mut normal = FomaAnalyzer::new(&g).expect("sena compiles");
+        let expected = normal.analyze_word("mbali");
+        let mut diagnostic = FomaAnalyzer::new(&g).expect("sena compiles");
+        let profiled = diagnostic.analyze_word_with_diagnostics("mbali");
+
+        assert_eq!(
+            pg_parse::result_signature(&profiled.outcome.analyses),
+            pg_parse::result_signature(&expected.analyses)
+        );
+        assert_eq!(profiled.diagnostics.confirm_batch_calls, 1);
+        assert_eq!(
+            profiled.diagnostics.confirmation_calls,
+            profiled.diagnostics.confirmation_groups
+        );
+        assert!(
+            profiled.diagnostics.confirmation_groups
+                <= profiled.outcome.candidates_generated,
+            "confirm_batch may fuse candidates, so group count is bounded by, not equal to, candidate count"
+        );
+        assert_eq!(
+            profiled.diagnostics.confirmed_analyses,
+            profiled.outcome.confirmed
+        );
+        assert_eq!(
+            profiled.diagnostics.proposal.raw_paths,
+            profiled.diagnostics.proposal.decoded_paths
+                + profiled.diagnostics.proposal.malformed_paths
         );
     }
 }
