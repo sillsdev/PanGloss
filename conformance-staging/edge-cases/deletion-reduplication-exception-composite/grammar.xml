@@ -2,24 +2,8 @@
 <!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
 <HermitCrabInput>
   <Language>
-    <Name>Ranavu</Name>
-    <!-- agglutinative-Austronesian reference corpus's pathology mimic (docs/conformance-staging-plan.md's
-         pathology catalog):
-         (1) "placeholder-nasal assimilation + junction deletion (deletion-junction model)":
-         mrNPfx inserts a placeholder nasal ("N") before the root; prNasalAssimBilabial/
-         prNasalAssimAlveolar rewrite it to a real place-matching nasal (m/n) depending on the
-         root-initial consonant's place; prObstruentDeletion then deletes a VOICELESS obstruent
-         immediately after the resulting real nasal -- the deletion-junction cascade behind that
-         corpus's own meN+tulis -> menulis (voiceless "t" deletes after the assimilated nasal)
-         vs. meN+bawa -> membawa (voiced "b" survives). Invented roots ("tulik"/"balo"), not the
-         real corpus lexicon.
-         (2) "an MPR-gated rule exception (excludedMPRFeatures) where a corpus word's correct
-         parse REQUIRES the exception to be honored (the P6 flag-diacritics recall case --
-         that corpus happens not to exercise it; the mimic must)": mrSuf's
-         MorphologicalInput carries excludedMPRFeatures="mprException"; eVokad carries that
-         feature (ruleFeatures="mprException") and so must be BLOCKED from mrSuf, forcing its
-         only correct derivation through the unrelated mrSufAlt rule instead -- see words.yaml's
-         "vokadan"/"vokadi" pair, the pin that fails if excludedMPRFeatures is ignored. -->
+    <Name>DeletionReduplicationExceptionComposite</Name>
+    
     <PartsOfSpeech>
       <PartOfSpeech id="posNasal"><Name>vNasalDemo</Name></PartOfSpeech>
       <PartOfSpeech id="posMPR"><Name>vMprDemo</Name></PartOfSpeech>
@@ -43,25 +27,17 @@
           <Symbol id="fPlaceVocalic">vocalic</Symbol>
         </Symbols>
       </SymbolicFeature>
-      <!-- G2a discipline (every existing conformance fixture with a feature system follows this):
-           EVERY segment needs a feature bundle that fully and uniquely distinguishes it from every
-           other segment, or Shape/signature rendering collapses feature-identical segments into a
-           bracketed alternates class (e.g. "[aeiuo]") instead of the literal input string -- an
-           early draft of this fixture gave every vowel an identical bundle (differing only in
-           `featPlace=vocalic`, shared by all five) and let `l`/`k`/`s`/`v`/`d` all share
-           `featPlace=fPlaceOther`, and both `pangloss batch` runs confirmed the bracket-collapse
-           empirically. featHigh/featBack below exist ONLY to fully distinguish the 5 vowels (no
-           rule/environment in this grammar ever inspects them) -- consonants get an explicit but
-           semantically-null "NA" filler for both, matching this grammar's existing filler-value
-           convention (e.g. vowels' own irrelevant place dimensions elsewhere in the suite). -->
+      
       <SymbolicFeature id="featHigh"><Name>high</Name><Symbols><Symbol id="fHighHigh">high</Symbol><Symbol id="fHighMid">mid</Symbol><Symbol id="fHighLow">low</Symbol><Symbol id="fHighNA">na</Symbol></Symbols></SymbolicFeature>
       <SymbolicFeature id="featBack"><Name>back</Name><Symbols><Symbol id="fBackFront">front</Symbol><Symbol id="fBackBack">back</Symbol><Symbol id="fBackNA">na</Symbol></Symbols></SymbolicFeature>
     </PhonologicalFeatureSystem>
+    <MorphologicalPhonologicalRuleFeatures>
+      <MorphologicalPhonologicalRuleFeature id="mprException">Exception</MorphologicalPhonologicalRuleFeature>
+    </MorphologicalPhonologicalRuleFeatures>
     <CharacterDefinitionTable id="table1">
       <Name>Main</Name>
       <SegmentDefinitions>
-        <!-- Vowels (place is irrelevant but filled in "vocalic" for full-specification, matching
-             house style). -->
+        
         <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations>
           <FeatureValue feature="featCons" symbolValues="fConsMinus" /><FeatureValue feature="featVoc" symbolValues="fVocPlus" />
           <FeatureValue feature="featVoice" symbolValues="fVoicePlus" /><FeatureValue feature="featNasal" symbolValues="fNasalMinus" />
@@ -92,10 +68,7 @@
           <FeatureValue feature="featPlace" symbolValues="fPlaceVocalic" />
           <FeatureValue feature="featHigh" symbolValues="fHighMid" /><FeatureValue feature="featBack" symbolValues="fBackBack" />
         </SegmentDefinition>
-        <!-- Placeholder nasal -- capital "N" is its own segment, distinct from lowercase "n"
-             below, standing in for the underspecified morphophoneme mrNPfx inserts (real HC
-             analyses of that agglutinative-Austronesian reference corpus use exactly this device:
-             a placeholder that phonological rules later resolve to a real place). -->
+        
         <SegmentDefinition id="cNph"><Representations><Representation>N</Representation></Representations>
           <FeatureValue feature="featCons" symbolValues="fConsPlus" /><FeatureValue feature="featVoc" symbolValues="fVocMinus" />
           <FeatureValue feature="featVoice" symbolValues="fVoicePlus" /><FeatureValue feature="featNasal" symbolValues="fNasalPlus" />
@@ -175,9 +148,7 @@
       </FeatureNaturalClass>
     </NaturalClasses>
     <PhonologicalRuleDefinitions>
-      <!-- Assimilation: the placeholder nasal takes on the place of the FOLLOWING (root-initial)
-           consonant. Two subrules, one per target place -- no AlphaVariables needed since there
-           are only two output alternatives, each independently gated by its own RightEnvironment. -->
+      
       <PhonologicalRule id="prNasalAssimBilabial">
         <Name>nasalAssimBilabial</Name>
         <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncNph" /></PhoneticSequence></PhoneticInput>
@@ -202,11 +173,7 @@
           </PhonologicalSubrule>
         </PhonologicalSubrules>
       </PhonologicalRule>
-      <!-- Junction deletion: a VOICELESS obstruent immediately after a (now-real, place-assimilated)
-           nasal deletes entirely -- the deletion-junction model behind that agglutinative-Austronesian
-           reference corpus's own meN+tulis -> menulis (voiceless "t" deletes) vs meN+bawa -> membawa
-           ("b" is voiced, survives). Must run AFTER both assimilation rules above (stratum's
-           phonologicalRules order) so its LeftEnvironment sees the real nasal, not the placeholder. -->
+      
       <PhonologicalRule id="prObstruentDeletion">
         <Name>obstruentDeletion</Name>
         <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncVoicelessObstruent" /></PhoneticSequence></PhoneticInput>
@@ -220,12 +187,9 @@
         </PhonologicalSubrules>
       </PhonologicalRule>
     </PhonologicalRuleDefinitions>
-    <MorphologicalPhonologicalRuleFeatures>
-      <MorphologicalPhonologicalRuleFeature id="mprException">Exception</MorphologicalPhonologicalRuleFeature>
-    </MorphologicalPhonologicalRuleFeatures>
     <Strata>
       <Stratum characterDefinitionTable="table1" morphologicalRuleOrder="unordered"
-        morphologicalRules="mrNPfx mrSuf mrSufAlt"
+        morphologicalRules="mrNPfx mrRedupFull mrSuf mrSufAlt"
         phonologicalRules="prNasalAssimBilabial prNasalAssimAlveolar prObstruentDeletion">
         <Name>Main</Name>
         <MorphologicalRuleDefinitions>
@@ -239,7 +203,7 @@
             </MorphologicalSubrules>
             <MorphemeId>NPFX</MorphemeId>
           </MorphologicalRule>
-          <!-- MPR-gated exception: excluded for any root carrying mprException. -->
+          
           <MorphologicalRule id="mrSuf" requiredPartsOfSpeech="posMPR" outputPartOfSpeech="posMPR">
             <Name>suf</Name>
             <MorphologicalSubrules>
@@ -250,7 +214,7 @@
             </MorphologicalSubrules>
             <MorphemeId>SUF</MorphemeId>
           </MorphologicalRule>
-          <!-- No MPR gate at all -- the ONLY rule an mprException root can undergo. -->
+          
           <MorphologicalRule id="mrSufAlt" requiredPartsOfSpeech="posMPR" outputPartOfSpeech="posMPR">
             <Name>sufAlt</Name>
             <MorphologicalSubrules>
@@ -261,29 +225,37 @@
             </MorphologicalSubrules>
             <MorphemeId>SUFALT</MorphemeId>
           </MorphologicalRule>
+          <MorphologicalRule id="mrRedupFull" requiredPartsOfSpeech="posNasal" outputPartOfSpeech="posNasal">
+            <Name>fullReduplication</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subRedupFull">
+                <MorphologicalInput><PhoneticSequence id="rfStem"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput redupMorphType="prefix"><CopyFromInput index="rfStem" /><CopyFromInput index="rfStem" /></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>RDPL</MorphemeId>
+          </MorphologicalRule>
         </MorphologicalRuleDefinitions>
         <LexicalEntries>
-          <!-- Voiceless-alveolar-initial root: nasal assimilates to "n", then the "t" deletes. -->
+          
           <LexicalEntry id="eTulik" partOfSpeech="posNasal">
             <Allomorphs><Allomorph id="aTulik"><PhoneticShape>tulik</PhoneticShape></Allomorph></Allomorphs>
             <MorphemeId>TULIK</MorphemeId>
             <Gloss>carve</Gloss>
           </LexicalEntry>
-          <!-- Voiced-bilabial-initial root: nasal assimilates to "m", "b" survives (not in the
-               VoicelessObstruent class). -->
+          
           <LexicalEntry id="eBalo" partOfSpeech="posNasal">
             <Allomorphs><Allomorph id="aBalo"><PhoneticShape>balo</PhoneticShape></Allomorph></Allomorphs>
             <MorphemeId>BALO</MorphemeId>
             <Gloss>gather</Gloss>
           </LexicalEntry>
-          <!-- MPR-exclusion control: no MPR feature, mrSuf applies normally. -->
+          
           <LexicalEntry id="eSanit" partOfSpeech="posMPR">
             <Allomorphs><Allomorph id="aSanit"><PhoneticShape>sanit</PhoneticShape></Allomorph></Allomorphs>
             <MorphemeId>SANIT</MorphemeId>
             <Gloss>root.sanit</Gloss>
           </LexicalEntry>
-          <!-- MPR-exclusion target: carries mprException, so mrSuf must be BLOCKED; mrSufAlt is
-               its only valid derived form. -->
+          
           <LexicalEntry id="eVokad" partOfSpeech="posMPR" ruleFeatures="mprException">
             <Allomorphs><Allomorph id="aVokad"><PhoneticShape>vokad</PhoneticShape></Allomorph></Allomorphs>
             <MorphemeId>VOKAD</MorphemeId>
@@ -294,3 +266,5 @@
     </Strata>
   </Language>
 </HermitCrabInput>
+
+

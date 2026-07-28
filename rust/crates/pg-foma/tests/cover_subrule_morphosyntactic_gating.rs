@@ -1,4 +1,4 @@
-//! `conformance-staging/edge-cases/subrule-morphosyntactic-gating`'s own regression gate
+//! `machine/conformance/edge-cases/subrule-morphosyntactic-gating`'s own regression gate
 //! (docs/conformance/representative-typology-basis.md S1.2.7): pins the CURRENT, honest behavior
 //! for a `PhonologicalSubrule` gated by `requiredPartsOfSpeech` on a POS a `MorphologicalRule` sets
 //! within the same derivation --
@@ -22,7 +22,7 @@ use pg_parse::{Morpher, ParseOptions};
 
 fn fixture_path() -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../conformance-staging/edge-cases/subrule-morphosyntactic-gating/grammar.xml")
+        .join("../../../machine/conformance/edge-cases/subrule-morphosyntactic-gating/grammar.xml")
 }
 
 fn load() -> Grammar {

@@ -93,9 +93,15 @@ fn this_crate_semver() -> (u32, u32, u32) {
     const MINOR: &str = env!("CARGO_PKG_VERSION_MINOR");
     const PATCH: &str = env!("CARGO_PKG_VERSION_PATCH");
     (
-        MAJOR.parse().expect("CARGO_PKG_VERSION_MAJOR is always numeric"),
-        MINOR.parse().expect("CARGO_PKG_VERSION_MINOR is always numeric"),
-        PATCH.parse().expect("CARGO_PKG_VERSION_PATCH is always numeric"),
+        MAJOR
+            .parse()
+            .expect("CARGO_PKG_VERSION_MAJOR is always numeric"),
+        MINOR
+            .parse()
+            .expect("CARGO_PKG_VERSION_MINOR is always numeric"),
+        PATCH
+            .parse()
+            .expect("CARGO_PKG_VERSION_PATCH is always numeric"),
     )
 }
 
@@ -275,7 +281,10 @@ mod tests {
         assert!(!loaded.is_unproven());
         assert!(!loaded.analysis_trust_flag());
         assert_eq!(loaded.signature_state, SignatureState::Unsigned);
-        assert_eq!(loaded.fst_health_admission(), pg_foma::health::Severity::Ideal);
+        assert_eq!(
+            loaded.fst_health_admission(),
+            pg_foma::health::Severity::Ideal
+        );
     }
 
     #[test]
@@ -376,8 +385,12 @@ mod tests {
         );
         let bytes = pg_pack::write_pack(&manifest, RUNTIME_PAYLOAD, FOMA_PAYLOAD).unwrap();
 
-        let loaded = load_pack(&bytes).expect("an unproven pack still loads -- signal, not refusal");
-        assert!(loaded.is_unproven(), "pack-level degraded-trust signal must fire");
+        let loaded =
+            load_pack(&bytes).expect("an unproven pack still loads -- signal, not refusal");
+        assert!(
+            loaded.is_unproven(),
+            "pack-level degraded-trust signal must fire"
+        );
         assert!(
             loaded.analysis_trust_flag(),
             "the same signal must be available as the per-analysis-result flag"
@@ -413,11 +426,7 @@ mod tests {
             FOMA_PAYLOAD,
         );
         let manifest_no_sig_json = manifest.to_canonical_json();
-        let message = pg_pack::sign(
-            &[3u8; 32],
-            &manifest_no_sig_json.into_bytes(),
-            None,
-        );
+        let message = pg_pack::sign(&[3u8; 32], &manifest_no_sig_json.into_bytes(), None);
         // Deliberately signed over the WRONG bytes (not the real domain-separated message) so
         // this reports `Invalid` -- proving an invalid signature still loads successfully.
         let mut manifest = manifest;

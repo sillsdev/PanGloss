@@ -1896,7 +1896,9 @@ fn compile_metathesis_swap_net(
     let trailing_anchor = matches!(slots.last(), Some(Slot::Anchor(_)));
     let start = usize::from(leading_anchor);
     let end = slots.len().saturating_sub(usize::from(trailing_anchor));
-    if slots[start..end].iter().any(|slot| matches!(slot, Slot::Anchor(_)))
+    if slots[start..end]
+        .iter()
+        .any(|slot| matches!(slot, Slot::Anchor(_)))
         || left_idx < start
         || right_idx < start
         || left_idx >= end
@@ -1907,7 +1909,10 @@ fn compile_metathesis_swap_net(
     let effective_slots = &slots[start..end];
     let adjusted_left = left_idx - start;
     let adjusted_right = right_idx - start;
-    let (lo, hi) = (adjusted_left.min(adjusted_right), adjusted_left.max(adjusted_right));
+    let (lo, hi) = (
+        adjusted_left.min(adjusted_right),
+        adjusted_left.max(adjusted_right),
+    );
 
     let mut candidates: Vec<Vec<CharDefId>> = Vec::with_capacity(effective_slots.len());
     for slot in effective_slots {

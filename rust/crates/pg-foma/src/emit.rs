@@ -1254,7 +1254,7 @@ fn collect_roots(
         // into ITS OWN stratum's `CharacterDefinitionTable` (`sd.table`), never necessarily the
         // single table a caller-supplied `table: &CharDefTable` argument used to fix for the
         // whole function — a real multi-table grammar (`Grammar::char_tables.len() > 1`, e.g.
-        // `conformance-staging/edge-cases/bistratal-overlapping-segment-representation`, two
+        // `machine/conformance/edge-cases/bistratal-overlapping-segment-representation`, two
         // strata each pointing at a DIFFERENT, differently-sized table) can and does have entries
         // whose char-def ids are only valid in their OWN table, not in whichever table a
         // grammar-wide constant happened to be. The old fixed `table` parameter (always
@@ -2328,7 +2328,9 @@ fn any_allomorph_is_circumfix_prefix(g: &Grammar, mid: MRuleId) -> bool {
 pub(crate) fn is_structural_rule(g: &Grammar, mid: MRuleId) -> bool {
     if let MorphRuleDef::AffixProcess(def) = &g.mrules[mid.0 as usize] {
         if !g.fs_interner.get(def.out_syn_fs).is_empty()
-            && allomorphs_of(g, mid).iter().all(|a| classify_affix(&a.rhs) == Role::None)
+            && allomorphs_of(g, mid)
+                .iter()
+                .all(|a| classify_affix(&a.rhs) == Role::None)
         {
             return true;
         }
@@ -2338,7 +2340,9 @@ pub(crate) fn is_structural_rule(g: &Grammar, mid: MRuleId) -> bool {
     // allomorph 0 itself is `CircumfixPrefix`, `rule_role` already agrees and the `match` arm just
     // below would return `true` anyway; this only ADDS the case `rule_role` used to miss.
     if any_allomorph_is_circumfix_prefix(g, mid)
-        || allomorphs_of(g, mid).iter().any(|a| has_unemittable_action(&a.rhs))
+        || allomorphs_of(g, mid)
+            .iter()
+            .any(|a| has_unemittable_action(&a.rhs))
     {
         return true;
     }

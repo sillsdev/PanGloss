@@ -408,7 +408,8 @@ fn ana_affix_cached_traced(
             continue;
         };
         let before = output.len();
-        for mut w in ana_affix_allomorph(g, table, word, allo, lhs, fst, &segs, &node_of, &new_syn) {
+        for mut w in ana_affix_allomorph(g, table, word, allo, lhs, fst, &segs, &node_of, &new_syn)
+        {
             w.trace = Some(trace.morphological_rule_unapplied(parent, mrid, i as i32, &w));
             output.push(w);
         }
@@ -2219,7 +2220,14 @@ fn synth_process_allomorph(
                     range: ranges[*i as usize],
                     head: true,
                 };
-                copy_part(g, table, &mut out, &src, Some(ctx), redup.get(&rhs_idx).copied());
+                copy_part(
+                    g,
+                    table,
+                    &mut out,
+                    &src,
+                    Some(ctx),
+                    redup.get(&rhs_idx).copied(),
+                );
             }
             OutputAction::InsertSegments { shape, .. } => {
                 insert_segments(g, table, &mut out, &shape.shape, Origin::Affix);
@@ -2465,10 +2473,12 @@ fn generate_shape(
             continue;
         };
         // ModifyFromInput: the underspecify set = the features the ctx pinned.
-        let modify_pins: Option<Vec<usize>> = lhs
-            .modify
-            .get(name)
-            .map(|(_, ctx)| ctx_pins(g, table, ctx).into_iter().map(|(f, _)| f).collect());
+        let modify_pins: Option<Vec<usize>> = lhs.modify.get(name).map(|(_, ctx)| {
+            ctx_pins(g, table, ctx)
+                .into_iter()
+                .map(|(f, _)| f)
+                .collect()
+        });
         let mut emitted = false;
         for idx in 0..count {
             if let Some((s, e)) = fst.get_offsets(&group_name(name, idx), &result.registers) {
@@ -3383,7 +3393,16 @@ fn ana_compound_subrule(
         if !head_captured {
             continue;
         }
-        let head_out = generate_shape(g, table, &head_parts, lhs, fst, &result, node_of, &word.shape);
+        let head_out = generate_shape(
+            g,
+            table,
+            &head_parts,
+            lhs,
+            fst,
+            &result,
+            node_of,
+            &word.shape,
+        );
         let nh_out = generate_shape(g, table, &nh_parts, lhs, fst, &result, node_of, &word.shape);
         let head_shape = freeze_out(g, &head_out);
         let nh_shape = freeze_out(g, &nh_out);

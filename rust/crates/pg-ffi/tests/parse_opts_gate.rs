@@ -79,8 +79,14 @@ const GRAMMAR_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 fn load_handle() -> *mut c_void {
     let mut handle: *mut c_void = std::ptr::null_mut();
     let mut err = HcError::EMPTY;
-    let code =
-        unsafe { hc_grammar_load(GRAMMAR_XML.as_ptr(), GRAMMAR_XML.len(), &mut handle, &mut err) };
+    let code = unsafe {
+        hc_grammar_load(
+            GRAMMAR_XML.as_ptr(),
+            GRAMMAR_XML.len(),
+            &mut handle,
+            &mut err,
+        )
+    };
     assert_eq!(code, HC_OK, "hc_grammar_load failed: code={code}");
     unsafe { hc_buf_free(&mut err.message) };
     assert!(!handle.is_null());
@@ -91,7 +97,10 @@ fn parse_opts_one(handle: *mut c_void, word: &str, guess_root: i32) -> DecodedWo
     let mut out = HcResultBuf::EMPTY;
     let code =
         unsafe { hc_parse_word_opts(handle, word.as_ptr(), word.len(), guess_root, &mut out) };
-    assert_eq!(code, HC_OK, "hc_parse_word_opts({word:?}) failed: code={code}");
+    assert_eq!(
+        code, HC_OK,
+        "hc_parse_word_opts({word:?}) failed: code={code}"
+    );
     let bytes = unsafe { std::slice::from_raw_parts(out.data, out.len) }.to_vec();
     let mut decoded = decode_guess(&bytes).expect("decode single-word guess buffer");
     unsafe { hc_buf_free(&mut out) };
@@ -125,7 +134,11 @@ fn guess_root_zero_matches_in_process_and_finds_nothing_for_the_pattern_only_wor
         let ffi = parse_opts_one(handle, word, 0);
         let expected = in_process_one(word, false);
         assert_eq!(ffi, expected, "word={word:?}");
-        assert_eq!(expected.analyses.len(), 0, "word={word:?}: guess off must find nothing");
+        assert_eq!(
+            expected.analyses.len(),
+            0,
+            "word={word:?}: guess off must find nothing"
+        );
         assert!(!expected.guessed);
     }
     unsafe { hc_grammar_free(handle) };
@@ -186,9 +199,8 @@ fn batch_opts_agrees_with_word_opts_per_word_in_request_order() {
         })
         .collect();
     let mut out = HcResultBuf::EMPTY;
-    let code = unsafe {
-        hc_parse_batch_opts(handle, hcstrs.as_ptr(), hcstrs.len(), 2, 1, &mut out)
-    };
+    let code =
+        unsafe { hc_parse_batch_opts(handle, hcstrs.as_ptr(), hcstrs.len(), 2, 1, &mut out) };
     assert_eq!(code, HC_OK, "hc_parse_batch_opts failed: code={code}");
     let bytes = unsafe { std::slice::from_raw_parts(out.data, out.len) }.to_vec();
     let batch_decoded = decode_guess(&bytes).expect("decode batch guess buffer");
@@ -221,7 +233,9 @@ fn pre_existing_hc_parse_word_still_works_unchanged_on_this_grammar() {
     let code = unsafe { hc_parse_word(handle, b"kad".as_ptr(), 3, &mut out) };
     assert_eq!(code, HC_OK);
     assert!(!out.data.is_null());
-    assert!(pangloss_ffi::decode(unsafe { std::slice::from_raw_parts(out.data, out.len) }).is_some());
+    assert!(
+        pangloss_ffi::decode(unsafe { std::slice::from_raw_parts(out.data, out.len) }).is_some()
+    );
     unsafe {
         hc_buf_free(&mut out);
         hc_grammar_free(handle);
@@ -254,7 +268,10 @@ fn hc_parse_word_and_batch_return_zero_analyses_for_a_guess_only_word() {
         "hc_parse_word must never return a guessed analysis for a guess-only word: {:?}",
         decoded[0].analyses
     );
-    assert!(!decoded[0].invalid_shape, "the word shape itself is valid, only guessing found it");
+    assert!(
+        !decoded[0].invalid_shape,
+        "the word shape itself is valid, only guessing found it"
+    );
     unsafe { hc_buf_free(&mut out) };
 
     // Batch: mix a real word in with the two guess-only ones, so the test also proves the guard

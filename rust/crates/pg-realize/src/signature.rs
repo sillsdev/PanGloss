@@ -94,7 +94,10 @@ pub fn gloss_signature_entry(grammar: &Grammar, wa: &WordAnalysis, surface_shape
         .zip(wa.morpheme_ids.iter())
         .map(|(token, &id)| match &token.gloss {
             Some(g) => format!("g:{}", canonical_json_string(g)),
-            None => format!("m:{}", canonical_json_string(&owning_morpheme_id(grammar, id))),
+            None => format!(
+                "m:{}",
+                canonical_json_string(&owning_morpheme_id(grammar, id))
+            ),
         })
         .collect();
     format!(
@@ -283,10 +286,7 @@ mod tests {
             r#"g:"A"+g:"A"|s:"x""#.to_string(),
         ];
         let sig = gloss_analysis_set_signature(&entries);
-        assert_eq!(
-            sig,
-            r#"g:"A"+g:"A"|s:"x";g:"B"|s:"x";g:"b"|s:"x""#
-        );
+        assert_eq!(sig, r#"g:"A"+g:"A"|s:"x";g:"B"|s:"x";g:"b"|s:"x""#);
     }
 
     #[test]
@@ -328,9 +328,6 @@ mod tests {
             (wa(vec![root, aff], 0), "kal+pim".to_string()),
         ];
         let sig = word_gloss_signature(&g, &analyses);
-        assert_eq!(
-            sig,
-            r#"g:"GX"+m:"M7"|s:"kal+pim";g:"GX"|s:"kal""#
-        );
+        assert_eq!(sig, r#"g:"GX"+m:"M7"|s:"kal+pim";g:"GX"|s:"kal""#);
     }
 }

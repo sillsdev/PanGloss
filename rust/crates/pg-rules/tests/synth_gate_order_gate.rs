@@ -24,7 +24,9 @@ use pg_grammar::model::{
 };
 use pg_rules::cache::RuleCache;
 use pg_rules::stratum::{synthesize_stratum, synthesize_stratum_traced, StepBudget};
-use pg_rules::trace::{FailureReason, TraceHandle, TraceSink, TraceSource, TraceType, TreeTraceSink};
+use pg_rules::trace::{
+    FailureReason, TraceHandle, TraceSink, TraceSource, TraceType, TreeTraceSink,
+};
 use pg_rules::Word;
 use pg_shape::{NodeKind, Shape, ShapeBuilder};
 
@@ -134,7 +136,10 @@ fn push_suffix_rule_with_syn_fs(
             out_mpr: MprSet::EMPTY,
             redup_hint: ReduplicationHint::Suffix,
             lhs: vec![one_or_more("nc_any", g)],
-            rhs: vec![OutputAction::Copy(PartRef::Input(0)), insert_segments(g, seg)],
+            rhs: vec![
+                OutputAction::Copy(PartRef::Input(0)),
+                insert_segments(g, seg),
+            ],
             properties: vec![],
         }],
     });
@@ -272,5 +277,8 @@ fn syn_fs_gate_still_applies_when_every_gate_actually_passes() {
         .interior()
         .map(|(_, _, cd, _)| cd)
         .collect();
-    assert_eq!(chars, expected, "the suffix must still be produced correctly");
+    assert_eq!(
+        chars, expected,
+        "the suffix must still be produced correctly"
+    );
 }

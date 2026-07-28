@@ -378,7 +378,7 @@ impl PlanNodeKind {
 /// order is itself deterministic — a small extra property this data type gets for free that a
 /// later differential-oracle pass (D4) or coverage report (D5) will want when diffing/reporting
 /// over two plans' node sets.
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct Plan {
     nodes: BTreeMap<NodeId, PlanNodeKind>,
     root: Option<NodeId>,

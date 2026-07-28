@@ -591,7 +591,11 @@ mod tests {
             candidates_generated: 0,
         };
         let decoded = decode(&encode_single(&outcome)).unwrap();
-        assert_eq!(decoded[0].analyses.len(), 1, "the confirmed analysis must survive");
+        assert_eq!(
+            decoded[0].analyses.len(),
+            1,
+            "the confirmed analysis must survive"
+        );
         assert_eq!(decoded[0].analyses[0].morpheme_ids, vec![7]);
     }
 

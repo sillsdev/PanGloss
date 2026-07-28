@@ -932,7 +932,7 @@ fn mirror_unreversed_hypothesis(opts: &FomaOptions) -> foma::types::Fsm {
 
 fn anchor_fixture_path() -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join(
-        "../../../conformance-staging/edge-cases/right-to-left-anchor-environment/grammar.xml",
+        "../../../machine/conformance/edge-cases/right-to-left-anchor-environment/grammar.xml",
     )
 }
 

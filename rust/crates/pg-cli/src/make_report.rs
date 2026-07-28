@@ -234,7 +234,9 @@ fn latency_measurement(value_ns: u64, floor_ns: u64) -> LatencyMeasurement {
 fn render_latency_measurement(m: &LatencyMeasurement) -> String {
     match m {
         LatencyMeasurement::Millis(ms) => format!("{ms:.3} ms"),
-        LatencyMeasurement::BelowFloor { floor_ms } => format!("<{floor_ms:.6} ms (below timer floor)"),
+        LatencyMeasurement::BelowFloor { floor_ms } => {
+            format!("<{floor_ms:.6} ms (below timer floor)")
+        }
     }
 }
 
@@ -351,7 +353,10 @@ fn fmt_outcome(o: &CheckOutcome) -> String {
         CheckOutcome::Blocked { reason, measured } => format!(
             "**BLOCKED** -- {reason}{}",
             measured
-                .map(|m| format!(" (measured value, never presented as passing: {})", fmt_check_value(&m)))
+                .map(|m| format!(
+                    " (measured value, never presented as passing: {})",
+                    fmt_check_value(&m)
+                ))
                 .unwrap_or_default()
         ),
     }
@@ -376,9 +381,10 @@ fn calibration_label(kind: CheckKind, policy: &ThresholdPolicy) -> &'static str 
     let is_placeholder = match kind {
         CheckKind::PackSize => policy.pack_size_max_bytes.calibration.is_placeholder(),
         CheckKind::LexiconScale => policy.lexicon_min_entries.calibration.is_placeholder(),
-        CheckKind::CoverageAnalysisRate => {
-            policy.coverage_min_analysis_rate.calibration.is_placeholder()
-        }
+        CheckKind::CoverageAnalysisRate => policy
+            .coverage_min_analysis_rate
+            .calibration
+            .is_placeholder(),
         CheckKind::LatencyP50 => policy.latency_p50_max_ms.calibration.is_placeholder(),
         CheckKind::LatencyP90 => policy.latency_p90_max_ms.calibration.is_placeholder(),
         CheckKind::LatencyP99 => policy.latency_p99_max_ms.calibration.is_placeholder(),
@@ -413,7 +419,9 @@ fn render_checks_table(checks: &[CheckResult], policy: &ThresholdPolicy) -> Stri
 
 fn render_capability(capability: &CapabilitySummary) -> String {
     match capability {
-        CapabilitySummary::Admit => "**Admit** -- the capability gate admits this grammar outright.".to_string(),
+        CapabilitySummary::Admit => {
+            "**Admit** -- the capability gate admits this grammar outright.".to_string()
+        }
         CapabilitySummary::ConfirmOnly => {
             "**ConfirmOnly** -- a first-class, recall-preserving non-failure verdict (ADR 0001): \
              the compiled proposer is a strict superset here, confirmed by the oracle."
@@ -446,7 +454,10 @@ fn render_mermaid_summary_line(render: &MermaidRender) -> String {
         render.emitted_node_count,
         render.total_node_count,
         match render.threshold {
-            Some(t) => format!(" (sibling-leaf collapse threshold={t}, summarized={})", render.summarized),
+            Some(t) => format!(
+                " (sibling-leaf collapse threshold={t}, summarized={})",
+                render.summarized
+            ),
             None => " (full render, no collapsing)".to_string(),
         }
     )
@@ -454,7 +465,9 @@ fn render_mermaid_summary_line(render: &MermaidRender) -> String {
 
 fn render_trust(trust: &TrustStatus) -> String {
     match trust {
-        TrustStatus::Proven => "**Proven** -- no ADR-0005 capability override was exercised.".to_string(),
+        TrustStatus::Proven => {
+            "**Proven** -- no ADR-0005 capability override was exercised.".to_string()
+        }
         TrustStatus::Overridden(record) => format!(
             "**Overridden (trust=unproven)** -- ADR-0005 capability override, authorized by \
              `{}` ({}), recorded at `{}`, {} fail-closed configuration(s) force-compiled through. \
@@ -580,7 +593,11 @@ fn render_markdown(
 
     writeln!(out, "## Pinned revisions (to re-derive this report)").unwrap();
     writeln!(out).unwrap();
-    writeln!(out, "- grammar: `{grammar_path}` (sha256=`{grammar_sha256}`)").unwrap();
+    writeln!(
+        out,
+        "- grammar: `{grammar_path}` (sha256=`{grammar_sha256}`)"
+    )
+    .unwrap();
     writeln!(out, "- pack: {pack_pin}").unwrap();
     writeln!(out, "- coverage corpus: {corpus_pin}").unwrap();
     writeln!(out, "- `machine` submodule: {submodule_pin}").unwrap();
@@ -616,9 +633,15 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
             "--words" => words_path = Some(it.next().ok_or("--words requires a value")?.clone()),
             s if s.starts_with("--words=") => words_path = Some(s["--words=".len()..].to_string()),
             "--corpus" => corpus_path = Some(it.next().ok_or("--corpus requires a value")?.clone()),
-            s if s.starts_with("--corpus=") => corpus_path = Some(s["--corpus=".len()..].to_string()),
-            "--attestor" => attestor = Some(it.next().ok_or("--attestor requires a value")?.clone()),
-            s if s.starts_with("--attestor=") => attestor = Some(s["--attestor=".len()..].to_string()),
+            s if s.starts_with("--corpus=") => {
+                corpus_path = Some(s["--corpus=".len()..].to_string())
+            }
+            "--attestor" => {
+                attestor = Some(it.next().ok_or("--attestor requires a value")?.clone())
+            }
+            s if s.starts_with("--attestor=") => {
+                attestor = Some(s["--attestor=".len()..].to_string())
+            }
             "--attested-on" => {
                 attested_on = Some(it.next().ok_or("--attested-on requires a value")?.clone())
             }
@@ -626,7 +649,9 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
                 attested_on = Some(s["--attested-on=".len()..].to_string())
             }
             "--policy" => policy_path = Some(it.next().ok_or("--policy requires a value")?.clone()),
-            s if s.starts_with("--policy=") => policy_path = Some(s["--policy=".len()..].to_string()),
+            s if s.starts_with("--policy=") => {
+                policy_path = Some(s["--policy=".len()..].to_string())
+            }
             "--allow-unproven" => allow_unproven = true,
             "--authorized-by" => {
                 authorized_by = Some(it.next().ok_or("--authorized-by requires a value")?.clone())
@@ -654,7 +679,8 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
         return Err(USAGE.to_string());
     };
 
-    let coverage_flags = corpus_path.is_some() as u8 + attestor.is_some() as u8 + attested_on.is_some() as u8;
+    let coverage_flags =
+        corpus_path.is_some() as u8 + attestor.is_some() as u8 + attested_on.is_some() as u8;
     if coverage_flags != 0 && coverage_flags != 3 {
         return Err(
             "--corpus, --attestor, and --attested-on must all be given together -- a held-out \
@@ -697,8 +723,10 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
     };
 
     let decision = evaluate_capability(&grammar);
-    let attempt_compile = matches!(decision, CompileDecision::Admit | CompileDecision::ConfirmOnly)
-        || (matches!(decision, CompileDecision::Refuse(_)) && allow_unproven);
+    let attempt_compile = matches!(
+        decision,
+        CompileDecision::Admit | CompileDecision::ConfirmOnly
+    ) || (matches!(decision, CompileDecision::Refuse(_)) && allow_unproven);
 
     let mut not_tested: Vec<String> = vec![
         "correctness: NOT CERTIFIED HERE -- coverage (when assessed) is a token-level analysis \
@@ -707,7 +735,12 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
             .to_string(),
     ];
 
-    let (trust, measurements, build_time_line, pack_pin): (TrustStatus, Option<Measurements>, String, String);
+    let (trust, measurements, build_time_line, pack_pin): (
+        TrustStatus,
+        Option<Measurements>,
+        String,
+        String,
+    );
     let latency_methodology_line: String;
     // Separate from `verdict.checks` on purpose: `CheckResult` only carries the numeric
     // Pass/Fail/NotAssessed outcome for coverage (a rate vs. a threshold), never the attestor/date
@@ -732,9 +765,10 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
              report will still never certify -- trust=unproven never certifies, under any \
              configuration)."
             .to_string();
-        pack_pin = "none -- the grammar was refused and no --allow-unproven override was given, so \
+        pack_pin =
+            "none -- the grammar was refused and no --allow-unproven override was given, so \
              no pack was built."
-            .to_string();
+                .to_string();
         latency_methodology_line = "not measured -- see \"build time\" above.".to_string();
         coverage_attestation_line =
             "not assessed -- no compiled artifact exists to run a corpus against (independent of \
@@ -746,7 +780,8 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
             match &pack_path {
                 Some(p) => {
                     let bytes = fs::read(p).map_err(|e| format!("read --pack {p}: {e}"))?;
-                    let read = pg_pack::read_pack(&bytes).map_err(|e| format!("read_pack {p}: {e}"))?;
+                    let read =
+                        pg_pack::read_pack(&bytes).map_err(|e| format!("read_pack {p}: {e}"))?;
                     if read.manifest.grammar_id != grammar_id {
                         eprintln!(
                             "warning: --pack {p}'s manifest grammar_id ({:?}) does not match this \
@@ -777,7 +812,11 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
                         sha256_hex(&built.bytes),
                         built.manifest.package_fingerprint
                     );
-                    (built.manifest.capability_trust, built.bytes.len() as u64, pin)
+                    (
+                        built.manifest.capability_trust,
+                        built.bytes.len() as u64,
+                        pin,
+                    )
                 }
             };
         trust = map_trust(&trust_src);
@@ -832,7 +871,8 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
                     .to_string(),
             );
         }
-        let (p50_ns, p90_ns, p99_ns) = measure_latency_percentiles_ns(&mut analyzer, &words, repeats);
+        let (p50_ns, p90_ns, p99_ns) =
+            measure_latency_percentiles_ns(&mut analyzer, &words, repeats);
         let latency_p50 = latency_measurement(p50_ns, floor_ns);
         let latency_p90 = latency_measurement(p90_ns, floor_ns);
         let latency_p99 = latency_measurement(p99_ns, floor_ns);
@@ -924,7 +964,11 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
         "make-report complete: {out_path} -- tier={:?}, capability={:?}, trust={}",
         verdict.tier,
         verdict.capability,
-        if verdict.trust.is_unproven() { "unproven/overridden" } else { "proven" },
+        if verdict.trust.is_unproven() {
+            "unproven/overridden"
+        } else {
+            "proven"
+        },
     );
     Ok(())
 }
@@ -977,26 +1021,7 @@ mod tests {
     /// A `MprGroup` with `outputType="overwrite"` -- `MprGroupOverwriteFailClosedPredicate` refuses
     /// this UNCONDITIONALLY and PERMANENTLY (same fixture shape `pack.rs`'s own tests and `main.rs`'s
     /// `capability_gate_tests` use for their "known-Refuse, by construction, forever" fixture).
-    const REFUSE_GRAMMAR_XML: &str = r#"<HermitCrabInput><Language><Name>MakeReportRefuseFixture</Name>
-      <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
-      <MorphologicalPhonologicalRuleFeatures>
-        <MorphologicalPhonologicalRuleFeature id="mprA">A</MorphologicalPhonologicalRuleFeature>
-        <MorphologicalPhonologicalRuleFeatureGroup matchType="all" outputType="overwrite" features="mprA"><Name>GOverwrite</Name></MorphologicalPhonologicalRuleFeatureGroup>
-      </MorphologicalPhonologicalRuleFeatures>
-      <CharacterDefinitionTable id="t1"><Name>Main</Name>
-        <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
-      </CharacterDefinitionTable>
-      <Strata>
-        <Stratum characterDefinitionTable="t1">
-          <Name>S</Name>
-          <LexicalEntries>
-            <LexicalEntry id="e1" partOfSpeech="posV">
-              <Allomorphs><Allomorph id="a1"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs>
-            </LexicalEntry>
-          </LexicalEntries>
-        </Stratum>
-      </Strata>
-    </Language></HermitCrabInput>"#;
+    const REFUSE_GRAMMAR_XML: &str = include_str!("../../../../conformance-staging/edge-cases/simultaneous-subrule-genuine-overlap/grammar.xml");
 
     fn run_make_report_raw(
         tag: &str,
@@ -1023,15 +1048,24 @@ mod tests {
     #[test]
     fn refused_grammar_report_names_not_supported_and_every_unmeasured_check() {
         let (result, out_path) = run_make_report_raw("refuse", REFUSE_GRAMMAR_XML, &[]);
-        assert!(result.is_ok(), "make-report must succeed even for a refused grammar: {result:?}");
+        assert!(
+            result.is_ok(),
+            "make-report must succeed even for a refused grammar: {result:?}"
+        );
 
         let text = fs::read_to_string(&out_path).expect("read report.md");
         assert!(text.contains("NOT SUPPORTED"), "{text}");
-        assert!(text.contains("mpr-group.overwrite-output"), "{text}");
-        assert!(text.contains("Overwrite"), "must name the refused construct: {text}");
+        assert!(text.contains("simultaneous.subrule-overlap"), "{text}");
+        assert!(
+            text.contains("simultaneous.subrule-overlap"),
+            "must name the refused construct: {text}"
+        );
         // Every check must render as NOT ASSESSED, never PASS.
         assert!(text.contains("NOT ASSESSED"), "{text}");
-        assert!(!text.contains("| PASS"), "no check may render as passing for a refused grammar: {text}");
+        assert!(
+            !text.contains("| PASS"),
+            "no check may render as passing for a refused grammar: {text}"
+        );
         // The "what was not tested" section must name the fact that nothing was measured.
         assert!(
             text.contains("no compiled artifact exists to measure"),
@@ -1048,7 +1082,10 @@ mod tests {
     #[test]
     fn admit_grammar_report_names_every_check_individually() {
         let (result, out_path) = run_make_report_raw("admit", ADMIT_GRAMMAR_XML, &["--repeats=1"]);
-        assert!(result.is_ok(), "make-report must succeed for a clean grammar: {result:?}");
+        assert!(
+            result.is_ok(),
+            "make-report must succeed for a clean grammar: {result:?}"
+        );
 
         let text = fs::read_to_string(&out_path).expect("read report.md");
         // Every declared check kind must be individually named in the checks table.
@@ -1060,14 +1097,20 @@ mod tests {
             "Latency p90",
             "Latency p99",
         ] {
-            assert!(text.contains(label), "expected check {label:?} named in report:\n{text}");
+            assert!(
+                text.contains(label),
+                "expected check {label:?} named in report:\n{text}"
+            );
         }
         // Coverage must be honestly not-assessed (no --corpus was given).
         assert!(
             text.contains("NOT ASSESSED") && text.contains("no --corpus"),
             "coverage must be reported not-assessed when no corpus is supplied:\n{text}"
         );
-        assert!(!text.contains("Coverage (token-level analysis rate) | PASS"), "{text}");
+        assert!(
+            !text.contains("Coverage (token-level analysis rate) | PASS"),
+            "{text}"
+        );
         // A mermaid diagram must be embedded.
         assert!(text.contains("```mermaid"), "{text}");
         assert!(text.contains("flowchart"), "{text}");
@@ -1080,7 +1123,8 @@ mod tests {
     /// threshold passing) -- proves the render layer, not just `certify` itself, respects the rule.
     #[test]
     fn not_assessed_coverage_never_renders_as_pass_in_the_table() {
-        let (result, out_path) = run_make_report_raw("not-assessed", ADMIT_GRAMMAR_XML, &["--repeats=1"]);
+        let (result, out_path) =
+            run_make_report_raw("not-assessed", ADMIT_GRAMMAR_XML, &["--repeats=1"]);
         assert!(result.is_ok(), "{result:?}");
         let text = fs::read_to_string(&out_path).expect("read report.md");
         let checks_section = text
@@ -1149,7 +1193,12 @@ mod tests {
         let (result, out_path) = run_make_report_raw(
             "override",
             REFUSE_GRAMMAR_XML,
-            &["--allow-unproven", "--authorized-by=synthetic-operator", "--reason=synthetic field trial", "--repeats=1"],
+            &[
+                "--allow-unproven",
+                "--authorized-by=synthetic-operator",
+                "--reason=synthetic field trial",
+                "--repeats=1",
+            ],
         );
         assert!(result.is_ok(), "{result:?}");
         let text = fs::read_to_string(&out_path).expect("read report.md");
@@ -1157,7 +1206,10 @@ mod tests {
         assert!(text.contains("Overridden (trust=unproven)"), "{text}");
         assert!(text.contains("synthetic-operator"), "{text}");
         assert!(text.contains("**BLOCKED**"), "{text}");
-        assert!(!text.contains("| PASS"), "an overridden artifact must never show a passing check: {text}");
+        assert!(
+            !text.contains("| PASS"),
+            "an overridden artifact must never show a passing check: {text}"
+        );
     }
 
     /// A caller-supplied `--pack` file's REAL trust stamp is what this report certifies against --
@@ -1191,14 +1243,19 @@ mod tests {
 
         let text = fs::read_to_string(&out_path).expect("read report.md");
         assert!(text.contains("synthetic-pack-builder"), "{text}");
-        assert!(text.contains("supplied `"), "must name the supplied pack, not a built-in-process one: {text}");
+        assert!(
+            text.contains("supplied `"),
+            "must name the supplied pack, not a built-in-process one: {text}"
+        );
     }
 
     /// Below-floor latency must never render as a literal `0` anywhere in the rendered report --
     /// direct proof over the rendering helper itself, independent of any real timing noise.
     #[test]
     fn below_floor_latency_never_reports_as_a_bare_millis_zero() {
-        let m = LatencyMeasurement::BelowFloor { floor_ms: 0.000_001 };
+        let m = LatencyMeasurement::BelowFloor {
+            floor_ms: 0.000_001,
+        };
         let rendered = render_latency_measurement(&m);
         assert!(rendered.contains("below timer floor"), "{rendered}");
         assert_ne!(rendered.trim(), "0 ms");
@@ -1224,7 +1281,8 @@ mod tests {
     /// `--repeats=0` is a hard, explicit error, not silently coerced to 1.
     #[test]
     fn repeats_zero_is_a_hard_error() {
-        let (result, _out) = run_make_report_raw("repeats-zero", ADMIT_GRAMMAR_XML, &["--repeats=0"]);
+        let (result, _out) =
+            run_make_report_raw("repeats-zero", ADMIT_GRAMMAR_XML, &["--repeats=0"]);
         let err = result.expect_err("--repeats=0 must error");
         assert!(err.contains("--repeats"), "{err}");
     }
@@ -1367,8 +1425,12 @@ mod tests {
             grammar_path.to_string_lossy().into_owned(),
             out_path.to_string_lossy().into_owned(),
         ])
-        .unwrap_or_else(|e| panic!("make-report must succeed (even a refused grammar produces a \
-            report) for {xml_name}: {e}"));
+        .unwrap_or_else(|e| {
+            panic!(
+                "make-report must succeed (even a refused grammar produces a \
+            report) for {xml_name}: {e}"
+            )
+        });
 
         let text = fs::read_to_string(&out_path).expect("read report.md");
         eprintln!("\n===== {xml_name} report =====\n{text}\n===== end {xml_name} report =====\n");
@@ -1378,7 +1440,7 @@ mod tests {
             "{xml_name}: expected NOT SUPPORTED per docs/benchmark-matrix.md, got:\n{text}"
         );
         assert!(
-            text.contains("mpr-group.overwrite-output"),
+            text.contains("simultaneous.subrule-overlap"),
             "{xml_name}: expected the permanently-refused predicate to be named:\n{text}"
         );
         assert!(

@@ -1,5 +1,5 @@
 //! Task #45 regression: `FomaAnalyzer::new` used to PANIC (`index out of bounds: the len is 3 but
-//! the index is 3`) on `conformance-staging/edge-cases/bistratal-overlapping-segment-representation`
+//! the index is 3`) on `machine/conformance/edge-cases/bistratal-overlapping-segment-representation`
 //! -- a crash, never an acceptable outcome, on a construct this crate's own capability gate already
 //! grades `ConfirmOnly` (`tests/cover_bistratal_overlapping_segment_representation.rs`'s own
 //! `capability_gate_confirm_only_for_shared_representation_across_tables`).
@@ -38,7 +38,7 @@ use pg_grammar::model::Grammar;
 
 fn fixture_path() -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join(
-        "../../../conformance-staging/edge-cases/bistratal-overlapping-segment-representation/grammar.xml",
+        "../../../machine/conformance/edge-cases/bistratal-overlapping-segment-representation/grammar.xml",
     )
 }
 

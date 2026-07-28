@@ -724,8 +724,13 @@ pub fn analyze(g: &Grammar, rule: &MetathesisRuleDef, input: &Shape) -> Vec<Shap
     // contract, applied to the analysis (un-apply) direction.
     let table_id = crate::cache::owning_table_for_metathesis_rule(g, rule).unwrap_or(TableId(0));
     let dir = reverse(dir_from_model(rule.dir));
-    let (ana_pattern, left_idx_full, right_idx_full) =
-        build_analysis_pattern(g, table_id, &rule.pattern, rule.left_switch, rule.right_switch);
+    let (ana_pattern, left_idx_full, right_idx_full) = build_analysis_pattern(
+        g,
+        table_id,
+        &rule.pattern,
+        rule.left_switch,
+        rule.right_switch,
+    );
     let left_idx = compiled_index(&ana_pattern, left_idx_full);
     let right_idx = compiled_index(&ana_pattern, right_idx_full);
     let compiled =
@@ -897,8 +902,13 @@ pub(crate) fn build_meta_cache(
     );
 
     let ana_dir = reverse(syn_dir);
-    let (ana_pattern, ana_left_full, ana_right_full) =
-        build_analysis_pattern(g, table_id, &rule.pattern, rule.left_switch, rule.right_switch);
+    let (ana_pattern, ana_left_full, ana_right_full) = build_analysis_pattern(
+        g,
+        table_id,
+        &rule.pattern,
+        rule.left_switch,
+        rule.right_switch,
+    );
     let ana_left = compiled_index(&ana_pattern, ana_left_full);
     let ana_right = compiled_index(&ana_pattern, ana_right_full);
     let ana_pattern_len = non_anchor_count(&ana_pattern.nodes);

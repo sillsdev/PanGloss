@@ -167,7 +167,11 @@ impl GrammarHandle {
     /// `hc_analyze_word_json` (which already carries `guessed` honestly at both word and analysis
     /// level, so it keeps the pre-existing retry-on behavior explicitly rather than losing it as a
     /// side effect of the default flip).
-    pub(crate) fn analyze_word(&self, word: &str, guess_fallback: bool) -> pg_lexicon::UnifiedAnalysis {
+    pub(crate) fn analyze_word(
+        &self,
+        word: &str,
+        guess_fallback: bool,
+    ) -> pg_lexicon::UnifiedAnalysis {
         let mut backend = self
             .official_backend
             .lock()
@@ -600,8 +604,9 @@ mod runtime_backend_tests {
         let second = GrammarHandle::new(pg_grammar::load(XML).unwrap(), XML);
         first.force_next_foma_panic();
         assert!(!second.analyze_word("a", false).structured.is_empty());
-        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| first
-            .analyze_word("a", false)))
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+            || first.analyze_word("a", false)
+        ))
         .is_err());
         assert!(!first.analyze_word("a", false).structured.is_empty());
     }

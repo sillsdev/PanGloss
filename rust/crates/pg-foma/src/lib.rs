@@ -229,6 +229,15 @@ pub mod readiness_policy;
 /// trusted or unassessed check render as passing. See that module's own doc for the full honesty-
 /// rule contract.
 pub mod readiness_verdict;
+/// Extensible, budget-aware offline search and confirmed-only recipe selection.
+pub mod recipe_optimizer;
+/// Extensible registry of realizable compilation-recipe families.
+pub mod recipe_registry;
+/// Schema-versioned machine and human views over recipe-optimization runs.
+pub mod recipe_report;
+pub mod recipe_runtime;
+/// Grammar-derived recipe-space bounds, pruning accounting, and pilot measurements.
+pub mod recipe_space;
 /// P6 feasibility prototype (docs/fst-plan/p6-prototype-report.md): replace-rule compilation +
 /// underlying-form lexc, NOT wired into the mainline `emit`/`analyzer` path. See that module's doc.
 pub mod replace;

@@ -36,6 +36,8 @@ rustc-hash.workspace = true
 # `pg-snapshot`'s own Cargo.toml for the same two-line pattern).
 serde.workspace = true
 serde_json.workspace = true
+# Stable evidence hashes for recipe-optimizer corpus certification.
+sha2.workspace = true
 # junctions.rs's alphabet probe loops (compute_variants/compute_deletion_junctions): parallelized
 # across CPU cores on non-wasm32 targets via a dedicated large-stack pool (see
 # `PhonologyProbe::new`'s doc) -- NOT used on wasm32-unknown-unknown, where `thread::spawn` (which

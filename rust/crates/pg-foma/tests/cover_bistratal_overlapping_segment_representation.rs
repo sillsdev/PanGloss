@@ -1,4 +1,4 @@
-//! `conformance-staging/edge-cases/bistratal-overlapping-segment-representation`'s own regression
+//! `machine/conformance/edge-cases/bistratal-overlapping-segment-representation`'s own regression
 //! gate (docs/conformance/representative-typology-basis.md S1.2.5): pins the CURRENT, honest
 //! behavior for a two-table grammar whose tables share a literal representation ("s") denoting a
 //! DIFFERENT segment identity in each --
@@ -32,7 +32,7 @@ use pg_parse::{Morpher, ParseOptions};
 
 fn fixture_path() -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join(
-        "../../../conformance-staging/edge-cases/bistratal-overlapping-segment-representation/grammar.xml",
+        "../../../machine/conformance/edge-cases/bistratal-overlapping-segment-representation/grammar.xml",
     )
 }
 

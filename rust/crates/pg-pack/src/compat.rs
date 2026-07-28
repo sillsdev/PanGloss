@@ -116,8 +116,12 @@ mod tests {
         // ADR 0004: "old packs run unchanged forever" under an append-only provided set.
         let required = synthetic_required();
         let mut provided = synthetic_provided_superset();
-        provided.runtime_operations.push("synthetic.brand.new.op".to_string());
-        provided.extensions.push("synthetic.brand.new.extension".to_string());
+        provided
+            .runtime_operations
+            .push("synthetic.brand.new.op".to_string());
+        provided
+            .extensions
+            .push("synthetic.brand.new.extension".to_string());
         assert!(required.satisfied_by(&provided));
     }
 

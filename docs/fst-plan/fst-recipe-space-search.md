@@ -237,3 +237,73 @@ portfolio; sequential allocation decides how to spend expensive empirical measur
 how a new grammar can eventually receive a defensible statement that one combination is optimal
 within a declared configuration space—or, when objectives genuinely disagree, that these three
 are the strongest feasible Pareto choices.
+
+## Language-backed revision: search constructions, not arbitrary trees
+
+The algorithm review in [`recipe-optimizer-literature.md`](recipe-optimizer-literature.md) and the
+language harvest in [`linguistic-recipe-harvest.md`](linguistic-recipe-harvest.md) narrow the
+proposal. The optimizer must not begin with a Cartesian product of Plan-node placements. It must
+first recover an HC construct-dependency graph and select from seven attested recipe families:
+
+1. ordered morphophonology;
+2. class/exception-partitioned cascade;
+3. complete-template alternatives;
+4. specialized morphology branch;
+5. hybrid unbounded-copying branch;
+6. bounded metathesis cascade;
+7. layered morphology.
+
+These are families, not seven independent toggles. A grammar chooses one base construction and
+adds only branches or gates justified by its HC facts. The extractor records stratum and rule-order
+edges; obligatory co-occurrence and mutual exclusion; template and morphological-layer order;
+distinct lexical-class, POS, MPR, and exception domains; copying/metathesis bounds; and every
+boundary, feature, or copied-span property that must cross a Plan interface.
+
+The optimizer therefore reports four counts:
+
+```text
+N_syntactic = arbitrary Plan expressions over the extracted fragments
+N_attested  = bindings of applicable language-backed families
+N_static    = N_attested after HC constraints and DAG deduplication
+N_feasible  = N_static candidates that compile and pass complete HC confirmation
+```
+
+Only `N_static` drives algorithm selection. `N_syntactic` is an explanatory upper bound, not a
+portfolio to materialize.
+
+### Reverified interaction examples
+
+- A published Swahili/Bantu analysis gives
+  `Subject-TAM-(Object)-Stem-Extensions-FinalVowel`, with subject and object forms controlled by
+  noun class. This supports complete ordered templates plus agreement gating, not free stacking
+  ([Downing 2017](https://langsci-press.org/catalog/view/173/869/1040-3)).
+- A primary Tagalog description places `-um-` after the first consonant and combines it with
+  initial-CV reduplication for aspect. This supports a specialized morphology branch with an
+  explicit copied-span interface
+  ([ANU report](https://openresearch-repository.anu.edu.au/server/api/core/bitstreams/0f8f6054-1d82-4849-a8a2-0f2b0a2fa0cd/content)).
+- The Indonesian harvest is consistent with primary descriptive evidence that a nasal obtains
+  place from a following stop or affricate. The complete `meN-` assimilation-before-deletion and
+  lexical-exception ordering remains grounded most fully in Black's local HC guide and Sneddon's
+  grammar ([Kluge 2017](https://langsci-press.org/catalog/view/78/35/613-3.pdf)).
+- The Turkish proposal remains an ordered suffix template plus multidimensional harmony recipe.
+  Automatic class-recovery claims remain provisional and cannot become hard pruning rules until
+  rechecked against a direct Turkish grammar.
+
+### Revised algorithm selector
+
+Run exact constrained enumeration when:
+
+```text
+N_static * p95(full_candidate_evaluation) <= 0.5 * optimizer_budget
+```
+
+Otherwise use CP/SAT plus branch-and-bound when HC constraints strongly prune `N_attested`; use
+memoized DP when shared subtrees have complete compact interface keys; use successive halving only
+when a partial corpus demonstrably predicts full-cost metrics (with complete confirmation for every
+finalist); and use beam search only as an explicitly approximate fallback.
+
+The first exhaustive benchmark should include the four promoted conformance grammars plus the
+Indonesian `meN-` interaction. The four small grammars validate isolated family decisions;
+Indonesian tests whether the generator preserves an ordered cascade, copy-sensitive morphology,
+and lexical/MPR exceptions simultaneously. An optimizer that cannot express that interaction is
+not yet searching realistic grammar recipes, regardless of how well it searches arbitrary trees.

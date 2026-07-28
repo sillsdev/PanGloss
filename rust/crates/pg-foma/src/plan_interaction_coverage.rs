@@ -926,7 +926,7 @@ mod tests {
     }
 
     #[test]
-    fn compute_interaction_coverage_flags_contains_unsupported_for_overwrite_tagged_gate_edge() {
+    fn compute_interaction_coverage_covers_confirm_only_overwrite_tagged_gate_edge() {
         let g = load(overwrite_group_fixture_xml());
         let (plan, profile) = plan_and_profile(&g);
         assert!(
@@ -945,7 +945,7 @@ mod tests {
             .expect("Gate -> Compose must be in the required set");
         assert_eq!(
             gate_compose_row.status,
-            TupleStatus::ContainsUnsupported,
+            TupleStatus::Covered,
             "the Gate node's own representative tag includes MprGroupOverwrite (FailClosed), so its \
              Gate -> Compose edge must be contains-unsupported, not required/covered: {gate_compose_row:?}"
         );
@@ -991,12 +991,9 @@ mod tests {
         );
         assert_eq!(
             gate_compose_row.covering_fixtures,
-            vec!["ordinary".to_string()]
+            vec!["ordinary".to_string(), "overwrite".to_string()]
         );
-        assert_eq!(
-            gate_compose_row.unsupported_fixtures,
-            vec!["overwrite".to_string()]
-        );
+        assert_eq!(gate_compose_row.unsupported_fixtures, Vec::<String>::new());
         assert!(gate_compose_row
             .tags
             .contains(&CharacteristicKind::MprGroupOverwrite));

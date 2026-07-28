@@ -50,8 +50,7 @@ use std::fs;
 use pg_foma::analyzer::{FomaError, FomaProposer};
 use pg_foma::composite::FomaAnalyzer;
 use pg_foma::health::{
-    FindingCode, HealthFinding, HealthReport, Metric, MetricValue, Phase, Severity,
-    ValueProvenance,
+    FindingCode, HealthFinding, HealthReport, Metric, MetricValue, Phase, Severity, ValueProvenance,
 };
 use pg_foma::health_evaluator::evaluate_health;
 use pg_foma::preflight::preflight_findings;
@@ -81,7 +80,10 @@ fn measure_apply_side(grammar: &Grammar, words: &[String]) -> Result<Vec<HealthF
 
     if !words.is_empty() {
         findings.push(proposal_volume_finding(total_candidates));
-        findings.extend(confirmation_work_findings(total_candidates, total_confirmed));
+        findings.extend(confirmation_work_findings(
+            total_candidates,
+            total_confirmed,
+        ));
     }
 
     Ok(findings)
@@ -225,9 +227,13 @@ fn confirmation_work_findings(total_candidates: u64, total_confirmed: u64) -> Ve
 fn compile_time_findings(grammar: &Grammar) -> Vec<HealthFinding> {
     let (proposer_result, compile_profile) = FomaProposer::new_with_profile(grammar);
     let report = match &proposer_result {
-        Ok(proposer) => {
-            evaluate_health(None, Some(&proposer.report), &[], &[], Some(&compile_profile))
-        }
+        Ok(proposer) => evaluate_health(
+            None,
+            Some(&proposer.report),
+            &[],
+            &[],
+            Some(&compile_profile),
+        ),
         Err(FomaError::LexcCompileFailed(report)) => {
             evaluate_health(None, Some(report), &[], &[], Some(&compile_profile))
         }
@@ -241,7 +247,10 @@ fn compile_time_findings(grammar: &Grammar) -> Vec<HealthFinding> {
 /// invocation must not fabricate an apply-side finding of any kind). Pure aside from the one
 /// standalone profiled compile ([`compile_time_findings`]); factored out from [`run_fst_health`] so
 /// the honest no-words contract is directly unit-testable without going through file I/O.
-fn build_health_report(grammar: &Grammar, words: Option<&[String]>) -> Result<HealthReport, String> {
+fn build_health_report(
+    grammar: &Grammar,
+    words: Option<&[String]>,
+) -> Result<HealthReport, String> {
     let mut findings = preflight_findings(grammar);
     findings.extend(compile_time_findings(grammar));
     if let Some(words) = words {
@@ -378,7 +387,10 @@ mod tests {
     fn fst_health_no_words_writes_no_apply_side_findings() {
         let (result, _out_path, _words_path) =
             run_fst_health_raw("no-words", CLEAN_GRAMMAR_XML, None);
-        assert!(result.is_ok(), "no-words invocation must succeed: {result:?}");
+        assert!(
+            result.is_ok(),
+            "no-words invocation must succeed: {result:?}"
+        );
 
         // Precise honesty check (task deliverable 4/5): `words: None` must produce a report with
         // NO Phase::Apply finding of any apply-side kind -- exercised directly against
@@ -409,7 +421,10 @@ mod tests {
 
         let json = std::fs::read_to_string(&out_path).expect("read health.json");
         let report = HealthReport::from_json(&json).expect("health.json must parse");
-        assert_eq!(report.schema_version, pg_foma::health::HEALTH_SCHEMA_VERSION);
+        assert_eq!(
+            report.schema_version,
+            pg_foma::health::HEALTH_SCHEMA_VERSION
+        );
 
         // Round-trip: re-serializing the parsed report must reproduce the same JSON exactly.
         let reserialized = report.to_json().expect("re-serialize");

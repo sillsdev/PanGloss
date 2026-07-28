@@ -41,7 +41,9 @@ use pg_conformance_fixtures::discover;
 use pg_foma::capability::{default_registry, CharacteristicKind, Disposition};
 use pg_foma::conformance_coverage::CoverageStatus;
 use pg_foma::coverage_ledger::{build_ledger, CoverageLedger};
-use pg_foma::plan_interaction_coverage::{compute_interaction_coverage, plan_and_profile, TupleStatus};
+use pg_foma::plan_interaction_coverage::{
+    compute_interaction_coverage, plan_and_profile, TupleStatus,
+};
 use pg_grammar::model::Grammar;
 use pg_parse::Morpher;
 use serde::Serialize;
@@ -143,7 +145,11 @@ fn compute_evidence_counts(ledger: &CoverageLedger) -> EvidenceCounts {
             .iter()
             .filter(|r| !r.discharging_predicates.is_empty())
             .count(),
-        rows_with_containment_evidence: ledger.rows.iter().filter(|r| r.containment.is_some()).count(),
+        rows_with_containment_evidence: ledger
+            .rows
+            .iter()
+            .filter(|r| r.containment.is_some())
+            .count(),
         rows_mapped_to_conformance_construct: ledger
             .rows
             .iter()
@@ -266,7 +272,8 @@ fn build_headline(ledger: &CoverageLedger, disp: &DispositionCounts) -> String {
         .count();
     let unmappable = disp.total - mappable;
 
-    if disp.fail_closed == 0 && disp.config_predicate == 0 && covered == mappable && unmappable == 0 {
+    if disp.fail_closed == 0 && disp.config_predicate == 0 && covered == mappable && unmappable == 0
+    {
         format!(
             "FULL HC coverage: all {} constructs are Proven/ConfirmOnly (no FailClosed/ConfigPredicate \
              gap), and every construct maps to a conformance construct id covered by a passing fixture.",
@@ -388,7 +395,12 @@ fn render_human(summary: &CoverageSummary) -> String {
         out.push_str(&format!(
             "  {:?}: disposition={:?} predicates={:?} conformance={:?} construct_ids={:?}\n    \
              containment: {}\n",
-            row.kind, row.disposition, preds, row.conformance_status, row.construct_ids, containment
+            row.kind,
+            row.disposition,
+            preds,
+            row.conformance_status,
+            row.construct_ids,
+            containment
         ));
     }
 
@@ -465,11 +477,7 @@ pub fn run_coverage(args: &[String]) -> Result<(), String> {
         None => None,
     };
 
-    let summary = build_summary(
-        loaded_grammar
-            .as_ref()
-            .map(|(path, g)| (path.as_str(), g)),
-    );
+    let summary = build_summary(loaded_grammar.as_ref().map(|(path, g)| (path.as_str(), g)));
 
     match &out_path {
         Some(path) => {
@@ -510,7 +518,10 @@ mod tests {
         let ledger = &summary.ledger;
         let recount = compute_disposition_counts(ledger);
         assert_eq!(recount.proven, summary.disposition_counts.proven);
-        assert_eq!(recount.confirm_only, summary.disposition_counts.confirm_only);
+        assert_eq!(
+            recount.confirm_only,
+            summary.disposition_counts.confirm_only
+        );
         assert_eq!(
             recount.config_predicate,
             summary.disposition_counts.config_predicate
@@ -610,6 +621,9 @@ mod tests {
         assert!(with.plan_interaction.is_some());
         let pi = with.plan_interaction.unwrap();
         assert_eq!(pi.grammar_path, "coverage-cli-fixture");
-        assert_eq!(pi.required_total, 7, "must report all 7 documented legal adjacency tuples");
+        assert_eq!(
+            pi.required_total, 7,
+            "must report all 7 documented legal adjacency tuples"
+        );
     }
 }

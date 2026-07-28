@@ -89,6 +89,7 @@ mod fst_health;
 mod make_report;
 mod pack;
 mod plan_diagram;
+mod recipe_optimize;
 mod trace_render;
 
 /// P3 (docs/fst-plan/foma-fst-plan.md, gate F3): which proposer/verifier path a `batch`/`parse`
@@ -222,6 +223,20 @@ fn run() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
+        Some("recipe-optimize") => match recipe_optimize::run_recipe_optimize(&args[2..]) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("pangloss recipe-optimize: {e}");
+                ExitCode::FAILURE
+            }
+        },
+        Some("__recipe-optimize-child") => match recipe_optimize::run_recipe_optimize(&args[2..]) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("pangloss __recipe-optimize-child: {e}");
+                ExitCode::FAILURE
+            }
+        },
         // Hidden, internal compile-worker CHILD entry point (`harden-foma-resource-safety`
         // section 3/4; `pg_foma::worker`'s own doc). Spawned only by `pangloss pack --watchdog`
         // (`pack.rs::run_fst_health_under_watchdog`) via `pg_foma::worker::run_compile_worker`
@@ -251,6 +266,7 @@ fn run() -> ExitCode {
                  usage: pangloss coverage [--json] [--grammar=<path>] [<out.json>]\n\
                  usage: pangloss plan-diagram <grammar> [--json] [--full] [--threshold=N] [<out>]\n\
                  usage: pangloss make-report <grammar> <out.md> [--pack=<path>] [--words=<path>] [--corpus=<path> --attestor=<name> --attested-on=<date>] [--policy=<path>] [--allow-unproven] [--authorized-by=<name>] [--reason=<text>] [--repeats=N]\n\
+                 usage: pangloss recipe-optimize <grammar> <words.txt> <out-dir> [--seed N] [--candidates N] [--evaluations N] [--elapsed-ns N] [--build-ns N] [--memory-bytes N] [--confirmation-work N] [--reserve-ns N]\n\
                  \n\
                  <grammar> is one of: a HermitCrab XML export (.xml, the legacy path), a\n\
                  pg-snapshot JSON file (.json, from `pangloss import` or any other producer), or a\n\
@@ -513,7 +529,7 @@ fn capability_gate(g: &Grammar, enforce: bool, allow_unproven: bool) -> GateResu
         CompileDecision::Admit => GateResult {
             proceed: true,
             stderr_lines: vec![
-                "capability: Admit [enforcing: gate satisfied, proceeding]".to_string(),
+                "capability: Admit [enforcing: gate satisfied, proceeding]".to_string()
             ],
             overridden: false,
         },
@@ -912,7 +928,10 @@ fn write_batch_row<W: Write>(
 ) -> std::io::Result<()> {
     let (guess_requested, guessed) = guess;
     if guess_requested {
-        writeln!(w, "{idx}\t{word}\t{elapsed_ms}\t{status}\t{signature}\t{guessed}")
+        writeln!(
+            w,
+            "{idx}\t{word}\t{elapsed_ms}\t{status}\t{signature}\t{guessed}"
+        )
     } else {
         writeln!(w, "{idx}\t{word}\t{elapsed_ms}\t{status}\t{signature}")
     }
@@ -1711,12 +1730,8 @@ mod tests {
         #[test]
         fn guess_omitted_keeps_five_column_rows_and_finds_nothing_for_pattern_only_word() {
             for (tag, threads) in [("guess-off-seq", "1"), ("guess-off-par", "2")] {
-                let lines = run_batch_tsv_custom(
-                    tag,
-                    GUESS_GRAMMAR_XML,
-                    "gag\n",
-                    &["--threads", threads],
-                );
+                let lines =
+                    run_batch_tsv_custom(tag, GUESS_GRAMMAR_XML, "gag\n", &["--threads", threads]);
                 assert_eq!(lines.len(), if threads == "1" { 2 } else { 1 }, "{lines:?}");
                 let result_line = lines.last().unwrap();
                 let fields: Vec<&str> = result_line.split('\t').collect();
@@ -1770,8 +1785,12 @@ mod tests {
         #[test]
         fn guess_flag_never_marks_the_ordinary_root_guessed() {
             for (tag, threads) in [("guess-control-seq", "1"), ("guess-control-par", "2")] {
-                let lines =
-                    run_batch_tsv_custom(tag, GUESS_GRAMMAR_XML, "kad\n", &["--threads", threads, "--guess"]);
+                let lines = run_batch_tsv_custom(
+                    tag,
+                    GUESS_GRAMMAR_XML,
+                    "kad\n",
+                    &["--threads", threads, "--guess"],
+                );
                 let result_line = lines.last().unwrap();
                 let fields: Vec<&str> = result_line.split('\t').collect();
                 assert_eq!(fields.len(), 6, "{fields:?}");
@@ -1839,26 +1858,7 @@ mod tests {
         /// (`RealizationalMorphology`/`MprGroupAppend`/`CoOccurrenceConstraint`, though those are
         /// always `ConfirmOnly`/`Admit`, never `Refuse`, so they cannot serve this fixture's own
         /// purpose) are stable, by-construction-permanent `Refuse` verdicts.
-        const PERMANENTLY_REFUSED_GRAMMAR_XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
-          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
-          <MorphologicalPhonologicalRuleFeatures>
-            <MorphologicalPhonologicalRuleFeature id="mprA">A</MorphologicalPhonologicalRuleFeature>
-            <MorphologicalPhonologicalRuleFeatureGroup matchType="all" outputType="overwrite" features="mprA"><Name>GOverwrite</Name></MorphologicalPhonologicalRuleFeatureGroup>
-          </MorphologicalPhonologicalRuleFeatures>
-          <CharacterDefinitionTable id="t1"><Name>Main</Name>
-            <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
-          </CharacterDefinitionTable>
-          <Strata>
-            <Stratum characterDefinitionTable="t1">
-              <Name>S</Name>
-              <LexicalEntries>
-                <LexicalEntry id="e1" partOfSpeech="posV">
-                  <Allomorphs><Allomorph id="a1"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs>
-                </LexicalEntry>
-              </LexicalEntries>
-            </Stratum>
-          </Strata>
-        </Language></HermitCrabInput>"#;
+        const PERMANENTLY_REFUSED_GRAMMAR_XML: &str = include_str!("../../../../conformance-staging/edge-cases/simultaneous-subrule-genuine-overlap/grammar.xml");
 
         fn load(xml: &str) -> pg_grammar::model::Grammar {
             pg_grammar::load(xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"))
@@ -1876,7 +1876,10 @@ mod tests {
             let refused = load(PERMANENTLY_REFUSED_GRAMMAR_XML);
 
             let g1 = capability_gate(&clean, false, false);
-            assert!(g1.proceed, "advisory-only must never block an Admit grammar");
+            assert!(
+                g1.proceed,
+                "advisory-only must never block an Admit grammar"
+            );
             assert!(!g1.overridden);
 
             let g2 = capability_gate(&refused, false, false);
@@ -1893,7 +1896,10 @@ mod tests {
         fn capability_gate_enforce_admits_clean_grammar() {
             let clean = load(super::MINI_GRAMMAR_XML);
             let g = capability_gate(&clean, true, false);
-            assert!(g.proceed, "an Admit-verdict grammar must proceed under enforcement");
+            assert!(
+                g.proceed,
+                "an Admit-verdict grammar must proceed under enforcement"
+            );
             assert!(!g.overridden);
         }
 
@@ -1903,10 +1909,15 @@ mod tests {
         fn capability_gate_enforce_refuses_permanently_refused_without_override() {
             let refused = load(PERMANENTLY_REFUSED_GRAMMAR_XML);
             let g = capability_gate(&refused, true, false);
-            assert!(!g.proceed, "a Refuse verdict must block under --enforce-capability");
+            assert!(
+                !g.proceed,
+                "a Refuse verdict must block under --enforce-capability"
+            );
             assert!(!g.overridden, "no override was requested");
             assert!(
-                g.stderr_lines.iter().any(|l| l.contains("Overwrite")),
+                g.stderr_lines
+                    .iter()
+                    .any(|l| l.contains("simultaneous.subrule-overlap")),
                 "expected a diagnostic naming the Overwrite MprGroup: {:?}",
                 g.stderr_lines
             );
@@ -1920,7 +1931,10 @@ mod tests {
         fn capability_gate_override_force_compiles_and_marks_trust_unproven() {
             let refused = load(PERMANENTLY_REFUSED_GRAMMAR_XML);
             let g = capability_gate(&refused, true, true);
-            assert!(g.proceed, "--allow-unproven must force-compile a Refuse verdict");
+            assert!(
+                g.proceed,
+                "--allow-unproven must force-compile a Refuse verdict"
+            );
             assert!(g.overridden, "must be flagged as an overridden run");
             assert!(
                 g.stderr_lines.iter().any(|l| l.contains("trust=unproven")),
@@ -1935,7 +1949,9 @@ mod tests {
                 g.stderr_lines
             );
             assert!(
-                g.stderr_lines.iter().any(|l| l.contains("Overwrite")),
+                g.stderr_lines
+                    .iter()
+                    .any(|l| l.contains("simultaneous.subrule-overlap")),
                 "the override record must still name which construct was force-compiled: {:?}",
                 g.stderr_lines
             );
@@ -1988,8 +2004,11 @@ mod tests {
         /// before any foma compile is even attempted.
         #[test]
         fn run_batch_foma_engine_default_enforces_refuses_permanently_refused_with_no_flags() {
-            let (result, out_path) =
-                run_batch_raw("foma-default-refuse", PERMANENTLY_REFUSED_GRAMMAR_XML, &["--engine=foma"]);
+            let (result, out_path) = run_batch_raw(
+                "foma-default-refuse",
+                PERMANENTLY_REFUSED_GRAMMAR_XML,
+                &["--engine=foma"],
+            );
             assert!(
                 result.is_err(),
                 "--engine=foma must refuse a Refuse-verdict grammar BY DEFAULT, with no flags: \
@@ -2016,7 +2035,10 @@ mod tests {
                 "--no-enforce-capability must drop back to advisory-only on --engine=foma: \
                  {result:?}"
             );
-            assert!(out_path.exists(), "an unenforced run must still produce output");
+            assert!(
+                out_path.exists(),
+                "an unenforced run must still produce output"
+            );
         }
 
         /// Same `Refuse`-verdict grammar on `--engine=foma`, this time with `--allow-unproven`
@@ -2034,9 +2056,15 @@ mod tests {
                 result.is_ok(),
                 "run_batch must proceed under --allow-unproven: {result:?}"
             );
-            assert!(out_path.exists(), "the overridden run must still produce output");
+            assert!(
+                out_path.exists(),
+                "the overridden run must still produce output"
+            );
             let tsv = fs::read_to_string(&out_path).expect("read out.tsv");
-            assert!(!tsv.trim().is_empty(), "out.tsv must contain at least one row");
+            assert!(
+                !tsv.trim().is_empty(),
+                "out.tsv must contain at least one row"
+            );
         }
 
         /// A clean (`Admit`-verdict) grammar on `--engine=foma`, no flags: ordinary success under
@@ -2045,7 +2073,10 @@ mod tests {
         fn run_batch_foma_engine_admits_clean_grammar_normally() {
             let (result, out_path) =
                 run_batch_raw("foma-clean", super::MINI_GRAMMAR_XML, &["--engine=foma"]);
-            assert!(result.is_ok(), "a clean grammar must pass default enforcement: {result:?}");
+            assert!(
+                result.is_ok(),
+                "a clean grammar must pass default enforcement: {result:?}"
+            );
             let tsv = fs::read_to_string(&out_path).expect("read out.tsv");
             let last = tsv.lines().last().expect("at least one row");
             let fields: Vec<&str> = last.split('\t').collect();
@@ -2069,7 +2100,10 @@ mod tests {
                 result.is_ok(),
                 "--engine=default must never enforce, even with --enforce-capability: {result:?}"
             );
-            assert!(out_path.exists(), "--engine=default must still produce output");
+            assert!(
+                out_path.exists(),
+                "--engine=default must still produce output"
+            );
         }
 
         /// No flags at all, on the SAME `Refuse`-verdict grammar, no `--engine` (so `--engine=
@@ -2077,12 +2111,19 @@ mod tests {
         /// still write output.
         #[test]
         fn run_batch_no_flags_still_proceeds_for_permanently_refused_grammar() {
-            let (result, out_path) = run_batch_raw("no-flags-permanently-refused", PERMANENTLY_REFUSED_GRAMMAR_XML, &[]);
+            let (result, out_path) = run_batch_raw(
+                "no-flags-permanently-refused",
+                PERMANENTLY_REFUSED_GRAMMAR_XML,
+                &[],
+            );
             assert!(
                 result.is_ok(),
                 "default (no-flag) behavior must be unchanged -- never blocks: {result:?}"
             );
-            assert!(out_path.exists(), "default behavior must still produce output");
+            assert!(
+                out_path.exists(),
+                "default behavior must still produce output"
+            );
         }
     }
 }

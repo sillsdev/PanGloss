@@ -901,8 +901,14 @@ fn feature_change_analysis_pick_order_depends_on_direction() {
         D.to_vec(),
         "leftmost d untouched -- a LtR-declared rule's analysis scans RtL"
     );
-    assert_eq!(got[1].2, unconstrained_voi, "middle d unapplied (part of the rightmost pair)");
-    assert_eq!(got[2].2, unconstrained_voi, "rightmost d unapplied (part of the rightmost pair)");
+    assert_eq!(
+        got[1].2, unconstrained_voi,
+        "middle d unapplied (part of the rightmost pair)"
+    );
+    assert_eq!(
+        got[2].2, unconstrained_voi,
+        "rightmost d unapplied (part of the rightmost pair)"
+    );
 
     let out_rtl = pg_rules::rewrite::analyze(
         &g,
@@ -912,8 +918,14 @@ fn feature_change_analysis_pick_order_depends_on_direction() {
     assert_eq!(out_rtl.len(), 1, "RtL-declared rule: unapplied");
     let got = interior(&out_rtl[0]);
     assert_eq!(got.len(), 3);
-    assert_eq!(got[0].2, unconstrained_voi, "leftmost d unapplied (part of the leftmost pair)");
-    assert_eq!(got[1].2, unconstrained_voi, "middle d unapplied (part of the leftmost pair)");
+    assert_eq!(
+        got[0].2, unconstrained_voi,
+        "leftmost d unapplied (part of the leftmost pair)"
+    );
+    assert_eq!(
+        got[1].2, unconstrained_voi,
+        "middle d unapplied (part of the leftmost pair)"
+    );
     assert_eq!(
         got[2].2,
         D.to_vec(),
@@ -1398,12 +1410,21 @@ fn quantifier_as_whole_lhs_ignores_its_own_multiplicity_but_never_crashes_or_mis
     // 1..2 bound is never actually enforced as a GROUP), and nothing panics or drops nodes.
     for (word, want_len) in [("a", 1), ("aa", 2), ("aaa", 3)] {
         let out = pg_rules::rewrite::synthesize(&g, &r, &seg(&g, word));
-        assert_eq!(out.len(), 1, "{word:?}: rule applies (no crash, no silent no-op)");
+        assert_eq!(
+            out.len(),
+            1,
+            "{word:?}: rule applies (no crash, no silent no-op)"
+        );
         let got = interior(&out[0]);
-        assert_eq!(got.len(), want_len, "{word:?}: node count preserved (no over-wide consumption)");
+        assert_eq!(
+            got.len(),
+            want_len,
+            "{word:?}: node count preserved (no over-wide consumption)"
+        );
         for (i, node) in got.iter().enumerate() {
             assert_eq!(
-                node.2, T.to_vec(),
+                node.2,
+                T.to_vec(),
                 "{word:?}: position {i} independently rewritten to t's lanes"
             );
         }
@@ -1426,7 +1447,7 @@ fn ctx_epenthesis_rule(g: &pg_grammar::model::Grammar, dir: Dir) -> RewriteRuleD
         subrule(
             pat_ctx(nat_class(g, "nc_n")), // RHS: a natural-class reference, not a concrete segment
             Some(pat_ctx(nat_class(g, "nc_vowel"))), // left env: a
-            Some(pat_ctx(nat_class(g, "nc_t"))),     // right env: t (excludes the inserted n itself)
+            Some(pat_ctx(nat_class(g, "nc_t"))), // right env: t (excludes the inserted n itself)
         ),
         dir,
     )
@@ -1451,16 +1472,31 @@ fn epenthesis_natural_class_rhs_round_trips_with_environment() {
         // single concrete identity (the file's own `new_seg_node` doc's "KNOWN RESIDUAL"), which is
         // exactly the shape this test targets, distinct from the pre-existing concrete-`CharDef`
         // epenthesis gates.
-        assert_eq!(got[1].2, D.to_vec(), "{dir:?}: inserted segment carries nc_n's own lanes");
-        assert_eq!(got[1].1, pg_shape::NO_CHAR_DEF, "{dir:?}: Context RHS has no concrete char-def identity");
-        assert!(!got[1].3, "{dir:?}: synthesized epenthetic segment is not optional");
+        assert_eq!(
+            got[1].2,
+            D.to_vec(),
+            "{dir:?}: inserted segment carries nc_n's own lanes"
+        );
+        assert_eq!(
+            got[1].1,
+            pg_shape::NO_CHAR_DEF,
+            "{dir:?}: Context RHS has no concrete char-def identity"
+        );
+        assert!(
+            !got[1].3,
+            "{dir:?}: synthesized epenthetic segment is not optional"
+        );
 
         // Analysis must recover the pre-insertion form: the medial inserted segment is marked
         // OPTIONAL (never deleted), and the flanking a/t are untouched -- this is the exact
         // reported-gap scenario (an environment-gated, natural-class-RHS epenthesis rule) and it
         // round-trips correctly in BOTH directions.
         let ana = pg_rules::rewrite::analyze(&g, &r, &synth[0]);
-        assert_eq!(ana.len(), 1, "{dir:?}: unapplication must fire (nonvacuous: the segment is not yet optional)");
+        assert_eq!(
+            ana.len(),
+            1,
+            "{dir:?}: unapplication must fire (nonvacuous: the segment is not yet optional)"
+        );
         let got = interior(&ana[0]);
         assert_eq!(
             got.iter().map(|x| x.3).collect::<Vec<_>>(),

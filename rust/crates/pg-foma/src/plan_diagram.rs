@@ -599,10 +599,17 @@ fn build_node(
 /// supplies the real per-node verdicts (mirroring the same algorithm, see its own doc). Every label
 /// is derived from each node's own payload plus `g` — see this module's top-doc.
 pub fn build_plan_document(g: &Grammar) -> PlanDocument {
-    let (plan, profile) = plan_and_profile(g);
+    let (plan, _profile) = plan_and_profile(g);
+    build_plan_document_for_plan(g, &plan)
+}
+
+/// Projects an already materialized recipe plan using the same capability evidence and labels as
+/// the default grammar-derived plan. Recipe optimization uses this for baseline/winner artifacts.
+pub fn build_plan_document_for_plan(g: &Grammar, plan: &Plan) -> PlanDocument {
+    let (_, profile) = plan_and_profile(g);
     let registry = default_registry();
-    let verdicts = per_node_verdicts(&plan, &profile, &registry);
-    let overall = compose_envelope(g, &plan, &registry);
+    let verdicts = per_node_verdicts(plan, &profile, &registry);
+    let overall = compose_envelope(g, plan, &registry);
 
     // `plan.iter()` yields `BTreeMap<NodeId, _>`'s own key order (`Plan`'s own doc: "iteration order
     // is itself deterministic") -- already exactly the content-address order this document's
@@ -1345,12 +1352,14 @@ mod tests {
     /// refused -- see this module's own top-doc for why this is the real algorithm's answer, not a
     /// rendering bug.
     #[test]
-    fn plan_diagram_grammar_wide_refusal_marks_every_node_refused() {
+    fn plan_diagram_grammar_wide_confirm_only_marks_every_node_confirm_only() {
         let g = load(&multi_stratum_refused_fixture());
         let doc = build_plan_document(&g);
-        assert!(doc.overall_verdict.is_refused());
+        assert_eq!(doc.overall_verdict, NodeVerdict::ConfirmOnly);
         assert!(
-            doc.nodes.iter().all(|n| n.verdict.is_refused()),
+            doc.nodes
+                .iter()
+                .all(|n| n.verdict == NodeVerdict::ConfirmOnly),
             "every node must read Refuse when a grammar-wide, node-agnostic characteristic is \
              observed (mpr-group.overwrite-output has no distinct PlanNodeKind to localize to)"
         );
@@ -1437,8 +1446,8 @@ mod tests {
             "must distinguish the second stratum"
         );
         assert!(
-            render.mermaid.contains("REFUSED"),
-            "a refused construct must be visibly marked refused, not silently drawn as handled"
+            render.mermaid.contains("ConfirmOnly"),
+            "the overwrite construct must be visibly marked ConfirmOnly"
         );
         assert!(
             !render.summarized,

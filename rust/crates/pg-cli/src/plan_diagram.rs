@@ -32,17 +32,11 @@ pub fn run_plan_diagram(args: &[String]) -> Result<(), String> {
             "--full" => full = true,
             "--threshold" => {
                 let v = it.next().ok_or("--threshold requires a value")?;
-                threshold = Some(
-                    v.parse()
-                        .map_err(|_| format!("invalid --threshold: {v}"))?,
-                );
+                threshold = Some(v.parse().map_err(|_| format!("invalid --threshold: {v}"))?);
             }
             s if s.starts_with("--threshold=") => {
                 let v = &s["--threshold=".len()..];
-                threshold = Some(
-                    v.parse()
-                        .map_err(|_| format!("invalid --threshold: {v}"))?,
-                );
+                threshold = Some(v.parse().map_err(|_| format!("invalid --threshold: {v}"))?);
             }
             s => positional.push(s),
         }

@@ -647,6 +647,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "sysinfo",
 ]
 
 [[package]]
@@ -702,6 +703,7 @@ dependencies = [
  "rustc-hash",
  "serde",
  "serde_json",
+ "sha2",
  "sysinfo",
 ]
 

@@ -13,7 +13,7 @@
 # consonants) -- see grammar.xml's own PhonologicalFeatureSystem comment. Every signature below is
 # now literal.
 
-language: Ranavu
+language: DeletionReduplicationExceptionComposite
 inspired_by: ["synthetic agglutinative-Austronesian nasal-assimilation/deletion + MPR-exclusion probe (not modeling any real language)"]
 sources:
   - "docs/conformance-staging-plan.md pathology catalog (agglutinative-Austronesian row)"
@@ -35,7 +35,7 @@ words:
     provenance: "docs/conformance-staging-plan.md pathology catalog (agglutinative-Austronesian row): placeholder-nasal assimilation + junction deletion"
     parses:
       - signature: "NPFX+TULIK|menulik"
-        rules: [mrNPfx]
+        rules: [mrNPfx, prNasalAssimAlveolar, prObstruentDeletion]
         # LeftToRightRewrite (constructs.txt row 29): prNasalAssimAlveolar/prObstruentDeletion both
         # carry no multipleApplicationOrder attribute, so pg-grammar's own loader
         # (load_rewrite_rule, rust/crates/pg-grammar/src/load.rs) gives each Dir::LeftToRight by
@@ -61,7 +61,7 @@ words:
     provenance: "docs/conformance-staging-plan.md pathology catalog (agglutinative-Austronesian row): placeholder-nasal assimilation + junction deletion"
     parses:
       - signature: "NPFX+BALO|membalo"
-        rules: [mrNPfx]
+        rules: [mrNPfx, prNasalAssimBilabial]
 
   - word: sanit
     note: SANIT bare root, no MPR feature -- a plain control for the MPR-exclusion pair below.
@@ -102,3 +102,12 @@ words:
     parses:
       - signature: "VOKAD+SUFALT|vokadi"
         rules: [mrSufAlt]
+
+
+  - word: tuliktulik
+    note: Full reduplication of TULIK; exercises copy-sensitive morphology in the same grammar as junction deletion and a lexical MPR exception.
+    parses:
+      - signature: "RDPL+TULIK|tuliktulik"
+        rules: [mrRedupFull]
+        exercises:
+          - "AffixProcessRule: reduplication (ReduplicationHint)"

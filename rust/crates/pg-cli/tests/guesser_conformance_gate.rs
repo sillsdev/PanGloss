@@ -76,7 +76,10 @@ fn guess_on_analyzes_the_out_of_lexicon_words_and_marks_them_guessed() {
     let opts = ParseOptions::default().with_guess_root(true);
 
     let gag = m.parse_word_opts("gag", &opts);
-    assert!(gag.guessed, "\"gag\" must be marked guessed with guessing on");
+    assert!(
+        gag.guessed,
+        "\"gag\" must be marked guessed with guessing on"
+    );
     assert_eq!(gag.signature(), "gag|gag");
     assert_eq!(gag.structured.len(), 1);
     assert!(gag.structured[0].guessed);
@@ -113,7 +116,10 @@ fn control_root_never_guessed_on_or_off() {
         assert!(!outcome.guessed);
         assert_eq!(outcome.structured.len(), 1);
         assert!(!outcome.structured[0].guessed);
-        assert_eq!(outcome.structured[0].provenance, AnalysisProvenance::Grammar);
+        assert_eq!(
+            outcome.structured[0].provenance,
+            AnalysisProvenance::Grammar
+        );
     }
     assert_eq!(off.signature(), on.signature());
 }

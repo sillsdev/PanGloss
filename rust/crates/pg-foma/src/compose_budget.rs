@@ -710,6 +710,12 @@ impl ComposeBudget {
         }
     }
 
+    /// Overrides the per-composition-step deadline while retaining every configured size cap.
+    pub fn with_step_timeout(mut self, timeout: Option<Duration>) -> Self {
+        self.step_timeout = timeout;
+        self
+    }
+
     /// Explicit-caps constructor -- what tests use (design doc §6: "explicit-caps constructors,
     /// never env vars"), and what [`Self::from_env`] builds internally.
     ///

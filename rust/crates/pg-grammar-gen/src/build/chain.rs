@@ -108,7 +108,11 @@ mod tests {
         // Every rule's suffix character must be distinct from every other's and from the root's.
         let mut chars: Vec<char> = tb.tables[0].segments[0..6].iter().map(|s| s.ch).collect();
         chars.dedup();
-        assert_eq!(chars.len(), 6, "build_chain draws 6 distinct chars (1 root + 5 suffixes)");
+        assert_eq!(
+            chars.len(),
+            6,
+            "build_chain draws 6 distinct chars (1 root + 5 suffixes)"
+        );
     }
 
     #[test]

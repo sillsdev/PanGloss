@@ -96,8 +96,12 @@ fn decode_hex(s: &str) -> Result<Vec<u8>, HexError> {
     let mut out = Vec::with_capacity(s.len() / 2);
     let chars: Vec<char> = s.chars().collect();
     for pair in chars.chunks(2) {
-        let hi = pair[0].to_digit(16).ok_or(HexError::InvalidDigit(pair[0]))?;
-        let lo = pair[1].to_digit(16).ok_or(HexError::InvalidDigit(pair[1]))?;
+        let hi = pair[0]
+            .to_digit(16)
+            .ok_or(HexError::InvalidDigit(pair[0]))?;
+        let lo = pair[1]
+            .to_digit(16)
+            .ok_or(HexError::InvalidDigit(pair[1]))?;
         out.push(((hi << 4) | lo) as u8);
     }
     Ok(out)
@@ -206,14 +210,20 @@ mod tests {
 
     #[test]
     fn sign_then_verify_succeeds() {
-        let message = domain_separated_signed_bytes(1, b"{}", b"synthetic-runtime", b"synthetic-foma");
-        let block = sign(&SYNTHETIC_SEED_A, &message, Some("synthetic-key-1".to_string()));
+        let message =
+            domain_separated_signed_bytes(1, b"{}", b"synthetic-runtime", b"synthetic-foma");
+        let block = sign(
+            &SYNTHETIC_SEED_A,
+            &message,
+            Some("synthetic-key-1".to_string()),
+        );
         assert!(verify(&block, &message));
     }
 
     #[test]
     fn verify_fails_with_wrong_key() {
-        let message = domain_separated_signed_bytes(1, b"{}", b"synthetic-runtime", b"synthetic-foma");
+        let message =
+            domain_separated_signed_bytes(1, b"{}", b"synthetic-runtime", b"synthetic-foma");
         let mut block = sign(&SYNTHETIC_SEED_A, &message, None);
         let wrong_key_block = sign(&SYNTHETIC_SEED_B, &message, None);
         block.public_key_hex = wrong_key_block.public_key_hex;
@@ -222,16 +232,22 @@ mod tests {
 
     #[test]
     fn verify_fails_when_message_changes_after_signing() {
-        let message = domain_separated_signed_bytes(1, b"{}", b"synthetic-runtime", b"synthetic-foma");
+        let message =
+            domain_separated_signed_bytes(1, b"{}", b"synthetic-runtime", b"synthetic-foma");
         let block = sign(&SYNTHETIC_SEED_A, &message, None);
-        let tampered_message =
-            domain_separated_signed_bytes(1, b"{}", b"synthetic-runtime-TAMPERED", b"synthetic-foma");
+        let tampered_message = domain_separated_signed_bytes(
+            1,
+            b"{}",
+            b"synthetic-runtime-TAMPERED",
+            b"synthetic-foma",
+        );
         assert!(!verify(&block, &tampered_message));
     }
 
     #[test]
     fn verify_fails_on_unknown_algorithm() {
-        let message = domain_separated_signed_bytes(1, b"{}", b"synthetic-runtime", b"synthetic-foma");
+        let message =
+            domain_separated_signed_bytes(1, b"{}", b"synthetic-runtime", b"synthetic-foma");
         let mut block = sign(&SYNTHETIC_SEED_A, &message, None);
         block.algorithm = "synthetic-unknown-algorithm".to_string();
         assert!(!verify(&block, &message));
@@ -239,7 +255,8 @@ mod tests {
 
     #[test]
     fn verify_fails_on_malformed_hex_without_panicking() {
-        let message = domain_separated_signed_bytes(1, b"{}", b"synthetic-runtime", b"synthetic-foma");
+        let message =
+            domain_separated_signed_bytes(1, b"{}", b"synthetic-runtime", b"synthetic-foma");
         let mut block = sign(&SYNTHETIC_SEED_A, &message, None);
         block.signature_hex = "not-hex-at-all!!".to_string();
         assert!(!verify(&block, &message));

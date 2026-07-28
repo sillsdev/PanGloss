@@ -64,8 +64,8 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use pg_foma::analyzer::FomaProposer;
-use pg_foma::composite::FomaAnalyzer;
 use pg_foma::compose_budget::{ApplyBudget, ApplyOutcome};
+use pg_foma::composite::FomaAnalyzer;
 use pg_foma::health::HealthReport;
 use pg_grammar::model::Grammar;
 
@@ -229,7 +229,12 @@ pub fn assess_words(
             .structured
             .iter()
             .cloned()
-            .zip(outcome.analyses.iter().map(|(_join, surface)| surface.clone()))
+            .zip(
+                outcome
+                    .analyses
+                    .iter()
+                    .map(|(_join, surface)| surface.clone()),
+            )
             .collect();
         let gloss_signature = pg_realize::word_gloss_signature(grammar, &pairs);
 
@@ -379,7 +384,10 @@ mod tests {
 
         assert_eq!(report.engine, "foma-composite");
         assert_eq!(report.entries.len(), 3);
-        assert_eq!(report.summary.complete, 3, "an unbounded budget never trips");
+        assert_eq!(
+            report.summary.complete, 3,
+            "an unbounded budget never trips"
+        );
         assert_eq!(report.summary.incomplete, 0);
 
         let kal = &report.entries[0];
@@ -482,9 +490,15 @@ mod tests {
     "incomplete": 0
   }
 }"#;
-        assert_eq!(json, GOLDEN, "canonical JSON drifted from the committed golden");
+        assert_eq!(
+            json, GOLDEN,
+            "canonical JSON drifted from the committed golden"
+        );
 
         let parsed: AssessmentReport = serde_json::from_str(&json).expect("deserialize");
-        assert_eq!(parsed, report, "round trip through canonical JSON must be lossless");
+        assert_eq!(
+            parsed, report,
+            "round trip through canonical JSON must be lossless"
+        );
     }
 }

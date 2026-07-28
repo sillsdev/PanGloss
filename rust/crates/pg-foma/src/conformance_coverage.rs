@@ -814,7 +814,6 @@ mod tests {
             CoverageStatus::Covered,
             "MprGroupOverwrite now uses passing-fixture evidence"
         );
-
     }
 
     /// [`supported_uncovered`] is exactly the non-`Covered` projection of the same report.

@@ -80,9 +80,10 @@ pub(crate) fn owning_table_for_metathesis_rule(
     g: &Grammar,
     rule: &MetathesisRuleDef,
 ) -> Option<TableId> {
-    let idx = g.prules.iter().position(
-        |pr| matches!(pr, PhonRuleDef::Metathesis(r) if r.xml_id == rule.xml_id),
-    )?;
+    let idx = g
+        .prules
+        .iter()
+        .position(|pr| matches!(pr, PhonRuleDef::Metathesis(r) if r.xml_id == rule.xml_id))?;
     owning_table_for_prule(g, PRuleId(idx as u32))
 }
 
@@ -153,9 +154,10 @@ pub(crate) fn owning_table_for_compounding_rule(
     g: &Grammar,
     rule: &CompoundingRuleDef,
 ) -> Option<TableId> {
-    let idx = g.mrules.iter().position(
-        |mr| matches!(mr, MorphRuleDef::Compounding(def) if def.xml_id == rule.xml_id),
-    )?;
+    let idx = g
+        .mrules
+        .iter()
+        .position(|mr| matches!(mr, MorphRuleDef::Compounding(def) if def.xml_id == rule.xml_id))?;
     owning_table_for_mrule(g, MRuleId(idx as u32))
 }
 
@@ -431,9 +433,17 @@ mod owning_table_tests {
     #[test]
     fn owning_table_for_prule_resolves_the_rules_own_stratum_not_table_zero() {
         let g = load();
-        assert_eq!(g.char_tables.len(), 2, "fixture must declare exactly 2 tables");
+        assert_eq!(
+            g.char_tables.len(),
+            2,
+            "fixture must declare exactly 2 tables"
+        );
         assert_eq!(g.strata.len(), 2, "fixture must declare exactly 2 strata");
-        assert_eq!(g.prules.len(), 1, "fixture declares exactly 1 phonological rule");
+        assert_eq!(
+            g.prules.len(),
+            1,
+            "fixture declares exactly 1 phonological rule"
+        );
 
         let table = owning_table_for_prule(&g, PRuleId(0))
             .expect("prQtoP is wired into stratum S1's own phonologicalRules cascade");
@@ -484,7 +494,10 @@ mod owning_table_tests {
         // The single interior node's lanes must now match "p"'s own (f=+), not "z"'s (also f=+,
         // chosen deliberately equal to "p" so this positive assertion and the match-at-all proof
         // above are independent checks, not the same fact restated).
-        let p_lanes = t1.get(pg_grammar::chardef::CharDefId(1)).feature_lanes().to_vec();
+        let p_lanes = t1
+            .get(pg_grammar::chardef::CharDefId(1))
+            .feature_lanes()
+            .to_vec();
         let interior: Vec<usize> = (0..out[0].len())
             .filter(|&i| matches!(out[0].kind(i), pg_shape::NodeKind::Segment))
             .collect();
@@ -516,8 +529,8 @@ mod owning_table_tests {
     /// RHS's `InsertSegments` literal "p" additionally exercises `cd_lanes`'s own table resolution
     /// in the same pass.
     #[test]
-    fn cached_affix_synthesis_resolves_the_allomorphs_own_lhs_rhs_pattern_against_its_own_table_not_table_zero()
-     {
+    fn cached_affix_synthesis_resolves_the_allomorphs_own_lhs_rhs_pattern_against_its_own_table_not_table_zero(
+    ) {
         const XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
@@ -592,16 +605,29 @@ mod owning_table_tests {
 "#;
         let g = pg_grammar::load(XML)
             .unwrap_or_else(|e| panic!("owning-table affix probe grammar loads: {e}"));
-        assert_eq!(g.char_tables.len(), 2, "fixture must declare exactly 2 tables");
+        assert_eq!(
+            g.char_tables.len(),
+            2,
+            "fixture must declare exactly 2 tables"
+        );
         assert_eq!(g.strata.len(), 2, "fixture must declare exactly 2 strata");
-        assert_eq!(g.mrules.len(), 1, "fixture declares exactly 1 morphological rule");
-        assert_eq!(g.entries.len(), 1, "fixture declares exactly 1 lexical entry");
+        assert_eq!(
+            g.mrules.len(),
+            1,
+            "fixture declares exactly 1 morphological rule"
+        );
+        assert_eq!(
+            g.entries.len(),
+            1,
+            "fixture declares exactly 1 lexical entry"
+        );
 
         let cache = RuleCache::build(&g);
         let mrid = MRuleId(0);
         let rule = &g.mrules[0];
 
-        let word = morph::seed_from_entry(&g, pg_grammar::model::LexEntryId(0), FeatureStruct::EMPTY);
+        let word =
+            morph::seed_from_entry(&g, pg_grammar::model::LexEntryId(0), FeatureStruct::EMPTY);
         assert_eq!(
             word.stratum,
             pg_grammar::model::StratumId(1),
@@ -624,8 +650,14 @@ mod owning_table_tests {
         assert_eq!(interior.len(), 2, "the root \"q\" plus the inserted \"p\"");
 
         let t1 = &g.char_tables[1];
-        let q_lanes = t1.get(pg_grammar::chardef::CharDefId(0)).feature_lanes().to_vec();
-        let p_lanes = t1.get(pg_grammar::chardef::CharDefId(1)).feature_lanes().to_vec();
+        let q_lanes = t1
+            .get(pg_grammar::chardef::CharDefId(0))
+            .feature_lanes()
+            .to_vec();
+        let p_lanes = t1
+            .get(pg_grammar::chardef::CharDefId(1))
+            .feature_lanes()
+            .to_vec();
         assert_eq!(
             w.shape.node_lanes(interior[0]).to_vec(),
             q_lanes,

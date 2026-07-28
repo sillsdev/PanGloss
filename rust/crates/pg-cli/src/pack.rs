@@ -78,7 +78,8 @@ const FOMA_FEATURE_LEVEL: u32 = 1;
 /// Honestly-labeled placeholder runtime payload — see this module's top doc, "What is real vs.
 /// placeholder." Its content is never mistaken for a real payload precisely because it announces
 /// itself as one.
-const PLACEHOLDER_RUNTIME_PAYLOAD: &[u8] = b"PANGLOSS-PLACEHOLDER-RUNTIME-PAYLOAD: no Rust-HermitCrab \
+const PLACEHOLDER_RUNTIME_PAYLOAD: &[u8] =
+    b"PANGLOSS-PLACEHOLDER-RUNTIME-PAYLOAD: no Rust-HermitCrab \
 runtime-payload serializer exists yet anywhere in this workspace; this byte content is NOT a \
 compiled artifact and must never be loaded as one.";
 
@@ -100,9 +101,15 @@ fn this_crate_semver() -> (u32, u32, u32) {
     const MINOR: &str = env!("CARGO_PKG_VERSION_MINOR");
     const PATCH: &str = env!("CARGO_PKG_VERSION_PATCH");
     (
-        MAJOR.parse().expect("CARGO_PKG_VERSION_MAJOR is always numeric"),
-        MINOR.parse().expect("CARGO_PKG_VERSION_MINOR is always numeric"),
-        PATCH.parse().expect("CARGO_PKG_VERSION_PATCH is always numeric"),
+        MAJOR
+            .parse()
+            .expect("CARGO_PKG_VERSION_MAJOR is always numeric"),
+        MINOR
+            .parse()
+            .expect("CARGO_PKG_VERSION_MINOR is always numeric"),
+        PATCH
+            .parse()
+            .expect("CARGO_PKG_VERSION_PATCH is always numeric"),
     )
 }
 
@@ -249,7 +256,9 @@ pub(crate) fn build_pack(
     let decision = evaluate_capability(grammar);
     let capability_trust = match &decision {
         CompileDecision::Admit => {
-            eprintln!("capability: Admit -- packing a proven-clean grammar (capability_trust=Proven)");
+            eprintln!(
+                "capability: Admit -- packing a proven-clean grammar (capability_trust=Proven)"
+            );
             CapabilityTrust::Proven
         }
         CompileDecision::ConfirmOnly => {
@@ -276,9 +285,9 @@ pub(crate) fn build_pack(
                 return Err(msg);
             }
             let record = CapabilityOverrideRecord {
-                authorized_by: authorized_by
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| "unspecified (--allow-unproven with no --authorized-by given)".to_string()),
+                authorized_by: authorized_by.map(|s| s.to_string()).unwrap_or_else(|| {
+                    "unspecified (--allow-unproven with no --authorized-by given)".to_string()
+                }),
                 reason: reason
                     .map(|s| s.to_string())
                     .unwrap_or_else(|| "--allow-unproven (no --reason given)".to_string()),
@@ -334,39 +343,50 @@ pub(crate) fn build_pack(
     // `--watchdog`'s worker protocol (`pg_foma::worker::WorkerOutcome`) only ships a `HealthReport`
     // back across the process boundary today, never the compiled network itself, so the foma
     // payload stays an honest placeholder on that path (see the stderr note below).
-    let (fst_health, real_foma_payload): (pg_foma::health::HealthReport, Option<Vec<u8>>) = if watchdog {
-        (run_fst_health_under_watchdog(grammar_path)?, None)
-    } else {
-        let (proposer_result, compile_profile) = FomaProposer::new_with_profile(grammar);
-        match &proposer_result {
-            Ok(proposer) => {
-                let health =
-                    evaluate_health(None, Some(&proposer.report), &[], &[], Some(&compile_profile));
-                let foma_bytes = proposer.foma_binary_payload().map_err(|e| {
-                    format!(
+    let (fst_health, real_foma_payload): (pg_foma::health::HealthReport, Option<Vec<u8>>) =
+        if watchdog {
+            (run_fst_health_under_watchdog(grammar_path)?, None)
+        } else {
+            let (proposer_result, compile_profile) = FomaProposer::new_with_profile(grammar);
+            match &proposer_result {
+                Ok(proposer) => {
+                    let health = evaluate_health(
+                        None,
+                        Some(&proposer.report),
+                        &[],
+                        &[],
+                        Some(&compile_profile),
+                    );
+                    let foma_bytes = proposer.foma_binary_payload().map_err(|e| {
+                        format!(
                         "serializing the compiled foma network to its binary-memory payload: {e}"
                     )
-                })?;
-                (health, Some(foma_bytes))
+                    })?;
+                    (health, Some(foma_bytes))
+                }
+                Err(pg_foma::analyzer::FomaError::LexcCompileFailed(report)) => (
+                    evaluate_health(None, Some(report), &[], &[], Some(&compile_profile)),
+                    None,
+                ),
+                Err(_) => (
+                    evaluate_health(None, None, &[], &[], Some(&compile_profile)),
+                    None,
+                ),
             }
-            Err(pg_foma::analyzer::FomaError::LexcCompileFailed(report)) => {
-                (evaluate_health(None, Some(report), &[], &[], Some(&compile_profile)), None)
-            }
-            Err(_) => (evaluate_health(None, None, &[], &[], Some(&compile_profile)), None),
-        }
-    };
+        };
     // `None` iff `--watchdog` was used, or this grammar's own foma compile did not succeed (its
     // capability_trust may still be Proven/Overridden -- capability trust and foma-compile success
     // are independent axes, see `pg_foma::capability_entry`'s own doc) -- either way, a real
     // compiled network's bytes are simply not available to package, so this falls back to the same
     // honestly-labeled placeholder this module always used for the foma section.
-    let foma_payload: &[u8] = real_foma_payload.as_deref().unwrap_or(PLACEHOLDER_FOMA_PAYLOAD);
+    let foma_payload: &[u8] = real_foma_payload
+        .as_deref()
+        .unwrap_or(PLACEHOLDER_FOMA_PAYLOAD);
 
     // ---- Payloads: the foma section is REAL whenever `real_foma_payload` is `Some` (see above);
     // the runtime section remains an honestly-labeled placeholder (see this module's top doc: no
     // Rust-HermitCrab runtime-payload serializer exists anywhere in this workspace yet) ------------
-    let package_fingerprint =
-        pg_pack::fingerprint_hex(PLACEHOLDER_RUNTIME_PAYLOAD, foma_payload);
+    let package_fingerprint = pg_pack::fingerprint_hex(PLACEHOLDER_RUNTIME_PAYLOAD, foma_payload);
 
     let grammar_id = grammar.name.clone().unwrap_or_else(|| {
         std::path::Path::new(grammar_path)
@@ -502,26 +522,7 @@ mod tests {
     /// configuration, `docs/benchmark-matrix.md`'s own coverage table) -- `MprGroupOverwrite` is the
     /// stable, by-construction-permanent choice (`main.rs`'s own
     /// `capability_gate_tests::PERMANENTLY_REFUSED_GRAMMAR_XML`, same swap, same rationale).
-    const REFUSE_GRAMMAR_XML: &str = r#"<HermitCrabInput><Language><Name>PackRefuseFixture</Name>
-      <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
-      <MorphologicalPhonologicalRuleFeatures>
-        <MorphologicalPhonologicalRuleFeature id="mprA">A</MorphologicalPhonologicalRuleFeature>
-        <MorphologicalPhonologicalRuleFeatureGroup matchType="all" outputType="overwrite" features="mprA"><Name>GOverwrite</Name></MorphologicalPhonologicalRuleFeatureGroup>
-      </MorphologicalPhonologicalRuleFeatures>
-      <CharacterDefinitionTable id="t1"><Name>Main</Name>
-        <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
-      </CharacterDefinitionTable>
-      <Strata>
-        <Stratum characterDefinitionTable="t1">
-          <Name>S</Name>
-          <LexicalEntries>
-            <LexicalEntry id="e1" partOfSpeech="posV">
-              <Allomorphs><Allomorph id="a1"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs>
-            </LexicalEntry>
-          </LexicalEntries>
-        </Stratum>
-      </Strata>
-    </Language></HermitCrabInput>"#;
+    const REFUSE_GRAMMAR_XML: &str = include_str!("../../../../conformance-staging/edge-cases/simultaneous-subrule-genuine-overlap/grammar.xml");
 
     /// A grammar with one ordinary `MorphologicalRule` whose subrule's output copies the SAME input
     /// part TWICE (`<CopyFromInput index="stem" />` repeated) -- `pg_foma::emit::classify_affix`'s
@@ -590,7 +591,10 @@ mod tests {
     #[test]
     fn pack_clean_grammar_writes_proven_manifest_and_round_trips() {
         let (result, out_path) = run_pack_raw("clean", CLEAN_GRAMMAR_XML, &[]);
-        assert!(result.is_ok(), "clean grammar must pack successfully: {result:?}");
+        assert!(
+            result.is_ok(),
+            "clean grammar must pack successfully: {result:?}"
+        );
 
         let bytes = std::fs::read(&out_path).expect("read out.pgpack");
         let read = pg_pack::read_pack(&bytes).expect("a pack this command wrote must read back");
@@ -637,10 +641,14 @@ mod tests {
                 "--reason=synthetic field trial",
             ],
         );
-        assert!(result.is_ok(), "--allow-unproven must force-pack a Refuse verdict: {result:?}");
+        assert!(
+            result.is_ok(),
+            "--allow-unproven must force-pack a Refuse verdict: {result:?}"
+        );
 
         let bytes = std::fs::read(&out_path).expect("read out.pgpack");
-        let read = pg_pack::read_pack(&bytes).expect("an overridden pack must still read back cleanly");
+        let read =
+            pg_pack::read_pack(&bytes).expect("an overridden pack must still read back cleanly");
         assert!(read.manifest.capability_trust.is_unproven());
         match &read.manifest.capability_trust {
             CapabilityTrust::Overridden(record) => {
@@ -651,8 +659,8 @@ mod tests {
                     record
                         .overridden_configs
                         .iter()
-                        .any(|c| c.construct.contains("Overwrite")),
-                    "expected a refused config naming the Overwrite MprGroup: {:?}",
+                        .any(|c| c.predicate == "simultaneous.subrule-overlap"),
+                    "expected the genuine simultaneous-overlap refusal config: {:?}",
                     record.overridden_configs
                 );
             }
@@ -682,8 +690,7 @@ mod tests {
         assert_eq!(second_read.manifest, first_read.manifest);
         assert!(second_read.manifest.capability_trust.is_unproven());
         assert_eq!(
-            second_read.manifest.capability_trust,
-            first_read.manifest.capability_trust,
+            second_read.manifest.capability_trust, first_read.manifest.capability_trust,
             "the override record itself must be byte-for-byte identical across reads"
         );
     }
@@ -708,8 +715,7 @@ mod tests {
         let bytes = std::fs::read(&out_path).expect("read out.pgpack");
         let read = pg_pack::read_pack(&bytes).expect("read redup pack");
         assert!(
-            read
-                .manifest
+            read.manifest
                 .required_runtime_features
                 .runtime_operations
                 .iter()
@@ -724,7 +730,11 @@ mod tests {
     /// recorded, so an omitted flag degrades to a labeled default, never a blank field.
     #[test]
     fn pack_override_without_authorized_by_or_reason_still_records_honest_defaults() {
-        let (result, out_path) = run_pack_raw("no-authorized-by", REFUSE_GRAMMAR_XML, &["--allow-unproven"]);
+        let (result, out_path) = run_pack_raw(
+            "no-authorized-by",
+            REFUSE_GRAMMAR_XML,
+            &["--allow-unproven"],
+        );
         assert!(result.is_ok());
         let bytes = std::fs::read(&out_path).expect("read out.pgpack");
         let read = pg_pack::read_pack(&bytes).expect("read pack");
@@ -748,7 +758,10 @@ mod tests {
     #[test]
     fn pack_foma_payload_is_real_and_round_trips_via_fsm_read_binary_mem() {
         let (result, out_path) = run_pack_raw("foma-real-roundtrip", CLEAN_GRAMMAR_XML, &[]);
-        assert!(result.is_ok(), "clean grammar must pack successfully: {result:?}");
+        assert!(
+            result.is_ok(),
+            "clean grammar must pack successfully: {result:?}"
+        );
 
         let bytes = std::fs::read(&out_path).expect("read out.pgpack");
         let read = pg_pack::read_pack(&bytes).expect("a pack this command wrote must read back");
@@ -768,8 +781,8 @@ mod tests {
         let grammar_path = out_path.with_file_name("grammar.xml");
         let (grammar, _warnings) = crate::load_grammar(&grammar_path.to_string_lossy())
             .expect("reload the same grammar.xml run_pack_raw wrote");
-        let mut fresh_proposer =
-            FomaProposer::new(&grammar).expect("clean grammar must compile via a fresh FomaProposer");
+        let mut fresh_proposer = FomaProposer::new(&grammar)
+            .expect("clean grammar must compile via a fresh FomaProposer");
         let (expected_states, expected_arcs) = fresh_proposer.network_counts();
 
         // Reconstruct the network from the PACKED bytes (never re-deriving it from the grammar) --

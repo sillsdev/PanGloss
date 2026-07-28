@@ -1106,10 +1106,15 @@ fn metathesis_anchor_pattern_compiles_as_confirm_only_swap_superset() {
     .unwrap_or_else(|e| panic!("compile must not hit any budget: {e}"));
 
     let net = composed.expect("a final-anchor metathesis pattern must compile");
-    assert!(skipped.is_empty(), "supported anchor must not be skipped: {skipped:?}");
+    assert!(
+        skipped.is_empty(),
+        "supported anchor must not be skipped: {skipped:?}"
+    );
     assert!(tuple_reports.is_empty());
 
-    let query = alphabet.encode_query("qp").expect("underlying must segment");
+    let query = alphabet
+        .encode_query("qp")
+        .expect("underlying must segment");
     let expected = alphabet.encode_query("pq").expect("surface must segment");
     let mut h = apply_init(&net);
     let outputs = h.down(&query).collect::<Vec<_>>();

@@ -3226,7 +3226,9 @@ impl CapabilityPredicate for MprGroupOverwriteFailClosedPredicate {
         profile: &CharacteristicsProfile,
         _plan_node: &PlanNodeKind,
     ) -> PredicateVerdict {
-        profile.observations().iter()
+        profile
+            .observations()
+            .iter()
             .any(|obs| obs.kind == CharacteristicKind::MprGroupOverwrite)
             .then_some(PredicateVerdict::ConfirmOnly)
             .unwrap_or(PredicateVerdict::Admit)
@@ -5429,8 +5431,10 @@ mod tests {
         let detail = profile
             .metathesis_detail(PRuleId(0))
             .expect("Metathesis must carry a MetathesisDetail");
-        assert!(detail.swap_construction_attempted,
-            "an edge Anchor must use the anchor-erased ConfirmOnly swap superset");
+        assert!(
+            detail.swap_construction_attempted,
+            "an edge Anchor must use the anchor-erased ConfirmOnly swap superset"
+        );
 
         let predicate = MetathesisFaithfulSwapPredicate;
         assert_eq!(

@@ -459,24 +459,7 @@ mod tests {
     /// this crate's clearest such carve-out.
     #[test]
     fn preflight_raises_critical_finding_for_refuse_verdict() {
-        const REFUSE_XML: &str = r#"<HermitCrabInput><Language><Name>PreflightRefuseFixture</Name>
-          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
-          <MorphologicalPhonologicalRuleFeatures>
-            <MorphologicalPhonologicalRuleFeature id="mprA">A</MorphologicalPhonologicalRuleFeature>
-            <MorphologicalPhonologicalRuleFeatureGroup matchType="all" outputType="overwrite" features="mprA"><Name>GOverwrite</Name></MorphologicalPhonologicalRuleFeatureGroup>
-          </MorphologicalPhonologicalRuleFeatures>
-          <CharacterDefinitionTable id="t1"><Name>Main</Name>
-            <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
-          </CharacterDefinitionTable>
-          <Strata>
-            <Stratum characterDefinitionTable="t1">
-              <Name>S</Name>
-              <LexicalEntries>
-                <LexicalEntry id="e1" partOfSpeech="posV"><Allomorphs><Allomorph id="a1"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs></LexicalEntry>
-              </LexicalEntries>
-            </Stratum>
-          </Strata>
-        </Language></HermitCrabInput>"#;
+        const REFUSE_XML: &str = include_str!("../../../../conformance-staging/edge-cases/simultaneous-subrule-genuine-overlap/grammar.xml");
         let grammar =
             pg_grammar::load(REFUSE_XML).unwrap_or_else(|e| panic!("fixture load failed: {e}"));
         assert!(matches!(
@@ -493,8 +476,11 @@ mod tests {
         assert_eq!(finding.phase, Phase::Preflight);
         assert_eq!(finding.provenance, ValueProvenance::Observed);
         assert!(
-            finding.affected.iter().any(|a| a.contains("Overwrite")),
-            "expected the Overwrite MprGroup construct named: {finding:?}"
+            finding
+                .affected
+                .iter()
+                .any(|a| a.contains("prule 0 subrules 0/1")),
+            "expected the simultaneous-overlap construct named: {finding:?}"
         );
     }
 

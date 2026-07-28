@@ -196,7 +196,11 @@ pub fn write_pack(
     let runtime_len = runtime_payload.len() as u64;
     let foma_len = foma_payload.len() as u64;
     check_section_limit("manifest", manifest_len, limits.max_manifest_bytes)?;
-    check_section_limit("runtime payload", runtime_len, limits.max_runtime_payload_bytes)?;
+    check_section_limit(
+        "runtime payload",
+        runtime_len,
+        limits.max_runtime_payload_bytes,
+    )?;
     check_section_limit("foma payload", foma_len, limits.max_foma_payload_bytes)?;
 
     let total = (HEADER_LEN as u64)
@@ -273,8 +277,13 @@ pub fn read_pack(bytes: &[u8]) -> Result<ReadPack, PgPackError> {
         });
     }
 
-    let version = u32::from_le_bytes(bytes[MAGIC_LEN..MAGIC_LEN + VERSION_LEN].try_into().unwrap());
-    let limits = limits_for_version(version).ok_or(PgPackError::UnsupportedVersion { found: version })?;
+    let version = u32::from_le_bytes(
+        bytes[MAGIC_LEN..MAGIC_LEN + VERSION_LEN]
+            .try_into()
+            .unwrap(),
+    );
+    let limits =
+        limits_for_version(version).ok_or(PgPackError::UnsupportedVersion { found: version })?;
 
     let mut pos = MAGIC_LEN + VERSION_LEN;
     let read_len_field = |bytes: &[u8], pos: usize| -> u64 {
@@ -290,7 +299,11 @@ pub fn read_pack(bytes: &[u8]) -> Result<ReadPack, PgPackError> {
 
     // ---- Every declared length validated against this version's limits, BEFORE any allocation. ----
     check_section_limit("manifest", manifest_len, limits.max_manifest_bytes)?;
-    check_section_limit("runtime payload", runtime_len, limits.max_runtime_payload_bytes)?;
+    check_section_limit(
+        "runtime payload",
+        runtime_len,
+        limits.max_runtime_payload_bytes,
+    )?;
     check_section_limit("foma payload", foma_len, limits.max_foma_payload_bytes)?;
 
     let needed = (HEADER_LEN as u64)
@@ -419,7 +432,8 @@ mod tests {
     #[test]
     fn round_trip_write_then_read_is_identical() {
         let manifest = synthetic_manifest_for(SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD);
-        let bytes = write_pack(&manifest, SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD).unwrap();
+        let bytes =
+            write_pack(&manifest, SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD).unwrap();
         let read = read_pack(&bytes).unwrap();
         assert_eq!(read.manifest, manifest);
         assert_eq!(read.runtime_payload, SYNTHETIC_RUNTIME_PAYLOAD);
@@ -480,9 +494,10 @@ mod tests {
         // directly) and confirm it is a genuinely equivalent, applyable network: same state/arc
         // counts as an independent fresh compile, and `apply_up` agreement on every word in the
         // tiny lexicon above.
-        let reconstructed = foma::io::fsm_read_binary_mem(&read.foma_payload)
-            .expect("a real foma payload read back out of this container must still be readable \
-                     by fsm_read_binary_mem");
+        let reconstructed = foma::io::fsm_read_binary_mem(&read.foma_payload).expect(
+            "a real foma payload read back out of this container must still be readable \
+                     by fsm_read_binary_mem",
+        );
         let original = compile_real_network();
         assert_eq!(reconstructed.statecount, original.statecount);
         assert_eq!(reconstructed.arccount, original.arccount);
@@ -497,13 +512,17 @@ mod tests {
                 "apply_up({word:?}) must agree between the original compile and the network \
                  reconstructed from this container's own packed bytes"
             );
-            assert!(!original_out.is_empty(), "sanity: {word:?} is in REAL_LEXC_SOURCE's own lexicon");
+            assert!(
+                !original_out.is_empty(),
+                "sanity: {word:?} is in REAL_LEXC_SOURCE's own lexicon"
+            );
         }
     }
 
     #[test]
     fn round_trip_with_signed_manifest() {
-        let mut manifest = synthetic_manifest_for(SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD);
+        let mut manifest =
+            synthetic_manifest_for(SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD);
         let manifest_no_sig_json = manifest.to_canonical_json();
         let message = signature::domain_separated_signed_bytes(
             CONTAINER_VERSION,
@@ -512,9 +531,14 @@ mod tests {
             SYNTHETIC_FOMA_PAYLOAD,
         );
         let seed = [3u8; 32];
-        manifest.signature = Some(signature::sign(&seed, &message, Some("synthetic-key".to_string())));
+        manifest.signature = Some(signature::sign(
+            &seed,
+            &message,
+            Some("synthetic-key".to_string()),
+        ));
 
-        let bytes = write_pack(&manifest, SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD).unwrap();
+        let bytes =
+            write_pack(&manifest, SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD).unwrap();
         let read = read_pack(&bytes).unwrap();
         assert_eq!(read.signature_state, SignatureState::Valid);
         assert_eq!(read.manifest, manifest);
@@ -522,19 +546,22 @@ mod tests {
 
     #[test]
     fn round_trip_with_overridden_capability_trust() {
-        let mut manifest = synthetic_manifest_for(SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD);
-        manifest.capability_trust = CapabilityTrust::Overridden(crate::trust::CapabilityOverrideRecord {
-            authorized_by: "synthetic-test-operator".to_string(),
-            reason: "synthetic field trial".to_string(),
-            recorded_at: "2026-07-24T00:00:00Z".to_string(),
-            overridden_configs: vec![crate::trust::OverriddenConfig {
-                predicate: "synthetic.simultaneous.subrule-overlap".to_string(),
-                construct: "mrule:synthetic-0001".to_string(),
-                witness: "synthetic-witness".to_string(),
-            }],
-        });
+        let mut manifest =
+            synthetic_manifest_for(SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD);
+        manifest.capability_trust =
+            CapabilityTrust::Overridden(crate::trust::CapabilityOverrideRecord {
+                authorized_by: "synthetic-test-operator".to_string(),
+                reason: "synthetic field trial".to_string(),
+                recorded_at: "2026-07-24T00:00:00Z".to_string(),
+                overridden_configs: vec![crate::trust::OverriddenConfig {
+                    predicate: "synthetic.simultaneous.subrule-overlap".to_string(),
+                    construct: "mrule:synthetic-0001".to_string(),
+                    witness: "synthetic-witness".to_string(),
+                }],
+            });
         // Fingerprint is independent of capability_trust, so it's still valid unchanged.
-        let bytes = write_pack(&manifest, SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD).unwrap();
+        let bytes =
+            write_pack(&manifest, SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD).unwrap();
         let read = read_pack(&bytes).unwrap();
         assert!(read.manifest.capability_trust.is_unproven());
         assert_eq!(read.manifest, manifest);
@@ -547,7 +574,8 @@ mod tests {
     #[test]
     fn rejects_bad_magic() {
         let manifest = synthetic_manifest_for(SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD);
-        let mut bytes = write_pack(&manifest, SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD).unwrap();
+        let mut bytes =
+            write_pack(&manifest, SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD).unwrap();
         bytes[0] = b'X';
         let err = read_pack(&bytes).unwrap_err();
         assert!(matches!(err, PgPackError::BadMagic { .. }));
@@ -556,11 +584,15 @@ mod tests {
     #[test]
     fn rejects_unsupported_version() {
         let manifest = synthetic_manifest_for(SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD);
-        let mut bytes = write_pack(&manifest, SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD).unwrap();
+        let mut bytes =
+            write_pack(&manifest, SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD).unwrap();
         bytes[MAGIC_LEN..MAGIC_LEN + VERSION_LEN].copy_from_slice(&999u32.to_le_bytes());
         // Version is read before the digest, so this is detected without needing a valid digest.
         let err = read_pack(&bytes).unwrap_err();
-        assert!(matches!(err, PgPackError::UnsupportedVersion { found: 999 }));
+        assert!(matches!(
+            err,
+            PgPackError::UnsupportedVersion { found: 999 }
+        ));
     }
 
     // ---------------------------------------------------------------------------------------
@@ -570,7 +602,8 @@ mod tests {
     #[test]
     fn rejects_manifest_length_exceeding_versioned_limit_before_allocating() {
         let manifest = synthetic_manifest_for(SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD);
-        let mut bytes = write_pack(&manifest, SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD).unwrap();
+        let mut bytes =
+            write_pack(&manifest, SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD).unwrap();
         // Overwrite the declared manifest length with something far beyond V1_LIMITS while
         // leaving the actual buffer short -- if this function allocated based on the declared
         // length before validating it, this would attempt a huge allocation/panic on the
@@ -592,7 +625,8 @@ mod tests {
     #[test]
     fn rejects_runtime_payload_length_exceeding_versioned_limit() {
         let manifest = synthetic_manifest_for(SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD);
-        let mut bytes = write_pack(&manifest, SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD).unwrap();
+        let mut bytes =
+            write_pack(&manifest, SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD).unwrap();
         let huge = V1_LIMITS.max_runtime_payload_bytes + 1;
         let offset = MAGIC_LEN + VERSION_LEN + LEN_FIELD_SIZE;
         bytes[offset..offset + LEN_FIELD_SIZE].copy_from_slice(&huge.to_le_bytes());
@@ -610,14 +644,16 @@ mod tests {
     #[test]
     fn rejects_total_length_exceeding_versioned_total_limit_without_exceeding_any_single_section() {
         let manifest = synthetic_manifest_for(SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD);
-        let mut bytes = write_pack(&manifest, SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD).unwrap();
+        let mut bytes =
+            write_pack(&manifest, SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD).unwrap();
         // Each individual declared length stays within its own per-section limit, but their sum
         // exceeds the total-package limit.
         let big_runtime = V1_LIMITS.max_runtime_payload_bytes;
         let big_foma = V1_LIMITS.max_foma_payload_bytes;
         assert!(big_runtime + big_foma > V1_LIMITS.max_total_bytes);
         let runtime_offset = MAGIC_LEN + VERSION_LEN + LEN_FIELD_SIZE;
-        bytes[runtime_offset..runtime_offset + LEN_FIELD_SIZE].copy_from_slice(&big_runtime.to_le_bytes());
+        bytes[runtime_offset..runtime_offset + LEN_FIELD_SIZE]
+            .copy_from_slice(&big_runtime.to_le_bytes());
         let foma_offset = runtime_offset + LEN_FIELD_SIZE;
         bytes[foma_offset..foma_offset + LEN_FIELD_SIZE].copy_from_slice(&big_foma.to_le_bytes());
         let err = read_pack(&bytes).unwrap_err();
@@ -631,7 +667,8 @@ mod tests {
     #[test]
     fn rejects_truncated_payload() {
         let manifest = synthetic_manifest_for(SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD);
-        let bytes = write_pack(&manifest, SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD).unwrap();
+        let bytes =
+            write_pack(&manifest, SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD).unwrap();
         let truncated = &bytes[..bytes.len() - 10];
         let err = read_pack(truncated).unwrap_err();
         assert!(matches!(err, PgPackError::Truncated { .. }));
@@ -646,7 +683,8 @@ mod tests {
     #[test]
     fn rejects_trailing_bytes() {
         let manifest = synthetic_manifest_for(SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD);
-        let mut bytes = write_pack(&manifest, SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD).unwrap();
+        let mut bytes =
+            write_pack(&manifest, SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD).unwrap();
         bytes.push(0xFF);
         let err = read_pack(&bytes).unwrap_err();
         assert!(matches!(err, PgPackError::TrailingBytes { extra: 1 }));
@@ -659,7 +697,8 @@ mod tests {
     #[test]
     fn rejects_tampered_content_via_digest_mismatch() {
         let manifest = synthetic_manifest_for(SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD);
-        let mut bytes = write_pack(&manifest, SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD).unwrap();
+        let mut bytes =
+            write_pack(&manifest, SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD).unwrap();
         // Flip a byte inside the runtime payload without touching any length prefix or the digest.
         let header_and_manifest = HEADER_LEN + manifest.to_canonical_json().len();
         bytes[header_and_manifest] ^= 0xFF;
@@ -700,9 +739,11 @@ mod tests {
 
     #[test]
     fn write_pack_rejects_caller_supplied_manifest_with_wrong_fingerprint() {
-        let mut manifest = synthetic_manifest_for(SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD);
+        let mut manifest =
+            synthetic_manifest_for(SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD);
         manifest.package_fingerprint = "0".repeat(64);
-        let err = write_pack(&manifest, SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD).unwrap_err();
+        let err =
+            write_pack(&manifest, SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD).unwrap_err();
         assert_eq!(err, PgPackError::FingerprintMismatch);
     }
 
@@ -713,14 +754,16 @@ mod tests {
     #[test]
     fn unsigned_pack_reports_unsigned_and_reads_successfully() {
         let manifest = synthetic_manifest_for(SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD);
-        let bytes = write_pack(&manifest, SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD).unwrap();
+        let bytes =
+            write_pack(&manifest, SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD).unwrap();
         let read = read_pack(&bytes).unwrap();
         assert_eq!(read.signature_state, SignatureState::Unsigned);
     }
 
     #[test]
     fn invalidly_signed_pack_still_reads_successfully_and_reports_invalid() {
-        let mut manifest = synthetic_manifest_for(SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD);
+        let mut manifest =
+            synthetic_manifest_for(SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD);
         // Sign with one key, then swap in a different key's public key, so verification fails.
         let manifest_no_sig_json = manifest.to_canonical_json();
         let message = signature::domain_separated_signed_bytes(
@@ -736,7 +779,8 @@ mod tests {
         block.public_key_hex = other_block.public_key_hex;
         manifest.signature = Some(block);
 
-        let bytes = write_pack(&manifest, SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD).unwrap();
+        let bytes =
+            write_pack(&manifest, SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD).unwrap();
         // Must NOT be an Err: an invalid signature never blocks reading/analysis (R2A).
         let read = read_pack(&bytes).expect("an invalid signature must not block reading");
         assert_eq!(read.signature_state, SignatureState::Invalid);
@@ -746,7 +790,8 @@ mod tests {
 
     #[test]
     fn validly_signed_pack_reads_successfully_and_reports_valid() {
-        let mut manifest = synthetic_manifest_for(SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD);
+        let mut manifest =
+            synthetic_manifest_for(SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD);
         let manifest_no_sig_json = manifest.to_canonical_json();
         let message = signature::domain_separated_signed_bytes(
             CONTAINER_VERSION,
@@ -757,7 +802,8 @@ mod tests {
         let seed = [11u8; 32];
         manifest.signature = Some(signature::sign(&seed, &message, None));
 
-        let bytes = write_pack(&manifest, SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD).unwrap();
+        let bytes =
+            write_pack(&manifest, SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD).unwrap();
         let read = read_pack(&bytes).expect("a validly signed pack must read successfully");
         assert_eq!(read.signature_state, SignatureState::Valid);
     }

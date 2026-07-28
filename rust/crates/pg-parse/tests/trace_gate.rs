@@ -276,7 +276,12 @@ fn g4_unapply_stratum_and_template_bookends_nest_correctly() {
     // there either); `TreeTraceSink::end_unapply_template` only sets `.output` when `unapplied`, so
     // "no `output`" identifies this exit.
     let mut template_outputs = Vec::new();
-    find_all_by_type(&sink, root, TraceType::TemplateAnalysisOutput, &mut template_outputs);
+    find_all_by_type(
+        &sink,
+        root,
+        TraceType::TemplateAnalysisOutput,
+        &mut template_outputs,
+    );
     assert!(
         template_outputs
             .iter()
@@ -295,7 +300,12 @@ fn g4_unapply_stratum_and_template_bookends_nest_correctly() {
     // (`morph.rs::ana_affix_cached_traced`), so this exit nests UNDER that rule event, not as a
     // second sibling of the bookends above.
     let mut mrule_events = Vec::new();
-    find_all_by_type(&sink, root, TraceType::MorphologicalRuleAnalysis, &mut mrule_events);
+    find_all_by_type(
+        &sink,
+        root,
+        TraceType::MorphologicalRuleAnalysis,
+        &mut mrule_events,
+    );
     assert!(
         !mrule_events.is_empty(),
         "expected the already-wired MorphologicalRuleAnalysis (unapplication) event for mrEdT"
@@ -318,14 +328,21 @@ fn g4_unapply_stratum_and_template_bookends_nest_correctly() {
     // StratumAnalysisOutput and confirm it nests under a MorphologicalRuleAnalysis event too,
     // rather than becoming a second direct child of root.
     let mut stratum_outputs = Vec::new();
-    find_all_by_type(&sink, root, TraceType::StratumAnalysisOutput, &mut stratum_outputs);
+    find_all_by_type(
+        &sink,
+        root,
+        TraceType::StratumAnalysisOutput,
+        &mut stratum_outputs,
+    );
     assert!(
         stratum_outputs.len() >= 2,
         "expected at least 2 EndUnapplyStratum events (one for `input` itself, one for the \
          surviving unapplied \"sag\" word); got {}",
         stratum_outputs.len()
     );
-    let nested_stratum_output = stratum_outputs.iter().find(|&&h| !root_children.contains(&h));
+    let nested_stratum_output = stratum_outputs
+        .iter()
+        .find(|&&h| !root_children.contains(&h));
     assert!(
         nested_stratum_output
             .is_some_and(|&h| mrule_events.iter().any(|&mr| is_descendant(&sink, mr, h))),
@@ -402,7 +419,8 @@ fn guess_only_grammar() -> pg_grammar::model::Grammar {
   </Language>
 </HermitCrabInput>
 "#;
-    pg_grammar::load(xml).unwrap_or_else(|e| panic!("guess-only fixture grammar failed to load: {e}"))
+    pg_grammar::load(xml)
+        .unwrap_or_else(|e| panic!("guess-only fixture grammar failed to load: {e}"))
 }
 
 #[test]

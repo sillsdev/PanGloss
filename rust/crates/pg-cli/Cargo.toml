@@ -41,3 +41,4 @@ pg-conformance-fixtures.workspace = true
 # dependency of `pg-pack` (its own `.pgpack` container digest) -- reused here rather than a second,
 # independently-pinned copy.
 sha2.workspace = true
+sysinfo.workspace = true

@@ -403,24 +403,7 @@ mod tests {
     /// `select_plan_excludes_a_refusing_grammars_only_candidate`) was renamed from
     /// `refuse_recursive_compounding_fixture_xml` and switched to a construct that still refuses.
     fn refuse_overwrite_mpr_group_fixture_xml() -> &'static str {
-        r#"<HermitCrabInput><Language><Name>X</Name>
-          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
-          <MorphologicalPhonologicalRuleFeatures>
-            <MorphologicalPhonologicalRuleFeature id="mprA">A</MorphologicalPhonologicalRuleFeature>
-            <MorphologicalPhonologicalRuleFeatureGroup matchType="all" outputType="overwrite" features="mprA"><Name>GOverwrite</Name></MorphologicalPhonologicalRuleFeatureGroup>
-          </MorphologicalPhonologicalRuleFeatures>
-          <CharacterDefinitionTable id="t1"><Name>Main</Name>
-            <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
-          </CharacterDefinitionTable>
-          <Strata>
-            <Stratum characterDefinitionTable="t1">
-              <Name>S</Name>
-              <LexicalEntries>
-                <LexicalEntry id="e1" partOfSpeech="posV"><Allomorphs><Allomorph id="a1"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs></LexicalEntry>
-              </LexicalEntries>
-            </Stratum>
-          </Strata>
-        </Language></HermitCrabInput>"#
+        include_str!("../../../../conformance-staging/edge-cases/simultaneous-subrule-genuine-overlap/grammar.xml")
     }
 
     fn report(
@@ -641,7 +624,9 @@ mod tests {
         );
         match &outcome.considered[0].decision {
             CompileDecision::Refuse(diags) => {
-                assert!(diags.iter().any(|d| d.construct.contains("Overwrite")))
+                assert!(diags
+                    .iter()
+                    .any(|d| d.predicate == "simultaneous.subrule-overlap"))
             }
             other => panic!("expected Refuse, got {other:?}"),
         }

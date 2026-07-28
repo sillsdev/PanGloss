@@ -8,7 +8,7 @@
 //! `words.yaml` `exercises:` string from a currently-passing word/parse and set-matching it
 //! against those ids, **byte-for-byte**. Before this gate existed, three staged fixtures wrote the
 //! *characteristic name* instead of the *row id* --
-//! `conformance-staging/edge-cases/subrule-morphosyntactic-gating` tagged `"SubruleGating"`
+//! `machine/conformance/edge-cases/subrule-morphosyntactic-gating` tagged `"SubruleGating"`
 //! (the id is `"RewriteSubruleDef gating: required/excluded POS or MPR at the subrule level"`,
 //! `constructs.txt` row 31), `right-to-left-bounded-quantifier-rewrite` tagged
 //! `"RightToLeftRewrite"` (the id is `"RewriteRule direction (Dir): right-to-left"`, row 30), and

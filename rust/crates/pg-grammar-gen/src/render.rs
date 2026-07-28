@@ -274,8 +274,8 @@ pub fn render_indexed(recipe: &Recipe) -> RenderedGrammar {
         has_alpha.then(|| build::alpha::build(c.alpha_var_count, &tb.tables[0], &mut ids));
     let quantifier_build =
         has_quantifier.then(|| build::quantifier::build(&tb.tables[0], &mut ids));
-    let chain_build =
-        has_chain.then(|| build::chain::build(c.chain_rule_count, POS_XML_ID, &tb.tables[0], &mut ids));
+    let chain_build = has_chain
+        .then(|| build::chain::build(c.chain_rule_count, POS_XML_ID, &tb.tables[0], &mut ids));
     let metathesis_builds: Vec<_> = (0..c.metathesis_rule_count)
         .map(|n| build::metathesis::build(&sub_table_pair(&tb.tables[0], 2 * n), &mut ids))
         .collect();
@@ -325,7 +325,8 @@ pub fn render_indexed(recipe: &Recipe) -> RenderedGrammar {
                 let (xml, _id) = one_entry_xml(&mut ids, POS_XML_ID, &qb.root_shape, "QUANT");
                 entries_xml.push_str(&xml);
             } else if let Some(cb) = &chain_build {
-                let (xml, entry_id) = one_entry_xml(&mut ids, POS_XML_ID, &cb.root_shape, "CHAINROOT");
+                let (xml, entry_id) =
+                    one_entry_xml(&mut ids, POS_XML_ID, &cb.root_shape, "CHAINROOT");
                 entries_xml.push_str(&xml);
                 chain_root_entry_id = Some(entry_id);
             } else if !metathesis_builds.is_empty() {

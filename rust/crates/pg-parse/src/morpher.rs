@@ -606,7 +606,8 @@ impl<'g> Morpher<'g> {
                 // `LexicalGuess(analysisWord).Distinct()` — the `.Distinct()` is a documented C#
                 // no-op (§1.2): every yielded `Word` is a fresh clone with no `Equals` override,
                 // so consuming `guess::lexical_guess`'s `Vec<Word>` directly is faithful.
-                for synthesis_word in guess::lexical_guess(g, &self.lexical_patterns, aw, trace, root)
+                for synthesis_word in
+                    guess::lexical_guess(g, &self.lexical_patterns, aw, trace, root)
                 {
                     for alt in synthesis_word.expand_alternatives() {
                         for vw in self.synthesis_pipeline_traced(alt, trace, root, &budget) {

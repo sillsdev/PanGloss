@@ -24,7 +24,14 @@ fn seg(g: &pg_grammar::model::Grammar, word: &str) -> Shape {
 fn interior(s: &Shape) -> Vec<(NodeKind, u32, Vec<u64>, bool)> {
     (0..s.len())
         .filter(|&i| !matches!(s.kind(i), NodeKind::LeftAnchor | NodeKind::RightAnchor))
-        .map(|i| (s.kind(i), s.char_def(i), s.node_lanes(i).to_vec(), s.flags(i).is_optional()))
+        .map(|i| {
+            (
+                s.kind(i),
+                s.char_def(i),
+                s.node_lanes(i).to_vec(),
+                s.flags(i).is_optional(),
+            )
+        })
         .collect()
 }
 
@@ -57,7 +64,7 @@ fn reversed_tag_rule(g: &pg_grammar::model::Grammar) -> MetathesisRuleDef {
                 PatternNode::Context(ctx(nat_class(g, "nc_vowel"))), // physically LAST
             ],
         },
-        left_switch: 0,  // tags the PHYSICALLY FIRST node (t) -- the reversed convention
+        left_switch: 0, // tags the PHYSICALLY FIRST node (t) -- the reversed convention
         right_switch: 1, // tags the PHYSICALLY LAST node (a)
     }
 }
@@ -117,8 +124,8 @@ fn middle_context_rule(g: &pg_grammar::model::Grammar) -> MetathesisRuleDef {
         dir: Dir::LeftToRight,
         pattern: Pattern {
             nodes: vec![
-                PatternNode::Context(ctx(nat_class(g, "nc_t"))),     // Q, physically first
-                PatternNode::Context(ctx(nat_class(g, "nc_d"))),     // M, middle (untouched)
+                PatternNode::Context(ctx(nat_class(g, "nc_t"))), // Q, physically first
+                PatternNode::Context(ctx(nat_class(g, "nc_d"))), // M, middle (untouched)
                 PatternNode::Context(ctx(nat_class(g, "nc_vowel"))), // P, physically last
             ],
         },

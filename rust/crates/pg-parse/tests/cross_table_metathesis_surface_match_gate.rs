@@ -136,7 +136,11 @@ fn load() -> pg_grammar::model::Grammar {
 #[test]
 fn cross_table_metathesized_root_matches_its_own_surface() {
     let g = load();
-    assert_eq!(g.char_tables.len(), 2, "fixture must declare exactly 2 tables");
+    assert_eq!(
+        g.char_tables.len(),
+        2,
+        "fixture must declare exactly 2 tables"
+    );
     assert_eq!(g.strata.len(), 2, "fixture must declare exactly 2 strata");
 
     let morpher = Morpher::new(&g, usize::MAX).with_memo(true);
