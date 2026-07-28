@@ -94,6 +94,7 @@ fn run() -> ExitCode {
             "final_compose_minimize",
             profile.final_compose_minimize_elapsed,
         ),
+        ("apply_prepare", profile.apply_prepare_elapsed),
     ] {
         println!(
             "COMPILE_STAGE stage={stage} elapsed_ms={:.3}",

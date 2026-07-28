@@ -16,7 +16,7 @@ use foma::apply::apply_init;
 use foma::lexcread::fsm_lexc_parse_string;
 use foma::options::FomaOptions;
 use foma::structures::fsm_sort_arcs;
-use foma::types::ApplyHandle;
+use foma::types::{ApplyHandle, Fsm};
 
 use pg_grammar::chardef::{CharDefKind, CharDefTable};
 use pg_grammar::model::Grammar;
@@ -133,6 +133,15 @@ pub struct ProposalDiagnostics {
 /// speedup. 10,000 sits comfortably between indonesian's 3,263 (stays unsorted) and sena's 85,763
 /// (gets sorted).
 const ARC_SORT_MIN_ARCS: i32 = 10_000;
+
+/// Prepare a compiled network for repeated `apply_up` calls when its size clears the measured
+/// break-even threshold for foma's binary-search traversal path. Direction 2 sorts outgoing arcs,
+/// which is the direction `apply_up` checks through `net.arcs_sorted_out`.
+pub(crate) fn prepare_network_for_apply(net: &mut Fsm) {
+    if net.arccount >= ARC_SORT_MIN_ARCS {
+        fsm_sort_arcs(net, 2);
+    }
+}
 
 /// The compiled foma network for one grammar (as a live [`ApplyHandle`], see below), plus the
 /// emitter's own report (uncovered constructs, counts, tier — plan P1 gate F1's "counts are
@@ -322,13 +331,7 @@ impl FomaProposer {
         profile.push_stage(CompileStage::LexcParse, lexc_parse_start.elapsed());
         match parsed {
             Some(mut net) => {
-                // direction 2 = "out": apply_up (propose's entry point) gates its binsearch
-                // branch on `net.arcs_sorted_out` (apply.rs's `apply_up`, ~line 469). See
-                // `ARC_SORT_MIN_ARCS`'s doc for why this is gated on network size rather than
-                // called unconditionally.
-                if net.arccount >= ARC_SORT_MIN_ARCS {
-                    fsm_sort_arcs(&mut net, 2);
-                }
+                prepare_network_for_apply(&mut net);
                 // `foma::types::Fsm::statecount`/`arccount` are free public-field reads (D2;
                 // `crate::compose_budget`'s own doc) -- `fsm_sort_arcs` reorders arcs, it never adds
                 // or removes a state/arc, so reading these after it is the SAME count either way.

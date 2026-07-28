@@ -12,7 +12,7 @@ use foma::types::Fsm;
 use pg_grammar::chardef::CharDefKind;
 use pg_grammar::model::{Grammar, PhonRuleDef};
 
-use crate::analyzer::FomaProposer;
+use crate::analyzer::{prepare_network_for_apply, FomaProposer};
 use crate::emit::emit_underlying_templated;
 use crate::replace::{compile_and_compose_rules, SegAlphabet, TupleReport};
 
@@ -23,6 +23,7 @@ pub struct TemplatedCompileProfile {
     pub rule_compile_compose_elapsed: Duration,
     pub cleanup_compile_elapsed: Duration,
     pub final_compose_minimize_elapsed: Duration,
+    pub apply_prepare_elapsed: Duration,
     pub lexc_state_count: i32,
     pub lexc_arc_count: i32,
     pub phonological_rule_count: usize,
@@ -126,10 +127,14 @@ pub fn compile_templated_morphotactics(
     let started = Instant::now();
     let network = fsm_compose(&opts, lexc_net, rule_net);
     let network = fsm_compose(&opts, network, cleanup_net);
-    let network = fsm_minimize(&opts, network);
+    let mut network = fsm_minimize(&opts, network);
     let final_compose_minimize_elapsed = started.elapsed();
     let final_state_count = network.statecount;
     let final_arc_count = network.arccount;
+
+    let started = Instant::now();
+    prepare_network_for_apply(&mut network);
+    let apply_prepare_elapsed = started.elapsed();
 
     // apply_init clones `network`; the returned proposer is wholly owned before this function
     // returns and carries the token encoder needed for raw orthographic queries.
@@ -145,6 +150,7 @@ pub fn compile_templated_morphotactics(
             rule_compile_compose_elapsed,
             cleanup_compile_elapsed,
             final_compose_minimize_elapsed,
+            apply_prepare_elapsed,
             lexc_state_count,
             lexc_arc_count,
             phonological_rule_count,
@@ -154,4 +160,45 @@ pub fn compile_templated_morphotactics(
             tuple_reports,
         },
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    const STACK_BYTES: usize = 512 * 1024 * 1024;
+
+    fn load_aweti() -> Option<Grammar> {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../samples/data/aweti.json");
+        let json = std::fs::read_to_string(&path).ok()?;
+        let snapshot = pg_snapshot::Snapshot::from_json(&json)
+            .unwrap_or_else(|error| panic!("parse snapshot {}: {error}", path.display()));
+        let (grammar, _warnings) = pg_grammar::compile_project(&snapshot)
+            .unwrap_or_else(|error| panic!("compile_project {}: {error}", path.display()));
+        Some(grammar)
+    }
+
+    #[test]
+    #[ignore = "needs local gitignored corpus data (samples/data/aweti.json); run with --include-ignored"]
+    fn large_templated_network_is_prepared_for_binary_search_apply() {
+        let handle = std::thread::Builder::new()
+            .stack_size(STACK_BYTES)
+            .spawn(|| {
+                let Some(grammar) = load_aweti() else {
+                    eprintln!("skipping: aweti.json not present on disk");
+                    return;
+                };
+                let compiled = compile_templated_morphotactics(&grammar)
+                    .expect("Aweti templated compile pipeline must succeed");
+                assert!(
+                    compiled.network.arcs_sorted_out,
+                    "large templated network must use foma's binary-search apply path"
+                );
+            })
+            .expect("spawn large-stack Aweti compile worker");
+        handle
+            .join()
+            .expect("large-stack Aweti compile worker panicked");
+    }
 }
