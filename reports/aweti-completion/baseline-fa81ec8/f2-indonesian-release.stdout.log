@@ -1,0 +1,34 @@
+
+running 4 tests
+test a_indonesian_emits_and_compiles ... indonesian emit: 96.9834ms; emit+foma-compile: 133.3053ms; lexc lines: 728; lexc bytes: 25721; tier: Partial { uncovered: 3 }; uncovered: 3
+  uncovered: [reduplication] mrule6 — standalone rule's primary allomorph classifies as Reduplication; not representable (v1)
+  uncovered: [reduplication] mrule12 — standalone rule's primary allomorph classifies as Reduplication; not representable (v1)
+  uncovered: [reduplication] mrule14 — standalone rule's primary allomorph classifies as Reduplication; not representable (v1)
+ok
+test b_indonesian_recall_full_corpus_minus_redup ... --- excluded (reduplication, P2 peel) ---
+EXCLUDED "membagi-bagi": reduplication — P2 peel
+EXCLUDED "memijit-mijit": reduplication — P2 peel
+EXCLUDED "meminta-minta": reduplication — P2 peel
+EXCLUDED "mengamat-amati": reduplication — P2 peel
+EXCLUDED "mengayuh-ngayuh": reduplication — P2 peel
+EXCLUDED "menulis-nulis": reduplication — P2 peel
+EXCLUDED "menyewa-nyewa": reduplication — P2 peel
+recall: 97/97 engine analyses covered across 96 analyzed words (of 121 corpus words, 7 excluded)
+engine total: 153.7965ms; propose total: 467.5µs; propose max/word: 21.7µs; propose mean/word: 4.869µs
+ok
+test c_junction_spot_checks ... "membaca" (N-assimilation without deletion (meN+baca -> membaca, b retained)): engine 1 distinct sequence(s), proposer 1 candidate(s)
+  engine seq root_index=1 morphemes=[11(mrule14/AV), 26(entry14/read)] -> COVERED
+"menulis" (N-assimilation WITH root-initial deletion (meN+tulis -> menulis, t deleted)): engine 1 distinct sequence(s), proposer 1 candidate(s)
+  engine seq root_index=1 morphemes=[11(mrule14/AV), 52(entry40/write)] -> COVERED
+"memukul" (N-assimilation WITH root-initial deletion (meN+pukul -> memukul, p deleted)): engine 1 distinct sequence(s), proposer 1 candidate(s)
+  engine seq root_index=1 morphemes=[11(mrule14/AV), 47(entry35/hit)] -> COVERED
+"mengkhawatirkan" (meN- + root + -kan suffix): engine 1 distinct sequence(s), proposer 1 candidate(s)
+  engine seq root_index=1 morphemes=[11(mrule14/AV), 48(entry36/worry), 1(mrule4/Caus)] -> COVERED
+"tulis" (plain unprefixed root): engine 1 distinct sequence(s), proposer 1 candidate(s)
+  engine seq root_index=0 morphemes=[52(entry40/write)] -> COVERED
+ok
+test d_nonsense_word_proposes_nothing ... zzzq: 0 candidates in 4.2µs
+ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.72s
+

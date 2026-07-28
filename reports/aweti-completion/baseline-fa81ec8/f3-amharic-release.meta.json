@@ -1,0 +1,18 @@
+{
+  "name": "f3-amharic-release",
+  "command": "cargo test -p pg-foma --release --test f3_amharic_gate -- --include-ignored --nocapture --test-threads=1",
+  "commit": "fa81ec82916fc03e9acdc9dea394d8db5a0b0c53",
+  "rustc": "rustc 1.96.1 (31fca3adb 2026-06-26)",
+  "cargo": "cargo 1.96.1 (356927216 2026-06-26)",
+  "working_directory": "C:\\Users\\johnm\\Documents\\repos\\PanGloss\\.claude\\worktrees\\p6-chain-restriction\\rust",
+  "start_utc": "2026-07-28T10:31:17.6250311Z",
+  "end_utc": "2026-07-28T10:39:15.0222038Z",
+  "wall_seconds": 477.397,
+  "pid": 18712,
+  "timeout_seconds": 1800,
+  "timed_out": false,
+  "exit_code": 0,
+  "status": "passed",
+  "stdout": "C:\\tmp\\pangloss-task1-baseline\\f3-amharic-release.stdout.log",
+  "stderr": "C:\\tmp\\pangloss-task1-baseline\\f3-amharic-release.stderr.log"
+}

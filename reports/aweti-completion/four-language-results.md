@@ -57,7 +57,9 @@ This is an audit of evidence, not a declaration of full Aweti correctness. The a
 
 The unresolved words are `muʼazan`, `tsãkỹjokwaw`, `moʼazan`, `tsãn`, `moʼaza`, and `kỹjokwaw`. They are six genuine **morphology/rule gaps**: not the fixed zero-digit tag/sigma defect, not the combining-mark red herring, not a candidate-cap result, and not a test timeout. Their finer linguistic subclasses remain uninvestigated; this audit does not invent them.
 
-The overall Aweti correctness goal remains **open**. Current recall is **100/106 (94.3%)**, not 100%. The approved design and Task 1/2 retrospective records are present, but Task 1's required raw logs are not, and Task 9 still needs verification from the final commit.
+[Residual miss cluster investigation](residual-miss-clusters.md) narrows the six words into four evidence-backed diagnostic groups and specifies the next red probes without claiming unproven root causes.
+
+The overall Aweti correctness goal remains **open**. Current recall is **100/106 (94.3%)**, not 100%. The approved design and Task 1/2 evidence are present, including the freshly reproduced raw Task 1 captures; Task 9 still needs verification from the final commit.
 
 ### Final-verification qualification (discovered during Task 9)
 
@@ -69,7 +71,7 @@ The Amharic matrix row means **six engine timeouts**, not six exclusions; its de
 
 | Plan task / criterion | Source / command / observation | Evidence status |
 |---|---|---|
-| Task 1 — clean bounded baseline | Commit `f892cfd` records Tasks 1–3 and broad verification; [retrospective baseline](baseline-retrospective.log) preserves the exported 68/106 and network measurements. The required contemporaneous commands, toolchain, wall times, watchdog outcomes, and three non-Aweti raw baseline logs were never committed. | **Partially evidenced**; retrospective data is not misrepresented as verbatim raw capture. |
+| Task 1 — clean bounded baseline | [Fresh historical reproduction](baseline-fa81ec8/SUMMARY.md) contains metadata and raw stdout/stderr for library, Sena, Indonesian, Amharic, and separately bounded Aweti a/b/c at clean `fa81ec8`. | **Proven**: 7/7 exit 0; Aweti 68/104, 14,806/270,541; a/b/c within 60/120/30 seconds. |
 | Task 2 — isolate bare-root failure | Commit `f892cfd`, [diagnostic record](bare-root-diagnostic.md), `tags.rs`, and `d_bare_root_tag_atomicity_boundary` identify the first failing `fsm_intersect`/sigma boundary, record the RED sigma-membership assertion, and reject the combining-mark hypothesis. | **Contemporaneously evidenced and regression-tested.** |
 
-Accordingly, the engineering changes are locatable and verified, but the completion audit remains open for two independent reasons: Task 1's required raw evidence was not preserved, and the six genuine morphology/rule misses keep proposer recall below the approved 100% requirement.
+Accordingly, every requested artifact and verification input is now locatable. The completion audit still awaits its final-commit rerun, and the higher-level correctness goal remains open because six genuine morphology/rule misses keep proposer recall below the approved 100% requirement.

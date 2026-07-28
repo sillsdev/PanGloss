@@ -369,11 +369,12 @@ review.
 **Task 9: IN PROGRESS.** The audit is in
 `reports/aweti-completion/four-language-results.md`. Independent review exposed
 the weak historical recall floor; the gate now enforces exactly 100/106 and the
-six-word miss set. Task 1's contemporaneous raw command/toolchain/watchdog logs
-were never committed and cannot honestly be reconstructed as verbatim output.
+six-word miss set. Task 1 has now been freshly reproduced from the clean
+`fa81ec8` worktree with exact command/toolchain/wall/watchdog metadata and raw
+stdout/stderr for all seven commands. Final-commit verification remains.
 
 **Overall goal: OPEN.** Aweti is 100/106, not 100%; the six residual words are
 genuine morphology/rule gaps. The approved design from `ae87f0c` and the
 provenance-labelled Task 1/2 evidence records are restored at their advertised
-paths, but Task 1's retrospective record is not a substitute for its missing raw
-logs. Neither that record nor the measured progress turns 94.3% recall into completion.
+paths. The new residual-cluster report defines the next red probes, but neither
+the evidence recovery nor the measured progress turns 94.3% recall into completion.

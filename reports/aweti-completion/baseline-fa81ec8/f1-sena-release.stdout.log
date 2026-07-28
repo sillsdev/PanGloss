@@ -1,0 +1,15 @@
+
+running 4 tests
+test a_sena_emits_and_compiles ... sena emit: 33.8774ms; emit+foma-compile: 3.6092115s; lexc lines: 63487; lexc bytes: 1851591; tier: Full; uncovered: 0
+ok
+test b_sena_recall_first_120_words ... recall: 326/326 engine analyses covered across 87 analyzed words (of 120 corpus words)
+engine total: 51.8995852s; propose total: 24.5682ms; propose max/word: 1.5189ms; propose mean/word: 282.393µs
+ok
+test c_mbali_covers_both_engine_sequences ... mbali: engine multiset size 8, distinct sequences 8
+mbali: proposer offers 52 candidates
+ok
+test d_nonsense_word_proposes_nothing ... zzzq: 0 candidates in 18.6µs
+ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 68.42s
+

@@ -1,0 +1,3 @@
+   Compiling pg-foma v0.1.0 (C:\Users\johnm\Documents\repos\PanGloss\.claude\worktrees\p6-chain-restriction\rust\crates\pg-foma)
+    Finished `release` profile [optimized] target(s) in 59.39s
+     Running tests\f1_sena_gate.rs (target\release\deps\f1_sena_gate-fd1591d9c9ee86b7.exe)

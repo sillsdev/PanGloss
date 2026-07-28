@@ -1,0 +1,18 @@
+{
+  "name": "f1-sena-release",
+  "command": "cargo test -p pg-foma --release --test f1_sena_gate -- --include-ignored --nocapture --test-threads=1",
+  "commit": "fa81ec82916fc03e9acdc9dea394d8db5a0b0c53",
+  "rustc": "rustc 1.96.1 (31fca3adb 2026-06-26)",
+  "cargo": "cargo 1.96.1 (356927216 2026-06-26)",
+  "working_directory": "C:\\Users\\johnm\\Documents\\repos\\PanGloss\\.claude\\worktrees\\p6-chain-restriction\\rust",
+  "start_utc": "2026-07-28T10:27:39.5856197Z",
+  "end_utc": "2026-07-28T10:29:47.5427028Z",
+  "wall_seconds": 127.957,
+  "pid": 38560,
+  "timeout_seconds": 1800,
+  "timed_out": false,
+  "exit_code": 0,
+  "status": "passed",
+  "stdout": "C:\\tmp\\pangloss-task1-baseline\\f1-sena-release.stdout.log",
+  "stderr": "C:\\tmp\\pangloss-task1-baseline\\f1-sena-release.stderr.log"
+}

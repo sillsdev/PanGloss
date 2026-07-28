@@ -1,0 +1,26 @@
+
+running 1 test
+test a_aweti_templated_emit_compile_and_compose ... aweti templated emit: 47.4927ms; tier=Partial { uncovered: 16 }; uncovered=16
+  uncovered: [reduplication] mrule100 -- standalone rule's primary allomorph classifies as Reduplication; not representable (v1)
+  uncovered: [reduplication] mrule101 -- standalone rule's primary allomorph classifies as Reduplication; not representable (v1)
+  uncovered: [reduplication] mrule102 -- standalone rule's primary allomorph classifies as Reduplication; not representable (v1)
+  uncovered: [reduplication] mrule106 -- standalone rule's primary allomorph classifies as Reduplication; not representable (v1)
+  uncovered: [reduplication] mrule107 -- standalone rule's primary allomorph classifies as Reduplication; not representable (v1)
+  uncovered: [reduplication] mrule108 -- standalone rule's primary allomorph classifies as Reduplication; not representable (v1)
+  uncovered: [reduplication] mrule109 -- standalone rule's primary allomorph classifies as Reduplication; not representable (v1)
+  uncovered: [reduplication] mrule110 -- standalone rule's primary allomorph classifies as Reduplication; not representable (v1)
+  uncovered: [reduplication] mrule111 -- standalone rule's primary allomorph classifies as Reduplication; not representable (v1)
+  uncovered: [reduplication] mrule112 -- standalone rule's primary allomorph classifies as Reduplication; not representable (v1)
+  uncovered: [reduplication] mrule113 -- standalone rule's primary allomorph classifies as Reduplication; not representable (v1)
+  uncovered: [reduplication] mrule114 -- standalone rule's primary allomorph classifies as Reduplication; not representable (v1)
+  uncovered: [circumfix-prefix] mrule40#allo1 -- allomorph classifies as CircumfixPrefix but its rule is referenced in a Suffix position
+  uncovered: [circumfix-prefix] mrule40#allo2 -- allomorph classifies as CircumfixPrefix but its rule is referenced in a Suffix position
+  uncovered: [circumfix-prefix] mrule40#allo3 -- allomorph classifies as CircumfixPrefix but its rule is referenced in a Suffix position
+  uncovered: [circumfix-prefix] mrule40#allo4 -- allomorph classifies as CircumfixPrefix but its rule is referenced in a Suffix position
+lexc compile: 244.2551ms; net: 13744 states, 126066 arcs
+rule compile+compose: 42.0966ms; skipped=[]
+full composition + minimize: 400.3809ms; final net: 14806 states, 270541 arcs
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.75s
+
