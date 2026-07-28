@@ -349,7 +349,9 @@ fn quantifier_bounded_environment_compiles_and_matches_oracle() {
         usize::MAX,
         None,
     );
-    let entries: HashSet<LexEntryId> = [entry_min, entry_max, entry_below_min].into_iter().collect();
+    let entries: HashSet<LexEntryId> = [entry_min, entry_max, entry_below_min]
+        .into_iter()
+        .collect();
     let uemit = emit_underlying_filtered_with_budget(&g, &alphabet, Some(&entries), &budget)
         .unwrap_or_else(|e| panic!("lexc emission must not hit any budget: {e}"));
     assert!(uemit.skipped.is_empty());
@@ -458,7 +460,9 @@ fn quantifier_unbounded_environment_compiles_and_matches_oracle() {
         usize::MAX,
         None,
     );
-    let entries: HashSet<LexEntryId> = [entry_min, entry_max, entry_below_min].into_iter().collect();
+    let entries: HashSet<LexEntryId> = [entry_min, entry_max, entry_below_min]
+        .into_iter()
+        .collect();
     let uemit = emit_underlying_filtered_with_budget(&g, &alphabet, Some(&entries), &budget)
         .unwrap_or_else(|e| panic!("lexc emission must not hit any budget: {e}"));
     assert!(uemit.skipped.is_empty());
@@ -483,7 +487,10 @@ fn quantifier_unbounded_environment_compiles_and_matches_oracle() {
         1,
         "oracle must recall entryMin for 'bz' (1 z, satisfies min=1..unbounded): {oracle_min:?}"
     );
-    assert_eq!(fst_min, oracle_min, "CONTAINMENT for 'bz' (min-boundary, 1 occurrence)");
+    assert_eq!(
+        fst_min, oracle_min,
+        "CONTAINMENT for 'bz' (min-boundary, 1 occurrence)"
+    );
 
     // --- 2 occurrences ("azz" -> "bzz") -- also within the unbounded range. ---
     let query_two = alphabet.encode_query("bzz").expect("'bzz' must segment");
@@ -540,8 +547,8 @@ fn quantifier_unbounded_environment_compiles_and_matches_oracle() {
         skipped.is_empty(),
         "an unbounded environment quantifier must no longer be skipped: {skipped:?}"
     );
-    let rule_only_net = composed
-        .expect("an unbounded environment quantifier must compile to a real network");
+    let rule_only_net =
+        composed.expect("an unbounded environment quantifier must compile to a real network");
     assert_eq!(tuple_reports.len(), 1, "one compiled (alpha-free) rule");
 
     // --- GENUINE unboundedness, FST-only against the BARE rule net (no lexicon involved -- the

@@ -110,7 +110,10 @@ pub(crate) struct UnorderedStratumMetrics {
 /// configures. Called for EVERY stratum by [`crate::capability::characterize`]'s own per-stratum
 /// walk, not just `Unordered` ones -- callers that only want `Unordered` strata should filter on
 /// [`unordered_stratum_metrics`] instead.
-pub(crate) fn stratum_metrics(stratum: StratumId, sd: &pg_grammar::model::StratumDef) -> UnorderedStratumMetrics {
+pub(crate) fn stratum_metrics(
+    stratum: StratumId,
+    sd: &pg_grammar::model::StratumDef,
+) -> UnorderedStratumMetrics {
     let rule_count = sd.mrules.len();
     UnorderedStratumMetrics {
         stratum,
@@ -272,7 +275,9 @@ mod tests {
         let err = check_unordered_strata_bound(&g, &budget)
             .expect_err("a 7-rule Unordered stratum must trip an EXPLICIT cap of 6");
         match err {
-            ComposeError::OrderingMultiplicityExceeded { rule_count, limit, .. } => {
+            ComposeError::OrderingMultiplicityExceeded {
+                rule_count, limit, ..
+            } => {
                 assert_eq!(rule_count, 7);
                 assert_eq!(limit, 6);
             }

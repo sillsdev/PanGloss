@@ -310,14 +310,7 @@ const BASELINE_MISSES: &[&str] = &[
 /// Current achieved recall, promoted from Task 7 output to an executable
 /// regression boundary. Correctness work must update this list and the exact
 /// numerator together; performance-only changes must preserve both.
-const CURRENT_EXPECTED_MISSES: &[&str] = &[
-    "muʼazan",
-    "tsãkỹjokwaw",
-    "moʼazan",
-    "tsãn",
-    "moʼaza",
-    "kỹjokwaw",
-];
+const CURRENT_EXPECTED_MISSES: &[&str] = &[];
 
 fn sample_path(name: &str) -> PathBuf {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -451,7 +444,7 @@ fn tag_string_fsm(name: &str, tags: &[String]) -> Fsm {
 /// with a linear identity transducer), projects the UPPER (tag) tape, and checks whether ANY
 /// oracle analysis's own tag sequence intersects it non-emptily. Prints the full recall figure and
 /// the miss list; retains the historical `>= 32`/no-new-baseline-miss checks, then enforces the
-/// current achieved boundary exactly: 100/106 and [`CURRENT_EXPECTED_MISSES`]. A correctness
+/// current achieved boundary exactly: 106/106 and [`CURRENT_EXPECTED_MISSES`]. A correctness
 /// change must deliberately update that tuple; performance-only changes must preserve it. Every
 /// corpus word not in [`BASELINE_MISSES`] must still recall independently of the exact-current
 /// assertion.
@@ -582,7 +575,7 @@ fn run_full_corpus_recall() {
     actual_misses.sort_unstable();
     assert_eq!(
         (n_recalled, n_with_oracle, actual_misses),
-        (100, 106, expected_misses),
+        (106, 106, expected_misses),
         "current Aweti recall boundary changed; correctness work must update the exact numerator/denominator/miss set deliberately"
     );
 }
@@ -865,6 +858,10 @@ impl DiagnosticPipeline {
         }
         let lexc = fsm_lexc_parse_string(&opts, None, &emitted.lexc_source)
             .ok_or("templated lexc failed to compile")?;
+        let lexc = match pg_foma::structural_allomorph::compile_layer(&opts, g, &alphabet) {
+            Some(structural) => fsm_compose(&opts, lexc, structural),
+            None => lexc,
+        };
         let elapsed = started.elapsed();
         diagnostic_budget("lexc", &lexc, elapsed)?;
         stats.push(DiagnosticStageStats {
@@ -904,6 +901,12 @@ impl DiagnosticPipeline {
             ));
         }
         let post_rules = fsm_compose(&opts, lexc.clone(), rule_net);
+        let post_rules = match pg_foma::structural_allomorph::compile_authored_deletion_fallback(
+            &opts, g, &alphabet,
+        ) {
+            Some(fallback) => fsm_compose(&opts, post_rules, fallback),
+            None => post_rules,
+        };
         let elapsed = started.elapsed();
         diagnostic_budget("post_rules", &post_rules, elapsed)?;
         stats.push(DiagnosticStageStats {
@@ -1198,17 +1201,21 @@ fn run_residual_miss_diagnostic() {
                             encoded
                                 .chars()
                                 .map(|token| {
-                                    let id = CharDefId((token as u32).saturating_sub(0xE000));
-                                    let definition = table.get(id);
-                                    let representation = definition
-                                        .representations()
-                                        .first()
-                                        .cloned()
-                                        .unwrap_or_else(|| definition.xml_id().to_string());
-                                    if definition.kind() == CharDefKind::Boundary {
-                                        format!("<{representation}>")
+                                    if (token as u32) >= 0xF0000 {
+                                        format!("<STRUCT:{:X}>", token as u32 - 0xF0000)
                                     } else {
-                                        representation
+                                        let id = CharDefId((token as u32).saturating_sub(0xE000));
+                                        let definition = table.get(id);
+                                        let representation = definition
+                                            .representations()
+                                            .first()
+                                            .cloned()
+                                            .unwrap_or_else(|| definition.xml_id().to_string());
+                                        if definition.kind() == CharDefKind::Boundary {
+                                            format!("<{representation}>")
+                                        } else {
+                                            representation
+                                        }
                                     }
                                 })
                                 .collect()
@@ -1625,17 +1632,21 @@ fn print_trace_outputs(g: &Grammar, word: &str, stage: &str, net: &Fsm, tag_inpu
             encoded
                 .chars()
                 .map(|token| {
-                    let id = CharDefId((token as u32).saturating_sub(0xE000));
-                    let definition = table.get(id);
-                    let representation = definition
-                        .representations()
-                        .first()
-                        .map(String::as_str)
-                        .unwrap_or_else(|| definition.xml_id());
-                    if definition.kind() == CharDefKind::Boundary {
-                        format!("<{representation}>")
+                    if (token as u32) >= 0xF0000 {
+                        format!("<STRUCT:{:X}>", token as u32 - 0xF0000)
                     } else {
-                        representation.to_string()
+                        let id = CharDefId((token as u32).saturating_sub(0xE000));
+                        let definition = table.get(id);
+                        let representation = definition
+                            .representations()
+                            .first()
+                            .map(String::as_str)
+                            .unwrap_or_else(|| definition.xml_id());
+                        if definition.kind() == CharDefKind::Boundary {
+                            format!("<{representation}>")
+                        } else {
+                            representation.to_string()
+                        }
                     }
                 })
                 .collect::<Vec<_>>()

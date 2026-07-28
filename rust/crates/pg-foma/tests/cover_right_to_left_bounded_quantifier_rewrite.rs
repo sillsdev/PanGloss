@@ -36,8 +36,7 @@ fn fixture_path() -> std::path::PathBuf {
 
 fn load() -> Grammar {
     let path = fixture_path();
-    let xml = fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let xml = fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     pg_grammar::load(&xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"))
 }
 
@@ -78,8 +77,8 @@ fn oracle_applies_the_bound_correctly() {
     let morpher = Morpher::new(&g, usize::MAX);
 
     for (word, expected) in [
-        ("acet", "ROOT1|acet"), // 0 intervening consonants -- within bound
-        ("ecct", "ROOT2|ecct"), // 2 intervening consonants -- exactly saturates the bound
+        ("acet", "ROOT1|acet"),   // 0 intervening consonants -- within bound
+        ("ecct", "ROOT2|ecct"),   // 2 intervening consonants -- exactly saturates the bound
         ("accct", "ROOT3|accct"), // 3 intervening consonants -- one past the bound, unchanged
     ] {
         let outcome = morpher.parse_word_opts(word, &ParseOptions::default());

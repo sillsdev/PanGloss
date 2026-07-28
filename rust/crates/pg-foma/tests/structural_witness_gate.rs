@@ -244,7 +244,9 @@ fn the_hand_identified_witness_fixture_for_each_construct_still_qualifies() {
                 continue;
             }
             if w.exercises.iter().any(|c| c == construct_id)
-                || w.parses.iter().any(|p| p.exercises.iter().any(|c| c == construct_id))
+                || w.parses
+                    .iter()
+                    .any(|p| p.exercises.iter().any(|c| c == construct_id))
             {
                 tags_it_while_passing = true;
                 break;
@@ -258,5 +260,9 @@ fn the_hand_identified_witness_fixture_for_each_construct_still_qualifies() {
         checked += 1;
     }
 
-    assert_eq!(checked, expectations.len(), "not every named witness fixture was checked");
+    assert_eq!(
+        checked,
+        expectations.len(),
+        "not every named witness fixture was checked"
+    );
 }

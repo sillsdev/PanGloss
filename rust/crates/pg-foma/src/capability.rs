@@ -66,8 +66,8 @@ use std::collections::{HashMap, HashSet};
 
 use pg_grammar::model::{
     AffixAllomorphDef, AllomorphId, Dir, Grammar, MRuleId, MorphRuleDef, MorphRuleOrder,
-    MprGroupMatchType, MprGroupOutput, MprSet, NatClassId, NaturalClassKind, OutputAction,
-    PRuleId, PartRef, PhonRuleDef, ReduplicationHint, RewriteMode, StratumId,
+    MprGroupMatchType, MprGroupOutput, MprSet, NatClassId, NaturalClassKind, OutputAction, PRuleId,
+    PartRef, PhonRuleDef, ReduplicationHint, RewriteMode, StratumId,
 };
 
 use crate::plan::{FragmentSpec, NodeId, Plan, PlanNodeKind};
@@ -308,12 +308,18 @@ impl CharacteristicKind {
 pub enum ModelLocation {
     MorphRule(MRuleId),
     /// One allomorph of an `AffixProcess`/`Realizational` rule (`MorphRuleDef::affix_allomorphs`).
-    AffixAllomorph { rule: MRuleId, allomorph_index: usize },
+    AffixAllomorph {
+        rule: MRuleId,
+        allomorph_index: usize,
+    },
     Stratum(StratumId),
     /// Index into `Grammar::mpr_groups`.
     MprGroup(usize),
     PhonRule(PRuleId),
-    RewriteSubrule { rule: PRuleId, subrule_index: usize },
+    RewriteSubrule {
+        rule: PRuleId,
+        subrule_index: usize,
+    },
     NaturalClass(NatClassId),
     /// Index into `Grammar::morphemes` whose `co_occurrence` list this observation came from.
     MorphemeCoOccurrence(usize),
@@ -713,7 +719,9 @@ impl CharacteristicsProfile {
 
     /// `true` iff at least one observation carries `disposition`.
     pub fn has_disposition(&self, disposition: Disposition) -> bool {
-        self.observations.iter().any(|o| o.disposition == disposition)
+        self.observations
+            .iter()
+            .any(|o| o.disposition == disposition)
     }
 
     /// Every distinct [`CharacteristicKind`] observed with `disposition`.
@@ -783,7 +791,9 @@ impl CharacteristicsProfile {
     /// (this characteristic has no corresponding [`crate::plan::PlanNodeKind`] at all, same
     /// "grammar-wide, not node-specific" shape [`MultiTableFaithfulThreadingPredicate`]'s own doc
     /// describes), so it scans every observation itself rather than looking one up by id.
-    pub fn circumfix_output_action_details(&self) -> impl Iterator<Item = &CircumfixOutputActionDetail> {
+    pub fn circumfix_output_action_details(
+        &self,
+    ) -> impl Iterator<Item = &CircumfixOutputActionDetail> {
         self.observations.iter().filter_map(|o| match &o.detail {
             ObservationDetail::CircumfixOutputAction(d) => Some(d),
             _ => None,
@@ -892,8 +902,7 @@ fn rtl_reversal_diagnosis(
         if crate::replace::pattern_slots(g, table, &r.lhs, &mut next_occurrence, scope).is_none() {
             return Err(Some(diagnose_unsupported(g, table, &r.lhs, scope)));
         }
-        if crate::replace::pattern_slots(g, table, &sr.rhs, &mut next_occurrence, scope).is_none()
-        {
+        if crate::replace::pattern_slots(g, table, &sr.rhs, &mut next_occurrence, scope).is_none() {
             return Err(Some(diagnose_unsupported(g, table, &sr.rhs, scope)));
         }
         if let Some(p) = &sr.left_env {
@@ -1267,7 +1276,8 @@ fn characterize_allomorph(
         // doc): only `MorphRuleDef::AffixProcess` is ever peel-eligible -- re-derived here (not
         // imported: `crate::peel` is a separate, unrelated-purpose module this step must not
         // modify) over the same frozen `g.mrules[rule.0]` shape.
-        let peel_eligible_rule_kind = matches!(g.mrules[rule.0 as usize], MorphRuleDef::AffixProcess(_));
+        let peel_eligible_rule_kind =
+            matches!(g.mrules[rule.0 as usize], MorphRuleDef::AffixProcess(_));
         observations.push(CharacteristicObservation::new(
             CharacteristicKind::Reduplication,
             ModelLocation::AffixAllomorph {
@@ -1886,8 +1896,11 @@ pub trait CapabilityPredicate {
     /// This predicate's verdict for `plan_node`, given the grammar-wide `profile` (see this
     /// module's own top-doc for why `plan_node: &PlanNodeKind` rather than D2's literal
     /// `&PlanNode` — `crate::plan` has no type by that name).
-    fn evaluate(&self, profile: &CharacteristicsProfile, plan_node: &PlanNodeKind)
-        -> PredicateVerdict;
+    fn evaluate(
+        &self,
+        profile: &CharacteristicsProfile,
+        plan_node: &PlanNodeKind,
+    ) -> PredicateVerdict;
     /// [`EvidenceProvenance::Behavioral`] or [`EvidenceProvenance::Structural`].
     fn provenance(&self) -> EvidenceProvenance;
 }
@@ -2146,7 +2159,8 @@ pub(crate) fn simultaneous_rule_admitted_for_compile(
         })
         .collect();
 
-    subrules_pairwise_verdict(&subrules).map_err(|(i, j, witness)| format!("subrules {i} and {j}: {witness}"))
+    subrules_pairwise_verdict(&subrules)
+        .map_err(|(i, j, witness)| format!("subrules {i} and {j}: {witness}"))
 }
 
 // -------------------------------------------------------------------------------------------
@@ -2656,7 +2670,8 @@ impl CapabilityPredicate for CircumfixStructuralCompositePredicate {
                         "mrule {} allomorph #{} (LHS-material-dropping output action)",
                         detail.rule.0, detail.allomorph_index
                     ),
-                    witness: "no allomorph of this allomorph's own rule classifies as crate::emit::\
+                    witness:
+                        "no allomorph of this allomorph's own rule classifies as crate::emit::\
                               Role::CircumfixPrefix (crate::emit::classify_affix, scanned over \
                               every allomorph), and its first allomorph does not classify as \
                               crate::emit::Role::None/Prefix/Suffix with LHS-material-dropping \
@@ -2665,7 +2680,7 @@ impl CapabilityPredicate for CircumfixStructuralCompositePredicate {
                               faithful build_structural_composites construction -- the real \
                               compiler already honestly skips (reports uncovered) this exact \
                               allomorph rather than silently mis-compiling it"
-                        .to_string(),
+                            .to_string(),
                 });
             }
         }
@@ -2925,10 +2940,10 @@ impl CapabilityPredicate for CompoundingRecursionSafePredicate {
         // pathologically deep grammar's own COST is refused separately, at compile time, by
         // `crate::emit`'s own `DEFAULT_COMPOUND_CHAIN_DEPTH_BUDGET` (this predicate's own doc, "Cost
         // stays a SEPARATE concern").
-        profile.compounding_details().next().map_or(
-            PredicateVerdict::Admit,
-            |_| PredicateVerdict::ConfirmOnly,
-        )
+        profile
+            .compounding_details()
+            .next()
+            .map_or(PredicateVerdict::Admit, |_| PredicateVerdict::ConfirmOnly)
     }
 }
 
@@ -3802,7 +3817,10 @@ fn node_decision(
             .iter()
             .any(|k| relevant_kinds.contains(k))
         {
-            decision = meet(decision, verdict_to_decision(predicate.evaluate(profile, kind)));
+            decision = meet(
+                decision,
+                verdict_to_decision(predicate.evaluate(profile, kind)),
+            );
         }
     }
 
@@ -3889,7 +3907,10 @@ pub fn compose_envelope(g: &Grammar, plan: &Plan, registry: &PredicateRegistry) 
 
     for &kind in &relevant_kinds {
         if !registry.discharges(kind) {
-            decision = meet(decision, disposition_floor(kind, kind.default_disposition()));
+            decision = meet(
+                decision,
+                disposition_floor(kind, kind.default_disposition()),
+            );
         }
     }
 
@@ -3903,7 +3924,7 @@ mod tests {
     //! rather than hand-constructing a `Grammar` (which would require standing up every interner
     //! field by hand; `load` is this workspace's own supported entry point for exactly this).
 
-    use pg_grammar::model::{MorphRuleDef, MprGroupOutput, PhonRuleDef, PRuleId};
+    use pg_grammar::model::{MorphRuleDef, MprGroupOutput, PRuleId, PhonRuleDef};
 
     use super::*;
     use crate::enumerate::enumerate_default;
@@ -4329,7 +4350,10 @@ mod tests {
             "the earlier stratum's rule is never fed by anything -- must stay non-recursive: \
              {details:?}"
         );
-        assert_eq!(earlier.max_depth, 2, "earlier rule's own isolated bound: {details:?}");
+        assert_eq!(
+            earlier.max_depth, 2,
+            "earlier rule's own isolated bound: {details:?}"
+        );
         assert!(
             later.recursive,
             "the later stratum's rule IS fed by the earlier one -- must characterize recursive: \
@@ -4387,8 +4411,14 @@ mod tests {
 
         for (xml, label) in [
             (one_rule_xml(""), "isolated, default multipleApplication=1"),
-            (one_rule_xml(" multipleApplication=\"2\""), "isolated, self-feeding"),
-            (one_rule_xml(" multipleApplication=\"7\""), "isolated, self-feeding, larger bound"),
+            (
+                one_rule_xml(" multipleApplication=\"2\""),
+                "isolated, self-feeding",
+            ),
+            (
+                one_rule_xml(" multipleApplication=\"7\""),
+                "isolated, self-feeding, larger bound",
+            ),
         ] {
             let g = load(&xml);
             let recursive_set = compounding_recursive(&g);
@@ -4442,7 +4472,10 @@ mod tests {
         let details: Vec<_> = profile.unordered_stratum_details().collect();
         assert_eq!(details.len(), 1);
         assert_eq!(details[0].rule_count, 0);
-        assert!(details[0].within_bound, "a zero-rule stratum must be within bound");
+        assert!(
+            details[0].within_bound,
+            "a zero-rule stratum must be within bound"
+        );
     }
 
     /// D1's table: `MprGroupOutput::Append` -> ConfirmOnly, `MprGroupOutput::Overwrite` ->
@@ -4463,16 +4496,20 @@ mod tests {
 
         let profile = characterize(&g);
         assert!(
-            profile.observations().iter().any(|o| o.kind
-                == CharacteristicKind::MprGroupAppend
-                && o.disposition == Disposition::ConfirmOnly),
+            profile
+                .observations()
+                .iter()
+                .any(|o| o.kind == CharacteristicKind::MprGroupAppend
+                    && o.disposition == Disposition::ConfirmOnly),
             "Append MPR group must characterize ConfirmOnly: {:?}",
             profile.observations()
         );
         assert!(
-            profile.observations().iter().any(|o| o.kind
-                == CharacteristicKind::MprGroupOverwrite
-                && o.disposition == Disposition::FailClosed),
+            profile
+                .observations()
+                .iter()
+                .any(|o| o.kind == CharacteristicKind::MprGroupOverwrite
+                    && o.disposition == Disposition::FailClosed),
             "Overwrite MPR group must characterize FailClosed: {:?}",
             profile.observations()
         );
@@ -4523,9 +4560,11 @@ mod tests {
 
         let profile = characterize(&g);
         assert!(
-            profile.observations().iter().any(|o| o.kind
-                == CharacteristicKind::RealizationalMorphology
-                && o.disposition == Disposition::ConfirmOnly),
+            profile
+                .observations()
+                .iter()
+                .any(|o| o.kind == CharacteristicKind::RealizationalMorphology
+                    && o.disposition == Disposition::ConfirmOnly),
             "RealizationalRule must characterize ConfirmOnly: {:?}",
             profile.observations()
         );
@@ -4582,9 +4621,11 @@ mod tests {
 
         let profile = characterize(&g);
         assert!(
-            profile.observations().iter().any(|o| o.kind
-                == CharacteristicKind::CoOccurrenceConstraint
-                && o.disposition == Disposition::ConfirmOnly),
+            profile
+                .observations()
+                .iter()
+                .any(|o| o.kind == CharacteristicKind::CoOccurrenceConstraint
+                    && o.disposition == Disposition::ConfirmOnly),
             "MorphemeCoOccurrenceRule must characterize ConfirmOnly: {:?}",
             profile.observations()
         );
@@ -4629,9 +4670,11 @@ mod tests {
 
         let profile = characterize(&g);
         assert!(
-            profile.observations().iter().any(|o| o.kind
-                == CharacteristicKind::CoOccurrenceConstraint
-                && o.disposition == Disposition::ConfirmOnly),
+            profile
+                .observations()
+                .iter()
+                .any(|o| o.kind == CharacteristicKind::CoOccurrenceConstraint
+                    && o.disposition == Disposition::ConfirmOnly),
             "AllomorphCoOccurrenceRule must characterize ConfirmOnly: {:?}",
             profile.observations()
         );
@@ -4648,9 +4691,11 @@ mod tests {
 
         let profile = characterize(&g);
         assert!(
-            profile.observations().iter().any(|o| o.kind
-                == CharacteristicKind::MultiTable
-                && o.disposition == Disposition::ConfigPredicate),
+            profile
+                .observations()
+                .iter()
+                .any(|o| o.kind == CharacteristicKind::MultiTable
+                    && o.disposition == Disposition::ConfigPredicate),
             "multi-table (disjoint) must characterize ConfigPredicate: {:?}",
             profile.observations()
         );
@@ -4776,9 +4821,11 @@ mod tests {
 
         let profile = characterize(&g);
         assert!(
-            profile.observations().iter().any(|o| o.kind
-                == CharacteristicKind::RightToLeftRewrite
-                && o.disposition == Disposition::ConfigPredicate),
+            profile
+                .observations()
+                .iter()
+                .any(|o| o.kind == CharacteristicKind::RightToLeftRewrite
+                    && o.disposition == Disposition::ConfigPredicate),
             "Dir::RightToLeft must characterize ConfigPredicate (no longer bare FailClosed): {:?}",
             profile.observations()
         );
@@ -5083,7 +5130,11 @@ mod tests {
             panic!("expected a Rewrite-kind rule");
         };
         assert_eq!(r.dir, Dir::RightToLeft);
-        assert_eq!(g.char_tables.len(), 2, "fixture must declare two distinct tables");
+        assert_eq!(
+            g.char_tables.len(),
+            2,
+            "fixture must declare two distinct tables"
+        );
 
         let profile = characterize(&g);
         let detail = profile
@@ -5103,7 +5154,10 @@ mod tests {
         let predicate = RightToLeftRewriteFaithfulReversalPredicate;
         match predicate.evaluate(&profile, &leaf_for(PRuleId(0))) {
             PredicateVerdict::Refuse(diag) => {
-                assert_eq!(diag.predicate, "right-to-left-rewrite.faithful-reversal-construction");
+                assert_eq!(
+                    diag.predicate,
+                    "right-to-left-rewrite.faithful-reversal-construction"
+                );
                 assert!(
                     diag.witness.contains("Segments"),
                     "witness must name the specific failing shape (Segments): {diag:?}"
@@ -5181,14 +5235,19 @@ mod tests {
         let predicate = RightToLeftRewriteFaithfulReversalPredicate;
         match predicate.evaluate(&profile, &leaf_for(PRuleId(0))) {
             PredicateVerdict::Refuse(diag) => {
-                assert_eq!(diag.predicate, "right-to-left-rewrite.faithful-reversal-construction");
+                assert_eq!(
+                    diag.predicate,
+                    "right-to-left-rewrite.faithful-reversal-construction"
+                );
                 assert!(
                     diag.witness.contains("disagree-polarity"),
                     "witness must name the specific failing shape (disagree-polarity alpha var): \
                      {diag:?}"
                 );
             }
-            other => panic!("expected Refuse naming the disagree-polarity alpha var, got {other:?}"),
+            other => {
+                panic!("expected Refuse naming the disagree-polarity alpha var, got {other:?}")
+            }
         }
     }
 
@@ -5240,9 +5299,11 @@ mod tests {
 
         let profile = characterize(&g);
         assert!(
-            profile.observations().iter().any(|o| o.kind
-                == CharacteristicKind::Metathesis
-                && o.disposition == Disposition::ConfigPredicate),
+            profile
+                .observations()
+                .iter()
+                .any(|o| o.kind == CharacteristicKind::Metathesis
+                    && o.disposition == Disposition::ConfigPredicate),
             "PhonRuleDef::Metathesis must characterize ConfigPredicate (no longer bare \
              FailClosed): {:?}",
             profile.observations()
@@ -5409,7 +5470,9 @@ mod tests {
             PredicateVerdict::Refuse(diag) => {
                 assert_eq!(diag.predicate, "metathesis.faithful-swap-construction");
             }
-            other => panic!("expected Refuse for an Anchor-shaped metathesis pattern, got {other:?}"),
+            other => {
+                panic!("expected Refuse for an Anchor-shaped metathesis pattern, got {other:?}")
+            }
         }
     }
 
@@ -5513,9 +5576,11 @@ mod tests {
 
         let profile = characterize(&g);
         assert!(
-            profile.observations().iter().any(|o| o.kind
-                == CharacteristicKind::CircumfixOutputAction
-                && o.disposition == Disposition::ConfigPredicate),
+            profile
+                .observations()
+                .iter()
+                .any(|o| o.kind == CharacteristicKind::CircumfixOutputAction
+                    && o.disposition == Disposition::ConfigPredicate),
             "a 2-part-LHS drop must characterize CircumfixOutputAction/ConfigPredicate: {:?}",
             profile.observations()
         );
@@ -5700,9 +5765,11 @@ mod tests {
 
         let profile = characterize(&g);
         assert!(
-            profile.observations().iter().any(|o| o.kind
-                == CharacteristicKind::Reduplication
-                && o.disposition == Disposition::ConfigPredicate),
+            profile
+                .observations()
+                .iter()
+                .any(|o| o.kind == CharacteristicKind::Reduplication
+                    && o.disposition == Disposition::ConfigPredicate),
             "a true-reduplicating AffixProcessRule allomorph must characterize \
              Reduplication/ConfigPredicate: {:?}",
             profile.observations()
@@ -5876,9 +5943,11 @@ mod tests {
 
         let profile = characterize(&g);
         assert!(
-            profile.observations().iter().any(|o| o.kind
-                == CharacteristicKind::QuantifierPattern
-                && o.disposition == Disposition::ConfigPredicate),
+            profile
+                .observations()
+                .iter()
+                .any(|o| o.kind == CharacteristicKind::QuantifierPattern
+                    && o.disposition == Disposition::ConfigPredicate),
             "a bounded environment quantifier must characterize ConfigPredicate: {:?}",
             profile.observations()
         );
@@ -6387,7 +6456,9 @@ mod tests {
                      wording: {diag:?}"
                 );
             }
-            other => panic!("expected Refuse (genuine overlap via shared Back member), got {other:?}"),
+            other => {
+                panic!("expected Refuse (genuine overlap via shared Back member), got {other:?}")
+            }
         }
     }
 
@@ -6536,9 +6607,21 @@ mod tests {
     #[test]
     fn lower_subrule_span_uses_the_rules_owning_table_not_table_zero() {
         let g = load(TWO_TABLE_SIMULTANEOUS_XML);
-        assert_eq!(g.char_tables.len(), 2, "fixture must declare exactly 2 tables");
-        assert_eq!(g.char_tables[0].len(), 1, "table 0 must be the tiny, unrelated 1-segment table");
-        assert_eq!(g.char_tables[1].len(), 5, "table 1 must be the rule's own 5-segment inventory");
+        assert_eq!(
+            g.char_tables.len(),
+            2,
+            "fixture must declare exactly 2 tables"
+        );
+        assert_eq!(
+            g.char_tables[0].len(),
+            1,
+            "table 0 must be the tiny, unrelated 1-segment table"
+        );
+        assert_eq!(
+            g.char_tables[1].len(),
+            5,
+            "table 1 must be the rule's own 5-segment inventory"
+        );
 
         let PhonRuleDef::Rewrite(rule) = &g.prules[0] else {
             panic!("expected a Rewrite-kind rule at prules[0]");
@@ -6620,7 +6703,11 @@ mod tests {
 </HermitCrabInput>
 "#;
         let g = load(XML);
-        assert_eq!(g.char_tables.len(), 2, "fixture must declare exactly 2 tables");
+        assert_eq!(
+            g.char_tables.len(),
+            2,
+            "fixture must declare exactly 2 tables"
+        );
         let PhonRuleDef::Rewrite(rule) = &g.prules[0] else {
             panic!("expected a Rewrite-kind rule at prules[0]");
         };
@@ -6711,11 +6798,17 @@ mod tests {
         );
         let d1 = diag("p1", "c1");
         assert_eq!(
-            meet(CompileDecision::Admit, CompileDecision::Refuse(vec![d1.clone()])),
+            meet(
+                CompileDecision::Admit,
+                CompileDecision::Refuse(vec![d1.clone()])
+            ),
             CompileDecision::Refuse(vec![d1.clone()])
         );
         assert_eq!(
-            meet(CompileDecision::Refuse(vec![d1.clone()]), CompileDecision::ConfirmOnly),
+            meet(
+                CompileDecision::Refuse(vec![d1.clone()]),
+                CompileDecision::ConfirmOnly
+            ),
             CompileDecision::Refuse(vec![d1.clone()])
         );
     }
@@ -6804,7 +6897,10 @@ mod tests {
         let plan = enumerated_plan(&g);
         let registry = default_registry();
 
-        assert_eq!(compose_envelope(&g, &plan, &registry), CompileDecision::Admit);
+        assert_eq!(
+            compose_envelope(&g, &plan, &registry),
+            CompileDecision::Admit
+        );
     }
 
     /// `openspec/changes/cover-compounding`: a grammar with a single, non-recursive `Compounding`
@@ -6999,9 +7095,7 @@ mod tests {
         match compose_envelope(&g, &plan, &registry) {
             CompileDecision::Refuse(diags) => {
                 assert!(
-                    diags
-                        .iter()
-                        .any(|d| d.construct.contains("Unordered")),
+                    diags.iter().any(|d| d.construct.contains("Unordered")),
                     "expected a diagnostic naming the Unordered stratum: {diags:?}"
                 );
             }
@@ -7321,7 +7415,10 @@ mod tests {
         let plan = enumerated_plan(&g);
         let registry = default_registry();
 
-        assert_eq!(compose_envelope(&g, &plan, &registry), CompileDecision::Admit);
+        assert_eq!(
+            compose_envelope(&g, &plan, &registry),
+            CompileDecision::Admit
+        );
     }
 
     /// The same shape, but neither subrule declares an MPR gate -- overlap can't be ruled out, so
@@ -7376,7 +7473,9 @@ mod tests {
         match compose_envelope(&g, &plan, &registry) {
             CompileDecision::Refuse(diags) => {
                 assert!(
-                    diags.iter().any(|d| d.predicate == "simultaneous.subrule-overlap"),
+                    diags
+                        .iter()
+                        .any(|d| d.predicate == "simultaneous.subrule-overlap"),
                     "expected a simultaneous.subrule-overlap diagnostic: {diags:?}"
                 );
             }
@@ -7449,7 +7548,9 @@ mod tests {
             "fixture must declare an Overwrite-output MprGroup (the Refuse-worthy half)"
         );
         assert!(
-            g.mrules.iter().any(|m| matches!(m, MorphRuleDef::Compounding(_))),
+            g.mrules
+                .iter()
+                .any(|m| matches!(m, MorphRuleDef::Compounding(_))),
             "fixture must declare a Compounding rule (the ConfirmOnly-worthy half)"
         );
 
@@ -7464,9 +7565,7 @@ mod tests {
                      away to a bare ConfirmOnly: {diags:?}"
                 );
             }
-            other => panic!(
-                "expected Refuse (Refuse dominates ConfirmOnly per D4), got {other:?}"
-            ),
+            other => panic!("expected Refuse (Refuse dominates ConfirmOnly per D4), got {other:?}"),
         }
     }
 }

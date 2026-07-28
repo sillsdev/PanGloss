@@ -59,9 +59,7 @@ mod common;
 
 use std::collections::HashSet;
 
-use pg_foma::capability::{
-    compose_envelope, default_registry, CompileDecision,
-};
+use pg_foma::capability::{compose_envelope, default_registry, CompileDecision};
 use pg_foma::composite::FomaAnalyzer;
 use pg_foma::enumerate::enumerate_default;
 use pg_foma::junctions::PhonologyProbe;
@@ -263,7 +261,10 @@ fn head_a_word_over_propose_confirm_prune() {
         "the FST proposer must PROPOSE fasubel (headA licensed via compound_match's flat overlap \
          on the partial {{mpr1}} match against the {{mpr1,mpr2}} all-group)"
     );
-    assert_eq!(positive.confirmed, 1, "exactly one compound analysis expected for fasubel");
+    assert_eq!(
+        positive.confirmed, 1,
+        "exactly one compound analysis expected for fasubel"
+    );
 }
 
 /// Negative witness (deliverable 3.2, design.md D3 "left to confirm"): `zon` (posOther) is
@@ -304,7 +305,10 @@ fn subrule_group_gate_excludes_partial_match_like_confirm() {
     let morpher = Morpher::new(&g, usize::MAX);
 
     let outcome = assert_confirm_matches_oracle(&mut analyzer, &morpher, "tikubel", false);
-    assert_eq!(outcome.confirmed, 0, "tikubel must confirm zero analyses (subrule mpr_group_ok)");
+    assert_eq!(
+        outcome.confirmed, 0,
+        "tikubel must confirm zero analyses (subrule mpr_group_ok)"
+    );
 }
 
 /// Sanity negative control: `headC` carries no MPR features at all, so `cr1`'s own

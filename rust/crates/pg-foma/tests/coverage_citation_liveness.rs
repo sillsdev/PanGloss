@@ -262,8 +262,9 @@ fn fail_closed_refusal_witness_resolves_to_an_actual_test() {
         let mut cited_sources: Vec<(String, String)> = Vec::new();
         for rel in cited_paths(&ev.citation) {
             let path = root.join(&rel);
-            let text = std::fs::read_to_string(&path)
-                .unwrap_or_else(|e| panic!("{:?} cites {rel}, which cannot be read: {e}", row.kind));
+            let text = std::fs::read_to_string(&path).unwrap_or_else(|e| {
+                panic!("{:?} cites {rel}, which cannot be read: {e}", row.kind)
+            });
             cited_sources.push((rel, text));
         }
         assert!(

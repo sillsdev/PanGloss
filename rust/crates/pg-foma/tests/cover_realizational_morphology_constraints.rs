@@ -287,8 +287,10 @@ fn assert_confirm_matches_oracle(
 #[test]
 fn realizational_rule_presence_blocking_over_propose_confirm_prune() {
     let g = load();
-    let mut analyzer = FomaAnalyzer::new(&g).expect("fixture must compile: no Compounding, no \
-        Unordered stratum, plain affixation + one RealizationalRule");
+    let mut analyzer = FomaAnalyzer::new(&g).expect(
+        "fixture must compile: no Compounding, no \
+        Unordered stratum, plain affixation + one RealizationalRule",
+    );
     let morpher = Morpher::new(&g, usize::MAX);
 
     // Positive: rrPast alone, no prior tense value -> IsBlocked's presence check finds nothing to
@@ -305,7 +307,10 @@ fn realizational_rule_presence_blocking_over_propose_confirm_prune() {
     // history, so it still proposes this morpheme sequence (over-proposal) -- confirm is the one
     // that must prune it to zero.
     let negative = assert_confirm_matches_oracle(&mut analyzer, &morpher, "kibesid", false);
-    assert_eq!(negative.confirmed, 0, "kibesid must confirm zero analyses (IsBlocked)");
+    assert_eq!(
+        negative.confirmed, 0,
+        "kibesid must confirm zero analyses (IsBlocked)"
+    );
     assert!(
         negative.candidates_generated > 0,
         "the FST proposer must still PROPOSE the kib+TENSE+RPAST candidate (over-propose) for \
@@ -336,7 +341,10 @@ fn family_blocking_over_propose_confirm_prune() {
     // has no notion of Family/CheckBlocking, so it still proposes zod+PAST2 (over-propose);
     // confirm's validity/self-check pass is what prunes it.
     let negative = assert_confirm_matches_oracle(&mut analyzer, &morpher, "zodut", false);
-    assert_eq!(negative.confirmed, 0, "zodut must confirm zero analyses (family blocking)");
+    assert_eq!(
+        negative.confirmed, 0,
+        "zodut must confirm zero analyses (family blocking)"
+    );
     assert!(
         negative.candidates_generated > 0,
         "the FST proposer must still PROPOSE zod+PAST2 (over-propose) for confirm's family/\
@@ -366,7 +374,10 @@ fn stem_name_gating_over_propose_confirm_prune() {
     // does not know about StemName gating at all, so it still proposes the bare "toy" root as a
     // candidate; confirm's stem_name_gates_ok check is what prunes it.
     let negative_bare = assert_confirm_matches_oracle(&mut analyzer, &morpher, "toy", false);
-    assert_eq!(negative_bare.confirmed, 0, "bare toy must confirm zero analyses (RequiredStemName)");
+    assert_eq!(
+        negative_bare.confirmed, 0,
+        "bare toy must confirm zero analyses (RequiredStemName)"
+    );
     assert!(
         negative_bare.candidates_generated > 0,
         "the FST proposer must still PROPOSE bare toy (over-propose) for confirm's StemName gate \

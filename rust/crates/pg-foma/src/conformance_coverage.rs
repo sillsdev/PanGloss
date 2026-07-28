@@ -223,7 +223,9 @@ pub fn construct_ids_for(kind: CharacteristicKind) -> &'static [&'static str] {
         UnorderedMorphRuleApplication => &["Stratum (Linear/Unordered rule order)"],
         MprGroupAppend => &["MPR features/groups"],
         MprGroupOverwrite => &["MPR features/groups"],
-        IterativeRewrite => &["RewriteRule Iterative (epenthesis/deletion/feature/expansion/merge)"],
+        IterativeRewrite => {
+            &["RewriteRule Iterative (epenthesis/deletion/feature/expansion/merge)"]
+        }
         SimultaneousRewrite => &["RewriteRule Simultaneous"],
         // `compile-right-to-left-rewrites`/G9: `constructs.txt`'s `RewriteRule Iterative(...)`/
         // `RewriteRule Simultaneous` rows tag *multiple-application order*, not *directionality* --
@@ -241,13 +243,15 @@ pub fn construct_ids_for(kind: CharacteristicKind) -> &'static [&'static str] {
         // subrule -- mapping onto that row would have overclaimed coverage never actually
         // exercised for THIS characteristic, so no mapping existed before G9). Added upstream as
         // `"RewriteSubruleDef gating: required/excluded POS or MPR at the subrule level"`.
-        SubruleGating => &["RewriteSubruleDef gating: required/excluded POS or MPR at the subrule level"],
+        SubruleGating => {
+            &["RewriteSubruleDef gating: required/excluded POS or MPR at the subrule level"]
+        }
         CircumfixOutputAction => &["AffixProcessRule: prefix/suffix/circumfix/infix"],
         Reduplication => &["AffixProcessRule: reduplication (ReduplicationHint)"],
         CoOccurrenceConstraint => &["MorphemeCoOccurrenceRule/AllomorphCoOccurrenceRule"],
-        NaturalClassDefinition => &[
-            "NaturalClass: Segments vs FeatureNaturalClass/SegmentNaturalClass precision",
-        ],
+        NaturalClassDefinition => {
+            &["NaturalClass: Segments vs FeatureNaturalClass/SegmentNaturalClass precision"]
+        }
         // `fix-multitable-fst-compilation`/G9: the two PRE-EXISTING rows that mention
         // `CharacterDefinitionTable` at all -- "Boundary markers" and "pattern shapes: optional
         // group / Kleene star" -- are about segmentation/pattern constructs WITHIN one table, not
@@ -259,7 +263,9 @@ pub fn construct_ids_for(kind: CharacteristicKind) -> &'static [&'static str] {
         // row is exactly `PatternNode::Quantifier` (`<OptionalSegmentSequence min max>`) -- unlike
         // `MultiTable`/`LeftToRightRewrite`/etc above, this construct already had a distinctly-
         // tagged coverage identifier before G9.
-        QuantifierPattern => &["CharacterDefinitionTable pattern shapes: optional group / Kleene star"],
+        QuantifierPattern => {
+            &["CharacterDefinitionTable pattern shapes: optional group / Kleene star"]
+        }
     }
 }
 
@@ -479,9 +485,7 @@ pub fn supported_coverage_report(
                     EvidenceRequirement::PassingFixture => construct_ids
                         .iter()
                         .any(|c| passing_covered_constructs.contains(c)),
-                    EvidenceRequirement::RefusalWitness => {
-                        refusal_witnessed_kinds.contains(&kind)
-                    }
+                    EvidenceRequirement::RefusalWitness => refusal_witnessed_kinds.contains(&kind),
                 };
                 if is_evidenced {
                     CoverageStatus::Covered
@@ -609,9 +613,9 @@ pub fn grammar_has_unordered_stratum(g: &Grammar) -> bool {
 /// are two different XML spellings of the identical loaded fact, and only the loaded model
 /// treats them identically for free.
 pub fn grammar_has_empty_lhs_rewrite_rule(g: &Grammar) -> bool {
-    g.prules.iter().any(|pr| {
-        matches!(pr, PhonRuleDef::Rewrite(r) if r.lhs.nodes.is_empty())
-    })
+    g.prules
+        .iter()
+        .any(|pr| matches!(pr, PhonRuleDef::Rewrite(r) if r.lhs.nodes.is_empty()))
 }
 
 /// [`CharacteristicKind::CircumfixOutputAction`]'s structural predicate: does ANY allomorph of ANY
@@ -856,15 +860,24 @@ mod tests {
             "{shared:?}"
         );
         assert!(
-            pairs_containing(CharacteristicKind::IterativeRewrite, CharacteristicKind::Epenthesis),
+            pairs_containing(
+                CharacteristicKind::IterativeRewrite,
+                CharacteristicKind::Epenthesis
+            ),
             "{shared:?}"
         );
         assert!(
-            pairs_containing(CharacteristicKind::Affixation, CharacteristicKind::CircumfixOutputAction),
+            pairs_containing(
+                CharacteristicKind::Affixation,
+                CharacteristicKind::CircumfixOutputAction
+            ),
             "{shared:?}"
         );
         assert!(
-            pairs_containing(CharacteristicKind::MprGroupAppend, CharacteristicKind::MprGroupOverwrite),
+            pairs_containing(
+                CharacteristicKind::MprGroupAppend,
+                CharacteristicKind::MprGroupOverwrite
+            ),
             "{shared:?}"
         );
         assert_eq!(shared.len(), 4, "{shared:?}");
@@ -879,9 +892,10 @@ mod tests {
     fn mpr_pair_is_shared_but_not_passing_fixture_at_risk() {
         let shared = shared_construct_ids();
         assert!(
-            shared.iter().any(|(_, kinds)| kinds
-                .contains(&CharacteristicKind::MprGroupAppend)
-                && kinds.contains(&CharacteristicKind::MprGroupOverwrite)),
+            shared.iter().any(
+                |(_, kinds)| kinds.contains(&CharacteristicKind::MprGroupAppend)
+                    && kinds.contains(&CharacteristicKind::MprGroupOverwrite)
+            ),
             "{shared:?}"
         );
 
@@ -921,7 +935,10 @@ mod tests {
             .iter()
             .map(|w| w.construct_id)
             .collect();
-        assert!(!registered.is_empty(), "no structural witnesses registered at all");
+        assert!(
+            !registered.is_empty(),
+            "no structural witnesses registered at all"
+        );
 
         let missing: Vec<String> = at_risk
             .iter()

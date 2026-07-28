@@ -1529,7 +1529,10 @@ fn compound_license(g: &Grammar) -> Option<CompoundLicense> {
             {
                 head_eligible.insert(id);
             }
-            if rule.non_head_prod_restrictions_mpr.compound_match(entry.mpr) {
+            if rule
+                .non_head_prod_restrictions_mpr
+                .compound_match(entry.mpr)
+            {
                 non_head_eligible.insert(id);
             }
         }
@@ -1635,8 +1638,20 @@ fn build_compound_chain(
     width: usize,
     pk: &mut PrecisionEmit,
     mode: TextMode<'_>,
-    write_root_entries: &dyn Fn(&mut String, &[&RootRec], &str, &mut EmitCounts, &mut PrecisionEmit),
-    write_stripped_root_entries: &dyn Fn(&mut String, &[&RootRec], &str, &mut EmitCounts, &mut PrecisionEmit),
+    write_root_entries: &dyn Fn(
+        &mut String,
+        &[&RootRec],
+        &str,
+        &mut EmitCounts,
+        &mut PrecisionEmit,
+    ),
+    write_stripped_root_entries: &dyn Fn(
+        &mut String,
+        &[&RootRec],
+        &str,
+        &mut EmitCounts,
+        &mut PrecisionEmit,
+    ),
 ) {
     let levels = levels.max(1);
     for k in 1..=levels {
@@ -1729,9 +1744,13 @@ fn compound_chain_depth_and_budget_check(
         .unwrap_or(2);
     let compound_extra_levels = compound_depth_bound.saturating_sub(1).max(1);
 
-    let chain_budget = ComposeBudget::from_env().with_chain_depth_cap(compound_chain_depth_budget());
+    let chain_budget =
+        ComposeBudget::from_env().with_chain_depth_cap(compound_chain_depth_budget());
     if let Err(ComposeError::ChainDepthExceeded { depth, limit, .. }) = chain_budget
-        .check_chain_depth(compound_extra_levels, "compound loop (extra non-head root levels)")
+        .check_chain_depth(
+            compound_extra_levels,
+            "compound loop (extra non-head root levels)",
+        )
     {
         let reason = format!(
             "compound chain depth ({depth} extra non-head compound-root level(s), from a computed \
@@ -1842,6 +1861,9 @@ fn emit_rule_allomorphs(
                     .map(|shape| alphabet.encode_shape(shape))
                     .collect();
                 write_tag_entry(out, &tag_lexc, &underlying, next, counts, pk, owner);
+                if let Some(marker) = crate::structural_allomorph::structural_marker(g, allo) {
+                    write_tag_entry(out, &tag_lexc, &marker.to_string(), next, counts, pk, owner);
+                }
                 counts.allomorphs_emitted += 1;
             }
             InsertText::Text { texts, .. } => {
@@ -3363,7 +3385,8 @@ pub(crate) fn emit_with_budget_profiled(
         // only forbids it), so this uses `all_roots.len()` (not the smaller, template-less-section-
         // only `head_eligible` count) as the pessimistic head-side operand -- never UNDER-counts the
         // real cost this emit call is about to incur.
-        let non_head_count = filter_roots_by_license(g, &all_roots, &license.non_head_eligible).len();
+        let non_head_count =
+            filter_roots_by_license(g, &all_roots, &license.non_head_eligible).len();
         let cross = all_roots.len().saturating_mul(non_head_count);
         let limit = crate::compose_budget::compound_pair_budget_from_env();
         if cross > limit {
@@ -3394,7 +3417,8 @@ pub(crate) fn emit_with_budget_profiled(
         // `openspec/changes/plan-construct-coverage-completion` task 4.1 piece 2 (design.md row 2),
         // now shared with `emit_underlying_templated` (task #44) via
         // [`compound_chain_depth_and_budget_check`] -- see that function's own doc.
-        compound_extra_levels = match compound_chain_depth_and_budget_check(g, &uncovered, &counts) {
+        compound_extra_levels = match compound_chain_depth_and_budget_check(g, &uncovered, &counts)
+        {
             Ok(levels) => levels,
             Err(early_return) => return early_return,
         };
@@ -4106,7 +4130,10 @@ fn verify_tags_reachable(
     // `sigma`" is sufficient to know the decomposed arcs exist, without needing to name which
     // specific entry/path they came from.
     let is_known_zero_escape_artifact = |tag_text: &str| -> bool {
-        tag_text.contains('0') && tag_text.chars().all(|c| sigma.contains(c.to_string().as_str()))
+        tag_text.contains('0')
+            && tag_text
+                .chars()
+                .all(|c| sigma.contains(c.to_string().as_str()))
     };
 
     let already_reported: HashSet<String> = uncovered.iter().map(|u| u.id.clone()).collect();
@@ -4130,7 +4157,8 @@ fn verify_tags_reachable(
             };
             (tags::morph_tag_text(mid, width), label)
         };
-        let reachable = sigma.contains(tag_text.as_str()) || is_known_zero_escape_artifact(&tag_text);
+        let reachable =
+            sigma.contains(tag_text.as_str()) || is_known_zero_escape_artifact(&tag_text);
         if !reachable && !has_other_reason(&label) {
             uncovered.push(UncoveredItem {
                 kind: "unreachable-after-lexc-compile".to_string(),
@@ -4417,7 +4445,8 @@ pub fn emit_underlying_templated(
         // was a SurfaceProbed-only closure... emit_underlying_templated hardcoded exactly one") --
         // now consumes the SAME precomputed depth bound + budget check
         // `emit_with_budget_profiled` does, via the function both emitters share.
-        compound_extra_levels = match compound_chain_depth_and_budget_check(g, &uncovered, &counts) {
+        compound_extra_levels = match compound_chain_depth_and_budget_check(g, &uncovered, &counts)
+        {
             Ok(levels) => levels,
             Err(early_return) => return early_return,
         };
@@ -4427,16 +4456,17 @@ pub fn emit_underlying_templated(
     // this mode"), so the closure below is provably never invoked (`build_compound_chain` only calls
     // it when `phon.is_some()`) -- it exists only to satisfy that shared function's signature, the
     // same "no real Stripped sibling here" case that function's own doc names.
-    let write_stripped_root_entries_noop = |_out: &mut String,
-                                             _roots: &[&RootRec],
-                                             _continuation: &str,
-                                             _counts: &mut EmitCounts,
-                                             _pk: &mut PrecisionEmit| {
-        unreachable!(
+    let write_stripped_root_entries_noop =
+        |_out: &mut String,
+         _roots: &[&RootRec],
+         _continuation: &str,
+         _counts: &mut EmitCounts,
+         _pk: &mut PrecisionEmit| {
+            unreachable!(
             "write_stripped_root_entries is only ever invoked when phon.is_some(), and phon is \
              always None on the P6 templated path"
         )
-    };
+        };
 
     // ---- LEXICON Root: bare roots, the template-less section, the outer-prefix hop into the
     // per-template dispatch (no `Composites` bare-redirect: no composite pipeline here) ----
@@ -5023,7 +5053,10 @@ mod structural_and_pattern_tests {
     #[test]
     fn compound_head_prefix_confirms() {
         assert_confirms("languages/fusional-realizational-morphology", &["lexbedom"]);
-        assert_confirms("languages/polysynthetic-stratal-derivation-chain", &["silamanuk"]);
+        assert_confirms(
+            "languages/polysynthetic-stratal-derivation-chain",
+            &["silamanuk"],
+        );
     }
 
     /// Gate F3 3b regression: `redupMorphType="prefix"` reduplication — the peel must PREPEND the
@@ -5032,7 +5065,10 @@ mod structural_and_pattern_tests {
     /// append-only peel produced `[root, RED]` which confirm rejected.
     #[test]
     fn prefix_reduplication_confirms() {
-        assert_confirms("languages/metathesis-phase-isolation", &["tutula", "tulatula"]);
+        assert_confirms(
+            "languages/metathesis-phase-isolation",
+            &["tutula", "tulatula"],
+        );
     }
 
     /// Gate F3 3b regression: metathesis that leaves a BoundaryDefinition char inside the surface

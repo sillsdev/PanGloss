@@ -241,8 +241,9 @@ pub mod replace;
 /// task); see that module's own doc for the full filter/rank/tie-break contract and what is parked
 /// to `add-compilation-cost-planner`.
 pub mod selection;
-pub mod tags;
 /// Exact shared P6 templated-morphotactics compile pipeline and its stage profile.
+pub mod structural_allomorph;
+pub mod tags;
 pub mod templated_compile;
 /// P6 feasibility prototype sibling of [`replace`]: the underlying-form lexc emitter.
 pub mod uflexc;

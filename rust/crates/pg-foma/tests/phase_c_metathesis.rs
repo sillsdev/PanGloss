@@ -239,7 +239,9 @@ fn full_containment_check(
     let table = &g.char_tables[0];
     let alphabet = SegAlphabet::new(table);
     let entry = entry_id_of(g, entry_xml_id);
-    let allowed: HashSet<u32> = [g.entries[entry.0 as usize].morpheme.0].into_iter().collect();
+    let allowed: HashSet<u32> = [g.entries[entry.0 as usize].morpheme.0]
+        .into_iter()
+        .collect();
 
     let budget = ComposeBudget::with_caps(
         usize::MAX,
@@ -432,7 +434,9 @@ fn metathesis_multi_member_classes_transpose_precisely_not_naively() {
     let table = &g.char_tables[0];
     let alphabet = SegAlphabet::new(table);
     let entry_qs = entry_id_of(&g, "entryQS");
-    let allowed: HashSet<u32> = [g.entries[entry_qs.0 as usize].morpheme.0].into_iter().collect();
+    let allowed: HashSet<u32> = [g.entries[entry_qs.0 as usize].morpheme.0]
+        .into_iter()
+        .collect();
 
     let budget = ComposeBudget::with_caps(
         usize::MAX,
@@ -454,12 +458,22 @@ fn metathesis_multi_member_classes_transpose_precisely_not_naively() {
     let query_sq = alphabet.encode_query("sq").expect("'sq' must segment");
     let fst_sq = fst_candidate_set(&net, &query_sq);
     let oracle_sq = oracle_candidate_set(&morpher, "sq", &allowed);
-    assert_eq!(oracle_sq.len(), 1, "oracle must recall entryQS for 'sq': {oracle_sq:?}");
-    assert_eq!(fst_sq, oracle_sq, "CONTAINMENT for 'sq' (the one genuine swap)");
+    assert_eq!(
+        oracle_sq.len(),
+        1,
+        "oracle must recall entryQS for 'sq': {oracle_sq:?}"
+    );
+    assert_eq!(
+        fst_sq, oracle_sq,
+        "CONTAINMENT for 'sq' (the one genuine swap)"
+    );
 
     // "qs": the raw, un-swapped spelling must never surface (obligatory metathesis).
     let oracle_raw = oracle_candidate_set(&morpher, "qs", &allowed);
-    assert!(oracle_raw.is_empty(), "'qs' (obligatorily swapped) must have no oracle analysis");
+    assert!(
+        oracle_raw.is_empty(),
+        "'qs' (obligatorily swapped) must have no oracle analysis"
+    );
 
     // THE PRECISION WITNESS: "sr"/"tq"/"tr" are every OTHER combination of ncSwitchA={q,r} x
     // ncSwitchB={s,t} this rule's own pattern could also match against SOME OTHER root -- but
@@ -614,7 +628,10 @@ fn metathesis_grammar_gen_recipe_confirms_the_reversed_tag_round_trip() {
     let PhonRuleDef::Metathesis(rule) = &g.prules[0] else {
         panic!("expected a Metathesis-kind rule");
     };
-    assert!(rule.left_switch < rule.right_switch, "this recipe's own reversed-tag convention");
+    assert!(
+        rule.left_switch < rule.right_switch,
+        "this recipe's own reversed-tag convention"
+    );
 
     let table = &g.char_tables[0];
     let alphabet = SegAlphabet::new(table);
@@ -631,7 +648,10 @@ fn metathesis_grammar_gen_recipe_confirms_the_reversed_tag_round_trip() {
     let synthesized_text: String = synthesized[0]
         .interior()
         .map(|(_, _, cd, _)| {
-            table.get(pg_grammar::chardef::CharDefId(cd)).representations()[0].clone()
+            table
+                .get(pg_grammar::chardef::CharDefId(cd))
+                .representations()[0]
+                .clone()
         })
         .collect();
     assert_eq!(
@@ -773,8 +793,11 @@ fn metathesis_right_to_left_reversal_matches_oracle_exactly() {
     };
     assert_eq!(rule.dir, pg_grammar::model::Dir::RightToLeft);
 
-    let metathesis_rules =
-        g.prules.iter().filter(|p| matches!(p, PhonRuleDef::Metathesis(_))).count();
+    let metathesis_rules = g
+        .prules
+        .iter()
+        .filter(|p| matches!(p, PhonRuleDef::Metathesis(_)))
+        .count();
     assert_eq!(metathesis_rules, 1);
 
     // Same structural shape as `ADJACENT_SINGLETON_XML` above (leftSwitch tags the physically-last
@@ -935,11 +958,24 @@ fn metathesis_right_to_left_switch_index_remap_matches_the_derived_formula() {
     let table = &g.char_tables[0];
     let alphabet = SegAlphabet::new(table);
     let opts = FomaOptions::default();
-    let budget = ComposeBudget::with_caps(usize::MAX, usize::MAX, usize::MAX, usize::MAX, usize::MAX, None);
+    let budget = ComposeBudget::with_caps(
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        None,
+    );
     let mut skipped = Vec::new();
     let mut tuple_reports = Vec::new();
     let net = compile_and_compose_rules_with_budget(
-        &opts, &g, &alphabet, &[&g.prules[0]], &mut skipped, &mut tuple_reports, &budget,
+        &opts,
+        &g,
+        &alphabet,
+        &[&g.prules[0]],
+        &mut skipped,
+        &mut tuple_reports,
+        &budget,
     )
     .unwrap_or_else(|e| panic!("compile must not hit any budget: {e}"))
     .expect("RTL metathesis rule must compile to Some(net)");
@@ -950,10 +986,14 @@ fn metathesis_right_to_left_switch_index_remap_matches_the_derived_formula() {
     // leftmost/rightmost ambiguity for the remap to get wrong in a DIFFERENT way (that concern is
     // `metathesis_right_to_left_differs_from_compiling_as_left_to_right`'s own job); a wrong remap
     // here would swap some OTHER pair of the 5 positions and so produce a value other than "bacde".
-    let query = alphabet.encode_query("abcde").expect("'abcde' must segment");
+    let query = alphabet
+        .encode_query("abcde")
+        .expect("'abcde' must segment");
     let mut h = apply_init(&net);
     let single = apply_down(&mut h, Some(&query));
-    let expected = alphabet.encode_query("bacde").expect("'bacde' must segment");
+    let expected = alphabet
+        .encode_query("bacde")
+        .expect("'bacde' must segment");
     assert_eq!(
         single,
         Some(expected.clone()),
@@ -1070,6 +1110,9 @@ fn metathesis_anchor_pattern_stays_honestly_unsupported() {
         "an Anchor-carrying metathesis pattern must stay honestly unsupported, never a silent \
          wrong compile"
     );
-    assert_eq!(skipped, vec!["mrAnchor (metathesis, unhandled)".to_string()]);
+    assert_eq!(
+        skipped,
+        vec!["mrAnchor (metathesis, unhandled)".to_string()]
+    );
     assert!(tuple_reports.is_empty());
 }

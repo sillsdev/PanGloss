@@ -19,9 +19,7 @@
 use std::path::{Path, PathBuf};
 
 use pg_foma::readiness_policy::policy_v1;
-use pg_foma::readiness_verdict::{
-    certify, CapabilitySummary, CheckOutcome, Tier, TrustStatus,
-};
+use pg_foma::readiness_verdict::{certify, CapabilitySummary, CheckOutcome, Tier, TrustStatus};
 use pg_grammar::model::Grammar;
 
 fn sample_path(name: &str) -> PathBuf {
@@ -71,14 +69,22 @@ fn assert_not_supported_names_overwrite_output(xml_name: &str) {
         "{xml_name}: the not-supported tier must cite at least one real refusal"
     );
     assert!(
-        refusals.iter().any(|r| r.predicate == "mpr-group.overwrite-output"),
+        refusals
+            .iter()
+            .any(|r| r.predicate == "mpr-group.overwrite-output"),
         "{xml_name}: expected mpr-group.overwrite-output among the real refusals, got {refusals:?}"
     );
     // Every cited refusal must actually name both a predicate and a construct -- an empty
     // construct string would be a citation in name only.
     for r in refusals {
-        assert!(!r.predicate.is_empty(), "{xml_name}: refusal must name a predicate: {r:?}");
-        assert!(!r.construct.is_empty(), "{xml_name}: refusal must name a construct: {r:?}");
+        assert!(
+            !r.predicate.is_empty(),
+            "{xml_name}: refusal must name a predicate: {r:?}"
+        );
+        assert!(
+            !r.construct.is_empty(),
+            "{xml_name}: refusal must name a construct: {r:?}"
+        );
     }
 
     // Every check must have been forced to NotAssessed (no compiled artifact exists to measure),
@@ -86,11 +92,17 @@ fn assert_not_supported_names_overwrite_output(xml_name: &str) {
     // all, and the report must say so plainly rather than presenting a stale/guessed threshold
     // result.
     assert!(
-        report.checks.iter().all(|c| matches!(c.outcome, CheckOutcome::NotAssessed { .. })),
+        report
+            .checks
+            .iter()
+            .all(|c| matches!(c.outcome, CheckOutcome::NotAssessed { .. })),
         "{xml_name}: every check must be NotAssessed with no compiled artifact: {:?}",
         report.checks
     );
-    assert!(!report.is_certified(), "{xml_name}: a not-supported grammar must never certify");
+    assert!(
+        !report.is_certified(),
+        "{xml_name}: a not-supported grammar must never certify"
+    );
 
     // The report's own notes must explain the not-supported tier in terms of the real capability
     // evaluation -- not merely say "not passing" (design.md: "a bare 'not passing' is useless").

@@ -79,7 +79,8 @@ fn compound_pair_budget_trips_before_any_lexc_emitted() {
     assert_eq!(exceeded.limit, 20);
     assert!(
         exceeded.value > 20,
-        "reported value {} must exceed the limit it tripped", exceeded.value
+        "reported value {} must exceed the limit it tripped",
+        exceeded.value
     );
     assert_eq!(
         exceeded.value, 36,

@@ -603,11 +603,15 @@ mod tests {
         let real_should_run = preexpand::should_run(&g, phon.as_ref());
         assert!(real_should_run, "fixture must exercise should_run");
         let real_refuses = emit::probe_would_refuse(&g);
-        assert!(!real_refuses, "fixture's rule has a real LHS, not epenthesis/metathesis");
+        assert!(
+            !real_refuses,
+            "fixture's rule has a real LHS, not epenthesis/metathesis"
+        );
 
         let plan = enumerate_default(&g, &alphabet, &ro, phon.as_ref());
-        let composite_leaves =
-            leaves_matching(&plan, |f| matches!(f, FragmentSpec::CompositeEmissionMarker));
+        let composite_leaves = leaves_matching(&plan, |f| {
+            matches!(f, FragmentSpec::CompositeEmissionMarker)
+        });
         assert_eq!(
             !composite_leaves.is_empty(),
             real_should_run,
@@ -616,8 +620,9 @@ mod tests {
 
         // D2 row 2: the structural route must be ABSENT here (probe_would_refuse is false and this
         // fixture declares no circumfix/dropped-material rule).
-        let structural_leaves =
-            leaves_matching(&plan, |f| matches!(f, FragmentSpec::StructuralCompositeMarker));
+        let structural_leaves = leaves_matching(&plan, |f| {
+            matches!(f, FragmentSpec::StructuralCompositeMarker)
+        });
         assert_eq!(
             !structural_leaves.is_empty(),
             real_refuses,
@@ -646,7 +651,11 @@ mod tests {
         let gated = find_gated_subrules(&g, &ro);
         assert_eq!(gated.len(), 1, "fixture declares exactly 1 gated subrule");
         let real_groups = partition_entries(&g, &gated, &ro);
-        assert_eq!(real_groups.len(), 2, "fixture's 2 entries realize both gate-key values");
+        assert_eq!(
+            real_groups.len(),
+            2,
+            "fixture's 2 entries realize both gate-key values"
+        );
 
         let plan = enumerate_default(&g, &alphabet, &ro, phon.as_ref());
         let (gate_id, partition) = gate_of(&plan);
@@ -703,7 +712,8 @@ mod tests {
 
         // The two groups' own LexiconFragment leaves, by contrast, must differ (different entries
         // subsets) -- the real per-group filtering `compile_gated_grammar_with_budget` performs.
-        let lexicon_leaves = leaves_matching(&plan, |f| matches!(f, FragmentSpec::LexiconFragment { .. }));
+        let lexicon_leaves =
+            leaves_matching(&plan, |f| matches!(f, FragmentSpec::LexiconFragment { .. }));
         assert_eq!(
             lexicon_leaves.len(),
             2,
@@ -791,7 +801,11 @@ mod tests {
         let plan = enumerate_default(&g, &alphabet, &ro, phon.as_ref());
         let rule_leaves = leaves_matching(&plan, |f| matches!(f, FragmentSpec::RewriteRule { .. }));
         assert_eq!(rule_leaves.len(), 1);
-        let PlanNodeKind::Leaf { fragment, provenance } = plan.get(rule_leaves[0]).unwrap() else {
+        let PlanNodeKind::Leaf {
+            fragment,
+            provenance,
+        } = plan.get(rule_leaves[0]).unwrap()
+        else {
             unreachable!()
         };
         assert_eq!(*fragment, FragmentSpec::RewriteRule { rule: expected_id });
@@ -915,8 +929,14 @@ mod tests {
         let candidates_a = enumerate_candidates(&g, &alphabet, &ro, phon.as_ref());
         let candidates_b = enumerate_candidates(&g, &alphabet, &ro, phon.as_ref());
 
-        let roots_a: Vec<_> = candidates_a.iter().map(|c| (c.label, c.plan.root())).collect();
-        let roots_b: Vec<_> = candidates_b.iter().map(|c| (c.label, c.plan.root())).collect();
+        let roots_a: Vec<_> = candidates_a
+            .iter()
+            .map(|c| (c.label, c.plan.root()))
+            .collect();
+        let roots_b: Vec<_> = candidates_b
+            .iter()
+            .map(|c| (c.label, c.plan.root()))
+            .collect();
         assert_eq!(roots_a, roots_b);
     }
 }

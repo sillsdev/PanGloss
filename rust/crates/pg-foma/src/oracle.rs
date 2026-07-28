@@ -923,7 +923,9 @@ pub fn minimize_disagreement(
             ..
         } => (word, only_in_a, only_in_b),
         OracleResult::Agree => {
-            unreachable!("the shrink loop only ever keeps a `current` sequence proven to still disagree")
+            unreachable!(
+                "the shrink loop only ever keeps a `current` sequence proven to still disagree"
+            )
         }
     };
 
@@ -1063,7 +1065,8 @@ mod tests {
     /// real bug and be proven to find exactly the bug, discarding everything harmless around it.
     fn breakage_step() -> MutationStep {
         MutationStep {
-            description: "BREAKAGE(test-only, deliberately unsound): drop_last_gate_group".to_string(),
+            description: "BREAKAGE(test-only, deliberately unsound): drop_last_gate_group"
+                .to_string(),
             transform: Rc::new(drop_last_gate_group),
         }
     }
@@ -1207,24 +1210,30 @@ mod tests {
                     );
                     let mut swapped = children.clone();
                     swapped.swap(0, 1);
-                    let new_children: Vec<NodeId> =
-                        swapped.iter().map(|&c| copy(old_plan, c, new_plan)).collect();
+                    let new_children: Vec<NodeId> = swapped
+                        .iter()
+                        .map(|&c| copy(old_plan, c, new_plan))
+                        .collect();
                     new_plan.add_node(PlanNodeKind::Compose {
                         children: new_children,
                         strategy,
                     })
                 }
                 PlanNodeKind::Union { children } => {
-                    let new_children: Vec<NodeId> =
-                        children.iter().map(|&c| copy(old_plan, c, new_plan)).collect();
+                    let new_children: Vec<NodeId> = children
+                        .iter()
+                        .map(|&c| copy(old_plan, c, new_plan))
+                        .collect();
                     new_plan.add_node(PlanNodeKind::Union {
                         children: new_children,
                     })
                 }
                 PlanNodeKind::Replace { cascade, children } => {
                     let cascade = cascade.clone();
-                    let new_children: Vec<NodeId> =
-                        children.iter().map(|&c| copy(old_plan, c, new_plan)).collect();
+                    let new_children: Vec<NodeId> = children
+                        .iter()
+                        .map(|&c| copy(old_plan, c, new_plan))
+                        .collect();
                     new_plan.add_node(PlanNodeKind::Replace {
                         cascade,
                         children: new_children,
@@ -1235,8 +1244,10 @@ mod tests {
                     children,
                 } => {
                     let partition = partition.clone();
-                    let new_children: Vec<NodeId> =
-                        children.iter().map(|&c| copy(old_plan, c, new_plan)).collect();
+                    let new_children: Vec<NodeId> = children
+                        .iter()
+                        .map(|&c| copy(old_plan, c, new_plan))
+                        .collect();
                     new_plan.add_node(PlanNodeKind::Gate {
                         partition,
                         children: new_children,
@@ -1273,16 +1284,20 @@ mod tests {
                 }),
                 PlanNodeKind::Compose { children, strategy } => {
                     let strategy = *strategy;
-                    let new_children: Vec<NodeId> =
-                        children.iter().map(|&c| copy(old_plan, c, new_plan)).collect();
+                    let new_children: Vec<NodeId> = children
+                        .iter()
+                        .map(|&c| copy(old_plan, c, new_plan))
+                        .collect();
                     new_plan.add_node(PlanNodeKind::Compose {
                         children: new_children,
                         strategy,
                     })
                 }
                 PlanNodeKind::Union { children } => {
-                    let new_children: Vec<NodeId> =
-                        children.iter().map(|&c| copy(old_plan, c, new_plan)).collect();
+                    let new_children: Vec<NodeId> = children
+                        .iter()
+                        .map(|&c| copy(old_plan, c, new_plan))
+                        .collect();
                     new_plan.add_node(PlanNodeKind::Union {
                         children: new_children,
                     })
@@ -1321,8 +1336,10 @@ mod tests {
                     children,
                 } => {
                     let partition = partition.clone();
-                    let new_children: Vec<NodeId> =
-                        children.iter().map(|&c| copy(old_plan, c, new_plan)).collect();
+                    let new_children: Vec<NodeId> = children
+                        .iter()
+                        .map(|&c| copy(old_plan, c, new_plan))
+                        .collect();
                     new_plan.add_node(PlanNodeKind::Gate {
                         partition,
                         children: new_children,
@@ -1429,7 +1446,10 @@ mod tests {
         let result = differential_oracle(
             &plan_correct,
             &plan_wrong,
-            ("enumerate_default", "drop_last_gate_group (deliberately wrong)"),
+            (
+                "enumerate_default",
+                "drop_last_gate_group (deliberately wrong)",
+            ),
             &opts,
             &g,
             &alphabet,
@@ -1437,8 +1457,10 @@ mod tests {
             &budget,
             &["p", "q"],
         )
-        .expect("both plans must build successfully on this fixture (the truncated plan still has \
-                  1 non-empty group left)");
+        .expect(
+            "both plans must build successfully on this fixture (the truncated plan still has \
+                  1 non-empty group left)",
+        );
 
         match result {
             OracleResult::Agree => panic!(
@@ -1539,9 +1561,16 @@ mod tests {
         let root = plan.root().expect("root must be set");
         match plan.get(root).unwrap() {
             PlanNodeKind::Union { children } => {
-                assert_eq!(children.len(), 2, "fixture sanity: Gate + composite-emission marker")
+                assert_eq!(
+                    children.len(),
+                    2,
+                    "fixture sanity: Gate + composite-emission marker"
+                )
             }
-            other => panic!("fixture sanity: expected a Union root, got {}", other.kind_name()),
+            other => panic!(
+                "fixture sanity: expected a Union root, got {}",
+                other.kind_name()
+            ),
         }
     }
 
@@ -1713,7 +1742,10 @@ mod tests {
         let mut exercised = false;
         for seed in 0u64..20 {
             let outcome = mutate_plan_seeded(&plan, seed);
-            let recipe = outcome.recipe.clone().expect("this fixture has eligible targets");
+            let recipe = outcome
+                .recipe
+                .clone()
+                .expect("this fixture has eligible targets");
             if recipe.target_kind == "Gate" {
                 exercised = true;
                 let result = differential_oracle(
@@ -1762,7 +1794,10 @@ mod tests {
         let mut exercised = false;
         for seed in 0u64..20 {
             let outcome = mutate_plan_seeded(&plan, seed);
-            let recipe = outcome.recipe.clone().expect("this fixture has one eligible Union target");
+            let recipe = outcome
+                .recipe
+                .clone()
+                .expect("this fixture has one eligible Union target");
             assert_eq!(recipe.target_kind, "Union");
             if outcome.plan.root() != plan.root() {
                 exercised = true;

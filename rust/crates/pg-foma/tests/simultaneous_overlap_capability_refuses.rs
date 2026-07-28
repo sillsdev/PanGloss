@@ -26,7 +26,11 @@ fn fixture_grammar_subrules_genuinely_overlap_and_are_refused() {
     let xml = fixture_xml();
     let g = pg_grammar::load(&xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"));
 
-    assert_eq!(g.prules.len(), 1, "fixture must declare exactly one PhonologicalRule");
+    assert_eq!(
+        g.prules.len(),
+        1,
+        "fixture must declare exactly one PhonologicalRule"
+    );
     let PhonRuleDef::Rewrite(rule) = &g.prules[0] else {
         panic!("expected a Rewrite-kind rule");
     };
@@ -35,7 +39,11 @@ fn fixture_grammar_subrules_genuinely_overlap_and_are_refused() {
         pg_grammar::model::RewriteMode::Simultaneous,
         "fixture's rule must carry multipleApplicationOrder=\"simultaneous\""
     );
-    assert_eq!(rule.subrules.len(), 2, "fixture must declare exactly two subrules");
+    assert_eq!(
+        rule.subrules.len(),
+        2,
+        "fixture must declare exactly two subrules"
+    );
     assert!(
         !rule.subrules[0].self_opaquing && !rule.subrules[1].self_opaquing,
         "neither subrule's RHS pin (featVoice only) constrains featPlace, so both must be \

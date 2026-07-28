@@ -310,13 +310,17 @@ impl ReduplicationPeeler {
             // grammars' only redup was Indonesian's TAIL copy).
             if chars[0..l] == chars[l..2 * l] {
                 let residual: String = chars[l..len].iter().collect();
-                self.propose_for_residual(g, &residual, None, true, depth, budget, propose, &mut out)?;
+                self.propose_for_residual(
+                    g, &residual, None, true, depth, budget, propose, &mut out,
+                )?;
             }
             // Suffix copy: the last l chars repeat the l chars before them -- strip the trailing copy.
             // The reduplicant sits at the END, so its morpheme FOLLOWS the base's — `prepend = false`.
             if chars[len - l..len] == chars[len - 2 * l..len - l] {
                 let residual: String = chars[0..len - l].iter().collect();
-                self.propose_for_residual(g, &residual, None, false, depth, budget, propose, &mut out)?;
+                self.propose_for_residual(
+                    g, &residual, None, false, depth, budget, propose, &mut out,
+                )?;
             }
         }
 
@@ -330,7 +334,9 @@ impl ReduplicationPeeler {
             if before.len() >= copy.len() && before[before.len() - copy.len()..] == *copy {
                 let residual: String = before.iter().collect();
                 // separator + tail copy: the reduplicant (the tail copy) is at the END -> append.
-                self.propose_for_residual(g, &residual, None, false, depth, budget, propose, &mut out)?;
+                self.propose_for_residual(
+                    g, &residual, None, false, depth, budget, propose, &mut out,
+                )?;
                 continue; // plain tail matched -- do not also try the suffix-peel fallback.
             }
             for (suffix_text, suffix_rule) in &self.suffix_surfaces {
@@ -565,7 +571,7 @@ mod tests {
     fn minimal_redup_grammar() -> Grammar {
         use pg_grammar::model::{
             AffixAllomorphDef, AffixProcessRuleDef, AllomorphId, MRuleId as ModelMRuleId,
-            MorphemeId, MorphRuleDef, MorphRuleOrder, PartRef, StratumDef, TableId, VarTable,
+            MorphRuleDef, MorphRuleOrder, MorphemeId, PartRef, StratumDef, TableId, VarTable,
         };
         const MINIMAL_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
@@ -581,39 +587,40 @@ mod tests {
 </HermitCrabInput>"#;
         let mut g = pg_grammar::load(MINIMAL_XML).expect("minimal fixture loads");
         let redup_mrule = ModelMRuleId(g.mrules.len() as u32);
-        g.mrules.push(MorphRuleDef::AffixProcess(AffixProcessRuleDef {
-            morpheme: MorphemeId(0),
-            name: Some("redupChainDepthFixture".to_string()),
-            blockable: false,
-            partial: false,
-            max_apps: 1,
-            required_syn_fs: pg_featstruct::FsId(0),
-            out_syn_fs: pg_featstruct::FsId(0),
-            obligatory_features: vec![],
-            required_stem_name: None,
-            is_template_rule: false,
-            allomorphs: vec![AffixAllomorphDef {
-                id: AllomorphId(0),
-                environments: vec![],
-                co_occurrence: vec![],
+        g.mrules
+            .push(MorphRuleDef::AffixProcess(AffixProcessRuleDef {
+                morpheme: MorphemeId(0),
+                name: Some("redupChainDepthFixture".to_string()),
+                blockable: false,
+                partial: false,
+                max_apps: 1,
                 required_syn_fs: pg_featstruct::FsId(0),
-                vars: VarTable::default(),
-                required_mpr: pg_grammar::model::MprSet::EMPTY,
-                excluded_mpr: pg_grammar::model::MprSet::EMPTY,
-                out_mpr: pg_grammar::model::MprSet::EMPTY,
-                redup_hint: pg_grammar::model::ReduplicationHint::Suffix,
-                lhs: vec![],
-                // Copy(Input(0)) twice, no other actions -- `classify_affix`'s exact
-                // `Role::Reduplication` trigger (a `PartRef` echoed >= 2 times via `Copy`),
-                // independent of whether part 0 exists on this rule's own (empty, unused) LHS --
-                // `is_reduplication_rule` only inspects the RHS shape.
-                rhs: vec![
-                    OutputAction::Copy(PartRef::Input(0)),
-                    OutputAction::Copy(PartRef::Input(0)),
-                ],
-                properties: vec![],
-            }],
-        }));
+                out_syn_fs: pg_featstruct::FsId(0),
+                obligatory_features: vec![],
+                required_stem_name: None,
+                is_template_rule: false,
+                allomorphs: vec![AffixAllomorphDef {
+                    id: AllomorphId(0),
+                    environments: vec![],
+                    co_occurrence: vec![],
+                    required_syn_fs: pg_featstruct::FsId(0),
+                    vars: VarTable::default(),
+                    required_mpr: pg_grammar::model::MprSet::EMPTY,
+                    excluded_mpr: pg_grammar::model::MprSet::EMPTY,
+                    out_mpr: pg_grammar::model::MprSet::EMPTY,
+                    redup_hint: pg_grammar::model::ReduplicationHint::Suffix,
+                    lhs: vec![],
+                    // Copy(Input(0)) twice, no other actions -- `classify_affix`'s exact
+                    // `Role::Reduplication` trigger (a `PartRef` echoed >= 2 times via `Copy`),
+                    // independent of whether part 0 exists on this rule's own (empty, unused) LHS --
+                    // `is_reduplication_rule` only inspects the RHS shape.
+                    rhs: vec![
+                        OutputAction::Copy(PartRef::Input(0)),
+                        OutputAction::Copy(PartRef::Input(0)),
+                    ],
+                    properties: vec![],
+                }],
+            }));
         g.strata.push(StratumDef {
             name: Some("chainDepthStratum".to_string()),
             table: TableId(0),
@@ -726,7 +733,10 @@ mod tests {
                  of its own) must never trip even the smallest cap -- the nested-peel ATTEMPT on \
                  \"kab\" finds nothing and so never consults the budget a second time",
             );
-        assert!(!out.is_empty(), "the ordinary redup candidate must still be produced");
+        assert!(
+            !out.is_empty(),
+            "the ordinary redup candidate must still be produced"
+        );
         assert!(seen_residuals.iter().any(|r| r == "kab"));
     }
 }

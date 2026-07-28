@@ -280,7 +280,10 @@ fn rewrite_rule_label(g: &Grammar, rule: PRuleId) -> String {
             def.mode, def.dir
         ),
         Some(PhonRuleDef::Metathesis(def)) => {
-            format!("Metathesis rule '{name}' -- stratum {stratum} ({:?})", def.dir)
+            format!(
+                "Metathesis rule '{name}' -- stratum {stratum} ({:?})",
+                def.dir
+            )
         }
         None => format!("Rewrite rule '{name}' -- stratum {stratum} (unresolved)"),
     }
@@ -376,7 +379,11 @@ fn replace_label(
     group_key: &[bool],
 ) -> String {
     let names: Vec<String> = rules.iter().map(|r| rule_name(g, *r)).collect();
-    let base = format!("Rewrite cascade: {} rule(s) [{}]", rules.len(), names.join(", "));
+    let base = format!(
+        "Rewrite cascade: {} rule(s) [{}]",
+        rules.len(),
+        names.join(", ")
+    );
     if gated_subrules.is_empty() {
         base
     } else {
@@ -490,11 +497,19 @@ impl PlanDocument {
     }
 }
 
-fn build_node(g: &Grammar, id: NodeId, kind: &PlanNodeKind, verdict: &CompileDecision) -> PlanDocumentNode {
+fn build_node(
+    g: &Grammar,
+    id: NodeId,
+    kind: &PlanNodeKind,
+    verdict: &CompileDecision,
+) -> PlanDocumentNode {
     let children: Vec<String> = kind.children().iter().map(NodeId::to_string).collect();
 
     let (label, payload) = match kind {
-        PlanNodeKind::Leaf { fragment, provenance } => {
+        PlanNodeKind::Leaf {
+            fragment,
+            provenance,
+        } => {
             let label = leaf_label(g, fragment);
             let (rule_id, entry_count, group_key) = match fragment {
                 FragmentSpec::RewriteRule { rule } => (Some(rule.0), None, None),
@@ -523,7 +538,9 @@ fn build_node(g: &Grammar, id: NodeId, kind: &PlanNodeKind, verdict: &CompileDec
             let s = compose_strategy_name(*strategy);
             (
                 format!("Composition ({s})"),
-                NodePayload::Compose { strategy: s.to_string() },
+                NodePayload::Compose {
+                    strategy: s.to_string(),
+                },
             )
         }
         PlanNodeKind::Union { children } => (
@@ -545,7 +562,12 @@ fn build_node(g: &Grammar, id: NodeId, kind: &PlanNodeKind, verdict: &CompileDec
             )
         }
         PlanNodeKind::Replace { cascade, .. } => {
-            let label = replace_label(g, &cascade.rules, &cascade.gated_subrules, &cascade.group_key);
+            let label = replace_label(
+                g,
+                &cascade.rules,
+                &cascade.gated_subrules,
+                &cascade.group_key,
+            );
             (
                 label,
                 NodePayload::Replace {
@@ -665,7 +687,10 @@ fn verdict_suffix(v: &NodeVerdict) -> String {
         NodeVerdict::Admit => "Admit".to_string(),
         NodeVerdict::ConfirmOnly => "ConfirmOnly".to_string(),
         NodeVerdict::Refuse { diagnostics } => {
-            let first = diagnostics.first().map(|d| d.predicate.as_str()).unwrap_or("?");
+            let first = diagnostics
+                .first()
+                .map(|d| d.predicate.as_str())
+                .unwrap_or("?");
             format!("REFUSED ({first})")
         }
     }
@@ -798,7 +823,11 @@ pub fn render_mermaid(doc: &PlanDocument, mode: RenderMode) -> MermaidRender {
         "%% pg-foma compilation-plan diagram".to_string(),
         format!(
             "%% summarization: {} (threshold={threshold_desc})",
-            if summarized_any { "applied" } else { "not applied" }
+            if summarized_any {
+                "applied"
+            } else {
+                "not applied"
+            }
         ),
         format!("%% nodes emitted: {emitted_node_count} of {total_node_count} reachable"),
         "flowchart TD".to_string(),
@@ -884,7 +913,11 @@ mod tests {
     /// leaf (addressed purely by its own `PRuleId`, per `FragmentSpec::RewriteRule`'s own doc: "no
     /// grammar data embedded beyond stable ids") must stay byte-identical either way.
     fn gated_plus_independent_stratum_fixture(e0_has_mpr1: bool) -> String {
-        let e0_attr = if e0_has_mpr1 { r#" ruleFeatures="mpr1""# } else { "" };
+        let e0_attr = if e0_has_mpr1 {
+            r#" ruleFeatures="mpr1""#
+        } else {
+            ""
+        };
         format!(
             r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
@@ -1174,7 +1207,10 @@ mod tests {
         let doc = build_plan_document(&g);
         let json = doc.to_json().expect("serialize");
         let parsed = PlanDocument::from_json(&json).expect("deserialize");
-        assert_eq!(parsed, doc, "round trip through canonical JSON must be lossless");
+        assert_eq!(
+            parsed, doc,
+            "round trip through canonical JSON must be lossless"
+        );
     }
 
     #[test]
@@ -1195,7 +1231,10 @@ mod tests {
         let doc_b = build_plan_document(&g);
         let json_a = doc_a.to_json().expect("serialize a");
         let json_b = doc_b.to_json().expect("serialize b");
-        assert_eq!(json_a, json_b, "byte-identical JSON for two builds of the SAME grammar");
+        assert_eq!(
+            json_a, json_b,
+            "byte-identical JSON for two builds of the SAME grammar"
+        );
     }
 
     // ---------------------------------------------------------------------------------------
@@ -1221,8 +1260,16 @@ mod tests {
                 })
                 .expect("plan must contain exactly one Gate node")
         };
-        assert_eq!(gate_group_count(&doc_baseline), 2, "baseline must realize 2 gate groups");
-        assert_eq!(gate_group_count(&doc_changed), 1, "changed fixture must collapse to 1 group");
+        assert_eq!(
+            gate_group_count(&doc_baseline),
+            2,
+            "baseline must realize 2 gate groups"
+        );
+        assert_eq!(
+            gate_group_count(&doc_changed),
+            1,
+            "changed fixture must collapse to 1 group"
+        );
 
         // The affected node (root) and its ancestors move.
         assert_ne!(
@@ -1259,7 +1306,11 @@ mod tests {
         let doc = build_plan_document(&g);
         assert_eq!(doc.overall_verdict, NodeVerdict::Admit);
         for node in &doc.nodes {
-            assert_eq!(node.verdict, NodeVerdict::Admit, "node {node:?} must read Admit");
+            assert_eq!(
+                node.verdict,
+                NodeVerdict::Admit,
+                "node {node:?} must read Admit"
+            );
         }
     }
 
@@ -1313,7 +1364,10 @@ mod tests {
     fn plan_diagram_node_local_refusal_leaves_unrelated_sibling_rule_admitted() {
         let g = load(&mixed_node_local_refusal_fixture());
         let doc = build_plan_document(&g);
-        assert!(doc.overall_verdict.is_refused(), "the overlapping rule must refuse the whole plan");
+        assert!(
+            doc.overall_verdict.is_refused(),
+            "the overlapping rule must refuse the whole plan"
+        );
 
         let overlap_leaf = doc
             .nodes
@@ -1326,7 +1380,10 @@ mod tests {
             .find(|n| n.label.contains("'ordinaryRule'"))
             .expect("must find the ordinary rule's own leaf");
 
-        assert!(overlap_leaf.verdict.is_refused(), "the overlapping rule's own leaf must refuse");
+        assert!(
+            overlap_leaf.verdict.is_refused(),
+            "the overlapping rule's own leaf must refuse"
+        );
         assert_eq!(
             ordinary_leaf.verdict,
             NodeVerdict::Admit,
@@ -1348,9 +1405,15 @@ mod tests {
             .iter()
             .find(|n| matches!(&n.payload, NodePayload::Leaf { fragment, .. } if fragment == "rewrite_rule"))
             .expect("must find the rewrite-rule leaf");
-        assert!(rule_leaf.label.contains("OnlyStratum"), "label must name the owning stratum");
+        assert!(
+            rule_leaf.label.contains("OnlyStratum"),
+            "label must name the owning stratum"
+        );
         assert!(rule_leaf.label.contains("'PR'"), "label must name the rule");
-        assert_eq!(rule_leaf.kind, "Leaf", "node kind is carried, but as secondary detail");
+        assert_eq!(
+            rule_leaf.kind, "Leaf",
+            "node kind is carried, but as secondary detail"
+        );
     }
 
     // ---------------------------------------------------------------------------------------
@@ -1365,13 +1428,22 @@ mod tests {
         let doc = build_plan_document(&g);
         let render = render_mermaid(&doc, RenderMode::default());
 
-        assert!(render.mermaid.contains("StratumAlpha"), "must distinguish the first stratum");
-        assert!(render.mermaid.contains("StratumBeta"), "must distinguish the second stratum");
+        assert!(
+            render.mermaid.contains("StratumAlpha"),
+            "must distinguish the first stratum"
+        );
+        assert!(
+            render.mermaid.contains("StratumBeta"),
+            "must distinguish the second stratum"
+        );
         assert!(
             render.mermaid.contains("REFUSED"),
             "a refused construct must be visibly marked refused, not silently drawn as handled"
         );
-        assert!(!render.summarized, "this small fixture must not need any collapsing");
+        assert!(
+            !render.summarized,
+            "this small fixture must not need any collapsing"
+        );
         assert_eq!(render.emitted_node_count, render.total_node_count);
     }
 
@@ -1382,7 +1454,10 @@ mod tests {
 
         // The single Replace node's 3 sibling rewrite-rule leaves exceed a threshold of 2.
         let render = render_mermaid(&doc, RenderMode::Summarized { threshold: 2 });
-        assert!(render.summarized, "3 sibling leaves must exceed a threshold of 2");
+        assert!(
+            render.summarized,
+            "3 sibling leaves must exceed a threshold of 2"
+        );
         assert_eq!(render.threshold, Some(2));
         assert!(render.mermaid.contains("summarization: applied"));
         assert!(render.mermaid.contains("3 x rewrite_rule leaves collapsed"));
@@ -1419,8 +1494,14 @@ mod tests {
         let render = render_mermaid(&doc, RenderMode::Summarized { threshold: 2 });
         assert!(render.summarized);
         assert!(render.emitted_node_count < render.total_node_count);
-        assert!(render.mermaid.contains("Gate:"), "non-leaf nodes must still render individually");
-        assert!(render.mermaid.contains("Rewrite cascade:"), "the Replace node itself still renders");
+        assert!(
+            render.mermaid.contains("Gate:"),
+            "non-leaf nodes must still render individually"
+        );
+        assert!(
+            render.mermaid.contains("Rewrite cascade:"),
+            "the Replace node itself still renders"
+        );
         assert!(
             render.mermaid.contains("Lexicon fragment:"),
             "the lexicon leaf (a different fragment kind, group size 1) is not swept into the \

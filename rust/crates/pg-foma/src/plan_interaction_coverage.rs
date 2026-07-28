@@ -332,7 +332,9 @@ fn representative_kinds(profile: &CharacteristicsProfile) -> HashSet<Characteris
     profile
         .observations()
         .iter()
-        .filter(|o| o.disposition != Disposition::Proven && rule_keyed_location(&o.location).is_none())
+        .filter(|o| {
+            o.disposition != Disposition::Proven && rule_keyed_location(&o.location).is_none()
+        })
         .map(|o| o.kind)
         .collect()
 }
@@ -673,7 +675,14 @@ pub fn fuzz_gate_group_reordering_for_grammar(
     // `ComposeBudget::unbounded()` is `#[cfg(test)]`-only (compose_budget.rs's own doc), so this
     // non-test, production-shaped entry point builds the equivalent "never trips" budget directly
     // via the public `with_caps` constructor instead (same all-`usize::MAX`/no-deadline shape).
-    let budget = ComposeBudget::with_caps(usize::MAX, usize::MAX, usize::MAX, usize::MAX, usize::MAX, None);
+    let budget = ComposeBudget::with_caps(
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        None,
+    );
     let result = differential_oracle(
         &plan,
         &permuted,
@@ -910,7 +919,10 @@ mod tests {
             .find(|r| r.tuple.parent_kind == "Gate" && r.tuple.child_kind == "Compose")
             .expect("Gate -> Compose must be in the required set");
         assert_eq!(gate_compose_row.status, TupleStatus::Covered);
-        assert_eq!(gate_compose_row.covering_fixtures, vec!["only-fixture".to_string()]);
+        assert_eq!(
+            gate_compose_row.covering_fixtures,
+            vec!["only-fixture".to_string()]
+        );
     }
 
     #[test]
@@ -977,8 +989,14 @@ mod tests {
             TupleStatus::Covered,
             "the ordinary fixture's clean Gate -> Compose occurrence must win: {gate_compose_row:?}"
         );
-        assert_eq!(gate_compose_row.covering_fixtures, vec!["ordinary".to_string()]);
-        assert_eq!(gate_compose_row.unsupported_fixtures, vec!["overwrite".to_string()]);
+        assert_eq!(
+            gate_compose_row.covering_fixtures,
+            vec!["ordinary".to_string()]
+        );
+        assert_eq!(
+            gate_compose_row.unsupported_fixtures,
+            vec!["overwrite".to_string()]
+        );
         assert!(gate_compose_row
             .tags
             .contains(&CharacteristicKind::MprGroupOverwrite));
@@ -1002,8 +1020,12 @@ mod tests {
     fn retired_interactions_names_the_two_cited_proofs() {
         let retired = retired_interactions();
         assert_eq!(retired.len(), 2);
-        assert!(retired.iter().any(|r| r.label.contains("unordered-application")));
-        assert!(retired.iter().any(|r| r.label.contains("sibling reordering")));
+        assert!(retired
+            .iter()
+            .any(|r| r.label.contains("unordered-application")));
+        assert!(retired
+            .iter()
+            .any(|r| r.label.contains("sibling reordering")));
         for r in &retired {
             assert!(!r.evidence.is_empty());
         }

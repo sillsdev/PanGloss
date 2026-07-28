@@ -138,7 +138,12 @@ fn semantic_uncertainty_finding(decision: &CompileDecision) -> Option<HealthFind
     let affected: Vec<String> = diags.iter().map(|d| d.construct.clone()).collect();
     let witnesses: Vec<String> = diags
         .iter()
-        .map(|d| format!("predicate={} construct={} witness={}", d.predicate, d.construct, d.witness))
+        .map(|d| {
+            format!(
+                "predicate={} construct={} witness={}",
+                d.predicate, d.construct, d.witness
+            )
+        })
         .collect();
     Some(HealthFinding {
         code: FindingCode::UnknownUnboundedConstruct,
@@ -369,7 +374,9 @@ mod tests {
         assert_eq!(finding.value, MetricValue::Count(rule_count as u64));
         assert_eq!(
             finding.threshold,
-            Some(MetricValue::Count(DEFAULT_ORDERING_MULTIPLICITY_BUDGET as u64))
+            Some(MetricValue::Count(
+                DEFAULT_ORDERING_MULTIPLICITY_BUDGET as u64
+            ))
         );
 
         // This same grammar's ADR 0001 capability gate also resolves to Refuse (an unbounded

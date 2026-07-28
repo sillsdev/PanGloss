@@ -217,7 +217,11 @@ fn load(xml: &str) -> pg_grammar::model::Grammar {
 /// grammar (mirrors `circumfix_recall_parity_via_generator_and_oracle`'s own `tag_sequences_for`
 /// closure above -- the oracle's own analysis of its own output, never a hand-derived guess at tag
 /// order).
-fn tag_sequences_for(g: &pg_grammar::model::Grammar, morpher: &Morpher, surface: &str) -> Vec<Vec<String>> {
+fn tag_sequences_for(
+    g: &pg_grammar::model::Grammar,
+    morpher: &Morpher,
+    surface: &str,
+) -> Vec<Vec<String>> {
     let popts = ParseOptions::default();
     let outcome = morpher.parse_word_opts(surface, &popts);
     let width = tags::tag_width(g.morphemes.len());

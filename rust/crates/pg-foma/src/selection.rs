@@ -147,10 +147,12 @@ pub fn select_plan(
     let considered: Vec<CandidateReport> = candidates
         .iter()
         .map(|candidate| {
-            let root = candidate
-                .plan
-                .root()
-                .unwrap_or_else(|| panic!("select_plan: candidate {:?} has no root set", candidate.label));
+            let root = candidate.plan.root().unwrap_or_else(|| {
+                panic!(
+                    "select_plan: candidate {:?} has no root set",
+                    candidate.label
+                )
+            });
 
             let decision = compose_envelope(g, &candidate.plan, registry);
 
@@ -421,7 +423,12 @@ mod tests {
         </Language></HermitCrabInput>"#
     }
 
-    fn report(label: &'static str, root: u64, decision: CompileDecision, measure: Option<(i64, i64)>) -> CandidateReport {
+    fn report(
+        label: &'static str,
+        root: u64,
+        decision: CompileDecision,
+        measure: Option<(i64, i64)>,
+    ) -> CandidateReport {
         CandidateReport {
             label,
             root: node_id_from_raw(root),
@@ -498,19 +505,28 @@ mod tests {
     fn choose_breaks_equal_objective_ties_by_smallest_root_node_id() {
         let root_a = node_id_from_raw(5);
         let root_b = node_id_from_raw(3);
-        assert_ne!(root_a, root_b, "test fixture must pick two distinct NodeIds");
+        assert_ne!(
+            root_a, root_b,
+            "test fixture must pick two distinct NodeIds"
+        );
 
         let a = CandidateReport {
             label: "a",
             root: root_a,
             decision: CompileDecision::Admit,
-            measure: Some(PlanMeasure { states: 10, arcs: 10 }),
+            measure: Some(PlanMeasure {
+                states: 10,
+                arcs: 10,
+            }),
         };
         let b = CandidateReport {
             label: "b",
             root: root_b,
             decision: CompileDecision::Admit,
-            measure: Some(PlanMeasure { states: 10, arcs: 10 }), // same objective (20) as `a`
+            measure: Some(PlanMeasure {
+                states: 10,
+                arcs: 10,
+            }), // same objective (20) as `a`
         };
         let expected_winner = if root_a < root_b { "a" } else { "b" };
         let considered = vec![a, b];
@@ -526,7 +542,10 @@ mod tests {
     fn choose_falls_back_to_smallest_root_when_no_admissible_candidate_measured() {
         let root_a = node_id_from_raw(7);
         let root_b = node_id_from_raw(4);
-        assert_ne!(root_a, root_b, "test fixture must pick two distinct NodeIds");
+        assert_ne!(
+            root_a, root_b,
+            "test fixture must pick two distinct NodeIds"
+        );
 
         let unmeasured_a = CandidateReport {
             label: "a",
@@ -540,16 +559,12 @@ mod tests {
             decision: CompileDecision::ConfirmOnly,
             measure: None,
         };
-        let refused = report(
-            "refused",
-            1,
-            CompileDecision::Refuse(vec![]),
-            Some((1, 1)),
-        );
+        let refused = report("refused", 1, CompileDecision::Refuse(vec![]), Some((1, 1)));
         let expected_winner = if root_a < root_b { "a" } else { "b" };
         let considered = vec![unmeasured_a, unmeasured_b, refused];
 
-        let chosen = choose(&considered).expect("2 admissible candidates exist, even if unmeasured");
+        let chosen =
+            choose(&considered).expect("2 admissible candidates exist, even if unmeasured");
         assert_eq!(
             considered[chosen].label, expected_winner,
             "when no admissible candidate measured, fall back to the smallest-root admissible one, \
@@ -590,8 +605,12 @@ mod tests {
         let outcome_1 = select_plan(&candidates_1, &g, &registry, &opts, &alphabet, &ro, &budget);
         let outcome_2 = select_plan(&candidates_2, &g, &registry, &opts, &alphabet, &ro, &budget);
 
-        let chosen_1 = outcome_1.chosen_report().expect("a candidate must be chosen");
-        let chosen_2 = outcome_2.chosen_report().expect("a candidate must be chosen");
+        let chosen_1 = outcome_1
+            .chosen_report()
+            .expect("a candidate must be chosen");
+        let chosen_2 = outcome_2
+            .chosen_report()
+            .expect("a candidate must be chosen");
         assert_eq!(chosen_1.label, chosen_2.label);
         assert_eq!(chosen_1.root, chosen_2.root);
     }

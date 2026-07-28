@@ -78,9 +78,17 @@ fn nat_class_id_by_xml_id(g: &Grammar, xml_id: &str) -> pg_grammar::model::NatCl
 #[test]
 fn fixture_shape_is_the_deliberately_misaligned_two_table_probe_it_claims_to_be() {
     let g = load();
-    assert_eq!(g.char_tables.len(), 2, "fixture must declare exactly 2 tables");
+    assert_eq!(
+        g.char_tables.len(),
+        2,
+        "fixture must declare exactly 2 tables"
+    );
     assert_eq!(g.strata.len(), 2, "fixture must declare exactly 2 strata");
-    assert_eq!(g.strata[1].table, TableId(1), "S1 (\"Outer\", non-first) must own table 1");
+    assert_eq!(
+        g.strata[1].table,
+        TableId(1),
+        "S1 (\"Outer\", non-first) must own table 1"
+    );
     assert!(
         g.strata[1].prules.iter().any(|&pid| matches!(
             &g.prules[pid.0 as usize],
@@ -93,7 +101,11 @@ fn fixture_shape_is_the_deliberately_misaligned_two_table_probe_it_claims_to_be(
     let NaturalClassKind::Segments(members) = &g.natural_classes[nc_k.0 as usize].kind else {
         panic!("ncK must load as a SegmentNaturalClass (NaturalClassKind::Segments)");
     };
-    assert_eq!(members, &[CharDefId(0)], "ncK's one member must be table 1's raw index 0 (\"k\")");
+    assert_eq!(
+        members,
+        &[CharDefId(0)],
+        "ncK's one member must be table 1's raw index 0 (\"k\")"
+    );
 
     let t0_z_lanes = g.char_tables[0].get(CharDefId(0)).feature_lanes();
     let t1_k_lanes = g.char_tables[1].get(CharDefId(0)).feature_lanes();
@@ -127,18 +139,24 @@ fn nat_class_k_resolved_against_the_wrong_table_stops_matching_a_real_table_1_k_
         .compile_pattern(&rule.lhs)
         .expect("ncK must compile against its own table 1");
     let [CompileNode::Constraint(correct_lanes)] = correct.input.nodes.as_slice() else {
-        panic!("rule.lhs must compile to exactly one Constraint node: {:?}", correct.input.nodes);
+        panic!(
+            "rule.lhs must compile to exactly one Constraint node: {:?}",
+            correct.input.nodes
+        );
     };
 
     // Wrong: resolved against table 0 -- `PatternBridge::new`'s own default, the antipattern this
     // whole bug class is about. No `.with_table(..)` call: this IS the bug's own resolution.
-    let wrong = PatternBridge::new(&g)
-        .compile_pattern(&rule.lhs)
-        .expect("ncK must still compile against table 0 (table 0 has a raw index 0 to resolve to -- \
+    let wrong = PatternBridge::new(&g).compile_pattern(&rule.lhs).expect(
+        "ncK must still compile against table 0 (table 0 has a raw index 0 to resolve to -- \
                  the fixture was deliberately built so the wrong-table lookup doesn't even panic, \
-                 mirroring cache.rs's own probe)");
+                 mirroring cache.rs's own probe)",
+    );
     let [CompileNode::Constraint(wrong_lanes)] = wrong.input.nodes.as_slice() else {
-        panic!("rule.lhs must compile to exactly one Constraint node: {:?}", wrong.input.nodes);
+        panic!(
+            "rule.lhs must compile to exactly one Constraint node: {:?}",
+            wrong.input.nodes
+        );
     };
 
     eprintln!(

@@ -108,9 +108,21 @@ fn oracle_candidate_set(
 
 /// Compiles `rule` (stratum 0's own table) via [`compile_and_compose_rules_with_budget`], composes
 /// it after `lexc_source`, and minimizes -- the shared plumbing every witness below uses.
-fn compile_net(g: &Grammar, alphabet: &SegAlphabet, rule: &PhonRuleDef, lexc_source: &str) -> foma::types::Fsm {
+fn compile_net(
+    g: &Grammar,
+    alphabet: &SegAlphabet,
+    rule: &PhonRuleDef,
+    lexc_source: &str,
+) -> foma::types::Fsm {
     let opts = FomaOptions::default();
-    let budget = ComposeBudget::with_caps(usize::MAX, usize::MAX, usize::MAX, usize::MAX, usize::MAX, None);
+    let budget = ComposeBudget::with_caps(
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        None,
+    );
     let lexc_net = fsm_lexc_parse_string(&opts, None, lexc_source)
         .unwrap_or_else(|| panic!("lexc must compile:\n{lexc_source}"));
     let mut skipped = Vec::new();
@@ -189,7 +201,14 @@ fn rtl_plain_rule_now_compiles_and_matches_oracle() {
 
     let alphabet_ref = &alphabet;
     let entries: HashSet<LexEntryId> = [LexEntryId(0)].into_iter().collect();
-    let budget = ComposeBudget::with_caps(usize::MAX, usize::MAX, usize::MAX, usize::MAX, usize::MAX, None);
+    let budget = ComposeBudget::with_caps(
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        None,
+    );
     let uemit = emit_underlying_filtered_with_budget(&g, alphabet_ref, Some(&entries), &budget)
         .unwrap_or_else(|e| panic!("lexc emission must not hit any budget: {e}"));
     assert!(uemit.skipped.is_empty());
@@ -320,7 +339,14 @@ fn rtl_feature_environment_swap_matches_oracle() {
     .into_iter()
     .collect();
 
-    let budget = ComposeBudget::with_caps(usize::MAX, usize::MAX, usize::MAX, usize::MAX, usize::MAX, None);
+    let budget = ComposeBudget::with_caps(
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        None,
+    );
     let entries: HashSet<LexEntryId> = [entry_contextful, entry_no_right].into_iter().collect();
     let uemit = emit_underlying_filtered_with_budget(&g, &alphabet, Some(&entries), &budget)
         .unwrap_or_else(|e| panic!("lexc emission must not hit any budget: {e}"));
@@ -333,13 +359,23 @@ fn rtl_feature_environment_swap_matches_oracle() {
     let query = alphabet.encode_query("xby").expect("'xby' must segment");
     let fst_out = fst_candidate_set(&net, &query);
     let oracle_out = oracle_candidate_set(&morpher, "xby", &allowed);
-    assert_eq!(oracle_out.len(), 1, "oracle must recall entryContextful for 'xby': {oracle_out:?}");
-    assert_eq!(fst_out, oracle_out, "CONTAINMENT for 'xby' (right-context-gated devoice)");
+    assert_eq!(
+        oracle_out.len(),
+        1,
+        "oracle must recall entryContextful for 'xby': {oracle_out:?}"
+    );
+    assert_eq!(
+        fst_out, oracle_out,
+        "CONTAINMENT for 'xby' (right-context-gated devoice)"
+    );
 
     // "xay": the raw, un-rewritten spelling must never surface (rule is obligatory whenever both
     // sides of the environment hold).
     let oracle_raw = oracle_candidate_set(&morpher, "xay", &allowed);
-    assert!(oracle_raw.is_empty(), "'xay' (obligatorily rewritten) must have no oracle analysis");
+    assert!(
+        oracle_raw.is_empty(),
+        "'xay' (obligatorily rewritten) must have no oracle analysis"
+    );
 
     // "xa": entryNoRightContext's own (unchanged) spelling -- right context 'y' is ABSENT, so the
     // devoice rule must NOT fire. If left_env/right_env were swapped-but-not-also-reversed (or not
@@ -443,7 +479,10 @@ fn rtl_deletion_matches_oracle() {
     };
     assert_eq!(rule.dir, Dir::RightToLeft);
     assert!(is_fully_supported_shape(&g, rule));
-    assert!(rule.subrules[0].rhs.nodes.is_empty(), "deletion subrule must have an empty RHS pattern");
+    assert!(
+        rule.subrules[0].rhs.nodes.is_empty(),
+        "deletion subrule must have an empty RHS pattern"
+    );
 
     let table = &g.char_tables[0];
     let alphabet = SegAlphabet::new(table);
@@ -456,7 +495,14 @@ fn rtl_deletion_matches_oracle() {
     .into_iter()
     .collect();
 
-    let budget = ComposeBudget::with_caps(usize::MAX, usize::MAX, usize::MAX, usize::MAX, usize::MAX, None);
+    let budget = ComposeBudget::with_caps(
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        None,
+    );
     let entries: HashSet<LexEntryId> = [entry_with, entry_no_right].into_iter().collect();
     let uemit = emit_underlying_filtered_with_budget(&g, &alphabet, Some(&entries), &budget)
         .unwrap_or_else(|e| panic!("lexc emission must not hit any budget: {e}"));
@@ -469,20 +515,37 @@ fn rtl_deletion_matches_oracle() {
     let query = alphabet.encode_query("xy").expect("'xy' must segment");
     let fst_out = fst_candidate_set(&net, &query);
     let oracle_out = oracle_candidate_set(&morpher, "xy", &allowed);
-    assert_eq!(oracle_out.len(), 1, "oracle must recall entryWithDeletable for 'xy': {oracle_out:?}");
-    assert_eq!(fst_out, oracle_out, "CONTAINMENT for 'xy' (right-context-gated deletion)");
+    assert_eq!(
+        oracle_out.len(),
+        1,
+        "oracle must recall entryWithDeletable for 'xy': {oracle_out:?}"
+    );
+    assert_eq!(
+        fst_out, oracle_out,
+        "CONTAINMENT for 'xy' (right-context-gated deletion)"
+    );
 
     // "xdy": the raw spelling must never surface (obligatory deletion).
     let oracle_raw = oracle_candidate_set(&morpher, "xdy", &allowed);
-    assert!(oracle_raw.is_empty(), "'xdy' (obligatorily deleted) must have no oracle analysis");
+    assert!(
+        oracle_raw.is_empty(),
+        "'xdy' (obligatorily deleted) must have no oracle analysis"
+    );
 
     // "xd": entryNoRightContext's own (unchanged) spelling -- right context 'y' absent, deletion
     // must not fire.
     let query_unchanged = alphabet.encode_query("xd").expect("'xd' must segment");
     let fst_unchanged = fst_candidate_set(&net, &query_unchanged);
     let oracle_unchanged = oracle_candidate_set(&morpher, "xd", &allowed);
-    assert_eq!(oracle_unchanged.len(), 1, "oracle must recall entryNoRightContext unchanged: {oracle_unchanged:?}");
-    assert_eq!(fst_unchanged, oracle_unchanged, "CONTAINMENT for 'xd' (environment correctly fails to gate)");
+    assert_eq!(
+        oracle_unchanged.len(),
+        1,
+        "oracle must recall entryNoRightContext unchanged: {oracle_unchanged:?}"
+    );
+    assert_eq!(
+        fst_unchanged, oracle_unchanged,
+        "CONTAINMENT for 'xd' (environment correctly fails to gate)"
+    );
 }
 
 // =================================================================================================
@@ -572,7 +635,10 @@ fn rtl_epenthesis_construction_is_correct_at_the_fst_level() {
         panic!("expected a Rewrite-kind rule");
     };
     assert_eq!(rule.dir, Dir::RightToLeft);
-    assert!(rule.lhs.nodes.is_empty(), "epenthesis rule must have an empty LHS pattern");
+    assert!(
+        rule.lhs.nodes.is_empty(),
+        "epenthesis rule must have an empty LHS pattern"
+    );
     assert!(is_fully_supported_shape(&g, rule));
 
     let table = &g.char_tables[0];
@@ -580,7 +646,14 @@ fn rtl_epenthesis_construction_is_correct_at_the_fst_level() {
     let entry_xy = entry_id_of(&g, "entryXY");
     let entry_x_only = entry_id_of(&g, "entryXOnly");
 
-    let budget = ComposeBudget::with_caps(usize::MAX, usize::MAX, usize::MAX, usize::MAX, usize::MAX, None);
+    let budget = ComposeBudget::with_caps(
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        None,
+    );
     let entries: HashSet<LexEntryId> = [entry_xy, entry_x_only].into_iter().collect();
     let uemit = emit_underlying_filtered_with_budget(&g, &alphabet, Some(&entries), &budget)
         .unwrap_or_else(|e| panic!("lexc emission must not hit any budget: {e}"));
@@ -593,19 +666,31 @@ fn rtl_epenthesis_construction_is_correct_at_the_fst_level() {
     // propose/confirm contract, verified independent of the broken oracle above.
     let query_xey = alphabet.encode_query("xey").expect("'xey' must segment");
     let fst_xey = fst_candidate_set(&net, &query_xey);
-    assert!(!fst_xey.is_empty(), "FST must propose entryXY for 'xey' (obligatory epenthesis fired)");
+    assert!(
+        !fst_xey.is_empty(),
+        "FST must propose entryXY for 'xey' (obligatory epenthesis fired)"
+    );
 
     // "xy": the raw, un-inserted-into spelling must never be proposed (obligatory insertion).
     let query_xy_raw = alphabet.encode_query("xy").expect("'xy' must segment");
     let fst_xy_raw = fst_candidate_set(&net, &query_xy_raw);
-    assert!(fst_xy_raw.is_empty(), "FST must not propose anything for 'xy' (obligatorily inserted-into)");
+    assert!(
+        fst_xy_raw.is_empty(),
+        "FST must not propose anything for 'xy' (obligatorily inserted-into)"
+    );
 
     // "x": entryXOnly's own (unchanged) spelling -- right context 'y' absent, insertion must not
     // fire. Must still be proposed, and must decode to a DIFFERENT candidate than 'xey'.
     let query_x = alphabet.encode_query("x").expect("'x' must segment");
     let fst_x = fst_candidate_set(&net, &query_x);
-    assert!(!fst_x.is_empty(), "FST must propose entryXOnly for 'x' unchanged (environment absent)");
-    assert_ne!(fst_x, fst_xey, "'x' must decode to a DIFFERENT candidate than 'xey' (distinct roots)");
+    assert!(
+        !fst_x.is_empty(),
+        "FST must propose entryXOnly for 'x' unchanged (environment absent)"
+    );
+    assert_ne!(
+        fst_x, fst_xey,
+        "'x' must decode to a DIFFERENT candidate than 'xey' (distinct roots)"
+    );
 }
 
 // =================================================================================================
@@ -617,7 +702,8 @@ fn rtl_epenthesis_construction_is_correct_at_the_fst_level() {
 // =================================================================================================
 
 #[test]
-fn rtl_distinct_leftmost_rightmost_differs_from_ltr_and_is_recall_safe_against_the_current_oracle() {
+fn rtl_distinct_leftmost_rightmost_differs_from_ltr_and_is_recall_safe_against_the_current_oracle()
+{
     let opts = FomaOptions::default();
 
     // The bare automaton-level proof, independent of any grammar/oracle: "aa -> b" applied to
@@ -704,9 +790,18 @@ fn rtl_distinct_leftmost_rightmost_differs_from_ltr_and_is_recall_safe_against_t
     let table = &g.char_tables[0];
     let alphabet = SegAlphabet::new(table);
     let entry_aaa = entry_id_of(&g, "entryAaa");
-    let allowed: HashSet<u32> = [g.entries[entry_aaa.0 as usize].morpheme.0].into_iter().collect();
+    let allowed: HashSet<u32> = [g.entries[entry_aaa.0 as usize].morpheme.0]
+        .into_iter()
+        .collect();
 
-    let budget = ComposeBudget::with_caps(usize::MAX, usize::MAX, usize::MAX, usize::MAX, usize::MAX, None);
+    let budget = ComposeBudget::with_caps(
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        None,
+    );
     let entries: HashSet<LexEntryId> = [entry_aaa].into_iter().collect();
     let uemit = emit_underlying_filtered_with_budget(&g, &alphabet, Some(&entries), &budget)
         .unwrap_or_else(|e| panic!("lexc emission must not hit any budget: {e}"));
@@ -734,7 +829,10 @@ fn rtl_distinct_leftmost_rightmost_differs_from_ltr_and_is_recall_safe_against_t
     // RECALL SAFETY (never under-propose relative to the real oracle): the FST's compiled relation
     // must still recall "aaa" for "ab" -- now the genuinely-correct direction, not just the
     // reversed branch's own candidate.
-    assert_eq!(fst_ab, oracle_ab, "CONTAINMENT for 'ab': FST must recall exactly what the oracle confirms");
+    assert_eq!(
+        fst_ab, oracle_ab,
+        "CONTAINMENT for 'ab': FST must recall exactly what the oracle confirms"
+    );
 
     // The 'ba' side is now a STRICT superset, not equality: `replace.rs`'s plain∪reversed union
     // (`compile_rtl_branch_net`, unchanged by the pg-rules fix -- this crate is not touched by that
@@ -833,8 +931,9 @@ fn mirror_unreversed_hypothesis(opts: &FomaOptions) -> foma::types::Fsm {
 }
 
 fn anchor_fixture_path() -> std::path::PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../conformance-staging/edge-cases/right-to-left-anchor-environment/grammar.xml")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join(
+        "../../../conformance-staging/edge-cases/right-to-left-anchor-environment/grammar.xml",
+    )
 }
 
 fn segments_environment_fixture_path() -> std::path::PathBuf {
@@ -844,7 +943,8 @@ fn segments_environment_fixture_path() -> std::path::PathBuf {
 }
 
 fn load_fixture(path: std::path::PathBuf) -> Grammar {
-    let xml = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let xml =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     load(&xml)
 }
 
@@ -877,7 +977,14 @@ fn rtl_anchor_fixture_matches_oracle() {
     .into_iter()
     .collect();
 
-    let budget = ComposeBudget::with_caps(usize::MAX, usize::MAX, usize::MAX, usize::MAX, usize::MAX, None);
+    let budget = ComposeBudget::with_caps(
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        None,
+    );
     let entries: HashSet<LexEntryId> = [root1, root2].into_iter().collect();
     let uemit = emit_underlying_filtered_with_budget(&g, &alphabet, Some(&entries), &budget)
         .unwrap_or_else(|e| panic!("lexc emission must not hit any budget: {e}"));
@@ -888,10 +995,16 @@ fn rtl_anchor_fixture_matches_oracle() {
 
     // "aae"/"ae": the roots' own correctly-rewritten surfaces (only the word-final "a" rewrites).
     for (word, expected_root_entry) in [("aae", root1), ("ae", root2)] {
-        let query = alphabet.encode_query(word).unwrap_or_else(|| panic!("{word:?} must segment"));
+        let query = alphabet
+            .encode_query(word)
+            .unwrap_or_else(|| panic!("{word:?} must segment"));
         let fst_out = fst_candidate_set(&net, &query);
         let oracle_out = oracle_candidate_set(&morpher, word, &allowed);
-        assert_eq!(oracle_out.len(), 1, "oracle must recall exactly one analysis for {word:?}: {oracle_out:?}");
+        assert_eq!(
+            oracle_out.len(),
+            1,
+            "oracle must recall exactly one analysis for {word:?}: {oracle_out:?}"
+        );
         assert_eq!(fst_out, oracle_out, "CONTAINMENT for {word:?}");
         let _ = expected_root_entry; // named for readability only
     }
@@ -900,7 +1013,10 @@ fn rtl_anchor_fixture_matches_oracle() {
     // valid surface for either root.
     for word in ["aaa", "aa"] {
         let oracle_raw = oracle_candidate_set(&morpher, word, &allowed);
-        assert!(oracle_raw.is_empty(), "{word:?} (obligatorily rewritten) must have no oracle analysis");
+        assert!(
+            oracle_raw.is_empty(),
+            "{word:?} (obligatorily rewritten) must have no oracle analysis"
+        );
     }
 }
 
@@ -917,7 +1033,12 @@ fn rtl_segments_environment_fixture_matches_oracle() {
     assert_eq!(rule.dir, Dir::RightToLeft);
     assert!(
         matches!(
-            rule.subrules[0].right_env.as_ref().unwrap().nodes.as_slice(),
+            rule.subrules[0]
+                .right_env
+                .as_ref()
+                .unwrap()
+                .nodes
+                .as_slice(),
             [PatternNode::Segments { .. }]
         ),
         "fixture must lower to a right_env containing a Segments node: {:?}",
@@ -939,7 +1060,14 @@ fn rtl_segments_environment_fixture_matches_oracle() {
     .into_iter()
     .collect();
 
-    let budget = ComposeBudget::with_caps(usize::MAX, usize::MAX, usize::MAX, usize::MAX, usize::MAX, None);
+    let budget = ComposeBudget::with_caps(
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        None,
+    );
     let entries: HashSet<LexEntryId> = [root1, root2].into_iter().collect();
     let uemit = emit_underlying_filtered_with_budget(&g, &alphabet, Some(&entries), &budget)
         .unwrap_or_else(|e| panic!("lexc emission must not hit any budget: {e}"));
@@ -952,20 +1080,34 @@ fn rtl_segments_environment_fixture_matches_oracle() {
     let query = alphabet.encode_query("ey").expect("'ey' must segment");
     let fst_out = fst_candidate_set(&net, &query);
     let oracle_out = oracle_candidate_set(&morpher, "ey", &allowed);
-    assert_eq!(oracle_out.len(), 1, "oracle must recall entryRoot1 for 'ey': {oracle_out:?}");
+    assert_eq!(
+        oracle_out.len(),
+        1,
+        "oracle must recall entryRoot1 for 'ey': {oracle_out:?}"
+    );
     assert_eq!(fst_out, oracle_out, "CONTAINMENT for 'ey'");
 
     // "ay": the raw spelling must never surface (obligatory rewrite).
     let oracle_raw = oracle_candidate_set(&morpher, "ay", &allowed);
-    assert!(oracle_raw.is_empty(), "'ay' (obligatorily rewritten) must have no oracle analysis");
+    assert!(
+        oracle_raw.is_empty(),
+        "'ay' (obligatorily rewritten) must have no oracle analysis"
+    );
 
     // "a": ROOT2's own (unchanged) spelling -- no "y" follows, so the Segments-authored right
     // environment correctly fails to match.
     let query_a = alphabet.encode_query("a").expect("'a' must segment");
     let fst_a = fst_candidate_set(&net, &query_a);
     let oracle_a = oracle_candidate_set(&morpher, "a", &allowed);
-    assert_eq!(oracle_a.len(), 1, "oracle must recall entryRoot2 unchanged for 'a': {oracle_a:?}");
-    assert_eq!(fst_a, oracle_a, "CONTAINMENT for 'a' (environment correctly fails to gate)");
+    assert_eq!(
+        oracle_a.len(),
+        1,
+        "oracle must recall entryRoot2 unchanged for 'a': {oracle_a:?}"
+    );
+    assert_eq!(
+        fst_a, oracle_a,
+        "CONTAINMENT for 'a' (environment correctly fails to gate)"
+    );
 }
 
 /// **Genuinely-differs-from-LeftToRight test** for the `Segments` shape (no oracle dependency --
@@ -1052,7 +1194,10 @@ fn rtl_segments_lhs_differs_from_left_to_right_at_the_fst_level() {
     // 1. End-to-end acceptance, both directions.
     for (dir_attr, expected_dir) in [
         ("", Dir::LeftToRight),
-        (r#"multipleApplicationOrder="rightToLeftIterative""#, Dir::RightToLeft),
+        (
+            r#"multipleApplicationOrder="rightToLeftIterative""#,
+            Dir::RightToLeft,
+        ),
     ] {
         let g = load(&xml(dir_attr));
         let PhonRuleDef::Rewrite(r) = &g.prules[0] else {
@@ -1074,7 +1219,14 @@ fn rtl_segments_lhs_differs_from_left_to_right_at_the_fst_level() {
         let table = &g.char_tables[0];
         let alphabet = SegAlphabet::new(table);
         let entries: HashSet<LexEntryId> = [LexEntryId(0)].into_iter().collect();
-        let budget = ComposeBudget::with_caps(usize::MAX, usize::MAX, usize::MAX, usize::MAX, usize::MAX, None);
+        let budget = ComposeBudget::with_caps(
+            usize::MAX,
+            usize::MAX,
+            usize::MAX,
+            usize::MAX,
+            usize::MAX,
+            None,
+        );
         let uemit = emit_underlying_filtered_with_budget(&g, &alphabet, Some(&entries), &budget)
             .unwrap_or_else(|e| panic!("lexc emission must not hit any budget: {e}"));
         assert!(uemit.skipped.is_empty());

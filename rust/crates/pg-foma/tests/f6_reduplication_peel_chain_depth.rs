@@ -69,8 +69,10 @@ fn kimbiakimbia_reduplication_is_recovered_with_oracle_containment() {
          meaningful at all"
     );
 
-    let mut analyzer = FomaAnalyzer::new(&g).expect("this grammar already compiles (emit.rs's own \
-        bare_root_phonology_makes_post_nasal_voicing_proposable exercises the same grammar)");
+    let mut analyzer = FomaAnalyzer::new(&g).expect(
+        "this grammar already compiles (emit.rs's own \
+        bare_root_phonology_makes_post_nasal_voicing_proposable exercises the same grammar)",
+    );
     let outcome = analyzer.analyze_word("kimbiakimbia");
 
     assert!(
@@ -147,35 +149,36 @@ fn minimal_redup_grammar() -> Grammar {
 </HermitCrabInput>"#;
     let mut g = pg_grammar::load(MINIMAL_XML).expect("minimal fixture loads");
     let redup_mrule = MRuleId(g.mrules.len() as u32);
-    g.mrules.push(MorphRuleDef::AffixProcess(AffixProcessRuleDef {
-        morpheme: MorphemeId(0),
-        name: Some("redupChainDepthBoundaryFixture".to_string()),
-        blockable: false,
-        partial: false,
-        max_apps: 1,
-        required_syn_fs: pg_featstruct::FsId(0),
-        out_syn_fs: pg_featstruct::FsId(0),
-        obligatory_features: vec![],
-        required_stem_name: None,
-        is_template_rule: false,
-        allomorphs: vec![AffixAllomorphDef {
-            id: AllomorphId(0),
-            environments: vec![],
-            co_occurrence: vec![],
+    g.mrules
+        .push(MorphRuleDef::AffixProcess(AffixProcessRuleDef {
+            morpheme: MorphemeId(0),
+            name: Some("redupChainDepthBoundaryFixture".to_string()),
+            blockable: false,
+            partial: false,
+            max_apps: 1,
             required_syn_fs: pg_featstruct::FsId(0),
-            vars: VarTable::default(),
-            required_mpr: MprSet::EMPTY,
-            excluded_mpr: MprSet::EMPTY,
-            out_mpr: MprSet::EMPTY,
-            redup_hint: ReduplicationHint::Suffix,
-            lhs: vec![],
-            rhs: vec![
-                OutputAction::Copy(PartRef::Input(0)),
-                OutputAction::Copy(PartRef::Input(0)),
-            ],
-            properties: vec![],
-        }],
-    }));
+            out_syn_fs: pg_featstruct::FsId(0),
+            obligatory_features: vec![],
+            required_stem_name: None,
+            is_template_rule: false,
+            allomorphs: vec![AffixAllomorphDef {
+                id: AllomorphId(0),
+                environments: vec![],
+                co_occurrence: vec![],
+                required_syn_fs: pg_featstruct::FsId(0),
+                vars: VarTable::default(),
+                required_mpr: MprSet::EMPTY,
+                excluded_mpr: MprSet::EMPTY,
+                out_mpr: MprSet::EMPTY,
+                redup_hint: ReduplicationHint::Suffix,
+                lhs: vec![],
+                rhs: vec![
+                    OutputAction::Copy(PartRef::Input(0)),
+                    OutputAction::Copy(PartRef::Input(0)),
+                ],
+                properties: vec![],
+            }],
+        }));
     g.strata.push(StratumDef {
         name: Some("chainDepthBoundaryStratum".to_string()),
         table: TableId(0),
@@ -198,8 +201,15 @@ fn deep_self_similar_chain_is_refused_deterministically() {
     let peeler = ReduplicationPeeler::new(&g);
     assert!(peeler.has_redup_rules());
     let mut propose = |_: &str| -> Vec<Candidate> { Vec::new() };
-    let budget = ComposeBudget::with_caps(usize::MAX, usize::MAX, usize::MAX, usize::MAX, usize::MAX, None)
-        .with_chain_depth_cap(3);
+    let budget = ComposeBudget::with_caps(
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        None,
+    )
+    .with_chain_depth_cap(3);
     let word = "a".repeat(16);
     let err = peeler
         .peel_candidates(&g, &word, &budget, &mut propose)
@@ -221,8 +231,15 @@ fn deep_self_similar_chain_succeeds_under_a_generous_cap() {
     let g = minimal_redup_grammar();
     let peeler = ReduplicationPeeler::new(&g);
     let mut propose = |_: &str| -> Vec<Candidate> { Vec::new() };
-    let budget = ComposeBudget::with_caps(usize::MAX, usize::MAX, usize::MAX, usize::MAX, usize::MAX, None)
-        .with_chain_depth_cap(64);
+    let budget = ComposeBudget::with_caps(
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        None,
+    )
+    .with_chain_depth_cap(64);
     let word = "a".repeat(10);
     peeler
         .peel_candidates(&g, &word, &budget, &mut propose)

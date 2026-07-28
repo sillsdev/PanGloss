@@ -484,9 +484,7 @@ mod tests {
 
     fn rule_leaf(id: u32) -> PlanNodeKind {
         PlanNodeKind::Leaf {
-            fragment: FragmentSpec::RewriteRule {
-                rule: PRuleId(id),
-            },
+            fragment: FragmentSpec::RewriteRule { rule: PRuleId(id) },
             provenance: Provenance::RewriteRule(PRuleId(id)),
         }
     }
@@ -610,7 +608,10 @@ mod tests {
             strategy: ComposeStrategy::Static,
         });
 
-        assert_ne!(parent_a, parent_b, "the two parents differ in one child, so must differ");
+        assert_ne!(
+            parent_a, parent_b,
+            "the two parents differ in one child, so must differ"
+        );
         // 1 shared leaf + 2 distinct rule leaves + 2 distinct parents = 5 stored nodes, NOT 6 (a
         // tree would store the shared leaf twice, once per parent).
         assert_eq!(plan.len(), 5);

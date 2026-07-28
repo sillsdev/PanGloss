@@ -41,14 +41,14 @@ use pg_grammar::model::Grammar;
 use pg_parse::{Morpher, ParseOptions};
 
 fn fixture_path() -> std::path::PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../conformance-staging/edge-cases/recursive-endocentric-compounding/grammar.xml")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join(
+        "../../../conformance-staging/edge-cases/recursive-endocentric-compounding/grammar.xml",
+    )
 }
 
 fn load() -> Grammar {
     let path = fixture_path();
-    let xml =
-        fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let xml = fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     pg_grammar::load(&xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"))
 }
 
@@ -207,9 +207,12 @@ fn depth_budgeted_compound_loop_contains_the_raised_cap_oracle_analysis() {
     );
     let oracle_morphemes = outcome.structured[0].morpheme_ids.clone();
 
-    let contained = candidates
-        .iter()
-        .any(|c| c.morphemes.iter().map(|m| m.0).eq(oracle_morphemes.iter().copied()));
+    let contained = candidates.iter().any(|c| {
+        c.morphemes
+            .iter()
+            .map(|m| m.0)
+            .eq(oracle_morphemes.iter().copied())
+    });
     assert!(
         contained,
         "propose's candidate set must CONTAIN the oracle's raised-cap analysis (exact morpheme-id \
@@ -305,7 +308,10 @@ fn depth_bound_is_respected_a_k_plus_one_stem_word_is_never_proposed() {
         .map(|d| d.max_depth)
         .max()
         .unwrap_or(0);
-    assert_eq!(max_depth, 3, "isolated multipleApplication=\"2\" rule must bound at 1 + 2 = 3 stems");
+    assert_eq!(
+        max_depth, 3,
+        "isolated multipleApplication=\"2\" rule must bound at 1 + 2 = 3 stems"
+    );
 
     let mut proposer = FomaProposer::new(&g).expect("small bound fixture must compile");
 
@@ -359,7 +365,10 @@ fn compound_chain_depth_budget_trips_before_any_lexc_emitted() {
         .report
         .enum_budget_exceeded
         .expect("must report a typed budget-exceeded outcome for the compound chain-depth measure");
-    assert_eq!(exceeded.measure, "compound chain depth (extra non-head root levels)");
+    assert_eq!(
+        exceeded.measure,
+        "compound chain depth (extra non-head root levels)"
+    );
     assert!(
         exceeded.value > exceeded.limit,
         "reported value {} must exceed the limit {} it tripped",

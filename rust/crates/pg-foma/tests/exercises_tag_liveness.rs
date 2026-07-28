@@ -61,8 +61,8 @@ fn repo_root() -> PathBuf {
 /// (that concern stays entirely inside [`pg_conformance_fixtures::discover`]).
 fn known_construct_ids() -> BTreeSet<String> {
     let path = repo_root().join("machine/conformance/constructs.txt");
-    let text = std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let text =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     text.lines()
         .map(str::trim)
         .filter(|l| !l.is_empty() && !l.starts_with('#'))

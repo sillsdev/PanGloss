@@ -66,8 +66,8 @@ fn load_staged(name: &str) -> Grammar {
         .join("conformance-staging/edge-cases")
         .join(name)
         .join("grammar.xml");
-    let xml = std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let xml =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     pg_grammar::load(&xml).unwrap_or_else(|e| panic!("{name}: grammar failed to load: {e}\n{xml}"))
 }
 

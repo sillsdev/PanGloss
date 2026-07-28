@@ -87,6 +87,10 @@ pub fn compile_templated_morphotactics(
     let lexc_compile_elapsed = started.elapsed();
     let lexc_state_count = lexc_net.statecount;
     let lexc_arc_count = lexc_net.arccount;
+    let lexc_net = match crate::structural_allomorph::compile_layer(&opts, g, &alphabet) {
+        Some(structural) => fsm_compose(&opts, lexc_net, structural),
+        None => lexc_net,
+    };
 
     let rules_in_order: Vec<&PhonRuleDef> = g
         .strata
@@ -126,6 +130,12 @@ pub fn compile_templated_morphotactics(
 
     let started = Instant::now();
     let network = fsm_compose(&opts, lexc_net, rule_net);
+    let network = match crate::structural_allomorph::compile_authored_deletion_fallback(
+        &opts, g, &alphabet,
+    ) {
+        Some(fallback) => fsm_compose(&opts, network, fallback),
+        None => network,
+    };
     let network = fsm_compose(&opts, network, cleanup_net);
     let mut network = fsm_minimize(&opts, network);
     let final_compose_minimize_elapsed = started.elapsed();

@@ -420,7 +420,9 @@ fn time_complete_engine(
                 },
                 n,
             );
-            Row::timed(root, category, fixture, w, "complete", t, floor_ns, nonempty)
+            Row::timed(
+                root, category, fixture, w, "complete", t, floor_ns, nonempty,
+            )
         })
         .collect()
 }
@@ -455,25 +457,31 @@ fn time_compiled_engine(
                 )
             })
             .collect(),
-        CompileDecision::Admit | CompileDecision::ConfirmOnly => {
-            match FomaAnalyzer::new(g) {
-                Err(e) => vec![Row::compile_error(root, category, fixture, &e.to_string(), floor_ns)],
-                Ok(mut analyzer) => words
-                    .iter()
-                    .map(|w| {
-                        let mut nonempty = false;
-                        let t = time_repeated(
-                            || {
-                                let outcome = analyzer.analyze_word(w);
-                                nonempty = outcome.confirmed > 0;
-                            },
-                            n,
-                        );
-                        Row::timed(root, category, fixture, w, "compiled", t, floor_ns, nonempty)
-                    })
-                    .collect(),
-            }
-        }
+        CompileDecision::Admit | CompileDecision::ConfirmOnly => match FomaAnalyzer::new(g) {
+            Err(e) => vec![Row::compile_error(
+                root,
+                category,
+                fixture,
+                &e.to_string(),
+                floor_ns,
+            )],
+            Ok(mut analyzer) => words
+                .iter()
+                .map(|w| {
+                    let mut nonempty = false;
+                    let t = time_repeated(
+                        || {
+                            let outcome = analyzer.analyze_word(w);
+                            nonempty = outcome.confirmed > 0;
+                        },
+                        n,
+                    );
+                    Row::timed(
+                        root, category, fixture, w, "compiled", t, floor_ns, nonempty,
+                    )
+                })
+                .collect(),
+        },
     }
 }
 
@@ -561,7 +569,10 @@ struct FixtureSummary {
 /// `EnginePanic`, so the two sides share this type rather than duplicating four near-identical
 /// variants twice).
 enum EngineSummary {
-    Timed { agg_ns: Option<u64>, below_floor: bool },
+    Timed {
+        agg_ns: Option<u64>,
+        below_floor: bool,
+    },
     Refused(Vec<String>),
     CompileError(String),
     EnginePanic(String),
@@ -612,7 +623,10 @@ fn median_of(mut values: Vec<u64>) -> Option<u64> {
 /// `complete` and `compiled` (the only engine-specific input is which rows already got filtered to
 /// `engine_rows`).
 fn summarize_engine(engine_rows: &[&Row]) -> EngineSummary {
-    let refused: Vec<&&Row> = engine_rows.iter().filter(|r| r.outcome == "refused").collect();
+    let refused: Vec<&&Row> = engine_rows
+        .iter()
+        .filter(|r| r.outcome == "refused")
+        .collect();
     if !refused.is_empty() {
         let mut predicates: Vec<String> = refused
             .iter()
@@ -642,12 +656,20 @@ fn summarize_engine(engine_rows: &[&Row]) -> EngineSummary {
         } else {
             median_of(timed.iter().filter_map(|r| r.median_ns).collect())
         };
-        return EngineSummary::Timed { agg_ns, below_floor };
+        return EngineSummary::Timed {
+            agg_ns,
+            below_floor,
+        };
     }
     EngineSummary::Unassessed
 }
 
-fn summarize_fixture(root: &'static str, category: &str, fixture: &str, rows: &[Row]) -> FixtureSummary {
+fn summarize_fixture(
+    root: &'static str,
+    category: &str,
+    fixture: &str,
+    rows: &[Row],
+) -> FixtureSummary {
     let mine: Vec<&Row> = rows
         .iter()
         .filter(|r| r.root == root && r.category == category && r.fixture == fixture)
@@ -665,8 +687,16 @@ fn summarize_fixture(root: &'static str, category: &str, fixture: &str, rows: &[
     words.dedup();
     let word_count = words.len();
 
-    let complete_rows: Vec<&Row> = mine.iter().copied().filter(|r| r.engine == "complete").collect();
-    let compiled_rows: Vec<&Row> = mine.iter().copied().filter(|r| r.engine == "compiled").collect();
+    let complete_rows: Vec<&Row> = mine
+        .iter()
+        .copied()
+        .filter(|r| r.engine == "complete")
+        .collect();
+    let compiled_rows: Vec<&Row> = mine
+        .iter()
+        .copied()
+        .filter(|r| r.engine == "compiled")
+        .collect();
     let complete = summarize_engine(&complete_rows);
     let compiled = summarize_engine(&compiled_rows);
 
@@ -722,7 +752,10 @@ fn render_engine_cell(e: &EngineSummary, floor_ns: u64) -> String {
         EngineSummary::CompileError(msg) => format!("COMPILE ERROR: {msg}"),
         EngineSummary::EnginePanic(msg) => format!("ENGINE PANIC: {msg}"),
         EngineSummary::Unassessed => "not assessed".to_string(),
-        EngineSummary::Timed { agg_ns, below_floor } => format_ns_cell(*agg_ns, *below_floor, floor_ns),
+        EngineSummary::Timed {
+            agg_ns,
+            below_floor,
+        } => format_ns_cell(*agg_ns, *below_floor, floor_ns),
     }
 }
 
@@ -731,8 +764,12 @@ fn render_fixture_table_row(s: &FixtureSummary) -> String {
     let compiled_cell = render_engine_cell(&s.compiled, s.floor_ns);
     let speedup_cell = match (&s.complete, &s.compiled) {
         (
-            EngineSummary::Timed { agg_ns: Some(c), .. },
-            EngineSummary::Timed { agg_ns: Some(f), .. },
+            EngineSummary::Timed {
+                agg_ns: Some(c), ..
+            },
+            EngineSummary::Timed {
+                agg_ns: Some(f), ..
+            },
         ) if *f > 0 => format!("{:.2}x", *c as f64 / *f as f64),
         (EngineSummary::Refused(_), _) => "n/a (refused)".to_string(),
         (_, EngineSummary::Refused(_)) => "n/a (refused)".to_string(),
@@ -744,10 +781,20 @@ fn render_fixture_table_row(s: &FixtureSummary) -> String {
         }
         _ => "n/a (below floor)".to_string(),
     };
-    let noise_note = s.noisy.map(|n| format!(" _(noisy: {n})_")).unwrap_or_default();
+    let noise_note = s
+        .noisy
+        .map(|n| format!(" _(noisy: {n})_"))
+        .unwrap_or_default();
     format!(
         "| {}:{} | {} | {} | {} | {} | {}{} |",
-        s.root, s.category, s.fixture, s.word_count, complete_cell, compiled_cell, speedup_cell, noise_note
+        s.root,
+        s.category,
+        s.fixture,
+        s.word_count,
+        complete_cell,
+        compiled_cell,
+        speedup_cell,
+        noise_note
     )
 }
 
@@ -756,7 +803,11 @@ fn render_fixture_table_row(s: &FixtureSummary) -> String {
 /// table is self-describing without cross-referencing the CSV.
 fn render_markdown(rows: &[Row], floor_ns: u64, repeats: u32) -> String {
     let mut out = String::new();
-    writeln!(out, "# Typology speedup: complete engine vs compiled proposer+confirm").unwrap();
+    writeln!(
+        out,
+        "# Typology speedup: complete engine vs compiled proposer+confirm"
+    )
+    .unwrap();
     writeln!(out).unwrap();
     writeln!(
         out,
@@ -769,7 +820,10 @@ fn render_markdown(rows: &[Row], floor_ns: u64, repeats: u32) -> String {
     .unwrap();
     writeln!(out).unwrap();
 
-    for (label, category_filter) in [("Languages (typology)", "languages"), ("Edge cases (construct)", "edge-cases")] {
+    for (label, category_filter) in [
+        ("Languages (typology)", "languages"),
+        ("Edge cases (construct)", "edge-cases"),
+    ] {
         let keys: Vec<_> = fixture_keys(rows)
             .into_iter()
             .filter(|(_, cat, _)| cat == category_filter)
@@ -809,8 +863,7 @@ fn out_dir() -> PathBuf {
     std::env::var("PG_TYPOLOGY_OUT_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|_| {
-            Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../target/typology-speedup")
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/typology-speedup")
         })
 }
 
@@ -818,7 +871,8 @@ fn write_artifacts(rows: &[Row], floor_ns: u64, n: u32, dir: &Path) -> (PathBuf,
     fs::create_dir_all(dir).unwrap_or_else(|e| panic!("create {}: {e}", dir.display()));
     let csv_path = dir.join("typology-speedup.csv");
     let md_path = dir.join("typology-speedup.md");
-    fs::write(&csv_path, render_csv(rows)).unwrap_or_else(|e| panic!("write {}: {e}", csv_path.display()));
+    fs::write(&csv_path, render_csv(rows))
+        .unwrap_or_else(|e| panic!("write {}: {e}", csv_path.display()));
     fs::write(&md_path, render_markdown(rows, floor_ns, n))
         .unwrap_or_else(|e| panic!("write {}: {e}", md_path.display()));
     (csv_path, md_path)
@@ -870,16 +924,34 @@ mod tests {
             max_ns: 0,
             samples: 7,
         };
-        let row = Row::timed("staging", "edge-cases", "fast-fixture", "w", "complete", t, floor_ns, true);
-        assert!(row.below_floor, "a zero-duration measurement must be flagged below_floor");
-        assert_eq!(row.median_ns, None, "a below-floor value must be None, never Some(0)");
+        let row = Row::timed(
+            "staging",
+            "edge-cases",
+            "fast-fixture",
+            "w",
+            "complete",
+            t,
+            floor_ns,
+            true,
+        );
+        assert!(
+            row.below_floor,
+            "a zero-duration measurement must be flagged below_floor"
+        );
+        assert_eq!(
+            row.median_ns, None,
+            "a below-floor value must be None, never Some(0)"
+        );
 
         let csv = render_csv(std::slice::from_ref(&row));
         for line in csv.lines().skip(1) {
             let cells: Vec<&str> = line.split(',').collect();
             // median_ns/min_ns/max_ns are columns 6,7,8 (0-indexed) -- must be blank, never "0".
             for idx in [6, 7, 8] {
-                assert_ne!(cells[idx], "0", "CSV column {idx} must never be the literal '0': {line}");
+                assert_ne!(
+                    cells[idx], "0",
+                    "CSV column {idx} must never be the literal '0': {line}"
+                );
             }
         }
 
@@ -920,10 +992,46 @@ mod tests {
             samples: 7,
         };
         let rows = vec![
-            Row::timed("machine", "languages", "typ-a", "w1", "complete", t(9_000), 100, true),
-            Row::timed("machine", "languages", "typ-a", "w1", "compiled", t(3_000), 100, true),
-            Row::timed("staging", "edge-cases", "con-b", "w2", "complete", t(5_000), 100, true),
-            Row::timed("staging", "edge-cases", "con-b", "w2", "compiled", t(5_000), 100, true),
+            Row::timed(
+                "machine",
+                "languages",
+                "typ-a",
+                "w1",
+                "complete",
+                t(9_000),
+                100,
+                true,
+            ),
+            Row::timed(
+                "machine",
+                "languages",
+                "typ-a",
+                "w1",
+                "compiled",
+                t(3_000),
+                100,
+                true,
+            ),
+            Row::timed(
+                "staging",
+                "edge-cases",
+                "con-b",
+                "w2",
+                "complete",
+                t(5_000),
+                100,
+                true,
+            ),
+            Row::timed(
+                "staging",
+                "edge-cases",
+                "con-b",
+                "w2",
+                "compiled",
+                t(5_000),
+                100,
+                true,
+            ),
         ];
         let md = render_markdown(&rows, 100, 7);
 
@@ -998,37 +1106,64 @@ mod tests {
             ),
         };
         assert!(
-            diags.iter().any(|d| d.predicate == "mpr-group.overwrite-output"),
+            diags
+                .iter()
+                .any(|d| d.predicate == "mpr-group.overwrite-output"),
             "expected mpr-group.overwrite-output among the refusing predicates, got {diags:?}"
         );
 
-        let words: Vec<String> = f.load_words_yaml().words.iter().map(|w| w.word.clone()).collect();
+        let words: Vec<String> = f
+            .load_words_yaml()
+            .words
+            .iter()
+            .map(|w| w.word.clone())
+            .collect();
         assert!(!words.is_empty(), "fixture must have at least one word");
         let floor_ns = 1;
-        let rows = time_compiled_engine(&g, &words, f.root.label(), &f.category, &f.name, floor_ns, 1);
+        let rows = time_compiled_engine(
+            &g,
+            &words,
+            f.root.label(),
+            &f.category,
+            &f.name,
+            floor_ns,
+            1,
+        );
 
-        assert!(!rows.is_empty(), "a refused fixture must still produce row(s), never zero rows");
+        assert!(
+            !rows.is_empty(),
+            "a refused fixture must still produce row(s), never zero rows"
+        );
         assert!(
             rows.iter().all(|r| r.outcome == "refused"),
             "every row for a refused fixture must carry outcome=refused: {rows:?}"
         );
         assert!(
-            rows.iter().all(|r| r.median_ns.is_none() && r.min_ns.is_none() && r.max_ns.is_none()),
+            rows.iter()
+                .all(|r| r.median_ns.is_none() && r.min_ns.is_none() && r.max_ns.is_none()),
             "a refusal row must never carry a timing value (never a zero time): {rows:?}"
         );
         assert!(
-            rows.iter().any(|r| r.predicate.as_deref() == Some("mpr-group.overwrite-output")),
+            rows.iter()
+                .any(|r| r.predicate.as_deref() == Some("mpr-group.overwrite-output")),
             "the refusal row must name the refusing predicate: {rows:?}"
         );
         assert!(
-            rows.iter().all(|r| r.construct.is_some() && !r.construct.as_deref().unwrap().is_empty()),
+            rows.iter()
+                .all(|r| r.construct.is_some() && !r.construct.as_deref().unwrap().is_empty()),
             "the refusal row must name the refused construct: {rows:?}"
         );
 
         // And it must actually show up in the rendered artifacts, not just the intermediate Vec<Row>.
         let csv = render_csv(&rows);
-        assert!(csv.contains("mpr-group.overwrite-output"), "CSV must name the refusing predicate:\n{csv}");
-        assert!(csv.contains("refused"), "CSV must record the refused outcome:\n{csv}");
+        assert!(
+            csv.contains("mpr-group.overwrite-output"),
+            "CSV must name the refusing predicate:\n{csv}"
+        );
+        assert!(
+            csv.contains("refused"),
+            "CSV must record the refused outcome:\n{csv}"
+        );
 
         let md = render_markdown(&rows, floor_ns, 1);
         assert!(
@@ -1078,8 +1213,14 @@ mod tests {
             all_rows.extend(process_fixture(f, floor_ns, n));
         }
 
-        assert!(total_words > 0, "discovered fixtures carried zero words in total -- harness regression");
-        assert!(!all_rows.is_empty(), "harness produced zero rows despite non-empty fixtures/words");
+        assert!(
+            total_words > 0,
+            "discovered fixtures carried zero words in total -- harness regression"
+        );
+        assert!(
+            !all_rows.is_empty(),
+            "harness produced zero rows despite non-empty fixtures/words"
+        );
 
         let dir = out_dir();
         let (csv_path, md_path) = write_artifacts(&all_rows, floor_ns, n, &dir);
@@ -1092,7 +1233,15 @@ mod tests {
             md_path.display()
         );
 
-        assert!(csv_path.is_file(), "CSV artifact must exist: {}", csv_path.display());
-        assert!(md_path.is_file(), "Markdown artifact must exist: {}", md_path.display());
+        assert!(
+            csv_path.is_file(),
+            "CSV artifact must exist: {}",
+            csv_path.display()
+        );
+        assert!(
+            md_path.is_file(),
+            "Markdown artifact must exist: {}",
+            md_path.display()
+        );
     }
 }

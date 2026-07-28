@@ -27,8 +27,7 @@ fn fixture_path() -> std::path::PathBuf {
 
 fn load() -> Grammar {
     let path = fixture_path();
-    let xml = fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let xml = fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     pg_grammar::load(&xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"))
 }
 

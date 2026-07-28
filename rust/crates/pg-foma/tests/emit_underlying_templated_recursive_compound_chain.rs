@@ -130,8 +130,12 @@ fn compile_templated(g: &Grammar) -> (SegAlphabet<'_>, foma::types::Fsm) {
         result.report.tier
     );
     let opts = FomaOptions::default();
-    let net = fsm_lexc_parse_string(&opts, None, &result.lexc_source)
-        .unwrap_or_else(|| panic!("templated lexc failed to foma-compile:\n{}", result.lexc_source));
+    let net = fsm_lexc_parse_string(&opts, None, &result.lexc_source).unwrap_or_else(|| {
+        panic!(
+            "templated lexc failed to foma-compile:\n{}",
+            result.lexc_source
+        )
+    });
     (alphabet, net)
 }
 
@@ -139,7 +143,11 @@ fn compile_templated(g: &Grammar) -> (SegAlphabet<'_>, foma::types::Fsm) {
 /// templated path's own analogue of `FomaProposer::propose`, since `emit_underlying_templated` has
 /// no `FomaProposer`/`FomaAnalyzer` wiring at all (module doc). Bounded raw-result cap + wall-clock
 /// ceiling mirror `p6_templated_morphotactics_gate.rs`'s own `run_spot_check` termination discipline.
-fn propose_templated(alphabet: &SegAlphabet<'_>, net: &foma::types::Fsm, word: &str) -> Vec<Candidate> {
+fn propose_templated(
+    alphabet: &SegAlphabet<'_>,
+    net: &foma::types::Fsm,
+    word: &str,
+) -> Vec<Candidate> {
     const RAW_CAP: usize = 20_000;
     let Some(query) = alphabet.encode_query(word) else {
         return Vec::new();
@@ -183,7 +191,10 @@ fn templated_path_proposes_a_bounded_recursive_compound() {
         .map(|d| d.max_depth)
         .max()
         .unwrap_or(0);
-    assert_eq!(max_depth, 3, "isolated multipleApplication=\"2\" rule must bound at 1 + 2 = 3 stems");
+    assert_eq!(
+        max_depth, 3,
+        "isolated multipleApplication=\"2\" rule must bound at 1 + 2 = 3 stems"
+    );
 
     // Non-vacuity precondition: default max_stem_count (2) must still confirm zero analyses for the
     // 3-root word -- otherwise the raised-cap containment check below would prove nothing.
@@ -225,9 +236,12 @@ fn templated_path_proposes_a_bounded_recursive_compound() {
     );
 
     // Containment: propose must offer the EXACT morpheme sequence the raised-cap oracle confirms.
-    let contained = candidates
-        .iter()
-        .any(|c| c.morphemes.iter().map(|m| m.0).eq(oracle_morphemes.iter().copied()));
+    let contained = candidates.iter().any(|c| {
+        c.morphemes
+            .iter()
+            .map(|m| m.0)
+            .eq(oracle_morphemes.iter().copied())
+    });
     assert!(
         contained,
         "the templated path's proposed candidate set must CONTAIN the oracle's raised-cap analysis \
@@ -254,7 +268,10 @@ fn templated_path_respects_the_depth_bound_never_proposing_k_plus_one_stems() {
         .map(|d| d.max_depth)
         .max()
         .unwrap_or(0);
-    assert_eq!(max_depth, 2, "isolated multipleApplication=\"1\" rule must bound at 1 + 1 = 2 stems");
+    assert_eq!(
+        max_depth, 2,
+        "isolated multipleApplication=\"1\" rule must bound at 1 + 1 = 2 stems"
+    );
 
     let (alphabet, net) = compile_templated(&g);
 

@@ -116,9 +116,7 @@ fn main() {
         let mut proposer = match result {
             Ok(p) => p,
             Err(e) => {
-                println!(
-                    "N={n}: COMPILE FAILED (itself a finding): {e} -- profile: {profile:?}"
-                );
+                println!("N={n}: COMPILE FAILED (itself a finding): {e} -- profile: {profile:?}");
                 continue;
             }
         };

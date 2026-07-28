@@ -120,7 +120,6 @@ fn run_on_foma_lexc_stack(test: fn()) {
         .expect("foma lexc worker thread panicked");
 }
 
-
 fn load_grammar() -> Grammar {
     let path = sample_path("amharic-hc.xml");
     let xml =

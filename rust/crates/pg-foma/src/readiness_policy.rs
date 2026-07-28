@@ -295,8 +295,14 @@ mod tests {
     fn every_seeded_threshold_names_its_calibration_honestly() {
         let policy = policy_v1();
         let calibrations: Vec<(&str, &Calibration)> = vec![
-            ("pack_size_max_bytes", &policy.pack_size_max_bytes.calibration),
-            ("lexicon_min_entries", &policy.lexicon_min_entries.calibration),
+            (
+                "pack_size_max_bytes",
+                &policy.pack_size_max_bytes.calibration,
+            ),
+            (
+                "lexicon_min_entries",
+                &policy.lexicon_min_entries.calibration,
+            ),
             (
                 "coverage_min_analysis_rate",
                 &policy.coverage_min_analysis_rate.calibration,
@@ -327,7 +333,10 @@ mod tests {
         let policy = policy_v1();
         assert!(policy.pack_size_max_bytes.calibration.is_placeholder());
         assert!(policy.lexicon_min_entries.calibration.is_placeholder());
-        assert!(policy.coverage_min_analysis_rate.calibration.is_placeholder());
+        assert!(policy
+            .coverage_min_analysis_rate
+            .calibration
+            .is_placeholder());
     }
 
     /// Gate: the latency thresholds, which DO have real cited evidence behind them, are marked

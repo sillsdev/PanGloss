@@ -649,7 +649,10 @@ mod tests {
         assert!(!Severity::Warning.overridable());
     }
 
-    fn synthetic_finding(severity: Severity, override_record: Option<OverrideRecord>) -> HealthFinding {
+    fn synthetic_finding(
+        severity: Severity,
+        override_record: Option<OverrideRecord>,
+    ) -> HealthFinding {
         HealthFinding {
             code: FindingCode::PayloadSizeBand,
             severity,
@@ -738,7 +741,10 @@ mod tests {
                 "{wire} digits must be numeric"
             );
             assert!(seen.insert(wire), "duplicate finding code {wire}");
-            assert!(!code.meaning().is_empty(), "{wire} must document its meaning");
+            assert!(
+                !code.meaning().is_empty(),
+                "{wire} must document its meaning"
+            );
         }
     }
 
@@ -904,7 +910,10 @@ mod tests {
     fn fst_health_schema_golden_json() {
         let report = representative_report();
         let json = report.to_json().expect("serialization must succeed");
-        assert_eq!(json, GOLDEN_JSON, "canonical JSON drifted from the committed golden");
+        assert_eq!(
+            json, GOLDEN_JSON,
+            "canonical JSON drifted from the committed golden"
+        );
     }
 
     #[test]
@@ -912,7 +921,10 @@ mod tests {
         let report = representative_report();
         let json = report.to_json().expect("serialization must succeed");
         let parsed = HealthReport::from_json(&json).expect("deserialization must succeed");
-        assert_eq!(parsed, report, "round trip through canonical JSON must be lossless");
+        assert_eq!(
+            parsed, report,
+            "round trip through canonical JSON must be lossless"
+        );
         assert_eq!(parsed.admission(), Severity::Warning);
     }
 

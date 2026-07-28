@@ -347,7 +347,11 @@ fn payload_size_finding(bytes: u64) -> Option<HealthFinding> {
 /// "Judgment calls" item 3 for the [`Severity::Warning`]/[`FindingCode::UnknownUnboundedConstruct`]
 /// choice.
 fn partial_tier_finding(report: &EmitReport, uncovered_count: usize) -> HealthFinding {
-    let affected: Vec<String> = report.uncovered.iter().map(|item| item.id.clone()).collect();
+    let affected: Vec<String> = report
+        .uncovered
+        .iter()
+        .map(|item| item.id.clone())
+        .collect();
     HealthFinding {
         code: FindingCode::UnknownUnboundedConstruct,
         severity: Severity::Warning,
@@ -609,9 +613,10 @@ fn apply_budget_trip_finding(trip: &ApplyBudgetTrip) -> HealthFinding {
         ),
         remedies: vec![Remedy {
             rank: 1,
-            description: "Explicitly retry this word alone with a larger caller-selected apply-time \
+            description:
+                "Explicitly retry this word alone with a larger caller-selected apply-time \
                 budget."
-                .to_string(),
+                    .to_string(),
             requires_linguistic_equivalence: false,
             caveat: None,
         }],
@@ -1200,7 +1205,10 @@ mod tests {
             None,
         );
         let json = health.to_json().expect("serialization must succeed");
-        assert_eq!(json, GOLDEN_JSON, "canonical JSON drifted from the committed golden");
+        assert_eq!(
+            json, GOLDEN_JSON,
+            "canonical JSON drifted from the committed golden"
+        );
     }
 
     #[test]
@@ -1229,6 +1237,9 @@ mod tests {
         );
         let json = health.to_json().expect("serialization must succeed");
         let parsed = HealthReport::from_json(&json).expect("deserialization must succeed");
-        assert_eq!(parsed, health, "round trip through canonical JSON must be lossless");
+        assert_eq!(
+            parsed, health,
+            "round trip through canonical JSON must be lossless"
+        );
     }
 }

@@ -109,7 +109,11 @@ fn plan_interaction_coverage_has_no_uncovered_required_tuples() {
          something to silently drop: {:?}",
         report.unexpected_tuples
     );
-    assert_eq!(report.retired.len(), 2, "the two cited orthogonality proofs");
+    assert_eq!(
+        report.retired.len(),
+        2,
+        "the two cited orthogonality proofs"
+    );
 
     let covered_n = report
         .required
@@ -195,8 +199,8 @@ fn gate_group_reordering_agrees_on_every_multi_group_corpus_fixture() {
             continue;
         }
 
-        let (groups, result) = fuzz_gate_group_reordering_for_grammar(&g, &words)
-            .unwrap_or_else(|e| {
+        let (groups, result) =
+            fuzz_gate_group_reordering_for_grammar(&g, &words).unwrap_or_else(|e| {
                 panic!(
                     "{}: both the default plan and its permuted twin must build under an unbounded \
                      budget: {e:?}",

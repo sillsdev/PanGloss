@@ -38,8 +38,7 @@ fn fixture_path() -> std::path::PathBuf {
 
 fn load() -> Grammar {
     let path = fixture_path();
-    let xml = fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let xml = fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     pg_grammar::load(&xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"))
 }
 
@@ -48,7 +47,11 @@ fn load() -> Grammar {
 #[test]
 fn capability_gate_confirm_only_for_shared_representation_across_tables() {
     let g = load();
-    assert_eq!(g.char_tables.len(), 2, "fixture must declare exactly 2 tables");
+    assert_eq!(
+        g.char_tables.len(),
+        2,
+        "fixture must declare exactly 2 tables"
+    );
     assert_eq!(
         evaluate_capability(&g),
         CompileDecision::ConfirmOnly,

@@ -144,9 +144,12 @@ pub fn build_controllable(
     budget: &ComposeBudget,
 ) -> Result<GatedCompileResult, ComposeError> {
     let gate_id = find_gate_node(plan);
-    let PlanNodeKind::Gate { partition, children } = plan
-        .get(gate_id)
-        .unwrap_or_else(|| panic!("find_gate_node returned a NodeId {gate_id} not interned in plan"))
+    let PlanNodeKind::Gate {
+        partition,
+        children,
+    } = plan.get(gate_id).unwrap_or_else(|| {
+        panic!("find_gate_node returned a NodeId {gate_id} not interned in plan")
+    })
     else {
         unreachable!("find_gate_node only ever returns the id of a Gate node")
     };
@@ -191,7 +194,12 @@ pub fn build_controllable(
             ..
         } = emit_underlying_filtered_with_budget(g, alphabet, Some(&entries_set), budget)?;
         skipped_allomorphs.extend(uskipped);
-        group_reports.push((group_key.clone(), root_entries, prefix_entries, suffix_entries));
+        group_reports.push((
+            group_key.clone(),
+            root_entries,
+            prefix_entries,
+            suffix_entries,
+        ));
 
         if root_entries == 0 {
             // Mirrors `compile_gated_grammar_with_budget`'s own doc: an empty group (a gating key
@@ -415,7 +423,9 @@ fn validate_replace_cascade<'a>(
         .get(replace_id)
         .unwrap_or_else(|| panic!("dangling Replace NodeId {replace_id}"))
     else {
-        panic!("expected a Replace node as a gate-group Compose node's second child at {replace_id}");
+        panic!(
+            "expected a Replace node as a gate-group Compose node's second child at {replace_id}"
+        );
     };
     assert_eq!(
         cascade.rules.len(),
@@ -438,7 +448,10 @@ fn validate_replace_cascade<'a>(
              that position -- the caller passed a slice this plan was not built from"
         );
         let PlanNodeKind::Leaf { fragment, .. } = plan.get(children[i]).unwrap_or_else(|| {
-            panic!("dangling RewriteRule Leaf NodeId {} (Replace child {i})", children[i])
+            panic!(
+                "dangling RewriteRule Leaf NodeId {} (Replace child {i})",
+                children[i]
+            )
         }) else {
             panic!("expected a Leaf node as Replace child {i}");
         };

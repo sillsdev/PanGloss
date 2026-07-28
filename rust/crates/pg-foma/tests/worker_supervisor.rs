@@ -20,8 +20,8 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use pg_foma::worker::{
-    run_compile_worker, CompileWorkerOutcome, CompileWorkerRequest, GrammarFormat, V1_WORKER_LIMITS,
-    WatchdogEnvelope, WorkerOutcome,
+    run_compile_worker, CompileWorkerOutcome, CompileWorkerRequest, GrammarFormat,
+    WatchdogEnvelope, WorkerOutcome, V1_WORKER_LIMITS,
 };
 
 /// Serializes every test in this file that mutates process-wide environment variables
@@ -136,7 +136,10 @@ fn normal_compile_succeeds_through_worker_and_matches_in_process_compile() {
 
     let grammar = pg_grammar::load(CLEAN_XML).expect("in-process load must succeed");
     let (in_process_result, profile) = pg_foma::analyzer::FomaProposer::new_with_profile(&grammar);
-    assert!(in_process_result.is_ok(), "in-process compile of the identical grammar must succeed");
+    assert!(
+        in_process_result.is_ok(),
+        "in-process compile of the identical grammar must succeed"
+    );
     assert_eq!(
         worker_states, profile.final_state_count,
         "worker-reported state count must match the in-process compile of the same grammar"
@@ -162,11 +165,8 @@ fn tiny_wall_timeout_is_killed_and_reported_as_timeout_not_crash_or_false_succes
     let path = write_grammar("timeout", CLEAN_XML);
     let request =
         CompileWorkerRequest::new(path.to_string_lossy().into_owned(), GrammarFormat::Xml);
-    let envelope = WatchdogEnvelope::clamped(
-        Duration::from_millis(200),
-        4096,
-        Duration::from_millis(20),
-    );
+    let envelope =
+        WatchdogEnvelope::clamped(Duration::from_millis(200), 4096, Duration::from_millis(20));
 
     let start = Instant::now();
     let outcome = run_compile_worker(&child_exe(), &[], &request, &envelope);
@@ -175,7 +175,10 @@ fn tiny_wall_timeout_is_killed_and_reported_as_timeout_not_crash_or_false_succes
     std::env::remove_var("PANGLOSS_WORKER_TEST_SLEEP_MS");
 
     match &outcome {
-        WorkerOutcome::WallTimeoutKilled { elapsed: reported, limit } => {
+        WorkerOutcome::WallTimeoutKilled {
+            elapsed: reported,
+            limit,
+        } => {
             assert!(*reported >= envelope.wall_timeout);
             assert_eq!(*limit, envelope.wall_timeout);
         }

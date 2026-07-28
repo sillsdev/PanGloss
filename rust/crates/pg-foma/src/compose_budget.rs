@@ -1177,8 +1177,14 @@ mod compose_budget_tests {
         // `with_caps` cannot take a 7th positional argument without breaking every existing call
         // site across this crate (this module's own doc on `with_caps`) -- prove it still leaves
         // chain depth off by default, the same zero-behavior-change guarantee `unbounded()` gives.
-        let budget =
-            ComposeBudget::with_caps(usize::MAX, usize::MAX, usize::MAX, usize::MAX, usize::MAX, None);
+        let budget = ComposeBudget::with_caps(
+            usize::MAX,
+            usize::MAX,
+            usize::MAX,
+            usize::MAX,
+            usize::MAX,
+            None,
+        );
         assert_eq!(budget.chain_depth_cap(), None);
         budget
             .check_chain_depth(usize::MAX, "chain_depth_with_caps_defaults_to_unbounded")
@@ -1189,10 +1195,16 @@ mod compose_budget_tests {
     fn chain_depth_explicit_cap_does_not_trip_at_or_below_limit() {
         let budget = ComposeBudget::unbounded().with_chain_depth_cap(24);
         budget
-            .check_chain_depth(24, "chain_depth_explicit_cap_does_not_trip_at_or_below_limit")
+            .check_chain_depth(
+                24,
+                "chain_depth_explicit_cap_does_not_trip_at_or_below_limit",
+            )
             .expect("depth == cap must be accepted, mirroring every other cap's <= convention");
         budget
-            .check_chain_depth(1, "chain_depth_explicit_cap_does_not_trip_at_or_below_limit")
+            .check_chain_depth(
+                1,
+                "chain_depth_explicit_cap_does_not_trip_at_or_below_limit",
+            )
             .expect("depth well below cap must be accepted");
     }
 
@@ -1218,7 +1230,8 @@ mod compose_budget_tests {
         // Requesting a cap far above the absolute ceiling must clamp down to the ceiling, not
         // accept the requested value verbatim (CONTEXT.md `Absolute resource ceiling`; this
         // module's doc on `CHAIN_DEPTH_ABSOLUTE_CEILING`).
-        let budget = ComposeBudget::unbounded().with_chain_depth_cap(CHAIN_DEPTH_ABSOLUTE_CEILING + 1_000);
+        let budget =
+            ComposeBudget::unbounded().with_chain_depth_cap(CHAIN_DEPTH_ABSOLUTE_CEILING + 1_000);
         assert_eq!(
             budget.chain_depth_cap(),
             Some(CHAIN_DEPTH_ABSOLUTE_CEILING),
@@ -1250,7 +1263,11 @@ mod compose_budget_tests {
             clamp_chain_depth_cap(CHAIN_DEPTH_ABSOLUTE_CEILING + 1_000),
             CHAIN_DEPTH_ABSOLUTE_CEILING
         );
-        assert_eq!(clamp_chain_depth_cap(24), 24, "a cap under the ceiling must pass through unchanged");
+        assert_eq!(
+            clamp_chain_depth_cap(24),
+            24,
+            "a cap under the ceiling must pass through unchanged"
+        );
     }
 
     #[test]
@@ -1276,7 +1293,10 @@ mod compose_budget_tests {
         let budget = ComposeBudget::unbounded();
         assert_eq!(budget.ordering_multiplicity_cap(), None);
         budget
-            .check_ordering_multiplicity(1_000_000, "ordering_multiplicity_unbounded_budget_never_trips")
+            .check_ordering_multiplicity(
+                1_000_000,
+                "ordering_multiplicity_unbounded_budget_never_trips",
+            )
             .expect("unbounded ordering-multiplicity budget must never trip, at any rule count");
     }
 
@@ -1284,11 +1304,20 @@ mod compose_budget_tests {
     fn ordering_multiplicity_with_caps_defaults_to_unbounded() {
         // `with_caps` cannot take an 8th positional argument without breaking every existing call
         // site across this crate -- prove it still leaves this dimension off by default.
-        let budget =
-            ComposeBudget::with_caps(usize::MAX, usize::MAX, usize::MAX, usize::MAX, usize::MAX, None);
+        let budget = ComposeBudget::with_caps(
+            usize::MAX,
+            usize::MAX,
+            usize::MAX,
+            usize::MAX,
+            usize::MAX,
+            None,
+        );
         assert_eq!(budget.ordering_multiplicity_cap(), None);
         budget
-            .check_ordering_multiplicity(usize::MAX, "ordering_multiplicity_with_caps_defaults_to_unbounded")
+            .check_ordering_multiplicity(
+                usize::MAX,
+                "ordering_multiplicity_with_caps_defaults_to_unbounded",
+            )
             .expect("with_caps' default ordering-multiplicity cap must be unbounded");
     }
 
@@ -1296,10 +1325,16 @@ mod compose_budget_tests {
     fn ordering_multiplicity_explicit_cap_does_not_trip_at_or_below_limit() {
         let budget = ComposeBudget::unbounded().with_ordering_multiplicity_cap(6);
         budget
-            .check_ordering_multiplicity(6, "ordering_multiplicity_explicit_cap_does_not_trip_at_or_below_limit")
+            .check_ordering_multiplicity(
+                6,
+                "ordering_multiplicity_explicit_cap_does_not_trip_at_or_below_limit",
+            )
             .expect("rule_count == cap must be accepted");
         budget
-            .check_ordering_multiplicity(2, "ordering_multiplicity_explicit_cap_does_not_trip_at_or_below_limit")
+            .check_ordering_multiplicity(
+                2,
+                "ordering_multiplicity_explicit_cap_does_not_trip_at_or_below_limit",
+            )
             .expect("rule_count well below cap must be accepted");
     }
 
@@ -1307,7 +1342,10 @@ mod compose_budget_tests {
     fn ordering_multiplicity_explicit_cap_trips_one_past_limit() {
         let budget = ComposeBudget::unbounded().with_ordering_multiplicity_cap(6);
         let err = budget
-            .check_ordering_multiplicity(7, "ordering_multiplicity_explicit_cap_trips_one_past_limit")
+            .check_ordering_multiplicity(
+                7,
+                "ordering_multiplicity_explicit_cap_trips_one_past_limit",
+            )
             .expect_err("rule_count == cap + 1 must trip");
         match err {
             ComposeError::OrderingMultiplicityExceeded {
@@ -1317,7 +1355,10 @@ mod compose_budget_tests {
             } => {
                 assert_eq!(rule_count, 7);
                 assert_eq!(limit, 6);
-                assert_eq!(site, "ordering_multiplicity_explicit_cap_trips_one_past_limit");
+                assert_eq!(
+                    site,
+                    "ordering_multiplicity_explicit_cap_trips_one_past_limit"
+                );
             }
             other => panic!("expected OrderingMultiplicityExceeded, got {other:?}"),
         }
@@ -1392,7 +1433,10 @@ mod compose_budget_tests {
 
     #[test]
     fn apply_dimension_label_is_stable_and_distinct() {
-        assert_eq!(ApplyDimension::DecodedPaths.label(), "decoded apply_up paths");
+        assert_eq!(
+            ApplyDimension::DecodedPaths.label(),
+            "decoded apply_up paths"
+        );
         assert_eq!(ApplyDimension::Candidates.label(), "distinct candidates");
         assert_ne!(
             ApplyDimension::DecodedPaths.label(),

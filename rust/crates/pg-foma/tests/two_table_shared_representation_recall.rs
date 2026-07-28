@@ -90,13 +90,27 @@ fn devoice_prule(g: &Grammar) -> &PhonRuleDef {
 #[test]
 fn fixture_shares_a_representation_at_deliberately_misaligned_indices() {
     let g = load();
-    assert_eq!(g.char_tables.len(), 2, "fixture must declare exactly 2 tables");
+    assert_eq!(
+        g.char_tables.len(),
+        2,
+        "fixture must declare exactly 2 tables"
+    );
     let table_a = &g.char_tables[0];
     let table_b = &g.char_tables[1];
-    assert_eq!(table_a.len(), 1, "table A (Inner) must have exactly 1 segment");
-    assert_eq!(table_b.len(), 4, "table B (Outer) must have exactly 4 segments");
+    assert_eq!(
+        table_a.len(),
+        1,
+        "table A (Inner) must have exactly 1 segment"
+    );
+    assert_eq!(
+        table_b.len(),
+        4,
+        "table B (Outer) must have exactly 4 segments"
+    );
     let cd_a_x = table_a.lookup_nfd("x").expect("table A must declare \"x\"");
-    let cd_b_x = table_b.lookup_nfd("x").expect("table B must also declare \"x\"");
+    let cd_b_x = table_b
+        .lookup_nfd("x")
+        .expect("table B must also declare \"x\"");
     assert_ne!(
         cd_a_x.0, cd_b_x.0,
         "\"x\" must sit at a DIFFERENT raw index in each table -- the deliberate misalignment \
@@ -126,7 +140,11 @@ fn pre_fix_equivalent_rule_never_fires_on_table_a_originated_material() {
     // Exactly what pre-fix `render_branch_regex` rendered for an environment-free "ncBx -> ncBy"
     // rule (a singleton Union renders as a bare token, module doc) -- `SegAlphabet::token`, no
     // aliasing, is untouched by this task's fix (still `PUA_BASE + cd.0`).
-    let naive_regex = format!("{} -> {}", alphabet_b.token(cd_b_x), alphabet_b.token(cd_b_y));
+    let naive_regex = format!(
+        "{} -> {}",
+        alphabet_b.token(cd_b_x),
+        alphabet_b.token(cd_b_y)
+    );
     let naive_net = fsm_parse_regex(&opts, &naive_regex, None, None)
         .unwrap_or_else(|| panic!("naive regex must compile: {naive_regex:?}"));
 
@@ -173,7 +191,14 @@ fn current_compile_fires_on_table_a_originated_material() {
     let alphabet_a = SegAlphabet::new(table_a);
     let alphabet_b = SegAlphabet::new(table_b);
     let opts = FomaOptions::default();
-    let budget = ComposeBudget::with_caps(usize::MAX, usize::MAX, usize::MAX, usize::MAX, usize::MAX, None);
+    let budget = ComposeBudget::with_caps(
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        None,
+    );
 
     let cd_a_x = table_a.lookup_nfd("x").unwrap();
     let cd_b_y = table_b.lookup_nfd("y").unwrap();
@@ -192,7 +217,10 @@ fn current_compile_fires_on_table_a_originated_material() {
     )
     .unwrap_or_else(|e| panic!("prXtoY compile must not hit any budget: {e}"))
     .expect("prXtoY must compile to Some(net)");
-    assert!(skipped.is_empty(), "prXtoY must not be reported skipped: {skipped:?}");
+    assert!(
+        skipped.is_empty(),
+        "prXtoY must not be reported skipped: {skipped:?}"
+    );
 
     let mut h = apply_init(&rule_net);
     let table_a_x_text = alphabet_a.token(cd_a_x).to_string();
@@ -216,7 +244,14 @@ fn fst_propose_confirm_matches_oracle_across_the_table_boundary() {
     let table_b = &g.char_tables[1];
     let alphabet_b = SegAlphabet::new(table_b);
     let opts = FomaOptions::default();
-    let budget = ComposeBudget::with_caps(usize::MAX, usize::MAX, usize::MAX, usize::MAX, usize::MAX, None);
+    let budget = ComposeBudget::with_caps(
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        None,
+    );
 
     let entry_root1 = entry_id_of(&g, "eRoot1");
     let entry_root2 = entry_id_of(&g, "eRoot2");
@@ -229,7 +264,11 @@ fn fst_propose_confirm_matches_oracle_across_the_table_boundary() {
     entries.insert(entry_root2);
     let uemit = emit_underlying_filtered_with_budget(&g, &alphabet_b, Some(&entries), &budget)
         .unwrap_or_else(|e| panic!("lexc emission must not hit any budget: {e}"));
-    assert!(uemit.skipped.is_empty(), "no allomorph should be skipped: {:?}", uemit.skipped);
+    assert!(
+        uemit.skipped.is_empty(),
+        "no allomorph should be skipped: {:?}",
+        uemit.skipped
+    );
     let lexc_net = fsm_lexc_parse_string(&opts, None, &uemit.lexc_source)
         .unwrap_or_else(|| panic!("lexc must compile:\n{}", uemit.lexc_source));
 
@@ -298,22 +337,38 @@ fn fst_propose_confirm_matches_oracle_across_the_table_boundary() {
     // matches), so ROOT1's own raw, undevoiced spelling must never be a valid surface form.
     // Neither the oracle nor the FST proposes anything for it.
     let oracle_x = oracle_candidates("x");
-    assert!(oracle_x.is_empty(), "ROOT1's raw (undevoiced) spelling must have no oracle analysis");
+    assert!(
+        oracle_x.is_empty(),
+        "ROOT1's raw (undevoiced) spelling must have no oracle analysis"
+    );
     let fst_x = fst_candidates("x");
-    assert_eq!(fst_x, oracle_x, "CONTAINMENT: FST and oracle must agree \"x\" has no analysis");
+    assert_eq!(
+        fst_x, oracle_x,
+        "CONTAINMENT: FST and oracle must agree \"x\" has no analysis"
+    );
 
     // --- "z": table B's own decoy segment, unattached to anything -- a plain negative control.
     let oracle_z = oracle_candidates("z");
     assert!(oracle_z.is_empty(), "\"z\" must have no oracle analysis");
     let fst_z = fst_candidates("z");
-    assert_eq!(fst_z, oracle_z, "CONTAINMENT: FST and oracle must agree \"z\" has no analysis");
+    assert_eq!(
+        fst_z, oracle_z,
+        "CONTAINMENT: FST and oracle must agree \"z\" has no analysis"
+    );
 
     // --- "q": ROOT2 (Outer stratum, table B), same-table, unaffected by the rule -- a positive
     // control proving ordinary same-table recall is untouched by the aliasing fix.
     let fst_q = fst_candidates("q");
     let oracle_q = oracle_candidates("q");
-    assert_eq!(oracle_q.len(), 1, "oracle must find exactly one analysis (ROOT2) for \"q\"");
-    assert_eq!(fst_q, oracle_q, "CONTAINMENT: FST and oracle must agree on \"q\"");
+    assert_eq!(
+        oracle_q.len(),
+        1,
+        "oracle must find exactly one analysis (ROOT2) for \"q\""
+    );
+    assert_eq!(
+        fst_q, oracle_q,
+        "CONTAINMENT: FST and oracle must agree on \"q\""
+    );
 }
 
 /// Design item 4 (`encode_shape`/`encode_query` must not alias): the SAME `SegAlphabet` API this

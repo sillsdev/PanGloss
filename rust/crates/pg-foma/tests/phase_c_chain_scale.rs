@@ -80,7 +80,11 @@ fn chain_recall_parity_via_generator_and_oracle() {
 
     let chain = rendered.chain.as_ref().expect("chain_rule_count > 0");
     assert_eq!(chain.rule_xml_ids.len(), 5);
-    assert_eq!(g.templates.len(), 0, "chain rules are standalone, never template-wrapped");
+    assert_eq!(
+        g.templates.len(),
+        0,
+        "chain rules are standalone, never template-wrapped"
+    );
     let affix_process_rules = g
         .mrules
         .iter()
@@ -123,7 +127,8 @@ fn chain_recall_parity_via_generator_and_oracle() {
         .unwrap_or_else(|| panic!("emitted lexc must compile:\n{}", emit_result.lexc_source));
     assert_net_size_within(&net, 500, 2_000);
 
-    let morpher = Morpher::new(&g, oracle_opts.step_cap).with_word_timeout(oracle_opts.word_timeout);
+    let morpher =
+        Morpher::new(&g, oracle_opts.step_cap).with_word_timeout(oracle_opts.word_timeout);
     let popts = ParseOptions::default();
     let width = pg_foma::tags::tag_width(g.morphemes.len());
     let tag_sequences_for = |surface: &str| -> Vec<Vec<String>> {
@@ -164,7 +169,10 @@ fn chain_recall_parity_via_generator_and_oracle() {
             missed.push(w.surface.clone());
         }
     }
-    assert!(missed.is_empty(), "100% recall required; missed: {missed:?}");
+    assert!(
+        missed.is_empty(),
+        "100% recall required; missed: {missed:?}"
+    );
 
     let p99 = per_word_p99(&words, |w| {
         let normalized = pg_grammar::nfd::nfd(&w.surface);
@@ -172,7 +180,10 @@ fn chain_recall_parity_via_generator_and_oracle() {
             let _ = recall_reachable(&net, &normalized, &tags);
         }
     });
-    assert!(p99 < Duration::from_millis(50), "per-word p99 {p99:?} exceeds the trip-wire");
+    assert!(
+        p99 < Duration::from_millis(50),
+        "per-word p99 {p99:?} exceeds the trip-wire"
+    );
 }
 
 /// (b) Resource envelope AND apply-time behavior at Aweti's REAL per-zone scale (`N = 24`, this

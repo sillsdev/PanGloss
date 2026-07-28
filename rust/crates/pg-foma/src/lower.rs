@@ -750,11 +750,7 @@ pub(crate) fn render_slots(
                 );
                 alphabet.token(*cd).to_string()
             }
-            Slot::Repeat {
-                min,
-                max,
-                children,
-            } => {
+            Slot::Repeat { min, max, children } => {
                 // Recurses into `render_slots` for `children` -- the SAME rendering, same PUA-token
                 // space, same load-bearing space-separation rule this whole function's own doc
                 // already establishes; no second text-rendering path, for either arm below.
@@ -1423,8 +1419,14 @@ mod tests {
         let table = &g.char_tables[0];
         let rule = quantifier_probe_rule(&g, "prUnboundedMinZero");
         let mut next_occurrence = 0usize;
-        let slots = pattern_slots(&g, table, &rule.lhs, &mut next_occurrence, PatternLowerScope::Baseline)
-            .expect("a well-formed unbounded (min=0), alpha-free quantifier must now lower");
+        let slots = pattern_slots(
+            &g,
+            table,
+            &rule.lhs,
+            &mut next_occurrence,
+            PatternLowerScope::Baseline,
+        )
+        .expect("a well-formed unbounded (min=0), alpha-free quantifier must now lower");
         assert_eq!(slots.len(), 1);
         match &slots[0] {
             Slot::Repeat { min, max, .. } => {
@@ -1466,7 +1468,14 @@ mod tests {
         let rule = quantifier_probe_rule(&g, "prInvertedFinite");
         let mut next_occurrence = 0usize;
         assert!(
-            pattern_slots(&g, table, &rule.lhs, &mut next_occurrence, PatternLowerScope::Baseline).is_none(),
+            pattern_slots(
+                &g,
+                table,
+                &rule.lhs,
+                &mut next_occurrence,
+                PatternLowerScope::Baseline
+            )
+            .is_none(),
             "min=5 > max=2 (both concrete) must stay refused"
         );
     }
@@ -1481,7 +1490,14 @@ mod tests {
         let rule = quantifier_probe_rule(&g, "prOverBudgetFinite");
         let mut next_occurrence = 0usize;
         assert!(
-            pattern_slots(&g, table, &rule.lhs, &mut next_occurrence, PatternLowerScope::Baseline).is_none(),
+            pattern_slots(
+                &g,
+                table,
+                &rule.lhs,
+                &mut next_occurrence,
+                PatternLowerScope::Baseline
+            )
+            .is_none(),
             "max=600 exceeds MAX_QUANTIFIER_BOUND=512 -- must stay refused, never silently clamped"
         );
     }
@@ -1496,7 +1512,14 @@ mod tests {
         let rule = quantifier_probe_rule(&g, "prAlphaNestedUnbounded");
         let mut next_occurrence = 0usize;
         assert!(
-            pattern_slots(&g, table, &rule.lhs, &mut next_occurrence, PatternLowerScope::Baseline).is_none(),
+            pattern_slots(
+                &g,
+                table,
+                &rule.lhs,
+                &mut next_occurrence,
+                PatternLowerScope::Baseline
+            )
+            .is_none(),
             "an AlphaVariable occurrence inside a quantifier's own children is out of scope \
              regardless of whether the quantifier itself is bounded or unbounded"
         );
@@ -1585,7 +1608,11 @@ mod tests {
             values: std::collections::HashMap::new(),
         };
         let text = render_slots(&alphabet, &slots, &asg);
-        assert_eq!(text, format!("[{tok}]*"), "min=0 or more must render as a plain Kleene star");
+        assert_eq!(
+            text,
+            format!("[{tok}]*"),
+            "min=0 or more must render as a plain Kleene star"
+        );
 
         let net = fsm_parse_regex(&opts, &text, None, None)
             .expect("rendered unbounded-quantifier text must compile");
@@ -1594,11 +1621,23 @@ mod tests {
         let two = format!("{tok}{tok}");
 
         let mut h = apply_init(&net);
-        assert_eq!(apply_up(&mut h, Some(&zero)), Some(zero.clone()), "0 occurrences must match");
+        assert_eq!(
+            apply_up(&mut h, Some(&zero)),
+            Some(zero.clone()),
+            "0 occurrences must match"
+        );
         let mut h = apply_init(&net);
-        assert_eq!(apply_up(&mut h, Some(&one)), Some(one.clone()), "1 occurrence must match");
+        assert_eq!(
+            apply_up(&mut h, Some(&one)),
+            Some(one.clone()),
+            "1 occurrence must match"
+        );
         let mut h = apply_init(&net);
-        assert_eq!(apply_up(&mut h, Some(&two)), Some(two.clone()), "2 occurrences must match");
+        assert_eq!(
+            apply_up(&mut h, Some(&two)),
+            Some(two.clone()),
+            "2 occurrences must match"
+        );
     }
 
     /// Cross-table representation aliasing (`docs/conformance/multitable-shared-representation-
@@ -1631,10 +1670,14 @@ mod tests {
         let cd_a_x = table_a.lookup_nfd("x").unwrap();
         let cd_b_x = table_b.lookup_nfd("x").unwrap();
         let cd_b_y = table_b.lookup_nfd("y").unwrap();
-        assert_ne!(cd_a_x.0, cd_b_x.0, "the fixture's own misalignment must hold");
+        assert_ne!(
+            cd_a_x.0, cd_b_x.0,
+            "the fixture's own misalignment must hold"
+        );
 
         let alias_map = crate::replace::RepresentationAliasMap::build(&g);
-        let aliased = SegAlphabet::with_table_id(table_b, pg_grammar::model::TableId(1), &alias_map);
+        let aliased =
+            SegAlphabet::with_table_id(table_b, pg_grammar::model::TableId(1), &alias_map);
         let bare = SegAlphabet::new(table_b);
         let asg = AlphaAssignment {
             values: std::collections::HashMap::new(),

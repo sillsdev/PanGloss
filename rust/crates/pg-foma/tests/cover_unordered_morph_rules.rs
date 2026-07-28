@@ -320,7 +320,10 @@ fn same_rule_reapplication_is_over_proposed_and_confirm_pruned() {
 
     for word in ["kpp", "kqq"] {
         let outcome = assert_confirm_matches_oracle(&mut analyzer, &morpher, word, false);
-        assert_eq!(outcome.confirmed, 0, "{word} must confirm zero analyses (max_apps = 1)");
+        assert_eq!(
+            outcome.confirmed, 0,
+            "{word} must confirm zero analyses (max_apps = 1)"
+        );
         assert!(
             outcome.candidates_generated > 0,
             "the FST proposer must still PROPOSE {word} (build_deriv_chain never checks \

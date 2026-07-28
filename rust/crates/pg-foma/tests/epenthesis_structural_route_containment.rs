@@ -223,7 +223,10 @@ fn epenthesis_over_propose_confirm_prune_matches_oracle_exactly() {
         correct.candidates_generated > 0,
         "xey (root x + suffix y, epenthesis fired) must be proposed"
     );
-    assert_eq!(correct.confirmed, 1, "xey must confirm to exactly one analysis");
+    assert_eq!(
+        correct.confirmed, 1,
+        "xey must confirm to exactly one analysis"
+    );
 
     let raw = assert_confirm_matches_oracle(&mut analyzer, &morpher, "xy", false);
     assert!(
@@ -242,5 +245,8 @@ fn epenthesis_over_propose_confirm_prune_matches_oracle_exactly() {
     // no cascade concern) must also round-trip, as a positive control that the fixture's own root
     // is independently well-formed.
     let bare = assert_confirm_matches_oracle(&mut analyzer, &morpher, "x", true);
-    assert_eq!(bare.confirmed, 1, "bare root 'x' must confirm to exactly one analysis");
+    assert_eq!(
+        bare.confirmed, 1,
+        "bare root 'x' must confirm to exactly one analysis"
+    );
 }

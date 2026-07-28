@@ -631,17 +631,16 @@ pub fn build_ledger(
                 CoverageStatus::Unmappable
             } else {
                 use crate::conformance_coverage::EvidenceRequirement;
-                let is_evidenced = match crate::conformance_coverage::evidence_requirement_for(
-                    disposition,
-                ) {
-                    EvidenceRequirement::PassingFixture => construct_ids_static
-                        .iter()
-                        .any(|c| passing_covered_constructs.contains(c)),
-                    EvidenceRequirement::RefusalWitness => matches!(
-                        &containment,
-                        Some(ev) if ev.kind == ContainmentEvidenceKind::RefusalWitness
-                    ),
-                };
+                let is_evidenced =
+                    match crate::conformance_coverage::evidence_requirement_for(disposition) {
+                        EvidenceRequirement::PassingFixture => construct_ids_static
+                            .iter()
+                            .any(|c| passing_covered_constructs.contains(c)),
+                        EvidenceRequirement::RefusalWitness => matches!(
+                            &containment,
+                            Some(ev) if ev.kind == ContainmentEvidenceKind::RefusalWitness
+                        ),
+                    };
                 if is_evidenced {
                     CoverageStatus::Covered
                 } else {
@@ -919,7 +918,10 @@ mod tests {
             .to_json()
             .expect("serialization must succeed");
         std::fs::write(
-            concat!(env!("CARGO_MANIFEST_DIR"), "/src/coverage_ledger_golden.json"),
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/src/coverage_ledger_golden.json"
+            ),
             json,
         )
         .expect("golden must be writable");

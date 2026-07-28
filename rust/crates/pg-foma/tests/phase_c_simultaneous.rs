@@ -104,9 +104,21 @@ fn oracle_candidate_set(
 /// Compiles `rule` (stratum 0's own table) via [`compile_and_compose_rules_with_budget`], composes
 /// it after `lexc_source`, and minimizes -- the shared plumbing every containment witness below
 /// uses (`tests/phase_c_right_to_left.rs`'s own `compile_net`, reused verbatim).
-fn compile_net(g: &Grammar, alphabet: &SegAlphabet, rule: &PhonRuleDef, lexc_source: &str) -> foma::types::Fsm {
+fn compile_net(
+    g: &Grammar,
+    alphabet: &SegAlphabet,
+    rule: &PhonRuleDef,
+    lexc_source: &str,
+) -> foma::types::Fsm {
     let opts = FomaOptions::default();
-    let budget = ComposeBudget::with_caps(usize::MAX, usize::MAX, usize::MAX, usize::MAX, usize::MAX, None);
+    let budget = ComposeBudget::with_caps(
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        None,
+    );
     let lexc_net = fsm_lexc_parse_string(&opts, None, lexc_source)
         .unwrap_or_else(|| panic!("lexc must compile:\n{lexc_source}"));
     let mut skipped = Vec::new();
@@ -198,7 +210,14 @@ fn sim_trivial_lone_subrule_now_compiles() {
     let alphabet = SegAlphabet::new(table);
     let opts = FomaOptions::default();
     let ro = rules_in_order(&g);
-    let budget = ComposeBudget::with_caps(usize::MAX, usize::MAX, usize::MAX, usize::MAX, usize::MAX, None);
+    let budget = ComposeBudget::with_caps(
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        None,
+    );
 
     let mut skipped = Vec::new();
     let mut tuple_reports = Vec::new();
@@ -349,7 +368,14 @@ fn sim_nonoverlap_env_now_compiles_and_matches_oracle_exactly() {
     .into_iter()
     .collect();
 
-    let budget = ComposeBudget::with_caps(usize::MAX, usize::MAX, usize::MAX, usize::MAX, usize::MAX, None);
+    let budget = ComposeBudget::with_caps(
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        None,
+    );
     let entries: HashSet<LexEntryId> = [entry_pi, entry_pu].into_iter().collect();
     let uemit = emit_underlying_filtered_with_budget(&g, &alphabet, Some(&entries), &budget)
         .unwrap_or_else(|e| panic!("lexc emission must not hit any budget: {e}"));
@@ -362,23 +388,46 @@ fn sim_nonoverlap_env_now_compiles_and_matches_oracle_exactly() {
     let query_bi = alphabet.encode_query("bi").expect("'bi' must segment");
     let fst_bi = fst_candidate_set(&net, &query_bi);
     let oracle_bi = oracle_candidate_set(&morpher, "bi", &allowed);
-    assert_eq!(oracle_bi.len(), 1, "oracle must recall entryPI for 'bi': {oracle_bi:?}");
-    assert_eq!(fst_bi, oracle_bi, "CONTAINMENT for 'bi' (subrule 1, Front environment)");
+    assert_eq!(
+        oracle_bi.len(),
+        1,
+        "oracle must recall entryPI for 'bi': {oracle_bi:?}"
+    );
+    assert_eq!(
+        fst_bi, oracle_bi,
+        "CONTAINMENT for 'bi' (subrule 1, Front environment)"
+    );
 
     // "du": entryPU's own surface after obligatory subrule-2 rewrite ('p' before Back 'u' -> 'd').
     let query_du = alphabet.encode_query("du").expect("'du' must segment");
     let fst_du = fst_candidate_set(&net, &query_du);
     let oracle_du = oracle_candidate_set(&morpher, "du", &allowed);
-    assert_eq!(oracle_du.len(), 1, "oracle must recall entryPU for 'du': {oracle_du:?}");
-    assert_eq!(fst_du, oracle_du, "CONTAINMENT for 'du' (subrule 2, Back environment)");
-    assert_ne!(fst_bi, fst_du, "'bi' and 'du' must decode to DISTINCT roots");
+    assert_eq!(
+        oracle_du.len(),
+        1,
+        "oracle must recall entryPU for 'du': {oracle_du:?}"
+    );
+    assert_eq!(
+        fst_du, oracle_du,
+        "CONTAINMENT for 'du' (subrule 2, Back environment)"
+    );
+    assert_ne!(
+        fst_bi, fst_du,
+        "'bi' and 'du' must decode to DISTINCT roots"
+    );
 
     // The raw, un-rewritten spellings must never surface (both subrules are obligatory wherever
     // their own environment holds, and every occurrence of the target class here has one).
     let oracle_pi_raw = oracle_candidate_set(&morpher, "pi", &allowed);
-    assert!(oracle_pi_raw.is_empty(), "'pi' (obligatorily rewritten) must have no oracle analysis");
+    assert!(
+        oracle_pi_raw.is_empty(),
+        "'pi' (obligatorily rewritten) must have no oracle analysis"
+    );
     let oracle_pu_raw = oracle_candidate_set(&morpher, "pu", &allowed);
-    assert!(oracle_pu_raw.is_empty(), "'pu' (obligatorily rewritten) must have no oracle analysis");
+    assert!(
+        oracle_pu_raw.is_empty(),
+        "'pu' (obligatorily rewritten) must have no oracle analysis"
+    );
 }
 
 // =================================================================================================
@@ -461,7 +510,14 @@ fn sim_overlap_env_stays_honest_unsupported() {
         .iter()
         .map(|&id| &g.prules[id.0 as usize])
         .collect();
-    let budget = ComposeBudget::with_caps(usize::MAX, usize::MAX, usize::MAX, usize::MAX, usize::MAX, None);
+    let budget = ComposeBudget::with_caps(
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        None,
+    );
 
     let mut skipped = Vec::new();
     let mut tuple_reports = Vec::new();
@@ -486,5 +542,8 @@ fn sim_overlap_env_stays_honest_unsupported() {
         composed.is_none(),
         "zero compilable rules -- the cascade must be a no-op, never a wrong network"
     );
-    assert!(tuple_reports.is_empty(), "a skipped rule contributes no alpha-tuple report");
+    assert!(
+        tuple_reports.is_empty(),
+        "a skipped rule contributes no alpha-tuple report"
+    );
 }

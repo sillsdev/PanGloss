@@ -38,7 +38,9 @@ fn recipe(entries: usize, circumfix_count: usize) -> Recipe {
 }
 
 fn main() {
-    println!("=== large_cascade_scale_probe: roots x circumfix-rules composite-cascade scale ===\n");
+    println!(
+        "=== large_cascade_scale_probe: roots x circumfix-rules composite-cascade scale ===\n"
+    );
 
     // (entries, circumfix_count) pairs -- both axes of the "roots x rules" product Fix 1's own
     // motivating case names. Capped at entries=24 (table_count=1 needs entries+2 <= 26 distinct

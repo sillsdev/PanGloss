@@ -236,11 +236,17 @@ pub enum CheckValue {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case")]
 pub enum CheckOutcome {
-    Pass { measured: CheckValue },
-    Fail { measured: CheckValue },
+    Pass {
+        measured: CheckValue,
+    },
+    Fail {
+        measured: CheckValue,
+    },
     /// No measurement exists to compare (no corpus, no artifact, or the below-floor measurement
     /// is too coarse relative to the threshold to resolve a call). Never rendered as a pass.
-    NotAssessed { reason: String },
+    NotAssessed {
+        reason: String,
+    },
     /// This artifact's trust status is [`TrustStatus::Overridden`] -- rule 1 forces every check to
     /// this outcome, never `Pass`, regardless of the underlying measured value (still recorded,
     /// for transparency, but never presented as passing).
@@ -856,8 +862,7 @@ mod tests {
     /// This is the gate that proves rule 1 is not vacuously satisfied by some other reason the
     /// grammar would have failed to certify anyway.
     #[test]
-    fn override_forces_not_supported_and_blocks_every_check_even_when_everything_else_would_pass()
-    {
+    fn override_forces_not_supported_and_blocks_every_check_even_when_everything_else_would_pass() {
         let g = load(ADMIT_XML);
         let policy = policy_v1();
         let measurements = passing_measurements(&policy);
@@ -903,7 +908,10 @@ mod tests {
             "no threshold result may be presented as passing when the artifact is overridden"
         );
         assert!(
-            overridden_report.notes.iter().any(|n| n.contains("ADR-0005")),
+            overridden_report
+                .notes
+                .iter()
+                .any(|n| n.contains("ADR-0005")),
             "the report must state the override is why: {:?}",
             overridden_report.notes
         );
@@ -1024,7 +1032,9 @@ mod tests {
         let policy = policy_v1();
         let mut measurements = passing_measurements(&policy);
         // A pathologically coarse floor, well above even the loosest threshold.
-        measurements.latency_p50 = LatencyMeasurement::BelowFloor { floor_ms: 1_000_000.0 };
+        measurements.latency_p50 = LatencyMeasurement::BelowFloor {
+            floor_ms: 1_000_000.0,
+        };
         let report = certify(&g, &TrustStatus::Proven, Some(&measurements), &policy);
         let p50 = report
             .checks
@@ -1099,10 +1109,12 @@ mod tests {
                 this test's own computation after a reviewed, deliberate change to this module's \
                 schema or the golden fixture's inputs"]
     fn regenerate_readiness_verdict_golden_json() {
-        let json = golden_report()
-            .to_canonical_json();
+        let json = golden_report().to_canonical_json();
         std::fs::write(
-            concat!(env!("CARGO_MANIFEST_DIR"), "/src/readiness_verdict_golden.json"),
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/src/readiness_verdict_golden.json"
+            ),
             json,
         )
         .expect("golden must be writable");

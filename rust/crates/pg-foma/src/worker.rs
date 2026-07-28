@@ -154,11 +154,11 @@ pub struct WorkerLimits {
 /// framing itself against a hostile/malformed peer, not the compile work the framed message
 /// describes (that is [`ComposeBudget`]'s job, checked separately, inside the child).
 pub const V1_WORKER_LIMITS: WorkerLimits = WorkerLimits {
-    max_request_bytes: 4 * 1024 * 1024,           // 4 MiB
-    max_result_bytes: 16 * 1024 * 1024,           // 16 MiB
-    max_captured_stderr_bytes: 4 * 1024 * 1024,   // 4 MiB
-    max_wall_timeout_ms: 24 * 60 * 60 * 1000,     // 24h emergency ceiling
-    max_rss_limit_mb: 256 * 1024,                 // 256 GiB emergency ceiling
+    max_request_bytes: 4 * 1024 * 1024,         // 4 MiB
+    max_result_bytes: 16 * 1024 * 1024,         // 16 MiB
+    max_captured_stderr_bytes: 4 * 1024 * 1024, // 4 MiB
+    max_wall_timeout_ms: 24 * 60 * 60 * 1000,   // 24h emergency ceiling
+    max_rss_limit_mb: 256 * 1024,               // 256 GiB emergency ceiling
     min_rss_sample_interval_ms: 10,
 };
 
@@ -184,7 +184,10 @@ pub enum FrameError {
     Io(io::Error),
     /// The declared frame length exceeds this protocol version's limit -- returned BEFORE any
     /// buffer of that size is allocated (see [`read_frame`]'s own doc).
-    LengthExceedsLimit { declared: u64, limit: u64 },
+    LengthExceedsLimit {
+        declared: u64,
+        limit: u64,
+    },
     /// The frame body's bytes did not parse as valid UTF-8 JSON matching the expected type.
     Json(String),
 }
@@ -223,7 +226,10 @@ fn read_frame<R: Read>(r: &mut R, max_len: u64) -> Result<Vec<u8>, FrameError> {
     r.read_exact(&mut len_buf).map_err(FrameError::Io)?;
     let len = u64::from_le_bytes(len_buf);
     if len > max_len {
-        return Err(FrameError::LengthExceedsLimit { declared: len, limit: max_len });
+        return Err(FrameError::LengthExceedsLimit {
+            declared: len,
+            limit: max_len,
+        });
     }
     // Only allocated AFTER the ceiling check above has passed.
     let mut buf = vec![0u8; len as usize];
@@ -365,11 +371,17 @@ pub enum CompileWorkerOutcome {
     /// ([`crate::analyzer::FomaError::EnumerationBudgetExceeded`] does not expose its originating
     /// `EmitReport` through this crate's public API, so that variant's `health` is empty; `detail`
     /// still carries the complete typed information).
-    BudgetTripped { detail: String, health: HealthReport },
+    BudgetTripped {
+        detail: String,
+        health: HealthReport,
+    },
     /// The emitted lexc source itself failed to compile
     /// ([`crate::analyzer::FomaError::LexcCompileFailed`]) -- a grammar-content/emitter gap, not a
     /// resource budget.
-    CompileFailed { detail: String, health: HealthReport },
+    CompileFailed {
+        detail: String,
+        health: HealthReport,
+    },
     /// The named grammar file could not be read, parsed, or compiled into a [`pg_grammar::model::
     /// Grammar`] at all (mirrors `pg-cli::load_grammar`'s own error shape).
     GrammarLoadFailed { detail: String },
@@ -672,7 +684,10 @@ pub enum WorkerOutcome {
     },
     /// Captured stdout or stderr reached its byte cap; the child was killed (R2: "Worker request
     /// bytes, result bytes, stdout, stderr... SHALL have versioned limits enforced by the parent").
-    OutputLimitExceeded { stream: OutputStream, limit_bytes: u64 },
+    OutputLimitExceeded {
+        stream: OutputStream,
+        limit_bytes: u64,
+    },
     /// The child process exited (crashed, was signaled, or otherwise terminated abnormally --
     /// panic-as-abort, stack overflow, allocator OOM abort, being killed by something other than
     /// this supervisor) without ever producing one valid result frame. `detail` names the observed
@@ -758,24 +773,25 @@ impl WorkerOutcome {
                 remedies: Vec::new(),
                 override_record: None,
             }]),
-            WorkerOutcome::OutputLimitExceeded { stream, limit_bytes } => {
-                HealthReport::new(vec![HealthFinding {
-                    code: FindingCode::ResourceBudgetReached,
-                    severity: Severity::Critical,
-                    phase: Phase::Compile,
-                    affected: Vec::new(),
-                    metric: Metric::UnknownUnboundedWork,
-                    value: MetricValue::Bytes(*limit_bytes),
-                    provenance: ValueProvenance::Observed,
-                    threshold: Some(MetricValue::Bytes(*limit_bytes)),
-                    explanation: format!(
-                        "The compile worker process was killed after its captured {stream:?} \
+            WorkerOutcome::OutputLimitExceeded {
+                stream,
+                limit_bytes,
+            } => HealthReport::new(vec![HealthFinding {
+                code: FindingCode::ResourceBudgetReached,
+                severity: Severity::Critical,
+                phase: Phase::Compile,
+                affected: Vec::new(),
+                metric: Metric::UnknownUnboundedWork,
+                value: MetricValue::Bytes(*limit_bytes),
+                provenance: ValueProvenance::Observed,
+                threshold: Some(MetricValue::Bytes(*limit_bytes)),
+                explanation: format!(
+                    "The compile worker process was killed after its captured {stream:?} \
                          output reached the {limit_bytes}-byte protocol limit."
-                    ),
-                    remedies: Vec::new(),
-                    override_record: None,
-                }])
-            }
+                ),
+                remedies: Vec::new(),
+                override_record: None,
+            }]),
             WorkerOutcome::ChildCrashed { detail } => HealthReport::new(vec![HealthFinding {
                 code: FindingCode::ResourceBudgetReached,
                 severity: Severity::Critical,
@@ -856,7 +872,10 @@ fn spawn_capped_reader<R: Read + Send + 'static>(
 /// this is the "already accumulated by a reader thread" sibling of that function.
 fn parse_result_frame(buf: &[u8]) -> Result<CompileWorkerResult, String> {
     if buf.len() < 8 {
-        return Err(format!("only {} byte(s), too short for a length prefix", buf.len()));
+        return Err(format!(
+            "only {} byte(s), too short for a length prefix",
+            buf.len()
+        ));
     }
     let len = u64::from_le_bytes(buf[0..8].try_into().expect("checked length above"));
     let limits = V1_WORKER_LIMITS;
@@ -893,10 +912,7 @@ fn classify_exit(
     status: io::Result<ExitStatus>,
     stdout_buf: &Arc<Mutex<Vec<u8>>>,
 ) -> WorkerOutcome {
-    let buf = stdout_buf
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clone();
+    let buf = stdout_buf.lock().unwrap_or_else(|e| e.into_inner()).clone();
     match parse_result_frame(&buf) {
         Ok(result) => WorkerOutcome::Completed(result.outcome),
         Err(parse_err) => match status {
@@ -907,7 +923,9 @@ fn classify_exit(
                 ),
             },
             Ok(status) => WorkerOutcome::ChildCrashed {
-                detail: format!("child exited with {status:?}; no valid result frame ({parse_err})"),
+                detail: format!(
+                    "child exited with {status:?}; no valid result frame ({parse_err})"
+                ),
             },
             Err(wait_err) => WorkerOutcome::ChildCrashed {
                 detail: format!(
@@ -1152,8 +1170,10 @@ mod tests {
     fn call_child(request_bytes: &[u8]) -> CompileWorkerResult {
         let mut input = std::io::Cursor::new(request_bytes.to_vec());
         let mut output = Vec::new();
-        run_worker_child(&mut input, &mut output).expect("run_worker_child must not I/O-error \
-            against in-memory buffers");
+        run_worker_child(&mut input, &mut output).expect(
+            "run_worker_child must not I/O-error \
+            against in-memory buffers",
+        );
         let len = u64::from_le_bytes(output[0..8].try_into().unwrap()) as usize;
         serde_json::from_slice(&output[8..8 + len]).expect("result must deserialize")
     }
@@ -1282,7 +1302,10 @@ mod tests {
             CompileWorkerOutcome::BudgetTripped { detail, health } => {
                 assert!(detail.contains("ordering-multiplicity"), "detail: {detail}");
                 assert_eq!(health.admission(), Severity::Critical);
-                assert!(health.findings.iter().any(|f| f.metric == Metric::OrderingRuleCount));
+                assert!(health
+                    .findings
+                    .iter()
+                    .any(|f| f.metric == Metric::OrderingRuleCount));
             }
             other => panic!("expected BudgetTripped, got {other:?}"),
         }
@@ -1387,7 +1410,10 @@ mod tests {
         let mut sys = sysinfo::System::new();
         let pid = sysinfo::Pid::from_u32(std::process::id());
         let sampled = sample_rss_mb(&mut sys, pid);
-        assert!(sampled.is_some(), "must find this running process's own PID");
+        assert!(
+            sampled.is_some(),
+            "must find this running process's own PID"
+        );
     }
 
     #[test]
@@ -1424,7 +1450,9 @@ mod tests {
         };
         let health = outcome.health_report();
         assert_eq!(health.findings[0].metric, Metric::SampledCompileRssBytes);
-        assert!(health.findings[0].explanation.contains("not a hard memory ceiling"));
+        assert!(health.findings[0]
+            .explanation
+            .contains("not a hard memory ceiling"));
     }
 
     #[test]

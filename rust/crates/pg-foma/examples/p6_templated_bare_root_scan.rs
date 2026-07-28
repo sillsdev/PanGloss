@@ -183,18 +183,26 @@ fn run() {
         let restricted = fsm_minimize(&opts, restricted);
         let upper = fsm_minimize(&opts, fsm_upper(restricted));
 
-        let tag_texts = vec![tags::root_tag_text(pg_grammar::model::MorphemeId(mid), width)];
+        let tag_texts = vec![tags::root_tag_text(
+            pg_grammar::model::MorphemeId(mid),
+            width,
+        )];
         let tag_fsm = tag_string_fsm("tagcheck", &tag_texts);
         let mut intersected = fsm_intersect(&opts, upper, tag_fsm);
         let recalled = !fsm_isempty(&opts, &mut intersected);
 
         // Raw (as-stored) codepoints of the word, for spotting combining marks at a glance.
-        let cps: Vec<String> = word.chars().map(|c| format!("U+{:04X}", c as u32)).collect();
+        let cps: Vec<String> = word
+            .chars()
+            .map(|c| format!("U+{:04X}", c as u32))
+            .collect();
 
         println!("{word:?}: morpheme={mid} recalled={recalled} query={query:?} codepoints={cps:?}");
     }
 
-    println!("--- entry-shape dump for a handful of morpheme ids (failing vs recalled bare roots) ---");
+    println!(
+        "--- entry-shape dump for a handful of morpheme ids (failing vs recalled bare roots) ---"
+    );
     let interesting = [
         30u32, 62, 63, 69, 106, 206, 400, 804, 820, 950, // recalled=false
         665, 897, 894, 831, 695, 939, 858, // recalled=true

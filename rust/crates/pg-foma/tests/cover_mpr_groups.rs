@@ -263,7 +263,10 @@ fn out_mpr_accumulation_then_gate_over_propose_confirm_prune() {
         document_order.candidates_generated > 0,
         "kpq (mrP then mrQ) must be proposed"
     );
-    assert_eq!(document_order.confirmed, 1, "kpq must confirm to exactly one analysis");
+    assert_eq!(
+        document_order.confirmed, 1,
+        "kpq must confirm to exactly one analysis"
+    );
 
     let reverse_order = assert_confirm_matches_oracle(&mut analyzer, &morpher, "kqp", false);
     assert!(
@@ -294,7 +297,10 @@ fn all_type_group_excludes_partial_match_like_confirm() {
     let morpher = Morpher::new(&g, usize::MAX);
 
     let partial = assert_confirm_matches_oracle(&mut analyzer, &morpher, "lq", false);
-    assert_eq!(partial.confirmed, 0, "lq must confirm zero analyses (eL is missing mprY)");
+    assert_eq!(
+        partial.confirmed, 0,
+        "lq must confirm zero analyses (eL is missing mprY)"
+    );
     assert!(
         partial.candidates_generated > 0,
         "the FST proposer must still PROPOSE lq (no required_mpr check exists at propose time) for \
@@ -302,7 +308,10 @@ fn all_type_group_excludes_partial_match_like_confirm() {
     );
 
     let full = assert_confirm_matches_oracle(&mut analyzer, &morpher, "mq", true);
-    assert_eq!(full.confirmed, 1, "mq must confirm exactly one analysis (eM carries both members)");
+    assert_eq!(
+        full.confirmed, 1,
+        "mq must confirm exactly one analysis (eM carries both members)"
+    );
 }
 
 /// **The Append/Overwrite order-(in)dependence distinction (tasks.md 3.3, design.md D4's third
@@ -338,7 +347,11 @@ fn append_output_is_order_invariant_overwrite_output_is_not() {
         "Append accumulation must be order-invariant: X-then-Y and Y-then-X must reach the same \
          final MPR state"
     );
-    assert_eq!(append_xy, x.union(y), "both members must be present after either order");
+    assert_eq!(
+        append_xy,
+        x.union(y),
+        "both members must be present after either order"
+    );
 
     let overwrite_groups = [MprGroup {
         name: None,
@@ -346,17 +359,29 @@ fn append_output_is_order_invariant_overwrite_output_is_not() {
         output: MprGroupOutput::Overwrite,
         members: x.union(y),
     }];
-    let overwrite_xy =
-        mpr_add_output(&overwrite_groups, mpr_add_output(&overwrite_groups, base, x), y);
-    let overwrite_yx =
-        mpr_add_output(&overwrite_groups, mpr_add_output(&overwrite_groups, base, y), x);
+    let overwrite_xy = mpr_add_output(
+        &overwrite_groups,
+        mpr_add_output(&overwrite_groups, base, x),
+        y,
+    );
+    let overwrite_yx = mpr_add_output(
+        &overwrite_groups,
+        mpr_add_output(&overwrite_groups, base, y),
+        x,
+    );
     assert_ne!(
         overwrite_xy, overwrite_yx,
         "Overwrite accumulation must NOT be order-invariant: the SAME rule multiset under two \
          admissible orderings must differ in final MPR state"
     );
-    assert_eq!(overwrite_xy, y, "X-then-Y must retract X (the group's other member), leaving only Y");
-    assert_eq!(overwrite_yx, x, "Y-then-X must retract Y (the group's other member), leaving only X");
+    assert_eq!(
+        overwrite_xy, y,
+        "X-then-Y must retract X (the group's other member), leaving only Y"
+    );
+    assert_eq!(
+        overwrite_yx, x,
+        "Y-then-X must retract Y (the group's other member), leaving only X"
+    );
 }
 
 /// **Deliverable 3's "Overwrite-group grammar stays FailClosed / overridable" -- the ledger half.**
@@ -395,6 +420,8 @@ fn overwrite_group_composes_to_refuse() {
                 "expected a diagnostic from mpr-group.overwrite-output: {diags:?}"
             );
         }
-        other => panic!("expected Refuse (mpr-group.overwrite-output stays FailClosed), got {other:?}"),
+        other => {
+            panic!("expected Refuse (mpr-group.overwrite-output stays FailClosed), got {other:?}")
+        }
     }
 }

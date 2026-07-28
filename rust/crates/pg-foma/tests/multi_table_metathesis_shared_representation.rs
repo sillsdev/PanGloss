@@ -114,18 +114,36 @@ fn metathesis_rule(g: &Grammar) -> &PhonRuleDef {
 #[test]
 fn fixture_shares_both_switch_spellings_at_deliberately_misaligned_indices() {
     let g = load();
-    assert_eq!(g.char_tables.len(), 2, "fixture must declare exactly 2 tables");
+    assert_eq!(
+        g.char_tables.len(),
+        2,
+        "fixture must declare exactly 2 tables"
+    );
     let table_a = &g.char_tables[0]; // Inner
     let table_b = &g.char_tables[1]; // Outer
-    assert_eq!(table_a.len(), 2, "table A (Inner) must have exactly 2 segments (m, x)");
-    assert_eq!(table_b.len(), 4, "table B (Outer) must have exactly 4 segments (z, m, x, w)");
+    assert_eq!(
+        table_a.len(),
+        2,
+        "table A (Inner) must have exactly 2 segments (m, x)"
+    );
+    assert_eq!(
+        table_b.len(),
+        4,
+        "table B (Outer) must have exactly 4 segments (z, m, x, w)"
+    );
 
     let cd_a_m = table_a.lookup_nfd("m").expect("table A declares m");
     let cd_a_x = table_a.lookup_nfd("x").expect("table A declares x");
     let cd_b_m = table_b.lookup_nfd("m").expect("table B declares m");
     let cd_b_x = table_b.lookup_nfd("x").expect("table B declares x");
-    assert_ne!(cd_a_m.0, cd_b_m.0, "\"m\" must sit at a DIFFERENT raw index in each table");
-    assert_ne!(cd_a_x.0, cd_b_x.0, "\"x\" must sit at a DIFFERENT raw index in each table");
+    assert_ne!(
+        cd_a_m.0, cd_b_m.0,
+        "\"m\" must sit at a DIFFERENT raw index in each table"
+    );
+    assert_ne!(
+        cd_a_x.0, cd_b_x.0,
+        "\"x\" must sit at a DIFFERENT raw index in each table"
+    );
 }
 
 /// Step 1: THE LOSS IS REAL. Hand-render the pre-fix-equivalent construction directly: two
@@ -176,7 +194,8 @@ fn pre_fix_equivalent_swap_net_never_fires_on_table_a_originated_material() {
         fsm_parse_regex(&opts, &regex, None, None)
             .unwrap_or_else(|| panic!("naive regex must compile: {regex:?}"))
     };
-    let naive_net = foma::constructions::fsm_union(&opts, branch(cd_b_m, cd_b_x), branch(cd_b_w, cd_b_x));
+    let naive_net =
+        foma::constructions::fsm_union(&opts, branch(cd_b_m, cd_b_x), branch(cd_b_w, cd_b_x));
 
     // Positive control: table B's OWN "m x" swap IS one of the naive net's outputs (module doc:
     // the OTHER branch's own identity pass-through may also legitimately appear alongside it).
@@ -231,7 +250,14 @@ fn current_compile_fires_on_table_a_originated_material_and_preserves_identity()
     let alphabet_a = SegAlphabet::new(table_a);
     let alphabet_b = SegAlphabet::new(table_b);
     let opts = FomaOptions::default();
-    let budget = ComposeBudget::with_caps(usize::MAX, usize::MAX, usize::MAX, usize::MAX, usize::MAX, None);
+    let budget = ComposeBudget::with_caps(
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        None,
+    );
 
     let cd_a_m = table_a.lookup_nfd("m").unwrap();
     let cd_a_x = table_a.lookup_nfd("x").unwrap();
@@ -253,7 +279,10 @@ fn current_compile_fires_on_table_a_originated_material_and_preserves_identity()
     )
     .unwrap_or_else(|e| panic!("mrCrossTableSwap compile must not hit any budget: {e}"))
     .expect("mrCrossTableSwap must compile to Some(net)");
-    assert!(skipped.is_empty(), "mrCrossTableSwap must not be reported skipped: {skipped:?}");
+    assert!(
+        skipped.is_empty(),
+        "mrCrossTableSwap must not be reported skipped: {skipped:?}"
+    );
 
     // THE FIX: table A's own "m x" now swaps to "x m" (still in table A's own token space -- the
     // swap relocates, never canonicalizes, module doc's own argument for why this is safe), and
@@ -279,7 +308,10 @@ fn current_compile_fires_on_table_a_originated_material_and_preserves_identity()
     let table_b_wx = format!("{}{}", alphabet_b.token(cd_b_w), alphabet_b.token(cd_b_x));
     let down: HashSet<String> = h.down(&table_b_wx).collect();
     let expected_b_w = format!("{}{}", alphabet_b.token(cd_b_x), alphabet_b.token(cd_b_w));
-    assert!(down.contains(&expected_b_w), "table B's own \"w x\" must still swap correctly: {down:?}");
+    assert!(
+        down.contains(&expected_b_w),
+        "table B's own \"w x\" must still swap correctly: {down:?}"
+    );
     assert!(
         down.is_subset(&HashSet::from([table_b_wx.clone(), expected_b_w.clone()])),
         "IDENTITY: no wrong substitution for table B's own \"w x\" either: {down:?}"
@@ -332,7 +364,14 @@ fn containment_holds_for_the_same_table_entry_the_oracle_can_analyze() {
     let table_b = &g.char_tables[1];
     let alphabet_b = SegAlphabet::new(table_b);
     let opts = FomaOptions::default();
-    let budget = ComposeBudget::with_caps(usize::MAX, usize::MAX, usize::MAX, usize::MAX, usize::MAX, None);
+    let budget = ComposeBudget::with_caps(
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        None,
+    );
 
     let entry_root2 = entry_id_of(&g, "eRoot2");
     let morpheme_root2 = g.entries[entry_root2.0 as usize].morpheme.0;
@@ -342,7 +381,11 @@ fn containment_holds_for_the_same_table_entry_the_oracle_can_analyze() {
     entries.insert(entry_root2);
     let uemit = emit_underlying_filtered_with_budget(&g, &alphabet_b, Some(&entries), &budget)
         .unwrap_or_else(|e| panic!("lexc emission must not hit any budget: {e}"));
-    assert!(uemit.skipped.is_empty(), "no allomorph should be skipped: {:?}", uemit.skipped);
+    assert!(
+        uemit.skipped.is_empty(),
+        "no allomorph should be skipped: {:?}",
+        uemit.skipped
+    );
     let lexc_net = fsm_lexc_parse_string(&opts, None, &uemit.lexc_source)
         .unwrap_or_else(|| panic!("lexc must compile:\n{}", uemit.lexc_source));
 
@@ -394,7 +437,11 @@ fn containment_holds_for_the_same_table_entry_the_oracle_can_analyze() {
     // --- "xw": ROOT2's correctly metathesized surface.
     let fst_xw = fst_candidates("xw");
     let oracle_xw = oracle_candidates("xw");
-    assert_eq!(oracle_xw.len(), 1, "oracle must find exactly one analysis (ROOT2) for \"xw\": {oracle_xw:?}");
+    assert_eq!(
+        oracle_xw.len(),
+        1,
+        "oracle must find exactly one analysis (ROOT2) for \"xw\": {oracle_xw:?}"
+    );
     assert_eq!(
         fst_xw, oracle_xw,
         "CONTAINMENT: FST propose+decode set must EQUAL the oracle set for surface \"xw\""
@@ -414,7 +461,10 @@ fn containment_holds_for_the_same_table_entry_the_oracle_can_analyze() {
     // characteristic of the construction, not silently hidden by weakening this into a vacuous
     // check.
     let oracle_wx = oracle_candidates("wx");
-    assert!(oracle_wx.is_empty(), "ROOT2's raw (un-metathesized) spelling must have no oracle analysis");
+    assert!(
+        oracle_wx.is_empty(),
+        "ROOT2's raw (un-metathesized) spelling must have no oracle analysis"
+    );
     assert!(
         oracle_wx.is_subset(&fst_candidates("wx")),
         "CONTAINMENT: every oracle analysis for \"wx\" (there are none) must appear in the FST set"
@@ -438,7 +488,14 @@ fn fst_proposes_root1_for_its_correctly_metathesized_surface() {
     let alphabet_a = SegAlphabet::new(table_a);
     let alphabet_b = SegAlphabet::new(table_b);
     let opts = FomaOptions::default();
-    let budget = ComposeBudget::with_caps(usize::MAX, usize::MAX, usize::MAX, usize::MAX, usize::MAX, None);
+    let budget = ComposeBudget::with_caps(
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        None,
+    );
 
     let entry_root1 = entry_id_of(&g, "eRoot1");
     let entry_root2 = entry_id_of(&g, "eRoot2");
@@ -454,7 +511,11 @@ fn fst_proposes_root1_for_its_correctly_metathesized_surface() {
     // convention (`crate::emit::surface_table`), not because it changes ROOT1's own emitted tokens.
     let uemit = emit_underlying_filtered_with_budget(&g, &alphabet_b, Some(&entries), &budget)
         .unwrap_or_else(|e| panic!("lexc emission must not hit any budget: {e}"));
-    assert!(uemit.skipped.is_empty(), "no allomorph should be skipped: {:?}", uemit.skipped);
+    assert!(
+        uemit.skipped.is_empty(),
+        "no allomorph should be skipped: {:?}",
+        uemit.skipped
+    );
     let lexc_net = fsm_lexc_parse_string(&opts, None, &uemit.lexc_source)
         .unwrap_or_else(|| panic!("lexc must compile:\n{}", uemit.lexc_source));
 

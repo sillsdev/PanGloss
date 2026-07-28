@@ -201,7 +201,11 @@ fn oracle_candidate_set(
 #[test]
 fn stratum_1_devoice_rewrite_proposer_confirm_matches_oracle() {
     let g = load(TWO_TABLE_SYMBOL_DIVERGENCE_XML);
-    assert_eq!(g.char_tables.len(), 2, "fixture must declare exactly 2 tables");
+    assert_eq!(
+        g.char_tables.len(),
+        2,
+        "fixture must declare exactly 2 tables"
+    );
     assert_eq!(g.char_tables[0].len(), 2);
     assert_eq!(g.char_tables[1].len(), 2);
     assert_eq!(g.strata.len(), 2, "fixture must declare exactly 2 strata");
