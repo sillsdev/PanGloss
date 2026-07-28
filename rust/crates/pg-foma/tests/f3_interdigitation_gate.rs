@@ -87,6 +87,10 @@ use pg_foma::peel::ReduplicationPeeler;
 use pg_grammar::model::Grammar;
 use pg_parse::{Morpher, ParseOptions};
 
+/// Same large-stack convention as the P6 compile gates: vendored foma's recursive lexc parser
+/// overflows libtest's default Windows thread stack on this gate's 80k-line real grammar.
+const FOMA_LEXC_STACK_BYTES: usize = 512 * 1024 * 1024;
+
 /// Same word cap as the P1c stage (first 100 corpus words; `amharic-words.txt` has 673 lines).
 const WORD_CAP: usize = 100;
 
@@ -107,6 +111,15 @@ fn sample_path(name: &str) -> PathBuf {
 fn have(name: &str) -> bool {
     sample_path(name).exists()
 }
+fn run_on_foma_lexc_stack(test: fn()) {
+    std::thread::Builder::new()
+        .stack_size(FOMA_LEXC_STACK_BYTES)
+        .spawn(test)
+        .expect("spawn large-stack foma lexc worker thread")
+        .join()
+        .expect("foma lexc worker thread panicked");
+}
+
 
 fn load_grammar() -> Grammar {
     let path = sample_path("amharic-hc.xml");
@@ -197,6 +210,10 @@ fn a_emits_and_compiles() {
         eprintln!("skipping: amharic-hc.xml not present on disk");
         return;
     }
+    run_on_foma_lexc_stack(a_emits_and_compiles_impl);
+}
+
+fn a_emits_and_compiles_impl() {
     let g = load_grammar();
 
     let t_emit = Instant::now();
@@ -298,6 +315,10 @@ fn b_recall_first_100_words_is_100_percent() {
         eprintln!("skipping: amharic-hc.xml not present on disk");
         return;
     }
+    run_on_foma_lexc_stack(b_recall_first_100_words_is_100_percent_impl);
+}
+
+fn b_recall_first_100_words_is_100_percent_impl() {
     let g = load_grammar();
     assert!(
         !ReduplicationPeeler::new(&g).has_redup_rules(),
@@ -407,6 +428,10 @@ fn c_end_to_end_multiset_parity() {
         eprintln!("skipping: amharic-hc.xml not present on disk");
         return;
     }
+    run_on_foma_lexc_stack(c_end_to_end_multiset_parity_impl);
+}
+
+fn c_end_to_end_multiset_parity_impl() {
     let g = load_grammar();
     let mut analyzer = FomaAnalyzer::new(&g).expect("Amharic compiles");
     let morpher = Morpher::new(&g, usize::MAX).with_word_timeout(Some(ENGINE_TIMEOUT));
@@ -492,6 +517,10 @@ fn d_nonsense_word_proposes_boundedly_and_never_panics() {
         eprintln!("skipping: amharic-hc.xml not present on disk");
         return;
     }
+    run_on_foma_lexc_stack(d_nonsense_word_proposes_boundedly_and_never_panics_impl);
+}
+
+fn d_nonsense_word_proposes_boundedly_and_never_panics_impl() {
     let g = load_grammar();
     let mut proposer = FomaProposer::new(&g).expect("Amharic compiles");
     let t0 = Instant::now();
