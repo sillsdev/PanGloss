@@ -5,7 +5,8 @@ description: >-
   slow, oversized, imprecise, or incomplete. Use for a new grammar onboarding, a real-language
   recall/performance problem, a request to reorganize an FST plan/tree, or whenever an engineer
   needs to compare several grammar-specific FST construction strategies instead of making a
-  one-off optimization. This skill preserves 100% proposer recall and drives a measured,
+  one-off optimization. Also use it to localize missing analyses within a staged compiler before
+  changing the FST tree. This skill preserves 100% proposer recall and drives a measured,
   conformance-gated choice among at least three genuinely different candidate models.
 ---
 
@@ -33,7 +34,8 @@ For a slow propose+confirm grammar, run `dead-end-census` first. Its attribution
 workflow, not a replacement for it. Read
 `docs/fst-plan/grammar-optimization-techniques.md` and this skill's `NOTES-research.md` before
 choosing candidates. For recipe search, also read `docs/fst-plan/fst-recipe-space-search.md` and
-`recipes/README.md`.
+`recipes/README.md`. When baseline recall is incomplete, read
+`references/stage-localized-recall-diagnostics.md` before proposing or scoring recipe changes.
 
 ## Guardrails
 
@@ -63,6 +65,14 @@ morphotactic strata, rule cascades, boundary cleanup, MPR/syntactic gates, and a
 feature dependency. Add an edge when two constructs share an alphabet/boundary, must preserve
 order, share a gate key, or have empirically non-additive cost. Record feature facts in a registry
 candidate using `recipes/schema.json`.
+
+If the baseline misses oracle analyses, first build one bounded diagnostic pipeline that checks
+the same complete analysis–surface relation at the source/oracle, lexicon, post-rule, and final
+cleanup boundaries. Run all misses through one compilation and report the first failing stage for
+every required analysis.
+This separates a recipe/tree problem from a rule, cleanup, encoding, or confirmation problem and
+prevents tree search from optimizing around an unexplained false negative. Follow
+`references/stage-localized-recall-diagnostics.md`.
 
 ### 2. Form at least three different candidates
 

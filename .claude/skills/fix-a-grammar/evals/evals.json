@@ -18,6 +18,12 @@
       "prompt": "We have eight plausible compose orders and several gate partitions, but each full build takes 20 minutes. How should we search the combinations without losing correctness?",
       "expected_output": "Selects or compares the three search methods, explains budgeted sequential allocation for this expensive uncertain space, preserves real Plan representation and all correctness gates, and states stopping/confidence criteria plus an honest Pareto result contract.",
       "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "A newly imported grammar misses six oracle analyses. Some may disappear in lexc, some in the rewrite cascade, and some during cleanup. Before changing the FST tree, design a scriptable diagnostic and explain how its results constrain the three recipe candidates.",
+      "expected_output": "Builds one staged diagnostic pipeline with explicit time/state/arc/memory budgets, probes the same complete analysis-surface pair at oracle, lexicon, post-rule, and final boundaries, reports the earliest observed failing boundary or an inconclusive/harness-mismatch status, handles pre-cleanup boundary symbols, emits machine-readable provenance, and only searches recipe dimensions implicated by evidence while retaining full recall gates.",
+      "files": []
     }
   ]
 }
