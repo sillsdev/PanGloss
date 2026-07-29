@@ -32,7 +32,7 @@
 //! queryability) would move this pin into CI. Until it exists, defect (1) is pinned only by a
 //! corpus-gated test.
 
-use pg_conformance_fixtures::{discover, Root};
+use pg_conformance_fixtures::{corpus, discover, Root};
 use pg_foma::build::unbuildable_markers;
 use pg_foma::enumerate::enumerate_default;
 use pg_foma::junctions::PhonologyProbe;
@@ -40,7 +40,6 @@ use pg_foma::recipe_optimizer::Certification;
 use pg_foma::recipe_registry::{MaterializerContext, Registry};
 use pg_foma::recipe_runtime::{evaluate_plans, RuntimeBudget};
 use pg_foma::replace::SegAlphabet;
-use std::path::PathBuf;
 
 fn materialize_and_evaluate(
     grammar: &pg_grammar::model::Grammar,
@@ -75,16 +74,11 @@ fn materialize_and_evaluate(
 #[test]
 #[ignore = "needs the private corpus at samples/data/indonesian-hc.xml; run with --include-ignored"]
 fn corpus_indonesian_confirms_after_the_finish_step() {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..");
-    let grammar_path = root.join("samples/data/indonesian-hc.xml");
-    let words_path = root.join("samples/data/indonesian-words.txt");
-    assert!(
-        grammar_path.is_file() && words_path.is_file(),
-        "corpus inputs absent ({} / {}). This test was requested explicitly, so it fails rather \
-         than reporting a pass it did not earn.",
-        grammar_path.display(),
-        words_path.display()
-    );
+    // `corpus::require` (not a skip-if-absent guard) so a missing corpus fails rather than
+    // reporting a pass it did not earn -- the manifest declares both of these under the
+    // `indonesian` corpus.
+    let grammar_path = corpus::require("indonesian-hc.xml");
+    let words_path = corpus::require("indonesian-words.txt");
 
     let grammar = pg_grammar::load(&std::fs::read_to_string(&grammar_path).expect("read grammar"))
         .expect("indonesian grammar must load");
@@ -119,6 +113,12 @@ fn corpus_indonesian_confirms_after_the_finish_step() {
     assert!(
         proposals > 0,
         "confirmed with zero proposals is a vacuous pass"
+    );
+    // The managed front end rejects a successful cargo exit whose total executed-case count is
+    // zero: a suite that compiles, runs, and exercises nothing is a failure, not a pass.
+    corpus::record_cases(
+        "corpus_indonesian_confirms_after_the_finish_step",
+        words.len(),
     );
 }
 

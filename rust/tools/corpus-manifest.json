@@ -1,0 +1,77 @@
+{
+  "$comment": [
+    "Declares every PRIVATE corpus input this repository's tests depend on. Contains NO corpus",
+    "content -- only names, relative paths, purpose, and which tests require them.",
+    "",
+    "Why this file exists: the real-language inputs under samples/data/ are intentionally",
+    "untracked, and many corpus-dependent tests are #[ignore]d with a skip-if-absent guard. That",
+    "combination is a false-success path -- a worktree can report that it ran the corpus suite",
+    "while testing no corpus data at all. Observed: a fresh agent worktree has no samples/data/,",
+    "so every such test returned success having measured nothing.",
+    "",
+    "Contract: `pg.ps1 -Mode corpus-test` validates every required path in this manifest BEFORE",
+    "cargo starts and refuses to run if any is missing. It also sets PANGLOSS_CORPUS_REQUIRED=1,",
+    "which flips the Rust helpers in pg_conformance_fixtures::corpus from skip-if-absent to panic-",
+    "if-absent. Ordinary fixture-independent test runs are unaffected.",
+    "",
+    "Keep `requiring_tests` accurate: it is how a reader finds what breaks when a corpus goes",
+    "missing, and the manifest-validation test checks the shape of every entry."
+  ],
+  "schema_version": 1,
+  "corpus_root": "samples/data",
+  "corpora": [
+    {
+      "logical_name": "indonesian",
+      "purpose": "Template-less standalone-rule morphotactics with MPR-gated nasal substitution. The reference grammar for proposer recall on the gated compile path, and the only real grammar whose recipe candidates currently reach full-HC confirmation.",
+      "files": [
+        { "path": "indonesian-hc.xml", "role": "grammar", "required": true },
+        { "path": "indonesian-words.txt", "role": "corpus", "required": true },
+        { "path": "indonesian-realize.toml", "role": "realizer-config", "required": false }
+      ],
+      "requiring_tests": [
+        "pg-foma --test p6_gate_parity indonesian_full_corpus_parity_unregressed",
+        "pg-foma --test p6_gate_parity indonesian_mpr_exclusion_matches_oracle",
+        "pg-foma --test recipe_runtime_net_is_queryable_gate corpus_indonesian_confirms_after_the_finish_step"
+      ]
+    },
+    {
+      "logical_name": "sena",
+      "purpose": "Large-lexicon templated grammar (255k+ lexc lines). Drives emit/compile throughput and the propose-then-confirm perf track.",
+      "files": [
+        { "path": "sena-hc.xml", "role": "grammar", "required": true },
+        { "path": "sena-words.txt", "role": "corpus", "required": true },
+        { "path": "sena-worst-words.txt", "role": "pinned-worst-case", "required": false }
+      ],
+      "requiring_tests": [
+        "pg-foma --test f1_large_lexicon_gate"
+      ]
+    },
+    {
+      "logical_name": "amharic",
+      "purpose": "Templatic root-and-pattern interdigitation with AffixTemplate morphotactics. The grammar whose productive morphology lives in the composite-emission and structural-composite subtrees that build_controllable does not build.",
+      "files": [
+        { "path": "amharic-hc.xml", "role": "grammar", "required": true },
+        { "path": "amharic-words.txt", "role": "corpus", "required": true },
+        { "path": "amharic-worst-words.txt", "role": "pinned-worst-case", "required": false },
+        { "path": "amharic-realize.toml", "role": "realizer-config", "required": false }
+      ],
+      "requiring_tests": [
+        "pg-foma --test f3_interdigitation_gate",
+        "pg-foma --test p6_gate_parity amharic_gated_subrules_and_tuple_counts_unregressed"
+      ]
+    },
+    {
+      "logical_name": "aweti",
+      "purpose": "Deep truncation chain with a 24-level derivation and many zero-width truncation mrules. The enumeration-explosion and compose-budget stress case; imported from fwdata/JSON rather than HC XML.",
+      "files": [
+        { "path": "aweti.json", "role": "grammar-snapshot", "required": true },
+        { "path": "aweti-words.txt", "role": "corpus", "required": true },
+        { "path": "aweti.fwdata", "role": "grammar-fwdata", "required": false }
+      ],
+      "requiring_tests": [
+        "pg-foma --test p6_templated_morphotactics_gate",
+        "pg-foma --test compose_recall_aweti_gate"
+      ]
+    }
+  ]
+}

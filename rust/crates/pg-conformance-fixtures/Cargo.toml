@@ -9,4 +9,5 @@ license.workspace = true
 pg-grammar.workspace = true
 pg-parse.workspace = true
 serde = { workspace = true }
+serde_json = { workspace = true }
 serde_yaml = { workspace = true }

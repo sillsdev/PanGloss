@@ -77,9 +77,14 @@ const REDUP_EXCLUDED: &[&str] = &[
     "menyewa-nyewa",
 ];
 
+/// Routed through [`pg_conformance_fixtures::corpus`] rather than joining the path directly, so that
+/// `PANGLOSS_CORPUS_REQUIRED` (set by `pg.ps1 -Mode corpus-test` after it validates the manifest)
+/// turns an absent corpus into a hard failure instead of the skip-if-absent success below. Without
+/// that, a worktree with no `samples/data/` reports this whole suite as passing while measuring
+/// nothing -- see the corpus module's own doc.
 fn sample_path(name: &str) -> PathBuf {
-    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-    manifest_dir.join("../../../samples/data").join(name)
+    pg_conformance_fixtures::corpus::path(name)
+        .unwrap_or_else(|| pg_conformance_fixtures::corpus::corpus_root().join(name))
 }
 
 /// Real `indonesian-hc.xml` + two synthetic lexical entries exercising `prule5`'s MPR exclusion at

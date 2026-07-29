@@ -13,6 +13,8 @@
 //! Either root may be absent (a fresh clone with the `machine` submodule not initialized still
 //! discovers staged fixtures fine); [`discover`] tolerates both independently.
 
+pub mod corpus;
+
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
