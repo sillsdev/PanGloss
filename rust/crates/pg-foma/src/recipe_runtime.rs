@@ -97,13 +97,27 @@ pub fn certify_corpus(
             .shortest_disagreement()
             .map(|word| (word.chars().count(), word.to_owned()))
     });
-    failures
-        .into_iter()
-        .next()
-        .unwrap_or(Certification::FullHcConfirmed {
-            words: expected.len() as u64,
-            corpus_hash: "runtime".into(),
-        })
+    if let Some(failure) = failures.into_iter().next() {
+        return failure;
+    }
+    // Agreeing about nothing is not agreement. If the HC oracle produced no analysis for ANY word in
+    // this corpus, every per-word comparison above was empty-set against empty-set, which
+    // `certify_word` quite correctly calls equal -- and the corpus would then "confirm" any candidate
+    // whatsoever, including one whose network is empty.
+    //
+    // Observed: a 3-word Amharic corpus where HC analyses none of the words certified all three
+    // candidates with `proposals: 0`, `confirmation: 0`. That is the same vacuous-pass shape as a
+    // corpus-gated test that silently skips -- a pass that was never earned.
+    let analyses: usize = expected.iter().map(|(_, a)| a.len()).sum();
+    if analyses == 0 {
+        return Certification::Truncated {
+            stage: "no-analyzable-words".into(),
+        };
+    }
+    Certification::FullHcConfirmed {
+        words: expected.len() as u64,
+        corpus_hash: "runtime".into(),
+    }
 }
 pub fn build_candidate(
     candidate: &CandidatePlan,
@@ -132,14 +146,145 @@ pub struct RuntimeEvaluation {
     pub score: Score,
 }
 
+/// Evaluates the BASELINE of a grammar whose plan needs composite/structural marker subtrees, using
+/// the tuned [`crate::analyzer::FomaProposer::new`] path (`emit` → lexc → foma compile) instead of
+/// [`build_controllable`].
+///
+/// Why a whole separate path rather than a flag: the two builders produce different artifact types in
+/// different symbol spaces. `uflexc`'s lexc is in char-def-token space (hence the
+/// `with_segment_query_encoder` the controllable path attaches), while `emit`'s is plain surface
+/// space and its proposer queries with plain NFD. Composing or unioning across that boundary without
+/// reconciling the spaces is how you get a network that looks fine and silently matches nothing --
+/// checked the hard way: applying the token encoder to an `emit`-built net manufactures false
+/// zero-candidate results.
+///
+/// Deliberately ignores the candidate's plan: the tuned path derives topology from a plan it builds
+/// itself ([`crate::emit`]'s `plan_topology_decisions` reads two booleans off it), so it can express
+/// the DEFAULT compilation of this grammar and nothing else. That is exactly why only the baseline is
+/// routed here; see the caller.
+fn evaluate_via_tuned_emit(
+    grammar: &Grammar,
+    words: &[String],
+    expected: &[(String, Vec<WordAnalysis>)],
+    budget: RuntimeBudget,
+) -> RuntimeEvaluation {
+    let t = Instant::now();
+    let proposer = match FomaProposer::new(grammar) {
+        Ok(p) => p,
+        Err(e) => {
+            return RuntimeEvaluation {
+                certification: Certification::BuildFailed {
+                    reason: format!("tuned emit path failed to build: {e}"),
+                },
+                score: Score {
+                    states: 0,
+                    arcs: 0,
+                    build: elapsed_ns(t).max(1),
+                    apply: 0,
+                    proposals: 0,
+                    confirmation: 0,
+                },
+            };
+        }
+    };
+    let build = elapsed_ns(t).max(1);
+    let (states, arcs) = proposer.network_counts();
+    // No `with_segment_query_encoder` here, unlike the controllable path: this net is in plain
+    // surface space and the production proposer queries it with plain NFD.
+    let mut analyzer = FomaAnalyzer::from_precompiled_proposer(grammar, proposer);
+    let mut actual = Vec::new();
+    let mut apply: u64 = 0;
+    let mut proposals: u64 = 0;
+    let mut confirmation: u64 = 0;
+    for w in words {
+        let t = Instant::now();
+        let p = analyzer.analyze_word_with_diagnostics(w);
+        apply = apply.saturating_add(elapsed_ns(t).max(1));
+        proposals = proposals.saturating_add(p.outcome.candidates_generated as u64);
+        confirmation = confirmation.saturating_add(p.diagnostics.confirmation_calls as u64);
+        actual.push((w.clone(), p.outcome.structured));
+    }
+    let score = Score {
+        states: states.max(0) as u64,
+        arcs: arcs.max(0) as u64,
+        build,
+        apply,
+        proposals,
+        confirmation,
+    };
+    let breach = [
+        ("states", score.states, budget.states),
+        ("arcs", score.arcs, budget.arcs),
+        ("build", build, budget.build),
+        ("apply", apply, budget.apply),
+        ("proposals", proposals, budget.proposals),
+        ("confirmation", confirmation, budget.confirmation),
+    ]
+    .into_iter()
+    .find(|(_, v, l)| l.is_some_and(|limit| *v > limit));
+    let certification = match breach {
+        Some((d, v, Some(l))) => Certification::ResourceBreach {
+            dimension: d.into(),
+            value: v,
+            limit: l,
+        },
+        _ => match certify_corpus(expected, &actual) {
+            Certification::FullHcConfirmed {
+                words: word_count, ..
+            } => Certification::FullHcConfirmed {
+                words: word_count,
+                corpus_hash: corpus_hash(words),
+            },
+            failure => failure,
+        },
+    };
+    RuntimeEvaluation {
+        certification,
+        score,
+    }
+}
+
 /// Evaluates every plan through build_controllable and the production propose→confirm pipeline.
 /// The caller-provided order is preserved; therefore the baseline must be element zero.
+///
+/// One exception, and it is load-bearing: a plan that needs composite/structural marker subtrees is
+/// routed to [`evaluate_via_tuned_emit`] (baseline only) or refused (any permutation), because
+/// `build_controllable` cannot build those subtrees and a templated grammar keeps nearly all of its
+/// productive morphology there.
 pub fn evaluate_plans(
     grammar: &Grammar,
     plans: &[CandidatePlan],
     words: &[String],
     budget: RuntimeBudget,
 ) -> Vec<RuntimeEvaluation> {
+    // Positional default, per this function's long-standing contract.
+    let flags: Vec<bool> = (0..plans.len()).map(|i| i == 0).collect();
+    evaluate_plans_marked(grammar, plans, words, budget, &flags)
+}
+
+/// [`evaluate_plans`], but the caller states which plans are the baseline instead of relying on
+/// position.
+///
+/// This exists because position is NOT usable at the call site that matters. The production optimizer
+/// evaluates candidates ONE AT A TIME -- `pg_cli`'s `CandidateEvaluator::evaluate` calls in with
+/// `std::slice::from_ref(plan)` -- so every candidate is "element zero" and a positional baseline test
+/// silently answers `true` for all of them. That mattered as soon as baseline-only behaviour existed:
+/// every permutation of a marker-requiring plan took the baseline's tuned-emit route and was reported
+/// as confirmed with the baseline's own network counts. `pg_foma`'s optimizer already tracks
+/// `CandidateState::baseline`, so the caller can simply say.
+pub fn evaluate_plans_marked(
+    grammar: &Grammar,
+    plans: &[CandidatePlan],
+    words: &[String],
+    budget: RuntimeBudget,
+    is_baseline: &[bool],
+) -> Vec<RuntimeEvaluation> {
+    assert_eq!(
+        plans.len(),
+        is_baseline.len(),
+        "one baseline flag per plan is required -- a mismatch here is how a permutation would silently \
+         be treated as the baseline"
+    );
     let alphabet = SegAlphabet::new(surface_table(grammar));
     let prules: Vec<&PhonRuleDef> = grammar
         .strata
@@ -162,7 +307,8 @@ pub fn evaluate_plans(
     let report = crate::emit::emit(grammar).report;
     plans
         .iter()
-        .map(|candidate| {
+        .enumerate()
+        .map(|(index, candidate)| {
             let t = Instant::now();
             let built = build_candidate(candidate, &opts, grammar, &alphabet, &prules, &compose);
             let build = elapsed_ns(t).max(1);
@@ -196,12 +342,6 @@ pub fn evaluate_plans(
                     },
                 };
             };
-            // Marker presence alone does NOT condemn a candidate: `crate::gate::
-            // compile_gated_grammar` is controllable-only too and still reaches 100% recall on a
-            // grammar whose plan carries a marker, so pre-refusing here would block grammars that
-            // demonstrably work. Recorded now, consulted only if full HC actually refuses the
-            // candidate below -- evidence first, then attribution.
-            let markers = crate::build::unbuildable_markers(&candidate.plan);
             // Mandatory finish step, not an optimization: without the boundary-token cleanup compose
             // and re-minimize, the net still carries the inter-morph boundary tokens `uflexc` emits,
             // which a surface query never contains -- every `apply_up` returns nothing and recall
@@ -282,18 +422,51 @@ pub fn evaluate_plans(
                     failure => failure,
                 },
             };
-            // Attribution, once the evidence is in. A candidate that full HC refused AND whose plan
-            // needed subtrees `build_controllable` cannot build was measured against a network
-            // missing that material -- the word-level mismatch is a symptom, not the cause, and
-            // reporting only the symptom sent a reader hunting a phantom grammar bug. Restate it as
-            // the real limitation, keeping the observed failure for the record. Selectability is
-            // unchanged: both the original failure and `Unsupported` are non-certifying.
-            let certification = match (&certification, markers.is_empty()) {
-                (c, false) if !c.selectable() => Certification::Unsupported {
+            // Evidence first, fallback second -- and ONLY on a real failure.
+            //
+            // Marker presence does not mean the controllable path is inadequate, it means it MIGHT be.
+            // Checked: `mpr-gated-exception`'s plan carries a marker and all three of its candidates
+            // confirm on the controllable net with real proposals. An earlier version of this routed on
+            // marker presence alone and dropped that grammar from 3 confirmations to 1, refusing
+            // permutations the controllable builder handles perfectly well. So a candidate that
+            // CONFIRMED here is done: its verdict came from a network that honours its own plan, which
+            // is strictly better evidence than the tuned path can give (that path cannot express a
+            // permutation at all).
+            if certification.selectable() {
+                return RuntimeEvaluation {
+                    certification,
+                    score,
+                };
+            }
+            let markers = crate::build::unbuildable_markers(&candidate.plan);
+            if markers.is_empty() {
+                // Failed on a network that fully represents its own plan: a real result, reported as is.
+                return RuntimeEvaluation {
+                    certification,
+                    score,
+                };
+            }
+            // Failed AND the plan needed subtrees `build_controllable` cannot build. On a templated
+            // grammar those subtrees hold nearly all of the productive morphology -- measured, same
+            // grammar: 133 states / 3307 arcs controllable-only against 6376 / 68693 from the tuned
+            // `crate::emit` path, which proposed correctly where the controllable net proposed nothing
+            // for 19 of 20 words. So the failure is probably the builder's, not the grammar's.
+            if is_baseline[index] {
+                // The tuned path CAN build them, and for the baseline its network is the right answer:
+                // the default compilation of this grammar.
+                return evaluate_via_tuned_emit(grammar, words, &expected, budget);
+            }
+            // A permutation, though, cannot be rescued: the tuned path derives topology from a plan it
+            // builds itself, so putting a permutation through it would measure the BASELINE network and
+            // report it as this permutation -- a fabricated comparison. Refuse, naming why.
+            RuntimeEvaluation {
+                certification: Certification::Unsupported {
                     reason: format!(
-                        "plan requires subtrees build_controllable cannot build ({}); the \
-                         controllable-only network omits their material, so this measurement cannot \
-                         certify the recipe. Observed failure: {certification:?}",
+                        "plan structure cannot be honoured: it failed on the controllable-only network \
+                         ({certification:?}) and requires subtrees build_controllable cannot build \
+                         ({}); the tuned emit path that can build them derives topology from its own \
+                         plan, so evaluating this permutation there would measure the baseline network \
+                         and report it as this permutation",
                         markers
                             .iter()
                             .map(|m| format!("{m:?}"))
@@ -301,10 +474,6 @@ pub fn evaluate_plans(
                             .join(", ")
                     ),
                 },
-                _ => certification,
-            };
-            RuntimeEvaluation {
-                certification,
                 score,
             }
         })

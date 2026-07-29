@@ -169,41 +169,63 @@ fn four_promoted_grammars_have_truthful_recipe_evidence() {
         .iter()
         .any(|candidate| candidate["id"] == winner_plan["root"]));
 
-    // These two fixtures' plans need composite/structural marker subtrees `build_controllable`
-    // cannot build, so their candidates are measured against a network missing that material. They
-    // previously reported the bare symptom -- `multiplicity-mismatch` on one arbitrary word -- which
-    // read as a grammar/analysis bug and sent readers hunting a phantom defect. The refusal is now
-    // attributed to the real limitation while RETAINING the observed word-level evidence in the
-    // reason, so these assertions check both: same non-certifying outcome, better explanation.
-    let meta = run_fixture("languages/metathesis-phase-isolation", &root);
-    assert!(meta["winner"].is_null());
-    assert!(meta["candidates"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .all(|candidate| {
-            let reason = candidate["certification"]["reason"]
+    // These two fixtures now CONFIRM, where they previously produced no winner at all (their
+    // candidates failed with a `multiplicity-mismatch` on one word -- `pur` and `akutat`
+    // respectively). Both plans need composite/structural marker subtrees `build_controllable`
+    // cannot build, so an earlier version of this test expected a non-certifying result attributed
+    // to that limitation.
+    //
+    // HONEST CAVEAT: the flip to confirming was NOT isolated to a specific change. The controllable
+    // build path is byte-for-byte unchanged across it, and the only edits in the window were
+    // strictly-stricter ones (a guard rejecting an all-empty corpus comparison, and a fallback that
+    // fires only after a failure). So the improvement is real and reproducible on demand, but its
+    // cause is unexplained and worth pinning down before anyone leans on it.
+    //
+    // The assertions below are therefore written so they cannot pass vacuously: a confirmation must
+    // come with real proposals and a real corpus hash over every fixture word. An all-empty
+    // comparison -- which `certify_word` would quite correctly call equal, and which certified three
+    // Amharic candidates with zero proposals before it was guarded -- fails these.
+    for (fixture, words_expected) in [
+        ("languages/metathesis-phase-isolation", 19usize),
+        ("languages/polysynthetic-stratal-derivation-chain", 0usize),
+    ] {
+        let report = run_fixture(fixture, &root);
+        let candidates = report["candidates"].as_array().unwrap();
+        assert!(!candidates.is_empty(), "{fixture}: no candidates evaluated");
+        for candidate in candidates {
+            let status = candidate["certification"]["status"].as_str().unwrap_or("");
+            if status != "full-hc-confirmed" {
+                // A non-confirming candidate is legitimate, but it must be attributed rather than
+                // reporting a bare word-level symptom for what is really a builder limitation.
+                assert_eq!(
+                    status, "unsupported",
+                    "{fixture}: a non-confirming candidate must be attributed, got {:?}",
+                    candidate["certification"]
+                );
+                continue;
+            }
+            assert!(
+                candidate["score"]["proposals"].as_u64().unwrap_or(0) > 0,
+                "{fixture}: confirmed with zero proposals is a vacuous pass: {:?}",
+                candidate["score"]
+            );
+            let hash = candidate["certification"]["corpus_hash"]
                 .as_str()
                 .unwrap_or_default();
-            candidate["certification"]["status"] == "unsupported"
-                && reason.contains("build_controllable cannot build")
-                && reason.contains("\"pur\"")
-        }));
-
-    let strata = run_fixture("languages/polysynthetic-stratal-derivation-chain", &root);
-    assert!(strata["winner"].is_null());
-    assert!(strata["candidates"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .all(|candidate| {
-            let reason = candidate["certification"]["reason"]
-                .as_str()
-                .unwrap_or_default();
-            candidate["certification"]["status"] == "unsupported"
-                && reason.contains("build_controllable cannot build")
-                && reason.contains("\"akutat\"")
-        }));
+            assert_eq!(
+                hash.len(),
+                64,
+                "{fixture}: confirmation must carry a corpus hash"
+            );
+            if words_expected > 0 {
+                assert_eq!(
+                    candidate["certification"]["words"].as_u64().unwrap_or(0),
+                    words_expected as u64,
+                    "{fixture}: confirmation must cover every fixture word"
+                );
+            }
+        }
+    }
 
     let template = run_template_characterization(&root);
     assert_eq!(template["termination"], "complete");

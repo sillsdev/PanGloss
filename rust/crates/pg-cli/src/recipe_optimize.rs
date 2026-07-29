@@ -18,7 +18,7 @@ use pg_foma::recipe_registry::{Registry, REGISTRY_SCHEMA_VERSION};
 use pg_foma::recipe_report::{
     CandidateReport, PruningWaterfall, RecipeOptimizationReport, SearchAccounting,
 };
-use pg_foma::recipe_runtime::{evaluate_plans, RuntimeBudget};
+use pg_foma::recipe_runtime::{evaluate_plans_marked, RuntimeBudget};
 use pg_foma::recipe_space::StageMeasurement;
 use pg_foma::recipe_space::{characterize, summarize_pilot};
 use sha2::{Digest, Sha256};
@@ -146,7 +146,10 @@ impl CandidateEvaluator for Evaluator<'_> {
                 usage: BudgetUsage::default(),
             };
         }
-        let e = evaluate_plans(
+        // `c.baseline`, not position: this evaluator is called once per candidate with a
+        // single-element slice, so a positional baseline test would answer `true` for every
+        // candidate and route each permutation down the baseline-only path.
+        let e = evaluate_plans_marked(
             self.grammar,
             std::slice::from_ref(plan),
             self.words,
@@ -155,6 +158,7 @@ impl CandidateEvaluator for Evaluator<'_> {
                 confirmation: Some(remaining.confirmation),
                 ..Default::default()
             },
+            &[c.baseline],
         )
         .remove(0);
         ConfirmationEvidence {
@@ -338,7 +342,8 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
             });
             continue;
         }
-        let eval = evaluate_plans(
+        // Same single-element-slice caveat as the main evaluator: state the baseline explicitly.
+        let eval = evaluate_plans_marked(
             &grammar,
             std::slice::from_ref(plan),
             &pilot_words,
@@ -347,6 +352,7 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
                 confirmation: Some(a.budget.confirmation / 4),
                 ..Default::default()
             },
+            &[state.baseline],
         )
         .remove(0);
         pilot_build = pilot_build.saturating_add(eval.score.build);

@@ -222,18 +222,44 @@ fn out_of_scope_marker_subtrees_are_attributed_not_blamed_on_the_grammar() {
         if words.is_empty() {
             continue;
         }
-        for e in materialize_and_evaluate(&grammar, &words) {
-            // Confirmed is legitimate: the omitted subtree may contribute nothing this corpus needs.
-            // What must never happen is a refusal that hides the real reason.
-            if !e.certification.selectable() {
+        for (index, e) in materialize_and_evaluate(&grammar, &words)
+            .into_iter()
+            .enumerate()
+        {
+            if index == 0 {
+                // The BASELINE of a marker-requiring grammar is routed to the tuned emit path, which
+                // CAN build those subtrees. So it is measured on a network that genuinely represents
+                // the grammar, and any failure here is a real result about that network -- it must NOT
+                // be relabelled `Unsupported`. Confirming and failing are both legitimate; what must
+                // not happen is a compiler limitation being reported in place of the measurement.
                 assert!(
-                    matches!(e.certification, Certification::Unsupported { .. }),
-                    "{}: a refused candidate whose plan required {markers:?} must be attributed to \
-                     that limitation, got {:?}",
+                    !matches!(e.certification, Certification::Unsupported { .. }),
+                    "{}: the baseline took the tuned emit path, so its verdict must be the real \
+                     measurement rather than an `Unsupported` limitation notice, got {:?}",
                     fixture.label(),
                     e.certification
                 );
+                continue;
             }
+            // Confirming is legitimate for a permutation too: the controllable builder DOES honour
+            // gate/union permutations, and `mpr-gated-exception` confirms all of its candidates that
+            // way. Evidence first -- so nothing is refused before being tried.
+            if e.certification.selectable() {
+                continue;
+            }
+            // But a permutation that FAILED on the controllable network, and whose plan needs subtrees
+            // that builder cannot construct, must be attributed rather than reported as a word-level
+            // grammar fault: the tuned path that could build those subtrees derives topology from its
+            // own plan, so it cannot stand in for this permutation. Note the failure is reported AFTER
+            // measurement (proposals may well be non-zero) -- that measurement is the evidence the
+            // attribution rests on.
+            assert!(
+                matches!(e.certification, Certification::Unsupported { .. }),
+                "{}: a non-baseline candidate that failed and whose plan required {markers:?} must be \
+                 attributed as unhonourable, got {:?}",
+                fixture.label(),
+                e.certification
+            );
         }
         exercised.push(fixture.label());
     }
