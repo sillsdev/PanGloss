@@ -972,7 +972,11 @@ fn display_candidate(grammar: &Grammar, word: &Word) -> String {
                 grammar
                     .morphemes
                     .get(m.0 as usize)
-                    .map(|info| info.morph_id.clone().unwrap_or_else(|| info.xml_key.clone()))
+                    .map(|info| {
+                        info.morph_id
+                            .clone()
+                            .unwrap_or_else(|| info.xml_key.clone())
+                    })
                     .unwrap_or_else(|| format!("morpheme#{}", m.0))
             }
         })
@@ -1203,7 +1207,10 @@ mod tests {
         let hc_identities = vec![id("gap")];
         let foma_identities: Vec<AnalysisIdentity> = Vec::new();
         let causes = attribute_causes(&asked_about, &hc_identities, &[], Some(&foma_identities));
-        assert_eq!(causes, vec![(id("gap"), MissingAnalysisCause::ProposerRecallGap)]);
+        assert_eq!(
+            causes,
+            vec![(id("gap"), MissingAnalysisCause::ProposerRecallGap)]
+        );
     }
 
     #[test]
@@ -1220,7 +1227,12 @@ mod tests {
             },
             candidate_morphemes: vec![Some("rejected".to_string())],
         }];
-        let causes = attribute_causes(&asked_about, &hc_identities, &hc_failures, Some(&foma_identities));
+        let causes = attribute_causes(
+            &asked_about,
+            &hc_identities,
+            &hc_failures,
+            Some(&foma_identities),
+        );
         assert_eq!(
             causes,
             vec![(id("rejected"), MissingAnalysisCause::HermitcrabRejected)]
@@ -1340,7 +1352,11 @@ mod tests {
         );
         let hc_identities = project_identities(&hc_outcome.structured, &g)
             .expect("a guessed analysis must still project to an identity");
-        assert_eq!(hc_identities.len(), 1, "exactly one guessed analysis for \"gag\"");
+        assert_eq!(
+            hc_identities.len(),
+            1,
+            "exactly one guessed analysis for \"gag\""
+        );
 
         // foma-confirm, the real (unstubbed) FST proposer: nothing to propose for a word only the
         // guesser matches.
@@ -1355,7 +1371,11 @@ mod tests {
                 );
                 Vec::new()
             }
-            FomaApplyOutcome::Incomplete { dimension, value, limit } => panic!(
+            FomaApplyOutcome::Incomplete {
+                dimension,
+                value,
+                limit,
+            } => panic!(
                 "this trivial grammar must not hit any budget: {dimension:?} {value}/{limit}"
             ),
         };
@@ -1428,7 +1448,8 @@ mod tests {
   </Language>
 </HermitCrabInput>
 "#;
-        pg_grammar::load(XML).unwrap_or_else(|e| panic!("narrative golden grammar failed to load: {e}"))
+        pg_grammar::load(XML)
+            .unwrap_or_else(|e| panic!("narrative golden grammar failed to load: {e}"))
     }
 
     /// A concrete example of what the pruned narrative looks like for one real word: "sagd" against
@@ -1459,7 +1480,10 @@ mod tests {
         // Step 1: the duplicate synthesis attempt rejected for reapplying `ed_suffix` after the
         // stratum's own (template-less) final template -- `at` is the rule itself, compiler-
         // assigned, never dressed as a source id.
-        assert_eq!(narrative[0].failure_reason, "NonPartialRuleProhibitedAfterFinalTemplate");
+        assert_eq!(
+            narrative[0].failure_reason,
+            "NonPartialRuleProhibitedAfterFinalTemplate"
+        );
         assert_eq!(narrative[0].at.kind, "morphologicalRule");
         assert_eq!(
             narrative[0].at.id_kind,

@@ -363,7 +363,9 @@ fn run_import(args: &[String]) -> Result<(), String> {
 /// `pg_grammar::compile_project`'s own warnings are still plain `String` (out of task 3.8's scope)
 /// and are tagged `compiler.warning` here — honestly one bucket, because that is genuinely all the
 /// granularity that exists on that side today, rather than a code invented to look finer.
-pub(crate) fn load_grammar_coded(path: &str) -> Result<(Grammar, Vec<pg_snapshot::Warning>), String> {
+pub(crate) fn load_grammar_coded(
+    path: &str,
+) -> Result<(Grammar, Vec<pg_snapshot::Warning>), String> {
     let ext = std::path::Path::new(path)
         .extension()
         .and_then(|e| e.to_str())

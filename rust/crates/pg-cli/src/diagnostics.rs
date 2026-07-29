@@ -74,8 +74,8 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use pg_assess::{
-    AnalysisIdentity, AnalysisSet, AssessmentReport, CaseOutcome, CaseRecord, Diagnostic, Execution,
-    IncompleteReason, Provenance, ReportDraft, Severity, SuiteRef, IDENTITY_PROFILE,
+    AnalysisIdentity, AnalysisSet, AssessmentReport, CaseOutcome, CaseRecord, Diagnostic,
+    Execution, IncompleteReason, Provenance, ReportDraft, Severity, SuiteRef, IDENTITY_PROFILE,
 };
 use pg_foma::compose_budget::ApplyBudget;
 use pg_foma::composite::{FomaAnalyzer, FomaApplyOutcome};
@@ -180,7 +180,12 @@ pub fn assess_words(
                         .structured
                         .iter()
                         .cloned()
-                        .zip(found.analyses.iter().map(|(_join, surface)| surface.clone()))
+                        .zip(
+                            found
+                                .analyses
+                                .iter()
+                                .map(|(_join, surface)| surface.clone()),
+                        )
                         .collect();
                     let gloss = pg_realize::word_gloss_signature(grammar, &pairs);
 
@@ -229,8 +234,8 @@ pub fn assess_words(
         });
     }
 
-    let source = fs::read_to_string(grammar_path)
-        .map_err(|e| format!("read {grammar_path}: {e}"))?;
+    let source =
+        fs::read_to_string(grammar_path).map_err(|e| format!("read {grammar_path}: {e}"))?;
     let source_kind = crate::assess::source_kind_of(grammar_path);
     let version = env!("CARGO_PKG_VERSION");
     let digest = pg_assess::sha256_bytes(source.as_bytes());
@@ -305,8 +310,13 @@ pub fn run_diagnose(args: &[String]) -> Result<(), String> {
         .collect();
 
     let build = build_report(&grammar, load_warnings);
-    let assessment =
-        assess_words(&grammar, grammar_path, &words, &ApplyBudget::from_env(), &coded_warnings)?;
+    let assessment = assess_words(
+        &grammar,
+        grammar_path,
+        &words,
+        &ApplyBudget::from_env(),
+        &coded_warnings,
+    )?;
 
     fs::create_dir_all(out_dir).map_err(|e| format!("create {out_dir}: {e}"))?;
     let build_path = Path::new(out_dir).join("build.json");
@@ -432,9 +442,17 @@ mod tests {
         .expect("assessment must succeed")
     }
 
-    fn diagnose_extension(report: &AssessmentReport, case_id: &str, field: &str) -> serde_json::Value {
-        report.draft().extensions.as_ref().expect("diagnose always attaches its extension")
-            ["org.sil.pangloss.diagnose"]["perCase"][case_id][field]
+    fn diagnose_extension(
+        report: &AssessmentReport,
+        case_id: &str,
+        field: &str,
+    ) -> serde_json::Value {
+        report
+            .draft()
+            .extensions
+            .as_ref()
+            .expect("diagnose always attaches its extension")["org.sil.pangloss.diagnose"]
+            ["perCase"][case_id][field]
             .clone()
     }
 
@@ -551,8 +569,10 @@ mod tests {
         // artifact parses back to the same evidence and the same digests.
         let report = assess(&["kal"], &ApplyBudget::unbounded());
         let json = report.to_canonical_json().expect("canonicalize");
-        let read = pg_assess::parse_report(&json).expect("a diagnose artifact must parse as the
-             canonical report — that is the whole point of having one type");
+        let read = pg_assess::parse_report(&json).expect(
+            "a diagnose artifact must parse as the
+             canonical report — that is the whole point of having one type",
+        );
 
         assert_eq!(read.report_id(), report.report_id());
         assert_eq!(read.semantic_digest(), report.semantic_digest());
@@ -567,9 +587,15 @@ mod tests {
         // data" from "a message was reworded" — the distinction §10 asks for.
         let path = grammar_file();
         let warnings = vec![
-            pg_snapshot::Warning::new("fwdata.dangling-reference", "entry 4 refers to a missing MSA"),
+            pg_snapshot::Warning::new(
+                "fwdata.dangling-reference",
+                "entry 4 refers to a missing MSA",
+            ),
             pg_snapshot::Warning::new("fwdata.unsupported-morph-type", "morph type not supported"),
-            pg_snapshot::Warning::new("fwdata.dangling-reference", "entry 9 refers to a missing MSA"),
+            pg_snapshot::Warning::new(
+                "fwdata.dangling-reference",
+                "entry 9 refers to a missing MSA",
+            ),
         ];
         let report = assess_words(
             &grammar(),
