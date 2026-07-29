@@ -55,6 +55,24 @@ pub enum IdentityError {
     UnresolvedCategory { ordinal: u32 },
 }
 
+impl std::fmt::Display for IdentityError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            IdentityError::UnresolvedMorpheme { ordinal } => write!(
+                f,
+                "morpheme ordinal {ordinal} has no row in this model; an analysis referencing a \
+                 morpheme its own model lacks is an internal fault, not a grammar edit"
+            ),
+            IdentityError::UnresolvedCategory { ordinal } => write!(
+                f,
+                "part-of-speech ordinal {ordinal} has no symbol in this model's category table"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for IdentityError {}
+
 impl AnalysisIdentity {
     /// Project one analysis against the model that produced it.
     pub fn project(analysis: &WordAnalysis, grammar: &Grammar) -> Result<Self, IdentityError> {

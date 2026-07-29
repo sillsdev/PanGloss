@@ -83,6 +83,7 @@ use pg_foma::composite::FomaAnalyzer;
 use pg_grammar::model::{Grammar, LexEntryId, MRuleId, MorphRuleDef};
 use pg_parse::{hc_parse_batch, GenMorpheme, Morpher, WordAnalysis};
 
+mod assess;
 mod coverage;
 mod diagnostics;
 mod fst_health;
@@ -181,6 +182,10 @@ fn run() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
+        Some("assess") => assess::exit(assess::run_assess(&args[2..]), "assess"),
+        Some("compare") => assess::exit(assess::run_compare(&args[2..]), "compare"),
+        Some("golden-diff") => assess::exit(assess::run_golden_diff(&args[2..]), "golden-diff"),
+        Some("investigate") => assess::exit(assess::run_investigate(&args[2..]), "investigate"),
         Some("diagnose") => match diagnostics::run_diagnose(&args[2..]) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
@@ -261,6 +266,10 @@ fn run() -> ExitCode {
                  usage: pangloss parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--engine=default|foma] [--enforce-capability|--no-enforce-capability] [--allow-unproven] [--guess]\n\
                  usage: pangloss import <project.fwdata> <out.json>\n\
                  usage: pangloss diagnose <grammar> <words.txt> <out-dir>\n\
+                 usage: pangloss assess <grammar> (--suite <suite.json> | --words <words.txt>) [--pipeline foma-confirm|hermitcrab] [--budget-paths N] [--budget-candidates N] [--report <path>]\n\
+                 usage: pangloss compare <baseline.json> <candidate.json> [--report <path>]\n\
+                 usage: pangloss golden-diff <report.json> --suite <suite.json> [--report <path>]\n\
+                 usage: pangloss investigate <report.json> --case <caseId> [--grammar <path>] [--report <path>]\n\
                  usage: pangloss pack <grammar> <out.pgpack> [--allow-unproven] [--authorized-by=<name>] [--reason=<text>] [--watchdog]\n\
                  usage: pangloss fst-health <grammar> [<words.txt>] [<out.json>]\n\
                  usage: pangloss coverage [--json] [--grammar=<path>] [<out.json>]\n\

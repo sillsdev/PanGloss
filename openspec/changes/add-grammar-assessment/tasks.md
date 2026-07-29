@@ -76,30 +76,42 @@ terminal-outcome routing owner).
       counters the decode loop already kept, no clock reads; gated against the diagnostic path)
 - [x] 3.2 Add `not_attempted` as a real outcome, completing `CONTEXT.md:203`'s contract in code
       (`pg-assess/src/outcome.rs`)
-- [ ] 3.3 Add `--pipeline foma-confirm|hermitcrab` defaulting to `foma-confirm`, replacing
+- [x] 3.3 Add `--pipeline foma-confirm|hermitcrab` defaulting to `foma-confirm`, replacing
       `--engine default|foma` (`pg-cli/src/main.rs:102-116`); an unavailable pipeline returns
       `unsupported_capability` with no silent fallback
-- [ ] 3.4 Leave logical budgets unbounded unless a resource envelope is named; record the effective
+  (`pg-cli/src/assess.rs`: `--pipeline foma-confirm|hermitcrab`, default foma-confirm; a
+      grammar the pipeline cannot run is exit 3 (capability) or exit 4 (containment), never a
+      silent fallback to the other engine)
+- [x] 3.4 Leave logical budgets unbounded unless a resource envelope is named; record the effective
       envelope in the report
-- [ ] 3.5 Type an outer-safety-net stop as `wall_clock_timeout` and set `reproducible: false` on the
+- [x] 3.5 Type an outer-safety-net stop as `wall_clock_timeout` and set `reproducible: false` on the
       report
+  (`IncompleteReason::WallClockTimeout` sets `reproducible: false`; no wall-clock net is
+      armed by default, so no assessment is unreproducible unless one is asked for)
 - [x] 3.6 Add `pangloss.assessment-report/v1` with the interned key table, per-case outcomes,
       `reportId`, `semanticDigest`, `outcomeDigest`, and top-level `status: complete|partial|failed`
       (`pg-assess/src/report.rs`; digests over the expanded form, so key-table order cannot move
       one. `parse_report` reads from the artifact's own table and recomputes rather than trusting)
 - [x] 3.7 Emit an authoritative analysis set only for a complete case; keep partial candidates
       clearly separated and never in `analyses`
-- [ ] 3.8 Retain importer and compiler diagnostics inline. Give each importer and snapshot-validation
+- [~] 3.8 Retain importer and compiler diagnostics inline. **Partial**: warnings reach the report
+      and `compare` diffs them by code and count, but every importer warning currently shares the
+      single code `importer.warning` — the ~70 per-site codes across `pg-fwdata`/`pg-snapshot` are
+      not assigned yet, so 'the importer skipped different data' is visible only as a count change.
+      Original task text: Give each importer and snapshot-validation
       warning a stable short code alongside its existing prose, replacing bare `Vec<String>`
       (`pg-fwdata/src/lib.rs:52-55`, helper at `extract/mod.rs:55`, ~70 sites across `pg-fwdata` and
       `pg-snapshot`). No warning taxonomy is designed up front; `compare` diffs by code and count so
       rewording prose is never a context difference
-- [ ] 3.9 Write to stdout by default; `--report` writes to a path and overwrites freely
-- [ ] 3.10 Add exit codes: `0` artifact produced, `2` invalid input/schema, `3` unsupported
+- [x] 3.9 Write to stdout by default; `--report` writes to a path and overwrites freely
+- [x] 3.10 Add exit codes: `0` artifact produced, `2` invalid input/schema, `3` unsupported
       capability or incompatible profile, `4` containment prevented the artifact, `70` internal
-- [ ] 3.11 Emit a failed assessment artifact with `not_attempted/assessment_setup_failed` cases when
+  (verified against the real binary in `pg-cli/tests/assessment_e2e.rs`)
+- [x] 3.11 Emit a failed assessment artifact with `not_attempted/assessment_setup_failed` cases when
       suite validation passed but import or compile failed safely
-- [ ] 3.12 Accept a bare word list as well as a suite; synthesize deterministic case IDs from
+  (a broken grammar yields `status: failed` with every case
+      `not_attempted/assessmentSetupFailed` and exit 0 — evidence, not an error exit)
+- [x] 3.12 Accept a bare word list as well as a suite; synthesize deterministic case IDs from
       position and surface form so a caller need not author a suite for a quick run
 - [ ] 3.13 Retire `pg_cli::diagnostics::AssessmentReport` (`diagnostics.rs:167-176`); `diagnose`
       emits `pangloss.assessment-report/v1` and keeps its own `build.json`. One assessment artifact
@@ -171,13 +183,13 @@ terminal-outcome routing owner).
 
 ## 7. End-to-end fixture
 
-- [ ] 7.1 Build a synthetic `.fwdata` fixture demonstrating: two cases sharing a surface form with
+- [x] 7.1 Build a synthetic `.fwdata` fixture demonstrating: two cases sharing a surface form with
       distinct case IDs; a required analysis appearing; a forbidden analysis appearing; an allowed
       alternative; an analysis removed while another is added; a complete empty analysis set; a
       logical-budget incomplete; an importer warning; and an on-demand handoff
-- [ ] 7.2 Run the fixture through both pipelines and compare full structured analysis sets for cases
+- [x] 7.2 Run the fixture through both pipelines and compare full structured analysis sets for cases
       complete in both; an incomplete case fails the fixture rather than comparing as empty
-- [ ] 7.3 Confirm Windows and Linux produce identical `semanticDigest` and `outcomeDigest` for the
+- [x] 7.3 Confirm Windows and Linux produce identical `semanticDigest` and `outcomeDigest` for the
       same grammar despite differing line endings on checkout (`core.autocrlf = true`, no
       `.gitattributes`), and that `sourceSha256` and `reportId` correctly differ. Do not "fix" a
       digest mismatch here by reintroducing CRLF-normalized source hashing (D12)
