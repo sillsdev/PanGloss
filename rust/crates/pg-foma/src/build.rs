@@ -135,28 +135,288 @@ pub fn unbuildable_markers(plan: &Plan) -> Vec<FragmentSpec> {
     found
 }
 
+/// Every token character standing for a `Boundary`-kind char-def in `table` -- the shared
+/// collection both [`boundary_cleanup_net`] (which deletes every one of them, unconditionally) and
+/// [`reroute_null_shaped_affix_chains`] (which needs to recognize when a lexc line's ENTIRE
+/// underlying text is drawn only from this set, i.e. is about to be deleted down to nothing) must
+/// agree on. Kept as one function so the two can never drift on which char-defs "boundary" means
+/// here.
+fn boundary_tokens(table: &pg_grammar::chardef::CharDefTable, alphabet: &SegAlphabet) -> Vec<char> {
+    table
+        .iter()
+        .filter(|(_, cd)| cd.kind() == pg_grammar::chardef::CharDefKind::Boundary)
+        .map(|(id, _)| alphabet.token(id))
+        .collect()
+}
+
 /// The boundary-token cleanup net that every caller further composing a [`build_controllable`] /
 /// [`crate::gate::compile_gated_grammar_with_budget`] result must apply. `None` when `table` declares
-/// no `Boundary` char-defs, in which case there is nothing to clean up.
+/// no `Boundary` char-def at all (the common case for a grammar that authors no morph-juncture
+/// markers).
+///
+/// # Why this deletes EVERY `Boundary` char-def, unconditionally, with no exceptions
+/// `uflexc`'s emitted lexc leaves these tokens as required literal characters on the tape (the
+/// commit message for `76cf841` confirms the pre-cleanup net was "unqueryable" -- a bare surface
+/// query, which never contains a literal boundary character, matched nothing). Excluding ANY
+/// `Boundary` char-def from this deletion (an earlier version of this function tried excluding
+/// multi-representation ones, keyed off `CharDef::representations().len()`) makes every entry that
+/// contains that char-def permanently unreachable by a real surface query -- not a narrow gap, a
+/// straight recall regression (`recipe_runtime_net_is_queryable_gate.rs`'s own
+/// `null_morph_prefix_does_not_collapse_to_a_free_epsilon_loop`-shaped test caught this immediately:
+/// `MultiplicityMismatch { word: "s", expected: 2, actual: 1 }` -- the null-affixed analysis simply
+/// vanished). So this function stays exactly what it always was: blanket, unconditional deletion of
+/// every `Boundary` char-def. See [`reroute_null_shaped_affix_chains`] for where the actual fix for
+/// the precision regression this used to cause now lives.
 fn boundary_cleanup_net(
     opts: &FomaOptions,
     table: &pg_grammar::chardef::CharDefTable,
     alphabet: &SegAlphabet,
 ) -> Option<Fsm> {
-    let boundary_tokens: Vec<char> = table
-        .iter()
-        .filter(|(_, cd)| cd.kind() == pg_grammar::chardef::CharDefKind::Boundary)
-        .map(|(id, _)| alphabet.token(id))
-        .collect();
-    if boundary_tokens.is_empty() {
+    let tokens = boundary_tokens(table, alphabet);
+    if tokens.is_empty() {
         return None;
     }
-    let cleanup_regex = boundary_tokens
+    let cleanup_regex = tokens
         .iter()
         .map(|c| format!("{c} -> 0"))
         .collect::<Vec<_>>()
         .join(", ");
     foma::regex::fsm_parse_regex(opts, &cleanup_regex, None, None)
+}
+
+/// The actual fix for `docs/fst-plan/large-lexicon-proposal-explosion.md`'s precision regression,
+/// applied to a group's raw `uflexc` lexc source BEFORE it is compiled to an `Fsm` (i.e. before
+/// [`boundary_cleanup_net`] ever runs) -- this is the "stop putting boundary tokens on the queryable
+/// tape at all" mechanism the diagnosis doc's own recommendation #2 named, mirrored from
+/// [`crate::emit`]'s working approach (its own module doc: "boundary characters dropped,
+/// representation variants enumerated" -- never emitted onto the tape, then blanket-deleted after
+/// the fact), adapted to `uflexc`'s much simpler self-looping-lexicon model instead of `emit.rs`'s
+/// junction-probing one.
+///
+/// # The exact failure mode this closes
+/// `uflexc::emit_underlying_filtered_with_budget`'s prefix/suffix continuation lexicons
+/// (`PrefixChain`'s lines all point back to the self-referencing `PrefixOrRoot`/`PrefixChain` pair;
+/// `SuffixChain`'s all point back to the self-referencing `SuffixOrEnd`/`SuffixChain` pair) are
+/// DELIBERATELY self-looping (`uflexc`'s own module doc: "self-looping prefix/suffix chains"), an
+/// upward approximation that lets real (non-empty) affixes stack arbitrarily. That is harmless for
+/// an ordinary affix because taking the loop always consumes at least one real surface character, so
+/// recursion depth is bounded by the query's own length. It is NOT harmless for an affix allomorph
+/// whose entire underlying shape is composed only of `Boundary`-kind characters (Sena's compounding
+/// allomorph `"^0+"`, 7 occurrences, all identical): once `boundary_cleanup_net` deletes every
+/// character of THAT allomorph's spelling, its lexc line degenerates to a zero-width, epsilon-tagged
+/// entry sitting ON the self-loop -- a free, unboundedly-repeatable insertion of that morpheme's tag
+/// symbol, taken any number of times without consuming any surface text. `apply_up` enumerates
+/// distinct accepting upper-tape strings (each repeat count produces a genuinely different tag
+/// sequence), so it multiplies out every repeat count up to its own internal search bound: measured
+/// 127 -> 53992 proposals (425x) on the same Sena 5-word slice, 99.5% on one word (`mbali`).
+///
+/// # Why deleting the boundary characters isn't the problem -- the CYCLE is
+/// The pre-cleanup network already requires these literal boundary characters to be present in the
+/// input to take the loop at all, so pre-cleanup it is already correctly rejected by every real
+/// (boundary-free) surface query -- this is exactly the OLD "unqueryable net" bug for entries that
+/// need those characters gone. Deletion has to happen for recall. What must not happen is deletion
+/// landing a zero-width transition on a state that can be revisited: this function reroutes exactly
+/// those lines, and only those, off the self-looping continuation and onto a one-shot successor that
+/// cannot be re-entered -- so the null/zero-morph marker keeps behaving like an ordinary optional
+/// morph that occurs AT MOST ONCE per prefix/suffix juncture (its actual grammatical meaning), never
+/// like a free repeatable insertion. This preserves recall (the marker-only entry is still reachable,
+/// exactly once, so a word genuinely analyzed with it still proposes and confirms) while eliminating
+/// the epsilon cycle that caused the explosion (nothing left to repeat unboundedly).
+///
+/// # Preserving full stacking around the (at most once) marker, not just "reachable at all"
+/// A first version of this function routed a null-shaped line straight to `RootBare`/`#` (no further
+/// prefixes/suffixes allowed afterward at all). That is TOO narrow: `uflexc`'s self-looping chain is
+/// there so ordinary affixes can combine in any order, and the ground truth (`pg_parse::Morpher`,
+/// which this net is only ever an approximation OF) genuinely admits every order of a real affix
+/// relative to a null one -- caught directly by this fix's own gate,
+/// `null_morph_prefix_does_not_collapse_to_a_free_epsilon_loop`, which failed
+/// `MultiplicityMismatch { word: "ps", expected: 3, actual: 2 }` under that narrower version: real
+/// prefix's underlying "p" plus the null prefix legitimately combine in EITHER order (both surface as
+/// "ps"), and routing straight to `RootBare` silently dropped whichever order took the null prefix
+/// FIRST. So the successor state after a null/marker line must still admit every ORDINARY (non-null-
+/// shaped) affix, in any quantity -- just never a SECOND null-shaped line (which is what would reopen
+/// the epsilon cycle). Hence the duplicated `*NoNull` chain below: ordinary affixes get a second,
+/// otherwise-identical lexc line whose continuation stays inside the "already used the marker"
+/// universe, so they can freely combine before AND after the (at most one) marker occurrence, while
+/// the marker lines themselves are never duplicated into that universe -- there is no line left for a
+/// second marker occurrence to take, so the cycle stays broken.
+///
+/// # Mechanics
+/// Scans `lexc_source`'s `PrefixChain`/`SuffixChain` lexicon bodies (the exact, fixed shape
+/// `emit_underlying_filtered_with_budget` itself always produces -- this is not a general lexc
+/// parser). A line whose underlying (lower-tape) text is non-empty and consists ENTIRELY of
+/// characters in `boundary_tokens(table, alphabet)` (i.e. will be deleted to nothing by
+/// [`boundary_cleanup_net`]) is "null-shaped"; every other non-blank entry line in those two bodies is
+/// "ordinary". For the prefix side:
+/// - Each null-shaped `PrefixChain` line has its continuation swapped in place: `PrefixOrRoot` ->
+///   `PrefixOrRootAfterNull`.
+/// - Each ordinary `PrefixChain` line gets a SECOND copy (identical tag/underlying, continuation
+///   `PrefixOrRootAfterNull` instead of `PrefixOrRoot`) collected into a new `PrefixChainNoNull`
+///   lexicon body.
+/// - Two lexicons are appended (only if any null-shaped prefix line existed): `PrefixOrRootAfterNull`
+///   offers `PrefixChainNoNull ;` (any ordinary prefix, any number of times, any order) and
+///   `RootBare ;` (stop prefixing) -- but never `PrefixChain` itself, so no second null-shaped prefix
+///   is reachable from here.
+/// The suffix side mirrors this exactly: `SuffixOrEnd` -> `SuffixEndOnly`, `SuffixChain` ->
+/// `SuffixChainNoNull`, `# ;` in place of `RootBare ;`.
+///
+/// Every OTHER line (root lines, lexicon headers, blank lines) passes through byte-for-byte. A
+/// grammar with no `Boundary` char-def at all is a pure no-op (`boundary_tokens` is empty, so nothing
+/// can ever match), keeping every existing boundary-free fixture's net byte-identical to before this
+/// function existed.
+fn reroute_null_shaped_affix_chains(
+    lexc_source: &str,
+    table: &pg_grammar::chardef::CharDefTable,
+    alphabet: &SegAlphabet,
+) -> String {
+    let boundary_set: HashSet<char> = boundary_tokens(table, alphabet).into_iter().collect();
+    if boundary_set.is_empty() {
+        return lexc_source.to_string();
+    }
+
+    let mut out = String::with_capacity(lexc_source.len() + 128);
+    let mut current_lexicon: Option<&str> = None;
+    let mut prefix_no_null_lines: Vec<String> = Vec::new();
+    let mut suffix_no_null_lines: Vec<String> = Vec::new();
+
+    for line in lexc_source.lines() {
+        let trimmed = line.trim();
+        if let Some(name) = trimmed.strip_prefix("LEXICON ") {
+            current_lexicon = Some(name.trim());
+            out.push_str(line);
+            out.push('\n');
+            continue;
+        }
+        let side = match current_lexicon {
+            Some("PrefixChain") => Some(("PrefixOrRoot", "PrefixOrRootAfterNull")),
+            Some("SuffixChain") => Some(("SuffixOrEnd", "SuffixEndOnly")),
+            _ => None,
+        };
+        if let Some((from_continuation, to_continuation)) = side {
+            match reroute_line_if_null_shaped(
+                line,
+                &boundary_set,
+                from_continuation,
+                to_continuation,
+            ) {
+                Some(rerouted) => {
+                    // Null-shaped: replace IN PLACE (module doc) -- this line never gets a
+                    // `*NoNull` duplicate, which is exactly what keeps a second marker occurrence
+                    // unreachable.
+                    out.push_str(&rerouted);
+                    out.push('\n');
+                    continue;
+                }
+                None => {
+                    // Ordinary: passes through unchanged here, AND gets a second copy queued for
+                    // the `*NoNull` lexicon (continuation swapped), so it can still combine with a
+                    // marker that occurred earlier in the chain.
+                    if let Some(dup) = duplicate_ordinary_line_with_continuation(
+                        line,
+                        from_continuation,
+                        to_continuation,
+                    ) {
+                        match current_lexicon {
+                            Some("PrefixChain") => prefix_no_null_lines.push(dup),
+                            Some("SuffixChain") => suffix_no_null_lines.push(dup),
+                            _ => unreachable!("side is only Some for PrefixChain/SuffixChain"),
+                        }
+                    }
+                }
+            }
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+
+    if !prefix_no_null_lines.is_empty() {
+        out.push_str("\nLEXICON PrefixOrRootAfterNull\nPrefixChainNoNull ;\nRootBare ;\n");
+        out.push_str("\nLEXICON PrefixChainNoNull\n");
+        for l in &prefix_no_null_lines {
+            out.push_str(l);
+            out.push('\n');
+        }
+    }
+    if !suffix_no_null_lines.is_empty() {
+        out.push_str("\nLEXICON SuffixEndOnly\nSuffixChainNoNull ;\n# ;\n");
+        out.push_str("\nLEXICON SuffixChainNoNull\n");
+        for l in &suffix_no_null_lines {
+            out.push_str(l);
+            out.push('\n');
+        }
+    }
+    out
+}
+
+/// If `line` is an ORDINARY (non-null-shaped) `uflexc` continuation-chain entry whose continuation is
+/// exactly `from_continuation`, returns a duplicate with the continuation swapped to `to_continuation`
+/// -- the `*NoNull` copy [`reroute_null_shaped_affix_chains`]'s own doc describes. `None` for a blank
+/// line or any line whose continuation doesn't match (nothing to duplicate).
+fn duplicate_ordinary_line_with_continuation(
+    line: &str,
+    from_continuation: &str,
+    to_continuation: &str,
+) -> Option<String> {
+    let mut sep_byte = None;
+    let mut prev = '\0';
+    for (i, c) in line.char_indices() {
+        if c == ':' && prev != '%' {
+            sep_byte = Some(i);
+            break;
+        }
+        prev = c;
+    }
+    let sep_byte = sep_byte?;
+    let tag = &line[..sep_byte];
+    let after = &line[sep_byte + 1..];
+    let mut fields = after.split_whitespace();
+    let underlying = fields.next()?;
+    let cont = fields.next()?;
+    if cont != from_continuation {
+        return None;
+    }
+    Some(format!("{tag}:{underlying} {to_continuation} ;"))
+}
+
+/// If `line` is a `uflexc`-shaped continuation-chain entry (`TAG:UNDERLYING FROM_CONTINUATION ;`)
+/// whose `UNDERLYING` text is composed ENTIRELY of characters in `boundary_tokens` (so
+/// [`boundary_cleanup_net`]'s later blanket deletion will reduce it to the empty string), returns
+/// the same line with its continuation swapped to `to_continuation` -- moving it off the
+/// self-looping chain (see [`reroute_null_shaped_affix_chains`]'s own doc). `None` for every other
+/// line (ordinary non-empty-underlying entries, or any line whose continuation isn't
+/// `from_continuation` to begin with) -- left completely untouched by the caller.
+fn reroute_line_if_null_shaped(
+    line: &str,
+    boundary_tokens: &HashSet<char>,
+    from_continuation: &str,
+    to_continuation: &str,
+) -> Option<String> {
+    // `tags::lexc_tag`'s own escaping convention: the tag's own embedded colon is always spelled
+    // `%:` (escaped), so the first ':' NOT immediately preceded by '%' is the real upper/lower
+    // separator that `emit_underlying_filtered_with_budget`'s own `format!("{tag}:{underlying} ...")`
+    // writes -- never a colon inside the tag text itself.
+    let mut sep_byte = None;
+    let mut prev = '\0';
+    for (i, c) in line.char_indices() {
+        if c == ':' && prev != '%' {
+            sep_byte = Some(i);
+            break;
+        }
+        prev = c;
+    }
+    let sep_byte = sep_byte?;
+    let tag = &line[..sep_byte];
+    let after = &line[sep_byte + 1..];
+    let mut fields = after.split_whitespace();
+    let underlying = fields.next()?;
+    let cont = fields.next()?;
+    if cont != from_continuation {
+        return None;
+    }
+    if underlying.is_empty() || !underlying.chars().all(|c| boundary_tokens.contains(&c)) {
+        return None;
+    }
+    Some(format!("{tag}:{underlying} {to_continuation} ;"))
 }
 
 /// Finishes a [`build_controllable`] net into one a [`crate::analyzer::FomaProposer`] can actually
@@ -237,6 +497,9 @@ pub fn build_controllable(
         children.len(),
         "Gate node invariant (see Plan::add_node's own debug_assert): one child per partition group"
     );
+    // Read once, reused per group below (`reroute_null_shaped_affix_chains` call site) -- the SAME
+    // table `alphabet` was itself constructed from, per `SegAlphabet::table`'s own doc.
+    let table_for_group = alphabet.table();
 
     let mut final_net: Option<Fsm> = None;
     let mut skipped_rules: Vec<String> = Vec::new();
@@ -286,6 +549,10 @@ pub fn build_controllable(
             continue;
         }
 
+        // Precision fix (`reroute_null_shaped_affix_chains`'s own doc): must run BEFORE compiling,
+        // on the raw lexc source, so the marker-only allomorph lines never reach the compiled `Fsm`
+        // sitting on `uflexc`'s self-looping continuation in the first place.
+        let lexc_source = reroute_null_shaped_affix_chains(&lexc_source, table_for_group, alphabet);
         let lexc_net = foma::lexcread::fsm_lexc_parse_string(opts, None, &lexc_source)
             .unwrap_or_else(|| panic!("gated group lexc failed to compile:\n{lexc_source}"));
 
