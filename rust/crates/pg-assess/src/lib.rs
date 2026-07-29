@@ -15,6 +15,7 @@ pub mod digest;
 pub mod identity;
 pub mod jcs;
 pub mod model;
+pub mod outcome;
 pub mod set;
 pub mod suite;
 
@@ -24,6 +25,9 @@ pub use digest::{
 pub use identity::{AnalysisIdentity, IdentityError, MorphemeKey, IDENTITY_PROFILE};
 pub use jcs::{canonicalize, JcsError};
 pub use model::{model_fingerprint, source_sha256, SourceKind, MODEL_PROJECTION};
+pub use outcome::{
+    derive_status, AssessmentStatus, CaseOutcome, IncompleteReason, NotAttemptedReason,
+};
 pub use set::{AnalysisSet, AnalysisSetEntry};
 pub use suite::{
     parse_suite, AssessmentCase, AssessmentSuite, Expectation, ExpectationStatus, SuiteError,

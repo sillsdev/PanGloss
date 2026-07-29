@@ -9,33 +9,33 @@ it, so no schema is designed against imagined output.
 Exclusive ownership: new identity crate, `pg-parse` analysis projection. Amends
 `define-grammar-coverage-contract/specs/grammar-coverage-contract/spec.md`.
 
-- [ ] 1.1 Add a structured analysis identity value: ordered stable morpheme keys, root-morpheme
+- [x] 1.1 Add a structured analysis identity value: ordered stable morpheme keys, root-morpheme
       index, stable category key. No compiler-assigned ordinals in the value (ADR 0006)
-- [ ] 1.2 Project `pg_parse::WordAnalysis` to that identity via `MorphemeInfo.xml_key` and the
+- [x] 1.2 Project `pg_parse::WordAnalysis` to that identity via `MorphemeInfo.xml_key` and the
       part-of-speech symbol id; do not widen or reuse `WordAnalysis`'s derived `Eq`, which spans
       `syn_fs`/`mpr`/`provenance` and stays load-bearing for `pg_lexicon`'s `push_unique`
-- [ ] 1.3 Pin synthesized keys explicitly: variant entries (`{variant_guid}#{guid}`,
+- [x] 1.3 Pin synthesized keys explicitly: variant entries (`{variant_guid}#{guid}`,
       `compile/lexicon.rs:668`) and null affixes (`null-affix#{guid}`, `compile/templates.rs:263`)
-- [ ] 1.4 Serialize `guessed` on the analysis record and exclude it from `identityDigest`
-- [ ] 1.5 Implement RFC 8785 JCS with numeric edge-case conformance fixtures, not only happy-path
+- [x] 1.4 Serialize `guessed` on the analysis record and exclude it from `identityDigest`
+- [x] 1.5 Implement RFC 8785 JCS with numeric edge-case conformance fixtures, not only happy-path
       tests; reject duplicate object keys
-- [ ] 1.6 Define and version two named projections, `pangloss.assessment-semantic/v1` and
+- [x] 1.6 Define and version two named projections, `pangloss.assessment-semantic/v1` and
       `pangloss.assessment-outcome/v1`, with the projection name inside each digest preimage
-- [ ] 1.7 Compute digests over expanded, deduplicated, `identityDigest`-sorted analyses so
+- [x] 1.7 Compute digests over expanded, deduplicated, `identityDigest`-sorted analyses so
       serialization order, duplicate multiplicity, and key-table order cannot affect them
-- [ ] 1.8 Add `sourceSha256` over exact file bytes; do not reuse
+- [x] 1.8 Add `sourceSha256` over exact file bytes; do not reuse
       `pg_lexicon::grammar_source_fingerprint` (`runtime.rs:804-806`), which normalizes CRLF
-- [ ] 1.9 Add an in-memory `modelFingerprint` distinct from `sourceSha256` and from
+- [x] 1.9 Add an in-memory `modelFingerprint` distinct from `sourceSha256` and from
       `PackManifest.package_fingerprint`; formatting-only source differences may move one and not
       the other. `semanticDigest` rests entirely on it, so gate it: it SHALL move for every
       analysis-relevant model change and SHALL NOT move for serialization-only differences, proven
       by paired fixtures in both directions
-- [ ] 1.9a Exclude `sourceSha256` from the semantic projection; keep it in `reportId`, the report
+- [x] 1.9a Exclude `sourceSha256` from the semantic projection; keep it in `reportId`, the report
       body, and `contextDifferences` (D3a)
-- [ ] 1.10 Amend the coverage contract: scope its missing-source-key `not_comparable` rule to engine
+- [x] 1.10 Amend the coverage contract: scope its missing-source-key `not_comparable` rule to engine
       parity; state that for grammar delta an absent key is `added`/`removed`, and that key
       collision within one model remains an integrity error
-- [ ] 1.11 Name the v1 identity profile `pangloss.machine-word-analysis/v1`, declared by the suite
+- [x] 1.11 Name the v1 identity profile `pangloss.machine-word-analysis/v1`, declared by the suite
       and recorded in every report; document the rule that a later profile ships either a total
       mechanical mapping from its predecessor or a stated reason none exists
 - [ ] 1.12 Verify duplicate-count determinism under parallel batch; if nondeterministic, move
@@ -45,22 +45,22 @@ Exclusive ownership: new identity crate, `pg-parse` analysis projection. Amends
 
 ## 2. Assessment suite schema and validator
 
-- [ ] 2.1 Add `pangloss.assessment-suite/v1` with `suiteId`, `suiteRevision`, opaque `caseId`,
+- [x] 2.1 Add `pangloss.assessment-suite/v1` with `suiteId`, `suiteRevision`, opaque `caseId`,
       authoritative case order, and declared identity profile
-- [ ] 2.2 Accept duplicate surface forms as distinct cases; reject duplicate `caseId`
-- [ ] 2.3 Add the expectation algebra: `required`, `forbidden`, `allowed`, `closedWorld`; reject
+- [x] 2.2 Accept duplicate surface forms as distinct cases; reject duplicate `caseId`
+- [x] 2.3 Add the expectation algebra: `required`, `forbidden`, `allowed`, `closedWorld`; reject
       overlapping sets; `closedWorld` with empty required and allowed means a complete empty
       analysis set
-- [ ] 2.4 Record expectation status `adjudicated|unresolved|out_of_scope|invalid` without creating
+- [x] 2.4 Record expectation status `adjudicated|unresolved|out_of_scope|invalid` without creating
       or transitioning it
-- [ ] 2.5 Add optional `supersedes: [caseId]` case lineage; PanGloss follows a declared link and
+- [x] 2.5 Add optional `supersedes: [caseId]` case lineage; PanGloss follows a declared link and
       never infers one
-- [ ] 2.6 Add the namespaced `extensions` object on suite and case; excluded from both projections,
+- [x] 2.6 Add the namespaced `extensions` object on suite and case; excluded from both projections,
       included in `reportId`
-- [ ] 2.7 Treat `sourceReferences` as opaque; validate shape and size only, carry or omit exactly as
+- [x] 2.7 Treat `sourceReferences` as opaque; validate shape and size only, carry or omit exactly as
       supplied
-- [ ] 2.8 Reject an unsupported `schemaVersion` as a typed validation failure, never best-effort
-- [ ] 2.9 Compute the suite semantic digest over the full canonical suite, unknown caller metadata
+- [x] 2.8 Reject an unsupported `schemaVersion` as a typed validation failure, never best-effort
+- [x] 2.9 Compute the suite semantic digest over the full canonical suite, unknown caller metadata
       included
 - [ ] Gate: `cargo test -p pg-cli suite_`; positive and negative fixtures for every rule above
 

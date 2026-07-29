@@ -20,6 +20,11 @@ pub struct AnalysisSetEntry {
     pub identity_digest: String,
     /// Copies observed before deduplication. Always at least 1.
     pub duplicate_count: u32,
+    /// Whether this analysis came from the guess branch — a fabricated root on a total
+    /// normal-lexicon miss. An annotation, never part of identity: `false → true` across two runs
+    /// means the root stopped being found, which is a real regression the delta reports as
+    /// `annotation_changed` rather than as an addition paired with a removal.
+    pub guessed: bool,
 }
 
 /// A complete analysis set in canonical order.
@@ -29,40 +34,49 @@ pub struct AnalysisSet {
 }
 
 impl AnalysisSet {
-    /// Build from observed analyses in discovery order. Discovery order is deliberately discarded:
-    /// it is not semantic, and letting it reach a digest would make engine internals observable as
-    /// grammar changes.
+    /// Build from observed analyses in discovery order, without annotations.
     pub fn from_observed<I: IntoIterator<Item = AnalysisIdentity>>(observed: I) -> Self {
+        Self::from_annotated(observed.into_iter().map(|identity| (identity, false)))
+    }
+
+    /// Build from observed `(identity, guessed)` pairs in discovery order.
+    ///
+    /// Discovery order is deliberately discarded: it is not semantic, and letting it reach a digest
+    /// would make engine internals observable as grammar changes.
+    pub fn from_annotated<I: IntoIterator<Item = (AnalysisIdentity, bool)>>(observed: I) -> Self {
         // Keyed by digest so ordering is stable under any future field reordering of
         // `AnalysisIdentity`, which a derived `Ord` would not survive.
-        let mut by_digest: BTreeMap<String, (AnalysisIdentity, u32)> = BTreeMap::new();
-        for identity in observed {
+        let mut by_digest: BTreeMap<String, AnalysisSetEntry> = BTreeMap::new();
+        for (identity, guessed) in observed {
             let digest = identity_digest(&identity);
             match by_digest.get_mut(&digest) {
-                Some((existing, count)) => {
+                Some(existing) => {
                     debug_assert_eq!(
-                        *existing, identity,
+                        existing.identity, identity,
                         "identity digest collision: unequal identities share {digest}"
                     );
-                    *count += 1;
+                    existing.duplicate_count += 1;
+                    // The guess branch is all-or-nothing per parse, so copies of one identity agree
+                    // in practice. If they ever disagree, keep the fact that a fabricated root was
+                    // involved rather than letting whichever copy arrived last decide.
+                    existing.guessed |= guessed;
                 }
                 None => {
-                    by_digest.insert(digest, (identity, 1));
+                    by_digest.insert(
+                        digest.clone(),
+                        AnalysisSetEntry {
+                            identity,
+                            identity_digest: digest,
+                            duplicate_count: 1,
+                            guessed,
+                        },
+                    );
                 }
             }
         }
 
         AnalysisSet {
-            entries: by_digest
-                .into_iter()
-                .map(
-                    |(identity_digest, (identity, duplicate_count))| AnalysisSetEntry {
-                        identity,
-                        identity_digest,
-                        duplicate_count,
-                    },
-                )
-                .collect(),
+            entries: by_digest.into_values().collect(),
         }
     }
 
