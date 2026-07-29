@@ -177,12 +177,15 @@ terminal-outcome routing owner).
       described a traversal that could in principle disagree with the reported result. One run now
       decides both
 - [~] 3.15 Update `certify-language-readiness` and `run-synthetic-conformance-matrix` for the report
-      shape they consume. **No-op: the premise does not hold.** Checked at the time of 3.13:
-      `certify-language-readiness` has no change directory in `openspec/changes/`, and
-      `run-synthetic-conformance-matrix/{proposal,design}.md` never mention an assessment report,
-      `diagnose`, or a report shape. They were named as declared consumers during planning, but
-      neither actually references the retired type, so there was nothing to update. Recorded rather
-      than ticked, so a later reader does not assume a migration happened that never did
+      shape they consume. **No-op: neither actually consumes it.** Both change directories exist in
+      `openspec/changes/`. `certify-language-readiness` consumes `pangloss pack`'s artifact and its
+      ADR 0005 trust stamp, emitting a markdown readiness report; `run-synthetic-conformance-matrix`
+      never mentions an assessment report, `diagnose`, or a report shape at all. Neither references
+      the retired `pg_cli::diagnostics::AssessmentReport`, so there was nothing to migrate.
+      They were named as declared consumers during planning, and that framing was simply wrong.
+      Recorded rather than ticked, so a later reader does not assume a migration happened that never
+      did — and stated as "they do not consume it" rather than "they do not exist", which is what an
+      earlier pass of this note claimed on the strength of a glob that silently matched nothing
 - [x] Gate: `rust/tools/test.ps1 -Package pg-cli` — **85/86**, the one failure being the
       documented CRLF golden (`make_report_golden_md`, a module this change never touches; it passes
       in a checkout whose files are LF). A repeated run reproduces both digests and a timestamp moves
