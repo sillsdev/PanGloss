@@ -21,6 +21,21 @@ SHALL remain outside identity.
 - **WHEN** a new part of speech shifts every later symbol's dense index
 - **THEN** identities are unaffected, because category is carried as its stable symbol id
 
+### Requirement: An identity profile cannot strand a caller's adjudicated corpus
+The v1 identity profile SHALL be `pangloss.machine-word-analysis/v1`, declared by the suite and
+recorded in every report. A later profile SHALL ship with either a total mechanical mapping from its
+predecessor or an explicit statement of why none exists. `golden-diff` SHALL refuse a profile
+mismatch rather than evaluating expectations written in another profile's encoding.
+
+#### Scenario: A key-synthesis rule changes
+- **WHEN** a new profile re-encodes existing identities without changing which analyses are distinct
+- **THEN** it ships a total mapping, and a caller's adjudicated expectations survive the upgrade
+
+#### Scenario: A new profile splits one identity into two
+- **WHEN** no total mapping exists because the change is genuinely semantic
+- **THEN** that is stated explicitly, and affected expectations require caller re-adjudication rather
+  than being silently reinterpreted
+
 ### Requirement: An assessment reports atomic per-case outcomes
 Every case SHALL be `complete`, `incomplete`, or `not_attempted`. An authoritative analysis set SHALL
 appear only for a complete case. An incomplete case MAY carry diagnostic partial candidates, clearly
@@ -71,6 +86,11 @@ Digests SHALL be computed over expanded, deduplicated, `identityDigest`-sorted a
 #### Scenario: Two reports serialize the same analyses differently
 - **WHEN** analysis order or key-table order differs but the identity sets are equal
 - **THEN** both digests are equal
+
+#### Scenario: The same grammar is assessed on Windows and on Linux
+- **WHEN** checkout line endings differ but the compiled model is identical
+- **THEN** `sourceSha256` and `reportId` differ while `semanticDigest` and `outcomeDigest` are equal,
+  because run identity is carried by `modelFingerprint` rather than by bytes on disk
 
 ### Requirement: Comparison is exact evidence, never a quality judgment
 `compare` SHALL match cases by exact `caseId`, following declared `supersedes` links. It SHALL

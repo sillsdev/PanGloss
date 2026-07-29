@@ -44,13 +44,25 @@ handoff spec's §6.4. A retained identity whose `guessed` flipped reports `annot
 because `false → true` means the root stopped being found in the lexicon — a real regression that
 must not be hidden as an `unchanged` case.
 
-**D3 — Three digests over two named, independently versioned projections.** `reportId` covers the
-whole canonical artifact. `semanticDigest` covers the run: outcomes, analyses, duplicate counts,
-effective budgets, pipeline, importer and compiler versions, model fingerprint, and source hash.
-`outcomeDigest` covers behavior only: suite digest, per-case outcome kind, and deduplicated identity
-sets. Reading which digest moved localizes what changed without diffing anything. The projection
-name and version are part of each digest's preimage, so a future projection can never be silently
-confused with this one.
+**D3 — Three digests over two named, independently versioned projections.** Each digest canonicalizes
+the artifact and drops what is irrelevant *to its own question*; the drop-list is the question.
+`reportId` drops nothing: "are these the same bytes?" `semanticDigest` drops timestamps, paths, and
+timings, covering outcomes, analyses, duplicate counts, effective budgets, pipeline, importer and
+compiler versions, and model fingerprint: "was this the same run?" `outcomeDigest` drops all of that
+too, leaving suite digest, per-case outcome kind, and deduplicated identity sets: "did the grammar
+behave the same?" Reading which digest moved localizes what changed without diffing anything. Each
+projection's name and version are part of its digest preimage, so changing what a projection drops
+can never silently change what its digest means.
+
+**D3a — `sourceSha256` is recorded but not hashed into `semanticDigest`.** Run identity is carried by
+`modelFingerprint` — what was actually analyzed — not by the bytes on disk. With `core.autocrlf =
+true` and no `.gitattributes`, the same grammar has different bytes on Windows and Linux, so
+including the source hash would make every cross-platform comparison report a source-hash context
+difference forever, for a difference git invented. §17.9 already anticipates this: formatting-only
+differences may move `sourceSha256` without moving `modelFingerprint`. The hash stays in `reportId`
+and in the report body, and remains visible in `contextDifferences`. The cost is that
+`semanticDigest` now rests entirely on `modelFingerprint`, so that fingerprint must move for any
+analysis-relevant model change — a named gate in merge unit 1, not an assumption.
 
 **D4 — Digests are computed over the expanded, deduplicated, sorted form.** Analyses are
 deduplicated to a set and sorted by `identityDigest`; interned key references are expanded to their
@@ -100,6 +112,19 @@ narrative that conflated these would send a reviewer to edit a correct grammar.
 `pg_lexicon::grammar_source_fingerprint`, which normalizes CRLF before hashing and would silently
 make a Windows-authored source and its Linux CI copy hash alike. `modelFingerprint` is separate and
 covers the compiled model.
+
+**D14 — One assessment artifact exists in the repo.** `pg_cli::diagnostics::AssessmentReport` is
+retired and `diagnose` emits `pangloss.assessment-report/v1`, keeping its own `build.json`. Two
+artifacts describing word outcomes against a compiled model would be the second path §2 forbids, and
+they would drift. To keep diagnose's ergonomics, `assess` accepts a bare word list and synthesizes
+deterministic case IDs from position and surface form; authoring a suite is required only when the
+caller wants stable identity across runs.
+
+Landing this also deletes a workaround. `assess_words` compiles the grammar to foma twice today —
+once inside `FomaAnalyzer` and once as a standalone `FomaProposer` — solely because `FomaAnalyzer`
+exposes no budgeted entry point and `composite.rs` was a hotspot the change declined to open
+(`diagnostics.rs:178-192`). Merge unit 3 adds that entry point, so the second compiled network goes
+away.
 
 **D13 — `--pipeline foma-confirm|hermitcrab`, defaulting to `foma-confirm`.** This replaces today's
 `--engine default|foma` and inverts today's default. An unavailable pipeline returns

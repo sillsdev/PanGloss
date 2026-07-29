@@ -27,11 +27,18 @@ Exclusive ownership: new identity crate, `pg-parse` analysis projection. Amends
       `pg_lexicon::grammar_source_fingerprint` (`runtime.rs:804-806`), which normalizes CRLF
 - [ ] 1.9 Add an in-memory `modelFingerprint` distinct from `sourceSha256` and from
       `PackManifest.package_fingerprint`; formatting-only source differences may move one and not
-      the other
+      the other. `semanticDigest` rests entirely on it, so gate it: it SHALL move for every
+      analysis-relevant model change and SHALL NOT move for serialization-only differences, proven
+      by paired fixtures in both directions
+- [ ] 1.9a Exclude `sourceSha256` from the semantic projection; keep it in `reportId`, the report
+      body, and `contextDifferences` (D3a)
 - [ ] 1.10 Amend the coverage contract: scope its missing-source-key `not_comparable` rule to engine
       parity; state that for grammar delta an absent key is `added`/`removed`, and that key
       collision within one model remains an integrity error
-- [ ] 1.11 Verify duplicate-count determinism under parallel batch; if nondeterministic, move
+- [ ] 1.11 Name the v1 identity profile `pangloss.machine-word-analysis/v1`, declared by the suite
+      and recorded in every report; document the rule that a later profile ships either a total
+      mechanical mapping from its predecessor or a stated reason none exists
+- [ ] 1.12 Verify duplicate-count determinism under parallel batch; if nondeterministic, move
       duplicate counts out of the semantic projection and record the finding
 - [ ] Gate: `cargo test -p pg-parse -p pg-grammar`; JCS conformance fixtures pass; identical inputs
       reproduce `semanticDigest` and `outcomeDigest` across runs and platforms
@@ -77,14 +84,25 @@ terminal-outcome routing owner).
       `reportId`, `semanticDigest`, `outcomeDigest`, and top-level `status: complete|partial|failed`
 - [ ] 3.7 Emit an authoritative analysis set only for a complete case; keep partial candidates
       clearly separated and never in `analyses`
-- [ ] 3.8 Retain importer and compiler diagnostics inline; introduce typed importer warnings in
-      place of `pg-fwdata`'s `Vec<String>` (`lib.rs:52-55`)
+- [ ] 3.8 Retain importer and compiler diagnostics inline. Give each importer and snapshot-validation
+      warning a stable short code alongside its existing prose, replacing bare `Vec<String>`
+      (`pg-fwdata/src/lib.rs:52-55`, helper at `extract/mod.rs:55`, ~70 sites across `pg-fwdata` and
+      `pg-snapshot`). No warning taxonomy is designed up front; `compare` diffs by code and count so
+      rewording prose is never a context difference
 - [ ] 3.9 Write to stdout by default; `--report` writes to a path and overwrites freely
 - [ ] 3.10 Add exit codes: `0` artifact produced, `2` invalid input/schema, `3` unsupported
       capability or incompatible profile, `4` containment prevented the artifact, `70` internal
 - [ ] 3.11 Emit a failed assessment artifact with `not_attempted/assessment_setup_failed` cases when
       suite validation passed but import or compile failed safely
-- [ ] 3.12 Update `certify-language-readiness` and `run-synthetic-conformance-matrix` for the report
+- [ ] 3.12 Accept a bare word list as well as a suite; synthesize deterministic case IDs from
+      position and surface form so a caller need not author a suite for a quick run
+- [ ] 3.13 Retire `pg_cli::diagnostics::AssessmentReport` (`diagnostics.rs:167-176`); `diagnose`
+      emits `pangloss.assessment-report/v1` and keeps its own `build.json`. One assessment artifact
+      exists in the repo
+- [ ] 3.14 Delete `assess_words`' second compiled foma network (`diagnostics.rs:178-192`): it exists
+      only because `FomaAnalyzer` exposed no budgeted entry point, which task 3.1 adds. `diagnose`
+      compiles the grammar once
+- [ ] 3.15 Update `certify-language-readiness` and `run-synthetic-conformance-matrix` for the report
       shape they consume
 - [ ] Gate: `cargo test -p pg-cli assess_`; a repeated run reproduces both digests; a timestamp or
       path change moves `reportId` only
@@ -153,5 +171,8 @@ terminal-outcome routing owner).
       logical-budget incomplete; an importer warning; and an on-demand handoff
 - [ ] 7.2 Run the fixture through both pipelines and compare full structured analysis sets for cases
       complete in both; an incomplete case fails the fixture rather than comparing as empty
-- [ ] 7.3 Confirm Windows and Linux produce identical `semanticDigest` and `outcomeDigest`
+- [ ] 7.3 Confirm Windows and Linux produce identical `semanticDigest` and `outcomeDigest` for the
+      same grammar despite differing line endings on checkout (`core.autocrlf = true`, no
+      `.gitattributes`), and that `sourceSha256` and `reportId` correctly differ. Do not "fix" a
+      digest mismatch here by reintroducing CRLF-normalized source hashing (D12)
 - [ ] Gate: `cargo test -p pg-conformance-fixtures assessment_e2e`; synthetic data only

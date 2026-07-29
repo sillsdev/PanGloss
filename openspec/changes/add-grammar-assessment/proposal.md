@@ -39,8 +39,12 @@ and has no implementation.
 - Retire `add-grammar-diagnostics` tasks 2.5-2.11 into this change; `diagnose` and its build report
   are unaffected.
 
-Deliberately not part of this change: retaining rule, stratum, and template source GUIDs through
-import; tracing on the foma pipeline; the C# HermitCrab oracle lane owned by
+- Give importer and snapshot-validation warnings a stable code alongside their existing prose, so a
+  caller can tell "the grammar changed" from "the importer skipped different data" without matching
+  English.
+
+Deliberately not part of this change: a full typed importer-warning taxonomy; retaining rule,
+stratum, and template source GUIDs through import; tracing on the foma pipeline; the C# HermitCrab oracle lane owned by
 `add-reference-hermitcrab-parity`; and any grammar-quality score, `better` verdict, or automatic
 repair.
 
