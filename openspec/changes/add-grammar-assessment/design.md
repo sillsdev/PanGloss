@@ -16,6 +16,71 @@ warnings are untyped strings, no in-memory model fingerprint exists, no canonica
 `not_attempted` exists in the glossary but not in code, and stable source IDs survive import only
 for lexical entries.
 
+## Prior art: FieldWorks already ships a diffable parser report
+
+FieldWorks has a Check Parser feature that saves a report and diffs two of them
+(`FieldWorks/Src/LexText/ParserCore/ParserReport.cs`). It is the closest existing thing to `assess`
+plus `compare`, it is in real use, and reading it settles three decisions below that were otherwise
+argued from first principles. It is also thinner than its name suggests, in ways worth stating
+plainly.
+
+`ParseReport` (`ParserReport.cs:317-360`) carries, per word: the word, parse time, an error message,
+and four **scalar counts** — `NumAnalyses`, `NumUserApprovedAnalysesMissing`,
+`NumUserDisapprovedAnalyses`, `NumUserNoOpinionAnalyses`. It does not serialize *which* analyses were
+produced. Reports are written to `ProjectReports/<Guid.NewGuid()>.json` (`ParserReport.cs:179-185`),
+identified to a human by a `(ProjectName, SourceText, Timestamp, MachineName)` tuple, with no schema
+version and no content hash.
+
+Three consequences follow, each of which this change is designed around:
+
+**Comparison by count subtraction can report "no change" when everything changed.**
+`DiffParseReport` (`ParserReport.cs:418-442`) computes `NumAnalyses - oldReport.NumAnalyses`. A word
+that produced two analyses before an edit and two entirely different analyses after diffs to `0`.
+That is a silent wrong answer, which is the worst output an evidence system can produce, and it is
+unavoidable once the artifact stores counts instead of sets. It is the concrete justification for D1
+(identity as a self-contained value) and for the delta categories in `compare`: the artifact has to
+carry identities or the comparison cannot be correct in principle.
+
+**The join key is the surface string.** `ParseReports` is an `IDictionary<string, ParseReport>` keyed
+by the vernacular word (`ParserReport.cs:127-129`), and `DiffParserReports` joins on that key
+(`ParserReport.cs:212-233`). So two questions about the same form cannot coexist, and nothing can
+express "this case replaces that one." This is the real-world instance of the problem caller-owned
+`caseId` and `supersedes` exist to solve, and it is why a case is a question rather than a word.
+
+**A truncated parse is recorded as an ordinary count.** On `ReachedMaxAnalyses` or
+`ReachedMaxBufferSize`, `XAmpleParser.ProcessParseResults` (`XAmpleParser.cs:183-228`) sets a prose
+`errorMessage` and then **still** builds the analysis list from whatever the parser emitted, so
+`NumAnalyses` records a truncated count with nothing marking it non-authoritative. A budget stop is
+therefore indistinguishable downstream from a genuine result. D5 and the atomic
+`complete`/`incomplete`/`not_attempted` outcome are fixing an observed defect here, not guarding a
+hypothetical one.
+
+Two things FieldWorks does that we should not mistake for gaps:
+
+- **It ships no quality score.** No percentage, no better/worse verdict, no gain/loss framing — only
+  absolute counters, with positive values tinted red in the grid
+  (`ParserReportDialog.xaml:56-95`). Declining to compute a score withdraws nothing users have.
+- **Its drill-downs re-derive from the live model.** "Show Analyses" and "Reparse"
+  (`ParserReportDialog.xaml.cs:60-94`) open the *current* wordform and the *current* grammar, not
+  what the report saw — necessarily, since the report never captured it. This is what D9's
+  `retained`/`regenerated`/`unavailable` labeling is for.
+
+**The user-opinion tally is the expectation algebra, computed live.** FieldWorks already classifies
+each word's analyses against the user's stored `IWfiAnalysis` opinions three ways
+(`ParserReport.cs:376-411`, via `ParseResult.MatchesIWfiAnalysis`, `ParseResult.cs:102-133`):
+approved but not produced, produced but disapproved, and produced with no opinion. That maps onto
+this change's algebra almost exactly — `missingRequired`, `observedForbidden`, and
+`not_adjudicated` — which is convergent evidence that the required/forbidden/allowed split and the
+`adjudicated`/`unresolved` lifecycle are the right shape, since the two were designed independently.
+The difference is that FieldWorks evaluates the opinions against the live cache and keeps only the
+counts, so the judgment cannot be replayed, audited, or compared across machines.
+
+That correspondence names a migration nobody owns: a caller holding years of FLEx approved and
+disapproved opinions should be able to turn them into an assessment suite. Under §3.2 the suite is
+caller-owned, so PanGloss does not author one — but the conversion is now a **named** non-goal
+rather than an unmentioned one, because a caller will expect to reuse that corpus and should not
+discover its absence by inference.
+
 ## Goals
 
 - One caller-facing contract with one owner of the wire format.
@@ -30,6 +95,10 @@ for lexical entries.
 - Competing with FieldWorks on trace presentation.
 - Retaining rule/stratum/template source GUIDs through import (named follow-up).
 - Tracing on the foma pipeline (named follow-up).
+- Converting a caller's existing FLEx approved/disapproved `IWfiAnalysis` opinions into an
+  assessment suite. The suite is caller-owned (§3.2), so PanGloss validates and executes one but
+  never authors it — including from FieldWorks' own user-opinion corpus, which is the closest
+  existing analog to this change's expectation algebra (see prior art above).
 
 ## Decisions
 
