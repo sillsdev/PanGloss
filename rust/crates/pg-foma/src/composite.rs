@@ -19,7 +19,7 @@ use rayon::prelude::*;
 use pg_grammar::model::Grammar;
 use pg_parse::{Morpher, WordAnalysis};
 
-use crate::analyzer::{FomaError, FomaProposer, ProposalDiagnostics};
+use crate::analyzer::{FomaError, FomaProposer, ProposalCounts, ProposalDiagnostics};
 use crate::compose_budget::{
     ApplyBudget, ApplyDimension, ApplyOutcome, ComposeBudget, ComposeError,
 };
@@ -176,6 +176,39 @@ pub enum ProfiledFomaApplyOutcome {
     },
 }
 
+/// The production counterpart of [`ProfiledFomaApplyOutcome`]: a budgeted analysis that either
+/// finished or was stopped by a deterministic magnitude cap, with no profiling attached.
+///
+/// The distinction between `Incomplete` and a `Complete` outcome carrying an empty analysis list is
+/// the one the whole assessment contract rests on. An empty complete result is a positive claim
+/// that the grammar analyzes this word no way at all; an incomplete result is the refusal to make
+/// that claim. Collapsing the second into the first turns every budget trip into a confident
+/// assertion of ungrammaticality.
+pub enum FomaApplyOutcome {
+    Complete(FomaOutcome),
+    Incomplete {
+        dimension: ApplyDimension,
+        value: usize,
+        limit: usize,
+    },
+}
+
+fn accumulate_proposal_counts(total: &mut ProposalCounts, next: ProposalCounts) {
+    total.raw_paths += next.raw_paths;
+    total.unique_candidates += next.unique_candidates;
+}
+
+fn remaining_apply_budget_from_counts(budget: &ApplyBudget, used: &ProposalCounts) -> ApplyBudget {
+    ApplyBudget::with_caps(
+        budget
+            .path_cap()
+            .map(|limit| limit.saturating_sub(used.raw_paths)),
+        budget
+            .candidate_cap()
+            .map(|limit| limit.saturating_sub(used.unique_candidates)),
+    )
+}
+
 fn accumulate_proposal_diagnostics(total: &mut ProposalDiagnostics, next: ProposalDiagnostics) {
     total.raw_paths += next.raw_paths;
     total.raw_bytes += next.raw_bytes;
@@ -291,6 +324,137 @@ impl<'g> FomaAnalyzer<'g> {
             peel_used,
             peel_chain_depth_error,
         }
+    }
+
+    /// [`Self::analyze_word`] under a deterministic magnitude budget, with no profiling.
+    ///
+    /// This is the production budgeted path. Until it existed, the only way to obtain a typed
+    /// incomplete from the foma pipeline was
+    /// [`Self::analyze_word_with_diagnostics_budgeted`], which clocks every decoded path — so
+    /// `pg-cli`'s `diagnose` compiled a *second* standalone proposer just to measure against a
+    /// budget, and the production pipeline itself remained unbounded and therefore unable to report
+    /// `incomplete` at all. Both of those follow from the missing entry point, not from anything
+    /// intrinsic.
+    ///
+    /// One `budget` is shared cumulatively by the direct proposal and every proposal reduplication
+    /// peeling requests, matching the diagnostic path's semantics exactly. A trip returns before
+    /// confirmation runs: partial candidates are never confirmed, because a partial confirm would
+    /// produce an analysis set that looks authoritative and is not.
+    ///
+    /// [`ApplyBudget::unbounded`] can never trip, so [`Self::analyze_word`] delegating here is a
+    /// behavior-preserving no-op for every existing caller.
+    pub fn analyze_word_budgeted(&mut self, word: &str, budget: &ApplyBudget) -> FomaApplyOutcome {
+        let (candidates, peel_used, peel_chain_depth_error) =
+            match self.propose_candidates_budgeted(word, budget) {
+                Ok(complete) => complete,
+                Err((dimension, value, limit)) => {
+                    return FomaApplyOutcome::Incomplete {
+                        dimension,
+                        value,
+                        limit,
+                    }
+                }
+            };
+
+        let candidates_generated = candidates.len();
+        let mut analyses = Vec::new();
+        let mut structured = Vec::new();
+        for bucket in confirm::confirm_batch(self.g, &self.owners, &self.morpher, &candidates, word)
+        {
+            for (wa, join, surface) in bucket {
+                structured.push(wa);
+                analyses.push((join, surface));
+            }
+        }
+
+        FomaApplyOutcome::Complete(FomaOutcome {
+            confirmed: structured.len(),
+            analyses,
+            structured,
+            candidates_generated,
+            peel_used,
+            peel_chain_depth_error,
+        })
+    }
+
+    /// [`Self::propose_candidates`] under one cumulative budget, using counters rather than the
+    /// clocked diagnostic proposal.
+    #[allow(clippy::type_complexity)]
+    fn propose_candidates_budgeted(
+        &mut self,
+        word: &str,
+        budget: &ApplyBudget,
+    ) -> std::result::Result<
+        (Vec<Candidate>, bool, Option<ComposeError>),
+        (ApplyDimension, usize, usize),
+    > {
+        let mut used = ProposalCounts::default();
+        let trip = |dimension: ApplyDimension, used: &ProposalCounts| match dimension {
+            ApplyDimension::DecodedPaths => (
+                dimension,
+                used.raw_paths,
+                budget.path_cap().expect("path trip requires a path cap"),
+            ),
+            ApplyDimension::Candidates => (
+                dimension,
+                used.unique_candidates,
+                budget
+                    .candidate_cap()
+                    .expect("candidate trip requires a candidate cap"),
+            ),
+        };
+
+        let direct_budget = remaining_apply_budget_from_counts(budget, &used);
+        let (direct, direct_counts) = self.proposer.propose_budgeted_counted(word, &direct_budget);
+        accumulate_proposal_counts(&mut used, direct_counts);
+        let mut candidates = match direct {
+            ApplyOutcome::Complete(candidates) => candidates,
+            ApplyOutcome::Incomplete { dimension, .. } => return Err(trip(dimension, &used)),
+        };
+
+        let peel_budget = self.peel_budget;
+        let mut incomplete_dimension = None;
+        let peel_result = {
+            let proposer = &mut self.proposer;
+            let mut propose_fn = |root: &str| {
+                if incomplete_dimension.is_some() {
+                    return Vec::new();
+                }
+                let call_budget = remaining_apply_budget_from_counts(budget, &used);
+                let (outcome, next) = proposer.propose_budgeted_counted(root, &call_budget);
+                accumulate_proposal_counts(&mut used, next);
+                match outcome {
+                    ApplyOutcome::Complete(candidates) => candidates,
+                    ApplyOutcome::Incomplete { dimension, .. } => {
+                        incomplete_dimension = Some(dimension);
+                        Vec::new()
+                    }
+                }
+            };
+            self.peeler
+                .peel_candidates(self.g, word, &peel_budget, &mut propose_fn)
+        };
+
+        if let Some(dimension) = incomplete_dimension {
+            return Err(trip(dimension, &used));
+        }
+
+        let (peeled, peel_chain_depth_error) = match peel_result {
+            Ok(peeled) => (peeled, None),
+            Err(error) => (Vec::new(), Some(error)),
+        };
+        let peel_used = !peeled.is_empty();
+        for candidate in peeled {
+            let already_present = candidates.iter().any(|existing| {
+                existing.root_index == candidate.root_index
+                    && existing.morphemes == candidate.morphemes
+            });
+            if !already_present {
+                candidates.push(candidate);
+            }
+        }
+
+        Ok((candidates, peel_used, peel_chain_depth_error))
     }
 
     /// Opt-in diagnostic sibling of [`Self::analyze_word`].
@@ -992,6 +1156,107 @@ mod tests {
             }
             ProfiledFomaApplyOutcome::Complete(_) => {
                 panic!("path-cap=0 must not confirm a partial proposal")
+            }
+        }
+    }
+
+    #[test]
+    fn an_unbounded_budget_leaves_analyze_word_unchanged() {
+        // The whole safety argument for routing production through the budgeted entry point: every
+        // cap check is `Some(cap) if count > cap`, so `None` can never trip.
+        let g = pg_grammar::load(DIAGNOSTICS_FIXTURE)
+            .unwrap_or_else(|e| panic!("fixture failed to load: {e}"));
+        let mut analyzer = FomaAnalyzer::new(&g).expect("analyzer compiles");
+        let expected = analyzer.analyze_word("ka");
+
+        match analyzer.analyze_word_budgeted("ka", &ApplyBudget::unbounded()) {
+            FomaApplyOutcome::Complete(outcome) => {
+                assert_eq!(
+                    pg_parse::result_signature(&outcome.analyses),
+                    pg_parse::result_signature(&expected.analyses)
+                );
+                assert_eq!(outcome.candidates_generated, expected.candidates_generated);
+                assert_eq!(outcome.confirmed, expected.confirmed);
+                assert_eq!(outcome.peel_used, expected.peel_used);
+            }
+            FomaApplyOutcome::Incomplete { dimension, .. } => {
+                panic!("an unbounded budget tripped on {dimension:?}")
+            }
+        }
+    }
+
+    #[test]
+    fn the_budgeted_production_path_agrees_with_the_diagnostic_one() {
+        // Two budgeted paths would be two contracts. They share the cumulative-budget semantics and
+        // must agree on results, or `assess` and `diagnose` would disagree about the same word.
+        let g = pg_grammar::load(DIAGNOSTICS_FIXTURE)
+            .unwrap_or_else(|e| panic!("fixture failed to load: {e}"));
+        let mut analyzer = FomaAnalyzer::new(&g).expect("analyzer compiles");
+        let budget = ApplyBudget::with_caps(Some(100), Some(100));
+
+        let production = match analyzer.analyze_word_budgeted("ka", &budget) {
+            FomaApplyOutcome::Complete(outcome) => outcome,
+            FomaApplyOutcome::Incomplete { dimension, .. } => {
+                panic!("generous tiny-fixture budget tripped: {dimension:?}")
+            }
+        };
+        let diagnostic = match analyzer.analyze_word_with_diagnostics_budgeted("ka", &budget) {
+            ProfiledFomaApplyOutcome::Complete(profiled) => profiled.outcome,
+            ProfiledFomaApplyOutcome::Incomplete { dimension, .. } => {
+                panic!("generous tiny-fixture budget tripped: {dimension:?}")
+            }
+        };
+
+        assert_eq!(
+            pg_parse::result_signature(&production.analyses),
+            pg_parse::result_signature(&diagnostic.analyses)
+        );
+        assert_eq!(
+            production.candidates_generated,
+            diagnostic.candidates_generated
+        );
+    }
+
+    #[test]
+    fn a_tripped_production_budget_reports_the_dimension_and_confirms_nothing() {
+        let g = pg_grammar::load(DIAGNOSTICS_FIXTURE)
+            .unwrap_or_else(|e| panic!("fixture failed to load: {e}"));
+        let mut analyzer = FomaAnalyzer::new(&g).expect("analyzer compiles");
+
+        match analyzer.analyze_word_budgeted("ka", &ApplyBudget::with_caps(Some(0), None)) {
+            FomaApplyOutcome::Incomplete {
+                dimension,
+                value,
+                limit,
+            } => {
+                assert_eq!(dimension, ApplyDimension::DecodedPaths);
+                assert_eq!(value, 1);
+                assert_eq!(limit, 0);
+            }
+            // The distinction the assessment contract rests on: this must not come back as a
+            // complete outcome with an empty analysis list, which would read as "no analysis
+            // exists" rather than "we stopped looking".
+            FomaApplyOutcome::Complete(_) => {
+                panic!("path-cap=0 must not confirm a partial proposal")
+            }
+        }
+    }
+
+    #[test]
+    fn a_candidate_cap_trip_reports_the_candidate_dimension() {
+        let g = pg_grammar::load(DIAGNOSTICS_FIXTURE)
+            .unwrap_or_else(|e| panic!("fixture failed to load: {e}"));
+        let mut analyzer = FomaAnalyzer::new(&g).expect("analyzer compiles");
+
+        match analyzer.analyze_word_budgeted("ka", &ApplyBudget::with_caps(None, Some(0))) {
+            FomaApplyOutcome::Incomplete {
+                dimension, limit, ..
+            } => {
+                assert_eq!(dimension, ApplyDimension::Candidates);
+                assert_eq!(limit, 0);
+            }
+            FomaApplyOutcome::Complete(_) => {
+                panic!("candidate-cap=0 must not confirm a partial proposal")
             }
         }
     }

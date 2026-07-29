@@ -120,6 +120,18 @@ pub struct ProposalDiagnostics {
     pub decode_dedup_elapsed: std::time::Duration,
 }
 
+/// The two magnitudes an [`ApplyBudget`] is denominated in, and nothing else.
+///
+/// Distinct from [`ProposalDiagnostics`] on purpose: these are counters the decode loop already
+/// keeps, so reporting them is free, whereas the diagnostics clock every path. A budgeted
+/// production run needs the counters to carry one cumulative budget across several proposals; it
+/// does not need the timings.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ProposalCounts {
+    pub raw_paths: usize,
+    pub unique_candidates: usize,
+}
+
 /// Minimum arc count before `FomaProposer::new` pays `fsm_sort_arcs`'s one-time cost to switch
 /// `apply_up`'s per-word traversal from foma's linear arc-scan branch to its binary-search branch
 /// (gated on `net.arcs_sorted_out`, apply.rs's `apply_up`/`apply_follow_next_arc`).
@@ -400,21 +412,46 @@ impl FomaProposer {
         word: &str,
         budget: &ApplyBudget,
     ) -> ApplyOutcome<Vec<Candidate>> {
+        self.propose_budgeted_counted(word, budget).0
+    }
+
+    /// [`Self::propose_budgeted`] with the two magnitudes it consumed, and nothing else.
+    ///
+    /// A budgeted *production* run needs one cumulative budget spanning the direct proposal and
+    /// every proposal reduplication peeling requests, which means each call has to report what it
+    /// spent. [`Self::propose_with_diagnostics_budgeted`] already reports that, but it calls
+    /// `Instant::now()` twice per raw path — on a word that decodes a hundred thousand paths that
+    /// is two hundred thousand clock reads bought for a number nobody asked for. These are plain
+    /// counters the decode loop was already keeping.
+    ///
+    /// `unique_candidates` is the count at the point of return, so a trip reports the magnitude
+    /// that tripped rather than a truncated set's length.
+    pub fn propose_budgeted_counted(
+        &mut self,
+        word: &str,
+        budget: &ApplyBudget,
+    ) -> (ApplyOutcome<Vec<Candidate>>, ProposalCounts) {
         let Some(normalized) = self.encode_query(word) else {
-            return ApplyOutcome::Complete(Vec::new());
+            return (
+                ApplyOutcome::Complete(Vec::new()),
+                ProposalCounts::default(),
+            );
         };
         let mut seen: HashSet<(Vec<u32>, i32)> = HashSet::new();
         let mut out = Vec::new();
-        let mut paths_decoded: usize = 0;
+        let mut counts = ProposalCounts::default();
         for s in self.handle.up(&normalized) {
-            paths_decoded += 1;
+            counts.raw_paths += 1;
             if let Some(limit) = budget.path_cap() {
-                if paths_decoded > limit {
-                    return ApplyOutcome::Incomplete {
-                        dimension: ApplyDimension::DecodedPaths,
-                        value: paths_decoded,
-                        limit,
-                    };
+                if counts.raw_paths > limit {
+                    return (
+                        ApplyOutcome::Incomplete {
+                            dimension: ApplyDimension::DecodedPaths,
+                            value: counts.raw_paths,
+                            limit,
+                        },
+                        counts,
+                    );
                 }
             }
             let Some(path) = tags::decode_path(&s) else {
@@ -425,19 +462,23 @@ impl FomaProposer {
                     (c.morphemes.iter().map(|m| m.0).collect(), c.root_index);
                 if seen.insert(key) {
                     out.push(c);
+                    counts.unique_candidates = out.len();
                     if let Some(limit) = budget.candidate_cap() {
                         if out.len() > limit {
-                            return ApplyOutcome::Incomplete {
-                                dimension: ApplyDimension::Candidates,
-                                value: out.len(),
-                                limit,
-                            };
+                            return (
+                                ApplyOutcome::Incomplete {
+                                    dimension: ApplyDimension::Candidates,
+                                    value: out.len(),
+                                    limit,
+                                },
+                                counts,
+                            );
                         }
                     }
                 }
             }
         }
-        ApplyOutcome::Complete(out)
+        (ApplyOutcome::Complete(out), counts)
     }
 
     /// Opt-in diagnostic sibling of [`Self::propose`]. The ordinary proposal APIs do not call a
