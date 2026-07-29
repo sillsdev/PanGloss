@@ -135,18 +135,18 @@ terminal-outcome routing owner).
 
 ## 5. `golden-diff`
 
-- [ ] 5.1 Add `pangloss.golden-set-diff/v1` with `matchingRequired`, `missingRequired`,
+- [x] 5.1 Add `pangloss.golden-set-diff/v1` with `matchingRequired`, `missingRequired`,
       `matchingAllowed`, `observedForbidden`, `unexpected`, and structured identities, not counts
       alone
-- [ ] 5.2 Evaluate expectations only for complete outcomes; report `not_evaluable` with the typed
+- [x] 5.2 Evaluate expectations only for complete outcomes; report `not_evaluable` with the typed
       execution outcome otherwise
-- [ ] 5.3 Evaluate agreement only for `adjudicated`; missing, `unresolved`, and `out_of_scope`
+- [x] 5.3 Evaluate agreement only for `adjudicated`; missing, `unresolved`, and `out_of_scope`
       produce `not_adjudicated`
-- [ ] 5.4 Require the exact suite id, revision, semantic digest, and identity profile recorded in
+- [x] 5.4 Require the exact suite id, revision, semantic digest, and identity profile recorded in
       the assessment; never re-evaluate an old run against revised policy
-- [ ] 5.5 Retain denominators in every aggregate: total, complete, incomplete, not attempted,
+- [x] 5.5 Retain denominators in every aggregate: total, complete, incomplete, not attempted,
       adjudicated and evaluable, agrees, disagrees, unresolved, out of scope, invalid
-- [ ] 5.6 Never update the suite
+- [x] 5.6 Never update the suite
 - [ ] Gate: `cargo test -p pg-cli golden_`; an incomplete case never satisfies an empty closed-world
       expectation
 

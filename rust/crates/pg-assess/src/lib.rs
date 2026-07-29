@@ -13,6 +13,7 @@
 
 pub mod delta;
 pub mod digest;
+pub mod golden;
 pub mod identity;
 pub mod jcs;
 pub mod model;
@@ -27,6 +28,10 @@ pub use delta::{
 };
 pub use digest::{
     digest_projection, identity_digest, sha256_bytes, OUTCOME_PROJECTION, SEMANTIC_PROJECTION,
+};
+pub use golden::{
+    golden_diff, GoldenCase, GoldenError, GoldenSetDiff, NotAdjudicatedReason, NotEvaluableReason,
+    Verdict, GOLDEN_SCHEMA, GOLDEN_SCHEMA_VERSION,
 };
 pub use identity::{AnalysisIdentity, IdentityError, MorphemeKey, IDENTITY_PROFILE};
 pub use jcs::{canonicalize, JcsError};
