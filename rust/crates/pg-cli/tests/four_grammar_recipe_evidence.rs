@@ -169,6 +169,12 @@ fn four_promoted_grammars_have_truthful_recipe_evidence() {
         .iter()
         .any(|candidate| candidate["id"] == winner_plan["root"]));
 
+    // These two fixtures' plans need composite/structural marker subtrees `build_controllable`
+    // cannot build, so their candidates are measured against a network missing that material. They
+    // previously reported the bare symptom -- `multiplicity-mismatch` on one arbitrary word -- which
+    // read as a grammar/analysis bug and sent readers hunting a phantom defect. The refusal is now
+    // attributed to the real limitation while RETAINING the observed word-level evidence in the
+    // reason, so these assertions check both: same non-certifying outcome, better explanation.
     let meta = run_fixture("languages/metathesis-phase-isolation", &root);
     assert!(meta["winner"].is_null());
     assert!(meta["candidates"]
@@ -176,8 +182,12 @@ fn four_promoted_grammars_have_truthful_recipe_evidence() {
         .unwrap()
         .iter()
         .all(|candidate| {
-            candidate["certification"]["status"] == "multiplicity-mismatch"
-                && candidate["certification"]["word"] == "pur"
+            let reason = candidate["certification"]["reason"]
+                .as_str()
+                .unwrap_or_default();
+            candidate["certification"]["status"] == "unsupported"
+                && reason.contains("build_controllable cannot build")
+                && reason.contains("\"pur\"")
         }));
 
     let strata = run_fixture("languages/polysynthetic-stratal-derivation-chain", &root);
@@ -187,8 +197,12 @@ fn four_promoted_grammars_have_truthful_recipe_evidence() {
         .unwrap()
         .iter()
         .all(|candidate| {
-            candidate["certification"]["status"] == "multiplicity-mismatch"
-                && candidate["certification"]["word"] == "akutat"
+            let reason = candidate["certification"]["reason"]
+                .as_str()
+                .unwrap_or_default();
+            candidate["certification"]["status"] == "unsupported"
+                && reason.contains("build_controllable cannot build")
+                && reason.contains("\"akutat\"")
         }));
 
     let template = run_template_characterization(&root);

@@ -105,6 +105,85 @@ use crate::plan::{
 use crate::replace::{compile_and_compose_rules_gated_with_budget, SegAlphabet, TupleReport};
 use crate::uflexc::{emit_underlying_filtered_with_budget, UEmitReport};
 
+/// The two marker fragments [`crate::enumerate::enumerate_default`] places alongside the `Gate` node
+/// when a grammar's recall depends on the composite-emission / structural-composite subtrees --
+/// exactly the leaves [`find_gate_node`] skips (module doc, "Scope: controllable subtree only").
+///
+/// A caller that treats [`build_controllable`]'s net as if it represented the WHOLE grammar must
+/// consult this first. On a grammar whose plan carries either marker, the controllable-only net omits
+/// the material those subtrees contribute, and the omission is quiet: the net is smaller but
+/// perfectly well-formed, `build_controllable` returns `Ok`, and no budget trips. Measured on a
+/// templated real grammar, the controllable-only net was 135 states / 3309 arcs against the tuned
+/// `crate::emit`-based path's 6376 states / 68693 arcs for the same grammar -- a 47x state deficit
+/// that proposed nothing for 19 of 20 corpus words while the tuned net proposed correctly.
+///
+/// Returns the markers present, in plan iteration order, empty when the plan is fully within
+/// [`build_controllable`]'s scope.
+pub fn unbuildable_markers(plan: &Plan) -> Vec<FragmentSpec> {
+    let mut found = Vec::new();
+    for (_, kind) in plan.iter() {
+        if let PlanNodeKind::Leaf { fragment, .. } = kind {
+            if matches!(
+                fragment,
+                FragmentSpec::CompositeEmissionMarker | FragmentSpec::StructuralCompositeMarker
+            ) && !found.contains(fragment)
+            {
+                found.push(fragment.clone());
+            }
+        }
+    }
+    found
+}
+
+/// The boundary-token cleanup net that every caller further composing a [`build_controllable`] /
+/// [`crate::gate::compile_gated_grammar_with_budget`] result must apply. `None` when `table` declares
+/// no `Boundary` char-defs, in which case there is nothing to clean up.
+fn boundary_cleanup_net(
+    opts: &FomaOptions,
+    table: &pg_grammar::chardef::CharDefTable,
+    alphabet: &SegAlphabet,
+) -> Option<Fsm> {
+    let boundary_tokens: Vec<char> = table
+        .iter()
+        .filter(|(_, cd)| cd.kind() == pg_grammar::chardef::CharDefKind::Boundary)
+        .map(|(id, _)| alphabet.token(id))
+        .collect();
+    if boundary_tokens.is_empty() {
+        return None;
+    }
+    let cleanup_regex = boundary_tokens
+        .iter()
+        .map(|c| format!("{c} -> 0"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    foma::regex::fsm_parse_regex(opts, &cleanup_regex, None, None)
+}
+
+/// Finishes a [`build_controllable`] net into one a [`crate::analyzer::FomaProposer`] can actually
+/// query: composes the boundary-token cleanup net, then re-minimizes.
+///
+/// **This step is mandatory, not an optimization.** [`crate::gate::compile_gated_grammar_with_budget`]'s
+/// own doc says so directly -- "Callers that further compose this result (every example/test driver
+/// does, with a boundary-cleanup net) still need their OWN final minimize afterward" -- because the
+/// composed net still carries the boundary tokens `uflexc` emitted between morphs, which a surface
+/// query never contains. Skipping it does not degrade recall gracefully; it silently zeroes it. It
+/// was previously open-coded only inside test drivers (`tests/p6_gate_parity.rs`), so
+/// `recipe_runtime::evaluate_plans` -- the one production caller -- omitted it and measured every
+/// candidate against an unqueryable net.
+pub fn finish_controllable_net(
+    opts: &FomaOptions,
+    net: Fsm,
+    table: &pg_grammar::chardef::CharDefTable,
+    alphabet: &SegAlphabet,
+    budget: &ComposeBudget,
+) -> Result<Fsm, ComposeError> {
+    let net = match boundary_cleanup_net(opts, table, alphabet) {
+        Some(cleanup) => compose_checked(opts, net, cleanup, budget, "finish_controllable_net")?,
+        None => net,
+    };
+    minimize_checked(opts, net, budget, "finish_controllable_net")
+}
+
 /// Interprets `plan`'s controllable subtree (module doc) into a real, composed `Fsm` -- the plan-walk
 /// counterpart of [`crate::gate::compile_gated_grammar_with_budget`]. This function does not call
 /// into `gate.rs` at all (it never re-derives the partition itself); it calls the same public/

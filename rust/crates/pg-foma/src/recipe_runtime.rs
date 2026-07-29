@@ -196,6 +196,40 @@ pub fn evaluate_plans(
                     },
                 };
             };
+            // Marker presence alone does NOT condemn a candidate: `crate::gate::
+            // compile_gated_grammar` is controllable-only too and still reaches 100% recall on a
+            // grammar whose plan carries a marker, so pre-refusing here would block grammars that
+            // demonstrably work. Recorded now, consulted only if full HC actually refuses the
+            // candidate below -- evidence first, then attribution.
+            let markers = crate::build::unbuildable_markers(&candidate.plan);
+            // Mandatory finish step, not an optimization: without the boundary-token cleanup compose
+            // and re-minimize, the net still carries the inter-morph boundary tokens `uflexc` emits,
+            // which a surface query never contains -- every `apply_up` returns nothing and recall
+            // reads as zero. See `crate::build::finish_controllable_net`.
+            let net = match crate::build::finish_controllable_net(
+                &opts,
+                net,
+                surface_table(grammar),
+                &alphabet,
+                &compose,
+            ) {
+                Ok(net) => net,
+                Err(e) => {
+                    return RuntimeEvaluation {
+                        certification: Certification::BuildFailed {
+                            reason: format!("boundary-cleanup finish failed: {e}"),
+                        },
+                        score: Score {
+                            states: 0,
+                            arcs: 0,
+                            build,
+                            apply: 0,
+                            proposals: 0,
+                            confirmation: 0,
+                        },
+                    };
+                }
+            };
             let score0 = (net.statecount as u64, net.arccount as u64);
             let mut analyzer = FomaAnalyzer::from_precompiled_proposer(
                 grammar,
@@ -247,6 +281,27 @@ pub fn evaluate_plans(
                     },
                     failure => failure,
                 },
+            };
+            // Attribution, once the evidence is in. A candidate that full HC refused AND whose plan
+            // needed subtrees `build_controllable` cannot build was measured against a network
+            // missing that material -- the word-level mismatch is a symptom, not the cause, and
+            // reporting only the symptom sent a reader hunting a phantom grammar bug. Restate it as
+            // the real limitation, keeping the observed failure for the record. Selectability is
+            // unchanged: both the original failure and `Unsupported` are non-certifying.
+            let certification = match (&certification, markers.is_empty()) {
+                (c, false) if !c.selectable() => Certification::Unsupported {
+                    reason: format!(
+                        "plan requires subtrees build_controllable cannot build ({}); the \
+                         controllable-only network omits their material, so this measurement cannot \
+                         certify the recipe. Observed failure: {certification:?}",
+                        markers
+                            .iter()
+                            .map(|m| format!("{m:?}"))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ),
+                },
+                _ => certification,
             };
             RuntimeEvaluation {
                 certification,

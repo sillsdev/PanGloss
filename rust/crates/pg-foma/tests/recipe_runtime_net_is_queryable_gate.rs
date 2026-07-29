@@ -1,0 +1,224 @@
+//! The gate whose absence let a whole optimizer land on an unqueryable network.
+//!
+//! `recipe_runtime::evaluate_plans` builds each candidate through `crate::build::build_controllable`
+//! — a `Plan` interpreter — then queries it through the production propose→confirm pipeline. Two
+//! independent defects made every real-grammar measurement meaningless, and NOTHING in the suite
+//! noticed:
+//!
+//!  1. **The mandatory finish step was missing.** `gate::compile_gated_grammar_with_budget`'s own doc
+//!     states every caller further composing its result does so "with a boundary-cleanup net" and
+//!     then needs its own final minimize. That step existed only as an open-coded copy inside
+//!     `tests/p6_gate_parity.rs`, so the one *production* caller omitted it and scored every
+//!     candidate against a net still carrying `uflexc`'s inter-morph boundary tokens.
+//!     Measured on the Indonesian corpus: **0 of 3 candidates confirmed → 3 of 3**, proposals
+//!     51 → 131, once `build::finish_controllable_net` was applied.
+//!
+//!  2. **Nothing cross-checked the two build paths.** `build.rs` proves `build_controllable`
+//!     equivalent to `gate.rs`'s direct compile *for the controllable subtree* — precisely the
+//!     equivalence that cannot catch this, since both sides of it are pre-finish nets.
+//!
+//! # A measured limitation of this gate, stated rather than hidden
+//! Defect (1) is **not reproducible on any checked-in synthetic fixture today.** That was verified,
+//! not assumed: with the finish step bypassed and then restored, every staged fixture declaring
+//! `Boundary` char-defs (`guesser-pattern-root-fallback`, `recipe-ordered-generic`,
+//! `recipe-strata-generic`) produced byte-identical proposal counts, confirmation counts, and state
+//! counts in both states. Their corpora are too shallow for an inter-morph boundary token to ever
+//! block a query, so an assertion over them would pass with the fix reverted — a vacuous gate, which
+//! is worse than none. The real pin therefore lives in [`corpus_indonesian_confirms_after_the_finish_step`],
+//! which needs the private corpus.
+//!
+//! **Follow-up owed:** a synthetic fixture that reproduces the boundary-token pathology (multi-morph
+//! surface words over a char table with `Boundary` defs, where the cleanup compose decides
+//! queryability) would move this pin into CI. Until it exists, defect (1) is pinned only by a
+//! corpus-gated test.
+
+use pg_conformance_fixtures::{discover, Root};
+use pg_foma::build::unbuildable_markers;
+use pg_foma::enumerate::enumerate_default;
+use pg_foma::junctions::PhonologyProbe;
+use pg_foma::recipe_optimizer::Certification;
+use pg_foma::recipe_registry::{MaterializerContext, Registry};
+use pg_foma::recipe_runtime::{evaluate_plans, RuntimeBudget};
+use pg_foma::replace::SegAlphabet;
+use std::path::PathBuf;
+
+fn materialize_and_evaluate(
+    grammar: &pg_grammar::model::Grammar,
+    words: &[String],
+) -> Vec<pg_foma::recipe_runtime::RuntimeEvaluation> {
+    let alphabet = SegAlphabet::new(&grammar.char_tables[0]);
+    let prules = grammar
+        .strata
+        .iter()
+        .flat_map(|s| &s.prules)
+        .map(|id| &grammar.prules[id.0 as usize])
+        .collect::<Vec<_>>();
+    let phonology = PhonologyProbe::new(grammar);
+    let baseline = enumerate_default(grammar, &alphabet, &prules, phonology.as_ref());
+    let candidates = Registry::seeded()
+        .materialize_distinct(&MaterializerContext {
+            grammar,
+            baseline: &baseline,
+        })
+        .expect("materialization must succeed");
+    let plans: Vec<_> = candidates.into_iter().map(|(_, p)| p).collect();
+    assert!(!plans.is_empty(), "must materialize at least one candidate");
+    evaluate_plans(grammar, &plans, words, RuntimeBudget::default())
+}
+
+/// THE pin for defect (1). Corpus-gated because no synthetic fixture reproduces it (module doc).
+///
+/// Fail-closed on a missing corpus rather than the usual skip-with-a-message: this test only ever
+/// runs when someone asks for it explicitly with `--include-ignored`, and at that point silently
+/// returning success while testing nothing is the exact "second false-success path" that
+/// `docs/superpowers/specs/2026-07-29-categorical-build-hardening-design.md` was written to close.
+#[test]
+#[ignore = "needs the private corpus at samples/data/indonesian-hc.xml; run with --include-ignored"]
+fn corpus_indonesian_confirms_after_the_finish_step() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..");
+    let grammar_path = root.join("samples/data/indonesian-hc.xml");
+    let words_path = root.join("samples/data/indonesian-words.txt");
+    assert!(
+        grammar_path.is_file() && words_path.is_file(),
+        "corpus inputs absent ({} / {}). This test was requested explicitly, so it fails rather \
+         than reporting a pass it did not earn.",
+        grammar_path.display(),
+        words_path.display()
+    );
+
+    let grammar = pg_grammar::load(&std::fs::read_to_string(&grammar_path).expect("read grammar"))
+        .expect("indonesian grammar must load");
+    let words: Vec<String> = std::fs::read_to_string(&words_path)
+        .expect("read words")
+        .lines()
+        .map(str::trim)
+        .filter(|w| !w.is_empty())
+        .map(str::to_owned)
+        .collect();
+    assert!(!words.is_empty());
+
+    let evaluations = materialize_and_evaluate(&grammar, &words);
+    let confirmed = evaluations
+        .iter()
+        .filter(|e| e.certification.selectable())
+        .count();
+    let proposals: u64 = evaluations.iter().map(|e| e.score.proposals).sum();
+
+    assert!(
+        confirmed > 0,
+        "no candidate reached FullHcConfirmed on the Indonesian corpus (proposals={proposals}). \
+         Pre-fix this read 0 of 3 confirmed with a `merasa` multiplicity mismatch, because the net \
+         still carried uflexc's boundary tokens -- check that \
+         `build::finish_controllable_net`'s cleanup+reminimize is still applied in \
+         `recipe_runtime::evaluate_plans`. Certifications: {:?}",
+        evaluations
+            .iter()
+            .map(|e| &e.certification)
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        proposals > 0,
+        "confirmed with zero proposals is a vacuous pass"
+    );
+}
+
+/// Non-vacuous on staged fixtures: the production evaluator must reach `FullHcConfirmed` end to end
+/// with no private corpus. This does NOT pin defect (1) (module doc).
+///
+/// Note this fixture's plan DOES carry an out-of-scope marker (checked: an earlier version of this
+/// test asserted the opposite and failed), and it confirms anyway. That is the direct evidence that
+/// marker presence must never be treated as disqualifying on its own — the reason
+/// `recipe_runtime` records markers but only consults them after full HC has actually refused.
+#[test]
+fn the_evaluator_confirms_a_wholly_in_scope_grammar() {
+    let fixtures = discover();
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.root == Root::Staging && f.name == "recipe-gated-generic")
+        .expect("missing staged fixture recipe-gated-generic");
+    let grammar = pg_grammar::load(&fixture.load_grammar_xml()).expect("fixture must load");
+
+    let words: Vec<String> = fixture
+        .load_words_yaml()
+        .words
+        .iter()
+        .map(|w| w.word.clone())
+        .collect();
+    let evaluations = materialize_and_evaluate(&grammar, &words);
+    let confirmed = evaluations
+        .iter()
+        .filter(|e| e.certification.selectable())
+        .count();
+    assert!(
+        confirmed > 0,
+        "no candidate confirmed on a wholly-in-scope grammar: {:?}",
+        evaluations
+            .iter()
+            .map(|e| &e.certification)
+            .collect::<Vec<_>>()
+    );
+    for e in evaluations.iter().filter(|e| e.certification.selectable()) {
+        assert!(e.score.proposals > 0, "vacuous pass: {:?}", e.score);
+        assert!(e.score.states > 0 && e.score.arcs > 0);
+    }
+}
+
+/// The attribution path: a candidate that full HC refused, whose plan needed subtrees
+/// `build_controllable` cannot build, must be reported as that limitation — not as a word-level
+/// analysis mismatch that sends a reader hunting a phantom grammar bug.
+///
+/// Marker presence alone must NOT condemn a candidate (`gate::compile_gated_grammar` is
+/// controllable-only too and still reaches full recall on marker-carrying grammars), so this asserts
+/// the conditional, never the blanket refusal.
+#[test]
+fn out_of_scope_marker_subtrees_are_attributed_not_blamed_on_the_grammar() {
+    let fixtures = discover();
+    let mut exercised = Vec::new();
+    for fixture in fixtures.iter().filter(|f| f.root == Root::Staging) {
+        let Ok(grammar) = pg_grammar::load(&fixture.load_grammar_xml()) else {
+            continue;
+        };
+        let alphabet = SegAlphabet::new(&grammar.char_tables[0]);
+        let prules = grammar
+            .strata
+            .iter()
+            .flat_map(|s| &s.prules)
+            .map(|id| &grammar.prules[id.0 as usize])
+            .collect::<Vec<_>>();
+        let phonology = PhonologyProbe::new(&grammar);
+        let plan = enumerate_default(&grammar, &alphabet, &prules, phonology.as_ref());
+        let markers = unbuildable_markers(&plan);
+        if markers.is_empty() {
+            continue;
+        }
+        let words: Vec<String> = fixture
+            .load_words_yaml()
+            .words
+            .iter()
+            .map(|w| w.word.clone())
+            .take(6)
+            .collect();
+        if words.is_empty() {
+            continue;
+        }
+        for e in materialize_and_evaluate(&grammar, &words) {
+            // Confirmed is legitimate: the omitted subtree may contribute nothing this corpus needs.
+            // What must never happen is a refusal that hides the real reason.
+            if !e.certification.selectable() {
+                assert!(
+                    matches!(e.certification, Certification::Unsupported { .. }),
+                    "{}: a refused candidate whose plan required {markers:?} must be attributed to \
+                     that limitation, got {:?}",
+                    fixture.label(),
+                    e.certification
+                );
+            }
+        }
+        exercised.push(fixture.label());
+    }
+    assert!(
+        !exercised.is_empty(),
+        "no staged fixture exercised the marker-subtree path, so this gate proved nothing -- \
+         repoint it at a fixture whose plan carries a composite/structural marker"
+    );
+}
