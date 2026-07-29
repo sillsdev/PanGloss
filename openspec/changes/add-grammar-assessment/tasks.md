@@ -193,4 +193,25 @@ terminal-outcome routing owner).
       same grammar despite differing line endings on checkout (`core.autocrlf = true`, no
       `.gitattributes`), and that `sourceSha256` and `reportId` correctly differ. Do not "fix" a
       digest mismatch here by reintroducing CRLF-normalized source hashing (D12)
-- [ ] Gate: `cargo test -p pg-conformance-fixtures assessment_e2e`; synthetic data only
+- [x] Gate: the end-to-end suite lives in `pg-cli/tests/assessment_e2e.rs` (it drives the real
+      binary, so it belongs beside it rather than in `pg-conformance-fixtures`). Synthetic data
+      only: `machine/conformance/edge-cases/deep-optional-affix-nesting`, whose all-optional
+      12-slot chain guarantees `C(12,k)` analyses by construction — 1/12/66, asserted, so a
+      projection bug cannot hide behind "whatever the parser said".
+      Run with `rust/tools/test.ps1 -Package pg-cli`. 7 e2e tests + 12 CLI unit tests pass.
+
+## Known environment limitation (not a defect in this change)
+
+`core.autocrlf=true` with no `.gitattributes` means a **freshly created worktree** checks out CRLF
+source files, while the main checkout's files are LF. Ten tests whose golden is a string constant
+embedded in a Rust source therefore fail in a fresh worktree only — the literal picks up `\r\n`
+while the renderer emits `\n`. Nine are in `pg-foma` (`plan_diagram`, `coverage_ledger`,
+`readiness_verdict`, `preflight`, `selection`, `plan_interaction_coverage`) and one is
+`pg-cli make_report::tests::make_report_golden_md`. None is in a module this change touches, and all
+pass in the main checkout.
+
+Deliberately **not** fixed here by adding `.gitattributes` or changing `core.autocrlf`: worktrees
+share `.git/config` with main, and the absence of `.gitattributes` is load-bearing for D3a and for
+task 7.3, which exist precisely to prove digests survive differing line endings. Rewriting the
+worktree's files to LF was tried and rejected — git then reports 846 files modified, which would
+pollute the merge. The real fix belongs in a separate change that decides the repo-wide policy.
