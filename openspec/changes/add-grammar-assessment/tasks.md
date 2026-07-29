@@ -152,19 +152,20 @@ terminal-outcome routing owner).
 
 ## 6. `investigate` and the failure narrative
 
-- [ ] 6.1 Add `pangloss.investigation-handoff/v1`; verify report, model fingerprint, case, input,
+- [x] 6.1 Add `pangloss.investigation-handoff/v1`; verify report, model fingerprint, case, input,
       pipeline, and options agree before emitting anything
-- [ ] 6.2 Emit lexical-entry source GUIDs from `LexEntryDef.authored_id`; mark rule, stratum, and
+- [x] 6.2 Emit lexical-entry source GUIDs from `LexEntryDef.authored_id`; mark rule, stratum, and
       template references `compilerAssigned` and explicitly not source identities
-- [ ] 6.3 Label evidence `retained`, `regenerated`, or `unavailable`, and record which engine and
+- [x] 6.3 Label evidence `retained`, `regenerated`, or `unavailable`, and record which engine and
       pipeline produced it; never present regenerated evidence as originally captured
-- [ ] 6.4 Attribute a missing analysis to HermitCrab rejection or proposer recall gap by running the
-      case on both pipelines
-- [ ] 6.5 Emit the pruned failure narrative from the existing `FailureReason` taxonomy
+- [~] 6.4 Attribute a missing analysis to HermitCrab rejection or proposer recall gap by running the
+      case on both pipelines (artifact side done: `MissingAnalysisCause`, unattributed stays
+      `Undetermined`; the dual-pipeline run itself belongs to the CLI layer with unit 3)
+- [~] 6.5 Emit the pruned failure narrative from the existing `FailureReason` taxonomy
       (`pg-rules/src/trace.rs:106-123`): candidates attempted, where each died, and why
-- [ ] 6.6 State that FieldWorks' C# HermitCrab traces a different engine, so a divergence there is
+- [x] 6.6 State that FieldWorks' C# HermitCrab traces a different engine, so a divergence there is
       not necessarily a grammar defect
-- [ ] 6.7 Make no root-cause claim and prescribe no grammar edit in any artifact
+- [x] 6.7 Make no root-cause claim and prescribe no grammar edit in any artifact
 - [ ] Gate: `cargo test -p pg-cli investigate_`; a synthetic proposer recall gap is attributed to the
       proposer, not to the grammar
 

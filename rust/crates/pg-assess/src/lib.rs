@@ -14,6 +14,7 @@
 pub mod delta;
 pub mod digest;
 pub mod golden;
+pub mod handoff;
 pub mod identity;
 pub mod jcs;
 pub mod model;
@@ -32,6 +33,11 @@ pub use digest::{
 pub use golden::{
     golden_diff, GoldenCase, GoldenError, GoldenSetDiff, NotAdjudicatedReason, NotEvaluableReason,
     Verdict, GOLDEN_SCHEMA, GOLDEN_SCHEMA_VERSION,
+};
+pub use handoff::{
+    investigate, ConstructRef, EngineCaveat, Evidence, EvidenceAvailability, HandoffError,
+    HandoffRequest, InvestigationHandoff, MissingAnalysis, MissingAnalysisCause, NarrativeStep,
+    SourceIdKind, HANDOFF_SCHEMA, HANDOFF_SCHEMA_VERSION,
 };
 pub use identity::{AnalysisIdentity, IdentityError, MorphemeKey, IDENTITY_PROFILE};
 pub use jcs::{canonicalize, JcsError};
