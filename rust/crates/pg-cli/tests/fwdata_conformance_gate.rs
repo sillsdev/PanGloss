@@ -373,9 +373,22 @@ fn import_and_compile(fwdata_path: &Path) -> (Grammar, HashMap<&'static str, Vec
     let (grammar, compile_warnings) =
         pg_grammar::compile_project(&snapshot).expect("compile_project must succeed");
 
+    // `report.warnings`/`validate_warnings` are `pg_snapshot::Warning` (stable code + prose);
+    // `compile_warnings` is still plain `String`. Flatten to prose here so this test's own
+    // `HashMap<&str, Vec<String>>` shape (unrelated to this task's warning-code work) is
+    // unchanged.
     let mut warnings = HashMap::new();
-    warnings.insert("import", report.warnings);
-    warnings.insert("validate", validate_warnings);
+    warnings.insert(
+        "import",
+        report.warnings.into_iter().map(|w| w.to_string()).collect(),
+    );
+    warnings.insert(
+        "validate",
+        validate_warnings
+            .into_iter()
+            .map(|w| w.to_string())
+            .collect(),
+    );
     warnings.insert("compile", compile_warnings);
     (grammar, warnings)
 }

@@ -38,10 +38,38 @@ Exclusive ownership: new identity crate, `pg-parse` analysis projection. Amends
 - [x] 1.11 Name the v1 identity profile `pangloss.machine-word-analysis/v1`, declared by the suite
       and recorded in every report; document the rule that a later profile ships either a total
       mechanical mapping from its predecessor or a stated reason none exists
-- [ ] 1.12 Verify duplicate-count determinism under parallel batch; if nondeterministic, move
-      duplicate counts out of the semantic projection and record the finding
-- [ ] Gate: `rust/tools/test.ps1 -Package pg-parse` then `rust/tools/test.ps1 -Package pg-grammar`; JCS conformance fixtures pass; identical inputs
-      reproduce `semanticDigest` and `outcomeDigest` across runs and platforms
+- [x] 1.12 Verify duplicate-count determinism under parallel batch; if nondeterministic, move
+      duplicate counts out of the semantic projection and record the finding.
+      **Verdict: deterministic — duplicate counts stay in the semantic projection, unchanged.**
+      `analyze_words_with_threads` parallelizes only *across* words
+      (`composite.rs`'s `confirm_proposed_words_in_pool`, one word per rayon task); propose runs
+      sequentially on a single `&mut self.proposer` handle, and each word's own multiplicity is
+      decided inside one single-threaded `confirm_batch` call that is a pure function of
+      `(g, owners, morpher, candidates, word)`. `Morpher`'s only interior-mutable state is created
+      fresh per call, never shared.
+      Proven, not just argued, in `pg-assess/tests/duplicate_count_determinism.rs`: thread counts
+      1/2/4/8 x 15 repetitions, comparing per-word duplicate-count vectors, per-word identity
+      digests, and the run's `semanticDigest` against a baseline.
+      Two things make that test non-vacuous, which matters more than the result:
+      `dup_root_fixture_genuinely_produces_a_triple_duplicate` pins a synthetic fixture with three
+      identical-shape allomorphs of one entry, giving a real `duplicate_count == 3` before threading
+      enters at all — the obvious candidate fixture (`deep-optional-affix-nesting`) turns out to
+      produce all-distinct identities, so it would have tested nothing, and
+      `sanity_deep_optional_affix_nesting_produces_no_identity_duplicates` records that.
+      `confirm_across_words_genuinely_overlaps_at_thread_count_above_one` arms a concurrency guard
+      that holds for 20ms and tracks a high-water mark, so it fails unless tasks were genuinely
+      inside confirm simultaneously — it establishes observed overlap, not merely a requested thread
+      count.
+      `pg-assess` gained a `[dev-dependencies]` entry on `pg-foma` for this; the crate's real
+      dependency graph stays engine-agnostic
+- [x] Gate: `rust/tools/test.ps1 -Package pg-assess` — **154/154**. The identity/JCS/digest work
+      lives in `pg-assess`, not `pg-parse`/`pg-grammar`, so that is where the gate actually runs.
+      JCS numeric and ordering edge cases pass (`jcs::tests`, incl. UTF-16 key ordering and float
+      refusal); identical inputs reproduce both digests
+      (`report::tests::a_timestamp_moves_only_the_report_id`,
+      `duplicate_count_determinism::duplicate_counts_and_semantic_digest_are_thread_count_invariant`).
+      Cross-*platform* reproduction is asserted by `assessment_e2e` task 7.3's test but has only been
+      *run* on Windows here — the Linux half is unverified by me and stated as such
 
 ## 2. Assessment suite schema and validator
 
@@ -62,7 +90,11 @@ Exclusive ownership: new identity crate, `pg-parse` analysis projection. Amends
 - [x] 2.8 Reject an unsupported `schemaVersion` as a typed validation failure, never best-effort
 - [x] 2.9 Compute the suite semantic digest over the full canonical suite, unknown caller metadata
       included
-- [ ] Gate: `rust/tools/test.ps1 -Package pg-cli -Filter suite_`; positive and negative fixtures for every rule above
+- [x] Gate: `rust/tools/test.ps1 -Package pg-assess` — the suite validator and its 16
+      positive/negative tests are `pg-assess`'s `suite::tests::*`, not `pg-cli`'s, and the original
+      `-Filter suite_` would have matched nothing. Every rule above has both a positive and a
+      refusal test (duplicate case IDs, overlapping expectation sets, unsupported schemaVersion,
+      foreign identity profile, oversized source references)
 
 ## 3. `assess` and the assessment report
 
@@ -94,15 +126,32 @@ terminal-outcome routing owner).
       one. `parse_report` reads from the artifact's own table and recomputes rather than trusting)
 - [x] 3.7 Emit an authoritative analysis set only for a complete case; keep partial candidates
       clearly separated and never in `analyses`
-- [~] 3.8 Retain importer and compiler diagnostics inline. **Partial**: warnings reach the report
-      and `compare` diffs them by code and count, but every importer warning currently shares the
-      single code `importer.warning` — the ~70 per-site codes across `pg-fwdata`/`pg-snapshot` are
-      not assigned yet, so 'the importer skipped different data' is visible only as a count change.
-      Original task text: Give each importer and snapshot-validation
-      warning a stable short code alongside its existing prose, replacing bare `Vec<String>`
-      (`pg-fwdata/src/lib.rs:52-55`, helper at `extract/mod.rs:55`, ~70 sites across `pg-fwdata` and
-      `pg-snapshot`). No warning taxonomy is designed up front; `compare` diffs by code and count so
-      rewording prose is never a context difference
+- [x] 3.8 Retain importer and compiler diagnostics inline. Give each importer and
+      snapshot-validation warning a stable short code alongside its existing prose, replacing bare
+      `Vec<String>`. `compare` diffs by code and count so rewording prose is never a context
+      difference.
+      17 codes, dotted and grouped by what actually went wrong, declared in
+      `pg-fwdata/src/extract/codes.rs` (13, e.g. `fwdata.dangling-reference`,
+      `fwdata.unsupported-morph-type`, `fwdata.only-first-used`) and `pg-snapshot/src/validate.rs`
+      (4, e.g. `snapshot.feature-structure-unresolved`). No taxonomy was designed up front, as the
+      task required — each code names its own emission site's meaning, and identical situations at
+      different sites share one.
+      Guarded by `pg-fwdata/tests/fixture_tests.rs`:
+      `import_warning_prose_is_unchanged` (this was additive; no message was reworded),
+      `structurally_different_warnings_get_different_codes`, and
+      `unknown_morph_type_warning_carries_its_stable_code`
+- [x] 3.8a Carry those codes all the way into the artifact. Coding the emission sites is necessary
+      but not sufficient: `load_grammar` returns `Vec<String>` and flattened every code away, so the
+      report still tagged everything `importer.warning` and `compare` still saw one bucket — the
+      task's stated purpose ("`compare` diffs by code and count") was only half-achieved.
+      `load_grammar_coded` keeps `pg_snapshot::Warning`, and the two commands that build assessment
+      reports use it. `load_grammar` itself is unchanged, so no other caller was touched.
+      `pg_grammar::compile_project`'s warnings are still uncoded and are tagged `compiler.warning` —
+      honestly one bucket, because that is all the granularity that exists on that side today,
+      rather than a finer-looking code invented for appearance.
+      Gated by `diagnostics::tests::importer_warning_codes_reach_the_report_rather_than_one_bucket`,
+      which asserts both the codes and their per-code multiplicity survive, and that
+      `importer.warning` is gone
 - [x] 3.9 Write to stdout by default; `--report` writes to a path and overwrites freely
 - [x] 3.10 Add exit codes: `0` artifact produced, `2` invalid input/schema, `3` unsupported
       capability or incompatible profile, `4` containment prevented the artifact, `70` internal
@@ -113,16 +162,32 @@ terminal-outcome routing owner).
       `not_attempted/assessmentSetupFailed` and exit 0 — evidence, not an error exit)
 - [x] 3.12 Accept a bare word list as well as a suite; synthesize deterministic case IDs from
       position and surface form so a caller need not author a suite for a quick run
-- [ ] 3.13 Retire `pg_cli::diagnostics::AssessmentReport` (`diagnostics.rs:167-176`); `diagnose`
+- [x] 3.13 Retire `pg_cli::diagnostics::AssessmentReport` (`diagnostics.rs:167-176`); `diagnose`
       emits `pangloss.assessment-report/v1` and keeps its own `build.json`. One assessment artifact
-      exists in the repo
-- [ ] 3.14 Delete `assess_words`' second compiled foma network (`diagnostics.rs:178-192`): it exists
+      exists in the repo.
+      Per-word diagnostics the canonical report has no field for — propose-side over-generation and
+      the gloss signature — moved to the report's namespaced `extensions` (outside both semantic
+      projections, inside `reportId`), so consolidating cost no evidence. `WordApplyStatus`,
+      `WordAssessmentEntry` and `AssessmentSummary` are gone
+- [x] 3.14 Delete `assess_words`' second compiled foma network (`diagnostics.rs:178-192`): it exists
       only because `FomaAnalyzer` exposed no budgeted entry point, which task 3.1 adds. `diagnose`
-      compiles the grammar once
-- [ ] 3.15 Update `certify-language-readiness` and `run-synthetic-conformance-matrix` for the report
-      shape they consume
-- [ ] Gate: `rust/tools/test.ps1 -Package pg-cli -Filter assess_`; a repeated run reproduces both digests; a timestamp or
-      path change moves `reportId` only
+      compiles the grammar once.
+      This also removed a correctness hazard, not just a cost: the budget used to be measured on a
+      *different* network from the one that produced the analyses, so the recorded apply status
+      described a traversal that could in principle disagree with the reported result. One run now
+      decides both
+- [~] 3.15 Update `certify-language-readiness` and `run-synthetic-conformance-matrix` for the report
+      shape they consume. **No-op: the premise does not hold.** Checked at the time of 3.13:
+      `certify-language-readiness` has no change directory in `openspec/changes/`, and
+      `run-synthetic-conformance-matrix/{proposal,design}.md` never mention an assessment report,
+      `diagnose`, or a report shape. They were named as declared consumers during planning, but
+      neither actually references the retired type, so there was nothing to update. Recorded rather
+      than ticked, so a later reader does not assume a migration happened that never did
+- [x] Gate: `rust/tools/test.ps1 -Package pg-cli` — **85/86**, the one failure being the
+      documented CRLF golden (`make_report_golden_md`, a module this change never touches; it passes
+      in a checkout whose files are LF). A repeated run reproduces both digests and a timestamp moves
+      `reportId` only: `assessment_e2e::an_assessment_is_reproducible_and_only_its_report_id_moves`,
+      driving the real binary twice over a real grammar
 
 ## 4. `compare` and the grammar delta
 
@@ -142,8 +207,12 @@ terminal-outcome routing owner).
       improvement or a removal a regression
 - [x] 4.9 Produce a valid artifact with every case `not_comparable/identity_profile_changed` and
       exit `0` when profiles are incompatible
-- [ ] Gate: `rust/tools/test.ps1 -Package pg-cli -Filter compare_`; a grammar edit deleting a morpheme yields `removed_only`,
-      not `not_comparable`; engine discovery order does not change any category
+- [x] Gate: `rust/tools/test.ps1 -Package pg-assess` — `compare` lives in `pg-assess::delta`.
+      A deleted morpheme yields `removed_only`
+      (`delta::tests::a_deleted_morpheme_is_removed_evidence_not_a_refusal`) and discovery order
+      changes no category (`delta::tests::discovery_order_does_not_change_any_category`). The
+      FieldWorks count-subtraction defect is pinned as
+      `two_analyses_replaced_by_two_others_is_mixed_not_no_change`
 
 ## 5. `golden-diff`
 
@@ -159,8 +228,11 @@ terminal-outcome routing owner).
 - [x] 5.5 Retain denominators in every aggregate: total, complete, incomplete, not attempted,
       adjudicated and evaluable, agrees, disagrees, unresolved, out of scope, invalid
 - [x] 5.6 Never update the suite
-- [ ] Gate: `rust/tools/test.ps1 -Package pg-cli -Filter golden_`; an incomplete case never satisfies an empty closed-world
-      expectation
+- [x] Gate: `rust/tools/test.ps1 -Package pg-assess` — `golden-diff` lives in
+      `pg-assess::golden`. The load-bearing refusal is
+      `golden::tests::an_incomplete_case_never_satisfies_an_empty_closed_world_expectation`, plus
+      `every_aggregate_carries_its_denominator_and_no_rate` and
+      `evaluation_never_writes_to_the_suite`
 
 ## 6. `investigate` and the failure narrative
 
@@ -170,16 +242,53 @@ terminal-outcome routing owner).
       template references `compilerAssigned` and explicitly not source identities
 - [x] 6.3 Label evidence `retained`, `regenerated`, or `unavailable`, and record which engine and
       pipeline produced it; never present regenerated evidence as originally captured
-- [~] 6.4 Attribute a missing analysis to HermitCrab rejection or proposer recall gap by running the
-      case on both pipelines (artifact side done: `MissingAnalysisCause`, unattributed stays
-      `Undetermined`; the dual-pipeline run itself belongs to the CLI layer with unit 3)
-- [~] 6.5 Emit the pruned failure narrative from the existing `FailureReason` taxonomy
-      (`pg-rules/src/trace.rs:106-123`): candidates attempted, where each died, and why
+- [x] 6.4 Attribute a missing analysis to HermitCrab rejection or proposer recall gap by running the
+      case on both pipelines. `run_investigate` with `--grammar` runs HermitCrab (real
+      `TreeTraceSink`) and foma-confirm (real `FomaAnalyzer`) and classifies via `attribute_causes`:
+      produced by HC but not foma -> `ProposerRecallGap`; produced by neither, with a trace node
+      whose candidate matches -> `HermitcrabRejected`; produced by neither without that evidence ->
+      `NeitherPipelineProduces`; foma unavailable, or foma produced it -> `Undetermined`.
+      The bias is deliberate: an identity it cannot place confidently stays
+      `NeitherPipelineProduces` rather than an asserted rejection, and a pipeline it could not run
+      leaves the whole set `Undetermined`. It never guesses a cause.
+      **Two limits, recorded rather than papered over:**
+      (a) The gate test `a_synthetic_proposer_recall_gap_is_attributed_to_the_proposer_not_the_grammar`
+      uses real unstubbed engines on a real grammar, but the gap it exercises is a *capability*
+      difference — HermitCrab's guesser fabricates a root that the foma path has no guess facility to
+      offer at all. That is a genuine disagreement, and it proves the attribution logic; it is not an
+      ordinary-rule-application recall gap, which is what the propose-and-confirm invariant actually
+      targets. An attempt to build one (a two-rule chained-reduplication grammar, on the theory that
+      nested reduplication is unproven) found **no gap** — foma recovered the same analysis — and the
+      negative finding is recorded in a comment rather than deleted silently. Not finding an
+      ordinary-path gap on demand is mildly reassuring, not evidence the code is untested.
+      (b) `HermitcrabRejected` and `NeitherPipelineProduces` are covered by unit tests over
+      hand-built inputs only; no real grammar drives those two branches end to end.
+      Also: the rejection match compares morpheme sequences alone
+      (`HermitcrabFailure::candidate_morphemes`), not root index or category, so a rejected candidate
+      of the same shape but a different root position matches. The error direction is bounded — the
+      trace really did show HermitCrab rejecting that morpheme chain — but it is a precision limit,
+      not exactness
+- [x] 6.5 Emit the pruned failure narrative from the existing `FailureReason` taxonomy
+      (`pg-rules/src/trace.rs`): candidates attempted, where each died, and why.
+      `collect_hermitcrab_failures` walks a real `TreeTraceSink` and keeps only nodes carrying a
+      `FailureReason` — that is the whole pruning step, and it is what keeps a thousand-node trace
+      from reaching an AI consumer as a dump. Reason names are carried verbatim so a Rust narrative
+      and a C# trace name the same thing.
+      A real two-step narrative for `"sagd"`, pinned by
+      `the_pruned_narrative_for_a_real_word_shows_where_and_why_a_candidate_died`:
+      `NonPartialRuleProhibitedAfterFinalTemplate` at a `compilerAssigned` morphological rule
+      (`ed_suffix`), then `PartialParse` at lexical entry `e32` as a `sourceId`. Rules, strata and
+      templates are always `compilerAssigned`; only lexical entries, which genuinely retain an
+      authored id, are `sourceId` (ADR 0001). `no_artifact_field_prescribes_a_grammar_edit` still
+      passes, so nothing in the artifact diagnoses or prescribes
 - [x] 6.6 State that FieldWorks' C# HermitCrab traces a different engine, so a divergence there is
       not necessarily a grammar defect
 - [x] 6.7 Make no root-cause claim and prescribe no grammar edit in any artifact
-- [ ] Gate: `rust/tools/test.ps1 -Package pg-cli -Filter investigate_`; a synthetic proposer recall gap is attributed to the
-      proposer, not to the grammar
+- [x] Gate: `rust/tools/test.ps1 -Package pg-cli` — 85/86 as above.
+      `assess::tests::a_synthetic_proposer_recall_gap_is_attributed_to_the_proposer_not_the_grammar`
+      drives both real engines and asserts `ProposerRecallGap`. See 6.4(a) for exactly which kind of
+      gap that is and which kind remains unexercised — the tick means the attribution logic is
+      proven against a real disagreement, not that every gap shape has been seen
 
 ## 7. End-to-end fixture
 
@@ -205,20 +314,35 @@ terminal-outcome routing owner).
 - [x] S.1 Check in JSON Schemas for all five artifacts plus these shared definitions §17.3 names:
       typed failures (`assessmentFailure`), diagnostics, per-case outcomes, batch outcomes, and
       resource envelopes — `pg-assess/schemas/`
-- [ ] S.1a **Trace references** — the sixth item in §17.3's shared list is NOT covered. The handoff
-      spec's `--trace <trace.json>` does not exist on any command, and no schema field distinct from
-      `investigation-handoff`'s `evidence` represents a stored trace artifact. Follows from D9/D10
-      (investigate supplies binding and a pruned narrative rather than a trace artifact) and from
-      tracing being unavailable on the default pipeline, but §17.3 was never amended to say so
+- [x] S.1a **Trace references** — §17.3's sixth shared item is now a *recorded* non-goal rather than
+      an unexplained gap: design.md **D15**, plus a matching section in `schemas/README.md`. The
+      reasoning is that D9/D10 already draw the boundary (investigate binds evidence and supplies a
+      pruned narrative; it does not compete with FieldWorks on trace presentation), and a `traceRef`
+      field would have nothing backing it — tracing exists on the HermitCrab-confirm side but not on
+      the FST-propose stage of `foma-confirm`, the default pipeline. D15 states what a future change
+      closing it would need: a `--trace` output path, trace support on FST-propose, and a staleness
+      story distinct from `EvidenceAvailability`
 - [x] S.2 Canonical positive fixtures: every schema is validated against an artifact the real
       emitter produced, not a hand-written sample, so schema/emitter drift fails either way
 - [x] S.3 Negative fixtures: each must be rejected AND rejected at the field at fault, so a
-      negative fixture cannot pass for the wrong reason
+      negative fixture cannot pass for the wrong reason. Fixtures are constructed in
+      `tests/schema_conformance.rs` from real emitter output rather than checked in as static
+      `.json` files — a static positive fixture proves only that the file matches the schema, never
+      that the emitter still does, so it would stay green through exactly the drift these guard
+      against (`schemas/README.md` says so)
 - [x] S.4 The validator covers a declared JSON Schema subset and treats an unsupported keyword as a
       hard error, so a schema cannot grow a construct nothing checks. A general validator would mean
       a new dependency this repo has not taken; claiming to be one would be worse than declaring the
       subset
-- [ ] S.5 Not done: `docs/` reference for consumers generating client types from these schemas
+- [x] S.5 `docs/grammar-assessment-schemas.md` — consumer reference for generating client types:
+      where the schemas live, one line per artifact, the two-axis versioning contract
+      (`schemaVersion` vs the independently versioned identity profile), every named digest
+      projection, the closed enums a client may switch on, and what `additionalProperties: false`
+      obliges a client to do with unknown fields.
+      It also documents the one thing most likely to break a generator: `$ref` here is **not**
+      standard cross-file `$ref`. Every reference is a bare `#/$defs/<name>` resolved only after
+      `common.defs.json`'s `$defs` are merged under the artifact file's own. The doc gives two
+      concrete ways to handle that
 - Gate: `rust/tools/test.ps1 -Package pg-assess` — 20 schema-conformance tests
 
 ## Known environment limitation (not a defect in this change)

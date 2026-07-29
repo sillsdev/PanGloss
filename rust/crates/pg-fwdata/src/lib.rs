@@ -31,7 +31,7 @@ mod xml;
 
 use std::path::Path;
 
-use pg_snapshot::Snapshot;
+use pg_snapshot::{Snapshot, Warning};
 use thiserror::Error;
 
 /// Hard errors from [`import_file`] — I/O and "this isn't a `.fwdata` file at all", never data
@@ -48,10 +48,12 @@ pub enum ImportError {
 }
 
 /// Everything worth telling a caller about how the import went, beyond the `Snapshot` itself.
-/// Never a reason to fail the import (see the crate-level docs).
+/// Never a reason to fail the import (see the crate-level docs). Each warning carries a stable
+/// short code alongside its prose (`openspec/changes/add-grammar-assessment` task 3.8) — see
+/// [`pg_snapshot::Warning`]'s doc for the `code`/`message` contract `pangloss compare` relies on.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ImportReport {
-    pub warnings: Vec<String>,
+    pub warnings: Vec<Warning>,
 }
 
 /// Import a `.fwdata` project file into a [`Snapshot`] plus an [`ImportReport`] of anything

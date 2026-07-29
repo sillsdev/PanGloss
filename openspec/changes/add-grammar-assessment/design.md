@@ -199,6 +199,34 @@ away.
 `--engine default|foma` and inverts today's default. An unavailable pipeline returns
 `unsupported_capability`; there is no silent fallback.
 
+**D15 — §17.3's "trace references" is a stated non-goal, not a gap.** The handoff spec's illustrative
+`investigate` signature (§5.4) shows an optional `--trace <trace.json>`, and §17.3 lists "trace
+references" among the shared definitions to schema alongside typed failures, diagnostics, batch
+outcomes, and per-case outcomes. No command implements that flag and no schema field distinct from
+`investigation-handoff`'s `evidence` represents a stored trace artifact — `Evidence` (`handoff.rs`)
+carries only `availability` (`retained`/`regenerated`/`unavailable`), `engine`, and a prose `note`, not
+a reference to a persisted trace object. This change deliberately does not close that gap:
+
+- D9 already draws the boundary: `investigate` binds evidence to a report, model fingerprint, and
+  case, and supplies a pruned failure narrative (D10) — not trace presentation. FieldWorks has its
+  own HermitCrab and its own trace UI; competing with it is the thing the Non-Goals section rules
+  out ("Competing with FieldWorks on trace presentation").
+- A `traceRef` schema field would have nothing backing it on the default pipeline. Tracing exists on
+  the HermitCrab-confirm side (`pg_rules::trace::TraceManager`, feeding `NarrativeStep`'s
+  `failure_reason`) but not on the FST-propose stage of `foma-confirm`, the default pipeline (Non-Goals:
+  "Tracing on the foma pipeline (named follow-up)"). Schema-closing a reference type for an artifact
+  the default pipeline cannot produce would document a capability that does not exist.
+
+A future change that wants a persisted trace artifact needs three things this one does not provide:
+a `--trace` output path (or equivalent Rust API) that writes a distinct `pangloss.trace/vN` object
+addressed the way externalized diagnostics already are (§17.10's content-addressed-with-SHA-256
+pattern is the closest existing analog); trace support added to the FST-propose stage, not only
+HermitCrab-confirm, so a `foma-confirm` run has something to reference; and an explicit answer for
+how a persisted trace's own staleness interacts with `EvidenceAvailability` — a stored trace can go
+stale exactly the way a stored assessment report can, and `retained`/`regenerated`/`unavailable` would
+need to say which applies to the trace file itself, not only to the evidence `investigate` derives
+from it.
+
 ## Dependencies and Ownership
 
 This change exclusively owns the five assessment artifact schemas, the structured analysis identity

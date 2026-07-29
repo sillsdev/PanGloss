@@ -17,18 +17,28 @@
 //! and is contained by **deterministic cooperative magnitude budgets**, never a watchdog — a
 //! watchdog is `harden-foma-resource-safety`'s COMPILE-time-only mechanism (one killable worker
 //! per grammar compile), and apply runs constantly, per word, in the caller's own process, where a
-//! native thread cannot be safely hard-killed. This module's [`assess_words`] measures the
-//! production foma pipeline's apply path through
-//! [`pg_foma::analyzer::FomaProposer::propose_budgeted`] against an explicit
-//! [`pg_foma::compose_budget::ApplyBudget`] (that method's own module, `compose_budget.rs`'s
-//! "Apply-path dimension" section, is this same change's other half of the fix) and records
-//! [`WordApplyStatus::Incomplete`] — naming the tripped dimension, value, and limit — exactly the
-//! ADR 0003 contract: *"a word either completes ... or returns a typed incomplete outcome naming
-//! the dimension and value it hit"*.
+//! native thread cannot be safely hard-killed. This module's [`assess_words`] drives the production
+//! foma pipeline through [`pg_foma::composite::FomaAnalyzer::analyze_word_budgeted`] against an
+//! explicit [`pg_foma::compose_budget::ApplyBudget`] (that method's own module,
+//! `compose_budget.rs`'s "Apply-path dimension" section, is this same change's other half of the
+//! fix) and records `pg_assess::IncompleteReason::LogicalBudget` — naming the tripped dimension,
+//! value, and limit — exactly the ADR 0003 contract: *"a word either completes ... or returns a
+//! typed incomplete outcome naming the dimension and value it hit"*.
 //!
-//! # (b) Reused gloss-signature emission unit — no duplicate schema
-//! Every [`WordAssessmentEntry::gloss_signature`] is produced by calling
-//! `pg_realize::word_gloss_signature` (`rust/crates/pg-realize/src/signature.rs`, Stage 0E of
+//! Originally this measured the budget on a **second** compiled network, because `FomaAnalyzer`
+//! exposed no budgeted entry point. It now does, so there is one compile and one traversal, and
+//! the recorded outcome describes the run that produced the analyses rather than a parallel one
+//! that could disagree with it (`add-grammar-assessment` task 3.14).
+//!
+//! # (b) One assessment artifact, reusing the emission units it needs
+//! `assess_words` returns `pg_assess::AssessmentReport` — the repo's single
+//! `pangloss.assessment-report/v1` (D14, task 3.13). This module no longer defines a report shape
+//! of its own: two artifacts describing what happened to a word against a compiled model is the
+//! "second path" the handoff spec §2 forbids, and they would drift.
+//!
+//! Diagnostic evidence the canonical report has no field for is carried under the report's
+//! namespaced `extensions`. Gloss signatures there come from `pg_realize::word_gloss_signature`
+//! (`rust/crates/pg-realize/src/signature.rs`, Stage 0E of
 //! `openspec/changes/add-reference-hermitcrab-parity`) directly — this module never re-renders a
 //! gloss chain or re-implements the tagged `g:`/`m:`/`|s:` encoding itself. Health findings, when
 //! any exist, are `pg_foma::health::HealthReport` values verbatim (Stage 0D of
@@ -63,9 +73,12 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use pg_foma::analyzer::FomaProposer;
-use pg_foma::compose_budget::{ApplyBudget, ApplyOutcome};
-use pg_foma::composite::FomaAnalyzer;
+use pg_assess::{
+    AnalysisIdentity, AnalysisSet, AssessmentReport, CaseOutcome, CaseRecord, Diagnostic, Execution,
+    IncompleteReason, Provenance, ReportDraft, Severity, SuiteRef, IDENTITY_PROFILE,
+};
+use pg_foma::compose_budget::ApplyBudget;
+use pg_foma::composite::{FomaAnalyzer, FomaApplyOutcome};
 use pg_foma::health::HealthReport;
 use pg_grammar::model::Grammar;
 
@@ -115,145 +128,156 @@ pub fn build_report(grammar: &Grammar, load_warnings: Vec<String>) -> BuildRepor
     }
 }
 
-/// D5 (design.md): "Diagnostic evidence is observational" — this report never infers construct
-/// support, corpus recall, or supported-language status from these two outcomes. Mirrors ADR
-/// 0003's own two-way split ("a word either completes ... or returns a typed incomplete outcome").
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum WordApplyStatus {
-    /// [`pg_foma::compose_budget::ApplyOutcome::Complete`]: the apply-path budget never tripped
-    /// for this word. A zero-candidate result is still `Complete` (ADR 0003: "Zero analyses is a
-    /// valid complete result", the same convention one layer up from confirmed analyses).
-    Complete,
-    /// [`pg_foma::compose_budget::ApplyOutcome::Incomplete`]: the in-process cooperative magnitude
-    /// budget tripped for this word. `dimension` is
-    /// `pg_foma::compose_budget::ApplyDimension::label()`'s own stable string (`"decoded apply_up
-    /// paths"` / `"distinct candidates"`) — this module never re-derives or re-labels it.
-    Incomplete {
-        dimension: String,
-        value: u64,
-        limit: u64,
-    },
-}
-
-/// One word's assessment-report row.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct WordAssessmentEntry {
-    pub word: String,
-    /// ADR 0003's apply-path containment outcome, measured independently of whether the
-    /// production `pg_foma::composite::FomaAnalyzer` pipeline below happened to complete for this
-    /// word (see [`assess_words`]'s own doc for why these are measured separately).
-    pub apply_status: WordApplyStatus,
-    /// `pg_foma::composite::FomaOutcome::candidates_generated` — distinct propose∪peel candidates
-    /// offered to confirm, verbatim from the existing producer.
-    pub candidates_generated: usize,
-    /// `pg_foma::composite::FomaOutcome::confirmed` — `structured.len()`, verbatim.
-    pub confirmed: usize,
-    /// `pg_realize::word_gloss_signature` verbatim — this module's own top doc "(b)". `"-"` for a
-    /// zero-analysis word, by that function's own documented convention.
-    pub gloss_signature: String,
-}
-
-/// Aggregate counts across [`AssessmentReport::entries`] — cheap, honest evidence (D5: purely
-/// observational, no derived quality score).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AssessmentSummary {
-    pub complete: u64,
-    pub incomplete: u64,
-}
-
-/// D1: the word-run-side report, always separate from [`BuildReport`] — "Build comparison
-/// consumes build reports; semantic comparison consumes assessment reports only" (design.md D1).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct AssessmentReport {
-    pub schema_version: u32,
-    pub grammar_name: Option<String>,
-    /// The pipeline this assessment measured. Always `"foma-composite"` today — the active
-    /// production path design.md's own Context section names (`FomaAnalyzer -> FomaProposer ->
-    /// emit_with_budget -> fsm_lexc_parse_string -> apply_up -> confirm_batch`). A default-engine
-    /// (`pg_parse::Morpher`-only) pipeline label is documented follow-on (this module's top doc).
-    pub engine: String,
-    pub entries: Vec<WordAssessmentEntry>,
-    pub summary: AssessmentSummary,
-}
-
-/// Assesses `words` against `grammar`'s production foma pipeline, applying `apply_budget` to each
-/// word's apply-path traversal (ADR 0003; this module's own top-doc "(a)").
+/// Assess `words` against `grammar`'s production pipeline, producing the repo's ONE assessment
+/// artifact (`pangloss.assessment-report/v1`).
 ///
-/// Builds TWO compiled foma artifacts for `grammar` — one inside the [`FomaAnalyzer`] this
-/// function uses for the real propose→confirm pipeline (reusing that existing producer rather
-/// than re-implementing candidate/confirm wiring, per this change's own hard rule), and one
-/// standalone [`FomaProposer`] used only to measure [`FomaProposer::propose_budgeted`] against
-/// `apply_budget`. This is deliberate, not an oversight: `FomaAnalyzer` does not expose its own
-/// internal proposer for injected-budget use (and should not, for this additive step — that field
-/// is `composite.rs`'s own, and `composite.rs` is a named single-owner merge hotspot,
-/// `openspec/changes/STAGING.md`'s "Merge hotspots" list), so this diagnostic measures the SAME
-/// grammar's apply path independently rather than reaching into that struct's private state. The
-/// one-time cost of a second compiled network is acceptable for an offline diagnostic command;
-/// nothing here is a hot path.
+/// # Why this no longer has a report type of its own (D14, task 3.13)
+///
+/// This module used to define its own `AssessmentReport`. Two artifacts describing what happened to
+/// a word against a compiled model is the "second path" the handoff spec §2 forbids, and they would
+/// drift: the same question answered twice, differently, with no rule for which to believe. The
+/// canonical artifact carries structured analysis identities, three digests, and atomic per-case
+/// outcomes, none of which the local shape had.
+///
+/// # Why there is now one compiled network, not two (task 3.14)
+///
+/// The previous implementation compiled `grammar` to foma **twice** — once inside [`FomaAnalyzer`]
+/// for the real propose→confirm run, and once as a standalone `FomaProposer` purely to measure
+/// against an [`ApplyBudget`] — because `FomaAnalyzer` exposed no budgeted entry point. It now does
+/// ([`FomaAnalyzer::analyze_word_budgeted`]), so the workaround is gone and `diagnose` pays one
+/// compile.
+///
+/// That also removes a subtler problem. Measuring the budget on a *separate* network meant the
+/// recorded apply status described a different traversal from the one that produced the analyses,
+/// so the two could in principle disagree about the same word. Now the budget and the analyses come
+/// from a single run and cannot.
+///
+/// Diagnostic evidence the canonical report has no field for — propose-side over-generation and the
+/// gloss rendering — is carried in the report's namespaced `extensions`, which is excluded from both
+/// semantic projections and included in `reportId`. Losing it was not a fair price for one artifact.
 pub fn assess_words(
     grammar: &Grammar,
+    grammar_path: &str,
     words: &[String],
     apply_budget: &ApplyBudget,
+    warnings: &[pg_snapshot::Warning],
 ) -> Result<AssessmentReport, String> {
     let mut analyzer =
         FomaAnalyzer::new(grammar).map_err(|e| format!("foma analyzer build failed: {e}"))?;
-    let mut budgeted_proposer =
-        FomaProposer::new(grammar).map_err(|e| format!("foma proposer build failed: {e}"))?;
 
-    let mut entries = Vec::with_capacity(words.len());
-    let mut summary = AssessmentSummary::default();
+    let mut cases = Vec::with_capacity(words.len());
+    let mut per_word_diagnostics = serde_json::Map::new();
 
-    for word in words {
-        let apply_status = match budgeted_proposer.propose_budgeted(word, apply_budget) {
-            ApplyOutcome::Complete(_) => {
-                summary.complete += 1;
-                WordApplyStatus::Complete
-            }
-            ApplyOutcome::Incomplete {
-                dimension,
-                value,
-                limit,
-            } => {
-                summary.incomplete += 1;
-                WordApplyStatus::Incomplete {
-                    dimension: dimension.label().to_string(),
-                    value: value as u64,
-                    limit: limit as u64,
+    for (index, word) in words.iter().enumerate() {
+        // Deterministic and positional, matching `assess --words`' own convention so a diagnose run
+        // and an assess run over the same list join on the same IDs.
+        let case_id = format!("w{index}:{word}");
+
+        let (outcome, candidates_generated, gloss_signature) =
+            match analyzer.analyze_word_budgeted(word, apply_budget) {
+                FomaApplyOutcome::Complete(found) => {
+                    let pairs: Vec<(pg_parse::WordAnalysis, String)> = found
+                        .structured
+                        .iter()
+                        .cloned()
+                        .zip(found.analyses.iter().map(|(_join, surface)| surface.clone()))
+                        .collect();
+                    let gloss = pg_realize::word_gloss_signature(grammar, &pairs);
+
+                    let mut annotated = Vec::with_capacity(found.structured.len());
+                    for analysis in &found.structured {
+                        let identity = AnalysisIdentity::project(analysis, grammar)
+                            .map_err(|e| format!("project analysis identity for {word}: {e}"))?;
+                        annotated.push((identity, analysis.guessed));
+                    }
+                    (
+                        CaseOutcome::Complete(AnalysisSet::from_annotated(annotated)),
+                        found.candidates_generated,
+                        gloss,
+                    )
                 }
-            }
-        };
+                FomaApplyOutcome::Incomplete {
+                    dimension,
+                    value,
+                    limit,
+                } => (
+                    CaseOutcome::Incomplete(IncompleteReason::LogicalBudget {
+                        dimension: crate::assess::budget_dimension(dimension),
+                        value: value as u64,
+                        limit: limit as u64,
+                    }),
+                    // A tripped budget confirms nothing, so there is no candidate count or gloss to
+                    // report. Zero here would read as "the proposer offered nothing", which is a
+                    // different claim.
+                    0,
+                    String::new(),
+                ),
+            };
 
-        let outcome = analyzer.analyze_word(word);
-        let pairs: Vec<(pg_parse::WordAnalysis, String)> = outcome
-            .structured
-            .iter()
-            .cloned()
-            .zip(
-                outcome
-                    .analyses
-                    .iter()
-                    .map(|(_join, surface)| surface.clone()),
-            )
-            .collect();
-        let gloss_signature = pg_realize::word_gloss_signature(grammar, &pairs);
-
-        entries.push(WordAssessmentEntry {
-            word: word.clone(),
-            apply_status,
-            candidates_generated: outcome.candidates_generated,
-            confirmed: outcome.confirmed,
-            gloss_signature,
+        per_word_diagnostics.insert(
+            case_id.clone(),
+            serde_json::json!({
+                "candidatesGenerated": candidates_generated,
+                "glossSignature": gloss_signature,
+            }),
+        );
+        cases.push(CaseRecord {
+            case_id,
+            input: word.clone(),
+            outcome,
+            supersedes: Vec::new(),
         });
     }
 
-    Ok(AssessmentReport {
-        schema_version: DIAGNOSTICS_SCHEMA_VERSION,
-        grammar_name: grammar.name.clone(),
-        engine: "foma-composite".to_string(),
-        entries,
-        summary,
-    })
+    let source = fs::read_to_string(grammar_path)
+        .map_err(|e| format!("read {grammar_path}: {e}"))?;
+    let source_kind = crate::assess::source_kind_of(grammar_path);
+    let version = env!("CARGO_PKG_VERSION");
+    let digest = pg_assess::sha256_bytes(source.as_bytes());
+
+    ReportDraft {
+        generated_at: crate::assess::now_rfc3339(),
+        suite: SuiteRef {
+            // `diagnose` runs a bare word list, not a caller-authored suite, so the "suite" is the
+            // list itself and its digest is the list's. Stated rather than faked as a suite ID a
+            // caller never issued.
+            suite_id: format!("diagnose:{grammar_path}"),
+            suite_revision: digest.clone(),
+            semantic_digest: digest,
+            analysis_identity_profile: IDENTITY_PROFILE.to_string(),
+        },
+        execution: Execution {
+            pipeline: "foma-confirm".to_string(),
+            budgets: crate::assess::recorded_budgets(apply_budget),
+            wall_clock_limit_us: None,
+        },
+        provenance: Provenance {
+            source_sha256: pg_assess::source_sha256(source.as_bytes()),
+            source_kind: source_kind.as_str().to_string(),
+            model_fingerprint: pg_assess::model_fingerprint(source_kind, &source, version)
+                .map_err(|e| format!("model fingerprint: {e}"))?,
+            importer_version: version.to_string(),
+            compiler_version: version.to_string(),
+        },
+        // Codes carried through from the importer rather than flattened to one bucket: `compare`
+        // diffs these by code and count, so "the importer skipped 400 more constructs" has to be
+        // distinguishable from "one message was reworded" (task 3.8).
+        diagnostics: warnings
+            .iter()
+            .map(|w| Diagnostic {
+                code: w.code.to_string(),
+                severity: Severity::Warning,
+                message: w.message.clone(),
+            })
+            .collect(),
+        cases,
+        failure: None,
+        extensions: Some(serde_json::json!({
+            "org.sil.pangloss.diagnose": { "perCase": per_word_diagnostics }
+        })),
+    }
+    .finish()
+    .map_err(|e| format!("finish assessment report: {e}"))
 }
 
 /// `pangloss diagnose <grammar> <words.txt> <out-dir>` (tasks.md 1.1, reworked scope — see this
@@ -267,7 +291,10 @@ pub fn run_diagnose(args: &[String]) -> Result<(), String> {
         return Err("usage: diagnose <grammar> <words.txt> <out-dir>".to_string());
     };
 
-    let (grammar, load_warnings) = crate::load_grammar(grammar_path)?;
+    let (grammar, coded_warnings) = crate::load_grammar_coded(grammar_path)?;
+    // `build.json`'s own shape is unchanged — it has always carried prose, and nothing consumes a
+    // code from it. Only the assessment artifact needs the codes.
+    let load_warnings: Vec<String> = coded_warnings.iter().map(|w| w.to_string()).collect();
     crate::print_grammar_warnings(&load_warnings);
 
     let words: Vec<String> = fs::read_to_string(words_path)
@@ -278,7 +305,8 @@ pub fn run_diagnose(args: &[String]) -> Result<(), String> {
         .collect();
 
     let build = build_report(&grammar, load_warnings);
-    let assessment = assess_words(&grammar, &words, &ApplyBudget::from_env())?;
+    let assessment =
+        assess_words(&grammar, grammar_path, &words, &ApplyBudget::from_env(), &coded_warnings)?;
 
     fs::create_dir_all(out_dir).map_err(|e| format!("create {out_dir}: {e}"))?;
     let build_path = Path::new(out_dir).join("build.json");
@@ -291,17 +319,23 @@ pub fn run_diagnose(args: &[String]) -> Result<(), String> {
     .map_err(|e| format!("write {}: {e}", build_path.display()))?;
     fs::write(
         &assessment_path,
-        serde_json::to_string_pretty(&assessment)
+        assessment
+            .to_canonical_json()
             .map_err(|e| format!("serialize assessment.json: {e}"))?,
     )
     .map_err(|e| format!("write {}: {e}", assessment_path.display()))?;
 
+    // Counts with their denominator, and no rate — the same discipline the artifacts themselves
+    // keep. `status` is the run's own verdict on execution, never on the grammar.
+    let complete = assessment
+        .cases()
+        .iter()
+        .filter(|c| c.outcome.is_complete())
+        .count();
     eprintln!(
-        "diagnose complete: {} words ({} complete, {} incomplete) -> {}",
-        assessment.entries.len(),
-        assessment.summary.complete,
-        assessment.summary.incomplete,
-        out_dir
+        "diagnose {status:?}: {complete}/{total} cases complete -> {out_dir}",
+        status = assessment.status(),
+        total = assessment.cases().len(),
     );
     Ok(())
 }
@@ -313,7 +347,7 @@ mod tests {
     /// Synthetic (delanguaged), tiny fixture: one bare root `eRoot` (gloss `GX`, surface `kal`) and
     /// one affixed pair `eBare` (no gloss, root, surface `tuz`) + `eAff` (`<MorphemeId>M7</MorphemeId>`,
     /// suffix `+i`, surface `i`) via a trivial suffixing rule -- just enough ambiguity/gloss variety
-    /// to exercise both `WordApplyStatus` variants and both `g:`/`m:` gloss-signature tags in one
+    /// to exercise both complete and budget-tripped outcomes and both `g:`/`m:` gloss tags in one
     /// small grammar. Invented spellings only (repo-wide synthetic-fixture convention).
     const FIXTURE_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
@@ -375,130 +409,203 @@ mod tests {
         );
     }
 
+    fn grammar_file() -> std::path::PathBuf {
+        // `assess_words` hashes the grammar's exact source bytes for `sourceSha256` and
+        // `modelFingerprint`, so the fixture has to exist on disk rather than only in memory.
+        let dir = std::env::temp_dir().join("pg-diagnose-fixture");
+        std::fs::create_dir_all(&dir).expect("create fixture dir");
+        let path = dir.join("diagnostics-fixture.xml");
+        std::fs::write(&path, FIXTURE_XML).expect("write fixture");
+        path
+    }
+
+    fn assess(words: &[&str], budget: &ApplyBudget) -> AssessmentReport {
+        let path = grammar_file();
+        let words: Vec<String> = words.iter().map(|w| (*w).to_string()).collect();
+        assess_words(
+            &grammar(),
+            path.to_str().expect("fixture path is UTF-8"),
+            &words,
+            budget,
+            &[],
+        )
+        .expect("assessment must succeed")
+    }
+
+    fn diagnose_extension(report: &AssessmentReport, case_id: &str, field: &str) -> serde_json::Value {
+        report.draft().extensions.as_ref().expect("diagnose always attaches its extension")
+            ["org.sil.pangloss.diagnose"]["perCase"][case_id][field]
+            .clone()
+    }
+
     #[test]
-    fn assess_words_reports_complete_status_and_reuses_the_gloss_signature_unit() {
-        let g = grammar();
-        let words = vec!["kal".to_string(), "tuz".to_string(), "zzzz".to_string()];
-        let report =
-            assess_words(&g, &words, &ApplyBudget::unbounded()).expect("assessment must succeed");
+    fn diagnose_emits_the_one_canonical_assessment_artifact() {
+        // Task 3.13 / D14: this module no longer has a report shape of its own. Two artifacts
+        // answering "what happened to this word" is the second path §2 forbids.
+        let report = assess(&["kal", "tuz", "zzzz"], &ApplyBudget::unbounded());
+        let value = report.to_value();
 
-        assert_eq!(report.engine, "foma-composite");
-        assert_eq!(report.entries.len(), 3);
+        assert_eq!(value["schema"], "pangloss.assessment-report");
+        assert_eq!(value["schemaVersion"], 1);
+        assert_eq!(value["execution"]["pipeline"], "foma-confirm");
+        assert_eq!(value["status"], "complete");
+        assert_eq!(report.cases().len(), 3);
+        // Every case completed, so every one carries an authoritative set — including the word the
+        // grammar cannot analyze, whose set is empty. That is a positive claim, not a failure.
+        assert!(report.cases().iter().all(|c| c.outcome.is_complete()));
         assert_eq!(
-            report.summary.complete, 3,
-            "an unbounded budget never trips"
+            report.cases()[2].outcome.analyses().unwrap().len(),
+            0,
+            "an unanalyzable word completes with an empty set"
         );
-        assert_eq!(report.summary.incomplete, 0);
+    }
 
-        let kal = &report.entries[0];
-        assert_eq!(kal.apply_status, WordApplyStatus::Complete);
-        assert_eq!(kal.confirmed, 1);
+    #[test]
+    fn per_word_diagnostics_survive_in_the_reports_extensions() {
+        // The canonical report has no field for propose-side over-generation or the gloss
+        // rendering. Losing them was not a fair price for having one artifact, so they live in the
+        // namespaced extension slot — outside both semantic projections, inside `reportId`.
+        let report = assess(&["kal", "tuz", "zzzz"], &ApplyBudget::unbounded());
+
         assert_eq!(
-            kal.gloss_signature,
-            r#"g:"GX"|s:"kal""#,
+            diagnose_extension(&report, "w0:kal", "glossSignature"),
+            serde_json::json!(r#"g:"GX"|s:"kal""#),
             "must match pg_realize::signature's own documented encoding exactly, not a re-derived one"
         );
-
-        let tuz = &report.entries[1];
-        assert_eq!(tuz.confirmed, 1);
-        assert_eq!(tuz.gloss_signature, r#"m:""|s:"tuz""#);
-
-        let unmatched = &report.entries[2];
-        assert_eq!(unmatched.confirmed, 0);
         assert_eq!(
-            unmatched.gloss_signature, "-",
+            diagnose_extension(&report, "w1:tuz", "glossSignature"),
+            serde_json::json!(r#"m:""|s:"tuz""#)
+        );
+        assert_eq!(
+            diagnose_extension(&report, "w2:zzzz", "glossSignature"),
+            serde_json::json!("-"),
             "zero confirmed analyses must render the same '-' literal pg_realize::signature \
              documents for an empty entry set"
         );
+        assert_eq!(
+            diagnose_extension(&report, "w0:kal", "candidatesGenerated"),
+            serde_json::json!(1)
+        );
     }
 
     #[test]
-    fn assess_words_reports_incomplete_status_when_the_apply_budget_trips() {
-        let g = grammar();
-        let words = vec!["kal".to_string()];
+    fn extensions_do_not_move_either_semantic_projection() {
+        // The guarantee that lets diagnose carry extra evidence without changing what the report
+        // *means*: two runs differing only in the diagnose extension agree semantically.
+        let with = assess(&["kal"], &ApplyBudget::unbounded());
+        let mut without = with.draft().clone();
+        without.extensions = None;
+        let without = without.finish().expect("digests");
+
+        assert_eq!(with.semantic_digest(), without.semantic_digest());
+        assert_eq!(with.outcome_digest(), without.outcome_digest());
+        assert_ne!(with.report_id(), without.report_id());
+    }
+
+    #[test]
+    fn a_tripped_budget_is_a_typed_incomplete_not_an_empty_analysis_set() {
         // cap=0 on decoded paths: the bare root must still decode at least one apply_up result,
         // tripping the budget on the very first one -- deterministic, in-process, no watchdog.
-        let budget = ApplyBudget::with_caps(Some(0), None);
-        let report = assess_words(&g, &words, &budget).expect("assessment must succeed");
+        let report = assess(&["kal"], &ApplyBudget::with_caps(Some(0), None));
 
-        assert_eq!(report.summary.incomplete, 1);
-        assert_eq!(report.summary.complete, 0);
-        match &report.entries[0].apply_status {
-            WordApplyStatus::Incomplete {
+        assert_eq!(report.status(), pg_assess::AssessmentStatus::Failed);
+        match &report.cases()[0].outcome {
+            CaseOutcome::Incomplete(IncompleteReason::LogicalBudget {
                 dimension,
                 value,
                 limit,
-            } => {
-                assert_eq!(dimension, "decoded apply_up paths");
+            }) => {
+                assert_eq!(*dimension, pg_assess::BudgetDimension::DecodedPaths);
                 assert_eq!(*value, 1);
                 assert_eq!(*limit, 0);
             }
-            other => panic!("expected Incomplete, got {other:?}"),
+            other => panic!("expected a typed logical-budget incomplete, got {other:?}"),
         }
+        assert!(
+            report.cases()[0].outcome.analyses().is_none(),
+            "a tripped budget must not present an authoritative set"
+        );
     }
 
     #[test]
-    fn word_apply_status_golden_json() {
-        // Pins the wire shape of both variants directly -- this is the schema every downstream
-        // report consumer (and any future report-to-report comparison) depends on.
-        let complete = WordApplyStatus::Complete;
-        assert_eq!(
-            serde_json::to_string(&complete).expect("serialize"),
-            r#"{"kind":"complete"}"#
+    fn the_recorded_budget_is_the_one_actually_in_force() {
+        // The envelope reaches the report from the `ApplyBudget` itself, so a budget arriving via
+        // `from_env` is recorded as faithfully as one passed on the command line.
+        let unbounded = assess(&["kal"], &ApplyBudget::unbounded());
+        assert!(
+            unbounded.draft().execution.budgets.is_empty(),
+            "unbounded is recorded as no envelope, not as a zero"
         );
 
-        let incomplete = WordApplyStatus::Incomplete {
-            dimension: "decoded apply_up paths".to_string(),
-            value: 1,
-            limit: 0,
-        };
+        let capped = assess(&["kal"], &ApplyBudget::with_caps(Some(0), None));
         assert_eq!(
-            serde_json::to_string(&incomplete).expect("serialize"),
-            r#"{"kind":"incomplete","dimension":"decoded apply_up paths","value":1,"limit":0}"#
+            capped.draft().execution.budgets.get("decodedPaths"),
+            Some(&0u64)
         );
     }
 
-    /// Golden full-report test (tasks.md 1.4's "golden schema" test, scoped to this step's
-    /// actual shape): a deterministic, fully-populated [`AssessmentReport`] round-trips through
-    /// canonical JSON losslessly and matches a committed golden string exactly. Catches accidental
-    /// field reordering/renaming/type drift the same way `pg_foma::health`'s own golden test does.
     #[test]
-    fn assessment_report_golden_json_round_trips() {
-        let g = grammar();
-        let words = vec!["kal".to_string()];
-        let report =
-            assess_words(&g, &words, &ApplyBudget::unbounded()).expect("assessment must succeed");
-        let json = serde_json::to_string_pretty(&report).expect("serialize");
+    fn the_assessment_artifact_round_trips_and_reproduces_its_digests() {
+        // Replaces the old golden-string test. A golden JSON blob would pin `generatedAt` and the
+        // digests, which change per run by design; what actually needs guarding is that the
+        // artifact parses back to the same evidence and the same digests.
+        let report = assess(&["kal"], &ApplyBudget::unbounded());
+        let json = report.to_canonical_json().expect("canonicalize");
+        let read = pg_assess::parse_report(&json).expect("a diagnose artifact must parse as the
+             canonical report — that is the whole point of having one type");
 
-        const GOLDEN: &str = r#"{
-  "schema_version": 1,
-  "grammar_name": "DiagnosticsFixture",
-  "engine": "foma-composite",
-  "entries": [
-    {
-      "word": "kal",
-      "apply_status": {
-        "kind": "complete"
-      },
-      "candidates_generated": 1,
-      "confirmed": 1,
-      "gloss_signature": "g:\"GX\"|s:\"kal\""
+        assert_eq!(read.report_id(), report.report_id());
+        assert_eq!(read.semantic_digest(), report.semantic_digest());
+        assert_eq!(read.outcome_digest(), report.outcome_digest());
+        assert_eq!(read.cases(), report.cases());
     }
-  ],
-  "summary": {
-    "complete": 1,
-    "incomplete": 0
-  }
-}"#;
-        assert_eq!(
-            json, GOLDEN,
-            "canonical JSON drifted from the committed golden"
-        );
 
-        let parsed: AssessmentReport = serde_json::from_str(&json).expect("deserialize");
+    #[test]
+    fn importer_warning_codes_reach_the_report_rather_than_one_bucket() {
+        // The point of task 3.8: `compare` diffs diagnostics by code and count. If every warning
+        // arrived as `importer.warning`, a caller could not tell "the importer skipped different
+        // data" from "a message was reworded" — the distinction §10 asks for.
+        let path = grammar_file();
+        let warnings = vec![
+            pg_snapshot::Warning::new("fwdata.dangling-reference", "entry 4 refers to a missing MSA"),
+            pg_snapshot::Warning::new("fwdata.unsupported-morph-type", "morph type not supported"),
+            pg_snapshot::Warning::new("fwdata.dangling-reference", "entry 9 refers to a missing MSA"),
+        ];
+        let report = assess_words(
+            &grammar(),
+            path.to_str().unwrap(),
+            &["kal".to_string()],
+            &ApplyBudget::unbounded(),
+            &warnings,
+        )
+        .expect("assessment must succeed");
+
+        let codes: Vec<&str> = report
+            .draft()
+            .diagnostics
+            .iter()
+            .map(|d| d.code.as_str())
+            .collect();
         assert_eq!(
-            parsed, report,
-            "round trip through canonical JSON must be lossless"
+            codes,
+            vec![
+                "fwdata.dangling-reference",
+                "fwdata.unsupported-morph-type",
+                "fwdata.dangling-reference"
+            ],
+            "codes must survive to the report, with their multiplicity — count per code is what              `compare` diffs"
         );
+        assert!(
+            !codes.contains(&"importer.warning"),
+            "a single catch-all bucket is exactly what this task replaced"
+        );
+    }
+
+    #[test]
+    fn two_diagnose_runs_of_the_same_words_agree_on_behaviour() {
+        let first = assess(&["kal", "tuz"], &ApplyBudget::unbounded());
+        let second = assess(&["kal", "tuz"], &ApplyBudget::unbounded());
+        assert_eq!(first.outcome_digest(), second.outcome_digest());
+        assert_eq!(first.semantic_digest(), second.semantic_digest());
     }
 }

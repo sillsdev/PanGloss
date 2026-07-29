@@ -347,6 +347,65 @@ fn run_import(args: &[String]) -> Result<(), String> {
 /// never produces warnings of its own. Returns any compile/import warnings alongside the
 /// `Grammar` -- callers are responsible for printing them to stderr (never stdout; see the
 /// module doc).
+/// [`load_grammar`], but keeping each warning's stable code instead of flattening it to prose.
+///
+/// `load_grammar` returns `Vec<String>` because almost every caller only ever prints warnings, and
+/// changing that signature would churn every one of them. But an assessment report is exactly the
+/// caller that must NOT lose the code: `compare` diffs importer diagnostics **by code and count**
+/// so that rewording a message is never reported as a change in the grammar's context (task 3.8).
+/// Flattening first and re-tagging everything `importer.warning` would give a caller one bucket,
+/// which cannot distinguish "the importer skipped 400 more constructs" from "one message was
+/// reworded" — the exact distinction §10 asks for.
+///
+/// So the two commands that build assessment reports use this; everything else keeps the simpler
+/// shape.
+///
+/// `pg_grammar::compile_project`'s own warnings are still plain `String` (out of task 3.8's scope)
+/// and are tagged `compiler.warning` here — honestly one bucket, because that is genuinely all the
+/// granularity that exists on that side today, rather than a code invented to look finer.
+pub(crate) fn load_grammar_coded(path: &str) -> Result<(Grammar, Vec<pg_snapshot::Warning>), String> {
+    let ext = std::path::Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("");
+    const COMPILER: &str = "compiler.warning";
+    match ext {
+        "json" => {
+            let json = fs::read_to_string(path).map_err(|e| format!("read {path}: {e}"))?;
+            let snapshot = pg_snapshot::Snapshot::from_json(&json)
+                .map_err(|e| format!("parse snapshot {path}: {e}"))?;
+            let mut warnings: Vec<pg_snapshot::Warning> = snapshot.validate();
+            let (grammar, compile_warnings) = pg_grammar::compile_project(&snapshot)
+                .map_err(|e| format!("compile {path}: {e:?}"))?;
+            warnings.extend(
+                compile_warnings
+                    .into_iter()
+                    .map(|w| pg_snapshot::Warning::new(COMPILER, w)),
+            );
+            Ok((grammar, warnings))
+        }
+        "fwdata" => {
+            let (snapshot, report) = pg_fwdata::import_file(std::path::Path::new(path))
+                .map_err(|e| format!("import {path}: {e}"))?;
+            let mut warnings = report.warnings;
+            warnings.extend(snapshot.validate());
+            let (grammar, compile_warnings) = pg_grammar::compile_project(&snapshot)
+                .map_err(|e| format!("compile {path}: {e:?}"))?;
+            warnings.extend(
+                compile_warnings
+                    .into_iter()
+                    .map(|w| pg_snapshot::Warning::new(COMPILER, w)),
+            );
+            Ok((grammar, warnings))
+        }
+        _ => {
+            let xml = fs::read_to_string(path).map_err(|e| format!("read {path}: {e}"))?;
+            let grammar = pg_grammar::load(&xml).map_err(|e| format!("load {path}: {e:?}"))?;
+            Ok((grammar, Vec::new()))
+        }
+    }
+}
+
 pub(crate) fn load_grammar(path: &str) -> Result<(Grammar, Vec<String>), String> {
     let ext = std::path::Path::new(path)
         .extension()
@@ -364,8 +423,14 @@ pub(crate) fn load_grammar(path: &str) -> Result<(Grammar, Vec<String>), String>
         "fwdata" => {
             let (snapshot, report) = pg_fwdata::import_file(std::path::Path::new(path))
                 .map_err(|e| format!("import {path}: {e}"))?;
-            let mut warnings = report.warnings;
-            warnings.extend(snapshot.validate());
+            // `report.warnings`/`snapshot.validate()` are `pg_snapshot::Warning` (stable code +
+            // prose, `add-grammar-assessment` task 3.8); `pg_grammar::compile_project`'s own
+            // warnings are still plain `String` (out of that task's scope), and this function's
+            // public return type is `Vec<String>` -- flatten to prose here, at the one place the
+            // two meet, rather than changing this signature and every one of its callers.
+            let mut warnings: Vec<String> =
+                report.warnings.into_iter().map(|w| w.to_string()).collect();
+            warnings.extend(snapshot.validate().into_iter().map(|w| w.to_string()));
             let (grammar, compile_warnings) = pg_grammar::compile_project(&snapshot)
                 .map_err(|e| format!("compile {path}: {e:?}"))?;
             warnings.extend(compile_warnings);

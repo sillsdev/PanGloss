@@ -26,15 +26,17 @@ use std::process::ExitCode;
 
 use pg_assess::{
     compare, golden_diff, investigate, parse_report, parse_suite, AnalysisIdentity, AnalysisSet,
-    AssessmentFailure, AssessmentReport, BudgetDimension, CaseOutcome, CaseRecord, Diagnostic,
-    Evidence, EvidenceAvailability, Execution, FailureKind, HandoffRequest, IncompleteReason,
-    MissingAnalysisCause, NotAttemptedReason, Provenance, ReportDraft, Severity, SourceKind,
-    SuiteRef, ValidatedSuite, IDENTITY_PROFILE,
+    AssessmentFailure, AssessmentReport, BudgetDimension, CaseOutcome, CaseRecord, ConstructRef,
+    Diagnostic, Evidence, EvidenceAvailability, Execution, FailureKind, HandoffRequest,
+    IncompleteReason, MissingAnalysisCause, NarrativeStep, NotAttemptedReason, Provenance,
+    ReportDraft, Severity, SourceKind, SuiteRef, ValidatedSuite, IDENTITY_PROFILE,
 };
 use pg_foma::compose_budget::{ApplyBudget, ApplyDimension};
 use pg_foma::composite::{FomaAnalyzer, FomaApplyOutcome};
-use pg_grammar::model::Grammar;
-use pg_parse::Morpher;
+use pg_grammar::model::{AllomorphOwner, Grammar, MorphemeId};
+use pg_parse::{Morpher, ParseOptions};
+use pg_rules::trace::{TraceHandle, TraceSource, TreeTraceSink};
+use pg_rules::word::Word;
 
 use crate::load_grammar;
 
@@ -239,7 +241,39 @@ fn read(path: &str) -> Result<String, CliError> {
 /// Exhaustive by construction: adding a variant to `pg_foma::ApplyDimension` fails to compile here
 /// until it is given an artifact name, rather than silently reaching a report as an unrecognised
 /// string that no consumer can branch on.
-fn budget_dimension(dimension: ApplyDimension) -> BudgetDimension {
+/// Which loader a grammar path dispatches to, by extension — the same rule `load_grammar` uses.
+///
+/// Shared with `diagnose` rather than duplicated: both build the same artifact, and two copies of
+/// this dispatch could disagree about a `.json` grammar's `sourceKind`, which feeds
+/// `modelFingerprint` and would silently split one grammar into two model identities.
+pub(crate) fn source_kind_of(path: &str) -> SourceKind {
+    if path.ends_with(".json") {
+        SourceKind::Snapshot
+    } else {
+        SourceKind::HcXml
+    }
+}
+
+/// The effective logical budgets, as the report records them.
+///
+/// Read off the `ApplyBudget` actually in force rather than off the flags that produced it, so an
+/// envelope arriving from the environment (`ApplyBudget::from_env`, which `diagnose` uses) is
+/// recorded as faithfully as one passed on the command line. An empty map means unbounded.
+pub(crate) fn recorded_budgets(budget: &ApplyBudget) -> BTreeMap<String, u64> {
+    let mut budgets = BTreeMap::new();
+    if let Some(cap) = budget.path_cap() {
+        budgets.insert(
+            BudgetDimension::DecodedPaths.as_str().to_string(),
+            cap as u64,
+        );
+    }
+    if let Some(cap) = budget.candidate_cap() {
+        budgets.insert(BudgetDimension::Candidates.as_str().to_string(), cap as u64);
+    }
+    budgets
+}
+
+pub(crate) fn budget_dimension(dimension: ApplyDimension) -> BudgetDimension {
     match dimension {
         ApplyDimension::DecodedPaths => BudgetDimension::DecodedPaths,
         ApplyDimension::Candidates => BudgetDimension::Candidates,
@@ -266,22 +300,12 @@ pub fn run_assess(args: &[String]) -> Result<(), CliError> {
         args.number("budget-paths")?,
         args.number("budget-candidates")?,
     );
-    let mut budgets = BTreeMap::new();
-    if let Some(cap) = args.number("budget-paths")? {
-        budgets.insert("decodedPaths".to_string(), cap as u64);
-    }
-    if let Some(cap) = args.number("budget-candidates")? {
-        budgets.insert("candidates".to_string(), cap as u64);
-    }
+    let budgets = recorded_budgets(&budget);
 
     let (suite, cases) = load_cases(&args)?;
 
     let source = read(grammar_path)?;
-    let source_kind = if grammar_path.ends_with(".json") {
-        SourceKind::Snapshot
-    } else {
-        SourceKind::HcXml
-    };
+    let source_kind = source_kind_of(grammar_path);
     let compiler_version = env!("CARGO_PKG_VERSION");
     let provenance = Provenance {
         source_sha256: pg_assess::source_sha256(source.as_bytes()),
@@ -297,7 +321,7 @@ pub fn run_assess(args: &[String]) -> Result<(), CliError> {
     // `not_attempted/assessment_setup_failed`, with the compiler's own message retained as a
     // diagnostic. Exiting non-zero with nothing to read would tell a CI consumer only that
     // something went wrong, and `compare` could not join the run against its baseline at all.
-    let (grammar, warnings) = match load_grammar(grammar_path) {
+    let (grammar, warnings) = match crate::load_grammar_coded(grammar_path) {
         Ok(loaded) => loaded,
         Err(message) => {
             let report =
@@ -305,14 +329,16 @@ pub fn run_assess(args: &[String]) -> Result<(), CliError> {
             return emit(&args, &report.to_value());
         }
     };
+    // Each warning keeps the stable code its emission site assigned (task 3.8), because `compare`
+    // diffs diagnostics by code and count. Collapsing them into one bucket here would leave a
+    // caller unable to tell "the importer skipped different data" from "a message was reworded" —
+    // the distinction §10 exists to give them.
     let diagnostics = warnings
         .iter()
-        .map(|message| Diagnostic {
-            // Until the importer carries real codes (task 3.8), every warning shares one so a
-            // consumer can at least count them. Stated rather than faked per-warning.
-            code: "importer.warning".to_string(),
+        .map(|warning| Diagnostic {
+            code: warning.code.to_string(),
             severity: Severity::Warning,
-            message: message.clone(),
+            message: warning.message.clone(),
         })
         .collect();
 
@@ -569,7 +595,7 @@ fn project_all(
 }
 
 /// The one nonsemantic field in the artifact. It moves `reportId` and nothing else.
-fn now_rfc3339() -> String {
+pub(crate) fn now_rfc3339() -> String {
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -684,11 +710,7 @@ pub fn run_investigate(args: &[String]) -> Result<(), CliError> {
     };
     if let Some(grammar_path) = args.flag("grammar") {
         let source = read(grammar_path)?;
-        let source_kind = if grammar_path.ends_with(".json") {
-            SourceKind::Snapshot
-        } else {
-            SourceKind::HcXml
-        };
+        let source_kind = source_kind_of(grammar_path);
         let fingerprint =
             pg_assess::model_fingerprint(source_kind, &source, env!("CARGO_PKG_VERSION"))
                 .map_err(|e| CliError::internal(format!("model fingerprint: {e}")))?;
@@ -701,11 +723,363 @@ pub fn run_investigate(args: &[String]) -> Result<(), CliError> {
                     .to_string(),
             ),
         });
+
+        // Task 6.4/6.5: attribute a missing analysis to HermitCrab rejection vs. a proposer
+        // recall gap by running the case on both pipelines, and emit the pruned failure
+        // narrative from HermitCrab's own trace. `investigate` itself refuses the whole handoff
+        // below if `current_model_fingerprint` disagrees with the report, so anything gathered
+        // here only ever survives to reach a caller for the grammar the report actually
+        // describes. Best-effort throughout: if the case cannot be found yet, or the grammar
+        // fails to load, or HermitCrab itself cannot be run, this block simply contributes
+        // nothing — every asked-about identity then stays `Undetermined`, `investigate`'s own
+        // documented "never guess" default, rather than a fabricated attribution.
+        if let Some(case) = report.cases().iter().find(|c| c.case_id == case_id) {
+            if let Ok((grammar, _warnings)) = load_grammar(grammar_path) {
+                if let Ok((hc_identities, hc_failures)) =
+                    run_hermitcrab_pipeline(&grammar, &case.input)
+                {
+                    // 6.5: the pruned narrative is exactly the HermitCrab failure evidence,
+                    // independent of whether foma-confirm is even available below.
+                    request.narrative = hc_failures.iter().map(|f| f.step.clone()).collect();
+
+                    // `None` here means foma-confirm could not produce a trustworthy result right
+                    // now (compile failure or a budget trip) — attribution below stays
+                    // `Undetermined` for every identity rather than guessed from a partial run.
+                    let foma_identities = run_foma_pipeline(&grammar, &case.input);
+
+                    // The identities to attribute a cause for: whatever HermitCrab produces now
+                    // that the report's own recorded outcome for this case does not contain —
+                    // exactly the "missing analysis" class `investigate` exists to explain. A
+                    // fuller workflow would seed this from `compare`'s `removed` set for the
+                    // case; re-running both pipelines here is what D11 asks for and needs no
+                    // extra input from the caller.
+                    let report_observed: Vec<AnalysisIdentity> = case
+                        .outcome
+                        .analyses()
+                        .map(|set| set.entries().iter().map(|e| e.identity.clone()).collect())
+                        .unwrap_or_default();
+                    let asked_about: Vec<AnalysisIdentity> = hc_identities
+                        .iter()
+                        .filter(|identity| !report_observed.contains(identity))
+                        .cloned()
+                        .collect();
+
+                    if !asked_about.is_empty() {
+                        request.causes = attribute_causes(
+                            &asked_about,
+                            &hc_identities,
+                            &hc_failures,
+                            foma_identities.as_deref(),
+                        );
+                        request.asked_about = asked_about;
+                    }
+                }
+            }
+        }
     }
 
     let handoff = investigate(&report, &request).map_err(|e| CliError::invalid(e.to_string()))?;
-    let _ = MissingAnalysisCause::Undetermined; // documented default; attribution needs both pipelines
     emit(&args, &handoff.to_value())
+}
+
+/// One HermitCrab trace node that carried a [`pg_rules::trace::FailureReason`] — the pruning unit
+/// for both the failure narrative (6.5) and the "did HermitCrab reject a candidate matching this
+/// identity" evidence (6.4). A word's full trace can run to thousands of nodes; only the nodes
+/// that actually record a rejection carry information either consumer needs, so this is the
+/// entire prune: walk the tree, keep the nodes with `Some(failure_reason)`, discard the rest.
+struct HermitcrabFailure {
+    step: NarrativeStep,
+    /// The rejected candidate's ordered stable morpheme keys, `None` per slot exactly where an
+    /// [`AnalysisIdentity`] would record `None` (a fabricated/guessed root has no
+    /// `Grammar::morphemes` row). Used only to match a failure against an asked-about identity —
+    /// never surfaced in the artifact itself.
+    candidate_morphemes: Vec<Option<String>>,
+}
+
+/// Run the HermitCrab pipeline on one case's input with a real trace sink, returning every
+/// analysis it produces plus the pruned failure evidence backing 6.4/6.5.
+fn run_hermitcrab_pipeline(
+    grammar: &Grammar,
+    input: &str,
+) -> Result<(Vec<AnalysisIdentity>, Vec<HermitcrabFailure>), CliError> {
+    let morpher = Morpher::new(grammar, usize::MAX);
+    let sink = TreeTraceSink::new();
+    let outcome = morpher.parse_word_traced(input, &ParseOptions::default(), &sink);
+    let identities = project_identities(&outcome.structured, grammar)?;
+    let failures = match sink.root() {
+        Some(root) => collect_hermitcrab_failures(grammar, &sink, root),
+        None => Vec::new(),
+    };
+    Ok((identities, failures))
+}
+
+/// Run the foma-confirm pipeline on the same input. `None` means the pipeline could not produce a
+/// trustworthy result for this word right now — a compile failure or a budget trip — rather than
+/// "zero analyses", which is a positive claim this function must not fabricate.
+fn run_foma_pipeline(grammar: &Grammar, input: &str) -> Option<Vec<AnalysisIdentity>> {
+    let mut analyzer = FomaAnalyzer::new(grammar).ok()?;
+    let budget = ApplyBudget::with_caps(None, None);
+    match analyzer.analyze_word_budgeted(input, &budget) {
+        FomaApplyOutcome::Complete(outcome) => {
+            project_identities(&outcome.structured, grammar).ok()
+        }
+        FomaApplyOutcome::Incomplete { .. } => None,
+    }
+}
+
+fn project_identities(
+    analyses: &[pg_parse::WordAnalysis],
+    grammar: &Grammar,
+) -> Result<Vec<AnalysisIdentity>, CliError> {
+    analyses
+        .iter()
+        .map(|a| {
+            AnalysisIdentity::project(a, grammar)
+                .map_err(|e| CliError::internal(format!("project analysis identity: {e}")))
+        })
+        .collect()
+}
+
+/// 6.4: classify each asked-about identity from both pipelines' outputs plus the HermitCrab
+/// trace's own failure evidence. Never guesses: an identity this function cannot place
+/// confidently stays `NeitherPipelineProduces` rather than an asserted `HermitcrabRejected`, and
+/// the whole set stays `Undetermined` when foma-confirm's result cannot be trusted.
+fn attribute_causes(
+    asked_about: &[AnalysisIdentity],
+    hc_identities: &[AnalysisIdentity],
+    hc_failures: &[HermitcrabFailure],
+    foma_identities: Option<&[AnalysisIdentity]>,
+) -> Vec<(AnalysisIdentity, MissingAnalysisCause)> {
+    asked_about
+        .iter()
+        .map(|identity| {
+            let produced_by_hc = hc_identities.contains(identity);
+            let cause = match foma_identities {
+                // Attribution needs both pipelines; only one was available. Never guess.
+                None => MissingAnalysisCause::Undetermined,
+                Some(foma) => {
+                    let produced_by_foma = foma.contains(identity);
+                    match (produced_by_hc, produced_by_foma) {
+                        // HermitCrab alone produces it: exactly the PanGloss recall gap the
+                        // propose-and-confirm invariant exists to prevent.
+                        (true, false) => MissingAnalysisCause::ProposerRecallGap,
+                        // Neither pipeline produces it right now. That is a real grammar fact
+                        // UNLESS the HermitCrab trace shows it explicitly considering and
+                        // rejecting this exact candidate, in which case the rejection itself is
+                        // the more specific, more useful fact to report.
+                        (false, false) => {
+                            let rejected = hc_failures
+                                .iter()
+                                .any(|f| f.candidate_morphemes == identity.morphemes);
+                            if rejected {
+                                MissingAnalysisCause::HermitcrabRejected
+                            } else {
+                                MissingAnalysisCause::NeitherPipelineProduces
+                            }
+                        }
+                        // foma-confirm produces it right now regardless of HermitCrab: this
+                        // identity is not the recall/rejection question this function answers
+                        // (it may still be "missing" only relative to a stale report) — said
+                        // honestly rather than guessed.
+                        (_, true) => MissingAnalysisCause::Undetermined,
+                    }
+                }
+            };
+            (identity.clone(), cause)
+        })
+        .collect()
+}
+
+/// Walk from `root`, keeping only the nodes that carried a `FailureReason` — the entire pruning
+/// step behind 6.5's narrative and 6.4's rejection evidence.
+fn collect_hermitcrab_failures(
+    grammar: &Grammar,
+    sink: &TreeTraceSink,
+    root: TraceHandle,
+) -> Vec<HermitcrabFailure> {
+    let mut out = Vec::new();
+    collect_hermitcrab_failures_node(grammar, sink, root, &mut out);
+    out
+}
+
+fn collect_hermitcrab_failures_node(
+    grammar: &Grammar,
+    sink: &TreeTraceSink,
+    handle: TraceHandle,
+    out: &mut Vec<HermitcrabFailure>,
+) {
+    let node = sink.node(handle);
+    if let Some(reason) = node.failure_reason {
+        let word = node.output.as_ref().or(node.input.as_ref());
+        let candidate_morphemes = word
+            .map(|w| word_morpheme_keys(w, grammar))
+            .unwrap_or_default();
+        let candidate = word
+            .map(|w| display_candidate(grammar, w))
+            .unwrap_or_else(|| "(no candidate word captured)".to_string());
+        let at = narrative_construct_ref(grammar, node.source, word);
+        out.push(HermitcrabFailure {
+            step: NarrativeStep {
+                candidate,
+                at,
+                // `pg_rules::trace::FailureReason`'s variant name, carried verbatim (task 6.5).
+                failure_reason: format!("{reason:?}"),
+                // Factual: what was observed, never why the grammar is wrong or what to change.
+                detail: format!(
+                    "HermitCrab produced this candidate and rejected it at a {:?} node",
+                    node.type_
+                ),
+            },
+            candidate_morphemes,
+        });
+    }
+    for &child in &node.children {
+        collect_hermitcrab_failures_node(grammar, sink, child, out);
+    }
+}
+
+/// The rejected candidate's ordered stable morpheme keys, in the same shape
+/// [`AnalysisIdentity::morphemes`] uses, so a failure can be matched against an asked-about
+/// identity by simple equality.
+fn word_morpheme_keys(word: &Word, grammar: &Grammar) -> Vec<Option<String>> {
+    word.morpheme_sequence()
+        .into_iter()
+        .map(|m| {
+            if m == MorphemeId::GUESSED {
+                None
+            } else {
+                grammar
+                    .morphemes
+                    .get(m.0 as usize)
+                    .map(|info| info.xml_key.clone())
+            }
+        })
+        .collect()
+}
+
+/// A human-readable morpheme join for the narrative's `candidate` field (e.g. `"walk + ed"`) —
+/// display only, never used for identity matching (see [`word_morpheme_keys`] for that).
+fn display_candidate(grammar: &Grammar, word: &Word) -> String {
+    let ids = word.morpheme_sequence();
+    if ids.is_empty() {
+        return "(no morphemes)".to_string();
+    }
+    ids.iter()
+        .map(|m| {
+            if *m == MorphemeId::GUESSED {
+                "?".to_string()
+            } else {
+                grammar
+                    .morphemes
+                    .get(m.0 as usize)
+                    .map(|info| info.morph_id.clone().unwrap_or_else(|| info.xml_key.clone()))
+                    .unwrap_or_else(|| format!("morpheme#{}", m.0))
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" + ")
+}
+
+/// Where a HermitCrab trace node's failure lives, as a [`ConstructRef`]. Rule/stratum/template
+/// sources are always `compilerAssigned` (ADR 0001 — dense ordinals, not source IDs). Leaf-level
+/// nodes (`Failed`/`Blocked`) carry no rule source at all; when the candidate's root allomorph
+/// resolves to a real lexical entry, that IS a stable FieldWorks identity and the more useful
+/// reference, so it is used instead — marked `sourceId`, honestly, since it really is one.
+fn narrative_construct_ref(
+    grammar: &Grammar,
+    source: TraceSource,
+    word: Option<&Word>,
+) -> ConstructRef {
+    match source {
+        TraceSource::MorphRule(id) => ConstructRef::compiler_assigned(
+            "morphologicalRule",
+            id.0 as usize,
+            Some(hermitcrab_mrule_name(grammar, id)),
+        ),
+        TraceSource::PhonRule(id) => ConstructRef::compiler_assigned(
+            "phonologicalRule",
+            id.0 as usize,
+            Some(hermitcrab_prule_name(grammar, id)),
+        ),
+        TraceSource::Stratum(id) => ConstructRef::compiler_assigned(
+            "stratum",
+            id.0 as usize,
+            Some(hermitcrab_stratum_name(grammar, id)),
+        ),
+        TraceSource::Template(id) => ConstructRef::compiler_assigned(
+            "template",
+            id.0 as usize,
+            Some(hermitcrab_template_name(grammar, id)),
+        ),
+        TraceSource::Language | TraceSource::None => {
+            match word.and_then(|w| lexical_entry_ref(grammar, w)) {
+                Some(entry_ref) => entry_ref,
+                None => {
+                    let stratum = word.map(|w| w.stratum.0).unwrap_or(0);
+                    ConstructRef::compiler_assigned("stratum", stratum as usize, None)
+                }
+            }
+        }
+    }
+}
+
+fn lexical_entry_ref(grammar: &Grammar, word: &Word) -> Option<ConstructRef> {
+    let allo = word.root_allomorph?;
+    if allo == pg_grammar::model::AllomorphId::GUESSED {
+        return None;
+    }
+    match grammar.allomorph_owners.get(allo.0 as usize)? {
+        AllomorphOwner::Root(entry_id, _) => {
+            let entry = grammar.entries.get(entry_id.0 as usize)?;
+            Some(ConstructRef::source(
+                "lexicalEntry",
+                entry.authored_id.clone(),
+                None,
+            ))
+        }
+        AllomorphOwner::Affix(_, _) => None,
+    }
+}
+
+fn hermitcrab_mrule_name(g: &Grammar, id: pg_grammar::model::MRuleId) -> String {
+    let idx = id.0 as usize;
+    let Some(rule) = g.mrules.get(idx) else {
+        return format!("mrule#{idx}");
+    };
+    let name = match rule {
+        pg_grammar::model::MorphRuleDef::AffixProcess(d) => d.name.as_deref(),
+        pg_grammar::model::MorphRuleDef::Realizational(d) => d.name.as_deref(),
+        pg_grammar::model::MorphRuleDef::Compounding(d) => d.name.as_deref(),
+    };
+    name.map(str::to_string)
+        .unwrap_or_else(|| format!("mrule#{idx}"))
+}
+
+fn hermitcrab_prule_name(g: &Grammar, id: pg_grammar::model::PRuleId) -> String {
+    let idx = id.0 as usize;
+    let Some(rule) = g.prules.get(idx) else {
+        return format!("prule#{idx}");
+    };
+    let name = match rule {
+        pg_grammar::model::PhonRuleDef::Rewrite(d) => d.name.as_deref(),
+        pg_grammar::model::PhonRuleDef::Metathesis(d) => d.name.as_deref(),
+    };
+    name.map(str::to_string)
+        .unwrap_or_else(|| format!("prule#{idx}"))
+}
+
+fn hermitcrab_stratum_name(g: &Grammar, id: pg_grammar::model::StratumId) -> String {
+    g.strata
+        .get(id.0 as usize)
+        .and_then(|s| s.name.clone())
+        .unwrap_or_else(|| format!("stratum#{}", id.0))
+}
+
+fn hermitcrab_template_name(g: &Grammar, id: pg_grammar::model::TemplateId) -> String {
+    g.templates
+        .get(id.0 as usize)
+        .and_then(|t| t.name.clone())
+        .unwrap_or_else(|| format!("template#{}", id.0))
 }
 
 #[cfg(test)]
@@ -809,5 +1183,304 @@ mod tests {
         assert!(stamp.ends_with('Z'));
         assert_eq!(&stamp[4..5], "-");
         assert_eq!(&stamp[10..11], "T");
+    }
+
+    // ----------------------------------------------------------------------------------------
+    // 6.4: dual-pipeline cause attribution
+    // ----------------------------------------------------------------------------------------
+
+    fn id(morpheme: &str) -> AnalysisIdentity {
+        AnalysisIdentity {
+            morphemes: vec![Some(morpheme.to_string())],
+            root_index: 0,
+            category: None,
+        }
+    }
+
+    #[test]
+    fn attribute_causes_flags_a_recall_gap_when_only_hermitcrab_produces_it() {
+        let asked_about = vec![id("gap")];
+        let hc_identities = vec![id("gap")];
+        let foma_identities: Vec<AnalysisIdentity> = Vec::new();
+        let causes = attribute_causes(&asked_about, &hc_identities, &[], Some(&foma_identities));
+        assert_eq!(causes, vec![(id("gap"), MissingAnalysisCause::ProposerRecallGap)]);
+    }
+
+    #[test]
+    fn attribute_causes_flags_hermitcrab_rejection_when_the_trace_shows_it() {
+        let asked_about = vec![id("rejected")];
+        let hc_identities: Vec<AnalysisIdentity> = Vec::new();
+        let foma_identities: Vec<AnalysisIdentity> = Vec::new();
+        let hc_failures = vec![HermitcrabFailure {
+            step: NarrativeStep {
+                candidate: "rejected".into(),
+                at: ConstructRef::compiler_assigned("stratum", 0, None),
+                failure_reason: "SurfaceFormMismatch".into(),
+                detail: "test evidence".into(),
+            },
+            candidate_morphemes: vec![Some("rejected".to_string())],
+        }];
+        let causes = attribute_causes(&asked_about, &hc_identities, &hc_failures, Some(&foma_identities));
+        assert_eq!(
+            causes,
+            vec![(id("rejected"), MissingAnalysisCause::HermitcrabRejected)]
+        );
+    }
+
+    #[test]
+    fn attribute_causes_prefers_neither_pipeline_produces_without_trace_evidence() {
+        // 6.4's explicit instruction: when the evidence cannot distinguish a genuine rejection from
+        // no attempt at all, prefer the weaker claim rather than asserting a rejection unobserved.
+        let asked_about = vec![id("absent")];
+        let causes = attribute_causes(&asked_about, &[], &[], Some(&[]));
+        assert_eq!(
+            causes,
+            vec![(id("absent"), MissingAnalysisCause::NeitherPipelineProduces)]
+        );
+    }
+
+    #[test]
+    fn attribute_causes_stays_undetermined_when_foma_is_unavailable() {
+        // No grammar / an unavailable pipeline must never be guessed into a cause (6.4's third
+        // bullet) -- even though HermitCrab alone produced this identity.
+        let asked_about = vec![id("x")];
+        let causes = attribute_causes(&asked_about, &[id("x")], &[], None);
+        assert_eq!(causes, vec![(id("x"), MissingAnalysisCause::Undetermined)]);
+    }
+
+    /// The 6.4 gate: a synthetic proposer recall gap is attributed to the proposer, not the
+    /// grammar.
+    ///
+    /// GENUINE, not simulated: both pipelines below are the real, unstubbed engines running against
+    /// a real compiled grammar -- nothing here is mocked or hand-fed a fabricated result. The
+    /// fixture reuses `pg-parse/tests/guesser_gate.rs`'s exact grammar (itself a port of C#'s
+    /// `MorpherTests.AnalyzeWord_CanGuess_ReturnsCorrectAnalysis`): its only lexical entry is a
+    /// guess PATTERN (`[Any]*`, `RootAllomorphDef::is_pattern = true`), which P11 chunk 1/2
+    /// excludes from both the real-lexicon trie AND (by the same is-pattern exclusion, since the
+    /// lexc/FST emitter walks the same real, non-pattern lexical entries) the compiled foma
+    /// network. So for the surface word "gag": HermitCrab's guess branch (`ParseOptions::
+    /// with_guess_root(true)`, exercised only when the normal lexical search returns nothing)
+    /// fabricates a root and returns exactly one analysis; `FomaAnalyzer` — built from the very
+    /// same grammar, with no guess capability of any kind — has structurally nothing to propose.
+    /// This is precisely the shape 6.4's own scenario names: "HermitCrab alone produces an
+    /// analysis that foma-confirm did not."
+    ///
+    /// (A hand-built two-rule chained-reduplication grammar was tried first, on the theory that
+    /// `pg-foma`'s `peel` module doc calls depth>=2 nested reduplication "genuinely unproven"
+    /// against the FST proposer. Empirically it was NOT a gap: `FomaAnalyzer` recovered the exact
+    /// same doubly-reduplicated analysis HermitCrab did. That construct is not used here.)
+    #[test]
+    fn a_synthetic_proposer_recall_gap_is_attributed_to_the_proposer_not_the_grammar() {
+        const XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+<HermitCrabInput>
+  <Language>
+    <Name>AnalyzeWordCanGuess</Name>
+    <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cG"><Representations><Representation>g</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cD"><Representations><Representation>d</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+      <BoundaryDefinitions>
+        <BoundaryDefinition id="cPlus"><Representations><Representation>+</Representation></Representations></BoundaryDefinition>
+      </BoundaryDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum characterDefinitionTable="t1" morphologicalRules="mrEd">
+        <Name>Morphophonemic</Name>
+        <MorphologicalRuleDefinitions>
+          <MorphologicalRule id="mrEd" requiredPartsOfSpeech="posV">
+            <Name>ed_suffix</Name>
+            <MorphemeId>PAST</MorphemeId>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subEd">
+                <MorphologicalInput>
+                  <PhoneticSequence id="stem">
+                    <OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence>
+                  </PhoneticSequence>
+                </MorphologicalInput>
+                <MorphologicalOutput>
+                  <CopyFromInput index="stem" />
+                  <InsertSegments><PhoneticShape>+d</PhoneticShape></InsertSegments>
+                </MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <LexicalEntries>
+          <LexicalEntry id="ePattern">
+            <Allomorphs><Allomorph id="aPattern"><PhoneticShape>[Any]*</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>pattern</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>
+"#;
+        let g = pg_grammar::load(XML).unwrap_or_else(|e| panic!("recall-gap fixture: {e}"));
+        assert!(
+            g.entries[0].allomorphs[0].is_pattern,
+            "precondition: the only lexical entry is a guess pattern, not a real root"
+        );
+
+        // HermitCrab, guess ON: fabricates a root for "gag" because the normal (real-lexicon)
+        // search returns nothing.
+        let morpher = Morpher::new(&g, usize::MAX);
+        let hc_outcome =
+            morpher.parse_word_opts("gag", &ParseOptions::default().with_guess_root(true));
+        assert!(
+            hc_outcome.guessed,
+            "precondition: the guess branch must fire for \"gag\""
+        );
+        let hc_identities = project_identities(&hc_outcome.structured, &g)
+            .expect("a guessed analysis must still project to an identity");
+        assert_eq!(hc_identities.len(), 1, "exactly one guessed analysis for \"gag\"");
+
+        // foma-confirm, the real (unstubbed) FST proposer: nothing to propose for a word only the
+        // guesser matches.
+        let mut analyzer = FomaAnalyzer::new(&g).expect("this trivial grammar must compile");
+        let budget = ApplyBudget::with_caps(None, None);
+        let foma_identities = match analyzer.analyze_word_budgeted("gag", &budget) {
+            FomaApplyOutcome::Complete(outcome) => {
+                assert!(
+                    outcome.structured.is_empty(),
+                    "foma-confirm must not propose a guessed root: {:?}",
+                    outcome.structured
+                );
+                Vec::new()
+            }
+            FomaApplyOutcome::Incomplete { dimension, value, limit } => panic!(
+                "this trivial grammar must not hit any budget: {dimension:?} {value}/{limit}"
+            ),
+        };
+
+        // The gate: HermitCrab produced this identity, foma-confirm did not -- attribute it to the
+        // proposer, never to the grammar.
+        let causes = attribute_causes(&hc_identities, &hc_identities, &[], Some(&foma_identities));
+        assert_eq!(causes.len(), 1);
+        assert_eq!(
+            causes[0].1,
+            MissingAnalysisCause::ProposerRecallGap,
+            "a synthetic proposer recall gap must be attributed to the proposer, not the grammar"
+        );
+    }
+
+    // ----------------------------------------------------------------------------------------
+    // 6.5: the pruned failure narrative, for one real word
+    // ----------------------------------------------------------------------------------------
+
+    /// Same grammar as `pg-cli/src/trace_render.rs`'s own golden-trace test (one `posV` root
+    /// "sag", one suffix rule appending "+d"), reproduced here rather than shared (that helper is
+    /// private to that module) — see this crate's `trace_render::tests::golden_grammar` for the
+    /// twin copy and the full, checked-in trace tree this test's expectations are read off of.
+    fn narrative_golden_grammar() -> Grammar {
+        const XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+<HermitCrabInput>
+  <Language>
+    <Name>Golden</Name>
+    <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
+    <HeadFeatures />
+    <MorphologicalPhonologicalRuleFeatures>
+      <MorphologicalPhonologicalRuleFeature id="mprA">Alpha</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeatureGroup features="mprA"><Name>G</Name></MorphologicalPhonologicalRuleFeatureGroup>
+    </MorphologicalPhonologicalRuleFeatures>
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cS"><Representations><Representation>s</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cG"><Representations><Representation>g</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cD"><Representations><Representation>d</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+      <BoundaryDefinitions>
+        <BoundaryDefinition id="cPlus"><Representations><Representation>+</Representation></Representations></BoundaryDefinition>
+      </BoundaryDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <SegmentNaturalClass id="ncAny"><Name>Any</Name><Segment segment="cS" /><Segment segment="cA" /><Segment segment="cG" /><Segment segment="cD" /></SegmentNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" morphologicalRules="mrEd">
+        <Name>S</Name>
+        <MorphologicalRuleDefinitions>
+          <MorphologicalRule id="mrEd" requiredPartsOfSpeech="posV"><Name>ed_suffix</Name><MorphemeId>PAST</MorphemeId>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subEd">
+                <MorphologicalInput><PhoneticSequence id="1"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="1" /><InsertSegments><PhoneticShape>+d</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <LexicalEntries>
+          <LexicalEntry id="e32" partOfSpeech="posV"><MorphemeId>32</MorphemeId>
+            <Allomorphs><Allomorph id="a32"><PhoneticShape>sag</PhoneticShape></Allomorph></Allomorphs>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>
+"#;
+        pg_grammar::load(XML).unwrap_or_else(|e| panic!("narrative golden grammar failed to load: {e}"))
+    }
+
+    /// A concrete example of what the pruned narrative looks like for one real word: "sagd" against
+    /// `narrative_golden_grammar()` genuinely has a would-be duplicate synthesis candidate that
+    /// gets rejected twice on its way to the one surviving analysis (see `trace_render::tests::
+    /// text_render_matches_golden_string`'s full checked-in trace, whose tail is exactly these two
+    /// nodes) -- this test pins that `collect_hermitcrab_failures` prunes the tree down to exactly
+    /// those two failing nodes, in order, with the right `ConstructRef` for each.
+    #[test]
+    fn the_pruned_narrative_for_a_real_word_shows_where_and_why_a_candidate_died() {
+        let g = narrative_golden_grammar();
+        let morpher = Morpher::new(&g, usize::MAX);
+        let (_identities, failures) =
+            run_hermitcrab_pipeline(&g, "sagd").expect("\"sagd\" must parse");
+        // Sanity: the grammar still confirms "sagd" via the one surviving analysis, exactly as
+        // `trace_render`'s own golden test asserts -- this test is about the REJECTED candidates
+        // alongside it, not about it losing that analysis.
+        let outcome = morpher.parse_word("sagd");
+        assert!(!outcome.structured.is_empty());
+
+        let narrative: Vec<NarrativeStep> = failures.iter().map(|f| f.step.clone()).collect();
+        assert_eq!(
+            narrative.len(),
+            2,
+            "the tree has exactly two FailureReason-carrying nodes for this word: {narrative:?}"
+        );
+
+        // Step 1: the duplicate synthesis attempt rejected for reapplying `ed_suffix` after the
+        // stratum's own (template-less) final template -- `at` is the rule itself, compiler-
+        // assigned, never dressed as a source id.
+        assert_eq!(narrative[0].failure_reason, "NonPartialRuleProhibitedAfterFinalTemplate");
+        assert_eq!(narrative[0].at.kind, "morphologicalRule");
+        assert_eq!(
+            narrative[0].at.id_kind,
+            pg_assess::SourceIdKind::CompilerAssigned
+        );
+        assert_eq!(narrative[0].at.label.as_deref(), Some("ed_suffix"));
+
+        // Step 2: the residual root candidate itself failing the stratum's obligatory-rule check.
+        // `at` here has no rule source at all (a leaf `Failed` node) -- the candidate's root
+        // resolves to a REAL lexical entry, so `at` names it directly as a source id (ADR 0001),
+        // not a compiler-assigned stratum fallback.
+        assert_eq!(narrative[1].failure_reason, "PartialParse");
+        assert_eq!(narrative[1].at.kind, "lexicalEntry");
+        assert_eq!(narrative[1].at.id, "e32");
+        assert_eq!(narrative[1].at.id_kind, pg_assess::SourceIdKind::SourceId);
+
+        // Neither step's candidate/detail text prescribes anything -- it states what HermitCrab
+        // did, not what a linguist should change.
+        for step in &narrative {
+            assert!(!step.detail.to_lowercase().contains("should"));
+            assert!(!step.detail.to_lowercase().contains("fix"));
+        }
     }
 }

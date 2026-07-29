@@ -471,11 +471,17 @@ impl ApplyBudget {
         }
     }
 
-    pub(crate) fn path_cap(&self) -> Option<usize> {
+    /// The effective decoded-path cap, or `None` for unbounded.
+    ///
+    /// Public because an assessment report records the envelope that was actually in force, and
+    /// reading it off the budget is the only way to record one that arrived from the environment
+    /// rather than from a command-line flag.
+    pub fn path_cap(&self) -> Option<usize> {
         self.path_cap
     }
 
-    pub(crate) fn candidate_cap(&self) -> Option<usize> {
+    /// The effective distinct-candidate cap, or `None` for unbounded.
+    pub fn candidate_cap(&self) -> Option<usize> {
         self.candidate_cap
     }
 }

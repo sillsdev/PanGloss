@@ -246,7 +246,10 @@ fn extract_compound_rule(ctx: &mut Ctx, guid: &str) -> Option<CompoundRule> {
             })
         }
         other => {
-            ctx.warn(format!("{label}: {guid} has unexpected class {other}"));
+            ctx.warn(
+                super::codes::UNEXPECTED_CLASS,
+                format!("{label}: {guid} has unexpected class {other}"),
+            );
             None
         }
     }
@@ -307,10 +310,13 @@ fn extract_adhoc_prohibition(ctx: &mut Ctx, guid: &str) -> Option<AdhocProhibiti
         Some(3) => Adjacency::AdjacentToLeft,
         Some(4) => Adjacency::AdjacentToRight,
         other => {
-            ctx.warn(format!(
-                "morphology.adhocProhibitions: {guid} has unexpected Adjacency {other:?}, \
-                 defaulting to anywhere"
-            ));
+            ctx.warn(
+                super::codes::UNRECOGNIZED_ENUM_VALUE,
+                format!(
+                    "morphology.adhocProhibitions: {guid} has unexpected Adjacency {other:?}, \
+                     defaulting to anywhere"
+                ),
+            );
             Adjacency::Anywhere
         }
     };
@@ -338,9 +344,10 @@ fn extract_adhoc_prohibition(ctx: &mut Ctx, guid: &str) -> Option<AdhocProhibiti
             })
         }
         other => {
-            ctx.warn(format!(
-                "morphology.adhocProhibitions: {guid} has unexpected class {other}"
-            ));
+            ctx.warn(
+                super::codes::UNEXPECTED_CLASS,
+                format!("morphology.adhocProhibitions: {guid} has unexpected class {other}"),
+            );
             None
         }
     }
@@ -404,11 +411,14 @@ pub fn check_stale_adhoc_morpheme_rules(ctx: &mut Ctx, morphology: &Morphology, 
         for msa_guid in std::iter::once(primary).chain(others.iter()) {
             if let Some(Msa::Inflectional { slots, .. }) = find_msa(msa_guid) {
                 if !slots.is_empty() && !slots.iter().any(|s| enabled_slots.contains(s.as_str())) {
-                    ctx.warn(format!(
-                        "morphology.adhocProhibitions: ad-hoc prohibition {guid} references \
-                         inflectional affix {msa_guid}, whose slot(s) are not part of any \
-                         enabled affix template (stale/unreachable rule)"
-                    ));
+                    ctx.warn(
+                        super::codes::STALE_ADHOC_PROHIBITION,
+                        format!(
+                            "morphology.adhocProhibitions: ad-hoc prohibition {guid} references \
+                             inflectional affix {msa_guid}, whose slot(s) are not part of any \
+                             enabled affix template (stale/unreachable rule)"
+                        ),
+                    );
                 }
             }
         }
@@ -538,7 +548,10 @@ fn walk_possibility_item(
     visit: &mut dyn FnMut(&mut Ctx, &Record),
 ) {
     let Some(rec) = ctx.get(guid) else {
-        ctx.warn(format!("{label}: dangling possibility-list item {guid}"));
+        ctx.warn(
+            super::codes::DANGLING_REFERENCE,
+            format!("{label}: dangling possibility-list item {guid}"),
+        );
         return;
     };
     visit(ctx, rec);

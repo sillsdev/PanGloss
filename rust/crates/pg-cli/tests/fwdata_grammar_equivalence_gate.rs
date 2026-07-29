@@ -141,12 +141,14 @@ fn import_and_compile(fwdata_path: &Path) -> Grammar {
     let validate_warnings = snapshot.validate();
     let (grammar, compile_warnings) =
         pg_grammar::compile_project(&snapshot).expect("compile_project must succeed");
-    for w in report
-        .warnings
-        .iter()
-        .chain(&validate_warnings)
-        .chain(&compile_warnings)
-    {
+    // `report.warnings`/`validate_warnings` are `pg_snapshot::Warning`; `compile_warnings` is
+    // still plain `String` -- print each list separately rather than through one `.chain()`
+    // (they no longer share an iterator `Item` type; this loop only ever printed them, never
+    // asserted on the combined sequence).
+    for w in report.warnings.iter().chain(&validate_warnings) {
+        eprintln!("  (new pipeline) {w}");
+    }
+    for w in &compile_warnings {
         eprintln!("  (new pipeline) {w}");
     }
     grammar

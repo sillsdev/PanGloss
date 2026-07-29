@@ -48,10 +48,13 @@ pub fn extract_phonology(
 fn extract_phoneme_set(ctx: &mut Ctx, phon_data: &Record) -> (Vec<Phoneme>, Vec<BoundaryMarker>) {
     let set_guids = phon_data.node.objsur_list("PhonemeSets");
     if set_guids.len() > 1 {
-        ctx.warn(format!(
-            "phonology: {} phoneme sets present; only the first is used (matches HCLoader)",
-            set_guids.len()
-        ));
+        ctx.warn(
+            super::codes::ONLY_FIRST_USED,
+            format!(
+                "phonology: {} phoneme sets present; only the first is used (matches HCLoader)",
+                set_guids.len()
+            ),
+        );
     }
     let Some(set_guid) = set_guids.first() else {
         return (Vec::new(), Vec::new());
@@ -80,10 +83,13 @@ fn extract_phoneme(ctx: &mut Ctx, guid: &str) -> Option<Phoneme> {
     let name = ctx.best_analysis(&rec.node.ws_forms("Name"));
     let representations = code_representations(ctx, rec, "phonology.phonemes");
     if representations.is_empty() {
-        ctx.warn(format!(
-            "phonology.phonemes: phoneme {guid} ({name:?}) has no representations after \
-             dotted-circle stripping"
-        ));
+        ctx.warn(
+            super::codes::EMPTY_REPRESENTATION,
+            format!(
+                "phonology.phonemes: phoneme {guid} ({name:?}) has no representations after \
+                 dotted-circle stripping"
+            ),
+        );
     }
     let features = rec
         .node
@@ -114,7 +120,10 @@ fn code_representations(ctx: &mut Ctx, rec: &Record, label: &str) -> Vec<pg_snap
     let mut out = Vec::new();
     for code_guid in rec.node.objsur_list("Codes") {
         let Some(code) = ctx.get(&code_guid) else {
-            ctx.warn(format!("{label}: dangling PhCode reference {code_guid}"));
+            ctx.warn(
+                super::codes::DANGLING_REFERENCE,
+                format!("{label}: dangling PhCode reference {code_guid}"),
+            );
             continue;
         };
         for form in code.node.ws_forms("Representation") {
@@ -195,9 +204,10 @@ fn extract_natural_class(ctx: &mut Ctx, guid: &str) -> Option<NaturalClass> {
             })
         }
         other => {
-            ctx.warn(format!(
-                "phonology.naturalClasses: {guid} has unexpected class {other}"
-            ));
+            ctx.warn(
+                super::codes::UNEXPECTED_CLASS,
+                format!("phonology.naturalClasses: {guid} has unexpected class {other}"),
+            );
             None
         }
     }
@@ -256,9 +266,10 @@ fn extract_rules(ctx: &mut Ctx, phon_data: &Record) -> Vec<PhonologicalRule> {
                     extract_metathesis_rule(ctx, rec).map(PhonologicalRule::Metathesis)
                 }
                 other => {
-                    ctx.warn(format!(
-                        "phonology.rules: {guid} has unexpected class {other}"
-                    ));
+                    ctx.warn(
+                        super::codes::UNEXPECTED_CLASS,
+                        format!("phonology.rules: {guid} has unexpected class {other}"),
+                    );
                     None
                 }
             }
@@ -272,10 +283,13 @@ fn rule_direction(rec: &Record, ctx: &mut Ctx, label: &str) -> RuleDirection {
         Some(1) => RuleDirection::RightToLeft,
         Some(2) => RuleDirection::Simultaneous,
         other => {
-            ctx.warn(format!(
-                "{label}: unexpected Direction {other:?} on rule {}, defaulting to leftToRight",
-                rec.guid
-            ));
+            ctx.warn(
+                super::codes::UNRECOGNIZED_ENUM_VALUE,
+                format!(
+                    "{label}: unexpected Direction {other:?} on rule {}, defaulting to leftToRight",
+                    rec.guid
+                ),
+            );
             RuleDirection::LeftToRight
         }
     }
@@ -394,9 +408,10 @@ fn resolve_rule_features(ctx: &mut Ctx, rec: &Record, field: &str, label: &str) 
             let wrapper = ctx.require(&wrapper_guid, "PhPhonRuleFeat", label)?;
             let item = wrapper.node.objsur_one("Item");
             if item.is_none() {
-                ctx.warn(format!(
-                    "{label}: PhPhonRuleFeat {wrapper_guid} has no Item reference"
-                ));
+                ctx.warn(
+                    super::codes::MISSING_REQUIRED_FIELD,
+                    format!("{label}: PhPhonRuleFeat {wrapper_guid} has no Item reference"),
+                );
             }
             item
         })
@@ -440,13 +455,16 @@ fn extract_metathesis_rule(ctx: &mut Ctx, rec: &Record) -> Option<MetathesisRule
         .filter_map(|tok| tok.parse::<usize>().ok())
         .collect();
     if permutation.len() != structural_description.len() {
-        ctx.warn(format!(
-            "{label}: rule {} StrucChange {:?} does not enumerate all {} structural-description \
-             positions; switch indices may be wrong",
-            rec.guid,
-            struc_change_text,
-            structural_description.len()
-        ));
+        ctx.warn(
+            super::codes::METATHESIS_APPROXIMATION,
+            format!(
+                "{label}: rule {} StrucChange {:?} does not enumerate all {} structural-description \
+                 positions; switch indices may be wrong",
+                rec.guid,
+                struc_change_text,
+                structural_description.len()
+            ),
+        );
     }
     let differing: Vec<usize> = permutation
         .iter()
@@ -455,11 +473,14 @@ fn extract_metathesis_rule(ctx: &mut Ctx, rec: &Record) -> Option<MetathesisRule
         .map(|(i, _)| i)
         .collect();
     if !differing.is_empty() && differing.len() != 2 {
-        ctx.warn(format!(
-            "{label}: rule {} has a StrucChange permutation more complex than a simple two-part \
-             swap ({:?}); left/right switch indices are an approximation",
-            rec.guid, struc_change_text
-        ));
+        ctx.warn(
+            super::codes::METATHESIS_APPROXIMATION,
+            format!(
+                "{label}: rule {} has a StrucChange permutation more complex than a simple two-part \
+                 swap ({:?}); left/right switch indices are an approximation",
+                rec.guid, struc_change_text
+            ),
+        );
     }
     let left_switch_index = differing.first().copied().unwrap_or(0) as i32;
     let right_switch_index = differing.last().copied().unwrap_or(0) as i32;
@@ -531,9 +552,10 @@ pub(crate) fn resolve_phon_context(ctx: &mut Ctx, guid: &str, label: &str) -> Op
         }
         "PhVariable" => Some(PhonContext::Variable),
         other => {
-            ctx.warn(format!(
-                "{label}: {guid} has unexpected PhContextOrVar class {other}"
-            ));
+            ctx.warn(
+                super::codes::UNEXPECTED_CLASS,
+                format!("{label}: {guid} has unexpected PhContextOrVar class {other}"),
+            );
             None
         }
     }

@@ -25,7 +25,9 @@ mod morphology;
 mod phonology;
 mod project;
 
-use pg_snapshot::Snapshot;
+pub(crate) mod codes;
+
+use pg_snapshot::{Snapshot, Warning};
 
 use crate::xml::{RawGraph, Record};
 
@@ -34,7 +36,7 @@ use crate::xml::{RawGraph, Record};
 /// only become known once the `project` section has been read.
 pub struct Ctx<'a> {
     pub graph: &'a RawGraph,
-    pub warnings: Vec<String>,
+    pub warnings: Vec<Warning>,
     /// Analysis writing systems, default first — `project.analysisWritingSystems`.
     pub analysis_ws: Vec<String>,
     /// Vernacular writing systems, default first — `project.vernacularWritingSystems`.
@@ -51,8 +53,11 @@ impl<'a> Ctx<'a> {
         }
     }
 
-    pub fn warn(&mut self, msg: impl Into<String>) {
-        self.warnings.push(msg.into());
+    /// Record a warning: `code` is a stable short identifier naming the situation (see the
+    /// [`codes`] module for the full list and what each one means); `msg` is the existing
+    /// human-readable prose, unchanged by this pairing.
+    pub fn warn(&mut self, code: &'static str, msg: impl Into<String>) {
+        self.warnings.push(Warning::new(code, msg));
     }
 
     pub fn get(&self, guid: &str) -> Option<&'a Record> {
@@ -65,16 +70,17 @@ impl<'a> Ctx<'a> {
         match self.get(guid) {
             Some(r) if r.class == want_class => Some(r),
             Some(r) => {
-                self.warn(format!(
-                    "{context}: expected {want_class} but {guid} is {}",
-                    r.class
-                ));
+                self.warn(
+                    codes::UNEXPECTED_CLASS,
+                    format!("{context}: expected {want_class} but {guid} is {}", r.class),
+                );
                 None
             }
             None => {
-                self.warn(format!(
-                    "{context}: dangling reference to {want_class} {guid}"
-                ));
+                self.warn(
+                    codes::DANGLING_REFERENCE,
+                    format!("{context}: dangling reference to {want_class} {guid}"),
+                );
                 None
             }
         }
@@ -108,7 +114,7 @@ fn best_alt(forms: &[pg_snapshot::WsForm], priority: &[String]) -> String {
 /// file's stem (e.g. `"Sena 3"`), used as `project.name` — FieldWorks derives
 /// `LcmCache.ProjectId.Name` from the project folder/file name, not from anything stored inside
 /// the XML (`HCLoader.LoadLanguage`, HCLoader.cs:166).
-pub fn extract(graph: &RawGraph, filename_stem: &str) -> (Snapshot, Vec<String>) {
+pub fn extract(graph: &RawGraph, filename_stem: &str) -> (Snapshot, Vec<Warning>) {
     let mut ctx = Ctx::new(graph);
 
     let lang_project = project::find_lang_project(&mut ctx);

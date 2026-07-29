@@ -50,6 +50,7 @@ pub mod morphology;
 pub mod phonology;
 pub mod project;
 pub mod validate;
+mod warning;
 
 pub use common::{Guid, WsForm};
 pub use feature::{
@@ -67,6 +68,7 @@ pub use phonology::{
     Phoneme, PhonologicalRule, Phonology, RewriteRhs, RewriteRule, RuleDirection,
 };
 pub use project::Project;
+pub use warning::Warning;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -158,10 +160,10 @@ impl Snapshot {
     }
 
     /// Light structural validation: GUID cross-references that don't resolve within this same
-    /// snapshot, reported as human-readable warning strings. Never fails/panics; an empty
-    /// `Vec` means nothing suspicious was found (not that the snapshot is semantically
-    /// complete — see the [`validate`] module doc for scope).
-    pub fn validate(&self) -> Vec<String> {
+    /// snapshot, reported as [`Warning`]s (a stable short code alongside human-readable prose).
+    /// Never fails/panics; an empty `Vec` means nothing suspicious was found (not that the
+    /// snapshot is semantically complete — see the [`validate`] module doc for scope).
+    pub fn validate(&self) -> Vec<Warning> {
         validate::validate(self)
     }
 }
@@ -445,5 +447,92 @@ mod tests {
         let warnings = snap.validate();
         assert!(warnings.iter().any(|w| w.contains("does-not-exist")));
         assert!(warnings.iter().any(|w| w.contains("also-missing")));
+    }
+
+    // --- warning codes (add-grammar-assessment task 3.8) ------------------------------------
+
+    #[test]
+    fn validate_dangling_reference_carries_the_expected_code() {
+        let mut snap = sample_snapshot();
+        snap.lexicon.entries[0]
+            .allomorphs[0]
+            .environments
+            .push("dangling-env-guid".to_string());
+        let warnings = snap.validate();
+        let hit = warnings
+            .iter()
+            .find(|w| w.contains("dangling-env-guid"))
+            .expect("the dangling-environment warning must be present");
+        assert_eq!(hit.code, "snapshot.dangling-reference");
+    }
+
+    /// Two structurally different situations -- a plain dangling cross-reference vs. a sense's
+    /// MSA reference that resolves fine globally but not within its own owning entry -- must get
+    /// different codes (task 3.8 requirement (b)).
+    #[test]
+    fn validate_out_of_scope_reference_gets_a_different_code_than_dangling_reference() {
+        let mut snap = sample_snapshot();
+        snap.lexicon.entries[0].senses[0].msa =
+            Some("00000000-0000-0000-0000-000000000000".to_string());
+        snap.lexicon.entries[0]
+            .allomorphs[0]
+            .environments
+            .push("dangling-env-guid".to_string());
+        let warnings = snap.validate();
+        let scope_warning = warnings
+            .iter()
+            .find(|w| w.contains("does not resolve within this entry"))
+            .expect("the out-of-scope sense/msa warning must be present");
+        let dangling_warning = warnings
+            .iter()
+            .find(|w| w.contains("dangling-env-guid"))
+            .expect("the dangling-environment warning must be present");
+        assert_ne!(scope_warning.code, dangling_warning.code);
+        assert_eq!(scope_warning.code, "snapshot.reference-out-of-scope");
+        assert_eq!(dangling_warning.code, "snapshot.dangling-reference");
+    }
+
+    /// The same check, fired with two different dangling guids (so the interpolated `message`
+    /// text necessarily differs), must still produce the identical `code` both times -- the code
+    /// depends on which situation was detected, never on the specific text of the message (task
+    /// 3.8 requirement (a)).
+    #[test]
+    fn validate_dangling_reference_code_is_stable_regardless_of_message_text() {
+        let mut snap_a = sample_snapshot();
+        snap_a.lexicon.entries[0]
+            .allomorphs[0]
+            .environments
+            .push("guid-aaa".to_string());
+        let mut snap_b = sample_snapshot();
+        snap_b.lexicon.entries[0]
+            .allomorphs[0]
+            .environments
+            .push("guid-bbb".to_string());
+
+        let warnings_a = snap_a.validate();
+        let warnings_b = snap_b.validate();
+        assert_eq!(warnings_a.len(), 1);
+        assert_eq!(warnings_b.len(), 1);
+        assert_ne!(warnings_a[0].message, warnings_b[0].message);
+        assert_eq!(warnings_a[0].code, warnings_b[0].code);
+    }
+
+    /// Existing prose is unchanged by this task -- same wording
+    /// `validate_reports_dangling_sense_msa_reference_as_warning_not_error` already asserted a
+    /// substring of before codes existed, now pinned exactly.
+    #[test]
+    fn validate_warning_prose_is_unchanged_at_representative_sites() {
+        let mut snap = sample_snapshot();
+        let entry_guid = snap.lexicon.entries[0].guid.clone();
+        let sense_guid = snap.lexicon.entries[0].senses[0].guid.clone();
+        let dangling_msa = "00000000-0000-0000-0000-000000000000".to_string();
+        snap.lexicon.entries[0].senses[0].msa = Some(dangling_msa.clone());
+        let warnings = snap.validate();
+        assert_eq!(warnings.len(), 1);
+        let expected = format!(
+            "lex entry {entry_guid:?} sense {sense_guid:?}: msa {dangling_msa:?} does not \
+             resolve within this entry"
+        );
+        assert_eq!(warnings[0].message, expected);
     }
 }

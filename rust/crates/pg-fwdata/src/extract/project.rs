@@ -13,7 +13,10 @@ use crate::xml::Record;
 pub fn find_lang_project<'a>(ctx: &mut Ctx<'a>) -> Option<&'a Record> {
     let rec = ctx.graph.by_class("LangProject").next();
     if rec.is_none() {
-        ctx.warn("no <rt class=\"LangProject\"> record found in this .fwdata file".to_string());
+        ctx.warn(
+            super::codes::MISSING_LANG_PROJECT,
+            "no <rt class=\"LangProject\"> record found in this .fwdata file".to_string(),
+        );
     }
     rec
 }

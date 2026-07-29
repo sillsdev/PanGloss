@@ -29,7 +29,10 @@ fn extract_entry(ctx: &mut Ctx, guid: &str) -> Option<LexEntry> {
     let citation_form = rec.node.ws_forms("CitationForm");
     let lexeme_form_guid = rec.node.objsur_one("LexemeForm");
     if lexeme_form_guid.is_none() {
-        ctx.warn(format!("lexicon.entries: entry {guid} has no LexemeForm"));
+        ctx.warn(
+            super::codes::MISSING_REQUIRED_FIELD,
+            format!("lexicon.entries: entry {guid} has no LexemeForm"),
+        );
     }
     // HCLoader.cs:263 — `AlternateFormsOS.Concat(LexemeFormOA)`: alternates first, lexeme form
     // last. This order is disjunctive-ordering-significant (see `Allomorph`'s doc), not merely
@@ -43,10 +46,13 @@ fn extract_entry(ctx: &mut Ctx, guid: &str) -> Option<LexEntry> {
     let lexeme_morph_type = match allomorphs.last() {
         Some(a) => a.morph_type,
         None => {
-            ctx.warn(format!(
-                "lexicon.entries: entry {guid} has no usable allomorphs; defaulting \
-                 lexemeMorphType to stem"
-            ));
+            ctx.warn(
+                super::codes::NO_USABLE_ALLOMORPHS,
+                format!(
+                    "lexicon.entries: entry {guid} has no usable allomorphs; defaulting \
+                     lexemeMorphType to stem"
+                ),
+            );
             pg_snapshot::MorphType::Stem
         }
     };
@@ -88,24 +94,34 @@ fn extract_entry(ctx: &mut Ctx, guid: &str) -> Option<LexEntry> {
 
 fn resolve_morph_type(ctx: &mut Ctx, rec: &Record, label: &str) -> Option<pg_snapshot::MorphType> {
     let Some(mt_guid) = rec.node.objsur_one("MorphType") else {
-        ctx.warn(format!("{label}: {} has no MorphType", rec.guid));
+        ctx.warn(
+            super::codes::MISSING_REQUIRED_FIELD,
+            format!("{label}: {} has no MorphType", rec.guid),
+        );
         return None;
     };
     match morphtype::lookup(&mt_guid) {
         MorphTypeLookup::Known(mt) => Some(mt),
         MorphTypeLookup::UnsupportedWellKnown(name) => {
-            ctx.warn(format!(
-                "{label}: {} has morph type {name:?} ({mt_guid}), which this format's MorphType \
-                 enum has no variant for (model gap — see morphtype module docs); skipping",
-                rec.guid
-            ));
+            ctx.warn(
+                super::codes::UNSUPPORTED_MORPH_TYPE,
+                format!(
+                    "{label}: {} has morph type {name:?} ({mt_guid}), which this format's \
+                     MorphType enum has no variant for (model gap — see morphtype module docs); \
+                     skipping",
+                    rec.guid
+                ),
+            );
             None
         }
         MorphTypeLookup::Unknown => {
-            ctx.warn(format!(
-                "{label}: {} has unrecognized morph-type guid {mt_guid}; skipping",
-                rec.guid
-            ));
+            ctx.warn(
+                super::codes::UNKNOWN_MORPH_TYPE_GUID,
+                format!(
+                    "{label}: {} has unrecognized morph-type guid {mt_guid}; skipping",
+                    rec.guid
+                ),
+            );
             None
         }
     }
@@ -118,10 +134,10 @@ fn extract_allomorph(ctx: &mut Ctx, guid: &str) -> Option<Allomorph> {
         rec.class.as_str(),
         "MoStemAllomorph" | "MoAffixAllomorph" | "MoAffixProcess"
     ) {
-        ctx.warn(format!(
-            "{label}: {guid} has unexpected class {}",
-            rec.class
-        ));
+        ctx.warn(
+            super::codes::UNEXPECTED_CLASS,
+            format!("{label}: {guid} has unexpected class {}", rec.class),
+        );
         return None;
     }
     let morph_type = resolve_morph_type(ctx, rec, label)?;
@@ -206,10 +222,13 @@ fn extract_rule_mapping(
         match input_guids.iter().position(|g| g == content_guid) {
             Some(i) => Some((i + 1) as u32),
             None => {
-                ctx.warn(format!(
-                    "{label}: {guid} references {content_guid}, which is not a member of this \
-                     affix process's Input list"
-                ));
+                ctx.warn(
+                    super::codes::REFERENCE_NOT_IN_SCOPE,
+                    format!(
+                        "{label}: {guid} references {content_guid}, which is not a member of \
+                         this affix process's Input list"
+                    ),
+                );
                 None
             }
         }
@@ -229,10 +248,13 @@ fn extract_rule_mapping(
             for term_guid in rec.node.objsur_list("Content") {
                 match first_code_representation(ctx, &term_guid) {
                     Some(s) => text.push_str(&s),
-                    None => ctx.warn(format!(
-                        "{label}: {guid} could not resolve a representation for terminal unit \
-                         {term_guid}"
-                    )),
+                    None => ctx.warn(
+                        super::codes::EMPTY_REPRESENTATION,
+                        format!(
+                            "{label}: {guid} could not resolve a representation for terminal \
+                             unit {term_guid}"
+                        ),
+                    ),
                 }
             }
             Some(RuleMapping::InsertSegments { text })
@@ -247,7 +269,10 @@ fn extract_rule_mapping(
             })
         }
         other => {
-            ctx.warn(format!("{label}: {guid} has unexpected class {other}"));
+            ctx.warn(
+                super::codes::UNEXPECTED_CLASS,
+                format!("{label}: {guid} has unexpected class {other}"),
+            );
             None
         }
     }
@@ -316,7 +341,10 @@ fn extract_msa(ctx: &mut Ctx, guid: &str) -> Option<Msa> {
             part_of_speech: rec.node.objsur_one("PartOfSpeech"),
         }),
         other => {
-            ctx.warn(format!("{label}: {guid} has unexpected class {other}"));
+            ctx.warn(
+                super::codes::UNEXPECTED_CLASS,
+                format!("{label}: {guid} has unexpected class {other}"),
+            );
             None
         }
     }

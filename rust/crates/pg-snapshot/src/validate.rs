@@ -3,9 +3,9 @@
 //! Real FieldWorks data contains stale references (`docs/fwdata-import-plan.md` §1's motivating
 //! example: a `MoMorphAdhocProhib` referencing a deleted morpheme, which crashes the legacy C#
 //! exporter). This importer's contract is to tolerate that — dangling GUID references are
-//! reported here as **warnings** (plain `String` messages), never as errors; [`crate::Snapshot::
-//! from_json`]/parsing always succeeds if the JSON itself is well-formed and correctly
-//! versioned.
+//! reported here as **warnings** ([`Warning`]s: a stable code alongside human-readable prose),
+//! never as errors; [`crate::Snapshot::from_json`]/parsing always succeeds if the JSON itself is
+//! well-formed and correctly versioned.
 //!
 //! This is intentionally a *light* check, not an exhaustive schema validator: it resolves the
 //! cross-reference families that are (a) structurally represented as GUIDs in this format and
@@ -14,6 +14,20 @@
 //! format has no canonical registry to check them against (e.g. `EntryRef.variantEntryTypes`,
 //! which may reference either a `LexEntryInflType` — checkable — or a plain `LexEntryType`
 //! possibility list item never enumerated as its own top-level snapshot section).
+//!
+//! # Warning codes (`add-grammar-assessment` task 3.8)
+//!
+//! Every warning below carries a stable short code alongside its prose. The overwhelming
+//! majority of this module's checks are the *same* situation applied to a different reference
+//! kind — "a GUID cross-reference does not resolve to any definition of the expected kind in this
+//! snapshot" — so they intentionally share one code, [`DANGLING_REFERENCE`]. Three call sites are
+//! genuinely different situations and get their own code: [`FEATURE_STRUCTURE_UNRESOLVED`]
+//! (`check_feature_structure`'s recursive closed/complex-feature-or-value resolution, which is
+//! more involved than a single flat registry lookup), [`RULE_FEATURE_UNRESOLVED`]
+//! (`check_rule_feature_ref`'s reference is documented as legitimately resolving against *either*
+//! of two different registries), and [`REFERENCE_OUT_OF_SCOPE`] (a sense's MSA reference that
+//! resolves fine as *some* MSA in the snapshot, just not one owned by its own entry — not a
+//! dangling reference at all).
 
 use std::collections::HashSet;
 
@@ -22,7 +36,19 @@ use crate::feature::{FeatureStructure, FeatureSystem, FeatureValueKind};
 use crate::lexicon::Msa;
 use crate::morphology::{InflectionClass, PartOfSpeech};
 use crate::phonology::PhonContext;
-use crate::Snapshot;
+use crate::{Snapshot, Warning};
+
+/// A GUID cross-reference does not resolve to any definition of the expected kind within this
+/// snapshot. Shared by every plain "does this reference resolve" check in this module.
+const DANGLING_REFERENCE: &str = "snapshot.dangling-reference";
+/// `check_feature_structure`'s recursive closed/complex feature-or-value resolution.
+const FEATURE_STRUCTURE_UNRESOLVED: &str = "snapshot.feature-structure-unresolved";
+/// `check_rule_feature_ref`'s reference, which may legitimately resolve against either an
+/// inflection class or an exception feature registry (see that function's doc).
+const RULE_FEATURE_UNRESOLVED: &str = "snapshot.rule-feature-unresolved";
+/// A reference resolves to a real definition elsewhere in the snapshot, but not within the scope
+/// (e.g. owning entry) it was required to be local to.
+const REFERENCE_OUT_OF_SCOPE: &str = "snapshot.reference-out-of-scope";
 
 /// Registries of every GUID this snapshot *defines*, used to check that every GUID it
 /// *references* resolves to something real.
@@ -199,12 +225,12 @@ fn check_rule_feature_ref(
     guid: &Guid,
     reg: &Registries,
     context: &str,
-    warnings: &mut Vec<String>,
+    warnings: &mut Vec<Warning>,
 ) {
     if !reg.inflection_classes.contains(guid) && !reg.exception_features.contains(guid) {
-        warnings.push(format!(
+        warnings.push(Warning::new(RULE_FEATURE_UNRESOLVED, format!(
             "{context}: rule/exception feature {guid:?} does not resolve to a known inflection class or exception feature"
-        ));
+        )));
     }
 }
 
@@ -213,31 +239,31 @@ fn check_feature_structure(
     closed: &[(Guid, HashSet<Guid>)],
     complex: &HashSet<Guid>,
     context: &str,
-    warnings: &mut Vec<String>,
+    warnings: &mut Vec<Warning>,
 ) {
     for value in &fs.values {
         let closed_hit = closed.iter().find(|(g, _)| *g == value.feature);
         match (&value.value, closed_hit) {
             (FeatureValueKind::Closed { value: v }, Some((_, values))) => {
                 if !values.contains(v) {
-                    warnings.push(format!(
+                    warnings.push(Warning::new(FEATURE_STRUCTURE_UNRESOLVED, format!(
                         "{context}: feature value {v:?} does not resolve within feature {:?}",
                         value.feature
-                    ));
+                    )));
                 }
             }
             (FeatureValueKind::Closed { .. }, None) => {
-                warnings.push(format!(
+                warnings.push(Warning::new(FEATURE_STRUCTURE_UNRESOLVED, format!(
                     "{context}: closed feature {:?} does not resolve to any closed feature",
                     value.feature
-                ));
+                )));
             }
             (FeatureValueKind::Complex { value: nested }, _) => {
                 if !complex.contains(&value.feature) {
-                    warnings.push(format!(
+                    warnings.push(Warning::new(FEATURE_STRUCTURE_UNRESOLVED, format!(
                         "{context}: complex feature {:?} does not resolve to any complex feature",
                         value.feature
-                    ));
+                    )));
                 }
                 check_feature_structure(nested, closed, complex, context, warnings);
             }
@@ -249,7 +275,7 @@ fn check_phon_context(
     ctx: &PhonContext,
     reg: &Registries,
     context: &str,
-    warnings: &mut Vec<String>,
+    warnings: &mut Vec<Warning>,
 ) {
     match ctx {
         PhonContext::Sequence { members } => {
@@ -260,7 +286,10 @@ fn check_phon_context(
         PhonContext::Iteration { member, .. } => check_phon_context(member, reg, context, warnings),
         PhonContext::Segment { phoneme } => {
             if !reg.phonemes.contains(phoneme) {
-                warnings.push(format!("{context}: phoneme {phoneme:?} does not resolve"));
+                warnings.push(Warning::new(
+                    DANGLING_REFERENCE,
+                    format!("{context}: phoneme {phoneme:?} does not resolve"),
+                ));
             }
         }
         PhonContext::NaturalClass {
@@ -269,22 +298,27 @@ fn check_phon_context(
             minus_variables,
         } => {
             if !reg.natural_classes.contains(natural_class) {
-                warnings.push(format!(
-                    "{context}: natural class {natural_class:?} does not resolve"
+                warnings.push(Warning::new(
+                    DANGLING_REFERENCE,
+                    format!(
+                        "{context}: natural class {natural_class:?} does not resolve"
+                    ),
                 ));
             }
             for v in plus_variables.iter().chain(minus_variables) {
                 if !reg.feature_constraints.contains(v) {
-                    warnings.push(format!(
-                        "{context}: feature constraint {v:?} does not resolve"
+                    warnings.push(Warning::new(
+                        DANGLING_REFERENCE,
+                        format!("{context}: feature constraint {v:?} does not resolve"),
                     ));
                 }
             }
         }
         PhonContext::Boundary { marker } => {
             if !reg.boundary_markers.contains(marker) {
-                warnings.push(format!(
-                    "{context}: boundary marker {marker:?} does not resolve"
+                warnings.push(Warning::new(
+                    DANGLING_REFERENCE,
+                    format!("{context}: boundary marker {marker:?} does not resolve"),
                 ));
             }
         }
@@ -292,18 +326,20 @@ fn check_phon_context(
     }
 }
 
-fn check_pos_ref(guid: &Guid, reg: &Registries, context: &str, warnings: &mut Vec<String>) {
+fn check_pos_ref(guid: &Guid, reg: &Registries, context: &str, warnings: &mut Vec<Warning>) {
     if !reg.parts_of_speech.contains(guid) {
-        warnings.push(format!(
-            "{context}: part of speech {guid:?} does not resolve"
+        warnings.push(Warning::new(
+            DANGLING_REFERENCE,
+            format!("{context}: part of speech {guid:?} does not resolve"),
         ));
     }
 }
 
-fn check_infl_class_ref(guid: &Guid, reg: &Registries, context: &str, warnings: &mut Vec<String>) {
+fn check_infl_class_ref(guid: &Guid, reg: &Registries, context: &str, warnings: &mut Vec<Warning>) {
     if !reg.inflection_classes.contains(guid) {
-        warnings.push(format!(
-            "{context}: inflection class {guid:?} does not resolve"
+        warnings.push(Warning::new(
+            DANGLING_REFERENCE,
+            format!("{context}: inflection class {guid:?} does not resolve"),
         ));
     }
 }
@@ -311,7 +347,7 @@ fn check_infl_class_ref(guid: &Guid, reg: &Registries, context: &str, warnings: 
 /// Produce warnings for every GUID cross-reference in `snap` that does not resolve to a real
 /// definition elsewhere in the same snapshot. See the module doc for what is and is not
 /// checked.
-pub fn validate(snap: &Snapshot) -> Vec<String> {
+pub fn validate(snap: &Snapshot) -> Vec<Warning> {
     let reg = build_registries(snap);
     let mut warnings = Vec::new();
 
@@ -332,8 +368,11 @@ pub fn validate(snap: &Snapshot) -> Vec<String> {
             crate::phonology::NaturalClass::Segments { guid, phonemes, .. } => {
                 for p in phonemes {
                     if !reg.phonemes.contains(p) {
-                        warnings.push(format!(
-                            "natural class {guid:?}: member phoneme {p:?} does not resolve"
+                        warnings.push(Warning::new(
+                            DANGLING_REFERENCE,
+                            format!(
+                                "natural class {guid:?}: member phoneme {p:?} does not resolve"
+                            ),
                         ));
                     }
                 }
@@ -358,8 +397,9 @@ pub fn validate(snap: &Snapshot) -> Vec<String> {
                 }
                 for v in &r.feature_constraint_variables {
                     if !reg.feature_constraints.contains(v) {
-                        warnings.push(format!(
-                            "{ctx}: feature constraint variable {v:?} does not resolve"
+                        warnings.push(Warning::new(
+                            DANGLING_REFERENCE,
+                            format!("{ctx}: feature constraint variable {v:?} does not resolve"),
                         ));
                     }
                 }
@@ -395,7 +435,7 @@ pub fn validate(snap: &Snapshot) -> Vec<String> {
     }
 
     // --- morphology --------------------------------------------------------------------------
-    fn walk_pos(items: &[PartOfSpeech], reg: &Registries, warnings: &mut Vec<String>) {
+    fn walk_pos(items: &[PartOfSpeech], reg: &Registries, warnings: &mut Vec<Warning>) {
         for p in items {
             let ctx = format!("part of speech {:?}", p.guid);
             if let Some(dic) = &p.default_inflection_class {
@@ -405,14 +445,20 @@ pub fn validate(snap: &Snapshot) -> Vec<String> {
                 let known =
                     reg.syn_closed.iter().any(|(g, _)| g == f) || reg.syn_complex.contains(f);
                 if !known {
-                    warnings.push(format!("{ctx}: inflectable feature {f:?} does not resolve"));
+                    warnings.push(Warning::new(
+                        DANGLING_REFERENCE,
+                        format!("{ctx}: inflectable feature {f:?} does not resolve"),
+                    ));
                 }
             }
             for tmpl in &p.affix_templates {
                 let tctx = format!("affix template {:?}", tmpl.guid);
                 for slot in tmpl.prefix_slots.iter().chain(&tmpl.suffix_slots) {
                     if !reg.affix_slots.contains(slot) {
-                        warnings.push(format!("{tctx}: slot {slot:?} does not resolve"));
+                        warnings.push(Warning::new(
+                            DANGLING_REFERENCE,
+                            format!("{tctx}: slot {slot:?} does not resolve"),
+                        ));
                     }
                 }
             }
@@ -445,7 +491,10 @@ pub fn validate(snap: &Snapshot) -> Vec<String> {
             }
             for f in &side.exception_features {
                 if !reg.exception_features.contains(f) {
-                    warnings.push(format!("{ctx}: exception feature {f:?} does not resolve"));
+                    warnings.push(Warning::new(
+                        DANGLING_REFERENCE,
+                        format!("{ctx}: exception feature {f:?} does not resolve"),
+                    ));
                 }
             }
         }
@@ -467,13 +516,17 @@ pub fn validate(snap: &Snapshot) -> Vec<String> {
             } => {
                 let ctx = format!("ad-hoc allomorph prohibition {guid:?}");
                 if !reg.allomorphs.contains(primary) {
-                    warnings.push(format!(
-                        "{ctx}: primary allomorph {primary:?} does not resolve"
+                    warnings.push(Warning::new(
+                        DANGLING_REFERENCE,
+                        format!("{ctx}: primary allomorph {primary:?} does not resolve"),
                     ));
                 }
                 for o in others {
                     if !reg.allomorphs.contains(o) {
-                        warnings.push(format!("{ctx}: allomorph {o:?} does not resolve"));
+                        warnings.push(Warning::new(
+                            DANGLING_REFERENCE,
+                            format!("{ctx}: allomorph {o:?} does not resolve"),
+                        ));
                     }
                 }
             }
@@ -485,13 +538,17 @@ pub fn validate(snap: &Snapshot) -> Vec<String> {
             } => {
                 let ctx = format!("ad-hoc morpheme prohibition {guid:?}");
                 if !reg.msas.contains(primary) {
-                    warnings.push(format!(
-                        "{ctx}: primary morpheme {primary:?} does not resolve"
+                    warnings.push(Warning::new(
+                        DANGLING_REFERENCE,
+                        format!("{ctx}: primary morpheme {primary:?} does not resolve"),
                     ));
                 }
                 for o in others {
                     if !reg.msas.contains(o) {
-                        warnings.push(format!("{ctx}: morpheme {o:?} does not resolve"));
+                        warnings.push(Warning::new(
+                            DANGLING_REFERENCE,
+                            format!("{ctx}: morpheme {o:?} does not resolve"),
+                        ));
                     }
                 }
             }
@@ -501,9 +558,12 @@ pub fn validate(snap: &Snapshot) -> Vec<String> {
     for t in &snap.morphology.lex_entry_infl_types {
         for slot in &t.slots {
             if !reg.affix_slots.contains(slot) {
-                warnings.push(format!(
-                    "lexEntryInflType {:?}: slot {slot:?} does not resolve",
-                    t.guid
+                warnings.push(Warning::new(
+                    DANGLING_REFERENCE,
+                    format!(
+                        "lexEntryInflType {:?}: slot {slot:?} does not resolve",
+                        t.guid
+                    ),
                 ));
             }
         }
@@ -519,9 +579,12 @@ pub fn validate(snap: &Snapshot) -> Vec<String> {
             .iter()
             .any(|r| r.guid() == m.compound_rule);
         if !known {
-            warnings.push(format!(
-                "parser parameters: maxApps compound rule {:?} does not resolve",
-                m.compound_rule
+            warnings.push(Warning::new(
+                DANGLING_REFERENCE,
+                format!(
+                    "parser parameters: maxApps compound rule {:?} does not resolve",
+                    m.compound_rule
+                ),
             ));
         }
     }
@@ -533,12 +596,18 @@ pub fn validate(snap: &Snapshot) -> Vec<String> {
             let ctx = format!("{entry_ctx} allomorph {:?}", allo.guid);
             for e in allo.environments.iter().chain(&allo.positions) {
                 if !reg.environments.contains(e) {
-                    warnings.push(format!("{ctx}: environment {e:?} does not resolve"));
+                    warnings.push(Warning::new(
+                        DANGLING_REFERENCE,
+                        format!("{ctx}: environment {e:?} does not resolve"),
+                    ));
                 }
             }
             if let Some(sn) = &allo.stem_name {
                 if !reg.stem_names.contains(sn) {
-                    warnings.push(format!("{ctx}: stem name {sn:?} does not resolve"));
+                    warnings.push(Warning::new(
+                        DANGLING_REFERENCE,
+                        format!("{ctx}: stem name {sn:?} does not resolve"),
+                    ));
                 }
             }
             for ic in &allo.inflection_classes {
@@ -560,8 +629,9 @@ pub fn validate(snap: &Snapshot) -> Vec<String> {
                         | crate::lexicon::RuleMapping::ModifyFromInput { natural_class, .. }
                             if !reg.natural_classes.contains(natural_class) =>
                         {
-                            warnings.push(format!(
-                                "{ctx}: natural class {natural_class:?} does not resolve"
+                            warnings.push(Warning::new(
+                                DANGLING_REFERENCE,
+                                format!("{ctx}: natural class {natural_class:?} does not resolve"),
                             ));
                         }
                         _ => {}
@@ -597,13 +667,18 @@ pub fn validate(snap: &Snapshot) -> Vec<String> {
                     }
                     for f in exception_features {
                         if !reg.exception_features.contains(f) {
-                            warnings
-                                .push(format!("{ctx}: exception feature {f:?} does not resolve"));
+                            warnings.push(Warning::new(
+                                DANGLING_REFERENCE,
+                                format!("{ctx}: exception feature {f:?} does not resolve"),
+                            ));
                         }
                     }
                     for s in slots {
                         if !reg.affix_slots.contains(s) {
-                            warnings.push(format!("{ctx}: slot {s:?} does not resolve"));
+                            warnings.push(Warning::new(
+                                DANGLING_REFERENCE,
+                                format!("{ctx}: slot {s:?} does not resolve"),
+                            ));
                         }
                     }
                 }
@@ -619,7 +694,10 @@ pub fn validate(snap: &Snapshot) -> Vec<String> {
                     }
                     for s in slots {
                         if !reg.affix_slots.contains(s) {
-                            warnings.push(format!("{ctx}: slot {s:?} does not resolve"));
+                            warnings.push(Warning::new(
+                                DANGLING_REFERENCE,
+                                format!("{ctx}: slot {s:?} does not resolve"),
+                            ));
                         }
                     }
                     if let Some(fs) = features {
@@ -633,8 +711,10 @@ pub fn validate(snap: &Snapshot) -> Vec<String> {
                     }
                     for f in exception_features {
                         if !reg.exception_features.contains(f) {
-                            warnings
-                                .push(format!("{ctx}: exception feature {f:?} does not resolve"));
+                            warnings.push(Warning::new(
+                                DANGLING_REFERENCE,
+                                format!("{ctx}: exception feature {f:?} does not resolve"),
+                            ));
                         }
                     }
                 }
@@ -673,13 +753,18 @@ pub fn validate(snap: &Snapshot) -> Vec<String> {
                     }
                     for f in from_exception_features.iter().chain(to_exception_features) {
                         if !reg.exception_features.contains(f) {
-                            warnings
-                                .push(format!("{ctx}: exception feature {f:?} does not resolve"));
+                            warnings.push(Warning::new(
+                                DANGLING_REFERENCE,
+                                format!("{ctx}: exception feature {f:?} does not resolve"),
+                            ));
                         }
                     }
                     if let Some(sn) = from_stem_name {
                         if !reg.stem_names.contains(sn) {
-                            warnings.push(format!("{ctx}: stem name {sn:?} does not resolve"));
+                            warnings.push(Warning::new(
+                                DANGLING_REFERENCE,
+                                format!("{ctx}: stem name {sn:?} does not resolve"),
+                            ));
                         }
                     }
                 }
@@ -694,9 +779,12 @@ pub fn validate(snap: &Snapshot) -> Vec<String> {
             if let Some(m) = &sense.msa {
                 let found = entry.msas.iter().any(|msa| msa.guid() == m);
                 if !found {
-                    warnings.push(format!(
-                        "{entry_ctx} sense {:?}: msa {m:?} does not resolve within this entry",
-                        sense.guid
+                    warnings.push(Warning::new(
+                        REFERENCE_OUT_OF_SCOPE,
+                        format!(
+                            "{entry_ctx} sense {:?}: msa {m:?} does not resolve within this entry",
+                            sense.guid
+                        ),
                     ));
                 }
             }
@@ -717,8 +805,9 @@ pub fn validate(snap: &Snapshot) -> Vec<String> {
             let ctx = format!("{entry_ctx} {ctx_kind} ref {guid:?}");
             for c in components {
                 if !reg.entries.contains(c) && !reg.senses.contains(c) {
-                    warnings.push(format!(
-                        "{ctx}: component {c:?} does not resolve to an entry or sense"
+                    warnings.push(Warning::new(
+                        DANGLING_REFERENCE,
+                        format!("{ctx}: component {c:?} does not resolve to an entry or sense"),
                     ));
                 }
             }

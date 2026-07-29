@@ -12,3 +12,12 @@ pg-parse.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+
+[dev-dependencies]
+# tests/duplicate_count_determinism.rs (task 1.12): drives the real propose->confirm composite
+# analyzer, including its cross-word rayon confirm parallelism, to check whether AnalysisSet
+# duplicate counts (and the semantic projection they feed) survive `analyze_words_with_threads`
+# byte-identically. `test-concurrency-hook` is opt-in instrumentation only (a `Cell`-gated sleep
+# behind an explicit `arm()` call) -- a no-op unless that test calls `arm()` first, so it costs
+# nothing in the rest of this crate's suite.
+pg-foma = { workspace = true, features = ["test-concurrency-hook"] }

@@ -158,6 +158,20 @@ fn unknown_morph_type_allomorph_is_skipped_with_a_warning() {
         .any(|w| w.contains("00000000-0000-0000-0000-00000000abcd")));
 }
 
+/// `add-grammar-assessment` task 3.8: the unrecognized-morph-type-guid warning above carries a
+/// specific, stable code -- pinned here alongside the existing prose assertion, exactly, so a
+/// future reword of the message is never itself a code change.
+#[test]
+fn unknown_morph_type_warning_carries_its_stable_code() {
+    let (_, report) = pg_fwdata::import_file(&fixture_path()).unwrap();
+    let hit = report
+        .warnings
+        .iter()
+        .find(|w| w.contains("00000000-0000-0000-0000-00000000abcd"))
+        .expect("the unrecognized-morph-type warning must be present");
+    assert_eq!(hit.code, "fwdata.unknown-morph-type-guid");
+}
+
 #[test]
 fn dangling_environment_reference_does_not_crash_import() {
     let (snap, _) = pg_fwdata::import_file(&fixture_path()).unwrap();
@@ -175,6 +189,48 @@ fn dangling_environment_reference_does_not_crash_import() {
     assert!(warnings
         .iter()
         .any(|w| w.contains("00000000-0000-0000-0000-0000000000ff")));
+}
+
+/// `add-grammar-assessment` task 3.8, requirement (b): two structurally different situations --
+/// pg-fwdata's "unrecognized morph-type guid" (import-time) and pg-snapshot's "dangling
+/// environment reference" (validate-time) -- must get different codes.
+#[test]
+fn structurally_different_warnings_get_different_codes() {
+    let (snap, report) = pg_fwdata::import_file(&fixture_path()).unwrap();
+    let morph_type_warning = report
+        .warnings
+        .iter()
+        .find(|w| w.contains("00000000-0000-0000-0000-00000000abcd"))
+        .expect("the unrecognized-morph-type warning must be present");
+    let validate_warnings = snap.validate();
+    let dangling_env_warning = validate_warnings
+        .iter()
+        .find(|w| w.contains("00000000-0000-0000-0000-0000000000ff"))
+        .expect("the dangling-environment warning must be present");
+    assert_ne!(morph_type_warning.code, dangling_env_warning.code);
+    assert_eq!(morph_type_warning.code, "fwdata.unknown-morph-type-guid");
+    assert_eq!(dangling_env_warning.code, "snapshot.dangling-reference");
+}
+
+/// `add-grammar-assessment` task 3.8, requirement (c): this task is purely additive -- the prose
+/// this warning has always carried is pinned exactly here (not just a substring, as the tests
+/// above check) at this representative site. Guids per `tests/data/fixture.fwdata`: the
+/// `MoStemAllomorph` with the planted unrecognized morph type is
+/// `00000000-0000-0000-0000-000000000044`, referencing `MorphType`
+/// `00000000-0000-0000-0000-00000000abcd`.
+#[test]
+fn import_warning_prose_is_unchanged() {
+    let (_, report) = pg_fwdata::import_file(&fixture_path()).unwrap();
+    let hit = report
+        .warnings
+        .iter()
+        .find(|w| w.contains("00000000-0000-0000-0000-00000000abcd"))
+        .expect("the unrecognized-morph-type warning must be present");
+    assert_eq!(
+        hit.message,
+        "lexicon.entries.allomorphs: 00000000-0000-0000-0000-000000000044 has unrecognized \
+         morph-type guid 00000000-0000-0000-0000-00000000abcd; skipping"
+    );
 }
 
 #[test]
