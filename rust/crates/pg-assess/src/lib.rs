@@ -14,6 +14,7 @@
 pub mod digest;
 pub mod identity;
 pub mod jcs;
+pub mod model;
 pub mod set;
 
 pub use digest::{
@@ -21,4 +22,5 @@ pub use digest::{
 };
 pub use identity::{AnalysisIdentity, IdentityError, MorphemeKey, IDENTITY_PROFILE};
 pub use jcs::{canonicalize, JcsError};
+pub use model::{model_fingerprint, source_sha256, SourceKind, MODEL_PROJECTION};
 pub use set::{AnalysisSet, AnalysisSetEntry};
