@@ -21,6 +21,7 @@ members = [
     "crates/pg-conformance-fixtures",
     "crates/pg-grammar-gen",
     "crates/pg-pack",
+    "crates/pg-assess",
 ]
 
 [workspace.package]
@@ -78,6 +79,7 @@ pg-realize = { path = "crates/pg-realize" }
 pg-lexicon = { path = "crates/pg-lexicon" }
 pg-snapshot = { path = "crates/pg-snapshot" }
 pg-fwdata = { path = "crates/pg-fwdata" }
+pg-assess = { path = "crates/pg-assess" }
 pg-conformance-fixtures = { path = "crates/pg-conformance-fixtures" }
 pg-grammar-gen = { path = "crates/pg-grammar-gen" }
 # `.pgpack` container (R2A / `make-wasm-analysis-only`): ADR 0004 required-runtime-feature

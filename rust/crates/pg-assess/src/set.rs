@@ -1,0 +1,173 @@
+//! Canonical analysis sets: deduplicated by identity, sorted by digest, duplicates retained.
+//!
+//! `define-grammar-coverage-contract`: "Exact duplicate copies of the same complete structured
+//! analysis identity SHALL be deduplicated for semantic equality; their counts and provenance SHALL
+//! remain diagnostic evidence." Two runs that found the same analyses a different number of times
+//! agree semantically and differ in health evidence, so duplicate counts participate in the
+//! semantic projection and are excluded from the outcome projection (design D3/D4).
+
+use std::collections::BTreeMap;
+
+use serde_json::{json, Value};
+
+use crate::digest::identity_digest;
+use crate::identity::AnalysisIdentity;
+
+/// One distinct analysis and how many times it was observed before deduplication.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnalysisSetEntry {
+    pub identity: AnalysisIdentity,
+    pub identity_digest: String,
+    /// Copies observed before deduplication. Always at least 1.
+    pub duplicate_count: u32,
+}
+
+/// A complete analysis set in canonical order.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct AnalysisSet {
+    entries: Vec<AnalysisSetEntry>,
+}
+
+impl AnalysisSet {
+    /// Build from observed analyses in discovery order. Discovery order is deliberately discarded:
+    /// it is not semantic, and letting it reach a digest would make engine internals observable as
+    /// grammar changes.
+    pub fn from_observed<I: IntoIterator<Item = AnalysisIdentity>>(observed: I) -> Self {
+        // Keyed by digest so ordering is stable under any future field reordering of
+        // `AnalysisIdentity`, which a derived `Ord` would not survive.
+        let mut by_digest: BTreeMap<String, (AnalysisIdentity, u32)> = BTreeMap::new();
+        for identity in observed {
+            let digest = identity_digest(&identity);
+            match by_digest.get_mut(&digest) {
+                Some((existing, count)) => {
+                    debug_assert_eq!(
+                        *existing, identity,
+                        "identity digest collision: unequal identities share {digest}"
+                    );
+                    *count += 1;
+                }
+                None => {
+                    by_digest.insert(digest, (identity, 1));
+                }
+            }
+        }
+
+        AnalysisSet {
+            entries: by_digest
+                .into_iter()
+                .map(
+                    |(identity_digest, (identity, duplicate_count))| AnalysisSetEntry {
+                        identity,
+                        identity_digest,
+                        duplicate_count,
+                    },
+                )
+                .collect(),
+        }
+    }
+
+    pub fn entries(&self) -> &[AnalysisSetEntry] {
+        &self.entries
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// Whether this set contains an identity, confirmed against the structured value rather than
+    /// trusting the digest alone.
+    pub fn contains(&self, identity: &AnalysisIdentity) -> bool {
+        let digest = identity_digest(identity);
+        self.entries
+            .iter()
+            .any(|e| e.identity_digest == digest && &e.identity == identity)
+    }
+
+    /// The outcome projection's view: identities only. Blind to how many times each was found, so
+    /// an FST change that removes redundant proposal paths leaves this untouched.
+    pub fn to_outcome_value(&self) -> Value {
+        Value::Array(
+            self.entries
+                .iter()
+                .map(|e| e.identity.to_canonical_value())
+                .collect(),
+        )
+    }
+
+    /// The semantic projection's view: identities plus duplicate evidence.
+    pub fn to_semantic_value(&self) -> Value {
+        Value::Array(
+            self.entries
+                .iter()
+                .map(|e| {
+                    json!({
+                        "identity": e.identity.to_canonical_value(),
+                        "duplicateCount": e.duplicate_count,
+                    })
+                })
+                .collect(),
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn id(morphemes: &[&str]) -> AnalysisIdentity {
+        AnalysisIdentity {
+            morphemes: morphemes.iter().map(|m| Some(m.to_string())).collect(),
+            root_index: 0,
+            category: None,
+        }
+    }
+
+    #[test]
+    fn discovery_order_does_not_change_the_set() {
+        let a = AnalysisSet::from_observed([id(&["x"]), id(&["y"]), id(&["z"])]);
+        let b = AnalysisSet::from_observed([id(&["z"]), id(&["x"]), id(&["y"])]);
+        assert_eq!(a, b);
+        assert_eq!(a.to_outcome_value(), b.to_outcome_value());
+    }
+
+    #[test]
+    fn duplicates_collapse_but_are_counted() {
+        let set = AnalysisSet::from_observed([id(&["x"]), id(&["x"]), id(&["y"])]);
+        assert_eq!(set.len(), 2);
+        let x = set
+            .entries()
+            .iter()
+            .find(|e| e.identity == id(&["x"]))
+            .unwrap();
+        assert_eq!(x.duplicate_count, 2);
+    }
+
+    #[test]
+    fn duplicate_counts_are_invisible_to_the_outcome_projection() {
+        // The load-bearing property behind `outcomeDigest`: redundant proposal work is not a
+        // behavior change.
+        let once = AnalysisSet::from_observed([id(&["x"])]);
+        let thrice = AnalysisSet::from_observed([id(&["x"]), id(&["x"]), id(&["x"])]);
+        assert_eq!(once.to_outcome_value(), thrice.to_outcome_value());
+        assert_ne!(once.to_semantic_value(), thrice.to_semantic_value());
+    }
+
+    #[test]
+    fn a_complete_empty_set_is_representable() {
+        // Distinct from an incomplete outcome, which carries no authoritative set at all.
+        let empty = AnalysisSet::from_observed([]);
+        assert!(empty.is_empty());
+        assert_eq!(empty.to_outcome_value(), json!([]));
+    }
+
+    #[test]
+    fn contains_confirms_the_structured_value() {
+        let set = AnalysisSet::from_observed([id(&["x"])]);
+        assert!(set.contains(&id(&["x"])));
+        assert!(!set.contains(&id(&["y"])));
+    }
+}
