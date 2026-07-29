@@ -12,11 +12,33 @@ use foma::options::FomaOptions;
 use pg_grammar::model::{Grammar, PhonRuleDef};
 use pg_parse::WordAnalysis;
 use sha2::{Digest, Sha256};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 fn elapsed_ns(started: Instant) -> u64 {
     u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX)
 }
+
+/// Default oracle (ground-truth `pg_parse::Morpher`) step cap, used whenever
+/// [`RuntimeBudget::oracle_step_cap`] is left `None`.
+///
+/// Justified by measurement (`docs/fst-plan/deep-chain-pilot-non-completion.md`): on the
+/// deep-truncation-chain stress grammar, the pathological corpus word that the fully-unbounded
+/// `Morpher::new(g, usize::MAX)` call never returns for (>20s, previously observed >10 minutes)
+/// completes in 91.6ms with `cap = 20_000`, reporting `capped: true` and 2 analyses. That is also
+/// the exact cap `examples/p6_templated_q3_oracle_bounds.rs` already uses for the same grammar/word,
+/// for the same reason. Large enough that no reference/staged grammar's real analyses come close to
+/// it (the step cap stays a no-op for every well-formed word); small enough that a pathological word
+/// is stopped in well under a second instead of hanging the whole evaluator call.
+pub const DEFAULT_ORACLE_STEP_CAP: usize = 20_000;
+
+/// Default oracle wall-clock deadline, used whenever [`RuntimeBudget::oracle_word_timeout`] is left
+/// `None`. Independent axis from [`DEFAULT_ORACLE_STEP_CAP`] — a word can burn its clock on very few,
+/// very expensive steps just as easily as it can burn its step budget on very fast ones — so both
+/// bounds are armed together; whichever trips first is the one that stops a given word, and running
+/// both costs nothing on well-behaved words. Justified by the same measurement: an otherwise-uncapped
+/// `Morpher` with `word_timeout = 2s` returns in 2.83s reporting `timed_out: true` on the same
+/// pathological word, instead of never returning.
+pub const DEFAULT_ORACLE_WORD_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WordEvidence {
@@ -138,6 +160,18 @@ pub struct RuntimeBudget {
     pub apply: Option<u64>,
     pub proposals: Option<u64>,
     pub confirmation: Option<u64>,
+    /// Ground-truth oracle step cap. UNLIKE every field above, `None` here does NOT mean
+    /// "unbounded" — it means "caller did not override the default", because unbounded is exactly
+    /// the defect this field exists to close (an unbounded oracle `Morpher` call is what hung the
+    /// deep-truncation-chain grammar's pilot indefinitely; see
+    /// `docs/fst-plan/deep-chain-pilot-non-completion.md`). `evaluate_plans_marked` resolves `None`
+    /// to [`DEFAULT_ORACLE_STEP_CAP`]. A caller that genuinely wants the old unbounded behavior must
+    /// say so explicitly with `Some(usize::MAX)`.
+    pub oracle_step_cap: Option<usize>,
+    /// Ground-truth oracle wall-clock deadline. Same "`None` = use the default, not unbounded"
+    /// convention as `oracle_step_cap` immediately above; resolves to
+    /// [`DEFAULT_ORACLE_WORD_TIMEOUT`].
+    pub oracle_word_timeout: Option<Duration>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -299,11 +333,79 @@ pub fn evaluate_plans_marked(
             .filter(|limit| *limit != u64::MAX)
             .map(std::time::Duration::from_nanos),
     );
-    let morpher = pg_parse::Morpher::new(grammar, usize::MAX);
-    let expected: Vec<_> = words
-        .iter()
-        .map(|w| (w.clone(), morpher.parse_word(w).structured))
-        .collect();
+    let oracle_cap = budget.oracle_step_cap.unwrap_or(DEFAULT_ORACLE_STEP_CAP);
+    let oracle_timeout = budget
+        .oracle_word_timeout
+        .unwrap_or(DEFAULT_ORACLE_WORD_TIMEOUT);
+    let morpher =
+        pg_parse::Morpher::new(grammar, oracle_cap).with_word_timeout(Some(oracle_timeout));
+    // `capped`/`timed_out` are per-word, but the certification hazard is corpus-wide: ONE truncated
+    // word's `expected` is a partial ground truth, and `certify_corpus` compares the whole corpus as
+    // one multiset-of-multisets. Latching a single corpus-wide flag (rather than trying to salvage
+    // the untruncated words) is deliberate — see the guard immediately below, which must fire before
+    // ANY plan in `plans` is built, not per-plan, since every plan in this call shares this same
+    // `expected`.
+    let mut oracle_capped = false;
+    let mut oracle_timed_out = false;
+    // A truncated word is EXCLUDED from the comparison rather than failing the whole corpus.
+    //
+    // Failing the corpus was tried first and is unusable as a default: with any finite cap, a single
+    // pathological word in a real corpus makes every candidate non-certifying, so no real grammar
+    // could ever confirm again. Excluding the word instead matches what this repo already does
+    // elsewhere -- `tests/p6_gate_parity.rs` skips words whose oracle times out and measures recall
+    // over the remainder -- and it is the only option that is both honest and useful: the FST is never
+    // compared against a partial ground truth, and the words whose ground truth IS complete still
+    // certify normally.
+    let mut comparable: Vec<String> = Vec::new();
+    let mut expected: Vec<(String, Vec<WordAnalysis>)> = Vec::new();
+    for w in words {
+        let outcome = morpher.parse_word(w);
+        if outcome.capped || outcome.timed_out {
+            oracle_capped |= outcome.capped;
+            oracle_timed_out |= outcome.timed_out;
+            continue;
+        }
+        comparable.push(w.clone());
+        expected.push((w.clone(), outcome.structured));
+    }
+    let words = &comparable[..];
+    // CRITICAL: a capped or timed-out oracle result must NEVER reach `certify_corpus`. The FST side
+    // may legitimately produce analyses the truncated oracle never found — that would surface as a
+    // bogus `IdentityMismatch`/`MultiplicityMismatch` (a phantom "grammar bug" that is actually an
+    // oracle bug), or, worse, a genuinely incomplete candidate could look right against an equally
+    // truncated ground truth and wrongly certify. So this returns before `build_candidate` is even
+    // called for any plan in this batch — evidence about a network built against a `expected` that
+    // is known-partial is not evidence at all. `oracle_capped` is checked before `oracle_timed_out`
+    // only because it is the more actionable diagnosis (raise `--oracle-step-cap`); a word that
+    // tripped both is reported under whichever this checks first, which is fine since the outcome
+    // (non-certifying) is identical either way.
+    // Only when EVERY word was truncated is there nothing left to compare. Then the run must say so
+    // explicitly rather than fall through to `certify_corpus`, which would see two empty corpora,
+    // quite correctly call them equal, and certify any candidate at all -- the same vacuous-pass shape
+    // the `no-analyzable-words` guard closes, reached by a different route.
+    if words.is_empty() && (oracle_capped || oracle_timed_out) {
+        let stage = if oracle_capped {
+            "oracle-capped"
+        } else {
+            "oracle-timeout"
+        };
+        return plans
+            .iter()
+            .map(|_| RuntimeEvaluation {
+                certification: Certification::Truncated {
+                    stage: stage.into(),
+                },
+                score: Score {
+                    states: 0,
+                    arcs: 0,
+                    build: 0,
+                    apply: 0,
+                    proposals: 0,
+                    confirmation: 0,
+                },
+            })
+            .collect();
+    }
     let report = crate::emit::emit(grammar).report;
     plans
         .iter()

@@ -30,6 +30,14 @@ pub struct RecipeOptimizeArgs {
     pub out_dir: String,
     pub seed: u64,
     pub budget: Budget,
+    /// `--oracle-step-cap`: overrides `RuntimeBudget::oracle_step_cap`. `None` (the flag omitted)
+    /// leaves `recipe_runtime`'s own default (`DEFAULT_ORACLE_STEP_CAP`) in force — NOT unbounded;
+    /// see that constant's doc for why an unbounded oracle call is the defect this whole mechanism
+    /// exists to prevent (`docs/fst-plan/deep-chain-pilot-non-completion.md`).
+    pub oracle_step_cap: Option<usize>,
+    /// `--oracle-word-timeout-ms`: overrides `RuntimeBudget::oracle_word_timeout`. Same "`None` =
+    /// use the default, not unbounded" convention as `oracle_step_cap` above.
+    pub oracle_word_timeout: Option<Duration>,
 }
 
 fn hash_bytes(bytes: &[u8]) -> String {
@@ -70,7 +78,7 @@ impl std::error::Error for RecipeOptimizeError {}
 
 pub fn parse_args(args: &[String]) -> Result<RecipeOptimizeArgs, RecipeOptimizeError> {
     if args.len() < 3 {
-        return Err(RecipeOptimizeError::Usage("usage: recipe-optimize <grammar> <words.txt> <out-dir> [--seed N] [--candidates N] [--evaluations N] [--elapsed-ns N] [--build-ns N] [--memory-bytes N] [--confirmation-work N] [--reserve-ns N]".into()));
+        return Err(RecipeOptimizeError::Usage("usage: recipe-optimize <grammar> <words.txt> <out-dir> [--seed N] [--candidates N] [--evaluations N] [--elapsed-ns N] [--build-ns N] [--memory-bytes N] [--confirmation-work N] [--reserve-ns N] [--oracle-step-cap N] [--oracle-word-timeout-ms N]".into()));
     }
     let mut r = RecipeOptimizeArgs {
         grammar: args[0].clone(),
@@ -78,6 +86,8 @@ pub fn parse_args(args: &[String]) -> Result<RecipeOptimizeArgs, RecipeOptimizeE
         out_dir: args[2].clone(),
         seed: 0,
         budget: Budget::default(),
+        oracle_step_cap: None,
+        oracle_word_timeout: None,
     };
     let mut i = 3;
     while i < args.len() {
@@ -106,6 +116,11 @@ pub fn parse_args(args: &[String]) -> Result<RecipeOptimizeArgs, RecipeOptimizeE
             // get an astronomically large call allowance.
             "confirmation-work" => r.budget.confirmation = n,
             "reserve-ns" => r.budget.reserve = n,
+            // `RuntimeBudget`'s own doc explains why `None` here means "use the default", not
+            // "unbounded" -- these two flags are the only way to override that default from the
+            // CLI, mirroring `pangloss batch --step-cap`/`--word-timeout-ms`.
+            "oracle-step-cap" => r.oracle_step_cap = Some(n as usize),
+            "oracle-word-timeout-ms" => r.oracle_word_timeout = Some(Duration::from_millis(n)),
             _ => {
                 return Err(RecipeOptimizeError::Usage(format!(
                     "unknown option: --{key}"
@@ -128,6 +143,8 @@ struct Evaluator<'a> {
     words: &'a [String],
     plans: BTreeMap<String, CandidatePlan>,
     capability: pg_foma::capability::PredicateRegistry,
+    oracle_step_cap: Option<usize>,
+    oracle_word_timeout: Option<Duration>,
 }
 impl CandidateEvaluator for Evaluator<'_> {
     fn evaluate(&mut self, c: &CandidateState, remaining: Budget) -> ConfirmationEvidence {
@@ -156,6 +173,8 @@ impl CandidateEvaluator for Evaluator<'_> {
             RuntimeBudget {
                 build: Some(remaining.build),
                 confirmation: Some(remaining.confirmation),
+                oracle_step_cap: self.oracle_step_cap,
+                oracle_word_timeout: self.oracle_word_timeout,
                 ..Default::default()
             },
             &[c.baseline],
@@ -350,6 +369,8 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
             RuntimeBudget {
                 build: Some(a.budget.build / 4),
                 confirmation: Some(a.budget.confirmation / 4),
+                oracle_step_cap: a.oracle_step_cap,
+                oracle_word_timeout: a.oracle_word_timeout,
                 ..Default::default()
             },
             &[state.baseline],
@@ -414,6 +435,8 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
         words: &words,
         plans,
         capability,
+        oracle_step_cap: a.oracle_step_cap,
+        oracle_word_timeout: a.oracle_word_timeout,
     };
     let mut outcome = optimize_with_evaluator(
         &states,
