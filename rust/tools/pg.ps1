@@ -324,6 +324,18 @@ try {
     }
 } finally {
     Exit-BuildSlot -Semaphore $sem
+    # Post-run disk check, because the preflight one cannot catch this. Preflight runs BEFORE cargo,
+    # so it happily passes at 46GB free and tells you nothing about the state cargo left behind --
+    # and a fleet of parallel agents crosses the floor MIDWAY, which is exactly how this machine
+    # reached 7GB free with no gate having fired. Reported after the fact rather than blocking (the
+    # build already happened; failing it retroactively helps nobody), but reported LOUDLY, because
+    # the next invocation is the one that dies and the cause is by then invisible.
+    $freeAfter = if ($targetDir) { Get-FreeSpaceGB $targetDir } else { $null }
+    if ($null -ne $freeAfter -and $freeAfter -lt 15) {
+        Write-Host "[pg] WARNING: only ${freeAfter}GB free on the target drive after this run." -ForegroundColor Red
+        Write-Host '[pg] Recover with: pg.ps1 -Mode gc (dry run, then -Apply). It only removes target dirs this repository owns and never touches an unmarked, preserved, or still-live one.' -ForegroundColor Yellow
+        Write-Host '[pg] If that frees little, the space is likely a LOCAL rust/target from a bare-cargo run, which sits on the system drive because it bypassed target-dir redirection.' -ForegroundColor Yellow
+    }
 }
 
 if ($Mode -eq 'release' -and $code -eq 0 -and $targetDir) {

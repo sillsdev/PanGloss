@@ -1060,10 +1060,21 @@ fn run_batch(args: &[String]) -> Result<(), String> {
     // no-op — see `Morpher::with_word_timeout`.
     let mut word_timeout_ms: Option<u64> = None;
     let mut memo = true;
-    // Default: number of logical CPUs (typical rayon default) — matches plan §7's "parallel by
-    // default, override for the 1/2/4/8/16 benchmark sweep" M7 requirement.
+    // Default: logical CPUs, CAPPED (plan §7's "parallel by default, override for the 1/2/4/8/16
+    // benchmark sweep" M7 requirement — the sweep passes its values explicitly, so this cap only
+    // moves the *unspecified* default and leaves every recorded benchmark point reachable).
+    //
+    // Why capped at all: per-word memory on a pathological grammar multiplies by thread count, and
+    // an uncapped default is how a single probe reached 30+ GB RSS on a 20-CPU machine and never
+    // finished — the same word completes in ~2 minutes at `--threads 1 --word-timeout-ms N`
+    // (`docs/fst-plan/corpus-word-list-hazards.md`). The words that do this are exactly the ones a
+    // deep derivation chain produces, so the risk scales with the grammar, not the corpus size, and
+    // the cheapest guard is to stop the machine's core count from being the multiplier. 8 keeps the
+    // throughput win on ordinary corpora while bounding the worst case to well under half of what
+    // was measured; anyone who wants the old behaviour asks for it with `--threads N`.
+    const DEFAULT_THREAD_CAP: usize = 8;
     let mut threads: usize = std::thread::available_parallelism()
-        .map(|n| n.get())
+        .map(|n| n.get().min(DEFAULT_THREAD_CAP))
         .unwrap_or(1);
     // 0-based resume index (C# `batch --start=N` equivalent, BatchCommand.cs): skip the first N
     // words (already-completed rows from a prior crashed/killed run) and append rather than

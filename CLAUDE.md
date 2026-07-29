@@ -24,6 +24,33 @@ Use:
   target directories this repository owns; it never deletes an unmarked, preserved, or still-live
   directory.
 
+Enforcement is a `PreToolUse` hook (`.claude/hooks/block-bare-cargo.py`), not just this rule. It
+refuses `cargo build|test|check|run` and `cargo nextest run`; `cargo fmt`/`clean`/`metadata` pass.
+The escape hatch is `PANGLOSS_ALLOW_BARE_CARGO=1`, deliberately an env var — needing it means the
+managed path is broken and should be fixed, not routed around.
+
+## Running parallel agents without starving the machine
+
+A fleet of six agents in one checkout took C: from 46 GB to 7 GB free, left 26 stray compiler
+processes running, and wedged `git` itself. None of it was the agents *working* — it was agents
+outliving their usefulness and bypassing the gates. Rules that follow from that, in order of how
+much they actually bought:
+
+1. **Cap build-heavy agents at 2–3 concurrent**, matching `Enter-BuildSlot`'s own max of 2. Six was
+   over-subscribed threefold; the semaphore only binds callers who go through `pg.ps1` anyway.
+2. **Never let an agent poll a background job it spawned.** Tell it to block in the foreground with a
+   long tool timeout. Every agent that stalled did so around a self-spawned monitor, and one kept
+   spawning poll loops for two hours *after* its work was committed and verified.
+3. **Reap on report.** When an agent finishes, kill stray `cargo`/`rustc`/`link`/`pangloss` before
+   dispatching the next. Doing this once at the end recovered 11 GB → 63 GB free.
+4. **Probe pathological grammars single-threaded.** `pangloss batch`'s thread default fans words out
+   concurrently and multiplies their memory: one probe reached 30+ GB RSS and never finished, where
+   `--threads 1` plus `--word-timeout-ms` completed the same work in ~2 minutes. See
+   `docs/fst-plan/corpus-word-list-hazards.md`.
+5. **Assume agents self-verify badly.** In one fleet, two shipped regression gates that passed with
+   their own fix reverted, and one reported a feature implemented while its guard sat behind
+   `if false &&`. Re-run their gates with the fix bypassed before believing any of it.
+
 ## Merging worktree/agent branches into main
 
 Keep `main`'s history linear — no merge commits.
