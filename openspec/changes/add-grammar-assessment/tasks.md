@@ -69,10 +69,13 @@ Exclusive ownership: new identity crate, `pg-parse` analysis projection. Amends
 Exclusive ownership: `pg-foma/src/composite.rs` for this unit only (STAGING merge hotspot,
 terminal-outcome routing owner).
 
-- [ ] 3.1 Add a budgeted production entry point on `FomaAnalyzer` returning a typed incomplete,
+- [x] 3.1 Add a budgeted production entry point on `FomaAnalyzer` returning a typed incomplete,
       reusing `ApplyBudget` and the existing `ProfiledFomaApplyOutcome::Incomplete`
       (`composite.rs:169-177,309`) without imposing profiling overhead on every word
-- [ ] 3.2 Add `not_attempted` as a real outcome, completing `CONTEXT.md:203`'s contract in code
+      (`FomaAnalyzer::analyze_word_budgeted` + `FomaProposer::propose_budgeted_counted`: the
+      counters the decode loop already kept, no clock reads; gated against the diagnostic path)
+- [x] 3.2 Add `not_attempted` as a real outcome, completing `CONTEXT.md:203`'s contract in code
+      (`pg-assess/src/outcome.rs`)
 - [ ] 3.3 Add `--pipeline foma-confirm|hermitcrab` defaulting to `foma-confirm`, replacing
       `--engine default|foma` (`pg-cli/src/main.rs:102-116`); an unavailable pipeline returns
       `unsupported_capability` with no silent fallback
@@ -80,9 +83,11 @@ terminal-outcome routing owner).
       envelope in the report
 - [ ] 3.5 Type an outer-safety-net stop as `wall_clock_timeout` and set `reproducible: false` on the
       report
-- [ ] 3.6 Add `pangloss.assessment-report/v1` with the interned key table, per-case outcomes,
+- [x] 3.6 Add `pangloss.assessment-report/v1` with the interned key table, per-case outcomes,
       `reportId`, `semanticDigest`, `outcomeDigest`, and top-level `status: complete|partial|failed`
-- [ ] 3.7 Emit an authoritative analysis set only for a complete case; keep partial candidates
+      (`pg-assess/src/report.rs`; digests over the expanded form, so key-table order cannot move
+      one. `parse_report` reads from the artifact's own table and recomputes rather than trusting)
+- [x] 3.7 Emit an authoritative analysis set only for a complete case; keep partial candidates
       clearly separated and never in `analyses`
 - [ ] 3.8 Retain importer and compiler diagnostics inline. Give each importer and snapshot-validation
       warning a stable short code alongside its existing prose, replacing bare `Vec<String>`
