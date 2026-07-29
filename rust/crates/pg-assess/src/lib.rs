@@ -16,6 +16,7 @@ pub mod identity;
 pub mod jcs;
 pub mod model;
 pub mod outcome;
+pub mod report;
 pub mod set;
 pub mod suite;
 
@@ -27,6 +28,10 @@ pub use jcs::{canonicalize, JcsError};
 pub use model::{model_fingerprint, source_sha256, SourceKind, MODEL_PROJECTION};
 pub use outcome::{
     derive_status, AssessmentStatus, CaseOutcome, IncompleteReason, NotAttemptedReason,
+};
+pub use report::{
+    parse_report, AssessmentReport, CaseRecord, Diagnostic, Execution, Provenance, ReportDraft,
+    ReportError, Severity, SuiteRef, REPORT_SCHEMA, REPORT_SCHEMA_VERSION,
 };
 pub use set::{AnalysisSet, AnalysisSetEntry};
 pub use suite::{

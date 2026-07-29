@@ -101,18 +101,29 @@ impl AnalysisSet {
             .any(|e| e.identity_digest == digest && &e.identity == identity)
     }
 
-    /// The outcome projection's view: identities only. Blind to how many times each was found, so
-    /// an FST change that removes redundant proposal paths leaves this untouched.
+    /// The outcome projection's view: identities and their `guessed` annotation. Blind to how many
+    /// times each was found, so an FST change that removes redundant proposal paths leaves this
+    /// untouched.
+    ///
+    /// `guessed` is here despite being an annotation rather than identity, because `false → true`
+    /// means the root stopped being found in the lexicon and the parser fabricated one. That is a
+    /// behavior change, and an outcome digest blind to it would report "the grammar behaved the
+    /// same" about a real regression.
     pub fn to_outcome_value(&self) -> Value {
         Value::Array(
             self.entries
                 .iter()
-                .map(|e| e.identity.to_canonical_value())
+                .map(|e| {
+                    json!({
+                        "identity": e.identity.to_canonical_value(),
+                        "guessed": e.guessed,
+                    })
+                })
                 .collect(),
         )
     }
 
-    /// The semantic projection's view: identities plus duplicate evidence.
+    /// The semantic projection's view: the outcome view plus duplicate evidence.
     pub fn to_semantic_value(&self) -> Value {
         Value::Array(
             self.entries
@@ -120,6 +131,7 @@ impl AnalysisSet {
                 .map(|e| {
                     json!({
                         "identity": e.identity.to_canonical_value(),
+                        "guessed": e.guessed,
                         "duplicateCount": e.duplicate_count,
                     })
                 })
@@ -176,6 +188,20 @@ mod tests {
         let empty = AnalysisSet::from_observed([]);
         assert!(empty.is_empty());
         assert_eq!(empty.to_outcome_value(), json!([]));
+    }
+
+    #[test]
+    fn a_guessed_flip_is_visible_to_the_outcome_projection() {
+        // A root that fell out of the lexicon and was fabricated instead is a behavior change, even
+        // though the morpheme sequence and category are untouched.
+        let found = AnalysisSet::from_annotated([(id(&["x"]), false)]);
+        let fabricated = AnalysisSet::from_annotated([(id(&["x"]), true)]);
+        assert_eq!(
+            found.entries()[0].identity,
+            fabricated.entries()[0].identity,
+            "identity is unchanged — that is the point"
+        );
+        assert_ne!(found.to_outcome_value(), fabricated.to_outcome_value());
     }
 
     #[test]
