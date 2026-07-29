@@ -500,6 +500,7 @@ mod tests {
                 outcome,
                 supersedes: Vec::new(),
             }],
+            failure: None,
             extensions: None,
         }
         .finish()

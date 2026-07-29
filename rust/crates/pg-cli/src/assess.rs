@@ -26,10 +26,10 @@ use std::process::ExitCode;
 
 use pg_assess::{
     compare, golden_diff, investigate, parse_report, parse_suite, AnalysisIdentity, AnalysisSet,
-    AssessmentReport, BudgetDimension, CaseOutcome, CaseRecord, Diagnostic, Evidence,
-    EvidenceAvailability, Execution, HandoffRequest, IncompleteReason, MissingAnalysisCause,
-    NotAttemptedReason, Provenance, ReportDraft, Severity, SourceKind, SuiteRef, ValidatedSuite,
-    IDENTITY_PROFILE,
+    AssessmentFailure, AssessmentReport, BudgetDimension, CaseOutcome, CaseRecord, Diagnostic,
+    Evidence, EvidenceAvailability, Execution, FailureKind, HandoffRequest, IncompleteReason,
+    MissingAnalysisCause, NotAttemptedReason, Provenance, ReportDraft, Severity, SourceKind,
+    SuiteRef, ValidatedSuite, IDENTITY_PROFILE,
 };
 use pg_foma::compose_budget::{ApplyBudget, ApplyDimension};
 use pg_foma::composite::{FomaAnalyzer, FomaApplyOutcome};
@@ -339,6 +339,7 @@ pub fn run_assess(args: &[String]) -> Result<(), CliError> {
         provenance,
         diagnostics,
         cases: case_records,
+        failure: None,
         extensions: None,
     }
     .finish()
@@ -373,6 +374,13 @@ fn setup_failed_report(
             severity: Severity::Error,
             message: message.to_string(),
         }],
+        // The typed top-level reason (spec 17.7). A consumer reading this artifact may have no
+        // access to our exit code, so `status: failed` alone would leave it inferring the cause
+        // from prose.
+        failure: Some(AssessmentFailure {
+            kind: FailureKind::AssessmentSetupFailed,
+            message: message.to_string(),
+        }),
         cases: cases
             .iter()
             .map(|case| CaseRecord {

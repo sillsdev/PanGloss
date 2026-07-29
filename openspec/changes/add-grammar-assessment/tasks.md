@@ -202,8 +202,14 @@ terminal-outcome routing owner).
 
 ## Closed schema deliverables (handoff spec §17.3)
 
-- [x] S.1 Check in JSON Schemas for all five artifacts plus the shared definitions §17.3 names
-      (typed failures, diagnostics, per-case outcomes, resource envelopes): `pg-assess/schemas/`
+- [x] S.1 Check in JSON Schemas for all five artifacts plus these shared definitions §17.3 names:
+      typed failures (`assessmentFailure`), diagnostics, per-case outcomes, batch outcomes, and
+      resource envelopes — `pg-assess/schemas/`
+- [ ] S.1a **Trace references** — the sixth item in §17.3's shared list is NOT covered. The handoff
+      spec's `--trace <trace.json>` does not exist on any command, and no schema field distinct from
+      `investigation-handoff`'s `evidence` represents a stored trace artifact. Follows from D9/D10
+      (investigate supplies binding and a pruned narrative rather than a trace artifact) and from
+      tracing being unavailable on the default pipeline, but §17.3 was never amended to say so
 - [x] S.2 Canonical positive fixtures: every schema is validated against an artifact the real
       emitter produced, not a hand-written sample, so schema/emitter drift fails either way
 - [x] S.3 Negative fixtures: each must be rejected AND rejected at the field at fault, so a

@@ -94,6 +94,35 @@ pub struct Diagnostic {
     pub message: String,
 }
 
+/// Why a whole assessment failed, when one did (§17.7's "nullable typed `failure`").
+///
+/// Distinct from a per-case outcome. A case that was `not_attempted` says nothing about *why* the
+/// run as a whole could not proceed, and a consumer scanning a `failed` report should not have to
+/// infer that from a diagnostic's prose or from the process exit code — which it may not even have,
+/// if it is reading an artifact someone else produced.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FailureKind {
+    /// Suite validation passed, then import, compile, or setup failed safely. Cases are
+    /// `not_attempted/assessment_setup_failed` and all available build evidence is retained.
+    AssessmentSetupFailed,
+    /// The requested pipeline cannot run this grammar. Never a silent fallback to the other one.
+    UnsupportedCapability,
+    /// Resource containment prevented a trustworthy artifact.
+    ContainmentPrevented,
+    /// An internal fault. Named rather than dressed up as a grammar problem.
+    InternalError,
+}
+
+/// The top-level failure record. Present iff the run failed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AssessmentFailure {
+    pub kind: FailureKind,
+    /// Human-readable detail. Never the machine-readable part: consumers branch on `kind`.
+    pub message: String,
+}
+
 /// One case as recorded before interning.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CaseRecord {
@@ -119,6 +148,8 @@ pub struct ReportDraft {
     pub provenance: Provenance,
     pub diagnostics: Vec<Diagnostic>,
     pub cases: Vec<CaseRecord>,
+    /// Why the run failed, when it did (§17.7). `None` for a run that produced results.
+    pub failure: Option<AssessmentFailure>,
     /// Namespaced consumer annotations. Outside both semantic projections, inside `reportId`.
     pub extensions: Option<Value>,
 }
@@ -173,6 +204,7 @@ impl ReportDraft {
                 "importerVersion": self.provenance.importer_version,
                 "compilerVersion": self.provenance.compiler_version,
             },
+            "failure": serde_json::to_value(&self.failure).expect("failure is plain data"),
             "diagnostics": diagnostic_counts(&self.diagnostics),
             "cases": self.cases.iter().map(|c| json!({
                 "caseId": c.case_id,
@@ -226,6 +258,11 @@ impl AssessmentReport {
         &self.draft.cases
     }
 
+    /// Why the run failed, if it did.
+    pub fn failure(&self) -> Option<&AssessmentFailure> {
+        self.draft.failure.as_ref()
+    }
+
     /// Declared lineage as `(superseded baseline case ID, this report's case ID)` pairs.
     pub fn supersedes(&self) -> Vec<(String, String)> {
         self.draft
@@ -260,6 +297,13 @@ impl AssessmentReport {
             serde_json::to_value(self.status).expect("status is a unit enum"),
         );
         root.insert("reproducible".into(), json!(self.reproducible));
+        // Always emitted, never skipped when absent: an explicit null says "this run did not fail",
+        // where a missing key would leave a consumer unable to tell that from an older producer.
+        root.insert(
+            "failure".into(),
+            serde_json::to_value(&self.draft.failure)
+                .expect("failure is a unit enum plus a string"),
+        );
         root.insert(
             "suite".into(),
             serde_json::to_value(&self.draft.suite).expect("suite ref is plain strings"),
@@ -526,6 +570,13 @@ pub fn parse_report(document: &str) -> Result<AssessmentReport, ReportError> {
         execution: field(object, "execution")?,
         provenance: field(object, "provenance")?,
         diagnostics: field(object, "diagnostics")?,
+        failure: match object.get("failure") {
+            None | Some(Value::Null) => None,
+            Some(value) => Some(
+                serde_json::from_value(value.clone())
+                    .map_err(|_| ReportError::BadField("failure".into()))?,
+            ),
+        },
         cases,
         extensions: object.get("extensions").cloned(),
     };
@@ -710,6 +761,7 @@ mod tests {
             },
             diagnostics: Vec::new(),
             cases,
+            failure: None,
             extensions: None,
         }
     }

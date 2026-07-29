@@ -615,6 +615,7 @@ mod tests {
             },
             diagnostics: Vec::new(),
             cases,
+            failure: None,
             extensions: None,
         }
         .finish()

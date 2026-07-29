@@ -374,6 +374,7 @@ fn report(cases: Vec<CaseRecord>) -> pg_assess::AssessmentReport {
             message: "an entry referenced a missing MSA".into(),
         }],
         cases,
+        failure: None,
         extensions: Some(json!({ "com.example.review": { "assignee": "sam" } })),
     }
     .finish()
@@ -555,6 +556,7 @@ fn a_real_golden_set_diff_conforms() {
                 CaseOutcome::Complete(AnalysisSet::from_observed([])),
             ),
         ],
+        failure: None,
         extensions: None,
     }
     .finish()
@@ -589,6 +591,57 @@ fn a_real_investigation_handoff_conforms() {
 // ---------------------------------------------------------------------------------------------
 // Negative: each fixture must be rejected, and rejected for its own reason
 // ---------------------------------------------------------------------------------------------
+
+#[test]
+fn a_successful_report_states_failure_as_null_rather_than_omitting_it() {
+    // An explicit null says "this run did not fail". A missing key would leave a consumer unable to
+    // distinguish that from an older producer that never emitted the field.
+    let value = full_report().to_value();
+    assert!(value.as_object().unwrap().contains_key("failure"));
+    assert_eq!(value["failure"], Value::Null);
+    assert_valid("assessment-report", &value);
+}
+
+#[test]
+fn a_failed_report_carries_a_typed_top_level_failure() {
+    // Spec 17.7: "An assessment report has top-level `status` ... and nullable typed `failure`."
+    let mut draft = full_report().draft().clone();
+    draft.cases = vec![case(
+        "never-ran",
+        CaseOutcome::NotAttempted(NotAttemptedReason::AssessmentSetupFailed),
+    )];
+    draft.failure = Some(pg_assess::AssessmentFailure {
+        kind: pg_assess::FailureKind::AssessmentSetupFailed,
+        message: "the grammar did not compile".into(),
+    });
+    let report = draft.finish().expect("digests");
+    let value = report.to_value();
+
+    assert_eq!(value["status"], "failed");
+    assert_eq!(value["failure"]["kind"], "assessment_setup_failed");
+    assert_valid("assessment-report", &value);
+
+    // Survives a round trip, so a consumer reading the artifact later sees the same typed reason.
+    let read = pg_assess::parse_report(&report.to_canonical_json().unwrap()).unwrap();
+    assert_eq!(
+        read.failure().map(|f| f.kind),
+        Some(pg_assess::FailureKind::AssessmentSetupFailed)
+    );
+}
+
+#[test]
+fn a_report_with_an_untyped_failure_kind_is_rejected() {
+    let mut value = full_report().to_value();
+    value["failure"] = json!({ "kind": "something went wrong", "message": "prose" });
+    assert_rejected("assessment-report", &value, "failure");
+}
+
+#[test]
+fn a_report_that_omits_failure_entirely_is_rejected() {
+    let mut value = full_report().to_value();
+    value.as_object_mut().unwrap().remove("failure");
+    assert_rejected("assessment-report", &value, "$");
+}
 
 #[test]
 fn a_report_with_an_unknown_outcome_kind_is_rejected() {

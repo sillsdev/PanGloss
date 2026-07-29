@@ -402,6 +402,7 @@ mod tests {
                 outcome: CaseOutcome::Complete(AnalysisSet::from_observed(analyses.to_vec())),
                 supersedes: Vec::new(),
             }],
+            failure: None,
             extensions: None,
         }
         .finish()
