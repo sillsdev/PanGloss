@@ -1,21 +1,23 @@
 <#
-  Test entry point for the PanGloss Rust workspace. Run from any worktree (the main
-  checkout or any .claude/worktrees/* checkout) -- it resolves its own paths.
+  Test entry point for the PanGloss Rust workspace. THIN FRONT END: all actual policy (target-dir
+  redirection, sccache wiring, worktree base-commit check, disk/build-slot gates, ownership markers,
+  the optimized pg-test-opt profile) now lives in rust/tools/pg.ps1 (docs/superpowers/specs/
+  2026-07-29-categorical-build-hardening-design.md). This script just translates its own
+  long-standing parameter names into a `pg.ps1 -Mode test` call, so existing callers keep working
+  unchanged.
 
-  Prefers cargo-nextest when installed: proper per-test process isolation/reaping (a
-  hung test can't wedge the whole run) and a clean compile-vs-run boundary in its
-  output, unlike `cargo test`'s single interleaved stream. Falls back to `cargo test`
-  automatically if nextest isn't installed.
-
-  Same target-dir redirection (prefers C:\cargo-targets while it has room, falls back to
-  the G:\cargo-build-cache HDD root otherwise), sccache wiring, cross-worktree concurrency
-  gate, and process-tree cleanup as build.ps1 -- see _common.ps1.
+  For corpus-backed suites (anything gated on samples/data/), use
+  `rust\tools\pg.ps1 -Mode corpus-test` directly instead -- that mode validates every required
+  corpus file before Cargo starts, runs ignored tests (every corpus gate is #[ignore]d precisely
+  because it needs the private corpus), and fails a run that records zero executed corpus cases.
+  This script has no equivalent switch on purpose: silently promoting an ordinary `test.ps1` call
+  into the fail-closed corpus contract would surprise callers who didn't ask for it.
 
   Examples:
-    rust\tools\test.ps1                                  # full workspace, release
+    rust\tools\test.ps1                                  # full workspace, pg-test-opt profile
     rust\tools\test.ps1 -Package pg-foma -Filter f5_diacritics
     rust\tools\test.ps1 -NoNextest                        # force plain `cargo test`
-    rust\tools\test.ps1 -Gc
+    rust\tools\test.ps1 -Gc                               # gc -Apply first, then test
 #>
 param(
     [string]$Package = '',
@@ -28,41 +30,23 @@ param(
     [Parameter(ValueFromRemainingArguments = $true)][string[]]$ExtraArgs
 )
 
-. "$PSScriptRoot\_common.ps1"
-
 if ($Gc) {
-    Remove-OrphanedCargoProcesses -WhatIfOnly:$false
-    Remove-StaleTargetCaches -WhatIfOnly:$false
+    # Matches this flag's old behavior, now routed through pg.ps1's marker-aware gc -- see build.ps1's
+    # equivalent comment for why that deletes strictly less than the old name-only sweep did.
+    & "$PSScriptRoot\pg.ps1" -Mode gc -Apply
 }
 
-$rustRoot = Get-RustRoot
-$targetDir = Resolve-TargetDir -RustRoot $rustRoot
-if ($targetDir) { $env:CARGO_TARGET_DIR = $targetDir }
+# A hashtable, not an array: splatting an ARRAY of ('-Name','value',...) strings passes them as
+# plain POSITIONAL arguments (each string becomes one positional value, dashes and all) -- it does
+# NOT parse "-Name" tokens as parameter names the way typing them on a command line would. Only
+# hashtable splatting (@ht below) maps keys to named parameters.
+$pgArgs = @{ Mode = 'test' }
+if ($Package) { $pgArgs.Package = $Package }
+if ($Filter) { $pgArgs.Filter = $Filter }
+if ($DebugProfile) { $pgArgs.DebugProfile = $true }
+if ($NoNextest) { $pgArgs.NoNextest = $true }
+if ($MaxConcurrent) { $pgArgs.MaxConcurrent = $MaxConcurrent }
+if ($NoSccache) { $pgArgs.NoSccache = $true }
 
-$usedSccache = if (-not $NoSccache) { Use-Sccache } else { $false }
-if ($usedSccache) { Write-Host "[test] sccache active (cache: $($env:SCCACHE_DIR))" -ForegroundColor Cyan }
-
-$useNextest = (-not $NoNextest) -and (Get-Command cargo-nextest -ErrorAction SilentlyContinue)
-
-if ($useNextest) {
-    $cargoArgs = @('nextest', 'run')
-    if (-not $DebugProfile) { $cargoArgs += '--release' }
-    if ($Package) { $cargoArgs += @('-p', $Package) } else { $cargoArgs += '--workspace' }
-    if ($Filter) { $cargoArgs += $Filter }
-} else {
-    $cargoArgs = @('test')
-    if (-not $DebugProfile) { $cargoArgs += '--release' }
-    if ($Package) { $cargoArgs += @('-p', $Package) } else { $cargoArgs += '--workspace' }
-    if ($Filter) { $cargoArgs += @('--', $Filter) }
-}
-if ($ExtraArgs) { $cargoArgs += $ExtraArgs }
-
-$sem = Enter-BuildSlot -MaxConcurrent $MaxConcurrent
-try {
-    $runner = if ($useNextest) { 'nextest' } else { 'cargo test' }
-    Write-Host "[test] cargo $($cargoArgs -join ' ')  (target-dir: $(if ($targetDir) { $targetDir } else { '<default>' }), runner: $runner)" -ForegroundColor Cyan
-    $code = Invoke-CargoWithReaper -Exe 'cargo' -CmdArgs $cargoArgs -WorkingDirectory $rustRoot
-} finally {
-    Exit-BuildSlot -Semaphore $sem
-}
-exit $code
+& "$PSScriptRoot\pg.ps1" @pgArgs @ExtraArgs
+exit $LASTEXITCODE

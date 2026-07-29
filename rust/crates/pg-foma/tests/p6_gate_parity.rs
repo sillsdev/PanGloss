@@ -53,7 +53,7 @@
 //! p6_gate_parity -- --ignored`.
 
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use foma::apply::apply_init;
 use foma::options::FomaOptions;

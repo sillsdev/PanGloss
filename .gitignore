@@ -8,3 +8,8 @@
 /.worktrees/
 /rust/examples/native-abi/csharp/bin/
 /rust/examples/native-abi/csharp/obj/
+
+# Per-worktree base/identity metadata written by `rust/tools/pg.ps1 -Mode new-worktree`. Describes
+# THIS checkout (which commit it was created from, which managed target it owns), so it must never
+# be committed or travel to another worktree -- see rust/tools/_common.ps1's Write-WorktreeMeta.
+/.pangloss-worktree.json

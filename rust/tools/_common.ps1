@@ -20,15 +20,38 @@ $script:HddCacheRoot = if ($env:PANGLOSS_CARGO_CACHE_ROOT) { $env:PANGLOSS_CARGO
 $script:MinFreeGBOnSsd = if ($env:PANGLOSS_MIN_FREE_SSD_GB) { [double]$env:PANGLOSS_MIN_FREE_SSD_GB } else { 50 }
 $script:BuildSemaphoreName = 'Global\PanGlossCargoBuild'
 
-function Get-RustRoot {
+function Get-RepoRoot {
     # `git rev-parse --show-toplevel` always answers for whichever worktree the caller is
     # standing in, so this resolves correctly whether run from the main checkout or any
-    # .claude/worktrees/* checkout -- no hardcoded paths.
+    # .claude/worktrees/* checkout -- no hardcoded paths. Split out from Get-RustRoot because
+    # worktree metadata/ownership/base-check plumbing below needs the repo root itself, not the
+    # rust/ subdirectory under it.
     $top = git rev-parse --show-toplevel 2>$null
     if (-not $top) { throw "Not inside a git repo (run from within a PanGloss checkout)." }
+    return $top
+}
+
+function Get-RustRoot {
+    $top = Get-RepoRoot
     $rustDir = Join-Path $top 'rust'
     if (-not (Test-Path $rustDir)) { throw "No rust/ dir under $top" }
     return $rustDir
+}
+
+function Get-RepoIdentity {
+    # A stable identity for "which repository is this" that survives everything a path can't:
+    # cloning to a new location, renaming the leaf directory, or being a linked worktree with a
+    # completely different directory name from the primary checkout. The root commit is the one
+    # thing every clone/worktree of the same repo shares and nothing else does -- unlike a path
+    # (worktree ownership markers need to detect "this target dir belongs to a DIFFERENT repo",
+    # which a path comparison can't do across machines/clones).
+    param([string]$RepoRoot = (Get-RepoRoot))
+    $roots = git -C $RepoRoot rev-list --max-parents=0 HEAD 2>$null
+    if (-not $roots) { throw "Could not determine repository root commit (git rev-list --max-parents=0 HEAD) under $RepoRoot" }
+    # Sorted so the (unusual) case of multiple root commits -- e.g. history stitched together
+    # from unrelated histories -- still yields one deterministic identity regardless of git's
+    # traversal order, instead of an identity that could flip between runs.
+    return (($roots | Sort-Object) -join ',')
 }
 
 function Get-WorktreeSlug {
@@ -102,7 +125,12 @@ function Use-Sccache {
 }
 
 function Enter-BuildSlot {
-    param([int]$MaxConcurrent = 2)
+    # -TimeoutSeconds <= 0 keeps the original indefinite-wait behavior (still the default, so
+    # existing direct callers of this function are unaffected). pg.ps1 passes a real timeout so a
+    # wedged/abandoned holder can't block every other worktree's build forever with no signal --
+    # a timed-out wait returns $null instead, and the caller maps that to the dedicated
+    # build-slot-timeout exit code rather than hanging.
+    param([int]$MaxConcurrent = 2, [int]$TimeoutSeconds = 0)
     # Caveat: a named Windows semaphore's maximum count is fixed by whichever process
     # creates it first and is immutable for the object's lifetime (which itself lasts only
     # as long as at least one process holds it open). A later caller passing a different
@@ -119,7 +147,15 @@ function Enter-BuildSlot {
         $sem = New-Object System.Threading.Semaphore($MaxConcurrent, $MaxConcurrent, $localName)
     }
     Write-Host "[build-env] waiting for a build slot (max $MaxConcurrent concurrent across all worktrees)..." -ForegroundColor DarkGray
-    $sem.WaitOne() | Out-Null
+    if ($TimeoutSeconds -le 0) {
+        $sem.WaitOne() | Out-Null
+        return $sem
+    }
+    $acquired = $sem.WaitOne([TimeSpan]::FromSeconds($TimeoutSeconds))
+    if (-not $acquired) {
+        $sem.Dispose()
+        return $null
+    }
     return $sem
 }
 
@@ -135,13 +171,27 @@ function Invoke-CargoWithReaper {
         # and a formal parameter of that name silently fails to bind (cargo would run with
         # zero arguments instead of erroring).
         [string[]]$CmdArgs,
-        [string]$WorkingDirectory
+        [string]$WorkingDirectory,
+        # corpus-test needs cargo's raw stdout AFTER the run to sum the PANGLOSS_CORPUS_CASES
+        # lines pg_conformance_fixtures::corpus::record_cases emits, regardless of pass/fail --
+        # a green exit code alone must not be trusted (a suite that compiles, runs, and asserts
+        # nothing would otherwise still "pass"). Redirected to a file rather than piped so a
+        # reaped/killed process's output up to that point isn't lost.
+        [string]$CaptureStdoutPath = ''
     )
+    $psiArgs = @{
+        FilePath         = $Exe
+        ArgumentList     = $CmdArgs
+        WorkingDirectory = $WorkingDirectory
+        NoNewWindow      = $true
+        PassThru         = $true
+    }
+    if ($CaptureStdoutPath) { $psiArgs['RedirectStandardOutput'] = $CaptureStdoutPath }
     # Start-Process (not `& cargo ...`) so we hold a real PID to reap. On Windows,
     # Stop-Process / Ctrl+C alone does NOT kill rustc/link.exe descendants -- only
     # `taskkill /T` (kill the whole tree) reliably does, which is what `finally` runs here
     # if the process is still alive (e.g. this script itself got Ctrl+C'd).
-    $psi = Start-Process -FilePath $Exe -ArgumentList $CmdArgs -WorkingDirectory $WorkingDirectory -NoNewWindow -PassThru
+    $psi = Start-Process @psiArgs
     try {
         Wait-Process -Id $psi.Id
         return $psi.ExitCode
@@ -198,4 +248,550 @@ function Remove-OrphanedCargoProcesses {
             }
         }
     }
+}
+
+function Get-LiveBuildProcesses {
+    # gc's process check before it deletes anything: cargo/rustc/link/sccache all currently
+    # running, orphaned or not (Remove-OrphanedCargoProcesses only cares about orphans; this is
+    # broader on purpose -- a live, perfectly healthy build in another worktree is exactly the
+    # thing gc must not race against).
+    Get-CimInstance Win32_Process -Filter "Name='rustc.exe' or Name='cargo.exe' or Name='link.exe' or Name='sccache.exe'"
+}
+
+# =================================================================================================
+# docs/superpowers/specs/2026-07-29-categorical-build-hardening-design.md, parts 2-4:
+# distinct preflight exit codes, worktree base-commit contract, target ownership, sccache health,
+# corpus-manifest validation, the one-line preflight record, and marker-aware gc classification.
+# Consumed by rust/tools/pg.ps1; also exercised directly by rust/tools/tests/*.tests.ps1 so the
+# decision logic is testable without a real build, a real drive, or a real git worktree registry.
+# =================================================================================================
+
+# One code per distinct preflight failure (design doc, "Error handling"): a caller (or a human
+# reading a CI log) can tell "wrong commit" from "disk full" from "corpus missing" without parsing
+# text. Picked to avoid colliding with cargo's own exit codes (101 on build failure, etc.) and with
+# PowerShell's own reserved low range.
+$script:ExitCodeWrongBase = 10
+$script:ExitCodeMissingCorpus = 11
+$script:ExitCodeLowDisk = 12
+$script:ExitCodeCacheUnavailable = 13
+$script:ExitCodeBadTargetOwnership = 14
+$script:ExitCodeBuildSlotTimeout = 15
+$script:ExitCodeZeroCorpusCases = 16
+
+# ---------------------------------------------------------------------------------------------
+# Worktree metadata: the exact-base contract
+# ---------------------------------------------------------------------------------------------
+
+function Get-WorktreeMetaPath {
+    # Gitignored (see rust/tools -- top-level .gitignore entry added alongside this function):
+    # per-worktree, machine-local record of what commit this worktree was BUILT FROM, not
+    # something to commit or share. Lives at the worktree root (not under rust/) so it is
+    # unambiguously one file per worktree even for repos that grow a second Cargo workspace later.
+    param([string]$RepoRoot = (Get-RepoRoot))
+    return Join-Path $RepoRoot '.pangloss-worktree.json'
+}
+
+function Write-WorktreeMeta {
+    # Called by the worktree bootstrap command at creation time, once, with the revision it was
+    # asked to create from (both as typed -- $RequestedRevision, e.g. a branch name or short
+    # SHA -- and as resolved to a full object ID). Recording BOTH is what lets a later mismatch
+    # report be useful: "you asked for main, main has since moved, you're still on <object id>"
+    # is a diagnosable message; recording only one of the two loses half of that.
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)][string]$RequestedRevision,
+        [Parameter(Mandatory)][string]$ResolvedObjectId,
+        [string]$Branch = '',
+        [string]$CorpusPolicy = 'local-samples-data',
+        [string]$ManagedTarget = ''
+    )
+    $meta = [ordered]@{
+        schema_version     = 1
+        repository_id      = Get-RepoIdentity -RepoRoot $RepoRoot
+        requested_revision = $RequestedRevision
+        resolved_object_id = $ResolvedObjectId
+        created_utc        = (Get-Date).ToUniversalTime().ToString('o')
+        worktree_path      = $RepoRoot
+        branch             = $Branch
+        corpus_policy      = $CorpusPolicy
+        managed_target     = $ManagedTarget
+    }
+    $path = Get-WorktreeMetaPath -RepoRoot $RepoRoot
+    ($meta | ConvertTo-Json -Depth 4) | Set-Content -Path $path -Encoding utf8
+    return [PSCustomObject]$meta
+}
+
+function Read-WorktreeMeta {
+    # Absence is the COMMON case (primary checkout, every worktree created before this change)
+    # and must not be an error -- callers (Test-WorktreeBase) treat $null as "unverified", never
+    # as a failure. A corrupt/partially-written file is folded into the same $null return rather
+    # than thrown, for the same reason: a preflight check must not itself crash the build.
+    param([string]$RepoRoot = (Get-RepoRoot))
+    $path = Get-WorktreeMetaPath -RepoRoot $RepoRoot
+    if (-not (Test-Path $path)) { return $null }
+    try {
+        return Get-Content $path -Raw | ConvertFrom-Json
+    } catch {
+        return $null
+    }
+}
+
+function Test-WorktreeBase {
+    # strict: for read-only assessment tasks where ANY drift from the recorded base -- even a
+    # clean fast-forward -- means "this isn't the snapshot you asked about."
+    # development: for ordinary work, where new commits on top of the recorded base are exactly
+    # what's supposed to happen; the thing that must NOT happen is the recorded base being rewound
+    # or rebased out of history entirely (git merge-base --is-ancestor catches that; a plain HEAD
+    # equality check would not, since it would also reject perfectly normal forward progress).
+    # off: explicit opt-out, e.g. `pg.ps1 doctor` runs against a worktree nobody has bootstrapped.
+    #
+    # Absent metadata is reported as Checked=$false, Ok=$true ("unverified"), never as a failure --
+    # see Read-WorktreeMeta's doc for why. This function never checks out or rebases anything: the
+    # design doc is explicit that either action can silently discard context or invalidate a build
+    # cache the caller was relying on.
+    param(
+        [ValidateSet('strict', 'development', 'off')][string]$Mode = 'development',
+        [string]$RepoRoot = (Get-RepoRoot)
+    )
+    $head = git -C $RepoRoot rev-parse HEAD 2>$null
+    $result = [ordered]@{
+        Checked  = $true
+        Ok       = $true
+        Detail   = ''
+        Expected = $null
+        Actual   = $head
+    }
+    if ($Mode -eq 'off') {
+        $result.Checked = $false
+        $result.Detail = 'base check disabled (-BaseMode off)'
+        return [PSCustomObject]$result
+    }
+    $meta = Read-WorktreeMeta -RepoRoot $RepoRoot
+    if (-not $meta -or -not $meta.resolved_object_id) {
+        $result.Checked = $false
+        $result.Detail = 'no recorded base (worktree predates metadata, or metadata unreadable) -- unverified'
+        return [PSCustomObject]$result
+    }
+    $result.Expected = $meta.resolved_object_id
+    if ($Mode -eq 'strict') {
+        $result.Ok = ($head -eq $meta.resolved_object_id)
+        $result.Detail = if ($result.Ok) {
+            "HEAD matches recorded base exactly ($head)"
+        } else {
+            "HEAD ($head) != recorded base ($($meta.resolved_object_id))"
+        }
+        return [PSCustomObject]$result
+    }
+    & git -C $RepoRoot merge-base --is-ancestor $meta.resolved_object_id $head 2>$null
+    $isAncestor = ($LASTEXITCODE -eq 0)
+    $result.Ok = $isAncestor
+    $result.Detail = if ($isAncestor) {
+        "recorded base ($($meta.resolved_object_id)) is an ancestor of HEAD ($head)"
+    } else {
+        "recorded base ($($meta.resolved_object_id)) is NOT an ancestor of HEAD ($head) -- history diverged from the recorded base"
+    }
+    return [PSCustomObject]$result
+}
+
+# ---------------------------------------------------------------------------------------------
+# Target ownership
+# ---------------------------------------------------------------------------------------------
+
+function Get-TargetOwnershipPath {
+    param([Parameter(Mandatory)][string]$TargetDir)
+    return Join-Path $TargetDir '.pangloss-owner.json'
+}
+
+function Write-TargetOwnership {
+    # Target dirs are keyed by worktree SLUG (leaf directory name), not by an absolute path or the
+    # repository identity -- so two independent clones of this repo (or, in principle, of a
+    # DIFFERENT repo that happens to check out into a same-named leaf directory) can collide on
+    # the same cache-root subdirectory. Refuse to silently adopt a target dir whose marker names a
+    # different repository_id: reusing it would mix one repo's build artifacts under another's
+    # ownership record, and a later gc run keyed on "matches this repository" would then be wrong
+    # in either direction (deleting it, or refusing to delete it, for the wrong reason).
+    param(
+        [Parameter(Mandatory)][string]$TargetDir,
+        [Parameter(Mandatory)][string]$RepositoryId,
+        [Parameter(Mandatory)][string]$WorktreePath,
+        [switch]$Preserved
+    )
+    $path = Get-TargetOwnershipPath -TargetDir $TargetDir
+    $createdUtc = (Get-Date).ToUniversalTime().ToString('o')
+    if (Test-Path $path) {
+        try {
+            $existing = Get-Content $path -Raw | ConvertFrom-Json
+        } catch {
+            $existing = $null
+        }
+        if ($existing -and $existing.repository_id -and $existing.repository_id -ne $RepositoryId) {
+            return [PSCustomObject]@{
+                Ok     = $false
+                Detail = "target dir owner mismatch: marker names repository_id '$($existing.repository_id)', this build is repository_id '$RepositoryId' -- refusing to reuse $TargetDir"
+                Path   = $path
+            }
+        }
+        # created_utc survives every rewrite of an already-owned marker -- it is the target
+        # dir's age, not this invocation's start time; only last_used_utc should move on a rewrite.
+        if ($existing -and $existing.created_utc) { $createdUtc = $existing.created_utc }
+    }
+    # preserved is monotonic: an ordinary build/test call (no -Preserved) must not silently clear
+    # a `preserved` flag a prior `-Mode release` run set on this same target dir. There is no
+    # un-preserve path here on purpose -- nothing in this design calls for one.
+    #
+    # Local var deliberately named $isPreserved, NOT $preserved: PowerShell variable names are
+    # CASE-INSENSITIVE, so a local `$preserved` would silently be the exact same variable as the
+    # `-Preserved` switch parameter above it, and assigning `$preserved = $false` here would wipe
+    # out the caller's switch value before the `if ($Preserved)` check below even ran. Caught by
+    # hand-inspecting a marker this wrote for real, which had `preserved` serialized as
+    # `{"IsPresent": ...}` (the raw SwitchParameter object) instead of a JSON boolean.
+    $isPreserved = $false
+    if ($Preserved) { $isPreserved = $true }
+    if ($existing -and $existing.preserved) { $isPreserved = $true }
+    $marker = [ordered]@{
+        schema_version = 1
+        repository_id  = $RepositoryId
+        worktree_path  = $WorktreePath
+        created_utc    = $createdUtc
+        last_used_utc  = (Get-Date).ToUniversalTime().ToString('o')
+        preserved      = $isPreserved
+    }
+    ($marker | ConvertTo-Json -Depth 4) | Set-Content -Path $path -Encoding utf8
+    return [PSCustomObject]@{ Ok = $true; Detail = 'ownership marker written'; Path = $path }
+}
+
+# ---------------------------------------------------------------------------------------------
+# sccache health
+# ---------------------------------------------------------------------------------------------
+
+function Test-SccacheHealth {
+    # Three states, not two: "not installed" is a normal, expected local-dev situation (falls back
+    # to an uncached build); "installed but --show-stats fails" means something IS on PATH named
+    # sccache but can't actually talk to its cache (bad SCCACHE_DIR permissions, a stale/corrupt
+    # cache, a wrapped compiler mismatch) -- that's the state the design doc says must FAIL the
+    # build rather than silently proceed uncached, because a silent fallback there is exactly how
+    # "sccache active" claims in a build log stop being trustworthy.
+    if (-not (Get-Command sccache -ErrorAction SilentlyContinue)) {
+        return [PSCustomObject]@{ State = 'not-installed'; Ok = $false; Detail = 'sccache not found on PATH' }
+    }
+    $stats = & sccache --show-stats 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        return [PSCustomObject]@{
+            State  = 'unhealthy'
+            Ok     = $false
+            Detail = "sccache --show-stats exited $($LASTEXITCODE): $($stats -join ' | ')"
+        }
+    }
+    # Summarize, don't dump. `--show-stats` prints ~40 lines; splicing all of it into the preflight
+    # record buried every other preflight field (base check, target dir, corpus digests) in stats
+    # noise, which defeats the point of having a record you actually read. Keep the few numbers that
+    # say the cache is working and leave `sccache --show-stats` for when you want the rest.
+    # Out-String rather than -join so an ErrorRecord (some sccache builds write to stderr, which
+    # `2>&1` captures as objects, not strings) still stringifies the way the patterns below expect.
+    #
+    # Every field below is OPTIONAL on purpose. A freshly started sccache server reports zero compile
+    # requests, prints its hit rate as a placeholder rather than a number, and omits the cache-size
+    # block entirely -- so "responding" with no numbers is the correct, expected output there, not a
+    # parse failure. Checked: a warm server on the same machine yields
+    # "responding, hit rate 0.71 %, cache 1 GiB / 10 GiB".
+    $text = ($stats | Out-String)
+    $hitRate = ([regex]::Match($text, 'Cache hits rate\s+([\d.]+\s*%)')).Groups[1].Value
+    $size = ([regex]::Match($text, 'Cache size\s+(.+)')).Groups[1].Value.Trim()
+    $maxSize = ([regex]::Match($text, 'Max cache size\s+(.+)')).Groups[1].Value.Trim()
+    $summary = 'responding'
+    if ($hitRate) { $summary += ", hit rate $hitRate" }
+    if ($size -and $maxSize) { $summary += ", cache $size / $maxSize" }
+    return [PSCustomObject]@{ State = 'healthy'; Ok = $true; Detail = $summary; RawStats = $text }
+}
+
+# ---------------------------------------------------------------------------------------------
+# Corpus manifest (mirrors pg_conformance_fixtures::corpus's Rust-side reader so the PowerShell
+# front end and the Rust test helpers agree on what "present" and "required" mean)
+# ---------------------------------------------------------------------------------------------
+
+function Get-CorpusManifest {
+    param([string]$RepoRoot = (Get-RepoRoot))
+    $path = Join-Path $RepoRoot 'rust\tools\corpus-manifest.json'
+    if (-not (Test-Path $path)) { throw "corpus manifest not found: $path" }
+    return Get-Content $path -Raw | ConvertFrom-Json
+}
+
+function Get-CorpusRoot {
+    # PANGLOSS_CORPUS_ROOT overrides the manifest's own corpus_root, exactly like
+    # pg_conformance_fixtures::corpus::corpus_root() on the Rust side -- a linked worktree can
+    # point this at an external corpus location instead of copying gigabytes of private data per
+    # worktree.
+    param([string]$RepoRoot = (Get-RepoRoot), $Manifest)
+    if ($env:PANGLOSS_CORPUS_ROOT) { return $env:PANGLOSS_CORPUS_ROOT }
+    if (-not $Manifest) { $Manifest = Get-CorpusManifest -RepoRoot $RepoRoot }
+    return Join-Path $RepoRoot ($Manifest.corpus_root -replace '/', '\')
+}
+
+function Test-CorpusPresent {
+    # Validates every REQUIRED manifest file before cargo starts (design doc: "It validates every
+    # requested file before Cargo starts"). Digests are truncated (first 12 hex chars of SHA-256)
+    # -- enough to catch "this isn't the file you think it is" across machines/runs without
+    # printing a full 64-char hash into every build log.
+    param(
+        [string]$RepoRoot = (Get-RepoRoot),
+        $Manifest,
+        [string]$CorpusRoot
+    )
+    if (-not $Manifest) { $Manifest = Get-CorpusManifest -RepoRoot $RepoRoot }
+    if (-not $CorpusRoot) { $CorpusRoot = Get-CorpusRoot -RepoRoot $RepoRoot -Manifest $Manifest }
+    $missing = @()
+    $present = @()
+    foreach ($corpus in $Manifest.corpora) {
+        foreach ($file in $corpus.files) {
+            $full = Join-Path $CorpusRoot $file.path
+            if (Test-Path $full -PathType Leaf) {
+                $bytes = (Get-Item $full).Length
+                $hash = (Get-FileHash -Path $full -Algorithm SHA256).Hash.Substring(0, 12).ToLower()
+                $present += [PSCustomObject]@{
+                    Logical     = $corpus.logical_name
+                    Path        = $file.path
+                    Bytes       = $bytes
+                    Sha256Short = $hash
+                }
+            } elseif ($file.required) {
+                $missing += "$($corpus.logical_name):$($file.path)"
+            }
+        }
+    }
+    return [PSCustomObject]@{
+        Ok         = ($missing.Count -eq 0)
+        Missing    = $missing
+        Present    = $present
+        CorpusRoot = $CorpusRoot
+    }
+}
+
+# ---------------------------------------------------------------------------------------------
+# Disk reserve (pure decision logic -- takes a free-space number rather than querying a drive
+# itself, so it's unit-testable without touching a real disk)
+# ---------------------------------------------------------------------------------------------
+
+function Test-DiskReserve {
+    # This is deliberately a SEPARATE, lower bar from Resolve-TargetDir's SSD/HDD selection
+    # reserve (default 50GB, "prefer NVMe while it has headroom"): that one is a placement
+    # preference, not a safety gate, and a build should not hard-fail just because the SSD alone
+    # dipped below its preference threshold when the HDD fallback is fine. This is the last-resort
+    # "the chosen target dir's own drive is nearly full" check that must reject the build outright
+    # -- the 1.3GB-free crisis the whole design doc opens with.
+    # [Nullable[double]], NOT [double]: a plain [double] parameter silently coerces a passed $null
+    # into 0.0 rather than keeping it null, which would make the "free space unknown" case
+    # indistinguishable from "0GB free" and wrongly fail the build. Caught by a test asserting
+    # $null -FreeGB is non-blocking, which failed until this type was fixed.
+    param(
+        [Nullable[double]]$FreeGB,
+        [double]$MinFreeGB = 5
+    )
+    if ($null -eq $FreeGB) {
+        return [PSCustomObject]@{ Ok = $true; Detail = 'free space unknown (drive not queryable) -- not blocking on it'; FreeGB = $null }
+    }
+    $ok = $FreeGB -ge $MinFreeGB
+    return [PSCustomObject]@{
+        Ok     = $ok
+        Detail = if ($ok) {
+            "${FreeGB}GB free (>= ${MinFreeGB}GB reserve)"
+        } else {
+            "${FreeGB}GB free (< ${MinFreeGB}GB reserve) -- refusing to start a build that could fill the drive"
+        }
+        FreeGB = $FreeGB
+    }
+}
+
+# ---------------------------------------------------------------------------------------------
+# Preflight record
+# ---------------------------------------------------------------------------------------------
+
+function Write-Preflight {
+    # One record, printed before cargo starts, naming everything an agent or a human would
+    # otherwise have to reconstruct after the fact from a build log: worktree, commit, target
+    # dir, cache state, corpus state, disk state, and build slot (design doc goal 6).
+    param(
+        [string]$Mode,
+        [string]$Profile,
+        [string]$RepoRoot,
+        [string]$TargetDir,
+        [Parameter(Mandatory)]$BaseCheck,
+        [Parameter(Mandatory)]$SccacheHealth,
+        [Nullable[double]]$FreeGB,
+        $DiskCheck,
+        $CorpusState = $null,
+        [int]$MaxConcurrent
+    )
+    $slug = Get-WorktreeSlug -RustRoot (Join-Path $RepoRoot 'rust')
+    $head = git -C $RepoRoot rev-parse HEAD 2>$null
+    $dirty = @(git -C $RepoRoot status --porcelain 2>$null).Count
+    Write-Host '----- pg preflight -----' -ForegroundColor Cyan
+    Write-Host "mode: $Mode  profile: $Profile"
+    Write-Host "worktree: $RepoRoot  (slug: $slug)"
+    Write-Host "HEAD: $head  dirty files: $dirty"
+    $baseColor = if (-not $BaseCheck.Checked) { 'Yellow' } elseif ($BaseCheck.Ok) { 'Green' } else { 'Red' }
+    Write-Host "base check ($($BaseCheck.Checked ? 'checked' : 'unverified')): $($BaseCheck.Detail)" -ForegroundColor $baseColor
+    if ($BaseCheck.Checked -and -not $BaseCheck.Ok) {
+        Write-Host "  expected: $($BaseCheck.Expected)" -ForegroundColor Red
+        Write-Host "  actual:   $($BaseCheck.Actual)" -ForegroundColor Red
+    }
+    Write-Host "target dir: $(if ($TargetDir) { $TargetDir } else { '<cargo default>' })"
+    if ($DiskCheck) {
+        Write-Host "free space: $($DiskCheck.Detail)" -ForegroundColor $(if ($DiskCheck.Ok) { 'Gray' } else { 'Red' })
+    }
+    Write-Host "sccache: $($SccacheHealth.State) -- $($SccacheHealth.Detail)" -ForegroundColor $(if ($SccacheHealth.Ok -or $SccacheHealth.State -eq 'disabled') { 'Gray' } else { 'Red' })
+    if ($CorpusState) {
+        if ($CorpusState.Ok) {
+            Write-Host "corpus: present ($($CorpusState.Present.Count) file(s), root $($CorpusState.CorpusRoot))"
+            foreach ($p in $CorpusState.Present) {
+                Write-Host "  $($p.Logical):$($p.Path)  $($p.Bytes) bytes  sha256:$($p.Sha256Short)"
+            }
+        } else {
+            Write-Host 'corpus: MISSING required file(s):' -ForegroundColor Red
+            foreach ($m in $CorpusState.Missing) { Write-Host "  $m" -ForegroundColor Red }
+        }
+    }
+    Write-Host "build slot limit: $MaxConcurrent (machine-wide convention -- see Enter-BuildSlot)"
+    Write-Host '-------------------------' -ForegroundColor Cyan
+}
+
+# ---------------------------------------------------------------------------------------------
+# gc: marker-aware classification + the actual (side-effecting) deletion step, kept separate so
+# the decision of WHAT to delete is unit-testable without ever calling Remove-Item.
+# ---------------------------------------------------------------------------------------------
+
+function Get-ManagedTargetDirs {
+    # -Roots is a parameter (not always $script:SsdCacheRoot/$script:HddCacheRoot) so tests can
+    # point this at a temp directory instead of the real cache roots -- gc's own tests must never
+    # require C:\cargo-targets or G:\cargo-build-cache to exist, let alone touch them.
+    param([Parameter(Mandatory)][string[]]$Roots)
+    foreach ($root in $Roots) {
+        if (-not (Test-Path $root)) { continue }
+        Get-ChildItem $root -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -ne 'sccache' }
+    }
+}
+
+function Get-TargetClassification {
+    # Five classes, only one of which gc may ever delete:
+    #  - unknown:     no ownership marker at all. Never deleted -- an unmarked directory could be
+    #                  anything (a manual experiment, a tool this design doesn't know about); the
+    #                  design doc is explicit that gc must never guess here.
+    #  - other-repo:   marker names a DIFFERENT repository_id. Not this repo's to touch.
+    #  - preserved:    marker's `preserved` flag is set (an explicitly registered release
+    #                  deliverable). Never deleted.
+    #  - live:         owned by this repo, not preserved, but its slug still appears in
+    #                  `git worktree list` -- the worktree that owns it still exists, so this is
+    #                  someone's active target, not stale.
+    #  - disposable:   owned by this repo, not preserved, and its worktree is gone. The only class
+    #                  Invoke-TargetGc will ever remove.
+    #
+    # -LiveSlugs is likewise a parameter (default calls the real Get-LiveWorktreeSlugs) so tests
+    # can inject a fixed slug list instead of depending on this checkout's actual
+    # `git worktree list` output.
+    param(
+        [Parameter(Mandatory)][string]$RepositoryId,
+        [string[]]$Roots = @($script:SsdCacheRoot, $script:HddCacheRoot),
+        [string[]]$LiveSlugs
+    )
+    if ($null -eq $LiveSlugs) { $LiveSlugs = @(Get-LiveWorktreeSlugs) }
+    $out = @()
+    foreach ($d in (Get-ManagedTargetDirs -Roots $Roots)) {
+        $sizeGB = [math]::Round(((Get-ChildItem $d.FullName -Recurse -Force -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum) / 1GB, 2)
+        $markerPath = Get-TargetOwnershipPath -TargetDir $d.FullName
+        if (-not (Test-Path $markerPath)) {
+            $out += [PSCustomObject]@{ Path = $d.FullName; Class = 'unknown'; SizeGB = $sizeGB; Detail = 'no ownership marker -- gc never touches unmarked directories' }
+            continue
+        }
+        try {
+            $marker = Get-Content $markerPath -Raw | ConvertFrom-Json
+        } catch {
+            $out += [PSCustomObject]@{ Path = $d.FullName; Class = 'unknown'; SizeGB = $sizeGB; Detail = 'unreadable ownership marker -- treated as unmarked' }
+            continue
+        }
+        if ($marker.repository_id -ne $RepositoryId) {
+            $out += [PSCustomObject]@{ Path = $d.FullName; Class = 'other-repo'; SizeGB = $sizeGB; Detail = "owned by a different repository ($($marker.repository_id))" }
+            continue
+        }
+        if ($marker.preserved) {
+            $out += [PSCustomObject]@{ Path = $d.FullName; Class = 'preserved'; SizeGB = $sizeGB; Detail = 'explicitly preserved (release deliverable)' }
+            continue
+        }
+        if ($LiveSlugs -contains $d.Name) {
+            $out += [PSCustomObject]@{ Path = $d.FullName; Class = 'live'; SizeGB = $sizeGB; Detail = 'worktree still exists in `git worktree list`' }
+            continue
+        }
+        $out += [PSCustomObject]@{ Path = $d.FullName; Class = 'disposable'; SizeGB = $sizeGB; Detail = 'owned by this repository, not preserved, worktree no longer exists' }
+    }
+    return $out
+}
+
+function Invoke-TargetGc {
+    # The only function in this file allowed to delete a managed target directory. Dry-run
+    # (-Apply not passed) is the default and NEVER deletes anything, matching the design doc's
+    # "the first gc run is dry-run only" migration note -- $Apply defaults to $false here on
+    # purpose, not just at the pg.ps1 call site, so a test (or a future caller) that forgets to
+    # pass it explicitly fails safe.
+    param(
+        [Parameter(Mandatory)][object[]]$Classification,
+        [switch]$Apply,
+        [object[]]$BusyProcesses = @(),
+        # The roots a deletion is allowed to touch. Defaults to the same two the classifier
+        # enumerates, so the containment re-check below compares against the same boundary the
+        # caller reasoned about; a test can narrow it to a temp dir.
+        [string[]]$Roots = @($script:SsdCacheRoot, $script:HddCacheRoot)
+    )
+    $disposable = @($Classification | Where-Object { $_.Class -eq 'disposable' })
+    $result = [ordered]@{
+        Disposable = $disposable
+        Deleted    = @()
+        Skipped    = $false
+        SkipReason = ''
+    }
+    if (-not $Apply) {
+        $result.Skipped = $true
+        $result.SkipReason = 'dry run (-Apply not passed) -- nothing deleted'
+        return [PSCustomObject]$result
+    }
+    if ($BusyProcesses.Count -gt 0) {
+        # A live cargo/rustc/link/sccache process anywhere on the machine is reason enough to
+        # abstain entirely rather than try to reason about which specific target dir it's using --
+        # gc runs rarely enough that "try again once nothing is building" costs nothing, whereas
+        # deleting a target a live build is mid-write to is a build-breaking race.
+        $result.Skipped = $true
+        $result.SkipReason = "refusing to delete: $($BusyProcesses.Count) live cargo/rustc/link/sccache process(es) running"
+        return [PSCustomObject]$result
+    }
+    foreach ($d in $disposable) {
+        # Re-validate containment at the moment of deletion, not only at classification time (design
+        # doc: "It resolves and validates each absolute target before deletion"). Today's callers all
+        # build $Classification from Get-ManagedTargetDirs, which only ever enumerates under $Roots,
+        # so this cannot currently fire -- which is exactly why it is cheap insurance rather than
+        # redundant: this is the one function in the repo that recursively force-deletes directories,
+        # and the next caller to hand it a hand-built or re-normalized list is where an escape would
+        # otherwise happen silently. Resolve first so `..` or a symlink cannot smuggle a path out of a
+        # root that a plain string-prefix test would accept.
+        $resolved = (Resolve-Path -LiteralPath $d.Path -ErrorAction SilentlyContinue)
+        if (-not $resolved) {
+            $result.SkipReason = "skipped $($d.Path): no longer resolvable"
+            continue
+        }
+        $full = $resolved.ProviderPath
+        $contained = $false
+        foreach ($root in $Roots) {
+            $rootResolved = (Resolve-Path -LiteralPath $root -ErrorAction SilentlyContinue)
+            if (-not $rootResolved) { continue }
+            $rootFull = $rootResolved.ProviderPath.TrimEnd('\')
+            # Compare against "<root>\" so a sibling root sharing a name prefix (C:\cargo-targets vs
+            # C:\cargo-targets-old) can never be mistaken for being inside this one.
+            if ($full.StartsWith($rootFull + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)) {
+                $contained = $true
+                break
+            }
+        }
+        if (-not $contained) {
+            throw "refusing to delete '$full': not contained in any configured cache root ($($Roots -join ', ')). This guards against a caller handing Invoke-TargetGc a path it did not enumerate."
+        }
+        Remove-Item -Recurse -Force -LiteralPath $full
+        $result.Deleted += $d.Path
+    }
+    return [PSCustomObject]$result
 }

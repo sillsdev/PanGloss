@@ -1,23 +1,16 @@
 <#
-  Build entry point for the PanGloss Rust workspace. Run from any worktree (the main
-  checkout or any .claude/worktrees/* checkout) -- it resolves its own paths, so there's
-  no per-worktree copy-and-edit needed.
-
-  Handles: worktree/path resolution, full-workspace vs single-crate builds, target-dir
-  redirection (prefers C:\cargo-targets -- NVMe, fast for the scattered small-file I/O a
-  build/link does -- as long as C: keeps >=50GB free; falls back to G:\cargo-build-cache,
-  a spinning HDD with much more capacity but worse random-I/O latency, once C: gets tight,
-  so 30+ worktrees can't refill the space crisis that motivated moving off C: in the first
-  place), sccache wiring if installed (its cache always lives on the HDD root -- cache hits
-  are cheap single-blob reads, so capacity matters more there than seek time), a
-  cross-worktree concurrency gate, and process-tree cleanup so a killed/timed-out build
-  doesn't leave orphaned rustc/link processes behind.
+  Build entry point for the PanGloss Rust workspace. THIN FRONT END: all actual policy (target-dir
+  redirection, sccache wiring, worktree base-commit check, disk/build-slot gates, ownership
+  markers) now lives in rust/tools/pg.ps1 (docs/superpowers/specs/
+  2026-07-29-categorical-build-hardening-design.md). This script just translates its own
+  long-standing parameter names into a `pg.ps1 -Mode build` call, so existing callers keep working
+  unchanged and there is exactly ONE place build policy is decided rather than two copies that drift.
 
   Examples:
     rust\tools\build.ps1                       # full workspace, release
     rust\tools\build.ps1 -Package pg-foma       # single crate
     rust\tools\build.ps1 -DebugProfile
-    rust\tools\build.ps1 -Gc                    # reap orphans + stale caches first
+    rust\tools\build.ps1 -Gc                    # gc -Apply first, then build
     rust\tools\build.ps1 -- --features foo      # extra args passed through to cargo
 #>
 param(
@@ -29,30 +22,23 @@ param(
     [Parameter(ValueFromRemainingArguments = $true)][string[]]$ExtraArgs
 )
 
-. "$PSScriptRoot\_common.ps1"
-
 if ($Gc) {
-    Remove-OrphanedCargoProcesses -WhatIfOnly:$false
-    Remove-StaleTargetCaches -WhatIfOnly:$false
+    # Matches this flag's old behavior (reap orphans + delete stale caches before building), now
+    # routed through pg.ps1's marker-aware gc instead of the old name-only sweep. Consequence worth
+    # knowing: nothing currently carries an ownership marker, so this deletes NOTHING until managed
+    # builds have written markers -- strictly safer than the old sweep, and reported rather than silent.
+    & "$PSScriptRoot\pg.ps1" -Mode gc -Apply
 }
 
-$rustRoot = Get-RustRoot
-$targetDir = Resolve-TargetDir -RustRoot $rustRoot
-if ($targetDir) { $env:CARGO_TARGET_DIR = $targetDir }
+# A hashtable, not an array: splatting an ARRAY of ('-Name','value',...) strings passes them as
+# plain POSITIONAL arguments (each string becomes one positional value, dashes and all) -- it does
+# NOT parse "-Name" tokens as parameter names the way typing them on a command line would. Only
+# hashtable splatting (@ht below) maps keys to named parameters.
+$pgArgs = @{ Mode = 'build' }
+if ($Package) { $pgArgs.Package = $Package }
+if ($DebugProfile) { $pgArgs.DebugProfile = $true }
+if ($MaxConcurrent) { $pgArgs.MaxConcurrent = $MaxConcurrent }
+if ($NoSccache) { $pgArgs.NoSccache = $true }
 
-$usedSccache = if (-not $NoSccache) { Use-Sccache } else { $false }
-if ($usedSccache) { Write-Host "[build] sccache active (cache: $($env:SCCACHE_DIR))" -ForegroundColor Cyan }
-
-$cargoArgs = @('build')
-if (-not $DebugProfile) { $cargoArgs += '--release' }
-if ($Package) { $cargoArgs += @('-p', $Package) } else { $cargoArgs += '--workspace' }
-if ($ExtraArgs) { $cargoArgs += $ExtraArgs }
-
-$sem = Enter-BuildSlot -MaxConcurrent $MaxConcurrent
-try {
-    Write-Host "[build] cargo $($cargoArgs -join ' ')  (target-dir: $(if ($targetDir) { $targetDir } else { '<default>' }))" -ForegroundColor Cyan
-    $code = Invoke-CargoWithReaper -Exe 'cargo' -CmdArgs $cargoArgs -WorkingDirectory $rustRoot
-} finally {
-    Exit-BuildSlot -Semaphore $sem
-}
-exit $code
+& "$PSScriptRoot\pg.ps1" @pgArgs @ExtraArgs
+exit $LASTEXITCODE

@@ -102,3 +102,17 @@ panic = "unwind"
 opt-level = 3
 lto = "thin"
 codegen-units = 16
+
+# Broad test suites must not pay [profile.release]'s fat-LTO/single-codegen-unit link cost: this
+# workspace produces hundreds of test binaries, and fat LTO is per-binary link work that dominates
+# the run. rust/tools/pg.ps1's `test`/`corpus-test` modes pass `--profile pg-test-opt` (or nextest's
+# `--cargo-profile pg-test-opt`) by default; only `-Mode release` uses [profile.release] itself, so
+# actual deliverables and production-equivalent perf measurements keep fat LTO/codegen-units=1
+# untouched above.
+[profile.pg-test-opt]
+inherits = "release"
+lto = "thin"
+codegen-units = 16
+# Line tables, not full DWARF: keeps panic/backtrace locations useful for a failing corpus or perf
+# gate without paying release's usual full debug-info cost across hundreds of test binaries.
+debug = "line-tables-only"
