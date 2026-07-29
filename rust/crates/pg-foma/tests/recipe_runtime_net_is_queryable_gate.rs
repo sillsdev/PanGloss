@@ -27,10 +27,31 @@
 //! is worse than none. The real pin therefore lives in [`corpus_indonesian_confirms_after_the_finish_step`],
 //! which needs the private corpus.
 //!
-//! **Follow-up owed:** a synthetic fixture that reproduces the boundary-token pathology (multi-morph
-//! surface words over a char table with `Boundary` defs, where the cleanup compose decides
-//! queryability) would move this pin into CI. Until it exists, defect (1) is pinned only by a
-//! corpus-gated test.
+//! **Follow-up owed:** a synthetic fixture reproducing the boundary-token pathology would move this
+//! pin into CI. The blocker was not knowing what such a fixture must contain; that has now been
+//! measured, so it is authorable. Emitting each grammar's `uflexc` lexc and counting lines carrying a
+//! boundary token gives:
+//!
+//! | grammar | boundary tokens | lexc lines with one | continuation class |
+//! |---|---:|---:|---|
+//! | `indonesian` (DOES reproduce) | 3 | 7 | `PrefixOrRoot` |
+//! | `recipe-ordered-generic` | 1 | 1 | `SuffixOrEnd` |
+//! | `guesser-pattern-root-fallback` | 1 | 1 | `SuffixOrEnd` |
+//! | `recipe-strata-generic` | 1 | 0 | never emitted |
+//!
+//! So the property is NOT "declares a `BoundaryDefinition`" -- every staged fixture above declares
+//! one and none reproduces the defect. It is that a morph's own emitted UNDERLYING text carries a
+//! boundary token in the **prefix** chain, so a multi-morph path contains a boundary the surface form
+//! never does, and `apply_up` on a plain surface query cannot traverse it until the cleanup compose
+//! removes it. `recipe-strata-generic` shows the declaration alone does nothing (0 emitted lines);
+//! the two `SuffixOrEnd` fixtures show one boundary-bearing suffix line is not enough.
+//!
+//! A fixture therefore needs: a `BoundaryDefinition`, a PREFIX affix whose allomorph text includes
+//! that boundary's representation, roots it attaches to, and words whose surface omits the boundary.
+//! Note `crate::emit`'s `with_boundary_insertions` can mask this on paths that go through it (it
+//! expands the query with boundary-inserted variants -- how `metathesis-phase-isolation`'s `mu+i`
+//! works), and `crate::templated_compile` already applies its own cleanup; the gap was only in
+//! `recipe_runtime`'s plan-driven path.
 
 use pg_conformance_fixtures::{corpus, discover, Root};
 use pg_foma::build::unbuildable_markers;
