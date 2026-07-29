@@ -100,7 +100,11 @@ pub fn parse_args(args: &[String]) -> Result<RecipeOptimizeArgs, RecipeOptimizeE
             "elapsed-ns" => r.budget.elapsed = n,
             "build-ns" => r.budget.build = n,
             "memory-bytes" => r.budget.memory = n,
-            "confirmation-work" | "confirmation-ns" => r.budget.confirmation = n,
+            // No `--confirmation-ns` alias: `Budget::confirmation` is a count of full-HC confirmation
+            // calls, not nanoseconds, and every other `*-ns` flag on this command is a real time
+            // budget. An `-ns` spelling would invite callers to pass a nanosecond figure and silently
+            // get an astronomically large call allowance.
+            "confirmation-work" => r.budget.confirmation = n,
             "reserve-ns" => r.budget.reserve = n,
             _ => {
                 return Err(RecipeOptimizeError::Usage(format!(

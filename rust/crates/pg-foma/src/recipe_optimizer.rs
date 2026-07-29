@@ -569,22 +569,32 @@ pub fn optimize_with_evaluator(
 ) -> OptimizationOutcome {
     let mut search = strategy.search(candidates, budget, seed);
     let selected_count = search.selected.len() as u64;
+    // `reserve` is a real floor on `elapsed`, not only a selector nudge: the exploratory sweep may
+    // spend at most `search_elapsed()`, so `reserve` nanoseconds of the caller's deadline are still
+    // unspent when the sweep ends. Before this was enforced here, `reserve` was read exactly once
+    // (`choose_strategy_with_policy`) and the loop below could consume the whole deadline, so the
+    // "confirmation_available" half of the documented two-phase allocation protected nothing.
+    let search_elapsed = budget.search_elapsed();
     let mut usage = BudgetUsage::default();
     let mut evaluated = Vec::new();
     for candidate in &search.selected {
         if usage.evaluations >= budget.evaluations {
             break;
         }
+        // The baseline is element zero and is always evaluated: a reserve large enough to swallow
+        // the whole deadline must still not strip the run of the baseline the spec requires
+        // ("Every optimization SHALL include the current default plan as a baseline").
+        if !evaluated.is_empty() && usage.elapsed >= search_elapsed {
+            break;
+        }
         let remaining = Budget {
             candidates: budget.candidates.saturating_sub(usage.candidates),
             evaluations: budget.evaluations.saturating_sub(usage.evaluations),
-            elapsed: budget.elapsed.saturating_sub(usage.elapsed),
+            elapsed: search_elapsed.saturating_sub(usage.elapsed),
             build: budget.build.saturating_sub(usage.build),
             memory: budget.memory.saturating_sub(usage.memory_peak),
             confirmation: budget.confirmation.saturating_sub(usage.confirmation),
-            reserve: budget
-                .reserve
-                .min(budget.elapsed.saturating_sub(usage.elapsed)),
+            reserve: budget.reserve,
         };
         let evidence = evaluator.evaluate(candidate, remaining);
         usage.candidates = usage.candidates.saturating_add(1);
@@ -610,6 +620,15 @@ pub fn optimize_with_evaluator(
         search.termination = Termination::BudgetExhausted;
         search.explored = search.explored.saturating_sub(deficit);
         search.unexplored = search.unexplored.saturating_add(deficit);
+    } else if !budget.admits(usage) {
+        // Every selected candidate was evaluated, but the *measured* cost of the last one breached a
+        // budget dimension — only `evaluations` is pre-checked; `elapsed`/`build`/`memory`/
+        // `confirmation` are known after the evaluator returns. Without this arm a run whose final
+        // candidate blew the deadline reported `Complete`/`Exact`, claiming it stayed inside a bound
+        // it had already exceeded. The candidate-count deficit above cannot catch it: the overrun
+        // happens on the last selected candidate, so no candidate is left unevaluated.
+        search.quality = SearchQuality::Approximate;
+        search.termination = Termination::BudgetExhausted;
     }
     let ranking: Vec<(String, Certification, Score)> = evaluated
         .iter()
@@ -862,6 +881,151 @@ mod tests {
         assert_eq!(outcome.search.termination, Termination::BudgetExhausted);
         assert_eq!(outcome.search.explored, 1);
         assert_eq!(outcome.search.unexplored, 1);
+    }
+
+    /// The measured-overrun sibling of the test above. `evaluations` is the *only* dimension checked
+    /// before the evaluator runs; `elapsed`/`build`/`memory`/`confirmation` are known only after it
+    /// returns. When the breach happens on the LAST selected candidate, no candidate is left
+    /// unevaluated, so the candidate-count deficit branch cannot fire — and the run used to report
+    /// `Complete`/`Exact` while having already spent more than the caller's deadline.
+    #[test]
+    fn measured_overrun_on_the_final_candidate_still_reports_budget_exhausted() {
+        struct ExpensiveEvaluator;
+        impl CandidateEvaluator for ExpensiveEvaluator {
+            fn evaluate(
+                &mut self,
+                _candidate: &CandidateState,
+                _remaining: Budget,
+            ) -> ConfirmationEvidence {
+                ConfirmationEvidence {
+                    certification: Certification::FullHcConfirmed {
+                        words: 1,
+                        corpus_hash: "h".into(),
+                    },
+                    score: Some(Score {
+                        states: 1,
+                        arcs: 1,
+                        build: 1,
+                        apply: 1,
+                        proposals: 1,
+                        confirmation: 1,
+                    }),
+                    usage: BudgetUsage {
+                        evaluations: 1,
+                        elapsed: 60,
+                        ..BudgetUsage::default()
+                    },
+                }
+            }
+        }
+        let candidates = vec![
+            candidate("baseline", "base", "base", 1, Some(1), true),
+            candidate("other", "other", "other", 2, Some(2), false),
+        ];
+        // 100ns deadline, no reserve: both candidates are selected and started (the second begins at
+        // usage.elapsed 60 < 100), but together they measure 120ns.
+        let budget = Budget {
+            candidates: 2,
+            evaluations: 2,
+            elapsed: 100,
+            ..Budget::default()
+        };
+        let selected = Exhaustive.search(&candidates, budget, 1);
+        assert_eq!(selected.quality, SearchQuality::Exact);
+        assert_eq!(selected.selected.len(), 2);
+        let outcome = optimize_with_evaluator(
+            &selected.selected,
+            budget,
+            1,
+            &Exhaustive,
+            &mut ExpensiveEvaluator,
+        );
+        assert_eq!(
+            outcome.evaluated.len(),
+            2,
+            "no candidate was left unevaluated"
+        );
+        assert_eq!(outcome.usage.elapsed, 120);
+        assert!(
+            !budget.admits(outcome.usage),
+            "the deadline was really breached"
+        );
+        assert_eq!(outcome.search.quality, SearchQuality::Approximate);
+        assert_eq!(outcome.search.termination, Termination::BudgetExhausted);
+    }
+
+    /// `reserve` must leave real unspent `elapsed` behind, not merely bias strategy selection.
+    #[test]
+    fn reserve_stops_the_sweep_early_yet_never_strips_the_baseline() {
+        struct FixedCostEvaluator;
+        impl CandidateEvaluator for FixedCostEvaluator {
+            fn evaluate(
+                &mut self,
+                _candidate: &CandidateState,
+                _remaining: Budget,
+            ) -> ConfirmationEvidence {
+                ConfirmationEvidence {
+                    certification: Certification::FullHcConfirmed {
+                        words: 1,
+                        corpus_hash: "h".into(),
+                    },
+                    score: Some(Score {
+                        states: 1,
+                        arcs: 1,
+                        build: 1,
+                        apply: 1,
+                        proposals: 1,
+                        confirmation: 1,
+                    }),
+                    usage: BudgetUsage {
+                        evaluations: 1,
+                        elapsed: 40,
+                        ..BudgetUsage::default()
+                    },
+                }
+            }
+        }
+        let candidates = vec![
+            candidate("baseline", "base", "base", 1, Some(1), true),
+            candidate("second", "second", "second", 2, Some(2), false),
+            candidate("third", "third", "third", 3, Some(3), false),
+        ];
+        // 200ns deadline with a 120ns reserve leaves an 80ns sweep: two 40ns candidates fit, the
+        // third is never started, and 120ns of the deadline is still unspent afterwards.
+        let budget = Budget {
+            elapsed: 200,
+            reserve: 120,
+            ..Budget::default()
+        };
+        let selected = Exhaustive.search(&candidates, budget, 1);
+        let outcome = optimize_with_evaluator(
+            &selected.selected,
+            budget,
+            1,
+            &Exhaustive,
+            &mut FixedCostEvaluator,
+        );
+        assert_eq!(outcome.evaluated.len(), 2);
+        assert_eq!(outcome.usage.elapsed, 80);
+        assert_eq!(budget.elapsed - outcome.usage.elapsed, budget.reserve);
+        assert_eq!(outcome.search.termination, Termination::BudgetExhausted);
+
+        // A reserve that swallows the entire deadline still evaluates the baseline: an optimization
+        // with no baseline would violate the "baseline is always included" requirement outright.
+        let starved = Budget {
+            elapsed: 200,
+            reserve: 200,
+            ..Budget::default()
+        };
+        let outcome = optimize_with_evaluator(
+            &selected.selected,
+            starved,
+            1,
+            &Exhaustive,
+            &mut FixedCostEvaluator,
+        );
+        assert_eq!(outcome.evaluated.len(), 1);
+        assert!(outcome.evaluated[0].candidate.baseline);
     }
 
     #[test]

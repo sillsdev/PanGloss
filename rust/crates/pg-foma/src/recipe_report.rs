@@ -26,9 +26,6 @@ pub struct PruningWaterfall {
     pub inapplicable: u64,
     pub duplicates: u64,
     pub materialization_rejects: u64,
-    pub syntactic: u64,
-    pub attested: u64,
-    pub static_rejected: u64,
     pub capability_rejected: u64,
     pub build_failures: u64,
     pub evaluated: u64,
@@ -38,6 +35,11 @@ pub struct PruningWaterfall {
 }
 
 impl PruningWaterfall {
+    /// Every field here is a disjoint bucket of `generated` and is checked by [`Self::reconciles`].
+    /// D1's `N_syntactic`/`N_attested`/`N_static` deliberately do NOT appear: they are upstream
+    /// space sizes, not buckets of this funnel, they live in [`SpaceCounts`], and when they were
+    /// mirrored here nothing populated them — every real report rendered them as a false `0` that
+    /// `reconciles()` could not catch, since the balance equation never referenced them.
     pub fn reconciles(&self) -> bool {
         self.generated
             == self

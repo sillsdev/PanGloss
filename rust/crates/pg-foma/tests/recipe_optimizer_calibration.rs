@@ -329,18 +329,60 @@ fn pilot_beam_reserve_and_selector_defaults_have_checked_in_calibration() {
         choose_strategy_with_policy(80, PilotCosts { p50: 2, p95: 2 }, budget, weak, policy),
         Strategy::DiverseBeam
     );
+    // Reserve calibration is measured by running the production search loop, not by re-deriving the
+    // allocation with local arithmetic: 13 candidates that each cost 10 elapsed units give 130 units
+    // of search demand against a 160-unit deadline, and `search_coverage` below is the elapsed the
+    // real `optimize_with_evaluator` actually spent.
     let total = 160u64;
-    let search_demand = 130u64;
     let confirmation_demand = 40u64;
+    let sweep: Vec<CandidateState> = (0..13)
+        .map(|i| CandidateState {
+            id: format!("reserve-{i:04}"),
+            family: format!("reserve-family-{i:04}"),
+            signature: format!("reserve-signature-{i:04}"),
+            lower_bound: 10,
+            exact_objective: Some(20 + i as u64),
+            baseline: i == 0,
+        })
+        .collect();
+    let search_demand: u64 = sweep.iter().map(|c| c.lower_bound).sum();
     let mut smallest_successful = None;
     for (numerator, denominator) in [(0, 1), (1, 8), (1, 4), (1, 2)] {
-        let reserve = total * numerator / denominator;
-        let search_used = search_demand.min(total.saturating_sub(reserve));
+        let mut evaluator = SyntheticEvaluator {
+            objective: sweep
+                .iter()
+                .map(|c| (c.id.clone(), c.exact_objective.unwrap()))
+                .collect(),
+        };
+        let outcome = optimize_with_evaluator(
+            &sweep,
+            Budget {
+                elapsed: total,
+                reserve: total * numerator / denominator,
+                ..Budget::default()
+            },
+            17,
+            &Exhaustive,
+            &mut evaluator,
+        );
+        let search_used = outcome.usage.elapsed;
         let confirmation_available = total.saturating_sub(search_used);
         let confirmed = confirmation_available >= confirmation_demand;
         if confirmed && smallest_successful.is_none() {
             smallest_successful = Some((numerator, denominator));
         }
+        // A reserve that genuinely stops the sweep early must say so: the run is budget-limited and
+        // approximate, never a clean `Complete`/`Exact`.
+        if search_used < search_demand {
+            assert_eq!(outcome.search.quality, SearchQuality::Approximate);
+            assert_eq!(outcome.search.termination, Termination::BudgetExhausted);
+        } else {
+            assert_eq!(outcome.search.quality, SearchQuality::Exact);
+            assert_eq!(outcome.search.termination, Termination::Complete);
+        }
+        // The reserve is never encroached on, and the baseline is always evaluated regardless.
+        assert!(search_used <= total * (denominator - numerator) / denominator);
+        assert!(outcome.evaluated.iter().any(|e| e.candidate.baseline));
         println!(
             "RESERVE fraction={}/{} search_coverage={}/{} confirmation_available={} confirmation_required={} confirmed={}",
             numerator,
