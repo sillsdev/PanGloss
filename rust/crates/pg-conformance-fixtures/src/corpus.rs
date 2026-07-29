@@ -112,11 +112,40 @@ pub fn record_cases(label: &str, cases: usize) {
 // Manifest
 // ---------------------------------------------------------------------------------------------
 
+/// Word-list hazard metadata for a `role: "corpus"` file, so a reader (or a future automated
+/// slicer) does not have to rediscover what `docs/fst-plan/corpus-word-list-hazards.md` already
+/// found by hand -- e.g. the amharic-words.txt bug where `head -3` silently returns three
+/// unanalyzable English glosses instead of a build/recall failure.
+///
+/// This is descriptive metadata, not an enforced contract: nothing in this crate currently slices
+/// a word list using it. It exists so the facts (line endings, a non-word header, an expected
+/// analyzable count) live next to the file they describe instead of only in a point-in-time audit
+/// doc that can drift.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct WordList {
+    /// Exact line-ending discipline the file is expected to have: `"LF"`, `"CRLF"`, or `"mixed"`.
+    pub line_ending: String,
+    /// Number of leading lines that are NOT surface words (e.g. an English-gloss header) and must
+    /// be skipped before treating "the first N lines" as a word sample. Zero when the file has no
+    /// such header.
+    #[serde(default)]
+    pub skip_leading_lines: u32,
+    /// Free-text account of known hazards beyond the header: alphabet-invalid characters (a
+    /// symbol the grammar's char table does not define), embedded gloss/metalinguistic
+    /// contamination, or anything else that makes a line an implausible surface word. Required
+    /// (non-empty) whenever `skip_leading_lines` is nonzero, so the skip is never undocumented.
+    #[serde(default)]
+    pub notes: String,
+}
+
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct CorpusFile {
     pub path: String,
     pub role: String,
     pub required: bool,
+    /// Present only for `role: "corpus"` files; see [`WordList`].
+    #[serde(default)]
+    pub word_list: Option<WordList>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -204,6 +233,26 @@ pub fn validate_manifest(m: &Manifest) -> Vec<String> {
             if f.role.trim().is_empty() {
                 problems.push(format!("{}: file {} has no role", c.logical_name, f.path));
             }
+            if let Some(wl) = &f.word_list {
+                if f.role != "corpus" {
+                    problems.push(format!(
+                        "{}: file {} has a word_list but role is {:?}, not \"corpus\"",
+                        c.logical_name, f.path, f.role
+                    ));
+                }
+                if !matches!(wl.line_ending.as_str(), "LF" | "CRLF" | "mixed") {
+                    problems.push(format!(
+                        "{}: file {} word_list.line_ending must be LF, CRLF, or mixed, got {:?}",
+                        c.logical_name, f.path, wl.line_ending
+                    ));
+                }
+                if wl.skip_leading_lines > 0 && wl.notes.trim().is_empty() {
+                    problems.push(format!(
+                        "{}: file {} has skip_leading_lines > 0 but no notes explaining why",
+                        c.logical_name, f.path
+                    ));
+                }
+            }
         }
     }
     problems
@@ -239,11 +288,13 @@ mod tests {
                         path: "present.txt".into(),
                         role: "corpus".into(),
                         required: true,
+                        word_list: None,
                     },
                     CorpusFile {
                         path: "absent.txt".into(),
                         role: "grammar".into(),
                         required: true,
+                        word_list: None,
                     },
                 ],
                 requiring_tests: vec!["synthetic-suite".into()],
@@ -310,6 +361,51 @@ mod tests {
         assert!(validate_manifest(&m)
             .iter()
             .any(|p| p.contains("duplicate logical_name")));
+    }
+
+    #[test]
+    fn word_list_metadata_is_validated() {
+        // Bad line_ending value.
+        let mut m = synthetic();
+        m.corpora[0].files[0].word_list = Some(WordList {
+            line_ending: "CR".into(),
+            skip_leading_lines: 0,
+            notes: String::new(),
+        });
+        assert!(validate_manifest(&m)
+            .iter()
+            .any(|p| p.contains("line_ending must be LF, CRLF, or mixed")));
+
+        // skip_leading_lines > 0 with no explanation.
+        let mut m = synthetic();
+        m.corpora[0].files[0].word_list = Some(WordList {
+            line_ending: "CRLF".into(),
+            skip_leading_lines: 4,
+            notes: String::new(),
+        });
+        assert!(validate_manifest(&m)
+            .iter()
+            .any(|p| p.contains("no notes explaining why")));
+
+        // Valid word_list on a role: "corpus" file passes cleanly.
+        let mut m = synthetic();
+        m.corpora[0].files[0].word_list = Some(WordList {
+            line_ending: "CRLF".into(),
+            skip_leading_lines: 4,
+            notes: "first 4 lines are an English-gloss header, not surface words".into(),
+        });
+        assert!(validate_manifest(&m).is_empty());
+
+        // word_list on a non-"corpus"-role file is rejected.
+        let mut m = synthetic();
+        m.corpora[0].files[1].word_list = Some(WordList {
+            line_ending: "LF".into(),
+            skip_leading_lines: 0,
+            notes: String::new(),
+        });
+        assert!(validate_manifest(&m)
+            .iter()
+            .any(|p| p.contains("has a word_list but role is")));
     }
 
     #[test]

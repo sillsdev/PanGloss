@@ -25,7 +25,16 @@
       "purpose": "Template-less standalone-rule morphotactics with MPR-gated nasal substitution. The reference grammar for proposer recall on the gated compile path, and the only real grammar whose recipe candidates currently reach full-HC confirmation.",
       "files": [
         { "path": "indonesian-hc.xml", "role": "grammar", "required": true },
-        { "path": "indonesian-words.txt", "role": "corpus", "required": true },
+        {
+          "path": "indonesian-words.txt",
+          "role": "corpus",
+          "required": true,
+          "word_list": {
+            "line_ending": "CRLF",
+            "skip_leading_lines": 0,
+            "notes": "No header. Two known non-representative lines documented in docs/fst-plan/corpus-word-list-hazards.md: line 100 'meⁿ' is alphabet-valid (segment char29) but is a bound meN- prefix fragment with no attached root, so it always analyzes as ok/no-parse ('-'); line 119 'write-CONTpijit' is gloss-template contamination (uppercase Latin letters + an English word + a gloss abbreviation) that contains characters outside the char table and is always batch status SKIPPED."
+          }
+        },
         { "path": "indonesian-realize.toml", "role": "realizer-config", "required": false }
       ],
       "requiring_tests": [
@@ -39,7 +48,16 @@
       "purpose": "Large-lexicon templated grammar (255k+ lexc lines). Drives emit/compile throughput and the propose-then-confirm perf track.",
       "files": [
         { "path": "sena-hc.xml", "role": "grammar", "required": true },
-        { "path": "sena-words.txt", "role": "corpus", "required": true },
+        {
+          "path": "sena-words.txt",
+          "role": "corpus",
+          "required": true,
+          "word_list": {
+            "line_ending": "CRLF",
+            "skip_leading_lines": 0,
+            "notes": "No header, but the char table (samples/data/sena-hc.xml) defines no hyphen segment or boundary, so all ~73 hyphenated reduplication entries (e.g. 'ampfaka-mpfaca') are guaranteed batch status SKIPPED, not a recall failure. A handful of lines are outright non-word contamination and should be excluded from any recall measurement: 'require' (English), 'neg-2psing'/'neg-3p'/'h-u-dadya'/'h-a-da-dya' (interlinear-gloss/morpheme-break debris), 'v-front' and 'det-suffix' (metalinguistic labels), 'lox2' (stray digit). A few more (e.g. 'fátima', 'subtítulo', 'cabeça', 'secondário') are Portuguese loan/proper-noun spellings using accented characters (á/í/ç) also absent from the char table. Full accounting in docs/fst-plan/corpus-word-list-hazards.md."
+          }
+        },
         { "path": "sena-worst-words.txt", "role": "pinned-worst-case", "required": false }
       ],
       "requiring_tests": [
@@ -51,7 +69,16 @@
       "purpose": "Templatic root-and-pattern interdigitation with AffixTemplate morphotactics. The grammar whose productive morphology lives in the composite-emission and structural-composite subtrees that build_controllable does not build.",
       "files": [
         { "path": "amharic-hc.xml", "role": "grammar", "required": true },
-        { "path": "amharic-words.txt", "role": "corpus", "required": true },
+        {
+          "path": "amharic-words.txt",
+          "role": "corpus",
+          "required": true,
+          "word_list": {
+            "line_ending": "CRLF",
+            "skip_leading_lines": 4,
+            "notes": "Lines 1-4 are an English-gloss header ('break','pay','pfv','want'), not Ethiopic surface words; a naive head -N slice reads these as unanalyzable words and presents as a recall failure (the motivating bug for docs/fst-plan/corpus-word-list-hazards.md). Real words start at line 5. Separately, 17 word lines beyond the header (e.g. lines 63-65, 71-75, 91, 105, 355, 502, 512, 601, 604, 615, 627) use Ethiopic letter variants (ሕ ሐ ሥ ሦ ሃ ዓ ፀ) that are absent from the grammar's CharacterDefinitionTable and are therefore also guaranteed batch status SKIPPED. This corpus is also SLOW: several individual words (e.g. lines 5, 12, 17, 29-32) take multiple seconds to confirm and can make even a 40-word sample exceed a naive process timeout; always pass --word-timeout-ms to `pangloss batch` when sampling it."
+          }
+        },
         { "path": "amharic-worst-words.txt", "role": "pinned-worst-case", "required": false },
         { "path": "amharic-realize.toml", "role": "realizer-config", "required": false }
       ],
@@ -65,7 +92,16 @@
       "purpose": "Deep truncation chain with a 24-level derivation and many zero-width truncation mrules. The enumeration-explosion and compose-budget stress case; imported from fwdata/JSON rather than HC XML.",
       "files": [
         { "path": "aweti.json", "role": "grammar-snapshot", "required": true },
-        { "path": "aweti-words.txt", "role": "corpus", "required": true },
+        {
+          "path": "aweti-words.txt",
+          "role": "corpus",
+          "required": true,
+          "word_list": {
+            "line_ending": "CRLF",
+            "skip_leading_lines": 0,
+            "notes": "No header, but the phonology's phonemes/boundaryMarkers (samples/data/aweti.json) define no hyphen or space, so lines containing either (e.g. 'itywytu-put', 'waráju-puza', 'kaminuʼat-puza', 'ị- tyᴾ', 'awytyza ʼytoto') are guaranteed batch status SKIPPED. Line 147 is a stray 'µ' (micro sign) with no linguistic content; line 175 'wejmopáb' ends in a bare 'b', a phoneme this inventory does not define outside its ejective-marked forms. Separately and more importantly: this grammar has known pathological words (docs/fst-plan/corpus-word-list-hazards.md; matches the memory'd apply_up explosion, e.g. 'tomoʼatu') that hang and grow RSS into the tens of GB under the default HC-oracle batch path -- confirmed to reach ~30GB before being killed. Sampling MUST pass both --word-timeout-ms and --threads=1 to `pangloss batch`; the default --threads=20 multiplies several such words' memory blowups concurrently and can exhaust host memory, which is an operational hazard to the whole machine, not just this run."
+          }
+        },
         { "path": "aweti.fwdata", "role": "grammar-fwdata", "required": false }
       ],
       "requiring_tests": [
