@@ -34,27 +34,13 @@ those need have not landed.
 - [x] 2.4 Prove sink-off structural and exact-result equivalence with named gates
       (`WordApplyStatus::Incomplete` recorded per word on an `ApplyBudget` trip; module doc calls this
       out as item "(a)" of what this change fixes)
-- [ ] 2.5 Run caller-supplied word sets through combined and Rust-HermitCrab-only pipelines and
-      compare completed structured analysis collections independent of order or serialization
-      (not done — module doc: "No default-engine comparison pipeline...")
-- [ ] 2.6 Reuse the coverage contract's structured-analysis identity exactly; retain internal traces
-      only as mismatch and duplicate-provenance diagnostics
-      (not done — coverage-contract types have not landed, per module doc)
-- [ ] 2.7 Add explicit strict-parity and grammar-delta interpretations: always run requested contexts,
-      record their metadata, and emit per-word added/removed/unchanged/incomplete/not-attempted sets
-      (not done)
-- [ ] 2.8 Accept optional caller-supplied golden identity sets and emit exact matching/missing/
-      unexpected diffs without a linguistic-quality or aggregate-closeness score
-      (not done — module doc: "no golden-identity diff")
-- [ ] 2.9 Optionally write a context-bound proposed golden to a distinct output path with an exact
-      diff; prove validation never mutates, reformats, or replaces an input golden
-      (not done)
-- [ ] 2.10 Attach available stable rule/construct/stage/proposal/confirmation breadcrumbs to semantic
-      deltas and duplicates, preserve completeness, and prohibit unsupported causal wording
-      (not done)
-- [ ] 2.11 Implement build-report comparison and assessment-report comparison as separate operations;
-      semantic deltas accept canonical assessment reports only and never compile hidden baselines
-      (not done)
+- 2.5-2.11 **MOVED to `add-grammar-assessment`.** Dual-pipeline comparison, structured-analysis
+  identity reuse, grammar-delta interpretation, caller golden-identity diffs, breadcrumbs on semantic
+  deltas, and separate build-versus-assessment comparison are all owned there, under the artifact and
+  identity contract that change defines. This change retains `diagnose`, the build report, and the
+  apply-path containment work; it no longer owns comparison. `add-grammar-assessment` also amends
+  `define-grammar-coverage-contract`'s missing-source-key rule, which task 2.6 would otherwise have
+  imported into grammar delta incorrectly (ADR 0006).
 
 ## 3. Rust gloss and debug artifacts
 

@@ -144,6 +144,24 @@ named pipeline: context, effective apply budgets, atomic word outcomes, canonica
 and runtime evidence. Semantic deltas compare assessment reports only.
 _Avoid_: Build report, mutable retry log
 
+**Assessment suite**:
+A caller-owned, versioned collection of cases with authoritative order and an optional executable
+expectation per case. PanGloss validates and executes a suite and never authors, amends, or
+re-adjudicates one.
+_Avoid_: Test corpus, word list
+
+**Assessment case**:
+One entry in a suite, identified by an opaque caller-issued case ID that is the only join key
+between two runs. Two cases may share a surface form and remain distinct, because a case is a
+question the caller is asking, not a word.
+_Avoid_: Test word, corpus entry
+
+**Analysis failure narrative**:
+A pruned prose rendering of why particular analyses were not produced for one word: which candidate
+parses were attempted, where each was rejected, and under which typed failure reason. It states
+observed rejections, never a root cause or a prescribed grammar edit.
+_Avoid_: Trace dump, diagnosis, explanation of the bug
+
 **Analysis-only runtime**:
 A runtime that loads a validated analysis artifact and performs bounded analysis but cannot construct or recompile its proposer network. PanGloss WASM is an analysis-only runtime.
 _Avoid_: WASM compiler
@@ -213,8 +231,28 @@ Equality of completed, deduplicated analysis sets by complete structured analysi
 _Avoid_: Byte-perfect parity
 
 **Structured analysis identity**:
-The versioned canonical projection of C# Machine `WordAnalysis.Equals`: ordered stable morpheme identities, root-morpheme position, and category/POS. Rust's `guessed` flag is a required separately reported annotation for Rust-to-Rust equality. Gloss, surface shape, properties, duplicate counts, discovery order, paths/traces, timing, counters, prose, and serialization formatting are diagnostic or presentation evidence, not core identity.
-_Avoid_: Gloss identity, trace identity
+The versioned canonical projection of C# Machine `WordAnalysis.Equals`: ordered stable morpheme identities, root-morpheme position, and category/POS. A self-contained value composed of stable source keys, never a reference resolved against a compiled model, so it stays meaningful when the grammar that produced it has changed or become unloadable. Rust's `guessed` flag is a required separately reported annotation for Rust-to-Rust equality. Gloss, surface shape, properties, duplicate counts, discovery order, paths/traces, timing, counters, prose, and serialization formatting are diagnostic or presentation evidence, not core identity.
+_Avoid_: Gloss identity, trace identity, ordinal identity
+
+**Stable source key**:
+The identity a grammar construct carries in its authored source — the MSA or entry GUID for LibLCM-derived grammars, the `id` attribute for HC XML — retained through compilation so it survives grammar edits. Compiler-assigned dense ordinals are internal addressing and shift whenever authored content is added or reordered.
+_Avoid_: Morpheme index, dense id, HVO
+
+**Analysis annotation**:
+A property reported alongside a structured analysis that is not part of its identity, such as `guessed`. Two analyses whose identities match but whose annotations differ are the same analysis observed differently, never an addition paired with a removal.
+_Avoid_: Identity field, analysis flag
+
+**Reproducible assessment**:
+An assessment whose case outcomes were decided only by deterministic logical budgets, so re-running it anywhere yields the same outcome digest. An outer safety net firing — a wall-clock word timeout or watchdog — makes the assessment unreproducible, which is recorded on the report rather than hidden, since the same run on another machine could have completed.
+_Avoid_: Stable report, deterministic run
+
+**Outcome digest**:
+The digest answering whether a grammar behaved differently: case outcomes and deduplicated structured analysis sets, deliberately blind to engine version, budgets, pipeline, and duplicate counts. It survives a PanGloss upgrade that changes no analysis.
+_Avoid_: Result hash, quality digest
+
+**Semantic digest**:
+The digest answering whether two runs were the same run: everything the outcome digest covers plus the run's own evidence — duplicate counts, effective budgets, pipeline, importer and compiler versions, model fingerprint, and source hash. It changes whenever the engine did different work, even when every analysis is identical.
+_Avoid_: Content hash, run id
 
 **Upstream semantic precedent**:
 The relevant behavior and public contract already established in Machine and, where applicable, LibLCM. PanGloss adopts that linguistically designed, production-tested behavior by default. A deliberate divergence requires cited source evidence, a reason the precedent is unsuitable, compatibility consequences, and focused parity/regression tests.

@@ -41,7 +41,12 @@ Structured analysis identity SHALL be the versioned canonical projection of Mach
 For HC XML, comparison morpheme keys SHALL be the XML `id`/Rust `xml_key`; for LCM-derived packages,
 they SHALL be the retained normalized source GUID. Category SHALL likewise resolve to its stable
 source symbol ID/GUID. Optional `<MorphemeId>`, dense ordinals, HVOs, glosses, and forms SHALL NOT be
-cross-engine identity keys. Missing or colliding source keys SHALL make parity `not_comparable`.
+cross-engine identity keys. Within one compiled model, colliding source keys SHALL be an integrity
+error. Missing source keys SHALL make *engine parity* `not_comparable`, because both parity sides run
+the same model and an unresolvable key there is an internal fault. This rule SHALL NOT be applied to
+grammar delta, where the two sides are different grammars by construction: a key present on one side
+and absent on the other is ordinary evidence and SHALL be reported as `added` or `removed`
+(`add-grammar-assessment`, ADR 0006).
 Rust's `guessed` flag SHALL be compared and reported separately for Rust-to-Rust results. Gloss,
 surface shape, morpheme properties, duplicate counts, discovery order, engine-internal paths/traces,
 timing, counters, prose, and serialization formatting SHALL remain outside core identity.
