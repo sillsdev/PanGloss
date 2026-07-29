@@ -16,6 +16,7 @@ pub mod identity;
 pub mod jcs;
 pub mod model;
 pub mod set;
+pub mod suite;
 
 pub use digest::{
     digest_projection, identity_digest, sha256_bytes, OUTCOME_PROJECTION, SEMANTIC_PROJECTION,
@@ -24,3 +25,7 @@ pub use identity::{AnalysisIdentity, IdentityError, MorphemeKey, IDENTITY_PROFIL
 pub use jcs::{canonicalize, JcsError};
 pub use model::{model_fingerprint, source_sha256, SourceKind, MODEL_PROJECTION};
 pub use set::{AnalysisSet, AnalysisSetEntry};
+pub use suite::{
+    parse_suite, AssessmentCase, AssessmentSuite, Expectation, ExpectationStatus, SuiteError,
+    ValidatedSuite, SUITE_SCHEMA, SUITE_SCHEMA_VERSION,
+};

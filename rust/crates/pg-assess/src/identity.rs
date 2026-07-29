@@ -16,7 +16,7 @@
 use pg_grammar::model::{Grammar, MorphemeId, SynFeatureKind};
 use pg_parse::WordAnalysis;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::Value;
 
 /// One morpheme slot of an identity: its stable source key, or `None` for the fabricated root of a
 /// guessed analysis, which by construction has no authored source (`MorphemeId::GUESSED` has no
@@ -27,7 +27,12 @@ pub type MorphemeKey = Option<String>;
 pub const IDENTITY_PROFILE: &str = "pangloss.machine-word-analysis/v1";
 
 /// A complete structured analysis identity.
+///
+/// The serde representation and [`Self::to_canonical_value`] are deliberately the same shape: a
+/// suite's expectations are deserialized identities, and they must digest identically to identities
+/// the parser produced or every expectation would silently miss.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AnalysisIdentity {
     /// Ordered stable morpheme keys — `MorphemeInfo::xml_key`, which is the MSA GUID on the
     /// LibLCM path and the `id` attribute on HC XML.
@@ -84,12 +89,11 @@ impl AnalysisIdentity {
     }
 
     /// The canonical JSON form hashed by `identity_digest` and embedded in every projection.
+    ///
+    /// Produced through serde rather than hand-built, so a deserialized expectation and a projected
+    /// analysis cannot drift into digesting differently.
     pub fn to_canonical_value(&self) -> Value {
-        json!({
-            "morphemes": self.morphemes,
-            "rootIndex": self.root_index,
-            "category": self.category,
-        })
+        serde_json::to_value(self).expect("an identity is strings, an integer, and nulls")
     }
 }
 
@@ -114,6 +118,7 @@ fn category_key(grammar: &Grammar, ordinal: u32) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     fn identity(
         morphemes: Vec<MorphemeKey>,
