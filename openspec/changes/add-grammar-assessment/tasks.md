@@ -114,21 +114,21 @@ terminal-outcome routing owner).
 
 ## 4. `compare` and the grammar delta
 
-- [ ] 4.1 Add `pangloss.grammar-delta/v1`; match cases by exact `caseId`, following declared
+- [x] 4.1 Add `pangloss.grammar-delta/v1`; match cases by exact `caseId`, following declared
       `supersedes` links
-- [ ] 4.2 Implement the category set: `unchanged`, `added_only`, `removed_only`, `mixed`,
+- [x] 4.2 Implement the category set: `unchanged`, `added_only`, `removed_only`, `mixed`,
       `annotation_changed`, `completeness_changed`, `baseline_only`, `candidate_only`,
       `not_comparable`
-- [ ] 4.3 Report `annotation_changed` as a changed case when a retained identity's `guessed` flipped
-- [ ] 4.4 Report duplicate-count and context differences as flags that do not make a case changed
-- [ ] 4.5 Add a typed `not_comparable` reason enum covering `case_definition_changed`,
+- [x] 4.3 Report `annotation_changed` as a changed case when a retained identity's `guessed` flipped
+- [x] 4.4 Report duplicate-count and context differences as flags that do not make a case changed
+- [x] 4.5 Add a typed `not_comparable` reason enum covering `case_definition_changed`,
       `identity_profile_changed`, both-incomplete, both-not-attempted, and key collision
-- [ ] 4.6 Treat a stable key absent from the other side as `added`/`removed`, never
+- [x] 4.6 Treat a stable key absent from the other side as `added`/`removed`, never
       `not_comparable`
-- [ ] 4.7 Order output as baseline report order followed by candidate-only cases in candidate order
-- [ ] 4.8 Report context differences without refusing comparison; never label an addition an
+- [x] 4.7 Order output as baseline report order followed by candidate-only cases in candidate order
+- [x] 4.8 Report context differences without refusing comparison; never label an addition an
       improvement or a removal a regression
-- [ ] 4.9 Produce a valid artifact with every case `not_comparable/identity_profile_changed` and
+- [x] 4.9 Produce a valid artifact with every case `not_comparable/identity_profile_changed` and
       exit `0` when profiles are incompatible
 - [ ] Gate: `cargo test -p pg-cli compare_`; a grammar edit deleting a morpheme yields `removed_only`,
       not `not_comparable`; engine discovery order does not change any category

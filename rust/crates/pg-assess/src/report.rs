@@ -100,6 +100,13 @@ pub struct CaseRecord {
     pub case_id: String,
     pub input: String,
     pub outcome: CaseOutcome,
+    /// Baseline case IDs this case replaces, carried through from the suite.
+    ///
+    /// Recorded on the report rather than looked up in the suite at compare time, because a
+    /// comparison must work from two artifacts alone — the suite that declared the link may be
+    /// several revisions gone by the time anyone compares. Without it a caller who renumbers gets
+    /// phantom `baseline_only`/`candidate_only` pairs on every subsequent comparison, permanently.
+    pub supersedes: Vec<String>,
 }
 
 /// Everything a run produced except its digests, which are derived rather than supplied.
@@ -170,6 +177,7 @@ impl ReportDraft {
             "cases": self.cases.iter().map(|c| json!({
                 "caseId": c.case_id,
                 "input": c.input,
+                "supersedes": c.supersedes,
                 "outcome": outcome_semantic_value(&c.outcome),
             })).collect::<Vec<_>>(),
         })
@@ -181,6 +189,9 @@ impl ReportDraft {
         json!({
             "suiteDigest": self.suite.semantic_digest,
             "analysisIdentityProfile": self.suite.analysis_identity_profile,
+            // `supersedes` is lineage, not behavior: declaring that a case replaces another changes
+            // how a comparison joins, never what the grammar did. It stays out of this projection
+            // so relabelling a suite's case IDs cannot look like a behavior change.
             "cases": self.cases.iter().map(|c| json!({
                 "caseId": c.case_id,
                 "outcome": c.outcome.kind(),
@@ -213,6 +224,19 @@ impl AssessmentReport {
     }
     pub fn cases(&self) -> &[CaseRecord] {
         &self.draft.cases
+    }
+
+    /// Declared lineage as `(superseded baseline case ID, this report's case ID)` pairs.
+    pub fn supersedes(&self) -> Vec<(String, String)> {
+        self.draft
+            .cases
+            .iter()
+            .flat_map(|case| {
+                case.supersedes
+                    .iter()
+                    .map(|superseded| (superseded.clone(), case.case_id.clone()))
+            })
+            .collect()
     }
 
     /// The serialized artifact, with stable source keys interned into `keyTable`.
@@ -331,6 +355,9 @@ impl KeyTable {
         let mut obj = Map::new();
         obj.insert("caseId".into(), json!(case.case_id));
         obj.insert("input".into(), json!(case.input));
+        if !case.supersedes.is_empty() {
+            obj.insert("supersedes".into(), json!(case.supersedes));
+        }
         obj.insert("outcome".into(), json!(case.outcome.kind()));
         match &case.outcome {
             CaseOutcome::Complete(set) => {
@@ -574,10 +601,17 @@ fn read_case(value: &Value, table: &[String]) -> Result<CaseRecord, ReportError>
         _ => return Err(ReportError::BadField("cases[].outcome".into())),
     };
 
+    let supersedes = match object.get("supersedes") {
+        None | Some(Value::Null) => Vec::new(),
+        Some(value) => serde_json::from_value(value.clone())
+            .map_err(|_| ReportError::BadField("cases[].supersedes".into()))?,
+    };
+
     Ok(CaseRecord {
         case_id,
         input,
         outcome,
+        supersedes,
     })
 }
 
@@ -684,6 +718,7 @@ mod tests {
             case_id: case_id.into(),
             input: input.into(),
             outcome: CaseOutcome::Complete(AnalysisSet::from_observed(analyses.to_vec())),
+            supersedes: Vec::new(),
         }
     }
 
@@ -828,6 +863,7 @@ mod tests {
                 elapsed_us: 2_000_000,
                 limit_us: 1_000_000,
             }),
+            supersedes: Vec::new(),
         });
         let report = d.finish().unwrap();
         assert!(!report.is_reproducible());
@@ -845,6 +881,7 @@ mod tests {
                 value: 5000,
                 limit: 4096,
             }),
+            supersedes: Vec::new(),
         });
         let report = d.finish().unwrap();
         assert!(report.is_reproducible());
@@ -861,6 +898,7 @@ mod tests {
                 value: 5000,
                 limit: 4096,
             }),
+            supersedes: Vec::new(),
         });
         let value = d.finish().unwrap().to_value();
         let cases = value["cases"].as_array().unwrap();

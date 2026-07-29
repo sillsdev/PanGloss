@@ -11,6 +11,7 @@
 //! produces ordinary `added`/`removed` evidence instead of a comparison failure — and a report
 //! stays readable years later, when neither grammar still compiles.
 
+pub mod delta;
 pub mod digest;
 pub mod identity;
 pub mod jcs;
@@ -20,6 +21,10 @@ pub mod report;
 pub mod set;
 pub mod suite;
 
+pub use delta::{
+    compare, AnnotationChange, CaseDelta, ContextDifference, DeltaCategory, DuplicateCountChange,
+    GrammarDelta, NotComparableReason, DELTA_SCHEMA, DELTA_SCHEMA_VERSION,
+};
 pub use digest::{
     digest_projection, identity_digest, sha256_bytes, OUTCOME_PROJECTION, SEMANTIC_PROJECTION,
 };
