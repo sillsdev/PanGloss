@@ -671,6 +671,7 @@ pub fn recompute_identity_digest(identity: &AnalysisIdentity) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::outcome::BudgetDimension;
 
     fn identity(morphemes: &[Option<&str>], category: Option<&str>) -> AnalysisIdentity {
         AnalysisIdentity {
@@ -877,7 +878,7 @@ mod tests {
             case_id: "c3".into(),
             input: "big".into(),
             outcome: CaseOutcome::Incomplete(IncompleteReason::LogicalBudget {
-                dimension: "candidates".into(),
+                dimension: BudgetDimension::Candidates,
                 value: 5000,
                 limit: 4096,
             }),
@@ -894,7 +895,7 @@ mod tests {
             case_id: "c3".into(),
             input: "big".into(),
             outcome: CaseOutcome::Incomplete(IncompleteReason::LogicalBudget {
-                dimension: "candidates".into(),
+                dimension: BudgetDimension::Candidates,
                 value: 5000,
                 limit: 4096,
             }),

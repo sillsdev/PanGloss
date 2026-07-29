@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pangloss.golden-set-diff/v1",
+  "title": "Golden set diff",
+  "description": "Whether observed analyses agree with what the caller declared — never whether the caller was right. PanGloss never writes back to a suite.",
+  "type": "object",
+  "required": ["schema", "schemaVersion", "reportId", "suite", "summary", "cases"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": "pangloss.golden-set-diff" },
+    "schemaVersion": { "const": 1 },
+    "reportId": { "$ref": "#/$defs/digest" },
+    "suite": {
+      "type": "object",
+      "required": ["suiteId", "suiteRevision"],
+      "additionalProperties": false,
+      "properties": {
+        "suiteId": { "type": "string", "maxLength": 512 },
+        "suiteRevision": { "type": "string", "maxLength": 512 }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "description": "Every aggregate carries its denominator: \"12 disagreements\" is unreadable without knowing whether 12 of 15 or 12 of 40,000 cases were even evaluable. No rates, no scores.",
+      "required": [
+        "totalCases",
+        "adjudicatedAndEvaluable",
+        "agrees",
+        "disagrees",
+        "notEvaluable",
+        "notEvaluableByReason",
+        "notAdjudicated",
+        "notAdjudicatedByReason"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "totalCases": { "type": "integer", "minimum": 0 },
+        "adjudicatedAndEvaluable": { "type": "integer", "minimum": 0 },
+        "agrees": { "type": "integer", "minimum": 0 },
+        "disagrees": { "type": "integer", "minimum": 0 },
+        "notEvaluable": { "type": "integer", "minimum": 0 },
+        "notAdjudicated": { "type": "integer", "minimum": 0 },
+        "notEvaluableByReason": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        },
+        "notAdjudicatedByReason": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "cases": { "type": "array", "items": { "$ref": "#/$defs/goldenCase" } }
+  },
+  "$defs": {
+    "goldenCase": {
+      "type": "object",
+      "required": [
+        "caseId",
+        "input",
+        "verdict",
+        "notEvaluableReason",
+        "notAdjudicatedReason",
+        "closedWorld",
+        "matchingRequired",
+        "missingRequired",
+        "matchingAllowed",
+        "observedForbidden",
+        "unexpected"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "caseId": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "input": { "type": "string", "maxLength": 4096 },
+        "verdict": {
+          "type": "string",
+          "description": "An incomplete case satisfies nothing — not even an empty closed-world expectation, which is the case most tempting to wave through.",
+          "enum": ["agrees", "disagrees", "not_evaluable", "not_adjudicated"]
+        },
+        "notEvaluableReason": {
+          "type": ["string", "null"],
+          "enum": ["incomplete", "not_attempted", null]
+        },
+        "notAdjudicatedReason": {
+          "type": ["string", "null"],
+          "enum": ["no_expectation", "unresolved", "out_of_scope", "invalid", null]
+        },
+        "closedWorld": { "type": "boolean" },
+        "matchingRequired": { "type": "array", "items": { "$ref": "#/$defs/identifiedAnalysis" } },
+        "missingRequired": {
+          "description": "Structured identities, never counts alone: a caller has to see WHICH required analysis went missing.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/identifiedAnalysis" }
+        },
+        "matchingAllowed": { "type": "array", "items": { "$ref": "#/$defs/identifiedAnalysis" } },
+        "observedForbidden": { "type": "array", "items": { "$ref": "#/$defs/identifiedAnalysis" } },
+        "unexpected": {
+          "description": "Observed identities in no declared set. Recorded always; affects the verdict only under a closed world.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/identifiedAnalysis" }
+        }
+      }
+    },
+    "identifiedAnalysis": {
+      "type": "object",
+      "required": ["identity", "identityDigest"],
+      "additionalProperties": false,
+      "properties": {
+        "identity": { "$ref": "#/$defs/analysisIdentity" },
+        "identityDigest": { "$ref": "#/$defs/digest" }
+      }
+    }
+  }
+}

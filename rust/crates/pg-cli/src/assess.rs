@@ -19,13 +19,17 @@
 //! branching on "did it work" needs more than zero-or-one.
 
 use std::collections::BTreeMap;
+use std::fs;
+use std::io::Write;
+use std::path::Path;
 use std::process::ExitCode;
 
 use pg_assess::{
     compare, golden_diff, investigate, parse_report, parse_suite, AnalysisIdentity, AnalysisSet,
-    AssessmentReport, CaseOutcome, CaseRecord, Diagnostic, Evidence, EvidenceAvailability,
-    Execution, HandoffRequest, IncompleteReason, MissingAnalysisCause, NotAttemptedReason,
-    Provenance, ReportDraft, Severity, SourceKind, SuiteRef, ValidatedSuite, IDENTITY_PROFILE,
+    AssessmentReport, BudgetDimension, CaseOutcome, CaseRecord, Diagnostic, Evidence,
+    EvidenceAvailability, Execution, HandoffRequest, IncompleteReason, MissingAnalysisCause,
+    NotAttemptedReason, Provenance, ReportDraft, Severity, SourceKind, SuiteRef, ValidatedSuite,
+    IDENTITY_PROFILE,
 };
 use pg_foma::compose_budget::{ApplyBudget, ApplyDimension};
 use pg_foma::composite::{FomaAnalyzer, FomaApplyOutcome};
@@ -171,13 +175,75 @@ fn emit(args: &Args, value: &serde_json::Value) -> Result<(), CliError> {
             println!("{json}");
             Ok(())
         }
-        Some(path) => std::fs::write(path, json.as_bytes())
-            .map_err(|e| CliError::invalid(format!("write {path}: {e}"))),
+        Some(path) => write_atomically(Path::new(path), json.as_bytes()),
     }
+}
+
+/// Write bytes so a crash leaves either no destination or one complete artifact — never a truncated
+/// one (§17.7).
+///
+/// A plain `fs::write` truncates the destination first and then streams into it, so a crash or a
+/// full disk mid-write leaves a file that parses as neither valid JSON nor an absent report. For an
+/// artifact whose whole purpose is to be trustworthy evidence, a half-written file is the worst
+/// outcome available: a consumer cannot distinguish it from a real report that says something
+/// different.
+///
+/// The temp file is a *sibling* of the destination rather than in a temp directory, because a
+/// rename is only atomic within one filesystem. `fs::rename` replaces an existing destination on
+/// both Unix and Windows, so this keeps D8's "overwrites freely" — atomicity is about crash
+/// behaviour, not about refusing to overwrite.
+fn write_atomically(destination: &Path, bytes: &[u8]) -> Result<(), CliError> {
+    let directory = match destination.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent,
+        _ => Path::new("."),
+    };
+    let file_name = destination.file_name().ok_or_else(|| {
+        CliError::invalid(format!("--report {} names no file", destination.display()))
+    })?;
+    // The pid keeps two concurrent runs writing the same destination from sharing a temp file. They
+    // still race on the rename, but each rename publishes one complete artifact, so a reader can
+    // never observe a mixture of the two.
+    let temporary = directory.join(format!(
+        ".{}.{}.tmp",
+        file_name.to_string_lossy(),
+        std::process::id()
+    ));
+
+    let write = || -> std::io::Result<()> {
+        let mut file = fs::File::create(&temporary)?;
+        file.write_all(bytes)?;
+        // Flush to disk before the rename, so a crash after the rename cannot leave the directory
+        // entry pointing at content that never landed.
+        file.sync_all()
+    };
+    if let Err(e) = write() {
+        let _ = fs::remove_file(&temporary);
+        return Err(CliError::invalid(format!(
+            "write {}: {e}",
+            temporary.display()
+        )));
+    }
+
+    fs::rename(&temporary, destination).map_err(|e| {
+        let _ = fs::remove_file(&temporary);
+        CliError::invalid(format!("publish {}: {e}", destination.display()))
+    })
 }
 
 fn read(path: &str) -> Result<String, CliError> {
     std::fs::read_to_string(path).map_err(|e| CliError::invalid(format!("read {path}: {e}")))
+}
+
+/// The single engine-to-artifact translation for budget dimensions.
+///
+/// Exhaustive by construction: adding a variant to `pg_foma::ApplyDimension` fails to compile here
+/// until it is given an artifact name, rather than silently reaching a report as an unrecognised
+/// string that no consumer can branch on.
+fn budget_dimension(dimension: ApplyDimension) -> BudgetDimension {
+    match dimension {
+        ApplyDimension::DecodedPaths => BudgetDimension::DecodedPaths,
+        ApplyDimension::Candidates => BudgetDimension::Candidates,
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -418,7 +484,7 @@ fn run_cases(
                     if outcome.capped {
                         // The HermitCrab step budget fired, so this set is not authoritative.
                         return Ok(CaseOutcome::Incomplete(IncompleteReason::LogicalBudget {
-                            dimension: "hermitcrabSteps".to_string(),
+                            dimension: BudgetDimension::HermitcrabSteps,
                             value: 0,
                             limit: 0,
                         }));
@@ -466,10 +532,7 @@ fn run_cases(
                             value,
                             limit,
                         } => Ok(CaseOutcome::Incomplete(IncompleteReason::LogicalBudget {
-                            dimension: match dimension {
-                                ApplyDimension::DecodedPaths => "decodedPaths".to_string(),
-                                ApplyDimension::Candidates => "candidates".to_string(),
-                            },
+                            dimension: budget_dimension(dimension),
                             value: value as u64,
                             limit: limit as u64,
                         })),

@@ -426,7 +426,7 @@ fn judge(
 mod tests {
     use super::*;
     use crate::identity::IDENTITY_PROFILE;
-    use crate::outcome::{IncompleteReason, NotAttemptedReason};
+    use crate::outcome::{BudgetDimension, IncompleteReason, NotAttemptedReason};
     use crate::report::{CaseRecord, Execution, Provenance, ReportDraft, SuiteRef};
     use crate::suite::parse_suite;
 
@@ -628,7 +628,7 @@ mod tests {
         let report = report_for(
             &suite,
             CaseOutcome::Incomplete(IncompleteReason::LogicalBudget {
-                dimension: "candidates".into(),
+                dimension: BudgetDimension::Candidates,
                 value: 5000,
                 limit: 4096,
             }),

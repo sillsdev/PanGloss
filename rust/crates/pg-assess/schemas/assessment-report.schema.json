@@ -1,0 +1,150 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pangloss.assessment-report/v1",
+  "title": "Assessment report",
+  "description": "The immutable evidence one assess run produces. Stable source keys are interned into keyTable and cases reference them by index; every digest is computed over the EXPANDED form, so table ordering can never move one.",
+  "type": "object",
+  "required": [
+    "schema",
+    "schemaVersion",
+    "reportId",
+    "semanticDigest",
+    "outcomeDigest",
+    "generatedAt",
+    "status",
+    "reproducible",
+    "suite",
+    "execution",
+    "provenance",
+    "diagnostics",
+    "keyTable",
+    "cases"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": "pangloss.assessment-report" },
+    "schemaVersion": { "const": 1 },
+    "reportId": { "$ref": "#/$defs/digest" },
+    "semanticDigest": { "$ref": "#/$defs/digest" },
+    "outcomeDigest": { "$ref": "#/$defs/digest" },
+    "generatedAt": {
+      "type": "string",
+      "description": "Nonsemantic evidence: it moves reportId and nothing else.",
+      "maxLength": 64
+    },
+    "status": { "$ref": "#/$defs/batchOutcome" },
+    "reproducible": {
+      "type": "boolean",
+      "description": "False iff an outer wall-clock safety net decided any outcome, since the same run on another machine could have completed."
+    },
+    "suite": {
+      "type": "object",
+      "required": ["suiteId", "suiteRevision", "semanticDigest", "analysisIdentityProfile"],
+      "additionalProperties": false,
+      "properties": {
+        "suiteId": { "type": "string", "maxLength": 512 },
+        "suiteRevision": { "type": "string", "maxLength": 512 },
+        "semanticDigest": { "type": "string", "maxLength": 512 },
+        "analysisIdentityProfile": { "$ref": "#/$defs/identityProfile" }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "required": ["pipeline"],
+      "additionalProperties": false,
+      "properties": {
+        "pipeline": {
+          "type": "string",
+          "description": "Recorded rather than inferred. There is no silent fallback, so this always names the engine that actually ran.",
+          "enum": ["foma-confirm", "hermitcrab"]
+        },
+        "budgets": { "$ref": "#/$defs/resourceEnvelope" },
+        "wallClockLimitUs": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "required": [
+        "sourceSha256",
+        "sourceKind",
+        "modelFingerprint",
+        "importerVersion",
+        "compilerVersion"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "sourceSha256": {
+          "description": "Exact source bytes, no normalization. Outside the semantic projection (D3a): with core.autocrlf the same grammar has different bytes on Windows and Linux.",
+          "$ref": "#/$defs/digest"
+        },
+        "sourceKind": { "type": "string", "enum": ["hc-xml", "snapshot"] },
+        "modelFingerprint": {
+          "description": "What was actually analyzed. semanticDigest rests entirely on this.",
+          "$ref": "#/$defs/digest"
+        },
+        "importerVersion": { "type": "string", "maxLength": 128 },
+        "compilerVersion": { "type": "string", "maxLength": 128 }
+      }
+    },
+    "diagnostics": { "type": "array", "items": { "$ref": "#/$defs/diagnostic" } },
+    "keyTable": {
+      "type": "array",
+      "description": "Every distinct stable source key, once. Serialization only: digests hash the expanded form.",
+      "items": { "$ref": "#/$defs/stableSourceKey" }
+    },
+    "cases": { "type": "array", "items": { "$ref": "#/$defs/case" } },
+    "extensions": { "$ref": "#/$defs/extensions" }
+  },
+  "$defs": {
+    "case": {
+      "type": "object",
+      "description": "An authoritative analysis set appears only for a complete case.",
+      "required": ["caseId", "input", "outcome"],
+      "additionalProperties": false,
+      "properties": {
+        "caseId": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "input": { "type": "string", "maxLength": 4096 },
+        "supersedes": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 512 }
+        },
+        "outcome": { "$ref": "#/$defs/caseOutcomeKind" },
+        "analyses": { "type": "array", "items": { "$ref": "#/$defs/analysisRecord" } },
+        "incomplete": { "$ref": "#/$defs/incompleteReason" },
+        "notAttempted": { "$ref": "#/$defs/notAttemptedReason" }
+      }
+    },
+    "analysisRecord": {
+      "type": "object",
+      "required": ["identity", "identityDigest", "duplicateCount", "guessed"],
+      "additionalProperties": false,
+      "properties": {
+        "identity": { "$ref": "#/$defs/internedIdentity" },
+        "identityDigest": { "$ref": "#/$defs/digest" },
+        "duplicateCount": {
+          "type": "integer",
+          "description": "Copies observed before deduplication. Health evidence about the engine's work, never about the grammar.",
+          "minimum": 1
+        },
+        "guessed": {
+          "type": "boolean",
+          "description": "An annotation, never part of identity. false -> true across two runs means the root stopped being found in the lexicon and the parser fabricated one."
+        }
+      }
+    },
+    "internedIdentity": {
+      "type": "object",
+      "description": "The analysis identity with keys replaced by keyTable indices. A null morpheme slot is a fabricated root and interns to nothing.",
+      "required": ["morphemes", "rootIndex", "category"],
+      "additionalProperties": false,
+      "properties": {
+        "morphemes": {
+          "type": "array",
+          "items": { "type": ["integer", "null"], "minimum": 0 }
+        },
+        "rootIndex": { "type": "integer", "minimum": -1 },
+        "category": { "type": ["integer", "null"], "minimum": 0 }
+      }
+    }
+  }
+}

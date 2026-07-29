@@ -19,6 +19,38 @@ use serde::{Deserialize, Serialize};
 
 use crate::set::AnalysisSet;
 
+/// Which magnitude a logical budget counts.
+///
+/// A closed enum rather than a free string, so the artifact's `dimension` cannot drift from what
+/// the engine actually tripped on: the conversion at the engine boundary is a `match` the compiler
+/// checks, and a new engine dimension has to be named here before it can reach an artifact. The
+/// alternative — each caller spelling its own string — makes a typo silently produce a dimension no
+/// consumer can branch on, which is the same "cannot act on prose" failure the typed
+/// `not_comparable` reasons exist to avoid.
+///
+/// This crate stays engine-agnostic, so these are named after the quantity rather than after any
+/// one engine's internals.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BudgetDimension {
+    /// Raw paths pulled from the proposer before decoding.
+    DecodedPaths,
+    /// Distinct candidates offered to confirmation.
+    Candidates,
+    /// HermitCrab analysis steps.
+    HermitcrabSteps,
+}
+
+impl BudgetDimension {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            BudgetDimension::DecodedPaths => "decodedPaths",
+            BudgetDimension::Candidates => "candidates",
+            BudgetDimension::HermitcrabSteps => "hermitcrabSteps",
+        }
+    }
+}
+
 /// Why a case that started could not finish.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
@@ -27,7 +59,7 @@ pub enum IncompleteReason {
     /// outcome on every machine and every run.
     #[serde(rename_all = "camelCase")]
     LogicalBudget {
-        dimension: String,
+        dimension: BudgetDimension,
         value: u64,
         limit: u64,
     },
@@ -164,7 +196,7 @@ mod tests {
 
     fn budget_stop() -> CaseOutcome {
         CaseOutcome::Incomplete(IncompleteReason::LogicalBudget {
-            dimension: "candidates".to_string(),
+            dimension: BudgetDimension::Candidates,
             value: 5000,
             limit: 4096,
         })

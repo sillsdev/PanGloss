@@ -1,0 +1,168 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pangloss.grammar-delta/v1",
+  "title": "Grammar delta",
+  "description": "What changed between two assessment reports, as exact evidence. An addition is not an improvement and a removal is not a regression; this artifact names what moved and refuses to say whether that is good.",
+  "type": "object",
+  "required": [
+    "schema",
+    "schemaVersion",
+    "baseline",
+    "candidate",
+    "outcomeDigestsAgree",
+    "contextDifferences",
+    "summary",
+    "cases"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": "pangloss.grammar-delta" },
+    "schemaVersion": { "const": 1 },
+    "baseline": { "$ref": "#/$defs/side" },
+    "candidate": { "$ref": "#/$defs/side" },
+    "outcomeDigestsAgree": {
+      "type": "boolean",
+      "description": "The cheap \"did the grammar behave the same\" answer, available without reading a single case."
+    },
+    "contextDifferences": {
+      "type": "array",
+      "description": "Differences in how the two runs were produced. Evidence, never a gate: refusing to compare because the compiler version moved would make the tool useless precisely when it is most needed.",
+      "items": { "$ref": "#/$defs/contextDifference" }
+    },
+    "summary": {
+      "type": "object",
+      "description": "Denominators only. No rate, no score, no verdict.",
+      "required": ["totalCases", "byCategory", "changedCases"],
+      "additionalProperties": false,
+      "properties": {
+        "totalCases": { "type": "integer", "minimum": 0 },
+        "changedCases": { "type": "integer", "minimum": 0 },
+        "byCategory": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "cases": {
+      "type": "array",
+      "description": "Baseline report order, then candidate-only cases in candidate order.",
+      "items": { "$ref": "#/$defs/caseDelta" }
+    }
+  },
+  "$defs": {
+    "side": {
+      "type": "object",
+      "required": ["reportId", "outcomeDigest"],
+      "additionalProperties": false,
+      "properties": {
+        "reportId": { "$ref": "#/$defs/digest" },
+        "outcomeDigest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "contextDifference": {
+      "type": "object",
+      "required": ["field", "baseline", "candidate"],
+      "additionalProperties": false,
+      "properties": {
+        "field": { "type": "string", "maxLength": 256 },
+        "baseline": {},
+        "candidate": {}
+      }
+    },
+    "deltaCategory": {
+      "type": "string",
+      "description": "annotation_changed and completeness_changed count as changed; the two one-sided categories do not, because a case present on one side only is inventory movement the caller already knows about.",
+      "enum": [
+        "unchanged",
+        "added_only",
+        "removed_only",
+        "mixed",
+        "annotation_changed",
+        "completeness_changed",
+        "baseline_only",
+        "candidate_only",
+        "not_comparable"
+      ]
+    },
+    "notComparableReason": {
+      "type": "string",
+      "description": "Typed, because not_comparable with a prose cause is the least actionable output this system can produce. A stable key absent from one side is never in this list — that is added or removed.",
+      "enum": [
+        "case_definition_changed",
+        "identity_profile_changed",
+        "both_incomplete",
+        "both_not_attempted",
+        "incomparable_outcomes",
+        "key_collision"
+      ]
+    },
+    "identifiedAnalysis": {
+      "type": "object",
+      "required": ["identity", "identityDigest"],
+      "additionalProperties": false,
+      "properties": {
+        "identity": { "$ref": "#/$defs/analysisIdentity" },
+        "identityDigest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "caseDelta": {
+      "type": "object",
+      "required": [
+        "caseId",
+        "input",
+        "category",
+        "baselineOutcome",
+        "candidateOutcome",
+        "added",
+        "removed",
+        "retained",
+        "annotationChanges",
+        "duplicateCountChanges"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "caseId": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "candidateCaseId": {
+          "description": "Present when a supersedes link was followed, so a renumbering is visible rather than silently absorbed.",
+          "type": ["string", "null"],
+          "maxLength": 512
+        },
+        "input": { "type": "string", "maxLength": 4096 },
+        "category": { "$ref": "#/$defs/deltaCategory" },
+        "notComparableReason": { "$ref": "#/$defs/notComparableReason" },
+        "baselineOutcome": { "type": ["string", "null"], "maxLength": 64 },
+        "candidateOutcome": { "type": ["string", "null"], "maxLength": 64 },
+        "added": { "type": "array", "items": { "$ref": "#/$defs/identifiedAnalysis" } },
+        "removed": { "type": "array", "items": { "$ref": "#/$defs/identifiedAnalysis" } },
+        "retained": { "type": "array", "items": { "$ref": "#/$defs/identifiedAnalysis" } },
+        "annotationChanges": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["identity", "baselineGuessed", "candidateGuessed"],
+            "additionalProperties": false,
+            "properties": {
+              "identity": { "$ref": "#/$defs/analysisIdentity" },
+              "baselineGuessed": { "type": "boolean" },
+              "candidateGuessed": { "type": "boolean" }
+            }
+          }
+        },
+        "duplicateCountChanges": {
+          "type": "array",
+          "description": "A flag, not a change: redundant proposal work is not linguistic content.",
+          "items": {
+            "type": "object",
+            "required": ["identity", "baselineCount", "candidateCount"],
+            "additionalProperties": false,
+            "properties": {
+              "identity": { "$ref": "#/$defs/analysisIdentity" },
+              "baselineCount": { "type": "integer", "minimum": 0 },
+              "candidateCount": { "type": "integer", "minimum": 0 }
+            }
+          }
+        }
+      }
+    }
+  }
+}

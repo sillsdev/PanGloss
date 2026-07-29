@@ -582,7 +582,7 @@ fn diagnostic_code_counts(diagnostics: &[Diagnostic]) -> Value {
 mod tests {
     use super::*;
     use crate::identity::IDENTITY_PROFILE;
-    use crate::outcome::{IncompleteReason, NotAttemptedReason};
+    use crate::outcome::{BudgetDimension, IncompleteReason, NotAttemptedReason};
     use crate::report::{Execution, Provenance, ReportDraft, Severity, SuiteRef};
 
     fn id(morphemes: &[&str]) -> AnalysisIdentity {
@@ -724,7 +724,7 @@ mod tests {
             case_id: "c1".into(),
             input: "w".into(),
             outcome: CaseOutcome::Incomplete(IncompleteReason::LogicalBudget {
-                dimension: "candidates".into(),
+                dimension: BudgetDimension::Candidates,
                 value: 5000,
                 limit: 4096,
             }),
@@ -753,7 +753,7 @@ mod tests {
             case_id: "c1".into(),
             input: "w".into(),
             outcome: CaseOutcome::Incomplete(IncompleteReason::LogicalBudget {
-                dimension: "candidates".into(),
+                dimension: BudgetDimension::Candidates,
                 value: 5000,
                 limit: 4096,
             }),

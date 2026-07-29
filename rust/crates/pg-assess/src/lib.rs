@@ -43,7 +43,8 @@ pub use identity::{AnalysisIdentity, IdentityError, MorphemeKey, IDENTITY_PROFIL
 pub use jcs::{canonicalize, JcsError};
 pub use model::{model_fingerprint, source_sha256, SourceKind, MODEL_PROJECTION};
 pub use outcome::{
-    derive_status, AssessmentStatus, CaseOutcome, IncompleteReason, NotAttemptedReason,
+    derive_status, AssessmentStatus, BudgetDimension, CaseOutcome, IncompleteReason,
+    NotAttemptedReason,
 };
 pub use report::{
     parse_report, AssessmentReport, CaseRecord, Diagnostic, Execution, Provenance, ReportDraft,

@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pangloss.assessment-suite/v1",
+  "title": "Assessment suite",
+  "description": "The caller's questions. PanGloss validates and executes a suite exactly as supplied; it never authors a case, edits an expectation, or moves one between statuses.",
+  "type": "object",
+  "required": ["schema", "schemaVersion", "suiteId", "suiteRevision", "cases"],
+  "properties": {
+    "schema": { "const": "pangloss.assessment-suite" },
+    "schemaVersion": { "const": 1 },
+    "suiteId": {
+      "type": "string",
+      "description": "Opaque and caller-issued. PanGloss never parses it.",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "suiteRevision": { "type": "string", "minLength": 1, "maxLength": 512 },
+    "analysisIdentityProfile": { "$ref": "#/$defs/identityProfile" },
+    "metadata": {
+      "description": "Unknown caller metadata. Carried verbatim and included in the suite digest.",
+      "type": ["object", "null"]
+    },
+    "extensions": { "$ref": "#/$defs/extensions" },
+    "cases": {
+      "type": "array",
+      "description": "Authoritative order. Two cases may share a surface form and remain distinct, because a case is a question the caller is asking, not a word.",
+      "items": { "$ref": "#/$defs/case" }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "case": {
+      "type": "object",
+      "required": ["caseId", "input"],
+      "additionalProperties": false,
+      "properties": {
+        "caseId": {
+          "type": "string",
+          "description": "The only join key between two runs. Unique within a suite.",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "input": { "type": "string", "maxLength": 4096 },
+        "languageTag": { "type": ["string", "null"], "maxLength": 128 },
+        "tags": { "type": "array", "items": { "type": "string", "maxLength": 256 } },
+        "supersedes": {
+          "type": "array",
+          "description": "Baseline case IDs this case replaces. PanGloss follows a declared link and never infers one.",
+          "items": { "type": "string", "minLength": 1, "maxLength": 512 }
+        },
+        "sourceReferences": {
+          "type": "array",
+          "description": "Opaque to PanGloss: shape and size are validated, contents are carried or omitted exactly as supplied.",
+          "maxItems": 64,
+          "items": {}
+        },
+        "expectation": { "$ref": "#/$defs/expectation" },
+        "extensions": { "$ref": "#/$defs/extensions" }
+      }
+    },
+    "expectation": {
+      "type": "object",
+      "description": "required, forbidden and allowed must be pairwise disjoint: an identity both demanded and banned has no satisfiable reading.",
+      "required": ["status"],
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "Recorded, never created or transitioned by PanGloss. Only `adjudicated` is evaluable.",
+          "enum": ["adjudicated", "unresolved", "out_of_scope", "invalid"]
+        },
+        "closedWorld": {
+          "type": "boolean",
+          "description": "true with empty required and allowed is the encoding for \"this form is ungrammatical\": it is satisfied only by a complete empty analysis set."
+        },
+        "required": { "type": "array", "items": { "$ref": "#/$defs/analysisIdentity" } },
+        "forbidden": { "type": "array", "items": { "$ref": "#/$defs/analysisIdentity" } },
+        "allowed": { "type": "array", "items": { "$ref": "#/$defs/analysisIdentity" } }
+      }
+    }
+  }
+}

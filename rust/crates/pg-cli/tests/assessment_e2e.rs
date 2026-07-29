@@ -411,6 +411,52 @@ fn setup_failure_produces_a_failed_artifact_rather_than_an_error_exit() {
 }
 
 #[test]
+fn a_report_is_published_atomically_and_leaves_no_debris() {
+    if skip_if_unbuilt() {
+        return;
+    }
+    let ws = Workspace::new("atomic-write");
+    let grammar = grammar();
+    let g = grammar.to_str().unwrap();
+    let words = ws.write("words.txt", "k\nxk\n");
+    let report = ws.path("report.json");
+
+    // Pre-existing content that must be replaced wholesale, never partially overwritten. It is
+    // much longer than the real artifact, so a writer that truncated in place and re-streamed could
+    // leave a tail of it behind. The sentinel is a string the artifact cannot contain, so this
+    // cannot pass or fail by accident on the fixture's own vocabulary.
+    const SENTINEL: &str = "PREVIOUS-REPORT-CONTENT-THAT-MUST-NOT-SURVIVE";
+    std::fs::write(&report, SENTINEL.repeat(5_000)).unwrap();
+
+    run_ok(&[
+        "assess",
+        g,
+        "--words",
+        words.to_str().unwrap(),
+        "--report",
+        report.to_str().unwrap(),
+    ]);
+
+    let written = std::fs::read_to_string(&report).expect("read published report");
+    let parsed: Value = serde_json::from_str(&written).expect("published report is complete JSON");
+    assert_eq!(parsed["schema"], "pangloss.assessment-report");
+    assert!(
+        !written.contains(SENTINEL),
+        "the previous file's content survived, so the write was not a replacement"
+    );
+
+    // The temp sibling is an implementation detail that must not outlive the run: a leftover
+    // `.report.json.<pid>.tmp` would accumulate in the caller's directory on every invocation.
+    let debris: Vec<_> = std::fs::read_dir(&ws.dir)
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .filter(|name| name.ends_with(".tmp"))
+        .collect();
+    assert!(debris.is_empty(), "temp files left behind: {debris:?}");
+}
+
+#[test]
 fn exit_codes_are_typed() {
     if skip_if_unbuilt() {
         return;

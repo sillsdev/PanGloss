@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pangloss/common.defs/v1",
+  "title": "Shared definitions",
+  "description": "The pieces §17.3 names besides the five artifacts: typed failures, diagnostics, per-case outcomes, resource envelopes, and the analysis identity every artifact keys on.",
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "description": "Lowercase hex SHA-256 with an explicit algorithm prefix, so a future algorithm cannot be mistaken for this one.",
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "maxLength": 71
+    },
+    "identityProfile": {
+      "type": "string",
+      "description": "The rules for what an analysis identity is and how it is encoded. A successor ships either a total mechanical mapping from its predecessor or a stated reason none exists.",
+      "const": "pangloss.machine-word-analysis/v1"
+    },
+    "stableSourceKey": {
+      "type": "string",
+      "description": "The identity a construct carries in its authored source: the MSA or entry GUID on the LibLCM path, the id attribute on HC XML. Never a compiler-assigned ordinal.",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "analysisIdentity": {
+      "type": "object",
+      "description": "A self-contained value (ADR 0006). Never a reference resolved against a compiled model, so it stays meaningful after the grammar that produced it changed or stopped compiling.",
+      "required": ["morphemes", "rootIndex", "category"],
+      "additionalProperties": false,
+      "properties": {
+        "morphemes": {
+          "type": "array",
+          "description": "Ordered stable morpheme keys. A null slot is the fabricated root of a guessed analysis, which by construction has no authored source — distinct from a morpheme whose key is literally the string \"null\".",
+          "items": {
+            "type": ["string", "null"],
+            "minLength": 1,
+            "maxLength": 512
+          }
+        },
+        "rootIndex": {
+          "type": "integer",
+          "description": "Position of the root within morphemes. -1 where no root is identified.",
+          "minimum": -1
+        },
+        "category": {
+          "description": "Stable part-of-speech symbol id, or null when the analysis carries no category.",
+          "type": ["string", "null"],
+          "minLength": 1,
+          "maxLength": 512
+        }
+      }
+    },
+    "budgetDimension": {
+      "type": "string",
+      "description": "Which magnitude a logical budget counts. Closed, so a consumer can branch on it.",
+      "enum": ["decodedPaths", "candidates", "hermitcrabSteps"]
+    },
+    "incompleteReason": {
+      "type": "object",
+      "description": "Why a case that started could not finish. Only a logical budget is deterministic; a wall-clock stop makes the report unreproducible.",
+      "required": ["kind"],
+      "oneOf": [
+        {
+          "required": ["kind", "dimension", "value", "limit"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "logicalBudget" },
+            "dimension": { "$ref": "#/$defs/budgetDimension" },
+            "value": { "type": "integer", "minimum": 0 },
+            "limit": { "type": "integer", "minimum": 0 }
+          }
+        },
+        {
+          "required": ["kind", "elapsedUs", "limitUs"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "wallClockTimeout" },
+            "elapsedUs": { "type": "integer", "minimum": 0 },
+            "limitUs": { "type": "integer", "minimum": 0 }
+          }
+        }
+      ]
+    },
+    "notAttemptedReason": {
+      "type": "object",
+      "description": "Why a case never began.",
+      "required": ["kind"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "batchBudgetExhausted",
+            "assessmentSetupFailed",
+            "caseStatusInvalid"
+          ]
+        }
+      }
+    },
+    "caseOutcomeKind": {
+      "type": "string",
+      "description": "Atomic per-case outcome. A complete empty analysis set is a positive claim that the grammar analyzes the form no way at all; incomplete is the refusal to make that claim.",
+      "enum": ["complete", "incomplete", "not_attempted"]
+    },
+    "batchOutcome": {
+      "type": "string",
+      "description": "The report-level verdict on execution, never on the grammar.",
+      "enum": ["complete", "partial", "failed"]
+    },
+    "resourceEnvelope": {
+      "type": "object",
+      "description": "Effective logical budgets by dimension. Absent or empty means unbounded, which is the default until an envelope is named.",
+      "additionalProperties": { "type": "integer", "minimum": 0 }
+    },
+    "diagnostic": {
+      "type": "object",
+      "description": "An importer or compiler diagnostic. `code` is what compare diffs; `message` is for humans and never reaches a digest.",
+      "required": ["code", "severity", "message"],
+      "additionalProperties": false,
+      "properties": {
+        "code": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "severity": { "type": "string", "enum": ["warning", "error"] },
+        "message": { "type": "string", "maxLength": 8192 }
+      }
+    },
+    "extensions": {
+      "type": "object",
+      "description": "Namespaced consumer annotations. Excluded from both semantic projections, included in reportId."
+    }
+  }
+}

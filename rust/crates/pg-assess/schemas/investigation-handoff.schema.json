@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pangloss.investigation-handoff/v1",
+  "title": "Investigation handoff",
+  "description": "The evidence for one case, bound to the run that produced the delta. PanGloss supplies material; a human or an AI draws the conclusion. No field makes a root-cause claim or prescribes a grammar edit.",
+  "type": "object",
+  "required": [
+    "schema",
+    "schemaVersion",
+    "binding",
+    "outcome",
+    "observed",
+    "missing",
+    "constructs",
+    "evidence",
+    "narrative",
+    "caveat"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": "pangloss.investigation-handoff" },
+    "schemaVersion": { "const": 1 },
+    "binding": {
+      "type": "object",
+      "description": "The thing FieldWorks' own tracer structurally cannot do: tie evidence to a specific report, model, and case. A mismatch is refused rather than traced.",
+      "required": ["reportId", "modelFingerprint", "caseId", "input", "pipeline"],
+      "additionalProperties": false,
+      "properties": {
+        "reportId": { "$ref": "#/$defs/digest" },
+        "modelFingerprint": { "$ref": "#/$defs/digest" },
+        "caseId": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "input": { "type": "string", "maxLength": 4096 },
+        "pipeline": { "type": "string", "enum": ["foma-confirm", "hermitcrab"] }
+      }
+    },
+    "outcome": { "$ref": "#/$defs/caseOutcomeKind" },
+    "observed": { "type": "array", "items": { "$ref": "#/$defs/analysisIdentity" } },
+    "missing": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["identity", "cause"],
+        "additionalProperties": false,
+        "properties": {
+          "identity": { "$ref": "#/$defs/analysisIdentity" },
+          "cause": { "$ref": "#/$defs/missingAnalysisCause" }
+        }
+      }
+    },
+    "constructs": { "type": "array", "items": { "$ref": "#/$defs/constructRef" } },
+    "evidence": {
+      "type": "object",
+      "required": ["availability", "engine"],
+      "additionalProperties": false,
+      "properties": {
+        "availability": {
+          "type": "string",
+          "description": "Regenerated evidence is never presented as originally captured; unavailable is stated rather than omitted, so a reader can tell \"no evidence\" from \"we did not look\".",
+          "enum": ["retained", "regenerated", "unavailable"]
+        },
+        "engine": { "type": "string", "maxLength": 64 },
+        "note": { "type": "string", "maxLength": 4096 }
+      }
+    },
+    "narrative": { "type": "array", "items": { "$ref": "#/$defs/narrativeStep" } },
+    "caveat": {
+      "type": "object",
+      "required": ["text"],
+      "additionalProperties": false,
+      "properties": { "text": { "type": "string", "minLength": 1, "maxLength": 4096 } }
+    }
+  },
+  "$defs": {
+    "missingAnalysisCause": {
+      "type": "string",
+      "description": "Without this distinction a narrative confidently explains a grammar problem that is actually a PanGloss recall gap, and the reviewer edits a good grammar. Attribution needs both pipelines; anything unattributed stays undetermined rather than guessed.",
+      "enum": [
+        "hermitcrabRejected",
+        "proposerRecallGap",
+        "neitherPipelineProduces",
+        "undetermined"
+      ]
+    },
+    "constructRef": {
+      "type": "object",
+      "required": ["kind", "id", "idKind"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "lexicalEntry",
+            "morphologicalRule",
+            "phonologicalRule",
+            "stratum",
+            "template"
+          ]
+        },
+        "id": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "idKind": {
+          "type": "string",
+          "description": "compilerAssigned marks a dense ordinal that is NOT a source identity (ADR 0001). Presenting one as a FieldWorks id would send an investigator hunting for something that is not there.",
+          "enum": ["sourceId", "compilerAssigned"]
+        },
+        "label": { "type": "string", "maxLength": 512 }
+      }
+    },
+    "narrativeStep": {
+      "type": "object",
+      "description": "A pruned failure explanation, not a trace dump: which candidate was attempted, where it died, and under which typed reason.",
+      "required": ["candidate", "at", "failureReason", "detail"],
+      "additionalProperties": false,
+      "properties": {
+        "candidate": { "type": "string", "maxLength": 4096 },
+        "at": { "$ref": "#/$defs/constructRef" },
+        "failureReason": {
+          "type": "string",
+          "description": "A pg_rules::trace::FailureReason variant name, carried verbatim so a Rust narrative and a C# trace name the same thing.",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "detail": { "type": "string", "maxLength": 4096 }
+      }
+    }
+  }
+}

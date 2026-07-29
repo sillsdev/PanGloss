@@ -40,7 +40,7 @@ Exclusive ownership: new identity crate, `pg-parse` analysis projection. Amends
       mechanical mapping from its predecessor or a stated reason none exists
 - [ ] 1.12 Verify duplicate-count determinism under parallel batch; if nondeterministic, move
       duplicate counts out of the semantic projection and record the finding
-- [ ] Gate: `cargo test -p pg-parse -p pg-grammar`; JCS conformance fixtures pass; identical inputs
+- [ ] Gate: `rust/tools/test.ps1 -Package pg-parse` then `rust/tools/test.ps1 -Package pg-grammar`; JCS conformance fixtures pass; identical inputs
       reproduce `semanticDigest` and `outcomeDigest` across runs and platforms
 
 ## 2. Assessment suite schema and validator
@@ -62,7 +62,7 @@ Exclusive ownership: new identity crate, `pg-parse` analysis projection. Amends
 - [x] 2.8 Reject an unsupported `schemaVersion` as a typed validation failure, never best-effort
 - [x] 2.9 Compute the suite semantic digest over the full canonical suite, unknown caller metadata
       included
-- [ ] Gate: `cargo test -p pg-cli suite_`; positive and negative fixtures for every rule above
+- [ ] Gate: `rust/tools/test.ps1 -Package pg-cli -Filter suite_`; positive and negative fixtures for every rule above
 
 ## 3. `assess` and the assessment report
 
@@ -121,7 +121,7 @@ terminal-outcome routing owner).
       compiles the grammar once
 - [ ] 3.15 Update `certify-language-readiness` and `run-synthetic-conformance-matrix` for the report
       shape they consume
-- [ ] Gate: `cargo test -p pg-cli assess_`; a repeated run reproduces both digests; a timestamp or
+- [ ] Gate: `rust/tools/test.ps1 -Package pg-cli -Filter assess_`; a repeated run reproduces both digests; a timestamp or
       path change moves `reportId` only
 
 ## 4. `compare` and the grammar delta
@@ -142,7 +142,7 @@ terminal-outcome routing owner).
       improvement or a removal a regression
 - [x] 4.9 Produce a valid artifact with every case `not_comparable/identity_profile_changed` and
       exit `0` when profiles are incompatible
-- [ ] Gate: `cargo test -p pg-cli compare_`; a grammar edit deleting a morpheme yields `removed_only`,
+- [ ] Gate: `rust/tools/test.ps1 -Package pg-cli -Filter compare_`; a grammar edit deleting a morpheme yields `removed_only`,
       not `not_comparable`; engine discovery order does not change any category
 
 ## 5. `golden-diff`
@@ -159,7 +159,7 @@ terminal-outcome routing owner).
 - [x] 5.5 Retain denominators in every aggregate: total, complete, incomplete, not attempted,
       adjudicated and evaluable, agrees, disagrees, unresolved, out of scope, invalid
 - [x] 5.6 Never update the suite
-- [ ] Gate: `cargo test -p pg-cli golden_`; an incomplete case never satisfies an empty closed-world
+- [ ] Gate: `rust/tools/test.ps1 -Package pg-cli -Filter golden_`; an incomplete case never satisfies an empty closed-world
       expectation
 
 ## 6. `investigate` and the failure narrative
@@ -178,7 +178,7 @@ terminal-outcome routing owner).
 - [x] 6.6 State that FieldWorks' C# HermitCrab traces a different engine, so a divergence there is
       not necessarily a grammar defect
 - [x] 6.7 Make no root-cause claim and prescribe no grammar edit in any artifact
-- [ ] Gate: `cargo test -p pg-cli investigate_`; a synthetic proposer recall gap is attributed to the
+- [ ] Gate: `rust/tools/test.ps1 -Package pg-cli -Filter investigate_`; a synthetic proposer recall gap is attributed to the
       proposer, not to the grammar
 
 ## 7. End-to-end fixture
@@ -199,6 +199,21 @@ terminal-outcome routing owner).
       12-slot chain guarantees `C(12,k)` analyses by construction — 1/12/66, asserted, so a
       projection bug cannot hide behind "whatever the parser said".
       Run with `rust/tools/test.ps1 -Package pg-cli`. 7 e2e tests + 12 CLI unit tests pass.
+
+## Closed schema deliverables (handoff spec §17.3)
+
+- [x] S.1 Check in JSON Schemas for all five artifacts plus the shared definitions §17.3 names
+      (typed failures, diagnostics, per-case outcomes, resource envelopes): `pg-assess/schemas/`
+- [x] S.2 Canonical positive fixtures: every schema is validated against an artifact the real
+      emitter produced, not a hand-written sample, so schema/emitter drift fails either way
+- [x] S.3 Negative fixtures: each must be rejected AND rejected at the field at fault, so a
+      negative fixture cannot pass for the wrong reason
+- [x] S.4 The validator covers a declared JSON Schema subset and treats an unsupported keyword as a
+      hard error, so a schema cannot grow a construct nothing checks. A general validator would mean
+      a new dependency this repo has not taken; claiming to be one would be worse than declaring the
+      subset
+- [ ] S.5 Not done: `docs/` reference for consumers generating client types from these schemas
+- Gate: `rust/tools/test.ps1 -Package pg-assess` — 20 schema-conformance tests
 
 ## Known environment limitation (not a defect in this change)
 
