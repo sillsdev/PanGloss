@@ -155,6 +155,10 @@ pub struct FomaWordDiagnostics {
     pub confirm_batch_calls: usize,
     pub confirmation_groups: usize,
     pub confirmation_calls: usize,
+    /// Full-HC oracle step ticks consumed confirming this word -- see
+    /// `confirm::ConfirmBatchDiagnostics::confirmation_steps` for why this, and not the call count,
+    /// is the unit worth ranking candidates on.
+    pub confirmation_steps: usize,
     pub confirmed_analyses: usize,
     pub confirmation_elapsed: Duration,
 }
@@ -524,6 +528,7 @@ impl<'g> FomaAnalyzer<'g> {
             confirm_batch_calls: 1,
             confirmation_groups: confirmation.confirmation_groups,
             confirmation_calls: confirmation.confirmation_calls,
+            confirmation_steps: confirmation.confirmation_steps,
             confirmed_analyses: outcome.confirmed,
             confirmation_elapsed,
         };

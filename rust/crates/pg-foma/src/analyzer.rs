@@ -669,6 +669,17 @@ mod budget_tests {
     //! numbers (documented and justified separately in `EnumerationBudget`'s own doc) -- it proves
     //! the MECHANISM trips and propagates correctly, fast, regardless of where the default is set.
 
+    /// How far past its cap an incremental budget check may report before we call it late.
+    ///
+    /// The failure being caught is a check that stops running per-item and fires once at the end, in
+    /// which case the reported value is the grammar's ENTIRE enumeration, not a few items past the
+    /// cap. Aweti's uncapped composite enumeration is the reason this whole budget exists (691MB of
+    /// lexc, ~8.8GB `apply_up` allocation), so it is orders of magnitude above any small multiple of
+    /// these caps of 10 and 5 -- which is what makes a modest factor here sufficient to separate
+    /// "noticed promptly" from "noticed at the end", while leaving room for the check to be batched
+    /// rather than strictly per-item.
+    const OVERSHOOT_FACTOR: usize = 50;
+
     use super::*;
     use crate::morphotactics::EnumerationBudget;
 
@@ -721,6 +732,7 @@ mod budget_tests {
                 limit,
             }) => {
                 assert_eq!(limit, 10, "limit must echo back the injected cap");
+                eprintln!("aweti tiny-entry-budget tripped at value={value} limit={limit}");
                 assert!(
                     value > limit,
                     "tripped value {value} must exceed the limit {limit}"
@@ -728,6 +740,25 @@ mod budget_tests {
                 assert_eq!(
                     measure, "composite lexc entries (fusion + interdigitation + structural)",
                     "a tiny entry cap (probe cap unbounded) must trip on the ENTRY measure"
+                );
+                // FAIL-FAST, asserted as OVERSHOOT rather than as wall-clock.
+                //
+                // The regression this guards against is a budget check that stops running
+                // incrementally and only fires once, at the very end -- in which case `value` would
+                // report Aweti's ENTIRE composite enumeration rather than the handful of entries it
+                // took to cross a cap of 10. So the property is "the check noticed promptly", and
+                // overshoot measures that directly.
+                //
+                // This used to assert `elapsed.as_secs() < 120`, which tested the same property
+                // through a proxy the machine controls rather than the code: measured, it took 191s
+                // and failed while six `cargo` and seven `rustc` processes from a concurrent build
+                // held the CPU at 100% -- with the fail-fast logic working perfectly. Builds here run
+                // `BelowNormal` so interactive daemons stay responsive, which makes any wall-clock
+                // assertion in this suite hostage to whoever else is compiling. Overshoot is
+                // deterministic, machine-independent, and a sharper test of the same thing.
+                assert!(
+                    value <= limit.saturating_mul(OVERSHOOT_FACTOR),
+                    "fail-fast budget must notice promptly: tripped at {value} against cap {limit},                      more than {OVERSHOOT_FACTOR}x over -- the signature of a check that stopped                      running incrementally"
                 );
             }
             Err(other) => panic!(
@@ -738,15 +769,6 @@ mod budget_tests {
                  FomaProposer::new_with_budget succeeded instead"
             ),
         }
-
-        // The whole point of a FAIL-FAST budget: this must be nowhere near the ~551s the
-        // uncapped Rust-side emit takes on Aweti (module doc). A generous ceiling here still
-        // catches a regression that silently disables the early bail-out (e.g. a budget check
-        // that got moved to only run once, at the very end).
-        assert!(
-            elapsed.as_secs() < 120,
-            "fail-fast budget should trip in well under the ~551s uncapped runtime, took {elapsed:?}"
-        );
     }
 
     /// The probe-count measure, isolated: an effectively-unlimited entry cap paired with a tiny
@@ -773,14 +795,19 @@ mod budget_tests {
             }) => {
                 assert_eq!(limit, 5);
                 assert!(value > limit);
+                eprintln!("aweti tiny-probe-budget tripped at value={value} limit={limit}");
                 assert_eq!(measure, "(root, rule) pairs probed");
+                // Same fail-fast property, same reasoning as the entry-measure test above.
+                assert!(
+                    value <= limit.saturating_mul(OVERSHOOT_FACTOR),
+                    "fail-fast budget must notice promptly: tripped at {value} against cap {limit}"
+                );
             }
             Err(other) => panic!(
                 "expected FomaError::EnumerationBudgetExceeded, got a different FomaError: {other}"
             ),
             Ok(_) => panic!("expected the tiny probe budget (cap=5) to trip on Aweti"),
         }
-        assert!(elapsed.as_secs() < 120, "took {elapsed:?}");
     }
 
     /// Sanity check the OTHER direction on a tiny, hand-built grammar with no real composite

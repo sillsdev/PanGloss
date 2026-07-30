@@ -37,6 +37,16 @@ pub const RULE_UNION_SLACK: usize = 3;
 pub(crate) struct ConfirmBatchDiagnostics {
     pub confirmation_groups: usize,
     pub confirmation_calls: usize,
+    /// Total `pg_rules::stratum::StepBudget` ticks the full-HC oracle actually consumed across every
+    /// call in this batch (`pg_parse::ParseOutcome::steps`).
+    ///
+    /// A finer unit than `confirmation_calls`, and the one worth ranking on: a call is not a constant
+    /// amount of work, because a long word costs far more to adjudicate than a short one, so counting
+    /// calls under-weights exactly the expensive words that dominate real cost. It is also the unit
+    /// HC work is already BOUNDED in (`recipe_runtime::DEFAULT_ORACLE_STEP_CAP` caps these same
+    /// ticks), so measuring in it means the objective and the cap finally speak the same language.
+    /// Deterministic, like the counts beside it -- no wall-clock anywhere.
+    pub confirmation_steps: usize,
 }
 
 /// Which grammar object owns a given [`MorphemeId`] — ported from `hc-hybrid/src/replay.rs`'s
@@ -433,6 +443,11 @@ fn confirm_batch_impl(
             Some(&lex_entry_filter),
             Some(&rule_filter),
         );
+        // Read BEFORE the loop below consumes `outcome`.
+        if let Some(diagnostics) = diagnostics.as_deref_mut() {
+            diagnostics.confirmation_steps =
+                diagnostics.confirmation_steps.saturating_add(outcome.steps);
+        }
 
         // `outcome.analyses[i]` and `outcome.structured[i]` describe the SAME analysis
         // (ParseOutcome's own doc, `pg-parse/src/morpher.rs:79-120`) — zip so a routed match

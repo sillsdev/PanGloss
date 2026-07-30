@@ -164,6 +164,13 @@ pub struct Score {
     pub apply: u64,
     pub proposals: u64,
     pub confirmation: u64,
+    /// Full-HC oracle step ticks consumed confirming this candidate's whole corpus.
+    ///
+    /// The primary ranking component. `#[serde(default)]` so reports written before this field
+    /// existed still parse; a `0` from such a report simply ranks as no recorded work, which is what
+    /// "we did not measure it" honestly means here.
+    #[serde(default)]
+    pub confirmation_steps: u64,
 }
 
 impl Score {
@@ -199,12 +206,17 @@ impl Score {
     /// here are genuinely tied, and the `id` tiebreak makes that outcome deterministic rather than
     /// pretending to a preference.
     ///
-    /// TODO(steps): promote `pg_parse::ParseOutcome::steps` to the first component once it is threaded
-    /// through `confirm`/`composite` into [`Score`]. A confirmation CALL is not a constant amount of
-    /// work -- a long word costs more than a short one -- and steps are the unit `oracle_step_cap`
-    /// already bounds HC work in.
-    pub fn key(&self, id: &str) -> (u64, u64, u64, String) {
+    /// # Why steps rank above calls
+    /// `confirmation_steps` leads because a confirmation CALL is not a constant amount of work: a long
+    /// word costs far more to adjudicate than a short one, so ranking by calls under-weights exactly
+    /// the expensive words that dominate real cost. Steps are also the unit HC work is already BOUNDED
+    /// in ([`crate::recipe_runtime::DEFAULT_ORACLE_STEP_CAP`] caps these same ticks), so the objective
+    /// and the cap now measure the same quantity rather than two proxies for it. `confirmation`
+    /// (calls) stays as the next component: it separates candidates that happen to consume equal
+    /// steps across a different number of adjudications.
+    pub fn key(&self, id: &str) -> (u64, u64, u64, u64, String) {
         (
+            self.confirmation_steps,
             self.confirmation,
             self.proposals,
             self.states.saturating_add(self.arcs),
@@ -879,6 +891,7 @@ mod tests {
                         apply: 1,
                         proposals: 1,
                         confirmation: 1,
+                        confirmation_steps: 1,
                     }),
                     usage: BudgetUsage {
                         evaluations: 1,
@@ -943,6 +956,7 @@ mod tests {
                         apply: 1,
                         proposals: 1,
                         confirmation: 1,
+                        confirmation_steps: 1,
                     }),
                     usage: BudgetUsage {
                         evaluations: 1,
@@ -1010,6 +1024,7 @@ mod tests {
                         apply: 1,
                         proposals: 1,
                         confirmation: 1,
+                        confirmation_steps: 1,
                     }),
                     usage: BudgetUsage {
                         evaluations: 1,
@@ -1071,6 +1086,7 @@ mod tests {
             apply: 1,
             proposals: 1,
             confirmation: 1,
+            confirmation_steps: 1,
         };
         let failures = vec![
             Certification::EstimateOnly,
@@ -1127,6 +1143,7 @@ mod tests {
                     apply: 1,
                     proposals: 1,
                     confirmation: 1,
+                    confirmation_steps: 1,
                 },
             ),
             (
@@ -1139,6 +1156,7 @@ mod tests {
                     apply: 9,
                     proposals: 9,
                     confirmation: 9,
+                    confirmation_steps: 9,
                 },
             ),
         ];
