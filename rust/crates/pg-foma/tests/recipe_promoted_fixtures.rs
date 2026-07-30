@@ -58,16 +58,26 @@ fn promoted_recipe_fixtures_replay_and_offer_distinct_plans_or_elimination_evide
                 baseline: &baseline,
             })
             .unwrap_or_else(|e| panic!("{name} recipe materialization failed: {e}"));
+        // Counted over PLAN-composed candidates, because that is what both branches below are about:
+        // the checked-in elimination report reasons about content-address-duplicate PLANS and the
+        // absence of a `Union` node, and the other branch demands a "content-distinct executable"
+        // PLAN. A whole-grammar strategy is a different COMPILER carrying the same plan, so counting
+        // it here would answer a question nobody asked -- and would make the single-candidate branch
+        // fail on a fixture whose plan space genuinely still holds exactly one member.
+        let plan_candidates = candidates
+            .iter()
+            .filter(|(_, c)| !c.strategy.is_whole_grammar())
+            .count();
         if name == "recipe-template-generic" {
-            assert_eq!(candidates.len(), 1, "the checked-in elimination report is only valid while no distinct template Plan exists");
+            assert_eq!(plan_candidates, 1, "the checked-in elimination report is only valid while no distinct template Plan exists");
             let report = std::fs::read_to_string(fixture.dir.join("RECIPE_ELIMINATION.md"))
                 .expect("single-candidate fixture must carry an elimination report");
             assert!(report.contains("content-address-duplicate"));
             assert!(report.contains("no `Union` node"));
         } else {
             assert!(
-                candidates.len() >= 2,
-                "{name} must retain the default plus a content-distinct executable alternative; got {}",
+                plan_candidates >= 2,
+                "{name} must retain the default plus a content-distinct executable alternative; got {plan_candidates} plan-composed of {} total",
                 candidates.len()
             );
         }

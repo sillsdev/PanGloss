@@ -167,13 +167,47 @@ pub struct Score {
 }
 
 impl Score {
-    pub fn key(&self, id: &str) -> (u64, u64, u64, u64, u64, String) {
+    /// Ranks candidates by DETERMINISTIC WORK, not by wall-clock.
+    ///
+    /// # Why work and not time
+    /// Every component here is exactly reproducible: measured over eight synthetic fixtures at ten
+    /// repetitions each, `confirmation`, `proposals`, `states` and `arcs` had zero spread, while
+    /// `build` varied 15-50% and `apply` 6-20% run to run. Ranking by time therefore decided ties by
+    /// noise -- observed: two runs of the same grammar with the same seed named DIFFERENT winners
+    /// because one candidate happened to build 2.8ms faster. Ranking by work cannot do that, so a
+    /// reported winner is now a property of the compilation rather than of the machine it was measured
+    /// on, and is comparable across machines and over time with no re-baselining.
+    ///
+    /// # Why confirmation work comes first
+    /// Full-HC confirmation is the cost that dominates propose→confirm: one grammar here proposes
+    /// 1064 candidates over 9 words, and confirmation has to adjudicate all of it. `Budget` already
+    /// denominates its allowance in this unit ("Aggregate full-HC confirmation-work allowance,
+    /// measured as confirmation calls"), so objective and budget now agree on a unit instead of one
+    /// counting work while the other ranked seconds.
+    ///
+    /// This ordering is not cosmetic. Measured on a marker-free fixture, two candidates compiled to
+    /// the SAME 11 states / 13 arcs while one did 2 confirmation calls and the other 4; ranking size
+    /// first tied them and fell through to build time, which named the candidate doing twice the work.
+    ///
+    /// # Why minimizing work is safe
+    /// Fewer proposals could mean an under-generating network. It cannot be selected: only a
+    /// `selectable()` candidate may win (`RecipeOptimizationReport::validate`), which requires full-HC
+    /// confirmation over the whole corpus. Work-minimization operates strictly behind that gate.
+    ///
+    /// `build`/`apply` remain in [`Score`] and in the report as diagnostics -- useful for spotting a
+    /// pathological compile -- but deliberately do NOT rank. Candidates that tie on every component
+    /// here are genuinely tied, and the `id` tiebreak makes that outcome deterministic rather than
+    /// pretending to a preference.
+    ///
+    /// TODO(steps): promote `pg_parse::ParseOutcome::steps` to the first component once it is threaded
+    /// through `confirm`/`composite` into [`Score`]. A confirmation CALL is not a constant amount of
+    /// work -- a long word costs more than a short one -- and steps are the unit `oracle_step_cap`
+    /// already bounds HC work in.
+    pub fn key(&self, id: &str) -> (u64, u64, u64, String) {
         (
-            self.states.saturating_add(self.arcs),
-            self.build,
-            self.apply,
-            self.proposals,
             self.confirmation,
+            self.proposals,
+            self.states.saturating_add(self.arcs),
             id.to_owned(),
         )
     }
@@ -1108,7 +1142,22 @@ mod tests {
                 },
             ),
         ];
+        // Both stay on the frontier: neither dominates the other, since one is smaller and the other
+        // does less work. That is unchanged by the ranking policy.
         assert_eq!(pareto_frontier(&items), vec!["large-fast", "small-slow"]);
-        assert_eq!(select_confirmed(&items), Some("small-slow".to_owned()));
+        // `large-fast`, and this assertion REVERSED deliberately -- it is the clearest statement of
+        // what the objective now optimizes. These two fixtures are built to disagree: `small-slow` has
+        // a 5x smaller network (4 vs 20) but does 9x the confirmation work (9 calls vs 1).
+        //
+        // The old key ranked `states + arcs` first and so chose `small-slow` -- the smaller net,
+        // regardless of what it costs to use. That preference is wrong for this project twice over.
+        // First, a smaller FST is not a better one: the one documented case where a candidate's net
+        // shrank sharply, it had shrunk because it was MISSING the material that makes the grammar
+        // work. Second, and measured: on a marker-free fixture two candidates compiled to identical
+        // 11 states / 13 arcs while doing 2 and 4 confirmation calls respectively, and a size-first
+        // key tied them and fell through to build time -- naming the candidate that does twice the
+        // work. Confirmation work is the cost that dominates propose->confirm, so it ranks first now
+        // and size is only a tiebreak beneath it.
+        assert_eq!(select_confirmed(&items), Some("large-fast".to_owned()));
     }
 }

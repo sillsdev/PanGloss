@@ -702,6 +702,17 @@ const SEEDS: &[SeededFamily] = &[
         ordering: &[("lower-stratum", "upper-stratum")],
     },
     SeededFamily {
+        // The OTHER whole-grammar compiler, offered explicitly rather than only reachable as a
+        // post-failure rescue. On a marker-carrying grammar the baseline already falls back here, so
+        // this adds nothing there; on a marker-free grammar the baseline composes its plan instead,
+        // and this is the only way the surface-probed compiler ever gets compared against it.
+        id: "surface-probe-morphology",
+        applicability: Applicability::Always,
+        transform: SafeTransform::Identity,
+        strategy: EmissionStrategy::TunedSurfaceProbed,
+        ordering: &[("morphology", "phonology")],
+    },
+    SeededFamily {
         // The first family that varies the COMPILER rather than the plan shape. Every family above
         // rewrites the assembly tree, and measurement says that cannot change the compiled network:
         // on eight marker-free fixtures all of them produced bit-identical states/arcs/proposals and
@@ -726,6 +737,7 @@ pub const SEEDED_FAMILIES: &[&str] = &[
     "bounded-metathesis",
     "layered-morphology",
     "token-cascade-morphology",
+    "surface-probe-morphology",
 ];
 
 #[cfg(test)]

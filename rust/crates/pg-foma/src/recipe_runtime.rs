@@ -196,6 +196,20 @@ pub struct RuntimeBudget {
 pub struct RuntimeEvaluation {
     pub certification: Certification,
     pub score: Score,
+    /// Which compiler ACTUALLY produced the measured network, as opposed to which one the candidate
+    /// declared.
+    ///
+    /// These differ, and the difference is invisible without this field. `evaluate_plans_marked`
+    /// evaluates a marker-carrying baseline evidence-first: it composes the plan, and only if that
+    /// FAILS does it fall back to the tuned emitter. That fallback is deliberate and must stay -- a
+    /// blanket veto on marker presence previously dropped grammars whose composed baseline confirms
+    /// perfectly well (`mpr-gated-exception` scores 27/38 confirmed as `PlanComposed` despite
+    /// carrying a marker). But it means a candidate declaring `PlanComposed` can be measured on the
+    /// tuned network: `recipe-ordered-generic`'s baseline reports 79 states / 154 arcs and 366
+    /// proposals, which is the tuned network, while its declared strategy still says `PlanComposed`.
+    /// Anything attributing that measurement -- a report field, a diagram caption, a comparison
+    /// between candidates -- must read THIS, not the declaration.
+    pub realized_strategy: EmissionStrategy,
 }
 
 /// Evaluates the BASELINE of a grammar whose plan needs composite/structural marker subtrees, using
@@ -224,6 +238,7 @@ pub struct RuntimeEvaluation {
 /// block, which is exactly how they would have drifted.
 #[allow(clippy::too_many_arguments)]
 fn measure_and_certify(
+    realized_strategy: EmissionStrategy,
     analyzer: &mut FomaAnalyzer,
     words: &[String],
     expected: &[(String, Vec<WordAnalysis>)],
@@ -281,11 +296,17 @@ fn measure_and_certify(
     RuntimeEvaluation {
         certification,
         score,
+        realized_strategy,
     }
 }
 
-fn build_failed(reason: String, build: u64) -> RuntimeEvaluation {
+fn build_failed(
+    realized_strategy: EmissionStrategy,
+    reason: String,
+    build: u64,
+) -> RuntimeEvaluation {
     RuntimeEvaluation {
+        realized_strategy,
         certification: Certification::BuildFailed { reason },
         score: Score {
             states: 0,
@@ -309,6 +330,7 @@ fn evaluate_via_tuned_emit(
         Ok(p) => p,
         Err(e) => {
             return build_failed(
+                EmissionStrategy::TunedSurfaceProbed,
                 format!("tuned emit path failed to build: {e}"),
                 elapsed_ns(t).max(1),
             )
@@ -320,6 +342,7 @@ fn evaluate_via_tuned_emit(
     // surface space and the production proposer queries it with plain NFD.
     let mut analyzer = FomaAnalyzer::from_precompiled_proposer(grammar, proposer);
     measure_and_certify(
+        EmissionStrategy::TunedSurfaceProbed,
         &mut analyzer,
         words,
         expected,
@@ -357,6 +380,7 @@ fn evaluate_via_templated_emit(
         Ok(output) => output,
         Err(e) => {
             return build_failed(
+                EmissionStrategy::TemplatedUnderlyingTokens,
                 format!("templated underlying-token path failed to build: {e}"),
                 elapsed_ns(t).max(1),
             )
@@ -366,6 +390,7 @@ fn evaluate_via_templated_emit(
     let (states, arcs) = output.proposer.network_counts();
     let mut analyzer = FomaAnalyzer::from_precompiled_proposer(grammar, output.proposer);
     measure_and_certify(
+        EmissionStrategy::TemplatedUnderlyingTokens,
         &mut analyzer,
         words,
         expected,
@@ -489,7 +514,10 @@ pub fn evaluate_plans_marked(
         };
         return plans
             .iter()
-            .map(|_| RuntimeEvaluation {
+            .map(|plan| RuntimeEvaluation {
+                // Nothing compiled -- the corpus itself was refused -- so the honest answer is the
+                // strategy that was requested.
+                realized_strategy: plan.strategy,
                 certification: Certification::Truncated {
                     stage: stage.into(),
                 },
@@ -527,6 +555,7 @@ pub fn evaluate_plans_marked(
             let build = elapsed_ns(t).max(1);
             let Ok(mut built) = built else {
                 return RuntimeEvaluation {
+                    realized_strategy: EmissionStrategy::PlanComposed,
                     certification: Certification::BuildFailed {
                         reason: "build failed".into(),
                     },
@@ -542,6 +571,7 @@ pub fn evaluate_plans_marked(
             };
             let Some(net) = built.net.take() else {
                 return RuntimeEvaluation {
+                    realized_strategy: EmissionStrategy::PlanComposed,
                     certification: Certification::Truncated {
                         stage: "empty-network".into(),
                     },
@@ -569,6 +599,7 @@ pub fn evaluate_plans_marked(
                 Ok(net) => net,
                 Err(e) => {
                     return RuntimeEvaluation {
+                        realized_strategy: EmissionStrategy::PlanComposed,
                         certification: Certification::BuildFailed {
                             reason: format!("boundary-cleanup finish failed: {e}"),
                         },
@@ -647,6 +678,7 @@ pub fn evaluate_plans_marked(
             // permutation at all).
             if certification.selectable() {
                 return RuntimeEvaluation {
+                    realized_strategy: EmissionStrategy::PlanComposed,
                     certification,
                     score,
                 };
@@ -655,6 +687,7 @@ pub fn evaluate_plans_marked(
             if markers.is_empty() {
                 // Failed on a network that fully represents its own plan: a real result, reported as is.
                 return RuntimeEvaluation {
+                    realized_strategy: EmissionStrategy::PlanComposed,
                     certification,
                     score,
                 };
@@ -673,6 +706,7 @@ pub fn evaluate_plans_marked(
             // builds itself, so putting a permutation through it would measure the BASELINE network and
             // report it as this permutation -- a fabricated comparison. Refuse, naming why.
             RuntimeEvaluation {
+                realized_strategy: EmissionStrategy::PlanComposed,
                 certification: Certification::Unsupported {
                     reason: format!(
                         "plan structure cannot be honoured: it failed on the controllable-only network \

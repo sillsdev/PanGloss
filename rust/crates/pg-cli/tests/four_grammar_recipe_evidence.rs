@@ -102,10 +102,15 @@ fn run_fixture(fixture: &str, root: &Path) -> Value {
             out.to_str().unwrap(),
             "--seed",
             "17",
+            // These budgets have to scale with the registry, and they are not decoration: at
+            // `--evaluations 8` this fixture reported `budget-exhausted` the moment the registry grew
+            // a second whole-grammar compiler, because the pilot consumes evaluations too (measured:
+            // `usage.evaluations` = 10 for 5 candidates). An exhausted run cannot assert `complete`
+            // /`exact`, so the whole point of this gate would quietly become unreachable.
             "--candidates",
-            "8",
+            "32",
             "--evaluations",
-            "8",
+            "64",
         ])
         .status()
         .expect("production recipe-optimize must start");
@@ -136,10 +141,11 @@ fn run_template_characterization(root: &Path) -> Value {
             out.to_str().unwrap(),
             "--seed",
             "17",
+            // Same reason as `run_fixture`: sized to the registry, not to a historical count.
             "--candidates",
-            "8",
+            "32",
             "--evaluations",
-            "8",
+            "64",
             "--elapsed-ns",
             "5000000000",
         ])
@@ -171,13 +177,13 @@ fn four_promoted_grammars_have_truthful_recipe_evidence() {
     // 27/38 -- AND confirms against full HC on every corpus word with non-zero proposals. So it is
     // selected over the baseline on a deterministic size difference rather than a build-time
     // tie-break. Every plan-shape candidate, by contrast, still ties the baseline exactly at 27/38.
-    assert_eq!(mpr["counts"]["feasible"]["value"], 4);
-    assert_eq!(mpr["pruning"]["confirmed"], 4);
+    assert_eq!(mpr["counts"]["feasible"]["value"], 5);
+    assert_eq!(mpr["pruning"]["confirmed"], 5);
     assert!(mpr["usage"]["memory_peak"].as_u64().unwrap() > 0);
     assert_eq!(mpr["replay_parameters"]["beam_width"], "16");
     assert_eq!(mpr["replay_parameters"]["pilot_candidate_cap"], "8");
     accounted_pruning(&mpr, "mpr-gated-exception");
-    assert_eq!(mpr["candidates"].as_array().unwrap().len(), 4);
+    assert_eq!(mpr["candidates"].as_array().unwrap().len(), 5);
     // Pin the new axis by id, not just by count: a count alone would still pass if the
     // token-cascade candidate were replaced by yet another plan permutation, which is the
     // degeneracy this axis exists to escape.
@@ -319,14 +325,21 @@ fn four_promoted_grammars_have_truthful_recipe_evidence() {
     let template = run_template_characterization(&root);
     assert_eq!(template["termination"], "complete");
     assert_eq!(template["quality"], "exact");
-    // 8 seeded families now, not 7: `token-cascade-morphology` joined the table. These two count the
+    // 9 seeded families: the seven original plan-rewrite families plus the two whole-grammar
+    // compilers (`token-cascade-morphology`, `surface-probe-morphology`). These two counts are of the
     // registry's DECLARED families, independent of which apply to this grammar.
-    assert_eq!(template["counts"]["syntactic"], 8);
-    assert_eq!(template["counts"]["attested"], 8);
-    assert_eq!(template["counts"]["static_count"], 1);
+    assert_eq!(template["counts"]["syntactic"], 9);
+    assert_eq!(template["counts"]["attested"], 9);
+    // 2, not 1: this grammar has no phonological rules so the token-cascade compiler does not apply,
+    // but the surface-probed one does (`Always`), and it is a genuinely distinct candidate rather than
+    // a relabelled baseline -- it compiles 14 states / 91 arcs where the plan-composed baseline
+    // compiles 2/13. Both confirm; both do 1 confirmation call, so the work-first key ties them and
+    // the smaller network wins, which is why `winner_strategy` below is the plan-composed one.
+    assert_eq!(template["counts"]["static_count"], 2);
     assert_eq!(template["counts"]["feasible"]["kind"], "exact");
-    assert_eq!(template["counts"]["feasible"]["value"], 1);
-    assert_eq!(template["pilot"]["sample_size"], 1);
+    assert_eq!(template["counts"]["feasible"]["value"], 2);
+    assert_eq!(template["pilot"]["sample_size"], 2);
+    assert_eq!(template["winner_strategy"], "plan-composed");
     // 2, not 3: this fixture has ONE lexical entry, so `specialized-branch` -- now gated on
     // `HasSplittableGateGroup` (>= 2 entries) rather than `HasMorphology` -- is rejected by
     // applicability instead of being materialized into a byte-identical copy of the baseline and
@@ -341,8 +354,8 @@ fn four_promoted_grammars_have_truthful_recipe_evidence() {
          families; an `inapplicable` bucket this small means the report is counting applicability \
          rejections as something else: {template_pruning:?}"
     );
-    assert_eq!(template["pruning"]["evaluated"], 1);
-    assert_eq!(template["pruning"]["confirmed"], 1);
+    assert_eq!(template["pruning"]["evaluated"], 2);
+    assert_eq!(template["pruning"]["confirmed"], 2);
     assert_eq!(template["strategy"], "exhaustive");
 
     let deep_fixture = "edge-cases/deep-optional-affix-nesting";

@@ -142,6 +142,14 @@ struct Evaluator<'a> {
     grammar: &'a pg_grammar::model::Grammar,
     words: &'a [String],
     plans: BTreeMap<String, CandidatePlan>,
+    /// What actually compiled each candidate, keyed by candidate id, recorded as it is evaluated.
+    ///
+    /// Necessary because a candidate's DECLARED strategy is not always what ran: a marker-carrying
+    /// baseline is evaluated evidence-first and falls back to the tuned emitter only if composing its
+    /// plan fails, so it can be measured on a network its declaration does not name. Reporting the
+    /// declaration would make `winner_strategy` wrong in precisely the case that field exists to
+    /// clarify.
+    realized: BTreeMap<String, &'static str>,
     capability: pg_foma::capability::PredicateRegistry,
     oracle_step_cap: Option<usize>,
     oracle_word_timeout: Option<Duration>,
@@ -180,6 +188,8 @@ impl CandidateEvaluator for Evaluator<'_> {
             &[c.baseline],
         )
         .remove(0);
+        self.realized
+            .insert(c.id.clone(), e.realized_strategy.label());
         ConfirmationEvidence {
             certification: e.certification,
             score: Some(e.score),
@@ -458,6 +468,7 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
         grammar: &grammar,
         words: &words,
         plans,
+        realized: BTreeMap::new(),
         capability,
         oracle_step_cap: a.oracle_step_cap,
         oracle_word_timeout: a.oracle_word_timeout,
@@ -637,10 +648,12 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
         // Resolved from the winning candidate's own plan entry, not re-derived from its id: the id's
         // `@strategy` suffix is a display convenience and must not become the source of truth for
         // what compiled the winner.
+        // The REALIZED strategy, recorded during evaluation -- not the candidate's declaration. See
+        // `Evaluator::realized` for why those differ and why the declaration would be wrong here.
         winner_strategy: winner
             .as_ref()
-            .and_then(|id| evaluator.plans.get(id))
-            .map(|p| p.strategy.label().to_owned()),
+            .and_then(|id| evaluator.realized.get(id))
+            .map(|label| (*label).to_owned()),
         winner,
         frontier: outcome.frontier,
         candidates: evaluated,
