@@ -42,8 +42,19 @@
     rust\tools\pg.ps1 -Mode gc            # dry run, reports only
     rust\tools\pg.ps1 -Mode gc -Apply     # actually deletes disposable targets
 #>
+# PositionalBinding = $false is a CORRECTNESS gate, not style. Without it every string parameter
+# below is implicitly positional, so a stray or misplaced cargo flag is silently absorbed as the
+# VALUE of whichever positional slot happens to be free instead of reaching $ExtraArgs. Measured:
+# `pg.ps1 -Mode test -Package pg-foma --no-capture` bound "--no-capture" to -Filter, so nextest ran
+# with a filter no test name can match -- "0 tests run" while looking like a successful filtered run.
+# `pg.ps1 -Mode build -Package pg-foma --example foo` bound "--example" to -Path and "foo" to -Base.
+# That is the self-concealing class of failure this script exists to prevent: an argument that
+# changes what runs, absorbed without a word. Unknown tokens now flow to $ExtraArgs (and on to
+# cargo) or fail loudly. -Mode keeps Position = 0 so `pg.ps1 build` still works rather than blocking
+# on a Mandatory-parameter prompt, which in an agent context is an unattended hang.
+[CmdletBinding(PositionalBinding = $false)]
 param(
-    [Parameter(Mandatory)]
+    [Parameter(Mandatory, Position = 0)]
     [ValidateSet('build', 'test', 'corpus-test', 'release', 'doctor', 'gc', 'new-worktree')]
     [string]$Mode,
     # new-worktree only: where to create it, which revision to base it on, and the branch name.

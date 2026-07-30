@@ -19,6 +19,10 @@
     rust\tools\test.ps1 -NoNextest                        # force plain `cargo test`
     rust\tools\test.ps1 -Gc                               # gc -Apply first, then test
 #>
+# See pg.ps1's own note: without this, `test.ps1 --no-capture` binds "--no-capture" to -Package,
+# which turns a passthrough flag into a package name and fails (or worse, filters) rather than
+# reaching cargo.
+[CmdletBinding(PositionalBinding = $false)]
 param(
     [string]$Package = '',
     [string]$Filter = '',

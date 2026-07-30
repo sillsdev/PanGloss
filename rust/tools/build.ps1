@@ -13,6 +13,9 @@
     rust\tools\build.ps1 -Gc                    # gc -Apply first, then build
     rust\tools\build.ps1 -- --features foo      # extra args passed through to cargo
 #>
+# See pg.ps1's own note: without this, `build.ps1 --features foo` binds "--features" to -Package and
+# the documented `-- --features foo` passthrough below never reaches cargo either.
+[CmdletBinding(PositionalBinding = $false)]
 param(
     [string]$Package = '',
     [switch]$DebugProfile,

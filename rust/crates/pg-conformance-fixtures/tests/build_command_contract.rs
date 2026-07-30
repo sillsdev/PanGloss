@@ -43,3 +43,35 @@ fn claude_md_mandates_the_managed_build_entry_point() {
         "CLAUDE.md must state the bare-Cargo prohibition outright, not just mention pg.ps1 in passing"
     );
 }
+
+/// The managed scripts MUST refuse positional binding on their own parameters.
+///
+/// PowerShell makes every `[string]$Foo = ''` parameter implicitly positional, so without
+/// `PositionalBinding = $false` a stray cargo flag is bound as the VALUE of whichever positional
+/// slot is free rather than passed through. Measured before the fix: `pg.ps1 -Mode test -Package
+/// pg-foma --no-capture` bound `--no-capture` to `-Filter`, and nextest duly reported `0 tests run`
+/// for a filter no test name can match -- a run that executed nothing while looking like a
+/// successful filtered run. `-Mode build --example foo` was absorbed into `-Path`/`-Base` just as
+/// quietly. Since the hook now makes these scripts the ONLY way to build, an entry point that can
+/// silently discard an argument that changes what runs is the same self-concealing class of failure
+/// the corpus-required gate exists to prevent.
+///
+/// This is a TEXT pin on the declaration, not an execution test: running PowerShell from a Rust test
+/// would need a real cargo invocation to observe the passthrough, and this suite deliberately runs
+/// without a corpus or a build. It catches removal of the attribute, which is the regression that
+/// matters; it does not re-derive the binding semantics.
+#[test]
+fn managed_build_scripts_refuse_positional_binding() {
+    for script in ["pg.ps1", "build.ps1", "test.ps1"] {
+        let path = repo_root().join("rust/tools").join(script);
+        let text = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+        let normalized = text.replace(' ', "");
+        assert!(
+            normalized.contains("[CmdletBinding(PositionalBinding=$false)]"),
+            "{script} must declare [CmdletBinding(PositionalBinding = $false)] so an unrecognized \
+             flag reaches cargo or fails loudly, instead of being absorbed as some other \
+             parameter's value"
+        );
+    }
+}
