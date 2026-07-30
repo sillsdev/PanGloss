@@ -1,5 +1,5 @@
 //! Diagnostic census tool (2026-07-27 templated-morphotactics recall investigation, Task 2 of
-//! `docs/superpowers/plans/2026-07-21-aweti-correctness-performance-plan.md`): scans the whole
+//! `docs/superpowers/plans/2026-07-21-deep-truncation-correctness-performance-plan.md`): scans the whole
 //! corpus for every word whose ONLY oracle analysis is a bare root (exactly one morpheme,
 //! `root_index == 0`, i.e. zero affixes), and reports, for each, whether the composition-based
 //! recall check (byte-for-byte the same technique `tests/p6_templated_morphotactics_gate.rs`'s

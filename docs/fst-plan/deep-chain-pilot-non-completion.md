@@ -90,7 +90,7 @@ this from a hang into a millisecond-to-low-second bounded call. Neither is threa
 `build_candidate`/`build_controllable`/`finish_controllable_net` (state/arc caps, default
 `2_000_000` states / `20_000_000` arcs — calibrated in `phase-b-compose-budget-design.md` §8 with
 generous headroom over Aweti's real compiled network, ~10,609 states / ~298,830 arcs per
-`aweti-performance-follow-on.md`). `EnumerationBudget` (`morphotactics.rs`) guards the eager
+`deep-truncation-chain-performance-follow-on.md`). `EnumerationBudget` (`morphotactics.rs`) guards the eager
 enumeration/`preexpand`/`emit` path.
 
 Neither type has anything to do with `pg_parse::Morpher` — that is a different crate (`pg-parse`,
@@ -111,7 +111,7 @@ grammars"* — is not the operative cause for `recipe-optimize` specifically. Th
 explosion was real (see `p6-deep-truncation-chain-report.md` §1) but was already fixed by the
 chain-restriction change (`dfb5025`): post-fix, `apply_up` on the previously-pathological probe word
 completes 2,000,000 raw results in ~2.1s, and the full P6 compile is sub-second
-(`aweti-performance-follow-on.md`). `recipe-optimize` never gets far enough to exercise that
+(`deep-truncation-chain-performance-follow-on.md`). `recipe-optimize` never gets far enough to exercise that
 (fixed) path at all — it is stuck earlier, in the unrelated, unbounded oracle call this document
 identifies.
 

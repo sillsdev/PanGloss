@@ -666,7 +666,7 @@ fn run_spot_check() {
 }
 
 /// (d) Bare-root TAG ATOMICITY boundary (2026-07-27 templated-morphotactics recall investigation,
-/// docs/superpowers/plans/2026-07-21-aweti-correctness-performance-plan.md Tasks 2/3): pins the
+/// docs/superpowers/plans/2026-07-21-deep-truncation-correctness-performance-plan.md Tasks 2/3): pins the
 /// EXACT boundary where the historically-missing bare root `"mã"` (morpheme 400) diverged from a
 /// recalled bare root of the same entry shape, and stands as a permanent regression guard for the
 /// root cause.

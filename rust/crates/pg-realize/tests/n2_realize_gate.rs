@@ -40,9 +40,11 @@ fn load_grammar(xml_name: &str) -> Option<Grammar> {
     Some(pg_grammar::load(&xml).unwrap_or_else(|e| panic!("failed to load {xml_name}: {e}")))
 }
 
-/// A missing sidecar when the grammar *is* present is an authoring bug (tracked alongside this
-/// milestone's commit), so this panics rather than self-skipping — same posture as
-/// `n1_ir_gate.rs::load_map`.
+/// Gitignored real-language data (`samples/data/*-realize.toml`, revised 2026-07-29 -- see
+/// `n1_ir_gate.rs`'s module doc). Every test in this file is unconditionally `#[ignore]`d and
+/// self-skips via `load_grammar` before reaching this call, so a missing file here still panics
+/// (a genuine error once execution has already committed to the fixture being present) — same
+/// posture as `n1_ir_gate.rs::load_map`.
 fn load_map(toml_name: &str) -> RealizeMap {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let path = manifest_dir.join("../../../samples/data").join(toml_name);

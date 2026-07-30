@@ -5,6 +5,7 @@
 /samples/data/*-words.txt
 /samples/data/*.fwdata
 /samples/data/*.json
+/samples/data/*-realize.toml
 /.worktrees/
 /rust/examples/native-abi/csharp/bin/
 /rust/examples/native-abi/csharp/obj/
@@ -20,3 +21,8 @@
 # both barred by the synthetic-only rule this suite is built on. Generate them locally and keep them
 # locally; commit only synthetic-fixture evidence.
 /reports/recipe-optimizer-*/
+
+# Real-language performance/completion evidence (release logs embedding real-language words,
+# per-run baselines). Same reason as /reports/recipe-optimizer-*/ above -- generate and keep
+# locally, commit only synthetic-fixture evidence.
+/reports/aweti-completion/

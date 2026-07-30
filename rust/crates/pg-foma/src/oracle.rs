@@ -87,7 +87,13 @@
 //! and buildable." Per node kind:
 //!
 //! - **`Leaf`** -- no children, nothing to restructure. Not a candidate kind at all.
-//! - **`Gate`** -- sound and buildable: [`permute_gate_groups`] (already shipped, see above).
+//! - **`Gate`** -- sound and buildable, TWO independent ways: [`permute_gate_groups`] (order,
+//!   already shipped, see above) and [`refine_gate_partition`] (cardinality -- splitting one
+//!   group's entries into several disjoint sub-groups sharing its own unchanged `Replace` node;
+//!   composition distributes over union, so this cannot change what the `Gate` node accepts either
+//!   -- see that function's own doc for the full argument). The two are independent axes of the SAME
+//!   node kind, not the same restructuring twice: order-permuting never changes
+//!   `partition.groups.len()`, refining never changes group ORDER.
 //! - **`Union`** -- **sound, and now shipped**: [`permute_union_children`]. `Union`'s own doc
 //!   (`plan.rs`) is "merges independently-compiled branches" -- a set union over whatever its
 //!   children denote, and set union is commutative, so reordering `children` cannot change what the
@@ -167,11 +173,14 @@ use foma::apply::apply_init;
 use foma::options::FomaOptions;
 use foma::types::Fsm;
 
-use pg_grammar::model::{Grammar, PhonRuleDef};
+use pg_grammar::model::{Grammar, LexEntryId, PhonRuleDef};
 
 use crate::build::build_controllable;
 use crate::compose_budget::{ComposeBudget, ComposeError};
-use crate::plan::{GateGroupSpec, GatePartitionSpec, NodeId, Plan, PlanNodeKind};
+use crate::plan::{
+    ComposeStrategy, FragmentSpec, GateGroupSpec, GatePartitionSpec, NodeId, Plan, PlanNodeKind,
+    Provenance,
+};
 use crate::replace::SegAlphabet;
 
 /// The outcome of one [`differential_oracle`] run (design.md D4).
@@ -488,6 +497,245 @@ pub fn permute_union_children(plan: &Plan) -> Plan {
             reversed
         },
     )
+}
+
+// -------------------------------------------------------------------------------------------------
+// Partition refinement: a THIRD sound Gate-node restructuring (cardinality, not order)
+// -------------------------------------------------------------------------------------------------
+
+/// How finely [`refine_gate_partition`] subdivides each eligible partition group's own entries.
+/// Both variants are sound by the SAME argument (this section's own doc); they differ only in how
+/// many pieces a group is cut into, which is exactly what makes them genuinely different candidate
+/// `Plan`s (different `Gate.partition.groups.len()`, different content address) rather than the same
+/// restructuring wearing two names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PartitionGranularity {
+    /// Split an eligible group into at most 2 contiguous sub-groups.
+    Bisect,
+    /// Split an eligible group into one singleton sub-group per entry (maximal refinement).
+    FanOut,
+}
+
+impl PartitionGranularity {
+    /// The sizes of the sub-groups `total` entries are cut into, in order, summing to `total`
+    /// (`0` for `total == 0`, matching [`build::build_controllable`]'s own "an empty group
+    /// contributes nothing" convention -- a zero-entry group is simply dropped, never fabricated).
+    fn chunk_sizes(self, total: usize) -> Vec<usize> {
+        match self {
+            Self::Bisect => {
+                if total < 2 {
+                    // Nothing to split: 0 or 1 entries has no non-trivial bisection. Returning
+                    // `vec![total]` (not `vec![]`) keeps the single existing entry (if any) in
+                    // its own unsplit group, so this is a true no-op on such a group -- not a
+                    // silent drop.
+                    vec![total]
+                } else {
+                    let half = total / 2;
+                    vec![total - half, half]
+                }
+            }
+            Self::FanOut => vec![1; total],
+        }
+    }
+}
+
+/// One gate group's `Compose` shape, as [`crate::enumerate::enumerate_default`] always builds it
+/// (that module's own "Shape" doc): exactly 2 children, `[0]` the group's `LexiconFragment` leaf,
+/// `[1]` its own `Replace` node, [`ComposeStrategy::Static`]. Duplicated from `crate::build`'s
+/// private `gate_group_children` rather than shared across the module boundary (this module is a
+/// `Plan`-to-`Plan` rewrite, not a builder -- the same "don't reach into `build.rs`" discipline this
+/// module's own doc already follows for [`permute_gate_groups`]/[`permute_union_children`]).
+fn gate_group_parts(plan: &Plan, compose_id: NodeId) -> (NodeId, NodeId) {
+    let PlanNodeKind::Compose { children, strategy } = plan
+        .get(compose_id)
+        .unwrap_or_else(|| panic!("dangling Compose NodeId {compose_id} in plan"))
+    else {
+        panic!("expected a Compose node as a Gate group's child at {compose_id}");
+    };
+    assert!(
+        matches!(strategy, ComposeStrategy::Static),
+        "refine_gate_partition only understands ComposeStrategy::Static (the only strategy \
+         enumerate_default ever emits); got {strategy:?} at node {compose_id}"
+    );
+    assert_eq!(
+        children.len(),
+        2,
+        "a gate-group Compose node must have exactly 2 children (LexiconFragment leaf, Replace \
+         node), got {} at {compose_id}",
+        children.len()
+    );
+    (children[0], children[1])
+}
+
+/// A gate group's `LexiconFragment` leaf, resolved to its `entries` list (mirrors `crate::build`'s
+/// private `lexicon_fragment_entries` -- same duplication rationale as [`gate_group_parts`]).
+fn lexicon_entries(plan: &Plan, lexicon_id: NodeId) -> Vec<LexEntryId> {
+    let PlanNodeKind::Leaf { fragment, .. } = plan
+        .get(lexicon_id)
+        .unwrap_or_else(|| panic!("dangling LexiconFragment NodeId {lexicon_id}"))
+    else {
+        panic!("expected a Leaf node as a gate-group Compose node's first child at {lexicon_id}");
+    };
+    let FragmentSpec::LexiconFragment { entries } = fragment else {
+        panic!(
+            "expected FragmentSpec::LexiconFragment on the gate-group lexicon leaf at \
+             {lexicon_id}, got {fragment:?}"
+        );
+    };
+    entries.clone().unwrap_or_else(|| {
+        panic!(
+            "refine_gate_partition requires Some(entries) on every gate-group LexiconFragment \
+             leaf (enumerate_default's own invariant); got None at {lexicon_id}"
+        )
+    })
+}
+
+/// A THIRD sound Gate-node restructuring, alongside [`permute_gate_groups`] (order) and
+/// [`permute_union_children`] (a different node kind entirely): this one changes a `Gate` node's
+/// partition CARDINALITY, not its order. [`permute_gate_groups`]'s own doc establishes that
+/// [`build::build_controllable`] folds every group's compiled net together with
+/// [`crate::compose_budget::union_checked`] (commutative) and always finishes with
+/// [`crate::compose_budget::minimize_checked`] -- that argument shows group ORDER is inert. This
+/// function needs one more step, but it is a standard one: **composition distributes over union**
+/// (`(A ∪ B) .o. R == (A .o. R) ∪ (B .o. R)` for any relation `R`) -- a basic fact about relational
+/// composition, true independent of anything `foma`-specific. Read one eligible group's own entries
+/// as `A ∪ B` (an arbitrary partition of that SAME entry set into disjoint pieces) and its own
+/// `Replace` cascade as `R`: splitting the group's `LexiconFragment` into several smaller
+/// `LexiconFragment`s, each still composed with the group's OWN, UNCHANGED `Replace` node (so
+/// `subrule_ok` -- read from that node's own `cascade.gated_subrules`/`group_key`, task 1.4's own
+/// discipline -- is identical for every sub-group), and re-unioning them back together produces
+/// EXACTLY the original group's compiled net, byte for byte, before the outer union-of-all-groups
+/// fold even runs. Refining a partition therefore cannot change what the whole `Gate` node accepts,
+/// for the same underlying reason `permute_gate_groups` cannot: only ENTRY MEMBERSHIP matters to the
+/// final accepted relation, and refinement (like reordering) never touches membership -- it only
+/// changes how many pieces the union is built from and in what shape.
+///
+/// A group with fewer than 2 entries (nothing to split) or a fixture where NO group is eligible
+/// (module-external callers are expected to gate on `Applicability` before even reaching this
+/// function, e.g. `recipe_registry`'s own `HasSplittableGateGroup`) is a genuine no-op: every
+/// `LexiconFragment`/`Compose` this function reconstructs for such a group has IDENTICAL content to
+/// the original (same entries, same `Replace` id, same strategy), so `Plan::add_node`'s content
+/// addressing dedups it straight back to the SAME `NodeId` -- never a forced, purposeless rebuild.
+///
+/// Reuses each ORIGINAL group's own `Replace` `NodeId` for every one of its sub-groups (recomputed
+/// via a plain recursive copy, never re-derived) -- content addressing (D1) dedups it back to ONE
+/// stored node automatically, since none of `cascade.rules`/`gated_subrules`/`group_key` changed;
+/// only each sub-group's OWN `LexiconFragment` leaf (a smaller `entries` subset) and its wrapping
+/// `Compose` node are genuinely new.
+///
+/// # Panics
+/// Via [`Plan::add_node`]'s own debug-only invariant, or the assertions in [`gate_group_parts`]/
+/// [`lexicon_entries`], if `plan` is not shaped the way [`crate::enumerate::enumerate_default`]
+/// always builds it -- not a new invariant this function introduces.
+pub fn refine_gate_partition(plan: &Plan, granularity: PartitionGranularity) -> Plan {
+    let root = plan
+        .root()
+        .expect("refine_gate_partition requires a Plan with a root set");
+    let mut new_plan = Plan::new();
+    let new_root = refine_node(plan, root, &mut new_plan, granularity);
+    new_plan.set_root(new_root);
+    new_plan
+}
+
+fn refine_node(
+    old_plan: &Plan,
+    old_id: NodeId,
+    new_plan: &mut Plan,
+    granularity: PartitionGranularity,
+) -> NodeId {
+    match old_plan
+        .get(old_id)
+        .unwrap_or_else(|| panic!("dangling NodeId {old_id} while refining a Plan"))
+    {
+        PlanNodeKind::Leaf {
+            fragment,
+            provenance,
+        } => new_plan.add_node(PlanNodeKind::Leaf {
+            fragment: fragment.clone(),
+            provenance: provenance.clone(),
+        }),
+        PlanNodeKind::Compose { children, strategy } => {
+            let strategy = *strategy;
+            let new_children: Vec<NodeId> = children
+                .iter()
+                .map(|&c| refine_node(old_plan, c, new_plan, granularity))
+                .collect();
+            new_plan.add_node(PlanNodeKind::Compose {
+                children: new_children,
+                strategy,
+            })
+        }
+        PlanNodeKind::Union { children } => {
+            let new_children: Vec<NodeId> = children
+                .iter()
+                .map(|&c| refine_node(old_plan, c, new_plan, granularity))
+                .collect();
+            new_plan.add_node(PlanNodeKind::Union {
+                children: new_children,
+            })
+        }
+        PlanNodeKind::Replace { cascade, children } => {
+            let cascade = cascade.clone();
+            let new_children: Vec<NodeId> = children
+                .iter()
+                .map(|&c| refine_node(old_plan, c, new_plan, granularity))
+                .collect();
+            new_plan.add_node(PlanNodeKind::Replace {
+                cascade,
+                children: new_children,
+            })
+        }
+        PlanNodeKind::Gate {
+            partition,
+            children,
+        } => {
+            assert_eq!(
+                partition.groups.len(),
+                children.len(),
+                "refine_gate_partition: Gate node must have one child per partition group"
+            );
+            let mut new_groups: Vec<GateGroupSpec> = Vec::new();
+            let mut new_children: Vec<NodeId> = Vec::new();
+            for (group, &compose_id) in partition.groups.iter().zip(children.iter()) {
+                let (lexicon_id, replace_id) = gate_group_parts(old_plan, compose_id);
+                let entries = lexicon_entries(old_plan, lexicon_id);
+                // The group's own Replace node's CONTENT is untouched by refinement (same rules,
+                // same gated_subrules, same group_key) -- copying it recursively re-derives the
+                // SAME NodeId via content addressing, so every sub-group split from this group
+                // below shares that ONE copy, never a re-derivation per sub-group.
+                let new_replace_id = refine_node(old_plan, replace_id, new_plan, granularity);
+                let mut offset = 0usize;
+                for size in granularity.chunk_sizes(entries.len()) {
+                    if size == 0 {
+                        continue;
+                    }
+                    let chunk: Vec<LexEntryId> = entries[offset..offset + size].to_vec();
+                    offset += size;
+                    let lexicon_leaf = new_plan.add_node(PlanNodeKind::Leaf {
+                        fragment: FragmentSpec::LexiconFragment {
+                            entries: Some(chunk),
+                        },
+                        provenance: Provenance::Lexicon,
+                    });
+                    let compose = new_plan.add_node(PlanNodeKind::Compose {
+                        children: vec![lexicon_leaf, new_replace_id],
+                        strategy: ComposeStrategy::Static,
+                    });
+                    new_groups.push(GateGroupSpec {
+                        key: group.key.clone(),
+                    });
+                    new_children.push(compose);
+                }
+            }
+            new_plan.add_node(PlanNodeKind::Gate {
+                partition: GatePartitionSpec {
+                    gated_subrules: partition.gated_subrules.clone(),
+                    groups: new_groups,
+                },
+                children: new_children,
+            })
+        }
+    }
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -1122,6 +1370,56 @@ mod tests {
 "#
     }
 
+    /// An ungated grammar (no MPR features declared at all, so `partition_entries` collapses to
+    /// exactly 1 group -- `enumerate.rs`'s own "ungated grammar collapses to a single-group Gate")
+    /// whose one group holds THREE entries, not one -- the smallest fixture that can distinguish
+    /// [`PartitionGranularity::Bisect`] (2 sub-groups: 2+1) from [`PartitionGranularity::FanOut`]
+    /// (3 singleton sub-groups) from EACH OTHER, not just from baseline. No phonological rule at
+    /// all (irrelevant to what this fixture exercises -- partition CARDINALITY, not the rewrite
+    /// cascade), so `should_run` is `false` and the plan root collapses directly to the bare `Gate`
+    /// node (`enumerate.rs`'s own "root is Gate directly" case). Synthetic/delanguaged: three
+    /// distinct one-segment surface forms ("p"/"t"/"k"), one per entry, so each entry's own analysis
+    /// is independently checkable via `apply_up`.
+    fn oracle_three_entry_ungated_fixture_xml() -> &'static str {
+        r#"<?xml version="1.0" encoding="utf-8"?>
+<HermitCrabInput>
+  <Language>
+    <Name>OracleThreeEntryUngatedFixture</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="c1"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="c2"><Representations><Representation>t</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="c3"><Representations><Representation>k</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <Strata>
+      <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered">
+        <Name>S</Name>
+        <LexicalEntries>
+          <LexicalEntry id="e0" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="a0"><PhoneticShape>p</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>e0</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="e1" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="a1"><PhoneticShape>t</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>e1</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="e2" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="a2"><PhoneticShape>k</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>e2</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>
+"#
+    }
+
     /// A grammar with TWO ungated, ordinary phonological rules in one cascade (`pr1` then `pr2`) --
     /// used only to prove [`Replace`]'s cascade-order finding empirically: reversing `cascade.rules`
     /// (+ its rule-leaf children) must make `build_controllable` panic, since it cross-validates the
@@ -1674,6 +1972,139 @@ mod tests {
         // prules_in_order POSITIONALLY, so a reversed 2-rule cascade must panic -- proof, not just
         // argument, that no sound Replace-cascade-reordering generator exists.
         let _ = build_controllable(&reversed, &opts, &g, &alphabet, &ro, &budget);
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Partition refinement: a THIRD sound Gate-node restructuring (cardinality, not order),
+    // proven by the SAME two bars the module's other generators are proven by: apply-based
+    // agreement with baseline (semantics-preserving), and a root NodeId that actually differs
+    // (content-distinct -- otherwise `Registry::materialize_distinct` would dedup it away).
+    // -----------------------------------------------------------------------------------------
+
+    fn gate_group_count(plan: &Plan) -> usize {
+        plan.iter()
+            .find_map(|(_, kind)| match kind {
+                PlanNodeKind::Gate { partition, .. } => Some(partition.groups.len()),
+                _ => None,
+            })
+            .expect("plan must contain exactly one Gate node")
+    }
+
+    #[test]
+    fn refine_gate_partition_bisect_and_fan_out_are_each_genuinely_different_plans() {
+        let g = load(oracle_three_entry_ungated_fixture_xml());
+        let alphabet = SegAlphabet::new(&g.char_tables[0]);
+        let ro = prules_in_order(&g);
+        let phon = PhonologyProbe::new(&g);
+
+        let baseline = enumerate_default(&g, &alphabet, &ro, phon.as_ref());
+        let bisected = refine_gate_partition(&baseline, PartitionGranularity::Bisect);
+        let fanned_out = refine_gate_partition(&baseline, PartitionGranularity::FanOut);
+
+        assert_eq!(
+            gate_group_count(&baseline),
+            1,
+            "fixture sanity: ungated grammar collapses to 1 group before refinement"
+        );
+        assert_eq!(
+            gate_group_count(&bisected),
+            2,
+            "bisecting a 3-entry group must yield 2 sub-groups (sizes 2 and 1)"
+        );
+        assert_eq!(
+            gate_group_count(&fanned_out),
+            3,
+            "fanning out a 3-entry group must yield 3 singleton sub-groups"
+        );
+
+        assert_ne!(
+            baseline.root(),
+            bisected.root(),
+            "bisection must change the plan's root NodeId -- otherwise materialize_distinct would \
+             dedup it straight back to baseline and nothing was actually added"
+        );
+        assert_ne!(
+            baseline.root(),
+            fanned_out.root(),
+            "fan-out must change the plan's root NodeId -- same content-distinctness bar as above"
+        );
+        assert_ne!(
+            bisected.root(),
+            fanned_out.root(),
+            "bisect and fan-out must be TWO DIFFERENT topologies (different group counts, 2 vs 3), \
+             not the same restructuring wearing two names -- exactly the bar this task's own \
+             instruction sets for 'genuinely distinct'"
+        );
+    }
+
+    #[test]
+    fn refine_gate_partition_agrees_with_baseline_by_apply_for_both_granularities() {
+        let g = load(oracle_three_entry_ungated_fixture_xml());
+        let alphabet = SegAlphabet::new(&g.char_tables[0]);
+        let ro = prules_in_order(&g);
+        let phon = PhonologyProbe::new(&g);
+        let opts = FomaOptions::default();
+        let budget = ComposeBudget::unbounded();
+
+        let baseline = enumerate_default(&g, &alphabet, &ro, phon.as_ref());
+        for (label, granularity) in [
+            ("partition-bisect", PartitionGranularity::Bisect),
+            ("partition-fan-out", PartitionGranularity::FanOut),
+        ] {
+            let refined = refine_gate_partition(&baseline, granularity);
+            let result = differential_oracle(
+                &baseline,
+                &refined,
+                ("enumerate_default", label),
+                &opts,
+                &g,
+                &alphabet,
+                &ro,
+                &budget,
+                &["p", "t", "k"],
+            )
+            .unwrap_or_else(|e| {
+                panic!("both plans must build under an unbounded budget for {label}: {e:?}")
+            });
+            match result {
+                OracleResult::Agree => {}
+                OracleResult::Disagree {
+                    word,
+                    only_in_a,
+                    only_in_b,
+                    ..
+                } => panic!(
+                    "partition refinement ({label}) must not change the accepted relation -- got a \
+                     real divergence at {word:?}: only_in_a={only_in_a:?}, only_in_b={only_in_b:?}. \
+                     Per this task's own instruction, this must be reported as a genuine finding, \
+                     never papered over."
+                ),
+            }
+        }
+    }
+
+    #[test]
+    fn refine_gate_partition_is_a_no_op_when_no_group_has_two_or_more_entries() {
+        let g = load(oracle_union_root_fixture_xml());
+        let alphabet = SegAlphabet::new(&g.char_tables[0]);
+        let ro = prules_in_order(&g);
+        let phon = PhonologyProbe::new(&g);
+
+        let baseline = enumerate_default(&g, &alphabet, &ro, phon.as_ref());
+        let bisected = refine_gate_partition(&baseline, PartitionGranularity::Bisect);
+        let fanned_out = refine_gate_partition(&baseline, PartitionGranularity::FanOut);
+
+        assert_eq!(
+            baseline.root(),
+            bisected.root(),
+            "a single-entry group has nothing to bisect -- this must be a true no-op (content- \
+             identical, same NodeId), never forced churn on a fixture with nothing eligible"
+        );
+        assert_eq!(
+            baseline.root(),
+            fanned_out.root(),
+            "a single-entry group is already maximally fanned out -- same true-no-op bar as above"
+        );
     }
 
     // -----------------------------------------------------------------------------------------

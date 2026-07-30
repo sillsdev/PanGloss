@@ -1,4 +1,12 @@
-# Aweti correctness, performance, and four-language results plan
+# Deep-truncation-chain correctness, performance, and four-grammar results plan
+
+> **Status note (2026-07-29, delanguaging sweep).** The `reports/aweti-completion/**` output paths
+> named throughout the task list below are no longer tracked: they hold real-language release logs
+> and per-run baselines, so they are now gitignored and kept locally only, like
+> `/reports/recipe-optimizer-*/`. The paths are left as written rather than rewritten, because they
+> record where those artifacts were actually produced — renaming a historical execution log to a path
+> that never existed would trade one inaccuracy for a worse one. New evidence should go to a
+> construct-named directory and stay out of git if it contains real-language data.
 
 > Execute this plan with fresh Luna agents. Each behavior-changing task follows
 > red-green-refactor and receives separate specification and code-quality
@@ -8,7 +16,7 @@
 regression, measure its dominant runtime costs, obtain fresh results for Sena,
 Indonesian, Amharic, and Aweti, and publish a prioritized speedup plan.
 
-**Design:** [Aweti correctness and performance completion design](../specs/2026-07-20-aweti-correctness-performance-design.md)
+**Design:** [Deep-truncation-chain correctness and performance completion design](../specs/2026-07-20-deep-truncation-correctness-performance-design.md)
 
 **Baseline:** `fa81ec8` supplies the code baseline; `ae87f0c` adds only the
 approved design. Aweti's current composition recall is 68/104. The current
@@ -88,7 +96,7 @@ confirmed-analysis regression in exercised gates.
 - Modify: `rust/crates/pg-foma/src/proposer.rs` or current proposer module
 - Modify: `rust/crates/pg-foma/src/tags.rs`
 - Modify: `rust/crates/pg-foma/src/composite.rs`
-- Create: `rust/crates/pg-foma/examples/p6_aweti_perf_trace.rs`
+- Create: `rust/crates/pg-foma/examples/p6_deep_truncation_chain_perf_trace.rs`
 - Create: `reports/aweti-completion/aweti-profile-before.md`
 
 1. Add opt-in diagnostic counters and timers without changing default output or
@@ -222,7 +230,7 @@ Gate: all four commands have fresh, durable evidence and explicit denominators.
 
 **Files:**
 
-- Create: `docs/fst-plan/aweti-performance-follow-on.md`
+- Create: `docs/fst-plan/deep-truncation-chain-performance-follow-on.md`
 - Modify: `reports/aweti-completion/four-language-results.md`
 
 1. Explain the measured time split and separate startup, path enumeration,
@@ -362,7 +370,7 @@ below 100%, so completion is not claimed and the goal stays open.**
 
 **Tasks 1–8: engineering executed.** Task 7 has durable four-language release evidence in
 `reports/aweti-completion/`; Task 8's reader-tested follow-on plan is
-`docs/fst-plan/aweti-performance-follow-on.md`. Tasks 1–6 are recorded above,
+`docs/fst-plan/deep-truncation-chain-performance-follow-on.md`. Tasks 1–6 are recorded above,
 including bounded diagnostics, the shipped preparation speedup, and Phase C
 review.
 

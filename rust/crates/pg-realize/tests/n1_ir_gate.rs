@@ -5,10 +5,12 @@
 //!
 //! Same self-skip discipline as `n0_gloss_gate.rs`: every real-grammar test no-ops when the
 //! grammar XML is absent on disk. The two sidecar TOML files this milestone adds
-//! (`samples/data/amharic-realize.toml`, `samples/data/indonesian-realize.toml`) are tracked
-//! alongside this commit, so they're expected to be present whenever their matching grammar is;
-//! a missing sidecar when the grammar *is* present is a real authoring bug, not an environment
-//! difference, and is allowed to panic via `expect`.
+//! (`samples/data/amharic-realize.toml`, `samples/data/indonesian-realize.toml`) are gitignored
+//! real-language data, same as every other `samples/data/*` fixture (revised 2026-07-29: they
+//! were briefly tracked, but tracking real-language data and language-named paths violates this
+//! repo's synthetic-only rule, so they were untracked and gitignored -- see `.gitignore`); a
+//! missing sidecar is therefore an ordinary environment difference like a missing grammar XML,
+//! not an authoring bug, and self-skips rather than panicking.
 //!
 //! Every pinned `GlossIr` below was obtained by first running the parse with `--gloss` (or via
 //! `pg_realize::gloss_bundle`/`leipzig` directly) to see the actual bundle, THEN writing the
@@ -31,15 +33,17 @@
 //! `RealizeMap` (`amharic_sidecar_case_entries_map_as_intended` below), since no real corpus
 //! word exercises Case through `to_ir` end-to-end.
 //!
-//! ## Test-timing policy (revised 2026-07-17)
+//! ## Test-timing policy (revised 2026-07-29)
 //! The default local `cargo test --workspace --release` run must stay under ~60s and must not
 //! depend on the gitignored real-language corpus fixtures (`samples/data/*-hc.xml`,
-//! `samples/data/*-words.txt`) at all. Every test that loads a grammar XML or corpus word list is
-//! unconditionally `#[ignore = "..."]`d (the existing self-skip above already keeps
-//! `--include-ignored` green when the fixture is absent). `both_real_sidecar_files_parse_without_error`
-//! and `guessed_root_becomes_guessed_concept_and_never_panics` stay in the default run: the former
-//! only reads the two `*-realize.toml` sidecars, which ARE tracked in git (not gitignored, see
-//! `.gitignore`), and the latter uses a fully synthetic inline grammar.
+//! `samples/data/*-words.txt`, `samples/data/*-realize.toml`) at all. Every test that loads a
+//! grammar XML, corpus word list, or sidecar TOML is unconditionally `#[ignore = "..."]`d (the
+//! existing self-skip above already keeps `--include-ignored` green when the fixture is absent).
+//! Only `guessed_root_becomes_guessed_concept_and_never_panics` stays in the default run: it uses a
+//! fully synthetic inline grammar and touches no `samples/data/*` fixture.
+//! (`both_real_sidecar_files_parse_without_error` moved into this `#[ignore]`d set 2026-07-29,
+//! when the two `*-realize.toml` sidecars were untracked and gitignored -- it no longer gets a
+//! carve-out, since both files it reads are now ordinary gitignored real-language data.)
 
 use std::path::{Path, PathBuf};
 
@@ -60,9 +64,11 @@ fn load_grammar(xml_name: &str) -> Option<Grammar> {
     Some(pg_grammar::load(&xml).unwrap_or_else(|e| panic!("failed to load {xml_name}: {e}")))
 }
 
-/// Load a sidecar map that is expected to exist whenever its grammar does (tracked alongside
-/// this milestone's commit) -- a missing file here is an authoring bug, so this panics rather
-/// than self-skipping.
+/// Load a sidecar map. Gitignored real-language data (`samples/data/*-realize.toml`, revised
+/// 2026-07-29 -- see the module doc); callers that reach this function are expected to have
+/// already self-skipped via `sample_path`/`load_grammar` when the fixture is absent, so a missing
+/// file here still panics (a genuine read/parse error once execution has already committed to the
+/// fixture being present), it just isn't reachable from the always-on default test run any more.
 fn load_map(toml_name: &str) -> RealizeMap {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let path = manifest_dir.join("../../../samples/data").join(toml_name);
@@ -89,11 +95,20 @@ fn single_analysis_ir(g: &Grammar, map: &RealizeMap, word: &str) -> GlossIr {
 // --- Sidecar loading: both real files parse cleanly through the real restricted-TOML reader ---
 
 #[test]
+#[ignore = "needs local gitignored corpus data (samples/data/{amharic,indonesian}-realize.toml); run with --include-ignored"]
 fn both_real_sidecar_files_parse_without_error() {
     // amharic-realize.toml exercises comments, the [features] header, and quoted keys with dots
     // ("poss.1s" etc.); indonesian-realize.toml exercises a header-only (no entries) file.
     // load_map already panics on any parse error, so reaching the asserts below is most of the
     // test; the lookups confirm the real content, not just that *some* map was produced.
+    let Some(_) = sample_path("amharic-realize.toml") else {
+        eprintln!("skipping: amharic-realize.toml not present on disk");
+        return;
+    };
+    let Some(_) = sample_path("indonesian-realize.toml") else {
+        eprintln!("skipping: indonesian-realize.toml not present on disk");
+        return;
+    };
     let amharic = load_map("amharic-realize.toml");
     assert_eq!(
         amharic.lookup("pl"),
