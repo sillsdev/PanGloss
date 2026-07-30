@@ -46,8 +46,14 @@ fn load_grammar(path: &str) -> (Grammar, Vec<String>) {
         "fwdata" => {
             let (snapshot, report) = pg_fwdata::import_file(std::path::Path::new(path))
                 .unwrap_or_else(|e| panic!("import {path}: {e}"));
-            let mut warnings = report.warnings;
-            warnings.extend(snapshot.validate());
+            // Mirrors `load_grammar`'s own seam in `src/main.rs`, and for its stated reason:
+            // `report.warnings`/`snapshot.validate()` are `pg_snapshot::Warning` (coded), while
+            // `pg_grammar::compile_project`'s warnings are still plain `String`. Flatten to prose
+            // at the one place the two meet. This harness only prints them, so nothing is lost —
+            // if it ever needs the codes, take `load_grammar_coded` instead of widening this.
+            let mut warnings: Vec<String> =
+                report.warnings.into_iter().map(|w| w.to_string()).collect();
+            warnings.extend(snapshot.validate().into_iter().map(|w| w.to_string()));
             let (grammar, compile_warnings) = pg_grammar::compile_project(&snapshot)
                 .unwrap_or_else(|e| panic!("compile {path}: {e:?}"));
             warnings.extend(compile_warnings);
