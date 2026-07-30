@@ -1,5 +1,12 @@
 # Kaplan-Kay replace cascade vs. shipped enumeration: an implementation-and-measurement experiment
 
+> **Where the code lives.** This report is on `main`; the test driver it cites
+> (`rust/crates/pg-foma/tests/cascade_vs_enumeration_experiment.rs`) is **not**. That file stays on
+> the `fst-builder-improvements` branch (commit `53c5a32`) because its
+> `templatic_interdigitation_case` is a deliberately **failing** test: the recall regression *is* the
+> experiment's result, and a red test does not belong on `main`. Check that branch out to reproduce.
+> The bare-root change discussed in Step 0 below *did* land, separately, as `0ec6007`.
+
 Branch: `fst-builder-improvements`. Baseline reference read first (per the task brief) and not
 re-derived here: `docs/fst-plan/conformance-fst-measurement.md` on `conformance-fst-measure`
 (commit `3566b77`) — its central finding (`pg-foma` ships two non-interoperating FST-construction
