@@ -94,6 +94,40 @@ much they actually bought:
 5. **Assume agents self-verify badly.** In one fleet, two shipped regression gates that passed with
    their own fix reverted, and one reported a feature implemented while its guard sat behind
    `if false &&`. Re-run their gates with the fix bypassed before believing any of it.
+6. **Never scan from the filesystem root.** Measured: one orphaned
+   `find / -iname rewrite.rs -path *foma*` ran 35 minutes at `Normal` priority and burned 2110
+   CPU-seconds — a saturated core plus continuous random I/O — writing to a pipe whose reader had
+   already exited, so none of it could ever be read. It froze remote sessions on its own, and it
+   sits entirely outside `pg.ps1`'s priority and concurrency controls, which only govern Cargo and
+   what Cargo spawns. Use `rg --files`, a scoped `Glob`, or `git ls-files`; all answer in under a
+   second. Unscoped `find` is also slow enough to trip tool timeouts (`find . -name nextest.toml`
+   took >120s just walking `.claude/worktrees/`), and a timeout is exactly what orphans the process.
+
+`pg.ps1 -Mode gc` reaps dead-parent `cargo`/`rustc`/`link`/`cc1` and, separately, dead-parent
+`find`/`rg`/`grep`/`findstr` that have burned >60s CPU and lived >2min. Dry-run by default;
+`-Apply` to act.
+
+## Playing nicely with other worktrees
+
+Several worktrees build concurrently on this machine, so every machine-wide mechanism here is
+built to fail in the conservative direction. If you touch any of it, keep that property:
+
+- **The gc process sweeps are machine-wide** — they can see builds belonging to worktrees you know
+  nothing about. Liveness is decided by `Test-ParentAlive` (PID-reuse-safe: a candidate parent
+  created *after* its child is not the parent) and never by name, age, or CPU. The earlier version
+  used `Get-Process -Id`, which also reports failure for access-denied, so "I could not look" read
+  as "it is dead" — the exact false positive that kills a healthy build in another worktree.
+- **Only scanners are reaped on thresholds**, never compilers. An orphaned `rustc` has at least
+  produced object files; an orphaned `find` has produced a closed pipe. `rust/tools/tests/
+  orphan-reaping.tests.ps1` asserts that no Rust build binary can be selected by the scan sweep at
+  any age or CPU.
+- **`gc` never deletes a target dir whose worktree still exists**, is unmarked, or is preserved.
+- **The build-slot semaphore and job budget are machine-wide conventions**, not per-invocation
+  guarantees — `Get-CargoJobBudget` divides by `MaxConcurrent` precisely so two worktrees building
+  at once still leave the interactive reserve free.
+- **`sccache`'s server is shared**, so `Set-SccacheServerPriority` changes the priority of *every*
+  worktree's compilation, not just yours. That is why `BelowNormal` is the default and why
+  `-Priority Normal` should be a deliberate, temporary choice.
 
 ## Merging worktree/agent branches into main
 

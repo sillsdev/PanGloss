@@ -319,22 +319,127 @@ function Remove-StaleTargetCaches {
     }
 }
 
+function Get-ProcessSnapshot {
+    # ONE CIM query, reused for every liveness decision below. Taken as a snapshot rather than
+    # re-queried per process for a correctness reason, not a speed one: asking about processes one
+    # at a time means the picture can change underneath a loop, so a build that starts mid-sweep
+    # can be judged against a parent list that predates it.
+    Get-CimInstance Win32_Process -Property ProcessId, ParentProcessId, Name, CommandLine, CreationDate
+}
+
+function Test-ParentAlive {
+    # Is $Proc's parent genuinely still running? Two ways to get this wrong, and killing another
+    # worktree's live build is the unacceptable one, so both are guarded:
+    #
+    # 1. Windows RECYCLES PIDs. A dead parent's PID can be reused by an unrelated new process, and
+    #    a bare "does this PID exist" check then reports the orphan as parented and skips it. That
+    #    direction is merely a missed reap. The dangerous direction is the same mechanism seen from
+    #    the other side: any liveness test that can answer "dead" for a process whose parent is
+    #    actually alive will kill work someone is waiting on. So a candidate parent is only
+    #    accepted when it was created BEFORE the child -- a process that started later cannot be
+    #    the thing that spawned it.
+    # 2. The old check used `Get-Process -Id`, which reports failure for reasons other than "the
+    #    process is gone" (access denied on a process owned by another session or elevated
+    #    differently). "I could not look" was being read as "it is dead" -- exactly the false
+    #    positive that reaps a healthy build running in another worktree. The CIM snapshot answers
+    #    existence uniformly for every process on the machine.
+    param($Proc, $Snapshot)
+    $parent = $Snapshot | Where-Object { $_.ProcessId -eq $Proc.ParentProcessId } | Select-Object -First 1
+    if (-not $parent) { return $false }
+    if ($parent.CreationDate -and $Proc.CreationDate -and $parent.CreationDate -gt $Proc.CreationDate) {
+        return $false   # recycled PID: this is not our parent
+    }
+    return $true
+}
+
 function Remove-OrphanedCargoProcesses {
-    param([switch]$WhatIfOnly = $true)
-    # An orphan here is a rustc/cargo/link/cc1 process whose parent PID no longer resolves
-    # to a live process -- e.g. a backgrounded shell that was killed or timed out without
-    # taking its child tree with it (the POSIX process-group cleanup you'd expect doesn't
-    # happen by default on Windows).
-    $procs = Get-CimInstance Win32_Process -Filter "Name='rustc.exe' or Name='cargo.exe' or Name='link.exe' or Name='cc1.exe'"
+    param([switch]$WhatIfOnly = $true, $Snapshot = $null)
+    # An orphan here is a rustc/cargo/link/cc1 process whose parent is no longer live -- e.g. a
+    # backgrounded shell that was killed or timed out without taking its child tree with it (the
+    # POSIX process-group cleanup you'd expect doesn't happen by default on Windows).
+    #
+    # This sweep is machine-wide, so it can see builds belonging to OTHER worktrees. That is the
+    # whole reason liveness is decided by Test-ParentAlive and never by process name, age, or CPU:
+    # a healthy build in another worktree must be indistinguishable from untouchable. Being wrong
+    # in the conservative direction leaves a stray process for the next gc to catch; being wrong in
+    # the other direction destroys work someone is waiting on.
+    if (-not $Snapshot) { $Snapshot = Get-ProcessSnapshot }
+    $procs = $Snapshot | Where-Object { $_.Name -in @('rustc.exe', 'cargo.exe', 'link.exe', 'cc1.exe') }
     foreach ($p in $procs) {
-        $parentAlive = [bool](Get-Process -Id $p.ParentProcessId -ErrorAction SilentlyContinue)
-        if (-not $parentAlive) {
+        if (-not (Test-ParentAlive -Proc $p -Snapshot $Snapshot)) {
             if ($WhatIfOnly) {
                 Write-Host "[gc] would kill orphan PID $($p.ProcessId) ($($p.Name), parent $($p.ParentProcessId) is dead)" -ForegroundColor Yellow
             } else {
                 Write-Host "[gc] killing orphan PID $($p.ProcessId) ($($p.Name))" -ForegroundColor Yellow
                 & taskkill /T /F /PID $p.ProcessId 2>$null | Out-Null
             }
+        }
+    }
+}
+
+# The ONLY process names this sweep may ever consider. Deliberately a named constant and not an
+# inline list: the safety argument for reaping scanners rests entirely on no Rust build process
+# appearing here, and that is easier to keep true when there is one place to check.
+$script:ReapableScanNames = @('find.exe', 'rg.exe', 'grep.exe', 'findstr.exe')
+
+function Test-ReapableScanProcess {
+    # Pure decision, split out from the killing so the safety properties are testable without
+    # spawning or terminating anything real (same reason the gc classification is a separate
+    # function from Invoke-TargetGc). Returns $true only when ALL of:
+    #   - the name is in $script:ReapableScanNames -- so a cargo/rustc/link belonging to any
+    #     worktree can never be selected, whatever its age, CPU, or parentage;
+    #   - the parent is genuinely gone (PID-reuse-safe, see Test-ParentAlive), meaning the output
+    #     pipe has no reader and the work cannot be delivered to anyone;
+    #   - it has burned real CPU and existed long enough that a just-launched scan is never caught.
+    param(
+        $Proc, $Snapshot, [int]$CpuSeconds,
+        [int]$MinCpuSeconds = 60, [int]$MinAgeMinutes = 2,
+        [datetime]$Now = (Get-Date)
+    )
+    if ($Proc.Name -notin $script:ReapableScanNames) { return $false }
+    if (Test-ParentAlive -Proc $Proc -Snapshot $Snapshot) { return $false }
+    if ($CpuSeconds -lt $MinCpuSeconds) { return $false }
+    $ageMin = if ($Proc.CreationDate) { ($Now - $Proc.CreationDate).TotalMinutes } else { 0 }
+    if ($ageMin -lt $MinAgeMinutes) { return $false }
+    return $true
+}
+
+function Remove-OrphanedScanProcesses {
+    param(
+        [switch]$WhatIfOnly = $true,
+        $Snapshot = $null,
+        # Both thresholds must be crossed. They exist to make a false positive practically
+        # impossible rather than to decide what is "expensive": a scan that is genuinely orphaned
+        # AND has been burning a core for a minute is not one anybody is still reading.
+        [int]$MinCpuSeconds = 60,
+        [int]$MinAgeMinutes = 2
+    )
+    # Why this exists: measured on this machine, a single orphaned
+    # `find / -iname rewrite.rs -path *foma*` ran for 35 minutes at Normal priority and consumed
+    # 2110 CPU-seconds -- a saturated core plus continuous random I/O -- writing to a pipe whose
+    # reader had already exited, so not one byte of it could ever be read. It survived because
+    # Remove-OrphanedCargoProcesses only knows about compiler binaries.
+    #
+    # Scanners are worth reaping precisely BECAUSE of the constraint that makes reaping compilers
+    # delicate. An orphaned rustc has at least produced object files on disk; an orphaned `find`
+    # has produced nothing but a closed pipe, so there is no salvageable output to weigh against
+    # killing it. And none of these names is ever a Rust build process, so this sweep cannot touch
+    # another worktree's cargo/rustc/link no matter how the thresholds are tuned.
+    if (-not $Snapshot) { $Snapshot = Get-ProcessSnapshot }
+    $now = Get-Date
+    foreach ($p in ($Snapshot | Where-Object { $_.Name -in $script:ReapableScanNames })) {
+        $proc = Get-Process -Id $p.ProcessId -ErrorAction SilentlyContinue
+        if (-not $proc) { continue }
+        $cpu = [int]$proc.CPU
+        if (-not (Test-ReapableScanProcess -Proc $p -Snapshot $Snapshot -CpuSeconds $cpu `
+                    -MinCpuSeconds $MinCpuSeconds -MinAgeMinutes $MinAgeMinutes -Now $now)) { continue }
+        $ageMin = if ($p.CreationDate) { ($now - $p.CreationDate).TotalMinutes } else { 0 }
+        $cmd = if ($p.CommandLine) { $p.CommandLine.Substring(0, [Math]::Min(100, $p.CommandLine.Length)) } else { $p.Name }
+        if ($WhatIfOnly) {
+            Write-Host "[gc] would kill orphaned scan PID $($p.ProcessId) ($($p.Name), $([int]$ageMin)min, ${cpu}s CPU, parent dead): $cmd" -ForegroundColor Yellow
+        } else {
+            Write-Host "[gc] killing orphaned scan PID $($p.ProcessId) ($($p.Name), ${cpu}s CPU wasted): $cmd" -ForegroundColor Yellow
+            & taskkill /T /F /PID $p.ProcessId 2>$null | Out-Null
         }
     }
 }

@@ -268,7 +268,15 @@ if ($Mode -eq 'gc') {
     # Reap dead-parent orphans first (cheap, always safe) regardless of -Apply -- an orphaned
     # rustc/link process holding file locks is exactly what would make a real deletion below fail
     # partway through.
-    Remove-OrphanedCargoProcesses -WhatIfOnly:(-not $Apply)
+    # One snapshot shared by both sweeps, so they cannot disagree about which processes were live
+    # at the moment the decision was taken.
+    $procSnapshot = Get-ProcessSnapshot
+    Remove-OrphanedCargoProcesses -WhatIfOnly:(-not $Apply) -Snapshot $procSnapshot
+    # Same dead-parent rule, applied to filesystem scanners. Kept as a separate sweep rather than
+    # more names in the list above because the two have different risk profiles: reaping a compiler
+    # can destroy work another worktree is waiting on, reaping an orphaned scanner cannot (its
+    # output already has no reader), so only this one carries CPU/age thresholds.
+    Remove-OrphanedScanProcesses -WhatIfOnly:(-not $Apply) -Snapshot $procSnapshot
 
     $classification = Get-TargetClassification -RepositoryId $repoId
     foreach ($c in ($classification | Sort-Object Class, Path)) {
