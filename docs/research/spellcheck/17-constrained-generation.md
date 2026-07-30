@@ -15,6 +15,26 @@ where the sub-agent reports having read a primary table directly, because the nu
 independently re-verified by me against the primary source in this session — the same discipline
 report 09 applies to its own dispatched-search findings.
 
+> ## Read this before §6 — a neighbouring idea was measured, and it is not this one (2026-07-30)
+>
+> `27-prefix-constrained-fst-prediction.md` measured a mechanism that sounds like this report's and is
+> architecturally different: it **walks the compiled proposer network's arc table** constrained by the
+> typed prefix, and ranks completions from the tags each path already carries. Nothing is predicted
+> before generating, so it needs **none** of this report's three prerequisites — no lazy enumeration
+> engine (§6), no trained tag-bundle predictor (§2), no conformal calibration (§3).
+>
+> **What that does to this report:** §6's "the prerequisite that does not exist" remains correct *for
+> this report's mechanism* and is not the blocker for the other one. §4.4 ("constraining by the typed
+> prefix") is the section report 27 turned into a measurement. Nothing else here is revised, and the
+> parked plan's un-park trigger is untouched — see the banner on
+> `parked-constrained-generation-plan.md`.
+>
+> **One measured correction that does bite here.** This report's cost reasoning, like D14's, assumed
+> the analyzer `confirm` call was the unaffordable part of a keystroke. Measured, confirm is
+> **0.3-1.2ms** — the cheap half; the completion *search* is the 4-788ms half. Wherever this report
+> prices a design by how much confirm it avoids, that pricing is wrong even where the conclusion
+> survives.
+
 ---
 
 ## Verdict up front

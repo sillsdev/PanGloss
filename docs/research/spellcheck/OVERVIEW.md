@@ -1,10 +1,13 @@
 # Spelling correction & word prediction — start here
 
 **Status: research and plans. Nothing is calibrated, and no deployment code exists.**
-Last updated 2026-07-25, after a three-pass review campaign (`REVIEW-LOG.md`).
+Last updated 2026-07-30, after a three-pass review campaign (`REVIEW-LOG.md`) and one round of direct
+measurement (report `27`).
 
 This is the entry point. `PLAN.md` is the decision register and is long; reports `00`-`24` are the
-underlying research, and `25`/`26` are the cross-checks on the review itself. Read this file for the story, the risks, and what happens when real data
+underlying research, `25`/`26` are the cross-checks on the review itself, and `27` is the first thing
+in the series that *measured* a proposed mechanism rather than arguing about it. Read this file for
+the story, the risks, and what happens when real data
 arrives. Everything here is a summary of something argued at length elsewhere, and links to it.
 
 ---
@@ -40,17 +43,17 @@ the two things most likely to kill it are *how much we can afford to compute on 
 
 ## 2. Where things stand
 
-**Eighteen decisions (D1-D18)** are recorded in `PLAN.md`. They are not all the same kind of thing,
+**Nineteen decisions (D1-D19)** are recorded in `PLAN.md`. They are not all the same kind of thing,
 and the review campaign forced that distinction (**D17**):
 
 | Kind | Meaning | Examples |
 |---|---|---|
 | **Product / scope calls** | John's to make; no data overturns them | D7 (privacy), D11 (all languages), D12 (orthography scope), D13 (coverage bar), D16, D17 |
-| **Architectural impossibilities** | Arguments from invariants; no corpus overturns them | D8 (Divvun `.zhfst` cannot express "confirm trims this"), D1, D3's licensing half |
+| **Architectural impossibilities** | Arguments from invariants; no corpus overturns them | D8 (Divvun `.zhfst` cannot express "confirm trims this"), D1, D3's licensing half, D19 (a top-k completion walk can never be a proposer mode) |
 | **Leading candidates** | Currently top of a list, *not* the end of one | D2, D4, D5, D8b, D9, D10, D14 |
 
-Only the first two are decisions in the strong sense. **Thirteen open questions (C1-C13)** each carry
-2-3 live candidates and the single measurement that would separate them — that ledger is the real
+Only the first two are decisions in the strong sense. **Fifteen open questions (C1-C15)** each carry
+2-4 live candidates and the single measurement that would separate them — that ledger is the real
 output of the work so far, and carrying alternatives is deliberate, not indecision.
 
 ### What the review campaign changed
@@ -78,6 +81,31 @@ finding was re-verified at source. The five that mattered:
    the cross-check that audited the review itself (**C13**), and it is the single most important
    open item.
 
+### What the first measurement changed (report 27, 2026-07-30)
+
+The campaign was analysis and literature only, by design — there was no representative data to
+measure. Report 27 is the first thing in the series to **measure a proposed mechanism**: walk the
+compiled analyzer network constrained by the letters already typed, rank the completions from the tags
+each path already carries, and pay `confirm` only down the ranked list. Three results, all `[M]`:
+
+1. **It works, and it needs no new engine.** On a mildly-affixing grammar, 100% of analysable
+   held-out words are reachable from a 4-character prefix, the true word ranks **first**, and it
+   confirms in a median of 3 calls at ~13ms — words that appear in no corpus, ranked correctly. This
+   is the premise in § 1 demonstrated end to end for the first time, rather than argued.
+2. **On an agglutinative grammar the same code does not fit a keystroke** — 15-45% containment, the
+   true word ranked ~98th, 142-788ms in the search alone. **The capability therefore arrives at the
+   easy end of the distribution and is missing at the hard end**, which is the same shape as R-3
+   below: a favourable number from the languages this project is *not* hardest for. Per **D16** two
+   samples decide nothing; this motivates work (**C14**) and sets no default.
+3. **The expensive half was misidentified — by this plan.** Every latency argument for shelving
+   runtime generation assumed the analyzer `confirm` call was unaffordable per keystroke. Measured, it
+   is **0.3-1.2ms** — the cheap half. The completion *search* is the expensive half. The shelving
+   conclusion may well survive; its stated reason does not.
+
+A fourth result is methodological and worth more than any of the numbers: **the harness produced
+believable numbers while broken, twice, in opposite directions.** What caught it was a self-check that
+runs the production path against the harness's own on the same words, every run.
+
 ---
 
 ## 3. Risks, ranked
@@ -88,7 +116,7 @@ worth losing sleep over.
 | # | Risk | Why it is serious | What retires it |
 |---|---|---|---|
 | **R-0** | **A failed parse means "the grammar doesn't know this word", not "you spelled it wrong" — and D18 flags on a failed parse.** So a correctly-spelled word in a coverage gap gets accused. Found last, ranks first. | It defeats the purpose of the decision written to prevent exactly this. And coverage gaps are not random: they concentrate in rare, irregular and morphologically elaborate forms — the same words the cache misses and the trainer drops. **D13's coverage bar makes it rarer, not safe**: at 95% recall, 1 word in 20 is a candidate false accusation. | **C13** — the honest fix is "not a word, *and not near one*" (empty analysis **and** unreachable under small-edit-distance search), which is expensive; or hedge in the UI, since *"I don't recognise this"* is a different and honest claim; or don't flag. Deciding measurement needs **R1**. |
-| **R-1** | **We cannot afford, on a keystroke, the analysis that makes the product honest.** D18 forbids flagging without an attempted parse; parsing per word has a measured heavy tail. If it does not fit the budget, spell-*checking* is off the table and this is a prediction product. | It is the difference between two different products, and it is decided by a latency number nobody has measured for this use. | **N8** — the `confirm` latency distribution on one typed word, *the tail not the mean*. Runnable today. **C11 candidate (b) — diagnose off the keystroke path, on a pause — sidesteps it entirely and is underrated.** No desktop spellchecker has ever been keystroke-synchronous. |
+| **R-1** | **We cannot afford, on a keystroke, the analysis that makes the product honest.** D18 forbids flagging without an attempted parse; parsing per word has a measured heavy tail. If it does not fit the budget, spell-*checking* is off the table and this is a prediction product. | It is the difference between two different products, and it is decided by a latency number nobody has measured for this use. | **N8** — the `confirm` latency distribution on one typed word, *the tail not the mean*. Runnable today. **C11 candidate (b) — diagnose off the keystroke path, on a pause — sidesteps it entirely and is underrated.** No desktop spellchecker has ever been keystroke-synchronous. ⚠ **Report 27's 0.3-1.2ms per-confirm figure does not retire this**, and the two are easy to confuse: that is a *median* over candidates a generative walk proposed, and N8 asks for the *tail* on one word the user typed. |
 | **R-2** | **We may never get the data to know whether any of this works.** The deciding evidence for the error model and the false-alarm rate can only come from real people typing. There is no corpus of spelling errors for a language with a few hundred speakers, and there will not be one. | Every performance claim in the plan is currently an expectation, not a measurement. | Only shipping — and even then only partially; see the honest limits on the correction log in § 6. |
 | **R-3** | **Two fixed-size resources are denominated in morphology-blind units** — the 10k cache (entries) and Keyman's context window (16 codepoints) — so their capacity in *linguistic* terms falls as morphology grows. A third finding, the coverage-filtered training corpus, is *selection bias* rather than exhaustion but errs the same direction. | Each errs toward making the design look adequate on simple languages and failing on the ones this project exists for. That is a reason to distrust favourable numbers. | Per-grammar sizing rather than fixed constants (**D10**), plus **N6** (cache adequacy) and **N9** (ask Keyman what context ceiling we can actually get). For the corpus bias, **N4**. |
 | **R-4** | **Grammar coverage is the upstream blocker and is not ours to fix.** Several questions, measured today, would measure grammar incompleteness and report it as a language property. Flagging on an incomplete grammar means accusing correct writing. | It gates the whole programme and sits with another workstream. | The multi-FST rewrite reaching high coverage. **D13** now owns its own admission bar — the gate it used to point at was retired. |
@@ -121,6 +149,11 @@ This is not caution — it is the only sequence where each stage earns the data 
 - **Stage 1 — prediction.** Warm cache + class n-gram + phrase table, in the Keyman host. Offers,
   never accuses. Needs no error model and no settled orthography, and degrades gracefully when the
   grammar has gaps. **Fully instrumented from day one** (§ 5).
+  - **Possible fourth component, measured but not decided:** a prefix-constrained walk of the
+    analyzer network, which supplies *unseen* wordforms ranked from their own morphology (report 27).
+    It fits a keystroke on some grammars and not others, so it belongs to **D10**'s per-grammar
+    calibration rather than to the stage-1 baseline — and if built it ships as its own top-*k* entry
+    point, never as a mode of the analyzer's proposer (**D19**). Open: **C14**.
 - **Stage 2 — correction.** Add the error model (**D2**) — synthesized by corrupting the grammar's
   own output, because no real error corpus exists or will. Triggered by the user, not by us.
 - **Stage 3 — flagging.** Only after the false-alarm rate is a measured number rather than a hope,
@@ -174,6 +207,11 @@ wide error bar, and note that **D16** forbids reading expectations off the four 
   work has moved since. Held as a leading expectation, not a settled fact (**D5**).
 - **Latency is the unknown that matters.** The prediction path is expected to be comfortable; the
   *diagnostic* path (R-1) is not characterized at all.
+- **One latency figure is now measured rather than expected, and it is the generative path.**
+  Prefix-constrained completion runs end to end in ~13ms on one sample grammar and 142-788ms on
+  another `[M, report 27]`. Read that as *"this is a per-grammar number and here is the instrument
+  that produces it"*, never as a range to design to — **D16** applies to it exactly as to every other
+  number here.
 
 **What would count as success at stage 1:** the class model beats a plain surface trigram at matched
 corpus size, on a complete grammar, on real text. That is ledger row **C7**, and the surface trigram
@@ -185,7 +223,7 @@ is kept forever as the floor — *any model that cannot beat it is broken*.
 
 Full detail in `PLAN.md` § "The research programme". Summary:
 
-### Now, with no real data — nine experiments, all elimination-shaped
+### Now, with no real data — twelve experiments, all elimination-shaped
 
 The governing rule: **a synthetic sweep may eliminate a candidate and may never validate one**,
 because the generator's morphology is cleaner and more regular than any real language — so a
@@ -196,6 +234,12 @@ Priority order: **N6** (cache adequacy — no new apparatus, attacks the number 
 rests on), **N8** (`confirm` latency tail — decides R-1), **N9** (ask Keyman about the context
 ceiling), then **N1** (build the rung-aware model, which is apparatus not experiment) and the
 sweeps that depend on it.
+
+**N10-N12 were added 2026-07-30** and are the cheapest items on the whole list, because report 27
+left a working harness behind: **N10** an admissible A\* heuristic for the completion search (the one
+lever most likely to fix the agglutinative case), **N11** error tolerance on the typed prefix (the
+half of the idea nobody has measured), **N12** the sum-vs-max scoring A/B on the remaining grammars —
+a flag change. All three feed **C14**/**C15**.
 
 ### As data arrives
 
@@ -245,14 +289,16 @@ swap rather than a rewrite. Keep it that way.
 
 | Question | File |
 |---|---|
-| What was decided, and why | `PLAN.md` — decision register D1-D18 |
-| What is still open, with alternatives | `PLAN.md` § "Candidate ledger" (C1-C12) |
+| What was decided, and why | `PLAN.md` — decision register D1-D19 |
+| What is still open, with alternatives | `PLAN.md` § "Candidate ledger" (C1-C15) |
 | What to run, and when | `PLAN.md` § "The research programme" (tracks N and R) |
 | What the review found and corrected | `REVIEW-LOG.md` — 28 findings, three passes |
 | The underlying research | `00-synthesis.md`, then reports `01`-`18` by topic |
 | The review reports themselves | `19`-`24` |
+| **Can we predict words nobody has typed? — measured** | **`27-prefix-constrained-fst-prediction.md`**, and `PLAN.md` § "Research round 3" for what it changed |
+| Why the *other* constrained-generation idea is parked | `17-constrained-generation.md`, then `parked-constrained-generation-plan.md`. **A different mechanism from report 27** — read the banner on each before assuming either supersedes the other |
 | How other systems do it | `systems/` — hunspell, aspell, symspell, divvun, neural |
-| The research harness | `research/README.md` |
+| The research harness | `research/README.md` (Python), plus `rust/crates/pg-foma/examples/predict_census.rs` (report 27's measurement binary — dev-only, not a production surface) |
 
 **A note on reading `PLAN.md`.** It records supersessions at the *amended* site, not only at the
 amending one, and cites by section heading rather than line number. Both conventions were adopted

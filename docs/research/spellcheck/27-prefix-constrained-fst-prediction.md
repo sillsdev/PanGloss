@@ -172,3 +172,24 @@ prefix — the 142–788ms half — not confirm verdicts.
   precise percentages are not to be quoted as stable.
 - No claim about report 17's parked plan is revised here. Its un-park trigger concerned a different
   mechanism and is untouched by these numbers.
+
+## 6. Where this landed in the plan
+
+Recorded 2026-07-30, per the series convention that amendments are written at the *amended* site and
+each report says where it was absorbed:
+
+| What | Where it went |
+|---|---|
+| The measurement itself, and the confirm/search cost inversion | `PLAN.md` **D14** § "Measured 2026-07-30" |
+| The `sum` vs `max` scoring result | `PLAN.md` **D4** — the warning under "Ambiguity is marginalized, not resolved", which is the *neighbouring* operation and stands unchanged |
+| "Top-k walk is never a proposer mode" | `PLAN.md` **D19** (new; decided from the over-approximation invariant, not from these numbers) |
+| How to bound the search on an agglutinative grammar | ledger row **C14** (new) |
+| Whether a candidate's score sums over its analyses | ledger row **C15** (new) |
+| First measured support for per-grammar calibration of runtime generation | ledger row **C4**, amended |
+| A\* heuristic / prefix error tolerance / sum-vs-max on the other grammars | track-N experiments **N10**, **N11**, **N12** (new) |
+| The instrument-bug lesson, and the self-check requirement it implies | `REVIEW-LOG.md` § "Post-campaign addendum" |
+| Round summary and the four items awaiting John | `PLAN.md` § "Research round 3 — report 27" |
+
+**What this report did NOT license anywhere:** un-shelving D14, setting any default, retiring N8 or
+R-1 on the strength of the per-confirm figure, or authorizing an implementation. Two sample grammars
+under D16 motivate work; they do not narrow a design.

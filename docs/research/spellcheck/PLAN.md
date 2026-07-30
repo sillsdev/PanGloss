@@ -16,8 +16,9 @@ Everything here is **design**. No code, no spikes.
 > for what to do once real data arrives.**
 >
 > Every measured number below (report 13's rung cardinalities, `mpr` emptiness, coverage rates,
-> ambiguity distributions, corpus and gold-set sizes from report 18) is **research signal about
-> four samples**, never a fact about grammars, languages, or what we should build. Where such a
+> ambiguity distributions, corpus and gold-set sizes from report 18, **and report 27's completion
+> containment, ranks and latencies**) is **research signal about four samples** — in report 27's case
+> **two** — never a fact about grammars, languages, or what we should build. Where such a
 > number has been allowed to narrow a design, that narrowing is **provisional and marked**. Design
 > for full-scale data — see D16 for the rule and § "What data we need" for the requirements this
 > plan is now written to produce.
@@ -39,11 +40,12 @@ Everything here is **design**. No code, no spikes.
 | **D11 — All accepting languages are kept; narrowing to one is an optimization, never a correctness step** | **DECIDED** (2026-07-24) |
 | **D12 — Languages without a well-defined orthography are out of scope, explicitly deferred** | **DECIDED** (2026-07-25) |
 | **D13 — The speller ships only for languages meeting the then-current certification bar** | **DECIDED** (2026-07-25); re-expressed as a principle 2026-07-25 for the multi-FST rewrite |
-| **D14 — A warm cache ships with the language pack; runtime generation for uncached words is shelved** | **DECIDED** (2026-07-25); one reading assumed, flagged for correction |
+| **D14 — A warm cache ships with the language pack; runtime generation for uncached words is shelved** | **DECIDED** (2026-07-25); one reading assumed, flagged for correction; the shelved bucket **measured for the first time** 2026-07-30 (report 27) — see D14 § "Measured 2026-07-30" |
 | **D15 — Layer boundary: this whole plan is a corpus-trained add-on, not part of the analyzer pack** | **DECIDED** (2026-07-25); the training corpus is now the top unknown |
 | **D16 — The reference grammars are unrepresentative samples; this plan is research + plans, never calibration** | **DECIDED** (2026-07-25); **governs every other entry in this table** |
 | **D17 — The deliverable is a two-column ledger: analytically eliminated vs. empirically deferred. Carrying 2-3 live candidates is success, not indecision** | **DECIDED** (2026-07-25); **governs the shape of every other entry** |
 | **D18 — A cache miss is never grounds to flag. Flagging requires an attempted parse that failed** | **DECIDED** (2026-07-25, report 20); coupled to D14's challenged traffic model |
+| **D19 — Prefix-constrained completion, if ever built, is a separate top-k entry point with no recall claim — never a mode of the proposer** | **DECIDED by invariant** (2026-07-30, report 27); a *constraint on* any future build, **not authorization** to build one |
 
 ---
 
@@ -451,6 +453,17 @@ future-tense verbs of this class — boost those, even unseen").
   n-gram scores over the analysis lattice (summing over context analyses weighted by their
   own scores) rather than requiring a hard disambiguation pass first. This is standard
   lattice LM scoring, and it is the reason D3 (CG) is not a prerequisite — see D3.
+
+  > **Warning added 2026-07-30 (report 27) — the neighbouring operation that looks identical and is
+  > not.** Marginalising over the analyses of the **context** (this bullet) is standard and stands
+  > unchanged. Marginalising over the analyses of the **candidate being scored** was measured and is
+  > **harmful**: summing a candidate's probability over every analysis that yields it rewards
+  > analysis *multiplicity*, so a junk surface reachable 50 ways outranks a real word reachable
+  > twice. Switching to the single best analysis moved the true word from rank 114 to **rank 1** and
+  > top-3 acceptance from 0% to **100%** on one grammar, changing nothing else `[M]`. The two
+  > operations are one word apart in prose and opposite in effect, so **state which one is meant
+  > wherever a score is specified.** Per D16 this is one sample and elimination-shaped, not a
+  > settled default — ledger row **C15**, sweep **N12**.
 - **Interpolation weights** are tuned by low-dimensional grid search on the small gold set
   (report 09's evaluation apparatus), defaulting conservatively toward the error-model term.
   **Premise corrected 2026-07-25 `[M]` (report 18, re-verified):** the gold set for *contextual*
@@ -1607,6 +1620,65 @@ This is a traffic model, and it re-sizes the whole design around where the traff
 > the only mechanism left for "is this a word" is cache membership, and at a 20-60% uncached rate
 > that flags correctly-typed complex words en masse.
 
+### Measured 2026-07-30 (report 27): the shelved bucket, measured for the first time
+
+Everything above about the uncached bucket was argued from published OOV curves. **Report 27
+measured the shelved capability itself** — not the traffic model, the *machinery*. The mechanism it
+measured is not report 17's parked one: it walks the compiled proposer network's arc table,
+constrained by the letters already typed, and ranks completions from the tags each path already
+carries, so nothing has to be predicted before generating and no new engine is required.
+
+| | Indonesian (1,189 states) | Sena (39,286 states) |
+|---|---|---|
+| True word reachable from a 4-char prefix (analysable words) | **100%** | 15% (45% at prefix 6) |
+| Rank of the true word after ranking | **median 1** | median 62-98 |
+| Confirms paid to fill a confirmed top-3 | **median 3** | 25 (budget cap), 0% filled |
+| End-to-end per keystroke | **~13ms** | 142-788ms in the walk alone |
+
+`[M]`, 2026-07-30, `rust/crates/pg-foma/examples/predict_census.rs`. Held-out fifth of each corpus;
+containment measured against the **analysable** subset, since the FST cannot contain a word whose
+stem the lexicon lacks. Sample sizes are 20-40 words per grammar per prefix length — the *direction*
+is large and reproducible, the percentages are not to be quoted.
+
+**Three things this changes, and one it must not.**
+
+1. **The expensive half was misidentified — by this plan and by the framing that commissioned the
+   measurement.** Per-confirm cost is **0.3-1.2ms** `[M]`. Every latency argument for shelving tiers
+   1-2, here and in report 17 and in the parked plan, assumed the HC/`confirm` call was the thing
+   nobody could afford on a keystroke. It is the cheap half. The **completion search** is where
+   4-788ms goes. Any future un-shelving work should be aimed at the search, not at avoiding confirm.
+2. **The capability is available where it is least needed, and absent where it is most needed.**
+   Compose this table with the ⚠ box above: the uncached-token rate rises with morphological
+   productivity, so the grammars that most need runtime generation are the agglutinative and
+   polysynthetic ones — and those are exactly the ones where the walk does not currently fit a
+   keystroke. The mildly-affixing grammar, where the walk is essentially free, is also the one whose
+   warm cache would have served best anyway. **This is the same shape as R-3 in `OVERVIEW.md`: a
+   favourable number arriving from the easy end of the distribution.** It is not a reason to
+   disbelieve the Indonesian result; it is a reason not to generalise it.
+3. **C4 candidate (c) — per-grammar, chosen by D10's calibration — gains its first measured
+   support**, and the measurement is cheap to repeat per grammar. What D10 needs is a pre-flight
+   number (walk p90 and containment@top-k on that grammar), which is exactly what the harness
+   already prints. Note this mirrors the repo's standing per-grammar strategy-selection posture: the
+   answer is measured per grammar, never guessed from language type.
+
+**What it must not do: un-shelve anything.** D16 governs — two sample grammars, one favourable, one
+not, is research signal about two samples. It may motivate the work; it may not narrow the design,
+set a default, or retire the shelf. The deciding evidence is still R1's uncached-token rate on a
+complete grammar, and the search-cost question now has its own ledger row (**C14**).
+
+**Two corrections to items already in this section.** The negative cache described in D8b/D14 terms
+("FST yes, HC no" verdicts) is **correct and cheap but aimed at the wrong cost**: measured, it saves
+0.1-0.7 confirms per keystroke at ~0.5ms each, i.e. well under a millisecond, because it caches the
+half that was already cheap. Its value, if any, is caching **walk results per prefix**. And one
+correctness rule that any implementation must keep: a candidate surface abandoned at a budget cap is
+**never** cached as refuted — only a proven refutation (every candidate tried, none confirmed) is —
+or a budget artifact becomes a permanent wrong answer.
+
+> **Do not read the 0.3-1.2ms confirm figure as retiring R-1 or N8.** It is a *median over
+> candidates the walk proposed*, on two small grammars, in the generation direction. N8 asks for the
+> **tail** of `confirm` on **one word the user actually typed** — a different question, and report
+> 13 measured ~10% timeouts and ~12% step-capped on the same corpora. R-1 stands.
+
 ### The generated cache is ranked by a model biased against what generation is for
 
 **Added 2026-07-25** (review-campaign finding P0-3). Assembled from three statements that are each
@@ -2348,6 +2420,40 @@ so** rather than presenting it as a choice already available.
 
 ---
 
+## D19 — Prefix-constrained completion, if ever built, is a separate top-k entry point; never a mode of the proposer
+
+**Decided by invariant 2026-07-30** (report 27). This is a *constraint on* a future build, not
+authorization to start one. It is recorded as a decision because it is derivable from a repo
+invariant rather than from any measurement, so no data will overturn it — and because it is cheap to
+state now and expensive to discover after someone has wired a beam search into `propose`.
+
+`CONTEXT.md:311` forbids beam pruning and top-*k* shortcuts **in the proposer**, confining them to
+`confirm`/ranking. The reason is that the proposer's contract is over-approximation: it may only
+apply language-preserving operations, which is precisely why every wordform the grammar licenses is
+reachable and why "we can predict words nobody has typed" is true rather than aspirational (D4
+§ "Why this handles unseen wordforms"). A prefix-constrained best-first walk is a top-*k* beam **by
+construction** — it exists to return the best few completions and to stop.
+
+Both things are fine simultaneously, but only if the boundary is explicit:
+
+- **It ships as its own entry point** with a stated *"top-k, no recall claim"* contract. Never as a
+  `propose` mode, never behind a flag on the proposer, never sharing the proposer's recall test.
+- **A measurement of the walk is therefore not a proposer measurement.** Without this boundary, a
+  future containment number like report 27's Sena 15% reads as a catastrophic recall regression in
+  the analyzer, which it is not — it is a beam-width report about a different component.
+- **The confirm gate on what is displayed stays absolute.** The walk changes *how many* candidates
+  are paid for, never *whether* a candidate shown to a user was confirmed. Report 27's descent
+  ("confirm down the ranked list until k survive") is a budget policy, not a weakening of the gate.
+- **The negative cache obeys the same discipline**: a surface abandoned at a budget cap is unproven,
+  not refuted, and must not be cached as refuted (see D14 § "Measured 2026-07-30").
+
+**Naming.** Call it *completion* or *prediction*, not *proposing*. D14 § "Why build-time generation
+is safe here" already had to make this distinction once for build-time cache generation ("a different
+activity from D9 tier 1, and should not reuse its name"); this is the third activity that generates
+wordforms, and the three now need three names.
+
+---
+
 ## Candidate ledger
 
 Promised by D17. One row per open question: the live candidates, and the single measurement that
@@ -2358,7 +2464,7 @@ would separate them. **A question with one candidate is a warning sign, not an a
 | C1 | How is the class LM trained over an ambiguous analysis lattice? | (a) uniform 1/*k* fractional weighting; (b) EM/Baum-Welch with capped iterations; (c) silver 1-best seeding, EM off | Tagging accuracy vs. a held-out gold set at several seed sizes. **Merialdo/Elworthy say the sign of EM's effect is not guaranteed positive** — so (a) and (c) are not merely cheaper fallbacks, they may win. |
 | C2 | Which smoother, given fractional counts? | (a) expected-count KN (Zhang & Chiang, `P14-1072`); (b) hierarchical Pitman-Yor (HPYLM); (c) plain MKN on rounded counts | Perplexity and acc@1 at 10^3/10^4/10^5 tokens. HPYLM is the entry D4 never had — it is *designed* for small data and uncertainty-aware backoff. |
 | C3 | Does the intra-word term earn its place? | (a) `P(morphemes\|class)` at rung 2; (b) unconditioned `P(morphemes)`; (c) weights on the morphotactic FST arcs instead of a separate n-gram | Head-to-head at equal corpus size. If (a) ≈ (b), the class-conditioning framing is dropped. **Currently unmeasured at the rung D4 actually uses.** |
-| C4 | Is runtime generation shelved? | (a) shelved (D14 as written); (b) always on; (c) **per-grammar, chosen by D10's calibration** | Measured uncached-token rate per grammar. The literature says (a) is wrong for polysynthetic languages; (c) is the shape that survives both answers. |
+| C4 | Is runtime generation shelved? | (a) shelved (D14 as written); (b) always on; (c) **per-grammar, chosen by D10's calibration** | Measured uncached-token rate per grammar. The literature says (a) is wrong for polysynthetic languages; (c) is the shape that survives both answers. **First measured support for (c), 2026-07-30 (report 27):** the same code and budget delivers rank-1 completion in ~13ms on one grammar and does not fit a keystroke on another, so the answer is a per-grammar number and the pre-flight measurement that produces it already exists. Note the direction — it works on the grammar that needed it least (D14 § "Measured 2026-07-30", point 2). |
 | C5 | What fits the error model? | (a) grammar-derived synthetic corruption; (b) generic weighted Levenshtein + key adjacency; (c) cross-language transfer; **(d) logged real corrections from a deployed suggest-only stage 1** (added 2026-07-25) | recall@k on real typos, once any exist. **(b) is the floor (a) must beat.** **(d) is noisy and biased** — see the R4 discussion — so the live question is whether logged pairs are *training data* or only a *validation set* that tells us whether the synthetic distribution in (a) was right. |
 | C6 | When is a word flagged? | (a) only on a completed failed parse; (b) never flag — suggest only | Product call (D18). False-alarm rate on correctly-typed complex words is the number that decides it. |
 | C7 | What is the inter-word unit? | (a) class trigram (D4); (b) surface trigram (the permanent diagnostic floor); (c) lemma/stem term (round-2 proposal 1); (d) phrase table | acc@1 and KSR at matched corpus size. (b) is the floor everything must beat, per round-2 finding 2. |
@@ -2368,12 +2474,17 @@ would separate them. **A question with one candidate is a warning sign, not an a
 | **C11** | **What supplies D18's "attempted parse", and what stops it?** (report 23 T1/T4b, mechanism corrected) — diagnosis has no home in D9's supply tiers | (a) a **"tier A" diagnostic path**: `confirm` on the typed string, own budget, own circuit breaker, breaker-trip ⇒ silence; (b) **batch/idle diagnosis** — never on the keystroke path, flag on a pause or at document scope, which sidesteps the latency question entirely; (c) **no analysis path** ⇒ D18 option B is the product, stated as a decision rather than arrived at by omission | The `confirm` latency distribution on one typed wordform for a complete grammar — **the tail, not the mean** (report 13's shape: ~10% timeout / ~12% step-capped). **(b) is the underrated entry**: spell-*checking* has never had to be keystroke-synchronous, and every desktop spellchecker flags on a delay. |
 | **C12** | **Can Keyman deliver enough left context for D4's inter-word term?** (report 23 T2, verified at primary source) | (a) host context alone; (b) host context + a **rolling in-session buffer** we maintain, which fixes continuous typing and not cold start; (c) inter-word term degrades to unigram when context is short — stated and measured rather than silent | Fraction of real predict() calls with less than one full preceding word of context, and acc@1 loss on those. **Keyman's own worked example for polysynthetic languages requests `leftContextCodePoints: 16` `[A]` — one Inuktitut-scale word can exceed that on its own.** |
 | **C13** | **How do we avoid flagging a correctly-spelled word that merely falls in a grammar coverage gap?** (cross-check B — D18 closed the cache-miss route to a false accusation and left this one open) | (a) **"not a word, and not near one"** — require an empty analysis set *and* unreachability under a small-edit-distance search from something the grammar accepts; (b) never flag (D18 option B); (c) **calibrated hedging in the UI** — "I don't recognise this" is a different statement from "this is wrong", and the system can honestly make the first | False-accusation rate on correctly-spelled words that fall in coverage gaps, at a known coverage level. **Needs R1** — unestimable from the four samples per D16. **(a) reintroduces error-tolerant search and with it much of D14's budget problem** (see D18); **(c) is a product/UX call and may be the actually-right answer**, since it is honest about what the system knows. |
+| **C14** | **How is the completion set bounded on a grammar whose prefix-extension set is large?** (report 27 — the measured obstacle to keystroke-time completion is the *search*, not confirm) | (a) an **admissible A\* heuristic** — uniform-cost search systematically prefers short completions, which is exactly backwards for an agglutinative language, and this is the cheapest thing untried; (b) a **much better stem prior** — report 27's ranked 47-118 stems trained from 132-421 confirmed analyses, thin enough that the rank figures may be model starvation rather than a ceiling; (c) **bound the free tail by slot depth rather than by byte length**, so the budget is expressed in morphology instead of orthography; (d) **per-grammar off** (D10), i.e. C4 candidate (c) answered "no" for this grammar | Containment@top-*k* and **walk p90** on a *complete* agglutinative grammar — needs **R1**. All four are cheap to try against the existing harness today, and (a)-(c) are elimination-shaped: a heuristic that cannot fix a 39k-state sample will not fix a real grammar. |
+| **C15** | **When a candidate surface has many analyses, is its score the sum over them or its single best?** (report 27; distinct from marginalising over *context* analyses, which is settled — see the warning in D4) | (a) **best analysis (max)**; (b) marginalised sum over analyses; (c) sum with a multiplicity penalty or length normalisation — the middle position, and the one nobody has tried | acc@1 on real text at **R1**. Report 27 measured (b) losing catastrophically to (a) on one grammar (rank 114 → 1, 0% → 100% top-3) `[M]` — an elimination-shaped result on one sample, so it motivates preferring (a) and does not license it as a default (D16). |
 
 **Pointer for readers entering at a decision rather than here** (added 2026-07-25, report 21 §5 —
 D17 requires a leading candidate to carry its alternatives *at its own site*): **D4**'s live
-alternatives are rows **C1, C2, C3, C7**; **D9**'s are **C10** and, for the shelving question,
-**C4**; **D13**'s is **C8**; **D14**'s is **C4**; **D18**'s is **C6**; **D2**'s is **C5** and is
-also written out in D2's own section; **D8b**'s is **C9**. **D10** and **D15** are the two
+alternatives are rows **C1, C2, C3, C7** and, for candidate scoring, **C15**; **D9**'s are **C10**
+and, for the shelving question, **C4**; **D13**'s is **C8**; **D14**'s are **C4** and, for the
+search-cost half measured in 2026-07-30, **C14**; **D18**'s is **C6**; **D2**'s is **C5** and is
+also written out in D2's own section; **D8b**'s is **C9**. **D19** carries no ledger row on purpose —
+it is a boundary derived from an invariant, and the *build* question it constrains is C4/C14.
+**D10** and **D15** are the two
 decisions still carrying open design questions with no ledger row — D10's post-D14 scope is stated
 in its amendment banner, and D15's grammar-binding digest is proposed with no stated alternative.
 Both are recorded here as known gaps rather than silently left out.
@@ -2445,9 +2556,19 @@ produce a negative is not on this list, and must not be added to it.**
 | **N7** | Literature settlement of the items the campaign left open: HPYLM/Pitman-Yor as a live C2 entry, CRF/MaxEnt as a class predictor, copy/pointer mechanisms (F7) | — reading, not sweeping | nothing | C2, C10 |
 | **N8** | **The `confirm`-on-one-typed-word latency distribution — the tail, not the mean.** Runnable today on the existing grammars via `pg-cli`. **NOT a deciding measurement** — corrected 2026-07-25 (cross-check B), which caught the parent session committing the exact D16 rule-1 violation this campaign already caught once at D14: the four grammars are unrepresentative, so this **motivates and finds the shape**, and R1 decides. Its legitimate use is as an *elimination*: if the tail is unacceptable on grammars this small, it will not improve on complete ones | "a per-word diagnostic parse fits inside a keystroke budget" — and if it does not, C11 candidate (b), batch/idle diagnosis, becomes the leading entry rather than the fallback | nothing — the pipeline exists and is already instrumented | **C11** |
 | **N9** | **Ask Keyman** whether `leftContextCodePoints` above 16 is granted, and what the host ceiling actually is | "the host can feed D4's inter-word term one full preceding word in a polysynthetic language" | nothing — it is a question to a team, not an experiment | **C12** |
+| **N10** | **An admissible A\* heuristic in the completion walk** (report 27's own recommended next lever). Uniform-cost best-first prefers short completions, which is backwards for an agglutinative grammar; add an admissible lower bound on the cost-to-accept and re-measure containment@top-3 and walk p90 | "the completion set can be bounded by better search alone" — if an admissible heuristic cannot bring a 39,286-state *sample* grammar inside a keystroke budget, it will not do so for a complete one | nothing — `rust/crates/pg-foma/examples/predict_census.rs` exists and already prints both metrics | **C14** |
+| **N11** | **Error tolerance on the typed prefix.** Report 27 matched prefixes exactly, so the "+ some spelling correction" half of the idea is unmeasured. foma-rs already exposes a per-symbol-pair cost matrix (`cmatrix_set_cost`, `cmatrix_default_substitute\|insert\|delete`) — the keyboard-aware edit-cost hook report 03 wanted — but `apply_med` matches whole words, so the tolerance itself has to fold into the walk | "prefix error tolerance is nearly free once the walk exists" — the cost multiplier on an already-marginal search is the whole question, and a bad answer here transfers | N10 is not required but makes the result interpretable | **C14**, and C5's floor candidate (b) |
+| **N12** | **Sum-vs-max candidate scoring on every runnable grammar.** Report 27 ran this A/B on one grammar only, where the marginalised sum lost catastrophically. The harness takes `--score sum\|max`, so this is a re-run, not a build | "marginalising a candidate's score over its own analyses helps ranking" — a second grammar showing the same collapse makes (b) eliminable rather than merely suspect | nothing | **C15** |
 
-**N6 is the one to run first.** It needs no new apparatus, and it attacks the number that the most
-architecture rests on.
+**N6 is still the one to run first.** It needs no new apparatus, and it attacks the number that the
+most architecture rests on. **N10 and N12 are the cheapest items on the list** — both are re-runs of
+an existing harness against an existing corpus, and N12 needs only a flag change.
+
+> **N8 is NOT satisfied by report 27's 0.3-1.2ms per-confirm figure** (added 2026-07-30 — the two are
+> easy to confuse, and confusing them would retire R-1 on the strength of the wrong measurement).
+> That figure is a **median** over candidates a *generative walk* proposed. N8 asks for the **tail**
+> of `confirm` on **one wordform the user typed**. Report 13's ~10% timeout / ~12% step-capped on the
+> same corpora is the shape N8 exists to characterise, and nothing since has characterised it.
 
 ### The rule every sweep must follow
 
@@ -2702,3 +2823,85 @@ vs token-level annotation distinction added. Report 17's code claims and report 
 `resolve_morpheme` citation were verified and hold. **Not independently verified:** the
 SIGMORPHON digits in finding 6 (no PDF rendering available here; the table is internally
 consistent and the direction is corroborated by report 08).
+
+---
+
+# Research round 3 — report 27 (2026-07-30)
+
+Commissioned by John: *"We CAN do word prediction for words we've never seen before! We just start
+the FST and constrain it with the letters already typed (+ some spelling correction), and then 'let it
+run' to get X number of words at the end — but don't run HC to prune them (key point). Any that come
+up as real candidates, then we can run HC — only if it makes it in the top 5 or so. Since we know the
+morphemes of the FST candidates, we should be able to have the same 'you are the right class — you are
+a common stem — you are the right POS'."* Then: *"Measure it, but constrain to top 3, bring in total
+'stem' probability, and cache known 'FST yes, HC no' words."*
+
+One report, `27-prefix-constrained-fst-prediction.md`, and a dev-only measurement binary
+(`rust/crates/pg-foma/examples/predict_census.rs`). **Unlike rounds 1 and 2 this round is measurement,
+not literature** — every number in report 27 is `[M]`.
+
+## What changed in the existing plan
+
+| Existing claim | Status after round 3 |
+|---|---|
+| D14/report 17/parked plan: keystroke-time generation is unaffordable *because of the analyzer confirm cost* | **Refuted `[M]`.** Confirm is 0.3-1.2ms — the cheap half. The completion **search** is the 4-788ms half. The shelving conclusion may survive; its stated reason does not. |
+| Report 17 §6: a lazy prefix-aware enumeration engine is the blocking prerequisite | **True of report 17's mechanism, irrelevant to this one `[M]`.** foma-rs exposes the compiled arc table (`Fsm::states`, CSR blocks) and the analysis tape carries only tag symbols, so one walk yields the surface string *and* its morpheme decomposition. No new engine, no upstream change. |
+| "Bring in total stem probability" (the commissioning instruction) | **Contradicted by measurement `[M]`.** Marginalising over a candidate's own analyses rewards multiplicity; best-path scoring moved the true word from rank 114 to 1. Amended at D4; ledger row **C15**. |
+| "Cache known 'FST yes, HC no' words" (the commissioning instruction) | **Correct and cheap, aimed at the wrong cost `[M]`.** Saves 0.1-0.7 confirms/keystroke at ~0.5ms each. The cacheable expensive thing is the *walk result per prefix*. |
+| D9/D14: unseen wordforms are reachable in principle | **Demonstrated end to end on one grammar `[M]`** — 100% containment from a 4-char prefix, rank 1, ~13ms. Not demonstrated on the other. |
+
+## Findings worth carrying
+
+1. **The recall guarantee is structural and free, and it is the reason this is not just autocomplete.**
+   The proposer over-approximates and admits only language-preserving operations
+   (`CONTEXT.md:271,311`), so a superset of the relation is a superset of its surface projection: every
+   wordform the *grammar* licenses is in the walk's search space, corpus or no corpus `[S]`. No cache
+   and no n-gram tier can offer that. It is bounded by the lexicon, though — unseen **wordforms**, not
+   unseen **stems**, so a borrowing or a proper name is still unreachable.
+2. **The ranking signal needs no predictor.** Report 17's expensive half — predict the tag bundle,
+   then calibrate the prediction conformally — existed to *guess* the analysis before generating.
+   Walking the network hands you each candidate's morpheme sequence, so "right class / common stem /
+   right POS" is a table lookup on symbols the walk already emitted, ranked after the fact `[M]`.
+3. **The split is by grammar, not by language family, and it must be measured per grammar.** Same
+   code, same budgets: rank 1 at 13ms on one, rank ~98 at 142-788ms on the other. This is the
+   spellcheck instance of the repo's standing rule that strategy is chosen by per-grammar pre-flight
+   measurement rather than guessed from language type.
+4. **A measurement instrument produced plausible numbers while broken, twice, in opposite
+   directions.** A depth-first walk (truncating an arbitrary branch, not the ranking tail) manufactured
+   a false "20-50ms per confirm"; a missing candidate dedupe made the confirm descent spend its whole
+   budget inside rank 1 and report 0% acceptance everywhere. Both produced *believable* output. What
+   caught them was a self-check that runs production `FomaProposer::propose` + `confirm_all` against
+   the harness's own walk + `confirm_all` on the same words every run and prints agreement — and its
+   agreement rate independently reproduced report 13's Sena coverage figure. **Any future harness in
+   this series should carry an equivalent check.**
+5. **Report 27's own honest limits.** 20-40 held-out words per grammar per prefix length; stem priors
+   trained on 132-421 confirmed analyses (47-118 distinct stems), thin enough that the rank figures
+   may be model starvation rather than a ceiling; Amharic and Aweti not run at all (report 13
+   measured 9.81% and 6.73% confirm timeouts and the harness has no per-word timeout); prefixes
+   matched exactly, so the error-tolerance half of the idea is unmeasured.
+
+## Proposals awaiting John's decision
+
+1. **Run N10 (A\* heuristic) and N12 (sum-vs-max on the other grammars) before anything else here.**
+   Both are re-runs of the existing harness — N12 is a flag change — and together they decide whether
+   C14 has a cheap answer or needs R1.
+2. **Decide whether the completion walk is worth a real implementation for the grammars where it
+   already works**, or waits for C14. D19 constrains *how* it would ship if so (a separate top-k entry
+   point, never a proposer mode); it does not answer whether.
+3. **Fold N11 (prefix error tolerance) in early if the walk is built at all.** The cost matrix that
+   makes it keyboard-aware already exists in foma-rs, and the tolerance changes the search's cost
+   profile — retrofitting it onto a tuned walk means re-tuning the walk.
+4. **Leave report 17's parked plan parked.** Report 27 measured a *different* mechanism; the parked
+   plan's un-park trigger concerns prerequisites (a lazy enumeration engine, a tag-bundle predictor,
+   conformal calibration, R3's gold set) that none of these numbers touch.
+
+## Verification note
+
+Report 27's code claims were re-read at source before commit (`foma-0.4.2/src/line_table.rs`,
+`pg-foma/src/tags.rs`, `pg-foma/src/analyzer.rs`, `CONTEXT.md:271,311`). Every number is `[M]` from a
+harness that self-checks against the production path on each run; the two instrument bugs above were
+found and fixed *before* any number in the report was recorded, and the results were reproduced after
+the fixes. **Corrected in place during the session and worth stating because the wrong figure was
+reported to John before the right one:** per-confirm cost is 0.3-1.2ms, not the 20-50ms first read off
+the depth-first version. **Not independently verified:** nothing — but see finding 5 for what was not
+*measured*, which is the larger caveat.

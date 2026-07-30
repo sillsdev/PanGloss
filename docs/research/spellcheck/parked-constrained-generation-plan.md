@@ -6,6 +6,25 @@ is not lost and so a future reader can un-park it correctly, without re-deriving
 full argumentation and citations; this document restates only what is needed to make a go/no-go
 decision later, plus the concrete tasks, in enough detail that "later" does not mean "from scratch."
 
+> ## Still parked as of 2026-07-30 — and report 27 is not an un-park (read this first)
+>
+> `27-prefix-constrained-fst-prediction.md` measured a **different mechanism** for the same goal:
+> walking the compiled proposer network under the typed prefix and ranking completions from the tags
+> each path already carries. It bypasses all three of this plan's prerequisites — the lazy enumeration
+> engine, the trained tag-bundle predictor, and conformal calibration — so **none of its numbers
+> satisfies this plan's un-park trigger, and none of them invalidates this plan either.** Two ideas,
+> one goal; do not merge them, and do not treat a measurement of one as evidence about the other.
+>
+> **Two things in here to fix if this ever is un-parked:**
+>
+> 1. **The latency argument below prices the wrong operation.** "Nobody can afford an unbounded
+>    generative search on every keystroke" is right about the *search*; the paragraph attributes the
+>    cost to the analyzer `confirm`/HC call, which measured at **0.3-1.2ms** `[M, report 27]`. The
+>    33ms Keyman budget affords tens of confirms, not one.
+> 2. **Whatever is built, it is a separate top-k entry point, never a proposer mode** — `PLAN.md`
+>    **D19**, decided from the proposer's over-approximation invariant. That applies to this plan's
+>    idle-time variant as much as to report 27's walk.
+
 ---
 
 ## What is being parked, and why (read this paragraph and stop, if that's all you need)

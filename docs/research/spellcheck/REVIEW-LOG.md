@@ -307,3 +307,36 @@ programme", this is not a defect to fix so much as **a shipping order to adopt**
 correction second, flagging last and only on R4 evidence — because the prediction product's
 correction log is the error corpus that every later stage needs and no language in scope will ever
 otherwise have.
+
+---
+
+## Post-campaign addendum — 2026-07-30 (report 27)
+
+Not part of the campaign; recorded here because this file is where the series tracks **how a claim
+came to be believed**, and report 27 is the first entry that produced its own evidence rather than
+auditing someone else's.
+
+**One finding belongs in this file rather than only in `PLAN.md`.** Report 27's measurement harness
+produced *plausible* numbers while broken, twice, in opposite directions:
+
+1. A depth-first walk truncated an arbitrary deep branch instead of the ranking tail, which
+   manufactured a "20-50ms per confirm" figure. **That figure was reported to John before it was
+   caught.** Real cost: 0.3-1.2ms.
+2. A missing candidate dedupe let the confirm descent spend its whole budget inside rank 1, producing
+   a clean, consistent, entirely false "0% accepted in top-3 on every grammar".
+
+Neither looked like a bug. Both looked like findings — and one of them was pessimistic while the other
+was optimistic, so no amount of "does this smell right" would have caught them both.
+
+**What did catch them** is worth carrying as a standing requirement, alongside the campaign's three
+lessons above: **a measurement harness in this series must self-check against the production path on
+the same inputs, every run, and print the agreement rate.** Report 27's check runs
+`FomaProposer::propose` + `confirm_all` against the harness's own walk + `confirm_all` over the same
+held-out words; it agreed exactly, and its agreement rate independently reproduced report 13's Sena
+coverage figure — an external corroboration that came free.
+
+This generalises the campaign's cardinal rule. "Fabrication is the cardinal sin" was written for
+citations, where the failure mode is a number with no source. For measurement the failure mode is a
+number with an *impeccable* source that measures the instrument instead of the world, and the defence
+is different: not verification at source, but **agreement with an independent path to the same
+answer.**
