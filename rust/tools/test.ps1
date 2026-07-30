@@ -32,6 +32,7 @@ param(
     # See build.ps1's equivalent: 0/empty means "let pg.ps1 decide" rather than restating its
     # defaults in a second place.
     [int]$Jobs = 0,
+    [int]$TestThreads = 0,
     [ValidateSet('Idle', 'BelowNormal', 'Normal')][string]$Priority = '',
     [switch]$Gc,
     [switch]$NoSccache,
@@ -56,6 +57,7 @@ if ($NoNextest) { $pgArgs.NoNextest = $true }
 if ($MaxConcurrent) { $pgArgs.MaxConcurrent = $MaxConcurrent }
 if ($NoSccache) { $pgArgs.NoSccache = $true }
 if ($Jobs -gt 0) { $pgArgs.Jobs = $Jobs }
+if ($TestThreads -gt 0) { $pgArgs.TestThreads = $TestThreads }
 if ($Priority) { $pgArgs.Priority = $Priority }
 
 & "$PSScriptRoot\pg.ps1" @pgArgs @ExtraArgs

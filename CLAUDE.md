@@ -47,6 +47,15 @@ record so a "why is this slower than I expected" question is answerable from the
   not `rust/`, because `rust/.cargo/config.toml` is gitignored for personal target redirects and so
   would not exist in a fresh worktree; Cargo merges config from every ancestor directory, deepest
   winning, so a personal `rust/` override still takes precedence.
+- **Test-execution cap.** `CARGO_BUILD_JOBS` bounds *compilation only*. Once cargo finishes
+  building, nextest and libtest fan out test processes at their own default of one per logical
+  core — 20 here, since this repo has no `nextest.toml`. So a capped build was followed straight
+  away by an uncapped 20-wide test run, and that is the heavier half: these suites spawn real
+  processes (`pangloss.exe`, `worker_test_child.exe`, and a full C **and** C++ toolchain for
+  `pg-ffi::header_abi`), and corpus/foma cases can each reach many GB of RSS. Twenty at once is a
+  memory storm as much as a CPU one, and memory pressure freezes a remote session faster than CPU
+  load. `pg.ps1` now passes `--test-threads` (nextest) / `-- --test-threads` (libtest) from the
+  same budget. Override with `-TestThreads N`.
 - **Priority.** Cargo is launched `BelowNormal`, which Windows propagates to child processes, so
   `rustc`/`link.exe` inherit it and any interactive daemon preempts compiler work instantly.
   **`Set-SccacheServerPriority` is load-bearing here**: with `RUSTC_WRAPPER=sccache`, `rustc` is
@@ -54,8 +63,15 @@ record so a "why is this slower than I expected" question is answerable from the
   Measured before that call existed: 7 concurrent `rustc`, only 2 of them `BelowNormal`. If you
   ever add another compiler-spawning daemon, it needs the same treatment.
 
-Override per-run with `-Jobs N` / `-Priority Normal` (on `pg.ps1`, `build.ps1`, or `test.ps1`) when
-you're at the console and there's no remote session to protect.
+Override per-run with `-Jobs N` / `-TestThreads N` / `-Priority Normal` (on `pg.ps1`, `build.ps1`,
+or `test.ps1`) when you're at the console and there's no remote session to protect.
+
+Two things this deliberately does **not** cover, so don't assume the machine is protected by
+`pg.ps1` alone. Bare Cargo in another worktree still runs at `Normal` — the repo-root
+`.cargo/config.toml` job floor reaches it (Cargo merges config from ancestor directories, and every
+worktree under `.claude/worktrees/` has this repo root as an ancestor), but nothing can set a
+process priority from a config file; that's what the `block-bare-cargo.py` hook is for. And
+rust-analyzer's background `cargo check` gets the job floor but likewise runs at `Normal`.
 
 ## Running parallel agents without starving the machine
 

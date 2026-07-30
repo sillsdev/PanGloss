@@ -70,6 +70,10 @@ param(
     # reserve, split across the build slots). Pass a number to override for one run -- e.g. at the
     # console with no remote session to protect.
     [int]$Jobs = 0,
+    # 0 = same derivation as -Jobs. Separate knob because it governs a DIFFERENT phase: -Jobs caps
+    # compilation, this caps how many test processes execute at once. Capping only the first leaves
+    # the run's second half uncapped.
+    [int]$TestThreads = 0,
     # CPU priority for cargo and everything it spawns. BelowNormal by default so sshd and Chrome
     # Remote Desktop's encoder preempt compiler work; 'Normal' restores the old behavior.
     [ValidateSet('Idle', 'BelowNormal', 'Normal')][string]$Priority = 'BelowNormal',
@@ -153,6 +157,16 @@ $jobsExplicit = ($Jobs -gt 0)
 if (-not $jobsExplicit) { $Jobs = Get-CargoJobBudget -MaxConcurrent $MaxConcurrent }
 $env:CARGO_BUILD_JOBS = "$Jobs"
 
+# The EXECUTION half of the same problem. CARGO_BUILD_JOBS bounds compilation only; once cargo
+# finishes building, nextest (and libtest) fan out test processes at their own default of one per
+# logical core -- 20 here, with no nextest.toml in this repo to say otherwise. So a capped build
+# was followed immediately by an uncapped 20-wide test run, which is the heavier half: these suites
+# spawn real processes (pangloss.exe, worker_test_child.exe, a C and C++ toolchain for
+# pg-ffi::header_abi), and corpus/foma cases can reach many GB of RSS each
+# (CLAUDE.md, "Probe pathological grammars single-threaded"). 20 of those at once is a memory
+# storm as much as a CPU one, and memory pressure is what actually freezes a remote session.
+if ($TestThreads -le 0) { $TestThreads = Get-CargoJobBudget -MaxConcurrent $MaxConcurrent }
+
 $targetDir = Resolve-TargetDir -RustRoot $rustRoot
 if ($targetDir) { $env:CARGO_TARGET_DIR = $targetDir }
 
@@ -219,7 +233,8 @@ $profileLabel = switch ($Mode) {
 
 Write-Preflight -Mode $Mode -Profile $profileLabel -RepoRoot $repoRoot -TargetDir $targetDir `
     -BaseCheck $baseCheck -SccacheHealth $sccacheHealth -FreeGB $freeGB -DiskCheck $diskCheck `
-    -CorpusState $corpusState -MaxConcurrent $MaxConcurrent -Jobs $Jobs -JobsExplicit:$jobsExplicit -Priority $Priority
+    -CorpusState $corpusState -MaxConcurrent $MaxConcurrent -Jobs $Jobs -JobsExplicit:$jobsExplicit `
+    -TestThreads $(if ($Mode -eq 'test' -or $Mode -eq 'corpus-test') { $TestThreads } else { 0 }) -Priority $Priority
 
 if ($BaseMode -ne 'off' -and $baseCheck.Checked -and -not $baseCheck.Ok) {
     Write-Host "[pg] worktree base check FAILED ($BaseMode mode): $($baseCheck.Detail)" -ForegroundColor Red
@@ -290,7 +305,9 @@ switch ($Mode) {
     }
     'test' {
         if ($useNextest) {
-            $cargoArgs += @('nextest', 'run')
+            # nextest's own flag, BEFORE `--` (it selects how many test processes run at once).
+            # libtest's identically-named flag has to go after `--` instead -- see $trailing below.
+            $cargoArgs += @('nextest', 'run', '--test-threads', "$TestThreads")
             if (-not $DebugProfile) { $cargoArgs += @('--cargo-profile', $script:TestOptProfile) }
         } else {
             $cargoArgs += 'test'
@@ -305,7 +322,7 @@ switch ($Mode) {
         # failure is self-concealing: the run trips the zero-executed-cases guard, which looks like
         # the guard working rather than the mode never having executed a corpus test at all.
         if ($useNextest) {
-            $cargoArgs += @('nextest', 'run', '--run-ignored', 'all')
+            $cargoArgs += @('nextest', 'run', '--run-ignored', 'all', '--test-threads', "$TestThreads")
             if (-not $DebugProfile) { $cargoArgs += @('--cargo-profile', $script:TestOptProfile) }
         } else {
             $cargoArgs += 'test'
@@ -324,6 +341,9 @@ if ($useNextest) {
 } else {
     $trailing = @()
     if ($Filter) { $trailing += $Filter }
+    # libtest's spelling of the nextest flag above. Only applies to the `test`/`corpus-test` modes;
+    # `build`/`release` never reach this branch, and passing it to them would be an error.
+    if ($Mode -eq 'test' -or $Mode -eq 'corpus-test') { $trailing += @('--test-threads', "$TestThreads") }
     if ($Mode -eq 'corpus-test') {
         # plain `cargo test` hides passing tests' stdout the same way; same reason as above.
         $trailing += '--nocapture'

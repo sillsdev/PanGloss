@@ -711,6 +711,7 @@ function Write-Preflight {
         [int]$MaxConcurrent,
         [int]$Jobs = 0,
         [switch]$JobsExplicit,
+        [int]$TestThreads = 0,
         [string]$Priority = ''
     )
     $slug = Get-WorktreeSlug -RustRoot (Join-Path $RepoRoot 'rust')
@@ -755,6 +756,12 @@ function Write-Preflight {
             "$([Environment]::ProcessorCount) logical - $script:InteractiveReserveThreads reserved for SSH/remote-desktop daemons, split across $MaxConcurrent slot(s)"
         }
         Write-Host "cargo jobs: $Jobs per build ($why)"
+    }
+    if ($TestThreads -gt 0) {
+        # Reported separately from jobs because they bound different phases, and a run capped for
+        # compilation but not execution looks capped in the log while still going 20-wide in the
+        # half that spawns real processes.
+        Write-Host "test threads: $TestThreads concurrent test processes (default would be $([Environment]::ProcessorCount))"
     }
     if ($Priority) {
         Write-Host "build priority: $Priority (inherited by rustc/link.exe -- keeps interactive daemons ahead of compiler work)"
