@@ -54,12 +54,22 @@ use pg_grammar::model::Grammar;
 use foma::apply::apply_init;
 use foma::options::FomaOptions;
 
-/// Template-less, multi-stratum grammar with nine lexical entries. Chosen from
-/// `recipe_registry_census.rs`'s table because it is the fixture tracked in THIS repository (not the
-/// `machine/` submodule) that both (a) holds a `Gate` group of three or more entries, so `Bisect`
-/// and `FanOut` land on genuinely different partitions, and (b) is template-free, so
-/// `build_controllable` compiles the whole plan instead of skipping marker subtrees — the oracle
-/// would otherwise be comparing two nets that both omit the same part of the grammar.
+/// Multi-stratum grammar with nine lexical entries. Chosen from `recipe_registry_census.rs`'s table
+/// because it is the fixture tracked in THIS repository (not the `machine/` submodule) that holds a
+/// `Gate` group of three or more entries, so `Bisect` and `FanOut` land on genuinely different
+/// partitions rather than both producing `[1, 1]`.
+///
+/// SCOPE, measured rather than assumed: this fixture's plan root is a `Union` of the `Gate` node
+/// PLUS both `CompositeEmissionMarker` and `StructuralCompositeMarker` leaves, so every net compared
+/// below is `build_controllable`'s controllable-only net and omits what those subtrees contribute.
+/// The equivalence this gate establishes is therefore "these plans denote the same relation over the
+/// controllable subtree", which is the right and sufficient claim for a transform that only ever
+/// restructures `Gate`/`Union` nodes — but it is NOT "these plans compile the same whole grammar".
+/// `unbuildable_markers`' own doc requires any caller reading the controllable net as the whole
+/// grammar to consult it first; `the_scope_of_this_gate_is_stated_not_assumed` below does, so this
+/// limitation cannot silently stop being true. An earlier version of this comment claimed the
+/// fixture was marker-free because it declares no `<AffixTemplate>`; markers also come from
+/// composite entries and circumfix/dropped-material rules, which this fixture does have.
 const FIXTURE: &str = "recipe-ordered-generic";
 
 /// The two families wired onto `refine_gate_partition`. Each must own a surviving distinct plan.
@@ -79,6 +89,31 @@ fn load() -> (Grammar, Vec<String>) {
         .map(|w| w.word.clone())
         .collect();
     (grammar, words)
+}
+
+/// Pins WHICH net the equivalence check above is talking about, so the scope note on `FIXTURE`
+/// cannot quietly become false. If this fixture ever loses its marker leaves the assertion fires and
+/// the note gets strengthened; if a future fixture swap silently introduces them where the note says
+/// there are none, likewise. Either way the claim and the code stay in step.
+#[test]
+fn the_scope_of_this_gate_is_stated_not_assumed() {
+    let (grammar, _) = load();
+    let alphabet = SegAlphabet::new(&grammar.char_tables[0]);
+    let prules = grammar
+        .strata
+        .iter()
+        .flat_map(|s| &s.prules)
+        .map(|id| &grammar.prules[id.0 as usize])
+        .collect::<Vec<_>>();
+    let phonology = PhonologyProbe::new(&grammar);
+    let baseline = enumerate_default(&grammar, &alphabet, &prules, phonology.as_ref());
+    let markers = pg_foma::build::unbuildable_markers(&baseline);
+    assert_eq!(
+        markers.len(),
+        2,
+        "{FIXTURE} is documented as carrying BOTH marker kinds, which is why this gate's equivalence \
+         claim is scoped to the controllable subtree; got {markers:?}"
+    );
 }
 
 #[test]
