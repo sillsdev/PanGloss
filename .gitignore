@@ -26,3 +26,11 @@
 # per-run baselines). Same reason as /reports/recipe-optimizer-*/ above -- generate and keep
 # locally, commit only synthetic-fixture evidence.
 /reports/aweti-completion/
+
+# A nested target/ inside a crate directory: cargo only creates this when it is invoked from within
+# the crate rather than the workspace root, which is itself a symptom of a bare-cargo run (the
+# managed entry point always runs from rust/ and redirects the target dir off the system drive).
+# Ignored so the artifacts cannot be committed the way they were once already.
+/rust/crates/*/target/
+# Session transcript dumps that land wherever the shell happened to be. Never repository content.
+**/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-*-this-session-is-being-continued-*.txt
