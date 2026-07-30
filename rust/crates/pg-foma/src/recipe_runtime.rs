@@ -5,7 +5,7 @@ use crate::build::build_controllable;
 use crate::compose_budget::{ComposeBudget, ComposeError};
 use crate::composite::FomaAnalyzer;
 use crate::emit::surface_table;
-use crate::enumerate::CandidatePlan;
+use crate::enumerate::{CandidatePlan, EmissionStrategy};
 use crate::recipe_optimizer::{Certification, Score};
 use crate::replace::SegAlphabet;
 use foma::options::FomaOptions;
@@ -141,6 +141,17 @@ pub fn certify_corpus(
         corpus_hash: "runtime".into(),
     }
 }
+/// Builds a candidate's network with the plan-composing interpreter.
+///
+/// # Panics
+/// If `candidate` requests a whole-grammar [`EmissionStrategy`]. That is deliberate, and it is a
+/// refusal rather than a fallback: this function can only ever produce `build_controllable`'s
+/// controllable-subtree network, so honouring such a candidate by building it anyway would hand the
+/// caller a network from a DIFFERENT compiler than the one the candidate names, with nothing in the
+/// result saying so. Every measurement drawn from it would then be attributed to a strategy that
+/// never ran. Callers holding mixed candidates must either dispatch on
+/// `candidate.strategy` (as `evaluate_plans_marked` does) or filter to
+/// `!strategy.is_whole_grammar()` first.
 pub fn build_candidate(
     candidate: &CandidatePlan,
     opts: &FomaOptions,
@@ -149,6 +160,13 @@ pub fn build_candidate(
     prules: &[&PhonRuleDef],
     budget: &ComposeBudget,
 ) -> Result<crate::gate::GatedCompileResult, ComposeError> {
+    assert!(
+        !candidate.strategy.is_whole_grammar(),
+        "build_candidate cannot realize {:?}: it only ever composes a plan into the controllable \
+         subtree's network, so building this candidate here would measure a different compiler than \
+         the one it names. Dispatch on `candidate.strategy` instead.",
+        candidate.strategy
+    );
     build_controllable(&candidate.plan, opts, grammar, alphabet, prules, budget)
 }
 
@@ -196,36 +214,24 @@ pub struct RuntimeEvaluation {
 /// itself ([`crate::emit`]'s `plan_topology_decisions` reads two booleans off it), so it can express
 /// the DEFAULT compilation of this grammar and nothing else. That is exactly why only the baseline is
 /// routed here; see the caller.
-fn evaluate_via_tuned_emit(
-    grammar: &Grammar,
+/// Runs `words` through `analyzer`, scores, budget-checks, and certifies against `expected`.
+///
+/// Shared by EVERY evaluation strategy on purpose. The only thing that differs between the three
+/// ([`EmissionStrategy`]) is how the network — and therefore the analyzer — was obtained; everything
+/// from "apply the corpus" onward must be identical, or a cross-strategy comparison would be
+/// comparing measurement procedures rather than compilations. This function existing is what makes
+/// adding a strategy cost nothing: the previous two strategies each carried their own copy of this
+/// block, which is exactly how they would have drifted.
+#[allow(clippy::too_many_arguments)]
+fn measure_and_certify(
+    analyzer: &mut FomaAnalyzer,
     words: &[String],
     expected: &[(String, Vec<WordAnalysis>)],
     budget: RuntimeBudget,
+    states: u64,
+    arcs: u64,
+    build: u64,
 ) -> RuntimeEvaluation {
-    let t = Instant::now();
-    let proposer = match FomaProposer::new(grammar) {
-        Ok(p) => p,
-        Err(e) => {
-            return RuntimeEvaluation {
-                certification: Certification::BuildFailed {
-                    reason: format!("tuned emit path failed to build: {e}"),
-                },
-                score: Score {
-                    states: 0,
-                    arcs: 0,
-                    build: elapsed_ns(t).max(1),
-                    apply: 0,
-                    proposals: 0,
-                    confirmation: 0,
-                },
-            };
-        }
-    };
-    let build = elapsed_ns(t).max(1);
-    let (states, arcs) = proposer.network_counts();
-    // No `with_segment_query_encoder` here, unlike the controllable path: this net is in plain
-    // surface space and the production proposer queries it with plain NFD.
-    let mut analyzer = FomaAnalyzer::from_precompiled_proposer(grammar, proposer);
     let mut actual = Vec::new();
     let mut apply: u64 = 0;
     let mut proposals: u64 = 0;
@@ -239,8 +245,8 @@ fn evaluate_via_tuned_emit(
         actual.push((w.clone(), p.outcome.structured));
     }
     let score = Score {
-        states: states.max(0) as u64,
-        arcs: arcs.max(0) as u64,
+        states,
+        arcs,
         build,
         apply,
         proposals,
@@ -276,6 +282,98 @@ fn evaluate_via_tuned_emit(
         certification,
         score,
     }
+}
+
+fn build_failed(reason: String, build: u64) -> RuntimeEvaluation {
+    RuntimeEvaluation {
+        certification: Certification::BuildFailed { reason },
+        score: Score {
+            states: 0,
+            arcs: 0,
+            build,
+            apply: 0,
+            proposals: 0,
+            confirmation: 0,
+        },
+    }
+}
+
+fn evaluate_via_tuned_emit(
+    grammar: &Grammar,
+    words: &[String],
+    expected: &[(String, Vec<WordAnalysis>)],
+    budget: RuntimeBudget,
+) -> RuntimeEvaluation {
+    let t = Instant::now();
+    let proposer = match FomaProposer::new(grammar) {
+        Ok(p) => p,
+        Err(e) => {
+            return build_failed(
+                format!("tuned emit path failed to build: {e}"),
+                elapsed_ns(t).max(1),
+            )
+        }
+    };
+    let build = elapsed_ns(t).max(1);
+    let (states, arcs) = proposer.network_counts();
+    // No `with_segment_query_encoder` here, unlike the controllable path: this net is in plain
+    // surface space and the production proposer queries it with plain NFD.
+    let mut analyzer = FomaAnalyzer::from_precompiled_proposer(grammar, proposer);
+    measure_and_certify(
+        &mut analyzer,
+        words,
+        expected,
+        budget,
+        states.max(0) as u64,
+        arcs.max(0) as u64,
+        build,
+    )
+}
+
+/// [`EmissionStrategy::TemplatedUnderlyingTokens`]: compile the whole grammar through
+/// `emit_underlying_templated` + a real compiled rewrite cascade, rather than through the
+/// surface-probed lexc plus synthesized composite entries.
+///
+/// This is the first candidate in this crate that is neither the controllable-only composed network
+/// nor the default surface-probed compilation — i.e. the first one whose network can differ from the
+/// baseline's for a reason minimization cannot erase. Like the tuned path it ignores `plan` (this
+/// compiler derives its own topology), so it must only ever be offered as its own candidate, never
+/// as the realization of some other candidate's plan.
+///
+/// Uses the proposer `compile_templated_morphotactics` returns, and attaches nothing to it. That is
+/// load-bearing rather than incidental: this strategy's lexc is in char-def TOKEN space (it emits
+/// underlying tokens over a `SegAlphabet`), so it does need a segment query encoder — and that
+/// compiler already attaches one itself. Adding a second here, or omitting it because the tuned
+/// surface-probed path omits one, is the space-mismatch this module's own doc records as
+/// manufacturing false zero-candidate results.
+fn evaluate_via_templated_emit(
+    grammar: &Grammar,
+    words: &[String],
+    expected: &[(String, Vec<WordAnalysis>)],
+    budget: RuntimeBudget,
+) -> RuntimeEvaluation {
+    let t = Instant::now();
+    let output = match crate::templated_compile::compile_templated_morphotactics(grammar) {
+        Ok(output) => output,
+        Err(e) => {
+            return build_failed(
+                format!("templated underlying-token path failed to build: {e}"),
+                elapsed_ns(t).max(1),
+            )
+        }
+    };
+    let build = elapsed_ns(t).max(1);
+    let (states, arcs) = output.proposer.network_counts();
+    let mut analyzer = FomaAnalyzer::from_precompiled_proposer(grammar, output.proposer);
+    measure_and_certify(
+        &mut analyzer,
+        words,
+        expected,
+        budget,
+        states.max(0) as u64,
+        arcs.max(0) as u64,
+        build,
+    )
 }
 
 /// Evaluates every plan through build_controllable and the production propose→confirm pipeline.
@@ -411,6 +509,19 @@ pub fn evaluate_plans_marked(
         .iter()
         .enumerate()
         .map(|(index, candidate)| {
+            // Strategy dispatch comes FIRST: the two whole-grammar strategies are realized by their
+            // own compilers and never touch `build_controllable`, so routing them through the
+            // composed path below would build the controllable subtree and then attribute that
+            // network to a candidate that asked for a different compilation entirely.
+            match candidate.strategy {
+                EmissionStrategy::PlanComposed => {}
+                EmissionStrategy::TunedSurfaceProbed => {
+                    return evaluate_via_tuned_emit(grammar, words, &expected, budget)
+                }
+                EmissionStrategy::TemplatedUnderlyingTokens => {
+                    return evaluate_via_templated_emit(grammar, words, &expected, budget)
+                }
+            }
             let t = Instant::now();
             let built = build_candidate(candidate, &opts, grammar, &alphabet, &prules, &compose);
             let build = elapsed_ns(t).max(1);

@@ -86,6 +86,17 @@ pub struct RecipeOptimizationReport {
     pub termination: Termination,
     pub baseline: Option<String>,
     pub winner: Option<String>,
+    /// The winning candidate's `EmissionStrategy` label, when there is a winner.
+    ///
+    /// Load-bearing for reading `winner_plan_json`/`winner_mermaid` correctly. Those artifacts render
+    /// the winning candidate's `Plan`, and for a plan-composed winner that plan IS what got compiled.
+    /// For a whole-grammar strategy it is NOT: that compiler derives its own topology and never
+    /// interprets the plan, which it carries only because a candidate must have one. Without this
+    /// field a reader opening `winner.plan.mmd` would reasonably believe the diagram depicts what the
+    /// winner compiled, and for such a winner it does not. `#[serde(default)]` so reports written
+    /// before this field existed still parse.
+    #[serde(default)]
+    pub winner_strategy: Option<String>,
     pub frontier: Vec<String>,
     pub candidates: Vec<CandidateReport>,
     pub baseline_plan_json: Option<String>,
@@ -196,6 +207,7 @@ mod tests {
             termination: Termination::Complete,
             baseline: Some("b".into()),
             winner: Some("b".into()),
+            winner_strategy: Some("plan-composed".into()),
             frontier: vec!["b".into()],
             candidates: vec![],
             baseline_plan_json: None,
@@ -323,6 +335,7 @@ mod tests {
             termination: Termination::NoCandidates,
             baseline: None,
             winner: None,
+            winner_strategy: None,
             frontier: vec![],
             candidates: vec![],
             baseline_plan_json: None,

@@ -270,12 +270,19 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
     let mut capability_rejected = 0u64;
     let mut materialization_rejects = 0u64;
     let mut duplicates = 0u64;
-    let mut roots = std::collections::BTreeSet::new();
+    // Keyed on (plan root, strategy label), not the root alone: a whole-grammar strategy carries the
+    // BASELINE plan because its compiler derives its own topology, so a root-only key would call it a
+    // duplicate of the baseline and drop the one candidate whose network can differ for a reason
+    // minimization cannot erase. Mirrors `Registry::materialize_distinct`'s own key.
+    let mut roots = std::collections::BTreeSet::<(pg_foma::plan::NodeId, &'static str)>::new();
     let baseline_root = baseline.root().ok_or_else(|| {
         RecipeOptimizeError::Runtime("enumerate_default produced a rootless Plan".into())
     })?;
     let baseline_id = baseline_root.to_string();
-    roots.insert(baseline_root);
+    roots.insert((
+        baseline_root,
+        pg_foma::enumerate::EmissionStrategy::PlanComposed.label(),
+    ));
     materialization_times.insert(baseline_id.clone(), baseline_materialization_ns);
     states.push(CandidateState {
         id: baseline_id.clone(),
@@ -290,6 +297,7 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
         CandidatePlan {
             label: "baseline",
             plan: baseline.clone(),
+            strategy: pg_foma::enumerate::EmissionStrategy::PlanComposed,
         },
     );
     let inapplicable = offered_instances.saturating_sub(instances.len() as u64);
@@ -317,9 +325,16 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
         let root = plan.plan.root().ok_or_else(|| {
             RecipeOptimizeError::Runtime("materialized recipe has no root".into())
         })?;
-        let id = root.to_string();
+        // A plan-composed candidate keeps the bare root as its id (existing reports and gates pin
+        // that). A whole-grammar strategy must NOT: it reuses the baseline plan, so a bare-root id
+        // would collide with the baseline's own entry in `plans`/`states` and overwrite it.
+        let id = if plan.strategy.is_whole_grammar() {
+            format!("{root}@{}", plan.strategy.label())
+        } else {
+            root.to_string()
+        };
         materialization_times.insert(id.clone(), materialize_ns);
-        if !roots.insert(root) {
+        if !roots.insert((root, plan.strategy.label())) {
             duplicates = duplicates.saturating_add(1);
             continue;
         }
@@ -619,6 +634,13 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
         },
         termination: outcome.search.termination,
         baseline: baseline_id,
+        // Resolved from the winning candidate's own plan entry, not re-derived from its id: the id's
+        // `@strategy` suffix is a display convenience and must not become the source of truth for
+        // what compiled the winner.
+        winner_strategy: winner
+            .as_ref()
+            .and_then(|id| evaluator.plans.get(id))
+            .map(|p| p.strategy.label().to_owned()),
         winner,
         frontier: outcome.frontier,
         candidates: evaluated,

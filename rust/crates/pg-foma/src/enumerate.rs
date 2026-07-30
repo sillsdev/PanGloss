@@ -252,6 +252,72 @@ pub fn enumerate_default(
 pub struct CandidatePlan {
     pub label: &'static str,
     pub plan: Plan,
+    /// WHICH compiler turns this candidate into a network. See [`EmissionStrategy`] — this is a
+    /// different axis from `plan`, which describes assembly SHAPE within one compiler.
+    pub strategy: EmissionStrategy,
+}
+
+/// Which of this crate's compilers realizes a candidate.
+///
+/// # Why this is a separate axis from the `Plan`
+/// A `Plan` describes how already-emitted fragments are ASSEMBLED (`Gate`/`Union`/`Compose` shape).
+/// Measured on eight marker-free synthetic fixtures, varying only that shape leaves `states`, `arcs`,
+/// `proposals`, and `confirmation` bit-identical across candidates — the assembly ends in a
+/// minimization step that canonicalizes the difference away. Only `build` time moved, and only
+/// upward (partition refinement: 2.1x-5.2x the baseline, non-overlapping over ten runs). So plan
+/// shape alone cannot express a better compilation, and a registry that varies only plan shape is
+/// searching a space whose interesting dimension is fixed.
+///
+/// The axis that is NOT erased by minimization is which lexc a grammar is compiled to in the first
+/// place, because that changes what gets composed rather than the order of composing it:
+///
+/// * [`Self::TunedSurfaceProbed`] bakes phonology into the lexc via `emit`'s surface probe, then
+///   patches the resulting expressive gaps with synthesized composite entries
+///   (`preexpand::build_composites`, `emit::build_structural_composites`) — the material the `Plan`
+///   can only NAME, via its `CompositeEmissionMarker`/`StructuralCompositeMarker` leaves.
+/// * [`Self::TemplatedUnderlyingTokens`] emits plain char-def tokens and lets a real compiled
+///   rewrite cascade do the phonological work. Verified: `emit::emit_underlying_templated` contains
+///   no composite/pre-expansion machinery at all, so this strategy needs none of that material.
+///
+/// Those are two complete, semantically-valid compilations of the SAME grammar that reach the same
+/// upper tape (both emit `tags::root_tag_lexc`/`morph_tag_lexc`), which is what makes them
+/// comparable by `oracle::differential_oracle` and certifiable against the same full-HC corpus —
+/// and, before this type existed, they had never been compared, because only one of them was ever
+/// offered as a candidate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum EmissionStrategy {
+    /// Interpret `plan` with `build::build_controllable`. The only strategy that honours a plan's
+    /// assembly shape, and the only one that can express a permutation — but it builds the
+    /// controllable subtree ONLY, so on a plan carrying marker leaves its network omits whatever
+    /// those subtrees contribute.
+    #[default]
+    PlanComposed,
+    /// `emit::emit` (surface-probed) + rules, via `analyzer::FomaProposer::new`. Whole-grammar, every
+    /// construct covered. Ignores `plan` entirely: this compiler derives its own topology, so it can
+    /// express a grammar's DEFAULT compilation and nothing else.
+    TunedSurfaceProbed,
+    /// `emit::emit_underlying_templated` + a compiled rewrite cascade, via
+    /// `templated_compile::compile_templated_morphotactics`. Whole-grammar and composite-free.
+    /// Also ignores `plan`, for the same reason.
+    TemplatedUnderlyingTokens,
+}
+
+impl EmissionStrategy {
+    /// Whether this strategy realizes the whole grammar rather than the controllable subtree only.
+    /// A caller comparing candidates across strategies needs this: a `PlanComposed` candidate on a
+    /// marker-carrying grammar is not measuring the same object as either whole-grammar strategy.
+    pub fn is_whole_grammar(self) -> bool {
+        !matches!(self, Self::PlanComposed)
+    }
+
+    /// Stable identifier for reports and recipe ids.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::PlanComposed => "plan-composed",
+            Self::TunedSurfaceProbed => "tuned-surface-probed",
+            Self::TemplatedUnderlyingTokens => "templated-underlying-tokens",
+        }
+    }
 }
 
 /// Task 2.1/2.2 (`openspec/changes/reify-compilation-plans`, design.md D3): the candidate
@@ -321,6 +387,7 @@ pub fn enumerate_candidates(
     let mut candidates = vec![CandidatePlan {
         label: "default",
         plan: default_plan,
+        strategy: EmissionStrategy::PlanComposed,
     }];
 
     let permuted = permute_gate_groups(&candidates[0].plan);
@@ -328,6 +395,7 @@ pub fn enumerate_candidates(
         candidates.push(CandidatePlan {
             label: "gate-group-permuted",
             plan: permuted,
+            strategy: EmissionStrategy::PlanComposed,
         });
     }
 

@@ -67,8 +67,30 @@ fn every_applicable_distinct_recipe_builds_and_full_hc_matches_each_word() {
     plans.push(pg_foma::enumerate::CandidatePlan {
         label: "baseline",
         plan: baseline,
+        strategy: pg_foma::enumerate::EmissionStrategy::PlanComposed,
     });
-    plans.extend(candidates.into_iter().map(|(_, p)| p));
+    // PlanComposed only, and that is this test's ORIGINAL scope rather than a narrowing to make it
+    // pass. Its claim is that every distinct PLAN REWRITE still confirms on this fixture — a
+    // statement about `build_controllable` honouring rewritten assembly trees, which is exactly what
+    // it checked before an emission-strategy axis existed. A whole-grammar strategy is a different
+    // compiler, not a rewrite of this plan; it legitimately may not reproduce full-HC's analysis
+    // multiset (measured: `EmissionStrategy::TemplatedUnderlyingTokens` reports
+    // `multiplicity-mismatch` on every synthetic fixture so far), and folding it in here would turn
+    // an assertion about plan rewrites into an assertion that every compiler this crate owns is
+    // equivalent — which is false, and is the thing the recipe optimizer exists to MEASURE rather
+    // than assume. That strategy's own coverage lives in `recipe_emission_strategy_gate.rs`.
+    let considered = candidates.len();
+    plans.extend(
+        candidates
+            .into_iter()
+            .map(|(_, p)| p)
+            .filter(|p| !p.strategy.is_whole_grammar()),
+    );
+    assert!(
+        plans.len() > 1,
+        "the registry offered {considered} distinct candidate(s) but none of them was plan-composed, \
+         so this test would assert nothing about plan rewrites at all"
+    );
     let words = yaml
         .words
         .iter()

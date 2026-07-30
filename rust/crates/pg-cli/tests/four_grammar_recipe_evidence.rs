@@ -46,6 +46,22 @@ fn accounted_pruning(report: &Value, label: &str) -> Value {
     pruning.clone()
 }
 
+/// `topology=` values that name a whole-grammar `EmissionStrategy` rather than a plan rewrite.
+///
+/// A candidate carrying one of these was compiled by its own compiler, which builds the
+/// composite/structural material `build_controllable` skips. It therefore has NO marker gap, and the
+/// attribution rule that applies to plan-composed candidates -- "a failure must be reported as the
+/// builder limitation that caused it, not as a word-level grammar fault" -- does not apply to it.
+/// Its verdict, pass or fail, is a real measurement of a real network and must be read as one.
+const WHOLE_GRAMMAR_TOPOLOGIES: [&str; 2] = ["templated-underlying-tokens", "tuned-surface-probed"];
+
+fn is_whole_grammar_candidate(candidate: &Value) -> bool {
+    let recipe_id = candidate["recipe_id"].as_str().unwrap_or_default();
+    WHOLE_GRAMMAR_TOPOLOGIES
+        .iter()
+        .any(|topology| recipe_id.ends_with(&format!("topology={topology}")))
+}
+
 fn word_file(fixture: &str, root: &Path) -> PathBuf {
     word_file_from(
         &format!("machine/conformance/{fixture}/words.yaml"),
@@ -148,13 +164,35 @@ fn four_promoted_grammars_have_truthful_recipe_evidence() {
     let mpr = run_fixture("edge-cases/mpr-gated-exception", &root);
     assert_eq!(mpr["termination"], "complete");
     assert_eq!(mpr["counts"]["feasible"]["kind"], "exact");
-    assert_eq!(mpr["counts"]["feasible"]["value"], 3);
-    assert_eq!(mpr["pruning"]["confirmed"], 3);
+    // 4, not 3, on BOTH counts, and this is the first real recipe result this project has produced.
+    // The registry now offers a candidate that varies the COMPILER rather than the plan shape
+    // (`token-cascade-morphology` = `EmissionStrategy::TemplatedUnderlyingTokens`), and on this
+    // grammar it compiles a genuinely different network -- 25 states / 32 arcs against the baseline's
+    // 27/38 -- AND confirms against full HC on every corpus word with non-zero proposals. So it is
+    // selected over the baseline on a deterministic size difference rather than a build-time
+    // tie-break. Every plan-shape candidate, by contrast, still ties the baseline exactly at 27/38.
+    assert_eq!(mpr["counts"]["feasible"]["value"], 4);
+    assert_eq!(mpr["pruning"]["confirmed"], 4);
     assert!(mpr["usage"]["memory_peak"].as_u64().unwrap() > 0);
     assert_eq!(mpr["replay_parameters"]["beam_width"], "16");
     assert_eq!(mpr["replay_parameters"]["pilot_candidate_cap"], "8");
     accounted_pruning(&mpr, "mpr-gated-exception");
-    assert_eq!(mpr["candidates"].as_array().unwrap().len(), 3);
+    assert_eq!(mpr["candidates"].as_array().unwrap().len(), 4);
+    // Pin the new axis by id, not just by count: a count alone would still pass if the
+    // token-cascade candidate were replaced by yet another plan permutation, which is the
+    // degeneracy this axis exists to escape.
+    assert!(
+        mpr["candidates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|candidate| {
+                candidate["recipe_id"]
+                    == "token-cascade-morphology|topology=templated-underlying-tokens"
+            }),
+        "the compiler-varying candidate must appear in the evidence: {:?}",
+        mpr["candidates"]
+    );
     assert!(mpr["candidates"]
         .as_array()
         .unwrap()
@@ -180,12 +218,30 @@ fn four_promoted_grammars_have_truthful_recipe_evidence() {
         serde_json::from_str(&fs::read_to_string(mpr_out.join("winner.plan.json")).unwrap())
             .unwrap();
     assert_eq!(mpr["baseline"], baseline_plan["root"]);
-    assert_eq!(mpr["winner"], winner_plan["root"]);
+    // The winner's id is NO LONGER its plan root, and asserting that it is would be asserting
+    // something false. This winner is a whole-grammar strategy: its compiler derives its own topology
+    // and never interprets the plan it carries, so it shares the BASELINE plan and its id is
+    // suffixed to stay distinct. `winner.plan.*` therefore renders a plan the winner did not compile
+    // -- which is why the report now states `winner_strategy`, so a reader of that diagram is told
+    // rather than misled.
+    assert_eq!(mpr["winner_strategy"], "templated-underlying-tokens");
+    let winner_id = mpr["winner"].as_str().expect("a winner id");
+    let winner_root = winner_plan["root"].as_str().expect("a plan root");
+    assert_eq!(
+        winner_id,
+        format!("{winner_root}@templated-underlying-tokens"),
+        "a whole-grammar winner's id must be its plan root plus its strategy, so it stays distinct          from the baseline candidate that shares that very plan"
+    );
+    assert_eq!(
+        winner_root,
+        baseline_plan["root"].as_str().expect("a baseline root"),
+        "this winner is expected to carry the baseline plan verbatim; if it stops doing so, the          reasoning above about the diagram no longer applies and this block needs revisiting"
+    );
     assert!(mpr["candidates"]
         .as_array()
         .unwrap()
         .iter()
-        .any(|candidate| candidate["id"] == winner_plan["root"]));
+        .any(|candidate| candidate["id"] == winner_id));
 
     // These two fixtures now CONFIRM, where they previously produced no winner at all (their
     // candidates failed with a `multiplicity-mismatch` on one word -- `pur` and `akutat`
@@ -213,8 +269,23 @@ fn four_promoted_grammars_have_truthful_recipe_evidence() {
         for candidate in candidates {
             let status = candidate["certification"]["status"].as_str().unwrap_or("");
             if status != "full-hc-confirmed" {
-                // A non-confirming candidate is legitimate, but it must be attributed rather than
-                // reporting a bare word-level symptom for what is really a builder limitation.
+                // A whole-grammar strategy is exempt, and not as a convenience: it has no marker gap,
+                // so there is no builder limitation to attribute, and relabelling its verdict
+                // `unsupported` would hide a real measurement behind a notice that does not apply.
+                // Measured: `templated-underlying-tokens` reports `multiplicity-mismatch` with
+                // non-zero proposals on these two fixtures, while CONFIRMING on
+                // `mpr-gated-exception` above -- the same strategy, two honest and different results.
+                if is_whole_grammar_candidate(candidate) {
+                    assert_ne!(
+                        status, "unsupported",
+                        "{fixture}: a whole-grammar strategy builds the marker material, so its                          verdict must be the real measurement rather than a limitation notice: {:?}",
+                        candidate["certification"]
+                    );
+                    continue;
+                }
+                // A non-confirming PLAN-COMPOSED candidate is legitimate, but it must be attributed
+                // rather than reporting a bare word-level symptom for what is really a builder
+                // limitation.
                 assert_eq!(
                     status, "unsupported",
                     "{fixture}: a non-confirming candidate must be attributed, got {:?}",
@@ -248,8 +319,10 @@ fn four_promoted_grammars_have_truthful_recipe_evidence() {
     let template = run_template_characterization(&root);
     assert_eq!(template["termination"], "complete");
     assert_eq!(template["quality"], "exact");
-    assert_eq!(template["counts"]["syntactic"], 7);
-    assert_eq!(template["counts"]["attested"], 7);
+    // 8 seeded families now, not 7: `token-cascade-morphology` joined the table. These two count the
+    // registry's DECLARED families, independent of which apply to this grammar.
+    assert_eq!(template["counts"]["syntactic"], 8);
+    assert_eq!(template["counts"]["attested"], 8);
     assert_eq!(template["counts"]["static_count"], 1);
     assert_eq!(template["counts"]["feasible"]["kind"], "exact");
     assert_eq!(template["counts"]["feasible"]["value"], 1);

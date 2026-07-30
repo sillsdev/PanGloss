@@ -124,8 +124,23 @@ pub fn compile_templated_morphotactics(
         .collect::<Vec<_>>()
         .join(", ");
     let started = Instant::now();
-    let cleanup_net = fsm_parse_regex(&opts, &cleanup_regex, None, None)
-        .ok_or_else(|| TemplatedCompileError::CleanupCompileFailed(cleanup_regex.clone()))?;
+    // A grammar with NO boundary char-defs has nothing to delete, and `cleanup_regex` is then the
+    // empty string -- which `fsm_parse_regex` rejects, so this path used to fail outright with
+    // `CleanupCompileFailed("")` on any boundary-free grammar. Measured: two synthetic conformance
+    // fixtures were unbuildable for exactly this reason, having never been run through this compiler
+    // (its only prior callers were the P6 gate and its own tests, all on grammars that do declare
+    // boundaries). Skipping the pass is the correct semantics, not a workaround -- deleting nothing
+    // from a tape with no boundary tokens on it is the identity -- and it matches how the two
+    // optional layers above are already handled (`Some` compose / `None` leave alone).
+    let cleanup_net = if boundary_tokens.is_empty() {
+        None
+    } else {
+        Some(
+            fsm_parse_regex(&opts, &cleanup_regex, None, None).ok_or_else(|| {
+                TemplatedCompileError::CleanupCompileFailed(cleanup_regex.clone())
+            })?,
+        )
+    };
     let cleanup_compile_elapsed = started.elapsed();
 
     let started = Instant::now();
@@ -136,7 +151,10 @@ pub fn compile_templated_morphotactics(
         Some(fallback) => fsm_compose(&opts, network, fallback),
         None => network,
     };
-    let network = fsm_compose(&opts, network, cleanup_net);
+    let network = match cleanup_net {
+        Some(cleanup) => fsm_compose(&opts, network, cleanup),
+        None => network,
+    };
     let mut network = fsm_minimize(&opts, network);
     let final_compose_minimize_elapsed = started.elapsed();
     let final_state_count = network.statecount;

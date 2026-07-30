@@ -7,7 +7,7 @@ use std::fmt;
 use pg_grammar::model::{Grammar, MorphRuleDef, OutputAction, PhonRuleDef, ReduplicationHint};
 use serde::{Deserialize, Serialize};
 
-use crate::enumerate::CandidatePlan;
+use crate::enumerate::{CandidatePlan, EmissionStrategy};
 use crate::oracle::{
     permute_gate_groups, permute_union_children, refine_gate_partition, PartitionGranularity,
 };
@@ -36,6 +36,13 @@ pub enum Applicability {
     /// At least two lexical entries, i.e. a `Gate` partition that a refinement transform could
     /// actually split. See `matches`'s own arm for why this is an over-approximation on purpose.
     HasSplittableGateGroup,
+    /// At least one phonological rule. Required by
+    /// `EmissionStrategy::TemplatedUnderlyingTokens`, whose whole premise is that a compiled rewrite
+    /// cascade does the phonological work the surface probe would otherwise bake into the lexc: with
+    /// no rules, `compile_templated_morphotactics` has no cascade to compose and fails with
+    /// `NoCompiledRules`. Gating here turns that from a guaranteed build failure in the report into
+    /// an honest "this family does not apply to this grammar".
+    HasPhonology,
 }
 
 impl Applicability {
@@ -71,6 +78,7 @@ impl Applicability {
             // under-approximating would silently drop a real candidate, which is the error that
             // matters.
             Self::HasSplittableGateGroup => grammar.entries.len() >= 2,
+            Self::HasPhonology => !grammar.prules.is_empty(),
         }
     }
 }
@@ -430,11 +438,18 @@ impl Registry {
 
     /// Materializes all applicable instances and deduplicates equal executable Plans by root
     /// content address. The first family in stable registry order owns the retained provenance.
+    /// Deduplicates on `(plan root, EmissionStrategy)`, NOT on the plan root alone.
+    ///
+    /// The strategy has to be part of the key. A whole-grammar strategy family carries the baseline
+    /// PLAN (that compiler derives its own topology and never interprets one), so keying on the root
+    /// alone would classify it as a duplicate of the baseline and silently drop the only candidate in
+    /// the registry whose network can differ for a reason minimization cannot erase — the exact
+    /// failure this dedup is meant to prevent, inverted.
     pub fn materialize_distinct(
         &self,
         context: &MaterializerContext<'_>,
     ) -> Result<Vec<(RecipeInstance, CandidatePlan)>, MaterializeError> {
-        let mut roots = BTreeSet::<NodeId>::new();
+        let mut seen = BTreeSet::<(NodeId, &'static str)>::new();
         let mut candidates = Vec::new();
         for instance in self.instances_for_grammar(context.grammar) {
             let candidate = self.materialize(&instance, context)?;
@@ -442,7 +457,7 @@ impl Registry {
                 .plan
                 .root()
                 .ok_or_else(|| MaterializeError::RootlessPlan(instance.family_id.clone()))?;
-            if roots.insert(root) {
+            if seen.insert((root, candidate.strategy.label())) {
                 candidates.push((instance, candidate));
             }
         }
@@ -554,6 +569,11 @@ struct SeededFamily {
     id: &'static str,
     applicability: Applicability,
     transform: SafeTransform,
+    /// Which compiler realizes this family. `PlanComposed` for every plan-rewrite family (the
+    /// `transform` is then what varies); a whole-grammar strategy for a family whose whole point is
+    /// that it compiles the grammar a DIFFERENT way, in which case `transform` is `Identity` because
+    /// that compiler does not interpret a plan at all.
+    strategy: EmissionStrategy,
     ordering: &'static [(&'static str, &'static str)],
 }
 
@@ -564,14 +584,21 @@ impl SeededFamily {
             version: REGISTRY_SCHEMA_VERSION,
             parameters: vec![Parameter {
                 name: "topology".to_owned(),
-                domain: vec![match self.transform {
-                    SafeTransform::Identity => "baseline",
-                    SafeTransform::GatePermutation => "gate-permutation",
-                    SafeTransform::UnionPermutation => "union-permutation",
-                    SafeTransform::PartitionBisect => "partition-bisect",
-                    SafeTransform::PartitionFanOut => "partition-fan-out",
-                }
-                .to_owned()],
+                // For a whole-grammar strategy the varying axis is the COMPILER, not the plan
+                // rewrite, so name that instead — otherwise every such family would report
+                // `topology=baseline` and read as a relabelled duplicate of the baseline.
+                domain: vec![if self.strategy.is_whole_grammar() {
+                    self.strategy.label().to_owned()
+                } else {
+                    match self.transform {
+                        SafeTransform::Identity => "baseline",
+                        SafeTransform::GatePermutation => "gate-permutation",
+                        SafeTransform::UnionPermutation => "union-permutation",
+                        SafeTransform::PartitionBisect => "partition-bisect",
+                        SafeTransform::PartitionFanOut => "partition-fan-out",
+                    }
+                    .to_owned()
+                }],
                 depends_on: Vec::new(),
             }],
             applicability: self.applicability,
@@ -612,6 +639,7 @@ impl Materializer for SeededFamily {
         Ok(CandidatePlan {
             label: self.id,
             plan,
+            strategy: self.strategy,
         })
     }
 }
@@ -621,18 +649,21 @@ const SEEDS: &[SeededFamily] = &[
         id: "ordered-morphophonology",
         applicability: Applicability::Always,
         transform: SafeTransform::Identity,
+        strategy: EmissionStrategy::PlanComposed,
         ordering: &[("morphology", "phonology")],
     },
     SeededFamily {
         id: "class-exception-cascade",
         applicability: Applicability::HasGatedExceptions,
         transform: SafeTransform::GatePermutation,
+        strategy: EmissionStrategy::PlanComposed,
         ordering: &[("class-partition", "exception-cascade")],
     },
     SeededFamily {
         id: "complete-template",
         applicability: Applicability::HasTemplates,
         transform: SafeTransform::UnionPermutation,
+        strategy: EmissionStrategy::PlanComposed,
         ordering: &[("template-selection", "phonology")],
     },
     SeededFamily {
@@ -642,18 +673,21 @@ const SEEDS: &[SeededFamily] = &[
         // copy of UnionPermutation, contributing nothing the baseline did not already contribute.
         applicability: Applicability::HasSplittableGateGroup,
         transform: SafeTransform::PartitionBisect,
+        strategy: EmissionStrategy::PlanComposed,
         ordering: &[("branch-selection", "shared-cascade")],
     },
     SeededFamily {
         id: "copy-branch",
         applicability: Applicability::HasReduplication,
         transform: SafeTransform::UnionPermutation,
+        strategy: EmissionStrategy::PlanComposed,
         ordering: &[("copy", "repair")],
     },
     SeededFamily {
         id: "bounded-metathesis",
         applicability: Applicability::HasMetathesis,
         transform: SafeTransform::Identity,
+        strategy: EmissionStrategy::PlanComposed,
         ordering: &[("match", "switch")],
     },
     SeededFamily {
@@ -664,7 +698,22 @@ const SEEDS: &[SeededFamily] = &[
         // never used, which is part of why it silently reduced to the baseline everywhere.
         applicability: Applicability::HasSplittableGateGroup,
         transform: SafeTransform::PartitionFanOut,
+        strategy: EmissionStrategy::PlanComposed,
         ordering: &[("lower-stratum", "upper-stratum")],
+    },
+    SeededFamily {
+        // The first family that varies the COMPILER rather than the plan shape. Every family above
+        // rewrites the assembly tree, and measurement says that cannot change the compiled network:
+        // on eight marker-free fixtures all of them produced bit-identical states/arcs/proposals and
+        // differed only in build time, upward. This one instead compiles the grammar to a different
+        // lexc entirely -- plain char-def tokens plus a real rewrite cascade, rather than phonology
+        // baked in by the surface probe and its expressive gaps patched with synthesized composite
+        // entries. `transform` is `Identity` because that compiler does not interpret a plan at all.
+        id: "token-cascade-morphology",
+        applicability: Applicability::HasPhonology,
+        transform: SafeTransform::Identity,
+        strategy: EmissionStrategy::TemplatedUnderlyingTokens,
+        ordering: &[("morphotactics", "phonology")],
     },
 ];
 
@@ -676,6 +725,7 @@ pub const SEEDED_FAMILIES: &[&str] = &[
     "copy-branch",
     "bounded-metathesis",
     "layered-morphology",
+    "token-cascade-morphology",
 ];
 
 #[cfg(test)]
@@ -816,6 +866,7 @@ mod tests {
                 Ok(CandidatePlan {
                     label,
                     plan: c.baseline.clone(),
+                    strategy: EmissionStrategy::PlanComposed,
                 })
             }) as MaterializerFn
         };

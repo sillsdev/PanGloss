@@ -62,10 +62,18 @@ use pg_foma::recipe_registry::{MaterializerContext, Registry};
 use pg_foma::recipe_runtime::{evaluate_plans, RuntimeBudget};
 use pg_foma::replace::SegAlphabet;
 
+/// Returns each candidate's evaluation PAIRED WITH the strategy that produced it. The pairing is
+/// necessary, not decorative: the marker-attribution rule below applies only to candidates measured
+/// on `build_controllable`'s controllable-subtree network. A candidate compiled by a whole-grammar
+/// strategy has no marker gap to attribute anything to, so its verdict is a real measurement and must
+/// be read as one.
 fn materialize_and_evaluate(
     grammar: &pg_grammar::model::Grammar,
     words: &[String],
-) -> Vec<pg_foma::recipe_runtime::RuntimeEvaluation> {
+) -> Vec<(
+    pg_foma::enumerate::EmissionStrategy,
+    pg_foma::recipe_runtime::RuntimeEvaluation,
+)> {
     let alphabet = SegAlphabet::new(&grammar.char_tables[0]);
     let prules = grammar
         .strata
@@ -83,7 +91,9 @@ fn materialize_and_evaluate(
         .expect("materialization must succeed");
     let plans: Vec<_> = candidates.into_iter().map(|(_, p)| p).collect();
     assert!(!plans.is_empty(), "must materialize at least one candidate");
-    evaluate_plans(grammar, &plans, words, RuntimeBudget::default())
+    let strategies: Vec<_> = plans.iter().map(|p| p.strategy).collect();
+    let evaluations = evaluate_plans(grammar, &plans, words, RuntimeBudget::default());
+    strategies.into_iter().zip(evaluations).collect()
 }
 
 /// THE pin for defect (1). Corpus-gated because no synthetic fixture reproduces it (module doc).
@@ -112,7 +122,10 @@ fn corpus_indonesian_confirms_after_the_finish_step() {
         .collect();
     assert!(!words.is_empty());
 
-    let evaluations = materialize_and_evaluate(&grammar, &words);
+    let evaluations: Vec<_> = materialize_and_evaluate(&grammar, &words)
+        .into_iter()
+        .map(|(_, e)| e)
+        .collect();
     let confirmed = evaluations
         .iter()
         .filter(|e| e.certification.selectable())
@@ -165,7 +178,10 @@ fn the_evaluator_confirms_a_wholly_in_scope_grammar() {
         .iter()
         .map(|w| w.word.clone())
         .collect();
-    let evaluations = materialize_and_evaluate(&grammar, &words);
+    let evaluations: Vec<_> = materialize_and_evaluate(&grammar, &words)
+        .into_iter()
+        .map(|(_, e)| e)
+        .collect();
     let confirmed = evaluations
         .iter()
         .filter(|e| e.certification.selectable())
@@ -222,10 +238,27 @@ fn out_of_scope_marker_subtrees_are_attributed_not_blamed_on_the_grammar() {
         if words.is_empty() {
             continue;
         }
-        for (index, e) in materialize_and_evaluate(&grammar, &words)
+        for (index, (strategy, e)) in materialize_and_evaluate(&grammar, &words)
             .into_iter()
             .enumerate()
         {
+            // Same rule as the baseline below, for the same reason, and it has to be checked BEFORE
+            // the marker-attribution assertion: a whole-grammar strategy is compiled by its own
+            // compiler, which builds the marker material rather than skipping it. There is therefore
+            // no compiler limitation to attribute, and relabelling its verdict `Unsupported` would
+            // hide a real measurement behind a limitation notice that does not apply to it.
+            // Measured: `EmissionStrategy::TemplatedUnderlyingTokens` reports `multiplicity-mismatch`
+            // with non-zero proposals on these fixtures — a genuine result about a genuine network.
+            if strategy.is_whole_grammar() {
+                assert!(
+                    !matches!(e.certification, Certification::Unsupported { .. }),
+                    "{}: {strategy:?} builds the whole grammar, so its verdict must be the real \
+                     measurement rather than an `Unsupported` limitation notice, got {:?}",
+                    fixture.label(),
+                    e.certification
+                );
+                continue;
+            }
             if index == 0 {
                 // The BASELINE of a marker-requiring grammar is routed to the tuned emit path, which
                 // CAN build those subtrees. So it is measured on a network that genuinely represents
