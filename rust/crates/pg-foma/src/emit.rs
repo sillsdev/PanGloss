@@ -7,7 +7,11 @@
 //! - **Bare-root paths** (`trie.rs` `run()` "Bare-root paths"): every root allomorph directly
 //!   accepting. Deviation (upward): trie gates bare roots on `bare_root_surfaces` non-empty
 //!   (the obligatory-inflection check, which needs a live `Morpher`); this emitter admits every
-//!   root bare — a superset; the verify pass (P2) prunes.
+//!   root bare EXCEPT the one sub-case [`bare_admissible_roots`] proves safe to omit at compile
+//!   time (`docs/fst-plan/bare-root-compile-time-discharge.md`, research report 12's `BoundRoot`
+//!   finding: an entry with exactly one allomorph that is `is_bound` can never be valid bare,
+//!   confirm's `distinct_count == 1 && is_bound` gate rejects it unconditionally) — every other
+//!   root is still a superset; the verify pass (P2) prunes.
 //! - **Template-less derivation section** (`trie.rs:1035-1063`): prefix derivation layer →
 //!   every root → optional single compound root → suffix derivation layer → accept. Only built
 //!   when the grammar has standalone derivation rules or compounding rules, like trie.
@@ -344,6 +348,11 @@ pub struct EmitCounts {
     /// [`probe_would_refuse`]) an ordinary `Prefix`/`Suffix`/`Infix` rule in a grammar whose own
     /// phonological cascade defeats `crate::preexpand`'s probe-based fusion mechanism entirely.
     pub composite_structural_entries: usize,
+    /// Bare-root (`"#"`-continuation) lexc entry lines OMITTED because [`RootRec::never_valid_bare`]
+    /// proved them dead weight — `docs/fst-plan/bare-root-compile-time-discharge.md`. Counts entry
+    /// LINES (one per surface variant), not distinct roots, matching `lexc_lines`'/`allomorphs_
+    /// emitted`'s own convention; zero for any grammar with no bound single-allomorph root entries.
+    pub bare_root_arcs_pruned: usize,
 }
 
 /// Overall verdict for this grammar's foma path (plan §4, P1 gate F1).
@@ -1233,6 +1242,22 @@ struct RootRec {
     /// emission"). Empty when `phon` is `None` (no phonological rules at all — nothing needs it) or
     /// when the root has no segment to strip.
     stripped: Vec<String>,
+    /// Compile-time-provable "never valid bare" fact (`docs/fst-plan/bare-root-compile-time-
+    /// discharge.md`; `pg_rules::validity::allomorphs_valid_impl`'s `def.is_bound && distinct_count
+    /// == 1` gate, `FailureReason::BoundRoot` — precision.rs's own `ConstraintFamily::BoundRoot`,
+    /// "cannot be the word's only allomorph"): `true` iff this allomorph's OWNING ENTRY has exactly
+    /// one allomorph total AND that allomorph is `is_bound`. For a bare-root candidate (this
+    /// allomorph alone, no other morph — exactly what the `"#"`-continuation `Root` lexicon
+    /// proposes) confirm's `distinct_count` is trivially 1, so `is_bound` alone already dooms the
+    /// word; the entry-has-exactly-one-allomorph restriction is deliberate extra caution (module
+    /// doc's iron rule: never lose recall) — it sidesteps entirely the W3.2 disjunctive-allomorph
+    /// re-check's cross-allomorph reasoning (`free_fluctuates`/`disjunctive_candidates`), which
+    /// does not apply when there is nothing to disjoin against. When `true`, [`collect_roots`]'s
+    /// callers must OMIT this `RootRec` from the bare (`"#"`-continuation) `write_root_entries`
+    /// call only — every other continuation (`TLPost`, per-group `Roots`, compound chains) still
+    /// offers this root normally, since a word with ANY other morph attached is unaffected by this
+    /// gate.
+    never_valid_bare: bool,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1320,6 +1345,7 @@ fn collect_roots(
                         category: entry.syn_fs,
                         variants: vec![underlying],
                         stripped: Vec::new(),
+                        never_valid_bare: entry.allomorphs.len() == 1 && allo.is_bound,
                     });
                     counts.allomorphs_emitted += 1;
                     continue;
@@ -1440,12 +1466,50 @@ fn collect_roots(
                     category: entry.syn_fs,
                     variants,
                     stripped,
+                    never_valid_bare: entry.allomorphs.len() == 1 && allo.is_bound,
                 });
                 counts.allomorphs_emitted += 1;
             }
         }
     }
     roots
+}
+
+/// The bare-root compile-time discharge (`docs/fst-plan/bare-root-compile-time-discharge.md`,
+/// research report 12's `BoundRoot` finding): filters `all_roots` down to the subset safe to offer
+/// on the `"#"`-continuation (word = this root alone, nothing else) `Root`/`Root` (P6) `LEXICON`.
+/// [`RootRec::never_valid_bare`] roots are OMITTED here ONLY — every other call site
+/// (`TLPost`/`TLPostNoCmp`/per-group `Roots`/compound-chain roots) keeps using the full,
+/// unfiltered `all_roots`, since a word with any other morph attached is untouched by the
+/// bound-root gate this predicate targets. Zero new states, zero new flags: this removes lexc
+/// entry lines (arcs into the accept state) rather than adding machinery, matching the module
+/// doc's "deliberate supersets" direction (this is the one place this emitter is allowed to
+/// narrow, because the narrowing is PROVEN, not heuristic).
+///
+/// Defensive floor: if EVERY root would be pruned (a grammar consisting entirely of bound,
+/// single-allomorph root entries — a degenerate case no reference/edge-case fixture exercises,
+/// since such a root can never appear in ANY valid word, bare or otherwise), the filter backs off
+/// and returns `all_roots` unfiltered rather than risk handing the caller an empty list where an
+/// empty `LEXICON Root` block would otherwise have no OTHER continuation to fall back on. This can
+/// only ever make the emitted network larger (a superset), never narrower than what this function
+/// was asked to guarantee is safe to omit — the iron rule (module doc) never trades away recall
+/// for a states/arcs win.
+fn bare_admissible_roots<'a>(
+    all_roots: &[&'a RootRec],
+    counts: &mut EmitCounts,
+) -> Vec<&'a RootRec> {
+    if !all_roots.is_empty() && all_roots.iter().all(|r| r.never_valid_bare) {
+        return all_roots.to_vec();
+    }
+    let mut out = Vec::with_capacity(all_roots.len());
+    for &r in all_roots {
+        if r.never_valid_bare {
+            counts.bare_root_arcs_pruned += r.variants.len();
+            continue;
+        }
+        out.push(r);
+    }
+    out
 }
 
 // --- Compounding license gate (`openspec/changes/cover-compounding` design.md D3/D4) -------------
@@ -3460,7 +3524,8 @@ pub(crate) fn emit_with_budget_profiled(
     // ---- LEXICON Root: bare roots, the template-less section, the outer-prefix hop into the
     // per-template dispatch ----
     write_lexicon_header(&mut out, "Root");
-    write_root_entries(&mut out, &all_roots, "#", &mut counts, &mut pk);
+    let bare_roots = bare_admissible_roots(&all_roots, &mut counts);
+    write_root_entries(&mut out, &bare_roots, "#", &mut counts, &mut pk);
     if has_composites {
         write_bare(&mut out, "Composites", &mut counts);
     }
@@ -4488,7 +4553,8 @@ pub fn emit_underlying_templated(
     // ---- LEXICON Root: bare roots, the template-less section, the outer-prefix hop into the
     // per-template dispatch (no `Composites` bare-redirect: no composite pipeline here) ----
     write_lexicon_header(&mut out, "Root");
-    write_root_entries(&mut out, &all_roots, "#", &mut counts, &mut pk);
+    let bare_roots = bare_admissible_roots(&all_roots, &mut counts);
+    write_root_entries(&mut out, &bare_roots, "#", &mut counts, &mut pk);
     if has_template_less_section {
         write_bare(&mut out, "TLPfx0", &mut counts);
     }

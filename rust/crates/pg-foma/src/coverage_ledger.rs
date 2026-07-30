@@ -160,6 +160,8 @@ fn kind_wire_name(kind: CharacteristicKind) -> &'static str {
         NaturalClassDefinition => "natural_class_definition",
         MultiTable => "multi_table",
         QuantifierPattern => "quantifier_pattern",
+        StemName => "stem_name",
+        FreeFluctuation => "free_fluctuation",
     }
 }
 
@@ -488,6 +490,34 @@ pub fn containment_evidence_for(kind: CharacteristicKind) -> Option<ContainmentE
              min-boundary occurrence counts; an inverted/over-budget-finite/alpha-nested \
              quantifier stays honestly unsupported.",
         ),
+        // Research report 13's taxonomy-gap fix: `RootAllomorphDef::stem_name` (model.rs:798) --
+        // NOT `MorphRuleDef::required_stem_name` (model.rs:648), which stays folded into
+        // `Affixation`/`RealizationalMorphology` per `tests/cover_realizational_morphology_
+        // constraints.rs`'s own doc ("folding them into a separate CharacteristicKind would
+        // double-count the same ModelLocation::MorphRule occurrence"). The ALLOMORPH-level
+        // restriction that same file's `stem_name_gating_over_propose_confirm_prune` test already
+        // exercises has no `ModelLocation::MorphRule` occurrence to double-count against at all --
+        // it is a genuinely separate model.rs site this ledger had no row for until now.
+        StemName => ev(
+            Dedicated,
+            "tests/cover_realizational_morphology_constraints.rs::\
+             stem_name_gating_over_propose_confirm_prune",
+            "Proposer-to-confirm containment for RootAllomorphDef::stem_name's required- and \
+             excluded-match gating (bare-restricted-allomorph rejection, plus the \
+             default-allomorph-excluded-by-a-restricted-sibling case) -- the FST proposes every \
+             stem-restricted allomorph unconditionally; confirm's stem_name_gate_reason prunes.",
+        ),
+        // Research report 13's taxonomy-gap fix: the W3.2 disjunctive-allomorph re-check
+        // (`pg_rules::validity`'s `free_fluctuates`/`disjunctive_candidates`). No DEDICATED
+        // pg-foma-crate propose-then-confirm containment test exists for this specific mechanism
+        // today (unlike `StemName`, which `cover_realizational_morphology_constraints.rs` already
+        // covers) -- `machine/conformance/edge-cases/disjunctive-recheck` and `machine/conformance/
+        // languages/suffixing-evidential-adjacency-chain` exercise it at the ORACLE level
+        // (`conformance_coverage.rs`'s cross-check), but that is a different evidence axis from
+        // this curated table's own FST-propose-then-confirm witness convention -- an honest,
+        // reported gap (this function's own doc: "`None` only where no witness exists at all"),
+        // not a fabricated citation.
+        FreeFluctuation => return None,
     })
 }
 
@@ -760,18 +790,30 @@ mod tests {
         }
     }
 
-    /// `NaturalClassDefinition` is the one deliberate, documented `None` -- pinned so a future edit
-    /// that silently starts (or stops) returning evidence for it is a reviewed, visible change, not
-    /// a silent drift (mirrors `crate::conformance_coverage`'s own
-    /// `empty_covered_set_yields_no_covered_rows` pin for `LeftToRightRewrite`).
+    /// `NaturalClassDefinition` and (research report 13's taxonomy-gap fix) `FreeFluctuation` are
+    /// the deliberate, documented `None`s -- pinned so a future edit that silently starts (or
+    /// stops) returning evidence for either is a reviewed, visible change, not a silent drift
+    /// (mirrors `crate::conformance_coverage`'s own `empty_covered_set_yields_no_covered_rows` pin
+    /// for `LeftToRightRewrite`). `FreeFluctuation` has no DEDICATED pg-foma-crate propose-then-
+    /// confirm containment test today (unlike its sibling `StemName`, which
+    /// `cover_realizational_morphology_constraints.rs` already covers) -- see
+    /// [`containment_evidence_for`]'s own `FreeFluctuation` arm for why this is an honestly
+    /// reported gap, not an oversight.
     #[test]
-    fn natural_class_definition_is_the_only_kind_with_no_containment_evidence() {
+    fn natural_class_definition_and_free_fluctuation_are_the_only_kinds_with_no_containment_evidence(
+    ) {
         let missing: Vec<CharacteristicKind> = CharacteristicKind::ALL
             .iter()
             .copied()
             .filter(|&k| containment_evidence_for(k).is_none())
             .collect();
-        assert_eq!(missing, vec![CharacteristicKind::NaturalClassDefinition]);
+        assert_eq!(
+            missing,
+            vec![
+                CharacteristicKind::NaturalClassDefinition,
+                CharacteristicKind::FreeFluctuation
+            ]
+        );
     }
 
     // ---------------------------------------------------------------------------------------

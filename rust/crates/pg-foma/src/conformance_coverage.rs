@@ -266,18 +266,41 @@ pub fn construct_ids_for(kind: CharacteristicKind) -> &'static [&'static str] {
         QuantifierPattern => {
             &["CharacterDefinitionTable pattern shapes: optional group / Kleene star"]
         }
+        // Research report 13 / `capability.rs`'s `CharacteristicKind::StemName` own doc: this row
+        // used to be one of the "genuine constructs.txt row with no CharacteristicKind" entries in
+        // [`ORPHAN_CONSTRUCT_ROWS`] below -- removed from there now that a characteristic exists.
+        // Real, already-merged fixtures already tag this row (`machine/conformance/languages/
+        // fusional-realizational-morphology`, `machine/conformance/languages/
+        // templatic-root-modification`).
+        StemName => &["Stem names"],
+        // Same correction, same source row: also used to be in `ORPHAN_CONSTRUCT_ROWS`. Tagged by
+        // `machine/conformance/edge-cases/disjunctive-recheck` and `machine/conformance/languages/
+        // suffixing-evidential-adjacency-chain`.
+        FreeFluctuation => &["Disjunctive allomorphs / free-fluctuation"],
     }
 }
 
-/// The 12 `constructs.txt` rows that name a genuine construct with NO corresponding
+/// The `constructs.txt` rows that name a genuine construct with NO corresponding
 /// [`CharacteristicKind`] at all (the mirror image of the empty-slice arms [`construct_ids_for`]
 /// used to have before G9 — there, a characteristic existed with no row; here, a row exists with
 /// no characteristic). Per the G9 task's own instruction: **do not invent characteristics for
 /// these** — some are genuinely not compiler/FST-capability concerns at all. This function exists
 /// purely as living documentation (nothing calls it at runtime; no test asserts these ARE the only
-/// 12 — that would require parsing `constructs.txt` at build time, which this crate deliberately
-/// does not do, per [`construct_ids_for`]'s own "hand-authored, verbatim" contract) — see each
-/// tuple's second field for why no `CharacteristicKind` was added for it.
+/// entries — that would require parsing `constructs.txt` at build time, which this crate
+/// deliberately does not do, per [`construct_ids_for`]'s own "hand-authored, verbatim" contract) —
+/// see each tuple's second field for why no `CharacteristicKind` was added for it.
+///
+/// **Correction (research report 13):** "Stem names" and "Disjunctive allomorphs /
+/// free-fluctuation" used to be listed here. Both were wrong: each names a real, separate
+/// `model.rs` construct site (`RootAllomorphDef::stem_name`, model.rs:798; the multi-allomorph
+/// entry shape the W3.2 disjunctive re-check engages, `LexEntryDef::allomorphs`, model.rs:777)
+/// this crate's capability ledger had simply never recorded at all — not, as the removed entries
+/// claimed, ordinary bookkeeping already folded into another characteristic. Both now have their
+/// own [`CharacteristicKind`] (`StemName`/`FreeFluctuation`, both `ConfirmOnly`) and a real
+/// [`construct_ids_for`] mapping above. This does not retract the reasoning for the OTHER entries
+/// still listed below (e.g. `MorphRuleDef::required_stem_name`, folded into `Affixation`/
+/// `RealizationalMorphology` for a real, still-valid double-counting reason — see
+/// `CharacteristicKind::StemName`'s own doc for the distinction).
 pub const ORPHAN_CONSTRUCT_ROWS: &[(&str, &str)] = &[
     (
         "MorphologicalOutputAction: CopyFromInput/InsertSegments",
@@ -310,19 +333,6 @@ pub const ORPHAN_CONSTRUCT_ROWS: &[(&str, &str)] = &[
         "a runtime unknown-word heuristic (HC's guesser subsystem), not a compiled-FST capability; \
          no model.rs construct this crate's characterize() walks corresponds to it at all -- \
          outside this crate's characterization scope entirely.",
-    ),
-    (
-        "Disjunctive allomorphs / free-fluctuation",
-        "free variation among multiple allomorphs of one lexical entry is ordinary lexicon \
-         branching, already exercised pervasively as part of Affixation coverage; not a \
-         separately gated characteristic.",
-    ),
-    (
-        "Stem names",
-        "stem-name identity/assignment on a lexical entry is representational bookkeeping (a \
-         label), not itself an admission-relevant characteristic; its only capability-relevant use \
-         (constraining rule application via RequiredStemName) is \"Ordinary/realizational rule \
-         constraints\"'s own territory below, not carved into its own CharacteristicKind.",
     ),
     (
         "Syntactic feature agreement (RequiredHeadFeatures/OutputHeadFeatures/RequiredFootFeatures/\

@@ -171,6 +171,34 @@ pub enum CharacteristicKind {
     /// compile-attempted split (bounded and unbounded both compile now; `all_bounded` is
     /// informational only, see [`QuantifierPatternDetail`]'s own doc).
     QuantifierPattern,
+    /// `RootAllomorphDef::stem_name` (model.rs:798, `Option<StemNameId>` — W5's "realizational
+    /// cluster", `StemNameDef` at model.rs:816): a root allomorph restricted to a `<StemName>`
+    /// region, checked only by `pg_rules::validity`'s `stem_name_gate_reason`/
+    /// `stem_name_required_match` (C# `StemName.IsRequiredMatch`/`IsExcludedMatch`) at confirm
+    /// time against the word's accumulated syntactic FS. Found by research report 13 to have NO
+    /// `CharacteristicKind` entry at all — a taxonomy gap one level more basic than an unbuilt
+    /// filter (the compiler's construct ledger did not even record that stem names exist).
+    /// `crate::emit` has no stem-name-aware admission filter anywhere (grep confirms zero
+    /// references outside `precision.rs`'s own `ConstraintFamily::StemName` "Not populated" note);
+    /// every stem-restricted root allomorph is proposed unconditionally, discharged only by
+    /// confirm — hence `ConfirmOnly`, never anything stronger, until a real predicate is built.
+    StemName,
+    /// The W3.2 disjunctive-allomorph re-check (`pg_rules::validity::allomorphs_valid_impl`,
+    /// `free_fluctuates`/`disjunctive_candidates`/`root_constraints_equal`; C#
+    /// `Allomorph.cs:127-152`): engaged whenever a `LexEntryDef` (model.rs:768) carries more than
+    /// one `RootAllomorphDef` (model.rs:777, `allomorphs: Vec<RootAllomorphDef>`) — confirm then
+    /// enforces "first-listed matching allomorph wins" for any two allomorphs whose own
+    /// `environments`/`is_bound` (model.rs:791-792) do NOT compare equal (`root_constraints_equal`;
+    /// when they DO compare equal, the allomorphs "free-fluctuate" and either is accepted). Not a
+    /// distinct `model.rs` enum variant — a derived cross-allomorph relation — so, like
+    /// `StemName`, found missing from this ledger entirely by research report 13. `crate::emit`
+    /// builds no ordering/preference machinery for this at all (every allomorph of a multi-
+    /// allomorph entry is proposed uniformly, in every position); the emitter's own bare-root
+    /// discharge (`RootRec::never_valid_bare`, `docs/fst-plan/bare-root-compile-time-discharge.md`)
+    /// deliberately restricts itself to the entry-has-exactly-one-allomorph case specifically to
+    /// avoid needing to reason about this mechanism at all — so this characteristic remains wholly
+    /// `ConfirmOnly`, undischarged by anything this crate compiles.
+    FreeFluctuation,
 }
 
 impl CharacteristicKind {
@@ -201,6 +229,8 @@ impl CharacteristicKind {
         CharacteristicKind::NaturalClassDefinition,
         CharacteristicKind::MultiTable,
         CharacteristicKind::QuantifierPattern,
+        CharacteristicKind::StemName,
+        CharacteristicKind::FreeFluctuation,
     ];
 
     /// design.md D1's table, as code: this characteristic's disposition BEFORE any predicate runs.
@@ -298,6 +328,22 @@ impl CharacteristicKind {
             // elsewhere in the same rule) stays refused, per `QuantifierBoundedExpansionPredicate`'s
             // own split -- an unbounded quantifier is no longer, by itself, such a case.
             CharacteristicKind::QuantifierPattern => Disposition::ConfigPredicate,
+            // Research report 13's taxonomy-gap finding: `crate::emit` has no stem-name-aware
+            // admission filter at all (confirmed by grep — `precision.rs`'s own
+            // `ConstraintFamily::StemName` says "Not populated" too), so a stem-restricted root
+            // allomorph is proposed unconditionally and discharged ONLY by
+            // `pg_rules::validity::stem_name_gate_reason` at confirm time. `ConfirmOnly` is the
+            // honest resting disposition — never `Proven` (no admission-filter argument exists)
+            // and never `FailClosed` (the superset proposal is already faithful/never under-
+            // proposes, ADR 0001's own bar for a first-class non-failure verdict).
+            CharacteristicKind::StemName => Disposition::ConfirmOnly,
+            // Same finding, same shape: the W3.2 disjunctive-allomorph re-check has no compile-
+            // time ordering/preference machinery in `crate::emit` at all (every allomorph of a
+            // multi-allomorph root entry is proposed uniformly) — confirm is the only place
+            // "first-listed matching allomorph wins" is ever enforced. `ConfirmOnly`, not
+            // `FailClosed`: over-proposing every allomorph is still a faithful superset, never a
+            // silent recall loss.
+            CharacteristicKind::FreeFluctuation => Disposition::ConfirmOnly,
         }
     }
 }
@@ -6718,9 +6764,9 @@ mod tests {
         }
         assert_eq!(
             CharacteristicKind::ALL.len(),
-            20,
-            "bumped from 19 by compile-bounded-fst-quantifiers's new \
-             CharacteristicKind::QuantifierPattern"
+            22,
+            "bumped from 20 by research report 13's taxonomy-gap fix: new \
+             CharacteristicKind::StemName/FreeFluctuation (both ConfirmOnly -- see their own docs)"
         );
     }
 

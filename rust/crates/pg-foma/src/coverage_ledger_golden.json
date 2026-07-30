@@ -336,6 +336,29 @@
         "citation": "tests/phase_c_quantifier.rs::quantifier_bounded_environment_compiles_and_matches_oracle (+ quantifier_unbounded_environment_compiles_and_matches_oracle for the genuinely-unbounded case, openspec/changes/build-unbounded-quantifier-support)",
         "note": "Bounded- AND unbounded-quantifier containment against the real oracle, both at min-boundary occurrence counts; an inverted/over-budget-finite/alpha-nested quantifier stays honestly unsupported."
       }
+    },
+    {
+      "kind": "stem_name",
+      "disposition": "confirm_only",
+      "discharging_predicates": [],
+      "construct_ids": [
+        "Stem names"
+      ],
+      "conformance_status": "covered",
+      "containment": {
+        "kind": "dedicated",
+        "citation": "tests/cover_realizational_morphology_constraints.rs::stem_name_gating_over_propose_confirm_prune",
+        "note": "Proposer-to-confirm containment for RootAllomorphDef::stem_name's required- and excluded-match gating (bare-restricted-allomorph rejection, plus the default-allomorph-excluded-by-a-restricted-sibling case) -- the FST proposes every stem-restricted allomorph unconditionally; confirm's stem_name_gate_reason prunes."
+      }
+    },
+    {
+      "kind": "free_fluctuation",
+      "disposition": "confirm_only",
+      "discharging_predicates": [],
+      "construct_ids": [
+        "Disjunctive allomorphs / free-fluctuation"
+      ],
+      "conformance_status": "covered"
     }
   ]
 }
