@@ -8,7 +8,9 @@ use pg_grammar::model::{Grammar, MorphRuleDef, OutputAction, PhonRuleDef, Redupl
 use serde::{Deserialize, Serialize};
 
 use crate::enumerate::CandidatePlan;
-use crate::oracle::{permute_gate_groups, permute_union_children};
+use crate::oracle::{
+    permute_gate_groups, permute_union_children, refine_gate_partition, PartitionGranularity,
+};
 use crate::plan::{NodeId, Plan};
 
 pub const REGISTRY_SCHEMA_VERSION: u16 = 1;
@@ -31,6 +33,9 @@ pub enum Applicability {
     HasReduplication,
     HasMetathesis,
     HasMultipleStrata,
+    /// At least two lexical entries, i.e. a `Gate` partition that a refinement transform could
+    /// actually split. See `matches`'s own arm for why this is an over-approximation on purpose.
+    HasSplittableGateGroup,
 }
 
 impl Applicability {
@@ -56,6 +61,16 @@ impl Applicability {
                 .iter()
                 .any(|rule| matches!(rule, PhonRuleDef::Metathesis(_))),
             Self::HasMultipleStrata => grammar.strata.len() > 1,
+            // Deliberately an OVER-approximation, and sound because of it. Whether a `Gate` group is
+            // genuinely splittable is a property of the built Plan (a group needs >=2 entries), and
+            // this predicate only sees the Grammar. Two or more lexical entries is the necessary
+            // condition; when it holds but no group actually turns out splittable,
+            // `oracle::refine_gate_partition` is a documented no-op whose rebuilt nodes
+            // content-address straight back to the originals, so `materialize_distinct` dedups the
+            // candidate away. Over-approximating therefore costs one wasted materialization at worst;
+            // under-approximating would silently drop a real candidate, which is the error that
+            // matters.
+            Self::HasSplittableGateGroup => grammar.entries.len() >= 2,
         }
     }
 }
@@ -510,11 +525,28 @@ fn expand_family(family: &RecipeFamily) -> Vec<RecipeInstance> {
         .collect()
 }
 
+/// The plan rewrites a seeded family may apply. Every one must be SEMANTICS-PRESERVING: it may
+/// change a Plan's shape and therefore its content address, never the relation the compiled network
+/// accepts. Each variant below cites the argument that makes it safe -- none is safe by assumption.
 #[derive(Debug, Clone, Copy)]
 enum SafeTransform {
     Identity,
+    /// Reorders a `Gate` node's partition groups. Safe because `build_controllable` folds the groups
+    /// with `union_checked` (commutative) and always finishes with `minimize_checked`, so only group
+    /// MEMBERSHIP reaches the accepted relation (`oracle::permute_gate_groups`' own doc).
     GatePermutation,
+    /// Reorders a root `Union`'s children. Same commutativity argument, different node kind.
     UnionPermutation,
+    /// Splits each eligible `Gate` group's entry set into at most 2 contiguous sub-groups, each still
+    /// composed with that group's OWN unchanged `Replace` node. Safe because composition distributes
+    /// over union -- `(A ∪ B) .o. R == (A .o. R) ∪ (B .o. R)` -- so re-unioning the pieces reproduces
+    /// the original group's net exactly (`oracle::refine_gate_partition`'s own doc). This is a
+    /// genuinely different axis from the two above: it changes partition CARDINALITY, not order.
+    PartitionBisect,
+    /// The same refinement taken to its limit: one singleton sub-group per entry. Distinct from
+    /// `PartitionBisect` whenever a group holds more than two entries, and it stresses the
+    /// many-small-unions shape rather than the few-large-unions one.
+    PartitionFanOut,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -536,6 +568,8 @@ impl SeededFamily {
                     SafeTransform::Identity => "baseline",
                     SafeTransform::GatePermutation => "gate-permutation",
                     SafeTransform::UnionPermutation => "union-permutation",
+                    SafeTransform::PartitionBisect => "partition-bisect",
+                    SafeTransform::PartitionFanOut => "partition-fan-out",
                 }
                 .to_owned()],
                 depends_on: Vec::new(),
@@ -568,6 +602,12 @@ impl Materializer for SeededFamily {
             SafeTransform::Identity => context.baseline.clone(),
             SafeTransform::GatePermutation => permute_gate_groups(context.baseline),
             SafeTransform::UnionPermutation => permute_union_children(context.baseline),
+            SafeTransform::PartitionBisect => {
+                refine_gate_partition(context.baseline, PartitionGranularity::Bisect)
+            }
+            SafeTransform::PartitionFanOut => {
+                refine_gate_partition(context.baseline, PartitionGranularity::FanOut)
+            }
         };
         Ok(CandidatePlan {
             label: self.id,
@@ -597,8 +637,11 @@ const SEEDS: &[SeededFamily] = &[
     },
     SeededFamily {
         id: "specialized-branch",
-        applicability: Applicability::HasMorphology,
-        transform: SafeTransform::UnionPermutation,
+        // A "specialized branch" IS a narrower partition of the same entries over the same cascade,
+        // so bisection is what this family actually names -- it was previously a fourth relabelled
+        // copy of UnionPermutation, contributing nothing the baseline did not already contribute.
+        applicability: Applicability::HasSplittableGateGroup,
+        transform: SafeTransform::PartitionBisect,
         ordering: &[("branch-selection", "shared-cascade")],
     },
     SeededFamily {
@@ -615,8 +658,12 @@ const SEEDS: &[SeededFamily] = &[
     },
     SeededFamily {
         id: "layered-morphology",
-        applicability: Applicability::HasMultipleStrata,
-        transform: SafeTransform::UnionPermutation,
+        // Maximal refinement: one sub-group per entry, the many-small-unions shape. Applicability
+        // moves from HasMultipleStrata to HasSplittableGateGroup because what this transform needs is
+        // a splittable partition, not multiple strata -- the old predicate gated it on a property it
+        // never used, which is part of why it silently reduced to the baseline everywhere.
+        applicability: Applicability::HasSplittableGateGroup,
+        transform: SafeTransform::PartitionFanOut,
         ordering: &[("lower-stratum", "upper-stratum")],
     },
 ];

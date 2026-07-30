@@ -14,6 +14,38 @@ fn repo_file(relative: &str) -> PathBuf {
         .join(relative)
 }
 
+/// Asserts a report's pruning ledger accounts for every candidate it generated, and returns the
+/// ledger for further inspection. Applied to EVERY report this test reads, not just one: the ledger
+/// is what makes a shrinking bucket readable. When an applicability predicate tightens, an instance
+/// should move between buckets (`duplicates` -> `inapplicable`), never vanish -- and only this
+/// identity can tell those two apart.
+fn accounted_pruning(report: &Value, label: &str) -> Value {
+    let pruning = &report["pruning"];
+    let accounted = [
+        "inapplicable",
+        "duplicates",
+        "materialization_rejects",
+        "capability_rejected",
+        "build_failures",
+        "evaluated",
+        "unvisited",
+        "budget_pruned",
+    ]
+    .into_iter()
+    .map(|key| {
+        pruning[key]
+            .as_u64()
+            .unwrap_or_else(|| panic!("{label}: pruning ledger is missing {key}"))
+    })
+    .sum::<u64>();
+    assert_eq!(
+        pruning["generated"].as_u64().unwrap(),
+        accounted,
+        "{label}: pruning ledger does not account for every generated candidate: {pruning:?}"
+    );
+    pruning.clone()
+}
+
 fn word_file(fixture: &str, root: &Path) -> PathBuf {
     word_file_from(
         &format!("machine/conformance/{fixture}/words.yaml"),
@@ -121,21 +153,7 @@ fn four_promoted_grammars_have_truthful_recipe_evidence() {
     assert!(mpr["usage"]["memory_peak"].as_u64().unwrap() > 0);
     assert_eq!(mpr["replay_parameters"]["beam_width"], "16");
     assert_eq!(mpr["replay_parameters"]["pilot_candidate_cap"], "8");
-    let pruning = &mpr["pruning"];
-    let accounted = [
-        "inapplicable",
-        "duplicates",
-        "materialization_rejects",
-        "capability_rejected",
-        "build_failures",
-        "evaluated",
-        "unvisited",
-        "budget_pruned",
-    ]
-    .into_iter()
-    .map(|key| pruning[key].as_u64().unwrap())
-    .sum::<u64>();
-    assert_eq!(pruning["generated"].as_u64().unwrap(), accounted);
+    accounted_pruning(&mpr, "mpr-gated-exception");
     assert_eq!(mpr["candidates"].as_array().unwrap().len(), 3);
     assert!(mpr["candidates"]
         .as_array()
@@ -236,7 +254,20 @@ fn four_promoted_grammars_have_truthful_recipe_evidence() {
     assert_eq!(template["counts"]["feasible"]["kind"], "exact");
     assert_eq!(template["counts"]["feasible"]["value"], 1);
     assert_eq!(template["pilot"]["sample_size"], 1);
-    assert_eq!(template["pruning"]["duplicates"], 3);
+    // 2, not 3: this fixture has ONE lexical entry, so `specialized-branch` -- now gated on
+    // `HasSplittableGateGroup` (>= 2 entries) rather than `HasMorphology` -- is rejected by
+    // applicability instead of being materialized into a byte-identical copy of the baseline and
+    // then deduped. It moved from `duplicates` into `inapplicable`, which this report only began
+    // reporting truthfully alongside that change: the CLI used to hardcode `inapplicable: 0` and
+    // count only APPLICABLE instances in `generated`, so the bucket balanced while being blind.
+    let template_pruning = accounted_pruning(&template, "recipe-template-generic");
+    assert_eq!(template_pruning["duplicates"], 2);
+    assert!(
+        template_pruning["inapplicable"].as_u64().unwrap() >= 4,
+        "a one-entry, single-stratum, metathesis-free grammar admits only a minority of the seven \
+         families; an `inapplicable` bucket this small means the report is counting applicability \
+         rejections as something else: {template_pruning:?}"
+    );
     assert_eq!(template["pruning"]["evaluated"], 1);
     assert_eq!(template["pruning"]["confirmed"], 1);
     assert_eq!(template["strategy"], "exhaustive");

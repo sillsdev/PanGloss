@@ -243,6 +243,13 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
         characterize(&grammar, &registry, &baseline, a.budget.candidates, a.seed)
             .map_err(|e| RecipeOptimizeError::Runtime(e.to_string()))?;
     let policy = AdaptivePolicy::default();
+    // Both denominators, because the pruning waterfall's first bucket is "the registry offered this
+    // instance and the grammar rejected it". `PruningWaterfall`'s own doc calls every field "a
+    // disjoint bucket of `generated`", so `generated` has to count what the registry OFFERED, not
+    // just what survived applicability -- otherwise `inapplicable` is structurally unreachable and
+    // renders as a permanent, unfalsifiable `0` (the same false-zero that doc criticises for
+    // `N_syntactic`, and `reconciles()` cannot catch it because both sides drop the same term).
+    let offered_instances = registry.instances().len() as u64;
     let mut instances = registry.instances_for_grammar(&grammar);
     instances.sort_by_key(|instance| {
         let baseline = instance.family_id == "ordered-morphophonology"
@@ -285,7 +292,9 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
             plan: baseline.clone(),
         },
     );
-    let production_generated = 1u64.saturating_add(instances.len() as u64);
+    let inapplicable = offered_instances.saturating_sub(instances.len() as u64);
+    // The `1` is the baseline plan, generated directly rather than through a family.
+    let production_generated = 1u64.saturating_add(offered_instances);
     for instance in instances {
         let materialize_started = Instant::now();
         let plan = match registry.materialize(
@@ -585,7 +594,7 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
         pilot,
         pruning: PruningWaterfall {
             generated: production_generated,
-            inapplicable: 0,
+            inapplicable,
             duplicates,
             materialization_rejects,
             capability_rejected,
