@@ -242,6 +242,133 @@ coding work.
 
 ---
 
+## 6a. Follow-on findings (reports 07–09) — three blockers resolved
+
+Reports `07`, `08`, `09` were commissioned after the first six to settle the open items. All three
+landed, and they resolve blockers 1 and 5 and reframe the soundness question.
+
+### Blocker 5 resolved: the flag idiom, proven from source (report `07`)
+
+`gate.rs`'s conclusion — "`->` and flags do not mix safely in this port, full stop" — is **correct in
+observation, over-scoped in conclusion**. The mechanism, verified: the replace calculus is entirely
+**flag-blind** (`grep -ci flag` returns **0** in both `foma-rs/crates/foma/src/rewrite.rs` and
+upstream `foma/foma/rewrite.c`) **[V]**, while `apply` treats any flag-shaped symbol as **zero-width
+unconditionally** (`foma/apply.c:1084`: *"For flags, we consume 0 symbols of the input string,
+naturally"*) **[V]**.
+
+The collision occurs only when a flag occupies a **matched** role — inside a `||` context, compiled
+through a `NotContain` construction — where the builder treats it as a real symbol and apply treats
+it as consuming nothing. A flag merely **inserted** by a rule and read at plain apply time never
+enters that construction. **That is exactly Divvun's idiom** (`<-` rules with no `||` clause), which
+reconciles their 1,118 production flags with our finding at no contradiction.
+
+All three findings are **inherited from upstream C, not port regressions** — independently confirmed
+for finding 2 via `foma/mem.c:25` (`int g_flag_is_epsilon = 0;`) **[V]**. Nothing to file upstream
+except possibly the crash, observed against foma `0.1.1` while we now pin `0.4.2`.
+
+**Consequence:** flag diacritics are available to PanGloss for morphotactic legality gating, provided
+we insert-and-read rather than match-in-context.
+
+### Blocker 1 resolved: decline the two-level seam (report `09`)
+
+The `00-` synthesis originally called the two-level-vs-cascade seam the blocker that decides whether
+HC can be retired. **That was over-weighted.** PanGloss never needs to emit or consume `twolc`, so
+the hard translation direction (cascade → two-level, which requires a linguist to reformulate every
+rule and abandon abstract intermediate segments) is a job we can decline.
+
+The decisive evidence is GiellaLT's own portfolio:
+
+- **`lang-kal` (Kalaallisut/West Greenlandic) writes all its phonology as a replace-rule cascade.**
+  7 `.xfscript` files, `phonology.xfscript` = 512 lines, and **zero `.twolc` files anywhere in the
+  repo** **[V]**. It ships a released grammar bundle and a packaged speller **[A]**. The hardest
+  polysynthetic language in the portfolio uses our formalism.
+- **The build asymmetry is exact.** `giella-core/am-shared/xfscript-include.am:28-29` has a **live,
+  uncommented** `.xfscript → .foma` rule invoking `$(FOMA) -l $< -e "save stack $@" -s` **[V]**,
+  against `twolc-include.am:42-57` commented out as interfering with foma builds **[V]**. Our
+  formalism is on the supported side of that line; theirs is not.
+- **~30 `lang-*` repos contain `phonology.xfscript`** **[A]** (org-wide code search, not verified
+  repo-by-repo here).
+- **No live phonology requiring two-level was found.** The one mutual-conditioning candidate
+  (diphthong simplification needing gradation-grade context, `phonology.twolc:1204-1291`) was
+  attempted as a true two-level construct three times and abandoned each time by GiellaLT's own
+  developers in favor of the trigger-diacritic device **[A]**, which transfers to the cascade
+  unchanged (`lang-kal`'s `%^GEMS`/`%^GEMEQ`/`%^Loan` family does attach → transport →
+  consume-in-context → delete-late) **[A]**.
+
+### The reusable construction: alpha-variables, from their own source
+
+`lang-crk/src/fst/morphology/phonology.xfscript:477-483` preserves a `twolc` alpha-variable rule in
+comments directly above its live hand-translation **[V]**:
+
+```
+! twolc original:
+! d1:Cx <=> _ (0:i 0:y) [ a: [ y2: | ý2 ] | â: h ] (%^IC:0) ( %-: ) %<:0 Cx: ;
+!    where Cx in ( c k m n p s t w y ) ;
+
+! live replace-calculus translation:
+define ReduplRule [ [ d1 | d2 ] -> c || _ [ \%< ]+ %< c ,,
+                    … nine disjuncts, one per consonant …
+                  ] .o. [ [ y2 | ý2 | y3 ] -> y || [ d1 | d2 ] ?* _ ]
+                    .o. [ [ d1 | d2 ] -> 0 ] .o. [ [ y2 | y3 ] -> 0 ] ;
+```
+
+The recipe: **enumerate the variable's domain into concrete disjuncts, join with `,,` (parallel
+replace, so all fire simultaneously and no inter-disjunct ordering question arises), then `.o.`
+compose the cleanup and placeholder-deletion rules.** This is report `05`'s "FST-bounded, enumerate
+the binding domain" tier with a working production instance and the ordering hazard already removed.
+
+**It also closes report `05`'s open reduplication question.** That Cree rule *is* reduplication —
+placeholder symbols `d1`/`d2` matched against the stem-initial consonant, then deleted. Bounded copy
+by placeholder-and-match, requiring no `compile-replace` (which `foma-rs` lacks).
+
+### The soundness question reframed (report `08`)
+
+GiellaLT's analyser is **not tested for soundness, by construction**:
+
+- `giella-core/scripts/run-morph-tester.sh.in:146` passes `--ignore-extra-analyses`
+  **unconditionally, for every language in the org** **[V]**. The harness cannot detect
+  over-generation in the analysis direction.
+- The tool supports negative assertions (`~`-prefixed "detested" forms) and they appear in
+  **0 of 1,572** YAML test files across the cloned languages **[V]**.
+- `lang-sme/docs/docu-sme-testplan.md:138-153` states it outright **[V]**: *"When we test whether
+  words are let through or not, we do not test whether the parser actually gives correct
+  analyses."* It then enumerates *"correctly spelled, but given a grammatical analysis that it should
+  not have had"* as a known category discovered downstream in the disambiguator, not by tests.
+- The **generation** direction *is* exact-set tested; `--ignore-extra-analyses` relaxes analysis only
+  **[A]**. Their strict bar is on the speller-facing direction.
+
+**Verdict on the project owner's trichotomy:** it splits by subject.
+
+- **Soundness → (i), Divvun has not solved it.** They minimize damage and document doing so. Nothing
+  to reuse.
+- **Formalism and toolchain → (iii), solved and reusable.** The cascade route is supported, compiles
+  to foma, and carries a shipping polysynthetic flagship.
+
+Divvun runs a two-stage architecture too — over-generating FST plus a downstream filter (CG or tag
+cascade). The difference is that **no stage of theirs is a general-purpose well-formedness verifier**,
+and they make no claim that one is. PanGloss's `confirm` is a strictly stronger contract than
+anything in their pipeline. The question is therefore not "is FST-only possible" but "**what soundness
+bar do we need**", which is a product decision, not a finite-state one.
+
+### The path this produces: X, Y, Z
+
+- **X** — stay in the replace cascade end to end; never emit or consume `twolc`.
+- **Y** — adopt both tape-encoding idioms: trigger diacritics for phonological gating, insert-then-read
+  flags (never match-in-context) for morphotactic legality, and enumerate-plus-`,,` for
+  alpha-variables.
+- **Z** — move HC from **runtime verifier** to **build-time oracle**: enumerate the grammar's word
+  space, use HC as ground truth to construct and certify the filter set, then ship FST + filters with
+  no HC at runtime. This is the step Divvun structurally cannot take (they have no oracle), and it is
+  what would let PanGloss ship FST-only *with* a soundness claim.
+
+Whether Z is tractable reduces to whether our over-generation factors into independent filter
+dimensions — the subject of report `10`, outstanding at the time of writing. The theory: a filter
+exists iff the target relation is regular (so unbounded-copy reduplication is permanently excluded),
+factored representations can be exponentially more compact than the monolithic minimum (`n·k` vs up
+to `kⁿ`) **but only when constraints are near-independent**, and a conservation law applies — a filter
+can only reject on information present on the tape, so encoding derivation facts for the filter
+enlarges the proposer. Both stages cannot be simplified at once.
+
 ## 7. Open questions
 
 - `gt_PROG_FOMA`'s macro body — whether foma really is the fallback of last resort **[?]**.
