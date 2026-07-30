@@ -29,6 +29,10 @@ param(
     [switch]$DebugProfile,
     [switch]$NoNextest,
     [int]$MaxConcurrent = 2,
+    # See build.ps1's equivalent: 0/empty means "let pg.ps1 decide" rather than restating its
+    # defaults in a second place.
+    [int]$Jobs = 0,
+    [ValidateSet('Idle', 'BelowNormal', 'Normal')][string]$Priority = '',
     [switch]$Gc,
     [switch]$NoSccache,
     [Parameter(ValueFromRemainingArguments = $true)][string[]]$ExtraArgs
@@ -51,6 +55,8 @@ if ($DebugProfile) { $pgArgs.DebugProfile = $true }
 if ($NoNextest) { $pgArgs.NoNextest = $true }
 if ($MaxConcurrent) { $pgArgs.MaxConcurrent = $MaxConcurrent }
 if ($NoSccache) { $pgArgs.NoSccache = $true }
+if ($Jobs -gt 0) { $pgArgs.Jobs = $Jobs }
+if ($Priority) { $pgArgs.Priority = $Priority }
 
 & "$PSScriptRoot\pg.ps1" @pgArgs @ExtraArgs
 exit $LASTEXITCODE

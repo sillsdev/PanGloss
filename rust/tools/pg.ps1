@@ -66,6 +66,13 @@ param(
     [switch]$DebugProfile,
     [switch]$NoNextest,
     [int]$MaxConcurrent = 2,
+    # 0 = derive from the machine (Get-CargoJobBudget: logical cores, minus the interactive
+    # reserve, split across the build slots). Pass a number to override for one run -- e.g. at the
+    # console with no remote session to protect.
+    [int]$Jobs = 0,
+    # CPU priority for cargo and everything it spawns. BelowNormal by default so sshd and Chrome
+    # Remote Desktop's encoder preempt compiler work; 'Normal' restores the old behavior.
+    [ValidateSet('Idle', 'BelowNormal', 'Normal')][string]$Priority = 'BelowNormal',
     # 30 minutes: long enough that a normal queued build never trips this, short enough that a
     # genuinely wedged holder (crashed mid-build without releasing) is reported rather than
     # blocking every other worktree's build silently forever.
@@ -134,6 +141,18 @@ if ($NoSccache) {
     $MaxConcurrent = 1
 }
 
+# Computed AFTER the -NoSccache block above, because that block can lower MaxConcurrent and the
+# job budget is per-slot: a run that just became the only permitted build should get the whole
+# budget rather than half of it.
+#
+# Exported as CARGO_BUILD_JOBS rather than appended as `-j`, for two reasons. It reaches cargo
+# subcommands that don't take `-j` in the same position (nextest's `--cargo-profile` form), and it
+# beats rust/.cargo/config.toml's static `jobs` floor in Cargo's precedence order (CLI > env >
+# config) without overriding an explicit `-j` a caller put in $ExtraArgs, which still wins.
+$jobsExplicit = ($Jobs -gt 0)
+if (-not $jobsExplicit) { $Jobs = Get-CargoJobBudget -MaxConcurrent $MaxConcurrent }
+$env:CARGO_BUILD_JOBS = "$Jobs"
+
 $targetDir = Resolve-TargetDir -RustRoot $rustRoot
 if ($targetDir) { $env:CARGO_TARGET_DIR = $targetDir }
 
@@ -162,6 +181,21 @@ if ($usedSccache -and -not $sccacheHealth.Ok) {
     exit $script:ExitCodeCacheUnavailable
 }
 
+# Must come after the health check above (that's what starts the daemon) and before cargo runs
+# (priority is inherited at spawn). Covers the rustc processes the sccache SERVER spawns, which are
+# NOT cargo's children and so do not pick up the priority set in Invoke-CargoWithReaper -- see
+# Set-SccacheServerPriority for the measurement that showed most of the fan-out was escaping.
+#
+# Deliberately NOT guarded on `$Priority -ne 'Normal'`. The sccache server is long-lived and shared
+# across every build on the machine, so whatever priority one run leaves on it persists into the
+# next. With a `Normal` early-out, a single `-Priority Idle` run would strand the daemon at Idle
+# indefinitely and a later `-Priority Normal` -- someone explicitly asking for full speed -- would
+# silently keep compiling at Idle. Setting it unconditionally makes the daemon track the priority
+# actually requested, in both directions.
+if ($usedSccache) {
+    $null = Set-SccacheServerPriority -Priority $Priority
+}
+
 $baseCheck = Test-WorktreeBase -Mode $BaseMode -RepoRoot $repoRoot
 
 $freeGB = Get-FreeSpaceGB -Path $(if ($targetDir) { $targetDir } else { $rustRoot })
@@ -185,7 +219,7 @@ $profileLabel = switch ($Mode) {
 
 Write-Preflight -Mode $Mode -Profile $profileLabel -RepoRoot $repoRoot -TargetDir $targetDir `
     -BaseCheck $baseCheck -SccacheHealth $sccacheHealth -FreeGB $freeGB -DiskCheck $diskCheck `
-    -CorpusState $corpusState -MaxConcurrent $MaxConcurrent
+    -CorpusState $corpusState -MaxConcurrent $MaxConcurrent -Jobs $Jobs -JobsExplicit:$jobsExplicit -Priority $Priority
 
 if ($BaseMode -ne 'off' -and $baseCheck.Checked -and -not $baseCheck.Ok) {
     Write-Host "[pg] worktree base check FAILED ($BaseMode mode): $($baseCheck.Detail)" -ForegroundColor Red
@@ -315,7 +349,7 @@ try {
 
     if ($Mode -eq 'corpus-test') {
         $capturePath = Join-Path ([System.IO.Path]::GetTempPath()) "pg-corpus-test-$PID.log"
-        $code = Invoke-CargoWithReaper -Exe 'cargo' -CmdArgs $cargoArgs -WorkingDirectory $rustRoot -CaptureStdoutPath $capturePath
+        $code = Invoke-CargoWithReaper -Exe 'cargo' -CmdArgs $cargoArgs -WorkingDirectory $rustRoot -CaptureStdoutPath $capturePath -Priority $Priority
         $lines = if (Test-Path $capturePath) { Get-Content $capturePath } else { @() }
         $lines | ForEach-Object { Write-Host $_ }
         $caseLines = @($lines | Where-Object { $_ -match '^PANGLOSS_CORPUS_CASES\s+(\S+)\s+(\d+)$' })
@@ -331,7 +365,7 @@ try {
         }
         Write-Host "[pg] corpus-test executed $totalCases corpus case(s) across $($caseLines.Count) label(s)." -ForegroundColor Green
     } else {
-        $code = Invoke-CargoWithReaper -Exe 'cargo' -CmdArgs $cargoArgs -WorkingDirectory $rustRoot
+        $code = Invoke-CargoWithReaper -Exe 'cargo' -CmdArgs $cargoArgs -WorkingDirectory $rustRoot -Priority $Priority
     }
 } finally {
     Exit-BuildSlot -Semaphore $sem

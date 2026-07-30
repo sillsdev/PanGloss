@@ -20,6 +20,11 @@ param(
     [string]$Package = '',
     [switch]$DebugProfile,
     [int]$MaxConcurrent = 2,
+    # Both default to "let pg.ps1 decide" (0 / empty) rather than restating its defaults here --
+    # duplicating the numbers is exactly the two-copies-that-drift problem this front end exists to
+    # avoid. Present only so a console user can override without dropping down to pg.ps1.
+    [int]$Jobs = 0,
+    [ValidateSet('Idle', 'BelowNormal', 'Normal')][string]$Priority = '',
     [switch]$Gc,
     [switch]$NoSccache,
     [Parameter(ValueFromRemainingArguments = $true)][string[]]$ExtraArgs
@@ -42,6 +47,8 @@ if ($Package) { $pgArgs.Package = $Package }
 if ($DebugProfile) { $pgArgs.DebugProfile = $true }
 if ($MaxConcurrent) { $pgArgs.MaxConcurrent = $MaxConcurrent }
 if ($NoSccache) { $pgArgs.NoSccache = $true }
+if ($Jobs -gt 0) { $pgArgs.Jobs = $Jobs }
+if ($Priority) { $pgArgs.Priority = $Priority }
 
 & "$PSScriptRoot\pg.ps1" @pgArgs @ExtraArgs
 exit $LASTEXITCODE

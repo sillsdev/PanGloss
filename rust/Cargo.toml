@@ -90,6 +90,20 @@ pg-pack = { path = "crates/pg-pack" }
 criterion = "0.5"
 proptest = "1"
 
+# Dev profile: line tables instead of the default full DWARF/PDB. Debug info is the single largest
+# thing a dev build writes -- full info across 20 crates plus their test binaries is gigabytes of
+# scattered small writes into the target dir, and sustained I/O queue depth stalls a remote session
+# (SSH round-trips, Chrome Remote Desktop frame delivery) faster than CPU load does. Line tables
+# keep panic messages and backtraces pointing at real file:line, which is what this workspace's
+# failures are actually diagnosed from; they do NOT support stepping in a debugger with local
+# variable inspection. If you need that for a session, build that crate with
+# `-Mode build -DebugProfile` plus `--config 'profile.dev.debug=2'` rather than changing this --
+# it is the default precisely because nearly every build here never opens a debugger.
+#
+# Matches [profile.pg-test-opt]'s reasoning below, which reached the same conclusion for tests.
+[profile.dev]
+debug = "line-tables-only"
+
 # Release profile tuned for the FFI cdylib and CLI: max optimization, single codegen unit,
 # fat LTO. panic = "unwind" is REQUIRED — pg-ffi relies on catch_unwind at the C boundary
 # (rust-conversion.md §4.2, §8 layer 7); "abort" would break abort-safety.

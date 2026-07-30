@@ -20,6 +20,32 @@ $script:HddCacheRoot = if ($env:PANGLOSS_CARGO_CACHE_ROOT) { $env:PANGLOSS_CARGO
 $script:MinFreeGBOnSsd = if ($env:PANGLOSS_MIN_FREE_SSD_GB) { [double]$env:PANGLOSS_MIN_FREE_SSD_GB } else { 50 }
 $script:BuildSemaphoreName = 'Global\PanGlossCargoBuild'
 
+# Logical processors deliberately left unclaimed by compiler work, machine-wide. This is the
+# companion to Enter-BuildSlot: the semaphore bounds how many cargo INVOCATIONS run at once, but
+# says nothing about how wide each one fans out, and Cargo's default is one job per logical core.
+# Two slots at the default width is 40 rustc processes on a 20-thread CPU -- 2x oversubscribed,
+# with nothing held back for the latency-sensitive daemons this box actually depends on (sshd, and
+# Chrome Remote Desktop's remoting_host video encoder). That combination is what froze remote
+# sessions during otherwise-normal builds. 6 is sized for those daemons plus the shell/editor
+# driving the build, not for a second workload.
+$script:InteractiveReserveThreads = if ($env:PANGLOSS_INTERACTIVE_RESERVE) { [int]$env:PANGLOSS_INTERACTIVE_RESERVE } else { 6 }
+
+function Get-CargoJobBudget {
+    # Per-invocation `-j` such that ALL concurrently-permitted builds together still leave
+    # $script:InteractiveReserveThreads logical processors free. Divided by MaxConcurrent rather
+    # than handed out whole, because the build-slot semaphore is machine-wide: if two worktrees can
+    # each hold a slot, each one's job count has to be sized for the case where both do.
+    param([int]$MaxConcurrent = 1)
+    $logical = [Environment]::ProcessorCount
+    if ($MaxConcurrent -lt 1) { $MaxConcurrent = 1 }
+    $budget = $logical - $script:InteractiveReserveThreads
+    # Floor of 2, not 1: a single-job cargo serializes codegen across the whole workspace and turns
+    # a several-minute build into a very long one, which in practice gets the cap disabled entirely
+    # rather than tuned. Only reachable on a machine far smaller than this one.
+    if ($budget -lt 2) { $budget = 2 }
+    return [Math]::Max(2, [Math]::Floor($budget / $MaxConcurrent))
+}
+
 function Get-RepoRoot {
     # `git rev-parse --show-toplevel` always answers for whichever worktree the caller is
     # standing in, so this resolves correctly whether run from the main checkout or any
@@ -124,6 +150,38 @@ function Use-Sccache {
     return $true
 }
 
+function Set-SccacheServerPriority {
+    # Without this, dropping cargo to BelowNormal silently fails to cover most of the actual
+    # compiler work on this machine. MEASURED during a workspace build with the priority drop
+    # already in place on cargo: 7 concurrent rustc, of which only 2 were BelowNormal and 4 were
+    # still Normal.
+    #
+    # The reason is RUSTC_WRAPPER=sccache. Cargo does not exec rustc itself; it invokes a short-lived
+    # sccache client, which hands the compile to the long-lived sccache SERVER daemon, and the
+    # server spawns rustc. Those rustc processes are children of the daemon, so Windows' inherit
+    # rule gives them the DAEMON's priority class -- not cargo's. The daemon outlives any one build
+    # and normally starts at Normal, so the bulk of compilation kept running at Normal no matter
+    # what priority cargo held.
+    #
+    # Call AFTER Test-SccacheHealth: its `sccache --show-stats` is what starts the server if it
+    # isn't already up, so by then there is a process to find. Priority is inherited at spawn time,
+    # so this must also happen BEFORE cargo starts -- already-running rustc keep the class they
+    # were born with.
+    param([ValidateSet('Idle', 'BelowNormal', 'Normal')][string]$Priority = 'BelowNormal')
+    $changed = 0
+    foreach ($p in @(Get-Process -Name sccache -ErrorAction SilentlyContinue)) {
+        try {
+            if ($p.PriorityClass -ne $Priority) { $p.PriorityClass = $Priority; $changed++ }
+        } catch {
+            # Non-fatal by design: the daemon may belong to another user, or may have exited between
+            # the enumeration and the assignment. A build that runs at the wrong priority is a
+            # performance problem; a build that refuses to start over one is a worse one.
+            Write-Host "[pg] note: could not set $Priority priority on sccache server (pid $($p.Id)): $($_.Exception.Message)" -ForegroundColor DarkGray
+        }
+    }
+    return $changed
+}
+
 function Enter-BuildSlot {
     # -TimeoutSeconds <= 0 keeps the original indefinite-wait behavior (still the default, so
     # existing direct callers of this function are unaffected). pg.ps1 passes a real timeout so a
@@ -177,7 +235,10 @@ function Invoke-CargoWithReaper {
         # a green exit code alone must not be trusted (a suite that compiles, runs, and asserts
         # nothing would otherwise still "pass"). Redirected to a file rather than piped so a
         # reaped/killed process's output up to that point isn't lost.
-        [string]$CaptureStdoutPath = ''
+        [string]$CaptureStdoutPath = '',
+        # CPU priority class for cargo AND every rustc/link.exe it spawns -- see the
+        # PriorityClass block below for why this is inherited rather than set per-child.
+        [ValidateSet('Idle', 'BelowNormal', 'Normal')][string]$Priority = 'BelowNormal'
     )
     $psiArgs = @{
         FilePath         = $Exe
@@ -192,6 +253,34 @@ function Invoke-CargoWithReaper {
     # `taskkill /T` (kill the whole tree) reliably does, which is what `finally` runs here
     # if the process is still alive (e.g. this script itself got Ctrl+C'd).
     $psi = Start-Process @psiArgs
+
+    # Drop the whole build tree below the interactive daemons. A job cap alone is not enough:
+    # capping jobs bounds how many runnable rustc threads exist, but every one of them still sits
+    # at Normal priority, which is exactly where sshd and Chrome Remote Desktop's remoting_host
+    # video encoder sit. Equal priority means the scheduler round-robins them, so the encoder waits
+    # behind compiler work for its frame deadline and the remote session stalls. BelowNormal means
+    # any daemon that becomes runnable preempts compiler work immediately; the build gives up
+    # almost nothing in wall-clock, because it still owns every core no one else wants.
+    #
+    # Set on the cargo PARENT rather than hunting down each rustc, because Windows propagates it
+    # for free: CreateProcess gives a child NORMAL_PRIORITY_CLASS by default *unless* the creating
+    # process is IDLE or BELOW_NORMAL, in which case the child inherits the parent's class. So the
+    # rustc/link.exe fan-out below cargo lands at BelowNormal without any per-child bookkeeping --
+    # which also means it keeps working for processes this script never sees (build scripts,
+    # proc-macro servers, the linker's own children).
+    #
+    # Best-effort: a cargo that failed instantly (bad args, missing toolchain) can already be gone,
+    # and losing the priority drop must not turn that into a different, more confusing error.
+    # Set unconditionally, including for 'Normal': cargo inherits its class from THIS PowerShell
+    # host, so if the host is itself running below normal (a nested build, or a shell someone
+    # de-prioritized), an early-out on 'Normal' would quietly fail to deliver the full-speed build
+    # that was explicitly asked for.
+    try {
+        if (-not $psi.HasExited) { $psi.PriorityClass = $Priority }
+    } catch {
+        Write-Host "[pg] note: could not set $Priority priority on cargo (pid $($psi.Id)): $($_.Exception.Message)" -ForegroundColor DarkGray
+    }
+
     try {
         Wait-Process -Id $psi.Id
         return $psi.ExitCode
@@ -619,7 +708,10 @@ function Write-Preflight {
         [Nullable[double]]$FreeGB,
         $DiskCheck,
         $CorpusState = $null,
-        [int]$MaxConcurrent
+        [int]$MaxConcurrent,
+        [int]$Jobs = 0,
+        [switch]$JobsExplicit,
+        [string]$Priority = ''
     )
     $slug = Get-WorktreeSlug -RustRoot (Join-Path $RepoRoot 'rust')
     $head = git -C $RepoRoot rev-parse HEAD 2>$null
@@ -651,6 +743,22 @@ function Write-Preflight {
         }
     }
     Write-Host "build slot limit: $MaxConcurrent (machine-wide convention -- see Enter-BuildSlot)"
+    if ($Jobs -gt 0) {
+        # Printed with its provenance, not just the number: the useful fact when a build feels slow
+        # is WHY it is 7 and not 20, and that the reserve is what keeps SSH/remote desktop alive.
+        # The derivation is only shown when the number actually came FROM it -- printing
+        # "20 logical - 6 reserved, split across 2" next to an explicit `-Jobs 3` states arithmetic
+        # that did not happen and cannot produce the value shown beside it.
+        $why = if ($JobsExplicit) {
+            'explicit -Jobs override'
+        } else {
+            "$([Environment]::ProcessorCount) logical - $script:InteractiveReserveThreads reserved for SSH/remote-desktop daemons, split across $MaxConcurrent slot(s)"
+        }
+        Write-Host "cargo jobs: $Jobs per build ($why)"
+    }
+    if ($Priority) {
+        Write-Host "build priority: $Priority (inherited by rustc/link.exe -- keeps interactive daemons ahead of compiler work)"
+    }
     Write-Host '-------------------------' -ForegroundColor Cyan
 }
 

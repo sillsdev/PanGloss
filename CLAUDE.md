@@ -29,6 +29,34 @@ refuses `cargo build|test|check|run` and `cargo nextest run`; `cargo fmt`/`clean
 The escape hatch is `PANGLOSS_ALLOW_BARE_CARGO=1`, deliberately an env var — needing it means the
 managed path is broken and should be fixed, not routed around.
 
+## Keeping SSH / remote desktop alive during builds
+
+This machine is administered remotely, and builds used to freeze SSH and Chrome Remote Desktop
+sessions outright. The cause was not disk and not memory: Cargo defaults to one job per *logical*
+core (20 here), `Enter-BuildSlot` permits 2 concurrent builds, and every resulting `rustc` ran at
+`Normal` priority — the same priority as `sshd` and Chrome Remote Desktop's `remoting_host` video
+encoder. ~40 compiler processes over 20 threads, with nothing left for the daemons the machine is
+reached through. `pg.ps1` now handles this automatically; both knobs are printed in the preflight
+record so a "why is this slower than I expected" question is answerable from the build log:
+
+- **Job cap.** `Get-CargoJobBudget` (`rust/tools/_common.ps1`) sets `CARGO_BUILD_JOBS` to
+  `(logical cores − 6) / MaxConcurrent` — 7 per build here. The reserve is
+  `$script:InteractiveReserveThreads`, overridable with `PANGLOSS_INTERACTIVE_RESERVE`.
+  `.cargo/config.toml` at the **repo root** carries a static `jobs = 8` floor for everything that
+  bypasses `pg.ps1` (rust-analyzer's background `cargo check`, IDE tasks). It is at the repo root,
+  not `rust/`, because `rust/.cargo/config.toml` is gitignored for personal target redirects and so
+  would not exist in a fresh worktree; Cargo merges config from every ancestor directory, deepest
+  winning, so a personal `rust/` override still takes precedence.
+- **Priority.** Cargo is launched `BelowNormal`, which Windows propagates to child processes, so
+  `rustc`/`link.exe` inherit it and any interactive daemon preempts compiler work instantly.
+  **`Set-SccacheServerPriority` is load-bearing here**: with `RUSTC_WRAPPER=sccache`, `rustc` is
+  spawned by the long-lived sccache *server*, not by cargo, so it inherits the *daemon's* priority.
+  Measured before that call existed: 7 concurrent `rustc`, only 2 of them `BelowNormal`. If you
+  ever add another compiler-spawning daemon, it needs the same treatment.
+
+Override per-run with `-Jobs N` / `-Priority Normal` (on `pg.ps1`, `build.ps1`, or `test.ps1`) when
+you're at the console and there's no remote session to protect.
+
 ## Running parallel agents without starving the machine
 
 A fleet of six agents in one checkout took C: from 46 GB to 7 GB free, left 26 stray compiler

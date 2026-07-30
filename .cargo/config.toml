@@ -1,0 +1,31 @@
+# Repo-wide Cargo policy. Tracked on purpose, and deliberately NOT at rust/.cargo/config.toml:
+# that path is gitignored for each dev's personal machine-local build-output redirect (see
+# rust/.gitignore), so policy that should follow the repo into every clone and every `pg.ps1 -Mode
+# new-worktree` checkout cannot live there -- an untracked file does not exist in a fresh worktree,
+# which is exactly where an unbounded build would start again.
+#
+# Cargo merges .cargo/config.toml from the working directory upward through every ancestor, with
+# the deepest file winning per-key. Cargo runs with its CWD in rust/, so this file applies, and a
+# personal rust/.cargo/config.toml still overrides it. Nothing here conflicts with that use.
+#
+# ---------------------------------------------------------------------------------------------
+# Why cap jobs: this exists to stop builds from freezing SSH and Chrome Remote Desktop sessions.
+#
+# Cargo's default is one job per LOGICAL core, and each job is an rustc that spawns codegen threads
+# of its own. On the primary dev box (i7-12700: 8 P-cores + 4 E-cores = 12 physical, 20 logical)
+# that default saturates all 20 -- and rust/tools/pg.ps1's build-slot semaphore permits 2
+# concurrent builds, so the real worst case was ~40 rustc processes over 20 threads. Nothing was
+# left for the latency-sensitive daemons this machine is administered through: sshd, and Chrome
+# Remote Desktop's remoting_host video encoder, which misses its frame deadline and visibly stalls
+# the session long before the build itself slows down.
+#
+# This value is the FLOOR for invocations that bypass rust/tools/pg.ps1 -- rust-analyzer's
+# background `cargo check`, an IDE task, or a `cargo fmt`/`clean` the bare-cargo hook allows.
+# Managed builds set CARGO_BUILD_JOBS themselves (env beats config in Cargo's precedence order),
+# derived from the actual machine and divided across build slots -- see Get-CargoJobBudget in
+# rust/tools/_common.ps1, which is the thing to change if you want different arithmetic.
+#
+# 8 is a fixed, portable floor rather than a fraction of core count, because a config file cannot
+# compute one. On a smaller machine it is simply not binding; the managed path adapts.
+[build]
+jobs = 8
