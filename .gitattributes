@@ -1,0 +1,13 @@
+# Golden fixtures that tests compare byte-for-byte (assert_eq!) against LF-only generated
+# output (serde_json::to_string_pretty, or hand-built strings using "\n") must never be
+# reformatted to CRLF on checkout, or the comparison spuriously fails on content that has not
+# actually changed. This bit bare-root compile-time discharge (commit 0ec6007):
+# coverage_ledger_golden_json failed identically before and after that change, with an empty
+# line-based diff -- content was never the problem, `core.autocrlf=true` on a Windows
+# checkout was. Force these to LF regardless of the checking-out machine's line-ending
+# config. All four are `include_str!`-loaded goldens compared with assert_eq! in their
+# crate's own tests; verified each was CRLF-corrupted on this checkout before this fix.
+rust/crates/pg-foma/src/coverage_ledger_golden.json text eol=lf
+rust/crates/pg-foma/src/readiness_verdict_golden.json text eol=lf
+rust/crates/pg-foma/src/plan_diagram_golden.mmd text eol=lf
+rust/crates/pg-cli/src/make_report_golden.md text eol=lf
