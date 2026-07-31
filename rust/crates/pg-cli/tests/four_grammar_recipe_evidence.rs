@@ -330,15 +330,19 @@ fn four_promoted_grammars_have_truthful_recipe_evidence() {
     // registry's DECLARED families, independent of which apply to this grammar.
     assert_eq!(template["counts"]["syntactic"], 9);
     assert_eq!(template["counts"]["attested"], 9);
-    // 2, not 1: this grammar has no phonological rules so the token-cascade compiler does not apply,
-    // but the surface-probed one does (`Always`), and it is a genuinely distinct candidate rather than
-    // a relabelled baseline -- it compiles 14 states / 91 arcs where the plan-composed baseline
-    // compiles 2/13. Both confirm; both do 1 confirmation call, so the work-first key ties them and
-    // the smaller network wins, which is why `winner_strategy` below is the plan-composed one.
-    assert_eq!(template["counts"]["static_count"], 2);
+    // 3, not 2 (openspec/changes/cleanup-and-recipe-parity/specs/recipe-strategy-routing):
+    // `token-cascade-morphology` used to gate on `HasPhonology` alone, so a phonology-free grammar
+    // like this one never got it -- only the plan-composed baseline and the always-applicable
+    // surface-probed compiler (`Applicability::Always`) were distinct candidates. Widened to
+    // `HasPhonologyOrTemplates`, this grammar's `<AffixTemplate>` alone now qualifies it too, and it
+    // is a genuinely distinct candidate rather than a relabelled baseline -- it compiles 14 states /
+    // 91 arcs, same as the surface-probed one, where the plan-composed baseline compiles 2/13. All
+    // three confirm; all three do 1 confirmation call, so the work-first key ties them and the
+    // smaller network wins, which is why `winner_strategy` below is still the plan-composed one.
+    assert_eq!(template["counts"]["static_count"], 3);
     assert_eq!(template["counts"]["feasible"]["kind"], "exact");
-    assert_eq!(template["counts"]["feasible"]["value"], 2);
-    assert_eq!(template["pilot"]["sample_size"], 2);
+    assert_eq!(template["counts"]["feasible"]["value"], 3);
+    assert_eq!(template["pilot"]["sample_size"], 3);
     assert_eq!(template["winner_strategy"], "plan-composed");
     // 2, not 3: this fixture has ONE lexical entry, so `specialized-branch` -- now gated on
     // `HasSplittableGateGroup` (>= 2 entries) rather than `HasMorphology` -- is rejected by
@@ -346,6 +350,9 @@ fn four_promoted_grammars_have_truthful_recipe_evidence() {
     // then deduped. It moved from `duplicates` into `inapplicable`, which this report only began
     // reporting truthfully alongside that change: the CLI used to hardcode `inapplicable: 0` and
     // count only APPLICABLE instances in `generated`, so the bucket balanced while being blind.
+    // Unaffected by the `HasPhonologyOrTemplates` widening: `token-cascade-morphology` moved the
+    // OTHER direction (`inapplicable` -> a real, surviving candidate), so `duplicates` itself does
+    // not move; see the `inapplicable` bound immediately below for that count's own update.
     let template_pruning = accounted_pruning(&template, "recipe-template-generic");
     assert_eq!(template_pruning["duplicates"], 2);
     assert!(
@@ -354,8 +361,10 @@ fn four_promoted_grammars_have_truthful_recipe_evidence() {
          families; an `inapplicable` bucket this small means the report is counting applicability \
          rejections as something else: {template_pruning:?}"
     );
-    assert_eq!(template["pruning"]["evaluated"], 2);
-    assert_eq!(template["pruning"]["confirmed"], 2);
+    // 3, not 2, mirroring `static_count`/`feasible` above: `token-cascade-morphology` is now a third
+    // surviving, evaluated, confirming candidate for this phonology-free templated grammar.
+    assert_eq!(template["pruning"]["evaluated"], 3);
+    assert_eq!(template["pruning"]["confirmed"], 3);
     assert_eq!(template["strategy"], "exhaustive");
 
     let deep_fixture = "edge-cases/deep-optional-affix-nesting";
