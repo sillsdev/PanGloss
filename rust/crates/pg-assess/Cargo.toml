@@ -17,7 +17,7 @@ sha2.workspace = true
 # tests/duplicate_count_determinism.rs (task 1.12): drives the real propose->confirm composite
 # analyzer, including its cross-word rayon confirm parallelism, to check whether AnalysisSet
 # duplicate counts (and the semantic projection they feed) survive `analyze_words_with_threads`
-# byte-identically. `test-concurrency-hook` is opt-in instrumentation only (a `Cell`-gated sleep
-# behind an explicit `arm()` call) -- a no-op unless that test calls `arm()` first, so it costs
-# nothing in the rest of this crate's suite.
+# byte-identically. `test-concurrency-hook` is native-only, opt-in instrumentation owned by one
+# analyzer. It rendezvous-synchronizes two tasks only when the batch and pool can support them;
+# otherwise it records non-overlap without blocking. Unarmed analyzers remain unchanged.
 pg-foma = { workspace = true, features = ["test-concurrency-hook"] }

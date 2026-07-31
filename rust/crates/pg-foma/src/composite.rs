@@ -39,11 +39,11 @@ pub struct ProposedWord {
 type ConfirmedBuckets = Vec<Vec<(WordAnalysis, String, String)>>;
 type TimedConfirmedBuckets = (ConfirmedBuckets, Duration);
 
-#[cfg(feature = "test-concurrency-hook")]
+#[cfg(all(feature = "test-concurrency-hook", not(target_arch = "wasm32")))]
 #[doc(hidden)]
 pub mod test_confirmation_concurrency {
     use std::sync::{
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc, Barrier,
     };
 
@@ -57,6 +57,7 @@ pub mod test_confirmation_concurrency {
         max_active: AtomicUsize,
         rendezvous: Barrier,
         arrivals: AtomicUsize,
+        rendezvous_enabled: AtomicBool,
     }
 
     impl Probe {
@@ -67,8 +68,18 @@ pub mod test_confirmation_concurrency {
                     max_active: AtomicUsize::new(0),
                     rendezvous: Barrier::new(2),
                     arrivals: AtomicUsize::new(0),
+                    rendezvous_enabled: AtomicBool::new(false),
                 }),
             }
+        }
+
+        pub(super) fn prepare(&self, possible_concurrency: usize) {
+            self.state.active.store(0, Ordering::SeqCst);
+            self.state.max_active.store(0, Ordering::SeqCst);
+            self.state.arrivals.store(0, Ordering::SeqCst);
+            self.state
+                .rendezvous_enabled
+                .store(possible_concurrency > 1, Ordering::SeqCst);
         }
 
         pub fn max_active(&self) -> usize {
@@ -76,21 +87,20 @@ pub mod test_confirmation_concurrency {
         }
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
     pub(super) struct Guard(Arc<State>);
-    #[cfg(not(target_arch = "wasm32"))]
     impl Guard {
         pub(super) fn enter(probe: &Probe) -> Self {
             let state = Arc::clone(&probe.state);
             let active = state.active.fetch_add(1, Ordering::SeqCst) + 1;
             state.max_active.fetch_max(active, Ordering::SeqCst);
-            if state.arrivals.fetch_add(1, Ordering::SeqCst) < 2 {
+            if state.rendezvous_enabled.load(Ordering::SeqCst)
+                && state.arrivals.fetch_add(1, Ordering::SeqCst) < 2
+            {
                 state.rendezvous.wait();
             }
             Self(state)
         }
     }
-    #[cfg(not(target_arch = "wasm32"))]
     impl Drop for Guard {
         fn drop(&mut self) {
             self.0.active.fetch_sub(1, Ordering::SeqCst);
@@ -269,7 +279,7 @@ pub struct FomaAnalyzer<'g> {
     /// `chain_depth_cap` at `None` (unbounded) — this addition is a zero-behavior-change no-op for
     /// every existing caller of this type unless that env var is explicitly set.
     peel_budget: ComposeBudget,
-    #[cfg(feature = "test-concurrency-hook")]
+    #[cfg(all(feature = "test-concurrency-hook", not(target_arch = "wasm32")))]
     confirmation_concurrency_probe: Option<test_confirmation_concurrency::Probe>,
 }
 
@@ -290,7 +300,7 @@ impl<'g> FomaAnalyzer<'g> {
             morpher: Morpher::new(g, usize::MAX),
             owners: confirm::build_morpheme_owners(g),
             peel_budget: ComposeBudget::from_env(),
-            #[cfg(feature = "test-concurrency-hook")]
+            #[cfg(all(feature = "test-concurrency-hook", not(target_arch = "wasm32")))]
             confirmation_concurrency_probe: None,
         })
     }
@@ -306,7 +316,7 @@ impl<'g> FomaAnalyzer<'g> {
         )
     }
 
-    #[cfg(feature = "test-concurrency-hook")]
+    #[cfg(all(feature = "test-concurrency-hook", not(target_arch = "wasm32")))]
     #[doc(hidden)]
     pub fn arm_confirmation_concurrency_probe(&mut self) -> test_confirmation_concurrency::Probe {
         let probe = test_confirmation_concurrency::Probe::new();
@@ -859,7 +869,7 @@ impl<'g> FomaAnalyzer<'g> {
             morpher: Morpher::new(g, usize::MAX),
             owners,
             peel_budget: ComposeBudget::from_env(),
-            #[cfg(feature = "test-concurrency-hook")]
+            #[cfg(all(feature = "test-concurrency-hook", not(target_arch = "wasm32")))]
             confirmation_concurrency_probe: None,
         }
     }
@@ -967,6 +977,9 @@ fn confirm_proposed_words_with_probe(
     let pool = builder
         .build()
         .expect("build detached foma confirmation rayon pool");
+    if let Some(probe) = probe {
+        probe.prepare(words.len().min(pool.current_num_threads()));
+    }
     confirm_proposed_words_in_pool_with_probe(g, owners, words, proposed, &pool, probe)
 }
 

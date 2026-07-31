@@ -299,3 +299,44 @@ fn confirm_across_words_genuinely_overlaps_at_thread_count_above_one() {
          exercising cross-thread scheduling"
     );
 }
+
+/// The deadline is only a deadlock watchdog: success is still the observed concurrency count,
+/// never elapsed time. A broken blocking probe fails explicitly instead of hanging the test binary.
+fn observed_confirmation_concurrency_without_deadlock(
+    word_count: usize,
+    max_threads: usize,
+) -> usize {
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    let worker = std::thread::spawn(move || {
+        let g = load(DUP_ROOT_FIXTURE);
+        let words: Vec<String> = (0..word_count).map(|_| "kax".to_string()).collect();
+        let mut analyzer = FomaAnalyzer::new(&g).expect("fixture compiles");
+        let confirmation_concurrency = analyzer.arm_confirmation_concurrency_probe();
+        let outcomes = analyzer.analyze_words_with_threads(&words, max_threads);
+        assert_eq!(outcomes.len(), words.len());
+        sender
+            .send(confirmation_concurrency.max_active())
+            .expect("test receiver remains alive until the batch finishes");
+    });
+
+    let max_active = receiver
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .unwrap_or_else(|_| {
+            panic!(
+                "confirmation concurrency probe deadlocked with word_count={word_count} \
+                 max_threads={max_threads}"
+            )
+        });
+    worker.join().expect("probe worker did not panic");
+    max_active
+}
+
+#[test]
+fn confirmation_probe_with_one_word_records_non_overlap_without_deadlock() {
+    assert_eq!(observed_confirmation_concurrency_without_deadlock(1, 4), 1);
+}
+
+#[test]
+fn confirmation_probe_with_one_worker_records_non_overlap_without_deadlock() {
+    assert_eq!(observed_confirmation_concurrency_without_deadlock(8, 1), 1);
+}
