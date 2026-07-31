@@ -67,13 +67,34 @@ record so a "why is this slower than I expected" question is answerable from the
   memory twice on 2026-07-30 with every CPU control above already in place. A daemon blocked on a
   page fault stalls a remote session exactly as hard as one starved of CPU, and `BelowNormal` buys
   nothing there — it is not waiting for the scheduler. So `pg.ps1` now also **refuses to spawn**
-  when available memory is under `$script:InteractiveReserveGB` (8GB, `PANGLOSS_MIN_FREE_MEM_GB`),
+  when available memory is under `Get-SpawnFloorGB`,
   exiting **17** — distinct from low-disk's 12, because the recovery is completely different. It
   prints the largest working sets so the refusal is actionable, and re-checks *after* the
   build-slot wait, since a 30-minute queue is exactly how an approved reading goes stale. `doctor`
   reports the same state; `gc` is exempt, because it is the recovery action.
   Available memory then narrows `-Jobs`/`-TestThreads` the same way cores do, and the preflight
   record names which of the two actually bound the number.
+
+  **Every threshold here is proportional to installed RAM, never a fixed number of gigabytes.** A
+  flat figure cannot be right on two machines at once, and the failure is asymmetric: too low on a
+  big box risks the machine, too high on a small box blocks ordinary work — and a gate that blocks
+  ordinary work gets set to 0, protecting nobody. An 8GB reserve is 12% of a 64GB box and **50% of a
+  16GB developer machine**. So the reserve is 10% of installed RAM clamped to [1.5, 6]GB, the spawn
+  floor is that plus ~2GB of room for the build itself, and the job-object cap is
+  `(installed − reserve) / slots`:
+
+  | Installed | Reserve | Spawn floor | Job cap (of 2 slots) |
+  |---|---|---|---|
+  | 16GB | 1.6GB | 3.6GB (22%) | 7GB |
+  | 32GB | 3.2GB | 5.2GB (16%) | 14GB |
+  | 64GB | 6GB | 8GB (12%) | 29GB |
+
+  Note the 64GB row lands on the flat 8GB it replaced — which is exactly why that number looked
+  right on the box it was picked on. Overrides: `PANGLOSS_MEM_RESERVE_FRACTION`,
+  `PANGLOSS_MIN_FREE_MEM_GB` (absolute), `PANGLOSS_MIN_BUILD_ROOM_GB`, `PANGLOSS_JOB_MEM_GB`.
+  Caveat at the small end: below ~12GB installed, two concurrent builds cannot both fit under the
+  reserve (the job cap floors at 4GB to keep linking working), so such a machine should also run
+  `-MaxConcurrent 1`. Nothing enforces that yet.
 
 - **Kernel-enforced ceilings (`procgov`).** The pre-spawn gate cannot bound a peak that develops ten
   minutes into a build, so every managed build runs inside a **Windows job object** via
@@ -103,6 +124,16 @@ record so a "why is this slower than I expected" question is answerable from the
   22x oversubscription, because `-j` caps codegen workers *within* one rustc but not threads across
   instances ([rust#81957](https://github.com/rust-lang/rust/issues/81957)). `--cpurate` is the only
   thing that actually bounds that; `jobs = 8` cannot.
+
+  On the "it got faster, so it crashed" theory: the mechanism is real — peak memory is (jobs
+  simultaneously in their heavy phase) x per-job peak, and anything that raises throughput, including
+  the Windows Defender exclusions for the Rust toolchain, means less time blocked on I/O and so more
+  rustc processes compute-resident at once. But it cannot account for exhausting 64GB *while
+  building*: the measurement above was taken with those exclusions already in place and still peaked
+  at 4.03GB, so the theory would need ~16x the observed peak. What the exclusions plausibly did
+  worsen is the CPU side (446 threads, 100% CPU), and a box at 100% CPU with no priority headroom is
+  indistinguishable from a crashed one over SSH or remote desktop. If a "crash" during a *build*
+  needs explaining, suspect CPU starvation before memory.
 
   So the memory exhaustion is by elimination in test *execution*, not the build:
   `$script:MemoryPerTestProcessGB` (2.5GB) remains an **unmeasured placeholder**, a corpus/foma case

@@ -41,10 +41,54 @@ Test-Case 'unknown available memory does not block the build' {
 }
 
 Test-Case 'default reserve is used when -MinFreeGB is not passed' {
-    $ok = Test-MemoryReserve -AvailableGB ($script:InteractiveReserveGB + 10)
-    $notOk = Test-MemoryReserve -AvailableGB ($script:InteractiveReserveGB - 1)
+    $floor = Get-SpawnFloorGB
+    $ok = Test-MemoryReserve -AvailableGB ($floor + 10)
+    $notOk = Test-MemoryReserve -AvailableGB ($floor - 1)
     Assert-True $ok.Ok
     Assert-False $notOk.Ok
+}
+
+# ---------------------------------------------------------------------------------------------
+# Proportional sizing. A flat threshold cannot be correct on two machine sizes at once, and the
+# failure is asymmetric: too low on a big box risks the machine, too high on a small box blocks
+# ordinary work -- and a gate that blocks ordinary work gets set to 0, protecting nobody.
+# ---------------------------------------------------------------------------------------------
+
+Test-Case 'the reserve scales with installed memory instead of being a flat number' {
+    $small = Get-InteractiveReserveGB -TotalGB 16
+    $big = Get-InteractiveReserveGB -TotalGB 64
+    Assert-True ($small -lt $big) "reserve must scale (16GB machine got $small, 64GB got $big)"
+}
+
+Test-Case 'a 16GB developer machine is not asked to keep half its RAM free' {
+    # The concrete regression: a flat 8GB reserve is 50% of a 16GB box, so no build could start
+    # unless half of RAM were free.
+    $floor = Get-SpawnFloorGB -TotalGB 16
+    Assert-True ($floor -lt (16 * 0.35)) "spawn floor ${floor}GB is too large a share of a 16GB machine"
+    Assert-True ($floor -ge $script:MinBuildRoomGB) "must still leave room for the build to progress (got $floor)"
+}
+
+Test-Case 'the reserve is clamped at both ends' {
+    # Nothing worth reserving on a tiny box; no point hoarding tens of GB on a huge one.
+    Assert-Equal $script:InteractiveReserveFloorGB (Get-InteractiveReserveGB -TotalGB 4)
+    Assert-Equal $script:InteractiveReserveCeilingGB (Get-InteractiveReserveGB -TotalGB 512)
+}
+
+Test-Case 'an unmeasurable machine gets the floor, not the ceiling' {
+    # Guessing high would refuse builds on a machine we know nothing about, and the job object
+    # bounds the damage either way.
+    Assert-Equal $script:InteractiveReserveFloorGB (Get-InteractiveReserveGB -TotalGB $null)
+}
+
+Test-Case 'all permitted builds together still leave the machine its reserve' {
+    # Holds at BOTH sizes -- the property a flat 45%-of-RAM job cap broke on 16GB, where
+    # 7.2GB x 2 slots = 14.4GB of 16GB left the OS nothing.
+    foreach ($total in @(8, 16, 32, 64, 128)) {
+        $reserve = Get-InteractiveReserveGB -TotalGB $total
+        $cap = Get-JobMemoryCapGB -MaxConcurrent 2 -TotalGB $total
+        Assert-True ((2 * $cap) -le ($total - $reserve) -or $cap -eq 4) `
+            "on a ${total}GB machine, 2 builds at ${cap}GB each must fit inside ${total}-${reserve}GB"
+    }
 }
 
 # ---------------------------------------------------------------------------------------------
@@ -181,13 +225,16 @@ Test-Case 'an explicit override is never narrowed by either budget' {
 # anything in this repo. Nothing here launches procgov or a build -- Get-ProcGovArgs is pure.
 # ---------------------------------------------------------------------------------------------
 
-Test-Case 'the job memory cap is derived from installed RAM, not available RAM' {
-    # Deliberately independent of current load: a ceiling that shrank because another build was
-    # already running would fail the second build at a size the first was allowed.
+Test-Case 'the job memory cap is derived from installed RAM, not from current load' {
+    # Independent of what is running RIGHT NOW: a ceiling that shrank because another build was
+    # already going would fail the second build at a size the first was allowed. It DOES scale with
+    # the slot count, which is the point -- see the "all permitted builds" test below.
     $a = Get-JobMemoryCapGB -MaxConcurrent 2 -TotalGB 64
-    $b = Get-JobMemoryCapGB -MaxConcurrent 1 -TotalGB 64
-    Assert-Equal $a $b 'the cap must not vary with how many builds are permitted'
+    $b = Get-JobMemoryCapGB -MaxConcurrent 2 -TotalGB 64
+    Assert-Equal $a $b 'the cap must be a pure function of installed memory and slot count'
     Assert-True ($a -gt 4) "expected a real cap on a 64GB machine, got $a"
+    $solo = Get-JobMemoryCapGB -MaxConcurrent 1 -TotalGB 64
+    Assert-True ($solo -gt $a) "a single permitted build should get more headroom than one of two (solo=$solo, of-two=$a)"
 }
 
 Test-Case 'two concurrent builds cannot together exceed installed memory' {

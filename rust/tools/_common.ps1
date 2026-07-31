@@ -40,7 +40,47 @@ $script:InteractiveReserveThreads = if ($env:PANGLOSS_INTERACTIVE_RESERVE) { [in
 # page fault is not competing for CPU at all.
 #
 # Reserve kept unclaimed, machine-wide, for the OS plus the daemons this box is reached through.
-$script:InteractiveReserveGB = if ($env:PANGLOSS_MIN_FREE_MEM_GB) { [double]$env:PANGLOSS_MIN_FREE_MEM_GB } else { 8 }
+#
+# PROPORTIONAL, not a fixed number of gigabytes. A flat reserve cannot be right on two machines at
+# once: 8GB is 12% of this 64GB box (reasonable) but 50% of a 16GB developer machine, where it would
+# refuse to start a build unless half of RAM were free -- a gate that blocks ordinary work gets set
+# to 0 and then protects nobody. The fraction is the policy; the floor and ceiling stop it becoming
+# meaningless at the extremes (nothing worth reserving on a tiny box, no point hoarding 25GB on a
+# huge one).
+$script:InteractiveReserveFraction = if ($env:PANGLOSS_MEM_RESERVE_FRACTION) { [double]$env:PANGLOSS_MEM_RESERVE_FRACTION } else { 0.10 }
+$script:InteractiveReserveFloorGB = 1.5
+$script:InteractiveReserveCeilingGB = 6
+# Room a build needs to make actual progress, on top of the daemon reserve. Separate because it
+# answers a different question: the reserve protects the machine FROM the build, this protects the
+# build from starting into a machine where it can only thrash. ~2GB is the caller's own estimate of
+# what a build needs under good conditions, and it is consistent with the measured 4.03GB peak for
+# an entire -Mode test fan-out.
+$script:MinBuildRoomGB = if ($env:PANGLOSS_MIN_BUILD_ROOM_GB) { [double]$env:PANGLOSS_MIN_BUILD_ROOM_GB } else { 2 }
+
+function Get-InteractiveReserveGB {
+    param([Nullable[double]]$TotalGB = (Get-TotalMemoryGB))
+    if ($env:PANGLOSS_MIN_FREE_MEM_GB) { return [double]$env:PANGLOSS_MIN_FREE_MEM_GB }
+    # Unmeasurable machine: the floor, not the ceiling. Guessing high here would refuse builds on a
+    # machine we know nothing about, and the job object bounds the damage either way.
+    if ($null -eq $TotalGB) { return $script:InteractiveReserveFloorGB }
+    $r = $TotalGB * $script:InteractiveReserveFraction
+    if ($r -lt $script:InteractiveReserveFloorGB) { $r = $script:InteractiveReserveFloorGB }
+    if ($r -gt $script:InteractiveReserveCeilingGB) { $r = $script:InteractiveReserveCeilingGB }
+    return [math]::Round($r, 1)
+}
+
+function Get-SpawnFloorGB {
+    # The "do not start a build" line: daemon headroom PLUS enough room for the build to progress.
+    # 16GB machine -> 1.6 + 2 = 3.6GB; 64GB -> 6 + 2 = 8GB. Note the 64GB answer lands on the flat
+    # 8GB this replaced, which is why that number looked right on the box it was chosen on.
+    #
+    # This threshold matters much less than it did before procgov: a job object caps each build's
+    # commit regardless of how much was free at spawn, so the spawn gate's remaining job is to turn
+    # a hopeless start into a clear message instead of a mid-build allocation failure. That is why it
+    # is sized to be generous to the developer rather than maximally cautious.
+    param([Nullable[double]]$TotalGB = (Get-TotalMemoryGB))
+    return [math]::Round(((Get-InteractiveReserveGB -TotalGB $TotalGB) + $script:MinBuildRoomGB), 1)
+}
 # Working-set allowance assumed per concurrent process, used to convert "how much memory is free"
 # into "how many of these may run at once". Three numbers, because the phases are not comparable:
 #
@@ -76,11 +116,11 @@ $script:InteractiveReserveGB = if ($env:PANGLOSS_MIN_FREE_MEM_GB) { [double]$env
 # ENFORCEMENT is delegated to a Windows job object via procgov, rather than hand-rolled here.
 # See Get-ProcGovPath / Get-ProcGovArgs below for why, and for what that replaced.
 #
-# Fraction of installed RAM a single build's job object may commit. The cap only has to stop a
-# runaway; it is not a prediction of what a healthy build needs, so it is set well above any real
-# build. Combined with Enter-BuildSlot's max of 2, the machine-wide worst case is bounded at twice
-# this -- which is the property that makes a memory-reservation ledger unnecessary.
-$script:JobMemoryFraction = if ($env:PANGLOSS_JOB_MEM_FRACTION) { [double]$env:PANGLOSS_JOB_MEM_FRACTION } else { 0.45 }
+# The per-build job-object commit ceiling is derived (Get-JobMemoryCapGB), not a fixed fraction.
+# An earlier flat 45%-of-RAM had the same defect as the flat 8GB reserve: on 64GB it gives a sane
+# 28GB per build, but on a 16GB machine it gives 7.2GB x 2 slots = 14.4GB of 16GB, leaving the OS
+# nothing. Deriving it from (installed - reserve) / slots makes the arithmetic hold at both sizes.
+# PANGLOSS_JOB_MEM_GB overrides the result outright.
 
 $script:MemoryPerCompileJobGB = if ($env:PANGLOSS_MEM_PER_JOB_GB) { [double]$env:PANGLOSS_MEM_PER_JOB_GB } else { 1.5 }
 $script:MemoryPerLtoLinkJobGB = if ($env:PANGLOSS_MEM_PER_LTO_JOB_GB) { [double]$env:PANGLOSS_MEM_PER_LTO_JOB_GB } else { 2 }
@@ -160,7 +200,7 @@ function Test-MemoryReserve {
     # direction that leaves a machine you can still SSH into.
     param(
         [Nullable[double]]$AvailableGB,
-        [double]$MinFreeGB = $script:InteractiveReserveGB
+        [double]$MinFreeGB = (Get-SpawnFloorGB)
     )
     if ($null -eq $AvailableGB) {
         return [PSCustomObject]@{ Ok = $true; Detail = 'available memory unknown (not queryable) -- not blocking on it'; AvailableGB = $null }
@@ -193,7 +233,7 @@ function Get-MemoryProcessBudget {
     param(
         [Nullable[double]]$AvailableGB,
         [double]$PerProcessGB,
-        [double]$ReserveGB = $script:InteractiveReserveGB,
+        [double]$ReserveGB = (Get-InteractiveReserveGB),
         [int]$MaxConcurrent = 1
     )
     if ($null -eq $AvailableGB) { return $null }
@@ -279,9 +319,12 @@ function Get-JobMemoryCapGB {
     # runaway backstop, and a cap that shrank because another build was already running would make
     # the second build fail spuriously at a size the first was allowed.
     param([int]$MaxConcurrent = 2, [Nullable[double]]$TotalGB = (Get-TotalMemoryGB))
+    if ($env:PANGLOSS_JOB_MEM_GB) { return [int]$env:PANGLOSS_JOB_MEM_GB }
     if ($null -eq $TotalGB) { return $null }
     if ($MaxConcurrent -lt 1) { $MaxConcurrent = 1 }
-    $cap = [math]::Floor($TotalGB * $script:JobMemoryFraction)
+    # (installed - daemon reserve) split across the slots the semaphore permits, so all permitted
+    # builds together still leave the OS its headroom. 64GB -> (64-6)/2 = 29; 16GB -> (16-1.6)/2 = 7.
+    $cap = [math]::Floor((($TotalGB - (Get-InteractiveReserveGB -TotalGB $TotalGB)) / $MaxConcurrent))
     # Floor of 4GB: a cap below this fails ordinary linking, and a limit that breaks every build is
     # worse than no limit, because it gets removed rather than tuned.
     return [int][Math]::Max(4, $cap)
@@ -1201,7 +1244,7 @@ function Write-Preflight {
             # can bind it: the CPU derivation is still true arithmetic but no longer the reason.
             $perJob = if ($PerJobMemoryGB -gt 0) { $PerJobMemoryGB } else { $script:MemoryPerCompileJobGB }
             $ltoNote = if ($perJob -eq $script:MemoryPerLtoLinkJobGB) { ' (fat-LTO link peak)' } else { '' }
-            "$($JobsBudget.Detail); ${perJob}GB/job assumed${ltoNote} over a ${script:InteractiveReserveGB}GB reserve, split across $MaxConcurrent slot(s)"
+            "$($JobsBudget.Detail); ${perJob}GB/job assumed${ltoNote} over a $(Get-InteractiveReserveGB)GB reserve, split across $MaxConcurrent slot(s)"
         } else {
             "$([Environment]::ProcessorCount) logical - $script:InteractiveReserveThreads reserved for SSH/remote-desktop daemons, split across $MaxConcurrent slot(s)"
         }
