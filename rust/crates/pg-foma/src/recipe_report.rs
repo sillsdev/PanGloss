@@ -288,6 +288,7 @@ mod tests {
             proposals: 1,
             confirmation: 1,
             confirmation_steps: 1,
+            raw_paths: 0,
         });
         assert!(r.validate().is_ok());
         assert!(r.replay_parameters.contains_key("seed") || r.seed == 0);

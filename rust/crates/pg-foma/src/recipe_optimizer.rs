@@ -171,6 +171,14 @@ pub struct Score {
     /// "we did not measure it" honestly means here.
     #[serde(default)]
     pub confirmation_steps: u64,
+    /// Raw proposer paths `apply_up` yielded across the whole corpus, before tag-decode/dedup --
+    /// summed from `FomaWordDiagnostics::raw_paths` (see that field's doc). The propose-side
+    /// counterpart to `confirmation_steps`: together they are the leading term of [`Self::key`].
+    /// `#[serde(default)]` for the same reason `confirmation_steps` carries it -- reports written
+    /// before this field existed still parse, and a `0` from one of them honestly means "not
+    /// measured", not "zero work done".
+    #[serde(default)]
+    pub raw_paths: u64,
 }
 
 impl Score {
@@ -214,9 +222,32 @@ impl Score {
     /// and the cap now measure the same quantity rather than two proxies for it. `confirmation`
     /// (calls) stays as the next component: it separates candidates that happen to consume equal
     /// steps across a different number of adjudications.
+    ///
+    /// # Why `raw_paths` joins the leading term (and why steps alone were not enough)
+    /// `confirmation_steps` prices confirm-side work only. It does NOT price what it costs to
+    /// *produce* the candidates confirm then adjudicates -- and chunk fusion (`confirm.rs`'s batched
+    /// re-parse) means propose-side blowups do not reliably show up as more steps: fusion absorbs
+    /// excess proposals into shared oracle calls at near-zero marginal step cost, so a candidate that
+    /// does several-fold more propose-side traversal can still look step-tied with one that does far
+    /// less. Measured on Sena's four-corpus shape: the plan-composed path produced 575 proposals over
+    /// 42 confirmation calls and 1192 steps, while the hand-spun candidate produced 127 proposals over
+    /// 17 calls and 1252 steps. Steps-first alone ranked the hand-spun candidate ONLY because its step
+    /// count happened to be slightly higher; had it instead been slightly lower (fully plausible --
+    /// steps and proposals are not coupled by anything the key enforces), the old key would have
+    /// picked the 575-proposal candidate on a step count that never priced the 4.5x proposal gap at
+    /// all. `raw_paths` (the count of raw paths `apply_up` yields before tag-decode/dedup, summed
+    /// across the corpus) restores that missing cost deterministically: it is exactly the same kind of
+    /// unit as a step -- one traversal action -- so the two are summed rather than chained as separate
+    /// lexicographic terms, and a candidate can no longer look cheap by pushing its cost from the
+    /// confirm side to the propose side. `proposals` (post-dedup candidate count) cannot substitute
+    /// for this: it undercounts exactly the traversal a proposer pays before dedup collapses paths
+    /// together, which is the whole quantity this term exists to price. Unit commensurability between
+    /// a step and a raw path is asserted 1:1, not derived; if a future corpus shows the sum
+    /// mis-ranking, the documented fallback is to keep steps-first and add `raw_paths` as its own
+    /// lexicographic term instead of summing it in (design.md D4).
     pub fn key(&self, id: &str) -> (u64, u64, u64, u64, String) {
         (
-            self.confirmation_steps,
+            self.confirmation_steps.saturating_add(self.raw_paths),
             self.confirmation,
             self.proposals,
             self.states.saturating_add(self.arcs),
@@ -892,6 +923,7 @@ mod tests {
                         proposals: 1,
                         confirmation: 1,
                         confirmation_steps: 1,
+                        raw_paths: 0,
                     }),
                     usage: BudgetUsage {
                         evaluations: 1,
@@ -957,6 +989,7 @@ mod tests {
                         proposals: 1,
                         confirmation: 1,
                         confirmation_steps: 1,
+                        raw_paths: 0,
                     }),
                     usage: BudgetUsage {
                         evaluations: 1,
@@ -1025,6 +1058,7 @@ mod tests {
                         proposals: 1,
                         confirmation: 1,
                         confirmation_steps: 1,
+                        raw_paths: 0,
                     }),
                     usage: BudgetUsage {
                         evaluations: 1,
@@ -1087,6 +1121,7 @@ mod tests {
             proposals: 1,
             confirmation: 1,
             confirmation_steps: 1,
+            raw_paths: 0,
         };
         let failures = vec![
             Certification::EstimateOnly,
@@ -1144,6 +1179,7 @@ mod tests {
                     proposals: 1,
                     confirmation: 1,
                     confirmation_steps: 1,
+                    raw_paths: 0,
                 },
             ),
             (
@@ -1157,6 +1193,7 @@ mod tests {
                     proposals: 9,
                     confirmation: 9,
                     confirmation_steps: 9,
+                    raw_paths: 0,
                 },
             ),
         ];
@@ -1177,5 +1214,124 @@ mod tests {
         // work. Confirmation work is the cost that dominates propose->confirm, so it ranks first now
         // and size is only a tiebreak beneath it.
         assert_eq!(select_confirmed(&items), Some("large-fast".to_owned()));
+    }
+
+    /// D4's motivating case, pinned as a synthetic fixture: the measured Sena shape where the
+    /// plan-composed candidate proposes several-fold more (higher `raw_paths`) for a marginally
+    /// LOWER confirm-step count, and the old steps-only key picked it on that alone. Measured
+    /// four-corpus numbers (design.md D4): plan-composed 575 proposals / 42 confirmation calls /
+    /// 1192 confirmation_steps, vs hand-spun 127 proposals / 17 calls / 1252 steps. `raw_paths`
+    /// (pre-dedup traversal, necessarily >= the post-dedup `proposals` count) is not one of the
+    /// measured columns, so this fixture invents illustrative values consistent with "several-fold
+    /// more propose-side work" and asserts the new key reverses the old steps-only preference.
+    #[test]
+    fn sena_shaped_lower_total_work_wins_despite_higher_confirmation_steps() {
+        let confirmed = Certification::FullHcConfirmed {
+            words: 20,
+            corpus_hash: "sena-shape".to_owned(),
+        };
+        let plan_composed = Score {
+            states: 100,
+            arcs: 200,
+            build: 1,
+            apply: 1,
+            proposals: 575,
+            confirmation: 42,
+            confirmation_steps: 1192,
+            // Several-fold more propose-side traversal than the hand-spun candidate below -- the
+            // cost chunk fusion hides from `confirmation_steps` alone.
+            raw_paths: 2000,
+        };
+        let hand_spun = Score {
+            states: 100,
+            arcs: 200,
+            build: 1,
+            apply: 1,
+            proposals: 127,
+            confirmation: 17,
+            confirmation_steps: 1252,
+            raw_paths: 400,
+        };
+        // Under the OLD key (confirmation_steps alone, ascending) `plan_composed` would win: 1192 <
+        // 1252. Confirm that fact directly, so this test also documents the regression it guards.
+        assert!(plan_composed.confirmation_steps < hand_spun.confirmation_steps);
+        // Under the NEW key the combined leading term reverses that: 1192 + 2000 = 3192 for
+        // `plan_composed` against 1252 + 400 = 1652 for `hand_spun` -- lower total work wins.
+        let items = vec![
+            ("plan-composed".to_owned(), confirmed.clone(), plan_composed),
+            ("hand-spun".to_owned(), confirmed, hand_spun),
+        ];
+        assert_eq!(select_confirmed(&items), Some("hand-spun".to_owned()));
+    }
+
+    /// The measured Indonesian shape: one candidate is better-or-equal on every deterministic work
+    /// metric (states+arcs, proposals, confirmation calls, confirmation_steps, and raw_paths) and
+    /// strictly better on at least one. A dominant winner must be selected regardless of the new
+    /// `raw_paths` term -- adding it must never flip an outcome that was already unambiguous.
+    #[test]
+    fn dominant_on_every_metric_still_wins_with_raw_paths_in_the_key() {
+        let confirmed = Certification::FullHcConfirmed {
+            words: 10,
+            corpus_hash: "indonesian-shape".to_owned(),
+        };
+        let dominant = Score {
+            states: 50,
+            arcs: 100,
+            build: 1,
+            apply: 1,
+            proposals: 200,
+            confirmation: 10,
+            confirmation_steps: 300,
+            raw_paths: 500,
+        };
+        let dominated = Score {
+            states: 60,
+            arcs: 120,
+            build: 1,
+            apply: 1,
+            proposals: 250,
+            confirmation: 12,
+            confirmation_steps: 350,
+            raw_paths: 600,
+        };
+        let items = vec![
+            ("dominant".to_owned(), confirmed.clone(), dominant),
+            ("dominated".to_owned(), confirmed, dominated),
+        ];
+        assert_eq!(select_confirmed(&items), Some("dominant".to_owned()));
+        // A dominated candidate is never on the frontier either.
+        assert_eq!(pareto_frontier(&items), vec!["dominant".to_owned()]);
+    }
+
+    /// Backward compatibility: a report written before `raw_paths` existed has no such key in its
+    /// JSON at all. `#[serde(default)]` must resolve that absence to `0` -- "not measured", not a
+    /// deserialization failure -- mirroring the same convention already documented on
+    /// `confirmation_steps`.
+    #[test]
+    fn score_without_raw_paths_deserializes_with_zero_default() {
+        let json = r#"{
+            "states": 11,
+            "arcs": 13,
+            "build": 5,
+            "apply": 7,
+            "proposals": 3,
+            "confirmation": 2,
+            "confirmation_steps": 9
+        }"#;
+        let score: Score = serde_json::from_str(json).expect("legacy Score JSON must still parse");
+        assert_eq!(score.raw_paths, 0);
+        assert_eq!(
+            score,
+            Score {
+                states: 11,
+                arcs: 13,
+                build: 5,
+                apply: 7,
+                proposals: 3,
+                confirmation: 2,
+                confirmation_steps: 9,
+                raw_paths: 0,
+            }
+        );
     }
 }

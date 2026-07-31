@@ -54,6 +54,7 @@ impl CandidateEvaluator for SyntheticEvaluator {
                 proposals: 1,
                 confirmation: 1,
                 confirmation_steps: 1,
+                raw_paths: 0,
             }),
             usage: BudgetUsage {
                 candidates: 1,
