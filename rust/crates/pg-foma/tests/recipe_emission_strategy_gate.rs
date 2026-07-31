@@ -34,9 +34,7 @@
 
 use pg_foma::enumerate::{enumerate_default, EmissionStrategy};
 use pg_foma::junctions::PhonologyProbe;
-use pg_foma::recipe_registry::{
-    MaterializerContext, Registry, FAMILY_TOKEN_CASCADE_MORPHOLOGY,
-};
+use pg_foma::recipe_registry::{MaterializerContext, Registry, FAMILY_TOKEN_CASCADE_MORPHOLOGY};
 use pg_foma::replace::SegAlphabet;
 use pg_grammar::model::Grammar;
 

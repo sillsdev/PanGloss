@@ -341,7 +341,11 @@ fn build_failed(
     reason: String,
     build: u64,
 ) -> RuntimeEvaluation {
-    failed_evaluation(realized_strategy, Certification::BuildFailed { reason }, build)
+    failed_evaluation(
+        realized_strategy,
+        Certification::BuildFailed { reason },
+        build,
+    )
 }
 
 fn evaluate_via_tuned_emit(

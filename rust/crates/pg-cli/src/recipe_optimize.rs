@@ -14,9 +14,7 @@ use pg_foma::recipe_optimizer::{
     CandidateEvaluator, CandidateState, ConfirmationEvidence, ConstraintTopology,
     DefaultStrategyRegistry, PilotCosts, StrategyRegistry,
 };
-use pg_foma::recipe_registry::{
-    Registry, FAMILY_ORDERED_MORPHOPHONOLOGY, REGISTRY_SCHEMA_VERSION,
-};
+use pg_foma::recipe_registry::{Registry, FAMILY_ORDERED_MORPHOPHONOLOGY, REGISTRY_SCHEMA_VERSION};
 use pg_foma::recipe_report::{
     CandidateReport, PruningWaterfall, RecipeOptimizationReport, SearchAccounting,
 };

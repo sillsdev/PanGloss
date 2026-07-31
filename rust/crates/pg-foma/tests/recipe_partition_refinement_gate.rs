@@ -48,8 +48,7 @@ use pg_foma::enumerate::enumerate_default;
 use pg_foma::junctions::PhonologyProbe;
 use pg_foma::oracle::{differential_oracle, OracleResult};
 use pg_foma::recipe_registry::{
-    MaterializerContext, Registry, FAMILY_LAYERED_MORPHOLOGY,
-    FAMILY_SPECIALIZED_BRANCH,
+    MaterializerContext, Registry, FAMILY_LAYERED_MORPHOLOGY, FAMILY_SPECIALIZED_BRANCH,
 };
 use pg_foma::replace::SegAlphabet;
 use pg_grammar::model::Grammar;
@@ -76,10 +75,7 @@ use foma::options::FomaOptions;
 const FIXTURE: &str = "recipe-ordered-generic";
 
 /// The two families wired onto `refine_gate_partition`. Each must own a surviving distinct plan.
-const REFINEMENT_FAMILIES: [&str; 2] = [
-    FAMILY_SPECIALIZED_BRANCH,
-    FAMILY_LAYERED_MORPHOLOGY,
-];
+const REFINEMENT_FAMILIES: [&str; 2] = [FAMILY_SPECIALIZED_BRANCH, FAMILY_LAYERED_MORPHOLOGY];
 
 fn load() -> (Grammar, Vec<String>) {
     let fixtures = pg_conformance_fixtures::discover();

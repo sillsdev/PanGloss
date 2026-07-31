@@ -260,8 +260,9 @@ mod tests {
             "fixture is used here BECAUSE it declares affix templates"
         );
 
-        let compiled = compile_templated_morphotactics(&grammar)
-            .expect("a phonology-free templated grammar must compile, not fail with NoCompiledRules");
+        let compiled = compile_templated_morphotactics(&grammar).expect(
+            "a phonology-free templated grammar must compile, not fail with NoCompiledRules",
+        );
         assert_eq!(
             compiled.profile.phonological_rule_count, 0,
             "this fixture declares no phonological rules; the profile should say so honestly"

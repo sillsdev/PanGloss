@@ -97,9 +97,7 @@ use crate::compose_budget::{
 };
 use crate::enumerate::rule_id_of;
 use crate::gate::GatedCompileResult;
-use crate::plan::{
-    FragmentSpec, GatedSubruleRef, NodeId, Plan, PlanNodeKind, ReplaceCascadeSpec,
-};
+use crate::plan::{FragmentSpec, GatedSubruleRef, NodeId, Plan, PlanNodeKind, ReplaceCascadeSpec};
 use crate::replace::{compile_and_compose_rules_gated_with_budget, SegAlphabet, TupleReport};
 use crate::uflexc::{emit_underlying_filtered_with_budget, UEmitReport};
 

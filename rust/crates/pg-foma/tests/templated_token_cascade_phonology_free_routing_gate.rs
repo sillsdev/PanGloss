@@ -104,7 +104,9 @@ fn templated_phonology_free_fixture_offers_the_token_cascade_candidate() {
     // materialized candidate carries template-aware structure (a whole-grammar strategy), not just
     // permutations/refinements of the plan-composed baseline.
     assert!(
-        candidates.iter().any(|(_, c)| c.strategy.is_whole_grammar()),
+        candidates
+            .iter()
+            .any(|(_, c)| c.strategy.is_whole_grammar()),
         "candidate set for a template-bearing grammar was plan-composed (uflexc) only: {:?}",
         candidates
             .iter()
@@ -134,7 +136,10 @@ fn phonology_bearing_fixture_offering_is_unchanged() {
         .expect("materialization must succeed");
 
     let candidate = token_cascade_candidate(&candidates);
-    assert_eq!(candidate.strategy, EmissionStrategy::TemplatedUnderlyingTokens);
+    assert_eq!(
+        candidate.strategy,
+        EmissionStrategy::TemplatedUnderlyingTokens
+    );
 }
 
 /// Correctness, not just reachability: the widened routing is only useful if the compiler it points
