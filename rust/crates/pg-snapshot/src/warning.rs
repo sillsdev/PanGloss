@@ -84,13 +84,19 @@ mod tests {
 
     #[test]
     fn display_is_exactly_the_message() {
-        let w = Warning::new("fwdata.dangling-reference", "phoneme \"00...\" does not resolve");
+        let w = Warning::new(
+            "fwdata.dangling-reference",
+            "phoneme \"00...\" does not resolve",
+        );
         assert_eq!(w.to_string(), "phoneme \"00...\" does not resolve");
     }
 
     #[test]
     fn deref_supports_str_methods_like_contains() {
-        let w = Warning::new("fwdata.dangling-reference", "dangling reference to Foo abc-123");
+        let w = Warning::new(
+            "fwdata.dangling-reference",
+            "dangling reference to Foo abc-123",
+        );
         assert!(w.contains("abc-123"));
     }
 

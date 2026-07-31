@@ -246,24 +246,33 @@ fn check_feature_structure(
         match (&value.value, closed_hit) {
             (FeatureValueKind::Closed { value: v }, Some((_, values))) => {
                 if !values.contains(v) {
-                    warnings.push(Warning::new(FEATURE_STRUCTURE_UNRESOLVED, format!(
-                        "{context}: feature value {v:?} does not resolve within feature {:?}",
-                        value.feature
-                    )));
+                    warnings.push(Warning::new(
+                        FEATURE_STRUCTURE_UNRESOLVED,
+                        format!(
+                            "{context}: feature value {v:?} does not resolve within feature {:?}",
+                            value.feature
+                        ),
+                    ));
                 }
             }
             (FeatureValueKind::Closed { .. }, None) => {
-                warnings.push(Warning::new(FEATURE_STRUCTURE_UNRESOLVED, format!(
-                    "{context}: closed feature {:?} does not resolve to any closed feature",
-                    value.feature
-                )));
+                warnings.push(Warning::new(
+                    FEATURE_STRUCTURE_UNRESOLVED,
+                    format!(
+                        "{context}: closed feature {:?} does not resolve to any closed feature",
+                        value.feature
+                    ),
+                ));
             }
             (FeatureValueKind::Complex { value: nested }, _) => {
                 if !complex.contains(&value.feature) {
-                    warnings.push(Warning::new(FEATURE_STRUCTURE_UNRESOLVED, format!(
+                    warnings.push(Warning::new(
+                        FEATURE_STRUCTURE_UNRESOLVED,
+                        format!(
                         "{context}: complex feature {:?} does not resolve to any complex feature",
                         value.feature
-                    )));
+                    ),
+                    ));
                 }
                 check_feature_structure(nested, closed, complex, context, warnings);
             }
@@ -300,9 +309,7 @@ fn check_phon_context(
             if !reg.natural_classes.contains(natural_class) {
                 warnings.push(Warning::new(
                     DANGLING_REFERENCE,
-                    format!(
-                        "{context}: natural class {natural_class:?} does not resolve"
-                    ),
+                    format!("{context}: natural class {natural_class:?} does not resolve"),
                 ));
             }
             for v in plus_variables.iter().chain(minus_variables) {

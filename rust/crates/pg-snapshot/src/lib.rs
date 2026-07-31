@@ -454,8 +454,7 @@ mod tests {
     #[test]
     fn validate_dangling_reference_carries_the_expected_code() {
         let mut snap = sample_snapshot();
-        snap.lexicon.entries[0]
-            .allomorphs[0]
+        snap.lexicon.entries[0].allomorphs[0]
             .environments
             .push("dangling-env-guid".to_string());
         let warnings = snap.validate();
@@ -474,8 +473,7 @@ mod tests {
         let mut snap = sample_snapshot();
         snap.lexicon.entries[0].senses[0].msa =
             Some("00000000-0000-0000-0000-000000000000".to_string());
-        snap.lexicon.entries[0]
-            .allomorphs[0]
+        snap.lexicon.entries[0].allomorphs[0]
             .environments
             .push("dangling-env-guid".to_string());
         let warnings = snap.validate();
@@ -499,13 +497,11 @@ mod tests {
     #[test]
     fn validate_dangling_reference_code_is_stable_regardless_of_message_text() {
         let mut snap_a = sample_snapshot();
-        snap_a.lexicon.entries[0]
-            .allomorphs[0]
+        snap_a.lexicon.entries[0].allomorphs[0]
             .environments
             .push("guid-aaa".to_string());
         let mut snap_b = sample_snapshot();
-        snap_b.lexicon.entries[0]
-            .allomorphs[0]
+        snap_b.lexicon.entries[0].allomorphs[0]
             .environments
             .push("guid-bbb".to_string());
 

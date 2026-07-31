@@ -132,9 +132,8 @@ fn project_set(g: &Grammar, structured: &[pg_parse::WordAnalysis]) -> AnalysisSe
 #[test]
 fn sanity_deep_optional_affix_nesting_produces_no_identity_duplicates() {
     let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let path = manifest_dir.join(
-        "../../../machine/conformance/edge-cases/deep-optional-affix-nesting/grammar.xml",
-    );
+    let path = manifest_dir
+        .join("../../../machine/conformance/edge-cases/deep-optional-affix-nesting/grammar.xml");
     if !path.exists() {
         eprintln!("skipping: deep-optional-affix-nesting/grammar.xml not present on disk");
         return;
@@ -238,8 +237,7 @@ fn duplicate_counts_and_semantic_digest_are_thread_count_invariant() {
             let mut semantic_cases = Vec::with_capacity(words.len());
             for (outcome, _elapsed) in &outcomes {
                 let set = project_set(&g, &outcome.structured);
-                per_word_dup_counts
-                    .push(set.entries().iter().map(|e| e.duplicate_count).collect());
+                per_word_dup_counts.push(set.entries().iter().map(|e| e.duplicate_count).collect());
                 semantic_cases.push(set.to_semantic_value());
             }
             let semantic_digest = digest_projection(
