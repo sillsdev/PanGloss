@@ -26,11 +26,6 @@ use std::panic::{self, AssertUnwindSafe};
 use pg_conformance_fixtures::discover;
 use pg_foma::composite::FomaAnalyzer;
 
-// FomaError (pg_foma::analyzer::FomaError) is deliberately a small, flat enum (see its own doc);
-// boxing its largest variant to silence this lint would change the public enum's shape for every
-// downstream `match`, which is out of scope for a lint-only cleanup (see the same justification on
-// `FomaProposer::new`/`FomaAnalyzer::new` in pg-foma's own src).
-#[allow(clippy::result_large_err)]
 #[test]
 fn every_fixture_reaches_foma_analyzer_new_without_panicking() {
     // Suppress the default panic-message spam for this loop (we catch and report ourselves, with
@@ -53,10 +48,10 @@ fn every_fixture_reaches_foma_analyzer_new_without_panicking() {
             continue;
         };
 
-        let result = panic::catch_unwind(AssertUnwindSafe(|| FomaAnalyzer::new(&g)));
+        let result = panic::catch_unwind(AssertUnwindSafe(|| FomaAnalyzer::new(&g).is_ok()));
         match result {
-            Ok(Ok(_analyzer)) => compiled += 1,
-            Ok(Err(_decline)) => declined += 1,
+            Ok(true) => compiled += 1,
+            Ok(false) => declined += 1,
             Err(payload) => {
                 let msg = if let Some(s) = payload.downcast_ref::<&str>() {
                     (*s).to_string()
