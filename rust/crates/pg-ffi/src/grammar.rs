@@ -298,6 +298,7 @@ impl GrammarHandle {
                 }
             }
         };
+        #[cfg(not(target_arch = "wasm32"))]
         let official = pg_foma::composite::confirm_proposed_words_in_pool(
             &self.grammar,
             &owners,
@@ -305,10 +306,18 @@ impl GrammarHandle {
             proposed,
             &pool,
         );
+        #[cfg(target_arch = "wasm32")]
+        let official = pg_foma::composite::confirm_proposed_words(
+            &self.grammar,
+            &owners,
+            words,
+            proposed,
+            max_threads,
+        );
         Ok(self.union_official_batch(words, official, &pool, guess_fallback))
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(target_arch = "wasm32")))]
     fn analyze_words_with_confirmation_concurrency_probe(
         &self,
         words: &[String],
@@ -483,7 +492,7 @@ impl GrammarHandle {
             .store(true, std::sync::atomic::Ordering::SeqCst);
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(target_arch = "wasm32")))]
     fn pool_build_count_for_test(&self) -> usize {
         self.pool_build_count
             .load(std::sync::atomic::Ordering::SeqCst)
@@ -738,6 +747,7 @@ mod runtime_backend_tests {
         };
     }
 
+    #[cfg(all(test, not(target_arch = "wasm32")))]
     #[test]
     fn batch_confirmation_uses_requested_parallelism_outside_backend_lock() {
         let handle = GrammarHandle::new(pg_grammar::load(XML).unwrap(), XML);
