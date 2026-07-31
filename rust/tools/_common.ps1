@@ -440,7 +440,6 @@ function Get-ProcGovArgs {
     # rustc/link.exe -- which is where all the memory and CPU actually goes -- escapes the job.
     # It also makes procgov wait for the whole tree, so orphaned compilers cannot outlive the build.
     $a += '-r'
-    $a += '--nogui'
     $a += '--terminate-job-on-exit'
     $a += '--'
     $a += $Exe

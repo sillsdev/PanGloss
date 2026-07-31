@@ -320,5 +320,16 @@ Test-Case 'Get-AvailableMemoryGB answers with a plausible number or null, and ne
         }
     }
 }
+Test-Case 'procgov preserves an inherited console while retaining every resource limit' {
+    # procgov's --nogui hides whichever console it inherits. With Start-Process -NoNewWindow
+    # that console is the user's Windows Terminal, so --nogui minimizes the entire terminal.
+    # The remedy must leave the load-bearing job-object flags intact.
+    $a = Get-ProcGovArgs -JobMemoryGB 28 -CpuRatePercent 70 -Priority 'BelowNormal' -Exe 'cargo' -CmdArgs @('build')
+    Assert-Contains $a '--maxjobmem=28G'
+    Assert-Contains $a '--cpurate=70'
+    Assert-Contains $a '-r'
+    Assert-Contains $a '--terminate-job-on-exit'
+    Assert-False (@($a) -contains '--nogui') 'procgov must not hide the inherited Windows Terminal console'
+}
 
 Write-TestSummary
