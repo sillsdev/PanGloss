@@ -175,6 +175,87 @@ Test-Case 'an explicit override is never narrowed by either budget' {
 # Wiring: the gate has to have a distinct exit code, and the live query has to answer sanely
 # ---------------------------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------------------------
+# Job-object enforcement (procgov). The pure-arithmetic gates above decide how WIDE to go; these
+# cover the ceiling that actually bounds a runaway, which is enforced by the kernel rather than by
+# anything in this repo. Nothing here launches procgov or a build -- Get-ProcGovArgs is pure.
+# ---------------------------------------------------------------------------------------------
+
+Test-Case 'the job memory cap is derived from installed RAM, not available RAM' {
+    # Deliberately independent of current load: a ceiling that shrank because another build was
+    # already running would fail the second build at a size the first was allowed.
+    $a = Get-JobMemoryCapGB -MaxConcurrent 2 -TotalGB 64
+    $b = Get-JobMemoryCapGB -MaxConcurrent 1 -TotalGB 64
+    Assert-Equal $a $b 'the cap must not vary with how many builds are permitted'
+    Assert-True ($a -gt 4) "expected a real cap on a 64GB machine, got $a"
+}
+
+Test-Case 'two concurrent builds cannot together exceed installed memory' {
+    # THE property that makes a reservation ledger unnecessary: with builds capped at 2 by
+    # Enter-BuildSlot and each capped by a job object, the machine-wide worst case is bounded by
+    # construction, so several waiters racing on the same free-memory reading cannot exhaust the box.
+    $total = 64
+    $cap = Get-JobMemoryCapGB -MaxConcurrent 2 -TotalGB $total
+    Assert-True ((2 * $cap) -lt $total) "2 builds at ${cap}GB each must stay under ${total}GB total"
+}
+
+Test-Case 'the job memory cap floors at 4GB on a tiny machine' {
+    # A cap below this fails ordinary linking, and a limit that breaks every build gets removed
+    # rather than tuned -- which would leave no limit at all.
+    Assert-Equal 4 (Get-JobMemoryCapGB -MaxConcurrent 2 -TotalGB 2)
+}
+
+Test-Case 'an unmeasurable machine gets no cap rather than a fabricated one' {
+    Assert-Equal $null (Get-JobMemoryCapGB -MaxConcurrent 2 -TotalGB $null)
+}
+
+Test-Case 'the CPU rate ceiling leaves the interactive reserve free' {
+    # This is the bound -j provably cannot give: rust-lang/rust#81957 -- -j caps codegen workers
+    # within one rustc, not threads across instances. Measured here: -j7 produced 112 threads and
+    # 17.7 of 20 cores busy.
+    $pct = Get-JobCpuRatePercent -ReserveThreads 6
+    if ($null -ne $pct) {
+        Assert-True ($pct -lt 100) "a ceiling of $pct% would enforce nothing"
+        Assert-True ($pct -ge 10) "a ceiling of $pct% would stall the build"
+    }
+}
+
+Test-Case 'a reserve that would consume the whole machine still leaves the build runnable' {
+    $pct = Get-JobCpuRatePercent -ReserveThreads ([Environment]::ProcessorCount + 10)
+    if ($null -ne $pct) { Assert-True ($pct -ge 10) "expected a floor, got $pct%" }
+}
+
+Test-Case 'procgov args carry both ceilings, recurse to children, and terminate the job' {
+    $a = Get-ProcGovArgs -JobMemoryGB 28 -CpuRatePercent 70 -Priority 'BelowNormal' -Exe 'cargo' -CmdArgs @('build', '--release')
+    Assert-Contains $a '--maxjobmem=28G'
+    Assert-Contains $a '--cpurate=70'
+    Assert-Contains $a '--priority=BelowNormal'
+    # -r is load-bearing, not cosmetic: without it the limits bind the cargo process alone and every
+    # rustc/link.exe -- where all the memory and CPU actually goes -- escapes the job entirely.
+    Assert-Contains $a '-r'
+    Assert-Contains $a '--terminate-job-on-exit'
+}
+
+Test-Case 'the wrapped command and its arguments survive in order after the -- separator' {
+    # A wrapper that reordered or dropped cargo's arguments would be the self-concealing failure
+    # this repo already guards against elsewhere (see pg.ps1's PositionalBinding note).
+    $a = Get-ProcGovArgs -JobMemoryGB 8 -CpuRatePercent 50 -Exe 'cargo' -CmdArgs @('nextest', 'run', '--test-threads', '7')
+    $sep = [array]::IndexOf($a, '--')
+    Assert-True ($sep -ge 0) 'the -- separator must be present'
+    Assert-Equal 'cargo' $a[$sep + 1]
+    Assert-Equal 'nextest' $a[$sep + 2]
+    Assert-Equal 'run' $a[$sep + 3]
+    Assert-Equal '--test-threads' $a[$sep + 4]
+    Assert-Equal '7' $a[$sep + 5]
+}
+
+Test-Case 'omitted ceilings emit no flag at all rather than an empty value' {
+    $a = Get-ProcGovArgs -JobMemoryGB $null -CpuRatePercent $null -Exe 'cargo' -CmdArgs @('build')
+    Assert-False (@($a | Where-Object { $_ -like '--maxjobmem*' }).Count -gt 0) 'no memory flag expected'
+    Assert-False (@($a | Where-Object { $_ -like '--cpurate*' }).Count -gt 0) 'no cpu flag expected'
+    Assert-Contains $a 'cargo'
+}
+
 Test-Case 'low memory has its own exit code, distinct from low disk' {
     Assert-Equal 17 $script:ExitCodeLowMemory
     Assert-True ($script:ExitCodeLowMemory -ne $script:ExitCodeLowDisk) 'two failures with different recoveries must not share a code'

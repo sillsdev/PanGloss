@@ -415,13 +415,14 @@ if (-not $sem) {
     exit $script:ExitCodeBuildSlotTimeout
 }
 
-# Re-check memory AFTER the slot wait, not just at preflight. The gate above ran before a wait that
-# is allowed to last 30 minutes, and the whole point of queueing is that another build is running --
-# so the reading the gate approved is precisely the reading most likely to be stale by the time this
-# run actually starts. Nothing here re-derives the job counts (cargo is about to be handed them, and
-# a build refused at this point never spends the memory anyway); it only refuses.
-$availableMemNow = Get-AvailableMemoryGB
-$memCheckNow = Test-MemoryReserve -AvailableGB $availableMemNow
+# Re-check memory after the slot wait, which is allowed to last 30 minutes -- the reading the
+# preflight gate approved is precisely the one most likely to be stale by the time a queued build
+# actually starts. This is only a courtesy check that turns a hopeless start into a clear message;
+# it is deliberately NOT the thing that bounds the machine. Several waiters can pass it in the same
+# instant, and that is fine, because Enter-BuildSlot caps concurrent builds at 2 and each one then
+# runs inside a job object with a hard commit ceiling. Two bounded builds cannot exhaust the box, so
+# the race stops mattering without a reservation ledger to maintain.
+$memCheckNow = Test-MemoryReserve -AvailableGB (Get-AvailableMemoryGB)
 if (-not $memCheckNow.Ok) {
     Exit-BuildSlot -Semaphore $sem
     Write-Host "[pg] memory dropped below the reserve while waiting for a build slot: $($memCheckNow.Detail)" -ForegroundColor Red
@@ -436,7 +437,7 @@ try {
 
     if ($Mode -eq 'corpus-test') {
         $capturePath = Join-Path ([System.IO.Path]::GetTempPath()) "pg-corpus-test-$PID.log"
-        $code = Invoke-CargoWithReaper -Exe 'cargo' -CmdArgs $cargoArgs -WorkingDirectory $rustRoot -CaptureStdoutPath $capturePath -Priority $Priority
+        $code = Invoke-CargoWithReaper -Exe 'cargo' -CmdArgs $cargoArgs -WorkingDirectory $rustRoot -CaptureStdoutPath $capturePath -Priority $Priority -JobMaxConcurrent $MaxConcurrent
         $lines = if (Test-Path $capturePath) { Get-Content $capturePath } else { @() }
         $lines | ForEach-Object { Write-Host $_ }
         $caseLines = @($lines | Where-Object { $_ -match '^PANGLOSS_CORPUS_CASES\s+(\S+)\s+(\d+)$' })
@@ -452,7 +453,7 @@ try {
         }
         Write-Host "[pg] corpus-test executed $totalCases corpus case(s) across $($caseLines.Count) label(s)." -ForegroundColor Green
     } else {
-        $code = Invoke-CargoWithReaper -Exe 'cargo' -CmdArgs $cargoArgs -WorkingDirectory $rustRoot -Priority $Priority
+        $code = Invoke-CargoWithReaper -Exe 'cargo' -CmdArgs $cargoArgs -WorkingDirectory $rustRoot -Priority $Priority -JobMaxConcurrent $MaxConcurrent
     }
 } finally {
     Exit-BuildSlot -Semaphore $sem

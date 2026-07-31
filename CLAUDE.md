@@ -75,15 +75,41 @@ record so a "why is this slower than I expected" question is answerable from the
   Available memory then narrows `-Jobs`/`-TestThreads` the same way cores do, and the preflight
   record names which of the two actually bound the number.
 
-  Sizing, and what it is *not*: measured 2026-07-30, a fat-LTO relink of the `pangloss` binary peaks
-  at **0.71GB** of rustc working set, with the whole `-j3` fan-out never exceeding 1.2GB total. So
-  the compile/link path is **not** where this machine's memory went — do not reach for
-  `PANGLOSS_MEM_PER_LTO_JOB_GB` first when diagnosing the next exhaustion. The unmeasured allowance
-  is `$script:MemoryPerTestProcessGB` (2.5GB), and the test path is where the evidence points: a
-  corpus/foma case can be a whole grammar compile, and one `pangloss batch` probe reached 30+ GB
-  RSS. Measuring a corpus-test run is the outstanding calibration. At rest these numbers bind
-  nothing — an idle 63.7GB box still gets all 7 jobs, which is deliberate: a gate that taxes every
-  ordinary build gets switched off and then protects nothing.
+- **Kernel-enforced ceilings (`procgov`).** The pre-spawn gate cannot bound a peak that develops ten
+  minutes into a build, so every managed build runs inside a **Windows job object** via
+  [procgov](https://github.com/lowleveldesign/process-governor) — `--maxjobmem` (committed memory
+  for the whole tree), `--cpurate` (hard CPU ceiling), `-r` (bind every rustc/link.exe, not just
+  cargo). Install: `winget install LowLevelDesign.ProcessGovernor`. It is **optional**: without it
+  builds still run, with every pre-spawn gate intact and a loud warning.
+
+  This is prefabricated on purpose. A hand-rolled polling watchdog plus a machine-wide memory
+  reservation ledger were written first and then deleted — the kernel enforces at allocation time
+  with no sampling interval to lose a spike in, and a job memory cap makes a runaway fail *its own
+  allocation* rather than taking the machine down. With `Enter-BuildSlot` capping builds at 2 and
+  each one capped by a job object, the machine-wide worst case is bounded by construction, which is
+  why no reservation ledger is needed to stop several waiting builds from starting together.
+
+  Cargo has no equivalent: [cargo#12912](https://github.com/rust-lang/cargo/issues/12912) (limit
+  parallelism automatically) is open and `S-needs-design`, [#9157](https://github.com/rust-lang/cargo/issues/9157)
+  (restrict parallel linker invocations) likewise, and [#11707](https://github.com/rust-lang/cargo/issues/11707)
+  / [#9735](https://github.com/rust-lang/cargo/issues/9735) describe this exact workspace shape
+  (OOM linking many binaries). No cargo plugin solves it. Don't re-invent this locally.
+
+  **Measured 2026-07-30 — read this before blaming the build for the next exhaustion.** A full
+  `-Mode test` build (711 samples, 313 processes) peaked at **1.08GB** for the largest single rustc
+  and **4.03GB across the entire fan-out**, never dropping below 50.4GB free. A forced fat-LTO
+  relink of the `pangloss` binary peaked at 0.71GB. **Compiling and linking are not where this
+  machine's memory goes.** What the same run *did* show is **446 threads on 20 logical cores** — a
+  22x oversubscription, because `-j` caps codegen workers *within* one rustc but not threads across
+  instances ([rust#81957](https://github.com/rust-lang/rust/issues/81957)). `--cpurate` is the only
+  thing that actually bounds that; `jobs = 8` cannot.
+
+  So the memory exhaustion is by elimination in test *execution*, not the build:
+  `$script:MemoryPerTestProcessGB` (2.5GB) remains an **unmeasured placeholder**, a corpus/foma case
+  can be a whole grammar compile, and one `pangloss batch` probe reached 30+ GB RSS. Measuring a
+  corpus-test *run* is the outstanding calibration. At rest none of the per-process numbers bind —
+  an idle 63.7GB box still gets all 7 jobs, deliberately: a gate that taxes every ordinary build
+  gets switched off and then protects nothing.
 
 Override per-run with `-Jobs N` / `-TestThreads N` / `-Priority Normal` (on `pg.ps1`, `build.ps1`,
 or `test.ps1`) when you're at the console and there's no remote session to protect. `-Jobs` and
@@ -129,6 +155,37 @@ much they actually bought:
 `pg.ps1 -Mode gc` reaps dead-parent `cargo`/`rustc`/`link`/`cc1` and, separately, dead-parent
 `find`/`rg`/`grep`/`findstr` that have burned >60s CPU and lived >2min. Dry-run by default;
 `-Apply` to act.
+
+## What is scoped to the PC, and what is scoped to the worktree
+
+Several worktrees run here, sometimes with more than one agent inside a single worktree. Every
+resource control below has to be classified correctly or it protects nothing: a per-worktree cap on
+a machine-wide resource just multiplies by the number of worktrees. The rule is what the resource
+*is*, not who is asking for it.
+
+| Concern | Scope | Mechanism |
+|---|---|---|
+| CPU cores | **per PC** | `Get-CargoJobBudget` (cores − reserve ÷ slots), `-TestThreads`, `BelowNormal` priority, and `procgov --cpurate` as the only hard ceiling |
+| Memory | **per PC** | spawn gate (machine-wide available memory) + `procgov --maxjobmem` per build |
+| Taking your turn | **per PC** | `Enter-BuildSlot` — `Global\PanGlossCargoBuild`, a named semaphore, max 2 |
+| Killing old processes | **per worktree** | `gc`'s orphan sweeps: liveness by dead *parent*, never by name/age |
+| Disk / target dirs | **per worktree** | ownership markers; `gc` never deletes another worktree's target |
+
+The build slot is the one people ask for by name — "don't start a third build if two are going" is
+already exactly what `Enter-BuildSlot` does, and it binds across worktrees *and* across agents
+inside one worktree, because a Windows named semaphore is per-machine. A third `pg.ps1` waits, then
+exits 15 after 30 minutes rather than hanging forever.
+
+Two honest limits on that. The semaphore's maximum is fixed by whichever process creates it first
+and cannot be changed while it lives, so `-MaxConcurrent` is a *convention* everyone must pass the
+same value for, not a per-invocation guarantee. And it only binds callers who go through `pg.ps1` —
+bare cargo in another worktree takes no slot, which is what `block-bare-cargo.py` exists for.
+
+The width knobs are weaker still: `Get-CargoJobBudget` always divides by `MaxConcurrent = 2`
+whether or not a second build exists, so a solo build takes 7 jobs where 14 would be safe, and two
+builds take 7 each whether or not the other one is there. It assumes the worst case permanently
+rather than measuring. Memory is the counter-example worth copying — it is derived from a live
+machine-wide reading, so it sees other worktrees (and bare cargo, and anything else) for free.
 
 ## Playing nicely with other worktrees
 

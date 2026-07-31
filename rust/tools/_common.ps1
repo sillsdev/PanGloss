@@ -73,6 +73,15 @@ $script:InteractiveReserveGB = if ($env:PANGLOSS_MIN_FREE_MEM_GB) { [double]$env
 #    has recorded. Measuring a corpus-test run is the obvious next calibration, and until someone
 #    does, this gate's protection on the test path rests on the reserve and the spawn refusal rather
 #    than on this figure being right.
+# ENFORCEMENT is delegated to a Windows job object via procgov, rather than hand-rolled here.
+# See Get-ProcGovPath / Get-ProcGovArgs below for why, and for what that replaced.
+#
+# Fraction of installed RAM a single build's job object may commit. The cap only has to stop a
+# runaway; it is not a prediction of what a healthy build needs, so it is set well above any real
+# build. Combined with Enter-BuildSlot's max of 2, the machine-wide worst case is bounded at twice
+# this -- which is the property that makes a memory-reservation ledger unnecessary.
+$script:JobMemoryFraction = if ($env:PANGLOSS_JOB_MEM_FRACTION) { [double]$env:PANGLOSS_JOB_MEM_FRACTION } else { 0.45 }
+
 $script:MemoryPerCompileJobGB = if ($env:PANGLOSS_MEM_PER_JOB_GB) { [double]$env:PANGLOSS_MEM_PER_JOB_GB } else { 1.5 }
 $script:MemoryPerLtoLinkJobGB = if ($env:PANGLOSS_MEM_PER_LTO_JOB_GB) { [double]$env:PANGLOSS_MEM_PER_LTO_JOB_GB } else { 2 }
 $script:MemoryPerTestProcessGB = if ($env:PANGLOSS_MEM_PER_TEST_GB) { [double]$env:PANGLOSS_MEM_PER_TEST_GB } else { 2.5 }
@@ -219,6 +228,104 @@ function Resolve-ConcurrencyBudget {
         return [PSCustomObject]@{ Value = [int]$MemoryBudget; Bound = 'memory'; Detail = "memory-bound (cpu budget would allow $CpuBudget)" }
     }
     return [PSCustomObject]@{ Value = $CpuBudget; Bound = 'cpu'; Detail = "cpu-bound (memory would allow $MemoryBudget)" }
+}
+
+# ---------------------------------------------------------------------------------------------
+# Resource enforcement via a Windows job object (procgov)
+#
+# This replaces three hand-rolled mechanisms with one prefabricated tool, deliberately, because the
+# hand-rolled versions were worse AND had to be maintained here:
+#
+#   * a 2-second polling loop that sampled available memory and ran `taskkill /T` -- a kernel job
+#     object enforces a commit limit at ALLOCATION time, so there is no sampling interval to lose a
+#     spike in, and the failure mode is rustc dying with an out-of-memory error rather than the whole
+#     machine going unreachable while everything fights over the last gigabyte;
+#   * a machine-wide reservation ledger with a mutex, invented to stop several waiting builds from
+#     all seeing "memory is free!" at once and starting together. With a HARD per-build cap plus
+#     Enter-BuildSlot's max of 2, the worst case is bounded by construction, so the race stops
+#     mattering and ~200 lines of ledger, expiry and liveness bookkeeping go away;
+#   * `-j`-based CPU limiting, which provably cannot bound rustc's total thread count
+#     (rust-lang/rust#81957: -j caps codegen workers WITHIN an instance, not threads across
+#     instances). Measured here: -j7 produced 112 threads and 17.7 of 20 cores busy. --cpurate is a
+#     kernel-enforced ceiling that does not care how many threads exist.
+#
+# Cargo has no built-in answer to any of this -- rust-lang/cargo#12912 (limit parallelism
+# automatically) is open and S-needs-design, and #9157 (restrict parallel linker invocations) and
+# #11707 / #9735 (OOM linking many binaries) describe this exact workspace shape. There is no cargo
+# plugin that solves it, so the choice is a job object or nothing.
+#
+# procgov is OPTIONAL. A machine without it still builds, with every pre-spawn gate intact and a
+# loud warning -- an absent tool must degrade the protection, never break the build.
+# ---------------------------------------------------------------------------------------------
+
+function Get-ProcGovPath {
+    # PATH first, then winget's shim and package directories, because winget only adds its Links
+    # directory to PATH for shells started AFTER the install -- and the shell that just installed it
+    # (or a long-lived agent session) will not see it there.
+    if ($env:PANGLOSS_PROCGOV) { return (Test-Path $env:PANGLOSS_PROCGOV) ? $env:PANGLOSS_PROCGOV : $null }
+    $cmd = Get-Command 'procgov' -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+    foreach ($candidate in @(
+            (Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Links\procgov.exe'),
+            (Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Packages\LowLevelDesign.ProcessGovernor_Microsoft.Winget.Source_8wekyb3d8bbwe\procgov.exe')
+        )) {
+        if ($candidate -and (Test-Path $candidate)) { return $candidate }
+    }
+    return $null
+}
+
+function Get-JobMemoryCapGB {
+    # Per-build commit ceiling. Derived from INSTALLED memory, not available memory: this is a
+    # runaway backstop, and a cap that shrank because another build was already running would make
+    # the second build fail spuriously at a size the first was allowed.
+    param([int]$MaxConcurrent = 2, [Nullable[double]]$TotalGB = (Get-TotalMemoryGB))
+    if ($null -eq $TotalGB) { return $null }
+    if ($MaxConcurrent -lt 1) { $MaxConcurrent = 1 }
+    $cap = [math]::Floor($TotalGB * $script:JobMemoryFraction)
+    # Floor of 4GB: a cap below this fails ordinary linking, and a limit that breaks every build is
+    # worse than no limit, because it gets removed rather than tuned.
+    return [int][Math]::Max(4, $cap)
+}
+
+function Get-JobCpuRatePercent {
+    # Kernel-enforced ceiling sized from the same interactive reserve as the job budget, so the
+    # daemons this machine is administered through keep headroom no matter how many threads rustc
+    # decides to spawn. Returns $null when the reserve leaves nothing meaningful to cap.
+    param([int]$ReserveThreads = $script:InteractiveReserveThreads)
+    $logical = [Environment]::ProcessorCount
+    if ($logical -le 0) { return $null }
+    $usable = $logical - $ReserveThreads
+    if ($usable -lt 1) { $usable = 1 }
+    $pct = [int][math]::Floor(($usable / $logical) * 100)
+    if ($pct -lt 10) { $pct = 10 }
+    if ($pct -ge 100) { return $null }   # nothing to enforce
+    return $pct
+}
+
+function Get-ProcGovArgs {
+    # Pure argument construction, split out so the limits actually applied are assertable in a test
+    # without launching procgov or a build.
+    param(
+        [Nullable[int]]$JobMemoryGB,
+        [Nullable[int]]$CpuRatePercent,
+        [string]$Priority = '',
+        [Parameter(Mandatory)][string]$Exe,
+        [string[]]$CmdArgs = @()
+    )
+    $a = @()
+    if ($null -ne $JobMemoryGB) { $a += "--maxjobmem=${JobMemoryGB}G" }
+    if ($null -ne $CpuRatePercent) { $a += "--cpurate=$CpuRatePercent" }
+    if ($Priority) { $a += "--priority=$Priority" }
+    # -r is REQUIRED, not optional: without it the limits apply to the cargo process alone, and every
+    # rustc/link.exe -- which is where all the memory and CPU actually goes -- escapes the job.
+    # It also makes procgov wait for the whole tree, so orphaned compilers cannot outlive the build.
+    $a += '-r'
+    $a += '--nogui'
+    $a += '--terminate-job-on-exit'
+    $a += '--'
+    $a += $Exe
+    $a += $CmdArgs
+    return $a
 }
 
 function Get-TopMemoryConsumers {
@@ -428,11 +535,35 @@ function Invoke-CargoWithReaper {
         [string]$CaptureStdoutPath = '',
         # CPU priority class for cargo AND every rustc/link.exe it spawns -- see the
         # PriorityClass block below for why this is inherited rather than set per-child.
-        [ValidateSet('Idle', 'BelowNormal', 'Normal')][string]$Priority = 'BelowNormal'
+        [ValidateSet('Idle', 'BelowNormal', 'Normal')][string]$Priority = 'BelowNormal',
+        # Only used to size the job object's memory ceiling; the build-slot semaphore is what
+        # actually bounds concurrency.
+        [int]$JobMaxConcurrent = 2
     )
+    # Wrap the whole build in a Windows job object (via procgov) when available, so the memory and
+    # CPU ceilings are enforced by the KERNEL at allocation/scheduling time rather than by this
+    # script noticing after the fact. -r puts every rustc/link.exe in the job, which is where all
+    # the resource use actually is. See the Get-ProcGovPath block above for what this replaced.
+    $procgov = Get-ProcGovPath
+    $launchExe = $Exe
+    $launchArgs = $CmdArgs
+    if ($procgov) {
+        $jobMemGB = Get-JobMemoryCapGB -MaxConcurrent $JobMaxConcurrent
+        $cpuRate = Get-JobCpuRatePercent
+        $launchArgs = Get-ProcGovArgs -JobMemoryGB $jobMemGB -CpuRatePercent $cpuRate -Priority $Priority -Exe $Exe -CmdArgs $CmdArgs
+        $launchExe = $procgov
+        $capDesc = @()
+        if ($null -ne $jobMemGB) { $capDesc += "${jobMemGB}GB committed memory" }
+        if ($null -ne $cpuRate) { $capDesc += "${cpuRate}% CPU" }
+        Write-Host "[pg] job object: $($capDesc -join ', ') (kernel-enforced across cargo and every process it spawns)" -ForegroundColor DarkGray
+    } else {
+        Write-Host '[pg] WARNING: procgov not found -- this build runs with NO kernel-enforced memory or CPU ceiling.' -ForegroundColor Yellow
+        Write-Host '[pg] The pre-spawn gates still apply, but nothing bounds a runaway once it starts. Install with: winget install LowLevelDesign.ProcessGovernor' -ForegroundColor Yellow
+    }
+
     $psiArgs = @{
-        FilePath         = $Exe
-        ArgumentList     = $CmdArgs
+        FilePath         = $launchExe
+        ArgumentList     = $launchArgs
         WorkingDirectory = $WorkingDirectory
         NoNewWindow      = $true
         PassThru         = $true
@@ -471,6 +602,11 @@ function Invoke-CargoWithReaper {
         Write-Host "[pg] note: could not set $Priority priority on cargo (pid $($psi.Id)): $($_.Exception.Message)" -ForegroundColor DarkGray
     }
 
+    # A plain wait. There is no polling watchdog here any more: under procgov the ceilings are
+    # enforced by the kernel continuously, with no sampling interval for a spike to hide in, and a
+    # build that exceeds its commit limit fails its own allocation instead of taking the machine
+    # down. The taskkill in `finally` stays, because it covers a case the job object does not: this
+    # SCRIPT being interrupted (Ctrl+C) while the build is healthy and still running.
     try {
         Wait-Process -Id $psi.Id
         return $psi.ExitCode
