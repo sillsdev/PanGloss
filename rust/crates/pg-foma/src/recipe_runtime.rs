@@ -252,6 +252,7 @@ fn measure_and_certify(
     let mut proposals: u64 = 0;
     let mut confirmation: u64 = 0;
     let mut confirmation_steps: u64 = 0;
+    let mut raw_paths: u64 = 0;
     for w in words {
         let t = Instant::now();
         let p = analyzer.analyze_word_with_diagnostics(w);
@@ -260,6 +261,7 @@ fn measure_and_certify(
         confirmation = confirmation.saturating_add(p.diagnostics.confirmation_calls as u64);
         confirmation_steps =
             confirmation_steps.saturating_add(p.diagnostics.confirmation_steps as u64);
+        raw_paths = raw_paths.saturating_add(p.diagnostics.raw_paths as u64);
         actual.push((w.clone(), p.outcome.structured));
     }
     let score = Score {
@@ -270,6 +272,7 @@ fn measure_and_certify(
         proposals,
         confirmation,
         confirmation_steps,
+        raw_paths,
     };
     let breach = [
         ("states", score.states, budget.states),
@@ -320,6 +323,7 @@ fn build_failed(
             proposals: 0,
             confirmation: 0,
             confirmation_steps: 0,
+            raw_paths: 0,
         },
     }
 }
@@ -534,6 +538,7 @@ pub fn evaluate_plans_marked(
                     proposals: 0,
                     confirmation: 0,
                     confirmation_steps: 0,
+                    raw_paths: 0,
                 },
             })
             .collect();
@@ -573,6 +578,7 @@ pub fn evaluate_plans_marked(
                         proposals: 0,
                         confirmation: 0,
                         confirmation_steps: 0,
+                        raw_paths: 0,
                     },
                 };
             };
@@ -590,6 +596,7 @@ pub fn evaluate_plans_marked(
                         proposals: 0,
                         confirmation: 0,
                         confirmation_steps: 0,
+                        raw_paths: 0,
                     },
                 };
             };
@@ -619,6 +626,7 @@ pub fn evaluate_plans_marked(
                             proposals: 0,
                             confirmation: 0,
                             confirmation_steps: 0,
+                            raw_paths: 0,
                         },
                     };
                 }
@@ -633,15 +641,17 @@ pub fn evaluate_plans_marked(
             let mut apply: u64 = 0;
             let mut proposals: u64 = 0;
             let mut confirmation: u64 = 0;
-    let mut confirmation_steps: u64 = 0;
+            let mut confirmation_steps: u64 = 0;
+            let mut raw_paths: u64 = 0;
             for w in words {
                 let t = Instant::now();
                 let p = analyzer.analyze_word_with_diagnostics(w);
                 apply = apply.saturating_add(elapsed_ns(t).max(1));
                 proposals = proposals.saturating_add(p.outcome.candidates_generated as u64);
                 confirmation = confirmation.saturating_add(p.diagnostics.confirmation_calls as u64);
-        confirmation_steps =
-            confirmation_steps.saturating_add(p.diagnostics.confirmation_steps as u64);
+                confirmation_steps =
+                    confirmation_steps.saturating_add(p.diagnostics.confirmation_steps as u64);
+                raw_paths = raw_paths.saturating_add(p.diagnostics.raw_paths as u64);
                 actual.push((w.clone(), p.outcome.structured));
             }
             let score = Score {
@@ -652,6 +662,7 @@ pub fn evaluate_plans_marked(
                 proposals,
                 confirmation,
                 confirmation_steps,
+                raw_paths,
             };
             let breach = [
                 ("states", score.states, budget.states),
