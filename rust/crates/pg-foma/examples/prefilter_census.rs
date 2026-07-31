@@ -459,8 +459,8 @@ fn run_grammar(
         total_candidates += wc.total_candidates;
         total_confirming += wc.confirming;
         total_failing += wc.failing;
-        for i in 0..3 {
-            cat_counts[i] += wc.cat_counts[i];
+        for (acc, v) in cat_counts.iter_mut().zip(wc.cat_counts.iter()) {
+            *acc += v;
         }
         for (r, n) in wc.reason_hist {
             *reason_hist.entry(r).or_insert(0) += n;

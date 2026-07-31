@@ -83,8 +83,8 @@
 //!   - `keep_confirming` = `confirm_batch(only candidates that end up confirming)`
 //!   - `minus_dN`       = `confirm_batch(all candidates EXCEPT the ones classified dN)`, N in 1..=6
 //!   - class dN's share of FAILING time = `(baseline - minus_dN) / (baseline - keep_confirming)`
-//! CLASSIFICATION is a separate, untimed pass using [`classify_failing_candidate`]; the six timed
-//! `confirm_batch` calls per word (plus baseline/keep_confirming) never touch tracing.
+//!     CLASSIFICATION is a separate, untimed pass using [`classify_failing_candidate`]; the six timed
+//!     `confirm_batch` calls per word (plus baseline/keep_confirming) never touch tracing.
 //!
 //! ## Usage
 //!   cargo run -p pg-foma --release --example deadend_census -- <sena|indonesian|amharic> [word_cap]
@@ -798,8 +798,8 @@ fn run_grammar(
             }
         }
         if wc.denom > 1e-6 {
-            for i in 0..6 {
-                time_numer[i] += wc.time_numer[i];
+            for (acc, v) in time_numer.iter_mut().zip(wc.time_numer.iter()) {
+                *acc += v;
             }
             time_denom += wc.denom;
         }

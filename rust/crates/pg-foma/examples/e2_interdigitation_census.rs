@@ -210,7 +210,7 @@ fn main() {
     let mut n_words_with_infix_analysis = 0usize;
     let mut n_words_with_circumfix_analysis = 0usize;
     let mut n_words_with_process_analysis = 0usize;
-    let mut n_words_ONLY_infix_analyses = 0usize; // every analysis needs infix -- no escape route
+    let mut n_words_only_infix_analyses = 0usize; // every analysis needs infix -- no escape route
     let mut n_total_analyses = 0usize;
     let mut n_infix_analyses = 0usize;
     let mut n_timeouts = 0usize;
@@ -262,7 +262,7 @@ fn main() {
             n_words_with_process_analysis += 1;
         }
         if all_infix {
-            n_words_ONLY_infix_analyses += 1;
+            n_words_only_infix_analyses += 1;
         }
     }
 
@@ -271,7 +271,7 @@ fn main() {
     println!("total distinct analyses: {n_total_analyses}");
     println!("analyses using >=1 infix morpheme: {n_infix_analyses}");
     println!("words with >=1 infix-bearing analysis: {n_words_with_infix_analysis}");
-    println!("words where EVERY analysis needs an infix morpheme (no non-infix escape route): {n_words_ONLY_infix_analyses}");
+    println!("words where EVERY analysis needs an infix morpheme (no non-infix escape route): {n_words_only_infix_analyses}");
     println!("words with >=1 circumfix-bearing analysis: {n_words_with_circumfix_analysis}");
     println!("words with >=1 process-morph-bearing analysis: {n_words_with_process_analysis}");
 

@@ -162,7 +162,7 @@ pub fn p99(mut samples: Vec<Duration>) -> Duration {
 /// Times `f` once per element of `words`, returning the p99 across all calls -- the per-word
 /// timing half of (b). `f` should do the SAME "one word -> reachable?" work each gate's own recall
 /// assertion already does, so this number is directly comparable to (a)'s own per-word cost.
-pub fn per_word_p99<T>(words: &[T], mut f: impl FnMut(&T) -> ()) -> Duration {
+pub fn per_word_p99<T>(words: &[T], mut f: impl FnMut(&T)) -> Duration {
     let mut samples = Vec::with_capacity(words.len());
     for w in words {
         let t0 = Instant::now();

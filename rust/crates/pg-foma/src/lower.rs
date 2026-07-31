@@ -902,9 +902,12 @@ fn nodes_contain_alpha_context(nodes: &[PatternNode]) -> bool {
 /// can tell) fully lowerable — the top-level [`diagnose_unsupported`] treats that as a caller-bug
 /// `unreachable!`, since it is only ever invoked after `pattern_slots` has already rejected this
 /// exact `nodes` list.
+// `_g`/`_table` are threaded through only to keep this recursive walk's signature matching its
+// caller and its own recursive calls (`diagnose_unsupported`'s doc above); this function itself
+// never inspects either.
 fn diagnose_unsupported_nodes(
-    g: &Grammar,
-    table: &CharDefTable,
+    _g: &Grammar,
+    _table: &CharDefTable,
     nodes: &[PatternNode],
     scope: PatternLowerScope,
 ) -> Option<UnsupportedPatternNode> {
@@ -929,7 +932,7 @@ fn diagnose_unsupported_nodes(
                 // (a nested Segments/Anchor/disagree-polarity var, or a nested malformed
                 // quantifier) -- recurse rather than assume THIS quantifier is the culprit just
                 // because it is the first one seen.
-                if let Some(reason) = diagnose_unsupported_nodes(g, table, children, scope) {
+                if let Some(reason) = diagnose_unsupported_nodes(_g, _table, children, scope) {
                     return Some(reason);
                 }
                 // Children lower cleanly on their own, but an alpha-bound occurrence anywhere

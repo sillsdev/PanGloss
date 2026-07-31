@@ -246,6 +246,10 @@ impl FomaProposer {
     /// `HC_ENUM_ENTRY_BUDGET`/`HC_ENUM_PROBE_BUDGET`/`HC_COMPOSE_ORDERING_MULTIPLICITY_BUDGET`
     /// exactly once, here, in the production entry point, so parallel test processes never race
     /// process-global env state.
+    // FomaError is deliberately a small, flat enum (see its own doc above); boxing
+    // `LexcCompileFailed`'s `EmitReport` to silence this lint would change the public enum's
+    // variant shape for every downstream `match`, which is out of scope for a lint-only cleanup.
+    #[allow(clippy::result_large_err)]
     pub fn new(g: &Grammar) -> Result<Self> {
         let enum_budget = crate::morphotactics::EnumerationBudget::from_env();
         let compose_budget = ComposeBudget::from_env();
@@ -275,6 +279,8 @@ impl FomaProposer {
     /// Thin, zero-behavior-change wrapper over [`Self::new_with_budget_and_profile`], discarding its
     /// [`CompileProfile`] -- proven byte-for-byte identical (same `Result`, same emitted network) by
     /// this file's own `fst_profile_new_with_budget_matches_new_with_budget_and_profile` test.
+    // See the `#[allow(clippy::result_large_err)]` justification on `Self::new` above.
+    #[allow(clippy::result_large_err)]
     pub(crate) fn new_with_budget(
         g: &Grammar,
         enum_budget: &crate::morphotactics::EnumerationBudget,

@@ -1685,6 +1685,12 @@ fn filter_roots_by_license<'a>(
 /// ever actually invoked when `phon.is_some()` (never true on the P6 templated path, module doc: "No
 /// junction probing... under this mode"), so a caller with no real `Stripped` sibling can pass any
 /// closure with the right signature; it is provably never called there.
+/// Shared shape of `build_compound_chain`'s `write_root_entries`/`write_stripped_root_entries`
+/// callback parameters (own doc above): each emitter's own local closure for writing one root
+/// group's lexc entries, capturing that emitter's `width`/tag-writing convention.
+type RootEntryWriter<'a> =
+    &'a dyn Fn(&mut String, &[&RootRec], &str, &mut EmitCounts, &mut PrecisionEmit);
+
 #[allow(clippy::too_many_arguments)]
 fn build_compound_chain(
     out: &mut String,
@@ -1702,20 +1708,8 @@ fn build_compound_chain(
     width: usize,
     pk: &mut PrecisionEmit,
     mode: TextMode<'_>,
-    write_root_entries: &dyn Fn(
-        &mut String,
-        &[&RootRec],
-        &str,
-        &mut EmitCounts,
-        &mut PrecisionEmit,
-    ),
-    write_stripped_root_entries: &dyn Fn(
-        &mut String,
-        &[&RootRec],
-        &str,
-        &mut EmitCounts,
-        &mut PrecisionEmit,
-    ),
+    write_root_entries: RootEntryWriter<'_>,
+    write_stripped_root_entries: RootEntryWriter<'_>,
 ) {
     let levels = levels.max(1);
     for k in 1..=levels {
@@ -2067,7 +2061,7 @@ fn build_deriv_chain(
             for &mid in rules {
                 let reps = (g.mrules[mid.0 as usize].max_apps() as usize)
                     .clamp(1, MAX_DEDICATED_LEVELS_PER_RULE);
-                expanded.extend(std::iter::repeat(mid).take(reps));
+                expanded.extend(std::iter::repeat_n(mid, reps));
             }
             Some(expanded)
         }
@@ -3165,7 +3159,7 @@ pub(crate) fn emit_with_budget_profiled(
             &morphotactic_index,
             explore_mode,
             probe_budget,
-            &enum_budget,
+            enum_budget,
         )
     } else {
         (Vec::new(), crate::preexpand::CompositeReport::default())
@@ -3198,7 +3192,7 @@ pub(crate) fn emit_with_budget_profiled(
             &morphotactic_index,
             explore_mode,
             probe_budget,
-            &enum_budget,
+            enum_budget,
         );
         counts.composite_structural_entries = struct_composites.len();
         composites.extend(struct_composites);
@@ -4053,10 +4047,10 @@ pub(crate) fn emit_with_budget_profiled(
 ///   `docs/fst-plan/p6-prototype-report.md`'s own §6 item 2 costing for the general shape of the
 ///   fix: representing a structural allomorph via its OWN alternative underlying forms rather than
 ///   the surface-probe composite path).
-/// V4 breach constructor for [`emit_underlying_templated`] (design doc §8 item 1): builds the same
-/// `EmitResult` shape every other breach in this module uses (`lexc_source` empty,
-/// `tier: FomaTier::Unsupported`), never `Result`-ifying this function's own signature (task brief:
-/// "INSTEAD of Result-ifying emit.rs").
+///   V4 breach constructor for [`emit_underlying_templated`] (design doc §8 item 1): builds the same
+///   `EmitResult` shape every other breach in this module uses (`lexc_source` empty,
+///   `tier: FomaTier::Unsupported`), never `Result`-ifying this function's own signature (task brief:
+///   "INSTEAD of Result-ifying emit.rs").
 fn emit_line_budget_breach(
     uncovered: Vec<UncoveredItem>,
     counts: EmitCounts,

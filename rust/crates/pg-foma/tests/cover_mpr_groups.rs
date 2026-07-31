@@ -27,11 +27,11 @@
 //!   accumulation).
 //! - `mrQ`'s own subrule REQUIRES `mprX mprY` (the WHOLE `all`-type group) via
 //!   `requiredMPRFeatures`.
-//! Root `eK` (`"k"`, `posV`) carries no `ruleFeatures` at all (starts with an EMPTY MPR set), so
-//! `mrQ` can only apply once `mrP` has already fired and added the group's members via `mpr_add_
-//! output` -- an order-DEPENDENT gate riding on top of an order-INVARIANT accumulation (design.md
-//! D4's own distinction, see `append_output_is_order_invariant_overwrite_output_is_not` below for
-//! the accumulation half in isolation).
+//!   Root `eK` (`"k"`, `posV`) carries no `ruleFeatures` at all (starts with an EMPTY MPR set), so
+//!   `mrQ` can only apply once `mrP` has already fired and added the group's members via `mpr_add_
+//!   output` -- an order-DEPENDENT gate riding on top of an order-INVARIANT accumulation (design.md
+//!   D4's own distinction, see `append_output_is_order_invariant_overwrite_output_is_not` below for
+//!   the accumulation half in isolation).
 //!
 //! Two more roots (`eL`/`eM`) isolate the group-AWARE `all`-type semantics directly, independent of
 //! `out_mpr` timing: `eL` carries `ruleFeatures="mprX"` (PARTIAL group membership -- missing

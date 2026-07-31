@@ -164,8 +164,8 @@ impl ParityStats {
 ///   * a ledger entry whose live cardinalities changed — the gap moved, re-triage it;
 ///   * a ledger entry that no longer mismatches — the bug is FIXED, so delete the entry (a fix
 ///     MUST shrink the ledger; that is how the ledger stays honest instead of drifting).
-/// The plan doc keeps gate F3 recorded as NOT MET while this ledger is non-empty — the ledger is a
-/// green-CI record of *known* gaps under active fix, never an acceptance of them.
+///     The plan doc keeps gate F3 recorded as NOT MET while this ledger is non-empty — the ledger is a
+///     green-CI record of *known* gaps under active fix, never an acceptance of them.
 fn assert_against_ledger(stats: &ParityStats, ledger: &[(&str, usize, usize)], label: &str) {
     let actual: BTreeSet<(String, usize, usize)> = stats
         .mismatches

@@ -3272,12 +3272,15 @@ impl CapabilityPredicate for MprGroupOverwriteFailClosedPredicate {
         profile: &CharacteristicsProfile,
         _plan_node: &PlanNodeKind,
     ) -> PredicateVerdict {
-        profile
+        if profile
             .observations()
             .iter()
             .any(|obs| obs.kind == CharacteristicKind::MprGroupOverwrite)
-            .then_some(PredicateVerdict::ConfirmOnly)
-            .unwrap_or(PredicateVerdict::Admit)
+        {
+            PredicateVerdict::ConfirmOnly
+        } else {
+            PredicateVerdict::Admit
+        }
     }
 }
 

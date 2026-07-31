@@ -567,8 +567,8 @@ fn flag_id(id: u32) -> String {
 /// - `surface` is a PROPER SUFFIX of `l` (shorter than `l`, and `l.ends_with(surface)`): the
 ///   literal's context is completed ACROSS a morpheme boundary by whatever comes before this entry
 ///   (the "miseru" cross-boundary case — module doc, "Two failed encodings").
-/// Empty literal variants never match (an empty environment literal is meaningless and would
-/// match trivially/vacuously otherwise). When in doubt this returns `true` — never narrows.
+///   Empty literal variants never match (an empty environment literal is meaningless and would
+///   match trivially/vacuously otherwise). When in doubt this returns `true` — never narrows.
 fn could_satisfy(surface: &str, literal_variants: &[String]) -> bool {
     literal_variants.iter().any(|l| {
         !l.is_empty()

@@ -39,6 +39,19 @@ pub struct ProposedWord {
 type ConfirmedBuckets = Vec<Vec<(WordAnalysis, String, String)>>;
 type TimedConfirmedBuckets = (ConfirmedBuckets, Duration);
 
+/// `Ok` payload of [`FomaAnalyzer::propose_candidates_with_diagnostics_budgeted`]: the deduped
+/// candidate set plus peel/diagnostics bookkeeping.
+type ProposeCandidatesOk = (
+    Vec<Candidate>,
+    bool,
+    Option<ComposeError>,
+    ProposalDiagnostics,
+    usize,
+);
+/// `Err` payload of [`FomaAnalyzer::propose_candidates_with_diagnostics_budgeted`]: which budget
+/// dimension tripped, the measured value/limit, and diagnostics for the measured prefix.
+type ProposeCandidatesErr = (ApplyDimension, usize, usize, ProposalDiagnostics, usize);
+
 #[cfg(all(feature = "test-concurrency-hook", not(target_arch = "wasm32")))]
 #[doc(hidden)]
 pub mod test_confirmation_concurrency {
@@ -291,6 +304,10 @@ impl<'g> FomaAnalyzer<'g> {
     /// fails to foma-compile. Per the revised plan §0 there is no per-grammar fallback tier: this
     /// composite IS the mainline for every grammar, so a compile failure here is an emitter gap to
     /// fix (later plan stages), not a routing decision — the `Err` just surfaces it to the caller.
+    // See the `#[allow(clippy::result_large_err)]` justification on `FomaProposer::new`
+    // (crate::analyzer): FomaError is a deliberately small, flat enum and boxing its largest
+    // variant would change the public enum's shape for every downstream `match`.
+    #[allow(clippy::result_large_err)]
     pub fn new(g: &'g Grammar) -> Result<Self, FomaError> {
         let proposer = FomaProposer::new(g)?;
         Ok(FomaAnalyzer {
@@ -581,16 +598,7 @@ impl<'g> FomaAnalyzer<'g> {
         &mut self,
         word: &str,
         budget: &ApplyBudget,
-    ) -> std::result::Result<
-        (
-            Vec<Candidate>,
-            bool,
-            Option<ComposeError>,
-            ProposalDiagnostics,
-            usize,
-        ),
-        (ApplyDimension, usize, usize, ProposalDiagnostics, usize),
-    > {
+    ) -> std::result::Result<ProposeCandidatesOk, ProposeCandidatesErr> {
         let mut proposal = ProposalDiagnostics::default();
         let mut proposal_calls = 1;
         let direct_budget = remaining_apply_budget(budget, &proposal);

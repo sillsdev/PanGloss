@@ -1407,7 +1407,7 @@ fn run_rule_variation_diagnostics(
         }
     }
 
-    for omitted in 0..baseline_order.len() {
+    for (omitted, (rule_id, _)) in indexed_rules.iter().enumerate() {
         let rules: Vec<&PhonRuleDef> = baseline_order
             .iter()
             .enumerate()
@@ -1416,8 +1416,7 @@ fn run_rule_variation_diagnostics(
         let recovered = diagnostic_variant_recoveries(g, alphabet, pipeline, rows, width, &rules);
         if !recovered.is_empty() {
             println!(
-                "rule-variation\tleave-one-out\tposition={omitted};prule={}\t{}",
-                indexed_rules[omitted].0,
+                "rule-variation\tleave-one-out\tposition={omitted};prule={rule_id}\t{}",
                 recovered.join(",")
             );
         }

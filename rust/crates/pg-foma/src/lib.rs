@@ -1,7 +1,7 @@
 //! Phase P0 viability spike (docs/fst-plan/foma-fst-plan.md §P0, gate F0), P1 stage 1 (emitter core
 //! + Sena, gate F1), P1 stage 2 (junction-aware phonology + Indonesian, gate F1), P1d (Amharic
-//! capability stage — rule-application pre-expansion + boundary-fusion composites), and P2
-//! (propose→confirm composite, gate F2).
+//!   capability stage — rule-application pre-expansion + boundary-fusion composites), and P2
+//!   (propose→confirm composite, gate F2).
 //!
 //! - [`tags`]: the `<R:nnnn>`/`<M:nnnn>` tag codec (D2) — escaped lexc spellings, decoded literal
 //!   text, an `apply_up`-output decoder, and the `Candidate` split for compound (multi-root) paths.

@@ -20,10 +20,10 @@
 //! - truncate (`AffixProcessRuleTests.TruncateRules`) — `edge-cases/truncate-morphotactic`, whose
 //!   own module doc says outright "Converted from conformance/affix-shapes/truncate (v1)", AND
 //!   `languages/metathesis-phase-isolation`'s own `pur`/`pure` pair.
-//! `affix_shapes_conformance.rs` has been deleted; this file's generic replay exercises all four
-//! constructs for real (via the fixtures above) as part of the normal, non-ignored default suite —
-//! a strictly stronger gate than the dead placeholder ever ran, since it now runs unconditionally
-//! instead of being permanently skipped.
+//!   `affix_shapes_conformance.rs` has been deleted; this file's generic replay exercises all four
+//!   constructs for real (via the fixtures above) as part of the normal, non-ignored default suite —
+//!   a strictly stronger gate than the dead placeholder ever ran, since it now runs unconditionally
+//!   instead of being permanently skipped.
 
 use pg_conformance_fixtures::{assert_matches_oracle, discover, graduation_guard_violations};
 use pg_parse::Morpher;

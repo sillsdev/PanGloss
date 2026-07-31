@@ -24,6 +24,11 @@ use pg_rules::trace::TraceSink;
 
 use crate::tags::Candidate;
 
+/// Per-candidate buckets of confirmed matches: outer index parallels the candidate slice,
+/// inner entries are `(analysis, morpheme-join display string, surface display string)` —
+/// see [`confirm_batch`]'s doc for why matches are collected this way.
+type ConfirmedBuckets = Vec<Vec<(EngineAnalysis, String, String)>>;
+
 /// How many rules beyond a chunk's largest member's own rule set the chunk's union may admit
 /// (see [`confirm_batch`]'s doc). 0 = exact-filter grouping (never merges rule-diverse
 /// candidates); large = per-root-set full union (merges everything, risks near-cross-product
@@ -276,7 +281,7 @@ pub fn confirm_batch(
     morpher: &Morpher,
     candidates: &[Candidate],
     word: &str,
-) -> Vec<Vec<(EngineAnalysis, String, String)>> {
+) -> ConfirmedBuckets {
     confirm_batch_impl(g, owners, morpher, candidates, word, None)
 }
 
@@ -286,10 +291,7 @@ pub(crate) fn confirm_batch_with_diagnostics(
     morpher: &Morpher,
     candidates: &[Candidate],
     word: &str,
-) -> (
-    Vec<Vec<(EngineAnalysis, String, String)>>,
-    ConfirmBatchDiagnostics,
-) {
+) -> (ConfirmedBuckets, ConfirmBatchDiagnostics) {
     let mut diagnostics = ConfirmBatchDiagnostics::default();
     let buckets = confirm_batch_impl(g, owners, morpher, candidates, word, Some(&mut diagnostics));
     (buckets, diagnostics)
@@ -302,9 +304,8 @@ fn confirm_batch_impl(
     candidates: &[Candidate],
     word: &str,
     mut diagnostics: Option<&mut ConfirmBatchDiagnostics>,
-) -> Vec<Vec<(EngineAnalysis, String, String)>> {
-    let mut buckets: Vec<Vec<(EngineAnalysis, String, String)>> =
-        (0..candidates.len()).map(|_| Vec::new()).collect();
+) -> ConfirmedBuckets {
+    let mut buckets: ConfirmedBuckets = (0..candidates.len()).map(|_| Vec::new()).collect();
 
     let pins: Vec<Option<CandidatePins>> =
         candidates.iter().map(|c| resolve_pins(owners, c)).collect();

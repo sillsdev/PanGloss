@@ -49,7 +49,7 @@ pub fn build_circumfixes(
         let morpheme_id = format!("CIRC{i}");
         let prefix_ch = affix_chars[i % affix_chars.len()];
         let suffix_ch = affix_chars[(i + 1) % affix_chars.len()];
-        let prefix: String = std::iter::repeat(prefix_ch).take(2).collect();
+        let prefix: String = std::iter::repeat_n(prefix_ch, 2).collect();
         let suffix: String = std::iter::once(suffix_ch).collect();
         let xml = format!(
             "\n          <MorphologicalRule id=\"{mrule_xml_id}\" requiredPartsOfSpeech=\"{pos_xml_id}\" outputPartOfSpeech=\"{pos_xml_id}\">\n            \

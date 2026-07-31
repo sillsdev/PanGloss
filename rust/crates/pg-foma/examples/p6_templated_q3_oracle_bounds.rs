@@ -176,11 +176,10 @@ fn main() {
         "\n=> the real corpus's own oracle analyses use AT MOST {max_total_affixes} total affix \
          positions and repeat the SAME morpheme at most {max_same_morpheme_repeat} time(s) per \
          analysis -- compare against deriv_prefix.len()=11 / deriv_suffix.len()=24 (p6_aweti_q2_epsilon_mass)\n\
-         and the {} / {} independent prefix/suffix chain-instance reofferings (also p6_aweti_q2_epsilon_mass):\n\
+         and the 10 / 10 independent prefix/suffix chain-instance reofferings (also p6_aweti_q2_epsilon_mass):\n\
          the CHAIN currently allows an epsilon rule's tag to be chosen up to 22/48 times on one path,\n\
          while the oracle itself never repeats a morpheme more than {max_same_morpheme_repeat} time(s)\n\
-         over this whole corpus.",
-        "10", "10"
+         over this whole corpus."
     );
 
     println!("\n=== done ===");

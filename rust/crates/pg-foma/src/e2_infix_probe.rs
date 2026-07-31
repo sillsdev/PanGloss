@@ -149,6 +149,12 @@ fn collect_roots_u(
     roots
 }
 
+// Internal emitter helper: `out`/`uncovered`/`lines` are accumulators threaded through this
+// probe's whole emission pass (the same grouping every sibling emit fn in this file uses), and
+// `g`/`alphabet`/`mid`/`zone_role`/`width`/`next` are the per-call context needed to emit one
+// rule's allomorphs. Splitting these into a struct would touch both call sites for no behavior
+// change, so the lint is silenced here rather than "fixed".
+#[allow(clippy::too_many_arguments)]
 fn emit_rule_allomorphs_u(
     out: &mut String,
     g: &Grammar,

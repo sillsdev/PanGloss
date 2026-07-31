@@ -263,7 +263,6 @@ mod tests {
             confirmed: 2,
             unvisited: 1,
             budget_pruned: 1,
-            ..Default::default()
         };
         assert!(waterfall.reconciles());
     }

@@ -257,8 +257,8 @@ fn boundary_cleanup_net(
 ///   offers `PrefixChainNoNull ;` (any ordinary prefix, any number of times, any order) and
 ///   `RootBare ;` (stop prefixing) -- but never `PrefixChain` itself, so no second null-shaped prefix
 ///   is reachable from here.
-/// The suffix side mirrors this exactly: `SuffixOrEnd` -> `SuffixEndOnly`, `SuffixChain` ->
-/// `SuffixChainNoNull`, `# ;` in place of `RootBare ;`.
+///   The suffix side mirrors this exactly: `SuffixOrEnd` -> `SuffixEndOnly`, `SuffixChain` ->
+///   `SuffixChainNoNull`, `# ;` in place of `RootBare ;`.
 ///
 /// Every OTHER line (root lines, lexicon headers, blank lines) passes through byte-for-byte. A
 /// grammar with no `Boundary` char-def at all is a pure no-op (`boundary_tokens` is empty, so nothing

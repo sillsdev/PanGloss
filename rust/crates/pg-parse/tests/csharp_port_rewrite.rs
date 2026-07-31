@@ -549,7 +549,7 @@ fn common_feature_rules() {
 ///      is kept because it is independently real (confirmed by direct instrumentation) and would
 ///      cause a genuine divergence in an anchored-check-at-a-trailing-boundary-with-no-real-segment-
 ///      beyond-it scenario, where finding 2's legitimate skip has nothing to skip to.
-///   The real C# test (`RewriteRuleTests.cs:1201-1254`) asserts both sub-cases succeed; both now do.
+///      The real C# test (`RewriteRuleTests.cs:1201-1254`) asserts both sub-cases succeed; both now do.
 /// - **A NINTH sub-case, previously believed "verified passing individually," is in fact a separate,
 ///   pre-existing, confirmed-but-not-fixed divergence** — split out to
 ///   [`epenthesis_rules_iterative_cascade_finding`] (its own doc has the full mechanism).

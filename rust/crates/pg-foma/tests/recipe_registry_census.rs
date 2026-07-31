@@ -38,8 +38,8 @@ fn some_staged_fixture_separates_more_than_three_registry_transforms() {
     // comparison. Counting `<AffixTemplate>` declarations does NOT answer this: markers also come
     // from composite entries and circumfix/dropped-material rules.
     eprintln!(
-        "{:<58} {:>7} {:>8} {:>7}  {}",
-        "fixture", "entries", "distinct", "markers", "families owning a distinct plan"
+        "{:<58} {:>7} {:>8} {:>7}  families owning a distinct plan",
+        "fixture", "entries", "distinct", "markers"
     );
     for fixture in &fixtures {
         let Ok(grammar) = pg_grammar::load(&fixture.load_grammar_xml()) else {
