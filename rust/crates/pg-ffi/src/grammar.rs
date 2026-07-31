@@ -243,9 +243,13 @@ impl GrammarHandle {
         guess_fallback: bool,
     ) -> Result<Vec<(pg_lexicon::UnifiedAnalysis, std::time::Duration)>, ()> {
         #[cfg(not(target_arch = "wasm32"))]
-        self.analyze_words_native(words, max_threads, guess_fallback)
+        {
+            self.analyze_words_native(words, max_threads, guess_fallback)
+        }
         #[cfg(target_arch = "wasm32")]
-        self.analyze_words_wasm(words, max_threads, guess_fallback)
+        {
+            self.analyze_words_wasm(words, max_threads, guess_fallback)
+        }
     }
     #[cfg(not(target_arch = "wasm32"))]
     fn analyze_words_native(
