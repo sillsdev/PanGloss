@@ -1,0 +1,32 @@
+# cargo-nextest configuration for the PanGloss workspace.
+#
+# This file exists for ONE reason: to put a wall-clock ceiling on a test that never finishes.
+# Everything else nextest can configure is deliberately left at its default -- `pg.ps1` already
+# passes --test-threads from a machine-derived budget, and adding knobs here that duplicate or
+# contradict that would create the two-copies-that-drift problem the managed entry point exists to
+# avoid.
+#
+# WHY A KILL AND NOT JUST A WARNING. nextest's default `slow-timeout` only PRINTS a SLOW status; it
+# does not terminate anything unless `terminate-after` is set, whose default is "never". So before
+# this file, a hung test occupied a test slot and its memory indefinitely. That is not hypothetical
+# here: docs/fst-plan/corpus-word-list-hazards.md records a `pangloss batch` probe that reached 30+
+# GB RSS and never finished, and a test that wedges also holds the machine-wide build slot its
+# cargo invocation is occupying, so one hang starves every other worktree's build behind it.
+#
+# nextest terminates via a Windows job object, which kills the test process AND ALL ITS
+# DESCENDANTS. That matters more than usual in this workspace: tests here spawn real child
+# processes (`pangloss.exe`, `worker_test_child.exe`, and a full C and C++ toolchain for
+# `pg-ffi::header_abi`), and a plain timeout that killed only the direct child would orphan those --
+# exactly the stray-compiler mess CLAUDE.md's gc sweeps had to be written to clean up.
+#
+# WHY 10 MINUTES AND NOT SOMETHING TIGHTER. The number has to clear the slowest LEGITIMATE test, or
+# the gate manufactures failures and gets deleted. Observed: the whole pg-foma suite (618 tests) in
+# 23s; the memory-budget tests in 0.03s; a full cold workspace test BUILD in 30m38s (build time is
+# not test time and is not covered by this). Corpus/foma cases legitimately run for minutes because
+# each can compile a grammar. 60s x 10 = 10 minutes is roughly 25x the slowest whole-suite run
+# observed, while still bounding the documented 6m35s-and-climbing pathology decisively.
+#
+# The period is kept at 60s so a slow-but-progressing test still reports SLOW in the log -- that
+# signal is how you find out a test is drifting toward the ceiling before it hits it.
+[profile.default]
+slow-timeout = { period = "60s", terminate-after = 10 }

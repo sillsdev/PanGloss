@@ -180,6 +180,37 @@ function Get-AvailableMemoryGB {
     return $null
 }
 
+function Get-CommitChargeGB {
+    # Committed bytes and the commit LIMIT, which are a different resource from available physical
+    # memory and are the ones that actually matter here.
+    #
+    # Reported because the two diverge exactly when it counts. During the 2026-07-31 incident window
+    # a `git` fork failed with "MEM_COMMIT failed / Resource temporarily unavailable" while doctor
+    # cheerfully showed 52GB of available PHYSICAL memory -- because the commit charge was near its
+    # limit even though RAM was free. Both things this repo now relies on are commit-denominated:
+    # Resource-Exhaustion-Detector event 2004 reports committed memory per process, and procgov's
+    # --maxjobmem caps committed bytes. Reporting only available physical while enforcing on commit
+    # is how "there is plenty of memory" and "allocation failed" end up true at the same time.
+    #
+    # Win32_OperatingSystem's TotalVirtualMemorySize/FreeVirtualMemory are the commit limit and its
+    # free remainder, in KB. Non-localized property names, same reason Get-AvailableMemoryGB prefers
+    # the CIM classes over Get-Counter's localized paths.
+    try {
+        $os = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop
+        if ($os -and $null -ne $os.TotalVirtualMemorySize -and $null -ne $os.FreeVirtualMemory) {
+            $limit = [math]::Round(([double]$os.TotalVirtualMemorySize) * 1KB / 1GB, 1)
+            $free = [math]::Round(([double]$os.FreeVirtualMemory) * 1KB / 1GB, 1)
+            return [PSCustomObject]@{
+                LimitGB     = $limit
+                FreeGB      = $free
+                CommittedGB = [math]::Round(($limit - $free), 1)
+                PercentUsed = if ($limit -gt 0) { [int][math]::Round((($limit - $free) / $limit) * 100) } else { $null }
+            }
+        }
+    } catch {}
+    return $null
+}
+
 function Get-TotalMemoryGB {
     try {
         $os = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop
@@ -322,9 +353,28 @@ function Get-JobMemoryCapGB {
     if ($env:PANGLOSS_JOB_MEM_GB) { return [int]$env:PANGLOSS_JOB_MEM_GB }
     if ($null -eq $TotalGB) { return $null }
     if ($MaxConcurrent -lt 1) { $MaxConcurrent = 1 }
-    # (installed - daemon reserve) split across the slots the semaphore permits, so all permitted
-    # builds together still leave the OS its headroom. 64GB -> (64-6)/2 = 29; 16GB -> (16-1.6)/2 = 7.
-    $cap = [math]::Floor((($TotalGB - (Get-InteractiveReserveGB -TotalGB $TotalGB)) / $MaxConcurrent))
+    # (installed - daemon reserve) split across MaxConcurrent + 1, NOT MaxConcurrent.
+    #
+    # The +1 is a correctness fix, not padding. Sizing for exactly MaxConcurrent assumes the build
+    # slot semaphore actually holds that many, and it does not: a named semaphore's maximum is fixed
+    # by whichever process creates it FIRST and cannot be queried or changed afterwards, so one
+    # caller passing a larger -MaxConcurrent silently raises the ceiling for every other worktree for
+    # as long as the object lives. MEASURED 2026-07-31 on this machine: three procgov-wrapped builds
+    # running concurrently under a nominal limit of 2, with the semaphore reporting zero free slots
+    # (all three had genuine live parents -- not orphans, and not a Global\ vs Local\ namespace
+    # split; both were ruled out). At 28GB each that permitted 84GB of commit on a 63.7GB box, so
+    # CLAUDE.md's "bounded by construction" claim was simply false.
+    #
+    # Dividing by MaxConcurrent + 1 keeps the bound true through one slot of over-admission --
+    # 64GB -> (63.7-6)/3 = 19GB, so even three concurrent builds stay inside the reserve. It costs
+    # nothing real: the measured peak for an ENTIRE -Mode test fan-out is 4.03GB, so 19GB is still
+    # ~4x headroom, and it deliberately stays generous enough for a corpus-test job whose test
+    # processes (which run inside the same job object under procgov -r) can each be multi-GB.
+    #
+    # This is the cheap fix for the safety half of the problem. It does NOT fix the liveness half --
+    # the queue is unfair and its 30-minute timeout is unreachable for a deep queue -- which is a
+    # separate, larger change deliberately not made here.
+    $cap = [math]::Floor((($TotalGB - (Get-InteractiveReserveGB -TotalGB $TotalGB)) / ($MaxConcurrent + 1)))
     # Floor of 4GB: a cap below this fails ordinary linking, and a limit that breaks every build is
     # worse than no limit, because it gets removed rather than tuned.
     return [int][Math]::Max(4, $cap)
@@ -352,12 +402,39 @@ function Get-ProcGovArgs {
         [Nullable[int]]$JobMemoryGB,
         [Nullable[int]]$CpuRatePercent,
         [string]$Priority = '',
+        # OPT-IN alternative to the CPU rate: hand the job a fixed COUNT of logical processors and
+        # leave the rest genuinely uncontended, instead of throttling its share of all of them. For a
+        # latency-sensitive daemon (Chrome Remote Desktop's remoting_host encoder has a frame
+        # deadline) dedicated cores should beat an aggregate percentage, because a rate-limited job
+        # still schedules threads onto every core between throttle windows.
+        #
+        # Deliberately NOT the default, and this is the honest reason: --cpurate is measured working
+        # and the affinity variant is not. On this hybrid i7-12700 (8 P-cores / 16 threads on CPU
+        # 0-15, 4 E-cores on 16-19) a decimal count claims the FIRST N logical processors, so
+        # -CpuCores 14 leaves 14-19 -- two P-core threads plus all four E-cores -- for the daemons,
+        # which is a sensible split. But whether that actually beats a 70% rate for encoder latency
+        # is unmeasured, and switching the default on an unmeasured hunch is what produced the
+        # 8GB-per-job mistake earlier in this work.
+        [Nullable[int]]$CpuCores,
+        # OPT-IN EcoQoS (procgov --efficiency-mode, i.e. PROCESS_POWER_THROTTLING_EXECUTION_SPEED).
+        # On a hybrid CPU Windows prefers E-cores for a throttled process, so this pushes compiler
+        # work off the P-cores entirely. Costs build wall-clock, which is why it is opt-in.
+        [switch]$EfficiencyMode,
         [Parameter(Mandatory)][string]$Exe,
         [string[]]$CmdArgs = @()
     )
     $a = @()
     if ($null -ne $JobMemoryGB) { $a += "--maxjobmem=${JobMemoryGB}G" }
-    if ($null -ne $CpuRatePercent) { $a += "--cpurate=$CpuRatePercent" }
+    if ($null -ne $CpuCores) {
+        # MUTUALLY EXCLUSIVE with --cpurate, not additive. procgov applies the rate only to the
+        # selected cores when both are set, so --cpu=14 --cpurate=70 would mean 70% of 14 of 20
+        # logical processors -- about 49% of the machine -- which is a much harsher cap than either
+        # flag alone implies and would look like an unexplained slowdown.
+        $a += "--cpu=$CpuCores"
+    } elseif ($null -ne $CpuRatePercent) {
+        $a += "--cpurate=$CpuRatePercent"
+    }
+    if ($EfficiencyMode) { $a += '--efficiency-mode=on' }
     if ($Priority) { $a += "--priority=$Priority" }
     # -r is REQUIRED, not optional: without it the limits apply to the cargo process alone, and every
     # rustc/link.exe -- which is where all the memory and CPU actually goes -- escapes the job.
@@ -737,44 +814,161 @@ function Set-SccacheServerPriority {
     return $changed
 }
 
-function Enter-BuildSlot {
-    # -TimeoutSeconds <= 0 keeps the original indefinite-wait behavior (still the default, so
-    # existing direct callers of this function are unaffected). pg.ps1 passes a real timeout so a
-    # wedged/abandoned holder can't block every other worktree's build forever with no signal --
-    # a timed-out wait returns $null instead, and the caller maps that to the dedicated
-    # build-slot-timeout exit code rather than hanging.
-    param([int]$MaxConcurrent = 2, [int]$TimeoutSeconds = 0)
-    # Caveat: a named Windows semaphore's maximum count is fixed by whichever process
-    # creates it first and is immutable for the object's lifetime (which itself lasts only
-    # as long as at least one process holds it open). A later caller passing a different
-    # -MaxConcurrent just opens the existing object and gets ITS max count silently --
-    # requesting 1 here does nothing if another worktree's build already created this
-    # semaphore with max=2 and is still running. In practice this means -MaxConcurrent is a
-    # machine-wide convention (everyone should pass the same value, or none, to get the
-    # default), not a per-invocation guarantee. Keep the default consistent across
-    # build.ps1/test.ps1 (both default to 2) so this rarely bites in practice.
+# ---------------------------------------------------------------------------------------------
+# Build slots: N named MUTEXES, not one counted semaphore.
+#
+# The semaphore this replaced deadlocked every worktree on this machine on 2026-07-31. A counted
+# semaphore's count is NOT restored when its holder dies, and in agent workflows the holder dies
+# constantly: a tool timeout, an agent stop/resume, or a detached invocation whose parent
+# conversation has gone all kill pg.ps1 somewhere between Enter-BuildSlot and Exit-BuildSlot. Any
+# critical section between acquire and release WILL be interrupted eventually here. Observed
+# consequence: 4+ worktrees sitting at "waiting for a build slot" for 20+ minutes with ZERO
+# cargo/rustc/link processes alive machine-wide, recoverable only by hand-releasing the semaphore
+# until it threw SemaphoreFullException.
+#
+# A mutex cannot leak that way, because the KERNEL owns the cleanup: when a thread holding a mutex
+# exits without releasing it, the mutex becomes ABANDONED and the next waiter is granted ownership
+# (surfaced to .NET as AbandonedMutexException, which carries the index of the mutex it just gave
+# us). Catching it and carrying on IS the recovery -- there is no ledger to reconcile, no sweep to
+# schedule, and no hand-repair procedure to document. Same reasoning that replaced the hand-rolled
+# memory watchdog with a job object: prefer the primitive whose cleanup the OS already guarantees.
+#
+# It also removes the frozen-maximum wart. A semaphore's max is fixed by whichever process creates
+# it FIRST and cannot be queried or changed (measured: three builds ran concurrently under a nominal
+# limit of 2). Here the slot count is simply how many mutex NAMES a caller waits on, so a caller
+# asking for 1 waits on Slot0 alone and genuinely cannot take a second slot.
+#
+# TRANSITION HAZARD, read before deploying: a worktree still running the OLD semaphore code and one
+# running this share NO mutual exclusion -- different primitives, different names. Every worktree
+# must pick this up, or the machine's real concurrency is (old-code builds) + (new-code builds).
+# ---------------------------------------------------------------------------------------------
+
+$script:BuildSlotMutexPrefix = 'Global\PanGlossBuildSlot'
+
+function New-BuildSlotMutex {
+    param([Parameter(Mandatory)][string]$Name)
     try {
-        $sem = New-Object System.Threading.Semaphore($MaxConcurrent, $MaxConcurrent, $script:BuildSemaphoreName)
+        return New-Object System.Threading.Mutex($false, $Name)
     } catch [System.UnauthorizedAccessException] {
-        $localName = $script:BuildSemaphoreName -replace '^Global\\', 'Local\'
-        $sem = New-Object System.Threading.Semaphore($MaxConcurrent, $MaxConcurrent, $localName)
+        # Same Global\ -> Local\ fallback the semaphore had, for a session that may not create
+        # kernel objects in the global namespace.
+        return New-Object System.Threading.Mutex($false, ($Name -replace '^Global\\', 'Local\'))
     }
-    Write-Host "[build-env] waiting for a build slot (max $MaxConcurrent concurrent across all worktrees)..." -ForegroundColor DarkGray
-    if ($TimeoutSeconds -le 0) {
-        $sem.WaitOne() | Out-Null
-        return $sem
+}
+
+function Enter-BuildSlot {
+    # -TimeoutSeconds <= 0 waits indefinitely (kept for direct callers); pg.ps1 passes a real
+    # timeout so a genuinely long queue is reported rather than hung on forever.
+    param([int]$MaxConcurrent = 2, [int]$TimeoutSeconds = 0)
+    if ($MaxConcurrent -lt 1) { $MaxConcurrent = 1 }
+
+    $mutexes = @()
+    for ($i = 0; $i -lt $MaxConcurrent; $i++) {
+        $mutexes += New-BuildSlotMutex -Name "$($script:BuildSlotMutexPrefix)$i"
     }
-    $acquired = $sem.WaitOne([TimeSpan]::FromSeconds($TimeoutSeconds))
-    if (-not $acquired) {
-        $sem.Dispose()
+
+    # Report WHO holds the slots before blocking. A 20-minute anonymous wait is indistinguishable
+    # from a deadlock, and that ambiguity is what actually burned time during the incident -- nobody
+    # could tell a real queue from a dead one. Best-effort: never let diagnostics fail a build.
+    Write-Host "[build-env] waiting for a build slot ($MaxConcurrent concurrent across all worktrees)..." -ForegroundColor DarkGray
+    try {
+        $holders = @(Get-BuildSlotHolders)
+        foreach ($h in $holders) {
+            $state = if ($h.Alive) { "alive since $($h.AcquiredAt)" } else { 'NOT ALIVE (kernel will hand this slot over)' }
+            Write-Host "[build-env]   slot $($h.Slot): pid $($h.Pid) ($($h.Mode) in $($h.Worktree)) -- $state" -ForegroundColor DarkGray
+        }
+    } catch {}
+
+    $timeoutMs = if ($TimeoutSeconds -le 0) { [System.Threading.Timeout]::Infinite } else { $TimeoutSeconds * 1000 }
+    $index = -1
+    try {
+        $index = [System.Threading.WaitHandle]::WaitAny($mutexes, $timeoutMs)
+    } catch [System.Threading.AbandonedMutexException] {
+        # The previous holder died without releasing. We now OWN that mutex -- this is the kernel
+        # performing the recovery that the semaphore design required a human to do by hand.
+        $index = $_.Exception.MutexIndex
+        Write-Host "[build-env] recovered an abandoned build slot ($index) -- its previous holder exited without releasing it." -ForegroundColor Yellow
+    }
+
+    if ($index -eq [System.Threading.WaitHandle]::WaitTimeout -or $index -lt 0) {
+        foreach ($m in $mutexes) { $m.Dispose() }
         return $null
     }
-    return $sem
+
+    $slot = [PSCustomObject]@{ Mutexes = $mutexes; Index = $index }
+    try { Write-BuildSlotHolder -Slot $index } catch {}
+    return $slot
 }
 
 function Exit-BuildSlot {
+    # Accepts the object Enter-BuildSlot returned. Releasing only the mutex we actually acquired
+    # matters: ReleaseMutex on one we do not own throws ApplicationException.
     param($Semaphore)
-    if ($Semaphore) { $Semaphore.Release() | Out-Null; $Semaphore.Dispose() }
+    if (-not $Semaphore) { return }
+    try {
+        if ($null -ne $Semaphore.Index -and $Semaphore.Mutexes) {
+            try { $Semaphore.Mutexes[$Semaphore.Index].ReleaseMutex() } catch {}
+            try { Clear-BuildSlotHolder -Slot $Semaphore.Index } catch {}
+            foreach ($m in $Semaphore.Mutexes) { $m.Dispose() }
+            return
+        }
+        # Back-compat: a caller still holding a raw semaphore/mutex handle from older code.
+        $Semaphore.Release() | Out-Null
+        $Semaphore.Dispose()
+    } catch {}
+}
+
+# ---------------------------------------------------------------------------------------------
+# Slot holder ledger -- DIAGNOSTIC ONLY.
+#
+# Correctness does not depend on this: the mutexes above are the mutual exclusion, and the kernel
+# reclaims them. This exists so a waiter can say "slot 0: pid 1234, corpus-test in crp-objective,
+# alive since 10:42" instead of blocking anonymously, and so `doctor` can report the same. A stale
+# entry (holder killed) is therefore expected and harmless, and is reported as NOT ALIVE rather
+# than trusted -- it must never be used to decide whether a slot is free.
+# ---------------------------------------------------------------------------------------------
+
+function Get-BuildSlotLedgerPath {
+    $root = if ($env:PANGLOSS_STATE_ROOT) { $env:PANGLOSS_STATE_ROOT } elseif ($env:ProgramData) { Join-Path $env:ProgramData 'PanGloss' } else { Join-Path ([System.IO.Path]::GetTempPath()) 'PanGloss' }
+    if (-not (Test-Path $root)) { New-Item -ItemType Directory -Force -Path $root | Out-Null }
+    return (Join-Path $root 'build-slots')
+}
+
+function Write-BuildSlotHolder {
+    param([Parameter(Mandatory)][int]$Slot, [string]$Mode = '', [string]$Worktree = '')
+    $dir = Get-BuildSlotLedgerPath
+    if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+    if (-not $Mode) { $Mode = if ($script:CurrentPgMode) { $script:CurrentPgMode } else { 'build' } }
+    if (-not $Worktree) { $Worktree = try { Split-Path (Get-RepoRoot) -Leaf } catch { 'unknown' } }
+    [PSCustomObject]@{ Pid = $PID; Mode = $Mode; Worktree = $Worktree; AcquiredAt = (Get-Date).ToString('HH:mm:ss') } |
+        ConvertTo-Json -Compress | Set-Content -Path (Join-Path $dir "slot$Slot.json") -Encoding UTF8
+}
+
+function Clear-BuildSlotHolder {
+    param([Parameter(Mandatory)][int]$Slot)
+    Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path (Get-BuildSlotLedgerPath) "slot$Slot.json")
+}
+
+function Get-BuildSlotHolders {
+    $dir = Get-BuildSlotLedgerPath
+    if (-not (Test-Path $dir)) { return @() }
+    $out = @()
+    foreach ($f in @(Get-ChildItem -Path $dir -Filter 'slot*.json' -ErrorAction SilentlyContinue)) {
+        try {
+            $e = Get-Content $f.FullName -Raw | ConvertFrom-Json
+            $alive = $false
+            try { $alive = $null -ne (Get-Process -Id $e.Pid -ErrorAction Stop) } catch { $alive = $false }
+            $out += [PSCustomObject]@{
+                Slot       = ($f.BaseName -replace '^slot', '')
+                Pid        = [int]$e.Pid
+                Mode       = [string]$e.Mode
+                Worktree   = [string]$e.Worktree
+                AcquiredAt = [string]$e.AcquiredAt
+                Alive      = $alive
+            }
+        } catch {}
+    }
+    return @($out | Sort-Object Slot)
 }
 
 function Invoke-ProcessInJobObject {
@@ -1472,6 +1666,24 @@ function Write-Preflight {
         $total = Get-TotalMemoryGB
         $ofTotal = if ($null -ne $total) { " of ${total}GB total" } else { '' }
         Write-Host "free memory: $($MemoryCheck.Detail)$ofTotal" -ForegroundColor $(if ($MemoryCheck.Ok) { 'Gray' } else { 'Red' })
+        # Commit charge alongside it, never instead of it -- see Get-CommitChargeGB for why the two
+        # numbers diverge precisely when a failure is happening (a fork can fail on MEM_COMMIT while
+        # tens of GB of physical memory read as available).
+        $commit = Get-CommitChargeGB
+        if ($commit) {
+            $commitColor = if ($commit.PercentUsed -ge 90) { 'Red' } elseif ($commit.PercentUsed -ge 75) { 'Yellow' } else { 'Gray' }
+            Write-Host "commit charge: $($commit.CommittedGB)GB of $($commit.LimitGB)GB limit ($($commit.PercentUsed)% used, $($commit.FreeGB)GB uncommitted) -- procgov's --maxjobmem and event-2004 both measure THIS, not available physical" -ForegroundColor $commitColor
+        }
+    }
+    # Who holds the machine-wide build slots. Diagnostic only (the mutexes are the real exclusion);
+    # printed because an anonymous wait is indistinguishable from a deadlock.
+    $slotHolders = @(Get-BuildSlotHolders)
+    if ($slotHolders.Count -gt 0) {
+        Write-Host 'build slots in use:'
+        foreach ($h in $slotHolders) {
+            $state = if ($h.Alive) { "alive since $($h.AcquiredAt)" } else { 'NOT ALIVE -- stale ledger entry; the kernel hands this slot to the next waiter' }
+            Write-Host "  slot $($h.Slot): pid $($h.Pid) ($($h.Mode) in $($h.Worktree)) -- $state" -ForegroundColor $(if ($h.Alive) { 'Gray' } else { 'Yellow' })
+        }
     }
     Write-Host "sccache: $($SccacheHealth.State) -- $($SccacheHealth.Detail)" -ForegroundColor $(if ($SccacheHealth.Ok -or $SccacheHealth.State -eq 'disabled') { 'Gray' } else { 'Red' })
     if ($CorpusState) {

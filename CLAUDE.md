@@ -265,7 +265,7 @@ a machine-wide resource just multiplies by the number of worktrees. The rule is 
 |---|---|---|
 | CPU cores | **per PC** | `Get-CargoJobBudget` (cores − reserve ÷ slots), `-TestThreads`, `BelowNormal` priority, and `procgov --cpurate` as the only hard ceiling |
 | Memory | **per PC** | spawn gate (machine-wide available memory) + `procgov --maxjobmem` per build |
-| Taking your turn | **per PC** | `Enter-BuildSlot` — `Global\PanGlossCargoBuild`, a named semaphore, max 2 |
+| Taking your turn | **per PC** | `Enter-BuildSlot` — N named **mutexes** (`Global\PanGlossBuildSlot0..N-1`), default 2 |
 | Killing old processes | **per worktree** | `gc`'s orphan sweeps: liveness by dead *parent*, never by name/age |
 | Disk / target dirs | **per worktree** | ownership markers; `gc` never deletes another worktree's target |
 
@@ -274,10 +274,45 @@ already exactly what `Enter-BuildSlot` does, and it binds across worktrees *and*
 inside one worktree, because a Windows named semaphore is per-machine. A third `pg.ps1` waits, then
 exits 15 after 30 minutes rather than hanging forever.
 
-Two honest limits on that. The semaphore's maximum is fixed by whichever process creates it first
-and cannot be changed while it lives, so `-MaxConcurrent` is a *convention* everyone must pass the
-same value for, not a per-invocation guarantee. And it only binds callers who go through `pg.ps1` —
-bare cargo in another worktree takes no slot, which is what `block-bare-cargo.py` exists for.
+**It is N mutexes, not a counted semaphore, and that was a bug fix — do not "simplify" it back.**
+The semaphore this replaced **deadlocked every worktree on this machine on 2026-07-31**: 4+ worktrees
+sat at "waiting for a build slot" for 20+ minutes with *zero* cargo/rustc/link processes alive
+machine-wide, recoverable only by hand-releasing the semaphore until it threw. A counted semaphore
+never restores its count when the holder dies, and in agent workflows the holder dies constantly —
+a tool timeout, an agent stop/resume, or a detached invocation whose parent conversation has gone
+all kill `pg.ps1` between acquire and release. Assume any critical section between the two *will*
+be interrupted.
+
+A mutex cannot leak that way because the **kernel** owns the cleanup: a holder that dies leaves the
+mutex ABANDONED and the next waiter is granted ownership (`AbandonedMutexException`, carrying the
+index). Catching it and continuing *is* the recovery — no ledger to reconcile, no sweep to schedule,
+no hand-repair procedure. Same reasoning that replaced the hand-rolled memory watchdog with a job
+object: prefer the primitive whose cleanup the OS already guarantees.
+`rust/tools/tests/build-slot.tests.ps1` pins this by killing a real holder and requiring the slot to
+be reacquirable.
+
+It also fixes a wart that was **measured failing**: a semaphore's maximum is frozen by whichever
+process creates it first and cannot be queried, and on 2026-07-31 three procgov-wrapped builds ran
+concurrently under a nominal limit of 2 (orphaning and a `Global\`/`Local\` namespace split were both
+ruled out). With mutexes the slot count is simply how many names a caller waits on, so
+`-MaxConcurrent 1` genuinely cannot take a second slot. `Get-JobMemoryCapGB` still sizes for
+`MaxConcurrent + 1` as belt-and-braces, so the memory bound survives one slot of over-admission.
+
+Two things it still does **not** fix. It only binds callers who go through `pg.ps1` — bare cargo
+takes no slot, which is what `block-bare-cargo.py` is for. And the queue is **unfair**: Windows makes
+no ordering guarantee, so a waiter can starve (measured: one timed out after the full 30 minutes
+while *newer* arrivals were granted slots), and the timeout is arithmetically unreachable for a deep
+queue — N builds two-at-a-time take ≈ N/2 × T, so at 10 worktrees and T = 10 min the last waiter
+needs 40+ minutes against a 30-minute limit and always exits 15 regardless of load. That wastes time
+and confuses agents but cannot exhaust the machine, since the job objects bound that. A fair FIFO
+ticket lock would fix it and has deliberately not been built. What *is* built is visibility: a waiter
+and `doctor` both print who holds each slot (pid, mode, worktree, since when, and whether that pid is
+still alive), because a 20-minute anonymous wait is indistinguishable from a deadlock and that
+ambiguity is what actually burned the time during the incident.
+
+**Transition hazard:** a worktree still on the old semaphore code and one on the mutex code share no
+mutual exclusion at all. Every worktree must pick this up, or real concurrency becomes
+(old-code builds) + (new-code builds).
 
 The width knobs are weaker still: `Get-CargoJobBudget` always divides by `MaxConcurrent = 2`
 whether or not a second build exists, so a solo build takes 7 jobs where 14 would be safe, and two
