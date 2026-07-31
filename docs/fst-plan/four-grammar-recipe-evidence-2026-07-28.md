@@ -1,5 +1,14 @@
 # Four promoted grammar recipe evidence (2026-07-28)
 
+> **HISTORICAL (banner added 2026-07-30).** Two things have changed under this report. First,
+> winner ranking no longer uses the wall-clock build/apply nanoseconds tabulated below: `2137168`
+> and `0e9e08c` replaced the ranking key with deterministic work counters (HC confirmation steps),
+> precisely because these wall-clock rankings picked different winners across repetitions. The
+> Pareto tables remain valid as *measurements*; they no longer describe how a winner is chosen.
+> Second, a naming caution: the "four grammars" here are the four **synthetic promoted plan-shape
+> fixtures** (`recipe-*-generic`) — they are not the four language corpora (the parity effort's
+> "four languages"), which are tracked in `docs/fst-plan/recipe-parity-plan-2026-07-30.md`.
+
 This report records production `pangloss recipe-optimize` runs over the four language-neutral promoted fixtures. The portable integration gate is `rust/crates/pg-cli/tests/four_grammar_recipe_evidence.rs`; temporary output paths are not part of the contract.
 
 ## Reproduction

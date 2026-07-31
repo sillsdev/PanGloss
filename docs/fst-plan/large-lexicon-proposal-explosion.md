@@ -1,5 +1,14 @@
 # Large-lexicon proposal explosion: diagnosis (Sena, 2026-07-29)
 
+> **SUPERSEDED (2026-07-30).** The bug this document diagnoses is fixed by
+> `build::reroute_null_shaped_affix_chains` (commit `9cb569f`, pinned by
+> `tests/boundary_marker_epsilon_collapse_gate.rs`) — a different mechanism than either fix
+> proposed below (context-restricted deletion was tried and rejected for a real recall
+> regression). Measured post-fix: **575** proposals on the 5-word slice, down from 53,992
+> (~94×). Do not cite this document's proposal counts as current; the living evidence record is
+> `docs/fst-plan/recipe-parity-plan-2026-07-30.md`. The diagnosis sections remain accurate as
+> history of the mechanism.
+
 ## Question
 
 Sena (`samples/data/sena-hc.xml`) now proposes ~1080 candidates/word through
