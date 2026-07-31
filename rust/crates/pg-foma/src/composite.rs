@@ -804,14 +804,14 @@ impl<'g> FomaAnalyzer<'g> {
         let proposed = self.propose_words(words);
         #[cfg(all(feature = "test-concurrency-hook", not(target_arch = "wasm32")))]
         {
-            return confirm_proposed_words_with_probe(
+            confirm_proposed_words_with_probe(
                 self.g,
                 &self.owners,
                 words,
                 proposed,
                 max_threads,
                 self.confirmation_concurrency_probe.as_ref(),
-            );
+            )
         }
         #[cfg(not(all(feature = "test-concurrency-hook", not(target_arch = "wasm32"))))]
         confirm_proposed_words(self.g, &self.owners, words, proposed, max_threads)
@@ -992,7 +992,10 @@ fn confirm_proposed_words_with_probe(
 }
 
 #[cfg(all(feature = "test-concurrency-hook", not(target_arch = "wasm32")))]
-fn confirm_proposed_words_in_pool_with_probe(
+/// Test-only variant of [`confirm_proposed_words_in_pool`] that reports confirmation concurrency
+/// through an analyzer-owned probe.
+#[doc(hidden)]
+pub fn confirm_proposed_words_in_pool_with_probe(
     g: &Grammar,
     owners: &[Option<MorphemeOwner>],
     words: &[String],
@@ -1000,6 +1003,9 @@ fn confirm_proposed_words_in_pool_with_probe(
     pool: &rayon::ThreadPool,
     probe: Option<&test_confirmation_concurrency::Probe>,
 ) -> Vec<(FomaOutcome, Duration)> {
+    if let Some(probe) = probe {
+        probe.prepare(words.len().min(pool.current_num_threads()));
+    }
     if words.is_empty() {
         return Vec::new();
     }

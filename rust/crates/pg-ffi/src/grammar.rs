@@ -308,6 +308,89 @@ impl GrammarHandle {
         Ok(self.union_official_batch(words, official, &pool, guess_fallback))
     }
 
+    #[cfg(test)]
+    fn analyze_words_with_confirmation_concurrency_probe(
+        &self,
+        words: &[String],
+        max_threads: usize,
+        guess_fallback: bool,
+    ) -> Result<
+        (
+            Vec<(pg_lexicon::UnifiedAnalysis, std::time::Duration)>,
+            pg_foma::composite::test_confirmation_concurrency::Probe,
+        ),
+        (),
+    > {
+        for word in words {
+            pg_parse::batch::test_panic_if_requested(word);
+        }
+        let pool = self.build_batch_pool(max_threads)?;
+        let mut backend = self
+            .official_backend
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let checked_out = std::mem::replace(
+            &mut *backend,
+            OfficialBackend::MorpherFallback {
+                diagnostic: "foma state temporarily checked out".into(),
+            },
+        );
+        let (proposed, owners, probe) = match checked_out {
+            OfficialBackend::MorpherFallback { diagnostic } => {
+                *backend = OfficialBackend::MorpherFallback { diagnostic };
+                drop(backend);
+                return Err(());
+            }
+            OfficialBackend::Foma(state) => {
+                let state = *state;
+                let attempted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    self.test_panic_if_requested();
+                    let mut analyzer = pg_foma::composite::FomaAnalyzer::from_cached(
+                        &self.grammar,
+                        state.proposer,
+                        state.peeler,
+                        state.owners,
+                    );
+                    let probe = analyzer.arm_confirmation_concurrency_probe();
+                    let proposed = analyzer.propose_words(words);
+                    let (proposer, peeler, owners) = analyzer.into_parts();
+                    (proposed, proposer, peeler, owners, probe)
+                }));
+                match attempted {
+                    Ok((proposed, proposer, peeler, owners, probe)) => {
+                        let confirm_owners = owners.clone();
+                        *backend = OfficialBackend::Foma(Box::new(FomaState {
+                            proposer,
+                            peeler,
+                            owners,
+                        }));
+                        drop(backend);
+                        (proposed, confirm_owners, probe)
+                    }
+                    Err(payload) => {
+                        *backend = match FomaState::new(&self.grammar) {
+                            Ok(state) => OfficialBackend::Foma(Box::new(state)),
+                            Err(diagnostic) => OfficialBackend::MorpherFallback { diagnostic },
+                        };
+                        drop(backend);
+                        std::panic::resume_unwind(payload)
+                    }
+                }
+            }
+        };
+        let official = pg_foma::composite::confirm_proposed_words_in_pool_with_probe(
+            &self.grammar,
+            &owners,
+            words,
+            proposed,
+            &pool,
+            Some(&probe),
+        );
+        Ok((
+            self.union_official_batch(words, official, &pool, guess_fallback),
+            probe,
+        ))
+    }
     fn build_batch_pool(&self, max_threads: usize) -> Result<rayon::ThreadPool, ()> {
         #[cfg(test)]
         if self
@@ -659,20 +742,16 @@ mod runtime_backend_tests {
     fn batch_confirmation_uses_requested_parallelism_outside_backend_lock() {
         let handle = GrammarHandle::new(pg_grammar::load(XML).unwrap(), XML);
         let words = vec!["a".to_string(); 8];
-        pg_foma::composite::test_confirmation_concurrency::arm();
-        let sequential = handle.analyze_words(&words, 1, false).unwrap();
-        assert_eq!(
-            pg_foma::composite::test_confirmation_concurrency::max_active(),
-            1
-        );
-        pg_foma::composite::test_confirmation_concurrency::arm();
+        let (sequential, sequential_probe) = handle
+            .analyze_words_with_confirmation_concurrency_probe(&words, 1, false)
+            .unwrap();
+        assert_eq!(sequential_probe.max_active(), 1);
         let pools_before = handle.pool_build_count_for_test();
-        let outcomes = handle.analyze_words(&words, 2, false).unwrap();
+        let (outcomes, parallel_probe) = handle
+            .analyze_words_with_confirmation_concurrency_probe(&words, 2, false)
+            .unwrap();
         assert_eq!(outcomes.len(), words.len());
-        assert_eq!(
-            pg_foma::composite::test_confirmation_concurrency::max_active(),
-            2
-        );
+        assert_eq!(parallel_probe.max_active(), 2);
         assert_eq!(handle.pool_build_count_for_test() - pools_before, 1);
         assert!(outcomes
             .iter()
