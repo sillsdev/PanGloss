@@ -42,7 +42,24 @@ pub enum Applicability {
     /// no rules, `compile_templated_morphotactics` has no cascade to compose and fails with
     /// `NoCompiledRules`. Gating here turns that from a guaranteed build failure in the report into
     /// an honest "this family does not apply to this grammar".
+    ///
+    /// Kept as its own variant (rather than folded into `HasPhonologyOrTemplates` below) because it
+    /// still names a real, narrower structural fact on its own.
     HasPhonology,
+    /// `HasPhonology` OR `HasTemplates`, evaluated structurally over the same two Grammar fields
+    /// those variants already read. `token-cascade-morphology`'s compiler
+    /// (`compile_templated_morphotactics`) has two independent reasons to be worth offering: a real
+    /// rewrite cascade to compose (the `HasPhonology` case), or template-aware morphotactic
+    /// structure -- slot ordering and bounded slot occupancy -- that the plan-composed baseline's
+    /// self-looping `uflexc` emitter does not generalize to (`uflexc`'s own module doc). A grammar
+    /// can have either without the other: the measured Sena shape has templates and zero
+    /// phonological rules, so gating on `HasPhonology` alone left it with `uflexc` as its only
+    /// underlying model, never comparing it against the template-aware candidate at all. Fixed as a
+    /// single widened predicate rather than a second seeded family with the same strategy label,
+    /// because `materialize_distinct` dedups on `(plan root, strategy label)` and a whole-grammar
+    /// strategy carries the baseline plan verbatim -- two families here would just be two
+    /// applicability checks racing to be first, collapsing to the same one candidate either way.
+    HasPhonologyOrTemplates,
 }
 
 impl Applicability {
@@ -79,6 +96,9 @@ impl Applicability {
             // matters.
             Self::HasSplittableGateGroup => grammar.entries.len() >= 2,
             Self::HasPhonology => !grammar.prules.is_empty(),
+            Self::HasPhonologyOrTemplates => {
+                !grammar.prules.is_empty() || !grammar.templates.is_empty()
+            }
         }
     }
 }
@@ -721,7 +741,12 @@ const SEEDS: &[SeededFamily] = &[
         // baked in by the surface probe and its expressive gaps patched with synthesized composite
         // entries. `transform` is `Identity` because that compiler does not interpret a plan at all.
         id: "token-cascade-morphology",
-        applicability: Applicability::HasPhonology,
+        // Widened from `HasPhonology`: a template-bearing, phonology-free grammar (the measured
+        // Sena shape) has no rewrite cascade to justify this family on `HasPhonology` alone, but its
+        // morphotactics are exactly what this compiler represents faithfully and `uflexc` does not.
+        // See `Applicability::HasPhonologyOrTemplates`'s doc for the full argument and why this
+        // stays one family rather than two.
+        applicability: Applicability::HasPhonologyOrTemplates,
         transform: SafeTransform::Identity,
         strategy: EmissionStrategy::TemplatedUnderlyingTokens,
         ordering: &[("morphotactics", "phonology")],
