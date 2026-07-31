@@ -574,11 +574,9 @@ pub fn evaluate_plans_marked(
             let built = build_candidate(candidate, &opts, grammar, &alphabet, &prules, &compose);
             let build = elapsed_ns(t).max(1);
             let Ok(mut built) = built else {
-                return failed_evaluation(
+                return build_failed(
                     EmissionStrategy::PlanComposed,
-                    Certification::BuildFailed {
-                        reason: "build failed".into(),
-                    },
+                    "build failed".into(),
                     build,
                 );
             };
@@ -604,11 +602,9 @@ pub fn evaluate_plans_marked(
             ) {
                 Ok(net) => net,
                 Err(e) => {
-                    return failed_evaluation(
+                    return build_failed(
                         EmissionStrategy::PlanComposed,
-                        Certification::BuildFailed {
-                            reason: format!("boundary-cleanup finish failed: {e}"),
-                        },
+                        format!("boundary-cleanup finish failed: {e}"),
                         build,
                     );
                 }
