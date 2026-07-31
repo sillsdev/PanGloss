@@ -101,16 +101,33 @@ pub fn compile_templated_morphotactics(
     let mut skipped_rules = Vec::new();
     let mut tuple_reports = Vec::new();
     let started = Instant::now();
-    let rule_net = compile_and_compose_rules_recall_safe(
-        &opts,
-        g,
-        &alphabet,
-        &rules_in_order,
-        &mut skipped_rules,
-        &mut tuple_reports,
-    )
-    .map_err(|error| TemplatedCompileError::RuleCompileFailed(error.to_string()))?
-    .ok_or(TemplatedCompileError::NoCompiledRules)?;
+    // A grammar with NO declared phonological rules has nothing for this stage to compose, and that
+    // is a legitimate shape now that `Applicability::HasPhonologyOrTemplates` can route a
+    // phonology-free, template-bearing grammar (the measured Sena shape) to this compiler on its
+    // templates alone. Before this, `rules_in_order` being empty still called
+    // `compile_and_compose_rules_recall_safe`, which returns `Ok(None)` when nothing composed, and
+    // that `None` was unconditionally turned into `NoCompiledRules` -- a guaranteed build failure for
+    // every phonology-free grammar, whether or not `HasPhonologyOrTemplates` ever offered this
+    // family. Checking `rules_in_order.is_empty()` up front keeps that failure for the case it is
+    // actually meant to catch (rules were declared but every one was skipped or failed to compile,
+    // still a real problem) while treating "no rules declared" as the identity: composing nothing
+    // into the lexc net below, mirroring how `cleanup_net` already treats an empty boundary set.
+    let rule_net = if rules_in_order.is_empty() {
+        None
+    } else {
+        Some(
+            compile_and_compose_rules_recall_safe(
+                &opts,
+                g,
+                &alphabet,
+                &rules_in_order,
+                &mut skipped_rules,
+                &mut tuple_reports,
+            )
+            .map_err(|error| TemplatedCompileError::RuleCompileFailed(error.to_string()))?
+            .ok_or(TemplatedCompileError::NoCompiledRules)?,
+        )
+    };
     let rule_compile_compose_elapsed = started.elapsed();
 
     let boundary_tokens: Vec<char> = table
@@ -144,7 +161,10 @@ pub fn compile_templated_morphotactics(
     let cleanup_compile_elapsed = started.elapsed();
 
     let started = Instant::now();
-    let network = fsm_compose(&opts, lexc_net, rule_net);
+    let network = match rule_net {
+        Some(rule_net) => fsm_compose(&opts, lexc_net, rule_net),
+        None => lexc_net,
+    };
     let network = match crate::structural_allomorph::compile_authored_deletion_fallback(
         &opts, g, &alphabet,
     ) {
@@ -205,6 +225,62 @@ mod tests {
         let (grammar, _warnings) = pg_grammar::compile_project(&snapshot)
             .unwrap_or_else(|error| panic!("compile_project {}: {error}", path.display()));
         Some(grammar)
+    }
+
+    /// Correctness pin for the `HasPhonologyOrTemplates` routing widening
+    /// (`recipe_registry::Applicability`): this compiler must actually build for a template-bearing
+    /// grammar that declares NO phonological rules, not just for the phonology-bearing shape its
+    /// existing callers exercised.
+    ///
+    /// Before this fix, an empty `rules_in_order` still ran
+    /// `compile_and_compose_rules_recall_safe`, which returns `Ok(None)` when nothing composed, and
+    /// that `None` was unconditionally turned into `Err(NoCompiledRules)` via `.ok_or(..)` --
+    /// exactly the failure `Applicability::HasPhonology`'s own doc comment predicted. It was never
+    /// reproduced in practice only because the old gate never routed a phonology-free grammar to
+    /// this compiler at all. Checking `rules_in_order.is_empty()` up front (mirroring how
+    /// `cleanup_net` already treats an empty boundary set as the identity) fixes it while leaving the
+    /// "rules were declared but none survived compilation" failure mode untouched.
+    #[test]
+    fn phonology_free_templated_grammar_compiles_through_this_path() {
+        let fixtures = pg_conformance_fixtures::discover();
+        let fixture = fixtures
+            .iter()
+            .find(|f| {
+                f.root == pg_conformance_fixtures::Root::Staging
+                    && f.name == "recipe-template-generic"
+            })
+            .expect("missing staged fixture recipe-template-generic");
+        let grammar = pg_grammar::load(&fixture.load_grammar_xml()).expect("fixture must load");
+        assert!(
+            grammar.prules.is_empty(),
+            "fixture is used here BECAUSE it declares no phonological rules"
+        );
+        assert!(
+            !grammar.templates.is_empty(),
+            "fixture is used here BECAUSE it declares affix templates"
+        );
+
+        let compiled = compile_templated_morphotactics(&grammar)
+            .expect("a phonology-free templated grammar must compile, not fail with NoCompiledRules");
+        assert_eq!(
+            compiled.profile.phonological_rule_count, 0,
+            "this fixture declares no phonological rules; the profile should say so honestly"
+        );
+        let (states, arcs) = compiled.proposer.network_counts();
+        assert!(
+            states > 0 && arcs > 0,
+            "must yield a real network, not an empty one that would analyze nothing: {states} \
+             states / {arcs} arcs"
+        );
+
+        // The zero-slot boundary word (`words.yaml`'s first entry, C(12,0) = 1 analysis): a plain
+        // propose against the compiled network must find at least one candidate.
+        let mut proposer = compiled.proposer;
+        let candidates = proposer.propose("k");
+        assert!(
+            !candidates.is_empty(),
+            "the zero-slot word must propose at least one candidate on the compiled network"
+        );
     }
 
     #[test]
