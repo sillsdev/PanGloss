@@ -307,14 +307,22 @@ fn measure_and_certify(
     }
 }
 
-fn build_failed(
+/// Shared constructor for every evaluation outcome whose `Score` is zeroed except `build` --
+/// nothing past the build step ran, so `apply`/`proposals`/`confirmation`/`confirmation_steps`/
+/// `states`/`arcs` are honestly `0`, not "not yet measured" masquerading as a real reading.
+/// Recipe-pipeline-hygiene D7: every zeroed-`Score` failure path in this module routes through
+/// here (rather than re-inlining the same `Score { .. }` literal at each call site) so a future
+/// `Score` field addition has exactly one place to account for it -- forgetting it here fails to
+/// compile everywhere it matters, forgetting it at an inline literal fails silently at whichever
+/// call sites nobody remembered to update.
+fn failed_evaluation(
     realized_strategy: EmissionStrategy,
-    reason: String,
+    certification: Certification,
     build: u64,
 ) -> RuntimeEvaluation {
     RuntimeEvaluation {
         realized_strategy,
-        certification: Certification::BuildFailed { reason },
+        certification,
         score: Score {
             states: 0,
             arcs: 0,
@@ -326,6 +334,14 @@ fn build_failed(
             raw_paths: 0,
         },
     }
+}
+
+fn build_failed(
+    realized_strategy: EmissionStrategy,
+    reason: String,
+    build: u64,
+) -> RuntimeEvaluation {
+    failed_evaluation(realized_strategy, Certification::BuildFailed { reason }, build)
 }
 
 fn evaluate_via_tuned_emit(
@@ -523,23 +539,16 @@ pub fn evaluate_plans_marked(
         };
         return plans
             .iter()
-            .map(|plan| RuntimeEvaluation {
+            .map(|plan| {
                 // Nothing compiled -- the corpus itself was refused -- so the honest answer is the
                 // strategy that was requested.
-                realized_strategy: plan.strategy,
-                certification: Certification::Truncated {
-                    stage: stage.into(),
-                },
-                score: Score {
-                    states: 0,
-                    arcs: 0,
-                    build: 0,
-                    apply: 0,
-                    proposals: 0,
-                    confirmation: 0,
-                    confirmation_steps: 0,
-                    raw_paths: 0,
-                },
+                failed_evaluation(
+                    plan.strategy,
+                    Certification::Truncated {
+                        stage: stage.into(),
+                    },
+                    0,
+                )
             })
             .collect();
     }
@@ -565,40 +574,22 @@ pub fn evaluate_plans_marked(
             let built = build_candidate(candidate, &opts, grammar, &alphabet, &prules, &compose);
             let build = elapsed_ns(t).max(1);
             let Ok(mut built) = built else {
-                return RuntimeEvaluation {
-                    realized_strategy: EmissionStrategy::PlanComposed,
-                    certification: Certification::BuildFailed {
+                return failed_evaluation(
+                    EmissionStrategy::PlanComposed,
+                    Certification::BuildFailed {
                         reason: "build failed".into(),
                     },
-                    score: Score {
-                        states: 0,
-                        arcs: 0,
-                        build,
-                        apply: 0,
-                        proposals: 0,
-                        confirmation: 0,
-                        confirmation_steps: 0,
-                        raw_paths: 0,
-                    },
-                };
+                    build,
+                );
             };
             let Some(net) = built.net.take() else {
-                return RuntimeEvaluation {
-                    realized_strategy: EmissionStrategy::PlanComposed,
-                    certification: Certification::Truncated {
+                return failed_evaluation(
+                    EmissionStrategy::PlanComposed,
+                    Certification::Truncated {
                         stage: "empty-network".into(),
                     },
-                    score: Score {
-                        states: 0,
-                        arcs: 0,
-                        build,
-                        apply: 0,
-                        proposals: 0,
-                        confirmation: 0,
-                        confirmation_steps: 0,
-                        raw_paths: 0,
-                    },
-                };
+                    build,
+                );
             };
             // Mandatory finish step, not an optimization: without the boundary-token cleanup compose
             // and re-minimize, the net still carries the inter-morph boundary tokens `uflexc` emits,
@@ -613,22 +604,13 @@ pub fn evaluate_plans_marked(
             ) {
                 Ok(net) => net,
                 Err(e) => {
-                    return RuntimeEvaluation {
-                        realized_strategy: EmissionStrategy::PlanComposed,
-                        certification: Certification::BuildFailed {
+                    return failed_evaluation(
+                        EmissionStrategy::PlanComposed,
+                        Certification::BuildFailed {
                             reason: format!("boundary-cleanup finish failed: {e}"),
                         },
-                        score: Score {
-                            states: 0,
-                            arcs: 0,
-                            build,
-                            apply: 0,
-                            proposals: 0,
-                            confirmation: 0,
-                            confirmation_steps: 0,
-                            raw_paths: 0,
-                        },
-                    };
+                        build,
+                    );
                 }
             };
             let score0 = (net.statecount as u64, net.arccount as u64);

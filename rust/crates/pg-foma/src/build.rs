@@ -66,11 +66,9 @@
 //!
 //! # Node kinds handled (exactly what `enumerate_default` emits on the controllable path)
 //! - [`crate::plan::PlanNodeKind::Gate`] -- the entry point; see the obstacle note above.
-//! - [`crate::plan::PlanNodeKind::Compose`] -- each gate group's child; only
-//!   [`crate::plan::ComposeStrategy::Static`] is interpreted (the only strategy `enumerate_default`
-//!   ever emits) -- `Lazy`/`LazyLookahead` panic with a precise message rather than silently
-//!   compiling eagerly, since no lazy-composition primitive exists anywhere in this crate yet (a
-//!   real, separate Plan-model/interpreter gap, not this step's to close).
+//! - [`crate::plan::PlanNodeKind::Compose`] -- each gate group's child;
+//!   [`crate::plan::ComposeStrategy`] has only the `Static` variant, so this step has nothing else
+//!   to reject and no strategy guard remains.
 //! - [`crate::plan::PlanNodeKind::Leaf`] tagged [`crate::plan::FragmentSpec::LexiconFragment`] --
 //!   read as `entries` for [`crate::uflexc::emit_underlying_filtered_with_budget`]'s own
 //!   `allowed_entries` parameter (always `Some`, matching `enumerate_default`'s own invariant).
@@ -100,7 +98,7 @@ use crate::compose_budget::{
 use crate::enumerate::rule_id_of;
 use crate::gate::GatedCompileResult;
 use crate::plan::{
-    ComposeStrategy, FragmentSpec, GatedSubruleRef, NodeId, Plan, PlanNodeKind, ReplaceCascadeSpec,
+    FragmentSpec, GatedSubruleRef, NodeId, Plan, PlanNodeKind, ReplaceCascadeSpec,
 };
 use crate::replace::{compile_and_compose_rules_gated_with_budget, SegAlphabet, TupleReport};
 use crate::uflexc::{emit_underlying_filtered_with_budget, UEmitReport};
@@ -458,7 +456,7 @@ pub fn finish_controllable_net(
 /// # Panics
 /// On any plan shape [`crate::enumerate::enumerate_default`] does not itself produce (a dangling
 /// `NodeId`, a `Gate` node missing from the root/root-`Union`, a group's `Compose` node with the wrong
-/// child count or a non-`Static` strategy, a `Replace` cascade that doesn't match `prules_in_order`) --
+/// child count, a `Replace` cascade that doesn't match `prules_in_order`) --
 /// these are caller/plan-construction contract violations, not runtime/budget failures, so they panic
 /// loudly rather than returning a `ComposeError` variant that doesn't exist for them (mirrors this
 /// crate's existing convention, e.g. `crate::gate::compile_gated_grammar_with_budget`'s own
@@ -694,22 +692,17 @@ fn find_gate_node(plan: &Plan) -> NodeId {
 
 /// One gate group's `Compose` node, resolved to its two children `(lexicon_leaf, replace_node)` --
 /// `enumerate_default`'s own shape (module doc: "each group's Compose = Compose[ group's
-/// LexiconFragment Leaf ..., the shared Replace node ]"). Panics on any other strategy/child-count
-/// shape (module doc's "node kinds handled" list).
+/// LexiconFragment Leaf ..., the shared Replace node ]"). Panics on any other child-count shape
+/// (module doc's "node kinds handled" list). No strategy guard: [`crate::plan::ComposeStrategy`]
+/// has only `Static`, so every `Compose` node is `Static` by construction and there is nothing
+/// left to reject here.
 fn gate_group_children(plan: &Plan, compose_id: NodeId) -> (NodeId, NodeId) {
-    let PlanNodeKind::Compose { children, strategy } = plan
+    let PlanNodeKind::Compose { children, .. } = plan
         .get(compose_id)
         .unwrap_or_else(|| panic!("dangling Compose NodeId {compose_id} in plan"))
     else {
         panic!("expected a Compose node as a Gate group's child at {compose_id}");
     };
-    assert!(
-        matches!(strategy, ComposeStrategy::Static),
-        "build_controllable only interprets ComposeStrategy::Static (the only strategy \
-         enumerate_default ever emits); got {strategy:?} at node {compose_id} -- no lazy-composition \
-         primitive exists anywhere in this crate yet, so this is a real Plan-model/interpreter gap \
-         (a genuine Step-3 finding), not something safely ignorable"
-    );
     assert_eq!(
         children.len(),
         2,

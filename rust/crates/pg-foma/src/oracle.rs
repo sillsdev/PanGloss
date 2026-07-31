@@ -544,19 +544,16 @@ impl PartitionGranularity {
 /// `[1]` its own `Replace` node, [`ComposeStrategy::Static`]. Duplicated from `crate::build`'s
 /// private `gate_group_children` rather than shared across the module boundary (this module is a
 /// `Plan`-to-`Plan` rewrite, not a builder -- the same "don't reach into `build.rs`" discipline this
-/// module's own doc already follows for [`permute_gate_groups`]/[`permute_union_children`]).
+/// module's own doc already follows for [`permute_gate_groups`]/[`permute_union_children`]). No
+/// strategy guard: [`ComposeStrategy`] has only `Static`, so every `Compose` node is `Static` by
+/// construction.
 fn gate_group_parts(plan: &Plan, compose_id: NodeId) -> (NodeId, NodeId) {
-    let PlanNodeKind::Compose { children, strategy } = plan
+    let PlanNodeKind::Compose { children, .. } = plan
         .get(compose_id)
         .unwrap_or_else(|| panic!("dangling Compose NodeId {compose_id} in plan"))
     else {
         panic!("expected a Compose node as a Gate group's child at {compose_id}");
     };
-    assert!(
-        matches!(strategy, ComposeStrategy::Static),
-        "refine_gate_partition only understands ComposeStrategy::Static (the only strategy \
-         enumerate_default ever emits); got {strategy:?} at node {compose_id}"
-    );
     assert_eq!(
         children.len(),
         2,

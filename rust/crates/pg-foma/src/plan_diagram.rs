@@ -326,8 +326,6 @@ fn leaf_label(g: &Grammar, fragment: &FragmentSpec) -> String {
 fn compose_strategy_name(s: ComposeStrategy) -> &'static str {
     match s {
         ComposeStrategy::Static => "Static",
-        ComposeStrategy::Lazy => "Lazy",
-        ComposeStrategy::LazyLookahead => "LazyLookahead",
     }
 }
 

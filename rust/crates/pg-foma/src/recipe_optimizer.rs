@@ -900,6 +900,42 @@ mod tests {
         assert_eq!(result.quality, SearchQuality::Exact);
     }
 
+    /// Pins `SearchAccounting.pruned`'s structural inertness (recipe-pipeline-hygiene D7): the
+    /// only production caller of `BranchAndBound`, `pg-cli/src/recipe_optimize.rs`, builds every
+    /// `CandidateState` with `exact_objective: None` -- neither call site there ever runs a cheap
+    /// evaluation before search, so no candidate can ever populate the incumbent, and
+    /// `incumbent` (initialized to `u64::MAX`) never drops below it. `lower_bound > incumbent` is
+    /// then never true regardless of how the bounds are spread, so `pruned` is always `0`. This
+    /// test builds candidates the same production-shaped way (varied `lower_bound`, `baseline`
+    /// flag, always `exact_objective: None`) and pins that `pruned == 0` -- if a future change
+    /// wires a real bound (populating `exact_objective` from an actual completed evaluation) this
+    /// test's premise changes and it should be revisited, not "fixed" back to zero.
+    #[test]
+    fn pruned_is_structurally_zero_in_production_shaped_run() {
+        use crate::recipe_registry::FAMILY_ORDERED_MORPHOPHONOLOGY;
+        let candidates = vec![
+            candidate(
+                "baseline",
+                FAMILY_ORDERED_MORPHOPHONOLOGY,
+                "baseline",
+                0,
+                None,
+                true,
+            ),
+            candidate("a", "one", "sig-a", 1, None, false),
+            candidate("b", "two", "sig-b", 5, None, false),
+            candidate("c", "three", "sig-c", 100, None, false),
+        ];
+        let result = BranchAndBound.search(&candidates, Budget::default(), 1);
+        assert_eq!(
+            result.pruned, 0,
+            "no CandidateState in production ever carries exact_objective: Some(_), so the \
+             incumbent can never leave u64::MAX and nothing can ever be pruned -- a nonzero \
+             result here means either this test stopped being production-shaped or the field \
+             stopped being structurally inert, either of which needs a human to look"
+        );
+    }
+
     #[test]
     fn evaluation_budget_exhaustion_downgrades_exact_search() {
         struct ConfirmingEvaluator;

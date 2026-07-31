@@ -347,14 +347,6 @@ impl EmissionStrategy {
 ///
 /// # Which axes are deliberately NOT emitted yet, and why
 ///
-/// - **`ComposeStrategy::Lazy`/`LazyLookahead`** (`plan.rs`'s own second axis, D1: "kept separate
-///   from topology"). [`build::build_controllable`]'s own module doc is explicit: it interprets
-///   ONLY [`ComposeStrategy::Static`] — "the only strategy `enumerate_default` ever emits" — and
-///   PANICS on any other strategy, since "no lazy-composition primitive exists anywhere in this
-///   crate yet." Emitting a `Lazy`/`LazyLookahead` candidate here would violate this task's own hard
-///   rule ("do NOT emit a plan `build_controllable` cannot build"), so this axis stays out until a
-///   real lazy-composition builder exists — a `crate::build` gap, not something this enumerator can
-///   paper over by constructing the node anyway.
 /// - **Reordering the root `Union`'s composite-emission/structural-composite marker children.**
 ///   [`enumerate_default`]'s own module doc already notes `Union`'s commutativity makes child order
 ///   semantically inert; the reason this is still not a candidate axis is that neither marker leaf

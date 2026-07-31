@@ -14,7 +14,9 @@ use pg_foma::recipe_optimizer::{
     CandidateEvaluator, CandidateState, ConfirmationEvidence, ConstraintTopology,
     DefaultStrategyRegistry, PilotCosts, StrategyRegistry,
 };
-use pg_foma::recipe_registry::{Registry, REGISTRY_SCHEMA_VERSION};
+use pg_foma::recipe_registry::{
+    Registry, FAMILY_ORDERED_MORPHOPHONOLOGY, REGISTRY_SCHEMA_VERSION,
+};
 use pg_foma::recipe_report::{
     CandidateReport, PruningWaterfall, RecipeOptimizationReport, SearchAccounting,
 };
@@ -212,6 +214,17 @@ fn hash_inputs(grammar: &str, words: &str) -> Result<String, RecipeOptimizeError
     Ok(format!("{:x}", h.finalize()))
 }
 
+/// `BranchAndBound` has no production incumbent today: each `CandidateState` is constructed with
+/// `exact_objective: None`, so no candidate can meet the only condition that increments `pruned`.
+/// Keep the inert field honest at the report boundary until a real admissible bound is wired.
+fn assert_pruned_is_structurally_zero(pruned: u64) {
+    assert_eq!(
+        pruned, 0,
+        "SearchAccounting.pruned must remain zero until production supplies an admissible exact \
+         objective to branch-and-bound"
+    );
+}
+
 pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
     if std::env::var_os("PANGLOSS_RECIPE_OPTIMIZE_CHILD").is_none() {
         return run_recipe_optimize_supervised(args);
@@ -262,7 +275,7 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
     let offered_instances = registry.instances().len() as u64;
     let mut instances = registry.instances_for_grammar(&grammar);
     instances.sort_by_key(|instance| {
-        let baseline = instance.family_id == "ordered-morphophonology"
+        let baseline = instance.family_id == FAMILY_ORDERED_MORPHOPHONOLOGY
             && instance
                 .parameters
                 .get("topology")
@@ -296,9 +309,13 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
     materialization_times.insert(baseline_id.clone(), baseline_materialization_ns);
     states.push(CandidateState {
         id: baseline_id.clone(),
-        family: "ordered-morphophonology".into(),
-        signature: "ordered-morphophonology|topology=baseline".into(),
+        family: FAMILY_ORDERED_MORPHOPHONOLOGY.into(),
+        signature: format!("{FAMILY_ORDERED_MORPHOPHONOLOGY}|topology=baseline"),
         lower_bound: baseline.len() as u64,
+        // Always `None`: no cheap/pilot evaluation runs before search here, so this candidate
+        // (like every other one built below) can never populate `BranchAndBound`'s incumbent.
+        // This is why `SearchAccounting.pruned` is structurally zero in production -- see that
+        // field's doc in `pg_foma::recipe_report`.
         exact_objective: None,
         baseline: true,
     });
@@ -361,6 +378,8 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
             family: instance.family_id,
             signature: recipe_id,
             lower_bound: lower,
+            // Same structural note as the baseline candidate above: this call site never
+            // populates `exact_objective` either, so `SearchAccounting.pruned` stays zero.
             exact_objective: None,
             baseline: false,
         });
@@ -480,6 +499,7 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
         strategy_impl.as_ref(),
         &mut evaluator,
     );
+    assert_pruned_is_structurally_zero(outcome.search.pruned);
     outcome.usage.elapsed = outcome.usage.elapsed.saturating_add(presearch_elapsed);
     outcome.usage.build = outcome.usage.build.saturating_add(pilot_build);
     outcome.usage.confirmation = outcome
@@ -808,5 +828,21 @@ fn run_recipe_optimize_supervised(args: &[String]) -> Result<(), RecipeOptimizeE
             }
         }
         std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::assert_pruned_is_structurally_zero;
+
+    #[test]
+    fn production_search_accounting_rejects_nonzero_pruned_count() {
+        assert_pruned_is_structurally_zero(0);
+        let result = std::panic::catch_unwind(|| assert_pruned_is_structurally_zero(1));
+        assert!(
+            result.is_err(),
+            "a nonzero pruned count must not enter the production report until a real admissible \
+             bound is wired"
+        );
     }
 }

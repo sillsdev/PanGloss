@@ -6,7 +6,7 @@ All work on branch `cleanup-and-recipe-parity` (one worktree), never on `main`.
 
 ## 1. Wave 1 — independent fixes (parallel-safe)
 
-- [ ] 1.1 Hygiene: delete `ComposeStrategy::Lazy`/`LazyLookahead` (enum, labels in
+- [x] 1.1 Hygiene: delete `ComposeStrategy::Lazy`/`LazyLookahead` (enum, labels in
       `plan_diagram.rs`/`plan_interaction_coverage.rs`, panic guards in `build.rs`/`oracle.rs`,
       doc refs in `enumerate.rs`/`build.rs`); assert-and-document `SearchAccounting.pruned == 0`
       in production; family-id `pub const`s next to `SEEDS` consumed by

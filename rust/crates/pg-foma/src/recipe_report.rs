@@ -60,6 +60,16 @@ pub struct SearchAccounting {
     pub generated: u64,
     pub expanded: u64,
     pub explored: u64,
+    /// Candidates rejected by `recipe_optimizer`'s branch-and-bound because their `lower_bound`
+    /// exceeded the running incumbent (recipe-pipeline-hygiene D7). This is **structurally always
+    /// zero in production today**: both call sites that build a `BranchAndBoundCandidate` in
+    /// `pg-cli/src/recipe_optimize.rs` set `exact_objective: None`, so `incumbent` (initialized to
+    /// `u64::MAX`) never drops and no candidate's `lower_bound` can ever exceed it. Do not read
+    /// this field as a live "the search pruned N candidates" signal until a real admissible bound
+    /// is wired (`exact_objective` populated from an actual completed-evaluation cost) — tracked as
+    /// an open question in `openspec/changes/cleanup-and-recipe-parity/design.md`, deferred pending
+    /// a cost model. See `recipe_optimizer::tests::pruned_is_structurally_zero_in_production_shaped_run`
+    /// for the pinning test.
     pub pruned: u64,
     pub unexplored: u64,
     pub unexplored_method: String,

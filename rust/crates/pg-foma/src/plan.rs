@@ -124,15 +124,17 @@ fn content_address(kind: &PlanNodeKind) -> NodeId {
 /// The *physical* strategy for a [`PlanNodeKind::Compose`] node, kept as a separate enum from
 /// topology (D1) so a future cost model can vary the strategy per edge without the enumerator
 /// having to emit a combinatorially separate `Compose` topology for every strategy choice.
+///
+/// Single-variant today: `crate::build::build_controllable` and `crate::enumerate`'s
+/// `refine_gate_partition` both construct and interpret only `Static`. The enum stays (rather
+/// than collapsing `Compose { strategy, .. }` to drop the field) because it is D1's
+/// "config-only difference is still a content-address difference" axis: a future strategy belongs
+/// in this enum, not in a new field elsewhere.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ComposeStrategy {
-    /// Materialize-then-trim: build the full composed network eagerly.
+    /// Materialize-then-trim: build the full composed network eagerly. The only strategy any
+    /// builder in this crate constructs or interprets.
     Static,
-    /// On-the-fly composition: expand states lazily as they are visited.
-    Lazy,
-    /// On-the-fly composition with a label-reachability lookahead filter (avoids expanding
-    /// branches the lookahead can already prove dead).
-    LazyLookahead,
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -503,33 +505,6 @@ mod tests {
         assert_eq!(plan.len(), 1, "must be stored exactly once, not duplicated");
     }
 
-    /// Two nodes differing ONLY in a config field ([`ComposeStrategy`]) must get different
-    /// `NodeId`s — strategy is part of a node's content identity even though D1 keeps it separate
-    /// from topology; "separate from topology" does not mean "outside the content address".
-    #[test]
-    fn differing_only_in_compose_strategy_yields_different_ids() {
-        let mut plan = Plan::new();
-        let leaf = plan.add_node(lexicon_leaf());
-        let static_compose = plan.add_node(PlanNodeKind::Compose {
-            children: vec![leaf],
-            strategy: ComposeStrategy::Static,
-        });
-        let lazy_compose = plan.add_node(PlanNodeKind::Compose {
-            children: vec![leaf],
-            strategy: ComposeStrategy::Lazy,
-        });
-        assert_ne!(
-            static_compose, lazy_compose,
-            "two Compose nodes differing only in strategy are different candidate plans, not the \
-             same one, and must get different NodeIds"
-        );
-        assert_eq!(
-            plan.len(),
-            3,
-            "leaf + 2 distinct Compose nodes, the leaf shared and NOT duplicated"
-        );
-    }
-
     /// Task 1.4's core content-addressing claim, at the `ReplaceCascadeSpec` level directly (no
     /// `Grammar`/`Gate` node involved -- `crate::enumerate`/`crate::build`'s own tests exercise the
     /// same property end-to-end on real seam-derived data; this is the minimal, data-only proof):
@@ -630,14 +605,14 @@ mod tests {
         let leaf_1 = plan_1.add_node(lexicon_leaf());
         let root_1 = plan_1.add_node(PlanNodeKind::Compose {
             children: vec![leaf_1],
-            strategy: ComposeStrategy::LazyLookahead,
+            strategy: ComposeStrategy::Static,
         });
 
         let mut plan_2 = Plan::new();
         let leaf_2 = plan_2.add_node(lexicon_leaf());
         let root_2 = plan_2.add_node(PlanNodeKind::Compose {
             children: vec![leaf_2],
-            strategy: ComposeStrategy::LazyLookahead,
+            strategy: ComposeStrategy::Static,
         });
 
         assert_eq!(

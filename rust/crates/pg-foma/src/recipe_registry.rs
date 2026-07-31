@@ -664,30 +664,46 @@ impl Materializer for SeededFamily {
     }
 }
 
+// Family ids: the single source of truth for every seeded family's identity string. Defined here,
+// used IN `SEEDS` below (not duplicated as literals), so decision sites elsewhere (`pg-cli`'s
+// `recipe_optimize.rs` baseline detection, any test asserting on family identity) reference these
+// constants instead of comparing strings -- a rename then fails the build at every use site rather
+// than silently changing behavior (recipe-pipeline-hygiene D7 / spec.md "Family identities are
+// compiler-checked at decision sites").
+pub const FAMILY_ORDERED_MORPHOPHONOLOGY: &str = "ordered-morphophonology";
+pub const FAMILY_CLASS_EXCEPTION_CASCADE: &str = "class-exception-cascade";
+pub const FAMILY_COMPLETE_TEMPLATE: &str = "complete-template";
+pub const FAMILY_SPECIALIZED_BRANCH: &str = "specialized-branch";
+pub const FAMILY_COPY_BRANCH: &str = "copy-branch";
+pub const FAMILY_BOUNDED_METATHESIS: &str = "bounded-metathesis";
+pub const FAMILY_LAYERED_MORPHOLOGY: &str = "layered-morphology";
+pub const FAMILY_SURFACE_PROBE_MORPHOLOGY: &str = "surface-probe-morphology";
+pub const FAMILY_TOKEN_CASCADE_MORPHOLOGY: &str = "token-cascade-morphology";
+
 const SEEDS: &[SeededFamily] = &[
     SeededFamily {
-        id: "ordered-morphophonology",
+        id: FAMILY_ORDERED_MORPHOPHONOLOGY,
         applicability: Applicability::Always,
         transform: SafeTransform::Identity,
         strategy: EmissionStrategy::PlanComposed,
         ordering: &[("morphology", "phonology")],
     },
     SeededFamily {
-        id: "class-exception-cascade",
+        id: FAMILY_CLASS_EXCEPTION_CASCADE,
         applicability: Applicability::HasGatedExceptions,
         transform: SafeTransform::GatePermutation,
         strategy: EmissionStrategy::PlanComposed,
         ordering: &[("class-partition", "exception-cascade")],
     },
     SeededFamily {
-        id: "complete-template",
+        id: FAMILY_COMPLETE_TEMPLATE,
         applicability: Applicability::HasTemplates,
         transform: SafeTransform::UnionPermutation,
         strategy: EmissionStrategy::PlanComposed,
         ordering: &[("template-selection", "phonology")],
     },
     SeededFamily {
-        id: "specialized-branch",
+        id: FAMILY_SPECIALIZED_BRANCH,
         // A "specialized branch" IS a narrower partition of the same entries over the same cascade,
         // so bisection is what this family actually names -- it was previously a fourth relabelled
         // copy of UnionPermutation, contributing nothing the baseline did not already contribute.
@@ -697,21 +713,21 @@ const SEEDS: &[SeededFamily] = &[
         ordering: &[("branch-selection", "shared-cascade")],
     },
     SeededFamily {
-        id: "copy-branch",
+        id: FAMILY_COPY_BRANCH,
         applicability: Applicability::HasReduplication,
         transform: SafeTransform::UnionPermutation,
         strategy: EmissionStrategy::PlanComposed,
         ordering: &[("copy", "repair")],
     },
     SeededFamily {
-        id: "bounded-metathesis",
+        id: FAMILY_BOUNDED_METATHESIS,
         applicability: Applicability::HasMetathesis,
         transform: SafeTransform::Identity,
         strategy: EmissionStrategy::PlanComposed,
         ordering: &[("match", "switch")],
     },
     SeededFamily {
-        id: "layered-morphology",
+        id: FAMILY_LAYERED_MORPHOLOGY,
         // Maximal refinement: one sub-group per entry, the many-small-unions shape. Applicability
         // moves from HasMultipleStrata to HasSplittableGateGroup because what this transform needs is
         // a splittable partition, not multiple strata -- the old predicate gated it on a property it
@@ -726,7 +742,7 @@ const SEEDS: &[SeededFamily] = &[
         // post-failure rescue. On a marker-carrying grammar the baseline already falls back here, so
         // this adds nothing there; on a marker-free grammar the baseline composes its plan instead,
         // and this is the only way the surface-probed compiler ever gets compared against it.
-        id: "surface-probe-morphology",
+        id: FAMILY_SURFACE_PROBE_MORPHOLOGY,
         applicability: Applicability::Always,
         transform: SafeTransform::Identity,
         strategy: EmissionStrategy::TunedSurfaceProbed,
@@ -740,7 +756,7 @@ const SEEDS: &[SeededFamily] = &[
         // lexc entirely -- plain char-def tokens plus a real rewrite cascade, rather than phonology
         // baked in by the surface probe and its expressive gaps patched with synthesized composite
         // entries. `transform` is `Identity` because that compiler does not interpret a plan at all.
-        id: "token-cascade-morphology",
+        id: FAMILY_TOKEN_CASCADE_MORPHOLOGY,
         // Widened from `HasPhonology`: a template-bearing, phonology-free grammar (the measured
         // Sena shape) has no rewrite cascade to justify this family on `HasPhonology` alone, but its
         // morphotactics are exactly what this compiler represents faithfully and `uflexc` does not.
@@ -754,15 +770,15 @@ const SEEDS: &[SeededFamily] = &[
 ];
 
 pub const SEEDED_FAMILIES: &[&str] = &[
-    "ordered-morphophonology",
-    "class-exception-cascade",
-    "complete-template",
-    "specialized-branch",
-    "copy-branch",
-    "bounded-metathesis",
-    "layered-morphology",
-    "token-cascade-morphology",
-    "surface-probe-morphology",
+    FAMILY_ORDERED_MORPHOPHONOLOGY,
+    FAMILY_CLASS_EXCEPTION_CASCADE,
+    FAMILY_COMPLETE_TEMPLATE,
+    FAMILY_SPECIALIZED_BRANCH,
+    FAMILY_COPY_BRANCH,
+    FAMILY_BOUNDED_METATHESIS,
+    FAMILY_LAYERED_MORPHOLOGY,
+    FAMILY_TOKEN_CASCADE_MORPHOLOGY,
+    FAMILY_SURFACE_PROBE_MORPHOLOGY,
 ];
 
 #[cfg(test)]

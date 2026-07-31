@@ -216,8 +216,6 @@ fn leaf_detail(fragment: &FragmentSpec) -> &'static str {
 fn compose_strategy_name(strategy: ComposeStrategy) -> &'static str {
     match strategy {
         ComposeStrategy::Static => "Static",
-        ComposeStrategy::Lazy => "Lazy",
-        ComposeStrategy::LazyLookahead => "LazyLookahead",
     }
 }
 
