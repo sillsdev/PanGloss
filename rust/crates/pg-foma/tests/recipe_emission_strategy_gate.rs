@@ -34,7 +34,9 @@
 
 use pg_foma::enumerate::{enumerate_default, EmissionStrategy};
 use pg_foma::junctions::PhonologyProbe;
-use pg_foma::recipe_registry::{MaterializerContext, Registry};
+use pg_foma::recipe_registry::{
+    MaterializerContext, Registry, FAMILY_TOKEN_CASCADE_MORPHOLOGY,
+};
 use pg_foma::replace::SegAlphabet;
 use pg_grammar::model::Grammar;
 
@@ -42,7 +44,7 @@ use pg_grammar::model::Grammar;
 /// declares no boundary characters (so it also covers the boundary-free compile path below).
 const FIXTURE: &str = "recipe-gated-generic";
 
-const FAMILY: &str = "token-cascade-morphology";
+const FAMILY: &str = FAMILY_TOKEN_CASCADE_MORPHOLOGY;
 
 fn load(name: &str) -> Grammar {
     let fixtures = pg_conformance_fixtures::discover();

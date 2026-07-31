@@ -153,14 +153,13 @@ OpenFst-style composition filters (`TrivialComposeFilter`, `SequenceComposeFilte
 **B2. Lazy / on-the-fly composition.** Expands composed states only as visited, instead of
 materializing the full product up front. *Problem shape:* build time and artifact size when only a
 fraction of the composed state space is ever reached by real input — the single clearest
-"designed-for, not built" item in this codebase. *Status:* **Modeled but explicitly unimplemented.**
-`crate::plan::ComposeStrategy` has `Lazy`/`LazyLookahead` variants
-(`rust/crates/pg-foma/src/plan.rs:128-136`) that a cost model could in principle select per edge, but
-`build.rs` panics if either is ever selected: "no lazy-composition primitive exists anywhere in this
-crate yet" (`rust/crates/pg-foma/src/build.rs`, the `gate_group_children` strategy assertion,
-"`Lazy`/`LazyLookahead` panic with a precise message rather than silently compiling eagerly").
-`plan_interaction_coverage.rs`'s closed 7-tuple legal-adjacency set confirms only `Static` is ever
-actually produced today. *Citation:* Allauzen, Riley, Schalkwyk, Skut & Mohri (2007), "OpenFst: A
+"designed-for, not built" item in this codebase. *Status:* **Researched, but not modeled in the
+active plan vocabulary.** `crate::plan::ComposeStrategy` contains only `Static`. The former
+on-the-fly variants were removed because no builder could construct or execute them; `build.rs`
+therefore has no strategy-rejection panic. `plan_interaction_coverage.rs`'s closed 7-tuple
+legal-adjacency set confirms `Static` is the only active composition strategy. Adding B2 would
+require a new executable strategy and backend implementation, not selecting dormant enum variants.
+*Citation:* Allauzen, Riley, Schalkwyk, Skut & Mohri (2007), "OpenFst: A
 General and Efficient Weighted Finite-State Transducer Library," *CIAA 2007*, LNCS 4783 (the
 `ComposeFst` lazy-composition design this variant's name is patterned on). *Rust reference:*
 `rustfst`'s lazy `Fst` trait objects/`ComposeFst` are the battle-proven analog; the vendored `foma`
