@@ -86,9 +86,9 @@ pub(crate) struct GrammarHandle {
     official_backend: Mutex<OfficialBackend>,
     #[cfg(test)]
     force_next_foma_panic: std::sync::atomic::AtomicBool,
-    #[cfg(test)]
+    #[cfg(all(test, not(target_arch = "wasm32")))]
     force_next_pool_build_failure: std::sync::atomic::AtomicBool,
-    #[cfg(test)]
+    #[cfg(all(test, not(target_arch = "wasm32")))]
     pool_build_count: std::sync::atomic::AtomicUsize,
     /// Never read directly after construction — it exists purely to *own* the allocation
     /// `morpher` points into (dropping it is what actually frees the grammar). That's a real
@@ -153,9 +153,9 @@ impl GrammarHandle {
             official_backend: Mutex::new(official_backend),
             #[cfg(test)]
             force_next_foma_panic: std::sync::atomic::AtomicBool::new(false),
-            #[cfg(test)]
+            #[cfg(all(test, not(target_arch = "wasm32")))]
             force_next_pool_build_failure: std::sync::atomic::AtomicBool::new(false),
-            #[cfg(test)]
+            #[cfg(all(test, not(target_arch = "wasm32")))]
             pool_build_count: std::sync::atomic::AtomicUsize::new(0),
             grammar,
         })
@@ -242,6 +242,20 @@ impl GrammarHandle {
         max_threads: usize,
         guess_fallback: bool,
     ) -> Result<Vec<(pg_lexicon::UnifiedAnalysis, std::time::Duration)>, ()> {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            return self.analyze_words_native(words, max_threads, guess_fallback);
+        }
+        #[cfg(target_arch = "wasm32")]
+        self.analyze_words_wasm(words, max_threads, guess_fallback)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    fn analyze_words_native(
+        &self,
+        words: &[String],
+        max_threads: usize,
+        guess_fallback: bool,
+    ) -> Result<Vec<(pg_lexicon::UnifiedAnalysis, std::time::Duration)>, ()> {
         for word in words {
             pg_parse::batch::test_panic_if_requested(word);
         }
@@ -317,6 +331,100 @@ impl GrammarHandle {
         Ok(self.union_official_batch(words, official, &pool, guess_fallback))
     }
 
+    #[cfg(target_arch = "wasm32")]
+    fn analyze_words_wasm(
+        &self,
+        words: &[String],
+        max_threads: usize,
+        guess_fallback: bool,
+    ) -> Result<Vec<(pg_lexicon::UnifiedAnalysis, std::time::Duration)>, ()> {
+        for word in words {
+            pg_parse::batch::test_panic_if_requested(word);
+        }
+        let mut backend = self
+            .official_backend
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let checked_out = std::mem::replace(
+            &mut *backend,
+            OfficialBackend::MorpherFallback {
+                diagnostic: "foma state temporarily checked out".into(),
+            },
+        );
+        let (proposed, owners) = match checked_out {
+            OfficialBackend::MorpherFallback { diagnostic } => {
+                *backend = OfficialBackend::MorpherFallback { diagnostic };
+                drop(backend);
+                return Ok(words
+                    .iter()
+                    .map(|word| {
+                        (
+                            self.runtime.analyze_word_opts(word, None, guess_fallback),
+                            std::time::Duration::ZERO,
+                        )
+                    })
+                    .collect());
+            }
+            OfficialBackend::Foma(state) => {
+                let state = *state;
+                let attempted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    self.test_panic_if_requested();
+                    let mut analyzer = pg_foma::composite::FomaAnalyzer::from_cached(
+                        &self.grammar,
+                        state.proposer,
+                        state.peeler,
+                        state.owners,
+                    );
+                    let proposed = analyzer.propose_words(words);
+                    let (proposer, peeler, owners) = analyzer.into_parts();
+                    (proposed, proposer, peeler, owners)
+                }));
+                match attempted {
+                    Ok((proposed, proposer, peeler, owners)) => {
+                        let confirm_owners = owners.clone();
+                        *backend = OfficialBackend::Foma(Box::new(FomaState {
+                            proposer,
+                            peeler,
+                            owners,
+                        }));
+                        drop(backend);
+                        (proposed, confirm_owners)
+                    }
+                    Err(payload) => {
+                        *backend = match FomaState::new(&self.grammar) {
+                            Ok(state) => OfficialBackend::Foma(Box::new(state)),
+                            Err(diagnostic) => OfficialBackend::MorpherFallback { diagnostic },
+                        };
+                        drop(backend);
+                        std::panic::resume_unwind(payload)
+                    }
+                }
+            }
+        };
+        let official = pg_foma::composite::confirm_proposed_words(
+            &self.grammar,
+            &owners,
+            words,
+            proposed,
+            max_threads,
+        );
+        Ok(words
+            .iter()
+            .zip(official)
+            .map(|(word, (outcome, elapsed))| {
+                let unified = self.runtime.analyze_word_opts(
+                    word,
+                    Some(pg_lexicon::OfficialOutcome {
+                        analyses: outcome.analyses,
+                        structured: outcome.structured,
+                        candidates_generated: outcome.candidates_generated,
+                    }),
+                    guess_fallback,
+                );
+                (unified, elapsed)
+            })
+            .collect())
+    }
     #[cfg(all(test, not(target_arch = "wasm32")))]
     fn analyze_words_with_confirmation_concurrency_probe(
         &self,
@@ -400,6 +508,7 @@ impl GrammarHandle {
             probe,
         ))
     }
+    #[cfg(not(target_arch = "wasm32"))]
     fn build_batch_pool(&self, max_threads: usize) -> Result<rayon::ThreadPool, ()> {
         #[cfg(test)]
         if self
@@ -419,6 +528,7 @@ impl GrammarHandle {
         Ok(pool)
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn analyze_words_without_official(
         &self,
         words: &[String],
@@ -432,6 +542,7 @@ impl GrammarHandle {
         })
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn union_official_batch(
         &self,
         words: &[String],
@@ -455,6 +566,7 @@ impl GrammarHandle {
         })
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn parallel_map<T: Sync, R: Send>(
         &self,
         inputs: &[T],
@@ -486,7 +598,7 @@ impl GrammarHandle {
             .store(true, std::sync::atomic::Ordering::SeqCst);
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(target_arch = "wasm32")))]
     fn force_next_pool_build_failure_for_test(&self) {
         self.force_next_pool_build_failure
             .store(true, std::sync::atomic::Ordering::SeqCst);
@@ -774,6 +886,7 @@ mod runtime_backend_tests {
         }
     }
 
+    #[cfg(all(test, not(target_arch = "wasm32")))]
     #[test]
     fn batch_pool_build_failure_maps_to_invalid_argument_and_handle_is_reusable() {
         let handle = GrammarHandle::new(pg_grammar::load(XML).unwrap(), XML);
