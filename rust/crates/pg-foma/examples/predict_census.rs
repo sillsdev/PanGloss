@@ -45,6 +45,18 @@
 //! Usage:
 //!   cargo run -p pg-foma --release --example predict_census -- [--grammars sena,indonesian]
 //!       [--max-words N] [--prefix-lens 2,4,6] [--top-n 3] [--max-completions N] [--max-steps N]
+//!       [--max-states N] [--max-sigma N] [--max-frontier-bytes N]
+//!
+//! ## Memory budgets (2026-07-30 incident: this binary committed 118GB and froze the host machine)
+//! `--max-steps`/`--max-completions` bound the walk's POP count and accepted-result count -- they
+//! never bounded its MEMORY, because every pop can PUSH one child per outgoing arc while the
+//! frontier itself had no size/byte cap and no visited-state dedup. A cyclic network with real
+//! branching (reduplication/compounding/optional-derivation loops) can make step-budget-worth of
+//! pops while the unpopped frontier balloons far past it. `--max-frontier-bytes`
+//! (`PREDICT_CENSUS_MAX_FRONTIER_BYTES`) is the new dimension that actually bounds this, and
+//! `--max-states`/`--max-sigma` (`PREDICT_CENSUS_MAX_STATES`/`PREDICT_CENSUS_MAX_SIGMA`) refuse
+//! up front, before `WalkNet::build` allocates anything, if the compiled network's own state/symbol
+//! numbering exceeds a safe size. See `WalkNet::build`'s and `complete`'s doc for the detail.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -95,6 +107,99 @@ fn load_grammar(path: &Path) -> Grammar {
     }
 }
 
+// --- memory budgets --------------------------------------------------------------------------
+//
+// The 2026-07-30 incident (this binary committed 118GB and froze the host machine, a Windows
+// Resource-Exhaustion-Detector event-log receipt) traced to two gaps, neither closed by the
+// step/completion budgets that already existed: (1) `WalkNet::build` allocated `Vec`s sized by the
+// compiled network's RAW state/symbol NUMBER, unchecked, before a single word was ever walked --
+// harmless if that numbering is dense (the common case) but unbounded if it is sparse; (2)
+// `complete`'s best-first search frontier had no size/byte cap and no visited-state dedup, so a
+// cyclic network with real branching could push far more frames than `max_steps` ever pops before
+// tripping -- raising `--max-steps` for a more thorough census scaled memory right along with it,
+// invisibly, because a step count is not a byte count. Every constant/helper below closes one of
+// those two gaps; `frame_bytes` and `WalkBudgetDimension::FrontierBytes` are the load-bearing new
+// dimension (2), `DEFAULT_MAX_STATES`/`DEFAULT_MAX_SIGMA` are the up-front refusal (1).
+
+/// Ceiling on the compiled network's TRUE state count (`WalkNet::build`'s `state_count`, i.e. the
+/// number of DISTINCT `state_no`s that ever appear -- after the dense reindex documented on
+/// `WalkNet::build`, never the raw maximum state NUMBER, which is exactly the quantity the old code
+/// allocated against unchecked). Reuses `pg_foma::compose_budget::DEFAULT_STATE_BUDGET`'s own
+/// calibrated figure (2,000,000, ~56x above Aweti's measured 35,846-state compose ceiling) rather
+/// than inventing a fresh guess: it is the same underlying quantity (a compiled foma network's
+/// state count), just checked at a different call site.
+const DEFAULT_MAX_STATES: usize = 2_000_000;
+
+/// Ceiling on the sigma table's own maximum symbol NUMBER -- the array `WalkNet::build` actually
+/// allocates is `max_sym + 1` entries of `Option<String>`, so this guards that allocation directly
+/// rather than the (cheaper, but not what gets allocated) distinct-symbol count. Generous relative
+/// to any real grammar's alphabet+tag inventory (typically hundreds to low thousands of symbols)
+/// while still refusing before an adversarially sparse/huge symbol-number range would allocate
+/// unboundedly.
+const DEFAULT_MAX_SIGMA: usize = 200_000;
+
+/// Ceiling on `complete`'s own best-first search frontier, in estimated live bytes (`frame_bytes`).
+/// A conservative RESEARCH ceiling, not a calibrated one (mirrors `compose_budget.rs`'s own honest
+/// "placeholder pending real-grammar measurement" framing for every uncalibrated cap in that
+/// module): comfortably below a 16GB developer machine's total memory. Every `complete` call is
+/// transient -- its frontier is dropped when the function returns -- so this bounds ONE call's
+/// peak, never a cumulative total across the many calls one `run_grammar` pass makes.
+const DEFAULT_MAX_FRONTIER_BYTES: usize = 1_073_741_824;
+
+fn env_usize(name: &str, default: usize) -> usize {
+    std::env::var(name)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(default)
+}
+
+/// A hard pre-flight refusal, checked BEFORE `WalkNet::build` allocates anything sized by the
+/// compiled network's own state/symbol numbering -- this file's version of `compose_budget.rs`'s
+/// "check the search result before the expensive part" discipline (design doc §4), applied to this
+/// walk's up-front indexing rather than a compose/minimize call. Never a panic, never a silent
+/// truncation: a network this large is reported and the grammar is skipped, exactly like this
+/// file's pre-existing "SKIPPED (missing fixture...)" path for an absent sample file.
+#[derive(Debug)]
+enum CensusError {
+    NetworkTooLarge {
+        dimension: &'static str,
+        value: usize,
+        limit: usize,
+    },
+}
+
+impl std::fmt::Display for CensusError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CensusError::NetworkTooLarge {
+                dimension,
+                value,
+                limit,
+            } => write!(
+                f,
+                "predict_census refuses to index this network: {value} {dimension} exceeds the \
+                 budget of {limit}. Indexing a network this large by state/symbol number risks \
+                 exhausting machine memory before a single word is walked; raise the matching \
+                 --max-states/--max-sigma flag (or PREDICT_CENSUS_MAX_STATES/\
+                 PREDICT_CENSUS_MAX_SIGMA) only if you understand why this grammar's compiled \
+                 network is this large."
+            ),
+        }
+    }
+}
+impl std::error::Error for CensusError {}
+
+/// Pure size-vs-budget check, shared by both refusals in [`WalkNet::build`] — pulled out on its own
+/// so it is testable directly with plain integers (this file's own test module), without needing a
+/// compiled network at all, mirroring `compose_budget.rs`'s own `check_size` shape.
+fn check_network_size(dimension: &'static str, value: usize, limit: usize) -> Result<(), CensusError> {
+    if value > limit {
+        Err(CensusError::NetworkTooLarge { dimension, value, limit })
+    } else {
+        Ok(())
+    }
+}
+
 // --- the compiled network, indexed for walking ---------------------------------------------
 
 /// A CSR view of the compiled proposer network: per-state arc slices plus the sigma decode table.
@@ -109,7 +214,10 @@ struct WalkNet {
 }
 
 impl WalkNet {
-    fn build(g: &Grammar) -> WalkNet {
+    /// Builds the CSR walk view, refusing (via [`CensusError`]) before allocating anything sized by
+    /// the compiled network's own state/symbol numbering if that numbering exceeds `max_states`/
+    /// `max_sigma`. See this module's "memory budgets" section doc for why this exists.
+    fn build(g: &Grammar, max_states: usize, max_sigma: usize) -> Result<WalkNet, CensusError> {
         let emitted = pg_foma::emit::emit(g);
         let opts = FomaOptions::default();
         let mut net = fsm_lexc_parse_string(&opts, None, &emitted.lexc_source)
@@ -128,20 +236,56 @@ impl WalkNet {
             e.1 |= block.start_state != 0;
             e.2.extend_from_slice(arcs);
         }
-        let max_state = by_state.keys().copied().max().unwrap_or(0) as usize;
-        let mut arcs = vec![Vec::new(); max_state + 1];
-        let mut final_state = vec![false; max_state + 1];
+
+        // MEMORY budget #1 (checked BEFORE allocating anything sized by this count): `state_count`
+        // is the network's TRUE state count -- how many distinct `state_no`s ever appeared -- never
+        // the raw maximum `state_no` value the previous version of this function allocated against
+        // unconditionally.
+        let state_count = by_state.len();
+        check_network_size("compiled states", state_count, max_states)?;
+
+        // Dense reindex: the comment above ("do not assume it") was correct to distrust dense
+        // numbering, but the OLD code trusted it anyway by allocating `max_state + 1` slots and
+        // indexing by the raw `state_no` -- so a network with sparse numbering (numbering that skips
+        // values, e.g. after minimization/pruning) allocated proportional to the largest number that
+        // ever appears, not to the number of states that actually exist. Every walk-time use of a
+        // state only ever needs one of `by_state`'s own KEYS, never the raw numeric value, so
+        // remapping each key to a dense `0..state_count` index -- and rewriting every arc's `target`
+        // to match -- makes the allocated size track true content instead of raw numbering.
+        let mut state_ids: Vec<i32> = by_state.keys().copied().collect();
+        state_ids.sort_unstable();
+        let dense: HashMap<i32, usize> =
+            state_ids.iter().enumerate().map(|(i, &s)| (s, i)).collect();
+
+        let mut arcs = vec![Vec::new(); state_count];
+        let mut final_state = vec![false; state_count];
         let mut start = 0usize;
         for (state_no, (fin, st, a)) in by_state {
-            let i = state_no as usize;
-            arcs[i] = a;
+            let i = dense[&state_no];
+            arcs[i] = a
+                .into_iter()
+                .map(|arc| CsrArc {
+                    // Every arc target is itself a `state_no` that appeared via `iter_blocks`, so
+                    // it is always a `dense` key in a well-formed compiled net; the fallback to 0
+                    // is defensive only (never observed, never expected) rather than a panic on a
+                    // network this code otherwise has no reason to distrust.
+                    target: *dense.get(&arc.target).unwrap_or(&0) as i32,
+                    ..arc
+                })
+                .collect();
             final_state[i] = fin;
             if st {
                 start = i;
             }
         }
 
+        // MEMORY budget #2: the sigma table IS still indexed by the raw symbol number (arc `in`/
+        // `out` fields come straight off the compiled net, and remapping them risks disturbing
+        // foma's own reserved-slot/negative-number conventions -- see `sym()`'s doc), so the check
+        // here guards the array size actually about to be allocated (`max_sym + 1`), not merely the
+        // distinct-symbol count.
         let max_sym = net.sigma.iter().map(|s| s.number).max().unwrap_or(0).max(2) as usize;
+        check_network_size("sigma symbol numbers", max_sym, max_sigma)?;
         let mut sigma: Vec<Option<String>> = vec![None; max_sym + 1];
         // 0/1/2 are foma's reserved EPSILON/UNKNOWN/IDENTITY slots — never take their text from
         // the sigma list (it is the `@_..._@` placeholder spelling, not a renderable symbol).
@@ -151,7 +295,7 @@ impl WalkNet {
                 sigma[s.number as usize] = Some(s.symbol.to_string());
             }
         }
-        WalkNet { arcs, final_state, start, sigma }
+        Ok(WalkNet { arcs, final_state, start, sigma })
     }
 
     fn sym(&self, n: i16) -> Option<&str> {
@@ -172,6 +316,11 @@ struct WalkCfg {
     /// optional derivation levels) — the same "hard cap, checked before the expensive step"
     /// discipline `compose_budget.rs` already uses on the compile side.
     max_extra_bytes: usize,
+    /// Cap on the search frontier's own estimated live bytes (`frame_bytes`) — the MEMORY dimension
+    /// `max_steps`/`max_completions` never provided (this module's "memory budgets" section doc).
+    /// `max_extra_bytes` only ever bounded `surface`; nothing bounded `analysis`'s growth or the
+    /// number of live-but-unpopped frames a branchy, cyclic network can accumulate.
+    max_frontier_bytes: usize,
 }
 
 struct Completion {
@@ -179,24 +328,94 @@ struct Completion {
     morphemes: Vec<(bool, MorphemeId)>,
 }
 
+/// Which budget dimension stopped a walk early, and the observed value at the moment it tripped
+/// (checked one past the limit, mirroring `compose_budget.rs`'s own "value is always `limit + 1` by
+/// construction" convention). Kept as its own type — rather than folding a bare `bool` back into
+/// `WalkOutcome` — so a truncated run is always reported with WHICH cap fired and what it saw,
+/// never just "truncated": this file's own extension of the "typed, clearly-reported, never a
+/// silent truncation reported as complete" contract the caller of this program depends on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WalkBudgetDimension {
+    Steps,
+    Completions,
+    FrontierBytes,
+}
+
+impl WalkBudgetDimension {
+    fn label(self) -> &'static str {
+        match self {
+            WalkBudgetDimension::Steps => "walk steps",
+            WalkBudgetDimension::Completions => "completions",
+            WalkBudgetDimension::FrontierBytes => "frontier memory bytes",
+        }
+    }
+}
+
+/// Per-dimension roll-up of every truncation seen across a whole prefix-length block: how often a
+/// budget tripped, the WORST value observed, and the limit it was measured against. The peak and
+/// limit are what make the report actionable -- a count alone cannot distinguish "raise the cap" from
+/// "the walk is diverging".
+#[derive(Clone, Copy, Debug)]
+struct TruncationTally {
+    count: usize,
+    peak_value: usize,
+    limit: usize,
+}
+
+impl TruncationTally {
+    fn record(&mut self, value: usize, limit: usize) {
+        self.count += 1;
+        if value > self.peak_value {
+            self.peak_value = value;
+        }
+        // Every trip of one dimension shares a limit within a block, so last-write is fine; carrying
+        // it here keeps the reporting site from having to reach back into the config.
+        self.limit = limit;
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct WalkTruncation {
+    dimension: WalkBudgetDimension,
+    value: usize,
+    limit: usize,
+}
+
 struct WalkOutcome {
     completions: Vec<Completion>,
     steps_used: usize,
-    /// True when a budget stopped the walk — the containment number is only meaningful when this
-    /// is false, so it is reported separately rather than folded in.
-    truncated: bool,
+    /// `Some` when a budget stopped the walk — the containment number is only meaningful when this
+    /// is `None`, so it is reported separately rather than folded in.
+    truncated: Option<WalkTruncation>,
     unrenderable_arcs: usize,
+}
+
+/// Rough fixed overhead per live frontier frame: two `String` headers (24 bytes each on 64-bit:
+/// ptr + len + cap) plus `Frame`'s own scalar fields, rounded well up. Deliberately an
+/// OVER-estimate — real allocator bucket rounding tends to add more, not less — so
+/// [`WalkCfg::max_frontier_bytes`] is conservative rather than optimistic.
+const FRAME_FIXED_OVERHEAD_BYTES: usize = 128;
+
+/// Estimated live bytes one frontier frame holds: fixed overhead plus its two owned `String`s'
+/// lengths. Not `capacity()` — `len()` is deterministic and testable from a known-by-construction
+/// fixture, and the fixed overhead already pads generously for whatever the allocator actually
+/// rounds capacity up to.
+fn frame_bytes(surface: &str, analysis: &str) -> usize {
+    FRAME_FIXED_OVERHEAD_BYTES + surface.len() + analysis.len()
 }
 
 /// One search frame. `matched` is how many BYTES of the typed prefix have been consumed;
 /// `cost_milli` is the accumulated ranking cost in thousandths (integer so the frontier can be a
-/// plain `BinaryHeap` without a float-ordering wrapper).
+/// plain `BinaryHeap` without a float-ordering wrapper). `bytes` is this frame's own
+/// [`frame_bytes`] estimate, cached at construction so `complete`'s running frontier-byte total can
+/// be updated by a plain subtraction when the frame is popped, without re-measuring it.
 struct Frame {
     cost_milli: i64,
     state: usize,
     surface: String,
     analysis: String,
     matched: usize,
+    bytes: usize,
 }
 
 // The frontier is a min-heap on cost: `BinaryHeap` is a max-heap, so every comparison is
@@ -246,26 +465,46 @@ fn arc_cost(in_sym: &str, out_sym: &str, model: &StemModel, lambda: f64) -> f64 
 /// then free to any accepting state. Best-first on accumulated ranking cost (see [`arc_cost`]),
 /// so completions come out in ranked order and the cap truncates the tail, not an arbitrary
 /// branch. Returns every completion found within budget.
+///
+/// ## Why this needs its own memory dimension (2026-07-30 incident)
+/// `max_steps` bounds POPS from `frontier`; `max_completions` bounds ACCEPTED results. Neither ever
+/// bounded the frontier's own live size: one pop can PUSH one child per outgoing arc (this network's
+/// branching factor), and there is no visited-state dedup, so a cyclic network (reduplication,
+/// compounding, optional-derivation loops — this file's own doc, "why the walk is possible at
+/// all") can accumulate far more live, unpopped frames than `max_steps` pops ever consume. Worse,
+/// `max_extra_bytes` only ever bounded `surface`'s growth — an `analysis` string can grow
+/// unboundedly per frame via epsilon-output (tag-only) arcs that never advance `surface` at all, so
+/// even a single frame's own footprint was uncapped. `cfg.max_frontier_bytes`, tracked via
+/// `frontier_bytes` below, is the dimension that closes both: it bounds the SUM of every live
+/// frame's estimated bytes, so it catches unbounded frontier fan-out and unbounded per-frame growth
+/// alike, regardless of how many steps that took to reach.
 fn complete(net: &WalkNet, typed: &str, cfg: &WalkCfg, model: &StemModel, lambda: f64) -> WalkOutcome {
     let mut out = Vec::new();
     let mut steps = 0usize;
-    let mut truncated = false;
+    let mut truncated: Option<WalkTruncation> = None;
     let mut unrenderable = 0usize;
     let mut seen: HashSet<(String, String)> = HashSet::new();
 
     let mut frontier = std::collections::BinaryHeap::new();
+    let mut frontier_bytes = frame_bytes("", "");
     frontier.push(Frame {
         cost_milli: 0,
         state: net.start,
         surface: String::new(),
         analysis: String::new(),
         matched: 0,
+        bytes: frontier_bytes,
     });
 
-    while let Some(f) = frontier.pop() {
+    'search: while let Some(f) = frontier.pop() {
+        frontier_bytes -= f.bytes;
         steps += 1;
         if steps > cfg.max_steps {
-            truncated = true;
+            truncated = Some(WalkTruncation {
+                dimension: WalkBudgetDimension::Steps,
+                value: steps,
+                limit: cfg.max_steps,
+            });
             break;
         }
         let done_matching = f.matched == typed.len();
@@ -273,7 +512,11 @@ fn complete(net: &WalkNet, typed: &str, cfg: &WalkCfg, model: &StemModel, lambda
             let morphemes = tags::decode_path(&f.analysis).unwrap_or_default();
             out.push(Completion { surface: f.surface.clone(), morphemes });
             if out.len() >= cfg.max_completions {
-                truncated = true;
+                truncated = Some(WalkTruncation {
+                    dimension: WalkBudgetDimension::Completions,
+                    value: out.len(),
+                    limit: cfg.max_completions,
+                });
                 break;
             }
         }
@@ -307,13 +550,28 @@ fn complete(net: &WalkNet, typed: &str, cfg: &WalkCfg, model: &StemModel, lambda
             let mut analysis = f.analysis.clone();
             analysis.push_str(i);
             let step_cost = (arc_cost(i, o, model, lambda) * 1000.0) as i64;
+            let bytes = frame_bytes(&surface, &analysis);
+            frontier_bytes += bytes;
             frontier.push(Frame {
                 cost_milli: f.cost_milli + step_cost,
                 state: arc.target as usize,
                 surface,
                 analysis,
                 matched: next_matched,
+                bytes,
             });
+            // Checked immediately after the push (`compose_budget.rs`'s own "checked one past the
+            // limit" convention) — the frame that tipped the total over stays in the heap (it is
+            // about to be dropped along with the rest of the frontier anyway), but the walk stops
+            // growing it further.
+            if frontier_bytes > cfg.max_frontier_bytes {
+                truncated = Some(WalkTruncation {
+                    dimension: WalkBudgetDimension::FrontierBytes,
+                    value: frontier_bytes,
+                    limit: cfg.max_frontier_bytes,
+                });
+                break 'search;
+            }
         }
     }
 
@@ -485,6 +743,13 @@ struct Cfg {
     max_completions: usize,
     max_steps: usize,
     max_extra_bytes: usize,
+    /// [`WalkCfg::max_frontier_bytes`] — the new memory dimension (this module's "memory budgets"
+    /// section doc).
+    max_frontier_bytes: usize,
+    /// [`WalkNet::build`]'s `max_states` refusal cap.
+    max_states: usize,
+    /// [`WalkNet::build`]'s `max_sigma` refusal cap.
+    max_sigma: usize,
     max_confirms: usize,
     max_paths_per_surface: usize,
     lambda: f64,
@@ -502,6 +767,12 @@ fn main() {
         max_completions: 200,
         max_steps: 200_000,
         max_extra_bytes: 24,
+        // Env-overridable, same convention `deadend_census.rs`/`prefilter_census.rs` already use
+        // for their own per-run numeric caps (`CENSUS_*_CAP`) — a CLI flag (below) always takes
+        // final precedence, matching every other flag in this match.
+        max_frontier_bytes: env_usize("PREDICT_CENSUS_MAX_FRONTIER_BYTES", DEFAULT_MAX_FRONTIER_BYTES),
+        max_states: env_usize("PREDICT_CENSUS_MAX_STATES", DEFAULT_MAX_STATES),
+        max_sigma: env_usize("PREDICT_CENSUS_MAX_SIGMA", DEFAULT_MAX_SIGMA),
         // Deliberately small: the sanity run measured ~20-50ms per confirm, so a keystroke-time
         // budget (Keyman's 33ms, D8a) affords roughly ONE. 25 is a research ceiling that still
         // shows the shape of the descent without letting one word run for 20 seconds.
@@ -523,6 +794,9 @@ fn main() {
             "--max-completions" => cfg.max_completions = it.next().unwrap().parse().unwrap(),
             "--max-steps" => cfg.max_steps = it.next().unwrap().parse().unwrap(),
             "--max-extra-bytes" => cfg.max_extra_bytes = it.next().unwrap().parse().unwrap(),
+            "--max-frontier-bytes" => cfg.max_frontier_bytes = it.next().unwrap().parse().unwrap(),
+            "--max-states" => cfg.max_states = it.next().unwrap().parse().unwrap(),
+            "--max-sigma" => cfg.max_sigma = it.next().unwrap().parse().unwrap(),
             "--max-confirms" => cfg.max_confirms = it.next().unwrap().parse().unwrap(),
             "--max-paths-per-surface" => {
                 cfg.max_paths_per_surface = it.next().unwrap().parse().unwrap()
@@ -566,7 +840,13 @@ fn run_grammar(name: &str, gfile: &str, wfile: &str, cfg: &Cfg) {
     println!("grammar loaded in {:.1}s; {} wordforms", t0.elapsed().as_secs_f64(), words.len());
 
     let t1 = Instant::now();
-    let net = WalkNet::build(&g);
+    let net = match WalkNet::build(&g, cfg.max_states, cfg.max_sigma) {
+        Ok(net) => net,
+        Err(e) => {
+            println!("{name}: SKIPPED ({e})");
+            return;
+        }
+    };
     println!(
         "network built in {:.1}s; {} states, {} sigma symbols",
         t1.elapsed().as_secs_f64(),
@@ -593,6 +873,7 @@ fn run_grammar(name: &str, gfile: &str, wfile: &str, cfg: &Cfg) {
             max_completions: cfg.max_completions,
             max_steps: cfg.max_steps,
             max_extra_bytes: 0,
+            max_frontier_bytes: cfg.max_frontier_bytes,
         }, &uniform, cfg.lambda);
         for c in &outcome.completions {
             if c.surface != *w {
@@ -645,6 +926,7 @@ fn run_grammar(name: &str, gfile: &str, wfile: &str, cfg: &Cfg) {
                 max_completions: cfg.max_completions,
                 max_steps: cfg.max_steps,
                 max_extra_bytes: 0,
+                max_frontier_bytes: cfg.max_frontier_bytes,
             }, &model, cfg.lambda);
             let confirmed = outcome
                 .completions
@@ -698,6 +980,11 @@ fn run_grammar(name: &str, gfile: &str, wfile: &str, cfg: &Cfg) {
         let mut hit_at_n_achievable = 0usize;
         let mut contained = 0usize;
         let mut truncations = 0usize;
+        // Tally of WHICH budget dimension tripped (`WalkBudgetDimension::label()`), so a truncated
+        // run's report always names the cap that fired, not just a bare count -- the same "typed,
+        // clearly-reported, never a silent truncation reported as complete" contract this file's
+        // own doc for `WalkOutcome::truncated` asks for.
+        let mut truncation_dims: HashMap<&'static str, TruncationTally> = HashMap::new();
         let mut completions_total = 0usize;
         let mut rank_of_true: Vec<usize> = Vec::new();
         let mut hit_at_n = 0usize;
@@ -721,10 +1008,15 @@ fn run_grammar(name: &str, gfile: &str, wfile: &str, cfg: &Cfg) {
                 max_completions: cfg.max_completions,
                 max_steps: cfg.max_steps,
                 max_extra_bytes: cfg.max_extra_bytes,
+                max_frontier_bytes: cfg.max_frontier_bytes,
             }, &model, cfg.lambda);
             walk_ms.push(tw.elapsed().as_secs_f64() * 1000.0);
-            if outcome.truncated {
+            if let Some(t) = outcome.truncated {
                 truncations += 1;
+                truncation_dims
+                    .entry(t.dimension.label())
+                    .or_insert(TruncationTally { count: 0, peak_value: 0, limit: t.limit })
+                    .record(t.value, t.limit);
             }
             steps_total += outcome.steps_used;
             unrenderable_total += outcome.unrenderable_arcs;
@@ -789,6 +1081,23 @@ fn run_grammar(name: &str, gfile: &str, wfile: &str, cfg: &Cfg) {
             exhausted_total,
             unrenderable_total
         );
+        if !truncation_dims.is_empty() {
+            // Report the PEAK observed value and the limit beside the count, not just the count.
+            // "frontier memory bytes=3" says a budget tripped three times; it does not say whether
+            // the cap was missed by a hair or by an order of magnitude, which is the only thing that
+            // tells you whether to raise the cap or fix the walk. rustc caught this as
+            // `field 'value' is never read` -- the value WAS being captured at every trip site and
+            // then silently dropped here, so the dead-code warning was the honest signal that this
+            // diagnostic did not yet meet its own stated contract (name the budget AND the value).
+            let mut dims: Vec<(&str, TruncationTally)> = truncation_dims.into_iter().collect();
+            dims.sort_by(|a, b| b.1.count.cmp(&a.1.count).then_with(|| a.0.cmp(b.0)));
+            let breakdown = dims
+                .iter()
+                .map(|(d, t)| format!("{d}={} (peak {} vs limit {})", t.count, t.peak_value, t.limit))
+                .collect::<Vec<_>>()
+                .join(", ");
+            println!("  truncation dimension breakdown: {breakdown}");
+        }
     }
 }
 
@@ -801,4 +1110,106 @@ fn summarize(v: &[f64]) -> String {
     let mean = s.iter().sum::<f64>() / s.len() as f64;
     let p = |q: f64| s[((s.len() as f64 - 1.0) * q).round() as usize];
     format!("mean {:.1} / median {:.1} / p90 {:.1} / max {:.1} (n={})", mean, p(0.5), p(0.9), s[s.len() - 1], s.len())
+}
+
+// --- memory-budget regression tests (2026-07-30 incident) ----------------------------------
+//
+// `predict_census` is an `examples/` target -- `test = true` for it specifically is set in
+// `Cargo.toml` (Cargo's own auto-discovered example targets default `test = false`), so these run
+// under `pg.ps1 -Mode test -Package pg-foma` like any other in-crate test. Deliberately fast and
+// deterministic: no wall-clock reliance, no real grammar/FST compile -- every fixture here is a
+// known-by-construction size, mirroring `src/compose_budget.rs`'s own `tiny_net`-based test
+// convention but built even smaller, since this file's own budget checks operate on plain
+// integers (`check_network_size`) or a hand-built two-arc `WalkNet` (the frontier-bytes case).
+#[cfg(test)]
+mod memory_budget_tests {
+    use super::*;
+
+    #[test]
+    fn state_budget_check_passes_under_the_cap() {
+        check_network_size("compiled states", 4, 4).expect("value == limit must fit");
+    }
+
+    #[test]
+    fn state_budget_check_trips_over_the_cap() {
+        let err = check_network_size("compiled states", 5, 4).expect_err("5 > 4 must trip");
+        match err {
+            CensusError::NetworkTooLarge { dimension, value, limit } => {
+                assert_eq!(dimension, "compiled states");
+                assert_eq!(value, 5);
+                assert_eq!(limit, 4);
+            }
+        }
+    }
+
+    #[test]
+    fn sigma_budget_check_trips_over_the_cap() {
+        let err =
+            check_network_size("sigma symbol numbers", 200_001, 200_000).expect_err("must trip");
+        assert!(matches!(
+            err,
+            CensusError::NetworkTooLarge { dimension: "sigma symbol numbers", value: 200_001, limit: 200_000 }
+        ));
+    }
+
+    /// A single non-final state with `branching` identical self-loop arcs, each consuming symbol 3
+    /// (`"a"`, one byte) on both tapes. Never final, so `complete` never accepts a completion and
+    /// the ONLY way the search loop can stop is a budget: this isolates the frontier-bytes
+    /// dimension from every other one (`max_completions` can never fire; `max_extra_bytes` is set
+    /// huge so `surface`'s growth alone never prunes a branch).
+    fn tiny_cyclic_net(branching: usize) -> WalkNet {
+        WalkNet {
+            arcs: vec![vec![CsrArc { r#in: 3, out: 3, target: 0 }; branching]],
+            final_state: vec![false],
+            start: 0,
+            sigma: vec![Some(String::new()), None, None, Some("a".to_string())],
+        }
+    }
+
+    #[test]
+    fn frontier_bytes_budget_trips_on_a_branchy_cyclic_net() {
+        let net = tiny_cyclic_net(8);
+        let model = StemModel::uniform(1);
+        let cfg = WalkCfg {
+            max_completions: usize::MAX,
+            // Bounded, not `usize::MAX`: if the frontier-byte check below were reverted, this
+            // walk would otherwise never terminate at all (the net never reaches a final state).
+            // A finite `max_steps` guarantees this test FAILS cleanly (wrong dimension) rather
+            // than hanging forever when the fix under test is missing -- the "prove it's load-
+            // bearing" check this change's own verification requires.
+            max_steps: 1_000,
+            max_extra_bytes: 1_000_000,
+            max_frontier_bytes: 2_000,
+        };
+        let outcome = complete(&net, "", &cfg, &model, 0.5);
+        match outcome.truncated {
+            Some(WalkTruncation { dimension: WalkBudgetDimension::FrontierBytes, limit, .. }) => {
+                assert_eq!(limit, 2_000);
+            }
+            other => panic!("expected a FrontierBytes truncation, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn frontier_bytes_budget_does_not_trip_when_generous() {
+        let net = tiny_cyclic_net(8);
+        let model = StemModel::uniform(1);
+        let cfg = WalkCfg {
+            max_completions: usize::MAX,
+            // Small and finite on purpose: this walk never reaches a final state, so SOME cap must
+            // stop it, and this test only cares that it isn't the frontier-bytes one.
+            max_steps: 50,
+            max_extra_bytes: 1_000_000,
+            max_frontier_bytes: usize::MAX,
+        };
+        let outcome = complete(&net, "", &cfg, &model, 0.5);
+        assert!(
+            !matches!(
+                outcome.truncated,
+                Some(WalkTruncation { dimension: WalkBudgetDimension::FrontierBytes, .. })
+            ),
+            "a usize::MAX frontier-byte cap must never be the dimension that trips, got {:?}",
+            outcome.truncated
+        );
+    }
 }

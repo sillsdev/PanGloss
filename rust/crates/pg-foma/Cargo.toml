@@ -100,3 +100,14 @@ pg-fst.workspace = true
 # Opt in to [workspace.lints] (rustdoc::broken_intra_doc_links = deny).
 [lints]
 workspace = true
+
+# `examples/predict_census.rs` pins its own memory-budget fix (2026-07-30 incident: this binary
+# committed 118GB and froze the host machine) with an in-file `#[cfg(test)] mod tests`. Example
+# targets default `test = false` (Cargo's own auto-discovery default), so without this explicit
+# override `pg.ps1 -Mode test -Package pg-foma` would silently never run that test at all --
+# `autoexamples` stays on for every other example (only listing one target does not disable
+# discovery of the rest), so this is additive, not a behavior change for any other example.
+[[example]]
+name = "predict_census"
+path = "examples/predict_census.rs"
+test = true
