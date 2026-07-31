@@ -21,17 +21,17 @@ All work on branch `cleanup-and-recipe-parity` (one worktree), never on `main`.
       Files: `recipe_registry.rs` (materialize), `recipe_runtime.rs`, `pg-cli/recipe_optimize.rs`,
       new tests. (Serialize 1.2 after 1.1's registry/report edits merge, or assign both to one
       agent — same files.)
-- [ ] 1.3 Objective: wire `raw_paths` from `ProposalDiagnostics` → `FomaWordDiagnostics` →
+- [x] 1.3 Objective: wire `raw_paths` from `ProposalDiagnostics` → `FomaWordDiagnostics` →
       `Score` (`#[serde(default)]`); key becomes `(confirmation_steps + raw_paths, confirmation,
       proposals, states+arcs, id)`; pinned synthetic Sena-shape preference test + unchanged
       dominant-winner test. Files: `analyzer.rs`, `composite.rs`, `confirm.rs` (plumbing only),
       `recipe_optimizer.rs`, tests.
-- [ ] 1.4 Routing: template-bearing applicability so `token-cascade-morphology` (or a sibling
+- [x] 1.4 Routing: template-bearing applicability so `token-cascade-morphology` (or a sibling
       family) offers `TemplatedUnderlyingTokens` to templated phonology-free grammars; gate test
       that a templated fixture is not uflexc-only; conformance suite at exact baseline.
       Files: `recipe_registry.rs` (additive seed/predicate — coordinate with 1.1/1.2 owner),
       `recipe_runtime.rs` dispatch untouched, new gate test.
-- [ ] 1.5 Docs: superseded header on `large-lexicon-proposal-explosion.md`; historical banner on
+- [x] 1.5 Docs: superseded header on `large-lexicon-proposal-explosion.md`; historical banner on
       `four-grammar-recipe-evidence-2026-07-28.md`.
 
 ## 2. Wave 2 — integration and gates (after wave 1 merges)
