@@ -42,41 +42,58 @@ type TimedConfirmedBuckets = (ConfirmedBuckets, Duration);
 #[cfg(feature = "test-concurrency-hook")]
 #[doc(hidden)]
 pub mod test_confirmation_concurrency {
-    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-    static ARMED: AtomicBool = AtomicBool::new(false);
-    static ACTIVE: AtomicUsize = AtomicUsize::new(0);
-    static MAX_ACTIVE: AtomicUsize = AtomicUsize::new(0);
-    pub fn arm() {
-        ACTIVE.store(0, Ordering::SeqCst);
-        MAX_ACTIVE.store(0, Ordering::SeqCst);
-        ARMED.store(true, Ordering::SeqCst);
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc, Barrier,
+    };
+
+    #[derive(Clone)]
+    pub struct Probe {
+        state: Arc<State>,
     }
-    pub fn max_active() -> usize {
-        MAX_ACTIVE.load(Ordering::SeqCst)
+
+    struct State {
+        active: AtomicUsize,
+        max_active: AtomicUsize,
+        rendezvous: Barrier,
+        arrivals: AtomicUsize,
     }
-    pub(super) fn take_arm() -> bool {
-        ARMED.swap(false, Ordering::SeqCst)
+
+    impl Probe {
+        pub(super) fn new() -> Self {
+            Self {
+                state: Arc::new(State {
+                    active: AtomicUsize::new(0),
+                    max_active: AtomicUsize::new(0),
+                    rendezvous: Barrier::new(2),
+                    arrivals: AtomicUsize::new(0),
+                }),
+            }
+        }
+
+        pub fn max_active(&self) -> usize {
+            self.state.max_active.load(Ordering::SeqCst)
+        }
     }
+
     #[cfg(not(target_arch = "wasm32"))]
-    pub(super) struct Guard(bool);
+    pub(super) struct Guard(Arc<State>);
     #[cfg(not(target_arch = "wasm32"))]
     impl Guard {
-        pub(super) fn enter(enabled: bool) -> Self {
-            if !enabled {
-                return Self(false);
+        pub(super) fn enter(probe: &Probe) -> Self {
+            let state = Arc::clone(&probe.state);
+            let active = state.active.fetch_add(1, Ordering::SeqCst) + 1;
+            state.max_active.fetch_max(active, Ordering::SeqCst);
+            if state.arrivals.fetch_add(1, Ordering::SeqCst) < 2 {
+                state.rendezvous.wait();
             }
-            let active = ACTIVE.fetch_add(1, Ordering::SeqCst) + 1;
-            MAX_ACTIVE.fetch_max(active, Ordering::SeqCst);
-            std::thread::sleep(std::time::Duration::from_millis(20));
-            Self(true)
+            Self(state)
         }
     }
     #[cfg(not(target_arch = "wasm32"))]
     impl Drop for Guard {
         fn drop(&mut self) {
-            if self.0 {
-                ACTIVE.fetch_sub(1, Ordering::SeqCst);
-            }
+            self.0.active.fetch_sub(1, Ordering::SeqCst);
         }
     }
 }
@@ -252,6 +269,8 @@ pub struct FomaAnalyzer<'g> {
     /// `chain_depth_cap` at `None` (unbounded) — this addition is a zero-behavior-change no-op for
     /// every existing caller of this type unless that env var is explicitly set.
     peel_budget: ComposeBudget,
+    #[cfg(feature = "test-concurrency-hook")]
+    confirmation_concurrency_probe: Option<test_confirmation_concurrency::Probe>,
 }
 
 impl<'g> FomaAnalyzer<'g> {
@@ -271,6 +290,8 @@ impl<'g> FomaAnalyzer<'g> {
             morpher: Morpher::new(g, usize::MAX),
             owners: confirm::build_morpheme_owners(g),
             peel_budget: ComposeBudget::from_env(),
+            #[cfg(feature = "test-concurrency-hook")]
+            confirmation_concurrency_probe: None,
         })
     }
 
@@ -283,6 +304,14 @@ impl<'g> FomaAnalyzer<'g> {
             ReduplicationPeeler::new(g),
             confirm::build_morpheme_owners(g),
         )
+    }
+
+    #[cfg(feature = "test-concurrency-hook")]
+    #[doc(hidden)]
+    pub fn arm_confirmation_concurrency_probe(&mut self) -> test_confirmation_concurrency::Probe {
+        let probe = test_confirmation_concurrency::Probe::new();
+        self.confirmation_concurrency_probe = Some(probe.clone());
+        probe
     }
 
     /// `propose(word)` UNION `peel_candidates(word, propose)` (deduped by `(morphemes, root_index)`,
@@ -755,6 +784,18 @@ impl<'g> FomaAnalyzer<'g> {
         max_threads: usize,
     ) -> Vec<(FomaOutcome, Duration)> {
         let proposed = self.propose_words(words);
+        #[cfg(all(feature = "test-concurrency-hook", not(target_arch = "wasm32")))]
+        {
+            return confirm_proposed_words_with_probe(
+                self.g,
+                &self.owners,
+                words,
+                proposed,
+                max_threads,
+                self.confirmation_concurrency_probe.as_ref(),
+            );
+        }
+        #[cfg(not(all(feature = "test-concurrency-hook", not(target_arch = "wasm32"))))]
         confirm_proposed_words(self.g, &self.owners, words, proposed, max_threads)
     }
 
@@ -818,6 +859,8 @@ impl<'g> FomaAnalyzer<'g> {
             morpher: Morpher::new(g, usize::MAX),
             owners,
             peel_budget: ComposeBudget::from_env(),
+            #[cfg(feature = "test-concurrency-hook")]
+            confirmation_concurrency_probe: None,
         }
     }
 
@@ -893,16 +936,60 @@ pub fn confirm_proposed_words_in_pool(
     }
     assert_eq!(words.len(), proposed.len(), "one proposal record per word");
     let morpher = Morpher::new(g, usize::MAX);
-    #[cfg(feature = "test-concurrency-hook")]
-    let observe_confirmation = test_confirmation_concurrency::take_arm();
     let buckets_per_word: Vec<TimedConfirmedBuckets> = pool.install(|| {
         words
             .par_iter()
             .zip(proposed.par_iter())
             .map(|(word, proposal)| {
-                #[cfg(feature = "test-concurrency-hook")]
-                let _concurrency =
-                    test_confirmation_concurrency::Guard::enter(observe_confirmation);
+                let t0 = word_timer::start();
+                let buckets =
+                    confirm::confirm_batch(g, owners, &morpher, &proposal.candidates, word);
+                (buckets, t0.elapsed())
+            })
+            .collect()
+    });
+    finish_confirmed(proposed, buckets_per_word)
+}
+
+#[cfg(all(feature = "test-concurrency-hook", not(target_arch = "wasm32")))]
+fn confirm_proposed_words_with_probe(
+    g: &Grammar,
+    owners: &[Option<MorphemeOwner>],
+    words: &[String],
+    proposed: Vec<ProposedWord>,
+    max_threads: usize,
+    probe: Option<&test_confirmation_concurrency::Probe>,
+) -> Vec<(FomaOutcome, Duration)> {
+    let mut builder = rayon::ThreadPoolBuilder::new().stack_size(crate::emit::PROBE_STACK_BYTES);
+    if max_threads > 0 {
+        builder = builder.num_threads(max_threads);
+    }
+    let pool = builder
+        .build()
+        .expect("build detached foma confirmation rayon pool");
+    confirm_proposed_words_in_pool_with_probe(g, owners, words, proposed, &pool, probe)
+}
+
+#[cfg(all(feature = "test-concurrency-hook", not(target_arch = "wasm32")))]
+fn confirm_proposed_words_in_pool_with_probe(
+    g: &Grammar,
+    owners: &[Option<MorphemeOwner>],
+    words: &[String],
+    proposed: Vec<ProposedWord>,
+    pool: &rayon::ThreadPool,
+    probe: Option<&test_confirmation_concurrency::Probe>,
+) -> Vec<(FomaOutcome, Duration)> {
+    if words.is_empty() {
+        return Vec::new();
+    }
+    assert_eq!(words.len(), proposed.len(), "one proposal record per word");
+    let morpher = Morpher::new(g, usize::MAX);
+    let buckets_per_word: Vec<TimedConfirmedBuckets> = pool.install(|| {
+        words
+            .par_iter()
+            .zip(proposed.par_iter())
+            .map(|(word, proposal)| {
+                let _concurrency = probe.map(test_confirmation_concurrency::Guard::enter);
                 let t0 = word_timer::start();
                 let buckets =
                     confirm::confirm_batch(g, owners, &morpher, &proposal.candidates, word);

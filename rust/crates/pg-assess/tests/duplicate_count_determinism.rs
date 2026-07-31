@@ -279,19 +279,19 @@ fn duplicate_counts_and_semantic_digest_are_thread_count_invariant() {
 /// Independent confirmation that the confirm-across-words stage genuinely overlaps on more than
 /// one OS thread for this batch (not just "thread_count=N was requested but tasks never actually
 /// ran concurrently") -- guards against the sweep above passing for the trivial reason that
-/// nothing ever raced. Uses the crate's own `test-concurrency-hook` instrumentation
-/// (`pg_foma::composite::test_confirmation_concurrency`), armed only for this one call so the
-/// artificial per-task delay it adds never slows down any other test in this file.
+/// nothing ever raced. Uses an analyzer-owned `test-concurrency-hook` probe: its first two
+/// confirmation tasks rendezvous before confirming, proving overlap without a timing-based delay
+/// and without allowing another concurrently-running test to consume this test's observation.
 #[test]
 fn confirm_across_words_genuinely_overlaps_at_thread_count_above_one() {
     let g = load(DUP_ROOT_FIXTURE);
     let words: Vec<String> = (0..8).map(|_| "kax".to_string()).collect();
 
-    pg_foma::composite::test_confirmation_concurrency::arm();
     let mut analyzer = FomaAnalyzer::new(&g).expect("fixture compiles");
+    let confirmation_concurrency = analyzer.arm_confirmation_concurrency_probe();
     let outcomes = analyzer.analyze_words_with_threads(&words, 4);
     assert_eq!(outcomes.len(), words.len());
-    let max_active = pg_foma::composite::test_confirmation_concurrency::max_active();
+    let max_active = confirmation_concurrency.max_active();
     assert!(
         max_active > 1,
         "expected genuinely overlapping confirm tasks at thread_count=4, observed max \
