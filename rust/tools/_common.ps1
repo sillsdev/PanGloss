@@ -30,6 +30,62 @@ $script:BuildSemaphoreName = 'Global\PanGlossCargoBuild'
 # driving the build, not for a second workload.
 $script:InteractiveReserveThreads = if ($env:PANGLOSS_INTERACTIVE_RESERVE) { [int]$env:PANGLOSS_INTERACTIVE_RESERVE } else { 6 }
 
+# The memory analogue of the thread reserve above, and the one this machine actually died on twice.
+# Threads were capped; bytes were not. A capped 7-wide build still fans out to test processes that
+# each reach many GB of RSS (corpus/foma cases; CLAUDE.md's "Probe pathological grammars
+# single-threaded" records one probe at 30+ GB), so a run that is polite about CPU can still take
+# the box to zero available memory -- at which point Windows starts trimming working sets, the
+# pagefile thrashes, and sshd / Chrome Remote Desktop's remoting_host stall exactly as hard as they
+# did under CPU starvation. Below-normal priority does not help: an unrunnable daemon waiting on a
+# page fault is not competing for CPU at all.
+#
+# Reserve kept unclaimed, machine-wide, for the OS plus the daemons this box is reached through.
+$script:InteractiveReserveGB = if ($env:PANGLOSS_MIN_FREE_MEM_GB) { [double]$env:PANGLOSS_MIN_FREE_MEM_GB } else { 8 }
+# Working-set allowance assumed per concurrent process, used to convert "how much memory is free"
+# into "how many of these may run at once". Three numbers, because the phases are not comparable:
+#
+#  - Codegen under thin/no LTO (the pg-test-opt and dev profiles) is the predictable case: a rustc
+#    compiling one crate, around a GB.
+#  - Codegen under FAT LTO ([profile.release]: lto = "fat", codegen-units = 1) is heavier per
+#    process, because the whole-program optimization happens inside RUSTC -- it holds an entire
+#    dependency graph's LLVM IR in one address space -- and `link.exe` merely consumes the object
+#    rustc produced. Cargo has no lever for "how many crates may be in their LTO phase at once"
+#    separately from -j, so N concurrent jobs can mean N overlapping LTO peaks; that is why this is
+#    a per-job allowance rather than a separate link-concurrency knob.
+#
+#    MEASURED on the primary dev box (2026-07-30, i7-12700, 63.7GB, warm sccache, -j3, touching
+#    pg-cli/src/main.rs to force a real recompile + fat-LTO relink of the pangloss binary): peak
+#    rustc working set 0.71GB, peak SUM across the whole cargo/rustc/sccache fan-out 1.2GB,
+#    available memory moved 55.0 -> 52.9GB across 87 samples. So fat-LTO codegen here costs well
+#    under a gigabyte per job, and this workspace has only one bin target plus 4 cdylib/staticlib
+#    crates, bounding how many such peaks can ever coexist.
+#
+#    2GB is that measurement with roughly 3x headroom for a cold full build and for the binary
+#    growing. It is deliberately NOT sized to bind on an idle machine: an earlier draft assumed 8GB
+#    and throttled every `-Mode build` from 7 jobs to 2, which is a large, permanent cost paid on a
+#    guess the measurement then refuted. Note what this implies -- the compile/link path is NOT
+#    where this machine's memory went, so do not reach for this knob first when diagnosing the next
+#    exhaustion; see $script:MemoryPerTestProcessGB, which is the unmeasured one.
+#  - A TEST PROCESS in this workspace can be an entire grammar compile and is bounded by nothing we
+#    control -- CLAUDE.md records one `pangloss batch` probe that reached 30+ GB RSS and never
+#    finished. This is the allowance with real evidence behind the risk and NO measurement behind
+#    the number: 2.5GB is a placeholder chosen to be heavier than a compile job, not a peak anyone
+#    has recorded. Measuring a corpus-test run is the obvious next calibration, and until someone
+#    does, this gate's protection on the test path rests on the reserve and the spawn refusal rather
+#    than on this figure being right.
+$script:MemoryPerCompileJobGB = if ($env:PANGLOSS_MEM_PER_JOB_GB) { [double]$env:PANGLOSS_MEM_PER_JOB_GB } else { 1.5 }
+$script:MemoryPerLtoLinkJobGB = if ($env:PANGLOSS_MEM_PER_LTO_JOB_GB) { [double]$env:PANGLOSS_MEM_PER_LTO_JOB_GB } else { 2 }
+$script:MemoryPerTestProcessGB = if ($env:PANGLOSS_MEM_PER_TEST_GB) { [double]$env:PANGLOSS_MEM_PER_TEST_GB } else { 2.5 }
+
+function Get-PerJobMemoryGB {
+    # Which of the two compile-side allowances applies, decided by whether the run's profile turns
+    # on fat LTO rather than by mode name -- `build` and `release` both reach the fat-LTO profile,
+    # and `-DebugProfile` takes `build` back off it, so a mode-name test would be wrong twice.
+    param([switch]$FatLto)
+    if ($FatLto) { return $script:MemoryPerLtoLinkJobGB }
+    return $script:MemoryPerCompileJobGB
+}
+
 function Get-CargoJobBudget {
     # Per-invocation `-j` such that ALL concurrently-permitted builds together still leave
     # $script:InteractiveReserveThreads logical processors free. Divided by MaxConcurrent rather
@@ -44,6 +100,140 @@ function Get-CargoJobBudget {
     # rather than tuned. Only reachable on a machine far smaller than this one.
     if ($budget -lt 2) { $budget = 2 }
     return [Math]::Max(2, [Math]::Floor($budget / $MaxConcurrent))
+}
+
+function Get-AvailableMemoryGB {
+    # "Available", NOT "free". Win32_OperatingSystem.FreePhysicalMemory counts only the free list
+    # and omits the standby list -- cache pages Windows will hand to a new allocation on demand.
+    # On a box that has been building for a while almost all reclaimable memory sits in standby, so
+    # FreePhysicalMemory reads far lower than what a process can actually get, and gating on it
+    # would refuse builds on a machine with tens of GB genuinely available. Win32_PerfRawData_PerfOS_Memory
+    # exposes the same counter Task Manager labels "Available", and its property names are NOT
+    # localized (unlike Get-Counter's '\Memory\Available MBytes' path, which is, and which would
+    # throw on a non-English Windows).
+    #
+    # Returns $null rather than 0 if neither source answers: "could not look" must stay
+    # distinguishable from "nothing available", for the same reason Test-DiskReserve takes a
+    # [Nullable[double]] -- a failed query that reads as 0 blocks every build on the machine.
+    try {
+        $perf = Get-CimInstance Win32_PerfRawData_PerfOS_Memory -ErrorAction Stop
+        if ($perf -and $null -ne $perf.AvailableBytes) {
+            return [math]::Round(([double]$perf.AvailableBytes) / 1GB, 1)
+        }
+    } catch {}
+    try {
+        $os = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop
+        if ($os -and $null -ne $os.FreePhysicalMemory) {
+            # KB units in this class. Understates by the standby list, hence the fallback ordering.
+            return [math]::Round(([double]$os.FreePhysicalMemory) * 1KB / 1GB, 1)
+        }
+    } catch {}
+    return $null
+}
+
+function Get-TotalMemoryGB {
+    try {
+        $os = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop
+        if ($os -and $null -ne $os.TotalVisibleMemorySize) {
+            return [math]::Round(([double]$os.TotalVisibleMemorySize) * 1KB / 1GB, 1)
+        }
+    } catch {}
+    return $null
+}
+
+function Test-MemoryReserve {
+    # The spawn gate: is there enough headroom to start this run at all. Pure decision logic taking
+    # a number, like Test-DiskReserve, so it is unit-testable without a real machine state.
+    #
+    # This is the hard floor, distinct from Get-MemoryProcessBudget's narrowing below: under the
+    # floor there is no concurrency low enough to be safe, because even ONE test process here can
+    # be a multi-GB grammar compile. Refusing outright is the conservative direction, and it is the
+    # direction that leaves a machine you can still SSH into.
+    param(
+        [Nullable[double]]$AvailableGB,
+        [double]$MinFreeGB = $script:InteractiveReserveGB
+    )
+    if ($null -eq $AvailableGB) {
+        return [PSCustomObject]@{ Ok = $true; Detail = 'available memory unknown (not queryable) -- not blocking on it'; AvailableGB = $null }
+    }
+    $ok = $AvailableGB -ge $MinFreeGB
+    return [PSCustomObject]@{
+        Ok          = $ok
+        Detail      = if ($ok) {
+            "${AvailableGB}GB available (>= ${MinFreeGB}GB reserve)"
+        } else {
+            "${AvailableGB}GB available (< ${MinFreeGB}GB reserve) -- refusing to start a build that could take the machine to zero memory"
+        }
+        AvailableGB = $AvailableGB
+    }
+}
+
+function Get-MemoryProcessBudget {
+    # How many concurrent processes of a given weight the CURRENTLY available memory supports,
+    # after setting the interactive reserve aside. Pure; the caller supplies the measurement.
+    #
+    # Returns $null for "no opinion" when memory is unqueryable, so a caller combining this with the
+    # CPU budget can tell "memory says 3" from "memory has nothing to say" instead of silently
+    # clamping every build to a fabricated number.
+    #
+    # Divided by MaxConcurrent for the same reason Get-CargoJobBudget is: the build-slot semaphore
+    # is machine-wide, so each permitted build has to be sized for the case where all of them run.
+    # That is deliberately conservative even though the measurement is live -- a build that started
+    # one second ago has allocated almost nothing yet, so a live reading cannot see the peak that
+    # the other slot is about to reach.
+    param(
+        [Nullable[double]]$AvailableGB,
+        [double]$PerProcessGB,
+        [double]$ReserveGB = $script:InteractiveReserveGB,
+        [int]$MaxConcurrent = 1
+    )
+    if ($null -eq $AvailableGB) { return $null }
+    if ($PerProcessGB -le 0) { return $null }
+    if ($MaxConcurrent -lt 1) { $MaxConcurrent = 1 }
+    $usable = $AvailableGB - $ReserveGB
+    if ($usable -lt 0) { $usable = 0 }
+    $n = [Math]::Floor($usable / $PerProcessGB / $MaxConcurrent)
+    # Floor of 1, never 0: reaching here means Test-MemoryReserve already passed the hard floor, so
+    # the answer to "how many" is at worst "one at a time" -- 0 would mean a build that can never
+    # run and would be reported as a concurrency setting rather than as the refusal it really is.
+    return [int][Math]::Max(1, $n)
+}
+
+function Resolve-ConcurrencyBudget {
+    # Combine the CPU-derived and memory-derived caps, keeping WHICH ONE bound the result, so the
+    # preflight record can state the real reason a run is 3-wide instead of 7. Write-Preflight is
+    # already careful not to print a derivation that did not produce the number beside it; the same
+    # rule has to hold once there are two competing derivations.
+    param(
+        [int]$CpuBudget,
+        [Nullable[int]]$MemoryBudget,
+        [switch]$Explicit
+    )
+    if ($Explicit) {
+        return [PSCustomObject]@{ Value = $CpuBudget; Bound = 'explicit'; Detail = 'explicit override' }
+    }
+    if ($null -eq $MemoryBudget) {
+        return [PSCustomObject]@{ Value = $CpuBudget; Bound = 'cpu'; Detail = 'cpu budget (available memory not queryable)' }
+    }
+    if ($MemoryBudget -lt $CpuBudget) {
+        return [PSCustomObject]@{ Value = [int]$MemoryBudget; Bound = 'memory'; Detail = "memory-bound (cpu budget would allow $CpuBudget)" }
+    }
+    return [PSCustomObject]@{ Value = $CpuBudget; Bound = 'cpu'; Detail = "cpu-bound (memory would allow $MemoryBudget)" }
+}
+
+function Get-TopMemoryConsumers {
+    # Only ever used to make a refusal actionable: "8GB available, under the reserve" is a dead end
+    # unless it also says what ate the memory. Read-only -- this never kills anything, because the
+    # thing holding the memory may well belong to another worktree's healthy build (CLAUDE.md,
+    # "Playing nicely with other worktrees").
+    param([int]$Top = 5)
+    try {
+        Get-Process -ErrorAction Stop |
+            Sort-Object -Property WorkingSet64 -Descending |
+            Select-Object -First $Top -Property Id, ProcessName, @{ Name = 'WorkingSetGB'; Expression = { [math]::Round($_.WorkingSet64 / 1GB, 2) } }
+    } catch {
+        @()
+    }
 }
 
 function Get-RepoRoot {
@@ -471,6 +661,10 @@ $script:ExitCodeCacheUnavailable = 13
 $script:ExitCodeBadTargetOwnership = 14
 $script:ExitCodeBuildSlotTimeout = 15
 $script:ExitCodeZeroCorpusCases = 16
+# Deliberately distinct from ExitCodeLowDisk: both are "the machine cannot take this run", but the
+# recovery is completely different (free bytes on a drive vs. wait for / kill what is holding RAM),
+# and a caller that cannot tell them apart will run gc at a memory problem and conclude gc is broken.
+$script:ExitCodeLowMemory = 17
 
 # ---------------------------------------------------------------------------------------------
 # Worktree metadata: the exact-base contract
@@ -812,11 +1006,15 @@ function Write-Preflight {
         [Parameter(Mandatory)]$SccacheHealth,
         [Nullable[double]]$FreeGB,
         $DiskCheck,
+        $MemoryCheck = $null,
         $CorpusState = $null,
         [int]$MaxConcurrent,
         [int]$Jobs = 0,
         [switch]$JobsExplicit,
+        $JobsBudget = $null,
+        [double]$PerJobMemoryGB = 0,
         [int]$TestThreads = 0,
+        $TestThreadsBudget = $null,
         [string]$Priority = ''
     )
     $slug = Get-WorktreeSlug -RustRoot (Join-Path $RepoRoot 'rust')
@@ -835,6 +1033,11 @@ function Write-Preflight {
     Write-Host "target dir: $(if ($TargetDir) { $TargetDir } else { '<cargo default>' })"
     if ($DiskCheck) {
         Write-Host "free space: $($DiskCheck.Detail)" -ForegroundColor $(if ($DiskCheck.Ok) { 'Gray' } else { 'Red' })
+    }
+    if ($MemoryCheck) {
+        $total = Get-TotalMemoryGB
+        $ofTotal = if ($null -ne $total) { " of ${total}GB total" } else { '' }
+        Write-Host "free memory: $($MemoryCheck.Detail)$ofTotal" -ForegroundColor $(if ($MemoryCheck.Ok) { 'Gray' } else { 'Red' })
     }
     Write-Host "sccache: $($SccacheHealth.State) -- $($SccacheHealth.Detail)" -ForegroundColor $(if ($SccacheHealth.Ok -or $SccacheHealth.State -eq 'disabled') { 'Gray' } else { 'Red' })
     if ($CorpusState) {
@@ -857,6 +1060,12 @@ function Write-Preflight {
         # that did not happen and cannot produce the value shown beside it.
         $why = if ($JobsExplicit) {
             'explicit -Jobs override'
+        } elseif ($JobsBudget -and $JobsBudget.Bound -eq 'memory') {
+            # The number that answers "why is this slower than I expected" is different once memory
+            # can bind it: the CPU derivation is still true arithmetic but no longer the reason.
+            $perJob = if ($PerJobMemoryGB -gt 0) { $PerJobMemoryGB } else { $script:MemoryPerCompileJobGB }
+            $ltoNote = if ($perJob -eq $script:MemoryPerLtoLinkJobGB) { ' (fat-LTO link peak)' } else { '' }
+            "$($JobsBudget.Detail); ${perJob}GB/job assumed${ltoNote} over a ${script:InteractiveReserveGB}GB reserve, split across $MaxConcurrent slot(s)"
         } else {
             "$([Environment]::ProcessorCount) logical - $script:InteractiveReserveThreads reserved for SSH/remote-desktop daemons, split across $MaxConcurrent slot(s)"
         }
@@ -866,7 +1075,12 @@ function Write-Preflight {
         # Reported separately from jobs because they bound different phases, and a run capped for
         # compilation but not execution looks capped in the log while still going 20-wide in the
         # half that spawns real processes.
-        Write-Host "test threads: $TestThreads concurrent test processes (default would be $([Environment]::ProcessorCount))"
+        $testWhy = if ($TestThreadsBudget -and $TestThreadsBudget.Bound -eq 'memory') {
+            " -- $($TestThreadsBudget.Detail), ${script:MemoryPerTestProcessGB}GB/process assumed"
+        } else {
+            ''
+        }
+        Write-Host "test threads: $TestThreads concurrent test processes (default would be $([Environment]::ProcessorCount))$testWhy"
     }
     if ($Priority) {
         Write-Host "build priority: $Priority (inherited by rustc/link.exe -- keeps interactive daemons ahead of compiler work)"

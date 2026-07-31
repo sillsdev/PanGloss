@@ -153,8 +153,26 @@ if ($NoSccache) {
 # subcommands that don't take `-j` in the same position (nextest's `--cargo-profile` form), and it
 # beats rust/.cargo/config.toml's static `jobs` floor in Cargo's precedence order (CLI > env >
 # config) without overriding an explicit `-j` a caller put in $ExtraArgs, which still wins.
+#
+# Both budgets below are then narrowed by AVAILABLE MEMORY, not just by cores. Threads were capped
+# and bytes were not, and this machine was taken down twice by the uncapped half: a polite 7-wide
+# build whose test processes each reached several GB still drove available memory to nothing, and a
+# daemon blocked on a page fault stalls a remote session just as completely as one starved of CPU
+# (BelowNormal priority buys nothing there -- it is not waiting for the scheduler).
+$availableMemGB = Get-AvailableMemoryGB
+$memCheck = Test-MemoryReserve -AvailableGB $availableMemGB
+
+# `build` and `release` both land on [profile.release] (lto = "fat", codegen-units = 1) unless
+# -DebugProfile takes `build` off it; test/corpus-test use pg-test-opt (thin LTO) instead. The
+# distinction matters more than any other input to this budget -- see Get-PerJobMemoryGB.
+$fatLto = ($Mode -eq 'release') -or (($Mode -eq 'build') -and (-not $DebugProfile))
+$perJobMemGB = Get-PerJobMemoryGB -FatLto:$fatLto
+
 $jobsExplicit = ($Jobs -gt 0)
-if (-not $jobsExplicit) { $Jobs = Get-CargoJobBudget -MaxConcurrent $MaxConcurrent }
+$jobsBudget = Resolve-ConcurrencyBudget -CpuBudget (Get-CargoJobBudget -MaxConcurrent $MaxConcurrent) `
+    -MemoryBudget (Get-MemoryProcessBudget -AvailableGB $availableMemGB -PerProcessGB $perJobMemGB -MaxConcurrent $MaxConcurrent) `
+    -Explicit:$jobsExplicit
+if (-not $jobsExplicit) { $Jobs = $jobsBudget.Value }
 $env:CARGO_BUILD_JOBS = "$Jobs"
 
 # The EXECUTION half of the same problem. CARGO_BUILD_JOBS bounds compilation only; once cargo
@@ -165,7 +183,15 @@ $env:CARGO_BUILD_JOBS = "$Jobs"
 # pg-ffi::header_abi), and corpus/foma cases can reach many GB of RSS each
 # (CLAUDE.md, "Probe pathological grammars single-threaded"). 20 of those at once is a memory
 # storm as much as a CPU one, and memory pressure is what actually freezes a remote session.
-if ($TestThreads -le 0) { $TestThreads = Get-CargoJobBudget -MaxConcurrent $MaxConcurrent }
+#
+# Sized against a HEAVIER per-process memory allowance than compilation gets: a rustc is
+# predictable, whereas a test process in this workspace can be an entire grammar compile and is not
+# bounded by anything we control.
+$testThreadsExplicit = ($TestThreads -gt 0)
+$testThreadsBudget = Resolve-ConcurrencyBudget -CpuBudget (Get-CargoJobBudget -MaxConcurrent $MaxConcurrent) `
+    -MemoryBudget (Get-MemoryProcessBudget -AvailableGB $availableMemGB -PerProcessGB $script:MemoryPerTestProcessGB -MaxConcurrent $MaxConcurrent) `
+    -Explicit:$testThreadsExplicit
+if (-not $testThreadsExplicit) { $TestThreads = $testThreadsBudget.Value }
 
 $targetDir = Resolve-TargetDir -RustRoot $rustRoot
 if ($targetDir) { $env:CARGO_TARGET_DIR = $targetDir }
@@ -233,8 +259,11 @@ $profileLabel = switch ($Mode) {
 
 Write-Preflight -Mode $Mode -Profile $profileLabel -RepoRoot $repoRoot -TargetDir $targetDir `
     -BaseCheck $baseCheck -SccacheHealth $sccacheHealth -FreeGB $freeGB -DiskCheck $diskCheck `
+    -MemoryCheck $memCheck `
     -CorpusState $corpusState -MaxConcurrent $MaxConcurrent -Jobs $Jobs -JobsExplicit:$jobsExplicit `
-    -TestThreads $(if ($Mode -eq 'test' -or $Mode -eq 'corpus-test') { $TestThreads } else { 0 }) -Priority $Priority
+    -JobsBudget $jobsBudget -PerJobMemoryGB $perJobMemGB `
+    -TestThreads $(if ($Mode -eq 'test' -or $Mode -eq 'corpus-test') { $TestThreads } else { 0 }) `
+    -TestThreadsBudget $testThreadsBudget -Priority $Priority
 
 if ($BaseMode -ne 'off' -and $baseCheck.Checked -and -not $baseCheck.Ok) {
     Write-Host "[pg] worktree base check FAILED ($BaseMode mode): $($baseCheck.Detail)" -ForegroundColor Red
@@ -247,6 +276,21 @@ if (-not $diskCheck.Ok) {
     exit $script:ExitCodeLowDisk
 }
 
+# The spawn gate. gc/doctor are exempt by construction: gc is the recovery action for exactly this
+# state (refusing to run it when memory is low would leave no way out but a reboot), and doctor is
+# reached above and reports rather than exits here.
+if (-not $memCheck.Ok) {
+    Write-Host "[pg] $($memCheck.Detail)" -ForegroundColor Red
+    $top = @(Get-TopMemoryConsumers -Top 5)
+    if ($top.Count -gt 0) {
+        Write-Host '[pg] largest working sets right now:' -ForegroundColor Yellow
+        foreach ($p in $top) { Write-Host "  $($p.WorkingSetGB)GB  $($p.ProcessName) (pid $($p.Id))" -ForegroundColor Yellow }
+    }
+    Write-Host '[pg] recovery: wait for whatever is holding memory to finish, or reap orphans with pg.ps1 -Mode gc -Apply (it kills only dead-parent processes and never a live build). Do NOT kill a large rustc/cargo blindly -- it may belong to another worktree that is building normally.' -ForegroundColor Yellow
+    Write-Host "[pg] override for one run with PANGLOSS_MIN_FREE_MEM_GB=<gb> if you know the reading is stale, but understand that this gate exists because the machine was taken to zero memory twice." -ForegroundColor DarkGray
+    exit $script:ExitCodeLowMemory
+}
+
 if ($Mode -eq 'corpus-test' -and -not $corpusState.Ok) {
     Write-Host '[pg] corpus-test refused BEFORE starting cargo -- required corpus file(s) missing:' -ForegroundColor Red
     foreach ($m in $corpusState.Missing) { Write-Host "  $m" -ForegroundColor Red }
@@ -255,7 +299,7 @@ if ($Mode -eq 'corpus-test' -and -not $corpusState.Ok) {
 }
 
 if ($Mode -eq 'doctor') {
-    $unsafe = ($baseCheck.Checked -and -not $baseCheck.Ok) -or (-not $diskCheck.Ok) -or ($usedSccache -and -not $sccacheHealth.Ok)
+    $unsafe = ($baseCheck.Checked -and -not $baseCheck.Ok) -or (-not $diskCheck.Ok) -or (-not $memCheck.Ok) -or ($usedSccache -and -not $sccacheHealth.Ok)
     if ($unsafe) {
         Write-Host '[pg] doctor: environment is UNSAFE for a managed build (see failures above).' -ForegroundColor Red
         exit 1
@@ -370,6 +414,21 @@ if (-not $sem) {
     Write-Host "[pg] timed out after ${BuildSlotTimeoutSeconds}s waiting for a build slot (max $MaxConcurrent concurrent across all worktrees) -- another worktree's build is holding it." -ForegroundColor Red
     exit $script:ExitCodeBuildSlotTimeout
 }
+
+# Re-check memory AFTER the slot wait, not just at preflight. The gate above ran before a wait that
+# is allowed to last 30 minutes, and the whole point of queueing is that another build is running --
+# so the reading the gate approved is precisely the reading most likely to be stale by the time this
+# run actually starts. Nothing here re-derives the job counts (cargo is about to be handed them, and
+# a build refused at this point never spends the memory anyway); it only refuses.
+$availableMemNow = Get-AvailableMemoryGB
+$memCheckNow = Test-MemoryReserve -AvailableGB $availableMemNow
+if (-not $memCheckNow.Ok) {
+    Exit-BuildSlot -Semaphore $sem
+    Write-Host "[pg] memory dropped below the reserve while waiting for a build slot: $($memCheckNow.Detail)" -ForegroundColor Red
+    Write-Host '[pg] nothing was started. Re-run when the build that was ahead of this one has finished.' -ForegroundColor Yellow
+    exit $script:ExitCodeLowMemory
+}
+
 $code = 1
 try {
     $runnerLabel = if ($useNextest) { 'nextest' } elseif ($Mode -eq 'build' -or $Mode -eq 'release') { 'cargo build' } else { 'cargo test' }

@@ -63,8 +63,31 @@ record so a "why is this slower than I expected" question is answerable from the
   Measured before that call existed: 7 concurrent `rustc`, only 2 of them `BelowNormal`. If you
   ever add another compiler-spawning daemon, it needs the same treatment.
 
+- **Memory headroom.** Threads were capped and *bytes were not*, and the machine was taken to zero
+  memory twice on 2026-07-30 with every CPU control above already in place. A daemon blocked on a
+  page fault stalls a remote session exactly as hard as one starved of CPU, and `BelowNormal` buys
+  nothing there — it is not waiting for the scheduler. So `pg.ps1` now also **refuses to spawn**
+  when available memory is under `$script:InteractiveReserveGB` (8GB, `PANGLOSS_MIN_FREE_MEM_GB`),
+  exiting **17** — distinct from low-disk's 12, because the recovery is completely different. It
+  prints the largest working sets so the refusal is actionable, and re-checks *after* the
+  build-slot wait, since a 30-minute queue is exactly how an approved reading goes stale. `doctor`
+  reports the same state; `gc` is exempt, because it is the recovery action.
+  Available memory then narrows `-Jobs`/`-TestThreads` the same way cores do, and the preflight
+  record names which of the two actually bound the number.
+
+  Sizing, and what it is *not*: measured 2026-07-30, a fat-LTO relink of the `pangloss` binary peaks
+  at **0.71GB** of rustc working set, with the whole `-j3` fan-out never exceeding 1.2GB total. So
+  the compile/link path is **not** where this machine's memory went — do not reach for
+  `PANGLOSS_MEM_PER_LTO_JOB_GB` first when diagnosing the next exhaustion. The unmeasured allowance
+  is `$script:MemoryPerTestProcessGB` (2.5GB), and the test path is where the evidence points: a
+  corpus/foma case can be a whole grammar compile, and one `pangloss batch` probe reached 30+ GB
+  RSS. Measuring a corpus-test run is the outstanding calibration. At rest these numbers bind
+  nothing — an idle 63.7GB box still gets all 7 jobs, which is deliberate: a gate that taxes every
+  ordinary build gets switched off and then protects nothing.
+
 Override per-run with `-Jobs N` / `-TestThreads N` / `-Priority Normal` (on `pg.ps1`, `build.ps1`,
-or `test.ps1`) when you're at the console and there's no remote session to protect.
+or `test.ps1`) when you're at the console and there's no remote session to protect. `-Jobs` and
+`-TestThreads` are never narrowed by the memory budget — an explicit number stays the number.
 
 Two things this deliberately does **not** cover, so don't assume the machine is protected by
 `pg.ps1` alone. Bare Cargo in another worktree still runs at `Normal` — the repo-root
