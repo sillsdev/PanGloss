@@ -386,6 +386,188 @@ function Get-TopMemoryConsumers {
     }
 }
 
+function Resolve-RunTarget {
+    # Pure argument-construction logic for `pg.ps1 -Mode run`, split out of pg.ps1 itself so the
+    # "exactly one selector", "'--' stripping", and "cargo run vs. a bare .exe" decisions are
+    # unit-testable the same way Get-ProcGovArgs/Resolve-ConcurrencyBudget already are -- without
+    # launching cargo, a probe binary, or touching the filesystem (existence of -Exe is the
+    # CALLER's job, via Test-Path, precisely so this function never needs a real file to be tested).
+    #
+    # Returns Ok=$false with a Detail message for the usage error (wrong number of selectors);
+    # callers are expected to print Detail and exit rather than this function throwing, matching
+    # every other preflight-style function in this file (Test-DiskReserve, Test-MemoryReserve, ...).
+    param(
+        [string]$Example = '',
+        [string]$Bin = '',
+        [string]$Exe = '',
+        [string]$Package = '',
+        [switch]$DebugProfile,
+        [string[]]$ExtraArgs = @()
+    )
+    # The outer @(...) around the whole pipeline is load-bearing, not decorative: PowerShell
+    # unwraps a Where-Object result down to a bare (non-array) object whenever exactly one item
+    # survives the filter -- the expected, common case here. Without it, .Count on that lone
+    # surviving HASHTABLE silently returns its KEY count (2: "Name" and "Value") instead of "how
+    # many selectors were passed", so the exactly-one-selector case (the one this check exists to
+    # ACCEPT) was instead being rejected as "got 2". Caught by hand-testing this exact construct
+    # standalone before trusting it in pg.ps1: `@{...} | Where-Object {...}` down to one match
+    # returns a Hashtable, not a 1-element array, and Hashtable.Count means something else entirely.
+    $selectors = @(@(
+            @{ Name = 'Example'; Value = $Example }
+            @{ Name = 'Bin'; Value = $Bin }
+            @{ Name = 'Exe'; Value = $Exe }
+        ) | Where-Object { $_.Value })
+    if ($selectors.Count -ne 1) {
+        $got = if ($selectors.Count -gt 0) { " ($(($selectors | ForEach-Object { $_.Name }) -join ', '))" } else { '' }
+        return [PSCustomObject]@{
+            Ok     = $false
+            Detail = "-Mode run requires EXACTLY ONE of -Example <name> / -Bin <name> / -Exe <path>; got $($selectors.Count)$got."
+        }
+    }
+
+    # A literal leading '--' is the natural way to type "everything after here is for the child
+    # process" (cargo's own convention, which the rest of pg.ps1 already relies on for build/test
+    # passthrough). It is not always special to PowerShell's own parameter binder (behavior differs
+    # by invocation style -- see the `run` mode's own test/usage notes), so strip at most one
+    # leading '--' defensively rather than forwarding it into the launch args, where it would show
+    # up as a stray first argument to whatever gets run (a bare .exe would receive it as argv[1];
+    # `cargo run` would get a DOUBLED '--' once the code below adds its own).
+    $passthrough = @($ExtraArgs)
+    if ($passthrough.Count -gt 0 -and $passthrough[0] -eq '--') {
+        $passthrough = @($passthrough | Select-Object -Skip 1)
+    }
+
+    if ($Exe) {
+        return [PSCustomObject]@{
+            Ok         = $true
+            LaunchExe  = $Exe
+            LaunchArgs = $passthrough
+            Label      = "exe: $Exe"
+        }
+    }
+
+    # Example/Bin both go through `cargo run`, which builds first -- so a stale binary from an
+    # earlier build is never what actually runs -- and then execs the result as a CHILD of cargo.
+    # procgov's `-r` flag (Get-ProcGovArgs, `-r` = recurse the job object onto every descendant) is
+    # what puts that child inside the ceiling, exactly like it already does for rustc/link.exe
+    # under an ordinary build; nothing extra is needed here for that to work.
+    $launchArgs = @('run')
+    if (-not $DebugProfile) { $launchArgs += '--release' }
+    if ($Package) { $launchArgs += @('-p', $Package) }
+    if ($Example) { $launchArgs += @('--example', $Example) }
+    if ($Bin) { $launchArgs += @('--bin', $Bin) }
+    # cargo's OWN '--' separator, inserted unconditionally regardless of what the caller typed:
+    # without it, args meant for the binary would be parsed by cargo itself as (unrecognized)
+    # cargo flags instead of reaching the program.
+    if ($passthrough.Count -gt 0) { $launchArgs += @('--') + $passthrough }
+    return [PSCustomObject]@{
+        Ok         = $true
+        LaunchExe  = 'cargo'
+        LaunchArgs = $launchArgs
+        Label      = if ($Example) { "example: $Example" } else { "bin: $Bin" }
+    }
+}
+
+function Get-ExhaustionConsumersFromMessage {
+    # Pure parsing, split out of Get-ResourceExhaustionEvents below so it is unit-testable against
+    # SAMPLE message text (rust/tools/tests/run-mode.tests.ps1) without ever calling Get-WinEvent --
+    # matching this file's established pattern of keeping the parsing/decision logic pure and
+    # pushing the live query to a thin wrapper (Get-AvailableMemoryGB vs. Test-MemoryReserve is the
+    # same split).
+    #
+    # MESSAGE TEXT, verified against real Microsoft-Windows-Resource-Exhaustion-Detector (event ID
+    # 2004) events on this machine (2026-07-31):
+    #   "Windows successfully diagnosed a low virtual memory condition. The following programs
+    #    consumed the most virtual memory: predict_census.exe (30004) consumed 118387073024 bytes,
+    #    vmmemCmZygote (9984) consumed 853762048 bytes, and MsMpEng.exe (5320) consumed 529256448
+    #    bytes."
+    # Always exactly "<name> (<pid>) consumed <N> bytes", comma-joined, "and" before the last one.
+    # Parsing this is inherently FRAGILE -- Microsoft does not publish a stable grammar for it, it
+    # is not guaranteed to hold across Windows builds/locales, and a process name with an embedded
+    # space (none observed) would break the regex below. So parsing is best-effort ONLY: a message
+    # that fails to match returns an EMPTY list, never a thrown error -- the caller keeps RawMessage
+    # intact for a human to read regardless of whether this parses it.
+    param([string]$Message)
+    $consumers = @()
+    if (-not $Message) { return $consumers }
+    foreach ($m in [regex]::Matches($Message, '(\S+)\s+\((\d+)\)\s+consumed\s+(\d+)\s+bytes')) {
+        $bytes = [int64]$m.Groups[3].Value
+        $consumers += [PSCustomObject]@{
+            ProcessName = $m.Groups[1].Value
+            Pid         = [int]$m.Groups[2].Value
+            Bytes       = $bytes
+            GB          = [math]::Round($bytes / 1GB, 1)
+        }
+    }
+    return $consumers
+}
+
+function Get-ResourceExhaustionEvents {
+    # Windows already diagnoses this and logs it: Microsoft-Windows-Resource-Exhaustion-Detector
+    # fires event ID 2004 into the System log when the OS is approaching its commit limit, and the
+    # message names the top-3 processes it picked plus how many bytes each had committed. This
+    # machine had three such events BEFORE this function existed and nobody was reading the log:
+    #   2026-07-04  hc-rs.exe         97 GB
+    #   2026-07-26  pangloss.exe      90 GB
+    #   2026-07-30  predict_census.exe  118 GB (repeated over ~45 minutes as it climbed)
+    # All three were a single PanGloss binary invoked DIRECTLY -- never through cargo, so nothing
+    # that only wrapped cargo (Invoke-CargoWithReaper, before this file's `run`-mode support) could
+    # ever have bounded them. This function is what lets `pg.ps1 -Mode doctor` surface that history
+    # instead of it sitting undiscovered in the System log until someone thinks to check manually.
+    #
+    # Message parsing itself lives in Get-ExhaustionConsumersFromMessage above; this function is
+    # just the live Get-WinEvent query plus the "no data vs. genuinely none" distinction below.
+    param(
+        [datetime]$Since = (Get-Date).AddDays(-7),
+        [int]$MaxEvents = 20
+    )
+    try {
+        $events = Get-WinEvent -FilterHashtable @{
+            LogName      = 'System'
+            ProviderName = 'Microsoft-Windows-Resource-Exhaustion-Detector'
+            Id           = 2004
+            StartTime    = $Since
+        } -MaxEvents $MaxEvents -ErrorAction Stop
+    } catch {
+        # Get-WinEvent throws (rather than returning an empty collection) both for "genuinely
+        # nothing in this window" -- the NORMAL case on a machine with no exhaustion history, hit
+        # on every doctor run that finds nothing wrong -- and for "could not look at all" (provider
+        # absent on this Windows edition/locale, System log access denied). Those two are NOT the
+        # same fact and must not be reported identically: the first is good news, the second is "I
+        # don't know" and must never be silently upgraded to good news. Get-WinEvent's own message
+        # text is the only signal available to tell them apart (there is no separate exception
+        # type), so match on it explicitly rather than treating every failure as "no data".
+        if ($_.Exception.Message -like 'No events were found*') {
+            return [PSCustomObject]@{
+                Ok        = $true
+                Queryable = $true
+                Detail    = "0 exhaustion event(s) since $($Since.ToString('u')) -- queried successfully, none found"
+                Events    = @()
+            }
+        }
+        return [PSCustomObject]@{
+            Ok        = $true
+            Queryable = $false
+            Detail    = "could not query Resource-Exhaustion-Detector events: $($_.Exception.Message)"
+            Events    = @()
+        }
+    }
+    $parsed = @()
+    foreach ($e in $events) {
+        $parsed += [PSCustomObject]@{
+            TimeCreated = $e.TimeCreated
+            Consumers   = @(Get-ExhaustionConsumersFromMessage -Message $e.Message)
+            RawMessage  = $e.Message
+        }
+    }
+    return [PSCustomObject]@{
+        Ok        = $true
+        Queryable = $true
+        Detail    = "$($parsed.Count) exhaustion event(s) since $($Since.ToString('u'))"
+        Events    = $parsed
+    }
+}
+
 function Get-RepoRoot {
     # `git rev-parse --show-toplevel` always answers for whichever worktree the caller is
     # standing in, so this resolves correctly whether run from the main checkout or any
@@ -562,13 +744,28 @@ function Exit-BuildSlot {
     if ($Semaphore) { $Semaphore.Release() | Out-Null; $Semaphore.Dispose() }
 }
 
-function Invoke-CargoWithReaper {
+function Invoke-ProcessInJobObject {
+    # The procgov-wrapping core, extracted out of what used to be the entire body of
+    # Invoke-CargoWithReaper so a cargo build and an arbitrary long-running PanGloss binary
+    # (`pg.ps1 -Mode run` -- predict_census, `pangloss batch`, ...) get the SAME kernel-enforced
+    # ceiling from ONE implementation instead of two copies that can drift. This is the change that
+    # closes the gap named in the `run` mode's own design note: every incident that took the
+    # machine to a frozen state (predict_census.exe 118GB, pangloss.exe 90GB, hc-rs.exe 97GB -- see
+    # CLAUDE.md) was a binary invoked DIRECTLY, never through cargo, so nothing that wrapped ONLY
+    # cargo could ever have caught it.
+    #
+    # Callers resolve JobMemoryGB/CpuRatePercent themselves (Get-JobMemoryCapGB/
+    # Get-JobCpuRatePercent) rather than this function deriving them, because different callers
+    # derive them differently -- a build divides the machine's headroom by how many build SLOTS
+    # are permitted at once (Enter-BuildSlot's MaxConcurrent); `run` sizes its cap the same way
+    # (see pg.ps1's `run` mode comment for why it also takes a build slot) but a caller wanting the
+    # documented 40GB experiment overrides the number outright rather than the derivation.
     param(
-        [string]$Exe,
+        [Parameter(Mandatory)][string]$Exe,
         # NOT named $Args -- that's PowerShell's automatic variable inside a function scope,
-        # and a formal parameter of that name silently fails to bind (cargo would run with
+        # and a formal parameter of that name silently fails to bind (the child would run with
         # zero arguments instead of erroring).
-        [string[]]$CmdArgs,
+        [string[]]$CmdArgs = @(),
         [string]$WorkingDirectory,
         # corpus-test needs cargo's raw stdout AFTER the run to sum the PANGLOSS_CORPUS_CASES
         # lines pg_conformance_fixtures::corpus::record_cases emits, regardless of pass/fail --
@@ -576,31 +773,33 @@ function Invoke-CargoWithReaper {
         # nothing would otherwise still "pass"). Redirected to a file rather than piped so a
         # reaped/killed process's output up to that point isn't lost.
         [string]$CaptureStdoutPath = '',
-        # CPU priority class for cargo AND every rustc/link.exe it spawns -- see the
-        # PriorityClass block below for why this is inherited rather than set per-child.
+        # CPU priority class for $Exe AND every process it spawns -- see the PriorityClass block
+        # below for why this is inherited rather than set per-child.
         [ValidateSet('Idle', 'BelowNormal', 'Normal')][string]$Priority = 'BelowNormal',
-        # Only used to size the job object's memory ceiling; the build-slot semaphore is what
-        # actually bounds concurrency.
-        [int]$JobMaxConcurrent = 2
+        [Nullable[int]]$JobMemoryGB,
+        [Nullable[int]]$CpuRatePercent,
+        # Purely cosmetic word choice for the "no procgov" warning ("this build runs..." vs
+        # "this run runs...") so the message stays accurate for whichever pg.ps1 mode called in,
+        # without a second near-duplicate warning string per caller.
+        [string]$Subject = 'build'
     )
-    # Wrap the whole build in a Windows job object (via procgov) when available, so the memory and
-    # CPU ceilings are enforced by the KERNEL at allocation/scheduling time rather than by this
-    # script noticing after the fact. -r puts every rustc/link.exe in the job, which is where all
-    # the resource use actually is. See the Get-ProcGovPath block above for what this replaced.
+    # Wrap the whole process tree in a Windows job object (via procgov) when available, so the
+    # memory and CPU ceilings are enforced by the KERNEL at allocation/scheduling time rather than
+    # by this script noticing after the fact. -r puts every descendant process in the job, which is
+    # where all the resource use actually is (rustc/link.exe for a build; whatever a probe forks for
+    # a `run`). See the Get-ProcGovPath block above for what this replaced.
     $procgov = Get-ProcGovPath
     $launchExe = $Exe
     $launchArgs = $CmdArgs
     if ($procgov) {
-        $jobMemGB = Get-JobMemoryCapGB -MaxConcurrent $JobMaxConcurrent
-        $cpuRate = Get-JobCpuRatePercent
-        $launchArgs = Get-ProcGovArgs -JobMemoryGB $jobMemGB -CpuRatePercent $cpuRate -Priority $Priority -Exe $Exe -CmdArgs $CmdArgs
+        $launchArgs = Get-ProcGovArgs -JobMemoryGB $JobMemoryGB -CpuRatePercent $CpuRatePercent -Priority $Priority -Exe $Exe -CmdArgs $CmdArgs
         $launchExe = $procgov
         $capDesc = @()
-        if ($null -ne $jobMemGB) { $capDesc += "${jobMemGB}GB committed memory" }
-        if ($null -ne $cpuRate) { $capDesc += "${cpuRate}% CPU" }
-        Write-Host "[pg] job object: $($capDesc -join ', ') (kernel-enforced across cargo and every process it spawns)" -ForegroundColor DarkGray
+        if ($null -ne $JobMemoryGB) { $capDesc += "${JobMemoryGB}GB committed memory" }
+        if ($null -ne $CpuRatePercent) { $capDesc += "${CpuRatePercent}% CPU" }
+        Write-Host "[pg] job object: $($capDesc -join ', ') (kernel-enforced across $Exe and every process it spawns)" -ForegroundColor DarkGray
     } else {
-        Write-Host '[pg] WARNING: procgov not found -- this build runs with NO kernel-enforced memory or CPU ceiling.' -ForegroundColor Yellow
+        Write-Host "[pg] WARNING: procgov not found -- this $Subject runs with NO kernel-enforced memory or CPU ceiling." -ForegroundColor Yellow
         Write-Host '[pg] The pre-spawn gates still apply, but nothing bounds a runaway once it starts. Install with: winget install LowLevelDesign.ProcessGovernor' -ForegroundColor Yellow
     }
 
@@ -618,38 +817,38 @@ function Invoke-CargoWithReaper {
     # if the process is still alive (e.g. this script itself got Ctrl+C'd).
     $psi = Start-Process @psiArgs
 
-    # Drop the whole build tree below the interactive daemons. A job cap alone is not enough:
-    # capping jobs bounds how many runnable rustc threads exist, but every one of them still sits
-    # at Normal priority, which is exactly where sshd and Chrome Remote Desktop's remoting_host
-    # video encoder sit. Equal priority means the scheduler round-robins them, so the encoder waits
-    # behind compiler work for its frame deadline and the remote session stalls. BelowNormal means
-    # any daemon that becomes runnable preempts compiler work immediately; the build gives up
-    # almost nothing in wall-clock, because it still owns every core no one else wants.
+    # Drop the whole process tree below the interactive daemons. A job cap alone is not enough:
+    # capping jobs bounds how many runnable threads exist, but every one of them still sits at
+    # Normal priority, which is exactly where sshd and Chrome Remote Desktop's remoting_host video
+    # encoder sit. Equal priority means the scheduler round-robins them, so the encoder waits
+    # behind compiler (or probe) work for its frame deadline and the remote session stalls.
+    # BelowNormal means any daemon that becomes runnable preempts that work immediately; the run
+    # gives up almost nothing in wall-clock, because it still owns every core no one else wants.
     #
-    # Set on the cargo PARENT rather than hunting down each rustc, because Windows propagates it
-    # for free: CreateProcess gives a child NORMAL_PRIORITY_CLASS by default *unless* the creating
+    # Set on the PARENT rather than hunting down each descendant, because Windows propagates it for
+    # free: CreateProcess gives a child NORMAL_PRIORITY_CLASS by default *unless* the creating
     # process is IDLE or BELOW_NORMAL, in which case the child inherits the parent's class. So the
-    # rustc/link.exe fan-out below cargo lands at BelowNormal without any per-child bookkeeping --
-    # which also means it keeps working for processes this script never sees (build scripts,
-    # proc-macro servers, the linker's own children).
+    # fan-out below $Exe lands at BelowNormal without any per-child bookkeeping -- which also means
+    # it keeps working for processes this script never sees (build scripts, proc-macro servers, the
+    # linker's own children, or whatever a probe binary forks).
     #
-    # Best-effort: a cargo that failed instantly (bad args, missing toolchain) can already be gone,
-    # and losing the priority drop must not turn that into a different, more confusing error.
-    # Set unconditionally, including for 'Normal': cargo inherits its class from THIS PowerShell
-    # host, so if the host is itself running below normal (a nested build, or a shell someone
-    # de-prioritized), an early-out on 'Normal' would quietly fail to deliver the full-speed build
-    # that was explicitly asked for.
+    # Best-effort: a process that failed instantly (bad args, missing toolchain/file) can already
+    # be gone, and losing the priority drop must not turn that into a different, more confusing
+    # error. Set unconditionally, including for 'Normal': $Exe inherits its class from THIS
+    # PowerShell host, so if the host is itself running below normal (a nested build, or a shell
+    # someone de-prioritized), an early-out on 'Normal' would quietly fail to deliver the
+    # full-speed run that was explicitly asked for.
     try {
         if (-not $psi.HasExited) { $psi.PriorityClass = $Priority }
     } catch {
-        Write-Host "[pg] note: could not set $Priority priority on cargo (pid $($psi.Id)): $($_.Exception.Message)" -ForegroundColor DarkGray
+        Write-Host "[pg] note: could not set $Priority priority on $Exe (pid $($psi.Id)): $($_.Exception.Message)" -ForegroundColor DarkGray
     }
 
     # A plain wait. There is no polling watchdog here any more: under procgov the ceilings are
     # enforced by the kernel continuously, with no sampling interval for a spike to hide in, and a
-    # build that exceeds its commit limit fails its own allocation instead of taking the machine
+    # run that exceeds its commit limit fails its own allocation instead of taking the machine
     # down. The taskkill in `finally` stays, because it covers a case the job object does not: this
-    # SCRIPT being interrupted (Ctrl+C) while the build is healthy and still running.
+    # SCRIPT being interrupted (Ctrl+C) while the run is healthy and still running.
     try {
         Wait-Process -Id $psi.Id
         return $psi.ExitCode
@@ -658,6 +857,29 @@ function Invoke-CargoWithReaper {
             & taskkill /T /F /PID $psi.Id 2>$null | Out-Null
         }
     }
+}
+
+function Invoke-CargoWithReaper {
+    # Cargo-specific front end onto Invoke-ProcessInJobObject, kept as its own function (rather than
+    # inlining the two lines below at every call site) so the four existing modes (build/test/
+    # corpus-test/release) don't each have to know how to derive the job-object ceilings. Behavior
+    # is unchanged from before the refactor above: same parameters, same derivation
+    # (Get-JobMemoryCapGB/Get-JobCpuRatePercent keyed on $JobMaxConcurrent build SLOTS), same
+    # "build"-flavored wording on the no-procgov warning.
+    param(
+        [string]$Exe,
+        [string[]]$CmdArgs,
+        [string]$WorkingDirectory,
+        [string]$CaptureStdoutPath = '',
+        [ValidateSet('Idle', 'BelowNormal', 'Normal')][string]$Priority = 'BelowNormal',
+        # Only used to size the job object's memory ceiling; the build-slot semaphore is what
+        # actually bounds concurrency.
+        [int]$JobMaxConcurrent = 2
+    )
+    $jobMemGB = Get-JobMemoryCapGB -MaxConcurrent $JobMaxConcurrent
+    $cpuRate = Get-JobCpuRatePercent
+    return Invoke-ProcessInJobObject -Exe $Exe -CmdArgs $CmdArgs -WorkingDirectory $WorkingDirectory `
+        -CaptureStdoutPath $CaptureStdoutPath -Priority $Priority -JobMemoryGB $jobMemGB -CpuRatePercent $cpuRate -Subject 'build'
 }
 
 function Get-LiveWorktreeSlugs {

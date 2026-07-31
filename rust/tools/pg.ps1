@@ -27,11 +27,32 @@
                   ownership marker `preserved` on success so a dry-run gc reports it rather than
                   offering to delete it.
     doctor        prints the preflight record and exits non-zero on an unsafe/incomplete
-                  environment. Runs no cargo command at all.
+                  environment. Runs no cargo command at all. Also reports (without failing on)
+                  any Resource-Exhaustion-Detector history from the last 7 days -- see
+                  Get-ResourceExhaustionEvents in _common.ps1.
     gc            reports (dry-run, the default) or removes (-Apply) managed target directories
                   this repository owns and no longer needs. Never touches an unmarked, preserved,
                   or still-live directory -- see Get-TargetClassification/Invoke-TargetGc in
                   _common.ps1.
+    run           runs an arbitrary PanGloss binary -- an example, a workspace bin, or an
+                  already-built .exe -- inside the SAME kernel-enforced job object a managed build
+                  gets (Invoke-ProcessInJobObject in _common.ps1), instead of the unmanaged direct
+                  invocation that took this machine to a frozen state three times (predict_census.exe
+                  118GB, pangloss.exe 90GB, hc-rs.exe 97GB -- all invoked directly, none through
+                  pg.ps1; see CLAUDE.md). Exactly ONE of -Example / -Bin / -Exe is required:
+                    -Example <name>   `cargo run --example <name>` (builds first, then runs the
+                                      result as a job-object CHILD of cargo -- procgov's `-r` flag
+                                      recurses the ceiling onto it same as rustc/link.exe).
+                    -Bin <name>       `cargo run --bin <name>`, same as above.
+                    -Exe <path>       runs an already-built executable directly, no cargo involved.
+                  Args after a literal `--` are passed through to the binary. `-Package` selects
+                  which workspace crate's example/bin to build when the name is ambiguous; it is
+                  ignored with -Exe. `-RunMemoryGB` overrides the job's committed-memory ceiling
+                  for one run (0 = derive the same machine-proportional cap a build gets); this is
+                  the mechanism for a deliberate large-memory experiment (e.g. 40GB) without
+                  changing the default for ordinary builds. `run` DOES take a build slot
+                  (Enter-BuildSlot) -- see the `run` mode block below in this file for why that is
+                  the deliberate choice, not an oversight.
 
   Examples:
     rust\tools\pg.ps1 -Mode build -Package pg-foma
@@ -41,6 +62,10 @@
     rust\tools\pg.ps1 -Mode doctor
     rust\tools\pg.ps1 -Mode gc            # dry run, reports only
     rust\tools\pg.ps1 -Mode gc -Apply     # actually deletes disposable targets
+    rust\tools\pg.ps1 -Mode run -Example predict_census -- --grammar foo.xml
+    rust\tools\pg.ps1 -Mode run -Bin pangloss -- batch --threads 1 --word-timeout-ms 5000
+    rust\tools\pg.ps1 -Mode run -Exe C:\path\to\already-built.exe -- --some-flag
+    rust\tools\pg.ps1 -Mode run -Exe .\predict_census.exe -RunMemoryGB 40   # deliberate large-mem experiment
 #>
 # PositionalBinding = $false is a CORRECTNESS gate, not style. Without it every string parameter
 # below is implicitly positional, so a stray or misplaced cargo flag is silently absorbed as the
@@ -55,7 +80,7 @@
 [CmdletBinding(PositionalBinding = $false)]
 param(
     [Parameter(Mandatory, Position = 0)]
-    [ValidateSet('build', 'test', 'corpus-test', 'release', 'doctor', 'gc', 'new-worktree')]
+    [ValidateSet('build', 'test', 'corpus-test', 'release', 'doctor', 'gc', 'run', 'new-worktree')]
     [string]$Mode,
     # new-worktree only: where to create it, which revision to base it on, and the branch name.
     [string]$Path = '',
@@ -63,6 +88,19 @@ param(
     [string]$Branch = '',
     [string]$Package = '',
     [string]$Filter = '',
+    # run only: exactly ONE of these three selects what to run -- see the header comment above and
+    # the -Mode run validation block below for the full contract.
+    [string]$Example = '',
+    [string]$Bin = '',
+    [string]$Exe = '',
+    # run only: override the job object's committed-memory ceiling for one run. 0 = derive the same
+    # machine-proportional cap a build gets (Get-JobMemoryCapGB -MaxConcurrent $MaxConcurrent) --
+    # see that function's comment for the derivation. A positive value bypasses the derivation
+    # entirely (same pattern as -Jobs/-TestThreads below), which is deliberately how a caller runs
+    # the "what if this needs 40GB" experiment CLAUDE.md's background section calls for, without
+    # touching PANGLOSS_JOB_MEM_GB (which would also change every ordinary build's cap for as long
+    # as the env var stayed set).
+    [int]$RunMemoryGB = 0,
     [switch]$DebugProfile,
     [switch]$NoNextest,
     [int]$MaxConcurrent = 2,
@@ -137,6 +175,23 @@ if ($Mode -eq 'new-worktree') {
     exit 0
 }
 
+if ($Mode -eq 'run') {
+    # Fail fast, before any of the (comparatively expensive) preflight machinery below runs, on the
+    # usage errors: exactly one of -Example/-Bin/-Exe, and (for -Exe specifically) a path that
+    # actually exists. Resolve-RunTarget (_common.ps1) owns the selector/argument logic itself so
+    # it stays unit-testable in rust/tools/tests/ without launching cargo or a probe binary; the
+    # existence check stays here because it is the one part of this that touches the filesystem.
+    $runTargetCheck = Resolve-RunTarget -Example $Example -Bin $Bin -Exe $Exe
+    if (-not $runTargetCheck.Ok) {
+        Write-Host "[pg] $($runTargetCheck.Detail)" -ForegroundColor Red
+        exit 2
+    }
+    if ($Exe -and -not (Test-Path -LiteralPath $Exe -PathType Leaf)) {
+        Write-Host "[pg] -Mode run: -Exe path not found: $Exe" -ForegroundColor Red
+        exit 2
+    }
+}
+
 if ($NoSccache) {
     # "Explicit, noisy, and incompatible with parallel managed builds" (design doc, error
     # handling): forcing MaxConcurrent to 1 means a caller can't accidentally combine no-cache
@@ -163,9 +218,13 @@ $availableMemGB = Get-AvailableMemoryGB
 $memCheck = Test-MemoryReserve -AvailableGB $availableMemGB
 
 # `build` and `release` both land on [profile.release] (lto = "fat", codegen-units = 1) unless
-# -DebugProfile takes `build` off it; test/corpus-test use pg-test-opt (thin LTO) instead. The
-# distinction matters more than any other input to this budget -- see Get-PerJobMemoryGB.
-$fatLto = ($Mode -eq 'release') -or (($Mode -eq 'build') -and (-not $DebugProfile))
+# -DebugProfile takes `build` off it; test/corpus-test use pg-test-opt (thin LTO) instead. `run`
+# with -Example/-Bin compiles through `cargo run`, which lands on the same fat-LTO release profile
+# by the same rule -- but `run -Exe` compiles nothing at all, so it must NOT be counted here (this
+# budget only estimates COMPILE-time job memory; the job object's own commit ceiling, computed
+# separately below in the `run` branch, is what actually bounds the running probe). The distinction
+# matters more than any other input to this budget -- see Get-PerJobMemoryGB.
+$fatLto = ($Mode -eq 'release') -or (($Mode -eq 'build') -and (-not $DebugProfile)) -or (($Mode -eq 'run') -and (-not $Exe) -and (-not $DebugProfile))
 $perJobMemGB = Get-PerJobMemoryGB -FatLto:$fatLto
 
 $jobsExplicit = ($Jobs -gt 0)
@@ -254,6 +313,11 @@ $profileLabel = switch ($Mode) {
     'corpus-test' { if ($DebugProfile) { 'dev' } else { $script:TestOptProfile } }
     'doctor' { '<none -- doctor runs no cargo command>' }
     'gc' { '<none -- gc runs no cargo command>' }
+    'run' {
+        if ($Exe) { '<none -- running an already-built exe directly>' }
+        elseif ($DebugProfile) { 'dev' }
+        else { 'release (fat LTO)' }
+    }
     default { if ($DebugProfile) { 'dev' } else { 'release (fat LTO)' } }
 }
 
@@ -300,6 +364,32 @@ if ($Mode -eq 'corpus-test' -and -not $corpusState.Ok) {
 
 if ($Mode -eq 'doctor') {
     $unsafe = ($baseCheck.Checked -and -not $baseCheck.Ok) -or (-not $diskCheck.Ok) -or (-not $memCheck.Ok) -or ($usedSccache -and -not $sccacheHealth.Ok)
+
+    # Exhaustion HISTORY, deliberately NOT folded into $unsafe above. The four checks that DO gate
+    # $unsafe all describe the environment RIGHT NOW (disk/memory/base/sccache); an exhaustion event
+    # describes something that already happened and the machine already recovered from on its own.
+    # Failing doctor on old history would mean a single incident blocks every managed build for the
+    # whole 7-day window for no actionable reason -- the actionable response to "predict_census.exe
+    # hit 118GB three days ago" is "stop invoking it directly, use pg.ps1 -Mode run", not "doctor
+    # exits 1 today". So this is reported prominently -- loud enough that it isn't scrollback -- but
+    # never gates the exit code.
+    $exhaustion = Get-ResourceExhaustionEvents -Since ((Get-Date).AddDays(-7))
+    if (-not $exhaustion.Queryable) {
+        Write-Host "[pg] resource-exhaustion history: $($exhaustion.Detail)" -ForegroundColor DarkGray
+    } elseif ($exhaustion.Events.Count -eq 0) {
+        Write-Host '[pg] resource-exhaustion history: none in the last 7 days.' -ForegroundColor Green
+    } else {
+        Write-Host "[pg] resource-exhaustion history: $($exhaustion.Events.Count) event(s) in the last 7 days -- THIS MACHINE HIT ITS COMMIT LIMIT RECENTLY." -ForegroundColor Red
+        $latest = $exhaustion.Events | Sort-Object TimeCreated -Descending | Select-Object -First 1
+        Write-Host "  most recent: $($latest.TimeCreated)" -ForegroundColor Red
+        if ($latest.Consumers.Count -gt 0) {
+            foreach ($c in $latest.Consumers) { Write-Host "    $($c.ProcessName) (pid $($c.Pid)): $($c.GB)GB" -ForegroundColor Red }
+        } else {
+            Write-Host "    (could not parse consumer names from the event message -- raw text: $($latest.RawMessage))" -ForegroundColor Red
+        }
+        Write-Host "  if this keeps happening: wrap the offending binary with 'pg.ps1 -Mode run' instead of invoking it directly -- that puts it under the same kernel-enforced --maxjobmem ceiling a managed build already gets." -ForegroundColor Yellow
+    }
+
     if ($unsafe) {
         Write-Host '[pg] doctor: environment is UNSAFE for a managed build (see failures above).' -ForegroundColor Red
         exit 1
@@ -342,6 +432,14 @@ if ($Mode -eq 'gc') {
     }
     exit 0
 }
+
+# `run` builds its own launch command below (cargo run --example/--bin, or a bare .exe) rather than
+# falling through this cargo-invocation-shaping block, which exists for build/test/corpus-test/
+# release's very different needs (profile selection, nextest wiring, workspace-wide vs -p). Guarding
+# the whole block on Mode rather than threading a dozen extra conditions through it keeps `run`'s
+# much simpler command construction from being tangled into logic (nextest flags, --workspace) that
+# does not apply to it and, for the -Exe case, involves no cargo at all.
+if ($Mode -ne 'run') {
 
 # build / test / corpus-test / release all run cargo from here.
 $useNextest = ($Mode -eq 'test' -or $Mode -eq 'corpus-test') -and (-not $NoNextest) -and (Get-Command cargo-nextest -ErrorAction SilentlyContinue)
@@ -407,11 +505,54 @@ if ($useNextest) {
 }
 if ($ExtraArgs) { $cargoArgs += $ExtraArgs }
 
+} # end: if ($Mode -ne 'run')
+
 if ($Mode -eq 'corpus-test') { $env:PANGLOSS_CORPUS_REQUIRED = '1' }
 
+$runPlan = $null
+if ($Mode -eq 'run') {
+    # Re-resolve (rather than caching the earlier check's result): the earlier call above only
+    # existed to fail fast before spending time on preflight; this is the one whose LaunchExe/
+    # LaunchArgs/Label actually get used below. Using -Exe's already-resolved absolute path here
+    # (rather than the raw -Exe string) is deliberate -- WorkingDirectory for the launched process
+    # is $rustRoot, not wherever the caller's shell happened to be, so a relative -Exe path must be
+    # resolved against the CALLER's cwd now, before that context is gone.
+    $exeResolved = if ($Exe) { (Resolve-Path -LiteralPath $Exe).ProviderPath } else { '' }
+    $runPlan = Resolve-RunTarget -Example $Example -Bin $Bin -Exe $exeResolved -Package $Package -DebugProfile:$DebugProfile -ExtraArgs $ExtraArgs
+    if (-not $runPlan.Ok) {
+        # Unreachable in practice (the identical check above already exited on this), but Resolve-
+        # RunTarget is a general-purpose function and must not assume its caller already validated.
+        Write-Host "[pg] $($runPlan.Detail)" -ForegroundColor Red
+        exit 2
+    }
+}
+
+# DELIBERATE CHOICE: `run` takes a build slot too, exactly like build/test/corpus-test/release.
+# This was weighed both ways and is not an oversight:
+#
+#   AGAINST taking the slot: a probe can run for hours (that is the whole point of `run` --
+#   predict_census-shaped binaries are not a five-minute cargo build), and Enter-BuildSlot's
+#   $BuildSlotTimeoutSeconds (default 1800) exists to report a WAITER stuck queuing behind a wedged
+#   holder. If `run` occupied a slot for hours, a build queued behind it would eventually hit that
+#   same timeout and exit $script:ExitCodeBuildSlotTimeout with a "held it" message that (correctly)
+#   points at the run, not at anything broken.
+#
+#   FOR taking the slot: that timeout firing is exactly the graceful degradation this design wants.
+#   The alternative -- `run` NOT counting against the semaphore -- breaks the property the rest of
+#   this file relies on to avoid a reservation ledger: "at most $MaxConcurrent heavy operations
+#   share the machine's headroom at once, so each one's job-object cap (Get-JobMemoryCapGB, divided
+#   by $MaxConcurrent) is safe by construction." A `run` outside that count is an UNBOUNDED extra
+#   consumer on top of up to $MaxConcurrent full-cap builds -- precisely the "several things assume
+#   they have the whole machine's headroom, simultaneously" shape that took this box to zero memory
+#   in the first place (CLAUDE.md's "Memory headroom" section). Costing a queued build a wait (which
+#   fails loud and clear, is retryable, and points at the actual cause) is strictly preferable to
+#   costing the machine an unaccounted-for 40-118GB job.
+#
+# So: a build stalled behind a long `run` is a KNOWN, documented, recoverable cost. An unbounded
+# machine-wide worst case is what this whole file exists to rule out. Take the slot.
 $sem = Enter-BuildSlot -MaxConcurrent $MaxConcurrent -TimeoutSeconds $BuildSlotTimeoutSeconds
 if (-not $sem) {
-    Write-Host "[pg] timed out after ${BuildSlotTimeoutSeconds}s waiting for a build slot (max $MaxConcurrent concurrent across all worktrees) -- another worktree's build is holding it." -ForegroundColor Red
+    Write-Host "[pg] timed out after ${BuildSlotTimeoutSeconds}s waiting for a build slot (max $MaxConcurrent concurrent across all worktrees) -- another worktree's build (or a long-running 'pg.ps1 -Mode run') is holding it." -ForegroundColor Red
     exit $script:ExitCodeBuildSlotTimeout
 }
 
@@ -432,10 +573,21 @@ if (-not $memCheckNow.Ok) {
 
 $code = 1
 try {
-    $runnerLabel = if ($useNextest) { 'nextest' } elseif ($Mode -eq 'build' -or $Mode -eq 'release') { 'cargo build' } else { 'cargo test' }
-    Write-Host "[pg] cargo $($cargoArgs -join ' ')  (target-dir: $(if ($targetDir) { $targetDir } else { '<default>' }), runner: $runnerLabel)" -ForegroundColor Cyan
-
-    if ($Mode -eq 'corpus-test') {
+    if ($Mode -eq 'run') {
+        # Same derivation a build gets by default (Get-JobMemoryCapGB, divided across $MaxConcurrent
+        # slots) -- see this file's header comment and the build-slot comment above for why `run`
+        # is sized as one of those slots rather than given its own separate budget. -RunMemoryGB
+        # bypasses the derivation outright for one invocation (e.g. the documented 40GB experiment)
+        # without touching PANGLOSS_JOB_MEM_GB, which would also change every ordinary build's cap
+        # for as long as the env var stayed set.
+        $runMemGB = if ($RunMemoryGB -gt 0) { $RunMemoryGB } else { Get-JobMemoryCapGB -MaxConcurrent $MaxConcurrent }
+        $runCpuRate = Get-JobCpuRatePercent
+        Write-Host "[pg] run ($($runPlan.Label)): $($runPlan.LaunchExe) $($runPlan.LaunchArgs -join ' ')  (target-dir: $(if ($targetDir) { $targetDir } else { '<default>' }))" -ForegroundColor Cyan
+        $code = Invoke-ProcessInJobObject -Exe $runPlan.LaunchExe -CmdArgs $runPlan.LaunchArgs -WorkingDirectory $rustRoot `
+            -Priority $Priority -JobMemoryGB $runMemGB -CpuRatePercent $runCpuRate -Subject 'run'
+    } elseif ($Mode -eq 'corpus-test') {
+        $runnerLabel = if ($useNextest) { 'nextest' } elseif ($Mode -eq 'build' -or $Mode -eq 'release') { 'cargo build' } else { 'cargo test' }
+        Write-Host "[pg] cargo $($cargoArgs -join ' ')  (target-dir: $(if ($targetDir) { $targetDir } else { '<default>' }), runner: $runnerLabel)" -ForegroundColor Cyan
         $capturePath = Join-Path ([System.IO.Path]::GetTempPath()) "pg-corpus-test-$PID.log"
         $code = Invoke-CargoWithReaper -Exe 'cargo' -CmdArgs $cargoArgs -WorkingDirectory $rustRoot -CaptureStdoutPath $capturePath -Priority $Priority -JobMaxConcurrent $MaxConcurrent
         $lines = if (Test-Path $capturePath) { Get-Content $capturePath } else { @() }
@@ -453,6 +605,8 @@ try {
         }
         Write-Host "[pg] corpus-test executed $totalCases corpus case(s) across $($caseLines.Count) label(s)." -ForegroundColor Green
     } else {
+        $runnerLabel = if ($useNextest) { 'nextest' } elseif ($Mode -eq 'build' -or $Mode -eq 'release') { 'cargo build' } else { 'cargo test' }
+        Write-Host "[pg] cargo $($cargoArgs -join ' ')  (target-dir: $(if ($targetDir) { $targetDir } else { '<default>' }), runner: $runnerLabel)" -ForegroundColor Cyan
         $code = Invoke-CargoWithReaper -Exe 'cargo' -CmdArgs $cargoArgs -WorkingDirectory $rustRoot -Priority $Priority -JobMaxConcurrent $MaxConcurrent
     }
 } finally {

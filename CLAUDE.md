@@ -142,6 +142,73 @@ record so a "why is this slower than I expected" question is answerable from the
   an idle 63.7GB box still gets all 7 jobs, deliberately: a gate that taxes every ordinary build
   gets switched off and then protects nothing.
 
+- **Direct binary invocation (`pg.ps1 -Mode run`).** Every mechanism above wraps CARGO ONLY —
+  `Enter-BuildSlot`, the job-budget derivation, and (until 2026-07-31) the procgov job object all
+  live inside `Invoke-CargoWithReaper`, which nothing but a `cargo build/test` call ever reached. A
+  hand-run `examples\predict_census.exe` or a bare `pangloss batch` was covered by NONE of it. The
+  Windows event log shows exactly what that gap cost, all three a single PanGloss binary invoked
+  **directly**, never through cargo (Microsoft-Windows-Resource-Exhaustion-Detector, event ID
+  2004 — see below):
+
+  | Date | Binary | Committed memory |
+  |---|---|---|
+  | 2026-07-04 | `hc-rs.exe` | 97 GB |
+  | 2026-07-26 | `pangloss.exe` | 90 GB |
+  | 2026-07-30 | `predict_census.exe` | 118 GB (climbed over ~45 minutes) |
+
+  For contrast, the measured full managed `-Mode test` build above peaks at 4.03GB. The hardened
+  path was never the problem; the unhardened path used 118GB. `-Mode run` closes this by giving an
+  arbitrary binary the SAME kernel-enforced ceiling a build gets: `Invoke-CargoWithReaper`'s
+  procgov-wrapping body was extracted into a reusable `Invoke-ProcessInJobObject`
+  (`rust/tools/_common.ps1`), and `Invoke-CargoWithReaper` is now a thin, behavior-preserving front
+  end onto it. Three invocation shapes:
+    - `pg.ps1 -Mode run -Example <name> -- <args>` — `cargo run --example <name>` (builds first,
+      then runs the result as a job-object CHILD of cargo; procgov's `-r` recurses the ceiling onto
+      it exactly like it already does for rustc/link.exe).
+    - `pg.ps1 -Mode run -Bin <name> -- <args>` — same, for a workspace `[[bin]]` target.
+    - `pg.ps1 -Mode run -Exe <path> -- <args>` — runs an already-built executable directly, no
+      cargo involved.
+  The job-object memory cap defaults to the SAME machine-proportional figure a build gets
+  (`Get-JobMemoryCapGB`, divided across `-MaxConcurrent` slots) and is overridable per-run with
+  `-RunMemoryGB` — e.g. a deliberate 40GB experiment — without touching `PANGLOSS_JOB_MEM_GB`,
+  which would also change every ordinary build's cap for as long as the env var stayed set.
+
+  **`run` DOES take a build slot** (`Enter-BuildSlot`), weighed deliberately rather than assumed:
+  the alternative — a `run` that doesn't count against the semaphore — breaks the property the rest
+  of this file relies on to avoid a reservation ledger, namely that at most `-MaxConcurrent` heavy
+  operations share the machine's headroom at once, so each one's job-object cap is safe *by
+  construction*. A `run` outside that count is an unaccounted-for extra consumer on top of up to
+  `-MaxConcurrent` full-cap builds — the exact "several things assume they have the whole machine's
+  headroom, simultaneously" shape that produced the table above. The cost of taking the slot is
+  that a probe can occupy it for hours (that is the whole point of `run` — a `predict_census`-shaped
+  binary is not a five-minute build), so a build queued behind a long `run` can hit
+  `-BuildSlotTimeoutSeconds`'s 30-minute wait and exit needing a retry. That is a known, recoverable,
+  loudly-reported cost; an unbounded machine-wide worst case is what this whole file exists to rule
+  out, so the slot is taken unconditionally. If procgov is absent, `run` degrades exactly like a
+  build does: a loud warning, but it still runs — an absent tool must never block the workflow.
+
+- **Reading the exhaustion log (`pg.ps1 -Mode doctor`).** Windows already diagnoses the low-memory
+  condition above and logs it — the table's three figures all came from
+  `Microsoft-Windows-Resource-Exhaustion-Detector` (event ID 2004) in the System log — and nobody
+  was reading it before 2026-07-31. `Get-ResourceExhaustionEvents` (`rust/tools/_common.ps1`) reads
+  the last 7 days of these events via `Get-WinEvent` and `doctor` now reports them: event count,
+  most recent timestamp, and (best-effort) the top consumer names/bytes parsed out of the message
+  text. Message-text parsing is split into its own pure function
+  (`Get-ExhaustionConsumersFromMessage`) precisely because it IS fragile — Microsoft publishes no
+  stable grammar for it — so a parse failure degrades to the raw message text, never a thrown error
+  or a silently dropped event. This history is reported prominently but **never fails doctor**: the
+  four checks that DO gate doctor's exit code (disk/memory/base/sccache) all describe the
+  environment *right now*, whereas an exhaustion event describes something that already happened
+  and the machine already recovered from on its own — failing doctor on old history would block
+  every managed build for the whole 7-day window for no actionable reason. This is the same rule
+  this file states elsewhere for a different failure mode: "I could not look" must never read as
+  "everything is fine" — and, symmetrically, "something bad happened once" must never read as
+  "something is wrong right now." Get-WinEvent throws (rather than returning empty) both when there
+  is genuinely nothing in the window and when it cannot query at all (provider absent, access
+  denied); those two are NOT the same fact, so `Get-ResourceExhaustionEvents` distinguishes them by
+  matching on Get-WinEvent's own exception text (there is no separate exception type) rather than
+  collapsing both to "no data".
+
 Override per-run with `-Jobs N` / `-TestThreads N` / `-Priority Normal` (on `pg.ps1`, `build.ps1`,
 or `test.ps1`) when you're at the console and there's no remote session to protect. `-Jobs` and
 `-TestThreads` are never narrowed by the memory budget — an explicit number stays the number.
