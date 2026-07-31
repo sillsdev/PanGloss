@@ -239,4 +239,50 @@ Test-Case 'Get-ResourceExhaustionEvents never throws, and always reports Queryab
     }
 }
 
+# ---------------------------------------------------------------------------------------------
+# Split-ExtraArgsSpec: the binder-proof passthrough channel.
+#
+# `pwsh -File pg.ps1 ... -- <cargo args>` cannot work -- under -File the bare `--` reaches the
+# parameter binder, which rejects it as an empty parameter name (verified 2026-07-31, with and
+# without [CmdletBinding()], quoting included). And omitting the separator silently misbinds a
+# single-dash cargo arg onto a same-prefix script parameter (`-p foo` -> -Package), which is the
+# self-concealing failure class this tooling exists to prevent. PANGLOSS_EXTRA_ARGS bypasses the
+# binder entirely; these tests pin its tokenizer.
+# ---------------------------------------------------------------------------------------------
+
+Test-Case 'a simple spec splits on whitespace' {
+    $a = Split-ExtraArgsSpec '-p pg-foma --no-capture'
+    Assert-Equal 3 $a.Count "got: $($a -join '|')"
+    Assert-Equal '-p' $a[0]
+    Assert-Equal 'pg-foma' $a[1]
+    Assert-Equal '--no-capture' $a[2]
+}
+
+Test-Case 'double-quoted values survive as one argument' {
+    # A filter expression or a path with spaces must not be split into pieces cargo cannot parse.
+    $a = Split-ExtraArgsSpec '-E "test(foo bar)" --release'
+    Assert-Equal 3 $a.Count "got: $($a -join '|')"
+    Assert-Equal 'test(foo bar)' $a[1] 'quotes are stripped, the inner spaces preserved'
+}
+
+Test-Case 'runs of whitespace collapse rather than producing empty arguments' {
+    # An empty string argument reaching cargo is a hard error, so this must never emit one.
+    $a = Split-ExtraArgsSpec "  -p   foo`t--flag  "
+    Assert-Equal 3 $a.Count "got: $($a -join '|')"
+    Assert-False (@($a | Where-Object { $_ -eq '' }).Count -gt 0) 'no empty arguments'
+}
+
+Test-Case 'an empty or absent spec yields no arguments, not a one-element blank' {
+    Assert-Equal 0 @(Split-ExtraArgsSpec '').Count
+    Assert-Equal 0 @(Split-ExtraArgsSpec $null).Count
+}
+
+Test-Case 'a bare -- in the spec is preserved for cargo, not eaten' {
+    # The env channel is a raw argv carrier: if the caller needs cargo's own `--` separator it must
+    # arrive intact. This is the one place `--` is safe, precisely because no binder is involved.
+    $a = Split-ExtraArgsSpec '-- --nocapture'
+    Assert-Equal 2 $a.Count "got: $($a -join '|')"
+    Assert-Equal '--' $a[0]
+}
+
 Write-TestSummary

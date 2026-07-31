@@ -127,6 +127,20 @@ param(
 
 . "$PSScriptRoot\_common.ps1"
 
+# Binder-proof passthrough channel. `pwsh -File pg.ps1 ... -- <cargo args>` CANNOT work: under -File
+# the bare `--` reaches PowerShell's parameter binder, which rejects it as an empty parameter name.
+# Worse, dropping the `--` silently misbinds any single-dash cargo argument that prefix-matches a
+# parameter here (`-p foo` binds to -Package; cargo never sees it). Both verified 2026-07-31 -- see
+# Split-ExtraArgsSpec for the full reproduction. Nothing inside this script can intercept either
+# case, because binding fails or mis-resolves before the first line of the body runs.
+#
+# So callers that cannot use the call operator get an env var, which bypasses the binder entirely:
+#   $env:PANGLOSS_EXTRA_ARGS = '-p pg-foma --no-capture'; pwsh -File rust\tools\pg.ps1 -Mode test
+# Appended AFTER $ExtraArgs so an explicitly-typed argument still wins on cargo's own last-wins rule.
+if ($env:PANGLOSS_EXTRA_ARGS) {
+    $ExtraArgs = @($ExtraArgs) + @(Split-ExtraArgsSpec $env:PANGLOSS_EXTRA_ARGS)
+}
+
 # The optimized-but-not-fat-LTO profile rust/Cargo.toml declares as `[profile.pg-test-opt]`
 # (inherits = "release", lto = "thin", codegen-units = 16, reduced debug info) -- see that file's
 # comment for why `test`/`corpus-test` must not default to release's fat LTO/codegen-units=1.

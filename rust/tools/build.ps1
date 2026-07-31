@@ -11,7 +11,17 @@
     rust\tools\build.ps1 -Package pg-foma       # single crate
     rust\tools\build.ps1 -DebugProfile
     rust\tools\build.ps1 -Gc                    # gc -Apply first, then build
-    rust\tools\build.ps1 -- --features foo      # extra args passed through to cargo
+    rust\tools\build.ps1 -- --features foo      # extra args to cargo -- CALL OPERATOR ONLY, see below
+
+  Passing extra cargo args: the `--` form above works when PowerShell itself parses the command
+  (typing it, or `& .\build.ps1 -- --features foo`). It does NOT work via `pwsh -File build.ps1
+  ... -- --features foo`, which fails with "the parameter name '' is ambiguous" -- under -File the
+  bare `--` reaches the parameter binder instead of being consumed by the parser. Dropping the `--`
+  is NOT a safe substitute: a single-dash cargo arg that prefix-matches a parameter here binds to it
+  silently (`-p foo` -> -Package, so cargo never sees it). For -File / automation callers use the
+  env channel instead, which never touches the binder:
+    $env:PANGLOSS_EXTRA_ARGS = '--features foo'; pwsh -File rust\tools\build.ps1
+  Verified 2026-07-31; see Split-ExtraArgsSpec in _common.ps1 for the reproduction.
 #>
 # See pg.ps1's own note: without this, `build.ps1 --features foo` binds "--features" to -Package and
 # the documented `-- --features foo` passthrough below never reaches cargo either.

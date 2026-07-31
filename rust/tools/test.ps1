@@ -18,6 +18,15 @@
     rust\tools\test.ps1 -Package pg-foma -Filter f5_diacritics
     rust\tools\test.ps1 -NoNextest                        # force plain `cargo test`
     rust\tools\test.ps1 -Gc                               # gc -Apply first, then test
+
+  Passing extra cargo/nextest args: `& .\test.ps1 -- --no-capture` works when PowerShell parses the
+  command itself, but `pwsh -File test.ps1 ... -- --no-capture` FAILS ("the parameter name '' is
+  ambiguous") -- under -File the bare `--` reaches the parameter binder instead of the parser. Do NOT
+  just drop the `--`: a single-dash arg that prefix-matches a parameter here binds to it silently
+  (`-p foo` -> -Package, so cargo never sees it). For -File / automation callers use the env channel,
+  which never reaches the binder:
+    $env:PANGLOSS_EXTRA_ARGS = '--no-capture'; pwsh -File rust\tools\test.ps1 -Package pg-foma
+  Verified 2026-07-31; see Split-ExtraArgsSpec in _common.ps1 for the reproduction.
 #>
 # See pg.ps1's own note: without this, `test.ps1 --no-capture` binds "--no-capture" to -Package,
 # which turns a passthrough flag into a package name and fails (or worse, filters) rather than

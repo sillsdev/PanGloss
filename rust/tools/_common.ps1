@@ -371,6 +371,39 @@ function Get-ProcGovArgs {
     return $a
 }
 
+function Split-ExtraArgsSpec {
+    # Tokenizes ONE string into an argv array, honoring double quotes so a value containing spaces
+    # (a path, a filter expression) survives as a single argument.
+    #
+    # This exists because of a PowerShell limitation that cannot be worked around inside the scripts
+    # it affects. `pwsh -File script.ps1 -Mode test -- --nocapture` FAILS at parameter-binding time
+    # with "Parameter cannot be processed because the parameter name '' is ambiguous": under -File,
+    # the bare `--` reaches the binder, which reads it as a parameter with an empty name. Verified
+    # 2026-07-31: it fails identically with and without [CmdletBinding()], and quoting it ('--')
+    # does not help, because -File passes raw strings that PowerShell then re-parses. The same
+    # command works fine via the call operator (`& .\pg.ps1 -Mode test -- --nocapture`), because
+    # there PowerShell's own parser consumes the `--` before binding ever sees it.
+    #
+    # That would be merely annoying if the failure were always loud. It is not. Omitting the
+    # separator SILENTLY MISBINDS any single-dash cargo argument that prefix-matches a script
+    # parameter -- measured: `-p foo` intended for cargo bound to -Package instead, so cargo never
+    # received it and the run proceeded with a different meaning. That is precisely the
+    # self-concealing class pg.ps1's PositionalBinding note exists to prevent.
+    #
+    # An environment variable is immune because it never passes through the parameter binder at all,
+    # which is the whole point -- and it matches how this repo already handles binder-proof escape
+    # hatches (PANGLOSS_ALLOW_BARE_CARGO).
+    param([string]$Spec)
+    if (-not $Spec) { return @() }
+    $out = @()
+    # Quoted run first so it wins over the bare-token alternative; the unquoted branch then takes
+    # any run of non-whitespace.
+    foreach ($m in [regex]::Matches($Spec, '"([^"]*)"|(\S+)')) {
+        $out += if ($m.Groups[1].Success) { $m.Groups[1].Value } else { $m.Groups[2].Value }
+    }
+    return $out
+}
+
 function Get-TopMemoryConsumers {
     # Only ever used to make a refusal actionable: "8GB available, under the reserve" is a dead end
     # unless it also says what ate the memory. Read-only -- this never kills anything, because the
