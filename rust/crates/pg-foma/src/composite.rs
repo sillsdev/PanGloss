@@ -199,6 +199,13 @@ pub struct FomaWordDiagnostics {
     /// `confirm::ConfirmBatchDiagnostics::confirmation_steps` for why this, and not the call count,
     /// is the unit worth ranking candidates on.
     pub confirmation_steps: usize,
+    /// Raw proposer paths `apply_up` yielded for this word (direct proposal plus every proposal a
+    /// reduplication peel requested), before tag-decode/dedup -- equal to `proposal.raw_paths`,
+    /// duplicated at this level so a caller pricing propose-side work reads it next to
+    /// `confirmation_steps` instead of reaching through `proposal`. See
+    /// `crate::recipe_optimizer::Score::key`'s doc for why propose-side work needs its own counted
+    /// unit alongside confirm-side steps.
+    pub raw_paths: usize,
     pub confirmed_analyses: usize,
     pub confirmation_elapsed: Duration,
 }
@@ -545,6 +552,7 @@ impl<'g> FomaAnalyzer<'g> {
                         value,
                         limit,
                         diagnostics: FomaWordDiagnostics {
+                            raw_paths: proposal.raw_paths,
                             proposal,
                             proposal_calls,
                             ..FomaWordDiagnostics::default()
@@ -579,6 +587,7 @@ impl<'g> FomaAnalyzer<'g> {
             peel_chain_depth_error,
         };
         let diagnostics = FomaWordDiagnostics {
+            raw_paths: proposal.raw_paths,
             proposal,
             proposal_calls,
             confirm_batch_calls: 1,
