@@ -231,11 +231,10 @@ impl Score {
     /// does several-fold more propose-side traversal can still look step-tied with one that does far
     /// less. Measured on Sena's four-corpus shape: the plan-composed path produced 575 proposals over
     /// 42 confirmation calls and 1192 steps, while the hand-spun candidate produced 127 proposals over
-    /// 17 calls and 1252 steps. Steps-first alone ranked the hand-spun candidate ONLY because its step
-    /// count happened to be slightly higher; had it instead been slightly lower (fully plausible --
-    /// steps and proposals are not coupled by anything the key enforces), the old key would have
-    /// picked the 575-proposal candidate on a step count that never priced the 4.5x proposal gap at
-    /// all. `raw_paths` (the count of raw paths `apply_up` yields before tag-decode/dedup, summed
+    /// 17 calls and 1252 steps. Steps-first picked the 575-proposal candidate on that 60-step margin
+    /// (1192 < 1252) -- a preference decided by a number that never priced the 4.5x proposal gap at
+    /// all, because steps and propose-side traversal are not coupled by anything the key enforces.
+    /// `raw_paths` (the count of raw paths `apply_up` yields before tag-decode/dedup, summed
     /// across the corpus) restores that missing cost deterministically: it is exactly the same kind of
     /// unit as a step -- one traversal action -- so the two are summed rather than chained as separate
     /// lexicographic terms, and a candidate can no longer look cheap by pushing its cost from the
