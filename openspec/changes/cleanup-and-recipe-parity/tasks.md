@@ -160,9 +160,10 @@ Overwrite (4^k), twolc emit/consume, unbounded-copy reduplication.
 
 ## 7. Executable subrecipes — generic mechanism foundation
 
-Authoritative design and execution plan:
-`docs/superpowers/specs/2026-08-01-executable-subrecipes-design.md` and
-`docs/superpowers/plans/2026-08-01-executable-subrecipes-foundation.md`.
+Authoritative reviewed execution plan:
+`docs/superpowers/plans/2026-08-01-grammar-compiler-and-recipe-parity.md`. The earlier
+`executable-subrecipes-foundation.md` is retained as a superseded design record; its direct
+mechanism extractor and separate executable-artifact direction must not be implemented.
 
 - [x] 7.1 Reject every corpus evaluation containing any oracle-capped or oracle-timed-out word;
       a certifiable subset must never be labeled `FullHcConfirmed` (`7bcbafb`, focused oracle gate
@@ -170,19 +171,22 @@ Authoritative design and execution plan:
 - [ ] 7.2 Make D4's Pareto relation deterministic over the componentwise vector
       `(confirmation_steps, raw_paths, confirmation, proposals, states, arcs)`; exclude timing and
       uncertified candidates; recompute and validate serialized frontier/winner decisions.
-- [ ] 7.3 Add the six language-name-free mechanisms: `Morphotactics`, `StaticPartition`,
+- [ ] 7.3 Rework the six language-name-free mechanism types: `Morphotactics`, `StaticPartition`,
       `OrderedPhonology`, `StructuralAllomorph`, `CopyProcess`, and terminal `BoundaryCleanup`.
-      Contracts carry exact symbol-space/table identity, analysis/root identity, multiplicity,
-      dynamic state, stratum, copy bounds, and execution disposition and fail closed.
-- [ ] 7.4 Extract mechanism graphs from capability observations plus typed grammar structure.
-      Require stable model-derived IDs/payloads/contracts and byte-identical canonical extraction
-      from two fresh loads; inert hints may not create mechanisms.
-- [ ] 7.5 Bind a validated mechanism graph, exact Plan root, lowering adapter, and wire-safe runtime
-      operations into `pangloss.executable-recipe/v1`; independently validate its JSON Schema and
-      reject registry/runtime bypass or corruption.
-- [ ] 7.6 Maintain one research dossier per mechanism with scope, invariants, ≥2 language/family
+      Nodes own typed semantic requirements/guarantees, edges own dependency/order, and candidate
+      bindings own execution disposition. Delete duplicate wire provenance and unproved blanket
+      contracts from the initial vocabulary commit.
+- [ ] 7.4 Derive mechanism providers only from the shared `GrammarSemantics`; no provider may reread
+      `Grammar` to decide applicability. Require typed source references, canonical graph identity,
+      and byte-identical fresh-load projection; inert hints may not create mechanisms.
+- [ ] 7.5 Make the Registry the sole constructor of a validated `ExecutableCandidate` binding a
+      stable semantic digest, portable round-trippable Plan document/digest, exact lowering adapter,
+      existing runtime requirements, mechanism graph/bindings, and certification scope. Reject
+      bypass/corruption; never use FNV Plan roots as artifact identity or execute an implicit fallback.
+- [x] 7.6 Maintain one research dossier per mechanism with scope, invariants, ≥2 language/family
       anchors, chosen/rejected architectures, complexity, evidence log, and explicit
-      fits/refines/splits/adds triggers.
+      fits/refines/splits/adds triggers. Contract and six dossiers landed in `a80cae0`; all concrete
+      model-ID/counter/cap evidence remains canonically unmeasured and blocks implementation claims.
 - [ ] 7.7 Prove the first `Morphotactics → BoundaryCleanup` vertical slice with two independent
       complete-template exercises and two cleanup exercises, exact analysis/root/multiplicity
       parity, cleanup idempotence, and no language-name routing.
@@ -197,3 +201,16 @@ Authoritative design and execution plan:
       scopes. Record raw/source hashes, deterministic exclusions, all candidates, certification,
       Pareto frontier, and remaining unsupported constructs. Four-language parity is not achieved
       until all four pass these evidence gates; synthetic construct coverage alone is insufficient.
+- [ ] 7.11 Introduce one immutable typed `GrammarSemantics::derive(&Grammar)` owner and migrate
+      capability, registry applicability, recipe-space accounting, and later mechanism providers to
+      projections over it. Delete all other authoritative semantic grammar walkers.
+- [ ] 7.12 Define versioned `CorpusSnapshot` and canonical `AnalysisKey` multiset equality with source,
+      requested/eligible occurrence, normalization, exclusion, oracle, multiplicity, and semantic
+      identity. Explicitly exclude rule-trace parity unless a typed aligned trace API is implemented.
+- [ ] 7.13 Add portable Plan serialization/SHA-256 identity, exact adapter lowering, and run-scoped
+      lowered-candidate reuse; delete `CandidatePlan`, `EmissionStrategy`, positional baseline state,
+      duplicate runtime artifacts, implicit fallback, and fake zero measurements.
+- [ ] 7.14 Run the mandatory second Luna/xhigh cleanup audit after 7.11–7.13 and managed package gates,
+      but before any mechanism becomes selectable. Resolve every duplicate-owner/claim-level blocker.
+- [ ] 7.15 After all six mechanisms have two exercises where possible, run 2–4 orthogonal Luna/xhigh
+      reviews and a fresh Sol/xhigh adjudication/implementation pass before four-language certification.

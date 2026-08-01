@@ -1,5 +1,13 @@
 # Executable Subrecipes Foundation Implementation Plan
 
+> **Superseded for implementation on 2026-08-01:** The first cleanup audit found that this plan
+> would add a fourth grammar-truth walker, persist an incomplete/FNV-bound Plan projection, and
+> permit a candidate to declare one adapter while executing another. Preserve this document as the
+> original design record; execute
+> [`2026-08-01-grammar-compiler-and-recipe-parity.md`](2026-08-01-grammar-compiler-and-recipe-parity.md)
+> instead. Its semantic/evidence spine and executable-candidate gates must land before mechanism
+> extraction resumes.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build the fail-closed, typed foundation that turns grammar facts into auditable executable subrecipes, then prove one complete-template morphotactics slice without language-name routing.
