@@ -204,9 +204,10 @@ mechanism extractor and separate executable-artifact direction must not be imple
 - [ ] 7.11 Introduce one immutable typed `GrammarSemantics::derive(&Grammar)` owner and migrate
       capability, registry applicability, recipe-space accounting, and later mechanism providers to
       projections over it. Delete all other authoritative semantic grammar walkers.
-- [ ] 7.12 Define versioned `CorpusSnapshot` and canonical `AnalysisKey` multiset equality with source,
-      requested/eligible occurrence, normalization, exclusion, oracle, multiplicity, and semantic
-      identity. Explicitly exclude rule-trace parity unless a typed aligned trace API is implemented.
+- [ ] 7.12 Define versioned `CorpusSnapshot` and reuse `pg-assess::AnalysisIdentity` v1 set equality
+      as the sole public recipe/cross-engine identity. Bind profile, authority, source/model revision,
+      semantic digest, options, occurrence order, normalization, exclusions, and oracle completeness;
+      retain duplicate/guessed evidence separately, reject supplied roots, and exclude trace parity.
 - [ ] 7.13 Add portable Plan serialization/SHA-256 identity, exact adapter lowering, and run-scoped
       lowered-candidate reuse; delete `CandidatePlan`, `EmissionStrategy`, positional baseline state,
       duplicate runtime artifacts, implicit fallback, and fake zero measurements.

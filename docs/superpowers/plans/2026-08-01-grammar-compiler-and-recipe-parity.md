@@ -39,7 +39,7 @@ Grammar source
   -> Registry-owned ExecutableCandidate
   -> exact adapter lowering + run-scoped LoweredCandidateCache
   -> evaluation against CorpusSnapshot
-  -> BTreeMap<AnalysisKey, multiplicity> + evidence lineage
+  -> pg-assess AnalysisIdentity set + annotation/duplicate evidence lineage
   -> observed -> derived -> executable -> measured -> certified
 ```
 
@@ -74,15 +74,24 @@ generic evidence rule engine inside the semantic snapshot.
 
 ### 1C. Canonical evidence
 
-- [ ] Define the exact public equality projection `AnalysisKey` after the xhigh trace/API research.
-      Use `BTreeMap<AnalysisKey, u32>` so ordering is irrelevant and multiplicity is preserved.
+- [ ] Reuse `pg-assess::AnalysisIdentity` v1 as the sole public cross-engine identity: ordered stable
+      morpheme source keys, root position, and optional stable category/POS key. Do not add a parallel
+      `AnalysisKey` type or use full Rust `WordAnalysis::Eq` for public certification.
+- [ ] Compare deduplicated identity sets for selectability. Preserve repeated corpus occurrences,
+      distinct identities, guessed annotations, and duplicate-discovery counts as separate typed
+      evidence; duplicate copies of one identity do not change selectability.
+- [ ] Bind every set comparison to identity profile, authority, source/model revision, semantic
+      digest, parse options, and corpus snapshot. Naked identity values are not comparable.
 - [ ] Add `CorpusSnapshot` with schema, raw/requested/eligible digests, occurrence order,
       normalization policy, exclusions, oracle settings/outcomes, and semantic digest.
 - [ ] Make missing requested occurrences, multiplicity mismatches, caps, timeouts, invalid inputs,
       or semantic-digest mismatch typed non-certifying outcomes. Never silently continue.
 - [ ] Domain-frame every digest. Do not hash concatenated raw inputs without type and length framing.
-- [ ] Either expose a typed aligned rule trace and test it, or explicitly exclude trace parity from
-      the certification claim. No prose-only trace claim is permitted.
+- [ ] Reject supplied roots as v1-non-comparable; four-language certification uses grammar-only
+      provenance with guessing disabled. A future supplied-root v2 must be versioned rather than
+      widening v1 in place.
+- [ ] Keep traces diagnostic-only and explicitly exclude trace parity. Current tracing changes merge
+      behavior, uses compiler-local sources, and has no Foma counterpart.
 
 ### 1D. Research dossiers
 
@@ -170,8 +179,9 @@ only `GrammarSemantics`. Implement sequentially:
 5. [ ] multi-stratum, compounding, zero-morphology, and remaining interactions.
 
 Each mechanism must have at least two orthogonal synthetic exercises where possible, typed source
-facts/contracts, no language-name routing, exact `AnalysisKey` multiset checks, and measured resource
-counters/caps. Do not claim priority depth, partition stability, boundary state, exactness, or copy
+facts/contracts, no language-name routing, exact `AnalysisIdentity` set checks plus separate
+annotation/duplicate evidence, and measured resource counters/caps. Do not claim priority depth,
+partition stability, boundary state, exactness, or copy
 bounds unless the semantic snapshot proves them.
 
 ## Cross-cutting review wave
@@ -212,4 +222,3 @@ excludes malformed rows. Synthetic fixtures and pilots remain separate evidence 
       audit.
 - [ ] Rebase owned active worktrees; retain warm worktrees with related gates/follow-up work; retire
       only genuinely completed or week-inactive fully merged worktrees.
-
