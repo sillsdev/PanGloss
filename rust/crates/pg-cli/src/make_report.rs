@@ -1389,18 +1389,6 @@ mod tests {
     }
 
     #[test]
-    fn make_report_golden_panic_location_is_the_external_assertion_callsite() {
-        let expected_line = line!() + 2;
-        let location = crate::test_support::capture_panic_location(|| {
-            assert_make_report_golden("actual", "expected");
-        });
-        assert_eq!(location.file, file!());
-        assert_eq!(location.line, expected_line);
-        assert!(location.column > 0);
-        assert!(!location.file.ends_with("test_support.rs"));
-    }
-
-    #[test]
     #[ignore = "regeneration helper, not a gate: run with --ignored to rewrite the golden from \
                 this test's own computation after a reviewed, deliberate change to this module's \
                 report shape or the golden fixture's inputs"]

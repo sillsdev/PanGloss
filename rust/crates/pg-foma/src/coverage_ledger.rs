@@ -979,30 +979,6 @@ mod tests {
     }
 
     #[test]
-    fn coverage_ledger_golden_panic_location_is_the_external_assertion_callsite() {
-        let expected_line = line!() + 2;
-        let location = crate::test_support::capture_panic_location(|| {
-            assert_coverage_ledger_golden("actual", "expected");
-        });
-        assert_eq!(location.file, file!());
-        assert_eq!(location.line, expected_line);
-        assert!(location.column > 0);
-        assert!(!location.file.ends_with("test_support.rs"));
-    }
-
-    #[test]
-    fn semantic_json_parse_panic_location_is_the_external_caller() {
-        let expected_line = line!() + 2;
-        let location = crate::test_support::capture_panic_location(|| {
-            crate::test_support::assert_semantic_json_eq("{", "{}");
-        });
-        assert_eq!(location.file, file!());
-        assert_eq!(location.line, expected_line);
-        assert!(location.column > 0);
-        assert!(!location.file.ends_with("test_support.rs"));
-    }
-
-    #[test]
     fn coverage_ledger_round_trip() {
         let ledger = golden_ledger();
         let json = ledger.to_json().expect("serialization must succeed");

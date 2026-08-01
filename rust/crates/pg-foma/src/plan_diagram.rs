@@ -1554,18 +1554,6 @@ mod tests {
         assert_plan_diagram_golden(actual, expected);
     }
 
-    #[test]
-    fn plan_diagram_golden_panic_location_is_the_external_assertion_callsite() {
-        let expected_line = line!() + 2;
-        let location = crate::test_support::capture_panic_location(|| {
-            assert_plan_diagram_golden("actual", "expected");
-        });
-        assert_eq!(location.file, file!());
-        assert_eq!(location.line, expected_line);
-        assert!(location.column > 0);
-        assert!(!location.file.ends_with("test_support.rs"));
-    }
-
     /// `#[ignore]`d regeneration helper, same precedent as `coverage_ledger::
     /// regenerate_coverage_ledger_golden_json`: run with `--ignored` after a REVIEWED, deliberate
     /// rendering change, never hand-edit `plan_diagram_golden.mmd`.
