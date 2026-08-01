@@ -1226,6 +1226,22 @@ fn write_tag_entry(
     counts.lexc_lines += 1;
 }
 
+fn write_root_entries_with_width(
+    out: &mut String,
+    roots: &[&RootRec],
+    continuation: &str,
+    counts: &mut EmitCounts,
+    pk: &mut PrecisionEmit,
+    width: usize,
+) {
+    for r in roots {
+        let tag_lexc = tags::root_tag_lexc(r.morpheme, width);
+        for v in &r.variants {
+            write_tag_entry(out, &tag_lexc, v, continuation, counts, pk, Some(r.id));
+        }
+    }
+}
+
 // --- Root collection ------------------------------------------------------------------------------
 
 struct RootRec {
@@ -3406,12 +3422,7 @@ pub(crate) fn emit_with_budget_profiled(
                               continuation: &str,
                               counts: &mut EmitCounts,
                               pk: &mut PrecisionEmit| {
-        for r in roots {
-            let tag_lexc = tags::root_tag_lexc(r.morpheme, width);
-            for v in &r.variants {
-                write_tag_entry(out, &tag_lexc, v, continuation, counts, pk, Some(r.id));
-            }
-        }
+        write_root_entries_with_width(out, roots, continuation, counts, pk, width);
     };
     // The `{name}Stripped` sibling of a roots lexicon (module doc, "Junction-aware affix/root
     // emission"): one entry per root's OWN [`stripped_variants`], same tag, same continuation as
@@ -4464,12 +4475,7 @@ pub fn emit_underlying_templated(
                               continuation: &str,
                               counts: &mut EmitCounts,
                               pk: &mut PrecisionEmit| {
-        for r in roots {
-            let tag_lexc = tags::root_tag_lexc(r.morpheme, width);
-            for v in &r.variants {
-                write_tag_entry(out, &tag_lexc, v, continuation, counts, pk, Some(r.id));
-            }
-        }
+        write_root_entries_with_width(out, roots, continuation, counts, pk, width);
     };
     let all_roots: Vec<&RootRec> = roots.iter().collect();
 
@@ -5439,13 +5445,75 @@ mod structural_and_pattern_tests {
             "profiling must never change the emitted lexc source"
         );
         assert_eq!(
+            without_profile.report.counts.entries,
+            with_profile.report.counts.entries,
+            "entries"
+        );
+        assert_eq!(
+            without_profile.report.counts.rules,
+            with_profile.report.counts.rules,
+            "rules"
+        );
+        assert_eq!(
+            without_profile.report.counts.slots,
+            with_profile.report.counts.slots,
+            "slots"
+        );
+        assert_eq!(
+            without_profile.report.counts.groups,
+            with_profile.report.counts.groups,
+            "groups"
+        );
+        assert_eq!(
+            without_profile.report.counts.allomorphs_emitted,
+            with_profile.report.counts.allomorphs_emitted,
+            "allomorphs_emitted"
+        );
+        assert_eq!(
+            without_profile.report.counts.allomorphs_skipped,
+            with_profile.report.counts.allomorphs_skipped,
+            "allomorphs_skipped"
+        );
+        assert_eq!(
             without_profile.report.counts.lexc_lines,
-            with_profile.report.counts.lexc_lines
+            with_profile.report.counts.lexc_lines,
+            "lexc_lines"
+        );
+        assert_eq!(
+            without_profile.report.counts.composite_pairs_probed,
+            with_profile.report.counts.composite_pairs_probed,
+            "composite_pairs_probed"
+        );
+        assert_eq!(
+            without_profile.report.counts.composite_interdigitation_entries,
+            with_profile.report.counts.composite_interdigitation_entries,
+            "composite_interdigitation_entries"
+        );
+        assert_eq!(
+            without_profile.report.counts.composite_fusion_entries,
+            with_profile.report.counts.composite_fusion_entries,
+            "composite_fusion_entries"
+        );
+        assert_eq!(
+            without_profile.report.counts.composite_structural_entries,
+            with_profile.report.counts.composite_structural_entries,
+            "composite_structural_entries"
+        );
+        assert_eq!(
+            without_profile.report.counts.bare_root_arcs_pruned,
+            with_profile.report.counts.bare_root_arcs_pruned,
+            "bare_root_arcs_pruned"
         );
         assert_eq!(without_profile.report.tier, with_profile.report.tier);
         assert_eq!(
-            without_profile.report.uncovered.len(),
-            with_profile.report.uncovered.len()
+            without_profile.report.uncovered,
+            with_profile.report.uncovered,
+            "profiling must preserve every uncovered item, id, and reason"
+        );
+        assert_eq!(
+            without_profile.report.enum_budget_exceeded,
+            with_profile.report.enum_budget_exceeded,
+            "profiling must preserve enumeration budget detail"
         );
 
         // Also exercise `emit_with_budget`'s own thin wrapper (profile: None internally) for
