@@ -61,16 +61,20 @@ All work on branch `cleanup-and-recipe-parity` (one worktree), never on `main`.
 
 ## 4. Round 2 — research then implement (scoped by round-1 results)
 
-- [ ] 4.1 Research (subagents, read-only): junction/deletion facts as composed natural-class
+- [x] 4.1 Research (subagents, read-only): junction/deletion facts as composed natural-class
       filter rules for the token-cascade path (`structural_allomorph.rs` pattern); exact rule
       inventory per corpus shape; expected proposal reduction on Amharic/Aweti shapes.
+      Outcome (2026-08-01): NO-GO for production implementation before the plan→emitter seam.
+      Sena has no applicable rules; Amharic has one narrow pure-deletion candidate; Aweti's two
+      floating-marker deletions are not evidenced as its dominant proposal source. Preserve the
+      supplied synthetic RED-test design as a later spike, not a licensed production change.
 - [ ] 4.2 Research (subagents, read-only): plan→emitter seam — strategy-parameter object
       signature, stage boundaries for splitting `emit_with_budget_profiled`, blast radius.
 - [ ] 4.3 Implement the higher-leverage of 4.1/4.2 (single owner for `emit.rs`/
       `templated_compile.rs`); oracles: conformance exact baseline + corpus-slice improvement.
 - [ ] 4.4 Re-run the dead-end census against the post-routing Sena path; decide E5 go/no-go from
       fresh attribution (not the 2026-07-17 numbers).
-- [ ] 4.5 Divvun task 6.1 (flag/replace scoping) can run alongside 4.1/4.2 — it is cheap,
+- [x] 4.5 Divvun task 6.1 (flag/replace scoping) can run alongside 4.1/4.2 — it is cheap,
       decisive, and touches nothing round-2 owns.
 
 ## 5. Round 3 — cleanup and consolidation
