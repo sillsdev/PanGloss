@@ -6,7 +6,7 @@ use crate::compose_budget::{ComposeBudget, ComposeError};
 use crate::composite::FomaAnalyzer;
 use crate::emit::surface_table;
 use crate::enumerate::{CandidatePlan, EmissionStrategy};
-use crate::recipe_optimizer::{Certification, Score};
+use crate::recipe_optimizer::{Certification, CorpusCompletenessEvidence, CorpusExclusion, Score};
 use crate::replace::SegAlphabet;
 use crate::tags::Candidate;
 use foma::options::FomaOptions;
@@ -28,8 +28,6 @@ struct PreparedWord {
 pub struct PreparedCorpus {
     words: Vec<PreparedWord>,
     oracle_calls: usize,
-    capped: bool,
-    timed_out: bool,
 }
 
 impl PreparedCorpus {
@@ -40,12 +38,8 @@ impl PreparedCorpus {
             .unwrap_or(DEFAULT_ORACLE_WORD_TIMEOUT);
         let morpher = pg_parse::Morpher::new(grammar, cap).with_word_timeout(Some(timeout));
         let mut records = Vec::with_capacity(words.len());
-        let mut capped = false;
-        let mut timed_out = false;
         for word in words {
             let outcome = morpher.parse_word(word);
-            capped |= outcome.capped;
-            timed_out |= outcome.timed_out;
             records.push(PreparedWord {
                 word: word.clone(),
                 expected: (!outcome.capped && !outcome.timed_out).then_some(outcome.structured),
@@ -56,8 +50,6 @@ impl PreparedCorpus {
         Self {
             words: records,
             oracle_calls: words.len(),
-            capped,
-            timed_out,
         }
     }
 
@@ -69,8 +61,9 @@ impl PreparedCorpus {
         let mut used = vec![false; self.words.len()];
         let mut comparable = Vec::new();
         let mut expected = Vec::new();
-        let mut capped = self.capped;
-        let mut timed_out = self.timed_out;
+        let mut exclusions = Vec::new();
+        let mut capped = false;
+        let mut timed_out = false;
         for word in requested {
             let Some((index, prepared)) = self
                 .words
@@ -78,6 +71,10 @@ impl PreparedCorpus {
                 .enumerate()
                 .find(|(index, prepared)| !used[*index] && prepared.word == *word)
             else {
+                exclusions.push(CorpusExclusion {
+                    word: word.clone(),
+                    reason: "corpus-row-not-prepared".into(),
+                });
                 continue;
             };
             used[index] = true;
@@ -86,6 +83,17 @@ impl PreparedCorpus {
             if let Some(analyses) = &prepared.expected {
                 comparable.push(word.clone());
                 expected.push((word.clone(), analyses.clone()));
+            } else {
+                let reason = match (prepared.capped, prepared.timed_out) {
+                    (true, true) => "oracle-capped-and-timeout",
+                    (true, false) => "oracle-capped",
+                    (false, true) => "oracle-timeout",
+                    (false, false) => "oracle-excluded",
+                };
+                exclusions.push(CorpusExclusion {
+                    word: word.clone(),
+                    reason: reason.into(),
+                });
             }
         }
         PreparedSelection {
@@ -93,6 +101,7 @@ impl PreparedCorpus {
             expected,
             capped,
             timed_out,
+            exclusions,
         }
     }
 }
@@ -103,6 +112,7 @@ struct PreparedSelection {
     expected: Vec<(String, Vec<WordAnalysis>)>,
     capped: bool,
     timed_out: bool,
+    exclusions: Vec<CorpusExclusion>,
 }
 
 /// All prepared, reusable evaluation inputs for one optimizer run.
@@ -274,6 +284,27 @@ fn corpus_hash(words: &[String]) -> String {
     }
     format!("{:x}", hash.finalize())
 }
+
+fn corpus_completeness_evidence(
+    requested: &[String],
+    included: &[String],
+    exclusions: &[CorpusExclusion],
+) -> CorpusCompletenessEvidence {
+    let excluded = exclusions
+        .iter()
+        .map(|exclusion| exclusion.word.clone())
+        .collect::<Vec<_>>();
+    CorpusCompletenessEvidence {
+        requested: requested.len() as u64,
+        included: included.len() as u64,
+        excluded: excluded.len() as u64,
+        requested_hash: corpus_hash(requested),
+        included_hash: corpus_hash(included),
+        excluded_hash: corpus_hash(&excluded),
+        exclusions: exclusions.to_vec(),
+    }
+}
+
 pub fn certify_corpus(
     expected: &[(String, Vec<WordAnalysis>)],
     actual: &[(String, Vec<WordAnalysis>)],
@@ -281,6 +312,7 @@ pub fn certify_corpus(
     if expected.len() != actual.len() {
         return Certification::Truncated {
             stage: "full-hc".into(),
+            corpus: None,
         };
     }
     let mut failures = expected
@@ -291,6 +323,7 @@ pub fn certify_corpus(
                 if expected_word != actual_word {
                     return Some(Certification::Truncated {
                         stage: "full-hc-word-order".into(),
+                        corpus: None,
                     });
                 }
                 let verdict = certify_word(
@@ -322,6 +355,7 @@ pub fn certify_corpus(
     if analyses == 0 {
         return Certification::Truncated {
             stage: "no-analyzable-words".into(),
+            corpus: None,
         };
     }
     Certification::FullHcConfirmed {
@@ -908,6 +942,8 @@ fn evaluate_plans_marked_with_cache_mode<const OBSERVE: bool>(
     let expected = selection.expected;
     let oracle_capped = selection.capped;
     let oracle_timed_out = selection.timed_out;
+    let exclusions = selection.exclusions;
+    let corpus_evidence = corpus_completeness_evidence(words, &comparable, &exclusions);
     let words = &comparable[..];
     // CRITICAL: a capped or timed-out oracle result must NEVER reach `certify_corpus`. The FST side
     // may legitimately produce analyses the truncated oracle never found — that would surface as a
@@ -920,13 +956,16 @@ fn evaluate_plans_marked_with_cache_mode<const OBSERVE: bool>(
     // tripped both is reported under whichever this checks first, which is fine since the outcome
     // (non-certifying) is identical either way.
     // Certification is all-or-nothing over the requested corpus. Even when other words have
-    // complete expectations, dropping one capped/timed-out word would silently certify a subset
-    // under the requested corpus's name and hash only that subset. Refuse the whole batch instead.
-    if oracle_capped || oracle_timed_out {
+    // complete expectations, dropping one excluded word would silently certify a subset under the
+    // requested corpus's name and hash only that subset. Refuse the whole batch instead, retaining
+    // the requested/included/excluded evidence for the report.
+    if !exclusions.is_empty() {
         let stage = if oracle_capped {
             "oracle-capped"
-        } else {
+        } else if oracle_timed_out {
             "oracle-timeout"
+        } else {
+            "corpus-incomplete"
         };
         return plans
             .iter()
@@ -937,6 +976,7 @@ fn evaluate_plans_marked_with_cache_mode<const OBSERVE: bool>(
                     plan.strategy,
                     Certification::Truncated {
                         stage: stage.into(),
+                        corpus: Some(corpus_evidence.clone()),
                     },
                     0,
                 )
@@ -997,6 +1037,7 @@ fn evaluate_plans_marked_with_cache_mode<const OBSERVE: bool>(
                     EmissionStrategy::PlanComposed,
                     Certification::Truncated {
                         stage: "empty-network".into(),
+                        corpus: None,
                     },
                     build,
                 );

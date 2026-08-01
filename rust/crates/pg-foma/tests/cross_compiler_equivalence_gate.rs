@@ -418,7 +418,7 @@ fn observed_evidence_distinguishes_failed_evaluation_from_real_empty_observation
     );
     assert!(matches!(
         failed.evaluation.certification,
-        pg_foma::recipe_optimizer::Certification::Truncated { ref stage }
+        pg_foma::recipe_optimizer::Certification::Truncated { ref stage, .. }
             if stage == "oracle-capped"
     ));
     assert_eq!(failed.evaluation.score.proposals, 0);

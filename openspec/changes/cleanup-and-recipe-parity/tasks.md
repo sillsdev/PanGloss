@@ -210,6 +210,10 @@ mechanism extractor and separate executable-artifact direction must not be imple
       as the sole public recipe/cross-engine identity. Bind profile, authority, source/model revision,
       semantic digest, options, occurrence order, normalization, exclusions, and oracle completeness;
       retain duplicate/guessed evidence separately, reject supplied roots, and exclude trace parity.
+      Slice note (2026-08-01): the recipe runtime now carries transitional requested/included/
+      excluded counts, deterministic word-list hashes, and per-row exclusion reasons on its existing
+      truncated outcome. This does not implement or mark complete the versioned snapshot/scope and
+      identity migration; that remains the follow-up owner for this task.
 - [ ] 7.13 Add portable Plan serialization/SHA-256 identity, exact adapter lowering, and run-scoped
       lowered-candidate reuse; delete `CandidatePlan`, `EmissionStrategy`, positional baseline state,
       duplicate runtime artifacts, implicit fallback, and fake zero measurements.

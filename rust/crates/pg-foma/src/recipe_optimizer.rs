@@ -100,6 +100,28 @@ pub struct CandidateState {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CorpusExclusion {
+    pub word: String,
+    pub reason: String,
+}
+
+/// Transitional, run-local evidence for an incomplete requested corpus.
+///
+/// This is deliberately diagnostic evidence on the existing recipe certification result, not a
+/// second corpus identity architecture. The versioned `CorpusSnapshot`/`CertificationScope`
+/// migration remains tracked by `cleanup-and-recipe-parity` task 7.12.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CorpusCompletenessEvidence {
+    pub requested: u64,
+    pub included: u64,
+    pub excluded: u64,
+    pub requested_hash: String,
+    pub included_hash: String,
+    pub excluded_hash: String,
+    pub exclusions: Vec<CorpusExclusion>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "kebab-case")]
 pub enum Certification {
     StaticRejected {
@@ -117,6 +139,8 @@ pub enum Certification {
     },
     Truncated {
         stage: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        corpus: Option<CorpusCompletenessEvidence>,
     },
     Unsupported {
         reason: String,
@@ -1165,6 +1189,7 @@ mod tests {
             },
             Certification::Truncated {
                 stage: "corpus".to_owned(),
+                corpus: None,
             },
             Certification::Unsupported {
                 reason: "x".to_owned(),

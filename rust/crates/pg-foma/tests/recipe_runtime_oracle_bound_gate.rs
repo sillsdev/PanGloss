@@ -24,7 +24,7 @@
 use pg_conformance_fixtures::{discover, Root};
 use pg_foma::enumerate::enumerate_default;
 use pg_foma::junctions::PhonologyProbe;
-use pg_foma::recipe_optimizer::Certification;
+use pg_foma::recipe_optimizer::{pareto_frontier, select_confirmed, Certification};
 use pg_foma::recipe_registry::{MaterializerContext, Registry};
 use pg_foma::recipe_runtime::{evaluate_plans, RuntimeBudget};
 use pg_foma::replace::SegAlphabet;
@@ -111,7 +111,7 @@ fn a_capped_oracle_yields_an_explicit_truncation_never_a_word_mismatch_or_a_conf
             evaluation.certification
         );
         match &evaluation.certification {
-            Certification::Truncated { stage } => {
+            Certification::Truncated { stage, .. } => {
                 assert_eq!(
                     stage, "oracle-capped",
                     "capped oracle certification named the wrong stage: {stage:?}"
@@ -166,13 +166,37 @@ fn a_mixed_complete_and_capped_oracle_cannot_certify_the_complete_subset() {
         },
     );
     assert!(!evaluations.is_empty());
+    let ranked = evaluations
+        .iter()
+        .enumerate()
+        .map(|(index, evaluation)| {
+            (
+                format!("candidate-{index}"),
+                evaluation.certification.clone(),
+                evaluation.score,
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(select_confirmed(&ranked), None);
+    assert!(pareto_frontier(&ranked).is_empty());
     for evaluation in evaluations {
-        assert!(
-            matches!(
-                evaluation.certification,
-                Certification::Truncated { ref stage } if stage == "oracle-capped"
-            ),
-            "mixed complete/capped oracle must not certify its comparable subset: {evaluation:?}"
-        );
+        let Certification::Truncated { ref stage, .. } = evaluation.certification else {
+            panic!(
+                "mixed complete/capped oracle must not certify its comparable subset: {evaluation:?}"
+            );
+        };
+        assert_eq!(stage, "oracle-capped");
+        let value = serde_json::to_value(&evaluation.certification)
+            .expect("truncation evidence must be serializable");
+        let corpus = value
+            .get("corpus")
+            .expect("truncation must preserve corpus completeness evidence");
+        assert_eq!(corpus["requested"], 2);
+        assert_eq!(corpus["included"], 1);
+        assert_eq!(corpus["excluded"], 1);
+        assert_ne!(corpus["requested_hash"], corpus["included_hash"]);
+        assert_ne!(corpus["requested_hash"], corpus["excluded_hash"]);
+        assert_eq!(corpus["exclusions"][0]["word"], "menulik");
+        assert_eq!(corpus["exclusions"][0]["reason"], "oracle-capped");
     }
 }
