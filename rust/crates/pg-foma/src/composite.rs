@@ -216,9 +216,29 @@ pub struct ProfiledFomaOutcome {
     pub diagnostics: FomaWordDiagnostics,
 }
 
+/// A profiled outcome that retains the already-owned final candidate vector for an opt-in
+/// equivalence observation. The vector is moved here only after confirmation; it is never a clone
+/// of raw Foma paths or of the peeler's internal residual queries.
+#[doc(hidden)]
+pub(crate) struct ProfiledFomaOutcomeWithCandidates {
+    pub(crate) outcome: FomaOutcome,
+    pub(crate) diagnostics: FomaWordDiagnostics,
+    pub(crate) candidates: Vec<Candidate>,
+}
+
 /// Bounded diagnostics result. An incomplete proposal is never sent to confirmation.
 pub enum ProfiledFomaApplyOutcome {
     Complete(ProfiledFomaOutcome),
+    Incomplete {
+        dimension: ApplyDimension,
+        value: usize,
+        limit: usize,
+        diagnostics: FomaWordDiagnostics,
+    },
+}
+
+enum ProfiledFomaApplyOutcomeWithCandidates {
+    Complete(ProfiledFomaOutcomeWithCandidates),
     Incomplete {
         dimension: ApplyDimension,
         value: usize,
@@ -542,12 +562,56 @@ impl<'g> FomaAnalyzer<'g> {
         word: &str,
         budget: &ApplyBudget,
     ) -> ProfiledFomaApplyOutcome {
+        match self.analyze_word_with_diagnostics_budgeted_with_candidates(word, budget) {
+            ProfiledFomaApplyOutcomeWithCandidates::Complete(profiled) => {
+                ProfiledFomaApplyOutcome::Complete(ProfiledFomaOutcome {
+                    outcome: profiled.outcome,
+                    diagnostics: profiled.diagnostics,
+                })
+            }
+            ProfiledFomaApplyOutcomeWithCandidates::Incomplete {
+                dimension,
+                value,
+                limit,
+                diagnostics,
+            } => ProfiledFomaApplyOutcome::Incomplete {
+                dimension,
+                value,
+                limit,
+                diagnostics,
+            },
+        }
+    }
+
+    /// Diagnostic pipeline for a cache-aware equivalence observation. The final deduplicated
+    /// candidate vector is moved out only after confirmation, so the measured apply has no clone
+    /// or analyzer-level capture callback.
+    #[doc(hidden)]
+    pub(crate) fn analyze_word_with_diagnostics_and_candidates(
+        &mut self,
+        word: &str,
+    ) -> ProfiledFomaOutcomeWithCandidates {
+        match self
+            .analyze_word_with_diagnostics_budgeted_with_candidates(word, &ApplyBudget::unbounded())
+        {
+            ProfiledFomaApplyOutcomeWithCandidates::Complete(profiled) => profiled,
+            ProfiledFomaApplyOutcomeWithCandidates::Incomplete { .. } => {
+                unreachable!("ApplyBudget::unbounded() can never report Incomplete")
+            }
+        }
+    }
+
+    fn analyze_word_with_diagnostics_budgeted_with_candidates(
+        &mut self,
+        word: &str,
+        budget: &ApplyBudget,
+    ) -> ProfiledFomaApplyOutcomeWithCandidates {
         let proposed = self.propose_candidates_with_diagnostics_budgeted(word, budget);
         let (candidates, peel_used, peel_chain_depth_error, proposal, proposal_calls) =
             match proposed {
                 Ok(complete) => complete,
                 Err((dimension, value, limit, proposal, proposal_calls)) => {
-                    return ProfiledFomaApplyOutcome::Incomplete {
+                    return ProfiledFomaApplyOutcomeWithCandidates::Incomplete {
                         dimension,
                         value,
                         limit,
@@ -597,9 +661,10 @@ impl<'g> FomaAnalyzer<'g> {
             confirmed_analyses: outcome.confirmed,
             confirmation_elapsed,
         };
-        ProfiledFomaApplyOutcome::Complete(ProfiledFomaOutcome {
+        ProfiledFomaApplyOutcomeWithCandidates::Complete(ProfiledFomaOutcomeWithCandidates {
             outcome,
             diagnostics,
+            candidates,
         })
     }
 

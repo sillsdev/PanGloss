@@ -8,6 +8,7 @@ use crate::emit::surface_table;
 use crate::enumerate::{CandidatePlan, EmissionStrategy};
 use crate::recipe_optimizer::{Certification, Score};
 use crate::replace::SegAlphabet;
+use crate::tags::Candidate;
 use foma::options::FomaOptions;
 use pg_grammar::model::{Grammar, PhonRuleDef};
 use pg_parse::WordAnalysis;
@@ -176,6 +177,62 @@ pub struct WordEvidence {
     pub word: String,
     pub expected: Vec<WordAnalysis>,
     pub actual: Vec<WordAnalysis>,
+    /// The final deduplicated candidate vector sent to confirmation for this word. This is
+    /// populated only by the opt-in observed evaluator; ordinary optimizer runs do not retain it.
+    pub proposals: Vec<Candidate>,
+}
+
+/// Read-only evidence returned by the opt-in observed evaluator. `None` means evaluation failed
+/// before a complete evidence vector existed; `Some(empty)` is a real, observed empty corpus.
+#[doc(hidden)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeEvaluationObservation {
+    pub requested_strategy: EmissionStrategy,
+    pub evaluation: RuntimeEvaluation,
+    pub words: Option<Vec<WordEvidence>>,
+}
+
+struct EvaluatedPlan {
+    evaluation: RuntimeEvaluation,
+    words: Option<Vec<WordEvidence>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProposalRatioViolation {
+    pub strategy: EmissionStrategy,
+    pub numerator: u64,
+    pub denominator: u64,
+    pub threshold: u64,
+}
+
+impl std::fmt::Display for ProposalRatioViolation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "proposal ratio violation: strategy={:?} numerator={} denominator={} threshold={}",
+            self.strategy, self.numerator, self.denominator, self.threshold
+        )
+    }
+}
+
+impl std::error::Error for ProposalRatioViolation {}
+
+pub fn check_proposal_ratio(
+    strategy: EmissionStrategy,
+    numerator: u64,
+    denominator: u64,
+    threshold: u64,
+) -> Result<(), ProposalRatioViolation> {
+    if numerator > denominator.saturating_mul(threshold) {
+        Err(ProposalRatioViolation {
+            strategy,
+            numerator,
+            denominator,
+            threshold,
+        })
+    } else {
+        Ok(())
+    }
 }
 
 /// Compare analyses as multisets: order is irrelevant, multiplicity is not.
@@ -378,7 +435,56 @@ fn measure_and_certify(
     arcs: u64,
     build: u64,
 ) -> RuntimeEvaluation {
+    measure_and_certify_inner::<false>(
+        realized_strategy,
+        analyzer,
+        words,
+        expected,
+        budget,
+        states,
+        arcs,
+        build,
+    )
+    .evaluation
+}
+
+#[allow(clippy::too_many_arguments)]
+fn measure_and_certify_observed(
+    realized_strategy: EmissionStrategy,
+    analyzer: &mut FomaAnalyzer,
+    words: &[String],
+    expected: &[(String, Vec<WordAnalysis>)],
+    budget: RuntimeBudget,
+    states: u64,
+    arcs: u64,
+    build: u64,
+) -> EvaluatedPlan {
+    measure_and_certify_inner::<true>(
+        realized_strategy,
+        analyzer,
+        words,
+        expected,
+        budget,
+        states,
+        arcs,
+        build,
+    )
+}
+
+#[inline]
+#[allow(clippy::too_many_arguments)]
+fn measure_and_certify_inner<const OBSERVE: bool>(
+    realized_strategy: EmissionStrategy,
+    analyzer: &mut FomaAnalyzer,
+    words: &[String],
+    expected: &[(String, Vec<WordAnalysis>)],
+    budget: RuntimeBudget,
+    states: u64,
+    arcs: u64,
+    build: u64,
+) -> EvaluatedPlan {
     let mut actual = Vec::new();
+    let mut observed_proposals = OBSERVE.then(|| Vec::with_capacity(words.len()));
     let mut apply: u64 = 0;
     let mut proposals: u64 = 0;
     let mut confirmation: u64 = 0;
@@ -386,14 +492,30 @@ fn measure_and_certify(
     let mut raw_paths: u64 = 0;
     for w in words {
         let t = Instant::now();
-        let p = analyzer.analyze_word_with_diagnostics(w);
+        let (outcome, diagnostics, proposals_for_word) = if OBSERVE {
+            let profiled = analyzer.analyze_word_with_diagnostics_and_candidates(w);
+            (
+                profiled.outcome,
+                profiled.diagnostics,
+                Some(profiled.candidates),
+            )
+        } else {
+            let profiled = analyzer.analyze_word_with_diagnostics(w);
+            (profiled.outcome, profiled.diagnostics, None)
+        };
         apply = apply.saturating_add(elapsed_ns(t).max(1));
-        proposals = proposals.saturating_add(p.outcome.candidates_generated as u64);
-        confirmation = confirmation.saturating_add(p.diagnostics.confirmation_calls as u64);
+        proposals = proposals.saturating_add(outcome.candidates_generated as u64);
+        confirmation = confirmation.saturating_add(diagnostics.confirmation_calls as u64);
         confirmation_steps =
-            confirmation_steps.saturating_add(p.diagnostics.confirmation_steps as u64);
-        raw_paths = raw_paths.saturating_add(p.diagnostics.raw_paths as u64);
-        actual.push((w.clone(), p.outcome.structured));
+            confirmation_steps.saturating_add(diagnostics.confirmation_steps as u64);
+        raw_paths = raw_paths.saturating_add(diagnostics.raw_paths as u64);
+        actual.push((w.clone(), outcome.structured));
+        if let Some(proposals_for_word) = proposals_for_word {
+            observed_proposals
+                .as_mut()
+                .expect("observed mode must initialize proposal evidence")
+                .push(proposals_for_word);
+        }
     }
     let score = Score {
         states,
@@ -431,10 +553,28 @@ fn measure_and_certify(
             failure => failure,
         },
     };
-    RuntimeEvaluation {
-        certification,
-        score,
-        realized_strategy,
+    let words = observed_proposals.map(|proposals| {
+        expected
+            .iter()
+            .zip(actual.into_iter())
+            .zip(proposals)
+            .map(
+                |(((word, expected), (_, actual)), proposals)| WordEvidence {
+                    word: word.clone(),
+                    expected: expected.clone(),
+                    actual,
+                    proposals,
+                },
+            )
+            .collect()
+    });
+    EvaluatedPlan {
+        evaluation: RuntimeEvaluation {
+            certification,
+            score,
+            realized_strategy,
+        },
+        words,
     }
 }
 
@@ -467,12 +607,23 @@ fn failed_evaluation(
     }
 }
 
-fn build_failed(
+fn failed_evaluated(
+    realized_strategy: EmissionStrategy,
+    certification: Certification,
+    build: u64,
+) -> EvaluatedPlan {
+    EvaluatedPlan {
+        evaluation: failed_evaluation(realized_strategy, certification, build),
+        words: None,
+    }
+}
+
+fn build_failed_evaluated(
     realized_strategy: EmissionStrategy,
     reason: String,
     build: u64,
-) -> RuntimeEvaluation {
-    failed_evaluation(
+) -> EvaluatedPlan {
+    failed_evaluated(
         realized_strategy,
         Certification::BuildFailed { reason },
         build,
@@ -485,11 +636,29 @@ fn evaluate_via_tuned_emit(
     expected: &[(String, Vec<WordAnalysis>)],
     budget: RuntimeBudget,
 ) -> RuntimeEvaluation {
+    evaluate_via_tuned_emit_mode::<false>(grammar, words, expected, budget).evaluation
+}
+
+fn evaluate_via_tuned_emit_observed(
+    grammar: &Grammar,
+    words: &[String],
+    expected: &[(String, Vec<WordAnalysis>)],
+    budget: RuntimeBudget,
+) -> EvaluatedPlan {
+    evaluate_via_tuned_emit_mode::<true>(grammar, words, expected, budget)
+}
+
+fn evaluate_via_tuned_emit_mode<const OBSERVE: bool>(
+    grammar: &Grammar,
+    words: &[String],
+    expected: &[(String, Vec<WordAnalysis>)],
+    budget: RuntimeBudget,
+) -> EvaluatedPlan {
     let t = Instant::now();
     let proposer = match FomaProposer::new(grammar) {
         Ok(p) => p,
         Err(e) => {
-            return build_failed(
+            return build_failed_evaluated(
                 EmissionStrategy::TunedSurfaceProbed,
                 format!("tuned emit path failed to build: {e}"),
                 elapsed_ns(t).max(1),
@@ -501,16 +670,32 @@ fn evaluate_via_tuned_emit(
     // No `with_segment_query_encoder` here, unlike the controllable path: this net is in plain
     // surface space and the production proposer queries it with plain NFD.
     let mut analyzer = FomaAnalyzer::from_precompiled_proposer(grammar, proposer);
-    measure_and_certify(
-        EmissionStrategy::TunedSurfaceProbed,
-        &mut analyzer,
-        words,
-        expected,
-        budget,
-        states.max(0) as u64,
-        arcs.max(0) as u64,
-        build,
-    )
+    if OBSERVE {
+        measure_and_certify_observed(
+            EmissionStrategy::TunedSurfaceProbed,
+            &mut analyzer,
+            words,
+            expected,
+            budget,
+            states.max(0) as u64,
+            arcs.max(0) as u64,
+            build,
+        )
+    } else {
+        EvaluatedPlan {
+            evaluation: measure_and_certify(
+                EmissionStrategy::TunedSurfaceProbed,
+                &mut analyzer,
+                words,
+                expected,
+                budget,
+                states.max(0) as u64,
+                arcs.max(0) as u64,
+                build,
+            ),
+            words: None,
+        }
+    }
 }
 
 /// [`EmissionStrategy::TemplatedUnderlyingTokens`]: compile the whole grammar through
@@ -535,11 +720,29 @@ fn evaluate_via_templated_emit(
     expected: &[(String, Vec<WordAnalysis>)],
     budget: RuntimeBudget,
 ) -> RuntimeEvaluation {
+    evaluate_via_templated_emit_mode::<false>(grammar, words, expected, budget).evaluation
+}
+
+fn evaluate_via_templated_emit_observed(
+    grammar: &Grammar,
+    words: &[String],
+    expected: &[(String, Vec<WordAnalysis>)],
+    budget: RuntimeBudget,
+) -> EvaluatedPlan {
+    evaluate_via_templated_emit_mode::<true>(grammar, words, expected, budget)
+}
+
+fn evaluate_via_templated_emit_mode<const OBSERVE: bool>(
+    grammar: &Grammar,
+    words: &[String],
+    expected: &[(String, Vec<WordAnalysis>)],
+    budget: RuntimeBudget,
+) -> EvaluatedPlan {
     let t = Instant::now();
     let output = match crate::templated_compile::compile_templated_morphotactics(grammar) {
         Ok(output) => output,
         Err(e) => {
-            return build_failed(
+            return build_failed_evaluated(
                 EmissionStrategy::TemplatedUnderlyingTokens,
                 format!("templated underlying-token path failed to build: {e}"),
                 elapsed_ns(t).max(1),
@@ -549,16 +752,32 @@ fn evaluate_via_templated_emit(
     let build = elapsed_ns(t).max(1);
     let (states, arcs) = output.proposer.network_counts();
     let mut analyzer = FomaAnalyzer::from_precompiled_proposer(grammar, output.proposer);
-    measure_and_certify(
-        EmissionStrategy::TemplatedUnderlyingTokens,
-        &mut analyzer,
-        words,
-        expected,
-        budget,
-        states.max(0) as u64,
-        arcs.max(0) as u64,
-        build,
-    )
+    if OBSERVE {
+        measure_and_certify_observed(
+            EmissionStrategy::TemplatedUnderlyingTokens,
+            &mut analyzer,
+            words,
+            expected,
+            budget,
+            states.max(0) as u64,
+            arcs.max(0) as u64,
+            build,
+        )
+    } else {
+        EvaluatedPlan {
+            evaluation: measure_and_certify(
+                EmissionStrategy::TemplatedUnderlyingTokens,
+                &mut analyzer,
+                words,
+                expected,
+                budget,
+                states.max(0) as u64,
+                arcs.max(0) as u64,
+                build,
+            ),
+            words: None,
+        }
+    }
 }
 
 /// Evaluates every plan through build_controllable and the production propose→confirm pipeline.
@@ -621,6 +840,49 @@ pub fn evaluate_plans_marked_with_cache(
     is_baseline: &[bool],
     cache: &mut RunEvaluationCache,
 ) -> Vec<RuntimeEvaluation> {
+    evaluate_plans_marked_with_cache_mode::<false>(
+        grammar,
+        plans,
+        words,
+        budget,
+        is_baseline,
+        cache,
+    )
+    .into_iter()
+    .map(|result| result.evaluation)
+    .collect()
+}
+
+/// Evaluate candidates against a caller-owned cache while retaining exact per-word oracle,
+/// confirmed-analysis, and final-candidate evidence for equivalence gates.
+#[doc(hidden)]
+pub fn evaluate_plans_marked_observed_with_cache(
+    grammar: &Grammar,
+    plans: &[CandidatePlan],
+    words: &[String],
+    budget: RuntimeBudget,
+    is_baseline: &[bool],
+    cache: &mut RunEvaluationCache,
+) -> Vec<RuntimeEvaluationObservation> {
+    evaluate_plans_marked_with_cache_mode::<true>(grammar, plans, words, budget, is_baseline, cache)
+        .into_iter()
+        .zip(plans)
+        .map(|(result, plan)| RuntimeEvaluationObservation {
+            requested_strategy: plan.strategy,
+            evaluation: result.evaluation,
+            words: result.words,
+        })
+        .collect()
+}
+
+fn evaluate_plans_marked_with_cache_mode<const OBSERVE: bool>(
+    grammar: &Grammar,
+    plans: &[CandidatePlan],
+    words: &[String],
+    budget: RuntimeBudget,
+    is_baseline: &[bool],
+    cache: &mut RunEvaluationCache,
+) -> Vec<EvaluatedPlan> {
     assert_eq!(
         plans.len(),
         is_baseline.len(),
@@ -672,7 +934,7 @@ pub fn evaluate_plans_marked_with_cache(
             .map(|plan| {
                 // Nothing compiled -- the corpus itself was refused -- so the honest answer is the
                 // strategy that was requested.
-                failed_evaluation(
+                failed_evaluated(
                     plan.strategy,
                     Certification::Truncated {
                         stage: stage.into(),
@@ -693,10 +955,29 @@ pub fn evaluate_plans_marked_with_cache(
             match candidate.strategy {
                 EmissionStrategy::PlanComposed => {}
                 EmissionStrategy::TunedSurfaceProbed => {
-                    return evaluate_via_tuned_emit(grammar, words, &expected, budget)
+                    return if OBSERVE {
+                        evaluate_via_tuned_emit_observed(grammar, words, &expected, budget)
+                    } else {
+                        EvaluatedPlan {
+                            evaluation: evaluate_via_tuned_emit(grammar, words, &expected, budget),
+                            words: None,
+                        }
+                    }
                 }
                 EmissionStrategy::TemplatedUnderlyingTokens => {
-                    return evaluate_via_templated_emit(grammar, words, &expected, budget)
+                    return if OBSERVE {
+                        evaluate_via_templated_emit_observed(grammar, words, &expected, budget)
+                    } else {
+                        EvaluatedPlan {
+                            evaluation: evaluate_via_templated_emit(
+                                grammar,
+                                words,
+                                &expected,
+                                budget,
+                            ),
+                            words: None,
+                        }
+                    }
                 }
             }
             // Only the plan-composed strategy consumes this report, so whole-grammar candidates
@@ -706,14 +987,14 @@ pub fn evaluate_plans_marked_with_cache(
             let built = build_candidate(candidate, &opts, grammar, &alphabet, &prules, &compose);
             let build = elapsed_ns(t).max(1);
             let Ok(mut built) = built else {
-                return build_failed(
+                return build_failed_evaluated(
                     EmissionStrategy::PlanComposed,
                     "build failed".into(),
                     build,
                 );
             };
             let Some(net) = built.net.take() else {
-                return failed_evaluation(
+                return failed_evaluated(
                     EmissionStrategy::PlanComposed,
                     Certification::Truncated {
                         stage: "empty-network".into(),
@@ -734,7 +1015,7 @@ pub fn evaluate_plans_marked_with_cache(
             ) {
                 Ok(net) => net,
                 Err(e) => {
-                    return build_failed(
+                    return build_failed_evaluated(
                         EmissionStrategy::PlanComposed,
                         format!("boundary-cleanup finish failed: {e}"),
                         build,
@@ -747,59 +1028,33 @@ pub fn evaluate_plans_marked_with_cache(
                 FomaProposer::from_precompiled_network(&net, report.clone())
                     .with_segment_query_encoder(surface_table(grammar)),
             );
-            let mut actual = Vec::new();
-            let mut apply: u64 = 0;
-            let mut proposals: u64 = 0;
-            let mut confirmation: u64 = 0;
-            let mut confirmation_steps: u64 = 0;
-            let mut raw_paths: u64 = 0;
-            for w in words {
-                let t = Instant::now();
-                let p = analyzer.analyze_word_with_diagnostics(w);
-                apply = apply.saturating_add(elapsed_ns(t).max(1));
-                proposals = proposals.saturating_add(p.outcome.candidates_generated as u64);
-                confirmation = confirmation.saturating_add(p.diagnostics.confirmation_calls as u64);
-                confirmation_steps =
-                    confirmation_steps.saturating_add(p.diagnostics.confirmation_steps as u64);
-                raw_paths = raw_paths.saturating_add(p.diagnostics.raw_paths as u64);
-                actual.push((w.clone(), p.outcome.structured));
-            }
-            let score = Score {
-                states: score0.0,
-                arcs: score0.1,
-                build,
-                apply,
-                proposals,
-                confirmation,
-                confirmation_steps,
-                raw_paths,
+            let measured = if OBSERVE {
+                measure_and_certify_observed(
+                    EmissionStrategy::PlanComposed,
+                    &mut analyzer,
+                    words,
+                    &expected,
+                    budget,
+                    score0.0,
+                    score0.1,
+                    build,
+                )
+            } else {
+                EvaluatedPlan {
+                    evaluation: measure_and_certify(
+                        EmissionStrategy::PlanComposed,
+                        &mut analyzer,
+                        words,
+                        &expected,
+                        budget,
+                        score0.0,
+                        score0.1,
+                        build,
+                    ),
+                    words: None,
+                }
             };
-            let breach = [
-                ("states", score.states, budget.states),
-                ("arcs", score.arcs, budget.arcs),
-                ("build", build, budget.build),
-                ("apply", apply, budget.apply),
-                ("proposals", proposals, budget.proposals),
-                ("confirmation", confirmation, budget.confirmation),
-            ]
-            .into_iter()
-            .find(|(_, v, l)| l.is_some_and(|limit| *v > limit));
-            let certification = match breach {
-                Some((d, v, Some(l))) => Certification::ResourceBreach {
-                    dimension: d.into(),
-                    value: v,
-                    limit: l,
-                },
-                _ => match certify_corpus(&expected, &actual) {
-                    Certification::FullHcConfirmed {
-                        words: word_count, ..
-                    } => Certification::FullHcConfirmed {
-                        words: word_count,
-                        corpus_hash: corpus_hash(words),
-                    },
-                    failure => failure,
-                },
-            };
+            let certification = measured.evaluation.certification.clone();
             // Evidence first, fallback second -- and ONLY on a real failure.
             //
             // Marker presence does not mean the controllable path is inadequate, it means it MIGHT be.
@@ -811,20 +1066,12 @@ pub fn evaluate_plans_marked_with_cache(
             // is strictly better evidence than the tuned path can give (that path cannot express a
             // permutation at all).
             if certification.selectable() {
-                return RuntimeEvaluation {
-                    realized_strategy: EmissionStrategy::PlanComposed,
-                    certification,
-                    score,
-                };
+                return measured;
             }
             let markers = crate::build::unbuildable_markers(&candidate.plan);
             if markers.is_empty() {
                 // Failed on a network that fully represents its own plan: a real result, reported as is.
-                return RuntimeEvaluation {
-                    realized_strategy: EmissionStrategy::PlanComposed,
-                    certification,
-                    score,
-                };
+                return measured;
             }
             // Failed AND the plan needed subtrees `build_controllable` cannot build. On a templated
             // grammar those subtrees hold nearly all of the productive morphology -- measured, same
@@ -834,29 +1081,40 @@ pub fn evaluate_plans_marked_with_cache(
             if is_baseline[index] {
                 // The tuned path CAN build them, and for the baseline its network is the right answer:
                 // the default compilation of this grammar.
-                return evaluate_via_tuned_emit(grammar, words, &expected, budget);
+                return if OBSERVE {
+                    evaluate_via_tuned_emit_observed(grammar, words, &expected, budget)
+                } else {
+                    EvaluatedPlan {
+                        evaluation: evaluate_via_tuned_emit(grammar, words, &expected, budget),
+                        words: None,
+                    }
+                };
             }
             // A permutation, though, cannot be rescued: the tuned path derives topology from a plan it
             // builds itself, so putting a permutation through it would measure the BASELINE network and
             // report it as this permutation -- a fabricated comparison. Refuse, naming why.
-            RuntimeEvaluation {
-                realized_strategy: EmissionStrategy::PlanComposed,
-                certification: Certification::Unsupported {
-                    reason: format!(
-                        "plan structure cannot be honoured: it failed on the controllable-only network \
-                         ({certification:?}) and requires subtrees build_controllable cannot build \
-                         ({}); the tuned emit path that can build them derives topology from its own \
-                         plan, so evaluating this permutation there would measure the baseline network \
-                         and report it as this permutation",
-                        markers
-                            .iter()
-                            .map(|m| format!("{m:?}"))
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    ),
+            let EvaluatedPlan { evaluation, words } = measured;
+            EvaluatedPlan {
+                evaluation: RuntimeEvaluation {
+                    realized_strategy: EmissionStrategy::PlanComposed,
+                    certification: Certification::Unsupported {
+                        reason: format!(
+                            "plan structure cannot be honoured: it failed on the controllable-only network \
+                             ({certification:?}) and requires subtrees build_controllable cannot build \
+                             ({}); the tuned emit path that can build them derives topology from its own \
+                             plan, so evaluating this permutation there would measure the baseline network \
+                             and report it as this permutation",
+                            markers
+                                .iter()
+                                .map(|m| format!("{m:?}"))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        ),
+                    },
+                    score: evaluation.score,
                 },
-                score,
-        }
+                words,
+            }
         })
         .collect()
 }

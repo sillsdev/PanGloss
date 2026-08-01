@@ -40,7 +40,7 @@ All work on branch `cleanup-and-recipe-parity` (one worktree), never on `main`.
       rows into `partial-report.json` on deadline kill; non-certifying semantics pinned by the
       existing timeout test plus a new banked-data assertion. Files:
       `pg-cli/recipe_optimize.rs`, `recipe_optimize_timeout.rs` test.
-- [ ] 2.2 Cross-compiler equivalence gate: confirmed-multiset agreement + proposal-ratio
+- [x] 2.2 Cross-compiler equivalence gate: confirmed-multiset agreement + proposal-ratio
       tripwire + non-vacuity, over pinned synthetic fixtures spanning the three pipelines.
       New test file in `pg-foma/tests/`; read-only use of `build.rs`/`emit.rs`/
       `templated_compile.rs` APIs.
