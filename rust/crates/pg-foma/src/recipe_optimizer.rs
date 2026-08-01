@@ -6,6 +6,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Budget {
@@ -101,6 +102,9 @@ pub struct CandidateState {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CorpusExclusion {
+    /// Zero-based ordinal in the caller's requested slice. This is run-local occurrence evidence,
+    /// not a persisted corpus identity.
+    pub requested_ordinal: u64,
     pub word: String,
     pub reason: String,
 }
@@ -121,6 +125,77 @@ pub struct CorpusCompletenessEvidence {
     pub exclusions: Vec<CorpusExclusion>,
 }
 
+impl CorpusCompletenessEvidence {
+    /// Constructs the complete transitional evidence record from occurrence-level selection data.
+    ///
+    /// The assertions are intentional: this constructor is the invariant seam for the temporary
+    /// run-local schema. The eventual versioned `CorpusSnapshot`/`CertificationScope` must replace
+    /// this evidence rather than extending it into an authoritative identity system. Exclusions
+    /// are already in requested order because their ordinals are the caller's requested ordinals;
+    /// rejecting any other order keeps serialized evidence and its ledger hash deterministic.
+    pub(crate) fn from_selection(
+        requested: &[String],
+        included: &[String],
+        exclusions: Vec<CorpusExclusion>,
+    ) -> Self {
+        assert!(
+            exclusions.len() <= requested.len(),
+            "corpus evidence cannot exclude more occurrences than requested"
+        );
+        assert_eq!(
+            requested.len() - exclusions.len(),
+            included.len(),
+            "corpus evidence must account for every requested occurrence"
+        );
+        assert!(
+            exclusions
+                .iter()
+                .all(|exclusion| { exclusion.requested_ordinal < requested.len() as u64 }),
+            "corpus exclusions must identify an occurrence in the requested slice"
+        );
+        assert!(
+            exclusions
+                .windows(2)
+                .all(|pair| { pair[0].requested_ordinal < pair[1].requested_ordinal }),
+            "corpus exclusions must be in strictly increasing requested order"
+        );
+
+        Self {
+            requested: requested.len() as u64,
+            included: included.len() as u64,
+            excluded: exclusions.len() as u64,
+            requested_hash: hash_words(requested),
+            included_hash: hash_words(included),
+            // Keep the historical field name for wire compatibility, but make its meaning
+            // explicit: this is the exclusion ledger hash, including ordinal, word, and reason.
+            excluded_hash: hash_exclusion_ledger(&exclusions),
+            exclusions,
+        }
+    }
+}
+
+fn hash_words(words: &[String]) -> String {
+    let mut hash = Sha256::new();
+    for word in words {
+        hash.update((word.len() as u64).to_le_bytes());
+        hash.update(word.as_bytes());
+    }
+    format!("{:x}", hash.finalize())
+}
+
+fn hash_exclusion_ledger(exclusions: &[CorpusExclusion]) -> String {
+    let mut hash = Sha256::new();
+    hash.update(b"corpus-exclusion-ledger-v1");
+    for exclusion in exclusions {
+        hash.update(exclusion.requested_ordinal.to_le_bytes());
+        hash.update((exclusion.word.len() as u64).to_le_bytes());
+        hash.update(exclusion.word.as_bytes());
+        hash.update((exclusion.reason.len() as u64).to_le_bytes());
+        hash.update(exclusion.reason.as_bytes());
+    }
+    format!("{:x}", hash.finalize())
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "kebab-case")]
 pub enum Certification {
@@ -139,6 +214,10 @@ pub enum Certification {
     },
     Truncated {
         stage: String,
+        /// Optional additive diagnostic evidence. `default` keeps legacy serialized
+        /// `Truncated { stage }` values readable; `skip_serializing_if` keeps those values' wire
+        /// shape unchanged. This field is transitional and non-authoritative until the versioned
+        /// `CorpusSnapshot`/`CertificationScope` schema lands.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         corpus: Option<CorpusCompletenessEvidence>,
     },
@@ -1216,6 +1295,102 @@ mod tests {
             .collect();
         assert_eq!(select_confirmed(&items), None);
         assert!(pareto_frontier(&items).is_empty());
+    }
+
+    #[test]
+    fn legacy_truncated_certification_json_deserializes_without_transitional_evidence() {
+        let legacy = r#"{"status":"truncated","stage":"corpus"}"#;
+        let certification: Certification =
+            serde_json::from_str(legacy).expect("legacy truncated JSON must still parse");
+        assert_eq!(
+            certification,
+            Certification::Truncated {
+                stage: "corpus".to_owned(),
+                corpus: None,
+            }
+        );
+        assert_eq!(
+            serde_json::to_string(&certification).expect("legacy shape must remain serializable"),
+            legacy
+        );
+    }
+
+    #[test]
+    fn corpus_evidence_keeps_duplicate_occurrences_and_binds_reason_to_ledger_hash() {
+        let requested = vec!["same".to_owned(), "same".to_owned(), "other".to_owned()];
+        let included = vec!["same".to_owned()];
+        let exclusions = vec![
+            CorpusExclusion {
+                requested_ordinal: 1,
+                word: "same".to_owned(),
+                reason: "corpus-row-not-prepared".to_owned(),
+            },
+            CorpusExclusion {
+                requested_ordinal: 2,
+                word: "other".to_owned(),
+                reason: "oracle-timeout".to_owned(),
+            },
+        ];
+        let evidence =
+            CorpusCompletenessEvidence::from_selection(&requested, &included, exclusions.clone());
+        assert_eq!(
+            (evidence.requested, evidence.included, evidence.excluded),
+            (3, 1, 2)
+        );
+        assert_eq!(evidence.exclusions, exclusions);
+
+        let changed_reason = CorpusCompletenessEvidence::from_selection(
+            &requested,
+            &included,
+            vec![
+                CorpusExclusion {
+                    requested_ordinal: 1,
+                    word: "same".to_owned(),
+                    reason: "oracle-timeout".to_owned(),
+                },
+                CorpusExclusion {
+                    requested_ordinal: 2,
+                    word: "other".to_owned(),
+                    reason: "oracle-timeout".to_owned(),
+                },
+            ],
+        );
+        assert_ne!(evidence.excluded_hash, changed_reason.excluded_hash);
+    }
+
+    #[test]
+    #[should_panic(expected = "corpus evidence must account for every requested occurrence")]
+    fn corpus_evidence_constructor_rejects_unaccounted_occurrences() {
+        CorpusCompletenessEvidence::from_selection(
+            &["a".to_owned(), "b".to_owned()],
+            &[],
+            vec![CorpusExclusion {
+                requested_ordinal: 1,
+                word: "b".to_owned(),
+                reason: "missing".to_owned(),
+            }],
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "corpus exclusions must be in strictly increasing requested order")]
+    fn corpus_evidence_constructor_rejects_non_deterministic_exclusion_order() {
+        CorpusCompletenessEvidence::from_selection(
+            &["a".to_owned(), "b".to_owned()],
+            &[],
+            vec![
+                CorpusExclusion {
+                    requested_ordinal: 1,
+                    word: "b".to_owned(),
+                    reason: "missing".to_owned(),
+                },
+                CorpusExclusion {
+                    requested_ordinal: 0,
+                    word: "a".to_owned(),
+                    reason: "missing".to_owned(),
+                },
+            ],
+        );
     }
 
     #[test]

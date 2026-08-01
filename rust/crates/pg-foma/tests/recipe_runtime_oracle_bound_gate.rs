@@ -196,6 +196,7 @@ fn a_mixed_complete_and_capped_oracle_cannot_certify_the_complete_subset() {
         assert_eq!(corpus["excluded"], 1);
         assert_ne!(corpus["requested_hash"], corpus["included_hash"]);
         assert_ne!(corpus["requested_hash"], corpus["excluded_hash"]);
+        assert_eq!(corpus["exclusions"][0]["requested_ordinal"], 1);
         assert_eq!(corpus["exclusions"][0]["word"], "menulik");
         assert_eq!(corpus["exclusions"][0]["reason"], "oracle-capped");
     }

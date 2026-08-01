@@ -2,6 +2,7 @@
 
 use pg_conformance_fixtures::{discover, Root};
 use pg_foma::enumerate::EmissionStrategy;
+use pg_foma::recipe_optimizer::{pareto_frontier, select_confirmed, Certification};
 use pg_foma::recipe_registry::{MaterializerContext, Registry};
 use pg_foma::recipe_runtime::{
     evaluate_plans, evaluate_plans_with_cache, RunEvaluationCache, RuntimeBudget,
@@ -143,4 +144,176 @@ fn prepared_oracle_is_shared_and_emission_report_is_strategy_lazy() {
     );
     assert_eq!(composed_cache.oracle_calls(), words.len());
     assert_eq!(composed_cache.emission_report_calls(), 1);
+}
+
+#[test]
+fn cache_prepared_for_fewer_different_occurrences_fails_closed_without_selection() {
+    let (grammar, _) = fixture();
+    let plans = plans(&grammar);
+    let prepared = vec!["tulik".to_string()];
+    let requested = vec!["tulik".to_string(), "menulik".to_string()];
+    let mut cache = RunEvaluationCache::prepare(&grammar, &prepared, RuntimeBudget::default());
+
+    let evaluations = evaluate_plans_with_cache(
+        &grammar,
+        &plans,
+        &requested,
+        RuntimeBudget::default(),
+        &mut cache,
+    );
+    assert!(!evaluations.is_empty());
+
+    let ranked = evaluations
+        .iter()
+        .enumerate()
+        .map(|(index, evaluation)| {
+            (
+                format!("candidate-{index}"),
+                evaluation.certification.clone(),
+                evaluation.score,
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(select_confirmed(&ranked), None);
+    assert!(pareto_frontier(&ranked).is_empty());
+
+    for evaluation in evaluations {
+        let Certification::Truncated {
+            ref stage,
+            ref corpus,
+        } = evaluation.certification
+        else {
+            panic!("missing requested occurrence must truncate: {evaluation:?}");
+        };
+        assert_eq!(stage, "corpus-incomplete");
+        let corpus = corpus
+            .as_ref()
+            .expect("truncation must carry occurrence completeness evidence");
+        assert_eq!(
+            (corpus.requested, corpus.included, corpus.excluded),
+            (2, 1, 1)
+        );
+        assert_eq!(corpus.exclusions.len(), 1);
+        let exclusion = serde_json::to_value(&corpus.exclusions[0])
+            .expect("exclusion evidence must be serializable");
+        assert_eq!(exclusion["requested_ordinal"], 1);
+        assert_eq!(exclusion["word"], "menulik");
+        assert_eq!(exclusion["reason"], "corpus-row-not-prepared");
+    }
+}
+
+#[test]
+fn cache_excess_duplicate_occurrence_is_truncated_and_keeps_occurrences_distinct() {
+    let (grammar, _) = fixture();
+    let plans = plans(&grammar);
+    let prepared = vec!["tulik".to_string()];
+    let requested = vec!["tulik".to_string(), "tulik".to_string()];
+    let mut cache = RunEvaluationCache::prepare(&grammar, &prepared, RuntimeBudget::default());
+
+    let evaluations = evaluate_plans_with_cache(
+        &grammar,
+        &plans,
+        &requested,
+        RuntimeBudget::default(),
+        &mut cache,
+    );
+    assert!(!evaluations.is_empty());
+
+    let mut repeat_cache =
+        RunEvaluationCache::prepare(&grammar, &prepared, RuntimeBudget::default());
+    let repeated_evaluations = evaluate_plans_with_cache(
+        &grammar,
+        &plans,
+        &requested,
+        RuntimeBudget::default(),
+        &mut repeat_cache,
+    );
+    assert_eq!(
+        evaluations
+            .iter()
+            .map(|evaluation| &evaluation.certification)
+            .collect::<Vec<_>>(),
+        repeated_evaluations
+            .iter()
+            .map(|evaluation| &evaluation.certification)
+            .collect::<Vec<_>>()
+    );
+
+    let ranked = evaluations
+        .iter()
+        .enumerate()
+        .map(|(index, evaluation)| {
+            (
+                format!("candidate-{index}"),
+                evaluation.certification.clone(),
+                evaluation.score,
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(select_confirmed(&ranked), None);
+    assert!(pareto_frontier(&ranked).is_empty());
+
+    for evaluation in evaluations {
+        let Certification::Truncated { ref corpus, .. } = evaluation.certification else {
+            panic!("an excess duplicate occurrence must truncate: {evaluation:?}");
+        };
+        let corpus = corpus
+            .as_ref()
+            .expect("truncation must carry duplicate occurrence evidence");
+        assert_eq!(
+            (corpus.requested, corpus.included, corpus.excluded),
+            (2, 1, 1)
+        );
+        assert_ne!(corpus.requested_hash, corpus.included_hash);
+        assert_ne!(corpus.excluded_hash, corpus.included_hash);
+        assert_ne!(corpus.excluded_hash, corpus.requested_hash);
+        assert_eq!(corpus.exclusions.len(), 1);
+        let exclusion = serde_json::to_value(&corpus.exclusions[0])
+            .expect("duplicate exclusion evidence must be serializable");
+        assert_eq!(exclusion["requested_ordinal"], 1);
+        assert_eq!(exclusion["word"], "tulik");
+        assert_eq!(exclusion["reason"], "corpus-row-not-prepared");
+    }
+}
+
+#[test]
+fn unrelated_excluded_prepared_row_does_not_poison_requested_pilot_subset() {
+    let (grammar, _) = fixture();
+    let plans = plans(&grammar);
+    let prepared = vec!["tulik".to_string(), "menulik".to_string()];
+    let requested = vec!["tulik".to_string()];
+    let mut cache = RunEvaluationCache::prepare(
+        &grammar,
+        &prepared,
+        RuntimeBudget {
+            oracle_step_cap: Some(5),
+            ..RuntimeBudget::default()
+        },
+    );
+
+    let evaluations = evaluate_plans_with_cache(
+        &grammar,
+        &plans,
+        &requested,
+        RuntimeBudget {
+            oracle_step_cap: Some(5),
+            ..RuntimeBudget::default()
+        },
+        &mut cache,
+    );
+    assert!(
+        evaluations
+            .iter()
+            .any(|evaluation| evaluation.certification.selectable()),
+        "a complete requested pilot occurrence must remain certifiable even when an unrelated prepared row is excluded: {evaluations:?}"
+    );
+    assert!(evaluations.iter().all(|evaluation| {
+        !matches!(
+            evaluation.certification,
+            Certification::Truncated {
+                corpus: Some(_),
+                ..
+            }
+        )
+    }));
 }

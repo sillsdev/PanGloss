@@ -64,7 +64,7 @@ impl PreparedCorpus {
         let mut exclusions = Vec::new();
         let mut capped = false;
         let mut timed_out = false;
-        for word in requested {
+        for (requested_ordinal, word) in requested.iter().enumerate() {
             let Some((index, prepared)) = self
                 .words
                 .iter()
@@ -72,6 +72,7 @@ impl PreparedCorpus {
                 .find(|(index, prepared)| !used[*index] && prepared.word == *word)
             else {
                 exclusions.push(CorpusExclusion {
+                    requested_ordinal: requested_ordinal as u64,
                     word: word.clone(),
                     reason: "corpus-row-not-prepared".into(),
                 });
@@ -91,6 +92,7 @@ impl PreparedCorpus {
                     (false, false) => "oracle-excluded",
                 };
                 exclusions.push(CorpusExclusion {
+                    requested_ordinal: requested_ordinal as u64,
                     word: word.clone(),
                     reason: reason.into(),
                 });
@@ -158,6 +160,15 @@ impl RunEvaluationCache {
 
 fn elapsed_ns(started: Instant) -> u64 {
     u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX)
+}
+
+fn corpus_hash(words: &[String]) -> String {
+    let mut hash = Sha256::new();
+    for word in words {
+        hash.update((word.len() as u64).to_le_bytes());
+        hash.update(word.as_bytes());
+    }
+    format!("{:x}", hash.finalize())
 }
 
 /// Default oracle (ground-truth `pg_parse::Morpher`) step cap, used whenever
@@ -276,33 +287,12 @@ pub fn certify_word(
     }
 }
 
-fn corpus_hash(words: &[String]) -> String {
-    let mut hash = Sha256::new();
-    for word in words {
-        hash.update((word.len() as u64).to_le_bytes());
-        hash.update(word.as_bytes());
-    }
-    format!("{:x}", hash.finalize())
-}
-
 fn corpus_completeness_evidence(
     requested: &[String],
     included: &[String],
     exclusions: &[CorpusExclusion],
 ) -> CorpusCompletenessEvidence {
-    let excluded = exclusions
-        .iter()
-        .map(|exclusion| exclusion.word.clone())
-        .collect::<Vec<_>>();
-    CorpusCompletenessEvidence {
-        requested: requested.len() as u64,
-        included: included.len() as u64,
-        excluded: excluded.len() as u64,
-        requested_hash: corpus_hash(requested),
-        included_hash: corpus_hash(included),
-        excluded_hash: corpus_hash(&excluded),
-        exclusions: exclusions.to_vec(),
-    }
+    CorpusCompletenessEvidence::from_selection(requested, included, exclusions.to_vec())
 }
 
 pub fn certify_corpus(
