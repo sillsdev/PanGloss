@@ -18,7 +18,9 @@ use pg_foma::recipe_registry::{Registry, FAMILY_ORDERED_MORPHOPHONOLOGY, REGISTR
 use pg_foma::recipe_report::{
     CandidateReport, PruningWaterfall, RecipeOptimizationReport, SearchAccounting,
 };
-use pg_foma::recipe_runtime::{evaluate_plans_marked, RuntimeBudget};
+use pg_foma::recipe_runtime::{
+    evaluate_plans_marked_with_cache, RunEvaluationCache, RuntimeBudget,
+};
 use pg_foma::recipe_space::StageMeasurement;
 use pg_foma::recipe_space::{characterize, summarize_pilot};
 use sha2::{Digest, Sha256};
@@ -38,6 +40,7 @@ pub struct RecipeOptimizeArgs {
     /// `--oracle-word-timeout-ms`: overrides `RuntimeBudget::oracle_word_timeout`. Same "`None` =
     /// use the default, not unbounded" convention as `oracle_step_cap` above.
     pub oracle_word_timeout: Option<Duration>,
+    pub search_all_families: bool,
 }
 
 fn hash_bytes(bytes: &[u8]) -> String {
@@ -78,7 +81,7 @@ impl std::error::Error for RecipeOptimizeError {}
 
 pub fn parse_args(args: &[String]) -> Result<RecipeOptimizeArgs, RecipeOptimizeError> {
     if args.len() < 3 {
-        return Err(RecipeOptimizeError::Usage("usage: recipe-optimize <grammar> <words.txt> <out-dir> [--seed N] [--candidates N] [--evaluations N] [--elapsed-ns N] [--build-ns N] [--memory-bytes N] [--confirmation-work N] [--reserve-ns N] [--oracle-step-cap N] [--oracle-word-timeout-ms N]".into()));
+        return Err(RecipeOptimizeError::Usage("usage: recipe-optimize <grammar> <words.txt> <out-dir> [--seed N] [--candidates N] [--evaluations N] [--elapsed-ns N] [--build-ns N] [--memory-bytes N] [--confirmation-work N] [--reserve-ns N] [--oracle-step-cap N] [--oracle-word-timeout-ms N] [--search-all-families]".into()));
     }
     let mut r = RecipeOptimizeArgs {
         grammar: args[0].clone(),
@@ -88,12 +91,18 @@ pub fn parse_args(args: &[String]) -> Result<RecipeOptimizeArgs, RecipeOptimizeE
         budget: Budget::default(),
         oracle_step_cap: None,
         oracle_word_timeout: None,
+        search_all_families: false,
     };
     let mut i = 3;
     while i < args.len() {
         let key = args[i].strip_prefix("--").ok_or_else(|| {
             RecipeOptimizeError::Usage(format!("unexpected argument: {}", args[i]))
         })?;
+        if key == "search-all-families" {
+            r.search_all_families = true;
+            i += 1;
+            continue;
+        }
         let value = args
             .get(i + 1)
             .ok_or_else(|| RecipeOptimizeError::Usage(format!("missing value for --{key}")))?;
@@ -153,6 +162,7 @@ struct Evaluator<'a> {
     capability: pg_foma::capability::PredicateRegistry,
     oracle_step_cap: Option<usize>,
     oracle_word_timeout: Option<Duration>,
+    cache: &'a mut RunEvaluationCache,
 }
 impl CandidateEvaluator for Evaluator<'_> {
     fn evaluate(&mut self, c: &CandidateState, remaining: Budget) -> ConfirmationEvidence {
@@ -174,7 +184,7 @@ impl CandidateEvaluator for Evaluator<'_> {
         // `c.baseline`, not position: this evaluator is called once per candidate with a
         // single-element slice, so a positional baseline test would answer `true` for every
         // candidate and route each permutation down the baseline-only path.
-        let e = evaluate_plans_marked(
+        let e = evaluate_plans_marked_with_cache(
             self.grammar,
             std::slice::from_ref(plan),
             self.words,
@@ -186,6 +196,7 @@ impl CandidateEvaluator for Evaluator<'_> {
                 ..Default::default()
             },
             &[c.baseline],
+            self.cache,
         )
         .remove(0);
         self.realized
@@ -244,6 +255,16 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
         .filter(|s| !s.is_empty())
         .map(str::to_owned)
         .collect::<Vec<_>>();
+
+    let mut run_cache = RunEvaluationCache::prepare(
+        &grammar,
+        &words,
+        RuntimeBudget {
+            oracle_step_cap: a.oracle_step_cap,
+            oracle_word_timeout: a.oracle_word_timeout,
+            ..Default::default()
+        },
+    );
     let alphabet = pg_foma::replace::SegAlphabet::new(&grammar.char_tables[0]);
     let prules = grammar
         .strata
@@ -270,8 +291,16 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
     // just what survived applicability -- otherwise `inapplicable` is structurally unreachable and
     // renders as a permanent, unfalsifiable `0` (the same false-zero that doc criticises for
     // `N_syntactic`, and `reconciles()` cannot catch it because both sides drop the same term).
+    let facts = &characterization.facts;
+    let compositional = facts.ordering_dependencies == 0
+        && facts.gated_subrules == 0
+        && facts.partitions <= 1
+        && facts.morphology_layers <= 1;
     let offered_instances = registry.instances().len() as u64;
-    let mut instances = registry.instances_for_grammar(&grammar);
+    let applicable_instances = registry.instances_for_grammar(&grammar);
+    let inapplicable = offered_instances.saturating_sub(applicable_instances.len() as u64);
+    let (mut instances, declared_not_searched) =
+        registry.instances_for_search(&grammar, compositional, a.search_all_families);
     instances.sort_by_key(|instance| {
         let baseline = instance.family_id == FAMILY_ORDERED_MORPHOPHONOLOGY
             && instance
@@ -325,7 +354,6 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
             strategy: pg_foma::enumerate::EmissionStrategy::PlanComposed,
         },
     );
-    let inapplicable = offered_instances.saturating_sub(instances.len() as u64);
     // The `1` is the baseline plan, generated directly rather than through a family.
     let production_generated = 1u64.saturating_add(offered_instances);
     for instance in instances {
@@ -413,7 +441,7 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
             continue;
         }
         // Same single-element-slice caveat as the main evaluator: state the baseline explicitly.
-        let eval = evaluate_plans_marked(
+        let eval = evaluate_plans_marked_with_cache(
             &grammar,
             std::slice::from_ref(plan),
             &pilot_words,
@@ -425,6 +453,7 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
                 ..Default::default()
             },
             &[state.baseline],
+            &mut run_cache,
         )
         .remove(0);
         pilot_build = pilot_build.saturating_add(eval.score.build);
@@ -440,13 +469,9 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
     }
     let pilot = summarize_pilot(&measurements, a.seed);
     let strong_pruning = pilot.pruning_ratio_ppm >= policy.strong_pruning_ppm;
-    let facts = &characterization.facts;
     let topology = ConstraintTopology {
         strong_pruning,
-        compositional: facts.ordering_dependencies == 0
-            && facts.gated_subrules == 0
-            && facts.partitions <= 1
-            && facts.morphology_layers <= 1,
+        compositional,
     };
     let presearch_elapsed = elapsed_ns(run_started);
     let mut search_budget = a.budget;
@@ -489,6 +514,7 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
         capability,
         oracle_step_cap: a.oracle_step_cap,
         oracle_word_timeout: a.oracle_word_timeout,
+        cache: &mut run_cache,
     };
     let mut outcome = optimize_with_evaluator(
         &states,
@@ -610,6 +636,10 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
         replay_parameters: BTreeMap::from([
             ("seed".into(), a.seed.to_string()),
             (
+                "search_all_families".into(),
+                a.search_all_families.to_string(),
+            ),
+            (
                 "registry_schema_version".into(),
                 REGISTRY_SCHEMA_VERSION.to_string(),
             ),
@@ -640,6 +670,7 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
             generated: production_generated,
             inapplicable,
             duplicates,
+            declared_not_searched,
             materialization_rejects,
             capability_rejected,
             evaluated: outcome.evaluated.len() as u64,
@@ -660,6 +691,7 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
             unexplored: outcome.search.unexplored,
             unexplored_method: "search accounting".into(),
             overflowed: false,
+            declared_not_searched,
         },
         termination: outcome.search.termination,
         baseline: baseline_id,
@@ -831,7 +863,29 @@ fn run_recipe_optimize_supervised(args: &[String]) -> Result<(), RecipeOptimizeE
 
 #[cfg(test)]
 mod tests {
-    use super::assert_pruned_is_structurally_zero;
+    use super::{assert_pruned_is_structurally_zero, parse_args, RecipeOptimizeError};
+
+    #[test]
+    fn usage_documents_search_all_families_replay_flag() {
+        let error = parse_args(&["grammar.xml".into(), "words.txt".into()]).unwrap_err();
+        match error {
+            RecipeOptimizeError::Usage(message) => {
+                assert!(message.contains("--search-all-families"));
+            }
+            other => panic!("expected usage error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn search_all_families_parses_as_replay_opt_in() {
+        let args = vec![
+            "grammar.xml".into(),
+            "words.txt".into(),
+            "out".into(),
+            "--search-all-families".into(),
+        ];
+        assert!(parse_args(&args).unwrap().search_all_families);
+    }
 
     #[test]
     fn production_search_accounting_rejects_nonzero_pruned_count() {

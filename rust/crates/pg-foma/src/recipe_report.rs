@@ -25,6 +25,8 @@ pub struct PruningWaterfall {
     pub generated: u64,
     pub inapplicable: u64,
     pub duplicates: u64,
+    #[serde(default)]
+    pub declared_not_searched: u64,
     pub materialization_rejects: u64,
     pub capability_rejected: u64,
     pub build_failures: u64,
@@ -44,6 +46,7 @@ impl PruningWaterfall {
         self.generated
             == self
                 .inapplicable
+                .saturating_add(self.declared_not_searched)
                 .saturating_add(self.duplicates)
                 .saturating_add(self.materialization_rejects)
                 .saturating_add(self.capability_rejected)
@@ -74,6 +77,8 @@ pub struct SearchAccounting {
     pub unexplored: u64,
     pub unexplored_method: String,
     pub overflowed: bool,
+    #[serde(default)]
+    pub declared_not_searched: u64,
 }
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct RecipeOptimizationReport {
@@ -213,6 +218,7 @@ mod tests {
                 pruned: 0,
                 unexplored_method: "none".into(),
                 overflowed: false,
+                declared_not_searched: 0,
             },
             termination: Termination::Complete,
             baseline: Some("b".into()),
@@ -263,9 +269,10 @@ mod tests {
     #[test]
     fn waterfall_reconciles_without_counting_confirmation_twice() {
         let waterfall = PruningWaterfall {
-            generated: 10,
+            generated: 12,
             inapplicable: 1,
             duplicates: 1,
+            declared_not_searched: 2,
             materialization_rejects: 1,
             capability_rejected: 1,
             build_failures: 1,
@@ -341,6 +348,7 @@ mod tests {
             pruning: PruningWaterfall::default(),
             search: SearchAccounting {
                 unexplored_method: "none".into(),
+                declared_not_searched: 0,
                 ..SearchAccounting::default()
             },
             termination: Termination::NoCandidates,

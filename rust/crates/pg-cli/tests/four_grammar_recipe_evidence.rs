@@ -22,6 +22,7 @@ fn repo_file(relative: &str) -> PathBuf {
 fn accounted_pruning(report: &Value, label: &str) -> Value {
     let pruning = &report["pruning"];
     let accounted = [
+        "declared_not_searched",
         "inapplicable",
         "duplicates",
         "materialization_rejects",
@@ -118,7 +119,7 @@ fn run_fixture(fixture: &str, root: &Path) -> Value {
     serde_json::from_str(&fs::read_to_string(out.join("report.json")).unwrap()).unwrap()
 }
 
-fn run_template_characterization(root: &Path) -> Value {
+fn run_template_characterization(root: &Path, search_all_families: bool) -> Value {
     let fixture = "edge-cases/recipe-template-generic";
     let out = root.join(fixture.replace('/', "-"));
     let words = word_file_from(
@@ -133,22 +134,26 @@ fn run_template_characterization(root: &Path) -> Value {
         },
     );
     let grammar = repo_file("conformance-staging/edge-cases/recipe-template-generic/grammar.xml");
-    let status = Command::new(env!("CARGO_BIN_EXE_pangloss"))
-        .args([
-            "recipe-optimize",
-            grammar.to_str().unwrap(),
-            words.to_str().unwrap(),
-            out.to_str().unwrap(),
-            "--seed",
-            "17",
-            // Same reason as `run_fixture`: sized to the registry, not to a historical count.
-            "--candidates",
-            "32",
-            "--evaluations",
-            "64",
-            "--elapsed-ns",
-            "5000000000",
-        ])
+    let mut command = Command::new(env!("CARGO_BIN_EXE_pangloss"));
+    command.args([
+        "recipe-optimize",
+        grammar.to_str().unwrap(),
+        words.to_str().unwrap(),
+        out.to_str().unwrap(),
+        "--seed",
+        "17",
+        // Same reason as `run_fixture`: sized to the registry, not to a historical count.
+        "--candidates",
+        "32",
+        "--evaluations",
+        "64",
+        "--elapsed-ns",
+        "5000000000",
+    ]);
+    if search_all_families {
+        command.arg("--search-all-families");
+    }
+    let status = command
         .status()
         .expect("bounded template characterization must start");
     assert!(
@@ -182,6 +187,7 @@ fn four_promoted_grammars_have_truthful_recipe_evidence() {
     assert!(mpr["usage"]["memory_peak"].as_u64().unwrap() > 0);
     assert_eq!(mpr["replay_parameters"]["beam_width"], "16");
     assert_eq!(mpr["replay_parameters"]["pilot_candidate_cap"], "8");
+    assert_eq!(mpr["replay_parameters"]["search_all_families"], "false");
     accounted_pruning(&mpr, "mpr-gated-exception");
     assert_eq!(mpr["candidates"].as_array().unwrap().len(), 5);
     // Pin the new axis by id, not just by count: a count alone would still pass if the
@@ -322,7 +328,7 @@ fn four_promoted_grammars_have_truthful_recipe_evidence() {
         }
     }
 
-    let template = run_template_characterization(&root);
+    let template = run_template_characterization(&root, false);
     assert_eq!(template["termination"], "complete");
     assert_eq!(template["quality"], "exact");
     // 9 seeded families: the seven original plan-rewrite families plus the two whole-grammar
@@ -344,17 +350,12 @@ fn four_promoted_grammars_have_truthful_recipe_evidence() {
     assert_eq!(template["counts"]["feasible"]["value"], 3);
     assert_eq!(template["pilot"]["sample_size"], 3);
     assert_eq!(template["winner_strategy"], "plan-composed");
-    // 2, not 3: this fixture has ONE lexical entry, so `specialized-branch` -- now gated on
-    // `HasSplittableGateGroup` (>= 2 entries) rather than `HasMorphology` -- is rejected by
-    // applicability instead of being materialized into a byte-identical copy of the baseline and
-    // then deduped. It moved from `duplicates` into `inapplicable`, which this report only began
-    // reporting truthfully alongside that change: the CLI used to hardcode `inapplicable: 0` and
-    // count only APPLICABLE instances in `generated`, so the bucket balanced while being blind.
-    // Unaffected by the `HasPhonologyOrTemplates` widening: `token-cascade-morphology` moved the
-    // OTHER direction (`inapplicable` -> a real, surviving candidate), so `duplicates` itself does
-    // not move; see the `inapplicable` bound immediately below for that count's own update.
+    // One syntactic duplicate remains, while one applicable plan-rewrite instance is declared
+    // not searched by the recorded compositional-topology policy. The single-entry applicability
+    // predicate still accounts for `specialized-branch` separately as `inapplicable`.
     let template_pruning = accounted_pruning(&template, "recipe-template-generic");
-    assert_eq!(template_pruning["duplicates"], 2);
+    assert_eq!(template_pruning["duplicates"], 1);
+    assert_eq!(template_pruning["declared_not_searched"], 1);
     assert!(
         template_pruning["inapplicable"].as_u64().unwrap() >= 4,
         "a one-entry, single-stratum, metathesis-free grammar admits only a minority of the seven \
@@ -366,6 +367,14 @@ fn four_promoted_grammars_have_truthful_recipe_evidence() {
     assert_eq!(template["pruning"]["evaluated"], 3);
     assert_eq!(template["pruning"]["confirmed"], 3);
     assert_eq!(template["strategy"], "exhaustive");
+    let template_opt_in = run_template_characterization(&root, true);
+    assert_eq!(
+        template_opt_in["replay_parameters"]["search_all_families"],
+        "true"
+    );
+    assert_eq!(template_opt_in["pruning"]["declared_not_searched"], 0);
+    assert_eq!(template_opt_in["pruning"]["duplicates"], 2);
+    assert_eq!(template_opt_in["pruning"]["evaluated"], 3);
 
     let deep_fixture = "edge-cases/deep-optional-affix-nesting";
     let deep_out = root.join("deep-timeout");

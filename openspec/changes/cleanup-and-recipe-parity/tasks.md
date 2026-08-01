@@ -14,7 +14,7 @@ All work on branch `cleanup-and-recipe-parity` (one worktree), never on `main`.
       `build_failed`. Files: `plan.rs`, `plan_diagram.rs`, `plan_interaction_coverage.rs`,
       `build.rs` (guard only), `oracle.rs` (guard only), `recipe_registry.rs`,
       `recipe_optimizer.rs`, `recipe_runtime.rs`, `recipe_report.rs`, `pg-cli/recipe_optimize.rs`.
-- [ ] 1.2 Search efficiency: declared-not-searched tie families with `--search-all-families`
+- [x] 1.2 Search efficiency: declared-not-searched tie families with `--search-all-families`
       opt-in and `declared_not_searched` report count; hoist oracle ground truth + exclusion
       latch into a run-scoped cache; lazy emission report computed only in the `PlanComposed`
       arm (kills the surface-probe double emit); score-invariance test on a pinned fixture.

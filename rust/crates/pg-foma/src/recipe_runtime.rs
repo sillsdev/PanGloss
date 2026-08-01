@@ -13,6 +13,137 @@ use pg_grammar::model::{Grammar, PhonRuleDef};
 use pg_parse::WordAnalysis;
 use sha2::{Digest, Sha256};
 use std::time::{Duration, Instant};
+#[derive(Debug, Clone)]
+struct PreparedWord {
+    word: String,
+    expected: Option<Vec<WordAnalysis>>,
+    capped: bool,
+    timed_out: bool,
+}
+
+/// A run-scoped corpus prepared once from the oracle. The ground truth and exclusion latches are
+/// shared by the pilot and every candidate evaluation in that run.
+#[derive(Debug)]
+pub struct PreparedCorpus {
+    words: Vec<PreparedWord>,
+    oracle_calls: usize,
+    capped: bool,
+    timed_out: bool,
+}
+
+impl PreparedCorpus {
+    pub fn prepare(grammar: &Grammar, words: &[String], budget: RuntimeBudget) -> Self {
+        let cap = budget.oracle_step_cap.unwrap_or(DEFAULT_ORACLE_STEP_CAP);
+        let timeout = budget
+            .oracle_word_timeout
+            .unwrap_or(DEFAULT_ORACLE_WORD_TIMEOUT);
+        let morpher = pg_parse::Morpher::new(grammar, cap).with_word_timeout(Some(timeout));
+        let mut records = Vec::with_capacity(words.len());
+        let mut capped = false;
+        let mut timed_out = false;
+        for word in words {
+            let outcome = morpher.parse_word(word);
+            capped |= outcome.capped;
+            timed_out |= outcome.timed_out;
+            records.push(PreparedWord {
+                word: word.clone(),
+                expected: (!outcome.capped && !outcome.timed_out).then_some(outcome.structured),
+                capped: outcome.capped,
+                timed_out: outcome.timed_out,
+            });
+        }
+        Self {
+            words: records,
+            oracle_calls: words.len(),
+            capped,
+            timed_out,
+        }
+    }
+
+    pub fn oracle_calls(&self) -> usize {
+        self.oracle_calls
+    }
+
+    fn select(&self, requested: &[String]) -> PreparedSelection {
+        let mut used = vec![false; self.words.len()];
+        let mut comparable = Vec::new();
+        let mut expected = Vec::new();
+        let mut capped = self.capped;
+        let mut timed_out = self.timed_out;
+        for word in requested {
+            let Some((index, prepared)) = self
+                .words
+                .iter()
+                .enumerate()
+                .find(|(index, prepared)| !used[*index] && prepared.word == *word)
+            else {
+                continue;
+            };
+            used[index] = true;
+            capped |= prepared.capped;
+            timed_out |= prepared.timed_out;
+            if let Some(analyses) = &prepared.expected {
+                comparable.push(word.clone());
+                expected.push((word.clone(), analyses.clone()));
+            }
+        }
+        PreparedSelection {
+            comparable,
+            expected,
+            capped,
+            timed_out,
+        }
+    }
+}
+
+#[derive(Debug)]
+struct PreparedSelection {
+    comparable: Vec<String>,
+    expected: Vec<(String, Vec<WordAnalysis>)>,
+    capped: bool,
+    timed_out: bool,
+}
+
+/// All prepared, reusable evaluation inputs for one optimizer run.
+#[derive(Debug)]
+pub struct RunEvaluationCache {
+    corpus: PreparedCorpus,
+    emission_report: Option<crate::emit::EmitReport>,
+    emission_report_calls: usize,
+}
+
+impl RunEvaluationCache {
+    pub fn prepare(grammar: &Grammar, words: &[String], budget: RuntimeBudget) -> Self {
+        Self {
+            corpus: PreparedCorpus::prepare(grammar, words, budget),
+            emission_report: None,
+            emission_report_calls: 0,
+        }
+    }
+
+    pub fn oracle_calls(&self) -> usize {
+        self.corpus.oracle_calls()
+    }
+
+    pub fn emission_report_calls(&self) -> usize {
+        self.emission_report_calls
+    }
+
+    fn select(&self, words: &[String]) -> PreparedSelection {
+        self.corpus.select(words)
+    }
+
+    fn emission_report(&mut self, grammar: &Grammar) -> crate::emit::EmitReport {
+        if self.emission_report.is_none() {
+            self.emission_report_calls += 1;
+            self.emission_report = Some(crate::emit::emit(grammar).report);
+        }
+        self.emission_report
+            .as_ref()
+            .expect("emission report was initialized")
+            .clone()
+    }
+}
 
 fn elapsed_ns(started: Instant) -> u64 {
     u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX)
@@ -448,6 +579,30 @@ pub fn evaluate_plans(
     evaluate_plans_marked(grammar, plans, words, budget, &flags)
 }
 
+/// Compatibility wrapper that prepares an isolated corpus for callers outside the optimizer run.
+pub fn evaluate_plans_marked(
+    grammar: &Grammar,
+    plans: &[CandidatePlan],
+    words: &[String],
+    budget: RuntimeBudget,
+    is_baseline: &[bool],
+) -> Vec<RuntimeEvaluation> {
+    let mut cache = RunEvaluationCache::prepare(grammar, words, budget);
+    evaluate_plans_marked_with_cache(grammar, plans, words, budget, is_baseline, &mut cache)
+}
+
+/// Evaluate candidates against a caller-owned run cache while preserving the positional baseline
+/// contract of [`evaluate_plans`].
+pub fn evaluate_plans_with_cache(
+    grammar: &Grammar,
+    plans: &[CandidatePlan],
+    words: &[String],
+    budget: RuntimeBudget,
+    cache: &mut RunEvaluationCache,
+) -> Vec<RuntimeEvaluation> {
+    let flags: Vec<bool> = (0..plans.len()).map(|i| i == 0).collect();
+    evaluate_plans_marked_with_cache(grammar, plans, words, budget, &flags, cache)
+}
 /// [`evaluate_plans`], but the caller states which plans are the baseline instead of relying on
 /// position.
 ///
@@ -458,12 +613,13 @@ pub fn evaluate_plans(
 /// every permutation of a marker-requiring plan took the baseline's tuned-emit route and was reported
 /// as confirmed with the baseline's own network counts. `pg_foma`'s optimizer already tracks
 /// `CandidateState::baseline`, so the caller can simply say.
-pub fn evaluate_plans_marked(
+pub fn evaluate_plans_marked_with_cache(
     grammar: &Grammar,
     plans: &[CandidatePlan],
     words: &[String],
     budget: RuntimeBudget,
     is_baseline: &[bool],
+    cache: &mut RunEvaluationCache,
 ) -> Vec<RuntimeEvaluation> {
     assert_eq!(
         plans.len(),
@@ -485,41 +641,11 @@ pub fn evaluate_plans_marked(
             .filter(|limit| *limit != u64::MAX)
             .map(std::time::Duration::from_nanos),
     );
-    let oracle_cap = budget.oracle_step_cap.unwrap_or(DEFAULT_ORACLE_STEP_CAP);
-    let oracle_timeout = budget
-        .oracle_word_timeout
-        .unwrap_or(DEFAULT_ORACLE_WORD_TIMEOUT);
-    let morpher =
-        pg_parse::Morpher::new(grammar, oracle_cap).with_word_timeout(Some(oracle_timeout));
-    // `capped`/`timed_out` are per-word, but the certification hazard is corpus-wide: ONE truncated
-    // word's `expected` is a partial ground truth, and `certify_corpus` compares the whole corpus as
-    // one multiset-of-multisets. Latching a single corpus-wide flag (rather than trying to salvage
-    // the untruncated words) is deliberate — see the guard immediately below, which must fire before
-    // ANY plan in `plans` is built, not per-plan, since every plan in this call shares this same
-    // `expected`.
-    let mut oracle_capped = false;
-    let mut oracle_timed_out = false;
-    // A truncated word is EXCLUDED from the comparison rather than failing the whole corpus.
-    //
-    // Failing the corpus was tried first and is unusable as a default: with any finite cap, a single
-    // pathological word in a real corpus makes every candidate non-certifying, so no real grammar
-    // could ever confirm again. Excluding the word instead matches what this repo already does
-    // elsewhere -- `tests/p6_gate_parity.rs` skips words whose oracle times out and measures recall
-    // over the remainder -- and it is the only option that is both honest and useful: the FST is never
-    // compared against a partial ground truth, and the words whose ground truth IS complete still
-    // certify normally.
-    let mut comparable: Vec<String> = Vec::new();
-    let mut expected: Vec<(String, Vec<WordAnalysis>)> = Vec::new();
-    for w in words {
-        let outcome = morpher.parse_word(w);
-        if outcome.capped || outcome.timed_out {
-            oracle_capped |= outcome.capped;
-            oracle_timed_out |= outcome.timed_out;
-            continue;
-        }
-        comparable.push(w.clone());
-        expected.push((w.clone(), outcome.structured));
-    }
+    let selection = cache.select(words);
+    let comparable = selection.comparable;
+    let expected = selection.expected;
+    let oracle_capped = selection.capped;
+    let oracle_timed_out = selection.timed_out;
     let words = &comparable[..];
     // CRITICAL: a capped or timed-out oracle result must NEVER reach `certify_corpus`. The FST side
     // may legitimately produce analyses the truncated oracle never found — that would surface as a
@@ -556,7 +682,6 @@ pub fn evaluate_plans_marked(
             })
             .collect();
     }
-    let report = crate::emit::emit(grammar).report;
     plans
         .iter()
         .enumerate()
@@ -574,6 +699,9 @@ pub fn evaluate_plans_marked(
                     return evaluate_via_templated_emit(grammar, words, &expected, budget)
                 }
             }
+            // Only the plan-composed strategy consumes this report, so whole-grammar candidates
+            // do not pay an unconditional duplicate emission.
+            let report = cache.emission_report(grammar);
             let t = Instant::now();
             let built = build_candidate(candidate, &opts, grammar, &alphabet, &prules, &compose);
             let build = elapsed_ns(t).max(1);
@@ -728,7 +856,7 @@ pub fn evaluate_plans_marked(
                     ),
                 },
                 score,
-            }
+        }
         })
         .collect()
 }

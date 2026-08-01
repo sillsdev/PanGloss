@@ -134,12 +134,30 @@ pub struct Provenance {
     pub attested: bool,
 }
 
+/// Recorded registry evidence that a family is a plan rewrite whose relation is already
+/// represented by the compositional topology. This is policy metadata, not a runtime tie
+/// detector: the optimizer can exclude the family before materializing or evaluating a candidate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum FamilySearchPolicy {
+    AlwaysSearch,
+    SkipOnCompositionalTopology,
+}
+
+impl Default for FamilySearchPolicy {
+    fn default() -> Self {
+        Self::AlwaysSearch
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RecipeFamily {
     pub id: String,
     pub version: u16,
     pub parameters: Vec<Parameter>,
     pub applicability: Applicability,
+    #[serde(default)]
+    pub search_policy: FamilySearchPolicy,
     #[serde(default)]
     pub ordering: Vec<OrderingConstraint>,
     pub provenance: Provenance,
@@ -423,6 +441,35 @@ impl Registry {
         self.instances_matching(|family| family.applicability.matches(grammar))
     }
 
+    /// Return the applicable instances that are licensed for this run. The exclusion count is
+    /// intentionally separate from syntactic deduplication and optimizer budget pruning.
+    pub fn instances_for_search(
+        &self,
+        grammar: &Grammar,
+        compositional_topology: bool,
+        search_all_families: bool,
+    ) -> (Vec<RecipeInstance>, u64) {
+        let mut declared_not_searched = 0u64;
+        let instances = self
+            .families
+            .values()
+            .filter(|family| family.applicability.matches(grammar))
+            .flat_map(expand_family)
+            .filter(|instance| {
+                let skip = compositional_topology
+                    && !search_all_families
+                    && self.family(&instance.family_id).is_some_and(|family| {
+                        family.search_policy == FamilySearchPolicy::SkipOnCompositionalTopology
+                    });
+                if skip {
+                    declared_not_searched += 1;
+                }
+                !skip
+            })
+            .collect();
+        (instances, declared_not_searched)
+    }
+
     fn instances_matching(&self, predicate: impl Fn(&RecipeFamily) -> bool) -> Vec<RecipeInstance> {
         self.families
             .values()
@@ -622,6 +669,18 @@ impl SeededFamily {
                 depends_on: Vec::new(),
             }],
             applicability: self.applicability,
+            // Registry minimization evidence records that these exact plan-rewrite transforms
+            // preserve the compositional relation. The production gate is structural and runs
+            // before pilot/evaluation; it never builds a candidate to discover a tie.
+            search_policy: match self.transform {
+                SafeTransform::Identity => FamilySearchPolicy::AlwaysSearch,
+                SafeTransform::GatePermutation
+                | SafeTransform::UnionPermutation
+                | SafeTransform::PartitionBisect
+                | SafeTransform::PartitionFanOut => {
+                    FamilySearchPolicy::SkipOnCompositionalTopology
+                }
+            },
             ordering: self
                 .ordering
                 .iter()
@@ -796,6 +855,7 @@ mod tests {
                 depends_on: Vec::new(),
             }],
             applicability: Applicability::Always,
+            search_policy: FamilySearchPolicy::AlwaysSearch,
             ordering: Vec::new(),
             provenance: Provenance {
                 source: "synthetic".to_owned(),
@@ -940,5 +1000,58 @@ mod tests {
             1,
             "identical Plans from different families deduplicate by root NodeId"
         );
+    }
+    #[test]
+    fn policy_exclusions_happen_before_materialization_and_opt_in_restores_instances() {
+        let grammar = minimal_grammar();
+        let mut registry = Registry::new(REGISTRY_SCHEMA_VERSION).unwrap();
+        let mut tie_family = family("synthetic-tie");
+        tie_family.search_policy = FamilySearchPolicy::SkipOnCompositionalTopology;
+        registry
+            .register_family(
+                tie_family,
+                Box::new(
+                    |_instance: &RecipeInstance, context: &MaterializerContext<'_>| {
+                        Ok(CandidatePlan {
+                            label: "synthetic-tie",
+                            plan: context.baseline.clone(),
+                            strategy: EmissionStrategy::PlanComposed,
+                        })
+                    },
+                ),
+            )
+            .unwrap();
+
+        let (default_instances, declared_not_searched) =
+            registry.instances_for_search(&grammar, true, false);
+        assert!(default_instances.is_empty());
+        assert_eq!(declared_not_searched, 1);
+
+        let (all_instances, opt_in_declared_not_searched) =
+            registry.instances_for_search(&grammar, true, true);
+        assert_eq!(all_instances.len(), 1);
+        assert_eq!(opt_in_declared_not_searched, 0);
+    }
+
+    #[test]
+    fn seeded_tie_policy_names_exactly_the_recorded_plan_rewrite_families() {
+        let registry = Registry::seeded();
+        let actual = registry
+            .families()
+            .filter(|family| {
+                family.search_policy == FamilySearchPolicy::SkipOnCompositionalTopology
+            })
+            .map(|family| family.id.as_str())
+            .collect::<BTreeSet<_>>();
+        let expected = [
+            FAMILY_CLASS_EXCEPTION_CASCADE,
+            FAMILY_COMPLETE_TEMPLATE,
+            FAMILY_SPECIALIZED_BRANCH,
+            FAMILY_COPY_BRANCH,
+            FAMILY_LAYERED_MORPHOLOGY,
+        ]
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+        assert_eq!(actual, expected);
     }
 }
