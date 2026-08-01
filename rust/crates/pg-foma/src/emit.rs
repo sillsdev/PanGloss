@@ -311,7 +311,7 @@ pub struct UncoveredItem {
     pub reason: String,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct EmitCounts {
     /// `Grammar::entries.len()` (grammar-wide lexical entry count).
     pub entries: usize,
@@ -388,7 +388,7 @@ pub struct EnumBudgetExceeded {
     pub limit: usize,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EmitReport {
     pub uncovered: Vec<UncoveredItem>,
     pub counts: EmitCounts,
@@ -3045,6 +3045,37 @@ pub(crate) fn emit_with_budget(
     emit_with_budget_profiled(g, precision, enum_budget, None)
 }
 
+/// The two deliberate seams in the tuned surface emitter.  The default remains the historical
+/// behavior: derive topology from the reified plan and admit every collected root.  Keeping these
+/// choices together makes a later, separately-measured experiment explicit without changing this
+/// refactor's behavior or widening the plan language.
+#[derive(Clone, Copy, Debug)]
+struct SurfaceEmitStrategy {
+    derivation: SurfaceDerivationPolicy,
+    root_scope: SurfaceRootScopePolicy,
+}
+
+impl Default for SurfaceEmitStrategy {
+    fn default() -> Self {
+        Self {
+            derivation: SurfaceDerivationPolicy::ReifiedPlan,
+            root_scope: SurfaceRootScopePolicy::AllRoots,
+        }
+    }
+}
+
+/// Decides which already-defined plan topology controls surface emission.
+#[derive(Clone, Copy, Debug)]
+enum SurfaceDerivationPolicy {
+    ReifiedPlan,
+}
+
+/// Decides which collected roots the surface emitter may admit.
+#[derive(Clone, Copy, Debug)]
+enum SurfaceRootScopePolicy {
+    AllRoots,
+}
+
 /// [`emit_with_budget`]'s real core, with an optional compile-profile sink
 /// (`openspec/changes/profile-fst-compilation`, `crate::profile`'s own module doc "Stage
 /// boundaries") threaded through as its fourth parameter. `profile: None` is byte-for-byte
@@ -3061,7 +3092,27 @@ pub(crate) fn emit_with_budget_profiled(
     g: &Grammar,
     precision: PrecisionConfig,
     enum_budget: &crate::morphotactics::EnumerationBudget,
+    profile: Option<&mut CompileProfileBuilder>,
+) -> EmitResult {
+    emit_with_budget_profiled_with_strategy(
+        g,
+        precision,
+        enum_budget,
+        profile,
+        SurfaceEmitStrategy::default(),
+    )
+}
+
+/// [`emit_with_budget_profiled`] with an explicit surface strategy.  The compatibility wrapper
+/// above supplies [`SurfaceEmitStrategy::default`], so the existing compile-stage boundaries and
+/// emitted artifact stay exactly unchanged unless a future, separately-measured caller opts into
+/// another policy.
+fn emit_with_budget_profiled_with_strategy(
+    g: &Grammar,
+    precision: PrecisionConfig,
+    enum_budget: &crate::morphotactics::EnumerationBudget,
     mut profile: Option<&mut CompileProfileBuilder>,
+    strategy: SurfaceEmitStrategy,
 ) -> EmitResult {
     let mut stage_start = Instant::now();
     let width = tags::tag_width(g.morphemes.len());
@@ -3094,8 +3145,10 @@ pub(crate) fn emit_with_budget_profiled(
     // `plan_wants_structural_composite` (NOT a second, independent call to
     // `crate::preexpand::should_run`/`structural_candidate_rules(...).is_empty()`) are what decide
     // whether the composite-emission/structural-composite machinery below runs.
-    let (plan_wants_composite_emission, plan_wants_structural_composite) =
-        plan_topology_decisions(g, phon.as_ref());
+    let (plan_wants_composite_emission, plan_wants_structural_composite) = match strategy.derivation
+    {
+        SurfaceDerivationPolicy::ReifiedPlan => plan_topology_decisions(g, phon.as_ref()),
+    };
 
     // Gate F3 3b ("Structural composites" section above): `struct_rules` is the actual candidate
     // rule LIST [`build_structural_composites`] needs — a `Plan` leaf is an opaque marker
@@ -3121,6 +3174,9 @@ pub(crate) fn emit_with_budget_profiled(
     }
     stage_start = Instant::now();
 
+    let allowed_entries = match strategy.root_scope {
+        SurfaceRootScopePolicy::AllRoots => None,
+    };
     let roots = collect_roots(
         g,
         &mut uncovered,
@@ -3128,7 +3184,7 @@ pub(crate) fn emit_with_budget_profiled(
         phon.as_ref(),
         &rule_cache,
         morpher.as_ref(),
-        None,
+        allowed_entries,
         TextMode::SurfaceProbed,
     );
     if let Some(p) = profile.as_deref_mut() {
@@ -5389,6 +5445,80 @@ mod structural_and_pattern_tests {
     // `openspec/changes/profile-fst-compilation`: compile-profile instrumentation on the
     // production `emit_with_budget_profiled` path.
     // ---------------------------------------------------------------------------------------
+
+    /// The explicit default surface-emission strategy is an API seam only: it must retain the
+    /// existing profiled wrapper's emitted artifact exactly.  Later experiments may supply a
+    /// different strategy, but this refactor itself introduces no new searched behavior.
+    #[test]
+    fn explicit_default_surface_strategy_matches_profiled_wrapper() {
+        let g = load("languages/suffixing-extension-slot-ordering/grammar.xml");
+        let enum_budget = crate::morphotactics::EnumerationBudget::from_env();
+
+        let mut wrapper_builder = crate::profile::CompileProfileBuilder::production();
+        let through_wrapper = emit_with_budget_profiled(
+            &g,
+            PrecisionConfig::Strip,
+            &enum_budget,
+            Some(&mut wrapper_builder),
+        );
+        let wrapper_profile = wrapper_builder.finish(None, None);
+
+        let mut explicit_builder = crate::profile::CompileProfileBuilder::production();
+        let through_explicit_default = emit_with_budget_profiled_with_strategy(
+            &g,
+            PrecisionConfig::Strip,
+            &enum_budget,
+            Some(&mut explicit_builder),
+            SurfaceEmitStrategy::default(),
+        );
+        let explicit_profile = explicit_builder.finish(None, None);
+
+        assert_eq!(
+            through_explicit_default.lexc_source, through_wrapper.lexc_source,
+            "the explicit default strategy must be byte-identical to the compatibility wrapper"
+        );
+        assert_eq!(
+            through_explicit_default.report, through_wrapper.report,
+            "the explicit default strategy must preserve the complete emission report"
+        );
+        assert_eq!(
+            explicit_profile.label, wrapper_profile.label,
+            "profile label"
+        );
+        assert_eq!(
+            explicit_profile.pipeline, wrapper_profile.pipeline,
+            "profile pipeline"
+        );
+        assert_eq!(
+            explicit_profile
+                .stages
+                .iter()
+                .map(|timing| timing.stage)
+                .collect::<Vec<_>>(),
+            wrapper_profile
+                .stages
+                .iter()
+                .map(|timing| timing.stage)
+                .collect::<Vec<_>>(),
+            "the default strategy must preserve compile-stage order"
+        );
+        assert_eq!(
+            explicit_profile.group_lines, wrapper_profile.group_lines,
+            "the default strategy must preserve per-group line counts"
+        );
+        assert_eq!(
+            explicit_profile.total_lexc_lines, wrapper_profile.total_lexc_lines,
+            "the default strategy must preserve total emitted lines"
+        );
+        assert_eq!(
+            explicit_profile.final_state_count, wrapper_profile.final_state_count,
+            "the default strategy must preserve compiled state count"
+        );
+        assert_eq!(
+            explicit_profile.final_arc_count, wrapper_profile.final_arc_count,
+            "the default strategy must preserve compiled arc count"
+        );
+    }
 
     /// The profile must collect real per-stage data (not all-zero placeholders) and the total
     /// emitted-line count, on a synthetic grammar with real phonology (exercises `PreexpandComposites`
