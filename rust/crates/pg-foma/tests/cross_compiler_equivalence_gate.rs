@@ -14,7 +14,7 @@ use pg_foma::recipe_registry::{
 };
 use pg_foma::recipe_runtime::{
     certify_corpus, check_proposal_ratio, evaluate_plans_marked_observed_with_cache,
-    evaluate_plans_with_cache, RunEvaluationCache, RuntimeBudget, WordEvidence,
+    evaluate_plans_marked_with_cache, RunEvaluationCache, RuntimeBudget, WordEvidence,
 };
 use pg_foma::replace::SegAlphabet;
 use pg_foma::{enumerate::enumerate_default, junctions::PhonologyProbe};
@@ -121,6 +121,11 @@ fn selected_plans(grammar: &pg_grammar::model::Grammar) -> Vec<pg_foma::enumerat
         REQUIRED_STRATEGIES.len(),
         "the gate must exercise exactly one candidate per pipeline"
     );
+    assert_eq!(
+        plans.iter().map(|plan| plan.strategy).collect::<Vec<_>>(),
+        REQUIRED_STRATEGIES,
+        "the gate must pin plan order before deriving baseline flags"
+    );
     for (family, strategy) in [
         (FAMILY_COMPLETE_TEMPLATE, EmissionStrategy::PlanComposed),
         (
@@ -222,11 +227,12 @@ fn pinned_three_pipeline_equivalence_observes_final_candidates_and_preserves_cac
 
     let mut ordinary_cache =
         RunEvaluationCache::prepare(&grammar, &words, RuntimeBudget::default());
-    let ordinary = evaluate_plans_with_cache(
+    let ordinary = evaluate_plans_marked_with_cache(
         &grammar,
         &plans,
         &words,
         RuntimeBudget::default(),
+        &is_baseline,
         &mut ordinary_cache,
     );
     let mut observed_cache =
@@ -310,6 +316,24 @@ fn pinned_three_pipeline_equivalence_observes_final_candidates_and_preserves_cac
             "{strategy:?} retained no final candidate evidence",
             strategy = plan.strategy
         );
+        for positive in ["pakolosa", "takolola"] {
+            let positive = evidence
+                .iter()
+                .find(|word| word.word == positive)
+                .unwrap_or_else(|| panic!("{:?} omitted positive word {positive}", plan.strategy));
+            assert!(
+                !positive.expected.is_empty(),
+                "{strategy:?} positive {word:?} has no oracle analyses",
+                strategy = plan.strategy,
+                word = positive.word
+            );
+            assert!(
+                !positive.actual.is_empty(),
+                "{strategy:?} positive {word:?} has no confirmed analyses",
+                strategy = plan.strategy,
+                word = positive.word
+            );
+        }
         assert!(
             evidence.iter().map(|word| word.actual.len()).sum::<usize>() > 0,
             "{strategy:?} confirmed no analyses",
@@ -389,6 +413,16 @@ fn observed_evidence_distinguishes_failed_evaluation_from_real_empty_observation
         failed.words.is_none(),
         "failure must not masquerade as empty evidence"
     );
+    assert_eq!(
+        failed.evaluation.realized_strategy,
+        EmissionStrategy::PlanComposed
+    );
+    assert!(matches!(
+        failed.evaluation.certification,
+        pg_foma::recipe_optimizer::Certification::Truncated { ref stage }
+            if stage == "oracle-capped"
+    ));
+    assert_eq!(failed.evaluation.score.proposals, 0);
 
     let mut empty_cache = RunEvaluationCache::prepare(&grammar, &[], RuntimeBudget::default());
     let empty = evaluate_plans_marked_observed_with_cache(
@@ -405,13 +439,59 @@ fn observed_evidence_distinguishes_failed_evaluation_from_real_empty_observation
 }
 
 #[test]
-fn fault_injected_template_flattened_uflexc_route_reports_typed_proposal_ratio_violation() {
-    let (grammar, words) = fixture();
-    let plans = selected_plans(&grammar);
-    let plan = plans
+fn template_flattened_uflexc_route_reports_typed_proposal_ratio_violation() {
+    let fixture = discover()
         .into_iter()
-        .find(|plan| plan.strategy == EmissionStrategy::PlanComposed)
+        .find(|fixture| fixture.root == Root::Staging && fixture.name == "recipe-template-generic")
+        .expect("missing pinned synthetic fixture recipe-template-generic");
+    let grammar = pg_grammar::load(&fixture.load_grammar_xml()).expect("fixture must load");
+    assert!(!grammar.templates.is_empty());
+    let pinned_words = fixture
+        .load_words_yaml()
+        .words
+        .into_iter()
+        .map(|word| word.word)
+        .collect::<Vec<_>>();
+    let words = ["k", "xxxxxxk"]
+        .into_iter()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    assert!(
+        words.iter().all(|word| pinned_words.contains(word)),
+        "the known-bad route words must come from the pinned fixture: {pinned_words:?}"
+    );
+
+    let alphabet = SegAlphabet::new(&grammar.char_tables[0]);
+    let prules = grammar
+        .strata
+        .iter()
+        .flat_map(|stratum| {
+            stratum
+                .prules
+                .iter()
+                .map(|id| &grammar.prules[id.0 as usize])
+        })
+        .collect::<Vec<_>>();
+    let baseline = enumerate_default(
+        &grammar,
+        &alphabet,
+        &prules,
+        PhonologyProbe::new(&grammar).as_ref(),
+    );
+    let plan = Registry::seeded()
+        .materialize_distinct(&MaterializerContext {
+            grammar: &grammar,
+            baseline: &baseline,
+        })
+        .expect("pinned candidates must materialize")
+        .into_iter()
+        .map(|(_, plan)| plan)
+        .find(|plan| {
+            plan.label == FAMILY_COMPLETE_TEMPLATE
+                && plan.strategy == EmissionStrategy::PlanComposed
+        })
         .expect("plan-composed/uflexc candidate");
+
     let mut cache = RunEvaluationCache::prepare(&grammar, &words, RuntimeBudget::default());
     let observation = evaluate_plans_marked_observed_with_cache(
         &grammar,
@@ -425,30 +505,39 @@ fn fault_injected_template_flattened_uflexc_route_reports_typed_proposal_ratio_v
     .expect("uflexc observation");
     let evidence = observation
         .words
-        .expect("uflexc route must produce evidence");
+        .expect("uflexc route must produce final-candidate evidence");
+    assert_eq!(
+        observation.evaluation.realized_strategy,
+        EmissionStrategy::PlanComposed,
+        "the known-bad case must exercise the flattened uflexc route, not a fallback compiler"
+    );
+    assert!(
+        observation.evaluation.certification.selectable(),
+        "the known-bad route must complete oracle confirmation before its proposal ratio is checked: {:?}",
+        observation.evaluation.certification
+    );
+
     let denominator = evidence
         .iter()
         .map(|word| word.expected.len() as u64)
         .sum::<u64>();
     assert!(
         denominator > 0,
-        "fault injection must start from real oracle analyses"
+        "known-bad route must start from real oracle analyses"
     );
-
-    // Fault-inject the known bad template-flattened route by replacing its final candidate count
-    // with one just beyond K times the real oracle denominator. This proves the production ratio
-    // checker emits a typed diagnostic rather than merely asserting that today's routes are below K.
-    let numerator = denominator
-        .saturating_mul(MAX_PROPOSAL_RATIO)
-        .saturating_add(1);
+    let numerator = evidence
+        .iter()
+        .map(|word| word.proposals.len() as u64)
+        .sum::<u64>();
+    assert_eq!(numerator, observation.evaluation.score.proposals);
     let violation = check_proposal_ratio(
-        EmissionStrategy::PlanComposed,
+        observation.evaluation.realized_strategy,
         numerator,
         denominator,
         MAX_PROPOSAL_RATIO,
     )
-    .expect_err("the flattened-route fault injection must violate the proposal ratio");
-    assert_eq!(violation.strategy, EmissionStrategy::PlanComposed);
+    .expect_err("the flattened-route evidence must violate the proposal ratio");
+    assert_eq!(violation.strategy, observation.evaluation.realized_strategy);
     assert_eq!(violation.numerator, numerator);
     assert_eq!(violation.denominator, denominator);
     assert_eq!(violation.threshold, MAX_PROPOSAL_RATIO);
