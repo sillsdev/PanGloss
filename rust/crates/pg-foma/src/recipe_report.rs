@@ -217,6 +217,13 @@ impl RecipeOptimizationReport {
         {
             return Err("deterministic score is missing measurement provenance");
         }
+        if self
+            .candidates
+            .iter()
+            .any(|candidate| candidate.certification.selectable() && candidate.score.is_none())
+        {
+            return Err("selectable candidate is missing a score");
+        }
         let candidate_ids: std::collections::BTreeSet<_> = self
             .candidates
             .iter()
@@ -430,6 +437,20 @@ mod tests {
         r.frontier = vec!["a".into()];
         assert!(r.validate().is_ok());
         assert!(r.replay_parameters.contains_key("seed") || r.seed == 0);
+    }
+
+    #[test]
+    fn selectable_candidate_cannot_be_omitted_from_report_integrity() {
+        let mut r = sample();
+        r.candidates = vec![candidate("a"), confirmed_candidate("b", 1)];
+        r.candidates[0].certification = Certification::FullHcConfirmed {
+            words: 1,
+            corpus_hash: "c".into(),
+        };
+        r.frontier = vec!["b".into()];
+        r.winner = Some("b".into());
+
+        assert_eq!(r.validate(), Err("selectable candidate is missing a score"));
     }
 
     #[test]
