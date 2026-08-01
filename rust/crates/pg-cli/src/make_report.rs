@@ -1362,6 +1362,7 @@ mod tests {
         )
     }
 
+    #[track_caller]
     fn assert_make_report_golden(actual: &str, expected: &str) {
         crate::test_support::assert_rendered_text_eq(actual, expected);
     }
@@ -1372,6 +1373,31 @@ mod tests {
         let expected = "# Report\r\n";
         assert_ne!(actual, expected);
         assert_make_report_golden(actual, expected);
+    }
+
+    #[test]
+    fn make_report_golden_rejects_whitespace_and_unicode_drift() {
+        let whitespace = std::panic::catch_unwind(|| {
+            assert_make_report_golden("# Report\nvalue\tA\n", "# Report\nvalue A\n");
+        });
+        assert!(whitespace.is_err());
+
+        let unicode = std::panic::catch_unwind(|| {
+            assert_make_report_golden("# Report\nnaïve\n", "# Report\nnaive\n");
+        });
+        assert!(unicode.is_err());
+    }
+
+    #[test]
+    fn make_report_golden_panic_location_is_the_external_assertion_callsite() {
+        let expected_line = line!() + 2;
+        let location = crate::test_support::capture_panic_location(|| {
+            assert_make_report_golden("actual", "expected");
+        });
+        assert_eq!(location.file, file!());
+        assert_eq!(location.line, expected_line);
+        assert!(location.column > 0);
+        assert!(!location.file.ends_with("test_support.rs"));
     }
 
     #[test]

@@ -242,20 +242,24 @@ fn parse_json_rejecting_duplicates(input: &str) -> Result<Value, serde_json::Err
     Ok(value)
 }
 
+#[track_caller]
 fn parse_json_or_panic(side: &str, input: &str) -> Value {
-    parse_json_rejecting_duplicates(input).unwrap_or_else(|error| {
-        let message = error.to_string();
-        let label = if message.contains("duplicate object key") {
-            format!("{side} JSON duplicate object key")
-        } else {
-            format!(
-                "{side} JSON parse failure at line {}, column {}",
-                error.line(),
-                error.column()
-            )
-        };
-        panic!("{label}: {message}");
-    })
+    match parse_json_rejecting_duplicates(input) {
+        Ok(value) => value,
+        Err(error) => {
+            let message = error.to_string();
+            let label = if message.contains("duplicate object key") {
+                format!("{side} JSON duplicate object key")
+            } else {
+                format!(
+                    "{side} JSON parse failure at line {}, column {}",
+                    error.line(),
+                    error.column()
+                )
+            };
+            panic!("{label}: {message}");
+        }
+    }
 }
 
 #[track_caller]
@@ -269,6 +273,52 @@ pub(crate) fn assert_semantic_json_eq(actual: &str, expected: &str) {
             serde_json::to_string_pretty(&expected_value).expect("JSON values must serialize");
         panic!("semantic JSON mismatch:\nactual:\n{actual_pretty}\nexpected:\n{expected_pretty}");
     }
+}
+
+pub(crate) struct PanicLocation {
+    pub(crate) file: String,
+    pub(crate) line: u32,
+    pub(crate) column: u32,
+}
+
+pub(crate) fn capture_panic_location<F>(assertion: F) -> PanicLocation
+where
+    F: FnOnce(),
+{
+    use std::panic::{catch_unwind, set_hook, take_hook, AssertUnwindSafe};
+    use std::sync::{Arc, Mutex, OnceLock};
+
+    static PANIC_HOOK_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    let _hook_guard = PANIC_HOOK_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("panic-hook lock must not be poisoned");
+    let location = Arc::new(Mutex::new(None));
+    let location_for_hook = Arc::clone(&location);
+    let previous_hook = take_hook();
+    set_hook(Box::new(move |panic_info| {
+        *location_for_hook
+            .lock()
+            .expect("panic location lock must not be poisoned") =
+            panic_info.location().map(|location| {
+                (
+                    location.file().to_string(),
+                    location.line(),
+                    location.column(),
+                )
+            });
+    }));
+
+    let result = catch_unwind(AssertUnwindSafe(assertion));
+    set_hook(previous_hook);
+    assert!(result.is_err(), "the assertion must panic");
+
+    let (file, line, column) = location
+        .lock()
+        .expect("panic location lock must not be poisoned")
+        .take()
+        .expect("panic hook must report a location");
+    PanicLocation { file, line, column }
 }
 
 #[cfg(test)]
@@ -349,6 +399,19 @@ mod tests {
             assert_canonical_lf_text_eq("{\n  \"a\": 1\n}\n", "{\n\"a\": 1\n}\n");
         }));
         assert!(content.contains("line 2"), "{content}");
+
+        let ordering = std::panic::catch_unwind(|| {
+            assert_canonical_lf_text_eq(
+                "{\n  \"a\": 1,\n  \"b\": 2\n}\n",
+                "{\n  \"b\": 2,\n  \"a\": 1\n}\n",
+            );
+        });
+        assert!(ordering.is_err());
+
+        let trailing_newline = std::panic::catch_unwind(|| {
+            assert_canonical_lf_text_eq("{\n  \"a\": 1\n}", "{\n  \"a\": 1\n}\n");
+        });
+        assert!(trailing_newline.is_err());
     }
 
     #[test]
@@ -376,18 +439,18 @@ mod tests {
     }
 
     #[test]
-    fn semantic_json_keeps_numeric_representation_and_escaped_newlines_significant() {
+    fn semantic_json_keeps_numeric_representation_and_decoded_newlines_significant() {
         let number = panic_message(std::panic::catch_unwind(|| {
             assert_semantic_json_eq("1", "1.0");
         }));
         assert!(number.contains("semantic JSON mismatch"), "{number}");
 
-        let escaped_newline = panic_message(std::panic::catch_unwind(|| {
-            assert_semantic_json_eq(r#"{"text":"\\n"}"#, r#"{"text":"\n"}"#);
+        let decoded_crlf = panic_message(std::panic::catch_unwind(|| {
+            assert_semantic_json_eq(r#"{"text":"\r\n"}"#, r#"{"text":"\n"}"#);
         }));
         assert!(
-            escaped_newline.contains("semantic JSON mismatch"),
-            "{escaped_newline}"
+            decoded_crlf.contains("semantic JSON mismatch"),
+            "{decoded_crlf}"
         );
     }
 
@@ -437,10 +500,5 @@ mod tests {
         }));
         assert!(content.contains("actual:\n{\n  \"a\": 1,"), "{content}");
         assert!(content.contains("expected:\n{\n  \"a\": 1,"), "{content}");
-    }
-
-    #[test]
-    fn opaque_bytes_remain_byte_sensitive() {
-        assert_ne!(&b"payload\r\n"[..], &b"payload\n"[..]);
     }
 }

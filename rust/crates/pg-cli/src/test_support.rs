@@ -92,6 +92,52 @@ pub(crate) fn assert_rendered_text_eq(actual: &str, expected: &str) {
     }
 }
 
+pub(crate) struct PanicLocation {
+    pub(crate) file: String,
+    pub(crate) line: u32,
+    pub(crate) column: u32,
+}
+
+pub(crate) fn capture_panic_location<F>(assertion: F) -> PanicLocation
+where
+    F: FnOnce(),
+{
+    use std::panic::{catch_unwind, set_hook, take_hook, AssertUnwindSafe};
+    use std::sync::{Arc, Mutex, OnceLock};
+
+    static PANIC_HOOK_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    let _hook_guard = PANIC_HOOK_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("panic-hook lock must not be poisoned");
+    let location = Arc::new(Mutex::new(None));
+    let location_for_hook = Arc::clone(&location);
+    let previous_hook = take_hook();
+    set_hook(Box::new(move |panic_info| {
+        *location_for_hook
+            .lock()
+            .expect("panic location lock must not be poisoned") =
+            panic_info.location().map(|location| {
+                (
+                    location.file().to_string(),
+                    location.line(),
+                    location.column(),
+                )
+            });
+    }));
+
+    let result = catch_unwind(AssertUnwindSafe(assertion));
+    set_hook(previous_hook);
+    assert!(result.is_err(), "the assertion must panic");
+
+    let (file, line, column) = location
+        .lock()
+        .expect("panic location lock must not be poisoned")
+        .take()
+        .expect("panic hook must report a location");
+    PanicLocation { file, line, column }
+}
+
 #[cfg(test)]
 mod tests {
     use std::any::Any;
@@ -139,5 +185,21 @@ mod tests {
             assert_rendered_text_eq("node-A", "node-B");
         }));
         assert!(identifier.contains("line 1, column 6"), "{identifier}");
+    }
+
+    #[test]
+    fn rendered_text_helper_rejects_whitespace_and_unicode_drift() {
+        let whitespace = panic_message(std::panic::catch_unwind(|| {
+            assert_rendered_text_eq("value\tA", "value A");
+        }));
+        assert!(
+            whitespace.contains("rendered text mismatch"),
+            "{whitespace}"
+        );
+
+        let unicode = panic_message(std::panic::catch_unwind(|| {
+            assert_rendered_text_eq("naïve", "naive");
+        }));
+        assert!(unicode.contains("rendered text mismatch"), "{unicode}");
     }
 }
