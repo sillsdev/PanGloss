@@ -2,6 +2,9 @@
 use crate::recipe_optimizer::{
     Budget, BudgetUsage, Certification, Score, SearchQuality, Strategy, Termination,
 };
+
+pub const RECIPE_REPORT_SCHEMA_VERSION: u32 = 1;
+pub const DETERMINISTIC_SCORE_SCHEMA_VERSION: u32 = 2;
 use crate::recipe_space::FeasibleCount;
 use crate::recipe_space::PilotSummary;
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -11,13 +14,76 @@ pub struct SpaceCounts {
     pub static_count: u64,
     pub feasible: FeasibleCount,
 }
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct CandidateReport {
     pub id: String,
     pub recipe_id: String,
     pub certification: Certification,
     pub score: Option<Score>,
     pub pruning_reason: Option<String>,
+    /// Deserialization provenance for the deterministic coordinates that formerly defaulted.
+    /// Not serialized: it is recomputed from field presence every time JSON is read.
+    #[serde(skip)]
+    pub score_fields_complete: bool,
+}
+
+impl<'de> serde::Deserialize<'de> for CandidateReport {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(serde::Deserialize)]
+        struct ScoreWire {
+            states: u64,
+            arcs: u64,
+            build: u64,
+            apply: u64,
+            proposals: u64,
+            confirmation: u64,
+            #[serde(default)]
+            confirmation_steps: Option<u64>,
+            #[serde(default)]
+            raw_paths: Option<u64>,
+        }
+
+        #[derive(serde::Deserialize)]
+        struct CandidateWire {
+            id: String,
+            recipe_id: String,
+            certification: Certification,
+            score: Option<ScoreWire>,
+            pruning_reason: Option<String>,
+        }
+
+        let wire = CandidateWire::deserialize(deserializer)?;
+        let (score, score_fields_complete) = match wire.score {
+            None => (None, true),
+            Some(score) => {
+                let complete = score.confirmation_steps.is_some() && score.raw_paths.is_some();
+                (
+                    Some(Score {
+                        states: score.states,
+                        arcs: score.arcs,
+                        build: score.build,
+                        apply: score.apply,
+                        proposals: score.proposals,
+                        confirmation: score.confirmation,
+                        confirmation_steps: score.confirmation_steps.unwrap_or_default(),
+                        raw_paths: score.raw_paths.unwrap_or_default(),
+                    }),
+                    complete,
+                )
+            }
+        };
+        Ok(Self {
+            id: wire.id,
+            recipe_id: wire.recipe_id,
+            certification: wire.certification,
+            score,
+            pruning_reason: wire.pruning_reason,
+            score_fields_complete,
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
@@ -83,6 +149,12 @@ pub struct SearchAccounting {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct RecipeOptimizationReport {
     pub schema_version: u32,
+    /// Version of the deterministic score evidence carried by every scored candidate.
+    ///
+    /// Reports predating `raw_paths` omit this field and deserialize as `0`. They remain readable,
+    /// but validation refuses to rank their unmeasured proposer work as if it were a measured zero.
+    #[serde(default)]
+    pub score_schema_version: u32,
     pub input_hash: String,
     pub registry_version: String,
     pub registry_hash: String,
@@ -125,8 +197,37 @@ pub struct RecipeOptimizationReport {
 }
 impl RecipeOptimizationReport {
     pub fn validate(&self) -> Result<(), &'static str> {
+        if self.schema_version != RECIPE_REPORT_SCHEMA_VERSION {
+            return Err("unsupported recipe report schema version");
+        }
         if !self.pruning.reconciles() {
             return Err("pruning waterfall does not reconcile");
+        }
+        let has_scores = self
+            .candidates
+            .iter()
+            .any(|candidate| candidate.score.is_some());
+        if has_scores && self.score_schema_version != DETERMINISTIC_SCORE_SCHEMA_VERSION {
+            return Err("unsupported deterministic score schema version");
+        }
+        if self
+            .candidates
+            .iter()
+            .any(|candidate| candidate.score.is_some() && !candidate.score_fields_complete)
+        {
+            return Err("deterministic score is missing measurement provenance");
+        }
+        let candidate_ids: std::collections::BTreeSet<_> = self
+            .candidates
+            .iter()
+            .map(|candidate| &candidate.id)
+            .collect();
+        if candidate_ids.len() != self.candidates.len() {
+            return Err("candidate ids are not unique");
+        }
+        let frontier_ids: std::collections::BTreeSet<_> = self.frontier.iter().collect();
+        if frontier_ids.len() != self.frontier.len() {
+            return Err("frontier ids are not unique");
         }
         if let Some(winner) = &self.winner {
             let candidate = self
@@ -145,6 +246,23 @@ impl RecipeOptimizationReport {
                 .any(|c| &c.id == id && c.certification.selectable() && c.score.is_some())
         }) {
             return Err("frontier contains a candidate that is not fully confirmed and scored");
+        }
+        let ranking: Vec<_> = self
+            .candidates
+            .iter()
+            .filter_map(|candidate| {
+                candidate
+                    .score
+                    .map(|score| (candidate.id.clone(), candidate.certification.clone(), score))
+            })
+            .collect();
+        let expected_frontier = crate::recipe_optimizer::pareto_frontier(&ranking);
+        if self.frontier != expected_frontier {
+            return Err("serialized frontier does not match recomputed frontier");
+        }
+        let expected_winner = crate::recipe_optimizer::select_confirmed(&ranking);
+        if self.winner != expected_winner {
+            return Err("serialized winner does not match recomputed winner");
         }
         if self.quality == SearchQuality::Approximate && self.search.unexplored == 0 {
             return Err("approximate search must quantify unexplored space");
@@ -187,7 +305,8 @@ mod tests {
     #[test]
     fn json_round_trips() {
         let r = RecipeOptimizationReport {
-            schema_version: 1,
+            schema_version: RECIPE_REPORT_SCHEMA_VERSION,
+            score_schema_version: DETERMINISTIC_SCORE_SCHEMA_VERSION,
             input_hash: "x".into(),
             registry_version: "r".into(),
             registry_hash: "registry-hash".into(),
@@ -307,8 +426,118 @@ mod tests {
             confirmation_steps: 1,
             raw_paths: 0,
         });
+        r.candidates[0].score_fields_complete = true;
+        r.frontier = vec!["a".into()];
         assert!(r.validate().is_ok());
         assert!(r.replay_parameters.contains_key("seed") || r.seed == 0);
+    }
+
+    #[test]
+    fn validation_recomputes_the_serialized_frontier() {
+        let mut r = sample();
+        r.candidates = vec![confirmed_candidate("a", 1), confirmed_candidate("b", 2)];
+        r.frontier = vec!["b".into()];
+        r.winner = Some("a".into());
+
+        assert_eq!(
+            r.validate(),
+            Err("serialized frontier does not match recomputed frontier")
+        );
+    }
+
+    #[test]
+    fn validation_recomputes_the_serialized_winner() {
+        let mut r = sample();
+        r.candidates = vec![confirmed_candidate("a", 1), confirmed_candidate("b", 2)];
+        r.frontier = vec!["a".into()];
+        r.winner = Some("b".into());
+
+        assert_eq!(
+            r.validate(),
+            Err("serialized winner does not match recomputed winner")
+        );
+    }
+
+    #[test]
+    fn legacy_report_without_raw_paths_deserializes_but_cannot_rank_as_measured_zero() {
+        let mut value = serde_json::to_value(sample()).unwrap();
+        value["candidates"] = serde_json::json!([{
+            "id": "a",
+            "recipe_id": "recipe-a",
+            "certification": {"status": "full-hc-confirmed", "words": 1, "corpus_hash": "c"},
+            "score": {"states": 1, "arcs": 1, "build": 1, "apply": 1, "proposals": 1, "confirmation": 1, "confirmation_steps": 1},
+            "pruning_reason": null
+        }]);
+        value["frontier"] = serde_json::json!(["a"]);
+        value["winner"] = serde_json::json!("a");
+        value
+            .as_object_mut()
+            .unwrap()
+            .remove("score_schema_version");
+
+        let parsed = RecipeOptimizationReport::from_json(&value.to_string())
+            .expect("legacy reports remain readable");
+        assert_eq!(parsed.score_schema_version, 0);
+        assert!(!parsed.candidates[0].score_fields_complete);
+        assert_eq!(
+            parsed.validate(),
+            Err("unsupported deterministic score schema version")
+        );
+    }
+
+    #[test]
+    fn current_score_schema_cannot_claim_a_missing_raw_paths_measurement() {
+        let mut value = serde_json::to_value(sample()).unwrap();
+        value["candidates"] = serde_json::json!([{
+            "id": "a",
+            "recipe_id": "recipe-a",
+            "certification": {"status": "full-hc-confirmed", "words": 1, "corpus_hash": "c"},
+            "score": {"states": 1, "arcs": 1, "build": 1, "apply": 1, "proposals": 1, "confirmation": 1, "confirmation_steps": 1},
+            "pruning_reason": null
+        }]);
+        value["frontier"] = serde_json::json!(["a"]);
+        value["winner"] = serde_json::json!("a");
+
+        let parsed = RecipeOptimizationReport::from_json(&value.to_string()).unwrap();
+        assert_eq!(
+            parsed.validate(),
+            Err("deterministic score is missing measurement provenance")
+        );
+    }
+
+    #[test]
+    fn validation_rejects_unknown_report_and_score_schema_versions() {
+        let mut report = sample();
+        report.schema_version = RECIPE_REPORT_SCHEMA_VERSION + 1;
+        assert_eq!(
+            report.validate(),
+            Err("unsupported recipe report schema version")
+        );
+
+        let mut report = sample();
+        report.candidates = vec![confirmed_candidate("a", 1)];
+        report.frontier = vec!["a".into()];
+        report.winner = Some("a".into());
+        report.score_schema_version = DETERMINISTIC_SCORE_SCHEMA_VERSION + 1;
+        assert_eq!(
+            report.validate(),
+            Err("unsupported deterministic score schema version")
+        );
+    }
+
+    #[test]
+    fn validation_rejects_duplicate_candidate_and_frontier_ids() {
+        let mut report = sample();
+        report.candidates = vec![confirmed_candidate("a", 1), confirmed_candidate("a", 1)];
+        report.frontier = vec!["a".into()];
+        report.winner = Some("a".into());
+        assert_eq!(report.validate(), Err("candidate ids are not unique"));
+
+        let mut report = sample();
+        report.candidates = vec![confirmed_candidate("a", 1)];
+        report.frontier = vec!["a".into(), "a".into()];
+        report.winner = Some("a".into());
+        assert_eq!(report.validate(), Err("frontier ids are not unique"));
     }
 
     fn candidate(id: &str) -> CandidateReport {
@@ -318,12 +547,37 @@ mod tests {
             certification: Certification::EstimateOnly,
             score: None,
             pruning_reason: None,
+            score_fields_complete: true,
+        }
+    }
+
+    fn confirmed_candidate(id: &str, work: u64) -> CandidateReport {
+        CandidateReport {
+            id: id.into(),
+            recipe_id: format!("recipe-{id}"),
+            certification: Certification::FullHcConfirmed {
+                words: 1,
+                corpus_hash: "c".into(),
+            },
+            score: Some(Score {
+                states: work,
+                arcs: work,
+                build: 100,
+                apply: 100,
+                proposals: work,
+                confirmation: work,
+                confirmation_steps: work,
+                raw_paths: work,
+            }),
+            pruning_reason: None,
+            score_fields_complete: true,
         }
     }
 
     fn sample() -> RecipeOptimizationReport {
         RecipeOptimizationReport {
-            schema_version: 1,
+            schema_version: RECIPE_REPORT_SCHEMA_VERSION,
+            score_schema_version: DETERMINISTIC_SCORE_SCHEMA_VERSION,
             input_hash: "x".into(),
             registry_version: "r".into(),
             registry_hash: "registry-hash".into(),

@@ -174,14 +174,25 @@ pub struct Score {
     /// Raw proposer paths `apply_up` yielded across the whole corpus, before tag-decode/dedup --
     /// summed from `FomaWordDiagnostics::raw_paths` (see that field's doc). The propose-side
     /// counterpart to `confirmation_steps`: together they are the leading term of [`Self::key`].
-    /// `#[serde(default)]` for the same reason `confirmation_steps` carries it -- reports written
-    /// before this field existed still parse, and a `0` from one of them honestly means "not
-    /// measured", not "zero work done".
+    /// `#[serde(default)]` keeps older reports readable. Their containing report carries a
+    /// `score_schema_version`; validation rejects the legacy version so this default cannot be
+    /// compared as if it meant measured zero work.
     #[serde(default)]
     pub raw_paths: u64,
 }
 
 impl Score {
+    pub fn pareto_vector(&self) -> [u64; 6] {
+        [
+            self.confirmation_steps,
+            self.raw_paths,
+            self.confirmation,
+            self.proposals,
+            self.states,
+            self.arcs,
+        ]
+    }
+
     /// Ranks candidates by DETERMINISTIC WORK, not by wall-clock.
     ///
     /// # Why work and not time
@@ -756,22 +767,8 @@ pub fn pareto_frontier(items: &[(String, Certification, Score)]) -> Vec<String> 
 }
 
 fn dominates(left: &Score, right: &Score) -> bool {
-    let left = [
-        left.states,
-        left.arcs,
-        left.build,
-        left.apply,
-        left.proposals,
-        left.confirmation,
-    ];
-    let right = [
-        right.states,
-        right.arcs,
-        right.build,
-        right.apply,
-        right.proposals,
-        right.confirmation,
-    ];
+    let left = left.pareto_vector();
+    let right = right.pareto_vector();
     left.iter().zip(right).all(|(a, b)| *a <= b) && left.iter().zip(right).any(|(a, b)| *a < b)
 }
 
@@ -1336,6 +1333,234 @@ mod tests {
         assert_eq!(select_confirmed(&items), Some("dominant".to_owned()));
         // A dominated candidate is never on the frontier either.
         assert_eq!(pareto_frontier(&items), vec!["dominant".to_owned()]);
+    }
+
+    #[test]
+    fn pareto_dominance_counts_confirmation_steps() {
+        let confirmed = Certification::FullHcConfirmed {
+            words: 1,
+            corpus_hash: "d4-steps".to_owned(),
+        };
+        let lower_step_work = Score {
+            states: 10,
+            arcs: 10,
+            build: 99,
+            apply: 99,
+            proposals: 10,
+            confirmation: 10,
+            confirmation_steps: 10,
+            raw_paths: 10,
+        };
+        let higher_step_work = Score {
+            confirmation_steps: 11,
+            ..lower_step_work
+        };
+        let items = vec![
+            (
+                "lower-step-work".to_owned(),
+                confirmed.clone(),
+                lower_step_work,
+            ),
+            ("higher-step-work".to_owned(), confirmed, higher_step_work),
+        ];
+
+        assert_eq!(pareto_frontier(&items), vec!["lower-step-work".to_owned()]);
+    }
+
+    #[test]
+    fn pareto_dominance_counts_raw_proposer_paths() {
+        let confirmed = Certification::FullHcConfirmed {
+            words: 1,
+            corpus_hash: "d4-raw-paths".to_owned(),
+        };
+        let fewer_raw_paths = Score {
+            states: 10,
+            arcs: 10,
+            build: 99,
+            apply: 99,
+            proposals: 10,
+            confirmation: 10,
+            confirmation_steps: 10,
+            raw_paths: 10,
+        };
+        let more_raw_paths = Score {
+            raw_paths: 11,
+            ..fewer_raw_paths
+        };
+        let items = vec![
+            (
+                "fewer-raw-paths".to_owned(),
+                confirmed.clone(),
+                fewer_raw_paths,
+            ),
+            ("more-raw-paths".to_owned(), confirmed, more_raw_paths),
+        ];
+
+        assert_eq!(pareto_frontier(&items), vec!["fewer-raw-paths".to_owned()]);
+    }
+
+    #[test]
+    fn pareto_dominance_uses_each_deterministic_coordinate_componentwise() {
+        let confirmed = Certification::FullHcConfirmed {
+            words: 1,
+            corpus_hash: "d4-componentwise".to_owned(),
+        };
+        let lower = Score {
+            states: 10,
+            arcs: 10,
+            build: 999,
+            apply: 999,
+            proposals: 10,
+            confirmation: 10,
+            confirmation_steps: 10,
+            raw_paths: 10,
+        };
+        let cases = [
+            (
+                "confirmation-steps",
+                Score {
+                    confirmation_steps: 11,
+                    build: 1,
+                    apply: 1,
+                    ..lower
+                },
+            ),
+            (
+                "raw-paths",
+                Score {
+                    raw_paths: 11,
+                    build: 1,
+                    apply: 1,
+                    ..lower
+                },
+            ),
+            (
+                "confirmation",
+                Score {
+                    confirmation: 11,
+                    build: 1,
+                    apply: 1,
+                    ..lower
+                },
+            ),
+            (
+                "proposals",
+                Score {
+                    proposals: 11,
+                    build: 1,
+                    apply: 1,
+                    ..lower
+                },
+            ),
+            (
+                "states",
+                Score {
+                    states: 11,
+                    build: 1,
+                    apply: 1,
+                    ..lower
+                },
+            ),
+            (
+                "arcs",
+                Score {
+                    arcs: 11,
+                    build: 1,
+                    apply: 1,
+                    ..lower
+                },
+            ),
+        ];
+
+        for (coordinate, higher) in cases {
+            let items = vec![
+                ("lower".to_owned(), confirmed.clone(), lower),
+                (format!("higher-{coordinate}"), confirmed.clone(), higher),
+            ];
+            assert_eq!(
+                pareto_frontier(&items),
+                vec!["lower".to_owned()],
+                "coordinate {coordinate} must participate in componentwise dominance"
+            );
+        }
+    }
+
+    #[test]
+    fn pareto_dominance_excludes_build_and_apply_timing() {
+        let confirmed = Certification::FullHcConfirmed {
+            words: 1,
+            corpus_hash: "d4-time".to_owned(),
+        };
+        let slower = Score {
+            states: 10,
+            arcs: 10,
+            // These two fields are wall-clock diagnostics. They must not create dominance when
+            // every deterministic coordinate is tied.
+            build: 999,
+            apply: 999,
+            proposals: 10,
+            confirmation: 10,
+            confirmation_steps: 10,
+            raw_paths: 10,
+        };
+        let faster = Score {
+            states: 10,
+            arcs: 10,
+            build: 1,
+            apply: 1,
+            proposals: 10,
+            confirmation: 10,
+            confirmation_steps: 10,
+            raw_paths: 10,
+        };
+        let items = vec![
+            ("slower".to_owned(), confirmed.clone(), slower),
+            ("faster".to_owned(), confirmed, faster),
+        ];
+
+        assert_eq!(
+            pareto_frontier(&items),
+            vec!["faster".to_owned(), "slower".to_owned()]
+        );
+    }
+
+    #[test]
+    fn uncertified_candidate_cannot_dominate_a_certified_frontier_member() {
+        let certified = Certification::FullHcConfirmed {
+            words: 1,
+            corpus_hash: "d4-certified".to_owned(),
+        };
+        let certified_score = Score {
+            states: 10,
+            arcs: 10,
+            build: 10,
+            apply: 10,
+            proposals: 10,
+            confirmation: 10,
+            confirmation_steps: 10,
+            raw_paths: 10,
+        };
+        let cheaper_but_uncertified = Score {
+            states: 1,
+            arcs: 1,
+            build: 1,
+            apply: 1,
+            proposals: 1,
+            confirmation: 1,
+            confirmation_steps: 1,
+            raw_paths: 1,
+        };
+        let items = vec![
+            ("certified".to_owned(), certified, certified_score),
+            (
+                "estimate-only".to_owned(),
+                Certification::EstimateOnly,
+                cheaper_but_uncertified,
+            ),
+        ];
+
+        assert_eq!(pareto_frontier(&items), vec!["certified".to_owned()]);
+        assert_eq!(select_confirmed(&items), Some("certified".to_owned()));
     }
 
     /// Backward compatibility: a report written before `raw_paths` existed has no such key in its

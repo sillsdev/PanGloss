@@ -18,6 +18,7 @@ use pg_foma::recipe_optimizer::{
 use pg_foma::recipe_registry::{Registry, FAMILY_ORDERED_MORPHOPHONOLOGY, REGISTRY_SCHEMA_VERSION};
 use pg_foma::recipe_report::{
     CandidateReport, PruningWaterfall, RecipeOptimizationReport, SearchAccounting,
+    DETERMINISTIC_SCORE_SCHEMA_VERSION, RECIPE_REPORT_SCHEMA_VERSION,
 };
 use pg_foma::recipe_runtime::{
     evaluate_plans_marked_with_cache, RunEvaluationCache, RuntimeBudget,
@@ -237,6 +238,7 @@ impl Evaluator<'_> {
                 certification: certification.clone(),
                 score: Some(score),
                 pruning_reason: None,
+                score_fields_complete: true,
             },
             realized_strategy: realized_strategy.to_owned(),
         };
@@ -639,6 +641,7 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
             certification: e.evidence.certification.clone(),
             score: e.evidence.score,
             pruning_reason: None,
+            score_fields_complete: true,
         })
         .collect::<Vec<_>>();
     let baseline_id = states.iter().find(|s| s.baseline).map(|s| s.id.clone());
@@ -722,7 +725,8 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
     let registry_hash = hash_bytes(registry.canonical_json().as_bytes());
     let tool_hash = hash_current_executable()?;
     let report = RecipeOptimizationReport {
-        schema_version: 1,
+        schema_version: RECIPE_REPORT_SCHEMA_VERSION,
+        score_schema_version: DETERMINISTIC_SCORE_SCHEMA_VERSION,
         input_hash,
         registry_version: REGISTRY_SCHEMA_VERSION.to_string(),
         registry_hash,
@@ -853,6 +857,7 @@ fn write_supervisor_failure_report(
             "unexplored": null,
             "unexplored_method": "worker terminated before a final checkpoint"
         },
+        "score_schema_version": DETERMINISTIC_SCORE_SCHEMA_VERSION,
         "candidates": candidates,
         "frontier": [],
         "winner": null
