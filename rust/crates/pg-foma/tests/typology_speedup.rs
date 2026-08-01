@@ -74,7 +74,7 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use pg_conformance_fixtures::{discover, FixtureRef};
-use pg_foma::capability::CompileDecision;
+use pg_foma::capability::{CapabilityDiagnostic, CompileDecision};
 use pg_foma::capability_entry::evaluate_capability;
 use pg_foma::composite::FomaAnalyzer;
 use pg_grammar::model::Grammar;
@@ -433,6 +433,28 @@ fn time_complete_engine(
 /// `ConfirmOnly` -> build the analyzer; a build failure (an emitter-side compile error, distinct
 /// from a capability refusal) is its own `compile_error` row; success times every word exactly like
 /// the complete engine above.
+fn refusal_rows(
+    diags: &[CapabilityDiagnostic],
+    root: &'static str,
+    category: &str,
+    fixture: &str,
+    floor_ns: u64,
+) -> Vec<Row> {
+    diags
+        .iter()
+        .map(|d| {
+            Row::refused(
+                root,
+                category,
+                fixture,
+                d.predicate,
+                &d.construct,
+                &d.witness,
+                floor_ns,
+            )
+        })
+        .collect()
+}
 fn time_compiled_engine(
     g: &Grammar,
     words: &[String],
@@ -443,20 +465,7 @@ fn time_compiled_engine(
     n: u32,
 ) -> Vec<Row> {
     match evaluate_capability(g) {
-        CompileDecision::Refuse(diags) => diags
-            .iter()
-            .map(|d| {
-                Row::refused(
-                    root,
-                    category,
-                    fixture,
-                    d.predicate,
-                    &d.construct,
-                    &d.witness,
-                    floor_ns,
-                )
-            })
-            .collect(),
+        CompileDecision::Refuse(diags) => refusal_rows(&diags, root, category, fixture, floor_ns),
         CompileDecision::Admit | CompileDecision::ConfirmOnly => match FomaAnalyzer::new(g) {
             Err(e) => vec![Row::compile_error(
                 root,
@@ -1073,106 +1082,52 @@ mod tests {
         );
     }
 
-    /// Gate: a fixture the capability gate refuses produces a distinct, named refusal outcome --
-    /// never a zero time, never an omitted row. Uses a real, discovered conformance fixture verified
-    /// to carry a permanently-refused construct (`mpr-group.overwrite-output`, per
-    /// `docs/benchmark-matrix.md`'s own finding that every reference grammar carries it) rather than
-    /// a fixture authored just for this test, per the change brief's "pick a fixture you have
-    /// verified is actually refused."
+    /// Gate: typed refusal diagnostics produce distinct, named rows -- never a zero time and never
+    /// an omitted row. No currently discovered conformance grammar is capability-refused, so this
+    /// tests the pure conversion used by the production `CompileDecision::Refuse` arm directly.
     #[test]
-    #[ignore = "no currently discovered conformance grammar is capability-refused"]
-    fn refused_fixture_produces_named_refusal_row_not_zero_not_omitted() {
-        let fixtures = discover();
-        let f = fixtures
-            .iter()
-            .find(|f| f.category == "edge-cases" && f.name == "simultaneous-epenthesis-cascade")
-            .expect(
-                "machine/conformance/edge-cases/simultaneous-epenthesis-cascade must be \
-                 discoverable (machine submodule initialized?) -- it is the fixture this test \
-                 verifies is refused",
-            );
-        let g = pg_grammar::load(&f.load_grammar_xml()).expect("fixture grammar must load");
-
-        // Verify the premise directly first: this grammar really is refused, and specifically by
-        // the overwrite-output predicate -- if this ever stops being true (the predicate is
-        // relaxed, or the fixture changes), this assertion fails loudly rather than the test
-        // silently exercising a different code path than it claims to.
-        let decision = evaluate_capability(&g);
-        let diags = match &decision {
-            CompileDecision::Refuse(diags) => diags,
-            other => panic!(
-                "expected this fixture to be Refuse-verdict (per docs/benchmark-matrix.md); got \
-                 {other:?} -- pick a different verified-refused fixture if this construct's \
-                 disposition has changed"
-            ),
-        };
-        assert!(
-            diags
-                .iter()
-                .any(|d| d.predicate == "mpr-group.overwrite-output"),
-            "expected mpr-group.overwrite-output among the refusing predicates, got {diags:?}"
-        );
-
-        let words: Vec<String> = f
-            .load_words_yaml()
-            .words
-            .iter()
-            .map(|w| w.word.clone())
-            .collect();
-        assert!(!words.is_empty(), "fixture must have at least one word");
+    fn refusal_diagnostics_produce_named_rows_not_zero_not_omitted() {
+        let diags = vec![CapabilityDiagnostic {
+            predicate: "mpr-group.overwrite-output",
+            construct: "mpr-group".to_owned(),
+            witness: "test refusal witness".to_owned(),
+        }];
         let floor_ns = 1;
-        let rows = time_compiled_engine(
-            &g,
-            &words,
-            f.root.label(),
-            &f.category,
-            &f.name,
-            floor_ns,
-            1,
-        );
+        let rows = refusal_rows(&diags, "test", "edge-cases", "refused", floor_ns);
 
-        assert!(
-            !rows.is_empty(),
-            "a refused fixture must still produce row(s), never zero rows"
-        );
+        assert_eq!(rows.len(), 1, "one diagnostic must produce exactly one row");
         assert!(
             rows.iter().all(|r| r.outcome == "refused"),
-            "every row for a refused fixture must carry outcome=refused: {rows:?}"
+            "every refusal row must carry outcome=refused: {rows:?}"
         );
         assert!(
             rows.iter()
                 .all(|r| r.median_ns.is_none() && r.min_ns.is_none() && r.max_ns.is_none()),
             "a refusal row must never carry a timing value (never a zero time): {rows:?}"
         );
-        assert!(
-            rows.iter()
-                .any(|r| r.predicate.as_deref() == Some("mpr-group.overwrite-output")),
-            "the refusal row must name the refusing predicate: {rows:?}"
+        assert_eq!(
+            rows[0].predicate.as_deref(),
+            Some("mpr-group.overwrite-output")
         );
-        assert!(
-            rows.iter()
-                .all(|r| r.construct.is_some() && !r.construct.as_deref().unwrap().is_empty()),
-            "the refusal row must name the refused construct: {rows:?}"
-        );
+        assert_eq!(rows[0].construct.as_deref(), Some("mpr-group"));
+        assert_eq!(rows[0].witness.as_deref(), Some("test refusal witness"));
 
-        // And it must actually show up in the rendered artifacts, not just the intermediate Vec<Row>.
         let csv = render_csv(&rows);
         assert!(
-            csv.contains("mpr-group.overwrite-output"),
-            "CSV must name the refusing predicate:\n{csv}"
-        );
-        assert!(
             csv.contains("refused"),
-            "CSV must record the refused outcome:\n{csv}"
+            "CSV must render the refusal outcome: {csv}"
         );
-
-        let md = render_markdown(&rows, floor_ns, 1);
         assert!(
-            md.contains("REFUSED") && md.contains("mpr-group.overwrite-output"),
-            "markdown must surface the refusal and its predicate, not a blank/omitted row:\n{md}"
+            csv.contains("mpr-group.overwrite-output"),
+            "CSV must name the refusing predicate: {csv}"
+        );
+        let md = render_markdown(&rows, floor_ns, 1);
+        assert!(md.contains("REFUSED"), "Markdown must render refusal: {md}");
+        assert!(
+            md.contains("mpr-group.overwrite-output"),
+            "Markdown must name the refusing predicate: {md}"
         );
     }
-
     /// Non-vacuity + end-to-end gate: runs the full harness over every discovered fixture (both
     /// `machine/conformance/**` and `conformance-staging/**`), asserts a non-zero number of fixtures
     /// AND words were actually measured (so a discovery regression fails loudly instead of producing
