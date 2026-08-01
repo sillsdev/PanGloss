@@ -68,8 +68,12 @@ All work on branch `cleanup-and-recipe-parity` (one worktree), never on `main`.
       Sena has no applicable rules; Amharic has one narrow pure-deletion candidate; Aweti's two
       floating-marker deletions are not evidenced as its dominant proposal source. Preserve the
       supplied synthetic RED-test design as a later spike, not a licensed production change.
-- [ ] 4.2 Research (subagents, read-only): plan→emitter seam — strategy-parameter object
+- [x] 4.2 Research (subagents, read-only): plan→emitter seam — strategy-parameter object
       signature, stage boundaries for splitting `emit_with_budget_profiled`, blast radius.
+      Outcome (2026-08-01): GO for a default-preserving `emit.rs`-only seam. Introduce a small
+      surface-emission strategy object containing only derivation and root-scope policy; retain
+      the current wrapper/default behavior and existing compile-stage boundaries. NO-GO on new
+      searched behavior or corpus-improvement claims in this refactor.
 - [ ] 4.3 Implement the higher-leverage of 4.1/4.2 (single owner for `emit.rs`/
       `templated_compile.rs`); oracles: conformance exact baseline + corpus-slice improvement.
 - [ ] 4.4 Re-run the dead-end census against the post-routing Sena path; decide E5 go/no-go from
