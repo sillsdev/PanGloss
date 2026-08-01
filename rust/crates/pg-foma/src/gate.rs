@@ -5,7 +5,7 @@
 //! root (Indonesian `prule5`'s `excludedMPRFeatures="mpr1"`) or must ONLY apply to POS-restricted
 //! roots (Amharic `prule1`/`prule2`'s `requiredPartsOfSpeech`) fired for every root reaching it.
 //!
-//! ## Why this is NOT a flag-diacritics encoding (a real, load-bearing finding)
+//! ## Why this is a scoped flag-diacritics encoding (a real, load-bearing finding)
 //! The obvious foma technique for "gate a rule on a per-root fact" is a flag diacritic: set
 //! `@P.MPR1.1@` on the excluded root's lexc entry, test `@D.MPR1@`/`@R.POS.<sym>@` in the gated
 //! subrule's own environment. A prototype build of exactly that (throwaway probes, not committed)
@@ -19,8 +19,9 @@
 //!    by `tests/f0_viability.rs`'s F0.3 and `tests/pk2_eliminate_flag_oracle.rs`, both of which
 //!    only ever test flags OUTSIDE any `->` construct). A context consisting of JUST a flag literal
 //!    (no real segment) additionally **crashed** (`STATUS_STACK_BUFFER_OVERRUN` inside
-//!    `vendor/foma/src/minimize.rs`) on `apply_up`. Putting the gate in the LHS/RHS instead of the
-//!    context does not help — `->` and flags do not mix safely in this port, full stop.
+//!    `vendor/foma/src/minimize.rs`) on `apply_up`. This remains outside the safe path: a flag in a
+//!    replace context is a matched condition, not merely inserted output, so `->` and flags do not
+//!    mix safely in this port in that role.
 //! 2. **`fsm_compose` does not treat flag symbols as epsilon-transparent by default.**
 //!    `FomaOptions::default().flag_is_epsilon == false` (`vendor/foma/src/options.rs`), and
 //!    `fsm_compose`'s own doc comment (`vendor/foma/src/constructions/products.rs`) says why: with
@@ -47,10 +48,18 @@
 //!    deep on one technique is itself the signal, not something to keep debugging blind.
 //!
 //! **Decision (matches this codebase's own "approximate only upward, report don't hide" ethos):**
-//! stop fighting the toolkit and use a **static, flag-free partition** instead. It needs zero new
+//! stop fighting matched-context flags for this root-static gate and use a **static, flag-free
+//! partition** instead. It needs zero new
 //! foma primitives — only ones already proven in this file's own sibling modules (lexc, plain `->`
 //! rules with no flags, [`fsm_compose`], [`fsm_union`]) — and it is provably correct BY
 //! CONSTRUCTION rather than by hoping a flag survives composition:
+//!
+//! This decision does not rule out context-free inserted flags for a future morphotactic legality
+//! filter. The exact Divvun-style `@D/@P` insertion idiom is pinned by
+//! `tests/flag_replace_scope.rs`: it compiles, accepts Der1-before-Der2, and rejects the reverse
+//! order under downward application. The flags remain live for apply-time interpretation; in
+//! particular, `@P`/`@R` flags must not be treated as eliminable by foma-rs `flag_build`, and
+//! consumers must interpret them at apply time.
 //!
 //! ## The static-partition design
 //! MPR/POS gating in this prototype's scope is **root-only** (see the caveat below): a lexical

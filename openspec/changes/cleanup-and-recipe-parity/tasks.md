@@ -92,7 +92,7 @@ conformance-gated. Ordered by decisiveness, not value. Out of scope by prior ana
 Anywhere-mode co-occurrence filters (2^k bound, achieved), non-reachability-provable MPR
 Overwrite (4^k), twolc emit/consume, unbounded-copy reduplication.
 
-- [ ] 6.1 Scope the flag/replace defect (cheap, decisive, FIRST — settles 6.2's design space).
+- [x] 6.1 Scope the flag/replace defect (cheap, decisive, FIRST — settles 6.2's design space).
       Claim under test: `gate.rs:1-20`'s "-> and flags do not mix safely, full stop" is
       over-scoped. Evidence: replace calculus is flag-blind (zero `flag` hits in
       foma-rs rewrite.rs and upstream rewrite.c); apply treats flags as zero-width
