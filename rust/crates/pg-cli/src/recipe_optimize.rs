@@ -1,7 +1,8 @@
 //! Offline, evidence-backed recipe optimization.
 
 use std::collections::BTreeMap;
-use std::fs;
+use std::fs::{self, File, OpenOptions};
+use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -59,6 +60,61 @@ fn hash_current_executable() -> Result<String, RecipeOptimizeError> {
 
 fn elapsed_ns(started: Instant) -> u64 {
     u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX)
+}
+
+const PROGRESS_FILE_NAME: &str = "progress.jsonl";
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct CandidateProgressRow {
+    #[serde(flatten)]
+    report: CandidateReport,
+    realized_strategy: String,
+}
+
+struct ProgressWriter {
+    file: File,
+}
+
+impl ProgressWriter {
+    fn create(path: &Path) -> Result<Self, RecipeOptimizeError> {
+        let file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(path)
+            .map_err(|e| RecipeOptimizeError::Io(format!("create {}: {e}", path.display())))?;
+        Ok(Self { file })
+    }
+
+    fn append(&mut self, row: &CandidateProgressRow) -> std::io::Result<()> {
+        let json = serde_json::to_vec(row).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("serialize progress: {e}"),
+            )
+        })?;
+        self.file.write_all(&json)?;
+        self.file.write_all(b"\n")?;
+        self.file.flush()?;
+        self.file.sync_data()
+    }
+}
+
+fn read_progress_rows(path: &Path) -> Vec<CandidateProgressRow> {
+    let Ok(file) = File::open(path) else {
+        return Vec::new();
+    };
+    BufReader::new(file)
+        .lines()
+        .filter_map(Result::ok)
+        .filter_map(|line| serde_json::from_str::<CandidateProgressRow>(&line).ok())
+        .filter(|row| {
+            !row.report.id.is_empty()
+                && !row.report.recipe_id.is_empty()
+                && row.report.score.is_some()
+                && !row.realized_strategy.is_empty()
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -163,6 +219,39 @@ struct Evaluator<'a> {
     oracle_step_cap: Option<usize>,
     oracle_word_timeout: Option<Duration>,
     cache: &'a mut RunEvaluationCache,
+    progress: Option<ProgressWriter>,
+    progress_error: Option<String>,
+}
+impl Evaluator<'_> {
+    fn append_progress(
+        &mut self,
+        candidate: &CandidateState,
+        certification: &pg_foma::recipe_optimizer::Certification,
+        score: pg_foma::recipe_optimizer::Score,
+        realized_strategy: &str,
+    ) {
+        let row = CandidateProgressRow {
+            report: CandidateReport {
+                id: candidate.id.clone(),
+                recipe_id: candidate.signature.clone(),
+                certification: certification.clone(),
+                score: Some(score),
+                pruning_reason: None,
+            },
+            realized_strategy: realized_strategy.to_owned(),
+        };
+        if let Some(writer) = self.progress.as_mut() {
+            if let Err(error) = writer.append(&row) {
+                self.progress_error
+                    .get_or_insert_with(|| format!("write progress JSONL: {error}"));
+            } else if let Some(ms) =
+                std::env::var_os("PANGLOSS_RECIPE_OPTIMIZE_TEST_SLEEP_AFTER_PROGRESS_MS")
+                    .and_then(|value| value.to_string_lossy().parse::<u64>().ok())
+            {
+                std::thread::sleep(Duration::from_millis(ms));
+            }
+        }
+    }
 }
 impl CandidateEvaluator for Evaluator<'_> {
     fn evaluate(&mut self, c: &CandidateState, remaining: Budget) -> ConfirmationEvidence {
@@ -199,8 +288,9 @@ impl CandidateEvaluator for Evaluator<'_> {
             self.cache,
         )
         .remove(0);
-        self.realized
-            .insert(c.id.clone(), e.realized_strategy.label());
+        let realized_strategy = e.realized_strategy.label();
+        self.realized.insert(c.id.clone(), realized_strategy);
+        self.append_progress(&c, &e.certification, e.score, realized_strategy);
         ConfirmationEvidence {
             certification: e.certification,
             score: Some(e.score),
@@ -244,6 +334,10 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
         std::thread::sleep(Duration::from_millis(ms));
     }
     let a = parse_args(args)?;
+    let out = Path::new(&a.out_dir);
+    fs::create_dir_all(out)
+        .map_err(|e| RecipeOptimizeError::Io(format!("create {}: {e}", a.out_dir)))?;
+    let progress = ProgressWriter::create(&out.join(PROGRESS_FILE_NAME))?;
     let run_started = Instant::now();
     let (grammar, warnings) =
         crate::load_grammar(&a.grammar).map_err(RecipeOptimizeError::Runtime)?;
@@ -515,6 +609,8 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
         oracle_step_cap: a.oracle_step_cap,
         oracle_word_timeout: a.oracle_word_timeout,
         cache: &mut run_cache,
+        progress: Some(progress),
+        progress_error: None,
     };
     let mut outcome = optimize_with_evaluator(
         &states,
@@ -523,6 +619,9 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
         strategy_impl.as_ref(),
         &mut evaluator,
     );
+    if let Some(error) = evaluator.progress_error.take() {
+        return Err(RecipeOptimizeError::Io(error));
+    }
     assert_pruned_is_structurally_zero(outcome.search.pruned);
     outcome.usage.elapsed = outcome.usage.elapsed.saturating_add(presearch_elapsed);
     outcome.usage.build = outcome.usage.build.saturating_add(pilot_build);
@@ -546,7 +645,6 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
     let winner = outcome.winner.clone();
     fs::create_dir_all(Path::new(&a.out_dir))
         .map_err(|e| RecipeOptimizeError::Io(format!("create {}: {e}", a.out_dir)))?;
-    let out = Path::new(&a.out_dir);
     let base_doc = pg_foma::plan_diagram::build_plan_document_for_plan(
         &grammar,
         &evaluator.plans[baseline_id
@@ -736,6 +834,7 @@ fn write_supervisor_failure_report(
 ) {
     let out = Path::new(&parsed.out_dir);
     let _ = fs::create_dir_all(out);
+    let candidates = read_progress_rows(&out.join(PROGRESS_FILE_NAME));
     let partial = serde_json::json!({
         "schema_version": 1,
         "status": "budget-exhausted",
@@ -754,7 +853,7 @@ fn write_supervisor_failure_report(
             "unexplored": null,
             "unexplored_method": "worker terminated before a final checkpoint"
         },
-        "candidates": [],
+        "candidates": candidates,
         "frontier": [],
         "winner": null
     });
@@ -863,7 +962,12 @@ fn run_recipe_optimize_supervised(args: &[String]) -> Result<(), RecipeOptimizeE
 
 #[cfg(test)]
 mod tests {
-    use super::{assert_pruned_is_structurally_zero, parse_args, RecipeOptimizeError};
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use super::{
+        assert_pruned_is_structurally_zero, parse_args, read_progress_rows, RecipeOptimizeError,
+    };
 
     #[test]
     fn usage_documents_search_all_families_replay_flag() {
@@ -896,5 +1000,47 @@ mod tests {
             "a nonzero pruned count must not enter the production report until a real admissible \
              bound is wired"
         );
+    }
+
+    #[test]
+    fn progress_reader_keeps_complete_rows_and_discards_malformed_or_truncated_rows() {
+        let tag = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("pangloss-recipe-progress-{tag}.jsonl"));
+        let complete = serde_json::json!({
+            "id": "candidate-1",
+            "recipe_id": "recipe-1",
+            "certification": {
+                "status": "full-hc-confirmed",
+                "words": 1,
+                "corpus_hash": "hash"
+            },
+            "score": {
+                "states": 1,
+                "arcs": 1,
+                "build": 1,
+                "apply": 1,
+                "proposals": 1,
+                "confirmation": 1,
+                "confirmation_steps": 1,
+                "raw_paths": 1
+            },
+            "pruning_reason": null,
+            "realized_strategy": "plan-composed"
+        });
+        fs::write(
+            &path,
+            format!("{}\nnot-json\n{{\"id\":\"truncated\"", complete),
+        )
+        .unwrap();
+
+        let rows = read_progress_rows(&path);
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].report.id, "candidate-1");
+        assert_eq!(rows[0].realized_strategy.as_str(), "plan-composed");
+        let _ = fs::remove_file(path);
     }
 }

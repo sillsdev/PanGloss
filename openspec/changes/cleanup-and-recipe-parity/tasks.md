@@ -36,7 +36,7 @@ All work on branch `cleanup-and-recipe-parity` (one worktree), never on `main`.
 
 ## 2. Wave 2 — integration and gates (after wave 1 merges)
 
-- [ ] 2.1 Budget banking: child appends per-candidate JSONL progress; supervisor folds completed
+- [x] 2.1 Budget banking: child appends per-candidate JSONL progress; supervisor folds completed
       rows into `partial-report.json` on deadline kill; non-certifying semantics pinned by the
       existing timeout test plus a new banked-data assertion. Files:
       `pg-cli/recipe_optimize.rs`, `recipe_optimize_timeout.rs` test.
