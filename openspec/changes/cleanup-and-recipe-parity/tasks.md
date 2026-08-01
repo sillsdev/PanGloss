@@ -108,7 +108,6 @@ Overwrite (4^k), twolc emit/consume, unbounded-copy reduplication.
       idiom). Caveat to carry: @P/@R flags are NOT eliminable by foma-rs's flag_build table
       (PK2 finding, precision.rs; Divvun likewise never runs `eliminate flag`) — consumers
       must interpret flags at apply time (foma-rs has crates/foma/src/flags.rs).
-- [ ] 6.2 Trigger diacritics for long-range MPR gating (highest value). Divvun idiom: a
       Outcome/evidence (2026-08-01): The repaired managed test preserves the original
       `apply_down` contract: for parsed `A <- B`, A is upper, B is lower, and `apply_down`
       consumes A and emits B; it accepts exactly `+Der1+Der2` and rejects `+Der2+Der1`.
