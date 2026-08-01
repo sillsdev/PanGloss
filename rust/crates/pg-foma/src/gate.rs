@@ -23,8 +23,9 @@
 //!    replace context is a matched condition, not merely inserted output, so `->` and flags do not
 //!    mix safely in this port in that role.
 //! 2. **`fsm_compose` does not treat flag symbols as epsilon-transparent by default.**
-//!    `FomaOptions::default().flag_is_epsilon == false` (`foma-0.4.2/src/options.rs`), and
-//!    `fsm_compose`'s own doc comment (`foma-0.4.2/src/constructions/products.rs`) says why: with
+//!    `FomaOptions::default().flag_is_epsilon == false` (`foma-0.4.2/src/options.rs:83`), and
+//!    `fsm_compose` consumes that option at
+//!    `foma-0.4.2/src/constructions/products.rs:214`; with
 //!    it off, a flag symbol present in one net's sigma but ABSENT from the other's is NOT treated
 //!    as "invisible" during the sigma merge — the composed result is empty. Reproduced at the
 //!    minimal possible case: `compose([a], [a "@D.MPR1@"])` (a flag-FREE net composed with a
@@ -55,14 +56,18 @@
 //! CONSTRUCTION rather than by hoping a flag survives composition:
 //!
 //! This decision does not rule out context-free inserted flags for a future morphotactic legality
-//! filter, but the application direction is load-bearing. The minimal exact-shaped projection in
-//! `tests/flag_replace_scope.rs` preserves the original `<-` result as downward-only evidence;
-//! its upper-only flags fail open under `apply_up`. Explicitly inverting that compiled relation
-//! with `fsm_invert` is proven usable there: exact ascending/descending `apply_up` output sets and
-//! an `apply_set_obey_flags(false)` causality control pass. The same managed probe found that
-//! `flag_twosided` does not terminate under `apply_up` (19.98 GB RSS before it was stopped), so it
-//! is not a safe substitute. The inverted result reopens only this narrowly scoped apply_up path,
-//! not the root-static MPR/POS gate implemented here. The flags remain live for apply-time
+//! filter, but the application direction is load-bearing. For `A <- B`, parsing keeps A on the
+//! upper tape and B on the lower tape; `apply_down` consumes A and emits B. The minimal
+//! exact-shaped projection in `tests/flag_replace_scope.rs` preserves that original result as
+//! downward-only evidence. The original relation's `apply_up` consumes B and emits A; because
+//! A's flag symbols are zero-width, its descending visible input fails open with the exact set
+//! {`+Der2+Der1`}. Explicitly applying `fsm_invert` produces the inverse relation and is proven
+//! usable for `apply_up`: exact ascending/descending output sets and an
+//! `apply_set_obey_flags(false)` causality control pass. An earlier uncommitted
+//! `flag_twosided` observation is not auditable because its construction, managed command,
+//! memory cap/units, peak measurement, and failure phase are not committed; it was not rerun and
+//! supplies no evidence here. The inverted result reopens only this narrowly scoped apply_up
+//! path, not the root-static MPR/POS gate implemented here. The flags remain live for apply-time
 //! interpretation; in particular, `@P`/`@R` flags must not be treated as eliminable by foma-rs
 //! `flag_build`, and consumers must interpret them at apply time.
 //!

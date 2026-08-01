@@ -37,13 +37,15 @@ fn minimal_exact_shaped_projection_is_downward_only() {
         None,
         None,
     )
-        .expect("the exact context-free Divvun-style filter must compile");
+    .expect("the exact context-free Divvun-style filter must compile");
 
-    // For `A <- B`, downward application presents B on the input tape and evaluates
-    // the inserted flags on the upper tape. This is therefore downward-only evidence:
-    // under apply_up the same upper-only flags are emitted/suppressed rather than acting
-    // as causal checks on the production-direction projection. The proven apply_up
-    // construction below uses explicit relation inversion.
+    // For `A <- B`, parsing keeps A on the upper tape and B on the lower tape;
+    // apply_down consumes A and emits B. The visible input here resembles B only
+    // because A's flag symbols are zero-width. The original relation's apply_up
+    // therefore consumes the visible B projection and emits A, but its upper-only
+    // flags fail open rather than causally rejecting the descending projection.
+    // The proven apply_up construction below uses fsm_invert, which produces the
+    // inverse relation.
     assert_eq!(
         apply_down_all(&net, "+Der1+Der2"),
         exact_output("+Der1+Der2"),
@@ -54,6 +56,11 @@ fn minimal_exact_shaped_projection_is_downward_only() {
         apply_down_all(&net, "+Der2+Der1"),
         BTreeSet::new(),
         "downward evidence must reject the descending projection"
+    );
+    assert_eq!(
+        apply_up_all(&net, "+Der2+Der1", true),
+        exact_output("+Der2+Der1"),
+        "the original relation must pin its exact descending apply_up fail-open output set"
     );
 }
 

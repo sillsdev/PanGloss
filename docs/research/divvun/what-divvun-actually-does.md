@@ -194,19 +194,24 @@ enters that construction.
 
 That explains why Divvun's 1,118 production flags do not contradict the matched-role finding, but
 it does not prove that the unmodified `<-` relation is safe for PanGloss's production direction.
-The minimal exact-shaped projection in `rust/crates/pg-foma/tests/flag_replace_scope.rs` accepts
-ascending and rejects descending only under `apply_down`; under `apply_up` its upper-only flags
-fail open. Explicit `fsm_invert` makes the same relation pass exact `apply_up` output-set checks,
-including the `apply_set_obey_flags(false)` causality control. `flag_twosided` was also tested and
-did not terminate under `apply_up` before reaching 19.98 GB RSS, so it is not a safe substitute.
+For `A <- B`, parsing keeps A on the upper tape and B on the lower tape; `apply_down` consumes A
+and emits B. The minimal exact-shaped projection in
+`rust/crates/pg-foma/tests/flag_replace_scope.rs` accepts ascending and rejects descending there.
+The original relation's `apply_up` consumes B and emits A; its zero-width upper-only flags fail
+open, with the exact descending output set {`+Der2+Der1`}. Applying `fsm_invert` produces the
+inverse relation `B <- A`; its `apply_up` consumes A and emits B, and the exact
+ascending/descending output sets plus the `apply_set_obey_flags(false)` causality control pass.
 The precise safe/unsafe line is therefore both flag role and application direction, not merely
 which side of the arrow the source text names.
 
 All three of `gate.rs`'s original findings are **inherited from upstream C, not port regressions** —
-independently confirmed for finding 2 via the pinned foma 0.4.2 source's `mem.c` equivalent
-(`int g_flag_is_epsilon = 0`). The new direction result does not require an upstream filing: the
-minimal inverted construction is exact under `apply_up`, while the `flag_twosided` probe is
-documented as unsafe for this production direction.
+For finding 2, the pinned foma-rs 0.4.2 source's `foma-0.4.2/src/mem.rs` explicitly says the C `g_*` option
+globals moved to `crate::options::FomaOptions`; the actual default is
+`flag_is_epsilon: false` at `foma-0.4.2/src/options.rs:83`, and `fsm_compose` consumes that option at
+`foma-0.4.2/src/constructions/products.rs:214`. An earlier uncommitted `flag_twosided` observation is
+not auditable because its exact construction, managed command, memory cap/units, peak
+source/measurement, and failure phase are not committed; it was not rerun and supplies no
+evidence here.
 
 ---
 
