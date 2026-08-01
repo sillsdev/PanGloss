@@ -52,9 +52,12 @@ use pg_grammar::model::{LexEntryId, MRuleId, PRuleId, TemplateId};
 /// sharing, D5's fixture tagging by node address all depend on the same logical node hashing to
 /// the same id every time it is built). `std::collections::hash_map::DefaultHasher` is explicitly
 /// wrong here: its `RandomState` reseeds per-process, so the same content hashes differently on
-/// every run. FNV-1a has no seed/salt at all — deterministic across processes, platforms, and
-/// compiler versions by construction — and is small enough not to justify a new dependency
-/// (design.md D1: "a small hand-rolled stable hash is fine and preferred").
+/// every run. FNV-1a has no seed/salt at all, so it is deterministic across processes for a fixed
+/// plan schema and Rust hashing ABI, and is small enough not to justify a new dependency
+/// (design.md D1: "a small hand-rolled stable hash is fine and preferred"). The preimage still
+/// comes from standard Hash implementations, whose encoding is not a portable persistence format
+/// across platforms or compiler versions; any future cross-toolchain cache needs a separately
+/// versioned canonical encoding.
 ///
 /// Not collision-resistant, and that is an accepted tradeoff at this data-modeling step: a 64-bit
 /// non-cryptographic hash is adequate for "is this the same subtree" over the grammars this crate
@@ -130,11 +133,23 @@ fn content_address(kind: &PlanNodeKind) -> NodeId {
 /// than collapsing `Compose { strategy, .. }` to drop the field) because it is D1's
 /// "config-only difference is still a content-address difference" axis: a future strategy belongs
 /// in this enum, not in a new field elsewhere.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ComposeStrategy {
     /// Materialize-then-trim: build the full composed network eagerly. The only strategy any
     /// builder in this crate constructs or interprets.
     Static,
+}
+
+impl Hash for ComposeStrategy {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // Preserve the explicit discriminant encoding used when this enum had multiple variants.
+        // Rust's derived `Hash` emits no bytes for a single-variant enum, which would otherwise
+        // change every existing Static compose node's persistent content address merely because
+        // the two unconstructible variants were deleted.
+        match self {
+            Self::Static => 0_isize.hash(state),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -593,6 +608,16 @@ mod tests {
         assert!(plan.contains(shared_leaf));
         assert_eq!(plan.get(parent_a).unwrap().children()[0], shared_leaf);
         assert_eq!(plan.get(parent_b).unwrap().children()[0], shared_leaf);
+    }
+
+    /// The removed Lazy variants historically made derived Hash encode Static's discriminant as
+    /// eight zero bytes on this target. Keep that legacy tag reserved: changing it moves every
+    /// Compose node and its ancestors, which can alter candidate ordering and tie-breaks.
+    #[test]
+    fn static_compose_strategy_preserves_legacy_hash_tag() {
+        let mut hasher = StableHasher::new();
+        ComposeStrategy::Static.hash(&mut hasher);
+        assert_eq!(hasher.finish(), 0xa8c7_f832_281a_39c5);
     }
 
     /// Content addresses are stable/deterministic: building the same plan (same nodes, same
