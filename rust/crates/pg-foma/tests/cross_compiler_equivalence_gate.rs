@@ -216,6 +216,11 @@ fn actual_multiset(evidence: &[WordEvidence]) -> Vec<(String, Vec<pg_parse::Word
         .collect()
 }
 
+fn assert_proposal_ratio(strategy: EmissionStrategy, numerator: u64, denominator: u64) {
+    check_proposal_ratio(strategy, numerator, denominator, MAX_PROPOSAL_RATIO)
+        .unwrap_or_else(|violation| panic!("{violation}"));
+}
+
 #[test]
 fn pinned_three_pipeline_equivalence_observes_final_candidates_and_preserves_cache_semantics() {
     let (grammar, words) = fixture();
@@ -353,16 +358,10 @@ fn pinned_three_pipeline_equivalence_observes_final_candidates_and_preserves_cac
             .iter()
             .map(|word| word.expected.len() as u64)
             .sum::<u64>();
-        assert!(
-            check_proposal_ratio(
-                observation.evaluation.realized_strategy,
-                observation.evaluation.score.proposals,
-                oracle_confirmed,
-                MAX_PROPOSAL_RATIO,
-            )
-            .is_ok(),
-            "{strategy:?} exceeded proposal ratio tripwire",
-            strategy = plan.strategy
+        assert_proposal_ratio(
+            observation.evaluation.realized_strategy,
+            observation.evaluation.score.proposals,
+            oracle_confirmed,
         );
         oracle.get_or_insert_with(|| expected_multiset(evidence));
         actual_by_strategy.push((plan.strategy, actual_multiset(evidence)));
@@ -545,4 +544,10 @@ fn template_flattened_uflexc_route_reports_typed_proposal_ratio_violation() {
     assert!(violation.to_string().contains("denominator="));
     assert!(violation.to_string().contains("threshold="));
     assert!(violation.to_string().contains("strategy=PlanComposed"));
+}
+
+#[test]
+#[should_panic(expected = "strategy=PlanComposed numerator=7 denominator=2 threshold=2")]
+fn three_pipeline_gate_reports_proposal_ratio_violation_details() {
+    assert_proposal_ratio(EmissionStrategy::PlanComposed, 7, 2);
 }
