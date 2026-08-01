@@ -232,6 +232,8 @@ pub mod readiness_policy;
 /// trusted or unassessed check render as passing. See that module's own doc for the full honesty-
 /// rule contract.
 pub mod readiness_verdict;
+/// Serializable mechanism vocabulary and fail-closed executable-recipe graph validation.
+pub mod recipe_mechanism;
 /// Extensible, budget-aware offline search and confirmed-only recipe selection.
 pub mod recipe_optimizer;
 /// Extensible registry of realizable compilation-recipe families.
