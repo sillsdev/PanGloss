@@ -124,7 +124,7 @@ Completed as `7bcbafb`. Do not replay this RED or create a duplicate commit duri
 - Modify: `rust/crates/pg-foma/src/recipe_report.rs:127-152`
 - Test: existing unit-test modules in both files
 
-- [ ] **Step 1: Complete the existing D4 RED table**
+- [x] **Step 1: Complete the existing D4 RED table**
 
 Define one table-driven test where each certified candidate differs only in one coordinate of:
 
@@ -135,7 +135,7 @@ Define one table-driven test where each certified candidate differs only in one 
 Require the lower candidate to dominate for each coordinate; timing-only differences must not
 change the frontier; an uncertified candidate must never enter it.
 
-- [ ] **Step 2: Verify the RED**
+- [x] **Step 2: Verify the RED**
 
 Run:
 
@@ -145,7 +145,7 @@ Run:
 
 Expected: step/raw-path/timing cases fail against the current comparator.
 
-- [ ] **Step 3: Add one named deterministic Pareto vector**
+- [x] **Step 3: Add one named deterministic Pareto vector**
 
 Implement:
 
@@ -167,14 +167,14 @@ impl Score {
 Make `dominates` compare only that componentwise vector. Keep `Score::key()` separate and keep
 wall-clock `build`/`apply` out of both policies.
 
-- [ ] **Step 4: Make report validation recompute derived decisions**
+- [x] **Step 4: Make report validation recompute derived decisions**
 
 Add RED tests that corrupt serialized `pareto_frontier` and `winner`; then make
 `RecipeOptimizationReport::validate()` recompute both from certified candidates and require exact
 agreement. Legacy reports missing `raw_paths` may deserialize, but must not be compared across
 reports as if zero were measured evidence.
 
-- [ ] **Step 5: Run focused and report tests**
+- [x] **Step 5: Run focused and report tests**
 
 ```powershell
 & .\rust\tools\pg.ps1 -Mode test -Package pg-foma -Filter recipe_optimizer
@@ -183,7 +183,7 @@ reports as if zero were measured evidence.
 
 Expected: all focused tests pass.
 
-- [ ] **Step 6: Commit the D4/report repair**
+- [x] **Step 6: Commit the D4/report repair**
 
 ```powershell
 git add -- rust/crates/pg-foma/src/recipe_optimizer.rs `
@@ -198,7 +198,7 @@ git commit -m "fix: validate deterministic recipe frontier"
 - Modify: `rust/crates/pg-foma/src/lib.rs`
 - Test: `rust/crates/pg-foma/tests/recipe_mechanism_graph.rs`
 
-- [ ] **Step 1: Write graph-validation RED tests**
+- [x] **Step 1: Write graph-validation RED tests**
 
 Test these exact functions using direct `MechanismGraph { nodes, edges }` values:
 
@@ -228,7 +228,7 @@ recipe_mechanism_accepts_composable_morphotactics_cleanup_graph
 Construct every `InterfaceContract` field explicitly in the test so adding a new contract field
 forces fixture review. Each invalid graph must return the typed error above, not a stringly panic.
 
-- [ ] **Step 2: Verify tests fail because the module/types do not exist**
+- [x] **Step 2: Verify tests fail because the module/types do not exist**
 
 ```powershell
 & .\rust\tools\pg.ps1 -Mode test -Package pg-foma -Filter recipe_mechanism_
@@ -236,7 +236,7 @@ forces fixture review. Each invalid graph must return the typed error above, not
 
 Expected RED: unresolved `pg_foma::recipe_mechanism` import.
 
-- [ ] **Step 3: Implement the minimal serializable types**
+- [x] **Step 3: Implement the minimal serializable types**
 
 Create strongly typed IDs and enums from the approved spec:
 
@@ -393,12 +393,12 @@ pub enum CopySpanRequirement { None, BoundedAtMost(usize), AnyPreserved }
 - `accepted_dispositions` contains the producer disposition; `Refused` never satisfies an edge.
   An exact consumer lists only `ExactFst`, so `ConfirmOnly` and `Peeled` need explicit adapters.
 
-- [ ] **Step 4: Implement `MechanismGraph::validate()`**
+- [x] **Step 4: Implement `MechanismGraph::validate()`**
 
 Validation must check unique/stable IDs, existing edge endpoints, acyclicity, one compatible
 contract per edge, required/provided state, and terminal cleanup. It must not encode language names.
 
-- [ ] **Step 5: Run tests and rustfmt**
+- [x] **Step 5: Run tests and rustfmt**
 
 ```powershell
 Push-Location rust
@@ -413,7 +413,7 @@ Expected: formatter and graph tests pass.
 still go through `pg.ps1`. Every test function above has the `recipe_mechanism_` prefix, so the
 managed filter cannot silently select zero tests.
 
-- [ ] **Step 6: Commit the vocabulary**
+- [x] **Step 6: Commit the vocabulary**
 
 ```powershell
 git add -- rust/crates/pg-foma/src/recipe_mechanism.rs `
@@ -622,7 +622,7 @@ git commit -m "feat: validate executable recipe artifacts"
 - Create: `docs/fst-plan/subrecipes/boundary-cleanup.md`
 - Test: `rust/crates/pg-foma/tests/subrecipe_dossier_contract.rs`
 
-- [ ] **Step 1: Add a dossier-contract RED**
+- [x] **Step 1: Add a dossier-contract RED**
 
 Create a lightweight test/script that requires all six files and these exact headings:
 
@@ -650,7 +650,7 @@ It must also require at least two non-empty language/family entries and one date
 `Evidence decisions` must contain at least one dated row whose decision is exactly `fits`,
 `refines`, or `splits/adds`, with the evidence and architectural consequence recorded.
 
-- [ ] **Step 2: Verify RED because dossiers are absent**
+- [x] **Step 2: Verify RED because dossiers are absent**
 
 Run:
 
@@ -660,25 +660,25 @@ Run:
 
 Expected RED: the contract test names all six missing files.
 
-- [ ] **Step 3: Write source-backed initial dossiers**
+- [x] **Step 3: Write source-backed initial dossiers**
 
 Populate every required section using the approved design and the primary-source ledger in
 `docs/fst-plan/linguistic-recipe-harvest.md`. Mark claim-level confidence and distinguish current
 repository evidence from external linguistic evidence. Do not claim implementation where only
 research exists.
 
-- [ ] **Step 4: Fill the two explicit research gaps**
+- [x] **Step 4: Fill the two explicit research gaps**
 
 Before `CopyProcess` and `StructuralAllomorph` leave research status, identify a second primary
 grammar source for productive full copying and a second Semitic/root-pattern system. Record why
 each source exercises a different edge from Indonesian or Amharic.
 
-- [ ] **Step 5: Run the dossier contract and link checks**
+- [x] **Step 5: Run the dossier contract and link checks**
 
 Run the same `subrecipe_dossier_` filter. Expected: all headings, language anchors, dated rows,
 evidence decisions, and local links pass.
 
-- [ ] **Step 6: Commit dossiers**
+- [x] **Step 6: Commit dossiers**
 
 ```powershell
 git add -- docs/fst-plan/subrecipes
