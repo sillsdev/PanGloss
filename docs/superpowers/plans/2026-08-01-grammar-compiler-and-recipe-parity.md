@@ -89,6 +89,11 @@ generic evidence rule engine inside the semantic snapshot.
 - [ ] Compare deduplicated identity sets for selectability. Preserve repeated corpus occurrences,
       distinct identities, guessed annotations, and duplicate-discovery counts as separate typed
       evidence; duplicate copies of one identity do not change selectability.
+- [ ] Make shared analysis projection and set construction fallible. Reject empty/colliding stable
+      source keys, unresolved ordinals, duplicate-count overflow, conflicting `guessed`
+      annotations, and supplied-root/sentinel ambiguity instead of debug-asserting or OR-merging.
+- [ ] Project oracle results when `PreparedCorpus` is created and candidate results through the same
+      shared projector; retain each repeated corpus row as a distinct occurrence.
 - [ ] Bind every set comparison to identity profile, authority, source/model revision, semantic
       `ModelRevision`, parse options, and corpus snapshot. Naked identity values are not comparable.
 - [ ] Add `CorpusSnapshot` with schema, raw/requested/eligible digests, occurrence order,
@@ -101,6 +106,9 @@ generic evidence rule engine inside the semantic snapshot.
       widening v1 in place.
 - [ ] Keep traces diagnostic-only and explicitly exclude trace parity. Current tracing changes merge
       behavior, uses compiler-local sources, and has no Foma counterpart.
+- [ ] Replace recipe runtime's full `WordAnalysis::Eq`, exact-vector-length check, and dense tuple
+      helpers with shared identity-set comparison, separate annotation mismatch, duplicate-count
+      evidence, and typed non-comparable reasons.
 
 ### 1D. Research dossiers
 
