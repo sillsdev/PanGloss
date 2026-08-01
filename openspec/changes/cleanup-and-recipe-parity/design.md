@@ -15,8 +15,9 @@ synthetic-only fixtures; never weaken recall/budget/supervisor gates; corpus mea
 out-of-band (gitignored data, managed `pg.ps1` entry points only).
 
 Execution model for this change: all work happens on one worktree branch off `main`
-(`cleanup-and-recipe-parity`), implemented by sonnet subagents (max 4 concurrent, builds bounded
-by `Enter-BuildSlot`), reviewed change-by-change by the coordinating session against the oracles:
+(`cleanup-and-recipe-parity`), implemented by Luna subagents at medium effort or higher (xhigh for
+research; concurrency bounded by measured headroom and `Enter-BuildSlot`), reviewed
+change-by-change by the coordinating session against the oracles:
 conformance suite, the four corpus slices, hand-spun results, and Rust code-quality judgment.
 Three rounds: (1) the items below; (2)–(3) research-then-implement follow-ons (junction filter
 rules, plan→emitter seam, E5) gated on round-1 measurements.
@@ -107,6 +108,20 @@ family ids become `pub const` items next to `SEEDS` used by the CLI decision sit
 calibrate `oracle_step_cap`/`oracle_word_timeout` from the observed distribution, then run the
 main loop (not the pilot) over the full word list. Deliverable is evidence + calibrated defaults,
 not a certification claim beyond what `measure_and_certify` states.
+
+**D9 — Recipes compose typed linguistic mechanisms, not language labels.** Preserve the closed
+`Plan` relation algebra and its compilers as the physical layer. Above it, extract a validated
+grammar-derived mechanism graph with six deep modules: `Morphotactics`, `StaticPartition`,
+`OrderedPhonology`, `StructuralAllomorph`, `CopyProcess`, and terminal `BoundaryCleanup`. A grammar
+may use any subset and multiple instances. Edges carry explicit provided/required contracts for
+symbol space plus active table, identity, multiplicity, dynamic state, stratum, copy bounds, and
+execution disposition. Incompatibility is typed and fail-closed; compiler strategy is a lowering
+adapter, never a linguistic family. Productive unbounded copying is peeled rather than falsely
+claimed as an ordinary one-way FST. Each mechanism owns a living research dossier and at least two
+independent conformance exercises where possible. The four target languages remain integration and
+scale gates, not proof of genericity. Rejected: adding more registry labels whose implementation is
+only identity/permutation, branching on language/fixture names, or treating a surviving certified
+corpus subset as full parity.
 
 ## Risks / Trade-offs
 

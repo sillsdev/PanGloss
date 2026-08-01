@@ -143,3 +143,29 @@ count pins); TODO density is low; unwraps in scope are documented invariants.
 4. **Doc hygiene:** mark `large-lexicon-proposal-explosion.md` superseded (point at `9cb569f`);
    mark `four-grammar-recipe-evidence-2026-07-28.md` historical (wall-clock ranking is gone) and
    rename or banner it against the four-languages collision.
+
+## 2026-08-01 architecture realignment: executable subrecipes
+
+The original registry families do not by themselves establish linguistic coverage: several named
+families lower only to identity or plan permutation. The approved replacement is a compositional,
+grammar-derived mechanism graph above the existing closed `Plan` algebra. See
+`docs/superpowers/specs/2026-08-01-executable-subrecipes-design.md` and the xhigh-reviewed
+`docs/superpowers/plans/2026-08-01-executable-subrecipes-foundation.md`.
+
+The mechanism vocabulary is `Morphotactics`, `StaticPartition`, `OrderedPhonology`,
+`StructuralAllomorph`, `CopyProcess`, and `BoundaryCleanup`. Languages compose one or more of these;
+the compiler strategy remains a physical lowering adapter rather than a language family. The
+orthogonal conformance basis covers complete template order/co-occurrence, cascades/strata, lexical
+classes, allomorph priority, bounded and unbounded copy (peeled when unbounded), bounded
+metathesis, interdigitation, POS/MPR/feature gates, compounding, and zero morphology. Each row gets
+two independent exercises where possible, and each mechanism has a maintained research dossier
+with language-family anchors, chosen/rejected architectures, complexity, evidence, and split/refine
+triggers.
+
+The parity scoreboard remains provisional. `7bcbafb` fixed the P0 that allowed mixed complete and
+oracle-truncated corpora to certify only the surviving subset. Future four-language evidence must
+therefore use deterministic eligible-corpus transformations, raw and eligible hashes, explicit
+excluded-line ledgers, zero oracle-cap/timeout exclusions, exact confirmed multisets, and the
+corrected deterministic Pareto relation. Indonesian is the strongest current observation; Sena is
+only routing/synthetic evidence; Amharic and Aweti remain uncertified at their full eligible corpus
+scopes. No foundation or synthetic pass upgrades those statements automatically.

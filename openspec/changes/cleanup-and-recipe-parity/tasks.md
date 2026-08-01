@@ -1,7 +1,8 @@
 # Tasks: cleanup-and-recipe-parity
 
 Waves are the dispatch unit: tasks within a wave touch disjoint files and may run in parallel
-(max 4 agents); waves are sequential. Every build/test goes through `rust/tools/pg.ps1`.
+within measured machine headroom; waves are sequential. Luna implementation uses medium effort or
+higher and Luna research uses xhigh. Every build/test goes through `rust/tools/pg.ps1`.
 All work on branch `cleanup-and-recipe-parity` (one worktree), never on `main`.
 
 ## 1. Wave 1 — independent fixes (parallel-safe)
@@ -156,3 +157,43 @@ Overwrite (4^k), twolc emit/consume, unbounded-copy reduplication.
       rewrite_set node) — an emitter change, not a blocker. Watch the right axis: matched-rule
       domains are 2-10 members (enumeration doesn't bite); it bites when the ALPHABET is
       large (the 417-segment case) — orthogonal, do not conflate.
+
+## 7. Executable subrecipes — generic mechanism foundation
+
+Authoritative design and execution plan:
+`docs/superpowers/specs/2026-08-01-executable-subrecipes-design.md` and
+`docs/superpowers/plans/2026-08-01-executable-subrecipes-foundation.md`.
+
+- [x] 7.1 Reject every corpus evaluation containing any oracle-capped or oracle-timed-out word;
+      a certifiable subset must never be labeled `FullHcConfirmed` (`7bcbafb`, focused oracle gate
+      plus 53-test oracle regression set).
+- [ ] 7.2 Make D4's Pareto relation deterministic over the componentwise vector
+      `(confirmation_steps, raw_paths, confirmation, proposals, states, arcs)`; exclude timing and
+      uncertified candidates; recompute and validate serialized frontier/winner decisions.
+- [ ] 7.3 Add the six language-name-free mechanisms: `Morphotactics`, `StaticPartition`,
+      `OrderedPhonology`, `StructuralAllomorph`, `CopyProcess`, and terminal `BoundaryCleanup`.
+      Contracts carry exact symbol-space/table identity, analysis/root identity, multiplicity,
+      dynamic state, stratum, copy bounds, and execution disposition and fail closed.
+- [ ] 7.4 Extract mechanism graphs from capability observations plus typed grammar structure.
+      Require stable model-derived IDs/payloads/contracts and byte-identical canonical extraction
+      from two fresh loads; inert hints may not create mechanisms.
+- [ ] 7.5 Bind a validated mechanism graph, exact Plan root, lowering adapter, and wire-safe runtime
+      operations into `pangloss.executable-recipe/v1`; independently validate its JSON Schema and
+      reject registry/runtime bypass or corruption.
+- [ ] 7.6 Maintain one research dossier per mechanism with scope, invariants, ≥2 language/family
+      anchors, chosen/rejected architectures, complexity, evidence log, and explicit
+      fits/refines/splits/adds triggers.
+- [ ] 7.7 Prove the first `Morphotactics → BoundaryCleanup` vertical slice with two independent
+      complete-template exercises and two cleanup exercises, exact analysis/root/multiplicity
+      parity, cleanup idempotence, and no language-name routing.
+- [ ] 7.8 Exercise the remaining orthogonal basis at least twice where possible: template
+      order/co-occurrence, cascade/strata, lexical class, allomorph priority, bounded copy,
+      unbounded peeled copy, bounded metathesis, interdigitation, feature/POS/MPR gates,
+      compounding, and zero morphology. A language may compose any number of mechanisms.
+- [ ] 7.9 Run the full managed pg-foma and corpus gates with zero oracle exclusions, then obtain a
+      fresh xhigh Sol review before treating the foundation or a wide-reaching mechanism decision
+      as settled.
+- [ ] 7.10 Re-measure Indonesian, Sena, Amharic, and Aweti at their honest full eligible corpus
+      scopes. Record raw/source hashes, deterministic exclusions, all candidates, certification,
+      Pareto frontier, and remaining unsupported constructs. Four-language parity is not achieved
+      until all four pass these evidence gates; synthetic construct coverage alone is insufficient.
