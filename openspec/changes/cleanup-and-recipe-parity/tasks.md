@@ -168,9 +168,11 @@ mechanism extractor and separate executable-artifact direction must not be imple
 - [x] 7.1 Reject every corpus evaluation containing any oracle-capped or oracle-timed-out word;
       a certifiable subset must never be labeled `FullHcConfirmed` (`7bcbafb`, focused oracle gate
       plus 53-test oracle regression set).
-- [ ] 7.2 Make D4's Pareto relation deterministic over the componentwise vector
+- [x] 7.2 Make D4's Pareto relation deterministic over the componentwise vector
       `(confirmation_steps, raw_paths, confirmation, proposals, states, arcs)`; exclude timing and
       uncertified candidates; recompute and validate serialized frontier/winner decisions.
+      Deterministic frontier/report validation landed in `d619999`; `2e8b07d` additionally prevents
+      a selectable confirmed candidate from being hidden by deleting its score (12 report tests).
 - [ ] 7.3 Rework the six language-name-free mechanism types: `Morphotactics`, `StaticPartition`,
       `OrderedPhonology`, `StructuralAllomorph`, `CopyProcess`, and terminal `BoundaryCleanup`.
       Nodes own typed semantic requirements/guarantees, edges own dependency/order, and candidate
