@@ -95,13 +95,23 @@ for it (`rewrite.rs:383` gates the whole construction on `rewrite_contexts.is_so
 are pure inserted output material. The precise safe/unsafe line is *"does this flag occurrence
 require compile-time matching against real tape content"* — not "which side of the arrow is it on".
 
+There is a second, independent direction constraint for PanGloss. The committed `<-` projection
+proves the ordering filter only under `apply_down`: its upper-only flags are emitted/suppressed
+under production-direction `apply_up` and do not causally reject the descending string. The
+minimal exact-shaped projection in `rust/crates/pg-foma/tests/flag_replace_scope.rs` makes the
+relation usable for `apply_up` by explicitly inverting it with `fsm_invert`; exact ascending and
+descending output sets plus an `apply_set_obey_flags(false)` causality control pass. A separate
+`flag_twosided` attempt did not terminate under `apply_up` and reached 19.98 GB RSS before its
+managed job was stopped, so that operation is not a safe repair.
+
 **What it would buy us.** In-network morphotactic legality gating — derivation ordering, compounding
 legality — which today is either enumerated or deferred to `confirm`.
 
-**What has to be true for it to pay off.** The idiom must compile under `foma-rs` `0.4.2` and
-correctly reject `Der2`-before-`Der1` while accepting ascending order. That is a day's work and
-either outcome is worth having: if it fails, `foma-rs` has a defect on the exact idiom Divvun's own
-grammars depend on, which is a significant upstream finding.
+**What has to be true for it to pay off.** The production-direction construction must preserve
+the exact accepted output set under `foma-rs` `0.4.2`, not merely compile or pass in the opposite
+direction. The inversion construction meets that minimal proof; the unmodified `<-` idiom and
+the `flag_twosided` alternative do not. This licenses a narrowly scoped future legality experiment,
+not a claim that the full morphotactic path is already wired or sound.
 
 **Caveat to carry.** PK2's finding, recorded at `rust/crates/pg-foma/src/precision.rs`, is that
 `@P`/`@R`-typed flags are **not eliminable** by `foma-rs`'s `flag_build` decision table. They stay

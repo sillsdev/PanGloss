@@ -192,15 +192,21 @@ through a `NotContain` construction — where the builder treats it as a real sy
 it as consuming nothing. A flag merely **inserted** by a rule and read at plain apply time never
 enters that construction.
 
-That is exactly Divvun's idiom (`<-` rules with no `||` clause), which reconciles their 1,118
-production flags with our finding at no contradiction. The precise safe/unsafe line is *"does this
-flag occurrence require compile-time matching against real tape content"*, not merely "which side
-of the arrow is it on".
+That explains why Divvun's 1,118 production flags do not contradict the matched-role finding, but
+it does not prove that the unmodified `<-` relation is safe for PanGloss's production direction.
+The minimal exact-shaped projection in `rust/crates/pg-foma/tests/flag_replace_scope.rs` accepts
+ascending and rejects descending only under `apply_down`; under `apply_up` its upper-only flags
+fail open. Explicit `fsm_invert` makes the same relation pass exact `apply_up` output-set checks,
+including the `apply_set_obey_flags(false)` causality control. `flag_twosided` was also tested and
+did not terminate under `apply_up` before reaching 19.98 GB RSS, so it is not a safe substitute.
+The precise safe/unsafe line is therefore both flag role and application direction, not merely
+which side of the arrow the source text names.
 
-All three of `gate.rs`'s findings are **inherited from upstream C, not port regressions** —
-independently confirmed for finding 2 via `foma/mem.c:25` (`int g_flag_is_epsilon = 0;`). Nothing
-to file upstream except possibly the minimizer crash, observed against foma `0.1.1` while we now
-pin `0.4.2`.
+All three of `gate.rs`'s original findings are **inherited from upstream C, not port regressions** —
+independently confirmed for finding 2 via the pinned foma 0.4.2 source's `mem.c` equivalent
+(`int g_flag_is_epsilon = 0`). The new direction result does not require an upstream filing: the
+minimal inverted construction is exact under `apply_up`, while the `flag_twosided` probe is
+documented as unsafe for this production direction.
 
 ---
 

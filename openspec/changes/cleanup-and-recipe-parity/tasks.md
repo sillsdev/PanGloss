@@ -93,21 +93,20 @@ Anywhere-mode co-occurrence filters (2^k bound, achieved), non-reachability-prov
 Overwrite (4^k), twolc emit/consume, unbounded-copy reduplication.
 
 - [x] 6.1 Scope the flag/replace defect (cheap, decisive, FIRST — settles 6.2's design space).
-      Claim under test: `gate.rs:1-20`'s "-> and flags do not mix safely, full stop" is
-      over-scoped. Evidence: replace calculus is flag-blind (zero `flag` hits in
-      foma-rs rewrite.rs and upstream rewrite.c); apply treats flags as zero-width
-      (foma apply.c:1084); collision requires a flag in a MATCHED role inside a `||` context
-      (NotContain construction, rewrite.rs:383 gated on `rewrite_contexts.is_some()`).
-      Build: compile Divvun's exact idiom under pinned foma-rs 0.4.2 —
-      `"@D.Der1.TRUE@" "@D.Der2.TRUE@" … "@P.Der1.TRUE@" "+Der1" <- "+Der1"` (note `<-`, NO
-      `||` clause; flags as pure inserted output, never matched; lang-sme runs 1,118 flags in
-      production on this shape). PASS: derivation-ordering constraint compiles, rejects
-      Der2-before-Der1, accepts ascending. If PASS: narrow gate.rs's module doc to "a flag in
-      a MATCHED role" and reopen the flag path for morphotactic legality gating. If FAIL:
-      file upstream foma-rs defect with minimal repro (it breaks Divvun's own production
-      idiom). Caveat to carry: @P/@R flags are NOT eliminable by foma-rs's flag_build table
-      (PK2 finding, precision.rs; Divvun likewise never runs `eliminate flag`) — consumers
-      must interpret flags at apply time (foma-rs has crates/foma/src/flags.rs).
+      Claim under test: `gate.rs`'s "-> and flags do not mix safely, full stop" is over-scoped,
+      but only after application direction is made explicit. The replace calculus is flag-blind
+      and the matched-role collision remains scoped to `||`/`NotContain` construction.
+      The minimal exact-shaped projection in `rust/crates/pg-foma/tests/flag_replace_scope.rs`
+      preserves the original `<-` evidence: it accepts exactly `+Der1+Der2` and rejects
+      `+Der2+Der1` under `apply_down`, while its upper-only flags fail open under production-
+      direction `apply_up`. Explicitly inverting the compiled relation with `fsm_invert` is the
+      one-variable construction proven usable: managed nextest asserts exact `apply_up` output
+      sets for ascending, descending, and the causality control (`apply_set_obey_flags(false)`
+      makes descending reachable). A separate `flag_twosided` probe did not terminate under
+      `apply_up` and reached 19.98 GB RSS before its managed job was stopped, so it is not safe.
+      This proves a narrowly scoped inverted apply_up path for the projection, not a general
+      legality integration. The @P/@R flags remain non-eliminable by foma-rs's `flag_build`
+      table (PK2 finding, precision.rs); consumers must interpret them at apply time.
 - [ ] 6.2 Trigger diacritics for long-range MPR gating (highest value). Divvun idiom: a
       distinguished unused symbol attached to the AFFIX requiring a phonological effect on
       the STEM rides the tape across arbitrary intervening material; a later rule matches it
