@@ -9,11 +9,13 @@
 optimizable subrecipes and certify recipe parity for Indonesian, Sena, Amharic, and Aweti without
 language-name routing or incomplete-corpus claims.
 
-**Architecture:** `GrammarSemantics` is the only owner of linguistic fact derivation. Capability,
+**Architecture:** `pg-grammar::BoundGrammar` owns the exact source/compiler/options binding and
+`ModelRevision`. `GrammarSemantics` is the only owner of typed linguistic fact derivation for that
+revision. Capability,
 registry applicability, mechanism providers, and recipe-space accounting are typed projections.
 The Registry alone constructs an `ExecutableCandidate` containing a portable Plan, exact lowering
 adapter, runtime requirements, mechanism bindings, and stable digests. Runtime lowers exactly that
-candidate, caches the lowered result, and certifies canonical analysis multisets against a versioned
+candidate, caches the lowered result, and certifies canonical analysis sets against a versioned
 `CorpusSnapshot`.
 
 ## Non-negotiable claim levels
@@ -34,7 +36,8 @@ correctness proof; certification is scoped to exact semantic, candidate, and cor
 
 ```text
 Grammar source
-  -> GrammarSemantics + typed provenance
+  -> CompilerInputDigest -> successfully compiled BoundGrammar + ModelRevision
+  -> GrammarSemantics + typed revision-scoped provenance
   -> capability / applicability / mechanism / recipe-space projections
   -> Registry-owned ExecutableCandidate
   -> exact adapter lowering + run-scoped LoweredCandidateCache
@@ -50,13 +53,19 @@ linguistic mechanism applies or silently choose a different adapter.
 
 ### 1A. Typed `GrammarSemantics`
 
-- [ ] Add immutable, closed-domain `GrammarSemantics::derive(&Grammar)` and typed errors.
+- [ ] Extract shared domain-framed SHA/JCS mechanics into a leaf digest crate; keep domain identity
+      types with their owners.
+- [ ] Move exact source/compiler-input binding into `pg-grammar`; a `ModelRevision` exists only for a
+      successfully compiled `BoundGrammar` and binds canonical compiler input, compiler
+      contract/build identity, and options. Keep compatibility re-exports from `pg-assess`.
+- [ ] Add immutable, closed-domain `GrammarSemantics::derive(&BoundGrammar)` and typed errors.
 - [ ] Move the authoritative capability traversal into that owner. A temporary
       `capability::characterize` wrapper may delegate; it may not retain another implementation.
-- [ ] Add a versioned, type-tagged, length-delimited SHA-256 semantic digest that excludes grammar,
-      fixture, and language display names.
+- [ ] Add a versioned `CapabilityProjectionDigest` over the typed capability projection. It is
+      intentionally many-to-one and must never identify a grammar, artifact, candidate, cache,
+      corpus, or certification scope.
 - [ ] Preserve authored order and typed model/source provenance. Dense ordinals are meaningful only
-      under the semantic digest.
+      under `ModelRevision`.
 - [ ] Prove fresh-load stability, name independence, authored-order sensitivity, unordered-set
       stability, and compatibility-projection equality.
 
@@ -81,11 +90,11 @@ generic evidence rule engine inside the semantic snapshot.
       distinct identities, guessed annotations, and duplicate-discovery counts as separate typed
       evidence; duplicate copies of one identity do not change selectability.
 - [ ] Bind every set comparison to identity profile, authority, source/model revision, semantic
-      digest, parse options, and corpus snapshot. Naked identity values are not comparable.
+      `ModelRevision`, parse options, and corpus snapshot. Naked identity values are not comparable.
 - [ ] Add `CorpusSnapshot` with schema, raw/requested/eligible digests, occurrence order,
-      normalization policy, exclusions, oracle settings/outcomes, and semantic digest.
+      normalization policy, exclusions, oracle settings/outcomes, and `ModelRevision`.
 - [ ] Make missing requested occurrences, multiplicity mismatches, caps, timeouts, invalid inputs,
-      or semantic-digest mismatch typed non-certifying outcomes. Never silently continue.
+      or revision/scope mismatch typed non-certifying outcomes. Never silently continue.
 - [ ] Domain-frame every digest. Do not hash concatenated raw inputs without type and length framing.
 - [ ] Reject supplied roots as v1-non-comparable; four-language certification uses grammar-only
       provenance with guessing disabled. A future supplied-root v2 must be versioned rather than
@@ -121,9 +130,13 @@ omission; dossiers remain honestly classified as research until executable evide
 ### 2B. Registry-owned `ExecutableCandidate`
 
 - [ ] Give the Registry sole construction authority over private candidate fields: typed role,
-      semantic digest, recipe identity, mechanism graph/bindings, portable Plan, exact adapter,
+      model revision, recipe identity, mechanism graph/bindings, portable Plan, exact adapter,
       existing runtime requirements, provenance, and candidate digest.
-- [ ] Include semantic, Plan, adapter options/version, runtime manifest, and bindings in the digest;
+- [ ] Separate `ExecutableInputDigest` (model revision, Plan, adapter/lowerer identity/options,
+      runtime requirements) from `CandidateDigest` (executable input plus recipe/version/parameters,
+      mechanism bindings, and registry/policy schema). Two candidates may share one lowered artifact
+      while retaining distinct provenance.
+- [ ] Include every execution-affecting Plan, adapter option/version, runtime manifest, and binding;
       exclude labels, language names, fixture names, and ephemeral IDs.
 - [ ] Delete `CandidatePlan`, positional baseline booleans, duplicate wire/runtime projections, and
       selectable identity/permutation families that do not implement their named construct.
@@ -133,7 +146,8 @@ omission; dossiers remain honestly classified as research until executable evide
 - [ ] Remove the implicit `PlanComposed -> TunedSurfaceProbed` fallback. Failure is typed; a candidate
       never executes an adapter other than the one it declares.
 - [ ] Make runtime operations such as reduplication peeling explicit candidate requirements.
-- [ ] Cache lowering by `CandidateDigest` across pilot/full evaluation. Cache hits retain original
+- [ ] Cache lowering by typed `ExecutableInputDigest`, not `CandidateDigest`, across pilot/full
+      evaluation. Cache hits retain original
       measurements plus cache status; missing measurements are unknown, never zero.
 - [ ] Centralize enumeration, accounting, lowering cache, evaluation, interruptions, and claim
       transitions in one recipe-run module. The CLI loads inputs and serializes results only.
@@ -201,9 +215,9 @@ four-language certification run.
 ## Four-language exit gate
 
 - [ ] Indonesian: versioned raw/requested/eligible snapshot, deterministic contamination policy,
-      zero oracle omissions, exact analysis multiset parity.
+      zero oracle omissions, exact analysis-set parity with annotation agreement.
 - [ ] Sena: preserve valid apostrophe-bearing Sena rows; deterministically classify actual debris,
-      zero oracle omissions, exact parity across the full eligible 7,121-row source.
+      zero oracle omissions, exact analysis-set parity across the full eligible 7,121-row source.
 - [ ] Amharic: deterministic header/character policy, explicit templatic/runtime requirements, zero
       oracle omissions, exact full eligible-corpus parity.
 - [ ] Aweti: deterministic invalid/pathological-row policy, bounded resource run, zero oracle
