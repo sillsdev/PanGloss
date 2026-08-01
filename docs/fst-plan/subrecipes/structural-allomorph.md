@@ -99,6 +99,19 @@ action with a proven span. BoundaryCleanup remains terminal.
 `O(number_of_composites × L)` space, with the same exponential depth/branch axes. Enumeration,
 probe, and compose budgets are semantic refusal boundaries, not exact-negative proofs.
 
+## Task 6 evidence status
+
+- **Source ModelLocation/model-ID evidence:** the repository mapping exposes `ModelLocation::MorphRule`
+  and `AffixAllomorph`, with rule and allomorph-index owner/child wire IDs in
+  [`capability.rs`](../../../rust/crates/pg-foma/src/capability.rs) and
+  [`recipe_mechanism.rs`](../../../rust/crates/pg-foma/src/recipe_mechanism.rs). A concrete source
+  model-ID witness for the named grammar anchors is `Not measured — blocks implementation claim`.
+  Inserted material's `TableId` is interface metadata, not an invented `ModelLocation::Table`.
+- **Resource caps:** action-size, recursive-depth, branching, enumeration, probe, and compose caps
+  are required; a numeric Task 6 cap record is `Not measured — blocks implementation claim`.
+- **Measured stage counters:** no per-action capture/lowering/composite counter has been recorded:
+  `Not measured — blocks implementation claim`.
+
 ## Conformance fixtures
 
 ### Exercise 1 — bounded Tagalog-style infixation
@@ -115,6 +128,19 @@ identity and template identity with multiplicity one; permuted radical order, mi
 root ID, and changed capture count are empty. Use Amharic and Tigrinya as independent source-backed
 rows, not as production branches.
 
+**Positive cases:** `gawa + um` inserts after the initial consonant, and `/s,b,r/` fills the finite
+C–V root/template slots.
+**Negative cases:** wrong insertion position, literal suffix output, missing capture, permuted radicals,
+missing slot, wrong root ID, and changed capture count.
+**Identity/multiplicity cases:** the normalized positive records retain `root=gawa`, `affix=um`,
+`root_index=0`, and one ordered `/s,b,r/` root/template analysis, each with multiplicity one.
+**Mutations:** change the capture to the whole stem, reorder radical slots, split a circumfix, or
+literalize `Modify`/`InsertContext`; each mutation must be refused or fail oracle equality.
+**Exact normalized expected multisets/tuples:**
+`tagalog = {(surface=gumawa, root=gawa, affix=um, root_index=0, source_model_id=proposed:tagalog-infix-rule, multiplicity=1)}` and
+`semitic = {(root=[s,b,r], template=finite-CV, slot_order=[s,b,r], source_model_id=proposed:semitic-template-rule, multiplicity=1)}`;
+each listed negative has `{}`. These are canonical expected records, not measured outputs.
+
 ## Implementation status
 
 The grammar model provides `OutputAction` and `PartRef`, and the current bridge recognizes only a
@@ -130,6 +156,8 @@ The supplied primary sources do not establish that every cited structural proces
 current token representation. The narrow bridge must not be generalized without action-level oracle
 fixtures. A split/add is required for genuinely unbounded interdigitation, non-finite long-distance
 dependencies, or operations that cannot be represented by captured parts and finite actions.
+
+The split/adds conditions below are hypothetical future triggers, not dated evidence decisions.
 
 **Trigger matrix:** `fits` for finite captured action graphs; `refines` when more action kinds or
 table-preservation facts can be typed; `splits/adds` for unbounded/nonlocal structure or a runtime
@@ -148,4 +176,3 @@ operation outside captured finite actions.
 |---|---|---|---|
 | 2026-08-01 | fits | Tagalog insertion and Semitic finite root/template actions share capture-and-reuse semantics. | Keep a generic bounded action mechanism. |
 | 2026-08-01 | refines | Repository action vocabulary includes `Modify` and `InsertContext` beyond the current bridge. | Extend typed extraction/lowering; preserve action order and tables. |
-| 2026-08-01 | splits/adds | Non-finite interdigitation or unsupported long-distance action appears. | Add a separate runtime mechanism and refuse the shape here. |

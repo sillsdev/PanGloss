@@ -103,6 +103,18 @@ arc work; budgets and stage counters must expose intermediate growth.
 metadata. A budget exhaustion or timeout is non-certifying and must not be reported as an exact
 negative.
 
+## Task 6 evidence status
+
+- **Source ModelLocation/model-ID evidence:** the repository mapping exposes `ModelLocation::PhonRule`,
+  `RewriteSubrule`, `NaturalClass`, and `Stratum`, with `PRuleId`, subrule-index, natural-class, and
+  stratum wire IDs in [`capability.rs`](../../../rust/crates/pg-foma/src/capability.rs) and
+  [`recipe_mechanism.rs`](../../../rust/crates/pg-foma/src/recipe_mechanism.rs). A concrete source
+  model-ID witness for the named grammar anchors is `Not measured — blocks implementation claim`.
+- **Resource caps:** compose, probe, branch, and per-stage growth caps are required; a numeric Task 6
+  cap record is `Not measured — blocks implementation claim`.
+- **Measured stage counters:** no per-stage state/arc counter has been recorded:
+  `Not measured — blocks implementation claim`.
+
 ## Conformance fixtures
 
 ### Exercise 1 — ordered Indonesian cascade
@@ -119,6 +131,19 @@ exactly one analysis; raw `qs` must be empty, and unrelated `sr`, `tq`, and `tr`
 remain empty. The [Phase C test](../../../rust/crates/pg-foma/tests/phase_c_metathesis.rs) is the
 implementation analogue. This is a precise relation exercise, not a claim about all metathesis.
 
+**Positive cases:** the Indonesian assimilation-then-deletion path and the admitted finite `qs → sq`
+metathesis path.
+**Negative cases:** reversed Indonesian order, raw `qs`, and unrelated `sr`, `tq`, and `tr` pairs.
+**Identity/multiplicity cases:** each positive row retains its root/rule identity with multiplicity
+one; no unrelated metathesis pair may acquire an analysis.
+**Mutations:** swap the Indonesian atoms, reverse a metathesis direction, or widen a switch class to
+an unrelated member; each mutation must fail oracle equality.
+**Exact normalized expected multisets/tuples:**
+`indonesian = {(surface=assimilated-deleted, root=tulis, affix=meN, source_model_id=proposed:indonesian-ordered-rule, multiplicity=1)}`,
+`metathesis(qs) = {(surface=sq, root=entryQS, rule=metathesis, source_model_id=mrAdjacent, multiplicity=1)}`,
+and `metathesis(qs|raw=qs|sr|tq|tr) = {}` for the raw/unrelated rows. These are
+canonical expected records, not new stage measurements.
+
 ## Implementation status
 
 The grammar model and loader preserve ordered mixed rule kinds and switch positions. The snapshot
@@ -133,6 +158,8 @@ The exact scope of every external Awngi and Selaru citation needs primary-source
 Metathesis with anchors, quantifiers, or unsupported context must remain refused until a bounded
 relation and oracle fixture exist. A split/add is warranted for unbounded transposition,
 nonlocal spreading, or a runtime operation outside finite ordered relations.
+
+The split/adds conditions below are hypothetical future triggers, not dated evidence decisions.
 
 **Trigger matrix:** `fits` for finite ordered rewrites and admitted finite swaps; `refines` when
 stage order, direction, or symbol-space contracts need a typed field; `splits/adds` for unbounded
@@ -151,4 +178,3 @@ transposition or nonlocal context.
 |---|---|---|---|
 | 2026-08-01 | fits | Indonesian/Awngi ordering and finite Selaru-style swaps are regular bounded relations. | Keep one typed ordered mechanism with explicit atoms. |
 | 2026-08-01 | refines | Repository evidence distinguishes physical switch positions, direction, and class-pair precision. | Preserve switch metadata and use exact branch construction. |
-| 2026-08-01 | splits/adds | Unbounded transposition or nonlocal spreading cannot be bounded honestly. | Add a separate refused/peeled mechanism; never reorder or literalize. |

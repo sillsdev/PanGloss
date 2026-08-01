@@ -103,6 +103,20 @@ signatures are sorted, or `O(E)` with a hash/canonical map. The distinct-group b
 the downstream relation remains `O(R)`. A group-cap or probe-cap refusal is non-certifying, never an
 exact empty group.
 
+## Task 6 evidence status
+
+- **Source ModelLocation/model-ID evidence:** the repository mapping exposes `ModelLocation::MprGroup`,
+  `MorphRule`, `AffixAllomorph`, and `Stratum`, with typed owner/child wire IDs in
+  [`capability.rs`](../../../rust/crates/pg-foma/src/capability.rs) and
+  [`recipe_mechanism.rs`](../../../rust/crates/pg-foma/src/recipe_mechanism.rs). A concrete source
+  model-ID witness for the named grammar anchors is `Not measured — blocks implementation claim`.
+  There is no lexical-class, POS, family, or stem-family `ModelLocation` variant; those predicates
+  remain an explicit unresolved mapping rather than fabricated source IDs.
+- **Resource caps:** entry, group, classification, and probe caps are required; a numeric Task 6 cap
+  record is `Not measured — blocks implementation claim`.
+- **Measured stage counters:** no per-stage membership, overlap, or gap counter has been recorded:
+  `Not measured — blocks implementation claim`.
+
 ## Conformance fixtures
 
 ### Exercise 1 — inherited class/default partition
@@ -120,6 +134,21 @@ Use an Indonesian-shaped `meN-` group with an exception MPR. Expected multiset i
 both root identities retained. Mutation: delete the blocked-MPR state at the edge; the typed
 contract must reject the consumer rather than silently apply deletion.
 
+**Positive cases:** one entry in each disjoint inherited/default class and one ordinary/blocked-MPR
+exception path.
+**Negative cases:** overlapping class membership, uncovered entries, and an exception path with no
+blocked-MPR state.
+**Identity/multiplicity cases:** the shared allomorph remains one identity, while `tulis` and `loan`
+remain two distinct root identities with multiplicity one each.
+**Mutations:** overlap `C0`/`C1`, drop the shared-allomorph identity during canonicalization, or delete
+the blocked-MPR state at the consumer edge; each mutation must be rejected.
+**Exact normalized expected multisets/tuples:**
+`class-fixture = {(entry=entry0, class=C0, source_model_id=proposed:class-entry-0, multiplicity=1),
+(entry=entry1, class=C1, source_model_id=proposed:class-entry-1, multiplicity=1)}` and
+`exception-fixture = {(root=tulis, mpr=ordinary, meN=1, source_model_id=proposed:ordinary-mpr-entry, multiplicity=1),
+(root=loan, mpr=blocked, meN=1, source_model_id=proposed:blocked-mpr-entry, multiplicity=1)}`. These are canonical expected
+records, not measured group counts.
+
 ## Implementation status
 
 The repository exposes typed partition structures in [`recipe_mechanism.rs`](../../../rust/crates/pg-foma/src/recipe_mechanism.rs),
@@ -132,6 +161,8 @@ present in the dossier architecture.
 The Yalálag primary grammar content is not checked into this repository, and the Indonesian
 exception inventory is summarized by the harvest rather than independently re-derived here. A
 follow-on must add measured group counts, overlap/gap diagnostics, and a dynamic-state witness.
+
+The split/adds conditions below are hypothetical future triggers, not dated evidence decisions.
 
 **Trigger matrix:** `fits` when membership is finite, exhaustive, disjoint, and lifetime-stable;
 `refines` when a typed predicate or canonical signature is missing; `splits/adds` when membership
@@ -150,4 +181,3 @@ depends on unbounded later morphology or requires a separate stateful runtime me
 |---|---|---|---|
 | 2026-08-01 | fits | Zapotec class selection and Indonesian lexical exceptions recur as finite groupings. | Keep a generic static gate with typed predicates. |
 | 2026-08-01 | refines | The same evidence distinguishes stable lexical class from later-changing morphology. | Preserve dynamic state explicitly and refuse stale static claims. |
-| 2026-08-01 | splits/adds | A grammar makes class membership depend on unbounded derivational history. | Add a stateful mechanism rather than widening StaticPartition silently. |

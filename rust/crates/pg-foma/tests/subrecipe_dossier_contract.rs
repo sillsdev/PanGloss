@@ -15,7 +15,7 @@ const DOSSIERS: [&str; 6] = [
     "boundary-cleanup.md",
 ];
 
-const REQUIRED_HEADINGS: [&str; 14] = [
+const REQUIRED_HEADINGS: [&str; 15] = [
     "Scope",
     "Languages and families in mind",
     "Primary sources",
@@ -30,6 +30,21 @@ const REQUIRED_HEADINGS: [&str; 14] = [
     "Known gaps and split triggers",
     "Research log",
     "Evidence decisions",
+    "Task 6 evidence status",
+];
+
+const NOT_MEASURED_STATUS: &str = "Not measured — blocks implementation claim";
+const MEASURED_STATUS_PREFIX: &str = "Measured — ";
+
+const REQUIRED_EVIDENCE_FIELDS: [&str; 8] = [
+    "Source ModelLocation/model-ID evidence",
+    "Resource caps",
+    "Measured stage counters",
+    "Positive cases",
+    "Negative cases",
+    "Identity/multiplicity cases",
+    "Mutations",
+    "Exact normalized expected multisets/tuples",
 ];
 
 fn dossier_root() -> PathBuf {
@@ -59,6 +74,31 @@ fn section(text: &str, heading: &str) -> String {
     let body = &text[start + marker.len()..];
     body.split_once("\n## ")
         .map_or_else(|| body.to_owned(), |(body, _)| body.to_owned())
+}
+
+fn has_dated_evidence_decision(decisions: &str) -> bool {
+    decisions.lines().any(|line| {
+        let cells: Vec<_> = line.split('|').map(str::trim).collect();
+        cells.len() >= 5
+            && cells[1].len() == 10
+            && cells[1].as_bytes()[4] == b'-'
+            && cells[1].as_bytes()[7] == b'-'
+            && cells[1]
+                .bytes()
+                .enumerate()
+                .all(|(index, byte)| index == 4 || index == 7 || byte.is_ascii_digit())
+            && matches!(cells[2], "fits" | "refines" | "splits/adds")
+            && !cells[3].is_empty()
+            && !cells[4].is_empty()
+    })
+}
+
+fn evidence_field_block<'a>(text: &'a str, field: &str) -> &'a str {
+    let start = text
+        .find(field)
+        .unwrap_or_else(|| panic!("missing evidence field {field:?}"));
+    let body = &text[start..];
+    body.split_once("\n- **").map_or(body, |(body, _)| body)
 }
 
 #[test]
@@ -142,6 +182,63 @@ fn subrecipe_dossier_architecture_correctness_and_complexity_are_explicit() {
 }
 
 #[test]
+fn subrecipe_dossier_evidence_contract_is_explicit_and_honest() {
+    for (name, text) in read_dossiers() {
+        for required in REQUIRED_EVIDENCE_FIELDS {
+            assert!(
+                text.contains(required),
+                "{name} must explicitly account for `{required}`"
+            );
+        }
+
+        let evidence_status = section(&text, "Task 6 evidence status");
+        for required in [
+            "Source ModelLocation/model-ID evidence",
+            "Resource caps",
+            "Measured stage counters",
+        ] {
+            assert!(
+                evidence_status.contains(required),
+                "{name} must place `{required}` in its Task 6 evidence status section"
+            );
+            let field_block = evidence_field_block(&evidence_status, required);
+            let has_unmeasured = field_block.matches(NOT_MEASURED_STATUS).count() == 1;
+            let has_measured = field_block.contains(MEASURED_STATUS_PREFIX);
+            assert!(
+                has_unmeasured ^ has_measured,
+                "{name} must bind exactly one canonical measured or unmeasured status to `{required}`"
+            );
+        }
+
+        let fixtures = section(&text, "Conformance fixtures");
+        for required in [
+            "Positive cases:",
+            "Negative cases:",
+            "Identity/multiplicity cases:",
+            "Mutations:",
+            "Exact normalized expected multisets/tuples:",
+        ] {
+            assert!(
+                fixtures.contains(required),
+                "{name} conformance fixtures must contain `{required}`"
+            );
+        }
+        let exact = fixtures
+            .split("Exact normalized expected multisets/tuples:")
+            .nth(1)
+            .unwrap_or_else(|| panic!("{name} is missing exact normalized expected tuples"));
+        assert!(
+            exact.contains("source_model_id="),
+            "{name} normalized expected tuples must retain source model identity"
+        );
+        assert!(
+            exact.contains("multiplicity="),
+            "{name} normalized expected tuples must retain multiplicity"
+        );
+    }
+}
+
+#[test]
 fn subrecipe_dossier_logs_links_and_decision_triggers_are_dated() {
     for (name, text) in read_dossiers() {
         let log = section(&text, "Research log");
@@ -155,12 +252,10 @@ fn subrecipe_dossier_logs_links_and_decision_triggers_are_dated() {
         );
 
         let decisions = section(&text, "Evidence decisions");
-        for decision in ["fits", "refines", "splits/adds"] {
-            assert!(
-                decisions.contains(&format!("| {decision} |")),
-                "{name} must record the {decision} evidence decision and consequence"
-            );
-        }
+        assert!(
+            has_dated_evidence_decision(&decisions),
+            "{name} must record at least one actual dated fits/refines/splits-adds evidence decision with evidence and consequence"
+        );
         assert!(
             decisions.to_ascii_lowercase().contains("trigger"),
             "{name} evidence decisions must state when a decision changes"

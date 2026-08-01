@@ -17,16 +17,20 @@ unbounded span is preserved and peeled, not silently truncated.
 - **Anchor 2 — Indonesian. Family: Austronesian. Construct:** productive full prosodic-word/root copying with
   prefixes excluded from the copied portion exercises unbounded/root-span peeling and interaction
   with ordered phonology.
-- **Anchor 3 — Urama (Kiwai, Trans-New Guinea):** productive full reduplication with root-only
-  copying when an enclitic or affix is present independently exercises the root-span contract.
+- **Anchor 3 — Urama (Kiwai, Trans-New Guinea):** the witnessed definite-article enclitic `=i`
+  remains outside the full root copy in `horo~horo=i`, exercising only the root-span contract for
+  that definite-enclitic case. The grammar also describes a reduplicating prefix; that separate
+  process is not generalized into this dossier's Urama claim.
 - **Scale anchor — Yoruba (Niger-Congo):** full-stem and partial initial-consonant copying with
   epenthetic `i` is an independent family row supplied by the research, but its primary source was
   not independently rechecked here.
 
-The confidence level is high for the Tagalog/Indonesian/Urama construct roles in the completed research. The
-formal regularity boundary is supported by the cited formal papers, but no claim is made that every
-enriched finite-state representation is impossible. The main source uncertainty is that the Yoruba
-primary study was supplied by the research output but not independently rechecked in this task.
+The confidence level is high for the Tagalog/Indonesian construct roles and for the witnessed Urama
+definite-enclitic/root-span fact. The Urama grammar's other reduplicating-prefix description is kept
+as source context, not evidence for this row. The formal regularity boundary is supported by the
+cited formal papers, but no claim is made that every enriched finite-state representation is
+impossible. The main source uncertainty is that the Yoruba primary study was supplied by the research
+output but not independently rechecked in this task.
 
 ## Primary sources
 
@@ -35,7 +39,8 @@ primary study was supplied by the research output but not independently rechecke
 - [Indonesian phonology](https://people.ucsc.edu/~ddbrodki/PDFs/Brodkin_Indonesian.pdf) for
   full-copy interaction with ordered phonology.
 - [A Grammar of Urama](https://openresearch-repository.anu.edu.au/bitstream/1885/111328/3/BrownEtAl-2016-UramaGrammar.pdf)
-  for productive root copying with affix/enclitic exclusion.
+  for the witnessed `horo~horo=i` definite-article enclitic exclusion from the copied root span;
+  the same grammar's reduplicating-prefix description is intentionally outside this claim.
 - [Walther, Finite-State Reduplication](https://arxiv.org/abs/cs/0005025) and [Beesley &
   Karttunen, Finite-State Non-Concatenative Morphotactics](https://arxiv.org/abs/cs/0006044) for
   the distinction between ordinary one-way transduction and enriched/restricted treatments.
@@ -45,8 +50,10 @@ primary study was supplied by the research output but not independently rechecke
 
 `CopyKind` is explicit. A span proof is required before using `ExactFst`; otherwise the process is
 `Peeled` and oracle-confirmed. Root identity, source allomorph, copied span, morpheme order, root
-index, and multiplicity survive peeling. An inert reduplication hint alone does not create a
-CopyProcess node.
+index, and multiplicity survive peeling. For the Urama witness, the definite article `=i` is outside
+the copied root span. An inert reduplication hint alone does not create a CopyProcess node; the
+grammar's separate reduplicating-prefix description is not treated as evidence for this root-span
+fixture.
 
 **Invariants:** chain and input length are bounded operationally; a cap trip is non-certifying;
 prefix copies precede the base in morpheme order; suffix copies follow it; and productive copying
@@ -103,6 +110,19 @@ work is approximately `O(r · b · h)`. Nested self-similar inputs can reach `O(
 `O(n^d · b)` before caps. A cap bounds operational work but does not turn an exhausted run into an
 exact negative.
 
+## Task 6 evidence status
+
+- **Source ModelLocation/model-ID evidence:** the repository mapping exposes `ModelLocation::MorphRule`,
+  `AffixAllomorph`, and `AllomorphCoOccurrence`, with rule/allomorph owner/child wire IDs in
+  [`capability.rs`](../../../rust/crates/pg-foma/src/capability.rs) and
+  [`recipe_mechanism.rs`](../../../rust/crates/pg-foma/src/recipe_mechanism.rs). A concrete source
+  model-ID witness for the named grammar anchors is `Not measured — blocks implementation claim`.
+  `ReduplicationHint` is not a source model-ID witness or proof of executable copying.
+- **Resource caps:** proven `max_span`, chain-depth, input-length, branch, compose, and confirmation
+  caps are required; a numeric Task 6 cap record is `Not measured — blocks implementation claim`.
+- **Measured stage counters:** no per-layer peel/proposal/confirmation counter has been recorded:
+  `Not measured — blocks implementation claim`.
+
 ## Conformance fixtures
 
 ### Exercise 1 — bounded Tagalog CV copy
@@ -114,12 +134,30 @@ not a current production claim.
 
 ### Exercise 2 — productive Urama full-root copy
 
-Positive: `horo → horohoro`, and root-only copying when an enclitic is present. Expected disposition
-is `Peeled` and the confirmed multiset retains the enclitic outside the copied span. Negatives are
-copied enclitic, mismatched copy, and depth-cap exhaustion; exhaustion must be non-certifying.
+Positive: the witnessed definite-enclitic form `horo~horo=i`, where the root is copied and `=i` is
+outside the copied span. Expected disposition is `Peeled` and the confirmed multiset retains the
+enclitic outside the copied span. Negatives are copied enclitic, mismatched copy, and depth-cap
+exhaustion; exhaustion must be non-certifying. This row does not claim the grammar's reduplicating
+prefix is covered by CopyProcess.
 The repository's [`f6_reduplication_peel_chain_depth.rs`](../../../rust/crates/pg-foma/tests/f6_reduplication_peel_chain_depth.rs)
 is an implementation analogue: `kimbiakimbia` has exact set/multiplicity on the witnessed row,
 while deep self-similar input is refused deterministically.
+
+**Positive cases:** the bounded Tagalog initial-CV row and the witnessed Urama definite-enclitic/root-
+span row; the checked-in engineering analogue is `kimbiakimbia`.
+**Negative cases:** full-stem or two-CV Tagalog copies, a copied Urama `=i`, mismatched copy, and
+depth-cap exhaustion.
+**Identity/multiplicity cases:** the root and copied span remain distinct metadata, the definite
+enclitic remains outside the copied span, and the witnessed `kimbiakimbia` row has multiplicity one.
+**Mutations:** change the span to include `=i`, change the bounded span, or treat cap exhaustion as
+an exact negative; each mutation must fail the contract.
+**Exact normalized expected multisets/tuples:**
+`tagalog = {(surface=babasa, root=basa, copied_span=initial-CV, source_model_id=proposed:tagalog-copy-rule, multiplicity=1)}`,
+`urama-witness = {(surface=horo~horo=i, root=horo, enclitic==i, copied_span=root,
+source_model_id=proposed:urama-copy-rule, disposition=Peeled, multiplicity=1)}`, and
+`kimbiakimbia = {(surface=kimbiakimbia, signature=KIMB+RED, source_model_id=mrRedup, multiplicity=1)}`;
+cap-exhausted and copied-enclitic rows are `{}` only when the oracle says no analysis, never merely
+because a budget stopped the run. These are canonical expected records, not new measurements.
 
 ## Implementation status
 
@@ -131,9 +169,11 @@ implementation still bounded by the existing confirmation and budget evidence.
 ## Known gaps and split triggers
 
 No checked-in conformance fixture proves depth ≥2 oracle containment or multiplicity beyond the
-witnessed single analysis. The second full-copy family (Urama) closes the research obligation at the
-anchor level, not the implementation gate. A split/add is required for non-token identity,
+witnessed single analysis. The Urama source closes only the definite-enclitic/root-span research
+obligation at the anchor level, not the implementation gate. A split/add is required for non-token identity,
 arbitrary nonlocal alignment, or a runtime operation not expressible as span metadata plus peeling.
+
+The split/adds conditions below are hypothetical future triggers, not dated evidence decisions.
 
 **Trigger matrix:** `fits` for bounded copy with a span proof; `refines` for a new span kind,
 multiplicity witness, or budget dimension; `splits/adds` for nonlocal/non-token copying or a new
@@ -150,6 +190,5 @@ runtime operation.
 
 | Date | Decision | Evidence | Architectural consequence / trigger |
 |---|---|---|---|
-| 2026-08-01 | fits | Partial and full copy spans recur across Austronesian and the independent Urama family. | Keep one typed CopyProcess with explicit span kind. |
+| 2026-08-01 | fits | Bounded partial copy and the witnessed Urama definite-enclitic/root-span case exercise explicit span kinds. | Keep one typed CopyProcess with explicit span kind. |
 | 2026-08-01 | refines | The peeler proves a narrow single-layer witness, not all depth/multiplicity cases. | Keep `Peeled`, budgets, and full multiset confirmation explicit. |
-| 2026-08-01 | splits/adds | Copying needs non-token identity or arbitrary nonlocal alignment. | Add a separate runtime mechanism; do not broaden ordinary FST claims. |

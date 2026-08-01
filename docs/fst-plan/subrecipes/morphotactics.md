@@ -115,6 +115,19 @@ reach `O(E · r^d)` for `r` applicable recursive choices.
 depth and compose budgets are semantic safety controls: a capped or timed-out run is non-certifying,
 not an exact negative.
 
+## Task 6 evidence status
+
+- **Source ModelLocation/model-ID evidence:** the repository mapping exposes `ModelLocation::MorphRule`,
+  `AffixAllomorph`, `MorphemeCoOccurrence`, and `AllomorphCoOccurrence`, with `MRuleId`, `AllomorphId`,
+  and morpheme-index wire IDs in [`capability.rs`](../../../rust/crates/pg-foma/src/capability.rs) and
+  [`recipe_mechanism.rs`](../../../rust/crates/pg-foma/src/recipe_mechanism.rs). A concrete source
+  model-ID witness for the named grammar anchors is `Not measured — blocks implementation claim`.
+  `TemplateId` is a mechanism field; there is no `ModelLocation::Template` variant to claim.
+- **Resource caps:** `max_depth`, enumeration, compose, and probe caps are required and exhaustion is
+  non-certifying; a numeric Task 6 cap record is `Not measured — blocks implementation claim`.
+- **Measured stage counters:** no per-stage extraction/enumeration/lowering counter has been recorded:
+  `Not measured — blocks implementation claim`.
+
 ## Conformance fixtures
 
 ### Exercise 1 — complete-template exclusion
@@ -132,6 +145,19 @@ record documents the pathological midpoint `C(12,6)=924`; a conformance mutation
 paired unit must change the expected multiset and be rejected. This is a proposed dossier exercise,
 not a claim that Task 7 has already passed.
 
+**Positive cases:** `pakolosa`, `takolola`, and the complete-template scale row.
+**Negative cases:** `pakolola` and `takolosa` cross-template mixes.
+**Identity/multiplicity cases:** `mbili` retains two distinct root analyses for one surface.
+**Mutations:** re-add the four template rules to the free stratum rule list, or split a paired unit;
+both mutations must fail the contract.
+**Exact normalized expected multisets/tuples:** the staging oracle record is
+`pakolosa = {(surface=pakolosa, signature=PFXA+KOLO+SFXA, source_model_id=[mrPfxA,mrSfxA], multiplicity=1)}`,
+`takolola = {(surface=takolola, signature=PFXB+KOLO+SFXB, source_model_id=[mrPfxB,mrSfxB], multiplicity=1)}`,
+`pakolola = {}`, `takolosa = {}`, and
+`mbili = {(surface=mbili, signature=MBILIA, source_model_id=eMbiliA, multiplicity=1),
+(surface=mbili, signature=MBILIB, source_model_id=eMbiliB, multiplicity=1)}`. These are canonical expected
+records, not new measurements.
+
 ## Implementation status
 
 The typed `MorphotacticsSpec` exists in [`recipe_mechanism.rs`](../../../rust/crates/pg-foma/src/recipe_mechanism.rs)
@@ -146,6 +172,8 @@ The direct primary URLs for the Orizaba, Caquinte, and Huallaga works need recov
 independent template grammar should be reverified before the first vertical slice claims broad
 typological coverage. A split/add is required if future grammars need unbounded template depth,
 non-finite dependency, or a runtime operation that cannot preserve ordered paths and identity.
+
+The split/adds conditions below are hypothetical future triggers, not dated evidence decisions.
 
 **Trigger matrix:** `fits` when finite complete paths and bounded epsilon behavior suffice;
 `refines` when a new co-occurrence, priority, or identity invariant can be expressed in the typed
@@ -164,4 +192,3 @@ spec; `splits/adds` when unbounded dependency or a separate runtime mechanism is
 |---|---|---|---|
 | 2026-08-01 | fits | Complete finite templates and paired exponence recur in the harvest anchors. | Keep one generic typed mechanism; no language branch. |
 | 2026-08-01 | refines | The staging fixture demonstrates that template membership alone is not exclusive when rules are also free-standing. | Extract explicit co-occurrence and continuation facts before lowering. |
-| 2026-08-01 | splits/adds | Unbounded dependency or a runtime operation that cannot retain ordered identity. | Add a separate mechanism and fail closed; do not literalize it. |

@@ -105,6 +105,20 @@ candidate storage is `O(n · P)`. The repository's synthetic gate measured a sma
 `<= 20` proposals after the reroute and documents a much larger broken-path count; the threshold is
 fixture evidence, not a universal bound.
 
+## Task 6 evidence status
+
+- **Source ModelLocation/model-ID evidence:** the repository mapping exposes `ModelLocation::AffixAllomorph`,
+  `MorphemeCoOccurrence`, and `Stratum`, while table identity is carried by the mechanism's wire
+  symbol-space ID; see [`capability.rs`](../../../rust/crates/pg-foma/src/capability.rs) and
+  [`recipe_mechanism.rs`](../../../rust/crates/pg-foma/src/recipe_mechanism.rs). A concrete source
+  model-ID witness for the named grammar anchors is `Not measured — blocks implementation claim`.
+  `BoundaryCleanupSpec.table` is a `TableId`; there is no boundary-specific `ModelLocation::Table`
+  variant to fabricate.
+- **Resource caps:** boundary-family, proposal, epsilon-loop, and reroute caps are required; a numeric
+  Task 6 cap record is `Not measured — blocks implementation claim`.
+- **Measured stage counters:** no per-consumer/cleanup normalization counter has been recorded:
+  `Not measured — blocks implementation claim`.
+
 ## Conformance fixtures
 
 ### Exercise 1 — Sena-shaped boundary-only allomorph
@@ -122,6 +136,21 @@ surface identity preserved. Mutation: move cleanup before the consumer; expected
 or differs from the oracle and graph validation must reject the edge. This is a proposed semantic
 exercise; the checked-in boundary gate currently measures recall and epsilon precision separately.
 
+**Positive cases:** the ordinary plus boundary-only prefixes remain reachable, and a boundary consumer
+runs before terminal cleanup.
+**Negative cases:** excluding the multi-representation marker, moving cleanup before its consumer,
+and compiling a looping all-boundary affix must be rejected or fail oracle equality.
+**Identity/multiplicity cases:** for the synthetic `s` row, the ordinary and marker-bearing analyses
+remain two distinct identities with multiplicity one each; cleanup is idempotent.
+**Mutations:** remove one marker representation, move cleanup earlier, apply cleanup twice without an
+idempotence check, or use the wrong table/symbol space.
+**Exact normalized expected multisets/tuples:**
+`s = {(surface=s, prefix=ordinary, source_model_id=proposed:ordinary-prefix, multiplicity=1),
+(surface=s, prefix=boundary-only, source_model_id=proposed:boundary-only-prefix, multiplicity=1)}` and
+`ps = {(surface=ps, prefix=ordinary, source_model_id=proposed:boundary-consumer, multiplicity=1)}` after cleanup; the early-cleanup and
+wrong-table mutations are `{}` or an oracle mismatch, not exact negatives. These are canonical
+expected records; the existing gate's `<= 20` proposal result is a separate measured fixture fact.
+
 ## Implementation status
 
 The repository has a boundary cleanup gate and a typed `BoundaryCleanupSpec`; its graph validation
@@ -136,6 +165,8 @@ follow-on must add an independent boundary-consuming conformance row and measure
 identity, multiplicity, and proposal counts. A split/add is required if cleanup must do semantic
 repair, consume non-boundary structure, or coordinate with a runtime operation rather than perform
 terminal symbol deletion.
+
+The split/adds conditions below are hypothetical future triggers, not dated evidence decisions.
 
 **Trigger matrix:** `fits` for terminal finite boundary deletion with table identity;
 `refines` for additional boundary kinds, idempotence witnesses, or measured reroute budgets;
@@ -155,4 +186,3 @@ contract.
 |---|---|---|---|
 | 2026-08-01 | fits | Boundary deletion is a finite terminal relation and is independently described in Foma's morphology architecture. | Keep BoundaryCleanup terminal and table-specific. |
 | 2026-08-01 | refines | The repository separates recall-preserving deletion from precompile null-chain rerouting. | Keep cleanup and resource rerouting as distinct mechanisms with separate evidence. |
-| 2026-08-01 | splits/adds | A future case requires cleanup to repair semantics or consume a non-boundary structure. | Add a semantic/runtime mechanism; never move cleanup earlier to make it fit. |
