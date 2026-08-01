@@ -136,12 +136,24 @@ fn a_mixed_complete_and_capped_oracle_cannot_certify_the_complete_subset() {
     let words = vec!["tulik".to_string(), "menulik".to_string()];
     let cap = 5;
 
-    let morpher = pg_parse::Morpher::new(&grammar, cap)
-        .with_word_timeout(Some(Duration::from_secs(2)));
+    let morpher =
+        pg_parse::Morpher::new(&grammar, cap).with_word_timeout(Some(Duration::from_secs(2)));
     let complete = morpher.parse_word(&words[0]);
     let capped = morpher.parse_word(&words[1]);
-    assert!(!complete.capped && !complete.timed_out, "complete: capped={}, timed_out={}, steps={}", complete.capped, complete.timed_out, complete.steps);
-    assert!(capped.capped && !capped.timed_out, "capped: capped={}, timed_out={}, steps={}", capped.capped, capped.timed_out, capped.steps);
+    assert!(
+        !complete.capped && !complete.timed_out,
+        "complete: capped={}, timed_out={}, steps={}",
+        complete.capped,
+        complete.timed_out,
+        complete.steps
+    );
+    assert!(
+        capped.capped && !capped.timed_out,
+        "capped: capped={}, timed_out={}, steps={}",
+        capped.capped,
+        capped.timed_out,
+        capped.steps
+    );
 
     let plans = materialize_plans(&grammar);
     let evaluations = evaluate_plans(
