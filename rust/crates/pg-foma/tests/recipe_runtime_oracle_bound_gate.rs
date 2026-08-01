@@ -28,6 +28,7 @@ use pg_foma::recipe_optimizer::Certification;
 use pg_foma::recipe_registry::{MaterializerContext, Registry};
 use pg_foma::recipe_runtime::{evaluate_plans, RuntimeBudget};
 use pg_foma::replace::SegAlphabet;
+use std::time::Duration;
 
 fn materialize_plans(
     grammar: &pg_grammar::model::Grammar,
@@ -123,5 +124,43 @@ fn a_capped_oracle_yields_an_explicit_truncation_never_a_word_mismatch_or_a_conf
                  complete ground truth"
             ),
         }
+    }
+}
+#[test]
+fn a_mixed_complete_and_capped_oracle_cannot_certify_the_complete_subset() {
+    let fixture = discover()
+        .into_iter()
+        .find(|f| f.root == Root::Staging && f.name == "recipe-gated-generic")
+        .expect("missing staged fixture recipe-gated-generic");
+    let grammar = pg_grammar::load(&fixture.load_grammar_xml()).expect("staged fixture must load");
+    let words = vec!["tulik".to_string(), "menulik".to_string()];
+    let cap = 5;
+
+    let morpher = pg_parse::Morpher::new(&grammar, cap)
+        .with_word_timeout(Some(Duration::from_secs(2)));
+    let complete = morpher.parse_word(&words[0]);
+    let capped = morpher.parse_word(&words[1]);
+    assert!(!complete.capped && !complete.timed_out, "complete: capped={}, timed_out={}, steps={}", complete.capped, complete.timed_out, complete.steps);
+    assert!(capped.capped && !capped.timed_out, "capped: capped={}, timed_out={}, steps={}", capped.capped, capped.timed_out, capped.steps);
+
+    let plans = materialize_plans(&grammar);
+    let evaluations = evaluate_plans(
+        &grammar,
+        &plans,
+        &words,
+        RuntimeBudget {
+            oracle_step_cap: Some(cap),
+            ..RuntimeBudget::default()
+        },
+    );
+    assert!(!evaluations.is_empty());
+    for evaluation in evaluations {
+        assert!(
+            matches!(
+                evaluation.certification,
+                Certification::Truncated { ref stage } if stage == "oracle-capped"
+            ),
+            "mixed complete/capped oracle must not certify its comparable subset: {evaluation:?}"
+        );
     }
 }

@@ -919,11 +919,10 @@ fn evaluate_plans_marked_with_cache_mode<const OBSERVE: bool>(
     // only because it is the more actionable diagnosis (raise `--oracle-step-cap`); a word that
     // tripped both is reported under whichever this checks first, which is fine since the outcome
     // (non-certifying) is identical either way.
-    // Only when EVERY word was truncated is there nothing left to compare. Then the run must say so
-    // explicitly rather than fall through to `certify_corpus`, which would see two empty corpora,
-    // quite correctly call them equal, and certify any candidate at all -- the same vacuous-pass shape
-    // the `no-analyzable-words` guard closes, reached by a different route.
-    if words.is_empty() && (oracle_capped || oracle_timed_out) {
+    // Certification is all-or-nothing over the requested corpus. Even when other words have
+    // complete expectations, dropping one capped/timed-out word would silently certify a subset
+    // under the requested corpus's name and hash only that subset. Refuse the whole batch instead.
+    if oracle_capped || oracle_timed_out {
         let stage = if oracle_capped {
             "oracle-capped"
         } else {
