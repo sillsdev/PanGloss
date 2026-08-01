@@ -5445,23 +5445,19 @@ mod structural_and_pattern_tests {
             "profiling must never change the emitted lexc source"
         );
         assert_eq!(
-            without_profile.report.counts.entries,
-            with_profile.report.counts.entries,
+            without_profile.report.counts.entries, with_profile.report.counts.entries,
             "entries"
         );
         assert_eq!(
-            without_profile.report.counts.rules,
-            with_profile.report.counts.rules,
+            without_profile.report.counts.rules, with_profile.report.counts.rules,
             "rules"
         );
         assert_eq!(
-            without_profile.report.counts.slots,
-            with_profile.report.counts.slots,
+            without_profile.report.counts.slots, with_profile.report.counts.slots,
             "slots"
         );
         assert_eq!(
-            without_profile.report.counts.groups,
-            with_profile.report.counts.groups,
+            without_profile.report.counts.groups, with_profile.report.counts.groups,
             "groups"
         );
         assert_eq!(
@@ -5475,8 +5471,7 @@ mod structural_and_pattern_tests {
             "allomorphs_skipped"
         );
         assert_eq!(
-            without_profile.report.counts.lexc_lines,
-            with_profile.report.counts.lexc_lines,
+            without_profile.report.counts.lexc_lines, with_profile.report.counts.lexc_lines,
             "lexc_lines"
         );
         assert_eq!(
@@ -5485,7 +5480,10 @@ mod structural_and_pattern_tests {
             "composite_pairs_probed"
         );
         assert_eq!(
-            without_profile.report.counts.composite_interdigitation_entries,
+            without_profile
+                .report
+                .counts
+                .composite_interdigitation_entries,
             with_profile.report.counts.composite_interdigitation_entries,
             "composite_interdigitation_entries"
         );
@@ -5506,13 +5504,11 @@ mod structural_and_pattern_tests {
         );
         assert_eq!(without_profile.report.tier, with_profile.report.tier);
         assert_eq!(
-            without_profile.report.uncovered,
-            with_profile.report.uncovered,
+            without_profile.report.uncovered, with_profile.report.uncovered,
             "profiling must preserve every uncovered item, id, and reason"
         );
         assert_eq!(
-            without_profile.report.enum_budget_exceeded,
-            with_profile.report.enum_budget_exceeded,
+            without_profile.report.enum_budget_exceeded, with_profile.report.enum_budget_exceeded,
             "profiling must preserve enumeration budget detail"
         );
 
