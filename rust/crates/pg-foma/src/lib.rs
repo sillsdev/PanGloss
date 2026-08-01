@@ -60,6 +60,9 @@
 //! with `pg-parse` promoted, and this crate's own wasm32 check in CI/`README`.
 #![forbid(unsafe_code)]
 
+#[cfg(test)]
+mod test_support;
+
 pub mod analyzer;
 /// Step 3a of `openspec/changes/reify-compilation-plans` (design.md D3): [`build::
 /// build_controllable`], a [`plan::Plan`] interpreter for the controllable subtree (the `Gate`

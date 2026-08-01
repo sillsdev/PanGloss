@@ -1541,6 +1541,18 @@ mod tests {
         load(&ordinary_fixture())
     }
 
+    fn assert_plan_diagram_golden(actual: &str, expected: &str) {
+        crate::test_support::assert_rendered_text_eq(actual, expected);
+    }
+
+    #[test]
+    fn plan_diagram_raw_golden_boundary_would_reject_crlf_materialized_fixture() {
+        let actual = "flowchart TD\n";
+        let expected = "flowchart TD\r\n";
+        assert_ne!(actual, expected);
+        assert_plan_diagram_golden(actual, expected);
+    }
+
     /// `#[ignore]`d regeneration helper, same precedent as `coverage_ledger::
     /// regenerate_coverage_ledger_golden_json`: run with `--ignored` after a REVIEWED, deliberate
     /// rendering change, never hand-edit `plan_diagram_golden.mmd`.
@@ -1563,12 +1575,7 @@ mod tests {
         let g = golden_fixture_grammar();
         let doc = build_plan_document(&g);
         let render = render_mermaid(&doc, RenderMode::default());
-        assert_eq!(
-            render.mermaid, GOLDEN_MERMAID,
-            "rendered mermaid drifted from the committed golden -- if this is a deliberate, reviewed \
-             rendering change, regenerate GOLDEN_MERMAID via `regenerate_plan_diagram_golden_mermaid \
-             --ignored`, never hand-edit it"
-        );
+        assert_plan_diagram_golden(&render.mermaid, GOLDEN_MERMAID);
     }
 
     const GOLDEN_MERMAID: &str = include_str!("plan_diagram_golden.mmd");

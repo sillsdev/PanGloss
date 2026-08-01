@@ -1362,6 +1362,18 @@ mod tests {
         )
     }
 
+    fn assert_make_report_golden(actual: &str, expected: &str) {
+        crate::test_support::assert_rendered_text_eq(actual, expected);
+    }
+
+    #[test]
+    fn make_report_raw_golden_boundary_would_reject_crlf_materialized_fixture() {
+        let actual = "# Report\n";
+        let expected = "# Report\r\n";
+        assert_ne!(actual, expected);
+        assert_make_report_golden(actual, expected);
+    }
+
     #[test]
     #[ignore = "regeneration helper, not a gate: run with --ignored to rewrite the golden from \
                 this test's own computation after a reviewed, deliberate change to this module's \
@@ -1378,12 +1390,7 @@ mod tests {
     #[test]
     fn make_report_golden_md() {
         let md = golden_report_markdown();
-        assert_eq!(
-            md, GOLDEN_MD,
-            "the rendered report drifted from the committed golden -- if this is a deliberate, \
-             reviewed change, regenerate GOLDEN_MD from this test's own actual output via \
-             `cargo test -p pg-cli --bin pangloss make_report::tests::regenerate_make_report_golden_md -- --ignored`"
-        );
+        assert_make_report_golden(&md, GOLDEN_MD);
     }
 
     const GOLDEN_MD: &str = include_str!("make_report_golden.md");

@@ -1104,6 +1104,22 @@ mod tests {
         certify(&g, &TrustStatus::Proven, Some(&measurements), &policy)
     }
 
+    fn assert_readiness_verdict_golden(actual: &str, expected: &str) {
+        crate::test_support::assert_canonical_lf_text_eq(actual, expected);
+    }
+
+    #[test]
+    fn readiness_verdict_raw_golden_boundary_rejects_crlf_actual() {
+        let actual = "{\n  \"report_schema_version\": 1\n}\n";
+        let expected = "{\n  \"report_schema_version\": 1\n}\n";
+        let crlf_actual = actual.replace('\n', "\r\n");
+        assert_ne!(crlf_actual, expected);
+        assert!(std::panic::catch_unwind(|| {
+            assert_readiness_verdict_golden(&crlf_actual, expected);
+        })
+        .is_err());
+    }
+
     #[test]
     #[ignore = "regeneration helper, not a gate: run with --ignored to rewrite the golden from \
                 this test's own computation after a reviewed, deliberate change to this module's \
@@ -1124,12 +1140,7 @@ mod tests {
     fn readiness_verdict_golden_json() {
         let report = golden_report();
         let json = report.to_canonical_json();
-        assert_eq!(
-            json, GOLDEN_JSON,
-            "canonical JSON drifted from the committed golden -- if this is a deliberate, \
-             reviewed change, regenerate GOLDEN_JSON from this test's own actual output via \
-             `cargo test -p pg-foma --lib readiness_verdict::tests::regenerate_readiness_verdict_golden_json -- --ignored`"
-        );
+        assert_readiness_verdict_golden(&json, GOLDEN_JSON);
     }
 
     #[test]

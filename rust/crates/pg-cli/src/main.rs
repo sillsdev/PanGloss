@@ -74,6 +74,9 @@
 //! interleaved into that output stream.
 #![forbid(unsafe_code)]
 
+#[cfg(test)]
+mod test_support;
+
 use std::fs::{self, OpenOptions};
 use std::io::{BufWriter, Write};
 use std::process::ExitCode;

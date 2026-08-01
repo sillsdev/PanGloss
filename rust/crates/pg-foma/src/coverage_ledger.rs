@@ -934,6 +934,22 @@ mod tests {
         build_ledger(&default_registry(), &fully_covered_constructs())
     }
 
+    fn assert_coverage_ledger_golden(actual: &str, expected: &str) {
+        crate::test_support::assert_canonical_lf_text_eq(actual, expected);
+    }
+
+    #[test]
+    fn coverage_ledger_raw_golden_boundary_rejects_crlf_actual() {
+        let actual = "{\n  \"schema_version\": 1\n}\n";
+        let expected = "{\n  \"schema_version\": 1\n}\n";
+        let crlf_actual = actual.replace('\n', "\r\n");
+        assert_ne!(crlf_actual, expected);
+        assert!(std::panic::catch_unwind(|| {
+            assert_coverage_ledger_golden(&crlf_actual, expected);
+        })
+        .is_err());
+    }
+
     #[test]
     fn coverage_ledger_round_trip() {
         let ledger = golden_ledger();
@@ -974,12 +990,7 @@ mod tests {
     fn coverage_ledger_golden_json() {
         let ledger = golden_ledger();
         let json = ledger.to_json().expect("serialization must succeed");
-        assert_eq!(
-            json, GOLDEN_JSON,
-            "canonical JSON drifted from the committed golden -- if this is a deliberate, \
-             reviewed change (e.g. a new CharacteristicKind, a new predicate, an updated \
-             containment citation), regenerate GOLDEN_JSON from this test's own actual output"
-        );
+        assert_coverage_ledger_golden(&json, GOLDEN_JSON);
     }
 
     const GOLDEN_JSON: &str = include_str!("coverage_ledger_golden.json");
