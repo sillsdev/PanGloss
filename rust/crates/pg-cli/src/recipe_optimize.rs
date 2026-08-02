@@ -40,9 +40,14 @@ pub struct RecipeOptimizeArgs {
     /// see that constant's doc for why an unbounded oracle call is the defect this whole mechanism
     /// exists to prevent (`docs/fst-plan/deep-chain-pilot-non-completion.md`).
     pub oracle_step_cap: Option<usize>,
-    /// `--oracle-word-timeout-ms`: overrides `RuntimeBudget::oracle_word_timeout`. Same "`None` =
-    /// use the default, not unbounded" convention as `oracle_step_cap` above.
-    pub oracle_word_timeout: Option<Duration>,
+    /// `--oracle-liveness-net-ms` (legacy alias `--oracle-word-timeout-ms`): overrides
+    /// `RuntimeBudget::oracle_liveness_net`. Same "`None` = use the default, not unbounded"
+    /// convention as `oracle_step_cap` above. This is a LIVENESS NET, not a classifier: tripping it
+    /// aborts the run rather than excluding the word it tripped on.
+    pub oracle_liveness_net: Option<Duration>,
+    /// `--oracle-memory-ceiling-bytes`: overrides `RuntimeBudget::oracle_memory_ceiling`. Same
+    /// `None` convention. Also never a classifier -- exceeding it aborts the run.
+    pub oracle_memory_ceiling: Option<u64>,
     pub search_all_families: bool,
 }
 
@@ -126,11 +131,17 @@ pub enum RecipeOptimizeError {
     Io(String),
     Runtime(String),
     Timeout(String),
+    /// The oracle's liveness net or declared memory ceiling tripped, so the requested corpus's
+    /// ELIGIBILITY could not be determined. Deliberately its own variant and not `Runtime`: the
+    /// distinction a reader needs is between "a candidate failed" and "we never established which
+    /// words were in scope", and only the second one invalidates the whole run's evidence.
+    OraclePreparation(String),
 }
 impl std::fmt::Display for RecipeOptimizeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Usage(s) | Self::Io(s) | Self::Runtime(s) | Self::Timeout(s) => f.write_str(s),
+            Self::OraclePreparation(s) => f.write_str(s),
             Self::InvalidValue { option, value } => write!(f, "invalid {option}: {value}"),
         }
     }
@@ -139,7 +150,7 @@ impl std::error::Error for RecipeOptimizeError {}
 
 pub fn parse_args(args: &[String]) -> Result<RecipeOptimizeArgs, RecipeOptimizeError> {
     if args.len() < 3 {
-        return Err(RecipeOptimizeError::Usage("usage: recipe-optimize <grammar> <words.txt> <out-dir> [--seed N] [--candidates N] [--evaluations N] [--elapsed-ns N] [--build-ns N] [--memory-bytes N] [--confirmation-work N] [--reserve-ns N] [--oracle-step-cap N] [--oracle-word-timeout-ms N] [--search-all-families]".into()));
+        return Err(RecipeOptimizeError::Usage("usage: recipe-optimize <grammar> <words.txt> <out-dir> [--seed N] [--candidates N] [--evaluations N] [--elapsed-ns N] [--build-ns N] [--memory-bytes N] [--confirmation-work N] [--reserve-ns N] [--oracle-step-cap N] [--oracle-liveness-net-ms N] [--oracle-memory-ceiling-bytes N] [--search-all-families]".into()));
     }
     let mut r = RecipeOptimizeArgs {
         grammar: args[0].clone(),
@@ -148,7 +159,8 @@ pub fn parse_args(args: &[String]) -> Result<RecipeOptimizeArgs, RecipeOptimizeE
         seed: 0,
         budget: Budget::default(),
         oracle_step_cap: None,
-        oracle_word_timeout: None,
+        oracle_liveness_net: None,
+        oracle_memory_ceiling: None,
         search_all_families: false,
     };
     let mut i = 3;
@@ -187,7 +199,13 @@ pub fn parse_args(args: &[String]) -> Result<RecipeOptimizeArgs, RecipeOptimizeE
             // "unbounded" -- these two flags are the only way to override that default from the
             // CLI, mirroring `pangloss batch --step-cap`/`--word-timeout-ms`.
             "oracle-step-cap" => r.oracle_step_cap = Some(n as usize),
-            "oracle-word-timeout-ms" => r.oracle_word_timeout = Some(Duration::from_millis(n)),
+            // Both spellings accepted: the flag was named for a per-word TIMEOUT back when a
+            // timeout could exclude a word. It cannot any more, so the new name says what it is,
+            // and the old one keeps existing scripts working rather than failing them obscurely.
+            "oracle-liveness-net-ms" | "oracle-word-timeout-ms" => {
+                r.oracle_liveness_net = Some(Duration::from_millis(n))
+            }
+            "oracle-memory-ceiling-bytes" => r.oracle_memory_ceiling = Some(n),
             _ => {
                 return Err(RecipeOptimizeError::Usage(format!(
                     "unknown option: --{key}"
@@ -219,7 +237,8 @@ struct Evaluator<'a> {
     realized: BTreeMap<String, &'static str>,
     capability: pg_foma::capability::PredicateRegistry,
     oracle_step_cap: Option<usize>,
-    oracle_word_timeout: Option<Duration>,
+    oracle_liveness_net: Option<Duration>,
+    oracle_memory_ceiling: Option<u64>,
     cache: &'a mut RunEvaluationCache,
     progress: Option<ProgressWriter>,
     progress_error: Option<String>,
@@ -284,7 +303,8 @@ impl CandidateEvaluator for Evaluator<'_> {
                 build: Some(remaining.build),
                 confirmation: Some(remaining.confirmation),
                 oracle_step_cap: self.oracle_step_cap,
-                oracle_word_timeout: self.oracle_word_timeout,
+                oracle_liveness_net: self.oracle_liveness_net,
+                oracle_memory_ceiling: self.oracle_memory_ceiling,
                 ..Default::default()
             },
             &[c.baseline],
@@ -358,10 +378,17 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
         &words,
         RuntimeBudget {
             oracle_step_cap: a.oracle_step_cap,
-            oracle_word_timeout: a.oracle_word_timeout,
+            oracle_liveness_net: a.oracle_liveness_net,
+            oracle_memory_ceiling: a.oracle_memory_ceiling,
             ..Default::default()
         },
-    );
+    )
+    .map_err(|fault| RecipeOptimizeError::OraclePreparation(fault.to_string()))?;
+    // Derived here, immediately after preparation and BEFORE any candidate exists, from the raw
+    // `words` slice. Both properties are load-bearing: it is in band (nothing outside this process
+    // chose which occurrences count) and it is candidate-independent by construction (no candidate
+    // has been materialized, let alone evaluated, at this point in the run).
+    let corpus_evidence = run_cache.corpus_evidence(&words);
     // Task 7.11 (`openspec/changes/cleanup-and-recipe-parity`): ONE derivation for this whole run.
     // It feeds the baseline enumeration, `recipe_space::characterize`, both instance-selection
     // calls, and -- the one that actually mattered for cost -- the per-instance applicability
@@ -556,7 +583,8 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
                 build: Some(a.budget.build / 4),
                 confirmation: Some(a.budget.confirmation / 4),
                 oracle_step_cap: a.oracle_step_cap,
-                oracle_word_timeout: a.oracle_word_timeout,
+                oracle_liveness_net: a.oracle_liveness_net,
+                oracle_memory_ceiling: a.oracle_memory_ceiling,
                 ..Default::default()
             },
             &[state.baseline],
@@ -620,7 +648,8 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
         realized: BTreeMap::new(),
         capability,
         oracle_step_cap: a.oracle_step_cap,
-        oracle_word_timeout: a.oracle_word_timeout,
+        oracle_liveness_net: a.oracle_liveness_net,
+        oracle_memory_ceiling: a.oracle_memory_ceiling,
         cache: &mut run_cache,
         progress: Some(progress),
         progress_error: None,
@@ -780,6 +809,13 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
         strategy: outcome.search.strategy,
         quality: outcome.search.quality,
         counts,
+        // IN-BAND DERIVATION. This ledger is derived by the run itself, from `words` -- the RAW
+        // lines of the caller's corpus file, before any eligibility reasoning -- against the SAME
+        // prepared oracle results that decided which occurrences were comparable. The optimizer
+        // never accepts a pre-filtered eligible list and never reports "zero exclusions" without
+        // naming the requested corpus it derived that zero from; `RecipeOptimizationReport::
+        // validate` refuses a certifying report that omits this.
+        corpus: Some(corpus_evidence),
         pilot,
         pruning: PruningWaterfall {
             generated: production_generated,

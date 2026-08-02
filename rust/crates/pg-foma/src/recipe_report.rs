@@ -1,9 +1,14 @@
 //! Canonical, replayable optimization evidence.
 use crate::recipe_optimizer::{
-    Budget, BudgetUsage, Certification, Score, SearchQuality, Strategy, Termination,
+    Budget, BudgetUsage, Certification, CorpusCompletenessEvidence, Score, SearchQuality, Strategy,
+    Termination,
 };
 
-pub const RECIPE_REPORT_SCHEMA_VERSION: u32 = 1;
+/// Bumped 1 -> 2 when [`RecipeOptimizationReport::corpus`] and the oracle-configuration fields on
+/// [`CorpusCompletenessEvidence`] became part of the artifact. A version-1 report states a
+/// certification without stating the corpus it certified or the bounds it was derived under, so it
+/// is not comparable with a version-2 one and must not silently deserialize as if it were.
+pub const RECIPE_REPORT_SCHEMA_VERSION: u32 = 2;
 pub const DETERMINISTIC_SCORE_SCHEMA_VERSION: u32 = 2;
 use crate::recipe_space::FeasibleCount;
 use crate::recipe_space::PilotSummary;
@@ -167,6 +172,27 @@ pub struct RecipeOptimizationReport {
     pub strategy: Strategy,
     pub quality: SearchQuality,
     pub counts: SpaceCounts,
+    /// The run-scoped eligibility ledger: which requested occurrences the oracle could adjudicate,
+    /// which it could not and why, and the configuration all of that was derived under.
+    ///
+    /// # Why it lives on the RUN and not on each candidate
+    /// Eligibility is decided by the ORACLE, before any candidate is built, and every candidate in
+    /// a run is judged against the same included set. Storing one ledger per run makes
+    /// candidate-independence a property of the schema instead of a property somebody has to keep
+    /// re-verifying across N per-candidate copies.
+    ///
+    /// # Why it is required for a certifying report
+    /// [`Self::validate`] refuses a report that has a selectable candidate but no ledger. A run that
+    /// excluded nothing must still SAY so, over a named requested corpus, or a hand-filtered word
+    /// list fed in from outside is indistinguishable from an honest full-corpus run — which is
+    /// exactly how a certification came to be labelled provisional after a 653-row filtered list
+    /// could not be derived from the raw 673.
+    ///
+    /// `Option` + `#[serde(default)]` only so a non-certifying partial artifact (a run that died
+    /// before preparation finished) can still be written; it is not an escape hatch for a
+    /// certifying one.
+    #[serde(default)]
+    pub corpus: Option<CorpusCompletenessEvidence>,
     pub pilot: PilotSummary,
     pub pruning: PruningWaterfall,
     pub search: SearchAccounting,
@@ -223,6 +249,23 @@ impl RecipeOptimizationReport {
             .any(|candidate| candidate.certification.selectable() && candidate.score.is_none())
         {
             return Err("selectable candidate is missing a score");
+        }
+        // In-band derivation. A confirmed candidate is a claim about a specific requested corpus
+        // under specific oracle bounds; without the ledger the artifact cannot say which corpus it
+        // saw, cannot be checked against the raw input, and cannot be compared with a run at a
+        // different cap.
+        let certifies = self
+            .candidates
+            .iter()
+            .any(|candidate| candidate.certification.selectable());
+        match &self.corpus {
+            None if certifies => {
+                return Err("certifying report is missing its corpus eligibility ledger")
+            }
+            Some(corpus) if !corpus.reconciles() => {
+                return Err("corpus eligibility ledger does not account for every requested occurrence")
+            }
+            _ => {}
         }
         let candidate_ids: std::collections::BTreeSet<_> = self
             .candidates
@@ -303,7 +346,25 @@ impl RecipeOptimizationReport {
         } else {
             "approximate"
         };
-        format!("# Recipe optimization\n\n## Metadata\n\n- Schema version: {}\n- Input hash: {}\n- Registry version: {}\n- Registry hash: {}\n- Tool version: {}\n- Tool hash: {}\n- Seed: {}\n- Strategy: {:?}\n- Quality: {}\n- Non-optimality: {} search; unexplored space is quantified as {}.\n\n## Budgets and usage\n\n- Budgets: {:?}\n- Actual usage: {:?}\n- Replay parameters: {:?}\n\n## Feasible space\n\n- Serialized count: {:?}\n\n## Pilot\n\n{:?}\n\n## Pruning waterfall\n\n{:?}\n\n## Search accounting\n\n{:?}\n\n## Artifacts\n\n- Baseline plan: {}\n- Winner plan: {}\n\n## Candidates\n\n| ID | Certification | Score |\n|---|---|---|\n{}\n\n## Result\n\n- Termination: {:?}\n- Baseline: {}\n- Winner: {}\n- Winner confirmed: {}\n- Pareto frontier: {}\n", r.schema_version,r.input_hash,r.registry_version,r.registry_hash,r.tool_version,r.tool_hash,r.seed,r.strategy,exactness,if r.quality == SearchQuality::Exact { "none" } else { "not proven optimal" },r.search.unexplored,r.budgets,r.usage,r.replay_parameters,r.counts.feasible,r.pilot,r.pruning,r.search,r.baseline_plan_json_path.as_deref().unwrap_or("none"),r.winner_plan_json_path.as_deref().unwrap_or("none"),r.candidates.iter().map(|c| format!("| {} | {:?} | {:?} |",c.id,c.certification,c.score)).collect::<Vec<_>>().join("\n"),r.termination,r.baseline.as_deref().unwrap_or("none"),winner,winner_confirmed,r.frontier.join(", "))
+        let corpus = match &r.corpus {
+            Some(c) => format!(
+                "- Requested: {}\n- Included: {}\n- Excluded: {}\n- Requested hash: {}\n- Included \
+                 hash: {}\n- Exclusion ledger hash: {}\n- Oracle step cap: {}\n- Oracle memory \
+                 ceiling (bytes): {}\n- Oracle liveness net (ns): {}\n- Exclusions: {:?}",
+                c.requested,
+                c.included,
+                c.excluded,
+                c.requested_hash,
+                c.included_hash,
+                c.excluded_hash,
+                c.oracle_step_cap,
+                c.oracle_memory_ceiling_bytes,
+                c.oracle_liveness_net_ns,
+                c.exclusions
+            ),
+            None => "- Not recorded (non-certifying artifact).".to_string(),
+        };
+        format!("# Recipe optimization\n\n## Metadata\n\n- Schema version: {}\n- Input hash: {}\n- Registry version: {}\n- Registry hash: {}\n- Tool version: {}\n- Tool hash: {}\n- Seed: {}\n- Strategy: {:?}\n- Quality: {}\n- Non-optimality: {} search; unexplored space is quantified as {}.\n\n## Budgets and usage\n\n- Budgets: {:?}\n- Actual usage: {:?}\n- Replay parameters: {:?}\n\n## Feasible space\n\n- Serialized count: {:?}\n\n## Corpus eligibility\n\n{}\n\n## Pilot\n\n{:?}\n\n## Pruning waterfall\n\n{:?}\n\n## Search accounting\n\n{:?}\n\n## Artifacts\n\n- Baseline plan: {}\n- Winner plan: {}\n\n## Candidates\n\n| ID | Certification | Score |\n|---|---|---|\n{}\n\n## Result\n\n- Termination: {:?}\n- Baseline: {}\n- Winner: {}\n- Winner confirmed: {}\n- Pareto frontier: {}\n", r.schema_version,r.input_hash,r.registry_version,r.registry_hash,r.tool_version,r.tool_hash,r.seed,r.strategy,exactness,if r.quality == SearchQuality::Exact { "none" } else { "not proven optimal" },r.search.unexplored,r.budgets,r.usage,r.replay_parameters,r.counts.feasible,corpus,r.pilot,r.pruning,r.search,r.baseline_plan_json_path.as_deref().unwrap_or("none"),r.winner_plan_json_path.as_deref().unwrap_or("none"),r.candidates.iter().map(|c| format!("| {} | {:?} | {:?} |",c.id,c.certification,c.score)).collect::<Vec<_>>().join("\n"),r.termination,r.baseline.as_deref().unwrap_or("none"),winner,winner_confirmed,r.frontier.join(", "))
     }
 }
 #[cfg(test)]
@@ -334,6 +395,7 @@ mod tests {
                     overflowed: false,
                 },
             },
+            corpus: Some(ledger()),
             pilot: PilotSummary::default(),
             pruning: PruningWaterfall::default(),
             search: SearchAccounting {
@@ -561,6 +623,57 @@ mod tests {
         assert_eq!(report.validate(), Err("frontier ids are not unique"));
     }
 
+    /// A complete, reconciling, zero-exclusion ledger over a one-word corpus. Every sample report
+    /// carries one, because a certifying report without one is now invalid by construction.
+    fn ledger() -> CorpusCompletenessEvidence {
+        CorpusCompletenessEvidence::from_selection(
+            &["w".to_string()],
+            &["w".to_string()],
+            vec![],
+            crate::recipe_optimizer::OracleEligibilityConfig {
+                step_cap: 20_000,
+                memory_ceiling_bytes: 1 << 33,
+                liveness_net_ns: 300_000_000_000,
+            },
+        )
+    }
+
+    /// REQUIREMENT (d), at the artifact boundary: a report that names a confirmed candidate but
+    /// cannot say which requested corpus that confirmation covers is refused. Before this rule a
+    /// hand-filtered word list fed in from outside produced an artifact indistinguishable from an
+    /// honest full-corpus run.
+    #[test]
+    fn a_certifying_report_must_carry_its_corpus_eligibility_ledger() {
+        let mut report = sample();
+        report.candidates = vec![confirmed_candidate("a", 1)];
+        report.frontier = vec!["a".into()];
+        report.winner = Some("a".into());
+        report.pruning.generated = 1;
+        report.pruning.evaluated = 1;
+        report.pruning.confirmed = 1;
+        assert_eq!(report.validate(), Ok(()));
+
+        report.corpus = None;
+        assert_eq!(
+            report.validate(),
+            Err("certifying report is missing its corpus eligibility ledger")
+        );
+    }
+
+    /// A ledger that does not account for every requested occurrence is an internally inconsistent
+    /// artifact, not a record of exclusions, and is refused whether or not anything certified.
+    #[test]
+    fn a_ledger_that_does_not_reconcile_is_refused() {
+        let mut report = sample();
+        let mut corpus = ledger();
+        corpus.requested = 673;
+        report.corpus = Some(corpus);
+        assert_eq!(
+            report.validate(),
+            Err("corpus eligibility ledger does not account for every requested occurrence")
+        );
+    }
+
     fn candidate(id: &str) -> CandidateReport {
         CandidateReport {
             id: id.into(),
@@ -619,6 +732,7 @@ mod tests {
                     overflowed: false,
                 },
             },
+            corpus: Some(ledger()),
             pilot: PilotSummary::default(),
             pruning: PruningWaterfall::default(),
             search: SearchAccounting {

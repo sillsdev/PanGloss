@@ -179,7 +179,8 @@ fn templated_candidate_builds_and_proposes_on_the_phonology_free_fixture() {
         .expect("materialization must succeed");
     let plans: Vec<_> = candidates.into_iter().map(|(_, p)| p).collect();
 
-    let evaluations = evaluate_plans(&grammar, &plans, &words, RuntimeBudget::default());
+    let evaluations = evaluate_plans(&grammar, &plans, &words, RuntimeBudget::default())
+        .expect("the oracle liveness net / memory ceiling must not trip on this fixture");
     let (_, evaluation) = plans
         .iter()
         .zip(&evaluations)

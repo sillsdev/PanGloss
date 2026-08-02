@@ -96,7 +96,8 @@ fn every_applicable_distinct_recipe_builds_and_full_hc_matches_each_word() {
         .iter()
         .map(|w| w.word.clone())
         .collect::<Vec<_>>();
-    for result in evaluate_plans(&g, &plans, &words, RuntimeBudget::default()) {
+    for result in evaluate_plans(&g, &plans, &words, RuntimeBudget::default())
+        .expect("the oracle liveness net / memory ceiling must not trip on this fixture") {
         assert!(
             matches!(
                 result.certification,

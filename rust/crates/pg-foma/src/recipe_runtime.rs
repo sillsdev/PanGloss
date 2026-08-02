@@ -7,7 +7,9 @@ use crate::composite::FomaAnalyzer;
 use crate::emit::surface_table;
 use crate::enumerate::{CandidatePlan, EmissionStrategy};
 use crate::parity::{certified_occurrence, OccurrenceIdentities, ParitySide};
-use crate::recipe_optimizer::{Certification, CorpusCompletenessEvidence, CorpusExclusion, Score};
+use crate::recipe_optimizer::{
+    Certification, CorpusCompletenessEvidence, CorpusExclusion, OracleEligibilityConfig, Score,
+};
 use crate::replace::SegAlphabet;
 use crate::tags::Candidate;
 use foma::options::FomaOptions;
@@ -15,43 +17,213 @@ use pg_grammar::model::{Grammar, PhonRuleDef};
 use pg_parse::WordAnalysis;
 use sha2::{Digest, Sha256};
 use std::time::{Duration, Instant};
+
+/// What the ground-truth oracle concluded about ONE corpus occurrence.
+///
+/// # The absent variant is the point
+/// There is deliberately no `TimedOut` and no `MemoryCapped` here. Wall-clock and memory outcomes
+/// are **unrepresentable as eligibility outcomes**: they can only be
+/// [`OraclePreparationFault`]s, which abort the whole preparation run. That is a type-level
+/// property, not a convention someone must remember — as long as a clock could produce an
+/// eligibility outcome, raising the clock's value only moves the race, never removes it.
+///
+/// Measured motivation (2026-08-01/02): Amharic word U+1264 U+1273 PASSED the oracle in a 673-row
+/// run and was excluded as `oracle-timeout` in a 573-row run — same grammar, same caps, same
+/// binary, only machine load differed. A digest over a set that a concurrent build can change is
+/// not a digest. Separately, the two bounds masked each other: re-running 669 words with a 120s net
+/// instead of 2s moved the step-capped count from 4 to 12, so words that would exhaust their step
+/// budget were being misrecorded as timeouts, and 80 Amharic words were called intractable that
+/// never were.
+#[derive(Debug, Clone)]
+enum OracleOutcome {
+    /// The oracle finished this occurrence within its step cap. The analyses are the ground truth.
+    Complete(Vec<WordAnalysis>),
+    /// The oracle exhausted its step cap on this occurrence. THE eligibility classifier, and the
+    /// only one: deterministic per (grammar, word, cap), so the eligible set is reproducible.
+    StepCapped,
+}
+
 #[derive(Debug, Clone)]
 struct PreparedWord {
     word: String,
-    expected: Option<Vec<WordAnalysis>>,
-    capped: bool,
-    timed_out: bool,
+    outcome: OracleOutcome,
 }
 
-/// A run-scoped corpus prepared once from the oracle. The ground truth and exclusion latches are
-/// shared by the pilot and every candidate evaluation in that run.
+/// A liveness/resource bound tripped while preparing the ground truth, so eligibility could NOT be
+/// determined for the requested corpus.
+///
+/// Every variant is a whole-run abort. None of them is, or may become, a per-word exclusion — see
+/// [`OracleOutcome`] for why that is a type-level guarantee rather than a rule.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OraclePreparationFault {
+    /// The wall-clock liveness net tripped. The net exists only so a pathological word cannot hang
+    /// the run forever; a trip means the step cap never got the chance to classify this word, so
+    /// the honest report is "could not determine", never "excluded".
+    LivenessNetTripped {
+        word: String,
+        requested_ordinal: u64,
+        net: Duration,
+    },
+    /// The declared resident-memory ceiling was exceeded during preparation. Previously this was
+    /// a job-object kill with no row emitted at all — "I could not look" reading as an outcome.
+    MemoryCeilingExceeded {
+        word: String,
+        requested_ordinal: u64,
+        ceiling_bytes: u64,
+        observed_bytes: u64,
+    },
+    /// A memory ceiling was declared but this build cannot read the process's resident set (no
+    /// sampler on this target). Refusing is deliberate: a declared-but-unenforced ceiling would
+    /// put a bound in the evidence that nothing ever checked.
+    MemoryCeilingUnobservable { ceiling_bytes: u64 },
+}
+
+impl std::fmt::Display for OraclePreparationFault {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::LivenessNetTripped {
+                word,
+                requested_ordinal,
+                net,
+            } => write!(
+                f,
+                "oracle liveness net tripped on word {word:?} (requested ordinal \
+                 {requested_ordinal}) after {net:?} -- eligibility could not be determined"
+            ),
+            Self::MemoryCeilingExceeded {
+                word,
+                requested_ordinal,
+                ceiling_bytes,
+                observed_bytes,
+            } => write!(
+                f,
+                "oracle memory ceiling exceeded on word {word:?} (requested ordinal \
+                 {requested_ordinal}): {observed_bytes} bytes resident against a declared ceiling \
+                 of {ceiling_bytes} -- eligibility could not be determined"
+            ),
+            Self::MemoryCeilingUnobservable { ceiling_bytes } => write!(
+                f,
+                "an oracle memory ceiling of {ceiling_bytes} bytes was declared but this build \
+                 cannot sample resident memory -- eligibility could not be determined"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for OraclePreparationFault {}
+
+/// Samples THIS process's resident set size in bytes.
+///
+/// [`RssSampler::sample`] returning `None` means "could not look", never "fine":
+/// [`PreparedCorpus::prepare`] turns it into
+/// [`OraclePreparationFault::MemoryCeilingUnobservable`] whenever a ceiling is actually declared.
+/// Two cfg'd shapes with one signature, so the preparation loop has no `cfg` in it — `wasm32` has
+/// no process table to read, and `sysinfo` is not even in that target's dependency graph.
+#[cfg(not(target_arch = "wasm32"))]
+struct RssSampler(sysinfo::System);
+
+#[cfg(not(target_arch = "wasm32"))]
+impl RssSampler {
+    fn new() -> Self {
+        Self(sysinfo::System::new())
+    }
+
+    /// Refreshes ONLY this pid, never a system-wide scan — the same discipline `worker.rs` applies
+    /// to the compile child's RSS guardrail.
+    fn sample(&mut self) -> Option<u64> {
+        let pid = sysinfo::get_current_pid().ok()?;
+        self.0
+            .refresh_processes(sysinfo::ProcessesToUpdate::Some(&[pid]), true);
+        self.0.process(pid).map(|process| process.memory())
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+struct RssSampler;
+
+#[cfg(target_arch = "wasm32")]
+impl RssSampler {
+    fn new() -> Self {
+        Self
+    }
+
+    fn sample(&mut self) -> Option<u64> {
+        None
+    }
+}
+
+/// A run-scoped corpus prepared once from the oracle. The ground truth and the step-cap exclusion
+/// latches are shared by the pilot and every candidate evaluation in that run — which is what makes
+/// exclusions CANDIDATE-INDEPENDENT by construction: nothing a candidate does can reach this.
 #[derive(Debug)]
 pub struct PreparedCorpus {
     words: Vec<PreparedWord>,
     oracle_calls: usize,
+    oracle: OracleEligibilityConfig,
 }
 
 impl PreparedCorpus {
-    pub fn prepare(grammar: &Grammar, words: &[String], budget: RuntimeBudget) -> Self {
-        let cap = budget.oracle_step_cap.unwrap_or(DEFAULT_ORACLE_STEP_CAP);
-        let timeout = budget
-            .oracle_word_timeout
-            .unwrap_or(DEFAULT_ORACLE_WORD_TIMEOUT);
-        let morpher = pg_parse::Morpher::new(grammar, cap).with_word_timeout(Some(timeout));
+    /// Runs the ground-truth oracle over `words` and classifies each occurrence by STEP CAP alone.
+    ///
+    /// Returns `Err` — aborting the whole run — if the wall-clock liveness net or the declared
+    /// memory ceiling trips. Neither can produce a row.
+    pub fn prepare(
+        grammar: &Grammar,
+        words: &[String],
+        budget: RuntimeBudget,
+    ) -> Result<Self, OraclePreparationFault> {
+        let oracle = budget.oracle_eligibility_config();
+        let cap = budget.resolved_oracle_step_cap();
+        let net = budget.resolved_oracle_liveness_net();
+        let ceiling = budget.resolved_oracle_memory_ceiling();
+        let morpher = pg_parse::Morpher::new(grammar, cap).with_word_timeout(Some(net));
+        let mut sampler = RssSampler::new();
         let mut records = Vec::with_capacity(words.len());
-        for word in words {
+        for (requested_ordinal, word) in words.iter().enumerate() {
             let outcome = morpher.parse_word(word);
+            // Checked FIRST and unconditionally: a timed-out word has no eligibility answer at all,
+            // so it must not fall through to the step-cap classification below even when the step
+            // cap also latched. (`capped` can be true alongside `timed_out`; treating that as an
+            // exclusion is precisely the masking defect this ordering removes.)
+            if outcome.timed_out {
+                return Err(OraclePreparationFault::LivenessNetTripped {
+                    word: word.clone(),
+                    requested_ordinal: requested_ordinal as u64,
+                    net,
+                });
+            }
+            if ceiling != u64::MAX {
+                match sampler.sample() {
+                    None => {
+                        return Err(OraclePreparationFault::MemoryCeilingUnobservable {
+                            ceiling_bytes: ceiling,
+                        })
+                    }
+                    Some(observed_bytes) if observed_bytes > ceiling => {
+                        return Err(OraclePreparationFault::MemoryCeilingExceeded {
+                            word: word.clone(),
+                            requested_ordinal: requested_ordinal as u64,
+                            ceiling_bytes: ceiling,
+                            observed_bytes,
+                        })
+                    }
+                    Some(_) => {}
+                }
+            }
             records.push(PreparedWord {
                 word: word.clone(),
-                expected: (!outcome.capped && !outcome.timed_out).then_some(outcome.structured),
-                capped: outcome.capped,
-                timed_out: outcome.timed_out,
+                outcome: if outcome.capped {
+                    OracleOutcome::StepCapped
+                } else {
+                    OracleOutcome::Complete(outcome.structured)
+                },
             });
         }
-        Self {
+        Ok(Self {
             words: records,
             oracle_calls: words.len(),
-        }
+            oracle,
+        })
     }
 
     pub fn oracle_calls(&self) -> usize {
@@ -64,7 +236,6 @@ impl PreparedCorpus {
         let mut expected = Vec::new();
         let mut exclusions = Vec::new();
         let mut capped = false;
-        let mut timed_out = false;
         for (requested_ordinal, word) in requested.iter().enumerate() {
             let Some((index, prepared)) = self
                 .words
@@ -80,30 +251,27 @@ impl PreparedCorpus {
                 continue;
             };
             used[index] = true;
-            capped |= prepared.capped;
-            timed_out |= prepared.timed_out;
-            if let Some(analyses) = &prepared.expected {
-                comparable.push(word.clone());
-                expected.push((word.clone(), analyses.clone()));
-            } else {
-                let reason = match (prepared.capped, prepared.timed_out) {
-                    (true, true) => "oracle-capped-and-timeout",
-                    (true, false) => "oracle-capped",
-                    (false, true) => "oracle-timeout",
-                    (false, false) => "oracle-excluded",
-                };
-                exclusions.push(CorpusExclusion {
-                    requested_ordinal: requested_ordinal as u64,
-                    word: word.clone(),
-                    reason: reason.into(),
-                });
+            match &prepared.outcome {
+                OracleOutcome::Complete(analyses) => {
+                    comparable.push(word.clone());
+                    expected.push((word.clone(), analyses.clone()));
+                }
+                OracleOutcome::StepCapped => {
+                    capped = true;
+                    exclusions.push(CorpusExclusion {
+                        requested_ordinal: requested_ordinal as u64,
+                        word: word.clone(),
+                        // Historical spelling, retained: with the wall clock demoted this reason is
+                        // now unambiguous -- "capped" can only mean the step cap.
+                        reason: "oracle-capped".into(),
+                    });
+                }
             }
         }
         PreparedSelection {
             comparable,
             expected,
             capped,
-            timed_out,
             exclusions,
         }
     }
@@ -114,7 +282,6 @@ struct PreparedSelection {
     comparable: Vec<String>,
     expected: Vec<(String, Vec<WordAnalysis>)>,
     capped: bool,
-    timed_out: bool,
     exclusions: Vec<CorpusExclusion>,
 }
 
@@ -127,16 +294,38 @@ pub struct RunEvaluationCache {
 }
 
 impl RunEvaluationCache {
-    pub fn prepare(grammar: &Grammar, words: &[String], budget: RuntimeBudget) -> Self {
-        Self {
-            corpus: PreparedCorpus::prepare(grammar, words, budget),
+    pub fn prepare(
+        grammar: &Grammar,
+        words: &[String],
+        budget: RuntimeBudget,
+    ) -> Result<Self, OraclePreparationFault> {
+        Ok(Self {
+            corpus: PreparedCorpus::prepare(grammar, words, budget)?,
             emission_report: None,
             emission_report_calls: 0,
-        }
+        })
     }
 
     pub fn oracle_calls(&self) -> usize {
         self.corpus.oracle_calls()
+    }
+
+    /// The run-scoped eligibility ledger for `requested`, derived from THIS run's prepared oracle
+    /// results.
+    ///
+    /// This is the in-band derivation requirement made available to the report writer: the ledger a
+    /// report publishes has to come from the same preparation pass that decided eligibility, over
+    /// the caller's RAW requested slice, so that "zero exclusions" is a positive claim about a named
+    /// corpus rather than the absence of a claim. It is candidate-independent by construction —
+    /// nothing here can observe a candidate.
+    pub fn corpus_evidence(&self, requested: &[String]) -> CorpusCompletenessEvidence {
+        let selection = self.corpus.select(requested);
+        corpus_completeness_evidence(
+            requested,
+            &selection.comparable,
+            &selection.exclusions,
+            self.corpus.oracle,
+        )
     }
 
     pub fn emission_report_calls(&self) -> usize {
@@ -185,14 +374,39 @@ fn corpus_hash(words: &[String]) -> String {
 /// is stopped in well under a second instead of hanging the whole evaluator call.
 pub const DEFAULT_ORACLE_STEP_CAP: usize = 20_000;
 
-/// Default oracle wall-clock deadline, used whenever [`RuntimeBudget::oracle_word_timeout`] is left
-/// `None`. Independent axis from [`DEFAULT_ORACLE_STEP_CAP`] — a word can burn its clock on very few,
-/// very expensive steps just as easily as it can burn its step budget on very fast ones — so both
-/// bounds are armed together; whichever trips first is the one that stops a given word, and running
-/// both costs nothing on well-behaved words. Justified by the same measurement: an otherwise-uncapped
-/// `Morpher` with `word_timeout = 2s` returns in 2.83s reporting `timed_out: true` on the same
-/// pathological word, instead of never returning.
-pub const DEFAULT_ORACLE_WORD_TIMEOUT: Duration = Duration::from_secs(2);
+/// Default wall-clock LIVENESS NET, used whenever [`RuntimeBudget::oracle_liveness_net`] is `None`.
+///
+/// # This is not a classifier, and it used to be one
+/// It exists for exactly one purpose: a word whose single step is pathologically expensive must not
+/// hang the run forever. Tripping it is an [`OraclePreparationFault`] that aborts preparation; it
+/// can never exclude a word. See [`OracleOutcome`] for the measured incidents behind that.
+///
+/// # Why 300 seconds and not 2
+/// The old 2-second value was small enough to trip BEFORE a word reached its step cap, which both
+/// made exclusions load-sensitive and masked the deterministic axis. A net's only job is to be
+/// unreachable by anything except a genuine hang, so it is set far above any legitimate per-word
+/// cost: the pathological deep-truncation-chain word that motivated these bounds completes in
+/// 91.6ms at `cap = 20_000` (`docs/fst-plan/deep-chain-pilot-non-completion.md`). Raising it costs
+/// nothing on a healthy corpus and makes an abort mean what it says.
+pub const DEFAULT_ORACLE_LIVENESS_NET: Duration = Duration::from_secs(300);
+
+/// Default declared resident-memory ceiling for oracle preparation, used whenever
+/// [`RuntimeBudget::oracle_memory_ceiling`] is `None`.
+///
+/// # Why memory is a declared axis at all
+/// Measured: Aweti at a 200k step cap OOMed against a 16GB job-object ceiling, and a job-object
+/// kill produces NO row — the run simply vanishes, and "I could not look" reads as an outcome.
+/// Declaring a ceiling below the job object's turns that into a typed, word-naming abort that a
+/// reader can act on.
+///
+/// # Why a fixed constant and not a fraction of installed RAM
+/// This number is recorded in [`CorpusCompletenessEvidence`], so a machine-derived value would make
+/// two identical eligibility sets produce different evidence on different machines. A ceiling can
+/// only ever ABORT, never classify, so the cost of it being wrong for a given machine is a loud
+/// refusal rather than a wrong answer — which is the direction a reproducible artifact should fail
+/// in. 12 GiB sits below the 16GB job ceiling that killed the Aweti run. Override with
+/// [`RuntimeBudget::oracle_memory_ceiling`]; `Some(u64::MAX)` opts out entirely.
+pub const DEFAULT_ORACLE_MEMORY_CEILING_BYTES: u64 = 12 * 1024 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WordEvidence {
@@ -359,8 +573,9 @@ fn corpus_completeness_evidence(
     requested: &[String],
     included: &[String],
     exclusions: &[CorpusExclusion],
+    oracle: OracleEligibilityConfig,
 ) -> CorpusCompletenessEvidence {
-    CorpusCompletenessEvidence::from_selection(requested, included, exclusions.to_vec())
+    CorpusCompletenessEvidence::from_selection(requested, included, exclusions.to_vec(), oracle)
 }
 
 /// Certify a whole corpus, one OCCURRENCE at a time.
@@ -470,10 +685,41 @@ pub struct RuntimeBudget {
     /// to [`DEFAULT_ORACLE_STEP_CAP`]. A caller that genuinely wants the old unbounded behavior must
     /// say so explicitly with `Some(usize::MAX)`.
     pub oracle_step_cap: Option<usize>,
-    /// Ground-truth oracle wall-clock deadline. Same "`None` = use the default, not unbounded"
-    /// convention as `oracle_step_cap` immediately above; resolves to
-    /// [`DEFAULT_ORACLE_WORD_TIMEOUT`].
-    pub oracle_word_timeout: Option<Duration>,
+    /// Ground-truth oracle wall-clock LIVENESS NET — not a classifier. Same "`None` = use the
+    /// default, not unbounded" convention as `oracle_step_cap` immediately above; resolves to
+    /// [`DEFAULT_ORACLE_LIVENESS_NET`]. Tripping it aborts preparation with
+    /// [`OraclePreparationFault::LivenessNetTripped`].
+    pub oracle_liveness_net: Option<Duration>,
+    /// Declared resident-memory ceiling for oracle preparation, in bytes. Same `None` convention;
+    /// resolves to [`DEFAULT_ORACLE_MEMORY_CEILING_BYTES`]. `Some(u64::MAX)` declares no ceiling
+    /// (and is recorded as such in the evidence, so "unbounded" is a stated choice, not a silence).
+    pub oracle_memory_ceiling: Option<u64>,
+}
+
+impl RuntimeBudget {
+    pub fn resolved_oracle_step_cap(&self) -> usize {
+        self.oracle_step_cap.unwrap_or(DEFAULT_ORACLE_STEP_CAP)
+    }
+
+    pub fn resolved_oracle_liveness_net(&self) -> Duration {
+        self.oracle_liveness_net
+            .unwrap_or(DEFAULT_ORACLE_LIVENESS_NET)
+    }
+
+    pub fn resolved_oracle_memory_ceiling(&self) -> u64 {
+        self.oracle_memory_ceiling
+            .unwrap_or(DEFAULT_ORACLE_MEMORY_CEILING_BYTES)
+    }
+
+    /// The three bounds, resolved, exactly as they are bound into the eligibility evidence.
+    pub fn oracle_eligibility_config(&self) -> OracleEligibilityConfig {
+        OracleEligibilityConfig {
+            step_cap: self.resolved_oracle_step_cap() as u64,
+            memory_ceiling_bytes: self.resolved_oracle_memory_ceiling(),
+            liveness_net_ns: u64::try_from(self.resolved_oracle_liveness_net().as_nanos())
+                .unwrap_or(u64::MAX),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -907,7 +1153,7 @@ pub fn evaluate_plans(
     plans: &[CandidatePlan],
     words: &[String],
     budget: RuntimeBudget,
-) -> Vec<RuntimeEvaluation> {
+) -> Result<Vec<RuntimeEvaluation>, OraclePreparationFault> {
     // Positional default, per this function's long-standing contract.
     let flags: Vec<bool> = (0..plans.len()).map(|i| i == 0).collect();
     evaluate_plans_marked(grammar, plans, words, budget, &flags)
@@ -920,9 +1166,16 @@ pub fn evaluate_plans_marked(
     words: &[String],
     budget: RuntimeBudget,
     is_baseline: &[bool],
-) -> Vec<RuntimeEvaluation> {
-    let mut cache = RunEvaluationCache::prepare(grammar, words, budget);
-    evaluate_plans_marked_with_cache(grammar, plans, words, budget, is_baseline, &mut cache)
+) -> Result<Vec<RuntimeEvaluation>, OraclePreparationFault> {
+    let mut cache = RunEvaluationCache::prepare(grammar, words, budget)?;
+    Ok(evaluate_plans_marked_with_cache(
+        grammar,
+        plans,
+        words,
+        budget,
+        is_baseline,
+        &mut cache,
+    ))
 }
 
 /// Evaluate candidates against a caller-owned run cache while preserving the positional baseline
@@ -1017,20 +1270,26 @@ fn evaluate_plans_marked_with_cache_mode<const OBSERVE: bool>(
     let comparable = selection.comparable;
     let expected = selection.expected;
     let oracle_capped = selection.capped;
-    let oracle_timed_out = selection.timed_out;
     let exclusions = selection.exclusions;
-    let corpus_evidence = corpus_completeness_evidence(words, &comparable, &exclusions);
+    let corpus_evidence = corpus_completeness_evidence(
+        words,
+        &comparable,
+        &exclusions,
+        cache.corpus.oracle,
+    );
     let words = &comparable[..];
-    // CRITICAL: a capped or timed-out oracle result must NEVER reach `certify_corpus`. The FST side
-    // may legitimately produce analyses the truncated oracle never found — that would surface as a
+    // CRITICAL: a step-capped oracle result must NEVER reach `certify_corpus`. The FST side may
+    // legitimately produce analyses the truncated oracle never found — that would surface as a
     // bogus `IdentityMismatch`/`MultiplicityMismatch` (a phantom "grammar bug" that is actually an
     // oracle bug), or, worse, a genuinely incomplete candidate could look right against an equally
     // truncated ground truth and wrongly certify. So this returns before `build_candidate` is even
-    // called for any plan in this batch — evidence about a network built against a `expected` that
-    // is known-partial is not evidence at all. `oracle_capped` is checked before `oracle_timed_out`
-    // only because it is the more actionable diagnosis (raise `--oracle-step-cap`); a word that
-    // tripped both is reported under whichever this checks first, which is fine since the outcome
-    // (non-certifying) is identical either way.
+    // called for any plan in this batch — evidence about a network built against an `expected` that
+    // is known-partial is not evidence at all.
+    //
+    // There is no longer a `timed-out` branch here, and that absence is the fix: the wall clock is a
+    // liveness net that aborts preparation (`OraclePreparationFault`), so by the time control
+    // reaches this point no occurrence can have been classified by a clock.
+    //
     // Certification is all-or-nothing over the requested corpus. Even when other words have
     // complete expectations, dropping one excluded word would silently certify a subset under the
     // requested corpus's name and hash only that subset. Refuse the whole batch instead, retaining
@@ -1038,8 +1297,6 @@ fn evaluate_plans_marked_with_cache_mode<const OBSERVE: bool>(
     if !exclusions.is_empty() {
         let stage = if oracle_capped {
             "oracle-capped"
-        } else if oracle_timed_out {
-            "oracle-timeout"
         } else {
             "corpus-incomplete"
         };

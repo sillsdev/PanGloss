@@ -64,8 +64,10 @@ fn deterministic_score(
 fn cached_and_uncached_scores_and_winner_are_invariant() {
     let (grammar, words) = fixture();
     let plans = plans(&grammar);
-    let uncached = evaluate_plans(&grammar, &plans, &words, RuntimeBudget::default());
-    let mut cache = RunEvaluationCache::prepare(&grammar, &words, RuntimeBudget::default());
+    let uncached = evaluate_plans(&grammar, &plans, &words, RuntimeBudget::default())
+        .expect("the oracle liveness net / memory ceiling must not trip on this fixture");
+    let mut cache = RunEvaluationCache::prepare(&grammar, &words, RuntimeBudget::default())
+        .expect("oracle preparation must succeed for this fixture");
     let cached = evaluate_plans_with_cache(
         &grammar,
         &plans,
@@ -122,7 +124,8 @@ fn prepared_oracle_is_shared_and_emission_report_is_strategy_lazy() {
         "fixture must have two composed candidates"
     );
 
-    let mut whole_cache = RunEvaluationCache::prepare(&grammar, &words, RuntimeBudget::default());
+    let mut whole_cache = RunEvaluationCache::prepare(&grammar, &words, RuntimeBudget::default())
+        .expect("oracle preparation must succeed for this fixture");
     evaluate_plans_with_cache(
         &grammar,
         &whole,
@@ -134,7 +137,8 @@ fn prepared_oracle_is_shared_and_emission_report_is_strategy_lazy() {
     assert_eq!(whole_cache.emission_report_calls(), 0);
 
     let mut composed_cache =
-        RunEvaluationCache::prepare(&grammar, &words, RuntimeBudget::default());
+        RunEvaluationCache::prepare(&grammar, &words, RuntimeBudget::default())
+        .expect("oracle preparation must succeed for this fixture");
     evaluate_plans_with_cache(
         &grammar,
         &composed,
@@ -152,7 +156,8 @@ fn cache_prepared_for_fewer_different_occurrences_fails_closed_without_selection
     let plans = plans(&grammar);
     let prepared = vec!["tulik".to_string()];
     let requested = vec!["tulik".to_string(), "menulik".to_string()];
-    let mut cache = RunEvaluationCache::prepare(&grammar, &prepared, RuntimeBudget::default());
+    let mut cache = RunEvaluationCache::prepare(&grammar, &prepared, RuntimeBudget::default())
+        .expect("oracle preparation must succeed for this fixture");
 
     let evaluations = evaluate_plans_with_cache(
         &grammar,
@@ -208,7 +213,8 @@ fn cache_excess_duplicate_occurrence_is_truncated_and_keeps_occurrences_distinct
     let plans = plans(&grammar);
     let prepared = vec!["tulik".to_string()];
     let requested = vec!["tulik".to_string(), "tulik".to_string()];
-    let mut cache = RunEvaluationCache::prepare(&grammar, &prepared, RuntimeBudget::default());
+    let mut cache = RunEvaluationCache::prepare(&grammar, &prepared, RuntimeBudget::default())
+        .expect("oracle preparation must succeed for this fixture");
 
     let evaluations = evaluate_plans_with_cache(
         &grammar,
@@ -220,7 +226,8 @@ fn cache_excess_duplicate_occurrence_is_truncated_and_keeps_occurrences_distinct
     assert!(!evaluations.is_empty());
 
     let mut repeat_cache =
-        RunEvaluationCache::prepare(&grammar, &prepared, RuntimeBudget::default());
+        RunEvaluationCache::prepare(&grammar, &prepared, RuntimeBudget::default())
+        .expect("oracle preparation must succeed for this fixture");
     let repeated_evaluations = evaluate_plans_with_cache(
         &grammar,
         &plans,
@@ -289,7 +296,8 @@ fn unrelated_excluded_prepared_row_does_not_poison_requested_pilot_subset() {
             oracle_step_cap: Some(5),
             ..RuntimeBudget::default()
         },
-    );
+    )
+        .expect("oracle preparation must succeed for this fixture");
 
     let evaluations = evaluate_plans_with_cache(
         &grammar,

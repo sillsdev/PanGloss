@@ -75,7 +75,8 @@ fn a_capped_oracle_yields_an_explicit_truncation_never_a_word_mismatch_or_a_conf
     // candidate reaches `FullHcConfirmed` -- same fixture/property
     // `recipe_runtime_net_is_queryable_gate.rs::the_evaluator_confirms_a_wholly_in_scope_grammar`
     // already pins.
-    let unbounded_enough = evaluate_plans(&grammar, &plans, &words, RuntimeBudget::default());
+    let unbounded_enough = evaluate_plans(&grammar, &plans, &words, RuntimeBudget::default())
+        .expect("the oracle liveness net / memory ceiling must not trip on this fixture");
     assert!(
         unbounded_enough
             .iter()
@@ -101,7 +102,8 @@ fn a_capped_oracle_yields_an_explicit_truncation_never_a_word_mismatch_or_a_conf
             oracle_step_cap: Some(0),
             ..RuntimeBudget::default()
         },
-    );
+    )
+        .expect("the oracle liveness net / memory ceiling must not trip on this fixture");
     assert!(!capped.is_empty());
     for evaluation in &capped {
         assert!(
@@ -164,7 +166,8 @@ fn a_mixed_complete_and_capped_oracle_cannot_certify_the_complete_subset() {
             oracle_step_cap: Some(cap),
             ..RuntimeBudget::default()
         },
-    );
+    )
+        .expect("the oracle liveness net / memory ceiling must not trip on this fixture");
     assert!(!evaluations.is_empty());
     let ranked = evaluations
         .iter()

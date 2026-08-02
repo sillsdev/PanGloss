@@ -83,7 +83,8 @@ fn main() {
             baseline_plan,
             std::slice::from_ref(w),
             RuntimeBudget::default(),
-        );
+        )
+        .expect("the oracle liveness net / memory ceiling must not trip on this fixture");
         let elapsed_ms = t.elapsed().as_millis();
         let e = &evaluations[0];
         total_proposals += e.score.proposals;

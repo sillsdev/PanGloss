@@ -109,11 +109,41 @@ pub struct CorpusExclusion {
     pub reason: String,
 }
 
-/// Transitional, run-local evidence for an incomplete requested corpus.
+/// The configuration a corpus's ELIGIBILITY was derived under.
+///
+/// # Why this is part of the evidence and not merely a run parameter
+/// Eligibility is a function of the corpus AND of the bounds the oracle was run under. Before this
+/// existed, two runs at different `--oracle-step-cap` values produced certifications that were
+/// byte-indistinguishable in every field a reader could check, so "this corpus is fully eligible"
+/// was an unqualified claim that silently meant "…at whatever cap happened to be in force". All
+/// three bounds are recorded, including the two that can only ever ABORT a run
+/// ([`Self::memory_ceiling_bytes`], [`Self::liveness_net_ns`]) — a run that completes under a
+/// 300-second liveness net is not the same evidence as one that completes under a 2-second net,
+/// because the second one had a whole class of words it would have refused to finish measuring.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OracleEligibilityConfig {
+    /// The step cap that IS the eligibility classifier: a word that exhausts it is excluded, and
+    /// nothing else can exclude a word for cost.
+    pub step_cap: u64,
+    /// The declared resident-memory ceiling for the oracle preparation pass. Never a classifier —
+    /// exceeding it is a typed abort, because a memory reading is load-sensitive and a
+    /// load-sensitive classifier is exactly the defect this whole mechanism exists to remove.
+    pub memory_ceiling_bytes: u64,
+    /// The wall-clock LIVENESS NET, in nanoseconds. Never a classifier, for the same reason as
+    /// `memory_ceiling_bytes`; tripping it aborts the preparation run.
+    pub liveness_net_ns: u64,
+}
+
+/// Transitional, run-local evidence for a requested corpus's eligibility.
 ///
 /// This is deliberately diagnostic evidence on the existing recipe certification result, not a
 /// second corpus identity architecture. The versioned `CorpusSnapshot`/`CertificationScope`
 /// migration remains tracked by `cleanup-and-recipe-parity` task 7.12.
+///
+/// It is emitted for COMPLETE corpora too, not only incomplete ones. A run that excludes nothing
+/// still has to say so in band — "there were no exclusions" and "nobody looked" are different
+/// facts, and a hand-filtered word list fed in from outside used to be indistinguishable from an
+/// honest full-corpus run precisely because a zero-exclusion run emitted no ledger at all.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CorpusCompletenessEvidence {
     pub requested: u64,
@@ -122,6 +152,13 @@ pub struct CorpusCompletenessEvidence {
     pub requested_hash: String,
     pub included_hash: String,
     pub excluded_hash: String,
+    /// See [`OracleEligibilityConfig::step_cap`]. Flattened rather than nested so a reader (and a
+    /// JSON assertion) reaches it with the same one-level lookup as every count beside it.
+    pub oracle_step_cap: u64,
+    /// See [`OracleEligibilityConfig::memory_ceiling_bytes`].
+    pub oracle_memory_ceiling_bytes: u64,
+    /// See [`OracleEligibilityConfig::liveness_net_ns`].
+    pub oracle_liveness_net_ns: u64,
     pub exclusions: Vec<CorpusExclusion>,
 }
 
@@ -137,6 +174,7 @@ impl CorpusCompletenessEvidence {
         requested: &[String],
         included: &[String],
         exclusions: Vec<CorpusExclusion>,
+        oracle: OracleEligibilityConfig,
     ) -> Self {
         assert!(
             exclusions.len() <= requested.len(),
@@ -167,10 +205,22 @@ impl CorpusCompletenessEvidence {
             requested_hash: hash_words(requested),
             included_hash: hash_words(included),
             // Keep the historical field name for wire compatibility, but make its meaning
-            // explicit: this is the exclusion ledger hash, including ordinal, word, and reason.
-            excluded_hash: hash_exclusion_ledger(&exclusions),
+            // explicit: this is the exclusion ledger hash, including ordinal, word, and reason --
+            // and, since v2, the oracle configuration the ledger was derived under, so that two
+            // runs at different caps cannot produce the same ledger hash over the same words.
+            excluded_hash: hash_exclusion_ledger(&exclusions, oracle),
+            oracle_step_cap: oracle.step_cap,
+            oracle_memory_ceiling_bytes: oracle.memory_ceiling_bytes,
+            oracle_liveness_net_ns: oracle.liveness_net_ns,
             exclusions,
         }
+    }
+
+    /// Whether the ledger accounts for every requested occurrence. `false` means the artifact is
+    /// internally inconsistent, not that words were excluded.
+    pub fn reconciles(&self) -> bool {
+        self.requested == self.included.saturating_add(self.excluded)
+            && self.excluded == self.exclusions.len() as u64
     }
 }
 
@@ -183,9 +233,12 @@ fn hash_words(words: &[String]) -> String {
     format!("{:x}", hash.finalize())
 }
 
-fn hash_exclusion_ledger(exclusions: &[CorpusExclusion]) -> String {
+fn hash_exclusion_ledger(exclusions: &[CorpusExclusion], oracle: OracleEligibilityConfig) -> String {
     let mut hash = Sha256::new();
-    hash.update(b"corpus-exclusion-ledger-v1");
+    hash.update(b"corpus-exclusion-ledger-v2");
+    hash.update(oracle.step_cap.to_le_bytes());
+    hash.update(oracle.memory_ceiling_bytes.to_le_bytes());
+    hash.update(oracle.liveness_net_ns.to_le_bytes());
     for exclusion in exclusions {
         hash.update(exclusion.requested_ordinal.to_le_bytes());
         hash.update((exclusion.word.len() as u64).to_le_bytes());

@@ -160,6 +160,7 @@ fn materialize_and_evaluate(
     let plans: Vec<_> = candidates.into_iter().map(|(_, p)| p).collect();
     assert!(!plans.is_empty(), "must materialize at least one candidate");
     evaluate_plans(grammar, &plans, words, RuntimeBudget::default())
+        .expect("the oracle liveness net / memory ceiling must not trip on this fixture")
 }
 
 /// The bare root and one-real-prefix words: both must still fully confirm (recall preserved by the

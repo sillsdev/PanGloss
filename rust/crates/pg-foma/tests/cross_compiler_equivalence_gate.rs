@@ -231,7 +231,8 @@ fn pinned_three_pipeline_equivalence_observes_final_candidates_and_preserves_cac
         .collect::<Vec<_>>();
 
     let mut ordinary_cache =
-        RunEvaluationCache::prepare(&grammar, &words, RuntimeBudget::default());
+        RunEvaluationCache::prepare(&grammar, &words, RuntimeBudget::default())
+        .expect("oracle preparation must succeed for this fixture");
     let ordinary = evaluate_plans_marked_with_cache(
         &grammar,
         &plans,
@@ -241,7 +242,8 @@ fn pinned_three_pipeline_equivalence_observes_final_candidates_and_preserves_cac
         &mut ordinary_cache,
     );
     let mut observed_cache =
-        RunEvaluationCache::prepare(&grammar, &words, RuntimeBudget::default());
+        RunEvaluationCache::prepare(&grammar, &words, RuntimeBudget::default())
+        .expect("oracle preparation must succeed for this fixture");
     let observed = evaluate_plans_marked_observed_with_cache(
         &grammar,
         &plans,
@@ -394,7 +396,8 @@ fn observed_evidence_distinguishes_failed_evaluation_from_real_empty_observation
             oracle_step_cap: Some(0),
             ..RuntimeBudget::default()
         },
-    );
+    )
+        .expect("oracle preparation must succeed for this fixture");
     let failed = evaluate_plans_marked_observed_with_cache(
         &grammar,
         std::slice::from_ref(&plan),
@@ -423,7 +426,8 @@ fn observed_evidence_distinguishes_failed_evaluation_from_real_empty_observation
     ));
     assert_eq!(failed.evaluation.score.proposals, 0);
 
-    let mut empty_cache = RunEvaluationCache::prepare(&grammar, &[], RuntimeBudget::default());
+    let mut empty_cache = RunEvaluationCache::prepare(&grammar, &[], RuntimeBudget::default())
+        .expect("oracle preparation must succeed for this fixture");
     let empty = evaluate_plans_marked_observed_with_cache(
         &grammar,
         &[plan],
@@ -491,7 +495,8 @@ fn template_flattened_uflexc_route_reports_typed_proposal_ratio_violation() {
         })
         .expect("plan-composed/uflexc candidate");
 
-    let mut cache = RunEvaluationCache::prepare(&grammar, &words, RuntimeBudget::default());
+    let mut cache = RunEvaluationCache::prepare(&grammar, &words, RuntimeBudget::default())
+        .expect("oracle preparation must succeed for this fixture");
     let observation = evaluate_plans_marked_observed_with_cache(
         &grammar,
         std::slice::from_ref(&plan),
@@ -632,7 +637,8 @@ fn plan_composed_cannot_represent_compounding_construct_red1() {
         .map(|plan| plan.strategy == EmissionStrategy::PlanComposed)
         .collect::<Vec<_>>();
 
-    let mut cache = RunEvaluationCache::prepare(&grammar, &words, RuntimeBudget::default());
+    let mut cache = RunEvaluationCache::prepare(&grammar, &words, RuntimeBudget::default())
+        .expect("oracle preparation must succeed for this fixture");
     let observed = evaluate_plans_marked_observed_with_cache(
         &grammar,
         &plans,
