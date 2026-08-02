@@ -5,10 +5,10 @@
   always have.
 
   This is the ONE place that decides target-dir redirection, sccache wiring, the worktree
-  base-commit check, disk/build-slot gates, and (for corpus-test) the fail-closed corpus
-  contract. rust/tools/build.ps1 and rust/tools/test.ps1 are thin front ends that translate their
-  existing parameters into a call here, so there is exactly one place that policy is decided
-  rather than two copies that can drift.
+  base-commit check, disk/build-slot gates, the fail-closed corpus contract (corpus-test), and the
+  fail-closed `machine` conformance-submodule contract (test/corpus-test). rust/tools/build.ps1 and
+  rust/tools/test.ps1 are thin front ends that translate their existing parameters into a call
+  here, so there is exactly one place that policy is decided rather than two copies that can drift.
 
   Modes:
     build        cargo build. --release unless -DebugProfile (matches build.ps1's existing
@@ -18,8 +18,16 @@
     test          the fast suite, built with the pg-test-opt profile (release-derived, thin/no
                   LTO -- see rust/Cargo.toml's comment) instead of full release, unless
                   -DebugProfile. Prefers cargo-nextest when installed, like test.ps1 always has.
-    corpus-test   like test, but refuses BEFORE cargo starts if any required corpus-manifest file
-                  is absent, sets PANGLOSS_CORPUS_REQUIRED=1 so pg_conformance_fixtures::corpus
+                  Refuses BEFORE cargo starts (exit $script:ExitCodeConformanceSubmoduleMissing,
+                  18) if the `machine` conformance submodule can't be auto-initialized --
+                  conformance_fixtures_gate is part of this ordinary suite, not #[ignore]d, so a
+                  fresh worktree that skipped this would fail minutes into a build with a
+                  confusing panic instead. See Initialize-ConformanceSubmodule in _common.ps1 (or
+                  run rust/tools/conformance.ps1 standalone) for what "auto-initialize" means: a
+                  sparse, path-scoped checkout of machine/conformance ONLY (~1MB), never the
+                  ~415MB full `machine` checkout, because that's the only subtree this suite reads.
+    corpus-test   like test, but ALSO refuses BEFORE cargo starts if any required corpus-manifest
+                  file is absent, sets PANGLOSS_CORPUS_REQUIRED=1 so pg_conformance_fixtures::corpus
                   panics rather than skips on a missing input, and fails afterward if cargo
                   exited 0 having recorded zero executed corpus cases.
     release       cargo build --release -- the actual fat-LTO deliverable profile, for optimized
@@ -27,9 +35,13 @@
                   ownership marker `preserved` on success so a dry-run gc reports it rather than
                   offering to delete it.
     doctor        prints the preflight record and exits non-zero on an unsafe/incomplete
-                  environment. Runs no cargo command at all. Also reports (without failing on)
-                  any Resource-Exhaustion-Detector history from the last 7 days -- see
-                  Get-ResourceExhaustionEvents in _common.ps1.
+                  environment -- including the `machine` conformance-submodule state (attempts the
+                  same auto-init test/corpus-test do, since it's cheap and idempotent once already
+                  present; folded into the unsafe/exit-code decision, unlike the exhaustion history
+                  below, because it describes the environment RIGHT NOW rather than a past,
+                  already-recovered-from event). Runs no cargo command at all. Also reports
+                  (without failing on) any Resource-Exhaustion-Detector history from the last 7
+                  days -- see Get-ResourceExhaustionEvents in _common.ps1.
     gc            reports (dry-run, the default) or removes (-Apply) managed target directories
                   this repository owns and no longer needs. Never touches an unmarked, preserved,
                   or still-live directory -- see Get-TargetClassification/Invoke-TargetGc in
@@ -215,6 +227,23 @@ if ($Mode -eq 'new-worktree') {
     Write-Host "[pg] recorded base in $(Get-WorktreeMetaPath -RepoRoot $newRoot)" -ForegroundColor Green
     Write-Host "[pg] requested '$($meta.requested_revision)' -> resolved $($meta.resolved_object_id)" -ForegroundColor DarkGray
     Write-Host '[pg] NOTE: private corpora under samples/data/ are gitignored and are NOT copied into a new worktree. Corpus-backed suites there will refuse under -Mode corpus-test until you populate it or set PANGLOSS_CORPUS_ROOT.' -ForegroundColor Yellow
+
+    # Born ready: initialize the (public, non-gitignored) `machine` conformance submodule right now
+    # rather than leaving every fresh worktree to fail `w91_affix_shapes_covered_by_upstream_fixtures`
+    # with "machine submodule initialized?" the first time someone runs `-Mode test` here. Unlike the
+    # private-corpus note above, this data is fetchable by this tool, so a failure here is something
+    # to fail LOUDLY on rather than merely note -- same distinct exit code -Mode test/corpus-test use
+    # for the identical failure, since the underlying problem (submodule unavailable) is the same one.
+    $conformanceResult = Initialize-ConformanceSubmodule -RepoRoot $newRoot
+    if ($conformanceResult.Ok) {
+        Write-Host "[pg] conformance submodule ($($conformanceResult.Mode)): $($conformanceResult.Detail)" -ForegroundColor Green
+    } else {
+        Write-Host "[pg] conformance submodule initialization FAILED: $($conformanceResult.Detail)" -ForegroundColor Red
+        if ($conformanceResult.RecoveryCommand) {
+            Write-Host "[pg] the worktree was created; run this by hand once fixed: $($conformanceResult.RecoveryCommand)" -ForegroundColor Yellow
+        }
+        exit $script:ExitCodeConformanceSubmoduleMissing
+    }
     exit 0
 }
 
@@ -350,6 +379,20 @@ if ($Mode -eq 'corpus-test') {
     $corpusState = Test-CorpusPresent -RepoRoot $repoRoot -Manifest $corpusManifest
 }
 
+# The `machine` conformance submodule: needed by `test` (conformance_fixtures_gate is NOT
+# #[ignore]d -- it runs in the ordinary suite) and `corpus-test` (same suite, plus corpus-gated
+# ones), and reported (not just checked) by `doctor` since a fresh, never-tested worktree is
+# exactly the state doctor exists to catch before someone burns a build finding out the hard way.
+# Not computed for build/release/gc/run: those modes don't reach conformance_fixtures_gate at all,
+# and a git invocation on every one of THOSE would be exactly the "tax on ordinary work" this
+# design elsewhere refuses to add -- Initialize-ConformanceSubmodule's own fast path already makes
+# the already-initialized case a single Test-Path, but there is no reason to pay even that outside
+# the modes that need it.
+$conformanceCheck = $null
+if ($Mode -eq 'test' -or $Mode -eq 'corpus-test' -or $Mode -eq 'doctor') {
+    $conformanceCheck = Initialize-ConformanceSubmodule -RepoRoot $repoRoot
+}
+
 $profileLabel = switch ($Mode) {
     'release' { 'release (fat LTO)' }
     'test' { if ($DebugProfile) { 'dev' } else { $script:TestOptProfile } }
@@ -367,7 +410,8 @@ $profileLabel = switch ($Mode) {
 Write-Preflight -Mode $Mode -Profile $profileLabel -RepoRoot $repoRoot -TargetDir $targetDir `
     -BaseCheck $baseCheck -SccacheHealth $sccacheHealth -FreeGB $freeGB -DiskCheck $diskCheck `
     -MemoryCheck $memCheck `
-    -CorpusState $corpusState -MaxConcurrent $MaxConcurrent -Jobs $Jobs -JobsExplicit:$jobsExplicit `
+    -CorpusState $corpusState -ConformanceCheck $conformanceCheck `
+    -MaxConcurrent $MaxConcurrent -Jobs $Jobs -JobsExplicit:$jobsExplicit `
     -JobsBudget $jobsBudget -PerJobMemoryGB $perJobMemGB `
     -TestThreads $(if ($Mode -eq 'test' -or $Mode -eq 'corpus-test') { $TestThreads } else { 0 }) `
     -TestThreadsBudget $testThreadsBudget -Priority $Priority
@@ -405,8 +449,28 @@ if ($Mode -eq 'corpus-test' -and -not $corpusState.Ok) {
     exit $script:ExitCodeMissingCorpus
 }
 
+# ($Mode -eq 'test' -or 'corpus-test') refused BEFORE starting cargo -- the same fail-closed shape
+# as the corpus-missing gate just above, for the same reason: conformance_fixtures_gate is part of
+# the ordinary (non-#[ignore]d) suite, so letting cargo start without it would fail minutes later
+# with a confusing panic instead of this actionable message. $conformanceCheck was already computed
+# above (Initialize-ConformanceSubmodule attempted the auto-init as a side effect); this only acts
+# on the result.
+if (($Mode -eq 'test' -or $Mode -eq 'corpus-test') -and $conformanceCheck -and -not $conformanceCheck.Ok) {
+    Write-Host "[pg] conformance submodule unavailable BEFORE starting cargo: $($conformanceCheck.Detail)" -ForegroundColor Red
+    if ($conformanceCheck.RecoveryCommand) {
+        Write-Host "[pg] recovery: $($conformanceCheck.RecoveryCommand)  (or: pwsh -File rust\tools\conformance.ps1)" -ForegroundColor Yellow
+    }
+    exit $script:ExitCodeConformanceSubmoduleMissing
+}
+
 if ($Mode -eq 'doctor') {
-    $unsafe = ($baseCheck.Checked -and -not $baseCheck.Ok) -or (-not $diskCheck.Ok) -or (-not $memCheck.Ok) -or ($usedSccache -and -not $sccacheHealth.Ok)
+    # Conformance IS folded into $unsafe (unlike the exhaustion history below): a missing/failed
+    # submodule describes the environment RIGHT NOW, exactly like disk/memory/base/sccache do --
+    # not something that already happened and was already recovered from, which is the dividing
+    # line this file draws for the exhaustion log. A doctor run that reports "safe" on a worktree
+    # that would immediately fail conformance_fixtures_gate is the exact "I could not look read as
+    # everything is fine" failure this repo's own rules elsewhere warn against.
+    $unsafe = ($baseCheck.Checked -and -not $baseCheck.Ok) -or (-not $diskCheck.Ok) -or (-not $memCheck.Ok) -or ($usedSccache -and -not $sccacheHealth.Ok) -or ($conformanceCheck -and -not $conformanceCheck.Ok)
 
     # Exhaustion HISTORY, deliberately NOT folded into $unsafe above. The four checks that DO gate
     # $unsafe all describe the environment RIGHT NOW (disk/memory/base/sccache); an exhaustion event

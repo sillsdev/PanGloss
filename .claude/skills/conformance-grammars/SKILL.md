@@ -31,6 +31,17 @@ Two roots exist, discovered identically by this repo's own tests:
   for fixtures that need to land with a bug fix immediately, ahead of upstream review. See
   `docs/conformance-staging-plan.md` for the full design rationale.
 
+**If `machine/conformance/` looks empty or missing, don't run a raw `git submodule` command.**
+`pg.ps1 -Mode test`/`-Mode corpus-test`/`-Mode new-worktree` all auto-initialize the `machine`
+submodule (sparse, scoped to `conformance/` only — ~1MB, not the ~415MB full checkout) before doing
+anything else; a fresh worktree from `pg.ps1 -Mode new-worktree` is born with it already present.
+If you're outside all of those (e.g. probing a fixture with a standalone `cargo` invocation you're
+about to hand to `pg.ps1` anyway, or recovering after a network outage), run
+`rust\tools\conformance.ps1` directly — same auto-init, standalone, no Cargo involved. See
+CLAUDE.md's "`machine` conformance submodule auto-initializes" section and
+`Initialize-ConformanceSubmodule` in `rust/tools/_common.ps1` for the mechanism and the measurements
+behind the sparse scoping.
+
 `rust/crates/pg-conformance-fixtures` is the ONE shared Rust helper both roots' discovery, parsing,
 and oracle-replay logic goes through (`discover()`, `WordsYaml`/`WordEntry`/`ParseEntry`,
 `assert_matches_oracle`, `graduation_guard_violations`). Never hand-roll a second fixture-path-walker
@@ -155,7 +166,12 @@ or a second `words.yaml` parser — extend that crate instead.
    against `pangloss` only; note any divergence found as its own finding, don't silently paper over it).
 2. Record the PR link in the staged fixture's `STAGING.md`.
 3. On acceptance: bump the `machine` submodule pointer AND delete the staged copy
-   (`conformance-staging/<category>/<name>/`) in the **same commit**. This is not optional — the
+   (`conformance-staging/<category>/<name>/`) in the **same commit**. After bumping the pointer,
+   run `rust\tools\conformance.ps1` (or `pg.ps1 -Mode test`) again in any worktree that already had
+   `machine/conformance` checked out — the auto-init's fast path only recognizes "present vs.
+   absent" via the `constructs.txt` sentinel, so it will NOT re-sync an already-checked-out
+   worktree onto the new pinned commit by itself; that's an ordinary `git -C machine fetch && git
+   -C machine checkout <new-sha>`, same as bumping any other submodule. This is not optional — the
    graduation guard (`graduation_guard_no_duplicate_fixture_names` in
    `rust/crates/pg-parse/tests/conformance_fixtures_gate.rs`) FAILS the default test suite the moment
    the same `(category, name)` exists under both roots, with the message "accepted upstream — delete

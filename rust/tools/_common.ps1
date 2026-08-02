@@ -1292,6 +1292,13 @@ $script:ExitCodeZeroCorpusCases = 16
 # recovery is completely different (free bytes on a drive vs. wait for / kill what is holding RAM),
 # and a caller that cannot tell them apart will run gc at a memory problem and conclude gc is broken.
 $script:ExitCodeLowMemory = 17
+# The `machine` conformance submodule (see Initialize-ConformanceSubmodule below) is absent and
+# could not be auto-initialized before Cargo would have started -- distinct from
+# ExitCodeMissingCorpus because the recovery and the data are different: corpus files are private,
+# gitignored, and never auto-fetched by design, whereas `machine/conformance` is a public git
+# submodule this tool CAN fetch for you and only falls through to this code when that attempt
+# itself failed (most commonly: no network reachable to github.com).
+$script:ExitCodeConformanceSubmoduleMissing = 18
 
 # 18 is ExitCodeConformanceSubmoduleMissing, defined next to Initialize-ConformanceSubmodule.
 
@@ -1666,6 +1673,238 @@ function Test-CorpusPresent {
 }
 
 # ---------------------------------------------------------------------------------------------
+# Conformance submodule (machine/conformance) -- sparse, path-scoped auto-init
+#
+# `machine` is a git submodule (sillsdev/machine, `conformance-framework` branch, pinned to a
+# fixed commit -- see .gitmodules) that this repo's default test suite reads fixtures from
+# (pg_conformance_fixtures::discover(), consumed by pg-parse's conformance_fixtures_gate, which is
+# NOT #[ignore]d -- it runs in the ordinary `-Mode test` suite, not just corpus-test). A worktree
+# created by `pg.ps1 -Mode new-worktree` never ran `git submodule update` for it, so every fresh
+# worktree failed `w91_affix_shapes_covered_by_upstream_fixtures` with "machine submodule
+# initialized?" until someone ran the update by hand -- real infrastructure breakage that reads
+# exactly like a regression in whatever change the worktree was created for.
+#
+# MEASURED (drives everything below; do not re-derive it): a full checkout of `machine` is 415MB
+# (`machine/src` alone is 350MB, `machine/tests` 64MB) but this repo's suite reads ONLY
+# `machine/conformance`, which is 904KB. The underlying git OBJECTS are cheap regardless (a few MB
+# fetched from GitHub) -- it is the WORKING TREE materialization that is expensive, so a sparse
+# checkout (not a shallow/--depth clone, which risks not containing the pinned SHA if it isn't the
+# branch tip) is the right lever. This machine runs a couple dozen worktrees at once, so 415MB vs
+# <1MB per worktree is the entire point of scoping -- gigabytes saved fleet-wide for zero loss of
+# what the suite actually reads.
+#
+# VERIFIED 2026-08-01 against git 2.51.0 on this machine, inside an actual linked worktree (not
+# the primary checkout): `git submodule update --init --no-checkout -- machine` is NOT valid
+# syntax -- `--no-checkout` is not one of `submodule update`'s recognized flags (`--checkout` is
+# the only member of that family, and it's the default). The equivalent that IS a supported, stable
+# git feature -- and was hand-verified to actually produce a ~950KB working tree containing
+# machine/conformance/constructs.txt, with `git submodule status`/`git status` both reporting the
+# result as a clean, correctly-pinned submodule exactly as if `git submodule update --init` had
+# done it -- is:
+#   git clone --no-checkout --separate-git-dir=<this worktree's gitdir>/modules/machine \
+#       --branch conformance-framework <url> machine
+#   git -C machine sparse-checkout init --cone
+#   git -C machine sparse-checkout set conformance
+#   git -C machine checkout <pinned commit from `git ls-tree HEAD -- machine`>
+# --separate-git-dir is what gives --no-checkout an empty working tree to apply sparse patterns to
+# BEFORE anything is materialized, matching the worktree-scoped modules/ layout `git submodule
+# update` itself already uses here (confirmed by inspecting an existing initialized worktree's
+# machine/.git gitlink file). Cone-mode sparse-checkout worked cleanly on the first attempt -- the
+# design's own fallback-to-full-checkout path below exists for a DIFFERENT git version/environment
+# where it might not, and is exercised by a Pester-style test rather than assumed unreachable.
+# ---------------------------------------------------------------------------------------------
+
+function Get-ConformanceSubmoduleSentinel {
+    # Proof the working tree is actually usable, not just that `machine/` exists as a directory --
+    # `git clone --no-checkout` (the no-op-yet state on the way to a sparse checkout) leaves exactly
+    # that: a directory with a `.git` gitlink file and nothing else.
+    param([string]$RepoRoot = (Get-RepoRoot))
+    return (Join-Path $RepoRoot 'machine\conformance\constructs.txt')
+}
+
+function Test-ConformanceSubmodulePresent {
+    # The fast, idempotent check every caller (pg.ps1 preflight, doctor, new-worktree) does FIRST,
+    # before invoking git at all. Adding a git invocation to every ordinary build/test run is a tax,
+    # and this repo's own stated rule is that a gate which taxes ordinary work gets switched off and
+    # then protects nobody -- so the common case (already initialized) must cost one Test-Path call.
+    param([string]$RepoRoot = (Get-RepoRoot))
+    return (Test-Path (Get-ConformanceSubmoduleSentinel -RepoRoot $RepoRoot) -PathType Leaf)
+}
+
+function Get-ConformancePinnedCommit {
+    # The gitlink SHA the SUPERPROJECT's own tree records for the `machine` path -- read from the
+    # tree (git ls-tree), not `git ls-remote`/.gitmodules' branch name, because .gitmodules names a
+    # BRANCH (conformance-framework) that can move; the tree entry is the exact commit this
+    # checkout is pinned to regardless of where that branch has since drifted. Returns $null (never
+    # throws) on any failure -- the caller folds an unresolved pin into its own actionable failure
+    # message rather than this raising a separate exception shape.
+    param([string]$RepoRoot = (Get-RepoRoot))
+    $out = & git -C $RepoRoot ls-tree HEAD -- machine 2>$null
+    if (-not $out) { return $null }
+    # Format: "160000 commit <40-hex-sha>\tmachine" (160000 = gitlink mode).
+    if ($out -match '^\d+\s+commit\s+([0-9a-f]{40})\b') { return $Matches[1] }
+    return $null
+}
+
+function Get-ConformanceSubmoduleSizeMB {
+    # Reported alongside a successful init so the preflight/doctor record states what actually
+    # happened (sparse ~1MB vs. fallback ~415MB) instead of just "ok" -- the same reasoning as every
+    # other Detail string in this file: a caller should never have to re-derive what a check found.
+    param([string]$RepoRoot = (Get-RepoRoot))
+    $dir = Join-Path $RepoRoot 'machine'
+    if (-not (Test-Path $dir)) { return 0 }
+    $bytes = (Get-ChildItem $dir -Recurse -Force -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
+    if (-not $bytes) { return 0 }
+    return [math]::Round($bytes / 1MB, 1)
+}
+
+function Initialize-ConformanceSubmodule {
+    # Makes `machine/conformance` show up without anyone running `git submodule update` by hand.
+    # Callers: pg.ps1 preflight (Mode test/corpus-test, fail-CLOSED with
+    # $script:ExitCodeConformanceSubmoduleMissing before Cargo starts if this returns Ok=$false),
+    # `pg.ps1 -Mode new-worktree` (best-effort, so a fresh worktree is born ready), `-Mode doctor`
+    # (reports the state), and rust/tools/conformance.ps1 (a standalone front end onto this same
+    # function for a caller who just wants to run it directly).
+    #
+    # Returns a PSCustomObject with:
+    #   Ok               bool -- $true means machine/conformance/constructs.txt exists NOW.
+    #   AlreadyPresent   bool -- $true means the fast path fired; nothing was invoked.
+    #   Mode             'already-present' | 'sparse' | 'fallback-full' | 'failed'
+    #   Detail           human-readable summary, always safe to print as-is.
+    #   RecoveryCommand  the exact command to run by hand; '' when Ok (nothing to recover).
+    param([string]$RepoRoot = (Get-RepoRoot))
+
+    # 1. Fast idempotent path FIRST, before touching git at all.
+    if (Test-ConformanceSubmodulePresent -RepoRoot $RepoRoot) {
+        return [PSCustomObject]@{
+            Ok = $true; AlreadyPresent = $true; Mode = 'already-present'
+            Detail          = 'machine/conformance/constructs.txt present -- submodule already initialized (no git invoked)'
+            RecoveryCommand = ''
+        }
+    }
+
+    $machineDir = Join-Path $RepoRoot 'machine'
+    # This is the recipe a human runs by hand if every automated attempt below fails -- named ONCE
+    # so every failure branch quotes the identical command rather than several near-duplicates.
+    $fullFallbackCmd = "git -C `"$RepoRoot`" submodule update --init -- machine"
+
+    $pinned = Get-ConformancePinnedCommit -RepoRoot $RepoRoot
+    if (-not $pinned) {
+        return [PSCustomObject]@{
+            Ok = $false; AlreadyPresent = $false; Mode = 'failed'
+            Detail          = "could not resolve the machine submodule's pinned commit (git -C `"$RepoRoot`" ls-tree HEAD -- machine returned nothing) -- is .gitmodules / the machine gitlink present at all? Run by hand: $fullFallbackCmd"
+            RecoveryCommand = $fullFallbackCmd
+        }
+    }
+
+    Write-Host "[conformance] machine/conformance not found -- initializing the machine submodule (sparse: conformance/ only, ~1MB, not the ~415MB full checkout)..." -ForegroundColor Cyan
+
+    # 2. Sparse, path-scoped init -- only clone if this hasn't been attempted before (a machine/.git
+    # gitlink already existing means SOME earlier attempt got at least as far as cloning; re-running
+    # `git clone` into a non-empty directory would just fail, so pick up from sparse-checkout
+    # instead). The common case is the directory not existing yet at all.
+    $alreadyCloned = Test-Path (Join-Path $machineDir '.git')
+    if (-not $alreadyCloned) {
+        # Registers url/branch into local .git/config from .gitmodules -- harmless no-op if already
+        # registered, and keeps `git submodule status`/`sync`/`foreach` working normally afterward
+        # even though the clone itself below is done by hand rather than by `submodule update`.
+        & git -C $RepoRoot submodule init -- machine 2>&1 | Out-Null
+
+        $gitmodulesPath = Join-Path $RepoRoot '.gitmodules'
+        $url = (& git config -f $gitmodulesPath --get submodule.machine.url 2>$null)
+        $branch = (& git config -f $gitmodulesPath --get submodule.machine.branch 2>$null)
+        if (-not $url) {
+            return [PSCustomObject]@{
+                Ok = $false; AlreadyPresent = $false; Mode = 'failed'
+                Detail          = "could not read submodule.machine.url from $gitmodulesPath -- run by hand: $fullFallbackCmd"
+                RecoveryCommand = $fullFallbackCmd
+            }
+        }
+
+        # Worktree-scoped modules/ location, matching the layout `git submodule update` itself
+        # already uses per-worktree here (confirmed against an existing initialized worktree's
+        # machine/.git gitlink) -- NOT the superproject's shared .git/modules, so two worktrees
+        # never contend for the same submodule gitdir.
+        $absoluteGitDir = (& git -C $RepoRoot rev-parse --absolute-git-dir 2>$null)
+        if (-not $absoluteGitDir) {
+            return [PSCustomObject]@{
+                Ok = $false; AlreadyPresent = $false; Mode = 'failed'
+                Detail          = "could not resolve this worktree's git-dir (git rev-parse --absolute-git-dir) -- run by hand: $fullFallbackCmd"
+                RecoveryCommand = $fullFallbackCmd
+            }
+        }
+        $modulesDir = Join-Path $absoluteGitDir.Trim() 'modules'
+        New-Item -ItemType Directory -Force -Path $modulesDir | Out-Null
+        $targetGitDir = Join-Path $modulesDir 'machine'
+
+        $cloneArgs = @('clone', '--no-checkout', '--separate-git-dir', $targetGitDir)
+        if ($branch) { $cloneArgs += @('--branch', $branch) }
+        $cloneArgs += @($url, $machineDir)
+        $cloneOut = & git @cloneArgs 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            # The likely real-world case this hits: no network reachable to github.com. Offline
+            # must be survivable and legible -- name the exact recovery command rather than leaving
+            # "I could not look" to be misread as "everything is fine".
+            return [PSCustomObject]@{
+                Ok = $false; AlreadyPresent = $false; Mode = 'failed'
+                Detail          = "git clone of the machine submodule failed (exit $LASTEXITCODE): $($cloneOut -join ' | ') -- if this is a network error, initialization cannot happen offline; run once connectivity is available: $fullFallbackCmd"
+                RecoveryCommand = $fullFallbackCmd
+            }
+        }
+    }
+
+    # 3. Cone-mode sparse-checkout, then materialize just the pinned commit's conformance/ subtree.
+    $sparseOk = $true
+    $sparseErr = ''
+    $o1 = & git -C $machineDir sparse-checkout init --cone 2>&1
+    if ($LASTEXITCODE -ne 0) { $sparseOk = $false; $sparseErr = "sparse-checkout init --cone (exit $LASTEXITCODE): $($o1 -join ' | ')" }
+    if ($sparseOk) {
+        $o2 = & git -C $machineDir sparse-checkout set conformance 2>&1
+        if ($LASTEXITCODE -ne 0) { $sparseOk = $false; $sparseErr = "sparse-checkout set conformance (exit $LASTEXITCODE): $($o2 -join ' | ')" }
+    }
+    if ($sparseOk) {
+        $o3 = & git -C $machineDir checkout $pinned 2>&1
+        if ($LASTEXITCODE -ne 0) { $sparseOk = $false; $sparseErr = "checkout $($pinned.Substring(0, 12)) (exit $LASTEXITCODE): $($o3 -join ' | ')" }
+    }
+
+    if (-not $sparseOk) {
+        # Cone-mode sparse checkout not working against a submodule in a worktree on THIS git
+        # version/environment -- fall back to a plain, scoped full checkout rather than leaving the
+        # submodule half-initialized. A working 415MB checkout beats a broken clever one.
+        Write-Host "[conformance] sparse checkout failed ($sparseErr) -- falling back to a full (~415MB) submodule checkout." -ForegroundColor Yellow
+        $fbOut = & git -C $RepoRoot submodule update --init -- machine 2>&1
+        if ($LASTEXITCODE -ne 0 -or -not (Test-ConformanceSubmodulePresent -RepoRoot $RepoRoot)) {
+            return [PSCustomObject]@{
+                Ok = $false; AlreadyPresent = $false; Mode = 'failed'
+                Detail          = "sparse checkout failed ($sparseErr) AND the full-checkout fallback also failed (exit $LASTEXITCODE): $($fbOut -join ' | ') -- run by hand: $fullFallbackCmd"
+                RecoveryCommand = $fullFallbackCmd
+            }
+        }
+        $sizeMB = Get-ConformanceSubmoduleSizeMB -RepoRoot $RepoRoot
+        return [PSCustomObject]@{
+            Ok = $true; AlreadyPresent = $false; Mode = 'fallback-full'
+            Detail          = "sparse checkout failed ($sparseErr) -- fell back to a full submodule checkout (~${sizeMB}MB). Sparse cone mode may not work in this git/environment; investigate before assuming every worktree gets the cheap path."
+            RecoveryCommand = ''
+        }
+    }
+
+    if (-not (Test-ConformanceSubmodulePresent -RepoRoot $RepoRoot)) {
+        return [PSCustomObject]@{
+            Ok = $false; AlreadyPresent = $false; Mode = 'failed'
+            Detail          = "sparse submodule init reported success but $(Get-ConformanceSubmoduleSentinel -RepoRoot $RepoRoot) is still missing -- something is wrong beyond a network failure; run by hand: $fullFallbackCmd"
+            RecoveryCommand = $fullFallbackCmd
+        }
+    }
+
+    $sizeMB = Get-ConformanceSubmoduleSizeMB -RepoRoot $RepoRoot
+    return [PSCustomObject]@{
+        Ok = $true; AlreadyPresent = $false; Mode = 'sparse'
+        Detail          = "sparse checkout of machine/conformance complete (~${sizeMB}MB, cone mode -- not the ~415MB full checkout)"
+        RecoveryCommand = ''
+    }
+}
+
+# ---------------------------------------------------------------------------------------------
 # Disk reserve (pure decision logic -- takes a free-space number rather than querying a drive
 # itself, so it's unit-testable without touching a real disk)
 # ---------------------------------------------------------------------------------------------
@@ -1719,6 +1958,7 @@ function Write-Preflight {
         $DiskCheck,
         $MemoryCheck = $null,
         $CorpusState = $null,
+        $ConformanceCheck = $null,
         [int]$MaxConcurrent,
         [int]$Jobs = 0,
         [switch]$JobsExplicit,
@@ -1769,6 +2009,9 @@ function Write-Preflight {
         }
     }
     Write-Host "sccache: $($SccacheHealth.State) -- $($SccacheHealth.Detail)" -ForegroundColor $(if ($SccacheHealth.Ok -or $SccacheHealth.State -eq 'disabled') { 'Gray' } else { 'Red' })
+    if ($ConformanceCheck) {
+        Write-Host "conformance submodule ($($ConformanceCheck.Mode)): $($ConformanceCheck.Detail)" -ForegroundColor $(if ($ConformanceCheck.Ok) { 'Gray' } else { 'Red' })
+    }
     if ($CorpusState) {
         if ($CorpusState.Ok) {
             Write-Host "corpus: present ($($CorpusState.Present.Count) file(s), root $($CorpusState.CorpusRoot))"
