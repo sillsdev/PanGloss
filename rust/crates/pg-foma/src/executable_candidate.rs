@@ -522,7 +522,7 @@ fn resolve_node(
             id: id.to_owned(),
         })?;
 
-    let mut resolve_children = |children: &[String],
+    let resolve_children = |children: &[String],
                                 plan: &mut Plan,
                                 resolved: &mut std::collections::BTreeMap<String, NodeId>,
                                 active: &mut BTreeSet<String>|
