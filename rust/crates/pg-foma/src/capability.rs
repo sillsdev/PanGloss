@@ -1114,7 +1114,20 @@ fn rule_has_unbounded_quantifier(r: &pg_grammar::model::RewriteRuleDef) -> bool 
 /// attribute is simply absent) — treating the hint's mere presence as the trigger would fail-close
 /// literally every ordinary affixation grammar ever loaded, which is not what D1's "reduplication"
 /// row means and would break this step's own "ordinary grammar characterizes Proven" test.
-fn rhs_has_true_reduplication(rhs: &[OutputAction]) -> bool {
+///
+/// # The single authority for "is this reduplication"
+/// `pub` because this is now the ONLY definition of the fact in this crate.
+/// [`crate::recipe_registry::Applicability::HasReduplication`] and
+/// [`crate::recipe_space::GrammarFacts::reduplicative_allomorphs`] each used to carry their own
+/// `redup_hint != Implicit || copies > lhs.len()` variant — precisely the hint-keyed trap the
+/// paragraph above documents — and so could fire (offering `FAMILY_COPY_BRANCH`, counting
+/// reduplicative allomorphs) on grammars where this predicate, `pg_rules::morph::classify_redup`
+/// and therefore [`crate::peel::ReduplicationPeeler`] all agree there is no reduplication at all.
+/// Both now consume this function. Note the `pg-grammar` fwdata loader
+/// (`pg-grammar/src/compile/affixes.rs`) assigns `ReduplicationHint::Prefix`/`Suffix` from an
+/// allomorph's mere MORPH TYPE, so on any fwdata-sourced grammar the old hint-keyed variants fired
+/// for every prefix and suffix in the language.
+pub fn rhs_has_true_reduplication(rhs: &[OutputAction]) -> bool {
     let mut counts: HashMap<u16, u32> = HashMap::new();
     for action in rhs {
         let part = match action {

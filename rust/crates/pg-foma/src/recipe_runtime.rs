@@ -914,12 +914,7 @@ fn evaluate_plans_marked_with_cache_mode<const OBSERVE: bool>(
          be treated as the baseline"
     );
     let alphabet = SegAlphabet::new(surface_table(grammar));
-    let prules: Vec<&PhonRuleDef> = grammar
-        .strata
-        .iter()
-        .flat_map(|s| &s.prules)
-        .map(|id| &grammar.prules[id.0 as usize])
-        .collect();
+    let prules: Vec<&PhonRuleDef> = crate::enumerate::prules_in_order(grammar);
     let opts = FomaOptions::default();
     let compose = ComposeBudget::from_env().with_step_timeout(
         budget

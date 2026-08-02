@@ -362,12 +362,7 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
         },
     );
     let alphabet = pg_foma::replace::SegAlphabet::new(&grammar.char_tables[0]);
-    let prules = grammar
-        .strata
-        .iter()
-        .flat_map(|s| &s.prules)
-        .map(|id| &grammar.prules[id.0 as usize])
-        .collect::<Vec<_>>();
+    let prules = pg_foma::enumerate::prules_in_order(&grammar);
     let phon = pg_foma::junctions::PhonologyProbe::new(&grammar);
     let baseline_started = Instant::now();
     let baseline =

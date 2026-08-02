@@ -4,9 +4,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
-use pg_grammar::model::{Grammar, MorphRuleDef, OutputAction, PhonRuleDef, ReduplicationHint};
+use pg_grammar::model::{Grammar, MorphRuleDef, PhonRuleDef};
 use serde::{Deserialize, Serialize};
 
+use crate::capability::rhs_has_true_reduplication;
 use crate::enumerate::{CandidatePlan, EmissionStrategy};
 use crate::oracle::{
     permute_gate_groups, permute_union_children, refine_gate_partition, PartitionGranularity,
@@ -27,6 +28,9 @@ pub struct Parameter {
 #[serde(rename_all = "kebab-case")]
 pub enum Applicability {
     Always,
+    /// At least one gated `RewriteSubruleDef`, decided by PROJECTING the real mechanism
+    /// ([`crate::gate::find_gated_subrules`], over [`crate::enumerate::prules_in_order`]) rather
+    /// than re-deriving it. See `matches`'s own arm for why the previous re-derivation was wrong.
     HasGatedExceptions,
     HasTemplates,
     HasMorphology,
@@ -66,17 +70,31 @@ impl Applicability {
     pub fn matches(&self, grammar: &Grammar) -> bool {
         match self {
             Self::Always => true,
-            Self::HasGatedExceptions => {
-                !grammar.mpr_features.is_empty()
-                    && grammar.prules.iter().any(|rule| match rule {
-                        PhonRuleDef::Rewrite(rewrite) => rewrite.subrules.iter().any(|subrule| {
-                            subrule.required_pos.is_some()
-                                || !subrule.required_mpr.is_empty()
-                                || !subrule.excluded_mpr.is_empty()
-                        }),
-                        PhonRuleDef::Metathesis(_) => false,
-                    })
-            }
+            // A PROJECTION of the real mechanism, not a third reimplementation of it. The
+            // gated-subrule universe is whatever `gate::find_gated_subrules` says it is -- the same
+            // call `gate::compile_gated_grammar_with_budget`, `enumerate::enumerate_default` and
+            // `recipe_space::GrammarFacts::from_grammar` all make -- so this predicate cannot drift
+            // away from the compile path it is supposed to be describing.
+            //
+            // The re-derivation this replaces disagreed with the mechanism in three ways, one of
+            // them a real bug:
+            //  1. It required `!grammar.mpr_features.is_empty()`, a precondition NO other
+            //     derivation of this fact has (`gate::is_gated`, `capability::characterize`'s
+            //     `SubruleGating`). A grammar gating purely on `required_pos` and declaring no MPR
+            //     features at all is gated by every other measure -- `recipe_space` reports its
+            //     gated subrules -- yet was never offered `FAMILY_CLASS_EXCEPTION_CASCADE`.
+            //  2. It counted `required_mpr`/`excluded_mpr` bits belonging to an `Any`-type
+            //     `MprGroup`, which `gate::is_gated` deliberately masks out (that module's caveat:
+            //     `Any`-type restrictions are not partitioned on in this prototype), so the
+            //     registry could offer a gate-permutation family over a partition the gate
+            //     mechanism would then refuse to split.
+            //  3. It scanned `grammar.prules` wholesale rather than the stratum-cascade slice
+            //     everything downstream actually compiles, so a rule no stratum references counted.
+            Self::HasGatedExceptions => !crate::gate::find_gated_subrules(
+                grammar,
+                &crate::enumerate::prules_in_order(grammar),
+            )
+            .is_empty(),
             Self::HasTemplates => !grammar.templates.is_empty(),
             Self::HasMorphology => !grammar.mrules.is_empty(),
             Self::HasReduplication => grammar.mrules.iter().any(rule_has_reduplication),
@@ -103,22 +121,19 @@ impl Applicability {
     }
 }
 
+/// `true` iff any of `rule`'s allomorphs genuinely reduplicates, delegating to
+/// [`crate::capability::rhs_has_true_reduplication`] — the single authority for this fact (see that
+/// function's doc for why the `redup_hint != Implicit` shortcut this used to carry is a trap, and
+/// what it cost here: `FAMILY_COPY_BRANCH` was offered to grammars with no reduplication in them).
 fn rule_has_reduplication(rule: &MorphRuleDef) -> bool {
     let allomorphs = match rule {
         MorphRuleDef::AffixProcess(def) => &def.allomorphs,
         MorphRuleDef::Realizational(def) => &def.allomorphs,
         MorphRuleDef::Compounding(_) => return false,
     };
-    allomorphs.iter().any(|allomorph| {
-        !matches!(allomorph.redup_hint, ReduplicationHint::Implicit) || {
-            let copies = allomorph
-                .rhs
-                .iter()
-                .filter(|action| matches!(action, OutputAction::Copy(_)))
-                .count();
-            copies > allomorph.lhs.len()
-        }
-    })
+    allomorphs
+        .iter()
+        .any(|allomorph| rhs_has_true_reduplication(&allomorph.rhs))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1053,5 +1068,249 @@ mod tests {
         .into_iter()
         .collect::<BTreeSet<_>>();
         assert_eq!(actual, expected);
+    }
+
+    // =============================================================================================
+    // Cross-derivation agreement: the registry's grammar predicates vs. the REAL mechanisms
+    //
+    // Each fact below has more than one derivation in this crate, and a disagreement between them
+    // silently changes which candidates a grammar is offered — a measurement-space bug that never
+    // surfaces as a failure, only as a different number. These tests assert every derivation
+    // against the SAME synthetic grammar so they cannot drift apart again.
+    // =============================================================================================
+
+    /// A `PhonologicalSubrule` gated purely on `requiredPartsOfSpeech`, in a grammar that declares
+    /// NO `MorphologicalPhonologicalRuleFeature`s at all. Synthetic and delanguaged.
+    fn pos_gated_no_mpr_features_grammar() -> Grammar {
+        let xml = r#"<?xml version="1.0" encoding="utf-8"?>
+<HermitCrabInput>
+  <Language>
+    <Name>PosGatedNoMprFixture</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech>
+      <PartOfSpeech id="posN"><Name>N</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="c1"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="c2"><Representations><Representation>q</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <PhonologicalRuleDefinitions>
+      <PhonologicalRule id="prule1">
+        <Name>posGate</Name>
+        <PhoneticInput><PhoneticSequence><Segment segment="c1" /></PhoneticSequence></PhoneticInput>
+        <PhonologicalSubrules>
+          <PhonologicalSubrule requiredPartsOfSpeech="posV">
+            <PhoneticOutput><PhoneticSequence><Segment segment="c2" /></PhoneticSequence></PhoneticOutput>
+          </PhonologicalSubrule>
+        </PhonologicalSubrules>
+      </PhonologicalRule>
+    </PhonologicalRuleDefinitions>
+    <Strata>
+      <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" phonologicalRules="prule1">
+        <Name>S</Name>
+        <LexicalEntries>
+          <LexicalEntry id="e1" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="a1"><PhoneticShape>p</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>E1</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="e2" partOfSpeech="posN">
+            <Allomorphs><Allomorph id="a2"><PhoneticShape>q</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>E2</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>
+"#;
+        pg_grammar::load(xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"))
+    }
+
+    /// The bug this pins: `HasGatedExceptions` used to require `!grammar.mpr_features.is_empty()`,
+    /// a precondition NO other derivation of the same fact carries. On this grammar
+    /// `gate::find_gated_subrules` (the real mechanism every compile path uses) and
+    /// `recipe_space::GrammarFacts` both report a gated subrule, while the registry refused to
+    /// offer `FAMILY_CLASS_EXCEPTION_CASCADE` — two parts of the system disagreeing about the same
+    /// grammar. All four assertions are made together so no single one can be "fixed" in isolation.
+    #[test]
+    fn pos_only_gating_without_mpr_features_agrees_across_every_derivation() {
+        let g = pos_gated_no_mpr_features_grammar();
+        assert!(
+            g.mpr_features.is_empty(),
+            "fixture premise: this grammar declares no MPR features at all"
+        );
+
+        // (a) the real mechanism
+        let gated = crate::gate::find_gated_subrules(&g, &crate::enumerate::prules_in_order(&g));
+        assert_eq!(
+            gated.len(),
+            1,
+            "gate::find_gated_subrules must see the requiredPartsOfSpeech-gated subrule"
+        );
+        assert_eq!(
+            crate::recipe_space::GrammarFacts::from_grammar(&g).gated_subrules,
+            1,
+            "recipe_space projects the same mechanism and must report the same count"
+        );
+
+        // (b) the registry predicate
+        assert!(
+            Applicability::HasGatedExceptions.matches(&g),
+            "HasGatedExceptions must be a projection of gate::find_gated_subrules, not a \
+             reimplementation with an mpr_features precondition of its own"
+        );
+
+        // (c) the family the predicate gates
+        let offered = Registry::seeded()
+            .instances_for_grammar(&g)
+            .into_iter()
+            .map(|instance| instance.family_id)
+            .collect::<BTreeSet<_>>();
+        assert!(
+            offered.contains(FAMILY_CLASS_EXCEPTION_CASCADE),
+            "a genuinely gated grammar must be offered {FAMILY_CLASS_EXCEPTION_CASCADE}; offered: \
+             {offered:?}"
+        );
+    }
+
+    /// One `MorphologicalRule` whose output carries a non-default `redupMorphType`, but whose RHS
+    /// copies the single input part exactly ONCE — no part is echoed, so nothing here reduplicates.
+    /// `echoed` switches the RHS to copy that part twice, which IS reduplication.
+    fn redup_hint_grammar(echoed: bool) -> Grammar {
+        let copies = if echoed {
+            r#"<CopyFromInput index="stem" /><CopyFromInput index="stem" />"#
+        } else {
+            r#"<CopyFromInput index="stem" /><InsertSegments><PhoneticShape>q</PhoneticShape></InsertSegments>"#
+        };
+        let xml = format!(
+            r#"<?xml version="1.0" encoding="utf-8"?>
+<HermitCrabInput>
+  <Language>
+    <Name>RedupHintFixture</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="c1"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="c2"><Representations><Representation>q</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="c1" /><Segment segment="c2" /></SegmentNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" morphologicalRules="mr1">
+        <Name>S</Name>
+        <MorphologicalRuleDefinitions>
+          <MorphologicalRule id="mr1" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
+            <Name>redupish</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="sub1">
+                <MorphologicalInput>
+                  <PhoneticSequence id="stem">
+                    <OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAll" /></OptionalSegmentSequence>
+                  </PhoneticSequence>
+                </MorphologicalInput>
+                <MorphologicalOutput redupMorphType="prefix">{copies}</MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <Gloss>RED</Gloss>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <LexicalEntries>
+          <LexicalEntry id="e1" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="a1"><PhoneticShape>p</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>E1</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>
+"#
+        );
+        pg_grammar::load(&xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"))
+    }
+
+    /// The bug this pins: `Applicability::HasReduplication` and
+    /// `recipe_space::reduplication_count` both used to fire on ANY non-`Implicit` `redup_hint`,
+    /// the exact trap `capability::rhs_has_true_reduplication`'s doc names — `Implicit` is the
+    /// DTD's default for every ordinary affix, so a merely non-default hint says nothing about
+    /// whether a part is actually echoed. `FAMILY_COPY_BRANCH` was therefore offered to grammars
+    /// with no reduplication in them, and `GrammarFacts.reduplicative_allomorphs` counted them.
+    #[test]
+    fn non_default_redup_hint_without_an_echoed_part_is_reduplication_free_everywhere() {
+        let g = redup_hint_grammar(false);
+        let allomorph = match &g.mrules[0] {
+            MorphRuleDef::AffixProcess(def) => &def.allomorphs[0],
+            other => panic!("fixture premise: expected an AffixProcess rule, got {other:?}"),
+        };
+        assert_ne!(
+            allomorph.redup_hint,
+            pg_grammar::model::ReduplicationHint::Implicit,
+            "fixture premise: the hint must be non-default"
+        );
+
+        // (a) the authority
+        assert!(
+            !rhs_has_true_reduplication(&allomorph.rhs),
+            "no input part is echoed twice, so this is not reduplication"
+        );
+        // (b) the registry predicate
+        assert!(
+            !Applicability::HasReduplication.matches(&g),
+            "HasReduplication must consume rhs_has_true_reduplication, not the redup_hint"
+        );
+        // (c) the recipe-space count
+        assert_eq!(
+            crate::recipe_space::GrammarFacts::from_grammar(&g).reduplicative_allomorphs,
+            0,
+            "reduplication_count must consume rhs_has_true_reduplication, not the redup_hint"
+        );
+        // (d) the family the predicate gates
+        let offered = Registry::seeded()
+            .instances_for_grammar(&g)
+            .into_iter()
+            .map(|instance| instance.family_id)
+            .collect::<BTreeSet<_>>();
+        assert!(
+            !offered.contains(FAMILY_COPY_BRANCH),
+            "a reduplication-free grammar must not be offered {FAMILY_COPY_BRANCH}; offered: \
+             {offered:?}"
+        );
+    }
+
+    /// The other half of the same contract: a genuinely reduplicating grammar (one input part
+    /// echoed twice) must still be detected by all three derivations, so the fix above is a
+    /// narrowing of a false positive and not a loss of the real signal.
+    #[test]
+    fn a_genuinely_echoed_part_is_reduplication_everywhere() {
+        let g = redup_hint_grammar(true);
+        let allomorph = match &g.mrules[0] {
+            MorphRuleDef::AffixProcess(def) => &def.allomorphs[0],
+            other => panic!("fixture premise: expected an AffixProcess rule, got {other:?}"),
+        };
+
+        assert!(rhs_has_true_reduplication(&allomorph.rhs));
+        assert!(Applicability::HasReduplication.matches(&g));
+        assert_eq!(
+            crate::recipe_space::GrammarFacts::from_grammar(&g).reduplicative_allomorphs,
+            1
+        );
+        let offered = Registry::seeded()
+            .instances_for_grammar(&g)
+            .into_iter()
+            .map(|instance| instance.family_id)
+            .collect::<BTreeSet<_>>();
+        assert!(
+            offered.contains(FAMILY_COPY_BRANCH),
+            "a genuinely reduplicating grammar must be offered {FAMILY_COPY_BRANCH}; offered: \
+             {offered:?}"
+        );
     }
 }

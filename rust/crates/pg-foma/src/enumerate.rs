@@ -109,6 +109,28 @@ use crate::plan::{
 use crate::replace::SegAlphabet;
 use crate::{emit, preexpand};
 
+/// `g`'s phonological rules in stratum-cascade (authored) order, as literal borrows of `g.prules` —
+/// the exact slice [`enumerate_default`], [`crate::gate::compile_gated_grammar_with_budget`],
+/// [`crate::gate::find_gated_subrules`] and `crate::replace`'s cascade builders all take.
+///
+/// The borrow-from-`g.prules` part is load-bearing, not stylistic: `rule_id_of` recovers a
+/// `PRuleId` by POINTER IDENTITY against `g.prules`, so a caller that clones or re-collects the
+/// rules panics there. That is the single reason this exists as one shared helper rather than as a
+/// three-line idiom copied per call site — every production copy of it was byte-identical, and a
+/// divergent one is a panic, not a warning.
+///
+/// Test modules in this crate keep their own private copies on purpose — test modules don't share
+/// private helpers across files, which is why `crate::capability`'s, this module's and
+/// `crate::selection`'s test modules each still build the slice themselves. Only PRODUCTION call
+/// sites route through here.
+pub fn prules_in_order(g: &Grammar) -> Vec<&PhonRuleDef> {
+    g.strata
+        .iter()
+        .flat_map(|s| &s.prules)
+        .map(|id| &g.prules[id.0 as usize])
+        .collect()
+}
+
 /// Builds today's compilation topology for `g` as a single reified [`Plan`] (Step 2, design.md D2).
 ///
 /// Takes exactly the inputs the real compile seams take: `alphabet`/`prules_in_order` (the shape

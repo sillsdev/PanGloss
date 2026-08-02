@@ -3,9 +3,11 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use pg_grammar::model::{Grammar, MorphRuleDef, OutputAction, PhonRuleDef, ReduplicationHint};
+use pg_grammar::model::{Grammar, MorphRuleDef, PhonRuleDef};
 use serde::{Deserialize, Serialize};
 
+use crate::capability::rhs_has_true_reduplication;
+use crate::enumerate::prules_in_order;
 use crate::gate::{find_gated_subrules, partition_entries};
 use crate::plan::{NodeId, Plan};
 use crate::recipe_registry::{MaterializeError, MaterializerContext, RecipeInstance, Registry};
@@ -174,15 +176,10 @@ impl GrammarFacts {
     }
 }
 
-fn prules_in_order(grammar: &Grammar) -> Vec<&PhonRuleDef> {
-    grammar
-        .strata
-        .iter()
-        .flat_map(|stratum| &stratum.prules)
-        .map(|id| &grammar.prules[id.0 as usize])
-        .collect()
-}
-
+/// How many of `rule`'s allomorphs genuinely reduplicate. A COUNT, not a bool — `GrammarFacts`
+/// reports `reduplicative_allomorphs` as a magnitude — but the per-allomorph decision is
+/// [`crate::capability::rhs_has_true_reduplication`], the single authority for the fact (see that
+/// function's doc for why the `redup_hint != Implicit` shortcut this used to carry is a trap).
 fn reduplication_count(rule: &MorphRuleDef) -> u64 {
     let allomorphs = match rule {
         MorphRuleDef::AffixProcess(def) => &def.allomorphs,
@@ -191,15 +188,7 @@ fn reduplication_count(rule: &MorphRuleDef) -> u64 {
     };
     allomorphs
         .iter()
-        .filter(|allomorph| {
-            !matches!(allomorph.redup_hint, ReduplicationHint::Implicit)
-                || allomorph
-                    .rhs
-                    .iter()
-                    .filter(|action| matches!(action, OutputAction::Copy(_)))
-                    .count()
-                    > allomorph.lhs.len()
-        })
+        .filter(|allomorph| rhs_has_true_reduplication(&allomorph.rhs))
         .count() as u64
 }
 

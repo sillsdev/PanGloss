@@ -604,9 +604,13 @@ pub fn compute_interaction_coverage(
 // =================================================================================================
 
 /// `g`'s phonological rules in stratum-cascade order, as literal borrows of `g.prules` — the same
-/// shape [`crate::capability_entry`]/`crate::enumerate`/`crate::capability`'s own test modules each
-/// build independently (see `capability_entry.rs`'s own doc for why this is duplicated rather than
-/// shared: every call site already has its own copy).
+/// shape [`crate::enumerate::prules_in_order`] now provides for the production call sites, and the
+/// same shape `crate::enumerate`'s/`crate::capability`'s own test modules each still build
+/// independently (test modules don't share private helpers across files).
+//
+// Left as a local copy deliberately: this module's assembly glue is the test-facing half of the
+// crate's coverage machinery, and collapsing it was explicitly out of scope for the refactor that
+// introduced `enumerate::prules_in_order`.
 fn prules_in_order(g: &Grammar) -> Vec<&PhonRuleDef> {
     g.strata
         .iter()

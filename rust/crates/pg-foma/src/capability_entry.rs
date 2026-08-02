@@ -30,8 +30,10 @@
 //!   compile_gated_grammar_with_budget`, `crate::enumerate`'s and `crate::capability`'s own test
 //!   modules) builds it the same way: `g`'s strata, in order, flattened over each stratum's own
 //!   `phonologicalRules` id list, as literal borrows of `g.prules` (required for
-//!   [`crate::enumerate::rule_id_of`]'s pointer-identity `PRuleId` recovery). [`evaluate_capability`]
-//!   reuses that exact construction rather than inventing a fourth copy.
+//!   [`crate::enumerate::rule_id_of`]'s pointer-identity `PRuleId` recovery). That construction is
+//!   now the shared [`crate::enumerate::prules_in_order`], which [`evaluate_capability`] calls —
+//!   this module used to carry its own private copy of the three-line body, one of four identical
+//!   production copies.
 //!
 //! `evaluate_capability` then hands all three to [`crate::enumerate::enumerate_default`] (Step 2,
 //! `reify-compilation-plans`) to get the reified [`crate::plan::Plan`], and folds that together with
@@ -40,26 +42,13 @@
 //! `add-capability-characteristics-check` already connects, just assembled from a bare `&Grammar` in
 //! one call instead of by hand at every call site.
 
-use pg_grammar::model::{Grammar, PhonRuleDef};
+use pg_grammar::model::Grammar;
 
 use crate::capability::{compose_envelope, default_registry, CompileDecision};
 use crate::emit::surface_table;
-use crate::enumerate::enumerate_default;
+use crate::enumerate::{enumerate_default, prules_in_order};
 use crate::junctions::PhonologyProbe;
 use crate::replace::SegAlphabet;
-
-/// `g`'s phonological rules in stratum-cascade order, as literal borrows of `g.prules` — the same
-/// shape [`crate::enumerate`]'s and [`crate::capability`]'s own test modules build (see their
-/// `prules_in_order` helpers) and [`crate::gate::compile_gated_grammar_with_budget`] builds in
-/// production. Kept as a private helper here (not exported) since every one of those call sites
-/// already has its own copy and this module doesn't need to change that.
-fn prules_in_order(g: &Grammar) -> Vec<&PhonRuleDef> {
-    g.strata
-        .iter()
-        .flat_map(|s| &s.prules)
-        .map(|&id| &g.prules[id.0 as usize])
-        .collect()
-}
 
 /// Computes the overall, whole-grammar [`CompileDecision`] for `g` — `characterize` + `enumerate_
 /// default` + `compose_envelope`, assembled the way a real caller would, over
