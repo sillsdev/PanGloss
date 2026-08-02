@@ -48,7 +48,13 @@ output but not independently rechecked in this task.
 
 ## Grammar facts
 
-`CopyKind` is explicit. A span proof is required before using `ExactFst`; otherwise the process is
+`CopyKind` is explicit — as a REQUIREMENT on this dossier, not as a shipped field. Task 7.3 removed
+the placeholder `CopyProcessSpec { kind, max_span, max_chain_depth }` from
+`recipe_mechanism.rs`, because no semantic owner can derive any of the three today and a declared
+value nothing computes is the unproved blanket contract that task exists to delete. The
+`CopyProcess` body is payload-free until the span derivation below is built; the construct
+requirement (`Reduplication`) and the typed sources are what the node carries meanwhile, which is
+enough to bind it `Peeled` for every strategy. A span proof is required before using `ExactFst`; otherwise the process is
 `Peeled` and oracle-confirmed. Root identity, source allomorph, copied span, morpheme order, root
 index, and multiplicity survive peeling. For the Urama witness, the definite article `=i` is outside
 the copied root span. An inert reduplication hint alone does not create a CopyProcess node; the

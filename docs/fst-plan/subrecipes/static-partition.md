@@ -35,8 +35,14 @@ That archive-versus-grammar distinction is the main source uncertainty for this 
 - [Indonesian phonology source](https://people.ucsc.edu/~ddbrodki/PDFs/Brodkin_Indonesian.pdf)
   for the interaction between lexical exceptions and the ordered cascade.
 - [Recipe mechanism graph types](../../../rust/crates/pg-foma/src/recipe_mechanism.rs) for the
-  repository contract (`PartitionPredicate`, `PartitionGroupSpec`, and dynamic state). This is
-  implementation evidence, not a linguistic primary source.
+  repository contract: `PartitionGroupSpec` (gate key plus sorted members) and the node's
+  `construct_requirements`. This is implementation evidence, not a linguistic primary source.
+  Task 7.3 deleted the earlier `PartitionPredicate` enum and the edge-borne `DynamicState`: neither
+  was ever populated, and neither could be — the real partition mechanism
+  (`gate::partition_entries`) exposes only the boolean key vector of which gated subrules apply,
+  not a per-group predicate list. The predicate *facts* survive as typed requirements
+  (`SubruleGating`, `MprGroupAppend`, `MprGroupOverwrite`) that resolve through
+  `strategy_coverage`. Re-adding a predicate payload needs a derivation that does not exist yet.
 
 ## Grammar facts
 
