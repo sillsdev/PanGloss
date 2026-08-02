@@ -39,14 +39,30 @@ use pg_foma::{enumerate::enumerate_default, junctions::PhonologyProbe};
 /// 384-proposal one. See this module's doc for the measured table it is derived from.
 const SPLITTING_BUDGET: u64 = 100;
 
+/// The fixture whose PlanComposed permutations require subtrees `build_controllable` cannot build,
+/// so their completed verdict is `Unsupported`. Used only by the relabelling tests. Measured
+/// unbounded: candidates 1-4 are `PlanComposed`/16 proposals/`Unsupported`, candidates 0 and 5 are
+/// `TunedSurfaceProbed`/366/confirmed, candidate 6 is `TemplatedUnderlyingTokens`/60/mismatch.
+const MARKER_FIXTURE: &str = "recipe-ordered-generic";
+
+/// Below the 16 proposals the `Unsupported` permutations spend, so they are abandoned mid-corpus.
+const MARKER_FIXTURE_TIGHT_BUDGET: u64 = 8;
+
+/// Above those 16, so they run to their real `Unsupported` verdict, while the 366-proposal
+/// candidates are abandoned.
+const MARKER_FIXTURE_LOOSE_BUDGET: u64 = 100;
+
 fn fixture() -> (pg_grammar::model::Grammar, Vec<String>) {
+    named_fixture("recipe-strata-generic")
+}
+
+fn named_fixture(name: &str) -> (pg_grammar::model::Grammar, Vec<String>) {
     let fixture = pg_conformance_fixtures::discover()
         .into_iter()
         .find(|fixture| {
-            fixture.root == pg_conformance_fixtures::Root::Staging
-                && fixture.name == "recipe-strata-generic"
+            fixture.root == pg_conformance_fixtures::Root::Staging && fixture.name == name
         })
-        .expect("staged recipe-strata-generic fixture");
+        .unwrap_or_else(|| panic!("staged {name} fixture"));
     let grammar = pg_grammar::load(&fixture.load_grammar_xml()).expect("fixture grammar");
     let words = fixture
         .load_words_yaml()
@@ -92,6 +108,20 @@ fn bounded(limit: u64) -> Vec<RuntimeEvaluation> {
         &words,
         RuntimeBudget {
             candidate_proposals: Some(limit),
+            ..RuntimeBudget::default()
+        },
+    )
+    .expect("the oracle liveness net / memory ceiling must not trip on this fixture")
+}
+
+fn evaluate_named(name: &str, limit: Option<u64>) -> Vec<RuntimeEvaluation> {
+    let (grammar, words) = named_fixture(name);
+    evaluate_plans(
+        &grammar,
+        &plans(&grammar),
+        &words,
+        RuntimeBudget {
+            candidate_proposals: limit,
             ..RuntimeBudget::default()
         },
     )
@@ -347,6 +377,100 @@ fn abandoning_a_candidate_leaves_the_corpus_ledger_byte_identical() {
         };
         assert_eq!(*words_requested, before.included);
     }
+}
+
+/// Indices whose true (unbounded) verdict is `Unsupported`, plus their proposal counts.
+fn unsupported_candidates(unbounded: &[RuntimeEvaluation]) -> Vec<(usize, u64)> {
+    unbounded
+        .iter()
+        .enumerate()
+        .filter(|(_, evaluation)| {
+            matches!(evaluation.certification, Certification::Unsupported { .. })
+        })
+        .map(|(index, evaluation)| (index, evaluation.score.proposals))
+        .collect()
+}
+
+/// "Too expensive" must never be reported as "this compiler cannot represent this grammar".
+///
+/// The composed path's tail concludes `Unsupported` for a permutation that failed on the
+/// controllable-only network AND needs subtrees `build_controllable` cannot build. An abandoned
+/// candidate satisfies only the second conjunct -- the corpus never finished, so whether the
+/// network fails is UNKNOWN -- yet before the fix it fell straight through into that arm and came
+/// out wearing the `Unsupported` label with its typed budget verdict buried inside a `{:?}` string.
+///
+/// This is exactly the failure that regresses invisibly: the label is correct where it is assigned
+/// and wrong by the time it is read, so no assertion at the assignment site would catch it. A
+/// reader would conclude a compiler lacks a capability it demonstrably has, and the remedy they
+/// would reach for (change the compiler) is not the one that works (raise the budget).
+#[test]
+fn an_abandoned_candidate_is_never_relabelled_unsupported() {
+    let unbounded = evaluate_named(MARKER_FIXTURE, None);
+    let unsupported = unsupported_candidates(&unbounded);
+    assert!(
+        !unsupported.is_empty(),
+        "{MARKER_FIXTURE} must still produce marker-requiring permutations, or this test proves \
+         nothing"
+    );
+    for (index, proposals) in &unsupported {
+        assert!(
+            *proposals > MARKER_FIXTURE_TIGHT_BUDGET,
+            "candidate {index} spends only {proposals} proposals, so the tight budget would never \
+             trip and this test would pass vacuously"
+        );
+    }
+    let tight = evaluate_named(MARKER_FIXTURE, Some(MARKER_FIXTURE_TIGHT_BUDGET));
+    for (index, _) in &unsupported {
+        let certification = &tight[*index].certification;
+        assert!(
+            matches!(certification, Certification::BudgetExceeded { .. }),
+            "candidate {index} was abandoned for cost before its corpus finished, so nothing is \
+             yet known about whether the controllable network can honour its plan; it must not be \
+             reported as Unsupported. Got {certification:?}"
+        );
+    }
+    // ... and the verdict must be the top-level tag, never text buried inside another verdict's
+    // reason. A reader filtering the report by `status` has to find it.
+    for evaluation in &tight {
+        if let Certification::Unsupported { reason } = &evaluation.certification {
+            assert!(
+                !reason.contains("BudgetExceeded"),
+                "a budget verdict was swallowed into an Unsupported reason string: {reason}"
+            );
+        }
+    }
+}
+
+/// The conflation is bad in both directions: a plan that genuinely EARNS `Unsupported` must keep
+/// that verdict verbatim while a budget is in force.
+///
+/// Structurally this cannot fail -- `BudgetExceeded` has exactly one producer, the in-loop
+/// `proposals > limit` test, so a candidate that finishes its corpus cannot emit one. The test
+/// exists because that is a property of where the code sits, which a later refactor could move
+/// without noticing.
+#[test]
+fn a_genuinely_unsupported_plan_is_never_relabelled_budget_exceeded() {
+    let unbounded = evaluate_named(MARKER_FIXTURE, None);
+    let unsupported = unsupported_candidates(&unbounded);
+    assert!(!unsupported.is_empty());
+    for (index, proposals) in &unsupported {
+        assert!(
+            *proposals < MARKER_FIXTURE_LOOSE_BUDGET,
+            "candidate {index} must finish inside the loose budget ({proposals} proposals)"
+        );
+    }
+    let loose = evaluate_named(MARKER_FIXTURE, Some(MARKER_FIXTURE_LOOSE_BUDGET));
+    for (index, _) in &unsupported {
+        assert_eq!(
+            loose[*index].certification, unbounded[*index].certification,
+            "candidate {index} finished inside its budget, so its verdict must be untouched"
+        );
+    }
+    assert!(
+        !budget_verdicts(&loose).is_empty(),
+        "some other candidate must have been abandoned under this same budget, or the assertions \
+         above hold only because the budget was never in play"
+    );
 }
 
 /// A budget nothing reaches must change nothing at all -- verdicts and every deterministic score

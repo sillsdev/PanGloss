@@ -1512,6 +1512,31 @@ fn evaluate_plans_marked_with_cache_mode<const OBSERVE: bool>(
             if certification.selectable() {
                 return measured;
             }
+            // ABANDONMENT IS TERMINAL, and this early return is the only thing making it so.
+            //
+            // Everything below this line reasons from a completed corpus. Both arms conclude
+            // something about whether `build_controllable` could REPRESENT this plan -- the baseline
+            // arm by re-running it on a compiler that can build the missing subtrees, the
+            // permutation arm by declaring `Unsupported`. A candidate stopped for cost supplies no
+            // evidence for either conclusion, because the corpus never finished: we do not know
+            // whether the controllable net would have confirmed.
+            //
+            // Falling through would therefore relabel "this candidate was too expensive" as "this
+            // compiler cannot represent this grammar" -- two different facts with two different
+            // remedies (raise the budget; change the compiler), and the reader of a report cannot
+            // recover the first from the second. It would also resurrect a bug this very block
+            // already records as fixed: routing on marker presence ALONE dropped
+            // `mpr-gated-exception` from 3 confirmations to 1, because marker presence means the
+            // controllable path MIGHT be inadequate, never that it is. An abandoned candidate is
+            // precisely the case where the "might" was never resolved.
+            //
+            // The other direction is safe by construction rather than by this check: a candidate
+            // that FINISHES its corpus can never produce `BudgetExceeded`, since the only producer
+            // is the in-loop `proposals > limit` test, so a plan that genuinely earns `Unsupported`
+            // cannot come back wearing a budget verdict.
+            if matches!(certification, Certification::BudgetExceeded { .. }) {
+                return measured;
+            }
             let markers = crate::build::unbuildable_markers(&candidate.plan);
             if markers.is_empty() {
                 // Failed on a network that fully represents its own plan: a real result, reported as is.
