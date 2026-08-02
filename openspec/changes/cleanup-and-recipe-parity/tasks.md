@@ -173,11 +173,44 @@ mechanism extractor and separate executable-artifact direction must not be imple
       uncertified candidates; recompute and validate serialized frontier/winner decisions.
       Deterministic frontier/report validation landed in `d619999`; `2e8b07d` additionally prevents
       a selectable confirmed candidate from being hidden by deleting its score (12 report tests).
+### Wave 3 evidence that scopes 7.3–7.8 (measured 2026-08-01/02, full corpora)
+
+Read this before touching the mechanism vocabulary. Full record:
+`C:\tmp\pangloss-wave3-results-2026-08-01.md`.
+
+1. **Plan-shape permutation varies nothing — now confirmed on a real corpus, not just fixtures.**
+   On Sena's 250-word probe, `ordered-morphophonology|topology=baseline` and
+   `specialized-branch|topology=partition-bisect` — two *different* families with two *different*
+   transforms — produced **bit-identical** networks and proposal behaviour: 2044 states, 21114 arcs,
+   14,826,003 proposals, 16,831,797 raw paths. This is the eight-fixture minimization finding
+   reproduced at corpus scale. Any mechanism vocabulary that treats plan shape as a varying axis is
+   modelling something that does not exist.
+2. **The compiler (`EmissionStrategy`) is the decisive axis, across three languages.** Indonesian's
+   winner is `plan-composed`; Amharic's is `tuned-surface-probed`; on Sena `plan-composed` is ~880x
+   more expensive (14.8M proposals vs 16.8K) **and incorrect**, while both whole-grammar compilers
+   confirm. Different grammars genuinely want different compilers — that, not plan topology, is what
+   a mechanism graph must be able to express and select between.
+3. **A cheaper candidate can be a wrong candidate.** Amharic's
+   `@templated-underlying-tokens` was ~2.2x cheaper than the winner and `identity-mismatch`ed. Any
+   candidate ranking that is not gated on the parity relation will prefer the fast wrong answer.
+4. **Recall gap to root-cause first:** on Sena `ndimwe`, `plan-composed` under-generates — oracle 8
+   distinct identities, candidate 6, differing only in `root_index`. Per this repo's standing rule,
+   <100% recall is a compiler gap, never a bypass; do not "solve" it by preferring the compilers that
+   happen to work.
+
+**Scoping consequence.** 7.3–7.5 must be re-grounded on what measurement says varies (which compiler,
+and the construct-dependency facts that decide whether a compiler can represent a grammar faithfully)
+rather than on plan-shape families. 7.8's "exercise the orthogonal basis" is still right, but an
+exercise only counts if it varies a mechanism that demonstrably changes an outcome — a family label
+over an erased transform is not an exercise.
+
 - [ ] 7.3 Rework the six language-name-free mechanism types: `Morphotactics`, `StaticPartition`,
       `OrderedPhonology`, `StructuralAllomorph`, `CopyProcess`, and terminal `BoundaryCleanup`.
       Nodes own typed semantic requirements/guarantees, edges own dependency/order, and candidate
       bindings own execution disposition. Delete duplicate wire provenance and unproved blanket
-      contracts from the initial vocabulary commit.
+      contracts from the initial vocabulary commit. **Re-grounded by the Wave 3 evidence above:** the
+      typed requirements/guarantees must be the ones that decide compiler admissibility and recall,
+      and no node may exist solely to name a plan-shape permutation.
 - [ ] 7.4 Derive mechanism providers only from the shared `GrammarSemantics`; no provider may reread
       `Grammar` to decide applicability. Require typed source references, canonical graph identity,
       and byte-identical fresh-load projection; inert hints may not create mechanisms.
