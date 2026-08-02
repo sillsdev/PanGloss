@@ -49,9 +49,10 @@ use foma::options::FomaOptions;
 use pg_grammar::model::{Grammar, PhonRuleDef};
 
 use crate::build::build_controllable;
-use crate::capability::{compose_envelope, CompileDecision, PredicateRegistry};
+use crate::capability::{compose_envelope_with_semantics, CompileDecision, PredicateRegistry};
 use crate::compose_budget::ComposeBudget;
 use crate::enumerate::CandidatePlan;
+use crate::grammar_semantics::GrammarSemantics;
 use crate::plan::NodeId;
 use crate::replace::SegAlphabet;
 
@@ -144,6 +145,12 @@ pub fn select_plan(
     prules_in_order: &[&PhonRuleDef],
     budget: &ComposeBudget,
 ) -> SelectionOutcome {
+    // Task 7.11 (`openspec/changes/cleanup-and-recipe-parity`): derived ONCE, outside the loop.
+    // This function used to call `compose_envelope(g, ..)` per candidate, and each of those calls
+    // re-ran the whole `capability::characterize` grammar walk -- real `Simultaneous`-mode
+    // `foma::types::Fsm` construction included -- for a profile that cannot differ between
+    // candidates, because it is a function of the GRAMMAR and candidates differ only in their PLAN.
+    let semantics = GrammarSemantics::derive(g);
     let considered: Vec<CandidateReport> = candidates
         .iter()
         .map(|candidate| {
@@ -154,7 +161,7 @@ pub fn select_plan(
                 )
             });
 
-            let decision = compose_envelope(g, &candidate.plan, registry);
+            let decision = compose_envelope_with_semantics(&semantics, &candidate.plan, registry);
 
             // D3: only an admissible (non-Refuse) candidate is even worth building/measuring --
             // a Refused candidate is excluded from selection by construction, so spending a real

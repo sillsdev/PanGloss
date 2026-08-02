@@ -68,7 +68,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::capability::{CapabilityDiagnostic, CompileDecision};
-use crate::capability_entry::evaluate_capability;
+use crate::capability_entry::evaluate_capability_with_semantics;
+use crate::grammar_semantics::GrammarSemantics;
 use crate::readiness_policy::ThresholdPolicy;
 use pg_grammar::model::Grammar;
 
@@ -301,7 +302,7 @@ impl From<&CapabilityDiagnostic> for RefusalCitation {
 }
 
 /// The real capability decision this report was computed from ([`certify`] always calls
-/// [`evaluate_capability`] itself -- see this module's top doc, task 3.2).
+/// [`evaluate_capability_with_semantics`] itself -- see this module's top doc, task 3.2).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "decision", rename_all = "snake_case")]
 pub enum CapabilitySummary {
@@ -650,8 +651,8 @@ fn build_notes(trust: &TrustStatus, capability: &CapabilitySummary, tier: Tier) 
 
 /// Certifies `g` against `policy`, given its `trust` status and (if any) its `measurements`.
 ///
-/// Always calls [`evaluate_capability`] itself (task 3.2: never a caller-supplied capability
-/// verdict, never inferred from a failure to run). `measurements` is `None` when no compiled
+/// Always calls [`evaluate_capability_with_semantics`] itself (task 3.2: never a caller-supplied
+/// capability verdict, never inferred from a failure to run). `measurements` is `None` when no compiled
 /// artifact exists to measure (e.g. the grammar was refused before compilation ever produced one);
 /// each measurement's own coverage sub-field is independently [`CoverageAssessment::NotAssessed`]
 /// or [`CoverageAssessment::Attested`] regardless of whether the rest of `measurements` is present.
@@ -661,7 +662,26 @@ pub fn certify(
     measurements: Option<&Measurements>,
     policy: &ThresholdPolicy,
 ) -> ReadinessReport {
-    let decision = evaluate_capability(g);
+    certify_with_semantics(&GrammarSemantics::derive(g), trust, measurements, policy)
+}
+
+/// [`certify`] over an already-derived [`GrammarSemantics`] (task 7.11,
+/// `openspec/changes/cleanup-and-recipe-parity`). `pangloss make-report` evaluates the capability
+/// gate three times in one process — here, in its own preamble, and inside `pack::build_pack` — and
+/// each of those used to be a full independent [`crate::capability::characterize`] walk.
+///
+/// This does NOT weaken task 3.2's rule that certification never accepts a caller-supplied
+/// capability verdict: a [`GrammarSemantics`] is a pure, deterministic function of the grammar, not
+/// a verdict, and this function still computes the [`CompileDecision`] itself through
+/// [`evaluate_capability_with_semantics`]. The thing a caller cannot do — hand in a `Refuse` it
+/// decided on its own — remains impossible.
+pub fn certify_with_semantics(
+    semantics: &GrammarSemantics<'_>,
+    trust: &TrustStatus,
+    measurements: Option<&Measurements>,
+    policy: &ThresholdPolicy,
+) -> ReadinessReport {
+    let decision = evaluate_capability_with_semantics(semantics);
     let capability = CapabilitySummary::from_decision(&decision);
 
     let blocked_reason = match trust {

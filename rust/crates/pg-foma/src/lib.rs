@@ -136,6 +136,15 @@ pub mod enumerate;
 /// `docs/fst-plan/p6-prototype-report.md` §6 item 4 gap). See that module's doc for the design and
 /// why it is a flag-free static partition rather than a flag-diacritics encoding.
 pub mod gate;
+/// Task 7.11 of `openspec/changes/cleanup-and-recipe-parity`: [`grammar_semantics::
+/// GrammarSemantics`], the ONE immutable typed owner of this crate's grammar-derived semantic
+/// facts. Capability ([`capability`]/[`capability_entry`]/[`preflight`]/[`selection`]), registry
+/// applicability ([`recipe_registry::Applicability`]), recipe-space accounting
+/// ([`recipe_space::GrammarFacts`]) and the phonology existence gate ([`junctions::PhonologyProbe`])
+/// are now projections over it rather than four independent grammar walks. See that module's own
+/// doc for what it deliberately does NOT own (`conformance_coverage`'s independent structural
+/// witnesses, and the compile paths themselves) and for the declared-vs-cascade phonology split.
+pub mod grammar_semantics;
 /// Stage 0D of `openspec/changes/define-fst-compilation-health` (design.md, R6): the FST
 /// compilation-health finding schema -- [`health::Severity`]/[`health::severity_for_size_bytes`]
 /// (R6's exact decimal-byte size bands), the immutable [`health::FindingCode`] `PGFdddd` registry,

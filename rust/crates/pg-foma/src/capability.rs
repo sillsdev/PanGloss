@@ -70,6 +70,7 @@ use pg_grammar::model::{
     PartRef, PhonRuleDef, ReduplicationHint, RewriteMode, StratumId,
 };
 
+use crate::grammar_semantics::GrammarSemantics;
 use crate::plan::{FragmentSpec, NodeId, Plan, PlanNodeKind};
 
 // =================================================================================================
@@ -1594,9 +1595,45 @@ fn compounding_max_depth(g: &Grammar) -> HashMap<MRuleId, usize> {
     result
 }
 
+thread_local! {
+    /// How many times [`characterize`] has run on THIS thread. Task 7.11
+    /// (`openspec/changes/cleanup-and-recipe-parity`) introduced
+    /// [`crate::grammar_semantics::GrammarSemantics`] specifically to stop this number from scaling
+    /// with the number of consumers/candidate plans, and a claim like that is worthless without a
+    /// way to observe it -- so the observation ships with the fix rather than being a one-off
+    /// measurement in a report nobody can re-run.
+    ///
+    /// **Thread-local on purpose.** A process-global counter cannot be read reliably from a test:
+    /// Rust runs the tests in one binary on parallel threads, so any other test that characterizes
+    /// concurrently would pollute the reading. Every derivation site this task governs runs on its
+    /// caller's own thread, so a thread-local count is exactly "how much did MY invocation do".
+    /// The honest limitation: work a future path moved onto a rayon worker would not be counted
+    /// here, so a test asserting a small number must also assert the number is non-zero, or it
+    /// could pass by measuring nothing.
+    static CHARACTERIZE_CALLS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// How many times [`characterize`] has run on the current thread (see `CHARACTERIZE_CALLS`).
+pub fn characterize_call_count() -> u64 {
+    CHARACTERIZE_CALLS.with(std::cell::Cell::get)
+}
+
+/// Zeroes the current thread's [`characterize_call_count`], so a caller can measure one scoped
+/// operation rather than a running total.
+pub fn reset_characterize_call_count() {
+    CHARACTERIZE_CALLS.with(|c| c.set(0));
+}
+
 /// D1's exhaustive default-deny characterizer: walks `g` and matches EVERY variant of EVERY
 /// `model.rs` enum design.md D1 names, with no catch-all arm.
+///
+/// **Not cheap, and not memoized here.** This walk builds real [`foma::types::Fsm`] networks for
+/// every `Simultaneous`-mode subrule (via [`lower_subrule_span`]). Callers that need the profile
+/// more than once -- or need it once per candidate plan -- must go through
+/// [`crate::grammar_semantics::GrammarSemantics::characteristics`], which computes it exactly once.
+/// Every call here is counted in [`characterize_call_count`].
 pub fn characterize(g: &Grammar) -> CharacteristicsProfile {
+    CHARACTERIZE_CALLS.with(|c| c.set(c.get().saturating_add(1)));
     let mut observations = Vec::new();
 
     // `openspec/changes/cover-compounding` (design.md D2/D3): computed ONCE, grammar-wide, before
@@ -3938,8 +3975,27 @@ fn node_decision(
 /// see either predicate's own "Node applicability" doc. [`CharacteristicKind::SimultaneousRewrite`]
 /// is the one kind that DOES need (and gets, via the plan walk itself) a SPECIFIC node — see
 /// [`node_decision`]'s own doc for how that mapping actually happens.
+///
+/// # Deriving the profile
+/// This entry point derives a fresh [`crate::grammar_semantics::GrammarSemantics`] (and therefore a
+/// fresh [`characterize`] walk) for `g` on every call. A caller that evaluates SEVERAL plans against
+/// ONE grammar -- [`crate::selection::select_plan`] is exactly that -- must call
+/// [`compose_envelope_with_semantics`] with a semantics it derived once, or it pays for the whole
+/// grammar walk, real `Simultaneous` FST construction included, per candidate.
 pub fn compose_envelope(g: &Grammar, plan: &Plan, registry: &PredicateRegistry) -> CompileDecision {
-    let profile = characterize(g);
+    compose_envelope_with_semantics(&GrammarSemantics::derive(g), plan, registry)
+}
+
+/// [`compose_envelope`] over an already-derived [`GrammarSemantics`] -- the form task 7.11
+/// (`openspec/changes/cleanup-and-recipe-parity`) makes the primary one, so a caller with several
+/// plans for one grammar characterizes ONCE. Behaviorally identical: `compose_envelope` is this
+/// function with a freshly derived owner.
+pub fn compose_envelope_with_semantics(
+    semantics: &GrammarSemantics<'_>,
+    plan: &Plan,
+    registry: &PredicateRegistry,
+) -> CompileDecision {
+    let profile = semantics.characteristics();
     let relevant_kinds: HashSet<CharacteristicKind> = profile
         .observations()
         .iter()
@@ -3949,7 +4005,7 @@ pub fn compose_envelope(g: &Grammar, plan: &Plan, registry: &PredicateRegistry) 
 
     let mut cache = HashMap::new();
     let mut decision = match plan.root() {
-        Some(root) => node_decision(plan, &profile, registry, &relevant_kinds, root, &mut cache),
+        Some(root) => node_decision(plan, profile, registry, &relevant_kinds, root, &mut cache),
         None => CompileDecision::Admit,
     };
 

@@ -73,13 +73,14 @@ use pg_grammar::model::{Grammar, LexEntryId, PRuleId, PhonRuleDef};
 use serde::{Deserialize, Serialize};
 
 use crate::capability::{
-    compose_envelope, default_registry, CapabilityDiagnostic, CharacteristicKind,
+    compose_envelope_with_semantics, default_registry, CapabilityDiagnostic, CharacteristicKind,
     CharacteristicsProfile, CompileDecision, Disposition, PredicateRegistry, PredicateVerdict,
 };
+use crate::grammar_semantics::GrammarSemantics;
 use crate::plan::{
     ComposeStrategy, FragmentSpec, GatedSubruleRef, NodeId, Plan, PlanNodeKind, Provenance,
 };
-use crate::plan_interaction_coverage::plan_and_profile;
+use crate::plan_interaction_coverage::plan_for_semantics;
 
 /// This document's own schema version (same discipline as `crate::coverage_ledger::
 /// COVERAGE_LEDGER_SCHEMA_VERSION`/`crate::health::HEALTH_SCHEMA_VERSION`) — bump only on a
@@ -591,23 +592,44 @@ fn build_node(
     }
 }
 
-/// Builds `g`'s [`PlanDocument`]: [`plan_and_profile`] assembles the real [`Plan`]/
+/// Builds `g`'s [`PlanDocument`]: [`plan_for_semantics`] assembles the real [`Plan`]/
 /// [`CharacteristicsProfile`] the way `crate::capability_entry::evaluate_capability` does; [`crate::
 /// capability::compose_envelope`] supplies the real whole-grammar verdict; [`per_node_verdicts`]
 /// supplies the real per-node verdicts (mirroring the same algorithm, see its own doc). Every label
 /// is derived from each node's own payload plus `g` — see this module's top-doc.
+///
+/// Task 7.11 (`openspec/changes/cleanup-and-recipe-parity`): ONE
+/// [`crate::grammar_semantics::GrammarSemantics`] for the whole document. This function used to run
+/// **three** independent [`crate::capability::characterize`] walks for one diagram — one in its own
+/// `plan_and_profile` call, a second in the `plan_and_profile` call inside
+/// [`build_plan_document_for_plan`] (whose `Plan` half was then discarded), and a third inside
+/// [`compose_envelope`].
 pub fn build_plan_document(g: &Grammar) -> PlanDocument {
-    let (plan, _profile) = plan_and_profile(g);
-    build_plan_document_for_plan(g, &plan)
+    build_plan_document_with_semantics(&GrammarSemantics::derive(g))
+}
+
+/// [`build_plan_document`] over an already-derived [`GrammarSemantics`] (task 7.11).
+pub fn build_plan_document_with_semantics(semantics: &GrammarSemantics<'_>) -> PlanDocument {
+    let plan = plan_for_semantics(semantics);
+    build_plan_document_for_plan_with_semantics(semantics, &plan)
 }
 
 /// Projects an already materialized recipe plan using the same capability evidence and labels as
 /// the default grammar-derived plan. Recipe optimization uses this for baseline/winner artifacts.
 pub fn build_plan_document_for_plan(g: &Grammar, plan: &Plan) -> PlanDocument {
-    let (_, profile) = plan_and_profile(g);
+    build_plan_document_for_plan_with_semantics(&GrammarSemantics::derive(g), plan)
+}
+
+/// [`build_plan_document_for_plan`] over an already-derived [`GrammarSemantics`] (task 7.11).
+pub fn build_plan_document_for_plan_with_semantics(
+    semantics: &GrammarSemantics<'_>,
+    plan: &Plan,
+) -> PlanDocument {
+    let g = semantics.grammar();
+    let profile = semantics.characteristics();
     let registry = default_registry();
-    let verdicts = per_node_verdicts(plan, &profile, &registry);
-    let overall = compose_envelope(g, plan, &registry);
+    let verdicts = per_node_verdicts(plan, profile, &registry);
+    let overall = compose_envelope_with_semantics(semantics, plan, &registry);
 
     // `plan.iter()` yields `BTreeMap<NodeId, _>`'s own key order (`Plan`'s own doc: "iteration order
     // is itself deterministic") -- already exactly the content-address order this document's

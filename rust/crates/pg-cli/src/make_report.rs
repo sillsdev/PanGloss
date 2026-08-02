@@ -96,12 +96,15 @@ use std::path::Path;
 use std::time::Instant;
 
 use pg_foma::capability::CompileDecision;
-use pg_foma::capability_entry::evaluate_capability;
+use pg_foma::capability_entry::evaluate_capability_with_semantics;
 use pg_foma::composite::FomaAnalyzer;
-use pg_foma::plan_diagram::{build_plan_document, render_mermaid, MermaidRender, RenderMode};
+use pg_foma::grammar_semantics::GrammarSemantics;
+use pg_foma::plan_diagram::{
+    build_plan_document_with_semantics, render_mermaid, MermaidRender, RenderMode,
+};
 use pg_foma::readiness_policy::{policy_v1, ThresholdPolicy};
 use pg_foma::readiness_verdict::{
-    certify, CapabilitySummary, CheckKind, CheckOutcome, CheckResult, CheckValue,
+    certify_with_semantics, CapabilitySummary, CheckKind, CheckOutcome, CheckResult, CheckValue,
     CoverageAssessment, LatencyMeasurement, Measurements, OverriddenConfig as RvOverriddenConfig,
     OverrideRecord as RvOverrideRecord, ReadinessReport, Tier, TrustStatus,
 };
@@ -722,7 +725,12 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
         None => None,
     };
 
-    let decision = evaluate_capability(&grammar);
+    // Task 7.11 (`openspec/changes/cleanup-and-recipe-parity`): ONE derivation, shared by all three
+    // places this command needs the capability verdict -- here, `pack::build_pack`'s trust stamp,
+    // and `readiness_verdict::certify`. Each of those was previously an independent
+    // `pg_foma::capability::characterize` walk over the same grammar.
+    let semantics = GrammarSemantics::derive(&grammar);
+    let decision = evaluate_capability_with_semantics(&semantics);
     let attempt_compile = matches!(
         decision,
         CompileDecision::Admit | CompileDecision::ConfirmOnly
@@ -801,6 +809,7 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
                     let built = crate::pack::build_pack(
                         grammar_path,
                         &grammar,
+                        &semantics,
                         allow_unproven,
                         authorized_by.as_deref(),
                         reason.as_deref(),
@@ -925,10 +934,10 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
         });
     }
 
-    let verdict = certify(&grammar, &trust, measurements.as_ref(), &policy);
+    let verdict = certify_with_semantics(&semantics, &trust, measurements.as_ref(), &policy);
 
     // ---- compilation plan diagram (pure composition of section-visualize-compilation-plan) ----
-    let plan_doc = build_plan_document(&grammar);
+    let plan_doc = build_plan_document_with_semantics(&semantics);
     let render = render_mermaid(&plan_doc, RenderMode::default());
     let mermaid_summary_line = render_mermaid_summary_line(&render);
 
@@ -977,6 +986,12 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU32, Ordering};
+
+    // The `&Grammar` front ends, used only by the golden-render test below: the live command drives
+    // the `_with_semantics` forms off its one shared owner (task 7.11), so these two are not
+    // referenced outside `cfg(test)`.
+    use pg_foma::plan_diagram::build_plan_document;
+    use pg_foma::readiness_verdict::certify;
 
     fn scratch_dir(tag: &str) -> std::path::PathBuf {
         static COUNTER: AtomicU32 = AtomicU32::new(0);
@@ -1246,6 +1261,49 @@ mod tests {
         assert!(
             text.contains("supplied `"),
             "must name the supplied pack, not a built-in-process one: {text}"
+        );
+    }
+
+    /// Task 7.11 (`openspec/changes/cleanup-and-recipe-parity`), the measurement that motivated the
+    /// `GrammarSemantics` owner: ONE `make-report` invocation must resolve the ADR 0001 capability
+    /// verdict from ONE `pg_foma::capability::characterize` walk, not one per consumer.
+    ///
+    /// Before the owner existed this command characterized the same grammar in FIVE independent
+    /// places on this path: its own preamble, `readiness_verdict::certify`, and three inside a
+    /// single `plan_diagram::build_plan_document` (its own `plan_and_profile`, the second
+    /// `plan_and_profile` inside `build_plan_document_for_plan`, and `compose_envelope`). Each
+    /// rebuilt the whole profile, real `Simultaneous`-mode `foma::types::Fsm` construction included.
+    ///
+    /// The fixture is the REFUSED grammar with no `--allow-unproven`, deliberately: that takes the
+    /// `!attempt_compile` branch, so no pack is built and no foma compile runs. The count this
+    /// measures is therefore exactly the capability derivations this task owns -- **5 before 7.11**
+    /// against the 1 asserted here. `pack::build_pack`'s trust stamp is a sixth, reachable only on
+    /// the compile path, and it is fixed by the same shared owner; measuring it here would drag in
+    /// `emit.rs`'s own separate `compound_chain_depth_and_budget_check` characterize call, which is
+    /// NOT one of the duplicated verdict derivations and was deliberately left alone, and this
+    /// assertion could not then attribute the total.
+    ///
+    /// The counter is thread-local (see `pg_foma::capability::characterize_call_count`), so the
+    /// reading is this test's own thread and cannot be polluted by tests running in parallel. The
+    /// non-zero assertion is not redundant: a thread-local count could otherwise "pass" by measuring
+    /// nothing at all if the work moved off-thread.
+    #[test]
+    fn one_make_report_invocation_characterizes_the_grammar_exactly_once() {
+        pg_foma::capability::reset_characterize_call_count();
+        let (result, _out) = run_make_report_raw("characterize-count", REFUSE_GRAMMAR_XML, &[]);
+        let calls = pg_foma::capability::characterize_call_count();
+
+        assert!(result.is_ok(), "{result:?}");
+        assert!(
+            calls > 0,
+            "the counter must actually have observed the run; 0 means it measured nothing"
+        );
+        assert_eq!(
+            calls, 1,
+            "one make-report invocation must derive the capability characteristics ONCE (it was 5 \
+             on this refused-grammar path before task 7.11 -- the preamble, \
+             readiness_verdict::certify, and three more inside a single build_plan_document; a \
+             sixth, pack::build_pack's trust stamp, is reachable only on the compile path)"
         );
     }
 

@@ -44,9 +44,10 @@
 
 use pg_grammar::model::Grammar;
 
-use crate::capability::{compose_envelope, default_registry, CompileDecision};
+use crate::capability::{compose_envelope_with_semantics, default_registry, CompileDecision};
 use crate::emit::surface_table;
-use crate::enumerate::{enumerate_default, prules_in_order};
+use crate::enumerate::enumerate_default;
+use crate::grammar_semantics::GrammarSemantics;
 use crate::junctions::PhonologyProbe;
 use crate::replace::SegAlphabet;
 
@@ -62,13 +63,26 @@ use crate::replace::SegAlphabet;
 /// non-blocking) is responsible for printing it; nothing here does that itself, and nothing here
 /// enforces it either — see this module's own top-doc.
 pub fn evaluate_capability(g: &Grammar) -> CompileDecision {
-    let alphabet = SegAlphabet::new(surface_table(g));
-    let ro = prules_in_order(g);
-    let phon = PhonologyProbe::new(g);
+    evaluate_capability_with_semantics(&GrammarSemantics::derive(g))
+}
 
-    let plan = enumerate_default(g, &alphabet, &ro, phon.as_ref());
+/// [`evaluate_capability`] over an already-derived [`GrammarSemantics`] (task 7.11,
+/// `openspec/changes/cleanup-and-recipe-parity`). A caller that needs BOTH the profile and the
+/// verdict -- [`crate::preflight::preflight_findings`] is exactly that, and `pangloss make-report`
+/// needs the verdict three times in one process -- derives the owner once and calls this, instead of
+/// paying for a second (and third) full [`crate::capability::characterize`] walk.
+///
+/// This is not "accept a caller-supplied verdict": a [`GrammarSemantics`] is a pure, deterministic
+/// function of the grammar, and this function still computes the [`CompileDecision`] itself through
+/// the same `enumerate_default` + `compose_envelope` spine `evaluate_capability` always used.
+pub fn evaluate_capability_with_semantics(semantics: &GrammarSemantics<'_>) -> CompileDecision {
+    let g = semantics.grammar();
+    let alphabet = SegAlphabet::new(surface_table(g));
+    let phon = PhonologyProbe::new_with_semantics(semantics);
+
+    let plan = enumerate_default(g, &alphabet, semantics.prules_in_order(), phon.as_ref());
     let registry = default_registry();
-    compose_envelope(g, &plan, &registry)
+    compose_envelope_with_semantics(semantics, &plan, &registry)
 }
 
 #[cfg(test)]

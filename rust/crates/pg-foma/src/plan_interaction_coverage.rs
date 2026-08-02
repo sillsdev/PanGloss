@@ -169,14 +169,13 @@
 use std::collections::{HashMap, HashSet};
 
 use foma::options::FomaOptions;
-use pg_grammar::model::{Grammar, PRuleId, PhonRuleDef};
+use pg_grammar::model::{Grammar, PRuleId};
 
-use crate::capability::{
-    characterize, CharacteristicKind, CharacteristicsProfile, Disposition, ModelLocation,
-};
+use crate::capability::{CharacteristicKind, CharacteristicsProfile, Disposition, ModelLocation};
 use crate::compose_budget::{ComposeBudget, ComposeError};
 use crate::emit::surface_table;
 use crate::enumerate::enumerate_default;
+use crate::grammar_semantics::GrammarSemantics;
 use crate::junctions::PhonologyProbe;
 use crate::oracle::{differential_oracle, permute_gate_groups, OracleResult};
 use crate::plan::{ComposeStrategy, FragmentSpec, NodeId, Plan, PlanNodeKind};
@@ -603,37 +602,39 @@ pub fn compute_interaction_coverage(
 // Assembly glue: building a Plan + CharacteristicsProfile the way a real caller would
 // =================================================================================================
 
-/// `g`'s phonological rules in stratum-cascade order, as literal borrows of `g.prules` — the same
-/// shape [`crate::enumerate::prules_in_order`] now provides for the production call sites, and the
-/// same shape `crate::enumerate`'s/`crate::capability`'s own test modules each still build
-/// independently (test modules don't share private helpers across files).
-//
-// Left as a local copy deliberately: this module's assembly glue is the test-facing half of the
-// crate's coverage machinery, and collapsing it was explicitly out of scope for the refactor that
-// introduced `enumerate::prules_in_order`.
-fn prules_in_order(g: &Grammar) -> Vec<&PhonRuleDef> {
-    g.strata
-        .iter()
-        .flat_map(|s| &s.prules)
-        .map(|&id| &g.prules[id.0 as usize])
-        .collect()
+/// Assembles `g`'s reified [`Plan`] ([`enumerate_default`]) and [`CharacteristicsProfile`] the way a
+/// real caller would — mirrors [`crate::capability_entry::evaluate_capability`]'s own setup exactly
+/// (same `surface_table`/`SegAlphabet`/`PhonologyProbe` assembly), just returning both pieces
+/// instead of folding them into a [`crate::capability::CompileDecision`]. Lives in `src/` (not a
+/// test-only helper) because it needs `crate::emit::surface_table`, which is `pub(crate)` —
+/// `tests/plan_interaction_coverage_gate.rs` (an external test crate) cannot call it directly, so
+/// this one clean, additive entry point does the assembly once here.
+///
+/// Task 7.11 (`openspec/changes/cleanup-and-recipe-parity`): both halves now come off ONE
+/// [`GrammarSemantics`], and the module-local `prules_in_order` copy this used to carry is gone —
+/// the owner hands back exactly the borrow-from-`g.prules` slice `enumerate::rule_id_of`'s
+/// pointer-identity recovery requires.
+pub fn plan_and_profile(g: &Grammar) -> (Plan, CharacteristicsProfile) {
+    let semantics = GrammarSemantics::derive(g);
+    let plan = plan_for_semantics(&semantics);
+    let profile = semantics.characteristics().clone();
+    (plan, profile)
 }
 
-/// Assembles `g`'s reified [`Plan`] ([`enumerate_default`]) and [`CharacteristicsProfile`]
-/// ([`characterize`]) the way a real caller would — mirrors [`crate::capability_entry::
-/// evaluate_capability`]'s own setup exactly (same `surface_table`/`SegAlphabet`/`PhonologyProbe`
-/// assembly), just returning both pieces instead of folding them into a [`crate::capability::
-/// CompileDecision`]. Lives in `src/` (not a test-only helper) because it needs `crate::emit::
-/// surface_table`, which is `pub(crate)` — `tests/plan_interaction_coverage_gate.rs` (an external
-/// test crate) cannot call it directly, so this one clean, additive entry point does the assembly
-/// once here.
-pub fn plan_and_profile(g: &Grammar) -> (Plan, CharacteristicsProfile) {
+/// The PLAN half of [`plan_and_profile`], over an already-derived [`GrammarSemantics`] (task 7.11,
+/// `openspec/changes/cleanup-and-recipe-parity`).
+///
+/// Split out because the profile half is the expensive one and a caller holding a
+/// `&GrammarSemantics` can read it by reference off the owner instead of taking the owned clone
+/// `plan_and_profile` must return. [`crate::plan_diagram::build_plan_document`] was calling
+/// `plan_and_profile` TWICE and `compose_envelope` once — three full `characterize` walks for one
+/// document, with the first call's `Plan` and the second call's `Plan` both discarded in part — and
+/// this is what lets it do one.
+pub fn plan_for_semantics(semantics: &GrammarSemantics<'_>) -> Plan {
+    let g = semantics.grammar();
     let alphabet = SegAlphabet::new(surface_table(g));
-    let ro = prules_in_order(g);
-    let phon = PhonologyProbe::new(g);
-    let plan = enumerate_default(g, &alphabet, &ro, phon.as_ref());
-    let profile = characterize(g);
-    (plan, profile)
+    let phon = PhonologyProbe::new_with_semantics(semantics);
+    enumerate_default(g, &alphabet, semantics.prules_in_order(), phon.as_ref())
 }
 
 // =================================================================================================
@@ -666,10 +667,10 @@ pub fn fuzz_gate_group_reordering_for_grammar(
     g: &Grammar,
     words: &[&str],
 ) -> Result<(usize, OracleResult), ComposeError> {
+    let semantics = GrammarSemantics::derive(g);
     let alphabet = SegAlphabet::new(surface_table(g));
-    let ro = prules_in_order(g);
-    let phon = PhonologyProbe::new(g);
-    let plan = enumerate_default(g, &alphabet, &ro, phon.as_ref());
+    let phon = PhonologyProbe::new_with_semantics(&semantics);
+    let plan = enumerate_default(g, &alphabet, semantics.prules_in_order(), phon.as_ref());
     let groups = gate_group_count(&plan);
     let permuted = permute_gate_groups(&plan);
 
@@ -692,7 +693,7 @@ pub fn fuzz_gate_group_reordering_for_grammar(
         &opts,
         g,
         &alphabet,
-        &ro,
+        semantics.prules_in_order(),
         &budget,
         words,
     )?;

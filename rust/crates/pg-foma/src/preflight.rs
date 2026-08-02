@@ -7,18 +7,20 @@
 //! closed").
 //!
 //! # Consume, never remeasure (R6, same discipline as `crate::health_evaluator`)
-//! [`preflight_findings`] takes a `&Grammar` and internally calls exactly two existing, already-
-//! tested, pure-Rust (no foma, no I/O) entry points — never re-derives their logic itself:
-//! - [`crate::capability::characterize`] — this crate's own one-time, exhaustive walk over every
-//!   represented `pg_grammar::model::Grammar` construct variant
+//! [`preflight_findings`] takes a `&Grammar`, derives ONE
+//! [`crate::grammar_semantics::GrammarSemantics`] from it, and reads exactly two existing, already-
+//! tested, pure-Rust (no foma, no I/O) facts off it — never re-derives their logic itself:
+//! - [`crate::grammar_semantics::GrammarSemantics::characteristics`] — this crate's own one-time,
+//!   exhaustive walk over every represented `pg_grammar::model::Grammar` construct variant
 //!   (`openspec/changes/add-capability-characteristics-check`). Its
 //!   [`crate::capability::CharacteristicsProfile::cardinality`]
 //!   ([`crate::capability::GrammarCardinality`]) and per-observation detail structs
 //!   ([`crate::capability::QuantifierPatternDetail::all_bounded`],
 //!   [`crate::capability::UnorderedStratumDetail::rule_count`]/`within_bound`) feed this module's
 //!   cardinality/bounded-product findings verbatim — never re-walked from the grammar.
-//! - [`crate::capability_entry::evaluate_capability`] — the SAME ADR 0001 capability-gate entry
-//!   point `pg-cli`'s own `run_capability_gate`/`pangloss pack` already call, composing
+//! - [`crate::capability_entry::evaluate_capability_with_semantics`] — the SAME ADR 0001
+//!   capability-gate entry point `pg-cli`'s own `run_capability_gate`/`pangloss pack` already call
+//!   (through its `&Grammar` front end `evaluate_capability`), composing
 //!   `characterize` with the predicate registry
 //!   ([`crate::capability::compose_envelope`]/`crate::capability::default_registry`) into one final
 //!   [`crate::capability::CompileDecision`]. This module reuses that FINAL, predicate-resolved
@@ -27,12 +29,14 @@
 //!   (e.g. `Compounding`, `UnorderedMorphRuleApplication`, `QuantifierPattern`) only resolves to a
 //!   real `ConfirmOnly`-vs-`Refuse` verdict THROUGH that predicate registry, so reasoning from raw
 //!   per-kind dispositions alone (without running the registry) would misclassify most
-//!   `ConfigPredicate` characteristics. `evaluate_capability` calls `characterize` a second time
-//!   internally (it has no way to accept an already-built profile) — an acceptable duplication
-//!   since both calls are cheap pure-Rust struct walks, not an expensive foma-derived measurement
-//!   R6's "consume, never remeasure" rule is actually about (that rule targets the admission
-//!   walker/budget tracker/compile profile's own COMPILE-time facts, which this module never
-//!   touches at all).
+//!   `ConfigPredicate` characteristics. **This used to be TWO `characterize` walks** — one here and
+//!   a second inside `evaluate_capability`, which had no way to accept an already-built profile —
+//!   and this doc called it "an acceptable duplication ... while waiting on 7.11". Task 7.11
+//!   (`openspec/changes/cleanup-and-recipe-parity`) closed it: both now read the SAME memoized
+//!   profile off one [`crate::grammar_semantics::GrammarSemantics`], so a `pangloss fst-health` run
+//!   characterizes once rather than twice. The duplication was never as cheap as that note claimed,
+//!   either — `characterize` builds real `foma::types::Fsm` networks for `Simultaneous`-mode
+//!   subrules.
 //!
 //! # Two distinct axes this module keeps separate (task 1.3; spec.md's two preflight scenarios)
 //! - **Semantic uncertainty** ([`semantic_uncertainty_finding`]): [`crate::capability::CompileDecision::
@@ -99,9 +103,10 @@
 
 use pg_grammar::model::Grammar;
 
-use crate::capability::{self, CharacteristicsProfile, CompileDecision, ObservationDetail};
-use crate::capability_entry::evaluate_capability;
+use crate::capability::{CharacteristicsProfile, CompileDecision, ObservationDetail};
+use crate::capability_entry::evaluate_capability_with_semantics;
 use crate::compose_budget::DEFAULT_ORDERING_MULTIPLICITY_BUDGET;
+use crate::grammar_semantics::GrammarSemantics;
 use crate::health::{
     FindingCode, HealthFinding, Metric, MetricValue, Phase, Severity, ValueProvenance,
 };
@@ -116,15 +121,25 @@ const RULE_PRODUCT_WARNING_THRESHOLD: u64 = 64;
 /// attempted, from `g` alone. See this module's own doc for the semantic-vs-cost-uncertainty split
 /// (task 1.3) and the bounded-product findings (task 1.2).
 pub fn preflight_findings(g: &Grammar) -> Vec<HealthFinding> {
-    let profile = capability::characterize(g);
-    let decision = evaluate_capability(g);
+    preflight_findings_with_semantics(&GrammarSemantics::derive(g))
+}
+
+/// [`preflight_findings`] over an already-derived [`GrammarSemantics`] (task 7.11,
+/// `openspec/changes/cleanup-and-recipe-parity`) -- so a caller running preflight alongside its own
+/// capability gate (`pangloss fst-health` did exactly this, twice) characterizes once in total.
+pub fn preflight_findings_with_semantics(semantics: &GrammarSemantics<'_>) -> Vec<HealthFinding> {
+    // ONE derivation, shared. Before task 7.11 these were two independent `characterize` walks --
+    // `capability::characterize(g)` here and a second one inside `evaluate_capability`, which this
+    // module's own doc called "an acceptable duplication ... while waiting on 7.11".
+    let profile = semantics.characteristics();
+    let decision = evaluate_capability_with_semantics(semantics);
 
     let mut findings = Vec::new();
     findings.extend(semantic_uncertainty_finding(&decision));
     findings.extend(cost_uncertainty_finding(&decision));
-    findings.extend(unbounded_quantifier_findings(&profile));
-    findings.extend(unordered_stratum_findings(&profile));
-    findings.extend(rule_interaction_product_finding(&profile));
+    findings.extend(unbounded_quantifier_findings(profile));
+    findings.extend(unordered_stratum_findings(profile));
+    findings.extend(rule_interaction_product_finding(profile));
     findings
 }
 
@@ -298,6 +313,7 @@ fn rule_interaction_product_finding(profile: &CharacteristicsProfile) -> Option<
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::capability_entry::evaluate_capability;
 
     /// A synthetic (delanguaged) `MorphRuleOrder::Unordered` stratum with more loose rules than
     /// [`DEFAULT_ORDERING_MULTIPLICITY_BUDGET`] — this module's own "shaped synthetic grammar"

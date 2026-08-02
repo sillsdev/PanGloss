@@ -4,11 +4,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
-use pg_grammar::model::{Grammar, MorphRuleDef, PhonRuleDef};
+use pg_grammar::model::Grammar;
 use serde::{Deserialize, Serialize};
 
-use crate::capability::rhs_has_true_reduplication;
 use crate::enumerate::{CandidatePlan, EmissionStrategy};
+use crate::grammar_semantics::GrammarSemantics;
 use crate::oracle::{
     permute_gate_groups, permute_union_children, refine_gate_partition, PartitionGranularity,
 };
@@ -67,7 +67,21 @@ pub enum Applicability {
 }
 
 impl Applicability {
+    /// `&Grammar` front end onto [`Self::matches_semantics`] — derives a
+    /// [`GrammarSemantics`] and delegates. A caller checking several families against one grammar
+    /// (every `Registry` entry point below) derives the owner once and calls
+    /// [`Self::matches_semantics`] instead.
     pub fn matches(&self, grammar: &Grammar) -> bool {
+        self.matches_semantics(&GrammarSemantics::derive(grammar))
+    }
+
+    /// The authoritative applicability predicate (task 7.11,
+    /// `openspec/changes/cleanup-and-recipe-parity`): every arm is a PROJECTION of a fact
+    /// [`GrammarSemantics`] already owns, never a fresh grammar walk. In particular
+    /// `HasGatedExceptions` no longer re-runs `prules_in_order` + `find_gated_subrules` per family
+    /// per instance — those ran up to `families x instances` times through
+    /// `Registry::materialize_distinct` alone.
+    pub fn matches_semantics(&self, semantics: &GrammarSemantics<'_>) -> bool {
         match self {
             Self::Always => true,
             // A PROJECTION of the real mechanism, not a third reimplementation of it. The
@@ -90,19 +104,12 @@ impl Applicability {
             //     mechanism would then refuse to split.
             //  3. It scanned `grammar.prules` wholesale rather than the stratum-cascade slice
             //     everything downstream actually compiles, so a rule no stratum references counted.
-            Self::HasGatedExceptions => !crate::gate::find_gated_subrules(
-                grammar,
-                &crate::enumerate::prules_in_order(grammar),
-            )
-            .is_empty(),
-            Self::HasTemplates => !grammar.templates.is_empty(),
-            Self::HasMorphology => !grammar.mrules.is_empty(),
-            Self::HasReduplication => grammar.mrules.iter().any(rule_has_reduplication),
-            Self::HasMetathesis => grammar
-                .prules
-                .iter()
-                .any(|rule| matches!(rule, PhonRuleDef::Metathesis(_))),
-            Self::HasMultipleStrata => grammar.strata.len() > 1,
+            Self::HasGatedExceptions => semantics.has_gated_exceptions(),
+            Self::HasTemplates => semantics.declared_templates(),
+            Self::HasMorphology => semantics.has_morphology(),
+            Self::HasReduplication => semantics.has_reduplication(),
+            Self::HasMetathesis => semantics.has_metathesis(),
+            Self::HasMultipleStrata => semantics.stratum_count() > 1,
             // Deliberately an OVER-approximation, and sound because of it. Whether a `Gate` group is
             // genuinely splittable is a property of the built Plan (a group needs >=2 entries), and
             // this predicate only sees the Grammar. Two or more lexical entries is the necessary
@@ -112,28 +119,18 @@ impl Applicability {
             // candidate away. Over-approximating therefore costs one wasted materialization at worst;
             // under-approximating would silently drop a real candidate, which is the error that
             // matters.
-            Self::HasSplittableGateGroup => grammar.entries.len() >= 2,
-            Self::HasPhonology => !grammar.prules.is_empty(),
+            Self::HasSplittableGateGroup => semantics.entry_count() >= 2,
+            // `declared_phonology`, NOT `cascade_phonology`. These two are different questions and
+            // genuinely disagree on a rule declared globally but named by no stratum
+            // (`grammar_semantics`'s module doc). This arm keeps the grammar-wide reading it always
+            // had -- task 7.11 is a consolidation, and switching predicates here would change which
+            // families a grammar is offered.
+            Self::HasPhonology => semantics.declared_phonology(),
             Self::HasPhonologyOrTemplates => {
-                !grammar.prules.is_empty() || !grammar.templates.is_empty()
+                semantics.declared_phonology() || semantics.declared_templates()
             }
         }
     }
-}
-
-/// `true` iff any of `rule`'s allomorphs genuinely reduplicates, delegating to
-/// [`crate::capability::rhs_has_true_reduplication`] — the single authority for this fact (see that
-/// function's doc for why the `redup_hint != Implicit` shortcut this used to carry is a trap, and
-/// what it cost here: `FAMILY_COPY_BRANCH` was offered to grammars with no reduplication in them).
-fn rule_has_reduplication(rule: &MorphRuleDef) -> bool {
-    let allomorphs = match rule {
-        MorphRuleDef::AffixProcess(def) => &def.allomorphs,
-        MorphRuleDef::Realizational(def) => &def.allomorphs,
-        MorphRuleDef::Compounding(_) => return false,
-    };
-    allomorphs
-        .iter()
-        .any(|allomorph| rhs_has_true_reduplication(&allomorph.rhs))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -453,7 +450,12 @@ impl Registry {
     }
 
     pub fn instances_for_grammar(&self, grammar: &Grammar) -> Vec<RecipeInstance> {
-        self.instances_matching(|family| family.applicability.matches(grammar))
+        self.instances_for_semantics(&GrammarSemantics::derive(grammar))
+    }
+
+    /// [`Self::instances_for_grammar`] over an already-derived [`GrammarSemantics`] (task 7.11).
+    pub fn instances_for_semantics(&self, semantics: &GrammarSemantics<'_>) -> Vec<RecipeInstance> {
+        self.instances_matching(|family| family.applicability.matches_semantics(semantics))
     }
 
     /// Return the applicable instances that are licensed for this run. The exclusion count is
@@ -464,11 +466,25 @@ impl Registry {
         compositional_topology: bool,
         search_all_families: bool,
     ) -> (Vec<RecipeInstance>, u64) {
+        self.instances_for_search_with_semantics(
+            &GrammarSemantics::derive(grammar),
+            compositional_topology,
+            search_all_families,
+        )
+    }
+
+    /// [`Self::instances_for_search`] over an already-derived [`GrammarSemantics`] (task 7.11).
+    pub fn instances_for_search_with_semantics(
+        &self,
+        semantics: &GrammarSemantics<'_>,
+        compositional_topology: bool,
+        search_all_families: bool,
+    ) -> (Vec<RecipeInstance>, u64) {
         let mut declared_not_searched = 0u64;
         let instances = self
             .families
             .values()
-            .filter(|family| family.applicability.matches(grammar))
+            .filter(|family| family.applicability.matches_semantics(semantics))
             .flat_map(expand_family)
             .filter(|instance| {
                 let skip = compositional_topology
@@ -498,12 +514,29 @@ impl Registry {
         instance: &RecipeInstance,
         context: &MaterializerContext<'_>,
     ) -> Result<CandidatePlan, MaterializeError> {
+        self.materialize_with_semantics(
+            instance,
+            context,
+            &GrammarSemantics::derive(context.grammar),
+        )
+    }
+
+    /// [`Self::materialize`] over an already-derived [`GrammarSemantics`] (task 7.11). The
+    /// applicability re-check is unchanged; what changes is that a batch materializer
+    /// ([`Self::materialize_distinct`]) no longer re-derives the grammar's semantic facts once per
+    /// instance on top of the one derivation its own instance enumeration already made.
+    pub fn materialize_with_semantics(
+        &self,
+        instance: &RecipeInstance,
+        context: &MaterializerContext<'_>,
+        semantics: &GrammarSemantics<'_>,
+    ) -> Result<CandidatePlan, MaterializeError> {
         self.validate_instance(instance)
             .map_err(|error| MaterializeError::Invalid(error.to_string()))?;
         let family = self
             .family(&instance.family_id)
             .expect("validated instance has a family");
-        if !family.applicability.matches(context.grammar) {
+        if !family.applicability.matches_semantics(semantics) {
             return Err(MaterializeError::Inapplicable(instance.family_id.clone()));
         }
         let candidate = self
@@ -531,10 +564,13 @@ impl Registry {
         &self,
         context: &MaterializerContext<'_>,
     ) -> Result<Vec<(RecipeInstance, CandidatePlan)>, MaterializeError> {
+        // ONE derivation for the whole batch (task 7.11): shared by the instance enumeration below
+        // AND by every per-instance applicability re-check inside `materialize_with_semantics`.
+        let semantics = GrammarSemantics::derive(context.grammar);
         let mut seen = BTreeSet::<(NodeId, &'static str)>::new();
         let mut candidates = Vec::new();
-        for instance in self.instances_for_grammar(context.grammar) {
-            let candidate = self.materialize(&instance, context)?;
+        for instance in self.instances_for_semantics(&semantics) {
+            let candidate = self.materialize_with_semantics(&instance, context, &semantics)?;
             let root = candidate
                 .plan
                 .root()
@@ -857,7 +893,10 @@ pub const SEEDED_FAMILIES: &[&str] = &[
 
 #[cfg(test)]
 mod tests {
+    use pg_grammar::model::MorphRuleDef;
+
     use super::*;
+    use crate::capability::rhs_has_true_reduplication;
     use crate::plan::{FragmentSpec, PlanNodeKind, Provenance as PlanProvenance};
 
     fn family(id: &str) -> RecipeFamily {

@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 
 use pg_foma::capability::{compose_envelope, default_registry, CompileDecision};
 use pg_foma::enumerate::CandidatePlan;
+use pg_foma::grammar_semantics::GrammarSemantics;
 use pg_foma::plan_diagram::{render_mermaid, RenderMode};
 use pg_foma::recipe_optimizer::{
     choose_strategy_with_policy, optimize_with_evaluator, AdaptivePolicy, Budget, BudgetUsage,
@@ -24,7 +25,7 @@ use pg_foma::recipe_runtime::{
     evaluate_plans_marked_with_cache, RunEvaluationCache, RuntimeBudget,
 };
 use pg_foma::recipe_space::StageMeasurement;
-use pg_foma::recipe_space::{characterize, summarize_pilot};
+use pg_foma::recipe_space::{characterize_with_semantics, summarize_pilot};
 use sha2::{Digest, Sha256};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -361,20 +362,31 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
             ..Default::default()
         },
     );
+    // Task 7.11 (`openspec/changes/cleanup-and-recipe-parity`): ONE derivation for this whole run.
+    // It feeds the baseline enumeration, `recipe_space::characterize`, both instance-selection
+    // calls, and -- the one that actually mattered for cost -- the per-instance applicability
+    // re-check inside the materialization loop below, which re-walked the grammar once per
+    // candidate instance before this.
+    let semantics = GrammarSemantics::derive(&grammar);
     let alphabet = pg_foma::replace::SegAlphabet::new(&grammar.char_tables[0]);
-    let prules = pg_foma::enumerate::prules_in_order(&grammar);
-    let phon = pg_foma::junctions::PhonologyProbe::new(&grammar);
+    let prules = semantics.prules_in_order();
+    let phon = pg_foma::junctions::PhonologyProbe::new_with_semantics(&semantics);
     let baseline_started = Instant::now();
     let baseline =
-        pg_foma::enumerate::enumerate_default(&grammar, &alphabet, &prules, phon.as_ref());
+        pg_foma::enumerate::enumerate_default(&grammar, &alphabet, prules, phon.as_ref());
     let baseline_materialization_ns = elapsed_ns(baseline_started).max(1);
     let registry = Registry::seeded();
     registry
         .validate_ready()
         .map_err(|error| RecipeOptimizeError::Runtime(error.to_string()))?;
-    let characterization =
-        characterize(&grammar, &registry, &baseline, a.budget.candidates, a.seed)
-            .map_err(|e| RecipeOptimizeError::Runtime(e.to_string()))?;
+    let characterization = characterize_with_semantics(
+        &semantics,
+        &registry,
+        &baseline,
+        a.budget.candidates,
+        a.seed,
+    )
+    .map_err(|e| RecipeOptimizeError::Runtime(e.to_string()))?;
     let policy = AdaptivePolicy::default();
     // Both denominators, because the pruning waterfall's first bucket is "the registry offered this
     // instance and the grammar rejected it". `PruningWaterfall`'s own doc calls every field "a
@@ -388,10 +400,13 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
         && facts.partitions <= 1
         && facts.morphology_layers <= 1;
     let offered_instances = registry.instances().len() as u64;
-    let applicable_instances = registry.instances_for_grammar(&grammar);
+    let applicable_instances = registry.instances_for_semantics(&semantics);
     let inapplicable = offered_instances.saturating_sub(applicable_instances.len() as u64);
-    let (mut instances, declared_not_searched) =
-        registry.instances_for_search(&grammar, compositional, a.search_all_families);
+    let (mut instances, declared_not_searched) = registry.instances_for_search_with_semantics(
+        &semantics,
+        compositional,
+        a.search_all_families,
+    );
     instances.sort_by_key(|instance| {
         let baseline = instance.family_id == FAMILY_ORDERED_MORPHOPHONOLOGY
             && instance
@@ -449,12 +464,13 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
     let production_generated = 1u64.saturating_add(offered_instances);
     for instance in instances {
         let materialize_started = Instant::now();
-        let plan = match registry.materialize(
+        let plan = match registry.materialize_with_semantics(
             &instance,
             &pg_foma::recipe_registry::MaterializerContext {
                 grammar: &grammar,
                 baseline: &baseline,
             },
+            &semantics,
         ) {
             Ok(plan) => plan,
             Err(pg_foma::recipe_registry::MaterializeError::Inapplicable(_))
@@ -643,8 +659,8 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
     let winner = outcome.winner.clone();
     fs::create_dir_all(Path::new(&a.out_dir))
         .map_err(|e| RecipeOptimizeError::Io(format!("create {}: {e}", a.out_dir)))?;
-    let base_doc = pg_foma::plan_diagram::build_plan_document_for_plan(
-        &grammar,
+    let base_doc = pg_foma::plan_diagram::build_plan_document_for_plan_with_semantics(
+        &semantics,
         &evaluator.plans[baseline_id
             .as_ref()
             .ok_or_else(|| RecipeOptimizeError::Runtime("baseline was not materialized".into()))?]
@@ -661,7 +677,9 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
     let winner_doc = winner
         .as_ref()
         .and_then(|id| evaluator.plans.get(id))
-        .map(|p| pg_foma::plan_diagram::build_plan_document_for_plan(&grammar, &p.plan));
+        .map(|p| {
+            pg_foma::plan_diagram::build_plan_document_for_plan_with_semantics(&semantics, &p.plan)
+        });
     let (winner_json, winner_mmd, winner_json_path, winner_mmd_path) = if let Some(d) = winner_doc {
         let j = d
             .to_json()

@@ -239,6 +239,32 @@ over an erased transform is not an exercise.
 - [ ] 7.11 Introduce one immutable typed `GrammarSemantics::derive(&Grammar)` owner and migrate
       capability, registry applicability, recipe-space accounting, and later mechanism providers to
       projections over it. Delete all other authoritative semantic grammar walkers.
+      Slice note (2026-08-02): `pg_foma::grammar_semantics::GrammarSemantics` now exists and owns
+      `prules_in_order`, the gated-subrule set, the entry partition (deterministically ordered),
+      the existence/cardinality facts, and -- memoized -- `capability::characterize`'s profile.
+      Migrated: `capability::compose_envelope`, `capability_entry::evaluate_capability`,
+      `preflight::preflight_findings`, `selection::select_plan`, `readiness_verdict::certify`,
+      `recipe_registry::Applicability` + every `Registry` instance/materialize entry point,
+      `recipe_space::{GrammarFacts, characterize}`, `junctions::PhonologyProbe`'s existence gate,
+      `plan_interaction_coverage`'s assembly glue (its local `prules_in_order` copy is deleted),
+      `plan_diagram::build_plan_document{,_for_plan}`, and `pangloss make-report`/`pack`/
+      `recipe-optimize`. Measured: one `make-report` invocation on the refused path characterizes
+      **once, down from five** (its preamble, `certify`, and THREE inside one
+      `build_plan_document` -- that function alone ran `plan_and_profile` twice and
+      `compose_envelope` once, discarding one of the two plans); `select_plan` characterizes once
+      instead of once per candidate plan. Explicitly NOT done, each for a stated reason:
+      `conformance_coverage.rs`'s four `grammar_has_*` witnesses stay an independent second
+      derivation (`tests/structural_witness_gate.rs` exists to exploit that independence);
+      `capability::characterize`'s own 7500-line internals stay as-is (the owner owns its RESULT --
+      making it consume the owner would be circular, and the only sub-facts it shares already route
+      through one authority); `gate::compile_gated_grammar_*` and `emit.rs`'s own
+      `compound_chain_depth_and_budget_check` stay `&Grammar`-parameterized compile paths; and
+      `recipe_optimize.rs`'s three `compose_envelope` calls are deliberately left re-deriving,
+      because its `StageMeasurement::capability` samples that stage's wall time and a shared
+      memoized profile would render every pilot sample as a near-zero measurement of a stage that
+      really does work once. `e2_infix_probe.rs` was NOT deleted: `docs/superpowers/specs/
+      2026-07-17-better-proposing-fst-plan.md` lists E2 as "BUILD after E5", so it is a parked
+      build-ready probe, not dead code.
 - [ ] 7.12 Define versioned `CorpusSnapshot` and reuse `pg-assess::AnalysisIdentity` v1 set equality
       as the sole public recipe/cross-engine identity. Bind profile, authority, source/model revision,
       semantic digest, options, occurrence order, normalization, exclusions, and oracle completeness;

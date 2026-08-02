@@ -40,6 +40,8 @@ use pg_shape::NodeKind;
 use rayon::prelude::*;
 use rustc_hash::FxHashMap as HashMap;
 
+use crate::grammar_semantics::GrammarSemantics;
+
 pub struct PhonologyProbe<'g> {
     g: &'g Grammar,
     table: &'g CharDefTable,
@@ -174,19 +176,43 @@ fn neighbor_first_segments(g: &Grammar, table: &CharDefTable) -> BTreeSet<CharDe
 impl<'g> PhonologyProbe<'g> {
     /// `None` when the grammar declares no phonological rules at all — nothing to probe, and
     /// `emit.rs` treats `None` as "this grammar's affix/root emission is unchanged from stage 1".
+    ///
+    /// Derives a [`GrammarSemantics`] to answer the existence question. A caller that already holds
+    /// one should use [`Self::new_with_semantics`]; `GrammarSemantics::derive` is cheap (it does not
+    /// characterize), so this convenience form stays available for the many call sites that only
+    /// have a `&Grammar`.
     pub fn new(g: &'g Grammar) -> Option<Self> {
+        Self::new_with_semantics(&GrammarSemantics::derive(g))
+    }
+
+    /// [`Self::new`] over an already-derived [`GrammarSemantics`] (task 7.11,
+    /// `openspec/changes/cleanup-and-recipe-parity`).
+    ///
+    /// The existence gate is [`GrammarSemantics::cascade_phonology`], NOT
+    /// [`GrammarSemantics::declared_phonology`] — this probe drives the trailing per-stratum rewrite
+    /// cascade, so a rule declared globally but named by no stratum's `phonologicalRules` list gives
+    /// it nothing to probe. That is the exact predicate this function always used (`sd.prules` per
+    /// stratum); it is now a named, owned fact rather than an inline loop, and its difference from
+    /// `Applicability::HasPhonology`'s grammar-wide reading is documented at the owner rather than
+    /// being an undiscovered disagreement between two files. See `grammar_semantics`'s module doc.
+    ///
+    /// The `semantics` borrow does NOT have to outlive the probe: only the `&'g Grammar` inside it
+    /// does, which is why this takes `&GrammarSemantics<'g>` by short-lived reference and re-borrows
+    /// the grammar out of it.
+    pub fn new_with_semantics(semantics: &GrammarSemantics<'g>) -> Option<Self> {
+        let g = semantics.grammar();
         let surface_stratum = g
             .strata
             .last()
             .expect("a loaded grammar always has a stratum");
         let table = &g.char_tables[surface_stratum.table.0 as usize];
 
-        let mut any_phonological_rules = false;
+        if !semantics.cascade_phonology() {
+            return None;
+        }
+
         let mut any_deletion_subrule = false;
         for sd in &g.strata {
-            if !sd.prules.is_empty() {
-                any_phonological_rules = true;
-            }
             for &pid in &sd.prules {
                 if let PhonRuleDef::Rewrite(r) = &g.prules[pid.0 as usize] {
                     if r.subrules.iter().any(|sr| sr.rhs.nodes.is_empty()) {
@@ -194,9 +220,6 @@ impl<'g> PhonologyProbe<'g> {
                     }
                 }
             }
-        }
-        if !any_phonological_rules {
-            return None;
         }
 
         let mut alphabet = Vec::new();

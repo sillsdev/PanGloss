@@ -3,12 +3,10 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use pg_grammar::model::{Grammar, MorphRuleDef, PhonRuleDef};
+use pg_grammar::model::Grammar;
 use serde::{Deserialize, Serialize};
 
-use crate::capability::rhs_has_true_reduplication;
-use crate::enumerate::prules_in_order;
-use crate::gate::{find_gated_subrules, partition_entries};
+use crate::grammar_semantics::GrammarSemantics;
 use crate::plan::{NodeId, Plan};
 use crate::recipe_registry::{MaterializeError, MaterializerContext, RecipeInstance, Registry};
 
@@ -139,57 +137,28 @@ pub struct GrammarFacts {
 
 impl GrammarFacts {
     pub fn from_grammar(grammar: &Grammar) -> Self {
-        let prules = prules_in_order(grammar);
-        let gated = find_gated_subrules(grammar, &prules);
-        let partitions = partition_entries(grammar, &gated, &prules).len() as u64;
-        let reduplicative_allomorphs = grammar.mrules.iter().map(reduplication_count).sum::<u64>();
-        let operations = grammar
-            .strata
-            .iter()
-            .map(|stratum| {
-                (stratum.prules.len() + stratum.mrules.len() + stratum.templates.len()) as u64
-            })
-            .sum();
-        let dependencies = grammar
-            .strata
-            .iter()
-            .map(|stratum| {
-                let n = stratum.prules.len() + stratum.mrules.len() + stratum.templates.len();
-                n.saturating_sub(1) as u64
-            })
-            .sum();
+        Self::from_semantics(&GrammarSemantics::derive(grammar))
+    }
+
+    /// Task 7.11 (`openspec/changes/cleanup-and-recipe-parity`): every field is a PROJECTION of a
+    /// fact [`GrammarSemantics`] already owns — the per-stratum operation/dependency sums, the gated
+    /// subrules, the entry partition, the reduplicative-allomorph and metathesis counts. This struct
+    /// used to re-walk the grammar for all of them, in parallel with
+    /// `recipe_registry::Applicability` doing the same walks for the boolean forms of the same
+    /// questions.
+    pub fn from_semantics(semantics: &GrammarSemantics<'_>) -> Self {
         Self {
-            ordered_operations: operations,
-            ordering_dependencies: dependencies,
-            gated_subrules: gated.len() as u64,
-            partitions,
-            templates: grammar.templates.len() as u64,
-            branches: grammar.mrules.len() as u64,
-            reduplicative_allomorphs,
-            metathesis_rules: grammar
-                .prules
-                .iter()
-                .filter(|rule| matches!(rule, PhonRuleDef::Metathesis(_)))
-                .count() as u64,
-            morphology_layers: grammar.strata.len() as u64,
+            ordered_operations: semantics.ordered_operations(),
+            ordering_dependencies: semantics.ordering_dependencies(),
+            gated_subrules: semantics.gated_subrules().len() as u64,
+            partitions: semantics.partition_count(),
+            templates: semantics.template_count(),
+            branches: semantics.mrule_count(),
+            reduplicative_allomorphs: semantics.reduplicative_allomorph_count(),
+            metathesis_rules: semantics.metathesis_rule_count(),
+            morphology_layers: semantics.stratum_count() as u64,
         }
     }
-}
-
-/// How many of `rule`'s allomorphs genuinely reduplicate. A COUNT, not a bool — `GrammarFacts`
-/// reports `reduplicative_allomorphs` as a magnitude — but the per-allomorph decision is
-/// [`crate::capability::rhs_has_true_reduplication`], the single authority for the fact (see that
-/// function's doc for why the `redup_hint != Implicit` shortcut this used to carry is a trap).
-fn reduplication_count(rule: &MorphRuleDef) -> u64 {
-    let allomorphs = match rule {
-        MorphRuleDef::AffixProcess(def) => &def.allomorphs,
-        MorphRuleDef::Realizational(def) => &def.allomorphs,
-        MorphRuleDef::Compounding(_) => return 0,
-    };
-    allomorphs
-        .iter()
-        .filter(|allomorph| rhs_has_true_reduplication(&allomorph.rhs))
-        .count() as u64
 }
 
 #[derive(Debug)]
@@ -211,8 +180,31 @@ pub fn characterize(
     materialization_budget: u64,
     seed: u64,
 ) -> Result<Characterization, MaterializeError> {
+    characterize_with_semantics(
+        &GrammarSemantics::derive(grammar),
+        registry,
+        baseline,
+        materialization_budget,
+        seed,
+    )
+}
+
+/// [`characterize`] over an already-derived [`GrammarSemantics`] (task 7.11,
+/// `openspec/changes/cleanup-and-recipe-parity`). ONE derivation serves the admissible-instance
+/// filter, every per-instance applicability re-check inside
+/// [`Registry::materialize_with_semantics`], and the [`GrammarFacts`] projection at the bottom.
+/// Each of those three used to walk the grammar independently -- the per-instance one once per
+/// sampled instance.
+pub fn characterize_with_semantics(
+    semantics: &GrammarSemantics<'_>,
+    registry: &Registry,
+    baseline: &Plan,
+    materialization_budget: u64,
+    seed: u64,
+) -> Result<Characterization, MaterializeError> {
+    let grammar = semantics.grammar();
     let all_instances = registry.instances();
-    let admissible_instances = registry.instances_for_grammar(grammar);
+    let admissible_instances = registry.instances_for_semantics(semantics);
     let syntactic = Count::sum(registry.families().map(|family| {
         Count::product(
             family
@@ -241,7 +233,8 @@ pub fn characterize(
     let mut roots = BTreeSet::new();
     let mut materialization_rejected = 0u64;
     for index in sample_indices {
-        match registry.materialize(&admissible_instances[index], &context) {
+        match registry.materialize_with_semantics(&admissible_instances[index], &context, semantics)
+        {
             Ok(candidate) => {
                 let root = candidate.plan.root().ok_or_else(|| {
                     MaterializeError::RootlessPlan(admissible_instances[index].family_id.clone())
@@ -305,7 +298,7 @@ pub fn characterize(
         pruning,
     };
     Ok(Characterization {
-        facts: GrammarFacts::from_grammar(grammar),
+        facts: GrammarFacts::from_semantics(semantics),
         counts,
         admissible_instances,
         distinct_roots: roots.into_iter().collect(),

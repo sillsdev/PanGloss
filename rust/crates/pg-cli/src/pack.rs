@@ -61,7 +61,8 @@ use std::fs;
 
 use pg_foma::analyzer::FomaProposer;
 use pg_foma::capability::CompileDecision;
-use pg_foma::capability_entry::evaluate_capability;
+use pg_foma::capability_entry::evaluate_capability_with_semantics;
+use pg_foma::grammar_semantics::GrammarSemantics;
 use pg_foma::health_evaluator::evaluate_health;
 use pg_foma::peel::{ReduplicationPeeler, RUNTIME_FEATURE_REDUPLICATION_PEEL};
 use pg_grammar::model::Grammar;
@@ -188,9 +189,11 @@ pub fn run_pack(args: &[String]) -> Result<(), String> {
     let (grammar, warnings) = crate::load_grammar(grammar_path)?;
     crate::print_grammar_warnings(&warnings);
 
+    let semantics = GrammarSemantics::derive(&grammar);
     let built = build_pack(
         grammar_path,
         &grammar,
+        &semantics,
         allow_unproven,
         authorized_by.as_deref(),
         reason.as_deref(),
@@ -244,16 +247,24 @@ pub(crate) struct BuiltPack {
 /// [`run_pack`]'s own top-of-module doc for the full contract this implements (every side effect
 /// and stderr diagnostic below is identical to what `run_pack` always printed; this function is a
 /// pure extraction, not a behavior change).
+///
+/// `semantics` must be [`pg_foma::grammar_semantics::GrammarSemantics::derive`]d from `grammar`
+/// (task 7.11, `openspec/changes/cleanup-and-recipe-parity`). Taking it rather than deriving it
+/// here is what lets `pangloss make-report` — which needs the capability verdict in its own
+/// preamble, here, and again in `readiness_verdict::certify` — pay for the grammar walk once
+/// instead of three times.
+#[allow(clippy::too_many_arguments)] // one more grammar-derived input alongside `grammar` itself.
 pub(crate) fn build_pack(
     grammar_path: &str,
     grammar: &Grammar,
+    semantics: &GrammarSemantics<'_>,
     allow_unproven: bool,
     authorized_by: Option<&str>,
     reason: Option<&str>,
     watchdog: bool,
 ) -> Result<BuiltPack, String> {
     // ---- ADR 0001/0005: the capability-trust stamp ---------------------------------------------
-    let decision = evaluate_capability(grammar);
+    let decision = evaluate_capability_with_semantics(semantics);
     let capability_trust = match &decision {
         CompileDecision::Admit => {
             eprintln!(
