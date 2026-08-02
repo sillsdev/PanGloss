@@ -8,13 +8,29 @@ use pg_grammar::model::Grammar;
 use serde::{Deserialize, Serialize};
 
 use crate::enumerate::{CandidatePlan, EmissionStrategy};
+use crate::executable_candidate::{CandidateConstructionError, ExecutableCandidate};
 use crate::grammar_semantics::GrammarSemantics;
+use crate::mechanism_provider::derive_mechanism_graph;
 use crate::oracle::{
     permute_gate_groups, permute_union_children, refine_gate_partition, PartitionGranularity,
 };
 use crate::plan::{NodeId, Plan};
 
 pub const REGISTRY_SCHEMA_VERSION: u16 = 1;
+
+/// The witness that an [`ExecutableCandidate`] was built by the Registry (task 7.5).
+///
+/// Its only field is a private unit, declared in THIS module. That single fact is the whole
+/// enforcement: no other module -- in this crate or any other -- can name the field, so no other
+/// module can produce a value of this type, so no other module can call
+/// [`crate::executable_candidate::seal`]. It is deliberately neither `Copy` nor `Clone`, so an
+/// authority obtained for one candidate cannot be kept and reused to seal a second, unvalidated
+/// one.
+///
+/// This is the same shape task 7.3 used for [`crate::recipe_mechanism::MechanismBinding`] -- private
+/// fields plus a single constructor -- scaled up to a type whose validation lives in a different
+/// module from the type itself, where field privacy alone would not have reached.
+pub struct RegistryAuthority(());
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Parameter {
@@ -580,6 +596,53 @@ impl Registry {
             }
         }
         Ok(candidates)
+    }
+
+    /// Task 7.5: the SOLE constructor of a validated [`ExecutableCandidate`].
+    ///
+    /// Materializes `instance` exactly as [`Self::materialize_with_semantics`] does -- same
+    /// validation, same applicability re-check, same typed [`MaterializeError`], so nothing about
+    /// WHICH candidates a grammar is offered changes here -- and then binds the parts a
+    /// `CandidatePlan` never carried: a stable semantic digest, a portable round-trippable Plan
+    /// document and its digest, the exact lowering adapter, the runtime requirements the evaluator
+    /// already enforces, the mechanism graph with its per-adapter bindings, and the certification
+    /// scope those bindings license.
+    ///
+    /// The mechanism graph is derived from `semantics` alone, through
+    /// [`crate::mechanism_provider::derive_mechanism_graph`] -- task 7.4's rule that no provider may
+    /// reread the `Grammar` to decide applicability is inherited here rather than restated, because
+    /// this function has no other way to obtain a graph.
+    ///
+    /// # Refuses, never substitutes
+    /// Every failure is a [`CandidateConstructionError`]. If the named adapter cannot represent a
+    /// construct this grammar's mechanisms require, that is
+    /// [`CandidateConstructionError::MechanismRefused`] naming the mechanism and the adapter -- not
+    /// a quiet switch to a compiler that happens to work. A cheaper candidate can be a WRONG
+    /// candidate (Amharic's 2.2x-cheaper `identity-mismatch`), so a substitution made here would be
+    /// indistinguishable, downstream, from a measurement of the candidate that was asked for.
+    ///
+    /// # Reachable from no routing or selection path
+    /// Like [`crate::mechanism_provider`], this is additive: no applicability predicate, no
+    /// dispatch, and no evaluation in [`crate::recipe_runtime`] consumes an `ExecutableCandidate`
+    /// yet. Constructing one changes no outcome and makes nothing selectable that was not
+    /// selectable before; task 7.13 owns the migration of consumers onto it.
+    pub fn executable_candidate(
+        &self,
+        instance: &RecipeInstance,
+        context: &MaterializerContext<'_>,
+        semantics: &GrammarSemantics<'_>,
+    ) -> Result<ExecutableCandidate, CandidateConstructionError> {
+        let candidate = self
+            .materialize_with_semantics(instance, context, semantics)
+            .map_err(CandidateConstructionError::Materialize)?;
+        crate::executable_candidate::seal(
+            RegistryAuthority(()),
+            &instance.family_id,
+            instance,
+            &candidate.plan,
+            candidate.strategy,
+            derive_mechanism_graph(semantics),
+        )
     }
 
     pub fn canonical_json(&self) -> String {

@@ -132,6 +132,15 @@ pub mod emit;
 /// to `gate.rs`'s own, separate compile entry point; see that module's own doc for full scope and
 /// the judgment calls it surfaces.
 pub mod enumerate;
+/// Task 7.5 of `openspec/changes/cleanup-and-recipe-parity`: the validated
+/// [`executable_candidate::ExecutableCandidate`] and the portable, round-trippable
+/// [`executable_candidate::PortablePlan`] document it binds. Its sole constructor is
+/// [`recipe_registry::Registry::executable_candidate`], enforced by a
+/// [`recipe_registry::RegistryAuthority`] no other module can produce. Purely additive and
+/// reachable from no routing, applicability or evaluation path -- see that module's own doc for
+/// why the artifact identity is domain-framed SHA-256 rather than the plan's FNV root, and for the
+/// typed refusals that replace an implicit fallback.
+pub mod executable_candidate;
 /// P6 feasibility prototype sibling of [`replace`]/[`uflexc`]: static MPR/POS subrule gating (the
 /// `docs/fst-plan/p6-prototype-report.md` §6 item 4 gap). See that module's doc for the design and
 /// why it is a flag-free static partition rather than a flag-diacritics encoding.
