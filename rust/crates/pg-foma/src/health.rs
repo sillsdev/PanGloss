@@ -253,6 +253,14 @@ pub enum Metric {
     /// `crate::worker`'s own module doc "Sampled RSS is not a hard ceiling": allocation between
     /// samples means a reading below a guardrail is never proof the process stayed under it.
     SampledCompileRssBytes,
+    /// The compound HEAD x NON-HEAD root-allomorph cross product a grammar's `CompoundingRuleDef`s
+    /// license, checked against `crate::compose_budget::DEFAULT_COMPOUND_PAIR_BUDGET`
+    /// (`crate::compose_budget::ComposeError::CompoundPairBudgetExceeded`). Appended rather than
+    /// reusing [`Metric::AlphaTupleCount`] or [`Metric::EmittedLineCount`] for the same reason
+    /// [`Metric::OrderingRuleCount`]'s own doc gives: reusing a variant for an unrelated quantity
+    /// would make its stored meaning ambiguous forever in canonical JSON. No existing variant
+    /// renumbered or removed.
+    CompoundRootPairCount,
 }
 
 /// Whether a [`HealthFinding`]'s [`MetricValue`] is a heuristic estimate, a trustworthy proof, or

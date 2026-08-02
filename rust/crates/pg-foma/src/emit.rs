@@ -1176,7 +1176,7 @@ fn boundary_combining_run_symbols(table: &CharDefTable) -> BTreeSet<String> {
 
 // --- lexc source writing helpers -----------------------------------------------------------------
 
-fn write_lexicon_header(out: &mut String, name: &str) {
+pub(crate) fn write_lexicon_header(out: &mut String, name: &str) {
     out.push_str("\nLEXICON ");
     out.push_str(name);
     out.push('\n');
@@ -1184,7 +1184,7 @@ fn write_lexicon_header(out: &mut String, name: &str) {
 
 /// A bare continuation-only line (standard lexc idiom for a pure structural redirect — no symbols
 /// consumed on either tape).
-fn write_bare(out: &mut String, continuation: &str, counts: &mut EmitCounts) {
+pub(crate) fn write_bare(out: &mut String, continuation: &str, counts: &mut EmitCounts) {
     out.push_str(continuation);
     out.push_str(" ;\n");
     counts.lexc_lines += 1;
@@ -1538,13 +1538,13 @@ fn bare_admissible_roots<'a>(
 /// `Plan` yet (`crate::capability`'s own top doc: "purely additive... does not wire a gate into any
 /// production compile path") — this is the concrete stand-in the emitter itself consults, ahead of
 /// that wiring.
-struct CompoundLicense {
+pub(crate) struct CompoundLicense {
     /// Entries licensed to serve as a compound's HEAD stem by at least one `CompoundingRuleDef` in
     /// the grammar.
-    head_eligible: HashSet<LexEntryId>,
+    pub(crate) head_eligible: HashSet<LexEntryId>,
     /// Entries licensed to serve as a compound's NON-HEAD ("extra root") stem by at least one
     /// `CompoundingRuleDef` in the grammar.
-    non_head_eligible: HashSet<LexEntryId>,
+    pub(crate) non_head_eligible: HashSet<LexEntryId>,
 }
 
 /// Computes [`CompoundLicense`] for `g`, or `None` if `g` declares no `CompoundingRuleDef` at all
@@ -1589,7 +1589,7 @@ struct CompoundLicense {
 /// belong in propose"): `head_required_syn_fs`/`non_head_required_syn_fs` (syntactic-FS
 /// unification), `output_prod_restrictions_mpr`, `out_syn_fs`, `obligatory_features`, and the exact
 /// `head_lhs`/`non_head_lhs` pattern match itself. None of those narrow this function's result.
-fn compound_license(g: &Grammar) -> Option<CompoundLicense> {
+pub(crate) fn compound_license(g: &Grammar) -> Option<CompoundLicense> {
     let mut head_eligible: HashSet<LexEntryId> = HashSet::new();
     let mut non_head_eligible: HashSet<LexEntryId> = HashSet::new();
     let mut any_rule = false;
@@ -1694,38 +1694,60 @@ fn filter_roots_by_license<'a>(
 /// this one function (rather than writing a second unroller for the templated path) is what closes
 /// that gap without a second construction that can drift from this one.
 ///
-/// `write_root_entries`/`write_stripped_root_entries` are supplied by the caller (each emitter's own
-/// local closure, capturing that emitter's own `width`/tag-writing convention -- mirrors how
-/// `build_deriv_chain`'s callers already pass their own `mode`) rather than re-derived here, so this
-/// function never needs either emitter's own closure SHAPE. `write_stripped_root_entries` is only
-/// ever actually invoked when `phon.is_some()` (never true on the P6 templated path, module doc: "No
+/// `write_prefix_hop`/`write_root_entries`/`write_stripped_root_entries` are supplied by the caller
+/// (each emitter's own local closure, capturing that emitter's own `width`/tag-writing convention --
+/// mirrors how `build_deriv_chain`'s callers already pass their own `mode`) rather than re-derived
+/// here, so this function never needs any emitter's own closure SHAPE.
+/// `write_stripped_root_entries` is only ever actually invoked when `emit_stripped` (the caller's own
+/// `phon.is_some()`; never true on the P6 templated path or the `crate::uflexc` path, module doc: "No
 /// junction probing... under this mode"), so a caller with no real `Stripped` sibling can pass any
 /// closure with the right signature; it is provably never called there.
+///
+/// **Generic over the root record type `R` and the emitter-state type `C` (task: uflexc's own
+/// compound loop).** The third caller, [`crate::uflexc`], is a deliberately minimal
+/// `SegAlphabet`-token-space emitter that shares NONE of this module's emission state: it has no
+/// [`RootRec`] (its roots are `(tag, underlying-token)` pairs read straight off `Grammar::entries`),
+/// no [`PrecisionEmit`] (no FST precision knob at all), no [`PhonologyProbe`], and -- most
+/// importantly -- its own SELF-LOOPING prefix chain rather than this module's rule-count-bounded
+/// [`build_deriv_chain`] derivation layers (`crate::uflexc`'s own module doc states that difference
+/// as its defining property). Parameterizing this function over those three seams (root record,
+/// emitter state, prefix hop) is what lets uflexc reuse the part that would actually DRIFT -- the
+/// level naming, the `{base}{k}` / `{base}{k}Pfx` / `{base}{k}Roots` triple, the `{base}{k}Next`
+/// dispatcher, and the "last level exits to `exit`" rule -- without importing half of this module's
+/// emission machinery into it. Everything removed from the signature here (`g`, `table`, `phon`,
+/// `deriv_prefix`, `width`, `mode`, `uncovered`) is now captured by the caller's own prefix-hop
+/// closure, so this function got SMALLER, not larger, for gaining a third caller.
+///
+/// `write_prefix_hop(out, pfx_base, roots_name, counts, ctx)` must define the lexicon
+/// **`{pfx_base}0`** -- the name this function has already bare-redirected the level's entry lexicon
+/// to before calling it -- and every path through it must exit to `roots_name`.
+/// [`build_deriv_chain`] satisfies this by construction (it always defines `{prefix}0` and returns
+/// that name).
+///
 /// Shared shape of `build_compound_chain`'s `write_root_entries`/`write_stripped_root_entries`
 /// callback parameters (own doc above): each emitter's own local closure for writing one root
 /// group's lexc entries, capturing that emitter's `width`/tag-writing convention.
-type RootEntryWriter<'a> =
-    &'a dyn Fn(&mut String, &[&RootRec], &str, &mut EmitCounts, &mut PrecisionEmit);
+pub(crate) type RootEntryWriter<'a, R, C> = &'a dyn Fn(&mut String, &[&R], &str, &mut EmitCounts, &mut C);
+
+/// Shared shape of [`build_compound_chain`]'s per-level prefix-derivation hop (own doc above):
+/// `FnMut` rather than `Fn` because this module's own callers capture `&mut uncovered` in it.
+pub(crate) type CompoundPrefixHop<'a, C> =
+    &'a mut dyn FnMut(&mut String, &str, &str, &mut EmitCounts, &mut C);
 
 #[allow(clippy::too_many_arguments)]
-fn build_compound_chain(
+pub(crate) fn build_compound_chain<R, C>(
     out: &mut String,
-    g: &Grammar,
-    table: &CharDefTable,
     base: &str,
     levels: usize,
-    non_head_roots: &[&RootRec],
-    all_roots: &[&RootRec],
+    non_head_roots: &[&R],
+    all_roots: &[&R],
     exit: &str,
-    uncovered: &mut Vec<UncoveredItem>,
     counts: &mut EmitCounts,
-    phon: Option<&PhonologyProbe>,
-    deriv_prefix: &[MRuleId],
-    width: usize,
-    pk: &mut PrecisionEmit,
-    mode: TextMode<'_>,
-    write_root_entries: RootEntryWriter<'_>,
-    write_stripped_root_entries: RootEntryWriter<'_>,
+    ctx: &mut C,
+    emit_stripped: bool,
+    write_prefix_hop: CompoundPrefixHop<'_, C>,
+    write_root_entries: RootEntryWriter<'_, R, C>,
+    write_stripped_root_entries: RootEntryWriter<'_, R, C>,
 ) {
     let levels = levels.max(1);
     for k in 1..=levels {
@@ -1752,27 +1774,12 @@ fn build_compound_chain(
 
         write_lexicon_header(out, &entry_name);
         write_bare(out, &format!("{pfx_base}0"), counts);
-        build_deriv_chain(
-            out,
-            g,
-            table,
-            &pfx_base,
-            Role::Prefix,
-            deriv_prefix,
-            width,
-            &roots_name,
-            uncovered,
-            counts,
-            phon,
-            true,
-            pk,
-            mode,
-        );
+        write_prefix_hop(out, &pfx_base, &roots_name, counts, ctx);
         write_lexicon_header(out, &roots_name);
-        write_root_entries(out, non_head_roots, &continuation, counts, pk);
-        if phon.is_some() {
+        write_root_entries(out, non_head_roots, &continuation, counts, ctx);
+        if emit_stripped {
             write_lexicon_header(out, &format!("{roots_name}Stripped"));
-            write_stripped_root_entries(out, all_roots, &continuation, counts, pk);
+            write_stripped_root_entries(out, all_roots, &continuation, counts, ctx);
         }
 
         if k < levels {
@@ -1811,20 +1818,14 @@ fn compound_chain_depth_and_budget_check(
     uncovered: &[UncoveredItem],
     counts: &EmitCounts,
 ) -> Result<usize, EmitResult> {
-    let compound_depth_bound = crate::capability::characterize(g)
-        .compounding_details()
-        .map(|d| d.max_depth)
-        .max()
-        .unwrap_or(2);
-    let compound_extra_levels = compound_depth_bound.saturating_sub(1).max(1);
-
-    let chain_budget =
-        ComposeBudget::from_env().with_chain_depth_cap(compound_chain_depth_budget());
-    if let Err(ComposeError::ChainDepthExceeded { depth, limit, .. }) = chain_budget
-        .check_chain_depth(
-            compound_extra_levels,
-            "compound loop (extra non-head root levels)",
-        )
+    let compound_depth_bound = compound_depth_bound(g);
+    let (depth, limit) = match compound_extra_levels_checked(g) {
+        Ok(levels) => return Ok(levels),
+        Err(ComposeError::ChainDepthExceeded { depth, limit, .. }) => (depth, limit),
+        Err(other) => unreachable!(
+            "compound_extra_levels_checked only ever fails with ChainDepthExceeded: {other}"
+        ),
+    };
     {
         let reason = format!(
             "compound chain depth ({depth} extra non-head compound-root level(s), from a computed \
@@ -1847,8 +1848,39 @@ fn compound_chain_depth_and_budget_check(
                     limit,
                 }),
             },
-        });
+        })
     }
+}
+
+/// The grammar-wide total-stem bound `crate::capability::characterize` already computed for every
+/// `CompoundingRuleDef` (one source of truth -- this crate never re-derives it), defaulting to 2
+/// (head + one non-head) for a grammar whose rules declare nothing deeper.
+fn compound_depth_bound(g: &Grammar) -> usize {
+    crate::capability::characterize(g)
+        .compounding_details()
+        .map(|d| d.max_depth)
+        .max()
+        .unwrap_or(2)
+}
+
+/// [`compound_chain_depth_and_budget_check`]'s computation and budget check, with the TYPED
+/// [`ComposeError`] as its error rather than that function's `EmitResult` refusal payload -- what a
+/// caller whose own error type is `ComposeError` (`crate::uflexc`, whose whole public surface is
+/// `Result<UEmitReport, ComposeError>`) calls instead, so uflexc's compound loop shares this
+/// module's depth bound and budget discipline verbatim rather than re-deriving either.
+///
+/// `compound_chain_depth_and_budget_check` is now a thin front end onto this that additionally
+/// renders the `FomaTier::Unsupported`/`EnumBudgetExceeded` refusal the two `EmitResult`-returning
+/// emitters need -- the same "one construction, two presentations" split
+/// [`build_compound_chain`]'s own doc uses.
+pub(crate) fn compound_extra_levels_checked(g: &Grammar) -> Result<usize, ComposeError> {
+    let compound_extra_levels = compound_depth_bound(g).saturating_sub(1).max(1);
+    ComposeBudget::from_env()
+        .with_chain_depth_cap(compound_chain_depth_budget())
+        .check_chain_depth(
+            compound_extra_levels,
+            "compound loop (extra non-head root levels)",
+        )?;
     Ok(compound_extra_levels)
 }
 
@@ -3734,22 +3766,43 @@ fn emit_with_budget_profiled_with_strategy(
                 Some(license) => filter_roots_by_license(g, &all_roots, &license.non_head_eligible),
                 None => all_roots.clone(),
             };
+            // Task (uflexc compound loop): `build_compound_chain`'s per-level prefix hop is now a
+            // caller-supplied closure (that function's own doc) rather than a hardcoded
+            // `build_deriv_chain` call -- byte-identical output here, since this closure IS that
+            // call with the same arguments it used to receive as parameters.
+            let mut tl_prefix_hop = |out: &mut String,
+                                     pfx_base: &str,
+                                     roots_name: &str,
+                                     counts: &mut EmitCounts,
+                                     pk: &mut PrecisionEmit| {
+                build_deriv_chain(
+                    out,
+                    g,
+                    table,
+                    pfx_base,
+                    Role::Prefix,
+                    &deriv_prefix,
+                    width,
+                    roots_name,
+                    &mut uncovered,
+                    counts,
+                    phon.as_ref(),
+                    true,
+                    pk,
+                    TextMode::SurfaceProbed,
+                );
+            };
             build_compound_chain(
                 &mut out,
-                g,
-                table,
                 "TLCmp",
                 compound_extra_levels,
                 &tl_non_head_roots,
                 &all_roots,
                 "TLSfx0",
-                &mut uncovered,
                 &mut counts,
-                phon.as_ref(),
-                &deriv_prefix,
-                width,
                 &mut pk,
-                TextMode::SurfaceProbed,
+                phon.is_some(),
+                &mut tl_prefix_hop,
                 &write_root_entries,
                 &write_stripped_root_entries,
             );
@@ -3857,22 +3910,39 @@ fn emit_with_budget_profiled_with_strategy(
                 Some(license) => filter_roots_by_license(g, &all_roots, &license.non_head_eligible),
                 None => all_roots.clone(),
             };
+            let mut group_prefix_hop = |out: &mut String,
+                                        pfx_base: &str,
+                                        roots_name: &str,
+                                        counts: &mut EmitCounts,
+                                        pk: &mut PrecisionEmit| {
+                build_deriv_chain(
+                    out,
+                    g,
+                    table,
+                    pfx_base,
+                    Role::Prefix,
+                    &deriv_prefix,
+                    width,
+                    roots_name,
+                    &mut uncovered,
+                    counts,
+                    phon.as_ref(),
+                    true,
+                    pk,
+                    TextMode::SurfaceProbed,
+                );
+            };
             build_compound_chain(
                 &mut out,
-                g,
-                table,
                 &cmp_name,
                 compound_extra_levels,
                 &group_non_head_roots,
                 &all_roots,
                 &sfx_deriv_entry,
-                &mut uncovered,
                 &mut counts,
-                phon.as_ref(),
-                &deriv_prefix,
-                width,
                 &mut pk,
-                TextMode::SurfaceProbed,
+                phon.is_some(),
+                &mut group_prefix_hop,
                 &write_root_entries,
                 &write_stripped_root_entries,
             );
@@ -4736,22 +4806,39 @@ pub fn emit_underlying_templated(
                 Some(license) => filter_roots_by_license(g, &all_roots, &license.non_head_eligible),
                 None => all_roots.clone(),
             };
+            let mut tl_prefix_hop = |out: &mut String,
+                                     pfx_base: &str,
+                                     roots_name: &str,
+                                     counts: &mut EmitCounts,
+                                     pk: &mut PrecisionEmit| {
+                build_deriv_chain(
+                    out,
+                    g,
+                    table,
+                    pfx_base,
+                    Role::Prefix,
+                    &deriv_prefix,
+                    width,
+                    roots_name,
+                    &mut uncovered,
+                    counts,
+                    phon,
+                    true,
+                    pk,
+                    mode,
+                );
+            };
             build_compound_chain(
                 &mut out,
-                g,
-                table,
                 "TLCmp",
                 compound_extra_levels,
                 &tl_non_head_roots,
                 &all_roots,
                 "TLSfx0",
-                &mut uncovered,
                 &mut counts,
-                phon,
-                &deriv_prefix,
-                width,
                 &mut pk,
-                mode,
+                phon.is_some(),
+                &mut tl_prefix_hop,
                 &write_root_entries,
                 &write_stripped_root_entries_noop,
             );
@@ -4855,22 +4942,39 @@ pub fn emit_underlying_templated(
                 Some(license) => filter_roots_by_license(g, &all_roots, &license.non_head_eligible),
                 None => all_roots.clone(),
             };
+            let mut group_prefix_hop = |out: &mut String,
+                                        pfx_base: &str,
+                                        roots_name: &str,
+                                        counts: &mut EmitCounts,
+                                        pk: &mut PrecisionEmit| {
+                build_deriv_chain(
+                    out,
+                    g,
+                    table,
+                    pfx_base,
+                    Role::Prefix,
+                    &deriv_prefix,
+                    width,
+                    roots_name,
+                    &mut uncovered,
+                    counts,
+                    phon,
+                    true,
+                    pk,
+                    mode,
+                );
+            };
             build_compound_chain(
                 &mut out,
-                g,
-                table,
                 &cmp_name,
                 compound_extra_levels,
                 &group_non_head_roots,
                 &all_roots,
                 &sfx_deriv_entry,
-                &mut uncovered,
                 &mut counts,
-                phon,
-                &deriv_prefix,
-                width,
                 &mut pk,
-                mode,
+                phon.is_some(),
+                &mut group_prefix_hop,
                 &write_root_entries,
                 &write_stripped_root_entries_noop,
             );

@@ -569,6 +569,20 @@ pub enum ComposeError {
         limit: usize,
         site: &'static str,
     },
+    /// [`DEFAULT_COMPOUND_PAIR_BUDGET`]'s dimension, as a TYPED error rather than
+    /// `crate::emit`'s `FomaTier::Unsupported`/`EnumBudgetExceeded` refusal payload -- what
+    /// `crate::uflexc`'s own bounded compound loop returns, since that emitter's whole public
+    /// surface is `Result<UEmitReport, ComposeError>` and it has no `EmitResult` to refuse with.
+    /// Same quantity, same `HC_COMPOUND_PAIR_BUDGET` knob, same "check the search result before the
+    /// expensive part" discipline as `crate::emit`'s own check -- only the presentation differs
+    /// (`crate::emit::compound_extra_levels_checked`'s own doc makes the same split for the
+    /// chain-depth dimension).
+    CompoundPairBudgetExceeded {
+        heads: usize,
+        non_heads: usize,
+        pairs: usize,
+        limit: usize,
+    },
 }
 
 impl fmt::Display for ComposeError {
@@ -652,6 +666,20 @@ impl fmt::Display for ComposeError {
                  cover-unordered-morph-rules), never silently truncated; raise \
                  HC_COMPOSE_ORDERING_MULTIPLICITY_BUDGET only if you understand why this stratum's \
                  rule count is this large."
+            ),
+            ComposeError::CompoundPairBudgetExceeded {
+                heads,
+                non_heads,
+                pairs,
+                limit,
+            } => write!(
+                f,
+                "compound head x non-head root-pair cross product ({pairs} = {heads} heads x \
+                 {non_heads} licensed non-heads) exceeds HC_COMPOUND_PAIR_BUDGET (limit {limit}). \
+                 This grammar's compounding rule(s) license too large a cross product to safely \
+                 emit -- raise the budget only if you understand why this grammar's compounding is \
+                 this large, or fall back to another engine for this grammar. Never silently \
+                 truncated: an honest refusal, not a partial/unsound network."
             ),
         }
     }

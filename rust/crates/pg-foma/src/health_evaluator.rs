@@ -584,6 +584,29 @@ fn compose_error_finding(err: &ComposeError) -> HealthFinding {
             remedies: vec![retry_full_engine_remedy()],
             override_record: None,
         },
+        ComposeError::CompoundPairBudgetExceeded {
+            heads,
+            non_heads,
+            pairs,
+            limit,
+        } => HealthFinding {
+            code: FindingCode::ProvenBoundExceedsBudget,
+            severity: Severity::Critical,
+            phase: Phase::Compile,
+            affected: Vec::new(),
+            metric: Metric::CompoundRootPairCount,
+            value: MetricValue::Count(*pairs as u64),
+            provenance: ValueProvenance::ProvenBound,
+            threshold: Some(MetricValue::Count(*limit as u64)),
+            explanation: format!(
+                "This grammar's compounding rule(s) license {pairs} head x non-head root-allomorph \
+                 pairs ({heads} heads x {non_heads} licensed non-heads, limit {limit}) -- an exact \
+                 count proven to exceed the compound-pair budget before any compound lexc text was \
+                 written."
+            ),
+            remedies: vec![retry_full_engine_remedy()],
+            override_record: None,
+        },
     }
 }
 
