@@ -552,12 +552,13 @@ fn three_pipeline_gate_reports_proposal_ratio_violation_details() {
     assert_proposal_ratio(EmissionStrategy::PlanComposed, 7, 2);
 }
 
-/// RED-1: pins the compounding recall gap `uflexc.rs`'s module doc names --
+/// RED-1: pins the compounding recall gap `uflexc.rs`'s module doc used to name --
 /// `EmissionStrategy::PlanComposed` uses `uflexc::emit_underlying_filtered_with_budget` as its ONLY
-/// lexicon emitter (`build.rs`), and that emitter's continuation graph is structurally single-root
-/// (no arc from at-or-after `RootBare` back to `RootBare`/`PrefixOrRoot`), so it can never propose a
-/// compound no matter what a `MorphRuleDef::Compounding` rule says -- even though it now REPORTS the
-/// dropped rule via `skipped` (task 1 of this same change) rather than dropping it silently.
+/// lexicon emitter (`build.rs`), and that emitter's continuation graph WAS structurally single-root
+/// (no arc from at-or-after `RootBare` back to `RootBare`/`PrefixOrRoot`), so it could never propose
+/// a compound no matter what a `MorphRuleDef::Compounding` rule said. `uflexc`'s bounded compound
+/// loop (that module's own "Bounded compound loop" section) closes it; this test was written BEFORE
+/// that fix, deliberately un-shapeable by it, and is now un-`#[ignore]`d.
 ///
 /// Runs the already-staged `conformance-staging/edge-cases/compounding-non-recursive` fixture's
 /// two-stem positive witness `fasubel` (headA `fasu` + nonHeadOk `bel`, via the grammar's single
@@ -579,13 +580,6 @@ fn three_pipeline_gate_reports_proposal_ratio_violation_details() {
 /// support, which `emit_underlying_templated` -- `TemplatedUnderlyingTokens`'s own emitter --
 /// shares with the main surface-probed `emit()` path).
 #[test]
-#[ignore = "known recall gap, not a flaky test: PlanComposed's uflexc emitter is structurally \
-    single-root (uflexc.rs module doc) and can never propose a compound, so this cross-compiler \
-    equivalence check fails for it today (observed: HEADA+NONHEADOK is missing from PlanComposed's \
-    final candidate set for fasubel) while passing for TunedSurfaceProbed/TemplatedUnderlyingTokens \
-    (also observed). Un-ignore once uflexc gains a compound loop -- the task uflexc.rs's own module \
-    doc names ('What's covered / skipped') -- rather than deleting or loosening this test to make \
-    the suite green."]
 fn plan_composed_cannot_represent_compounding_construct_red1() {
     let fixture = discover()
         .into_iter()

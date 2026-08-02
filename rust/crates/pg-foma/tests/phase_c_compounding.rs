@@ -5,12 +5,15 @@
 //!
 //! See `pg_grammar_gen::build::compounding`'s own module doc for why recall-parity and the
 //! overbudget variant deliberately use TWO DIFFERENT emitters: `pg_foma::emit::emit` (production
-//! path, does support compounding, GATE 2's own precedent) for recall; `pg_foma::uflexc::
-//! emit_underlying_filtered_with_budget` (does NOT see compounding rules at all, by that module's
-//! own doc, but DOES incrementally count every root-entry line it writes) for the overbudget check
-//! -- an honest, deliberate choice: the vector that actually trips first here is plain root-entry
-//! COUNT (V4, synthetic-stress-grammar-plan.md §3), and compounding is simply the construct that
-//! motivated giving this vector its first gate.
+//! path, GATE 2's own precedent) for recall; `pg_foma::uflexc::
+//! emit_underlying_filtered_with_budget` (which DOES incrementally count every root-entry line it
+//! writes) for the overbudget check -- an honest, deliberate choice: the vector that actually trips
+//! first here is plain root-entry COUNT (V4, synthetic-stress-grammar-plan.md §3), and compounding
+//! is simply the construct that motivated giving this vector its first gate.
+//!
+//! `uflexc` DOES now represent compounding (its own "Bounded compound loop" section); it did not
+//! when this gate was written, and the overbudget check is unaffected either way because the
+//! root-entry lines it counts are all written BEFORE the compound section is reached.
 
 mod common;
 

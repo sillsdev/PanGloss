@@ -1727,7 +1727,8 @@ fn filter_roots_by_license<'a>(
 /// Shared shape of `build_compound_chain`'s `write_root_entries`/`write_stripped_root_entries`
 /// callback parameters (own doc above): each emitter's own local closure for writing one root
 /// group's lexc entries, capturing that emitter's `width`/tag-writing convention.
-pub(crate) type RootEntryWriter<'a, R, C> = &'a dyn Fn(&mut String, &[&R], &str, &mut EmitCounts, &mut C);
+pub(crate) type RootEntryWriter<'a, R, C> =
+    &'a dyn Fn(&mut String, &[&R], &str, &mut EmitCounts, &mut C);
 
 /// Shared shape of [`build_compound_chain`]'s per-level prefix-derivation hop (own doc above):
 /// `FnMut` rather than `Fn` because this module's own callers capture `&mut uncovered` in it.
@@ -1848,7 +1849,7 @@ fn compound_chain_depth_and_budget_check(
                     limit,
                 }),
             },
-        })
+        });
     }
 }
 
@@ -3910,28 +3911,29 @@ fn emit_with_budget_profiled_with_strategy(
                 Some(license) => filter_roots_by_license(g, &all_roots, &license.non_head_eligible),
                 None => all_roots.clone(),
             };
-            let mut group_prefix_hop = |out: &mut String,
-                                        pfx_base: &str,
-                                        roots_name: &str,
-                                        counts: &mut EmitCounts,
-                                        pk: &mut PrecisionEmit| {
-                build_deriv_chain(
-                    out,
-                    g,
-                    table,
-                    pfx_base,
-                    Role::Prefix,
-                    &deriv_prefix,
-                    width,
-                    roots_name,
-                    &mut uncovered,
-                    counts,
-                    phon.as_ref(),
-                    true,
-                    pk,
-                    TextMode::SurfaceProbed,
-                );
-            };
+            let mut group_prefix_hop =
+                |out: &mut String,
+                 pfx_base: &str,
+                 roots_name: &str,
+                 counts: &mut EmitCounts,
+                 pk: &mut PrecisionEmit| {
+                    build_deriv_chain(
+                        out,
+                        g,
+                        table,
+                        pfx_base,
+                        Role::Prefix,
+                        &deriv_prefix,
+                        width,
+                        roots_name,
+                        &mut uncovered,
+                        counts,
+                        phon.as_ref(),
+                        true,
+                        pk,
+                        TextMode::SurfaceProbed,
+                    );
+                };
             build_compound_chain(
                 &mut out,
                 &cmp_name,
@@ -4942,28 +4944,29 @@ pub fn emit_underlying_templated(
                 Some(license) => filter_roots_by_license(g, &all_roots, &license.non_head_eligible),
                 None => all_roots.clone(),
             };
-            let mut group_prefix_hop = |out: &mut String,
-                                        pfx_base: &str,
-                                        roots_name: &str,
-                                        counts: &mut EmitCounts,
-                                        pk: &mut PrecisionEmit| {
-                build_deriv_chain(
-                    out,
-                    g,
-                    table,
-                    pfx_base,
-                    Role::Prefix,
-                    &deriv_prefix,
-                    width,
-                    roots_name,
-                    &mut uncovered,
-                    counts,
-                    phon,
-                    true,
-                    pk,
-                    mode,
-                );
-            };
+            let mut group_prefix_hop =
+                |out: &mut String,
+                 pfx_base: &str,
+                 roots_name: &str,
+                 counts: &mut EmitCounts,
+                 pk: &mut PrecisionEmit| {
+                    build_deriv_chain(
+                        out,
+                        g,
+                        table,
+                        pfx_base,
+                        Role::Prefix,
+                        &deriv_prefix,
+                        width,
+                        roots_name,
+                        &mut uncovered,
+                        counts,
+                        phon,
+                        true,
+                        pk,
+                        mode,
+                    );
+                };
             build_compound_chain(
                 &mut out,
                 &cmp_name,
