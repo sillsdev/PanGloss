@@ -48,9 +48,11 @@
 //! once per strategy to recompute facts that are provably identical, re-introducing exactly the
 //! per-candidate cost `openspec/changes/cleanup-and-recipe-parity` task 7.11 removed -- and it
 //! would put a compiler fact inside a type whose whole contract is "pure function of `&Grammar`".
-//! So the strategy-dependent half is SPLIT OUT here instead. `crate::capability`'s own
-//! `two_strategies_get_their_own_answers_from_one_shared_semantics` test pins that the split
-//! actually delivers per-strategy answers through a single shared `GrammarSemantics`.
+//! So the strategy-dependent half is SPLIT OUT here instead.
+//! `tests/strategy_aware_capability_gate.rs`'s
+//! `two_strategies_get_their_own_answers_from_one_shared_semantics` pins that the split actually
+//! delivers per-strategy answers through a single shared `GrammarSemantics` -- in either asking
+//! order, so a memo poisoned by whoever asked first cannot pass it.
 
 use crate::capability::CharacteristicKind;
 use crate::enumerate::EmissionStrategy;
