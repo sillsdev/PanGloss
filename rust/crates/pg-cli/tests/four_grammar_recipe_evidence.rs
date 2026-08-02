@@ -278,6 +278,49 @@ fn four_promoted_grammars_have_truthful_recipe_evidence() {
         let report = run_fixture(fixture, &root);
         let candidates = report["candidates"].as_array().unwrap();
         assert!(!candidates.is_empty(), "{fixture}: no candidates evaluated");
+        // IN-BAND ELIGIBILITY DERIVATION, at the artifact boundary. The run must publish the ledger
+        // it derived from the RAW words file -- counts that reconcile, and the oracle configuration
+        // it was derived under. Without this an artifact reporting "zero exclusions" is
+        // indistinguishable from one handed a pre-filtered word list, which is precisely why the
+        // Amharic certification is labelled provisional.
+        let corpus = &report["corpus"];
+        assert!(
+            corpus.is_object(),
+            "{fixture}: the report must carry its corpus eligibility ledger, got {corpus:?}"
+        );
+        let requested = corpus["requested"].as_u64().unwrap();
+        let raw_lines = fs::read_to_string(word_file(fixture, &root))
+            .unwrap()
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .count() as u64;
+        assert_eq!(
+            requested, raw_lines,
+            "{fixture}: the ledger must account for every RAW corpus line"
+        );
+        assert_eq!(
+            requested,
+            corpus["included"].as_u64().unwrap() + corpus["excluded"].as_u64().unwrap(),
+            "{fixture}: requested must equal included + excluded"
+        );
+        assert!(
+            corpus["oracle_step_cap"].as_u64().unwrap() > 0,
+            "{fixture}: the ledger must state the step cap it classified under"
+        );
+        assert!(corpus["oracle_memory_ceiling_bytes"].as_u64().is_some());
+        assert!(corpus["oracle_liveness_net_ns"].as_u64().is_some());
+        assert!(
+            !corpus["exclusions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|exclusion| exclusion["reason"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .contains("timeout")),
+            "{fixture}: a wall-clock outcome must be unrepresentable as an exclusion: {:?}",
+            corpus["exclusions"]
+        );
         for candidate in candidates {
             let status = candidate["certification"]["status"].as_str().unwrap_or("");
             if status != "full-hc-confirmed" {
