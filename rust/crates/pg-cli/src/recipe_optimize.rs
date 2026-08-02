@@ -153,7 +153,7 @@ impl std::error::Error for RecipeOptimizeError {}
 
 pub fn parse_args(args: &[String]) -> Result<RecipeOptimizeArgs, RecipeOptimizeError> {
     if args.len() < 3 {
-        return Err(RecipeOptimizeError::Usage("usage: recipe-optimize <grammar> <words.txt> <out-dir> [--seed N] [--candidates N] [--evaluations N] [--elapsed-ns N] [--build-ns N] [--memory-bytes N] [--confirmation-work N] [--reserve-ns N] [--oracle-step-cap N] [--oracle-liveness-net-ms N] [--oracle-memory-ceiling-bytes N] [--search-all-families]".into()));
+        return Err(RecipeOptimizeError::Usage("usage: recipe-optimize <grammar> <words.txt> <out-dir> [--seed N] [--candidates N] [--evaluations N] [--elapsed-ns N] [--build-ns N] [--memory-bytes N] [--confirmation-work N] [--candidate-proposal-work N] [--reserve-ns N] [--oracle-step-cap N] [--oracle-liveness-net-ms N] [--oracle-memory-ceiling-bytes N] [--search-all-families]".into()));
     }
     let mut r = RecipeOptimizeArgs {
         grammar: args[0].clone(),
@@ -197,6 +197,17 @@ pub fn parse_args(args: &[String]) -> Result<RecipeOptimizeArgs, RecipeOptimizeE
             // budget. An `-ns` spelling would invite callers to pass a nanosecond figure and silently
             // get an astronomically large call allowance.
             "confirmation-work" => r.budget.confirmation = n,
+            // `-work`, not `-ns`, for exactly the reason stated immediately above: this allowance is
+            // a COUNT of proposals, not a duration. The naming distinction is the only thing
+            // stopping a caller from passing a nanosecond figure and silently buying an
+            // astronomically large allowance -- which for THIS flag would be worse than for
+            // `--confirmation-work`, since the whole point of it is to prune before the cost is
+            // paid, and an unreachable limit prunes nothing while looking like it does.
+            //
+            // Unlike every other budget flag on this command, this one is PER CANDIDATE: exceeding
+            // it abandons the offending candidate with a `budget-exceeded` certification and lets
+            // the run continue, rather than ending the run.
+            "candidate-proposal-work" => r.budget.candidate_proposals = n,
             "reserve-ns" => r.budget.reserve = n,
             // `RuntimeBudget`'s own doc explains why `None` here means "use the default", not
             // "unbounded" -- these two flags are the only way to override that default from the
@@ -305,6 +316,10 @@ impl CandidateEvaluator for Evaluator<'_> {
             RuntimeBudget {
                 build: Some(remaining.build),
                 confirmation: Some(remaining.confirmation),
+                // `remaining.candidate_proposals` is `budget.candidate_proposals` verbatim --
+                // `optimize_with_evaluator` never decrements it, because it is a per-candidate
+                // ceiling rather than a run allowance.
+                candidate_proposals: Some(remaining.candidate_proposals),
                 oracle_step_cap: self.oracle_step_cap,
                 oracle_liveness_net: self.oracle_liveness_net,
                 oracle_memory_ceiling: self.oracle_memory_ceiling,
@@ -585,6 +600,12 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
             RuntimeBudget {
                 build: Some(a.budget.build / 4),
                 confirmation: Some(a.budget.confirmation / 4),
+                // Passed through WHOLE, unlike the two quartered aggregates above. Those are shares
+                // of a run-wide allowance the pilot must not spend all of; this one is already
+                // per-candidate, and a pilot candidate is a candidate. Quartering it would make the
+                // pilot abandon candidates the search would then evaluate happily -- the pilot runs
+                // on a SUBSET of the corpus, so its proposal totals are already smaller.
+                candidate_proposals: Some(a.budget.candidate_proposals),
                 oracle_step_cap: a.oracle_step_cap,
                 oracle_liveness_net: a.oracle_liveness_net,
                 oracle_memory_ceiling: a.oracle_memory_ceiling,

@@ -22,6 +22,39 @@ pub struct Budget {
     pub confirmation: u64,
     /// Portion of `elapsed` reserved for finalist confirmation.
     pub reserve: u64,
+    /// PER-CANDIDATE proposal allowance, measured as proposals generated. `u64::MAX` (the default)
+    /// is unbounded.
+    ///
+    /// # Why this is not one of the aggregate dimensions above
+    /// Every other field here is a whole-run allowance that [`Self::admits`] compares against a
+    /// running [`BudgetUsage`], and `optimize_with_evaluator` hands each candidate what is LEFT of
+    /// it. This one is deliberately neither: it is a per-candidate ceiling, passed through
+    /// undecremented exactly like `reserve`, and it is not in `admits` because exceeding it is not
+    /// a statement about the run — it abandons ONE candidate and the run continues.
+    ///
+    /// # Why it exists when `confirmation` and `build` already do
+    /// Neither of them can prune a runaway propose phase, and that is where the cost actually is.
+    /// Measured on Sena's 250-word probe: the plan-composed candidates generated **14,826,003
+    /// proposals** against **16,815** for the whole-grammar compilers (~880x), which scales to
+    /// roughly six hours PER CANDIDATE over the 4,030-row eligible corpus. `confirmation` bounds
+    /// full-HC confirmation CALLS, which happen only after the proposals exist — the cost is
+    /// already spent before that budget can trip (verified: `--confirmation-work 60000` over the
+    /// full eligible corpus still banked zero candidates in three hours). `build` bounds the build.
+    /// `elapsed` kills the whole run rather than abandoning one candidate.
+    ///
+    /// # Why proposals and not nanoseconds
+    /// The same reason [`Score::key`] ranks work rather than wall-clock: a proposal count is exactly
+    /// reproducible where `apply` varies 6-20% run to run, so a `budget-exceeded` verdict is a
+    /// property of the compilation rather than of the machine and the load it was measured under.
+    /// The measurement above also shows the axis is the right one — cost per proposal is comparable
+    /// between the runaway and the well-behaved compilers (~91k ns vs ~62k ns), so the 880x blowup
+    /// is in the COUNT, and bounding the count bounds the time to within that constant.
+    #[serde(default = "unbounded_candidate_proposals")]
+    pub candidate_proposals: u64,
+}
+
+fn unbounded_candidate_proposals() -> u64 {
+    u64::MAX
 }
 
 impl Default for Budget {
@@ -34,6 +67,7 @@ impl Default for Budget {
             memory: u64::MAX,
             confirmation: u64::MAX,
             reserve: 0,
+            candidate_proposals: u64::MAX,
         }
     }
 }
@@ -53,6 +87,12 @@ impl Budget {
         self.elapsed.saturating_sub(self.reserve)
     }
 
+    /// Whether the RUN's aggregate usage is still inside its allowance.
+    ///
+    /// `candidate_proposals` is deliberately absent: it is a per-candidate ceiling, not a run
+    /// aggregate, and `BudgetUsage` carries no proposal total to compare it against. Folding it in
+    /// would make one expensive candidate terminate the whole search as `BudgetExhausted`, which is
+    /// precisely the `--elapsed-ns` behaviour this budget exists to avoid.
     pub fn admits(&self, usage: BudgetUsage) -> bool {
         usage.candidates <= self.candidates
             && usage.evaluations <= self.evaluations
@@ -284,6 +324,49 @@ pub enum Certification {
         dimension: String,
         value: u64,
         limit: u64,
+    },
+    /// The candidate exceeded its PER-CANDIDATE apply/propose budget ([`Budget::candidate_proposals`])
+    /// and was ABANDONED partway through the corpus. Serializes as `"status": "budget-exceeded"`.
+    ///
+    /// # This is "expensive", never "wrong"
+    /// It is emitted from the propose loop, strictly before any comparison against the oracle
+    /// happens, so it can only ever mean "this cost too much" — it can never be produced by a
+    /// candidate disagreeing with the ground truth. That separation is the point: an
+    /// [`Self::IdentityMismatch`] blames a candidate for being WRONG, and a candidate that is merely
+    /// expensive must never be recorded that way.
+    ///
+    /// # And it never silently absorbs one
+    /// Abandoning early does mean this candidate's certification never ran, so a candidate that is
+    /// both expensive AND wrong lands here rather than on a mismatch. `words_evaluated` /
+    /// `words_requested` make that legible rather than silent: they are unequal exactly when the
+    /// corpus was not finished, so a reader can tell "compared against the whole corpus and
+    /// disagreed" from "stopped before comparing". Raising the budget re-runs the candidate to a
+    /// real verdict. What must NOT happen — and structurally cannot — is a candidate whose cost is
+    /// inside the budget being reported as anything other than its true certification: the budget is
+    /// a pure cost gate that is never consulted once the corpus is finished.
+    ///
+    /// # Non-selectable
+    /// Like every non-`FullHcConfirmed` variant, [`Self::selectable`] is `false`, so an abandoned
+    /// candidate cannot win and cannot enter the Pareto frontier. It is nonetheless a REPORTED
+    /// outcome — it appears in `progress.jsonl`, in the report's candidate table, and in
+    /// `report.json` — because a silently missing candidate is "I could not look" reading as a
+    /// result.
+    BudgetExceeded {
+        /// Which per-candidate budget tripped, in [`Score`]'s vocabulary for the same quantity.
+        /// A `String` rather than a closed enum so that adding a second bounded dimension later
+        /// needs no new variant and no report-schema change.
+        dimension: String,
+        /// The allowance that was in force.
+        limit: u64,
+        /// The running total at the moment the candidate was abandoned. Always `> limit`, and may
+        /// overshoot by up to one corpus occurrence's contribution: the budget is checked after each
+        /// occurrence, because a partially applied occurrence has no meaningful count.
+        observed: u64,
+        /// How many eligible corpus occurrences had been applied when the candidate was abandoned.
+        words_evaluated: u64,
+        /// How many the eligible corpus holds. `words_evaluated < words_requested` is the signal
+        /// that certification never ran for this candidate.
+        words_requested: u64,
     },
     IdentityMismatch {
         word: String,
@@ -852,6 +935,12 @@ pub fn optimize_with_evaluator(
             memory: budget.memory.saturating_sub(usage.memory_peak),
             confirmation: budget.confirmation.saturating_sub(usage.confirmation),
             reserve: budget.reserve,
+            // Undecremented, exactly like `reserve`: this is a per-candidate ceiling, so every
+            // candidate gets the same one. Subtracting a previous candidate's proposals from it
+            // would make the budget depend on evaluation ORDER -- the later a candidate is
+            // evaluated, the less it is allowed -- which is the candidate-independence property the
+            // rest of this pipeline is built to keep.
+            candidate_proposals: budget.candidate_proposals,
         };
         let evidence = evaluator.evaluate(candidate, remaining);
         usage.candidates = usage.candidates.saturating_add(1);
