@@ -4,7 +4,7 @@
 //! paths or the peeler's internal residual queries.  This keeps the evidence tied to the same
 //! candidate identities that the confirmation stage actually receives.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use pg_conformance_fixtures::{discover, Root};
 use pg_foma::enumerate::{CandidatePlan, EmissionStrategy};
@@ -671,6 +671,147 @@ fn plan_composed_cannot_represent_compounding_construct_red1() {
             certification.selectable(),
             "{:?} produced a final candidate set for the compounding fixture's two-stem word that \
              differs from the oracle -- {:?}",
+            plan.strategy,
+            certification
+        );
+    }
+}
+
+/// RED-2: pins the compounding discrimination `pg_parse::identity::AnalysisIdentity` makes
+/// load-bearing via `root_index` -- two analyses of the SAME word, with the SAME ordered morpheme
+/// sequence and the SAME output category, differing ONLY in which morpheme is the compound's
+/// head/root. This is NOT the same claim RED-1 pins (RED-1 is "a compound gets proposed at all");
+/// RED-2 is "when TWO headedness readings of the SAME surface form both exist, does the strategy
+/// retain BOTH, not just one."
+///
+/// This discrimination is invisible to the flat `morphs|surface` signature string every other
+/// staged fixture (including RED-1's own `compounding-non-recursive`) diffs against:
+/// `pg_parse::result_signature`/`BatchCommand.BuildSignature` joins bare `MorphemeId`s with no root
+/// marker at all, so `conformance-staging/edge-cases/head-ambiguous-compounding`'s two `dakimo`
+/// readings both render to the identical string `"DAK+IMO|dakimo"` (see that fixture's own
+/// `words.yaml` header note). A words.yaml-only pin of this fixture is therefore an ANNOTATION, not
+/// an assertion -- a human note claiming "these two identical-looking entries differ in headedness"
+/// that nothing machine-checks. The assertion below is the first-class one: it compares
+/// deduplicated [`pg_parse::identity::AnalysisIdentity`] SETS via [`certify_corpus`], exactly as
+/// RED-1 already does -- `AnalysisIdentity` carries `root_index`, so `certify_corpus` was already
+/// root-index-aware, just never exercised by a fixture where the flat signature string alone
+/// couldn't tell the difference.
+///
+/// Runs the newly-staged `head-ambiguous-compounding` fixture's two-reading witness `dakimo`
+/// (crLeftHead's dak-headed reading, root_index 0; crRightHead's imo-headed reading, root_index 1)
+/// through all three `REQUIRED_STRATEGIES`, built directly as `CandidatePlan`s exactly as RED-1
+/// does: this fixture likewise declares no phonological rules and no templates, so
+/// `Registry`/`Applicability::HasPhonologyOrTemplates` would never auto-offer
+/// `TemplatedUnderlyingTokens` for it (that gate controls what the OPTIMIZER auto-proposes, not
+/// what a compiler can legally be asked to build), and `recipe_runtime::
+/// evaluate_plans_marked_with_cache_mode`'s own dispatch proves sharing one baseline `Plan` across
+/// all three is safe (the two whole-grammar strategies ignore `plan` entirely).
+///
+/// **OBSERVED** (verified by running this test): all three strategies -- `PlanComposed`,
+/// `TunedSurfaceProbed`, and `TemplatedUnderlyingTokens` -- retain BOTH headedness readings for
+/// `dakimo`, matching the oracle's own two-reading `AnalysisIdentity` set exactly.
+/// `EmissionStrategy::PlanComposed`'s bounded compound loop (`uflexc.rs`) closes RED-1's
+/// single-root recall gap generally enough that headedness ambiguity survives too, not merely
+/// generic compound proposal -- so this fixture is committed un-`#[ignore]`d as a green regression
+/// guard, not a pinned gap.
+#[test]
+fn plan_composed_distinguishes_headedness_ambiguity_red2() {
+    let fixture = discover()
+        .into_iter()
+        .find(|fixture| {
+            fixture.root == Root::Staging && fixture.name == "head-ambiguous-compounding"
+        })
+        .expect("missing pinned synthetic fixture head-ambiguous-compounding");
+    let grammar = pg_grammar::load(&fixture.load_grammar_xml()).expect("fixture must load");
+    let pinned_words = fixture
+        .load_words_yaml()
+        .words
+        .into_iter()
+        .map(|word| word.word)
+        .collect::<Vec<_>>();
+    let word = "dakimo".to_owned();
+    assert!(
+        pinned_words.contains(&word),
+        "the headedness-ambiguity word must come from the pinned fixture: {pinned_words:?}"
+    );
+    let words = vec![word];
+
+    let alphabet = SegAlphabet::new(&grammar.char_tables[0]);
+    let prules = grammar
+        .strata
+        .iter()
+        .flat_map(|stratum| {
+            stratum
+                .prules
+                .iter()
+                .map(|id| &grammar.prules[id.0 as usize])
+        })
+        .collect::<Vec<_>>();
+    let baseline_plan = enumerate_default(
+        &grammar,
+        &alphabet,
+        &prules,
+        PhonologyProbe::new(&grammar).as_ref(),
+    );
+
+    let plans: Vec<CandidatePlan> = REQUIRED_STRATEGIES
+        .iter()
+        .map(|&strategy| CandidatePlan {
+            label: "red2-head-ambiguous-compounding",
+            plan: baseline_plan.clone(),
+            strategy,
+        })
+        .collect();
+    let is_baseline = plans
+        .iter()
+        .map(|plan| plan.strategy == EmissionStrategy::PlanComposed)
+        .collect::<Vec<_>>();
+
+    let mut cache = RunEvaluationCache::prepare(&grammar, &words, RuntimeBudget::default())
+        .expect("oracle preparation must succeed for this fixture");
+    let observed = evaluate_plans_marked_observed_with_cache(
+        &grammar,
+        &plans,
+        &words,
+        RuntimeBudget::default(),
+        &is_baseline,
+        &mut cache,
+    );
+    assert_eq!(observed.len(), plans.len());
+
+    let mut oracle: Option<Vec<(String, Vec<pg_parse::WordAnalysis>)>> = None;
+    for (plan, observation) in plans.iter().zip(&observed) {
+        assert_eq!(observation.requested_strategy, plan.strategy);
+        let evidence = observation.words.as_ref().unwrap_or_else(|| {
+            panic!(
+                "{:?} evaluation failed outright: {:?}",
+                plan.strategy, observation.evaluation
+            )
+        });
+        let oracle = oracle.get_or_insert_with(|| expected_multiset(evidence));
+
+        // Sanity: the fixture's own oracle (full-HC parser) must retain both headedness readings
+        // -- this is the fixture's own claim, checked before asking anything of the strategy under
+        // test. A regression here would mean the FIXTURE stopped being ambiguous, not the compiler.
+        let oracle_roots: BTreeSet<i32> = oracle
+            .iter()
+            .find(|(w, _)| w == "dakimo")
+            .map(|(_, analyses)| analyses.iter().map(|a| a.root_morpheme_index).collect())
+            .unwrap_or_default();
+        assert_eq!(
+            oracle_roots,
+            BTreeSet::from([0, 1]),
+            "the fixture's own oracle must retain both headedness readings for dakimo \
+             (root_index 0 and 1); got {oracle_roots:?}"
+        );
+
+        let actual = actual_multiset(evidence);
+        let certification = certify_corpus(&grammar, oracle.as_slice(), &actual);
+        assert!(
+            certification.selectable(),
+            "{:?} produced a final candidate set for the headedness-ambiguity word that differs \
+             from the oracle -- must retain BOTH readings (dak-headed root_index=0 AND imo-headed \
+             root_index=1), not just one -- {:?}",
             plan.strategy,
             certification
         );

@@ -1,0 +1,127 @@
+# STAGING: head-ambiguous-compounding
+
+## Why this fixture exists
+
+`rust/crates/pg-parse/src/identity.rs`'s `AnalysisIdentity` makes `root_index` — "which morpheme is
+the root" — a load-bearing field of an analysis's identity, distinct from `morphemes` (the ordered
+sequence) and `category`. The Sena defect that led to `uflexc` (the `PlanComposed` lexicon emitter)
+gaining a bounded compound loop (`feat(pg-foma): give uflexc a bounded compound loop`, 97d0ef7) was
+first diagnosed as "a compound went missing" and only became precise once root position was
+considered: the FST proposer's continuation graph was structurally single-root, so it could never
+propose ANY compound, regardless of headedness. The existing RED-1 gate
+(`cross_compiler_equivalence_gate.rs::plan_composed_cannot_represent_compounding_construct_red1`,
+using `conformance-staging/edge-cases/compounding-non-recursive`) pins the *generic* recall gap that
+fix closed, but that fixture has only ONE compounding rule and no headedness ambiguity — nothing in
+the existing suite exercises **two analyses of the same word, with the same morpheme sequence and
+the same category, differing only in `root_index`**, which is exactly the shape that turned a vague
+symptom into a precise diagnosis on the real defect. This fixture closes that gap.
+
+## What it pins
+
+`HeadAmbiguousCompounding`'s grammar has two parts of speech (`posH`, `posN`) and two mirrored,
+POS-symmetric `CompoundingRule`s over one lexical entry per POS (`dak`:`posH`, `imo`:`posN`):
+
+- `crLeftHead` (`headPartsOfSpeech="posH"` `nonHeadPartsOfSpeech="posN"` `outputPartOfSpeech="posH"`,
+  output copies head-then-nonhead) instantiates to `dak`(head)+`imo`(nonhead) = surface `dakimo`,
+  root/head = `dak` (`root_index` 0).
+- `crRightHead` (`headPartsOfSpeech="posN"` `nonHeadPartsOfSpeech="posH"` `outputPartOfSpeech="posH"`,
+  output copies nonhead-then-head) instantiates to `dak`(nonhead)+`imo`(head) = surface `dakimo`
+  (same surface — nonhead is copied first), root/head = `imo` (`root_index` 1).
+
+Both rules fire on the SAME surface order deliberately — that symmetry is the entire point. The
+resulting two analyses of `dakimo` share the identical ordered morpheme sequence `[DAK, IMO]` and the
+identical output category (`posH`, from both rules' `outputPartOfSpeech`), differing ONLY in
+`root_morpheme_index` (0 vs. 1).
+
+- `dak`/`imo`: bare-root controls, one per lexical entry.
+- `dakimo`: **the headedness-ambiguity witness** — two analyses, `root_index` 0 and 1.
+- `imodak`: **`expect_fail: true`** negative control — both rules always copy material in an order
+  that yields `dakimo` (never the reverse), so this surface has no valid derivation. Proves the two
+  mirrored rules do not also license the mirror-order surface, keeping the fixture's ambiguity
+  confined to headedness alone.
+
+## Single-segmentation verification
+
+The fixture's headedness pin is only clean if `dakimo` has exactly one morpheme split — otherwise a
+second segmentation would reintroduce generic ambiguity and the fixture would stop isolating root
+position specifically. Verified by construction: the lexicon contains exactly two entries, `dak`
+and `imo`, each 3 characters, and no affixation rules exist at all (compounding is the only
+morphological construct in this grammar). The only concatenations of the two entries (each used at
+most once, per the two subrules' own single-head/single-nonhead shape) are `dak+dak="dakdak"`,
+`imo+imo="imoimo"`, `imo+dak="imodak"`, and `dak+imo="dakimo"` — of these four, only `dak+imo`
+equals the surface string `dakimo`, and it equals it in only one way (there is no other partition of
+the 6-character string `dakimo` into two known lexical entries: `da`/`kimo`, `d`/`akimo`, etc. do not
+match either entry). This was additionally confirmed empirically (not just by hand-argument): the
+throwaway oracle dump below returned exactly `morpheme_ids=[0, 1]` (`DAK` then `IMO`) for BOTH
+`dakimo` analyses — never a different split — and `imodak` returned zero analyses, confirming the
+mirror-order surface has no derivation either.
+
+## Why the pin is a Rust assertion, not `words.yaml`
+
+`words.yaml`'s `parses[].signature` field is the flat `BatchCommand`-style string
+(`pg_parse::result_signature`: bare `MorphemeId`s joined with `+`, then `|surface`) — it carries no
+root marker at all. Both `dakimo` readings here render to the byte-identical string
+`"DAK+IMO|dakimo"`, so `words.yaml` can only record that the oracle returns **two** analyses for
+`dakimo` (matching this suite's own documented "identical rendered signatures are kept not deduped"
+convention — see `pg_parse::result_signature`'s doc comment) — it cannot record that those two
+analyses differ in headedness. That would be an ANNOTATION: a human note asserting a distinction
+nothing machine-checks, exactly the failure mode this task was written to avoid.
+
+The first-class assertion lives in
+`rust/crates/pg-foma/tests/cross_compiler_equivalence_gate.rs`'s
+`plan_composed_distinguishes_headedness_ambiguity_red2` (RED-2): it compares deduplicated
+`pg_parse::identity::AnalysisIdentity` SETS via `certify_corpus` (`AnalysisIdentity` carries
+`root_index`, `morphemes`, and `category` as typed fields), first asserting the oracle itself
+retains both `root_index` values (0 and 1) for `dakimo`, then asserting each of the three emission
+strategies' own final, oracle-certified candidate set matches — i.e. genuinely offers BOTH readings,
+not one duplicated.
+
+## Deliberate choice: hand-built `CandidatePlan`s, not `Registry`/`Applicability`
+
+Like RED-1, RED-2 builds each strategy's `CandidatePlan` directly rather than going through
+`Registry::seeded()`/`recipe_registry::Applicability`: this fixture declares no phonological rules
+and no templates, so `Applicability::HasPhonologyOrTemplates` would never auto-offer
+`TemplatedUnderlyingTokens` for it — that gate controls what the OPTIMIZER auto-proposes, not what a
+compiler can legally be asked to build. Sharing one baseline `Plan` across all three strategies is
+safe for the same reason RED-1 cites: `recipe_runtime::evaluate_plans_marked_with_cache_mode`'s own
+dispatch shows the two whole-grammar strategies (`TunedSurfaceProbed`, `TemplatedUnderlyingTokens`)
+ignore the `plan` field entirely, and only `PlanComposed` ever reads it.
+
+## Oracle discipline
+
+**Oracle: `pangloss` (this repo's own Rust engine), NOT the C# founding oracle.** Authored fresh for
+this task; `words.yaml` signatures and the `root_morpheme_index` values above were captured by
+driving `pg_parse::Morpher::parse_word` directly (a throwaway in-repo test — see "Verification"
+below), matching every other fixture in this suite's own documented oracle-discipline note (machine
+acceptance must re-verify against the C# founding oracle before graduation).
+
+## Verification
+
+Signatures and `root_morpheme_index` values were captured via a throwaway test
+(`rust/crates/pg-parse/tests/zz_throwaway_red2_sig_dump.rs`, deleted after transcription) driving
+`pg_parse::Morpher::parse_word` directly over `dak`, `imo`, `dakimo`, and `imodak`, using the SAME
+grammar this directory's `grammar.xml` ships. Observed output (transcribed verbatim):
+
+```
+word="dak" invalid_shape=false signature="DAK|dak"
+  [0] morpheme_ids=[0] root_morpheme_index=0 pos_id=Some(0)
+word="imo" invalid_shape=false signature="IMO|imo"
+  [0] morpheme_ids=[1] root_morpheme_index=0 pos_id=Some(1)
+word="dakimo" invalid_shape=false signature="DAK+IMO|dakimo;DAK+IMO|dakimo"
+  [0] morpheme_ids=[0, 1] root_morpheme_index=0 pos_id=Some(0)
+  [1] morpheme_ids=[0, 1] root_morpheme_index=1 pos_id=Some(0)
+word="imodak" invalid_shape=false signature="-"
+```
+
+This confirms the fixture's whole premise empirically: `dakimo` yields exactly two analyses, same
+`morpheme_ids`, same `pos_id`, `root_morpheme_index` 0 and 1 — and `imodak` yields none.
+`plan_composed_distinguishes_headedness_ambiguity_red2` (RED-2, see above) additionally runs all
+three `EmissionStrategy` pipelines against this same fixture and reports — **as observed, not
+predicted** — that all three retain both readings, matching the oracle's own two-`AnalysisIdentity`
+set exactly. The test is committed un-`#[ignore]`d as a green regression guard.
+
+## Graduation
+
+Not yet proposed upstream. Candidate destination:
+`machine/conformance/edge-cases/head-ambiguous-compounding/`. On acceptance, delete this staged copy
+in the same change (graduation guard enforces this mechanically).

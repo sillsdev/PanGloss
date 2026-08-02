@@ -1,0 +1,66 @@
+# Synthetic construct-shaped mimic -- see STAGING.md and grammar.xml's own header comment. Oracle:
+# pangloss (`pg_parse::Morpher`, driven directly -- see STAGING.md's "Verification" section), NOT the
+# C# founding oracle -- authored and verified against this repo's own Rust engine only. Signatures
+# below are transcribed verbatim from that run, not hand-derived.
+#
+# IMPORTANT: this fixture's load-bearing pin (root_index discrimination) is NOT expressible in the
+# `signature:` strings below -- `pg_parse::result_signature`/`BatchCommand.BuildSignature` joins bare
+# `MorphemeId`s with no root marker, so both readings of `dakimo` (crLeftHead's dak-headed reading and
+# crRightHead's imo-headed reading) render to the IDENTICAL string "DAK+IMO|dakimo". The two entries
+# under `dakimo` below are therefore an ANNOTATION only (matching this suite's own documented
+# "identical rendered signatures are kept not deduped" convention -- see `pg_parse::result_signature`'s
+# doc comment and `identical_rendered_signatures_are_kept_not_deduped`) -- they pin that the oracle
+# returns TWO analyses, not that those two analyses actually differ in headedness. The first-class,
+# machine-checked assertion that the two analyses are genuinely distinct `AnalysisIdentity`s (same
+# `morphemes`, same `category`, `root_index` 0 vs 1) lives in
+# `rust/crates/pg-foma/tests/cross_compiler_equivalence_gate.rs`'s RED-2 test, which is what actually
+# gates on the headedness discrimination this fixture exists to pin.
+
+language: HeadAmbiguousCompounding
+inspired_by: ["synthetic headedness-ambiguous compounding probe (not modeling any real language)"]
+sources:
+  - "rust/crates/pg-parse/src/identity.rs (AnalysisIdentity::root_index)"
+  - "rust/crates/pg-foma/tests/cross_compiler_equivalence_gate.rs (RED-1's uflexc compound-loop fix)"
+requires: []
+words:
+  - word: dak
+    note: DAK bare root, no compounding -- a plain control.
+    parses:
+      - signature: "DAK|dak"
+        rules: []
+
+  - word: imo
+    note: IMO bare root, no compounding -- a plain control.
+    parses:
+      - signature: "IMO|imo"
+        rules: []
+
+  - word: dakimo
+    note: >-
+      THE headedness-ambiguity witness. "dakimo" has exactly one morpheme split (DAK's lexical entry
+      is the only 3-character prefix in the lexicon, IMO's the only matching remainder; see
+      STAGING.md's "single-segmentation verification" for the explicit by-construction argument), so
+      the ONLY remaining ambiguity is which morpheme is the compound's head/root. crLeftHead
+      (head=posH=DAK, nonhead=posN=IMO, output copies head-then-nonhead) and crRightHead
+      (head=posN=IMO, nonhead=posH=DAK, output copies nonhead-then-head) both instantiate to the same
+      surface "dakimo" and the same output category posH, but crLeftHead's derivation has DAK as the
+      head/root (root_index 0) and crRightHead's has IMO as the head/root (root_index 1). Both
+      analyses render to the identical flat signature "DAK+IMO|dakimo" -- see this file's header note
+      and STAGING.md for why the real assertion is a dedicated Rust test, not this signature string.
+    provenance: "rust/crates/pg-parse/src/identity.rs AnalysisIdentity::root_index"
+    parses:
+      - signature: "DAK+IMO|dakimo"
+        rules: [crLeftHead]
+      - signature: "DAK+IMO|dakimo"
+        rules: [crRightHead]
+
+  - word: imodak
+    note: >-
+      Negative control: the mirror-order concatenation. Both compounding rules here always copy
+      material in an order that yields "dakimo" (crLeftHead: head-then-nonhead = DAK-then-IMO;
+      crRightHead: nonhead-then-head = DAK-then-IMO), so neither rule -- nor any other combination of
+      the two lexical entries -- ever produces "imodak". Proves the two mirrored rules do not also
+      license the reverse surface order, keeping the fixture's ambiguity confined to headedness alone.
+    provenance: "rust/crates/pg-parse/src/identity.rs AnalysisIdentity::root_index"
+    expect_fail: true
+    blocked_by: [crLeftHead, crRightHead]
