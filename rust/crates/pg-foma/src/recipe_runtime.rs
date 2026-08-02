@@ -6,6 +6,7 @@ use crate::compose_budget::{ComposeBudget, ComposeError};
 use crate::composite::FomaAnalyzer;
 use crate::emit::surface_table;
 use crate::enumerate::{CandidatePlan, EmissionStrategy};
+use crate::parity::{certified_occurrence, OccurrenceIdentities, ParitySide};
 use crate::recipe_optimizer::{Certification, CorpusCompletenessEvidence, CorpusExclusion, Score};
 use crate::replace::SegAlphabet;
 use crate::tags::Candidate;
@@ -201,6 +202,21 @@ pub struct WordEvidence {
     /// The final deduplicated candidate vector sent to confirmation for this word. This is
     /// populated only by the opt-in observed evaluator; ordinary optimizer runs do not retain it.
     pub proposals: Vec<Candidate>,
+    /// The oracle's deduplicated identity set for THIS occurrence, carrying the duplicate-path
+    /// count and the guessed/supplied annotations that deduplication erased.
+    ///
+    /// This is the evidence half of the parity relation: [`certify_word`] compares only the
+    /// identities, so without this the report could not say that a candidate found one analysis by
+    /// five paths where the oracle found it by one — a real and useful property of the compilation
+    /// that the verdict is deliberately blind to.
+    ///
+    /// `None` means the projection FAILED for this occurrence, which is exactly the case in which
+    /// the certification is a [`crate::parity::ParityFault`]-derived truncation. It never means
+    /// "no analyses"; that is `Some` of an empty set.
+    pub expected_identities: Option<OccurrenceIdentities>,
+    /// The candidate's deduplicated identity set for this occurrence. Same contract as
+    /// [`Self::expected_identities`].
+    pub actual_identities: Option<OccurrenceIdentities>,
 }
 
 /// Read-only evidence returned by the opt-in observed evaluator. `None` means evaluation failed
@@ -256,35 +272,87 @@ pub fn check_proposal_ratio(
     }
 }
 
-/// Compare analyses as multisets: order is irrelevant, multiplicity is not.
+/// How many identities a mismatch detail names before it stops listing them.
+///
+/// The detail string goes into a report and a pathological word can disagree about thousands of
+/// analyses; an unbounded list would make the report unreadable and the log enormous without
+/// telling a reader anything the first few do not. The counts, which are what a reader actually
+/// acts on, are always exact.
+const MISMATCH_DETAIL_SAMPLE: usize = 4;
+
+/// Compare one word occurrence's analyses as **deduplicated
+/// [`pg_parse::identity::AnalysisIdentity`] sets**.
+///
+/// This is [`crate::parity`]'s relation applied; read that module for why it is the relation. The
+/// two things it is NOT are worth restating at the call site, because both were previously what
+/// this function did:
+///
+/// - It is not full `WordAnalysis` structural equality. Two analyses differing only in fields
+///   `AnalysisIdentity` does not capture (`syn_fs`, `mpr`, the per-morpheme supplied-root slots) are
+///   the SAME analysis, and this function now says so.
+/// - It is not multiset equality. Multiplicity is not part of the relation, so a candidate that
+///   reached one identity by three derivational paths agrees with an oracle that reached it by one.
+///   The collapsed-path count survives as evidence on [`WordEvidence`], not as a verdict.
+///
+/// Deduplication is strictly WITHIN this one occurrence. Corpus rows are separate observations;
+/// [`certify_corpus`] never compares one row against another.
+///
+/// A projection failure or a v1-scope refusal comes back as a non-selectable
+/// [`Certification::Truncated`] naming the fault and the side it was found on — never as a
+/// mismatch, which would report an internal fault as a grammar disagreement.
 pub fn certify_word(
+    grammar: &Grammar,
     word: impl Into<String>,
-    expected: Vec<WordAnalysis>,
-    actual: Vec<WordAnalysis>,
+    expected: &[WordAnalysis],
+    actual: &[WordAnalysis],
 ) -> Certification {
     let word = word.into();
-    if expected.len() != actual.len() {
-        return Certification::MultiplicityMismatch {
-            word,
-            expected: expected.len() as u64,
-            actual: actual.len() as u64,
+    let expected_identities = match certified_occurrence(expected, grammar, ParitySide::Oracle) {
+        Ok(identities) => identities,
+        Err(fault) => {
+            return Certification::Truncated {
+                stage: fault.stage(),
+                corpus: None,
+            }
+        }
+    };
+    let actual_identities = match certified_occurrence(actual, grammar, ParitySide::Candidate) {
+        Ok(identities) => identities,
+        Err(fault) => {
+            return Certification::Truncated {
+                stage: fault.stage(),
+                corpus: None,
+            }
+        }
+    };
+    if expected_identities.same_identities(&actual_identities) {
+        return Certification::FullHcConfirmed {
+            words: 1,
+            corpus_hash: "runtime".into(),
         };
     }
-    let mut remaining = actual;
-    for (i, e) in expected.iter().enumerate() {
-        if let Some(p) = remaining.iter().position(|a| a == e) {
-            remaining.remove(p);
-        } else {
-            return Certification::IdentityMismatch {
-                word,
-                detail: format!("analysis {i} has no matching actual analysis: {e:?}"),
-            };
-        }
+    Certification::IdentityMismatch {
+        word,
+        detail: describe_set_difference(&expected_identities, &actual_identities),
     }
-    Certification::FullHcConfirmed {
-        words: 1,
-        corpus_hash: "runtime".into(),
-    }
+}
+
+fn describe_set_difference(
+    expected: &OccurrenceIdentities,
+    actual: &OccurrenceIdentities,
+) -> String {
+    let oracle_only = expected.identities_absent_from(actual);
+    let candidate_only = actual.identities_absent_from(expected);
+    format!(
+        "deduplicated identity sets differ: oracle has {} distinct identities, candidate has {}; \
+         {} oracle-only, {} candidate-only. oracle-only sample: {:?}; candidate-only sample: {:?}",
+        expected.len(),
+        actual.len(),
+        oracle_only.len(),
+        candidate_only.len(),
+        &oracle_only[..oracle_only.len().min(MISMATCH_DETAIL_SAMPLE)],
+        &candidate_only[..candidate_only.len().min(MISMATCH_DETAIL_SAMPLE)],
+    )
 }
 
 fn corpus_completeness_evidence(
@@ -295,7 +363,14 @@ fn corpus_completeness_evidence(
     CorpusCompletenessEvidence::from_selection(requested, included, exclusions.to_vec())
 }
 
+/// Certify a whole corpus, one OCCURRENCE at a time.
+///
+/// The row-by-row zip is load-bearing and is NOT what changed here: repeated corpus rows are
+/// separate observations of the same word, never deduplicated against each other, so the row count
+/// and the row order both remain part of the relation. Only the WITHIN-row comparison moved to
+/// deduplicated identity-set equality.
 pub fn certify_corpus(
+    grammar: &Grammar,
     expected: &[(String, Vec<WordAnalysis>)],
     actual: &[(String, Vec<WordAnalysis>)],
 ) -> Certification {
@@ -316,11 +391,8 @@ pub fn certify_corpus(
                         corpus: None,
                     });
                 }
-                let verdict = certify_word(
-                    expected_word,
-                    expected_analyses.clone(),
-                    actual_analyses.clone(),
-                );
+                let verdict =
+                    certify_word(grammar, expected_word, expected_analyses, actual_analyses);
                 (!verdict.selectable()).then_some(verdict)
             },
         )
@@ -451,6 +523,7 @@ pub struct RuntimeEvaluation {
 #[allow(clippy::too_many_arguments)]
 fn measure_and_certify(
     realized_strategy: EmissionStrategy,
+    grammar: &Grammar,
     analyzer: &mut FomaAnalyzer,
     words: &[String],
     expected: &[(String, Vec<WordAnalysis>)],
@@ -461,6 +534,7 @@ fn measure_and_certify(
 ) -> RuntimeEvaluation {
     measure_and_certify_inner::<false>(
         realized_strategy,
+        grammar,
         analyzer,
         words,
         expected,
@@ -475,6 +549,7 @@ fn measure_and_certify(
 #[allow(clippy::too_many_arguments)]
 fn measure_and_certify_observed(
     realized_strategy: EmissionStrategy,
+    grammar: &Grammar,
     analyzer: &mut FomaAnalyzer,
     words: &[String],
     expected: &[(String, Vec<WordAnalysis>)],
@@ -485,6 +560,7 @@ fn measure_and_certify_observed(
 ) -> EvaluatedPlan {
     measure_and_certify_inner::<true>(
         realized_strategy,
+        grammar,
         analyzer,
         words,
         expected,
@@ -499,6 +575,7 @@ fn measure_and_certify_observed(
 #[allow(clippy::too_many_arguments)]
 fn measure_and_certify_inner<const OBSERVE: bool>(
     realized_strategy: EmissionStrategy,
+    grammar: &Grammar,
     analyzer: &mut FomaAnalyzer,
     words: &[String],
     expected: &[(String, Vec<WordAnalysis>)],
@@ -567,7 +644,7 @@ fn measure_and_certify_inner<const OBSERVE: bool>(
             value: v,
             limit: l,
         },
-        _ => match certify_corpus(expected, &actual) {
+        _ => match certify_corpus(grammar, expected, &actual) {
             Certification::FullHcConfirmed {
                 words: word_count, ..
             } => Certification::FullHcConfirmed {
@@ -582,14 +659,24 @@ fn measure_and_certify_inner<const OBSERVE: bool>(
             .iter()
             .zip(actual.into_iter())
             .zip(proposals)
-            .map(
-                |(((word, expected), (_, actual)), proposals)| WordEvidence {
+            .map(|(((word, expected), (_, actual)), proposals)| {
+                // Projected again here rather than threaded out of `certify_corpus`: this is the
+                // opt-in observed path only, the projection is a handful of string clones per
+                // analysis, and keeping the certification path free of an evidence out-parameter is
+                // worth more than the saving. `.ok()` is correct rather than lossy -- a projection
+                // that fails here failed there too, and the certification already carries the typed
+                // fault.
+                let expected_identities = OccurrenceIdentities::project(expected, grammar).ok();
+                let actual_identities = OccurrenceIdentities::project(&actual, grammar).ok();
+                WordEvidence {
                     word: word.clone(),
                     expected: expected.clone(),
                     actual,
                     proposals,
-                },
-            )
+                    expected_identities,
+                    actual_identities,
+                }
+            })
             .collect()
     });
     EvaluatedPlan {
@@ -697,6 +784,7 @@ fn evaluate_via_tuned_emit_mode<const OBSERVE: bool>(
     if OBSERVE {
         measure_and_certify_observed(
             EmissionStrategy::TunedSurfaceProbed,
+            grammar,
             &mut analyzer,
             words,
             expected,
@@ -709,6 +797,7 @@ fn evaluate_via_tuned_emit_mode<const OBSERVE: bool>(
         EvaluatedPlan {
             evaluation: measure_and_certify(
                 EmissionStrategy::TunedSurfaceProbed,
+                grammar,
                 &mut analyzer,
                 words,
                 expected,
@@ -779,6 +868,7 @@ fn evaluate_via_templated_emit_mode<const OBSERVE: bool>(
     if OBSERVE {
         measure_and_certify_observed(
             EmissionStrategy::TemplatedUnderlyingTokens,
+            grammar,
             &mut analyzer,
             words,
             expected,
@@ -791,6 +881,7 @@ fn evaluate_via_templated_emit_mode<const OBSERVE: bool>(
         EvaluatedPlan {
             evaluation: measure_and_certify(
                 EmissionStrategy::TemplatedUnderlyingTokens,
+                grammar,
                 &mut analyzer,
                 words,
                 expected,
@@ -1056,6 +1147,7 @@ fn evaluate_plans_marked_with_cache_mode<const OBSERVE: bool>(
             let measured = if OBSERVE {
                 measure_and_certify_observed(
                     EmissionStrategy::PlanComposed,
+                    grammar,
                     &mut analyzer,
                     words,
                     &expected,
@@ -1068,6 +1160,7 @@ fn evaluate_plans_marked_with_cache_mode<const OBSERVE: bool>(
                 EvaluatedPlan {
                     evaluation: measure_and_certify(
                         EmissionStrategy::PlanComposed,
+                        grammar,
                         &mut analyzer,
                         words,
                         &expected,
@@ -1144,54 +1237,263 @@ fn evaluate_plans_marked_with_cache_mode<const OBSERVE: bool>(
         .collect()
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
+    //! The parity relation, exercised at the certification seam.
+    //!
+    //! These used to run against hand-built `WordAnalysis` values with no grammar at all, because
+    //! full structural equality needs no model. Deduplicated identity comparison DOES need one --
+    //! the whole point is that dense ordinals are projected to stable source keys -- so they now
+    //! compile `test_support::PARITY_FIXTURE_XML`, three unrelated entries whose only job is to give
+    //! three morpheme ordinals something to resolve to.
+
     use super::*;
+    use crate::test_support::{parity_analysis, parity_fixture_grammar};
+
     fn wa(n: u32) -> WordAnalysis {
+        parity_analysis(n)
+    }
+
+    /// Same identity as `wa(n)`, differing only in `mpr` -- a field `AnalysisIdentity` does not
+    /// capture and `WordAnalysis::Eq` does.
+    fn wa_other_mpr(n: u32) -> WordAnalysis {
         WordAnalysis {
-            morpheme_ids: vec![n],
-            root_morpheme_index: 0,
-            pos_id: None,
-            syn_fs: pg_featstruct::FeatureStruct::EMPTY,
-            mpr: pg_grammar::model::MprSet::EMPTY,
-            guessed: false,
-            provenance: pg_parse::AnalysisProvenance::Grammar,
-            supplied_root: None,
-            morpheme_roots: vec![None],
+            mpr: pg_grammar::model::MprSet(1),
+            ..wa(n)
         }
     }
-    #[test]
-    fn reordered_equal_multiset() {
-        assert!(certify_word("w", vec![wa(1), wa(2)], vec![wa(2), wa(1)]).selectable());
+
+    fn fixture() -> Grammar {
+        parity_fixture_grammar()
     }
+
     #[test]
-    fn identity_mismatch() {
+    fn order_is_irrelevant() {
+        let g = fixture();
+        assert!(certify_word(&g, "w", &[wa(0), wa(1)], &[wa(1), wa(0)]).selectable());
+    }
+
+    #[test]
+    fn analyses_differing_only_outside_identity_are_the_same_analysis() {
+        // THE behavior change. `wa(0)` and `wa_other_mpr(0)` are unequal as `WordAnalysis` values
+        // (different `mpr`), so the old full-structural comparison called this an
+        // `IdentityMismatch`. `AnalysisIdentity` captures ordered stable morpheme keys, root
+        // position, and category -- `mpr` is engine-internal payload, not identity -- so the two
+        // engines agree here and must certify.
+        let g = fixture();
+        assert_ne!(wa(0), wa_other_mpr(0), "the fixture must actually differ");
+        let verdict = certify_word(&g, "w", &[wa(0)], &[wa_other_mpr(0)]);
+        assert!(
+            verdict.selectable(),
+            "identity-invisible payload must not read as disagreement: {verdict:?}"
+        );
+    }
+
+    #[test]
+    fn genuinely_different_identities_still_disagree() {
+        // The other side of the change: widening the equivalence must not make everything equal.
+        // Different morphemes are different identities.
+        let g = fixture();
         assert!(matches!(
-            certify_word("w", vec![wa(1)], vec![wa(2)]),
+            certify_word(&g, "w", &[wa(0)], &[wa(1)]),
+            Certification::IdentityMismatch { .. }
+        ));
+        // ... and so is the same morpheme sequence at a different root position.
+        let original = WordAnalysis {
+            morpheme_ids: vec![0, 1],
+            root_morpheme_index: 0,
+            morpheme_roots: vec![None, None],
+            ..wa(0)
+        };
+        let moved = WordAnalysis {
+            root_morpheme_index: 1,
+            ..original.clone()
+        };
+        assert!(matches!(
+            certify_word(&g, "w", &[original], &[moved]),
             Certification::IdentityMismatch { .. }
         ));
     }
+
     #[test]
-    fn multiplicity_mismatch() {
-        assert!(matches!(
-            certify_word("w", vec![wa(1), wa(1)], vec![wa(1)]),
-            Certification::MultiplicityMismatch { .. }
-        ));
+    fn duplicate_paths_collapse_without_changing_the_verdict() {
+        // Replaces `multiplicity_mismatch`, which asserted that expected=[x, x] against actual=[x]
+        // is a `MultiplicityMismatch`. That guarantee is no longer wanted: the project's parity
+        // relation is deduplicated identity SET equality, so an oracle that reached one analysis by
+        // two derivational paths and a candidate that reached it by one have found the same set and
+        // agree. Multiplicity was never evidence of a grammar difference; it is evidence about
+        // redundant proposal work, which the next test keeps.
+        let g = fixture();
+        assert!(certify_word(&g, "w", &[wa(0), wa(0)], &[wa(0)]).selectable());
+        assert!(certify_word(&g, "w", &[wa(0)], &[wa(0), wa(0), wa(0)]).selectable());
     }
+
     #[test]
-    fn duplicate_corpus_words_preserve_occurrence_multiplicity() {
-        let expected = vec![("w".into(), vec![wa(1)]), ("w".into(), vec![wa(2)])];
-        assert!(certify_corpus(&expected, &expected).selectable());
-        let changed = vec![("w".into(), vec![wa(1)]), ("w".into(), vec![wa(1)])];
+    fn collapsed_duplicate_paths_survive_as_evidence() {
+        // The verdict ignores duplicate paths; the evidence must not lose them, or "these agree"
+        // would be indistinguishable from "these agree and one side did three times the work".
+        let g = fixture();
+        let projected =
+            crate::parity::OccurrenceIdentities::project(&[wa(0), wa(0), wa(0)], &g).unwrap();
+        assert_eq!(projected.len(), 1);
+        assert_eq!(projected.entries()[0].duplicate_paths, 3);
+        assert_eq!(projected.collapsed_paths(), 2);
+    }
+
+    #[test]
+    fn repeated_corpus_rows_stay_separate_observations() {
+        // Deduplication is WITHIN an occurrence. Two rows for the same word are two observations,
+        // and a candidate that disagrees on the second row fails even though the union of both
+        // rows' identities would match.
+        let g = fixture();
+        let expected = vec![("w".into(), vec![wa(0)]), ("w".into(), vec![wa(1)])];
+        assert!(certify_corpus(&g, &expected, &expected).selectable());
+        let changed = vec![("w".into(), vec![wa(0)]), ("w".into(), vec![wa(0)])];
         assert!(matches!(
-            certify_corpus(&expected, &changed),
+            certify_corpus(&g, &expected, &changed),
             Certification::IdentityMismatch { .. }
         ));
+        // Collapsing the two rows into one would also change the ROW COUNT, which is refused
+        // outright rather than certified against a shorter corpus.
+        let collapsed = vec![("w".to_string(), vec![wa(0), wa(1)])];
+        assert!(matches!(
+            certify_corpus(&g, &expected, &collapsed),
+            Certification::Truncated { .. }
+        ));
     }
+
+    #[test]
+    fn a_projection_failure_is_a_typed_fault_never_a_mismatch_and_never_a_pass() {
+        // An analysis referencing a morpheme its own model lacks is an internal inconsistency. Both
+        // wrong answers are excluded here: reporting it as a mismatch would blame the grammar for an
+        // engine bug, and -- the more dangerous one -- the two sides here are IDENTICAL, so any
+        // comparison that projects lazily or not at all calls this a full confirmation.
+        let g = fixture();
+        let unresolvable = wa(9_999);
+        let verdict = certify_word(
+            &g,
+            "w",
+            std::slice::from_ref(&unresolvable),
+            std::slice::from_ref(&unresolvable),
+        );
+        assert!(
+            !verdict.selectable(),
+            "an unprojectable analysis must never certify: {verdict:?}"
+        );
+        assert!(
+            matches!(&verdict, Certification::Truncated { stage, .. }
+                if stage == "identity-projection-failed-oracle"),
+            "expected a typed projection truncation naming its side, got {verdict:?}"
+        );
+        // A candidate-side-only fault is named as such, so a report can tell which engine is broken.
+        let candidate_side = certify_word(&g, "w", &[wa(0)], std::slice::from_ref(&unresolvable));
+        assert!(
+            matches!(&candidate_side, Certification::Truncated { stage, .. }
+                if stage == "identity-projection-failed-candidate"),
+            "got {candidate_side:?}"
+        );
+    }
+
+    #[test]
+    fn guessing_is_refused_by_the_v1_certification_scope() {
+        let g = fixture();
+        let guessed = WordAnalysis {
+            guessed: true,
+            ..wa(0)
+        };
+        // Identical on both sides, so a comparison that only compared would confirm.
+        let verdict = certify_word(
+            &g,
+            "w",
+            std::slice::from_ref(&guessed),
+            std::slice::from_ref(&guessed),
+        );
+        assert!(
+            matches!(&verdict, Certification::Truncated { stage, .. }
+                if stage == "guessing-refused-oracle"),
+            "a guessed analysis must be refused, not certified: {verdict:?}"
+        );
+        let by_provenance = WordAnalysis {
+            provenance: pg_parse::AnalysisProvenance::Guessed,
+            ..wa(0)
+        };
+        assert!(
+            matches!(
+                certify_word(&g, "w", &[wa(0)], std::slice::from_ref(&by_provenance)),
+                Certification::Truncated { ref stage, .. } if stage == "guessing-refused-candidate"
+            ),
+            "the provenance tag must be refused on its own, not only the boolean"
+        );
+    }
+
+    #[test]
+    fn supplied_roots_are_refused_by_the_v1_certification_scope() {
+        let g = fixture();
+        let supplied = WordAnalysis {
+            provenance: pg_parse::AnalysisProvenance::Supplied {
+                entry_id: "runtime-entry".into(),
+            },
+            ..wa(0)
+        };
+        let verdict = certify_word(
+            &g,
+            "w",
+            std::slice::from_ref(&supplied),
+            std::slice::from_ref(&supplied),
+        );
+        assert!(
+            matches!(&verdict, Certification::Truncated { stage, .. }
+                if stage == "supplied-root-refused-oracle"),
+            "a supplied root must be refused, not certified: {verdict:?}"
+        );
+    }
+
+    #[test]
+    fn a_total_lexical_miss_reaches_the_oracle_as_a_miss_not_a_guess() {
+        // `PreparedCorpus::prepare` builds its oracle with `Morpher::new` (no `SuppliedRootOverlay`)
+        // and reads it through `parse_word` (`ParseOptions::default()`, `guess_root: false`), so a
+        // word the lexicon cannot reach comes back with zero analyses rather than a fabricated root.
+        //
+        // NOTE ON WHAT THIS DOES AND DOES NOT PROVE: this is a preservation guard, not the v1 scope
+        // gate. It passes both before and after this change, and on a fixture carrying no lexical
+        // patterns it could not distinguish `guess_root: true` from `false` anyway. The scope is
+        // ENFORCED by the two refusal tests above, which fail before this change; this one exists so
+        // that a future edit swapping `parse_word` for `parse_word_opts(.., guess_root)` or
+        // attaching an overlay is caught at the oracle rather than only at the refusal.
+        let g = fixture();
+        let miss = vec!["cb".to_string()];
+        let prepared = PreparedCorpus::prepare(&g, &miss, RuntimeBudget::default());
+        let selection = prepared.select(&miss);
+        assert!(
+            selection.exclusions.is_empty(),
+            "an unanalyzable word is comparable, not excluded: {:?}",
+            selection.exclusions
+        );
+        let analyses = &selection.expected[0].1;
+        assert!(
+            analyses.iter().all(|a| !a.guessed
+                && a.supplied_root.is_none()
+                && matches!(a.provenance, pg_parse::AnalysisProvenance::Grammar)),
+            "the oracle must produce grammar-provenance analyses only: {analyses:?}"
+        );
+    }
+
+    #[test]
+    fn a_corpus_of_only_unanalyzable_words_is_still_refused() {
+        // The vacuous-pass guard: agreeing about nothing is not agreement. Unchanged by the move to
+        // set equality -- an empty set equals an empty set, which is exactly why this guard exists.
+        let g = fixture();
+        assert!(matches!(
+            certify_corpus(&g, &[("w".into(), vec![])], &[("w".into(), vec![])]),
+            Certification::Truncated { ref stage, .. } if stage == "no-analyzable-words"
+        ));
+    }
+
     #[test]
     fn missing_truncated() {
+        let g = fixture();
         assert!(matches!(
-            certify_corpus(&[("w".into(), vec![])], &[]),
+            certify_corpus(&g, &[("w".into(), vec![])], &[]),
             Certification::Truncated { .. }
         ));
     }

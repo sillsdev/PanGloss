@@ -18,10 +18,15 @@ bumpalo.workspace = true
 smallvec.workspace = true
 rayon.workspace = true
 serde.workspace = true
+# `identity.rs`'s canonical JSON form (`AnalysisIdentity::to_canonical_value`). Produced through
+# serde rather than hand-built so a deserialized expectation and a projected analysis cannot drift
+# into digesting differently -- see that module's own doc. Moved here with the module when it
+# relocated out of `pg-assess` so `pg-foma` could share one projector without depending on the
+# assessment layer.
+serde_json.workspace = true
 
 [dev-dependencies]
 pg-conformance-fixtures.workspace = true
-serde_json.workspace = true
 
 [features]
 # OFF by default — never part of a normal `cargo build`. `pg-ffi`'s abort-safety test (plan §8

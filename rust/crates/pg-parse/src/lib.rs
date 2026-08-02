@@ -9,12 +9,14 @@
 
 pub mod batch;
 pub mod guess;
+pub mod identity;
 pub mod morpher;
 pub mod overlay;
 pub mod root_trie;
 pub mod surface;
 
 pub use batch::{hc_parse_batch, BatchWordOutcome};
+pub use identity::{AnalysisIdentity, IdentityError, MorphemeKey, IDENTITY_PROFILE};
 pub use morpher::{GenMorpheme, Morpher, ParseOptions, ParseOutcome, SynthesisBudget};
 pub use overlay::{RootAuthority, SuppliedRoot, SuppliedRootOverlay};
 pub use root_trie::{RootAllomorphIndex, RootAllomorphTrie};

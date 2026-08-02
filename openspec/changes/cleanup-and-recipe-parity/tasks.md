@@ -214,6 +214,18 @@ mechanism extractor and separate executable-artifact direction must not be imple
       excluded counts, deterministic word-list hashes, and per-row exclusion reasons on its existing
       truncated outcome. This does not implement or mark complete the versioned snapshot/scope and
       identity migration; that remains the follow-up owner for this task.
+      Slice note (2026-08-01, second): the recipe runtime's COMPARISON is now `AnalysisIdentity` v1
+      deduplicated set equality per occurrence, replacing full `WordAnalysis` structural equality and
+      vector multiplicity (`pg-foma::parity`, `recipe_runtime::certify_word`/`certify_corpus`). The
+      projector moved to `pg-parse` (`pg_parse::identity`) and `pg-assess` re-exports it, so it is one
+      shared definition with no `pg-foma -> pg-assess` dependency. Duplicate paths and guessed/
+      supplied annotations are retained as separate typed evidence
+      (`parity::IdentityEvidence`, `WordEvidence::{expected,actual}_identities`), supplied roots and
+      guessing are refused as typed non-selectable faults, and a projection failure is a typed fault
+      rather than a mismatch. Still NOT done, and still owned here: the versioned `CorpusSnapshot`/
+      `CertificationScope` schema binding profile, authority, source/model revision, semantic digest,
+      options, and normalization; the transitional `CorpusCompletenessEvidence` remains in place
+      unchanged.
 - [ ] 7.13 Add portable Plan serialization/SHA-256 identity, exact adapter lowering, and run-scoped
       lowered-candidate reuse; delete `CandidatePlan`, `EmissionStrategy`, positional baseline state,
       duplicate runtime artifacts, implicit fallback, and fake zero measurements.

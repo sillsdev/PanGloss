@@ -370,8 +370,8 @@ fn pinned_three_pipeline_equivalence_observes_final_candidates_and_preserves_cac
     let oracle = oracle.expect("the gate must observe one oracle evidence vector");
     for (strategy, actual) in actual_by_strategy {
         assert!(
-            certify_corpus(&oracle, &actual).selectable(),
-            "{strategy:?} confirmed multiset differs from the oracle"
+            certify_corpus(&grammar, &oracle, &actual).selectable(),
+            "{strategy:?} confirmed identity set differs from the oracle"
         );
     }
 }

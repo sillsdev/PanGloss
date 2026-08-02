@@ -15,7 +15,6 @@ pub mod delta;
 pub mod digest;
 pub mod golden;
 pub mod handoff;
-pub mod identity;
 pub mod jcs;
 pub mod model;
 pub mod outcome;
@@ -39,13 +38,23 @@ pub use handoff::{
     HandoffRequest, InvestigationHandoff, MissingAnalysis, MissingAnalysisCause, NarrativeStep,
     SourceIdKind, HANDOFF_SCHEMA, HANDOFF_SCHEMA_VERSION,
 };
-pub use identity::{AnalysisIdentity, IdentityError, MorphemeKey, IDENTITY_PROFILE};
 pub use jcs::{canonicalize, JcsError};
 pub use model::{model_fingerprint, source_sha256, SourceKind, MODEL_PROJECTION};
 pub use outcome::{
     derive_status, AssessmentStatus, BudgetDimension, CaseOutcome, IncompleteReason,
     NotAttemptedReason,
 };
+/// The identity projection, re-exported from its owning crate.
+///
+/// It USED to be `pg_assess::identity`, a module of this crate. It moved to `pg-parse` — the crate
+/// that owns [`pg_parse::WordAnalysis`], the thing it projects — so `pg-foma` could express the
+/// recipe parity relation with the SAME projector instead of either depending on this crate (the
+/// engine depending on the assessment layer is backwards) or forking the logic (two definitions of
+/// "the same analysis", free to drift). This re-export is what makes that move invisible here:
+/// `pg_assess::identity::*`, `crate::identity::*` inside this crate, every schema, and every
+/// digest call site are all unchanged.
+pub use pg_parse::identity;
+pub use pg_parse::identity::{AnalysisIdentity, IdentityError, MorphemeKey, IDENTITY_PROFILE};
 pub use report::{
     parse_report, AssessmentFailure, AssessmentReport, CaseRecord, Diagnostic, Execution,
     FailureKind, Provenance, ReportDraft, ReportError, Severity, SuiteRef, REPORT_SCHEMA,

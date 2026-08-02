@@ -2,7 +2,7 @@
 //!
 //! ADR 0006. An identity carries the keys themselves, never a reference resolved against a compiled
 //! model, so an analysis stays comparable after the grammar that produced it deleted the morpheme,
-//! renamed it, or stopped compiling entirely. `pg_parse::WordAnalysis`'s own `morpheme_ids` and
+//! renamed it, or stopped compiling entirely. [`crate::WordAnalysis`]'s own `morpheme_ids` and
 //! `pos_id` are dense compiler-assigned ordinals that shift whenever authored content is added or
 //! reordered (`Grammar::morphemes` is in document order, and so is the part-of-speech symbol
 //! table), which is exactly why they cannot serve as identity across two compilations.
@@ -12,9 +12,20 @@
 //! `define-grammar-coverage-contract`'s "compared and reported separately for Rust-to-Rust
 //! results". Two analyses whose identities match but whose `guessed` differs are the same analysis
 //! observed differently.
+//!
+//! # Why this module lives in `pg-parse` and not in `pg-assess`
+//!
+//! It was written for `pg-assess` and lived there until the recipe runtime needed the SAME
+//! projection to express its parity relation. `pg-foma` is the engine and `pg-assess` is the
+//! assessment/reporting layer, so `pg-foma -> pg-assess` is a backwards dependency and forking the
+//! projection into `pg-foma` would leave two definitions of "the same analysis" free to drift —
+//! the one failure this module exists to prevent. This module imports only `pg_grammar::model` and
+//! this crate's own [`crate::WordAnalysis`], which it is the natural owner of, and BOTH `pg-foma`
+//! and `pg-assess` already depend on `pg-parse`. `pg-assess` re-exports it (`pub use
+//! pg_parse::identity`), so its public API, schemas, and call sites are unchanged.
 
+use crate::WordAnalysis;
 use pg_grammar::model::{Grammar, MorphemeId, SynFeatureKind};
-use pg_parse::WordAnalysis;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 

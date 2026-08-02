@@ -233,6 +233,17 @@ pub enum Certification {
         word: String,
         detail: String,
     },
+    /// **No longer produced.** Retained so reports written before the parity relation moved to
+    /// deduplicated [`pg_parse::identity::AnalysisIdentity`] set equality still deserialize, and so
+    /// that such a report keeps ranking as the non-selectable failure it was recorded as.
+    ///
+    /// It used to mean "the two engines found a different NUMBER of analyses for this word".
+    /// Multiplicity is not part of the parity relation (see [`crate::parity`]): two analyses
+    /// reaching one identity by different derivational paths are one member of the set, so a
+    /// difference in count is not by itself a disagreement. The count difference that IS a
+    /// disagreement -- different numbers of DISTINCT identities -- is necessarily also a set
+    /// difference and is reported as [`Self::IdentityMismatch`], whose detail names both
+    /// cardinalities. Do not reintroduce a producer for this variant.
     MultiplicityMismatch {
         word: String,
         expected: u64,

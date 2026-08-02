@@ -172,6 +172,12 @@ pub(crate) mod morphotactics;
 /// always-on tier only (D4's expensive exact-equivalence stretch tier and any real confirm-engine
 /// integration are explicitly out of scope; see that module's own doc). Purely additive.
 pub mod oracle;
+/// The recipe parity RELATION, stated once: deduplicated [`pg_parse::identity::AnalysisIdentity`]
+/// set equality per word occurrence, plus the typed faults that make a candidate non-selectable
+/// without ever being reported as disagreement. [`recipe_runtime::certify_word`] is the only
+/// production consumer; it lives here rather than there so the relation can be read, tested, and
+/// changed without reading the evaluator that applies it.
+pub mod parity;
 pub mod peel;
 /// Step 1 of `openspec/changes/reify-compilation-plans` (design.md D1): the reified,
 /// content-addressed compilation-`Plan` data type. Purely additive -- does not rewire
