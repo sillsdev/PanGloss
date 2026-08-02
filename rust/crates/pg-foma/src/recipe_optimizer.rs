@@ -1434,6 +1434,13 @@ mod tests {
                 value: 2,
                 limit: 1,
             },
+            Certification::BudgetExceeded {
+                dimension: "proposals".to_owned(),
+                limit: 1,
+                observed: 2,
+                words_evaluated: 1,
+                words_requested: 9,
+            },
             Certification::IdentityMismatch {
                 word: "a".to_owned(),
                 detail: "x".to_owned(),
@@ -1451,6 +1458,117 @@ mod tests {
             .collect();
         assert_eq!(select_confirmed(&items), None);
         assert!(pareto_frontier(&items).is_empty());
+    }
+
+    /// The per-candidate budget must reach every candidate at full value and must not end the run.
+    ///
+    /// Both halves are the difference between this budget and `--elapsed-ns`. If
+    /// `optimize_with_evaluator` decremented it like `build`/`confirmation`, a candidate's allowance
+    /// would depend on how many candidates preceded it -- order-dependence in a pipeline whose whole
+    /// point is candidate-independent evidence. And if `admits` counted it, the FIRST abandoned
+    /// candidate would terminate the search as `BudgetExhausted`, which is exactly the
+    /// whole-run-kill behaviour this budget exists to replace.
+    #[test]
+    fn per_candidate_proposal_budget_reaches_every_candidate_undiminished_and_never_ends_the_run() {
+        struct RecordingEvaluator {
+            seen: Vec<u64>,
+        }
+        impl CandidateEvaluator for RecordingEvaluator {
+            fn evaluate(
+                &mut self,
+                _candidate: &CandidateState,
+                remaining: Budget,
+            ) -> ConfirmationEvidence {
+                self.seen.push(remaining.candidate_proposals);
+                ConfirmationEvidence {
+                    // Every candidate is abandoned for cost, which is the worst case for both
+                    // properties under test.
+                    certification: Certification::BudgetExceeded {
+                        dimension: "proposals".to_owned(),
+                        limit: 500,
+                        observed: 501,
+                        words_evaluated: 2,
+                        words_requested: 9,
+                    },
+                    score: Some(Score {
+                        states: 1,
+                        arcs: 1,
+                        build: 1,
+                        apply: 1,
+                        proposals: 501,
+                        confirmation: 1,
+                        confirmation_steps: 1,
+                        raw_paths: 0,
+                    }),
+                    usage: BudgetUsage {
+                        evaluations: 1,
+                        ..BudgetUsage::default()
+                    },
+                }
+            }
+        }
+        let candidates = vec![
+            candidate("baseline", "base", "base", 1, None, true),
+            candidate("a", "one", "sig-a", 1, None, false),
+            candidate("b", "two", "sig-b", 1, None, false),
+        ];
+        let budget = Budget {
+            candidates: 3,
+            evaluations: 3,
+            candidate_proposals: 500,
+            ..Budget::default()
+        };
+        let selected = Exhaustive.search(&candidates, budget, 1);
+        let mut evaluator = RecordingEvaluator { seen: Vec::new() };
+        let outcome =
+            optimize_with_evaluator(&selected.selected, budget, 1, &Exhaustive, &mut evaluator);
+        assert_eq!(
+            evaluator.seen,
+            vec![500, 500, 500],
+            "a per-candidate ceiling must not shrink as candidates are consumed"
+        );
+        assert_eq!(
+            outcome.evaluated.len(),
+            3,
+            "abandoning a candidate must let the run continue to the next one"
+        );
+        assert_eq!(outcome.search.termination, Termination::Complete);
+        assert_eq!(outcome.search.quality, SearchQuality::Exact);
+        assert!(outcome.winner.is_none(), "no candidate was confirmed");
+        assert!(outcome.frontier.is_empty());
+    }
+
+    /// A `budget-exceeded` verdict has to survive the report round-trip under a stable wire name,
+    /// because a reader distinguishing "expensive" from "wrong" does it by reading this tag.
+    #[test]
+    fn budget_exceeded_serializes_under_a_stable_kebab_case_tag() {
+        let certification = Certification::BudgetExceeded {
+            dimension: "proposals".to_owned(),
+            limit: 100,
+            observed: 118,
+            words_evaluated: 6,
+            words_requested: 20,
+        };
+        let json =
+            serde_json::to_string(&certification).expect("the verdict must be report-serializable");
+        assert_eq!(
+            json,
+            r#"{"status":"budget-exceeded","dimension":"proposals","limit":100,"observed":118,"words_evaluated":6,"words_requested":20}"#
+        );
+        assert_eq!(
+            serde_json::from_str::<Certification>(&json).expect("round trip"),
+            certification
+        );
+    }
+
+    /// A report written before this budget existed must still parse, and must read as UNBOUNDED --
+    /// never as a zero allowance, which would retroactively re-describe every candidate in it as
+    /// abandoned.
+    #[test]
+    fn budget_json_without_the_per_candidate_field_deserializes_as_unbounded() {
+        let legacy = r#"{"candidates":1,"evaluations":1,"elapsed":1,"build":1,"memory":1,"confirmation":1,"reserve":0}"#;
+        let budget: Budget = serde_json::from_str(legacy).expect("legacy budget JSON must parse");
+        assert_eq!(budget.candidate_proposals, u64::MAX);
     }
 
     #[test]

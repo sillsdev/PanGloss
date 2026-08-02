@@ -1058,6 +1058,67 @@ mod tests {
         }
     }
 
+    /// The per-candidate proposal budget is spelled `--candidate-proposal-work`, and the `-ns`
+    /// spelling must NOT exist.
+    ///
+    /// Same reasoning `--confirmation-work` is documented with: the allowance is a COUNT, and
+    /// silently accepting `--candidate-proposal-ns 60000000000` would buy a 60-billion-proposal
+    /// ceiling -- which for this flag is worse than for `--confirmation-work`, since an unreachable
+    /// limit prunes nothing while looking, in the report's `budgets` block, exactly like a limit
+    /// that does.
+    #[test]
+    fn candidate_proposal_budget_is_a_work_count_and_has_no_ns_spelling() {
+        let args = |flag: &str| {
+            vec![
+                "grammar.xml".to_string(),
+                "words.txt".to_string(),
+                "out".to_string(),
+                flag.to_string(),
+                "100".to_string(),
+            ]
+        };
+        assert_eq!(
+            parse_args(&args("--candidate-proposal-work"))
+                .expect("the work spelling must parse")
+                .budget
+                .candidate_proposals,
+            100
+        );
+        match parse_args(&args("--candidate-proposal-ns")).unwrap_err() {
+            RecipeOptimizeError::Usage(message) => {
+                assert!(
+                    message.contains("--candidate-proposal-ns"),
+                    "the refusal must name the flag it refused: {message}"
+                );
+            }
+            other => panic!("a nanosecond spelling must be refused outright, got {other:?}"),
+        }
+        // Omitted entirely means unbounded, never a zero allowance -- a zero would abandon every
+        // candidate in every run that did not pass the flag.
+        assert_eq!(
+            parse_args(&[
+                "grammar.xml".to_string(),
+                "words.txt".to_string(),
+                "out".to_string()
+            ])
+            .expect("the flag is optional")
+            .budget
+            .candidate_proposals,
+            u64::MAX
+        );
+    }
+
+    #[test]
+    fn usage_documents_the_candidate_proposal_budget() {
+        let error = parse_args(&["grammar.xml".into(), "words.txt".into()]).unwrap_err();
+        match error {
+            RecipeOptimizeError::Usage(message) => {
+                assert!(message.contains("--candidate-proposal-work"), "{message}");
+            }
+            other => panic!("expected usage error, got {other:?}"),
+        }
+    }
+
     #[test]
     fn search_all_families_parses_as_replay_opt_in() {
         let args = vec![
