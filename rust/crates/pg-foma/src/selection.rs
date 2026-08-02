@@ -11,13 +11,24 @@
 //! > path), tie-broken by content-address for reproducibility.
 //!
 //! [`select_plan`] is exactly this, done twice, in this order:
-//! 1. **Filter**: run [`crate::capability::compose_envelope`] over every candidate. A candidate
+//! 1. **Filter**: run [`crate::capability::compose_envelope_for_strategy`] over every candidate. A candidate
 //!    whose [`crate::capability::CompileDecision`] is `Refuse` is excluded from being chosen —
 //!    capability-safe BY CONSTRUCTION, per D3's own words, never a runtime check bolted on after the
 //!    fact. This is the ONLY filter: an `Admit` candidate and a `ConfirmOnly` candidate are equally
 //!    admissible here (both are recall-preserving; D3 draws the admissibility line at `Refuse`, not
 //!    at `ConfirmOnly` — see [`crate::capability::CompileDecision`]'s own doc, "`ConfirmOnly`... is
 //!    first-class, not a failure").
+//!
+//!    **The filter is STRATEGY-AWARE**, and this is the only place in the crate that can be. D3's
+//!    "every capability-passing plan is recall-preserving" rests on
+//!    [`crate::capability::Disposition::ConfirmOnly`]'s precondition — "recall-preserving only if
+//!    the proposer proposes the superset" — which is a claim about a PROPOSER, not about a grammar
+//!    or a plan. A bare `compose_envelope` has no proposer in hand and so was checking that
+//!    precondition against the union of every compiler's abilities; a
+//!    [`crate::enumerate::CandidatePlan`] carries the [`crate::enumerate::EmissionStrategy`] that
+//!    will actually realize it, so here (and only here) the account can be taken against the right
+//!    one. See [`crate::strategy_coverage`] for the table and the whole-construct recall hole that
+//!    survived undetected without it.
 //! 2. **Rank**: among admissible candidates, build each one via [`crate::build::build_controllable`]
 //!    (the only builder that exists today — task's own instruction: "measured `(states + arcs)`
 //!    from `build_controllable`'s net where available") and pick the minimum `states + arcs`,
@@ -49,7 +60,7 @@ use foma::options::FomaOptions;
 use pg_grammar::model::{Grammar, PhonRuleDef};
 
 use crate::build::build_controllable;
-use crate::capability::{compose_envelope_with_semantics, CompileDecision, PredicateRegistry};
+use crate::capability::{compose_envelope_for_strategy, CompileDecision, PredicateRegistry};
 use crate::compose_budget::ComposeBudget;
 use crate::enumerate::CandidatePlan;
 use crate::grammar_semantics::GrammarSemantics;
@@ -161,7 +172,18 @@ pub fn select_plan(
                 )
             });
 
-            let decision = compose_envelope_with_semantics(&semantics, &candidate.plan, registry);
+            // STRATEGY-AWARE (this is the point a candidate becomes selectable, and the one place
+            // that holds both the plan and the compiler that will realize it). `compose_envelope`
+            // alone checks a `ConfirmOnly` disposition against the UNION of every compiler's
+            // abilities; `CandidatePlan::strategy` names the compiler actually in use, so the
+            // per-strategy account (`crate::strategy_coverage`) is met in here. See
+            // `compose_envelope_for_strategy`'s own doc for why this can only lower a decision.
+            let decision = compose_envelope_for_strategy(
+                &semantics,
+                &candidate.plan,
+                candidate.strategy,
+                registry,
+            );
 
             // D3: only an admissible (non-Refuse) candidate is even worth building/measuring --
             // a Refused candidate is excluded from selection by construction, so spending a real

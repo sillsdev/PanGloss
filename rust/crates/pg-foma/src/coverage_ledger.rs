@@ -68,6 +68,30 @@
 //!   Rust has no enum reflection, so `CharacteristicKind::ALL`'s own doc is this module's closest
 //!   available backstop too).
 //!
+//! # Coverage is claimed PER STRATEGY, never for "the compiler"
+//! This crate has three compilers ([`crate::enumerate::EmissionStrategy`]), and until
+//! [`crate::strategy_coverage`] existed this ledger's rows silently spoke for all of them at once.
+//! The `Compounding` row cited `tests/cover_compounding.rs`, which exercises `FomaAnalyzer::new`
+//! and therefore [`crate::enumerate::EmissionStrategy::TunedSurfaceProbed`] only -- while
+//! [`crate::uflexc`], the sole lexicon emitter
+//! [`crate::enumerate::EmissionStrategy::PlanComposed`] has, could not propose a compound at all.
+//! One compiler's coverage was read as three compilers' coverage. That is this repo's own
+//! coverage-gate inheritance trap recurring on a per-strategy axis rather than a per-construct one.
+//!
+//! Three things follow, all enforced in this file's own `tests` submodule:
+//! - Every [`ContainmentEvidence`] NAMES the strategies its citation was demonstrated on
+//!   ([`ContainmentEvidence::strategies`]); [`ev`] panics on an unattributed one.
+//! - A citation may not name a strategy [`crate::strategy_coverage`] says cannot represent the
+//!   construct (`no_citation_claims_a_strategy_that_cannot_represent_the_construct`).
+//! - Each row reports the strategies that CAN represent the construct but have no witness
+//!   ([`LedgerRow::strategies_unwitnessed`]) and the ones that cannot represent it at all
+//!   ([`LedgerRow::strategies_cannot_represent`]). Both are DERIVED from the strategy table, so a
+//!   fourth compiler cannot inherit the incumbents' evidence by being added quietly.
+//!
+//! Reported, not gated -- consistent with this module's "Evidence, not a gate" section below. A
+//! non-empty `strategies_unwitnessed` is today's honest reading of the test suite, not a failure;
+//! notably no row names [`crate::enumerate::EmissionStrategy::TemplatedUnderlyingTokens`] at all.
+//!
 //! # A future model-shape change
 //! Per `specs/grammar-coverage-contract/spec.md`'s own "A future change attempts to extend the
 //! model" scenario: adding a new `pg-grammar/src/model.rs` construct or behavior-bearing field is
@@ -128,6 +152,8 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::capability::{CharacteristicKind, Disposition, EvidenceProvenance, PredicateRegistry};
 use crate::conformance_coverage::{construct_ids_for, CoverageStatus};
+use crate::enumerate::EmissionStrategy;
+use crate::strategy_coverage::{representation_of, strategies_that_represent};
 
 /// This schema's own version (mirrors [`crate::health::HEALTH_SCHEMA_VERSION`]'s convention).
 pub const COVERAGE_LEDGER_SCHEMA_VERSION: u32 = 1;
@@ -309,20 +335,57 @@ pub enum ContainmentEvidenceKind {
 /// One curated, hand-reviewed containment-evidence citation (tasks.md 1.2). Every field is a
 /// `String` (not `&'static str`) so [`LedgerRow`] round-trips through [`CoverageLedger::from_json`]
 /// losslessly, matching `crate::health::HealthFinding`'s own `String`-field convention.
+///
+/// # Evidence NAMES ITS STRATEGIES
+/// Every citation must say which compiler(s) it was demonstrated on. Before that requirement, this
+/// table's `Compounding` row cited `tests/cover_compounding.rs`, which exercises `FomaAnalyzer::new`
+/// -- i.e. [`crate::enumerate::EmissionStrategy::TunedSurfaceProbed`] -- and nothing else, while the
+/// row read as evidence that the construct was covered, full stop. It was then silently inherited by
+/// [`crate::enumerate::EmissionStrategy::PlanComposed`], whose emitter ([`crate::uflexc`]) could not
+/// propose a compound at all. That is the coverage-gate inheritance trap on a per-STRATEGY axis, and
+/// [`ContainmentEvidence::strategies`] is what makes it impossible to repeat silently: the ledger
+/// now reports, per row, both the strategies a witness exists for and the ones that can represent
+/// the construct but have NO witness ([`LedgerRow::strategies_unwitnessed`]).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContainmentEvidence {
     pub kind: ContainmentEvidenceKind,
     /// `tests/<file>.rs` plus the specific `#[test]` function name(s), e.g.
     /// `"tests/cover_compounding.rs::head_a_word_over_propose_confirm_prune"`.
     pub citation: String,
+    /// Which [`crate::enumerate::EmissionStrategy`]s the cited test(s) actually exercise, as
+    /// [`crate::enumerate::EmissionStrategy::label`] strings. NEVER empty (see [`ev`]) -- an
+    /// unattributed citation is exactly the shape that let one compiler's coverage stand in for
+    /// three.
+    pub strategies: Vec<String>,
     /// A one-line note on what the cited test actually proves for this construct.
     pub note: String,
 }
 
-fn ev(kind: ContainmentEvidenceKind, citation: &str, note: &str) -> ContainmentEvidence {
+/// The strategies a citation demonstrates, as the wire strings [`ContainmentEvidence::strategies`]
+/// holds. Taken as `EmissionStrategy` values, not free-form strings, so a citation cannot name a
+/// compiler that does not exist and a renamed label updates every row at once.
+fn strategies_of(strategies: &[EmissionStrategy]) -> Vec<String> {
+    strategies.iter().map(|s| s.label().to_string()).collect()
+}
+
+/// # Panics
+/// If `strategies` is empty. Every citation must attribute itself to at least one compiler -- an
+/// unattributed one is the inheritance trap this table exists to close, and defaulting to "all
+/// strategies" would silently re-create exactly the bug (see [`ContainmentEvidence`]'s own doc).
+fn ev(
+    kind: ContainmentEvidenceKind,
+    citation: &str,
+    strategies: &[EmissionStrategy],
+    note: &str,
+) -> ContainmentEvidence {
+    assert!(
+        !strategies.is_empty(),
+        "containment evidence must name the strategies it was demonstrated on: {citation}"
+    );
     ContainmentEvidence {
         kind,
         citation: citation.to_string(),
+        strategies: strategies_of(strategies),
         note: note.to_string(),
     }
 }
@@ -341,6 +404,7 @@ pub fn containment_evidence_for(kind: CharacteristicKind) -> Option<ContainmentE
         Affixation => ev(
             GeneralPervasive,
             "tests/f1_large_lexicon_gate.rs, tests/f2_junction_gate.rs, tests/f4_composite_gate.rs",
+            &[EmissionStrategy::TunedSurfaceProbed],
             "Ordinary AffixProcessRule prefixation/suffixation/infixation is the baseline every \
              full-grammar propose-confirm gate exercises continuously; Proven already licenses \
              unconditional admission-filtering, so no separate dedicated fixture is required.",
@@ -349,6 +413,7 @@ pub fn containment_evidence_for(kind: CharacteristicKind) -> Option<ContainmentE
             Dedicated,
             "tests/cover_realizational_morphology_constraints.rs::\
              realizational_rule_presence_blocking_over_propose_confirm_prune",
+            &[EmissionStrategy::TunedSurfaceProbed],
             "Proposer-to-confirm containment for MorphRuleDef::Realizational's real_fs \
              head-wrapped presence-blocking.",
         ),
@@ -358,6 +423,7 @@ pub fn containment_evidence_for(kind: CharacteristicKind) -> Option<ContainmentE
              subrule_group_gate_excludes_partial_match_like_confirm, \
              head_c_excluded_by_rule_level_gate_like_confirm); budget refusal: tests/\
              cover_compounding_budget.rs",
+            &[EmissionStrategy::TunedSurfaceProbed],
             "License-gated head/non-head cross-product containment for the non-recursive case, \
              plus the (un)group-awareness witness design.md D4 names.",
         ),
@@ -365,6 +431,7 @@ pub fn containment_evidence_for(kind: CharacteristicKind) -> Option<ContainmentE
             GeneralPervasive,
             "tests/phase_c_strata_depth.rs (multi-stratum cascade recall-parity), tests/\
              f1_large_lexicon_gate.rs, tests/f4_composite_gate.rs",
+            &[EmissionStrategy::TunedSurfaceProbed],
             "Linear rule-application order is the default cascade shape exercised by every \
              general gate; Proven, no dedicated fixture required.",
         ),
@@ -373,6 +440,7 @@ pub fn containment_evidence_for(kind: CharacteristicKind) -> Option<ContainmentE
             "tests/cover_unordered_morph_rules.rs::non_document_order_analysis_is_proposed_and_\
              confirmed (+ unbounded_unordered_stratum_deterministically_refuses_to_compile for \
              the Refuse split)",
+            &[EmissionStrategy::TunedSurfaceProbed],
             "Chain-depth-bounded any-order proposal containment, plus the deterministic \
              over-budget refusal witness.",
         ),
@@ -380,12 +448,14 @@ pub fn containment_evidence_for(kind: CharacteristicKind) -> Option<ContainmentE
             Dedicated,
             "tests/cover_mpr_groups.rs::out_mpr_accumulation_then_gate_over_propose_confirm_prune \
              (+ append_output_is_order_invariant_overwrite_output_is_not)",
+            &[EmissionStrategy::TunedSurfaceProbed],
             "Non-tracking-baseline containment for MprGroupOutput::Append, plus the \
              order-invariance witness design.md D4 names.",
         ),
         MprGroupOverwrite => ev(
             Dedicated,
             "tests/cover_mpr_groups.rs::overwrite_group_composes_to_confirm_only",
+            &[EmissionStrategy::TunedSurfaceProbed],
             "FailClosed: containment is not the applicable property here -- this witness proves \
              compose_envelope genuinely Refuses whenever MprGroupOutput::Overwrite is observed.",
         ),
@@ -393,6 +463,7 @@ pub fn containment_evidence_for(kind: CharacteristicKind) -> Option<ContainmentE
             GeneralPervasive,
             "tests/f1_large_lexicon_gate.rs, tests/f2_junction_gate.rs, tests/phase_c_right_to_left.rs \
              (iterative baseline contrast)",
+            &[EmissionStrategy::PlanComposed, EmissionStrategy::TunedSurfaceProbed],
             "The default RewriteMode every general gate's phonological rules use; Proven, no \
              dedicated fixture required.",
         ),
@@ -400,6 +471,7 @@ pub fn containment_evidence_for(kind: CharacteristicKind) -> Option<ContainmentE
             Dedicated,
             "tests/phase_c_simultaneous.rs::sim_nonoverlap_env_now_compiles_and_matches_oracle_\
              exactly (+ sim_overlap_env_stays_honest_unsupported for the Refuse split)",
+            &[EmissionStrategy::PlanComposed],
             "Containment for the pairwise-non-overlapping case the simultaneous.subrule-overlap \
              predicate Admits; the genuinely-overlapping case stays honestly unsupported.",
         ),
@@ -407,6 +479,7 @@ pub fn containment_evidence_for(kind: CharacteristicKind) -> Option<ContainmentE
             GeneralPervasive,
             "tests/f2_junction_gate.rs, tests/phase_c_right_to_left.rs (LTR is the implicit \
              contrast baseline for every rtl_* case)",
+            &[EmissionStrategy::PlanComposed, EmissionStrategy::TunedSurfaceProbed],
             "The default Dir every general gate's phonological rules use; Proven, no dedicated \
              fixture required.",
         ),
@@ -415,6 +488,7 @@ pub fn containment_evidence_for(kind: CharacteristicKind) -> Option<ContainmentE
             "tests/phase_c_right_to_left.rs::rtl_plain_rule_now_compiles_and_matches_oracle (+ \
              rtl_feature_environment_swap_matches_oracle, rtl_deletion_matches_oracle, \
              rtl_cross_table_segments_environment_matches_oracle)",
+            &[EmissionStrategy::PlanComposed],
             "Reversal-plus-safety-net-union containment against the real oracle, including a \
              table-qualified cross-table Segments feature constraint.",
         ),
@@ -425,6 +499,7 @@ pub fn containment_evidence_for(kind: CharacteristicKind) -> Option<ContainmentE
              Dir::RightToLeft mirror construction, and \
              metathesis_right_to_left_differs_from_compiling_as_left_to_right for the \
              direction-blindness guard)",
+            &[EmissionStrategy::PlanComposed],
             "Dedicated swap-relation containment against the real oracle in BOTH directions -- \
              Dir::RightToLeft is no longer a scope boundary (openspec/changes/\
              build-unbounded-quantifier-support's sibling task, plan-construct-coverage-completion \
@@ -437,6 +512,7 @@ pub fn containment_evidence_for(kind: CharacteristicKind) -> Option<ContainmentE
             Dedicated,
             "tests/epenthesis_structural_route_containment.rs::\
              epenthesis_over_propose_confirm_prune_matches_oracle_exactly",
+            &[EmissionStrategy::TunedSurfaceProbed],
             "End-to-end propose(over-generate)-then-confirm(prune) containment for an \
              obligatory-epenthesis grammar, matching the oracle's analysis set exactly.",
         ),
@@ -445,6 +521,7 @@ pub fn containment_evidence_for(kind: CharacteristicKind) -> Option<ContainmentE
             "tests/p6_gate_parity.rs::synthetic_pos_gate_matches_oracle (+ \
              ungated_cascade_would_have_missed_the_noun_entry); scale: tests/\
              phase_c_partition_k.rs::partition_k_recall_parity_via_generator_and_oracle",
+            &[EmissionStrategy::PlanComposed],
             "Static MPR/POS subrule-gating containment against the real oracle, plus a \
              2^k-group scale gate.",
         ),
@@ -453,6 +530,7 @@ pub fn containment_evidence_for(kind: CharacteristicKind) -> Option<ContainmentE
             "tests/phase_c_circumfix.rs::circumfix_recall_parity_via_generator_and_oracle (+ \
              ordered_multi_insert_no_first_insert_shortcut_recall_parity, \
              null_role_structural_drop_recall_parity)",
+            &[EmissionStrategy::TunedSurfaceProbed],
             "Structural-composite containment for circumfix-shaped (discontinuous/dropped-\
              material) allomorphs against the real oracle.",
         ),
@@ -462,6 +540,7 @@ pub fn containment_evidence_for(kind: CharacteristicKind) -> Option<ContainmentE
              kimbiakimbia_reduplication_is_recovered_with_oracle_containment (+ \
              deep_self_similar_chain_is_refused_deterministically for the chain-depth budget); \
              tests/f4_composite_gate.rs case (c)",
+            &[EmissionStrategy::TunedSurfaceProbed],
             "Peeler-to-confirm containment for true-reduplication allomorphs, plus the \
              deterministic deep-chain refusal witness.",
         ),
@@ -469,6 +548,7 @@ pub fn containment_evidence_for(kind: CharacteristicKind) -> Option<ContainmentE
             Dedicated,
             "tests/cover_realizational_morphology_constraints.rs::\
              morpheme_co_occurrence_exclude_anywhere_over_propose_confirm_prune",
+            &[EmissionStrategy::TunedSurfaceProbed],
             "Proposer-to-confirm containment for MorphemeCoOccurrenceRule adjacency exclusion.",
         ),
         NaturalClassDefinition => return None,
@@ -478,6 +558,7 @@ pub fn containment_evidence_for(kind: CharacteristicKind) -> Option<ContainmentE
              multi_table_rewrite_compiles_correctly_against_its_owning_table; stronger claim: \
              tests/two_table_symbol_divergence.rs::\
              stratum_1_devoice_rewrite_proposer_confirm_matches_oracle",
+            &[EmissionStrategy::PlanComposed],
             "Faithful per-stratum table threading, proven for one stratum's own rule and, more \
              strongly, for two strata whose tables disagree about the same symbol index.",
         ),
@@ -486,6 +567,7 @@ pub fn containment_evidence_for(kind: CharacteristicKind) -> Option<ContainmentE
             "tests/phase_c_quantifier.rs::quantifier_bounded_environment_compiles_and_matches_\
              oracle (+ quantifier_unbounded_environment_compiles_and_matches_oracle for the \
              genuinely-unbounded case, openspec/changes/build-unbounded-quantifier-support)",
+            &[EmissionStrategy::PlanComposed],
             "Bounded- AND unbounded-quantifier containment against the real oracle, both at \
              min-boundary occurrence counts; an inverted/over-budget-finite/alpha-nested \
              quantifier stays honestly unsupported.",
@@ -502,6 +584,7 @@ pub fn containment_evidence_for(kind: CharacteristicKind) -> Option<ContainmentE
             Dedicated,
             "tests/cover_realizational_morphology_constraints.rs::\
              stem_name_gating_over_propose_confirm_prune",
+            &[EmissionStrategy::TunedSurfaceProbed],
             "Proposer-to-confirm containment for RootAllomorphDef::stem_name's required- and \
              excluded-match gating (bare-restricted-allomorph rejection, plus the \
              default-allomorph-excluded-by-a-restricted-sibling case) -- the FST proposes every \
@@ -564,6 +647,18 @@ pub struct LedgerRow {
     /// suite has one for this construct (`None` only for a genuine, honestly-reported gap).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub containment: Option<ContainmentEvidence>,
+    /// Every [`EmissionStrategy`] whose proposer emits nothing at all for this construct
+    /// ([`crate::strategy_coverage::StrategyRepresentation::CannotRepresent`]), as
+    /// [`EmissionStrategy::label`] strings. A whole-construct recall hole for that compiler --
+    /// [`crate::capability::compose_envelope_for_strategy`] refuses a candidate realized by one.
+    #[serde(default)]
+    pub strategies_cannot_represent: Vec<String>,
+    /// Every strategy that CAN represent this construct but which no citation in
+    /// [`containment_evidence_for`] names -- i.e. coverage this row would be INHERITING rather than
+    /// demonstrating. Non-empty is not a failure; it is the honest reading of the evidence, and the
+    /// thing that was invisible before. See [`ContainmentEvidence`]'s own doc for the incident.
+    #[serde(default)]
+    pub strategies_unwitnessed: Vec<String>,
 }
 
 /// The full, versioned, one-time-audited coverage ledger (tasks.md 1.1's deliverable). See this
@@ -679,6 +774,29 @@ pub fn build_ledger(
                 }
             };
 
+            // The per-strategy account (`crate::strategy_coverage`), projected onto this row. Both
+            // lists are DERIVED, never hand-maintained: a new compiler, or a reviewed edit to the
+            // strategy table, moves these without anyone having to remember to.
+            let strategies_cannot_represent: Vec<String> = crate::strategy_coverage::ALL_STRATEGIES
+                .iter()
+                .copied()
+                .filter(|&s| {
+                    representation_of(s, kind).representation
+                        == crate::strategy_coverage::StrategyRepresentation::CannotRepresent
+                })
+                .map(|s| s.label().to_string())
+                .collect();
+
+            let witnessed: Vec<String> = containment
+                .as_ref()
+                .map(|ev| ev.strategies.clone())
+                .unwrap_or_default();
+            let strategies_unwitnessed: Vec<String> = strategies_that_represent(kind)
+                .into_iter()
+                .map(|s| s.label().to_string())
+                .filter(|label| !witnessed.contains(label))
+                .collect();
+
             LedgerRow {
                 kind,
                 disposition,
@@ -686,6 +804,8 @@ pub fn build_ledger(
                 construct_ids,
                 conformance_status,
                 containment,
+                strategies_cannot_represent,
+                strategies_unwitnessed,
             }
         })
         .collect();
@@ -788,6 +908,120 @@ mod tests {
         for &kind in CharacteristicKind::ALL {
             let _ = containment_evidence_for(kind);
         }
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Evidence names its strategies (the coverage-gate inheritance trap, per-STRATEGY axis)
+    // ---------------------------------------------------------------------------------------
+
+    /// The rule: a construct claimed covered must NAME the strategies it was demonstrated on. No
+    /// citation may be unattributed, and no citation may name a compiler that does not exist.
+    ///
+    /// Falsified before the fix trivially -- `ContainmentEvidence` had no `strategies` field, which
+    /// is exactly how one compiler's coverage stood in for three.
+    #[test]
+    fn every_containment_citation_names_at_least_one_real_strategy() {
+        let valid: HashSet<&str> = crate::strategy_coverage::ALL_STRATEGIES
+            .iter()
+            .map(|s| s.label())
+            .collect();
+        for &kind in CharacteristicKind::ALL {
+            let Some(evidence) = containment_evidence_for(kind) else {
+                continue;
+            };
+            assert!(
+                !evidence.strategies.is_empty(),
+                "{kind:?}'s containment citation names no strategy: {}",
+                evidence.citation
+            );
+            for named in &evidence.strategies {
+                assert!(
+                    valid.contains(named.as_str()),
+                    "{kind:?}'s citation names an unknown strategy {named:?}"
+                );
+            }
+        }
+    }
+
+    /// A citation may never name a strategy the per-strategy account says CANNOT represent the
+    /// construct -- that combination is either a wrong citation or a wrong table row, and both are
+    /// the kind of drift this pair of tables exists to surface. This is the direct, mechanical
+    /// analogue of the original defect (`tests/cover_compounding.rs` cited as evidence for a
+    /// compiler that could not propose a compound).
+    #[test]
+    fn no_citation_claims_a_strategy_that_cannot_represent_the_construct() {
+        for &kind in CharacteristicKind::ALL {
+            let Some(evidence) = containment_evidence_for(kind) else {
+                continue;
+            };
+            for &strategy in crate::strategy_coverage::ALL_STRATEGIES {
+                if !evidence.strategies.iter().any(|s| s == strategy.label()) {
+                    continue;
+                }
+                assert_ne!(
+                    representation_of(strategy, kind).representation,
+                    crate::strategy_coverage::StrategyRepresentation::CannotRepresent,
+                    "{kind:?}'s citation claims {strategy:?}, which the strategy account says \
+                     cannot represent the construct at all"
+                );
+            }
+        }
+    }
+
+    /// `strategies_unwitnessed` is the whole point: it must be DERIVED (evidence set subtracted
+    /// from the representing set), not hand-maintained, and it must be genuinely non-empty
+    /// somewhere -- a ledger reporting full per-strategy witness coverage today would be lying.
+    #[test]
+    fn unwitnessed_strategies_are_derived_and_the_gap_is_reported_not_hidden() {
+        let ledger = build_ledger(&default_registry(), &fully_covered_constructs());
+        let mut any_gap = false;
+        for row in &ledger.rows {
+            let witnessed: Vec<String> = row
+                .containment
+                .as_ref()
+                .map(|e| e.strategies.clone())
+                .unwrap_or_default();
+            let expected: Vec<String> = strategies_that_represent(row.kind)
+                .into_iter()
+                .map(|s| s.label().to_string())
+                .filter(|l| !witnessed.contains(l))
+                .collect();
+            assert_eq!(
+                row.strategies_unwitnessed, expected,
+                "{:?}'s unwitnessed set must be derived, never hand-written",
+                row.kind
+            );
+            any_gap |= !row.strategies_unwitnessed.is_empty();
+        }
+        assert!(
+            any_gap,
+            "no row reports an unwitnessed strategy -- either every construct now has a witness on \
+             every compiler that can represent it (check before believing it), or the derivation \
+             silently collapsed"
+        );
+    }
+
+    /// The per-row `CannotRepresent` list is likewise a projection of
+    /// [`crate::strategy_coverage`], and the live hole (`PlanComposed` x `RealizationalMorphology`)
+    /// is visible in the ledger rather than only in the selection path.
+    #[test]
+    fn the_ledger_reports_the_live_whole_construct_hole() {
+        let ledger = build_ledger(&default_registry(), &fully_covered_constructs());
+        let row = ledger
+            .row(CharacteristicKind::RealizationalMorphology)
+            .expect("row must exist");
+        assert_eq!(
+            row.strategies_cannot_represent,
+            vec![EmissionStrategy::PlanComposed.label().to_string()]
+        );
+        assert!(
+            ledger
+                .row(CharacteristicKind::Affixation)
+                .expect("row must exist")
+                .strategies_cannot_represent
+                .is_empty(),
+            "no strategy fails to represent ordinary affixation"
+        );
     }
 
     /// `NaturalClassDefinition` and (research report 13's taxonomy-gap fix) `FreeFluctuation` are

@@ -4021,6 +4021,99 @@ pub fn compose_envelope_with_semantics(
     decision
 }
 
+/// [`compose_envelope_with_semantics`] made STRATEGY-AWARE: the same whole-plan decision, met with
+/// the per-strategy construct account [`crate::strategy_coverage`] owns, for the compiler that will
+/// actually realize this candidate.
+///
+/// # Why a strategy-blind envelope is not enough
+/// [`Disposition::ConfirmOnly`]'s own definition is *"Recall-preserving only if the proposer
+/// proposes the superset."* That precondition is a claim about a PROPOSER, and
+/// [`compose_envelope_with_semantics`] has no proposer in hand: it sees a `&Grammar` (via
+/// [`GrammarSemantics`]) and a [`Plan`], neither of which names a compiler. So the disposition
+/// table was being checked against the UNION of every compiler's abilities rather than against the
+/// one in use. `Compounding` rested at a non-refusing disposition on the strength of
+/// `crate::emit`'s compilers while [`crate::uflexc`] -- the only lexicon emitter
+/// [`crate::enumerate::EmissionStrategy::PlanComposed`] has -- could not propose a compound at all.
+/// The hole survived because nothing could express the question.
+///
+/// # What this adds, precisely
+/// Every OBSERVED [`CharacteristicKind`] (all of them, not just the non-`Proven` ones -- a
+/// `Proven` disposition is just as strategy-conditional as a `ConfirmOnly` one, and a compiler that
+/// cannot emit an affix has not earned `Proven` for `Affixation`) is looked up in
+/// [`crate::strategy_coverage::representation_of`] and folded in via [`meet`]:
+/// [`crate::strategy_coverage::StrategyRepresentation::Represents`] contributes `Admit`,
+/// `RepresentsWithKnownGap` contributes [`CompileDecision::ConfirmOnly`], and `CannotRepresent`
+/// contributes a [`CompileDecision::Refuse`] naming the strategy, the construct and the citation.
+///
+/// It can only ever LOWER a candidate's decision, never raise it -- [`meet`] is a greatest lower
+/// bound and this function starts from the strategy-blind answer. So a caller that was refusing
+/// before still refuses.
+///
+/// # Memoization
+/// Takes the SAME [`GrammarSemantics`] every strategy shares. The grammar-only
+/// [`GrammarSemantics::characteristics`] memo is deliberately NOT re-keyed on the strategy: see
+/// [`crate::strategy_coverage`]'s module doc for the full argument (in short -- `characterize`
+/// answers "which constructs does the grammar contain", which cannot vary by compiler, while the
+/// strategy-dependent half has no grammar input at all, so the two are split rather than merged).
+pub fn compose_envelope_for_strategy(
+    semantics: &GrammarSemantics<'_>,
+    plan: &Plan,
+    strategy: crate::enumerate::EmissionStrategy,
+    registry: &PredicateRegistry,
+) -> CompileDecision {
+    let mut decision = compose_envelope_with_semantics(semantics, plan, registry);
+
+    let observed: HashSet<CharacteristicKind> = semantics
+        .characteristics()
+        .observations()
+        .iter()
+        .map(|o| o.kind)
+        .collect();
+
+    // Deterministic order: `HashSet` iteration is not stable, and a `Refuse`'s diagnostic `Vec`
+    // order is observable (it is compared in tests and rendered in reports). Walk
+    // `CharacteristicKind::ALL` instead, filtered to what was observed.
+    for &kind in CharacteristicKind::ALL {
+        if !observed.contains(&kind) {
+            continue;
+        }
+        decision = meet(decision, strategy_floor(strategy, kind));
+    }
+
+    decision
+}
+
+/// One observed construct's contribution to [`compose_envelope_for_strategy`]'s decision, from the
+/// per-strategy account alone (the disposition table's own contribution is already folded in by
+/// [`compose_envelope_with_semantics`]).
+fn strategy_floor(
+    strategy: crate::enumerate::EmissionStrategy,
+    kind: CharacteristicKind,
+) -> CompileDecision {
+    use crate::strategy_coverage::StrategyRepresentation;
+
+    let row = crate::strategy_coverage::representation_of(strategy, kind);
+    match row.representation {
+        StrategyRepresentation::Represents => CompileDecision::Admit,
+        StrategyRepresentation::RepresentsWithKnownGap => CompileDecision::ConfirmOnly,
+        StrategyRepresentation::CannotRepresent => {
+            CompileDecision::Refuse(vec![CapabilityDiagnostic {
+                predicate: "strategy-coverage.construct-not-representable",
+                construct: format!("{kind:?}"),
+                witness: format!(
+                    "EmissionStrategy::{strategy:?} ({}) cannot represent {kind:?}: its proposer \
+                     emits nothing for this construct, so the ConfirmOnly precondition (\"the \
+                     proposer proposes the superset\") is FALSE for this compiler and confirm has \
+                     no candidate to prune. Evidence: {}. Another strategy may well represent it \
+                     -- that is exactly the inheritance this account exists to stop.",
+                    strategy.label(),
+                    row.evidence
+                ),
+            }])
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     //! Synthetic, delanguaged fixtures only (no natural-language names) -- built via

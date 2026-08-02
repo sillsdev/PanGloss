@@ -270,6 +270,13 @@ pub mod replace;
 /// task); see that module's own doc for the full filter/rank/tie-break contract and what is parked
 /// to `add-compilation-cost-planner`.
 pub mod selection;
+/// The per-STRATEGY construct-coverage account: which of this crate's compilers can actually
+/// PROPOSE each [`capability::CharacteristicKind`]. [`capability::Disposition::ConfirmOnly`] is
+/// defined as "recall-preserving only if the proposer proposes the superset", and until this module
+/// existed nothing checked WHICH proposer was in use -- so one compiler's coverage was silently
+/// inherited by all three. Consulted by [`capability::compose_envelope_for_strategy`], which
+/// [`selection::select_plan`] calls at the point a candidate becomes selectable.
+pub mod strategy_coverage;
 /// Exact shared P6 templated-morphotactics compile pipeline and its stage profile.
 pub mod structural_allomorph;
 pub mod tags;
