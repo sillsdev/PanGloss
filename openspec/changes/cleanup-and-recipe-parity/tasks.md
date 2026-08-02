@@ -286,9 +286,64 @@ over an erased transform is not an exercise.
       options, and normalization; the transitional `CorpusCompletenessEvidence` remains in place
       unchanged.
 - [ ] 7.13 Add portable Plan serialization/SHA-256 identity, exact adapter lowering, and run-scoped
-      lowered-candidate reuse; delete `CandidatePlan`, `EmissionStrategy`, positional baseline state,
-      duplicate runtime artifacts, implicit fallback, and fake zero measurements.
+      lowered-candidate reuse; delete `CandidatePlan`, positional baseline state, duplicate runtime
+      artifacts, implicit fallback, and fake zero measurements.
+      **AMENDED 2026-08-02 — this task used to order the deletion of `EmissionStrategy`, which is the
+      one axis Wave 3 proved decisive** (see the evidence block before 7.3, three sections above).
+      Instead: replace `EmissionStrategy` with a typed adapter identity on `ExecutableCandidate`
+      that PRESERVES its role as the selection axis, and delete the enum only once the adapter axis
+      expresses everything the enum selected between. If Fable checkpoint 2 weakens the
+      compiler-axis thesis, revisit this wording again rather than treating it as settled.
 - [ ] 7.14 Run the mandatory second Luna/xhigh cleanup audit after 7.11–7.13 and managed package gates,
       but before any mechanism becomes selectable. Resolve every duplicate-owner/claim-level blocker.
 - [ ] 7.15 After all six mechanisms have two exercises where possible, run 2–4 orthogonal Luna/xhigh
       reviews and a fresh Sol/xhigh adjudication/implementation pass before four-language certification.
+
+## 8. Sequencing and scheduled reflective reviews (added 2026-08-02)
+
+### Re-entry trigger for the deferred architecture program
+
+7.3–7.8 were moved OFF the parity critical path on 2026-08-01 after a meta review found the
+architecture program had been inserted in front of measurements that were three tasks away. That
+deferral is sound but it needs a re-entry condition, because unbounded deferral with no trigger is
+how the *previous* program failed, in mirror image.
+
+**7.3–7.8 resume when tasks 20–22 close** (deterministic eligibility; per-candidate apply/proposal
+budget; the plan-composed root-position defect). **7.12 goes next after that**, because it consumes
+both task 20's eligibility semantics and the salvaged minimal `ModelRevision`.
+
+Scope cap while deferred: tasks 20–22 are a classification change plus two evidence fields, one
+budget knob plus a typed verdict, and a bug hunt. If any of them starts growing new provenance
+schema beyond that, the old failure mode has returned and the answer is no.
+
+### Scheduled Fable reflective checkpoints
+
+Reserved-tier reviews are normally escalations, which means they only fire once something has
+already gone wrong — a program drifting *quietly* never trips one. These three are scheduled in
+advance, sited where a **premise becomes checkable** rather than where a task finishes. Each asks,
+in these words: **"Are we doing what we think we are doing?"** (do the artifacts support the claims,
+at the scope claimed) and **"Are we getting off track?"** (measured against the ORIGINAL objective —
+four-language recipe parity — not against this task list, which drifts with the work).
+
+Each reviewer has authority to say the program is fine; a checkpoint that must manufacture criticism
+teaches everyone to schedule fewer. Record each verdict beside this plan, and write the next
+checkpoint's trigger before closing the current one.
+
+- **Checkpoint 1 — is the evidence foundation real?** Fires when task 24 (Morpher determinism), task
+  20 (all four requirements), and the legible-skip/RED work have landed, AND Amharic has been
+  mechanically re-certified from the raw 673 with in-band exclusions, AND Indonesian has been
+  re-measured at its honest full eligible corpus. Deciding questions: did determinism CHANGE any
+  number, and did Indonesian survive — given it is certified on a compiler that cannot propose
+  compounds while its grammar declares two POS-unrestricted compounding rules?
+- **Checkpoint 2 — is the compiler-axis thesis real, or did we fix one bug?** Fires when the uflexc
+  compound loop, strategy-aware capability accounting, and the per-candidate budget have landed, and
+  Sena is certified or definitively blocked. Deciding question: after the compound fix, does ANY
+  language still prefer a different compiler? If they all converge on one winner, the
+  `EmissionStrategy` thesis collapses and the 7.3–7.5 re-grounding above must itself be re-grounded.
+  That would be a major reversal and must be surfaced, not absorbed.
+- **Checkpoint 3 — should the deferred architecture resume as designed, and is this mergeable?**
+  Fires when 7.11, the model-identity salvage, and 7.12 have merged — i.e. immediately before 7.3–7.8
+  restart in earnest and before any merge to `main`. Last point at which the deferred program can be
+  re-scoped cheaply rather than half-built. Also the merge gate: is every claim in these plan docs
+  supported by *merged code*, per this repo's rule to update plans only for facts proven by merged
+  code and broad-enough evidence?
