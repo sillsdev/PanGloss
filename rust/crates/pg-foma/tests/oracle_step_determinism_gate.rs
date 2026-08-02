@@ -157,7 +157,10 @@ fn eligibility_ledger_is_byte_identical_across_repetitions_under_load() {
             assert_eq!(first.excluded, 2, "cap 0 must exclude every occurrence");
         }
         if cap == 20_000 {
-            assert_eq!(first.excluded, 0, "the default cap must exclude nothing here");
+            assert_eq!(
+                first.excluded, 0,
+                "the default cap must exclude nothing here"
+            );
         }
     }
 }

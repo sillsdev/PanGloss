@@ -1271,12 +1271,8 @@ fn evaluate_plans_marked_with_cache_mode<const OBSERVE: bool>(
     let expected = selection.expected;
     let oracle_capped = selection.capped;
     let exclusions = selection.exclusions;
-    let corpus_evidence = corpus_completeness_evidence(
-        words,
-        &comparable,
-        &exclusions,
-        cache.corpus.oracle,
-    );
+    let corpus_evidence =
+        corpus_completeness_evidence(words, &comparable, &exclusions, cache.corpus.oracle);
     let words = &comparable[..];
     // CRITICAL: a step-capped oracle result must NEVER reach `certify_corpus`. The FST side may
     // legitimately produce analyses the truncated oracle never found — that would surface as a
@@ -1719,7 +1715,8 @@ mod tests {
         // attaching an overlay is caught at the oracle rather than only at the refusal.
         let g = fixture();
         let miss = vec!["cb".to_string()];
-        let prepared = PreparedCorpus::prepare(&g, &miss, RuntimeBudget::default());
+        let prepared = PreparedCorpus::prepare(&g, &miss, RuntimeBudget::default())
+            .expect("preparation must not trip the liveness net on a one-word corpus");
         let selection = prepared.select(&miss);
         assert!(
             selection.exclusions.is_empty(),

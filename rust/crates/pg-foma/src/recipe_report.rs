@@ -263,7 +263,9 @@ impl RecipeOptimizationReport {
                 return Err("certifying report is missing its corpus eligibility ledger")
             }
             Some(corpus) if !corpus.reconciles() => {
-                return Err("corpus eligibility ledger does not account for every requested occurrence")
+                return Err(
+                    "corpus eligibility ledger does not account for every requested occurrence",
+                )
             }
             _ => {}
         }

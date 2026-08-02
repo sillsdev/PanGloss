@@ -42,7 +42,8 @@ fn plans(grammar: &pg_grammar::model::Grammar) -> Vec<pg_foma::enumerate::Candid
         .map(|id| &grammar.prules[id.0 as usize])
         .collect::<Vec<_>>();
     let phonology = pg_foma::junctions::PhonologyProbe::new(grammar);
-    let baseline = pg_foma::enumerate::enumerate_default(grammar, &alphabet, &prules, phonology.as_ref());
+    let baseline =
+        pg_foma::enumerate::enumerate_default(grammar, &alphabet, &prules, phonology.as_ref());
     pg_foma::recipe_registry::Registry::seeded()
         .materialize_distinct(&pg_foma::recipe_registry::MaterializerContext {
             grammar,
@@ -90,7 +91,9 @@ fn a_liveness_net_trip_aborts_the_run_and_can_never_be_an_exclusion() {
         other => panic!("expected a liveness-net fault, got {other:?}"),
     }
     assert!(
-        fault.to_string().contains("eligibility could not be determined"),
+        fault
+            .to_string()
+            .contains("eligibility could not be determined"),
         "the fault must say eligibility is UNDETERMINED, not that a word was excluded: {fault}"
     );
 }
@@ -161,7 +164,9 @@ fn a_declared_memory_ceiling_aborts_the_run_with_a_typed_fault() {
         }
         other => panic!("expected a memory-ceiling fault, got {other:?}"),
     }
-    assert!(fault.to_string().contains("eligibility could not be determined"));
+    assert!(fault
+        .to_string()
+        .contains("eligibility could not be determined"));
 }
 
 /// REQUIREMENT (b), the other direction: an explicitly unbounded ceiling is a stated choice and is

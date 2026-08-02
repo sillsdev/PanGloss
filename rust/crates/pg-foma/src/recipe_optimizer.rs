@@ -233,7 +233,10 @@ fn hash_words(words: &[String]) -> String {
     format!("{:x}", hash.finalize())
 }
 
-fn hash_exclusion_ledger(exclusions: &[CorpusExclusion], oracle: OracleEligibilityConfig) -> String {
+fn hash_exclusion_ledger(
+    exclusions: &[CorpusExclusion],
+    oracle: OracleEligibilityConfig,
+) -> String {
     let mut hash = Sha256::new();
     hash.update(b"corpus-exclusion-ledger-v2");
     hash.update(oracle.step_cap.to_le_bytes());
@@ -1395,8 +1398,12 @@ mod tests {
                 reason: "oracle-timeout".to_owned(),
             },
         ];
-        let evidence =
-            CorpusCompletenessEvidence::from_selection(&requested, &included, exclusions.clone());
+        let evidence = CorpusCompletenessEvidence::from_selection(
+            &requested,
+            &included,
+            exclusions.clone(),
+            test_oracle_config(),
+        );
         assert_eq!(
             (evidence.requested, evidence.included, evidence.excluded),
             (3, 1, 2)
@@ -1418,8 +1425,23 @@ mod tests {
                     reason: "oracle-timeout".to_owned(),
                 },
             ],
+            test_oracle_config(),
         );
         assert_ne!(evidence.excluded_hash, changed_reason.excluded_hash);
+
+        // The generating CONFIGURATION is part of the ledger hash too: same words, same exclusions,
+        // a different oracle step cap must not hash the same, or two runs at different caps produce
+        // indistinguishable evidence -- the defect this field exists to close.
+        let changed_cap = CorpusCompletenessEvidence::from_selection(
+            &requested,
+            &included,
+            exclusions.clone(),
+            OracleEligibilityConfig {
+                step_cap: 40_000,
+                ..test_oracle_config()
+            },
+        );
+        assert_ne!(evidence.excluded_hash, changed_cap.excluded_hash);
     }
 
     #[test]
@@ -1433,6 +1455,7 @@ mod tests {
                 word: "b".to_owned(),
                 reason: "missing".to_owned(),
             }],
+            test_oracle_config(),
         );
     }
 
@@ -1454,7 +1477,19 @@ mod tests {
                     reason: "missing".to_owned(),
                 },
             ],
+            test_oracle_config(),
         );
+    }
+
+    /// The oracle configuration these constructor tests declare. Any value works -- what matters is
+    /// that the constructor now REQUIRES one, so no evidence can exist without stating the bounds it
+    /// was derived under.
+    fn test_oracle_config() -> OracleEligibilityConfig {
+        OracleEligibilityConfig {
+            step_cap: 20_000,
+            memory_ceiling_bytes: 12 * 1024 * 1024 * 1024,
+            liveness_net_ns: 300_000_000_000,
+        }
     }
 
     #[test]

@@ -232,7 +232,7 @@ fn pinned_three_pipeline_equivalence_observes_final_candidates_and_preserves_cac
 
     let mut ordinary_cache =
         RunEvaluationCache::prepare(&grammar, &words, RuntimeBudget::default())
-        .expect("oracle preparation must succeed for this fixture");
+            .expect("oracle preparation must succeed for this fixture");
     let ordinary = evaluate_plans_marked_with_cache(
         &grammar,
         &plans,
@@ -243,7 +243,7 @@ fn pinned_three_pipeline_equivalence_observes_final_candidates_and_preserves_cac
     );
     let mut observed_cache =
         RunEvaluationCache::prepare(&grammar, &words, RuntimeBudget::default())
-        .expect("oracle preparation must succeed for this fixture");
+            .expect("oracle preparation must succeed for this fixture");
     let observed = evaluate_plans_marked_observed_with_cache(
         &grammar,
         &plans,
@@ -397,7 +397,7 @@ fn observed_evidence_distinguishes_failed_evaluation_from_real_empty_observation
             ..RuntimeBudget::default()
         },
     )
-        .expect("oracle preparation must succeed for this fixture");
+    .expect("oracle preparation must succeed for this fixture");
     let failed = evaluate_plans_marked_observed_with_cache(
         &grammar,
         std::slice::from_ref(&plan),

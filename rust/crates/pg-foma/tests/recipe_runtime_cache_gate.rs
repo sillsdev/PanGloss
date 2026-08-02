@@ -138,7 +138,7 @@ fn prepared_oracle_is_shared_and_emission_report_is_strategy_lazy() {
 
     let mut composed_cache =
         RunEvaluationCache::prepare(&grammar, &words, RuntimeBudget::default())
-        .expect("oracle preparation must succeed for this fixture");
+            .expect("oracle preparation must succeed for this fixture");
     evaluate_plans_with_cache(
         &grammar,
         &composed,
@@ -227,7 +227,7 @@ fn cache_excess_duplicate_occurrence_is_truncated_and_keeps_occurrences_distinct
 
     let mut repeat_cache =
         RunEvaluationCache::prepare(&grammar, &prepared, RuntimeBudget::default())
-        .expect("oracle preparation must succeed for this fixture");
+            .expect("oracle preparation must succeed for this fixture");
     let repeated_evaluations = evaluate_plans_with_cache(
         &grammar,
         &plans,
@@ -297,7 +297,7 @@ fn unrelated_excluded_prepared_row_does_not_poison_requested_pilot_subset() {
             ..RuntimeBudget::default()
         },
     )
-        .expect("oracle preparation must succeed for this fixture");
+    .expect("oracle preparation must succeed for this fixture");
 
     let evaluations = evaluate_plans_with_cache(
         &grammar,

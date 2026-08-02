@@ -6,8 +6,8 @@
 //! ever ran.
 //!
 //! The fix threads a finite default step cap + wall-clock deadline into that `Morpher` and, more
-//! importantly, makes a capped/timed-out oracle result an explicit non-certifying
-//! `Certification::Truncated{stage: "oracle-capped" | "oracle-timeout"}` rather than letting a KNOWN
+//! importantly, makes a step-capped oracle result an explicit non-certifying
+//! `Certification::Truncated{stage: "oracle-capped"}` rather than letting a KNOWN
 //! PARTIAL ground truth reach `certify_corpus`. That second half is the actual correctness property
 //! this gate pins: a partial `expected` compared against a real, untruncated FST result can
 //! manufacture a bogus `IdentityMismatch`/`MultiplicityMismatch` (a phantom "grammar/FST bug" that is
@@ -17,9 +17,10 @@
 //! `oracle_step_cap: Some(0)` is used to force the truncation deterministically, independent of any
 //! particular grammar or word: `pg_rules::stratum::StepBudget::over_budget()` reports `capped` on its
 //! very FIRST check (`0 >= 0`), so this reproduces the hazard without needing a genuinely
-//! pathological (and therefore slow-to-run-in-CI) fixture, and without any wall-clock timing race
-//! (forcing `timed_out` via an already-past deadline would depend on clock-resolution granularity;
-//! the step-cap route is an exact integer comparison).
+//! pathological (and therefore slow-to-run-in-CI) fixture. It is now also the ONLY route: the
+//! wall clock has been demoted to a liveness net whose trip aborts preparation as a typed
+//! `OraclePreparationFault` and can no longer produce an exclusion at all -- see
+//! `deterministic_eligibility_gate.rs`.
 
 use pg_conformance_fixtures::{discover, Root};
 use pg_foma::enumerate::enumerate_default;
@@ -103,7 +104,7 @@ fn a_capped_oracle_yields_an_explicit_truncation_never_a_word_mismatch_or_a_conf
             ..RuntimeBudget::default()
         },
     )
-        .expect("the oracle liveness net / memory ceiling must not trip on this fixture");
+    .expect("the oracle liveness net / memory ceiling must not trip on this fixture");
     assert!(!capped.is_empty());
     for evaluation in &capped {
         assert!(
@@ -167,7 +168,7 @@ fn a_mixed_complete_and_capped_oracle_cannot_certify_the_complete_subset() {
             ..RuntimeBudget::default()
         },
     )
-        .expect("the oracle liveness net / memory ceiling must not trip on this fixture");
+    .expect("the oracle liveness net / memory ceiling must not trip on this fixture");
     assert!(!evaluations.is_empty());
     let ranked = evaluations
         .iter()

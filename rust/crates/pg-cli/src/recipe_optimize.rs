@@ -127,7 +127,10 @@ fn read_progress_rows(path: &Path) -> Vec<CandidateProgressRow> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RecipeOptimizeError {
     Usage(String),
-    InvalidValue { option: String, value: String },
+    InvalidValue {
+        option: String,
+        value: String,
+    },
     Io(String),
     Runtime(String),
     Timeout(String),
