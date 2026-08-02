@@ -35,11 +35,18 @@
 //!   recall on these 121 words, which is why this prototype doesn't chase circumfix/null-morph
 //!   support up front — the parity gate (this module's own driver) is the source of truth on
 //!   whether that holds for the underlying-form path too.
-//! - Compounding/Realizational rules: Indonesian declares compounding rules but the corpus (per
-//!   `f2_indonesian_gate.rs`) needs none of them for its 114-word (121 − 7 redup) recall
-//!   denominator; not implemented here (documented gap for the report, not a silent drop — no
-//!   `CompoundingRuleDef` allomorph is even visible through [`crate::emit::allomorphs_of`], so
-//!   there is nothing to enumerate wrongly, only something absent).
+//! - Compounding/Realizational rules: not implemented here — every [`MorphRuleDef::Compounding`]
+//!   and [`MorphRuleDef::Realizational`] rule is reported via `skipped` (never a silent drop, this
+//!   doc's own heading) rather than enumerated. This is a real recall gap, not merely an absent
+//!   construct: [`crate::uflexc`]'s continuation graph (below) is structurally single-root (no arc
+//!   from at-or-after `RootBare` back to `RootBare`/`PrefixOrRoot`), so it can never propose a
+//!   compound even if a `CompoundingRuleDef` were emitted, and it never attempts the syntactic
+//!   feature-realization mechanism `RealizationalRuleDef` needs either. Indonesian declares
+//!   compounding rules but the corpus (per `f2_indonesian_gate.rs`) needs none of them for its
+//!   114-word (121 − 7 redup) recall denominator, which is why this prototype's own parity gate
+//!   never caught the gap — a DIFFERENT corpus that exercises compounding (e.g. Sena `ndimwe`,
+//!   which has two analyses differing only in which morpheme is the root) will now see it named in
+//!   `skipped` instead of silently missing candidates.
 
 use std::collections::HashSet;
 
@@ -53,8 +60,11 @@ use crate::tags;
 #[derive(Debug)]
 pub struct UEmitReport {
     pub lexc_source: String,
-    /// One line per skipped allomorph, e.g. `"mrule14#allo1 role=reduplication"` — never a silent
-    /// drop (module doc).
+    /// One line per skipped allomorph, e.g. `"mrule14#allo1 role=reduplication"` -- or, for an
+    /// entire [`MorphRuleDef::Compounding`]/[`MorphRuleDef::Realizational`] rule this module never
+    /// implements at all, one line per rule, e.g. `"mrule9(cmp1) kind=compounding-rule"` /
+    /// `"mrule12/RL(-) kind=realizational-rule"` (module doc's "what's covered / skipped" section).
+    /// Never a silent drop (module doc).
     pub skipped: Vec<String>,
     pub root_entries: usize,
     pub prefix_entries: usize,
@@ -178,8 +188,36 @@ pub fn emit_underlying_filtered_with_budget(
     }
 
     for (mid, mrule) in g.mrules.iter().enumerate() {
-        let MorphRuleDef::AffixProcess(def) = mrule else {
-            continue;
+        let def = match mrule {
+            MorphRuleDef::AffixProcess(def) => def,
+            MorphRuleDef::Compounding(def) => {
+                // Whole-rule skip (module doc "what's covered / skipped"): `CompoundingRuleDef`
+                // has no `MorphemeId` (`model.rs`'s own doc: "Not a morpheme") and no flat
+                // allomorph list (head/non-head `CompoundingSubruleDef`s instead), so there is no
+                // per-allomorph granularity to report here the way `AffixProcess`/`Realizational`
+                // have -- one line per rule, identified by its own `xml_id`. This is a REAL recall
+                // gap (module doc), not an absent-construct no-op: even if a subrule were emitted,
+                // this module's continuation graph has no root-to-root arc to route a compound
+                // through (see module doc, "compound loop" task).
+                skipped.push(format!("mrule{mid}({}) kind=compounding-rule", def.xml_id));
+                continue;
+            }
+            MorphRuleDef::Realizational(def) => {
+                // Same whole-rule granularity as `Compounding` above, but `Realizational` DOES
+                // carry a `MorphemeId` and an `AffixAllomorphDef` list shaped just like
+                // `AffixProcess`'s -- reported by morpheme identity (matching the label built
+                // below for `AffixProcess`) rather than by allomorph, because the reason this
+                // module skips it is not "this one allomorph doesn't classify", it's "this
+                // module never attempts the syntactic feature-realization mechanism
+                // `RealizationalRuleDef` needs at all" (module doc).
+                let morph_name = g
+                    .morphemes
+                    .get(def.morpheme.0 as usize)
+                    .map(|mi| format!("{}({})", mi.xml_key, mi.gloss.as_deref().unwrap_or("-")))
+                    .unwrap_or_else(|| format!("mrules[{mid}]"));
+                skipped.push(format!("{morph_name} kind=realizational-rule"));
+                continue;
+            }
         };
         let tag = tags::morph_tag_lexc(def.morpheme, width);
         // Report by the morpheme's own XML identity (e.g. "mrule14/AV"), not the raw 0-based

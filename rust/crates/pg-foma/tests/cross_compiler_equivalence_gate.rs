@@ -7,7 +7,7 @@
 use std::collections::BTreeMap;
 
 use pg_conformance_fixtures::{discover, Root};
-use pg_foma::enumerate::EmissionStrategy;
+use pg_foma::enumerate::{CandidatePlan, EmissionStrategy};
 use pg_foma::recipe_registry::{
     MaterializerContext, Registry, FAMILY_COMPLETE_TEMPLATE, FAMILY_SURFACE_PROBE_MORPHOLOGY,
     FAMILY_TOKEN_CASCADE_MORPHOLOGY,
@@ -550,4 +550,129 @@ fn template_flattened_uflexc_route_reports_typed_proposal_ratio_violation() {
 #[should_panic(expected = "strategy=PlanComposed numerator=7 denominator=2 threshold=2")]
 fn three_pipeline_gate_reports_proposal_ratio_violation_details() {
     assert_proposal_ratio(EmissionStrategy::PlanComposed, 7, 2);
+}
+
+/// RED-1: pins the compounding recall gap `uflexc.rs`'s module doc names --
+/// `EmissionStrategy::PlanComposed` uses `uflexc::emit_underlying_filtered_with_budget` as its ONLY
+/// lexicon emitter (`build.rs`), and that emitter's continuation graph is structurally single-root
+/// (no arc from at-or-after `RootBare` back to `RootBare`/`PrefixOrRoot`), so it can never propose a
+/// compound no matter what a `MorphRuleDef::Compounding` rule says -- even though it now REPORTS the
+/// dropped rule via `skipped` (task 1 of this same change) rather than dropping it silently.
+///
+/// Runs the already-staged `conformance-staging/edge-cases/compounding-non-recursive` fixture's
+/// two-stem positive witness `fasubel` (headA `fasu` + nonHeadOk `bel`, via the grammar's single
+/// `CompoundingRuleDef` `cr1`) through all three `REQUIRED_STRATEGIES` and asserts each one's final,
+/// oracle-certified candidate set is the SAME. Deliberately does not go through
+/// `Registry::seeded()`/`recipe_registry::Applicability` at all: this fixture declares no
+/// phonological rules and no templates, so `FAMILY_TOKEN_CASCADE_MORPHOLOGY`'s
+/// `Applicability::HasPhonologyOrTemplates` gate would never offer `TemplatedUnderlyingTokens` for
+/// it (that gate only controls which candidates the OPTIMIZER auto-proposes, not what a compiler can
+/// legally be asked to build) -- so each `CandidatePlan` here is built directly, all three sharing
+/// the one baseline `Plan` (`recipe_runtime::evaluate_plans_marked_with_cache_mode`'s own dispatch
+/// proves this is safe: the two whole-grammar strategies ignore `plan` entirely and only
+/// `PlanComposed` ever reads it).
+///
+/// **OBSERVED, not merely expected** (verified running with this test temporarily un-ignored):
+/// fails for `PlanComposed` (its candidate set for `fasubel` differs from the oracle -- the
+/// HEADA+NONHEADOK compound is never proposed), passes for `TunedSurfaceProbed` and
+/// `TemplatedUnderlyingTokens` (both route through `emit.rs`'s `compound_license`/compound-chain
+/// support, which `emit_underlying_templated` -- `TemplatedUnderlyingTokens`'s own emitter --
+/// shares with the main surface-probed `emit()` path).
+#[test]
+#[ignore = "known recall gap, not a flaky test: PlanComposed's uflexc emitter is structurally \
+    single-root (uflexc.rs module doc) and can never propose a compound, so this cross-compiler \
+    equivalence check fails for it today (observed: HEADA+NONHEADOK is missing from PlanComposed's \
+    final candidate set for fasubel) while passing for TunedSurfaceProbed/TemplatedUnderlyingTokens \
+    (also observed). Un-ignore once uflexc gains a compound loop -- the task uflexc.rs's own module \
+    doc names ('What's covered / skipped') -- rather than deleting or loosening this test to make \
+    the suite green."]
+fn plan_composed_cannot_represent_compounding_construct_red1() {
+    let fixture = discover()
+        .into_iter()
+        .find(|fixture| {
+            fixture.root == Root::Staging && fixture.name == "compounding-non-recursive"
+        })
+        .expect("missing pinned synthetic fixture compounding-non-recursive");
+    let grammar = pg_grammar::load(&fixture.load_grammar_xml()).expect("fixture must load");
+    let pinned_words = fixture
+        .load_words_yaml()
+        .words
+        .into_iter()
+        .map(|word| word.word)
+        .collect::<Vec<_>>();
+    let word = "fasubel".to_owned();
+    assert!(
+        pinned_words.contains(&word),
+        "the two-stem compound word must come from the pinned fixture: {pinned_words:?}"
+    );
+    let words = vec![word];
+
+    let alphabet = SegAlphabet::new(&grammar.char_tables[0]);
+    let prules = grammar
+        .strata
+        .iter()
+        .flat_map(|stratum| {
+            stratum
+                .prules
+                .iter()
+                .map(|id| &grammar.prules[id.0 as usize])
+        })
+        .collect::<Vec<_>>();
+    let baseline_plan = enumerate_default(
+        &grammar,
+        &alphabet,
+        &prules,
+        PhonologyProbe::new(&grammar).as_ref(),
+    );
+
+    let plans: Vec<CandidatePlan> = REQUIRED_STRATEGIES
+        .iter()
+        .map(|&strategy| CandidatePlan {
+            label: "red1-compounding-cross-compiler",
+            plan: baseline_plan.clone(),
+            strategy,
+        })
+        .collect();
+    let is_baseline = plans
+        .iter()
+        .map(|plan| plan.strategy == EmissionStrategy::PlanComposed)
+        .collect::<Vec<_>>();
+
+    let mut cache = RunEvaluationCache::prepare(&grammar, &words, RuntimeBudget::default());
+    let observed = evaluate_plans_marked_observed_with_cache(
+        &grammar,
+        &plans,
+        &words,
+        RuntimeBudget::default(),
+        &is_baseline,
+        &mut cache,
+    );
+    assert_eq!(observed.len(), plans.len());
+
+    let mut oracle: Option<Vec<(String, Vec<pg_parse::WordAnalysis>)>> = None;
+    for (plan, observation) in plans.iter().zip(&observed) {
+        assert_eq!(observation.requested_strategy, plan.strategy);
+        let evidence = observation.words.as_ref().unwrap_or_else(|| {
+            panic!(
+                "{:?} evaluation failed outright: {:?}",
+                plan.strategy, observation.evaluation
+            )
+        });
+        let oracle = oracle.get_or_insert_with(|| expected_multiset(evidence));
+        assert!(
+            oracle
+                .iter()
+                .any(|(word, analyses)| word == "fasubel" && !analyses.is_empty()),
+            "the fixture's oracle must find at least one analysis for the two-stem compound fasubel"
+        );
+        let actual = actual_multiset(evidence);
+        let certification = certify_corpus(&grammar, oracle.as_slice(), &actual);
+        assert!(
+            certification.selectable(),
+            "{:?} produced a final candidate set for the compounding fixture's two-stem word that \
+             differs from the oracle -- {:?}",
+            plan.strategy,
+            certification
+        );
+    }
 }

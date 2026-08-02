@@ -531,6 +531,18 @@ pub fn build_controllable(
             suffix_entries,
             ..
         } = emit_underlying_filtered_with_budget(g, alphabet, Some(&entries_set), budget)?;
+        // `uskipped` can now carry whole-rule `kind=compounding-rule`/`kind=realizational-rule`
+        // entries (`uflexc::emit_underlying_filtered_with_budget`'s own doc), not only per-
+        // allomorph classification misses -- a non-empty one of those means this GROUP's emitted
+        // network structurally cannot represent that construct (uflexc's module doc: single-root
+        // continuation graph, no compound loop), not merely that this group's gate happened to
+        // exclude it. Pooled into `skipped_allomorphs` with no new channel, same as every other
+        // caller of this function and the same convention `replace::
+        // compile_and_compose_rules_gated_with_budget` already uses for an unsupported rewrite
+        // shape or an unhandled metathesis rule (both pooled into that function's own plain
+        // `skipped: &mut Vec<String>`, no separate "unsupported construct" field there either) --
+        // `GatedCompileResult::skipped_allomorphs`'s own doc ("so a caller can report exactly what
+        // this prototype covers") already gives this the right meaning without further plumbing.
         skipped_allomorphs.extend(uskipped);
         group_reports.push((
             group_key.clone(),
