@@ -1,4 +1,78 @@
-//! Wire-owned vocabulary and fail-closed validation for executable mechanisms.
+//! The typed mechanism graph: six language-name-free mechanism kinds, the dependency/order edges
+//! between them, and the strategy-attributed bindings that say what executing one actually costs.
+//!
+//! # What changed in task 7.3, and why
+//! The initial vocabulary commit modelled a mechanism as a node plus a hand-written
+//! `InterfaceContract` on every edge. That shape had three defects, all of which this rework
+//! deletes rather than patches.
+//!
+//! **1. Duplicate wire provenance.** The same model id was written down two or three times. A
+//! node's `stratum` was repeated by `OrderedPhonologySpec::stratum` AND by both halves of every
+//! incident contract -- and `validate` then *asserted* the copies were equal, which is not
+//! validation, it is a consistency check on a redundancy that should not exist.
+//! `StructuralAllomorphSpec::rule` and `CopyProcessSpec::rule` repeated the `MRuleId` already
+//! carried by the node's own [`MechanismSource`]; `MorphotacticsSpec::rules` repeated the whole
+//! source list; `BoundaryCleanupSpec::table` repeated the symbol space's table. Provenance is now
+//! written exactly once: **typed source references live in [`MechanismNode::sources`]**, the active
+//! table lives in [`MechanismNode::symbol_space`], and the stratum lives in
+//! [`MechanismNode::stratum`]. Bodies carry only what those cannot express.
+//!
+//! **2. Unproved blanket contracts.** `IdentityGuarantee`, `MultiplicityGuarantee`,
+//! `CopySpanGuarantee`, their four `*Requirement` mirrors and the `DynamicState` superset check
+//! were all *declarations*. Nothing derived them from anything; whoever wrote the edge wrote
+//! `Preserved`/`ExactMultiset` and the validator then confirmed that `Preserved` satisfies
+//! `Preserved`. Wave 3 measured the exact failure this invites: Amharic's
+//! `@templated-underlying-tokens` candidate was 2.2x cheaper than the winner and
+//! `identity-mismatch`ed -- a declared "identity is preserved" would have been simply false, and
+//! the graph would have validated anyway. Analysis identity and multiplicity are the **parity
+//! relation**, which is established by measuring a candidate against an oracle, never by an
+//! annotation on an edge. They are deleted here rather than left as a false comfort. Nothing in
+//! this module ranks or selects, so nothing needs them.
+//!
+//! **3. Guarantees that did not name whose guarantee they were.** This is the defect the compound
+//! episode turned into a worked example. [`crate::capability::Disposition::ConfirmOnly`] is defined
+//! as *"recall-preserving only if the proposer proposes the superset"* -- a claim about a
+//! **proposer**, not about a grammar. `Compounding` nonetheless rested at `ConfirmOnly`
+//! grammar-wide while [`crate::uflexc`], the only lexicon emitter
+//! [`crate::enumerate::EmissionStrategy::PlanComposed`] has, could not propose a single compound.
+//! One compiler's ability was inherited by all three because the type recording it had nowhere to
+//! put the compiler's name.
+//!
+//! So this vocabulary makes that inexpressible. A [`MechanismNode`] owns **requirements**, never
+//! recall guarantees: [`MechanismNode::construct_requirements`] is a set of
+//! [`CharacteristicKind`]s -- "faithfully executing this mechanism requires the compiler to
+//! represent these constructs." The ONLY type in this module that expresses what a compiler can
+//! actually deliver is [`MechanismBinding`], whose [`MechanismBinding::strategy`] is mandatory,
+//! whose fields are private, and whose only constructor is [`MechanismBinding::derive`]. There is
+//! no way to write down an [`ExecutionDisposition`] without naming the [`EmissionStrategy`] it
+//! belongs to, and no way to write one down by hand at all.
+//!
+//! # How requirements connect to [`crate::strategy_coverage`] without restating it
+//! `strategy_coverage` already owns the 3 x 22 `(EmissionStrategy, CharacteristicKind)` account,
+//! exhaustively matched so a new compiler or construct breaks the build. This module does not hold
+//! a second copy, a subset, or a summary of it. A node's requirements are expressed **in
+//! `CharacteristicKind`**, exactly the key that table is indexed by, and
+//! [`MechanismBinding::derive`] resolves them by calling
+//! [`crate::strategy_coverage::representation_of`] once per requirement and taking the meet. Adding
+//! a construct or a compiler still breaks `strategy_coverage`'s build first, and every mechanism's
+//! answer moves with it automatically.
+//!
+//! Two node-owned facts are deliberately NOT expressed as `CharacteristicKind` because they are
+//! genuinely a different question: [`SymbolSpace`] and [`BoundaryState`]. `strategy_coverage`
+//! answers "can compiler S represent construct K", which takes no position on whether the boundary
+//! symbols are still present at the point one mechanism reads another's output, or on which
+//! character-definition table the two are speaking. Those are properties of a mechanism's
+//! **position in the composition**, with no compiler input at all, and they are what
+//! [`MechanismGraph::validate`] checks along an edge. They are structural facts, not recall claims,
+//! and they are named accordingly -- `state`/`space`, never `guarantee`.
+//!
+//! # No node names a plan shape
+//! Wave 3 measured plan-shape permutation to vary nothing: on Sena two different families with two
+//! different transforms produced bit-identical networks (2044 states / 21114 arcs), and on
+//! Indonesian all five plan-composed permutations scored bit-identically. Accordingly there is no
+//! node, body field, or edge attribute here that names a family, a topology, or a permutation. The
+//! order mechanisms compose in is a single canonical spine ([`MechanismKind::COMPOSITION_ORDER`]),
+//! not an axis.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -10,31 +84,20 @@ use pg_grammar::model::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::capability::ModelLocation;
+use crate::capability::{CharacteristicKind, ModelLocation};
+use crate::enumerate::EmissionStrategy;
+use crate::strategy_coverage::{representation_of, StrategyCoverageRow, StrategyRepresentation};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct MechanismId(pub String);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum ExecutionDisposition {
-    ExactFst,
-    ConfirmOnly,
-    Peeled,
-    Refused,
-}
+// ---------------------------------------------------------------------------------------------
+// Typed source references (wire domain)
+// ---------------------------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum MechanismKind {
-    Morphotactics,
-    StaticPartition,
-    OrderedPhonology,
-    StructuralAllomorph,
-    CopyProcess,
-    BoundaryCleanup,
-}
-
+/// The model-id domain a [`WireModelId`] belongs to. Kept from the initial commit unchanged: it is
+/// the type-tag half of a typed source reference, and it is what stops a `PRuleId` being read back
+/// as an `MRuleId` across a serialization boundary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum WireModelKind {
@@ -139,6 +202,36 @@ wire_id_conversions!(TableId, WireModelKind::Table, u16::MAX);
 wire_id_conversions!(VarId, WireModelKind::Var, u16::MAX);
 wire_id_conversions!(MprId, WireModelKind::Mpr, u8::MAX);
 
+impl WireModelId {
+    fn has_valid_range(&self) -> bool {
+        let max = match self.kind {
+            WireModelKind::CharDef
+            | WireModelKind::MRule
+            | WireModelKind::PRule
+            | WireModelKind::Template
+            | WireModelKind::LexEntry
+            | WireModelKind::Morpheme
+            | WireModelKind::Allomorph
+            | WireModelKind::NatClass
+            | WireModelKind::StemName
+            | WireModelKind::Family => u32::MAX as u64,
+            WireModelKind::Stratum | WireModelKind::Mpr => u8::MAX as u64,
+            WireModelKind::Table | WireModelKind::Var => u16::MAX as u64,
+            WireModelKind::MprGroup
+            | WireModelKind::SubruleIndex
+            | WireModelKind::AllomorphIndex
+            | WireModelKind::MorphemeIndex => u64::MAX,
+        };
+        self.value <= max
+    }
+}
+
+/// What kind of authored model object a mechanism was derived from.
+///
+/// Every variant except [`Self::CharacterTable`] is the image of a
+/// [`crate::capability::ModelLocation`] variant under the `From` impl below -- which is the join
+/// that lets a mechanism provider attribute a [`crate::capability::CharacteristicObservation`] to a
+/// mechanism without ever re-reading the `Grammar`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum MechanismSourceKind {
@@ -151,9 +244,12 @@ pub enum MechanismSourceKind {
     NaturalClass,
     MorphemeCoOccurrence,
     AllomorphCoOccurrence,
+    /// The active `CharacterDefinitionTable`. The one source kind with no [`ModelLocation`]
+    /// counterpart: [`MechanismKind::BoundaryCleanup`] is derived from the character table it
+    /// cleans, not from an observed construct, and a node with no typed source at all is rejected
+    /// by [`MechanismGraph::validate`].
+    CharacterTable,
 }
-
-pub type SourceKind = MechanismSourceKind;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct MechanismSource {
@@ -238,124 +334,341 @@ impl From<&ModelLocation> for MechanismSource {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum CopyKind {
-    Prefix,
-    Suffix,
-    FullStem,
-    InternalSpan,
-}
+impl MechanismSource {
+    /// The `CharacterDefinitionTable` source for a [`MechanismKind::BoundaryCleanup`] node.
+    pub fn character_table(table: TableId) -> Self {
+        Self {
+            kind: MechanismSourceKind::CharacterTable,
+            owner: Some(table.into()),
+            child: None,
+        }
+    }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum OrderedRuleAtom {
-    Rewrite {
-        rule: WireModelId,
-    },
-    Metathesis {
-        rule: WireModelId,
-        swap_construction_attempted: bool,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum PartitionPredicate {
-    Pos(String),
-    Mpr(WireModelId),
-    LexicalClass(String),
-    StemFamily(WireModelId),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PartitionGroupSpec {
-    pub id: String,
-    pub predicates: Vec<PartitionPredicate>,
-    pub members: Vec<WireModelId>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MorphotacticsSpec {
-    pub strata: Vec<WireModelId>,
-    pub templates: Vec<WireModelId>,
-    pub rules: Vec<WireModelId>,
-    pub cooccurrence_units: Vec<Vec<String>>,
-    pub priority_chains: Vec<Vec<WireModelId>>,
-    pub max_depth: Option<usize>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct StaticPartitionSpec {
-    pub predicates: Vec<PartitionPredicate>,
-    pub groups: Vec<PartitionGroupSpec>,
-    pub stable_for_lifetime: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct OrderedPhonologySpec {
-    pub stratum: WireModelId,
-    pub rules: Vec<OrderedRuleAtom>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct StructuralAllomorphSpec {
-    pub rule: WireModelId,
-    pub allomorphs: Vec<WireModelId>,
-    pub bounded_local_shape: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CopyProcessSpec {
-    pub rule: WireModelId,
-    pub kind: CopyKind,
-    pub max_span: Option<usize>,
-    pub max_chain_depth: usize,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct BoundaryCleanupSpec {
-    pub table: WireModelId,
-    pub boundary_symbols: Vec<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", content = "spec", rename_all = "kebab-case")]
-pub enum MechanismBody {
-    Morphotactics(MorphotacticsSpec),
-    StaticPartition(StaticPartitionSpec),
-    OrderedPhonology(OrderedPhonologySpec),
-    StructuralAllomorph(StructuralAllomorphSpec),
-    CopyProcess(CopyProcessSpec),
-    BoundaryCleanup(BoundaryCleanupSpec),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MechanismSpec {
-    pub id: MechanismId,
-    pub sources: Vec<MechanismSource>,
-    pub stratum: Option<WireModelId>,
-    pub body: MechanismBody,
-}
-
-impl MechanismSpec {
-    pub fn kind(&self) -> MechanismKind {
-        match &self.body {
-            MechanismBody::Morphotactics(_) => MechanismKind::Morphotactics,
-            MechanismBody::StaticPartition(_) => MechanismKind::StaticPartition,
-            MechanismBody::OrderedPhonology(_) => MechanismKind::OrderedPhonology,
-            MechanismBody::StructuralAllomorph(_) => MechanismKind::StructuralAllomorph,
-            MechanismBody::CopyProcess(_) => MechanismKind::CopyProcess,
-            MechanismBody::BoundaryCleanup(_) => MechanismKind::BoundaryCleanup,
+    /// The wire domains this source kind's `owner`/`child` must belong to. `None` for a slot that
+    /// must be absent.
+    fn expected_domains(
+        kind: MechanismSourceKind,
+    ) -> (Option<WireModelKind>, Option<WireModelKind>) {
+        match kind {
+            MechanismSourceKind::MorphRule => (Some(WireModelKind::MRule), None),
+            MechanismSourceKind::AffixAllomorph => (
+                Some(WireModelKind::MRule),
+                Some(WireModelKind::AllomorphIndex),
+            ),
+            MechanismSourceKind::Stratum => (Some(WireModelKind::Stratum), None),
+            MechanismSourceKind::MprGroup => (Some(WireModelKind::MprGroup), None),
+            MechanismSourceKind::PhonRule => (Some(WireModelKind::PRule), None),
+            MechanismSourceKind::RewriteSubrule => (
+                Some(WireModelKind::PRule),
+                Some(WireModelKind::SubruleIndex),
+            ),
+            MechanismSourceKind::NaturalClass => (Some(WireModelKind::NatClass), None),
+            MechanismSourceKind::MorphemeCoOccurrence => (Some(WireModelKind::MorphemeIndex), None),
+            MechanismSourceKind::AllomorphCoOccurrence => (Some(WireModelKind::Allomorph), None),
+            MechanismSourceKind::CharacterTable => (Some(WireModelKind::Table), None),
         }
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// The six mechanism kinds
+// ---------------------------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum MechanismKind {
+    StaticPartition,
+    Morphotactics,
+    StructuralAllomorph,
+    CopyProcess,
+    OrderedPhonology,
+    BoundaryCleanup,
+}
+
+impl MechanismKind {
+    /// The ONE canonical composition order, from the subrecipe dossiers: a static lexical partition
+    /// selects the entry subset, morphotactics assembles complete legal analyses over it, structural
+    /// allomorphy applies local structural actions to the assembled form, copy processes copy spans
+    /// of it, ordered phonology lowers the result, and boundary cleanup terminally consumes the
+    /// boundary symbols every earlier mechanism needed to see.
+    ///
+    /// This is deliberately a fixed order and NOT an axis. Wave 3 measured plan-shape permutation to
+    /// change nothing observable (bit-identical networks on Sena, bit-identical scores on
+    /// Indonesian), so a vocabulary that let this order vary would be modelling something that does
+    /// not exist. It is also what makes a derived graph's identity canonical: two derivations of the
+    /// same grammar cannot differ by node order.
+    pub const COMPOSITION_ORDER: &'static [MechanismKind] = &[
+        MechanismKind::StaticPartition,
+        MechanismKind::Morphotactics,
+        MechanismKind::StructuralAllomorph,
+        MechanismKind::CopyProcess,
+        MechanismKind::OrderedPhonology,
+        MechanismKind::BoundaryCleanup,
+    ];
+
+    /// Stable identifier for reports, ids and serialized artifacts.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::StaticPartition => "static-partition",
+            Self::Morphotactics => "morphotactics",
+            Self::StructuralAllomorph => "structural-allomorph",
+            Self::CopyProcess => "copy-process",
+            Self::OrderedPhonology => "ordered-phonology",
+            Self::BoundaryCleanup => "boundary-cleanup",
+        }
+    }
+}
+
+/// Which mechanism owns a given construct.
+///
+/// Exhaustively matched with no catch-all, the same discipline
+/// [`crate::strategy_coverage::representation_of`] and [`crate::capability::characterize`] hold
+/// themselves to: adding a [`CharacteristicKind`] breaks this build until a reviewer assigns it to
+/// a mechanism. That compile break is the mechanism -- a new construct cannot silently land in
+/// whichever node happens to be nearest.
+pub fn mechanism_kind_for(kind: CharacteristicKind) -> MechanismKind {
+    use CharacteristicKind::*;
+    match kind {
+        // Morphotactics owns complete morphological alternatives: which analyses are legal before
+        // phonological lowering (its dossier's scope paragraph). Rule kind, rule ordering,
+        // co-occurrence units, lexical continuation restrictions and allomorph priority are all
+        // statements about which complete analyses exist.
+        Affixation
+        | RealizationalMorphology
+        | Compounding
+        | OrderedMorphRuleApplication
+        | UnorderedMorphRuleApplication
+        | CoOccurrenceConstraint
+        | StemName
+        | FreeFluctuation => MechanismKind::Morphotactics,
+
+        // A static partition is a lexical/MPR split fixed for the compilation's lifetime.
+        // `SubruleGating` is literally what `crate::gate` partitions on; MPR-group append/overwrite
+        // is the same shape of fixed state split.
+        SubruleGating | MprGroupAppend | MprGroupOverwrite => MechanismKind::StaticPartition,
+
+        // Ordered phonology owns the compiled rewrite cascade: mode, direction, metathesis,
+        // epenthesis, quantified patterns, and the natural classes those patterns are written over.
+        IterativeRewrite
+        | SimultaneousRewrite
+        | LeftToRightRewrite
+        | RightToLeftRewrite
+        | Metathesis
+        | Epenthesis
+        | QuantifierPattern
+        | NaturalClassDefinition => MechanismKind::OrderedPhonology,
+
+        // A local structural action on an assembled form: multi-part LHS with dropped material.
+        CircumfixOutputAction => MechanismKind::StructuralAllomorph,
+
+        // Copying a span of the stem.
+        Reduplication => MechanismKind::CopyProcess,
+
+        // JUDGMENT CALL, recorded rather than hidden. The work of threading a per-rule owning table
+        // lives in `crate::replace` (i.e. in the ordered-phonology cascade), which argues for
+        // `OrderedPhonology`. It is assigned to `BoundaryCleanup` instead on a structural ground:
+        // cleanup is the only mechanism in this vocabulary that is *table-parameterized* (its
+        // symbol space is the identity `validate` checks along every incident edge, and its own
+        // dossier's invariant is "table/symbol-space identity is preserved"), whereas the
+        // ordered-phonology node is stratum-parameterized. Putting the "there is more than one
+        // table to get right" fact on the node whose contract IS table identity keeps the two
+        // together. Revisit if a later slice makes phonology nodes table-parameterized.
+        MultiTable => MechanismKind::BoundaryCleanup,
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Bodies -- only what sources, symbol space and stratum cannot already express
+// ---------------------------------------------------------------------------------------------
+
+/// Morphotactics' non-provenance facts.
+///
+/// `templates` is NOT duplicate provenance: a template is not the source of an observed construct
+/// (no `ModelLocation` names one), so this is the only place a template id appears. `max_depth` is
+/// [`crate::capability::GrammarCardinality::max_derivation_chain_depth`], which is honestly `None`
+/// today -- carried as an `Option` rather than guessed, exactly as that field's own doc requires.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MorphotacticsSpec {
+    pub templates: Vec<WireModelId>,
+    pub max_depth: Option<usize>,
+}
+
+/// One partition group, as [`crate::gate::partition_entries`] actually computed it (projected
+/// through [`crate::grammar_semantics::GrammarSemantics::entry_partition`], which is the
+/// deterministically-ordered owner of that answer).
+///
+/// The gate key IS the group's identity -- there is no separate `id` string, and no
+/// `PartitionPredicate` list. The initial commit's `PartitionPredicate` enum (`Pos`/`Mpr`/
+/// `LexicalClass`/`StemFamily`) was never populated by anything and could not be: the real
+/// partition mechanism does not expose per-group predicates, only the boolean key vector of which
+/// gated subrules apply. A predicate list nobody can derive is a declaration, not a fact.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PartitionGroupSpec {
+    /// One bool per gated subrule, in
+    /// [`crate::grammar_semantics::GrammarSemantics::gated_subrules`] order.
+    pub key: Vec<bool>,
+    /// The group's lexical entries, sorted (the real mechanism collects into a `HashSet`).
+    pub members: Vec<WireModelId>,
+}
+
+/// The authored cascade order of the phonological rules this mechanism runs.
+///
+/// Order is load-bearing and is never canonicalized (see [`crate::grammar_semantics`]'s "authored
+/// order is preserved" note). The initial commit's `OrderedRuleAtom` enum is gone: its
+/// `Rewrite`/`Metathesis` distinction is already carried, per compiler, by the
+/// [`CharacteristicKind::Metathesis`] requirement resolving through [`crate::strategy_coverage`],
+/// and its `swap_construction_attempted: bool` was an unproved declaration about a compile attempt
+/// that had not happened.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OrderedPhonologySpec {
+    pub rule_order: Vec<WireModelId>,
+}
+
+/// The boundary symbols this terminal mechanism consumes, from the active table's
+/// `CharDefKind::Boundary` definitions. The table itself is the node's
+/// [`MechanismNode::symbol_space`], not a field here.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BoundaryCleanupSpec {
+    pub boundary_symbols: Vec<String>,
+}
+
+/// The per-kind payload.
+///
+/// [`Self::StructuralAllomorph`] and [`Self::CopyProcess`] are deliberately payload-free. Their
+/// initial-commit specs carried `rule`/`allomorphs` (duplicate provenance -- already in
+/// [`MechanismNode::sources`]) plus `bounded_local_shape`, `CopyKind`, `max_span` and
+/// `max_chain_depth`, none of which any semantic owner can derive today. An empty body is the
+/// honest shape: everything currently knowable about these two mechanisms is their typed sources
+/// and their construct requirements. Task 7.8's bounded-vs-unbounded-copy axis needs a real
+/// derivation before it can be modelled; inventing the field now would re-create exactly the
+/// unproved blanket contract this rework deletes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "spec", rename_all = "kebab-case")]
+pub enum MechanismBody {
+    StaticPartition(Vec<PartitionGroupSpec>),
+    Morphotactics(MorphotacticsSpec),
+    StructuralAllomorph,
+    CopyProcess,
+    OrderedPhonology(OrderedPhonologySpec),
+    BoundaryCleanup(BoundaryCleanupSpec),
+}
+
+// ---------------------------------------------------------------------------------------------
+// Position facts: symbol space and boundary state (NOT recall guarantees)
+// ---------------------------------------------------------------------------------------------
+
+/// Which symbol alphabet a mechanism reads and writes, and in which character-definition table.
+///
+/// A composition fact, not a recall claim: it says nothing about what any compiler can represent,
+/// so it is deliberately not expressed in [`CharacteristicKind`] and does not resolve through
+/// [`crate::strategy_coverage`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SymbolSpace {
+    Surface(WireModelId),
+    CharDefTokens(WireModelId),
+}
+
+impl SymbolSpace {
+    pub fn table(&self) -> &WireModelId {
+        match self {
+            Self::Surface(table) | Self::CharDefTokens(table) => table,
+        }
+    }
+}
+
+/// Whether boundary/marker symbols are still present in a mechanism's symbol stream.
+///
+/// Two-point and derived, never declared: exactly one mechanism kind
+/// ([`MechanismKind::BoundaryCleanup`]) transitions `Present` to `Removed`, and every mechanism
+/// requires `Present` on input because every one of them may need to see a boundary. That single
+/// rule is what makes "all boundary-consuming consumers run before cleanup" (the cleanup dossier's
+/// first invariant) a structural property of the graph rather than a review checklist item.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum BoundaryState {
+    Present,
+    Removed,
+}
+
+/// Which position fact an edge failed on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum InterfaceField {
+    Boundaries,
+    Stratum,
+}
+
+// ---------------------------------------------------------------------------------------------
+// The node
+// ---------------------------------------------------------------------------------------------
+
+/// One mechanism.
+///
+/// Owns its typed source references, its position in the symbol pipeline, and -- the part task 7.3
+/// re-grounded -- the typed **requirements** that decide whether a given compiler can represent it
+/// faithfully. It owns NO recall guarantee: see [`MechanismBinding`], which is the only type here
+/// that can express one, and cannot express one anonymously.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MechanismNode {
+    pub id: MechanismId,
+    /// Where in the authored model this mechanism came from. Never empty (enforced by
+    /// [`MechanismGraph::validate`]): a mechanism with no source is a mechanism nobody can justify.
+    pub sources: Vec<MechanismSource>,
+    /// The symbol alphabet and active table this mechanism reads and writes.
+    pub symbol_space: SymbolSpace,
+    /// The stratum this mechanism is scoped to, or `None` for a grammar-wide mechanism. Written
+    /// exactly once: no body field and no edge repeats it.
+    pub stratum: Option<WireModelId>,
+    /// Every construct the compiler must be able to represent for this mechanism to execute
+    /// faithfully. Expressed in [`CharacteristicKind`] precisely so it resolves through
+    /// [`crate::strategy_coverage`]'s existing 3 x 22 table rather than restating any of it.
+    pub construct_requirements: BTreeSet<CharacteristicKind>,
+    pub body: MechanismBody,
+}
+
+impl MechanismNode {
+    pub fn kind(&self) -> MechanismKind {
+        match &self.body {
+            MechanismBody::StaticPartition(_) => MechanismKind::StaticPartition,
+            MechanismBody::Morphotactics(_) => MechanismKind::Morphotactics,
+            MechanismBody::StructuralAllomorph => MechanismKind::StructuralAllomorph,
+            MechanismBody::CopyProcess => MechanismKind::CopyProcess,
+            MechanismBody::OrderedPhonology(_) => MechanismKind::OrderedPhonology,
+            MechanismBody::BoundaryCleanup(_) => MechanismKind::BoundaryCleanup,
+        }
+    }
+
+    /// The boundary state this mechanism needs on its input. `Present` for every kind: any
+    /// mechanism may need to see a boundary, and cleanup itself needs the symbols it removes.
+    pub fn boundary_input(&self) -> BoundaryState {
+        BoundaryState::Present
+    }
+
+    /// The boundary state this mechanism leaves behind. Only cleanup removes.
+    pub fn boundary_output(&self) -> BoundaryState {
+        match self.kind() {
+            MechanismKind::BoundaryCleanup => BoundaryState::Removed,
+            _ => BoundaryState::Present,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// The edge: dependency and order, and nothing else
+// ---------------------------------------------------------------------------------------------
+
+/// `producer`'s output is `consumer`'s input, and therefore `producer` runs first.
+///
+/// It carries no contract. Everything an edge used to declare is now either owned by a node (symbol
+/// space, boundary state, stratum) or deleted as unprovable (identity, multiplicity, copy span,
+/// dynamic state). Compatibility is COMPUTED from the two endpoints by
+/// [`MechanismGraph::validate`], so an edge cannot assert a compatibility its endpoints do not
+/// have.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct MechanismEdge {
     pub producer: MechanismId,
     pub consumer: MechanismId,
-    pub contract: InterfaceContract,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -365,132 +678,131 @@ pub enum MechanismEndpoint {
     Consumer,
 }
 
-pub type Endpoint = MechanismEndpoint;
+// ---------------------------------------------------------------------------------------------
+// The candidate binding: the ONLY place an execution disposition can exist
+// ---------------------------------------------------------------------------------------------
+
+/// What executing one mechanism costs under one named compiler.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ExecutionDisposition {
+    /// Every required construct is represented by this compiler with no cited gap.
+    ExactFst,
+    /// At least one required construct has a documented partial gap for this compiler
+    /// ([`StrategyRepresentation::RepresentsWithKnownGap`]), so the mechanism's output must be
+    /// confirm-gated.
+    ConfirmOnly,
+    /// Executed outside the compiled FST by `crate::peel` -- the division [`crate::capability`]'s
+    /// `Reduplication` arm describes, which holds for every strategy alike.
+    Peeled,
+    /// At least one required construct is [`StrategyRepresentation::CannotRepresent`] for this
+    /// compiler: a whole-construct recall hole, so no disposition short of refusal is honest.
+    Refused,
+}
+
+/// A mechanism's execution disposition **under a named [`EmissionStrategy`]**.
+///
+/// This is the only type in this module that expresses what a compiler can deliver, and it is
+/// structurally impossible to write one down anonymously or by hand: the fields are private, the
+/// only constructor is [`Self::derive`], and `derive` requires a strategy.
+///
+/// That is not stylistic. `Disposition::ConfirmOnly` means "recall-preserving only if the proposer
+/// proposes the superset" -- a per-proposer fact. Recording it as a grammar fact is how `uflexc`
+/// held a `ConfirmOnly` `Compounding` verdict while being unable to propose a single compound. A
+/// guarantee that does not name whose guarantee it is, is that bug.
+///
+/// Deliberately NOT `Serialize`: a binding is cheap to re-`derive` from a node and a strategy, and
+/// serializing one would create a second, staleable copy of an answer whose whole point is that it
+/// is recomputed from [`crate::strategy_coverage`] every time that table changes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MechanismBinding {
+    mechanism: MechanismId,
+    strategy: EmissionStrategy,
+    disposition: ExecutionDisposition,
+    limiting_rows: Vec<StrategyCoverageRow>,
+}
+
+impl MechanismBinding {
+    /// Resolve `node`'s requirements against `strategy`'s rows in [`crate::strategy_coverage`].
+    /// Every verdict comes from [`crate::strategy_coverage::representation_of`]; nothing is
+    /// restated or re-decided here.
+    pub fn derive(node: &MechanismNode, strategy: EmissionStrategy) -> Self {
+        let mut worst = StrategyRepresentation::Represents;
+        let mut limiting_rows = Vec::new();
+        // `construct_requirements` is a `BTreeSet<CharacteristicKind>`, so iteration order is
+        // deterministic and `limiting_rows` is too.
+        for &kind in &node.construct_requirements {
+            let row = representation_of(strategy, kind);
+            if row.representation != StrategyRepresentation::Represents {
+                limiting_rows.push(row);
+            }
+            worst = worse_of(worst, row.representation);
+        }
+
+        let disposition = match (worst, node.kind()) {
+            (StrategyRepresentation::CannotRepresent, _) => ExecutionDisposition::Refused,
+            (StrategyRepresentation::RepresentsWithKnownGap, _) => {
+                ExecutionDisposition::ConfirmOnly
+            }
+            (StrategyRepresentation::Represents, MechanismKind::CopyProcess) => {
+                ExecutionDisposition::Peeled
+            }
+            (StrategyRepresentation::Represents, _) => ExecutionDisposition::ExactFst,
+        };
+
+        Self {
+            mechanism: node.id.clone(),
+            strategy,
+            disposition,
+            limiting_rows,
+        }
+    }
+
+    pub fn mechanism(&self) -> &MechanismId {
+        &self.mechanism
+    }
+
+    /// Whose disposition this is. Never optional.
+    pub fn strategy(&self) -> EmissionStrategy {
+        self.strategy
+    }
+
+    pub fn disposition(&self) -> ExecutionDisposition {
+        self.disposition
+    }
+
+    /// Every requirement row that was not a clean [`StrategyRepresentation::Represents`], with the
+    /// citation `strategy_coverage` records for it. Empty iff coverage did not limit the
+    /// disposition.
+    pub fn limiting_rows(&self) -> &[StrategyCoverageRow] {
+        &self.limiting_rows
+    }
+}
+
+/// The meet of two representations: `CannotRepresent` < `RepresentsWithKnownGap` < `Represents`.
+fn worse_of(a: StrategyRepresentation, b: StrategyRepresentation) -> StrategyRepresentation {
+    fn rank(r: StrategyRepresentation) -> u8 {
+        match r {
+            StrategyRepresentation::CannotRepresent => 0,
+            StrategyRepresentation::RepresentsWithKnownGap => 1,
+            StrategyRepresentation::Represents => 2,
+        }
+    }
+    if rank(a) <= rank(b) {
+        a
+    } else {
+        b
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// The graph
+// ---------------------------------------------------------------------------------------------
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MechanismGraph {
-    pub nodes: Vec<MechanismSpec>,
+    pub nodes: Vec<MechanismNode>,
     pub edges: Vec<MechanismEdge>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct InterfaceContract {
-    pub provided: ProvidedInterface,
-    pub required: RequiredInterface,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ProvidedInterface {
-    pub symbol_space: SymbolSpace,
-    pub analysis_identity: IdentityGuarantee,
-    pub root_identity: IdentityGuarantee,
-    pub multiplicity: MultiplicityGuarantee,
-    pub boundaries: BoundaryGuarantee,
-    pub dynamic_state: DynamicState,
-    pub stratum: Option<WireModelId>,
-    pub disposition: ExecutionDisposition,
-    pub copy_span: CopySpanGuarantee,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RequiredInterface {
-    pub symbol_space: SymbolSpace,
-    pub analysis_identity: IdentityRequirement,
-    pub root_identity: IdentityRequirement,
-    pub multiplicity: MultiplicityRequirement,
-    pub boundaries: BoundaryRequirement,
-    pub dynamic_state: DynamicState,
-    pub stratum: Option<WireModelId>,
-    pub accepted_dispositions: BTreeSet<ExecutionDisposition>,
-    pub copy_span: CopySpanRequirement,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DynamicState {
-    pub pos: BTreeSet<String>,
-    pub mpr: BTreeSet<WireModelId>,
-    pub lexical_classes: BTreeSet<String>,
-    pub stem_families: BTreeSet<WireModelId>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum SymbolSpace {
-    Surface(WireModelId),
-    CharDefTokens(WireModelId),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum IdentityGuarantee {
-    Unknown,
-    Preserved,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum IdentityRequirement {
-    Any,
-    Preserved,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum MultiplicityGuarantee {
-    Unknown,
-    SetOnly,
-    ExactMultiset,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum MultiplicityRequirement {
-    Any,
-    SetOrBetter,
-    ExactMultiset,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum BoundaryGuarantee {
-    Unknown,
-    Present,
-    Removed,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum BoundaryRequirement {
-    Any,
-    Present,
-    Removed,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum CopySpanGuarantee {
-    None,
-    Bounded(usize),
-    UnboundedPreserved,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum CopySpanRequirement {
-    None,
-    BoundedAtMost(usize),
-    AnyPreserved,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum InterfaceField {
-    Identity,
-    Multiplicity,
-    Boundaries,
-    DynamicState,
-    Stratum,
-    CopySpan,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -500,6 +812,10 @@ pub enum MechanismGraphError {
     },
     DuplicateId {
         id: MechanismId,
+    },
+    /// A node with no typed source reference at all.
+    MissingSource {
+        mechanism: MechanismId,
     },
     InvalidWireId {
         mechanism: MechanismId,
@@ -511,6 +827,9 @@ pub enum MechanismGraphError {
         edge: MechanismEdge,
         endpoint: MechanismEndpoint,
     },
+    SelfEdge {
+        mechanism: MechanismId,
+    },
     Cycle {
         members: Vec<MechanismId>,
     },
@@ -519,11 +838,6 @@ pub enum MechanismGraphError {
     },
     PathDoesNotTerminateInCleanup {
         mechanism: MechanismId,
-    },
-    CleanupContractMismatch {
-        cleanup: MechanismId,
-        table: WireModelId,
-        contract_space: SymbolSpace,
     },
     SymbolSpaceMismatch {
         producer: MechanismId,
@@ -535,10 +849,6 @@ pub enum MechanismGraphError {
         field: InterfaceField,
         detail: String,
     },
-    DispositionMismatch {
-        producer: MechanismId,
-        consumer: MechanismId,
-    },
 }
 
 impl fmt::Display for MechanismGraphError {
@@ -548,30 +858,6 @@ impl fmt::Display for MechanismGraphError {
 }
 
 impl std::error::Error for MechanismGraphError {}
-
-impl WireModelId {
-    fn has_valid_range(&self) -> bool {
-        let max = match self.kind {
-            WireModelKind::CharDef
-            | WireModelKind::MRule
-            | WireModelKind::PRule
-            | WireModelKind::Template
-            | WireModelKind::LexEntry
-            | WireModelKind::Morpheme
-            | WireModelKind::Allomorph
-            | WireModelKind::NatClass
-            | WireModelKind::StemName
-            | WireModelKind::Family => u32::MAX as u64,
-            WireModelKind::Stratum | WireModelKind::Mpr => u8::MAX as u64,
-            WireModelKind::Table | WireModelKind::Var => u16::MAX as u64,
-            WireModelKind::MprGroup
-            | WireModelKind::SubruleIndex
-            | WireModelKind::AllomorphIndex
-            | WireModelKind::MorphemeIndex => u64::MAX,
-        };
-        self.value <= max
-    }
-}
 
 fn validate_wire_id(
     mechanism: &MechanismId,
@@ -590,72 +876,35 @@ fn validate_wire_id(
     Ok(())
 }
 
-fn validate_dynamic_state_ids(
-    mechanism: &MechanismId,
-    prefix: &str,
-    state: &DynamicState,
-) -> Result<(), MechanismGraphError> {
-    for id in &state.mpr {
-        validate_wire_id(mechanism, format!("{prefix}.mpr"), id, WireModelKind::Mpr)?;
+fn validate_node(node: &MechanismNode) -> Result<(), MechanismGraphError> {
+    if node.sources.is_empty() {
+        return Err(MechanismGraphError::MissingSource {
+            mechanism: node.id.clone(),
+        });
     }
-    for id in &state.stem_families {
-        validate_wire_id(
-            mechanism,
-            format!("{prefix}.stem_families"),
-            id,
-            WireModelKind::Family,
-        )?;
-    }
-    Ok(())
-}
-
-fn validate_partition_predicate(
-    mechanism: &MechanismId,
-    field: &str,
-    predicate: &PartitionPredicate,
-) -> Result<(), MechanismGraphError> {
-    match predicate {
-        PartitionPredicate::Pos(_) | PartitionPredicate::LexicalClass(_) => Ok(()),
-        PartitionPredicate::Mpr(id) => validate_wire_id(mechanism, field, id, WireModelKind::Mpr),
-        PartitionPredicate::StemFamily(id) => {
-            validate_wire_id(mechanism, field, id, WireModelKind::Family)
-        }
-    }
-}
-
-fn validate_mechanism_ids(node: &MechanismSpec) -> Result<(), MechanismGraphError> {
+    validate_wire_id(
+        &node.id,
+        "symbol_space.table",
+        node.symbol_space.table(),
+        WireModelKind::Table,
+    )?;
     if let Some(stratum) = &node.stratum {
         validate_wire_id(&node.id, "stratum", stratum, WireModelKind::Stratum)?;
     }
+
     for source in &node.sources {
-        let (owner_kind, child_kind) = match source.kind {
-            MechanismSourceKind::MorphRule => (Some(WireModelKind::MRule), None),
-            MechanismSourceKind::AffixAllomorph => (
-                Some(WireModelKind::MRule),
-                Some(WireModelKind::AllomorphIndex),
-            ),
-            MechanismSourceKind::Stratum => (Some(WireModelKind::Stratum), None),
-            MechanismSourceKind::MprGroup => (Some(WireModelKind::MprGroup), None),
-            MechanismSourceKind::PhonRule => (Some(WireModelKind::PRule), None),
-            MechanismSourceKind::RewriteSubrule => (
-                Some(WireModelKind::PRule),
-                Some(WireModelKind::SubruleIndex),
-            ),
-            MechanismSourceKind::NaturalClass => (Some(WireModelKind::NatClass), None),
-            MechanismSourceKind::MorphemeCoOccurrence => (Some(WireModelKind::MorphemeIndex), None),
-            MechanismSourceKind::AllomorphCoOccurrence => (Some(WireModelKind::Allomorph), None),
-        };
+        let (owner_kind, child_kind) = MechanismSource::expected_domains(source.kind);
         match (&source.owner, owner_kind) {
             (Some(id), Some(kind)) => validate_wire_id(&node.id, "sources.owner", id, kind)?,
-            _ => {
+            (owner, expected) => {
                 return Err(MechanismGraphError::InvalidWireId {
                     mechanism: node.id.clone(),
                     field: "sources.owner".to_owned(),
-                    id: source.owner.clone().unwrap_or(WireModelId {
-                        kind: owner_kind.unwrap_or(WireModelKind::MRule),
+                    id: owner.clone().unwrap_or(WireModelId {
+                        kind: expected.unwrap_or(WireModelKind::MRule),
                         value: 0,
                     }),
-                    expected: owner_kind.unwrap_or(WireModelKind::MRule),
+                    expected: expected.unwrap_or(WireModelKind::MRule),
                 });
             }
         }
@@ -683,9 +932,6 @@ fn validate_mechanism_ids(node: &MechanismSpec) -> Result<(), MechanismGraphErro
 
     match &node.body {
         MechanismBody::Morphotactics(spec) => {
-            for id in &spec.strata {
-                validate_wire_id(&node.id, "morphotactics.strata", id, WireModelKind::Stratum)?;
-            }
             for id in &spec.templates {
                 validate_wire_id(
                     &node.id,
@@ -694,145 +940,71 @@ fn validate_mechanism_ids(node: &MechanismSpec) -> Result<(), MechanismGraphErro
                     WireModelKind::Template,
                 )?;
             }
-            for id in &spec.rules {
-                validate_wire_id(&node.id, "morphotactics.rules", id, WireModelKind::MRule)?;
-            }
-            for chain in &spec.priority_chains {
-                for id in chain {
+        }
+        MechanismBody::StaticPartition(groups) => {
+            for group in groups {
+                for member in &group.members {
                     validate_wire_id(
                         &node.id,
-                        "morphotactics.priority_chains",
-                        id,
-                        WireModelKind::Allomorph,
+                        "static_partition.groups.members",
+                        member,
+                        WireModelKind::LexEntry,
                     )?;
-                }
-            }
-        }
-        MechanismBody::StaticPartition(spec) => {
-            for predicate in &spec.predicates {
-                validate_partition_predicate(&node.id, "static_partition.predicates", predicate)?;
-            }
-            for group in &spec.groups {
-                for predicate in &group.predicates {
-                    validate_partition_predicate(
-                        &node.id,
-                        "static_partition.groups.predicates",
-                        predicate,
-                    )?;
-                }
-                for member in &group.members {
-                    if !member.has_valid_range() {
-                        return Err(MechanismGraphError::InvalidWireId {
-                            mechanism: node.id.clone(),
-                            field: "static_partition.groups.members".to_owned(),
-                            id: member.clone(),
-                            expected: member.kind,
-                        });
-                    }
                 }
             }
         }
         MechanismBody::OrderedPhonology(spec) => {
-            validate_wire_id(
-                &node.id,
-                "ordered_phonology.stratum",
-                &spec.stratum,
-                WireModelKind::Stratum,
-            )?;
-            for atom in &spec.rules {
-                let rule = match atom {
-                    OrderedRuleAtom::Rewrite { rule }
-                    | OrderedRuleAtom::Metathesis { rule, .. } => rule,
-                };
+            for id in &spec.rule_order {
                 validate_wire_id(
                     &node.id,
-                    "ordered_phonology.rules",
-                    rule,
+                    "ordered_phonology.rule_order",
+                    id,
                     WireModelKind::PRule,
                 )?;
             }
         }
-        MechanismBody::StructuralAllomorph(spec) => {
-            validate_wire_id(
-                &node.id,
-                "structural_allomorph.rule",
-                &spec.rule,
-                WireModelKind::MRule,
-            )?;
-            for id in &spec.allomorphs {
-                validate_wire_id(
-                    &node.id,
-                    "structural_allomorph.allomorphs",
-                    id,
-                    WireModelKind::Allomorph,
-                )?;
-            }
-        }
-        MechanismBody::CopyProcess(spec) => validate_wire_id(
-            &node.id,
-            "copy_process.rule",
-            &spec.rule,
-            WireModelKind::MRule,
-        )?,
-        MechanismBody::BoundaryCleanup(spec) => validate_wire_id(
-            &node.id,
-            "boundary_cleanup.table",
-            &spec.table,
-            WireModelKind::Table,
-        )?,
+        MechanismBody::StructuralAllomorph
+        | MechanismBody::CopyProcess
+        | MechanismBody::BoundaryCleanup(_) => {}
     }
-    Ok(())
-}
-
-fn validate_contract_ids(edge: &MechanismEdge) -> Result<(), MechanismGraphError> {
-    let provided_table = match &edge.contract.provided.symbol_space {
-        SymbolSpace::Surface(id) | SymbolSpace::CharDefTokens(id) => id,
-    };
-    let required_table = match &edge.contract.required.symbol_space {
-        SymbolSpace::Surface(id) | SymbolSpace::CharDefTokens(id) => id,
-    };
-    validate_wire_id(
-        &edge.producer,
-        "contract.provided.symbol_space",
-        provided_table,
-        WireModelKind::Table,
-    )?;
-    validate_wire_id(
-        &edge.consumer,
-        "contract.required.symbol_space",
-        required_table,
-        WireModelKind::Table,
-    )?;
-    if let Some(stratum) = &edge.contract.provided.stratum {
-        validate_wire_id(
-            &edge.producer,
-            "contract.provided.stratum",
-            stratum,
-            WireModelKind::Stratum,
-        )?;
-    }
-    if let Some(stratum) = &edge.contract.required.stratum {
-        validate_wire_id(
-            &edge.consumer,
-            "contract.required.stratum",
-            stratum,
-            WireModelKind::Stratum,
-        )?;
-    }
-    validate_dynamic_state_ids(
-        &edge.producer,
-        "contract.provided.dynamic_state",
-        &edge.contract.provided.dynamic_state,
-    )?;
-    validate_dynamic_state_ids(
-        &edge.consumer,
-        "contract.required.dynamic_state",
-        &edge.contract.required.dynamic_state,
-    )?;
     Ok(())
 }
 
 impl MechanismGraph {
+    /// The node with `id`, if any.
+    pub fn node(&self, id: &MechanismId) -> Option<&MechanismNode> {
+        self.nodes.iter().find(|node| &node.id == id)
+    }
+
+    /// Every node's disposition under one named compiler (see [`MechanismBinding`]). Returned in
+    /// node order, which for a derived graph is [`MechanismKind::COMPOSITION_ORDER`].
+    pub fn bind(&self, strategy: EmissionStrategy) -> Vec<MechanismBinding> {
+        self.nodes
+            .iter()
+            .map(|node| MechanismBinding::derive(node, strategy))
+            .collect()
+    }
+
+    /// The bindings `strategy` must refuse. Empty iff `strategy` can represent every construct
+    /// every mechanism in this graph requires.
+    pub fn refusals(&self, strategy: EmissionStrategy) -> Vec<MechanismBinding> {
+        self.bind(strategy)
+            .into_iter()
+            .filter(|binding| binding.disposition() == ExecutionDisposition::Refused)
+            .collect()
+    }
+
+    /// A deterministic, byte-stable projection of the whole graph -- the canonical graph identity.
+    ///
+    /// Every collection reaching this point is already in a deterministic order (node order is
+    /// [`MechanismKind::COMPOSITION_ORDER`], requirement sets are `BTreeSet`s, partition members
+    /// are sorted, rule order is authored order), so serializing is enough. Nothing is re-sorted
+    /// here on purpose: a provider that leaked a hash-ordered collection shows up as a projection
+    /// difference instead of being papered over.
+    pub fn canonical_projection(&self) -> String {
+        serde_json::to_string(self).expect("mechanism graph is plain serializable data")
+    }
+
     pub fn validate(&self) -> Result<(), MechanismGraphError> {
         let mut nodes = BTreeMap::new();
         for node in &self.nodes {
@@ -846,7 +1018,7 @@ impl MechanismGraph {
                     id: node.id.clone(),
                 });
             }
-            validate_mechanism_ids(node)?;
+            validate_node(node)?;
         }
 
         for edge in &self.edges {
@@ -862,7 +1034,11 @@ impl MechanismGraph {
                     endpoint: MechanismEndpoint::Consumer,
                 });
             }
-            validate_contract_ids(edge)?;
+            if edge.producer == edge.consumer {
+                return Err(MechanismGraphError::SelfEdge {
+                    mechanism: edge.producer.clone(),
+                });
+            }
         }
 
         let mut indegree: BTreeMap<MechanismId, usize> =
@@ -944,54 +1120,39 @@ impl MechanismGraph {
             }
         }
 
+        // Position compatibility, COMPUTED from the two endpoints -- an edge cannot declare it.
         for edge in &self.edges {
             let producer = nodes.get(&edge.producer).expect("endpoint checked");
             let consumer = nodes.get(&edge.consumer).expect("endpoint checked");
-            if edge.contract.provided.stratum != producer.stratum
-                || edge.contract.required.stratum != consumer.stratum
-            {
-                return Err(MechanismGraphError::UnsatisfiedState {
-                    producer: producer.id.clone(),
-                    consumer: consumer.id.clone(),
-                    field: InterfaceField::Stratum,
-                    detail: "contract stratum is not tied to its mechanism".to_owned(),
-                });
-            }
-            if edge.contract.provided.symbol_space != edge.contract.required.symbol_space {
+
+            if producer.symbol_space != consumer.symbol_space {
                 return Err(MechanismGraphError::SymbolSpaceMismatch {
                     producer: producer.id.clone(),
                     consumer: consumer.id.clone(),
                 });
             }
-            if let MechanismBody::BoundaryCleanup(spec) = &consumer.body {
-                let contract_space = edge.contract.required.symbol_space.clone();
-                let contract_table = match &contract_space {
-                    SymbolSpace::Surface(table) | SymbolSpace::CharDefTokens(table) => table,
-                };
-                if contract_table != &spec.table {
-                    return Err(MechanismGraphError::CleanupContractMismatch {
-                        cleanup: consumer.id.clone(),
-                        table: spec.table.clone(),
-                        contract_space,
+            if producer.boundary_output() != consumer.boundary_input() {
+                return Err(MechanismGraphError::UnsatisfiedState {
+                    producer: producer.id.clone(),
+                    consumer: consumer.id.clone(),
+                    field: InterfaceField::Boundaries,
+                    detail: format!(
+                        "producer leaves boundaries {:?} but consumer requires {:?}",
+                        producer.boundary_output(),
+                        consumer.boundary_input()
+                    ),
+                });
+            }
+            if let (Some(produced), Some(required)) = (&producer.stratum, &consumer.stratum) {
+                if produced != required {
+                    return Err(MechanismGraphError::UnsatisfiedState {
+                        producer: producer.id.clone(),
+                        consumer: consumer.id.clone(),
+                        field: InterfaceField::Stratum,
+                        detail: "stratum does not match".to_owned(),
                     });
                 }
             }
-            edge.contract.validate(&producer.id, &consumer.id).map_err(
-                |failure| match failure {
-                    ContractFailure::State { field, detail } => {
-                        MechanismGraphError::UnsatisfiedState {
-                            producer: producer.id.clone(),
-                            consumer: consumer.id.clone(),
-                            field,
-                            detail,
-                        }
-                    }
-                    ContractFailure::Disposition => MechanismGraphError::DispositionMismatch {
-                        producer: producer.id.clone(),
-                        consumer: consumer.id.clone(),
-                    },
-                },
-            )?;
         }
         Ok(())
     }
@@ -1020,124 +1181,60 @@ fn cyclic_members(
         .collect()
 }
 
-enum ContractFailure {
-    State {
-        field: InterfaceField,
-        detail: String,
-    },
-    Disposition,
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-impl InterfaceContract {
-    fn validate(
-        &self,
-        _producer: &MechanismId,
-        _consumer: &MechanismId,
-    ) -> Result<(), ContractFailure> {
-        if !identity_satisfies(
-            self.provided.analysis_identity,
-            self.required.analysis_identity,
-        ) || !identity_satisfies(self.provided.root_identity, self.required.root_identity)
-        {
-            return Err(ContractFailure::State {
-                field: InterfaceField::Identity,
-                detail: "analysis/root identity is not preserved".to_owned(),
-            });
+    /// Every construct is routed to exactly one mechanism, and every mechanism kind is reached. The
+    /// routing function is exhaustively matched, so this pins that the partition is also *onto* --
+    /// a mechanism nothing routes to would be a node kind with no reason to exist.
+    #[test]
+    fn every_construct_routes_and_every_mechanism_is_reached() {
+        let mut reached = BTreeSet::new();
+        for &kind in CharacteristicKind::ALL {
+            reached.insert(mechanism_kind_for(kind));
         }
-        if !multiplicity_satisfies(self.provided.multiplicity, self.required.multiplicity) {
-            return Err(ContractFailure::State {
-                field: InterfaceField::Multiplicity,
-                detail: "producer multiplicity is weaker than the consumer requirement".to_owned(),
-            });
-        }
-        if !boundary_satisfies(self.provided.boundaries, self.required.boundaries) {
-            return Err(ContractFailure::State {
-                field: InterfaceField::Boundaries,
-                detail: "boundary state does not match".to_owned(),
-            });
-        }
-        if !dynamic_state_satisfies(&self.provided.dynamic_state, &self.required.dynamic_state) {
-            return Err(ContractFailure::State {
-                field: InterfaceField::DynamicState,
-                detail: "producer dynamic state is not a superset".to_owned(),
-            });
-        }
-        if self.required.stratum.is_some() && self.provided.stratum != self.required.stratum {
-            return Err(ContractFailure::State {
-                field: InterfaceField::Stratum,
-                detail: "stratum does not match".to_owned(),
-            });
-        }
-        if !copy_span_satisfies(self.provided.copy_span, self.required.copy_span) {
-            return Err(ContractFailure::State {
-                field: InterfaceField::CopySpan,
-                detail: "copy span guarantee is insufficient".to_owned(),
-            });
-        }
-        if self.provided.disposition == ExecutionDisposition::Refused
-            || !self
-                .required
-                .accepted_dispositions
-                .contains(&self.provided.disposition)
-        {
-            return Err(ContractFailure::Disposition);
-        }
-        Ok(())
+        let all: BTreeSet<MechanismKind> =
+            MechanismKind::COMPOSITION_ORDER.iter().copied().collect();
+        assert_eq!(
+            reached, all,
+            "some mechanism kind has no construct routed to it"
+        );
     }
-}
 
-fn identity_satisfies(provided: IdentityGuarantee, required: IdentityRequirement) -> bool {
-    matches!(required, IdentityRequirement::Any) || matches!(provided, IdentityGuarantee::Preserved)
-}
+    /// The disposition of the SAME mechanism differs by compiler. If it did not, the binding type's
+    /// mandatory `strategy` would be decoration.
+    #[test]
+    fn one_mechanism_gets_different_dispositions_from_different_compilers() {
+        let node = MechanismNode {
+            id: MechanismId("morphotactics".to_owned()),
+            sources: vec![MechanismSource {
+                kind: MechanismSourceKind::MorphRule,
+                owner: Some(MRuleId(0).into()),
+                child: None,
+            }],
+            symbol_space: SymbolSpace::Surface(TableId(0).into()),
+            stratum: None,
+            construct_requirements: [CharacteristicKind::RealizationalMorphology]
+                .into_iter()
+                .collect(),
+            body: MechanismBody::Morphotactics(MorphotacticsSpec {
+                templates: vec![],
+                max_depth: None,
+            }),
+        };
 
-fn multiplicity_satisfies(
-    provided: MultiplicityGuarantee,
-    required: MultiplicityRequirement,
-) -> bool {
-    let provided_strength = match provided {
-        MultiplicityGuarantee::Unknown => 0,
-        MultiplicityGuarantee::SetOnly => 1,
-        MultiplicityGuarantee::ExactMultiset => 2,
-    };
-    let required_strength = match required {
-        MultiplicityRequirement::Any => 0,
-        MultiplicityRequirement::SetOrBetter => 1,
-        MultiplicityRequirement::ExactMultiset => 2,
-    };
-    provided_strength >= required_strength
-}
+        let holed = MechanismBinding::derive(&node, EmissionStrategy::PlanComposed);
+        assert_eq!(holed.disposition(), ExecutionDisposition::Refused);
+        assert_eq!(holed.strategy(), EmissionStrategy::PlanComposed);
+        assert_eq!(
+            holed.limiting_rows().len(),
+            1,
+            "the refusal must carry strategy_coverage's own citation"
+        );
 
-fn boundary_satisfies(provided: BoundaryGuarantee, required: BoundaryRequirement) -> bool {
-    matches!(required, BoundaryRequirement::Any)
-        || matches!(
-            (provided, required),
-            (BoundaryGuarantee::Present, BoundaryRequirement::Present)
-                | (BoundaryGuarantee::Removed, BoundaryRequirement::Removed)
-        )
-}
-
-fn dynamic_state_satisfies(provided: &DynamicState, required: &DynamicState) -> bool {
-    provided.pos.is_superset(&required.pos)
-        && provided.mpr.is_superset(&required.mpr)
-        && provided
-            .lexical_classes
-            .is_superset(&required.lexical_classes)
-        && provided.stem_families.is_superset(&required.stem_families)
-}
-
-fn copy_span_satisfies(provided: CopySpanGuarantee, required: CopySpanRequirement) -> bool {
-    match required {
-        CopySpanRequirement::None => matches!(provided, CopySpanGuarantee::None),
-        CopySpanRequirement::BoundedAtMost(max) => match provided {
-            CopySpanGuarantee::None => true,
-            CopySpanGuarantee::Bounded(n) => n <= max,
-            CopySpanGuarantee::UnboundedPreserved => false,
-        },
-        CopySpanRequirement::AnyPreserved => {
-            matches!(
-                provided,
-                CopySpanGuarantee::Bounded(_) | CopySpanGuarantee::UnboundedPreserved
-            )
-        }
+        let whole = MechanismBinding::derive(&node, EmissionStrategy::TunedSurfaceProbed);
+        assert_eq!(whole.disposition(), ExecutionDisposition::ExactFst);
+        assert!(whole.limiting_rows().is_empty());
     }
 }

@@ -1,13 +1,25 @@
+//! Task 7.3: the reworked mechanism vocabulary.
+//!
+//! Several assertions the initial commit made are deliberately gone, not relaxed. There is no
+//! longer a test that a declared `IdentityGuarantee::Unknown` fails a declared
+//! `IdentityRequirement::Preserved`, nor the multiplicity/copy-span/dynamic-state equivalents:
+//! those compared two hand-written declarations to each other and would have passed just as
+//! happily on Amharic's measured `identity-mismatch` candidate, which declared nothing and was
+//! simply wrong. Analysis identity and multiplicity are the parity relation, measured against an
+//! oracle, and this vocabulary no longer pretends to assert them.
+//!
+//! What replaces them is checks an edge cannot fake, because the edge no longer carries anything:
+//! symbol space, boundary state and stratum are computed from the two endpoint NODES.
+
 use std::collections::BTreeSet;
 
-use pg_foma::capability::ModelLocation;
+use pg_foma::capability::{CharacteristicKind, ModelLocation};
+use pg_foma::enumerate::EmissionStrategy;
 use pg_foma::recipe_mechanism::{
-    BoundaryCleanupSpec, BoundaryGuarantee, BoundaryRequirement, CopySpanGuarantee,
-    CopySpanRequirement, DynamicState, ExecutionDisposition, IdentityGuarantee,
-    IdentityRequirement, InterfaceContract, MechanismBody, MechanismEdge, MechanismEndpoint,
-    MechanismGraph, MechanismGraphError, MechanismId, MechanismSource, MechanismSourceKind,
-    MechanismSpec, MorphotacticsSpec, MultiplicityGuarantee, MultiplicityRequirement,
-    ProvidedInterface, RequiredInterface, SymbolSpace, WireModelId, WireModelKind,
+    mechanism_kind_for, BoundaryCleanupSpec, BoundaryState, ExecutionDisposition, InterfaceField,
+    MechanismBinding, MechanismBody, MechanismEdge, MechanismEndpoint, MechanismGraph,
+    MechanismGraphError, MechanismId, MechanismKind, MechanismNode, MechanismSource,
+    MechanismSourceKind, MorphotacticsSpec, SymbolSpace, WireModelId, WireModelKind,
 };
 use pg_grammar::chardef::CharDefId;
 use pg_grammar::model::{
@@ -42,6 +54,8 @@ fn recipe_mechanism_wire_ids_round_trip_every_native_domain() {
     round_trip!(MprId(13), MprId);
 }
 
+/// The `ModelLocation -> MechanismSource` join is total. This is what lets a provider attribute a
+/// characteristic observation to a mechanism without touching `Grammar`.
 #[test]
 fn recipe_mechanism_sources_convert_every_model_location_variant() {
     let cases = [
@@ -113,13 +127,21 @@ fn recipe_mechanism_sources_convert_every_model_location_variant() {
         assert_eq!(source.owner.as_ref().map(|id| id.kind), owner_kind);
         assert_eq!(source.child.as_ref().map(|id| id.kind), child_kind);
     }
+
+    // The one source kind with no `ModelLocation` counterpart.
+    let table = MechanismSource::character_table(TableId(0));
+    assert_eq!(table.kind, MechanismSourceKind::CharacterTable);
+    assert_eq!(
+        table.owner.as_ref().map(|id| id.kind),
+        Some(WireModelKind::Table)
+    );
 }
 
 fn wire(kind: WireModelKind, value: u64) -> WireModelId {
     WireModelId { kind, value }
 }
 
-fn source() -> MechanismSource {
+fn stratum_source() -> MechanismSource {
     MechanismSource {
         kind: MechanismSourceKind::Stratum,
         owner: Some(wire(WireModelKind::Stratum, 0)),
@@ -127,68 +149,30 @@ fn source() -> MechanismSource {
     }
 }
 
-fn morphotactics(id: &str) -> MechanismSpec {
-    MechanismSpec {
+fn morphotactics(id: &str) -> MechanismNode {
+    MechanismNode {
         id: MechanismId(id.to_owned()),
-        sources: vec![source()],
+        sources: vec![stratum_source()],
+        symbol_space: SymbolSpace::Surface(wire(WireModelKind::Table, 0)),
         stratum: Some(wire(WireModelKind::Stratum, 0)),
+        construct_requirements: BTreeSet::new(),
         body: MechanismBody::Morphotactics(MorphotacticsSpec {
-            strata: vec![wire(WireModelKind::Stratum, 0)],
             templates: vec![wire(WireModelKind::Template, 0)],
-            rules: vec![wire(WireModelKind::MRule, 0)],
-            cooccurrence_units: vec![vec!["root".to_owned()]],
-            priority_chains: vec![],
             max_depth: Some(1),
         }),
     }
 }
 
-fn cleanup(id: &str) -> MechanismSpec {
-    MechanismSpec {
+fn cleanup(id: &str) -> MechanismNode {
+    MechanismNode {
         id: MechanismId(id.to_owned()),
-        sources: vec![source()],
+        sources: vec![MechanismSource::character_table(TableId(0))],
+        symbol_space: SymbolSpace::Surface(wire(WireModelKind::Table, 0)),
         stratum: Some(wire(WireModelKind::Stratum, 0)),
+        construct_requirements: BTreeSet::new(),
         body: MechanismBody::BoundaryCleanup(BoundaryCleanupSpec {
-            table: wire(WireModelKind::Table, 0),
             boundary_symbols: vec!["#".to_owned()],
         }),
-    }
-}
-
-fn contract() -> InterfaceContract {
-    InterfaceContract {
-        provided: ProvidedInterface {
-            symbol_space: SymbolSpace::Surface(wire(WireModelKind::Table, 0)),
-            analysis_identity: IdentityGuarantee::Preserved,
-            root_identity: IdentityGuarantee::Preserved,
-            multiplicity: MultiplicityGuarantee::ExactMultiset,
-            boundaries: BoundaryGuarantee::Present,
-            dynamic_state: DynamicState {
-                pos: BTreeSet::new(),
-                mpr: BTreeSet::new(),
-                lexical_classes: BTreeSet::new(),
-                stem_families: BTreeSet::new(),
-            },
-            stratum: Some(wire(WireModelKind::Stratum, 0)),
-            disposition: ExecutionDisposition::ExactFst,
-            copy_span: CopySpanGuarantee::None,
-        },
-        required: RequiredInterface {
-            symbol_space: SymbolSpace::Surface(wire(WireModelKind::Table, 0)),
-            analysis_identity: IdentityRequirement::Preserved,
-            root_identity: IdentityRequirement::Preserved,
-            multiplicity: MultiplicityRequirement::ExactMultiset,
-            boundaries: BoundaryRequirement::Present,
-            dynamic_state: DynamicState {
-                pos: BTreeSet::new(),
-                mpr: BTreeSet::new(),
-                lexical_classes: BTreeSet::new(),
-                stem_families: BTreeSet::new(),
-            },
-            stratum: Some(wire(WireModelKind::Stratum, 0)),
-            accepted_dispositions: [ExecutionDisposition::ExactFst].into_iter().collect(),
-            copy_span: CopySpanRequirement::None,
-        },
     }
 }
 
@@ -196,11 +180,10 @@ fn edge(producer: &str, consumer: &str) -> MechanismEdge {
     MechanismEdge {
         producer: MechanismId(producer.to_owned()),
         consumer: MechanismId(consumer.to_owned()),
-        contract: contract(),
     }
 }
 
-fn graph(nodes: Vec<MechanismSpec>, edges: Vec<MechanismEdge>) -> MechanismGraph {
+fn graph(nodes: Vec<MechanismNode>, edges: Vec<MechanismEdge>) -> MechanismGraph {
     MechanismGraph { nodes, edges }
 }
 
@@ -218,17 +201,59 @@ fn recipe_mechanism_rejects_missing_producer() {
     ));
 }
 
+/// A mechanism with no typed source reference is a mechanism nobody can justify (task 7.4's
+/// "require typed source references").
 #[test]
-fn recipe_mechanism_rejects_symbol_space_mismatch() {
-    let mut contract = contract();
-    contract.required.symbol_space = SymbolSpace::CharDefTokens(wire(WireModelKind::Table, 0));
+fn recipe_mechanism_rejects_a_node_with_no_typed_source() {
+    let mut orphan = morphotactics("morph");
+    orphan.sources.clear();
+    let err = graph(vec![orphan, cleanup("cleanup")], vec![edge("morph", "cleanup")])
+        .validate()
+        .unwrap_err();
+    assert_eq!(
+        err,
+        MechanismGraphError::MissingSource {
+            mechanism: MechanismId("morph".to_owned())
+        }
+    );
+}
+
+#[test]
+fn recipe_mechanism_rejects_self_edge() {
+    let err = graph(vec![cleanup("cleanup")], vec![edge("cleanup", "cleanup")])
+        .validate()
+        .unwrap_err();
+    assert_eq!(
+        err,
+        MechanismGraphError::SelfEdge {
+            mechanism: MechanismId("cleanup".to_owned())
+        }
+    );
+}
+
+/// Symbol space is now a NODE fact, so a mismatch is a genuine disagreement between two
+/// mechanisms rather than a contradiction inside one hand-written contract. Both the alphabet and
+/// the table are part of it.
+#[test]
+fn recipe_mechanism_rejects_symbol_space_and_table_mismatch() {
+    let mut alphabet = morphotactics("morph");
+    alphabet.symbol_space = SymbolSpace::CharDefTokens(wire(WireModelKind::Table, 0));
     let err = graph(
-        vec![morphotactics("morph"), cleanup("cleanup")],
-        vec![MechanismEdge {
-            producer: MechanismId("morph".to_owned()),
-            consumer: MechanismId("cleanup".to_owned()),
-            contract,
-        }],
+        vec![alphabet, cleanup("cleanup")],
+        vec![edge("morph", "cleanup")],
+    )
+    .validate()
+    .unwrap_err();
+    assert!(matches!(
+        err,
+        MechanismGraphError::SymbolSpaceMismatch { .. }
+    ));
+
+    let mut table = morphotactics("morph");
+    table.symbol_space = SymbolSpace::Surface(wire(WireModelKind::Table, 1));
+    let err = graph(
+        vec![table, cleanup("cleanup")],
+        vec![edge("morph", "cleanup")],
     )
     .validate()
     .unwrap_err();
@@ -239,33 +264,10 @@ fn recipe_mechanism_rejects_symbol_space_mismatch() {
 }
 
 #[test]
-fn recipe_mechanism_rejects_active_table_mismatch_and_wrong_wire_domains() {
-    let mut mismatched_table = contract();
-    mismatched_table.required.symbol_space = SymbolSpace::Surface(wire(WireModelKind::Table, 1));
-    let err = graph(
-        vec![morphotactics("morph"), cleanup("cleanup")],
-        vec![MechanismEdge {
-            producer: MechanismId("morph".to_owned()),
-            consumer: MechanismId("cleanup".to_owned()),
-            contract: mismatched_table,
-        }],
-    )
-    .validate()
-    .unwrap_err();
-    assert!(matches!(
-        err,
-        MechanismGraphError::SymbolSpaceMismatch { .. }
-    ));
-
-    let mut wrong_domain = graph(
-        vec![morphotactics("morph"), cleanup("cleanup")],
-        vec![edge("morph", "cleanup")],
-    );
-    wrong_domain.edges[0].contract.provided.symbol_space =
-        SymbolSpace::Surface(wire(WireModelKind::MRule, 0));
-    wrong_domain.edges[0].contract.required.symbol_space =
-        SymbolSpace::Surface(wire(WireModelKind::MRule, 0));
-    let err = wrong_domain.validate().unwrap_err();
+fn recipe_mechanism_rejects_wrong_and_out_of_range_wire_domains() {
+    let mut wrong_domain = morphotactics("morph");
+    wrong_domain.symbol_space = SymbolSpace::Surface(wire(WireModelKind::MRule, 0));
+    let err = graph(vec![wrong_domain], vec![]).validate().unwrap_err();
     assert!(matches!(
         err,
         MechanismGraphError::InvalidWireId {
@@ -275,15 +277,16 @@ fn recipe_mechanism_rejects_active_table_mismatch_and_wrong_wire_domains() {
     ));
 
     let mut out_of_range = cleanup("cleanup");
-    if let MechanismBody::BoundaryCleanup(spec) = &mut out_of_range.body {
-        spec.table.value = u16::MAX as u64 + 1;
-    }
+    out_of_range.symbol_space = SymbolSpace::Surface(WireModelId {
+        kind: WireModelKind::Table,
+        value: u16::MAX as u64 + 1,
+    });
     let err = graph(vec![out_of_range], vec![]).validate().unwrap_err();
     assert!(matches!(err, MechanismGraphError::InvalidWireId { .. }));
 }
 
 #[test]
-fn recipe_mechanism_rejects_boundary_cleanup_before_boundary_consumer() {
+fn recipe_mechanism_rejects_boundary_cleanup_before_another_consumer() {
     let err = graph(
         vec![
             morphotactics("morph"),
@@ -300,23 +303,21 @@ fn recipe_mechanism_rejects_boundary_cleanup_before_boundary_consumer() {
     ));
 }
 
+/// Boundary state is DERIVED from the mechanism kind, so the only node that can leave boundaries
+/// removed is a cleanup -- and a cleanup with an outgoing edge is caught by `CleanupNotTerminal`
+/// first. This test records that the boundary rule is therefore structurally unviolable rather
+/// than merely checked: the two derived answers are what they must be, and no vocabulary a caller
+/// can write changes either.
 #[test]
-fn recipe_mechanism_rejects_cleanup_table_mismatch_and_disconnected_paths() {
-    let mut wrong_cleanup = cleanup("cleanup");
-    if let MechanismBody::BoundaryCleanup(spec) = &mut wrong_cleanup.body {
-        spec.table = wire(WireModelKind::Table, 1);
-    }
-    let err = graph(
-        vec![morphotactics("morph"), wrong_cleanup],
-        vec![edge("morph", "cleanup")],
-    )
-    .validate()
-    .unwrap_err();
-    assert!(matches!(
-        err,
-        MechanismGraphError::CleanupContractMismatch { .. }
-    ));
+fn recipe_mechanism_boundary_state_is_derived_not_declared() {
+    assert_eq!(morphotactics("m").boundary_input(), BoundaryState::Present);
+    assert_eq!(morphotactics("m").boundary_output(), BoundaryState::Present);
+    assert_eq!(cleanup("c").boundary_input(), BoundaryState::Present);
+    assert_eq!(cleanup("c").boundary_output(), BoundaryState::Removed);
+}
 
+#[test]
+fn recipe_mechanism_rejects_disconnected_paths() {
     let err = graph(
         vec![
             morphotactics("connected"),
@@ -370,179 +371,21 @@ fn recipe_mechanism_rejects_cycle() {
 }
 
 #[test]
-fn recipe_mechanism_rejects_lost_analysis_or_root_identity() {
-    let mut contract = contract();
-    contract.provided.analysis_identity = IdentityGuarantee::Unknown;
+fn recipe_mechanism_rejects_stratum_mismatch() {
+    let mut other_stratum = cleanup("cleanup");
+    other_stratum.stratum = Some(wire(WireModelKind::Stratum, 1));
     let err = graph(
-        vec![morphotactics("morph"), cleanup("cleanup")],
-        vec![MechanismEdge {
-            producer: MechanismId("morph".to_owned()),
-            consumer: MechanismId("cleanup".to_owned()),
-            contract,
-        }],
+        vec![morphotactics("morph"), other_stratum],
+        vec![edge("morph", "cleanup")],
     )
     .validate()
     .unwrap_err();
     assert!(matches!(
         err,
         MechanismGraphError::UnsatisfiedState {
-            field: pg_foma::recipe_mechanism::InterfaceField::Identity,
+            field: InterfaceField::Stratum,
             ..
         }
-    ));
-}
-
-#[test]
-fn recipe_mechanism_rejects_multiplicity_weakening() {
-    let mut contract = contract();
-    contract.provided.multiplicity = MultiplicityGuarantee::SetOnly;
-    let err = graph(
-        vec![morphotactics("morph"), cleanup("cleanup")],
-        vec![MechanismEdge {
-            producer: MechanismId("morph".to_owned()),
-            consumer: MechanismId("cleanup".to_owned()),
-            contract,
-        }],
-    )
-    .validate()
-    .unwrap_err();
-    assert!(matches!(
-        err,
-        MechanismGraphError::UnsatisfiedState {
-            field: pg_foma::recipe_mechanism::InterfaceField::Multiplicity,
-            ..
-        }
-    ));
-}
-
-#[test]
-fn recipe_mechanism_rejects_dynamic_state_or_stratum_mismatch() {
-    let mut dynamic_contract = contract();
-    dynamic_contract
-        .provided
-        .dynamic_state
-        .pos
-        .insert("verb".to_owned());
-    dynamic_contract
-        .required
-        .dynamic_state
-        .pos
-        .insert("noun".to_owned());
-    let err = graph(
-        vec![morphotactics("morph"), cleanup("cleanup")],
-        vec![MechanismEdge {
-            producer: MechanismId("morph".to_owned()),
-            consumer: MechanismId("cleanup".to_owned()),
-            contract: dynamic_contract,
-        }],
-    )
-    .validate()
-    .unwrap_err();
-    assert!(matches!(err, MechanismGraphError::UnsatisfiedState { .. }));
-
-    let mut contract = contract();
-    contract.required.stratum = Some(wire(WireModelKind::Stratum, 1));
-    let err = graph(
-        vec![morphotactics("morph"), cleanup("cleanup")],
-        vec![MechanismEdge {
-            producer: MechanismId("morph".to_owned()),
-            consumer: MechanismId("cleanup".to_owned()),
-            contract,
-        }],
-    )
-    .validate()
-    .unwrap_err();
-    assert!(matches!(
-        err,
-        MechanismGraphError::UnsatisfiedState {
-            field: pg_foma::recipe_mechanism::InterfaceField::Stratum,
-            ..
-        }
-    ));
-}
-
-#[test]
-fn recipe_mechanism_rejects_boundary_and_copy_span_weakening() {
-    let mut boundary = contract();
-    boundary.provided.boundaries = BoundaryGuarantee::Removed;
-    let err = graph(
-        vec![morphotactics("morph"), cleanup("cleanup")],
-        vec![MechanismEdge {
-            producer: MechanismId("morph".to_owned()),
-            consumer: MechanismId("cleanup".to_owned()),
-            contract: boundary,
-        }],
-    )
-    .validate()
-    .unwrap_err();
-    assert!(matches!(
-        err,
-        MechanismGraphError::UnsatisfiedState {
-            field: pg_foma::recipe_mechanism::InterfaceField::Boundaries,
-            ..
-        }
-    ));
-
-    let mut copy = contract();
-    copy.provided.copy_span = CopySpanGuarantee::UnboundedPreserved;
-    copy.required.copy_span = CopySpanRequirement::BoundedAtMost(4);
-    let err = graph(
-        vec![morphotactics("morph"), cleanup("cleanup")],
-        vec![MechanismEdge {
-            producer: MechanismId("morph".to_owned()),
-            consumer: MechanismId("cleanup".to_owned()),
-            contract: copy,
-        }],
-    )
-    .validate()
-    .unwrap_err();
-    assert!(matches!(
-        err,
-        MechanismGraphError::UnsatisfiedState {
-            field: pg_foma::recipe_mechanism::InterfaceField::CopySpan,
-            ..
-        }
-    ));
-}
-
-#[test]
-fn recipe_mechanism_rejects_exact_consumer_after_confirm_only_producer() {
-    let mut confirm_only_contract = contract();
-    confirm_only_contract.provided.disposition = ExecutionDisposition::ConfirmOnly;
-    let err = graph(
-        vec![morphotactics("morph"), cleanup("cleanup")],
-        vec![MechanismEdge {
-            producer: MechanismId("morph".to_owned()),
-            consumer: MechanismId("cleanup".to_owned()),
-            contract: confirm_only_contract,
-        }],
-    )
-    .validate()
-    .unwrap_err();
-    assert!(matches!(
-        err,
-        MechanismGraphError::DispositionMismatch { .. }
-    ));
-
-    let mut contract = contract();
-    contract.provided.disposition = ExecutionDisposition::Refused;
-    contract
-        .required
-        .accepted_dispositions
-        .insert(ExecutionDisposition::Refused);
-    let err = graph(
-        vec![morphotactics("morph"), cleanup("cleanup")],
-        vec![MechanismEdge {
-            producer: MechanismId("morph".to_owned()),
-            consumer: MechanismId("cleanup".to_owned()),
-            contract,
-        }],
-    )
-    .validate()
-    .unwrap_err();
-    assert!(matches!(
-        err,
-        MechanismGraphError::DispositionMismatch { .. }
     ));
 }
 
@@ -554,4 +397,78 @@ fn recipe_mechanism_accepts_composable_morphotactics_cleanup_graph() {
     )
     .validate()
     .expect("the complete morphotactics-to-cleanup graph is composable");
+}
+
+// -------------------------------------------------------------------------------------------
+// Bindings: the only place a disposition exists, and it always names its compiler.
+// -------------------------------------------------------------------------------------------
+
+/// THE ROW THIS REWORK EXISTS FOR. A mechanism requiring `RealizationalMorphology` is refused by
+/// `PlanComposed` -- whose only lexicon emitter writes no line for a realizational rule -- and
+/// exact for the whole-grammar compilers. Same node, same graph, three different answers, each
+/// carrying the compiler's name. Under the initial commit's vocabulary this fact was
+/// inexpressible: `ExecutionDisposition` lived on an edge contract with no strategy anywhere in
+/// the module.
+#[test]
+fn recipe_mechanism_binding_answers_per_compiler_and_never_anonymously() {
+    let mut node = morphotactics("morph");
+    node.construct_requirements = [CharacteristicKind::RealizationalMorphology]
+        .into_iter()
+        .collect();
+    let g = graph(vec![node, cleanup("cleanup")], vec![edge("morph", "cleanup")]);
+    g.validate().expect("graph is composable regardless of compiler");
+
+    let refused = g.refusals(EmissionStrategy::PlanComposed);
+    assert_eq!(refused.len(), 1);
+    assert_eq!(refused[0].mechanism(), &MechanismId("morph".to_owned()));
+    assert_eq!(refused[0].strategy(), EmissionStrategy::PlanComposed);
+    assert!(
+        !refused[0].limiting_rows().is_empty(),
+        "a refusal must carry strategy_coverage's own citation"
+    );
+
+    for strategy in [
+        EmissionStrategy::TunedSurfaceProbed,
+        EmissionStrategy::TemplatedUnderlyingTokens,
+    ] {
+        assert!(
+            g.refusals(strategy).is_empty(),
+            "{strategy:?} represents RealizationalMorphology"
+        );
+        let bindings = g.bind(strategy);
+        assert!(bindings
+            .iter()
+            .all(|b| b.disposition() == ExecutionDisposition::ExactFst));
+        assert!(bindings.iter().all(|b| b.strategy() == strategy));
+    }
+}
+
+/// A documented partial gap is confirm-gated, never silently exact and never a refusal.
+#[test]
+fn recipe_mechanism_binding_folds_a_known_gap_to_confirm_only() {
+    let mut node = morphotactics("morph");
+    node.construct_requirements = [CharacteristicKind::CircumfixOutputAction]
+        .into_iter()
+        .collect();
+    let binding = MechanismBinding::derive(&node, EmissionStrategy::PlanComposed);
+    assert_eq!(binding.disposition(), ExecutionDisposition::ConfirmOnly);
+    assert_eq!(binding.limiting_rows().len(), 1);
+}
+
+/// Every construct lands in exactly one mechanism, and every mechanism receives at least one.
+#[test]
+fn recipe_mechanism_routing_is_a_total_onto_partition_of_the_construct_set() {
+    let reached: BTreeSet<MechanismKind> = CharacteristicKind::ALL
+        .iter()
+        .copied()
+        .map(mechanism_kind_for)
+        .collect();
+    assert_eq!(
+        reached,
+        MechanismKind::COMPOSITION_ORDER
+            .iter()
+            .copied()
+            .collect::<BTreeSet<_>>()
+    );
+    assert_eq!(MechanismKind::COMPOSITION_ORDER.len(), 6);
 }

@@ -172,6 +172,11 @@ pub mod junctions;
 /// other existing caller; see that module's own doc for full scope, what moved vs. what stayed in
 /// [`replace`] (`SegAlphabet`, `owning_table`) and why, and the judgment calls it surfaces.
 pub mod lower;
+/// Task 7.4 of `openspec/changes/cleanup-and-recipe-parity`: the ONE derivation of a
+/// [`recipe_mechanism::MechanismGraph`], taking [`grammar_semantics::GrammarSemantics`] and no
+/// `&Grammar` at all. Purely additive and reachable from no routing, applicability or candidate
+/// path -- see that module's own doc for why the signature is the enforcement.
+pub mod mechanism_provider;
 pub(crate) mod morphotactics;
 /// Step 3 of `openspec/changes/reify-compilation-plans` (design.md D4, task 3.1): the
 /// differential-correctness oracle -- [`oracle::differential_oracle`] builds two [`plan::Plan`]s

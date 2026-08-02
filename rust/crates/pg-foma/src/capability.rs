@@ -101,7 +101,15 @@ pub enum Disposition {
 /// kind"), this enum mirrors that collapse; [`characterize`]'s per-variant `match` arms still stay
 /// individually written (no catch-all), so the exhaustiveness discipline holds at the `model.rs`
 /// level even where several arms produce the same [`CharacteristicKind`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// `Ord` is additive and carries no behavior: it is derived declaration order (the same order
+/// [`CharacteristicKind::ALL`] lists), so a `BTreeSet<CharacteristicKind>` -- which is what
+/// [`crate::recipe_mechanism::MechanismNode::construct_requirements`] is -- iterates
+/// deterministically. Nothing in the capability gate itself reads it.
+///
+/// Serde is deliberately NOT derived here: [`crate::coverage_ledger`] already hand-writes
+/// `Serialize`/`Deserialize` over a stable snake_case wire name (`kind_wire_name`), and a derived
+/// impl would both conflict and silently change that on-disk vocabulary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum CharacteristicKind {
     /// `MorphRuleDef::AffixProcess` (model.rs:543).
     Affixation,

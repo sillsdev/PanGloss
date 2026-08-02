@@ -74,7 +74,8 @@
 use std::collections::HashSet;
 use std::sync::OnceLock;
 
-use pg_grammar::model::{Grammar, LexEntryId, MorphRuleDef, PhonRuleDef};
+use pg_grammar::chardef::CharDefKind;
+use pg_grammar::model::{Grammar, LexEntryId, MorphRuleDef, PRuleId, PhonRuleDef, TableId, TemplateId};
 
 use crate::capability::{characterize, rhs_has_true_reduplication, CharacteristicsProfile};
 use crate::enumerate::prules_in_order;
@@ -121,6 +122,11 @@ pub struct GrammarSemantics<'g> {
     stratum_count: usize,
     ordered_operations: u64,
     ordering_dependencies: u64,
+    prule_ids_in_order: Vec<PRuleId>,
+    template_ids: Vec<TemplateId>,
+    char_table_count: usize,
+    primary_table: Option<TableId>,
+    primary_table_boundary_symbols: Vec<String>,
     entry_partition: OnceLock<Vec<SemanticEntryGroup>>,
     characteristics: OnceLock<CharacteristicsProfile>,
 }
@@ -188,6 +194,40 @@ impl<'g> GrammarSemantics<'g> {
             })
             .sum();
 
+        // The SAME stratum-cascade walk `prules_in_order` performs, kept as ids. `prules_in_order`
+        // must stay a borrow of `g.prules` (its pointer identity is load-bearing for
+        // `enumerate::rule_id_of`), so the id form cannot be recovered from it after the fact
+        // without that pointer trick -- it is simply collected here from the same source.
+        let prule_ids_in_order: Vec<PRuleId> =
+            grammar.strata.iter().flat_map(|s| s.prules.iter()).copied().collect();
+
+        // `TemplateId` is a dense index into `g.templates` (model.rs), so the declared set is
+        // exactly `0..len`. Both loaders keep `g.templates` and per-stratum membership in lockstep
+        // (module doc), so there is no second form of this fact either.
+        let template_ids: Vec<TemplateId> = (0..grammar.templates.len() as u32)
+            .map(TemplateId)
+            .collect();
+
+        // The grammar's FIRST character-definition table and its boundary inventory. `None` only
+        // for a grammar that declares no table at all. Deliberately the primary table only: nothing
+        // in this type's scope models per-mechanism table divergence, and reporting a union across
+        // tables would silently claim a symbol inventory no single table has.
+        let primary_table = (!grammar.char_tables.is_empty()).then_some(TableId(0));
+        let primary_table_boundary_symbols = grammar
+            .char_tables
+            .first()
+            .map(|table| {
+                let mut symbols: Vec<String> = table
+                    .iter()
+                    .filter(|(_, def)| def.kind() == CharDefKind::Boundary)
+                    .flat_map(|(_, def)| def.representations().iter().cloned())
+                    .collect();
+                symbols.sort();
+                symbols.dedup();
+                symbols
+            })
+            .unwrap_or_default();
+
         Self {
             grammar,
             prules_in_order,
@@ -204,6 +244,11 @@ impl<'g> GrammarSemantics<'g> {
             stratum_count: grammar.strata.len(),
             ordered_operations,
             ordering_dependencies,
+            prule_ids_in_order,
+            template_ids,
+            char_table_count: grammar.char_tables.len(),
+            primary_table,
+            primary_table_boundary_symbols,
             entry_partition: OnceLock::new(),
             characteristics: OnceLock::new(),
         }
@@ -336,6 +381,33 @@ impl<'g> GrammarSemantics<'g> {
     /// Total authored per-stratum ordering dependencies (`n - 1` per stratum, summed).
     pub fn ordering_dependencies(&self) -> u64 {
         self.ordering_dependencies
+    }
+
+    /// The same stratum-cascade order as [`Self::prules_in_order`], as `PRuleId`s. Authored order,
+    /// never canonicalized -- what a mechanism's ordered-phonology body records.
+    pub fn prule_ids_in_order(&self) -> &[PRuleId] {
+        &self.prule_ids_in_order
+    }
+
+    /// Every declared affix template, in authored order.
+    pub fn template_ids(&self) -> &[TemplateId] {
+        &self.template_ids
+    }
+
+    /// How many character-definition tables the grammar declares.
+    pub fn char_table_count(&self) -> usize {
+        self.char_table_count
+    }
+
+    /// The grammar's first character-definition table, or `None` if it declares none.
+    pub fn primary_table(&self) -> Option<TableId> {
+        self.primary_table
+    }
+
+    /// The primary table's `CharDefKind::Boundary` representations, sorted and deduplicated. Note
+    /// the scope: the PRIMARY table's inventory, not a union across tables (see `derive`).
+    pub fn primary_table_boundary_symbols(&self) -> &[String] {
+        &self.primary_table_boundary_symbols
     }
 
     /// [`crate::capability::characterize`]'s exhaustive construct profile, computed AT MOST ONCE per

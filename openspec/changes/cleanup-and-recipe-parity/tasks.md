@@ -221,16 +221,56 @@ rather than on plan-shape families. 7.8's "exercise the orthogonal basis" is sti
 exercise only counts if it varies a mechanism that demonstrably changes an outcome — a family label
 over an erased transform is not an exercise.
 
-- [ ] 7.3 Rework the six language-name-free mechanism types: `Morphotactics`, `StaticPartition`,
+- [x] 7.3 Rework the six language-name-free mechanism types: `Morphotactics`, `StaticPartition`,
       `OrderedPhonology`, `StructuralAllomorph`, `CopyProcess`, and terminal `BoundaryCleanup`.
       Nodes own typed semantic requirements/guarantees, edges own dependency/order, and candidate
       bindings own execution disposition. Delete duplicate wire provenance and unproved blanket
       contracts from the initial vocabulary commit. **Re-grounded by the Wave 3 evidence above:** the
       typed requirements/guarantees must be the ones that decide compiler admissibility and recall,
       and no node may exist solely to name a plan-shape permutation.
-- [ ] 7.4 Derive mechanism providers only from the shared `GrammarSemantics`; no provider may reread
+      Landed: `MechanismNode` owns typed source references, a `SymbolSpace`, an optional stratum,
+      and `construct_requirements: BTreeSet<CharacteristicKind>` -- the re-grounding, expressed in
+      exactly the key `strategy_coverage` is indexed by so it RESOLVES through that table instead of
+      restating it. `MechanismEdge` is now a bare `(producer, consumer)` pair; every compatibility
+      check is COMPUTED from the two endpoint nodes, so an edge can no longer assert a property its
+      endpoints lack. `MechanismBinding` is the only type that can express what a compiler
+      delivers: private fields, `derive(node, strategy)` the sole constructor, so an
+      `ExecutionDisposition` cannot be written down without naming its `EmissionStrategy` (the
+      `uflexc`/`Compounding` inheritance bug, made inexpressible). Deleted as duplicate provenance:
+      `MorphotacticsSpec::{strata,rules}`, `OrderedPhonologySpec::stratum`,
+      `StructuralAllomorphSpec::{rule,allomorphs}`, `CopyProcessSpec::rule`,
+      `BoundaryCleanupSpec::table`, and both contract halves' `stratum`/`symbol_space`. Deleted as
+      unproved blanket contracts: `Identity{Guarantee,Requirement}`,
+      `Multiplicity{Guarantee,Requirement}`, `CopySpan{Guarantee,Requirement}`, `DynamicState`,
+      `PartitionPredicate`, `OrderedRuleAtom::swap_construction_attempted`,
+      `StaticPartitionSpec::stable_for_lifetime`, `CopyProcessSpec::{kind,max_span,
+      max_chain_depth}`, `StructuralAllomorphSpec::bounded_local_shape`, and the whole
+      `InterfaceContract`/`ProvidedInterface`/`RequiredInterface` triple. Identity and multiplicity
+      are the parity relation, measured against an oracle; Amharic's 2.2x-cheaper
+      `identity-mismatch` candidate is the measured reason a declared `Preserved` was a false
+      comfort. `BoundaryState` is derived from the mechanism kind (only cleanup removes), so "all
+      boundary-consuming consumers run before cleanup" is structural rather than declared.
+- [x] 7.4 Derive mechanism providers only from the shared `GrammarSemantics`; no provider may reread
       `Grammar` to decide applicability. Require typed source references, canonical graph identity,
       and byte-identical fresh-load projection; inert hints may not create mechanisms.
+      Landed as `pg_foma::mechanism_provider::derive_mechanism_graph(&GrammarSemantics) ->
+      MechanismGraph`. The signature IS the enforcement: no `&Grammar` parameter, no `&Grammar`
+      front end, and `GrammarSemantics::grammar()` is never called in the module. Attribution joins
+      `CharacteristicObservation::kind` (-> `mechanism_kind_for`, exhaustive, no catch-all) with
+      `::location` (-> `MechanismSource`, via the `From<ModelLocation>` impl that already existed).
+      Inert hints create nothing for free: `characterize` uses the structural
+      `rhs_has_true_reduplication`, so a non-`Implicit` `ReduplicationHint` on a
+      non-reduplicating allomorph raises no observation, hence no source, hence no `CopyProcess`
+      node -- the provider never re-decides the question. Canonical identity: nodes in
+      `MechanismKind::COMPOSITION_ORDER`, edges chaining the present ones, `BTreeSet` requirements
+      and sources, sorted partition members, authored rule order; `canonical_projection()` is
+      byte-identical across independent loads. Five additive `GrammarSemantics` projections
+      (`prule_ids_in_order`, `template_ids`, `char_table_count`, `primary_table`,
+      `primary_table_boundary_symbols`) are all grammar-only, so the memo is not re-keyed and the
+      strategy-inheritance trap is not reopened. Nodes are grammar-wide (`stratum: None`): placing a
+      rule-located observation in a stratum needs a rule->stratum map `GrammarSemantics` does not
+      own, and inventing one here would mean the grammar re-walk this task forbids. Reachable from
+      no routing, applicability or candidate path -- deriving a graph changes no outcome.
 - [ ] 7.5 Make the Registry the sole constructor of a validated `ExecutableCandidate` binding a
       stable semantic digest, portable round-trippable Plan document/digest, exact lowering adapter,
       existing runtime requirements, mechanism graph/bindings, and certification scope. Reject
