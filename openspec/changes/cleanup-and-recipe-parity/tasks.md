@@ -185,18 +185,35 @@ Read this before touching the mechanism vocabulary. Full record:
    14,826,003 proposals, 16,831,797 raw paths. This is the eight-fixture minimization finding
    reproduced at corpus scale. Any mechanism vocabulary that treats plan shape as a varying axis is
    modelling something that does not exist.
-2. **The compiler (`EmissionStrategy`) is the decisive axis, across three languages.** Indonesian's
-   winner is `plan-composed`; Amharic's is `tuned-surface-probed`; on Sena `plan-composed` is ~880x
-   more expensive (14.8M proposals vs 16.8K) **and incorrect**, while both whole-grammar compilers
-   confirm. Different grammars genuinely want different compilers — that, not plan topology, is what
-   a mechanism graph must be able to express and select between.
+2. **The compiler (`EmissionStrategy`) is the decisive axis, across three languages.** Different
+   grammars genuinely want different compilers — that, not plan topology, is what a mechanism graph
+   must be able to express and select between.
+   **AMENDED 2026-08-02, and the amendment is itself the lesson.** This fact originally read
+   "Indonesian's winner is `plan-composed`". That is now DEAD: once the compound loop (`97d0ef7`)
+   let `plan-composed` emit the compound paths it was structurally incapable of, its Indonesian
+   network grew 3.9x (693 -> 2683 states+arcs) and it lost the tiebreak. **Its win had been bought
+   by a recall bug** — the network only looked small because it could not represent compounds.
+   Current winners: Indonesian -> `templated-underlying-tokens`, Amharic -> `tuned-surface-probed`,
+   and **`plan-composed` wins nowhere**. The axis survives — two whole-grammar compilers still win
+   two languages — but note the rival reading stays live until task 38 closes: "one compiler is best
+   and the split is itself a defect artifact." Do not build a vocabulary that hard-codes any
+   particular winner.
 3. **A cheaper candidate can be a wrong candidate.** Amharic's
    `@templated-underlying-tokens` was ~2.2x cheaper than the winner and `identity-mismatch`ed. Any
    candidate ranking that is not gated on the parity relation will prefer the fast wrong answer.
-4. **Recall gap to root-cause first:** on Sena `ndimwe`, `plan-composed` under-generates — oracle 8
-   distinct identities, candidate 6, differing only in `root_index`. Per this repo's standing rule,
-   <100% recall is a compiler gap, never a bypass; do not "solve" it by preferring the compilers that
-   happen to work.
+4. **Recall gap to root-cause first — FIXED 2026-08-02 by `97d0ef7`, kept here because the episode
+   is the canonical worked example.** On Sena `ndimwe`, `plan-composed` under-generated: oracle 8
+   distinct identities, candidate 6, `0 candidate-only`, the two missing differing only in
+   `root_index`. Root cause: `uflexc`'s continuation graph had no arc back to the root class, so it
+   was structurally single-root and could propose NO compound at all. Pinned by RED-1 (`a1736a8`,
+   un-ignored at `a7572ae`) and RED-2 (`e98c488`, the sharper root_index-only fixture).
+   The durable lesson, and the thing a mechanism node's guarantee type must be able to express:
+   `Disposition::ConfirmOnly` is defined as "recall-preserving ONLY IF the proposer proposes the
+   superset" — a **per-proposer fact, never a grammar fact**. Treating it as a grammar fact is
+   precisely how a whole-construct hole survived in a compiler holding a certification. A guarantee
+   that cannot name *whose* guarantee it is, is this bug.
+   Still open, same shape, same file: `uflexc` cannot propose `RealizationalMorphology` at all
+   (task 33) — accounted for as the only `CannotRepresent` row, not fixed.
 
 **Scoping consequence.** 7.3–7.5 must be re-grounded on what measurement says varies (which compiler,
 and the construct-dependency facts that decide whether a compiler can represent a grammar faithfully)
