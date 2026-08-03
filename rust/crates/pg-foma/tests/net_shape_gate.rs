@@ -15,10 +15,10 @@
 //! *synthetic* grammars in the ORDINARY test suite, the discrimination that previously required
 //! private real-language data:
 //!
-//! - [`prefix_chain_epsilon_cycle_is_visible_where_the_proposal_ceiling_is_not`] flags the FIRST
+//! - [`net_shape_sees_the_prefix_chain_epsilon_cycle_a_proposal_ceiling_cannot`] flags the FIRST
 //!   regression of this class (the top-level `PrefixChain` one, on the very fixture whose proposal
 //!   ceiling is documented as unable to see it).
-//! - [`reconstructed_pre_fix_compound_emission_reopens_a_zero_width_cycle`] flags the SECOND (the
+//! - [`net_shape_separates_the_pre_fix_compound_emission_from_the_fixed_one`] flags the SECOND (the
 //!   per-compound-level one that `7644b52` fixed), by reconstructing that commit's parent's emission
 //!   from the current emitter's own output and screening both.
 //!
@@ -353,7 +353,7 @@ fn parse_entry_line(line: &str) -> Option<(&str, &str, &str)> {
 /// test, whereas a deletion is trivially the same operation on both inputs. It is not
 /// recall-preserving and is not meant to be; the top-level regression is screened on its own,
 /// against the real production network, in
-/// [`prefix_chain_epsilon_cycle_is_visible_where_the_proposal_ceiling_is_not`].
+/// [`net_shape_sees_the_prefix_chain_epsilon_cycle_a_proposal_ceiling_cannot`].
 fn strip_top_level_null_shaped_affix_lines(
     lexc_source: &str,
     boundary: &HashSet<char>,
@@ -469,7 +469,7 @@ fn reconstruct_pre_fix_compound_emission(
 /// If this reported the same verdict for both, the screen would not be measuring the thing that
 /// matters and this file would say so rather than be tuned until it agreed.
 #[test]
-fn reconstructed_pre_fix_compound_emission_reopens_a_zero_width_cycle() {
+fn net_shape_separates_the_pre_fix_compound_emission_from_the_fixed_one() {
     let grammar = load(COMPOUND_FIXTURE_XML);
     let alphabet = SegAlphabet::new(&grammar.char_tables[0]);
     let boundary = boundary_token_set(&grammar, &alphabet);
@@ -538,7 +538,7 @@ fn reconstructed_pre_fix_compound_emission_reopens_a_zero_width_cycle() {
     // Printed unconditionally, passing or failing: these are the numbers that discriminate, and a
     // green run that says nothing cannot be used to obtain the next A/B.
     eprintln!(
-        "reconstructed_pre_fix_compound_emission_reopens_a_zero_width_cycle: \
+        "net_shape_separates_the_pre_fix_compound_emission_from_the_fixed_one: \
          FIRE_COUNT_hops_suppressed={} lines_relooped={relooped} after_null_lexicons_dropped={dropped} \
          top_level_null_lines_stripped_from_both={post_stripped}",
         report.compound_null_shaped_prefix_hops_suppressed
@@ -591,7 +591,7 @@ fn reconstructed_pre_fix_compound_emission_reopens_a_zero_width_cycle() {
 /// rather than glossed, because `reroute_null_shaped_affix_chains` is private and there is no public
 /// way to bypass it in place.
 #[test]
-fn prefix_chain_epsilon_cycle_is_visible_where_the_proposal_ceiling_is_not() {
+fn net_shape_sees_the_prefix_chain_epsilon_cycle_a_proposal_ceiling_cannot() {
     let grammar = load(PREFIX_CHAIN_FIXTURE_XML);
     let alphabet = SegAlphabet::new(&grammar.char_tables[0]);
 
@@ -630,7 +630,7 @@ fn prefix_chain_epsilon_cycle_is_visible_where_the_proposal_ceiling_is_not() {
     let production = NetShape::inspect(&finished_production_net(&grammar), ApplyDirection::Up);
 
     eprintln!(
-        "prefix_chain_epsilon_cycle_is_visible_where_the_proposal_ceiling_is_not: \
+        "net_shape_sees_the_prefix_chain_epsilon_cycle_a_proposal_ceiling_cannot: \
          null_lines_on_PrefixChain={null_lines_on_prefix_chain}"
     );
     eprintln!("  RAW uflexc (unguarded)    {}", unguarded.evidence_line());
@@ -657,11 +657,11 @@ fn prefix_chain_epsilon_cycle_is_visible_where_the_proposal_ceiling_is_not() {
 /// Asserts non-vacuity as hard as it asserts the verdict: a screen reporting zeros for a net it
 /// failed to decode would satisfy `no zero-width cycle` trivially.
 #[test]
-fn production_compound_net_is_bounded_and_its_branching_is_reported() {
+fn net_shape_of_the_production_compound_net_is_bounded_and_branching_is_reported() {
     let grammar = load(COMPOUND_FIXTURE_XML);
     let up = NetShape::inspect(&finished_production_net(&grammar), ApplyDirection::Up);
     eprintln!(
-        "production_compound_net_is_bounded_and_its_branching_is_reported:\n  {}",
+        "net_shape_of_the_production_compound_net_is_bounded_and_branching_is_reported:\n  {}",
         up.evidence_line()
     );
 
@@ -712,7 +712,8 @@ fn production_compound_net_is_bounded_and_its_branching_is_reported() {
 /// there is nothing for the screen to read and it cannot help. Whether these two die in construction
 /// or in traversal decides whether the screen would have caught them, and this census cannot answer
 /// that question because it cannot reach them — see
-/// [`aborting_fixture_uflexc_emission_probe`], which narrows it as far as is safe to narrow it here.
+/// [`net_shape_probe_of_the_two_process_aborting_fixtures`], which narrows it as far as is safe to
+/// narrow it here.
 const ABORTING_FIXTURES: &[&str] = &["deep-optional-affix-nesting", "recipe-template-generic"];
 
 /// Every discoverable conformance fixture whose grammar this crate can emit, screened on the
@@ -726,7 +727,7 @@ const ABORTING_FIXTURES: &[&str] = &["deep-optional-affix-nesting", "recipe-temp
 /// which is what makes this a tripwire: the number in a future run can be compared against the
 /// number this run prints.
 #[test]
-fn conformance_fixture_shape_census() {
+fn net_shape_census_over_every_discoverable_conformance_fixture() {
     for name in ABORTING_FIXTURES {
         eprintln!(
             "EXCLUDED from this census: {name} -- aborts the test process; see ABORTING_FIXTURES"
@@ -830,7 +831,7 @@ fn conformance_fixture_shape_census() {
 /// things this fixture is known to die inside. If it dies here anyway, `cargo-nextest` runs each
 /// test in its own process, so the loss is this one test rather than the file.
 #[test]
-fn aborting_fixture_uflexc_emission_probe() {
+fn net_shape_probe_of_the_two_process_aborting_fixtures() {
     for name in ABORTING_FIXTURES {
         let Some(fixture) = discover().into_iter().find(|f| f.name == *name) else {
             eprintln!("probe: {name} is not discoverable in this checkout -- nothing to report");
