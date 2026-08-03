@@ -8,7 +8,7 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use pg_foma::capability::{compose_envelope, default_registry, CompileDecision};
-use pg_foma::enumerate::CandidatePlan;
+use pg_foma::enumerate::{CandidateRole, LoweredCandidate};
 use pg_foma::grammar_semantics::GrammarSemantics;
 use pg_foma::plan_diagram::{render_mermaid, RenderMode};
 use pg_foma::recipe_optimizer::{
@@ -21,9 +21,7 @@ use pg_foma::recipe_report::{
     CandidateReport, PruningWaterfall, RecipeOptimizationReport, SearchAccounting,
     DETERMINISTIC_SCORE_SCHEMA_VERSION, RECIPE_REPORT_SCHEMA_VERSION,
 };
-use pg_foma::recipe_runtime::{
-    evaluate_plans_marked_with_cache, RunEvaluationCache, RuntimeBudget,
-};
+use pg_foma::recipe_runtime::{evaluate_plans_with_cache, RunEvaluationCache, RuntimeBudget};
 use pg_foma::recipe_space::StageMeasurement;
 use pg_foma::recipe_space::{characterize_with_semantics, summarize_pilot};
 use sha2::{Digest, Sha256};
@@ -229,7 +227,7 @@ pub fn parse_args(args: &[String]) -> Result<RecipeOptimizeArgs, RecipeOptimizeE
 struct Evaluator<'a> {
     grammar: &'a pg_grammar::model::Grammar,
     words: &'a [String],
-    plans: BTreeMap<String, CandidatePlan>,
+    plans: BTreeMap<String, LoweredCandidate>,
     /// What actually compiled each candidate, keyed by candidate id, recorded as it is evaluated.
     ///
     /// Necessary because a candidate's DECLARED strategy is not always what ran: a marker-carrying
@@ -295,10 +293,12 @@ impl CandidateEvaluator for Evaluator<'_> {
                 usage: BudgetUsage::default(),
             };
         }
-        // `c.baseline`, not position: this evaluator is called once per candidate with a
-        // single-element slice, so a positional baseline test would answer `true` for every
-        // candidate and route each permutation down the baseline-only path.
-        let e = evaluate_plans_marked_with_cache(
+        // Task 7.13: no baseline argument. This evaluator is called once per candidate with a
+        // single-element slice, so a POSITIONAL test answered `true` for every candidate, and the
+        // `&[c.baseline]` slice that replaced it was a second copy of a fact the candidate already
+        // owns -- correct only for as long as this call site kept passing the matching element. The
+        // role now travels on the `LoweredCandidate` in `self.plans`, set once at materialization.
+        let e = evaluate_plans_with_cache(
             self.grammar,
             std::slice::from_ref(plan),
             self.words,
@@ -310,7 +310,6 @@ impl CandidateEvaluator for Evaluator<'_> {
                 oracle_memory_ceiling: self.oracle_memory_ceiling,
                 ..Default::default()
             },
-            &[c.baseline],
             self.cache,
         )
         .remove(0);
@@ -484,10 +483,14 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
     });
     plans.insert(
         baseline_id,
-        CandidatePlan {
+        LoweredCandidate {
             label: "baseline",
             plan: baseline.clone(),
-            strategy: pg_foma::enumerate::EmissionStrategy::PlanComposed,
+            adapter: pg_foma::executable_candidate::LoweringAdapter::ControllablePlanCompose,
+            // The one candidate in this run that IS the grammar's default compilation. Stated on the
+            // candidate (task 7.13) so the evaluator can never infer it from position or from a
+            // caller-maintained parallel slice.
+            role: CandidateRole::Baseline,
         },
     );
     // The `1` is the baseline plan, generated directly rather than through a family.
@@ -518,13 +521,13 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
         // A plan-composed candidate keeps the bare root as its id (existing reports and gates pin
         // that). A whole-grammar strategy must NOT: it reuses the baseline plan, so a bare-root id
         // would collide with the baseline's own entry in `plans`/`states` and overwrite it.
-        let id = if plan.strategy.is_whole_grammar() {
-            format!("{root}@{}", plan.strategy.label())
+        let id = if !plan.adapter.interprets_plan() {
+            format!("{root}@{}", plan.strategy().label())
         } else {
             root.to_string()
         };
         materialization_times.insert(id.clone(), materialize_ns);
-        if !roots.insert((root, plan.strategy.label())) {
+        if !roots.insert((root, plan.strategy().label())) {
             duplicates = duplicates.saturating_add(1);
             continue;
         }
@@ -568,17 +571,23 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
         let decision = compose_envelope(&grammar, &plan.plan, &capability);
         let capability_ns = elapsed_ns(cap_started).max(1);
         if matches!(decision, CompileDecision::Refuse(_)) {
+            // Task 7.13, fake zero measurements: this row used to carry `build: 0, evaluation: 0`.
+            // Neither stage RAN -- the capability envelope refused the candidate before any network
+            // was built -- and `summarize_pilot` folded both literal zeros into the build/evaluation
+            // percentiles, so a pilot sample with refusals reported a build cost pulled toward zero
+            // for a stage that never executed. Those percentiles feed `PilotCosts` and therefore the
+            // choice of SEARCH STRATEGY, so the fake zeros were not merely cosmetic. `None` says
+            // "not measured", which is what happened.
             measurements.push(StageMeasurement {
                 materialize: materialization_times[&state.id],
                 capability: capability_ns,
-                build: 0,
-                evaluation: 0,
+                build: None,
+                evaluation: None,
                 pruned: true,
             });
             continue;
         }
-        // Same single-element-slice caveat as the main evaluator: state the baseline explicitly.
-        let eval = evaluate_plans_marked_with_cache(
+        let eval = evaluate_plans_with_cache(
             &grammar,
             std::slice::from_ref(plan),
             &pilot_words,
@@ -590,7 +599,6 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
                 oracle_memory_ceiling: a.oracle_memory_ceiling,
                 ..Default::default()
             },
-            &[state.baseline],
             &mut run_cache,
         )
         .remove(0);
@@ -600,8 +608,8 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
         measurements.push(StageMeasurement {
             materialize: materialization_times[&state.id],
             capability: capability_ns,
-            build: eval.score.build.max(1),
-            evaluation: eval.score.apply.max(1),
+            build: Some(eval.score.build.max(1)),
+            evaluation: Some(eval.score.apply.max(1)),
             pruned: false,
         });
     }
@@ -712,7 +720,7 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
         .map(|p| {
             pg_foma::plan_diagram::build_plan_document_for_plan_with_semantics(&semantics, &p.plan)
         });
-    let (winner_json, winner_mmd, winner_json_path, winner_mmd_path) = if let Some(d) = winner_doc {
+    let (winner_json_path, winner_mmd_path) = if let Some(d) = winner_doc {
         let j = d
             .to_json()
             .map_err(|e| RecipeOptimizeError::Runtime(e.to_string()))?;
@@ -722,13 +730,11 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
         fs::write(out.join("winner.plan.mmd"), &m)
             .map_err(|e| RecipeOptimizeError::Io(e.to_string()))?;
         (
-            Some(j),
-            Some(m),
             Some("winner.plan.json".into()),
             Some("winner.plan.mmd".into()),
         )
     } else {
-        (None, None, None, None)
+        (None, None)
     };
     let c = characterization.counts;
     let built_count = outcome
@@ -861,12 +867,13 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
         winner,
         frontier: outcome.frontier,
         candidates: evaluated,
-        baseline_plan_json: Some(base_json),
-        baseline_mermaid: Some(base_mmd),
+        // Task 7.13, duplicate runtime artifacts: `report.json` used to inline the FULL text of
+        // `baseline.plan.json`, `baseline.plan.mmd`, `winner.plan.json` and `winner.plan.mmd`
+        // alongside the paths naming those very files, which this function has already written to
+        // `out` above. Two copies of one artifact in one run directory can disagree, and nothing
+        // could say which was authoritative; the files are.
         baseline_plan_json_path: Some("baseline.plan.json".into()),
         baseline_plan_mermaid_path: Some("baseline.plan.mmd".into()),
-        winner_plan_json: winner_json,
-        winner_mermaid: winner_mmd,
         winner_plan_json_path: winner_json_path,
         winner_plan_mermaid_path: winner_mmd_path,
     };

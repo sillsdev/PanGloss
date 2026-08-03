@@ -240,7 +240,10 @@ fn a_sealed_candidate_binds_digests_document_adapter_requirements_and_scope() {
 
     assert_eq!(candidate.family_id(), FAMILY_ORDERED_MORPHOPHONOLOGY);
     assert_eq!(candidate.instance(), &instance);
-    assert_eq!(candidate.adapter(), LoweringAdapter::ControllablePlanCompose);
+    assert_eq!(
+        candidate.adapter(),
+        LoweringAdapter::ControllablePlanCompose
+    );
     assert!(candidate.adapter().interprets_plan());
 
     // Both digests are real SHA-256, and the plan digest is the document's own -- never the plan's
@@ -266,10 +269,10 @@ fn a_sealed_candidate_binds_digests_document_adapter_requirements_and_scope() {
         "the plan-interpreting adapter must not claim whole-grammar recompilation"
     );
     assert!(
-        candidate.runtime_requirements().iter().any(|r| matches!(
-            r,
-            RuntimeRequirement::ControllableSubtreeBuildable { .. }
-        )),
+        candidate
+            .runtime_requirements()
+            .iter()
+            .any(|r| matches!(r, RuntimeRequirement::ControllableSubtreeBuildable { .. })),
         "the interpreting adapter must record what build_controllable can and cannot build"
     );
     assert!(candidate.mechanism_graph().validate().is_ok());
@@ -330,8 +333,14 @@ fn the_semantic_digest_is_stable_across_loads_and_moves_with_the_grammar() {
             .to_owned()
     };
 
-    assert_eq!(digest_of(NO_REALIZATIONAL_XML), digest_of(NO_REALIZATIONAL_XML));
-    assert_ne!(digest_of(NO_REALIZATIONAL_XML), digest_of(REALIZATIONAL_XML));
+    assert_eq!(
+        digest_of(NO_REALIZATIONAL_XML),
+        digest_of(NO_REALIZATIONAL_XML)
+    );
+    assert_ne!(
+        digest_of(NO_REALIZATIONAL_XML),
+        digest_of(REALIZATIONAL_XML)
+    );
 }
 
 // =================================================================================================
@@ -401,7 +410,10 @@ fn a_corrupted_plan_document_is_refused_rather_than_repaired() {
             edited = true;
         }
     }
-    assert!(edited, "the fixture plan must contain a leaf to tamper with");
+    assert!(
+        edited,
+        "the fixture plan must contain a leaf to tamper with"
+    );
     assert_ne!(
         tampered.digest(),
         candidate.plan_digest(),
@@ -452,6 +464,6 @@ fn sealing_refusals_change_neither_the_offered_instances_nor_the_materialized_ca
         materialized
             .iter()
             .any(|(instance, _)| instance.family_id == FAMILY_ORDERED_MORPHOPHONOLOGY),
-        "the refusing family must still materialize a CandidatePlan -- only sealing refuses"
+        "the refusing family must still materialize a LoweredCandidate -- only sealing refuses"
     );
 }

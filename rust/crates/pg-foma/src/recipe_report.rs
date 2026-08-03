@@ -201,7 +201,7 @@ pub struct RecipeOptimizationReport {
     pub winner: Option<String>,
     /// The winning candidate's `EmissionStrategy` label, when there is a winner.
     ///
-    /// Load-bearing for reading `winner_plan_json`/`winner_mermaid` correctly. Those artifacts render
+    /// Load-bearing for reading `winner.plan.json`/`winner.plan.mmd` correctly. Those artifacts render
     /// the winning candidate's `Plan`, and for a plan-composed winner that plan IS what got compiled.
     /// For a whole-grammar strategy it is NOT: that compiler derives its own topology and never
     /// interprets the plan, which it carries only because a candidate must have one. Without this
@@ -212,12 +212,13 @@ pub struct RecipeOptimizationReport {
     pub winner_strategy: Option<String>,
     pub frontier: Vec<String>,
     pub candidates: Vec<CandidateReport>,
-    pub baseline_plan_json: Option<String>,
-    pub baseline_mermaid: Option<String>,
+    /// Task 7.13 deleted the four sibling fields that inlined the FULL TEXT of these artifacts
+    /// (`baseline_plan_json`, `baseline_mermaid`, `winner_plan_json`, `winner_mermaid`). Every run
+    /// wrote each artifact twice -- once as a file in the run directory, once verbatim inside
+    /// `report.json` -- and two copies of one artifact can disagree with no way to say which is
+    /// authoritative. These paths, relative to the run directory, name the single copy that is.
     pub baseline_plan_json_path: Option<String>,
     pub baseline_plan_mermaid_path: Option<String>,
-    pub winner_plan_json: Option<String>,
-    pub winner_mermaid: Option<String>,
     pub winner_plan_json_path: Option<String>,
     pub winner_plan_mermaid_path: Option<String>,
 }
@@ -416,12 +417,8 @@ mod tests {
             winner_strategy: Some("plan-composed".into()),
             frontier: vec!["b".into()],
             candidates: vec![],
-            baseline_plan_json: None,
-            baseline_mermaid: None,
             baseline_plan_json_path: None,
             baseline_plan_mermaid_path: None,
-            winner_plan_json: None,
-            winner_mermaid: None,
             winner_plan_json_path: None,
             winner_plan_mermaid_path: None,
         };
@@ -748,12 +745,8 @@ mod tests {
             winner_strategy: None,
             frontier: vec![],
             candidates: vec![],
-            baseline_plan_json: None,
-            baseline_mermaid: None,
             baseline_plan_json_path: None,
             baseline_plan_mermaid_path: None,
-            winner_plan_json: None,
-            winner_mermaid: None,
             winner_plan_json_path: None,
             winner_plan_mermaid_path: None,
         }

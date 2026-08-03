@@ -91,7 +91,7 @@ fn materialize_and_evaluate(
         .expect("materialization must succeed");
     let plans: Vec<_> = candidates.into_iter().map(|(_, p)| p).collect();
     assert!(!plans.is_empty(), "must materialize at least one candidate");
-    let strategies: Vec<_> = plans.iter().map(|p| p.strategy).collect();
+    let strategies: Vec<_> = plans.iter().map(|p| p.strategy()).collect();
     let evaluations = evaluate_plans(grammar, &plans, words, RuntimeBudget::default())
         .expect("the oracle liveness net / memory ceiling must not trip on this fixture");
     strategies.into_iter().zip(evaluations).collect()

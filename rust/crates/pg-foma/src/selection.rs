@@ -25,7 +25,7 @@
 //!    the proposer proposes the superset" — which is a claim about a PROPOSER, not about a grammar
 //!    or a plan. A bare `compose_envelope` has no proposer in hand and so was checking that
 //!    precondition against the union of every compiler's abilities; a
-//!    [`crate::enumerate::CandidatePlan`] carries the [`crate::enumerate::EmissionStrategy`] that
+//!    [`crate::enumerate::LoweredCandidate`] carries the [`crate::enumerate::EmissionStrategy`] that
 //!    will actually realize it, so here (and only here) the account can be taken against the right
 //!    one. See [`crate::strategy_coverage`] for the table and the whole-construct recall hole that
 //!    survived undetected without it.
@@ -62,7 +62,7 @@ use pg_grammar::model::{Grammar, PhonRuleDef};
 use crate::build::build_controllable;
 use crate::capability::{compose_envelope_for_strategy, CompileDecision, PredicateRegistry};
 use crate::compose_budget::ComposeBudget;
-use crate::enumerate::CandidatePlan;
+use crate::enumerate::LoweredCandidate;
 use crate::grammar_semantics::GrammarSemantics;
 use crate::plan::NodeId;
 use crate::replace::SegAlphabet;
@@ -91,7 +91,7 @@ impl PlanMeasure {
 /// "return the choice plus enough provenance to explain it").
 #[derive(Debug, Clone)]
 pub struct CandidateReport {
-    /// [`crate::enumerate::CandidatePlan::label`], echoed back for readable reporting.
+    /// [`crate::enumerate::LoweredCandidate::label`], echoed back for readable reporting.
     pub label: &'static str,
     /// The candidate's root [`NodeId`] — D3's tie-break key, and a stable identity for this
     /// candidate independent of its position in the input list.
@@ -148,7 +148,7 @@ impl SelectionOutcome {
 #[allow(clippy::too_many_arguments)] // mirrors build_controllable's/differential_oracle's own many
                                      // grammar-derived parameters, taken once per candidate here.
 pub fn select_plan(
-    candidates: &[CandidatePlan],
+    candidates: &[LoweredCandidate],
     g: &Grammar,
     registry: &PredicateRegistry,
     opts: &FomaOptions,
@@ -175,13 +175,13 @@ pub fn select_plan(
             // STRATEGY-AWARE (this is the point a candidate becomes selectable, and the one place
             // that holds both the plan and the compiler that will realize it). `compose_envelope`
             // alone checks a `ConfirmOnly` disposition against the UNION of every compiler's
-            // abilities; `CandidatePlan::strategy` names the compiler actually in use, so the
+            // abilities; `LoweredCandidate::strategy` names the compiler actually in use, so the
             // per-strategy account (`crate::strategy_coverage`) is met in here. See
             // `compose_envelope_for_strategy`'s own doc for why this can only lower a decision.
             let decision = compose_envelope_for_strategy(
                 &semantics,
                 &candidate.plan,
-                candidate.strategy,
+                candidate.strategy(),
                 registry,
             );
 

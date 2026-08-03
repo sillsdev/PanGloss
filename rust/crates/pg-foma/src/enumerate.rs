@@ -99,6 +99,7 @@
 
 use pg_grammar::model::{Grammar, LexEntryId, PRuleId, PhonRuleDef};
 
+use crate::executable_candidate::LoweringAdapter;
 use crate::gate::{find_gated_subrules, partition_entries};
 use crate::junctions::PhonologyProbe;
 use crate::oracle::permute_gate_groups;
@@ -265,18 +266,84 @@ pub fn enumerate_default(
     plan
 }
 
+/// Whether a candidate IS this grammar's default compilation, stated by whoever built it.
+///
+/// # Why this is a field and not a position (task 7.13)
+/// It used to be a parallel `is_baseline: &[bool]` slice passed alongside the candidate slice, and
+/// before that it was position zero. Both were wrong, in ways that were measured rather than
+/// theorised:
+///
+/// * **Position.** The production optimizer evaluates candidates ONE AT A TIME —
+///   `pg_cli`'s `CandidateEvaluator::evaluate` calls in with `std::slice::from_ref(candidate)` — so
+///   every candidate is "element zero". A positional test answered `true` for all of them and every
+///   permutation of a marker-requiring plan took the baseline's whole-grammar route and was reported
+///   as confirmed with the baseline's own network counts.
+/// * **A parallel slice.** The fix for that was a caller-supplied `&[bool]`, kept honest only by a
+///   length `assert_eq!` whose own message admitted the hazard ("a mismatch here is how a
+///   permutation would silently be treated as the baseline"). A slice of the right LENGTH but the
+///   wrong ORDER is exactly as wrong as position was, and nothing could detect it.
+///
+/// Carried on the candidate, the fact travels with the thing it is a fact about; reordering,
+/// filtering, or evaluating a single candidate cannot separate them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum CandidateRole {
+    /// This grammar's default compilation. See [`crate::recipe_runtime`] for the one behaviour that
+    /// reads this: a baseline whose plan needs marker subtrees `build::build_controllable` cannot
+    /// build is realized by the whole-grammar tuned adapter instead, because for the DEFAULT
+    /// compilation that adapter's network is the right answer.
+    Baseline,
+    /// Any other candidate. An alternative can never be realized by a whole-grammar adapter it did
+    /// not ask for: that adapter derives its own topology, so measuring a permutation there would
+    /// measure the baseline network and report it as the permutation.
+    Alternative,
+}
+
+impl CandidateRole {
+    pub fn is_baseline(self) -> bool {
+        matches!(self, Self::Baseline)
+    }
+}
+
 /// One candidate topology [`enumerate_candidates`] emits, labeled for provenance/diagnostics
 /// (task 2.1/2.2, `openspec/changes/reify-compilation-plans`). The label is a static string naming
 /// WHICH axis produced this candidate (`"default"`, `"gate-group-permuted"`, ...), not a
 /// user-facing description — see [`crate::selection::select_plan`]'s own doc for how this feeds a
 /// caller's provenance report.
+///
+/// # Task 7.13: this replaces `CandidatePlan`, and the two differences are the point
+/// 1. **The compiler axis is a typed [`LoweringAdapter`], not an [`EmissionStrategy`].** The
+///    adapter is the identity `ExecutableCandidate` already binds (task 7.5), so the lowering step
+///    dispatches on the same value the sealed candidate carries instead of on a second enum that
+///    had to be kept in correspondence with it by hand. `EmissionStrategy` survives, deliberately:
+///    it is the REPORTED selection axis (`RuntimeEvaluation::realized_strategy`,
+///    `RecipeOptimizationReport::winner_strategy`, `strategy_coverage`), and Wave 3 measured that
+///    axis to be the decisive one — two whole-grammar compilers win two different languages. The
+///    two are 1:1 in both directions (`executable_candidate`'s own
+///    `every_strategy_has_exactly_one_adapter_and_back`), so [`Self::strategy`] is a projection,
+///    not a second source of truth.
+/// 2. **The baseline fact lives here**, as [`CandidateRole`] — see that type for the two measured
+///    failures of putting it anywhere else.
 #[derive(Debug)]
-pub struct CandidatePlan {
+pub struct LoweredCandidate {
     pub label: &'static str,
     pub plan: Plan,
-    /// WHICH compiler turns this candidate into a network. See [`EmissionStrategy`] — this is a
-    /// different axis from `plan`, which describes assembly SHAPE within one compiler.
-    pub strategy: EmissionStrategy,
+    /// WHICH compiler lowers this candidate into a network. A different axis from `plan`, which
+    /// describes assembly SHAPE within the one adapter that reads a plan at all.
+    pub adapter: LoweringAdapter,
+    /// Whether this candidate is the grammar's default compilation.
+    pub role: CandidateRole,
+}
+
+impl LoweredCandidate {
+    /// The [`EmissionStrategy`] this candidate's adapter realizes — the axis reports and
+    /// `strategy_coverage` speak in. A projection of [`Self::adapter`], never independent of it.
+    pub fn strategy(&self) -> EmissionStrategy {
+        self.adapter.strategy()
+    }
+
+    pub fn is_baseline(&self) -> bool {
+        self.role.is_baseline()
+    }
 }
 
 /// Which of this crate's compilers realizes a candidate.
@@ -396,20 +463,24 @@ pub fn enumerate_candidates(
     alphabet: &SegAlphabet<'_>,
     prules_in_order: &[&PhonRuleDef],
     phon: Option<&PhonologyProbe<'_>>,
-) -> Vec<CandidatePlan> {
+) -> Vec<LoweredCandidate> {
     let default_plan = enumerate_default(g, alphabet, prules_in_order, phon);
-    let mut candidates = vec![CandidatePlan {
+    let mut candidates = vec![LoweredCandidate {
         label: "default",
         plan: default_plan,
-        strategy: EmissionStrategy::PlanComposed,
+        adapter: LoweringAdapter::ControllablePlanCompose,
+        // The enumerator's first candidate IS this grammar's default compilation. Stated here rather
+        // than inferred from its position, which is the whole point of `CandidateRole`.
+        role: CandidateRole::Baseline,
     }];
 
     let permuted = permute_gate_groups(&candidates[0].plan);
     if permuted.root() != candidates[0].plan.root() {
-        candidates.push(CandidatePlan {
+        candidates.push(LoweredCandidate {
             label: "gate-group-permuted",
             plan: permuted,
-            strategy: EmissionStrategy::PlanComposed,
+            adapter: LoweringAdapter::ControllablePlanCompose,
+            role: CandidateRole::Alternative,
         });
     }
 

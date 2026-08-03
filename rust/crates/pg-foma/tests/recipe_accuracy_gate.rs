@@ -22,12 +22,13 @@
 //! that moved a winner would be a defect in the change rather than a finding about the grammar.
 
 use pg_conformance_fixtures::{discover, Root};
-use pg_foma::enumerate::{enumerate_default, CandidatePlan, EmissionStrategy};
+use pg_foma::enumerate::{enumerate_default, CandidateRole, LoweredCandidate};
+use pg_foma::executable_candidate::LoweringAdapter;
 use pg_foma::junctions::PhonologyProbe;
 use pg_foma::recipe_accuracy::{candidate_admission_key, AccuracyVerdict};
 use pg_foma::recipe_registry::{MaterializerContext, Registry};
 use pg_foma::recipe_runtime::{
-    assess_accuracy_with_cache, evaluate_plans_marked_with_cache, RunEvaluationCache, RuntimeBudget,
+    assess_accuracy_with_cache, evaluate_plans_with_cache, RunEvaluationCache, RuntimeBudget,
 };
 use pg_foma::replace::SegAlphabet;
 use pg_grammar::model::{Grammar, PhonRuleDef};
@@ -65,7 +66,7 @@ fn baseline_plan(grammar: &Grammar) -> pg_foma::plan::Plan {
     enumerate_default(grammar, &alphabet, &prules, phonology.as_ref())
 }
 
-fn registry_plans(grammar: &Grammar) -> Vec<CandidatePlan> {
+fn registry_plans(grammar: &Grammar) -> Vec<LoweredCandidate> {
     let baseline = baseline_plan(grammar);
     Registry::seeded()
         .materialize_distinct(&MaterializerContext {
@@ -78,10 +79,6 @@ fn registry_plans(grammar: &Grammar) -> Vec<CandidatePlan> {
         .collect()
 }
 
-fn baseline_flags(plans: &[CandidatePlan]) -> Vec<bool> {
-    (0..plans.len()).map(|index| index == 0).collect()
-}
-
 /// Claims 1, 2 and 3 together, on one fixture, because they are only meaningful side by side: "zero
 /// confirmation calls" means nothing without a run that shows what non-zero looks like on the same
 /// input.
@@ -89,30 +86,28 @@ fn baseline_flags(plans: &[CandidatePlan]) -> Vec<bool> {
 fn the_accuracy_path_agrees_with_certification_while_doing_no_confirmation_work() {
     let (grammar, words) = fixture(FIXTURE);
     let plans = registry_plans(&grammar);
-    let flags = baseline_flags(&plans);
     assert!(!plans.is_empty(), "fixture must materialize candidates");
 
     // The SLOW path: full propose -> confirm -> certify.
     let mut certify_cache = RunEvaluationCache::prepare(&grammar, &words, RuntimeBudget::default())
         .expect("oracle preparation must succeed for this fixture");
-    let certified = evaluate_plans_marked_with_cache(
+    let certified = evaluate_plans_with_cache(
         &grammar,
         &plans,
         &words,
         RuntimeBudget::default(),
-        &flags,
         &mut certify_cache,
     );
 
     // The FAST path: propose -> set containment. Same plans, same words, same budget.
-    let mut accuracy_cache = RunEvaluationCache::prepare(&grammar, &words, RuntimeBudget::default())
-        .expect("oracle preparation must succeed for this fixture");
+    let mut accuracy_cache =
+        RunEvaluationCache::prepare(&grammar, &words, RuntimeBudget::default())
+            .expect("oracle preparation must succeed for this fixture");
     let assessed = assess_accuracy_with_cache(
         &grammar,
         &plans,
         &words,
         RuntimeBudget::default(),
-        &flags,
         &mut accuracy_cache,
     );
     assert_eq!(assessed.len(), plans.len());
@@ -134,11 +129,12 @@ fn the_accuracy_path_agrees_with_certification_while_doing_no_confirmation_work(
     let mut confirming_candidates = 0usize;
     let mut total_membership_tests = 0u64;
     for ((plan, certification), accuracy) in plans.iter().zip(&certified).zip(&assessed) {
-        assert_eq!(accuracy.requested_strategy, plan.strategy);
+        assert_eq!(accuracy.requested_strategy, plan.strategy());
         assert_eq!(
-            accuracy.realized_strategy, certification.realized_strategy,
+            accuracy.realized_strategy,
+            certification.realized_strategy,
             "the two paths must attribute the measurement to the same compiler for {:?}",
-            plan.strategy
+            plan.strategy()
         );
         total_membership_tests += accuracy.counters.membership_tests;
 
@@ -152,7 +148,7 @@ fn the_accuracy_path_agrees_with_certification_while_doing_no_confirmation_work(
             ),
             (0, 0),
             "the accuracy path must perform no full-HC confirmation for {:?}: {:?}",
-            plan.strategy,
+            plan.strategy(),
             accuracy.counters
         );
 
@@ -174,14 +170,14 @@ fn the_accuracy_path_agrees_with_certification_while_doing_no_confirmation_work(
             AccuracyVerdict::NoLoss,
             "{:?} certified but the accuracy path reported a loss -- the two mechanisms disagree \
              about ACCURACY, which is the one thing they must not do. counters={:?}",
-            plan.strategy,
+            plan.strategy(),
             accuracy.counters
         );
         // Claim 3: the check ran for this candidate.
         assert!(
             accuracy.counters.membership_tests > 0,
             "the containment check never executed for {:?}: {:?}",
-            plan.strategy,
+            plan.strategy(),
             accuracy.counters
         );
         assert!(
@@ -218,15 +214,13 @@ fn the_accuracy_path_agrees_with_certification_while_doing_no_confirmation_work(
 fn a_refused_corpus_is_undetermined_and_the_check_provably_does_not_run() {
     let (grammar, words) = fixture(FIXTURE);
     let plans = registry_plans(&grammar);
-    let flags = baseline_flags(&plans);
     let budget = RuntimeBudget {
         oracle_step_cap: Some(0),
         ..RuntimeBudget::default()
     };
     let mut cache = RunEvaluationCache::prepare(&grammar, &words, budget)
         .expect("preparation must not trip the liveness net at a zero step cap");
-    let assessed =
-        assess_accuracy_with_cache(&grammar, &plans, &words, budget, &flags, &mut cache);
+    let assessed = assess_accuracy_with_cache(&grammar, &plans, &words, budget, &mut cache);
     assert_eq!(assessed.len(), plans.len());
     for accuracy in &assessed {
         assert!(
@@ -282,17 +276,17 @@ fn a_removed_proposal_is_reported_as_the_exact_lost_analysis() {
         .expect("just found above")
         .to_vec();
 
-    let plans = vec![CandidatePlan {
+    let plans = vec![LoweredCandidate {
         label: "accuracy-negative-control",
         plan: baseline_plan(&grammar),
-        strategy: EmissionStrategy::PlanComposed,
+        adapter: LoweringAdapter::ControllablePlanCompose,
+        role: CandidateRole::Baseline,
     }];
     let assessed = assess_accuracy_with_cache(
         &grammar,
         std::slice::from_ref(&plans[0]),
         std::slice::from_ref(&word),
         RuntimeBudget::default(),
-        &[true],
         &mut cache,
     );
     let baseline = assessed.into_iter().next().expect("one candidate assessed");
@@ -320,10 +314,7 @@ fn a_removed_proposal_is_reported_as_the_exact_lost_analysis() {
         .map(|miss| (miss.morpheme_ids.clone(), miss.root_index))
         .collect();
     for analysis in &oracle {
-        let key = (
-            analysis.morpheme_ids.clone(),
-            analysis.root_morpheme_index,
-        );
+        let key = (analysis.morpheme_ids.clone(), analysis.root_morpheme_index);
         assert!(
             named.contains(&key),
             "a lost oracle analysis was not named: {key:?} not in {named:?}"

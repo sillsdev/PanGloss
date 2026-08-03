@@ -94,13 +94,13 @@ fn the_registry_does_not_dedup_this_candidate_away() {
         });
 
     assert_eq!(
-        candidate.strategy,
+        candidate.strategy(),
         EmissionStrategy::TemplatedUnderlyingTokens,
         "{FAMILY} must request the token-cascade compiler; with any other strategy it is just \
          another relabelled copy of the baseline"
     );
     assert!(
-        candidate.strategy.is_whole_grammar(),
+        candidate.strategy().is_whole_grammar(),
         "this strategy compiles the whole grammar; if it reported otherwise its network would not be \
          comparable with the baseline's"
     );

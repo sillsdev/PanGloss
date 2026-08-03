@@ -1,5 +1,5 @@
 //! Pins the fix for the deep-truncation-chain-stress-grammar pilot hang
-//! (`docs/fst-plan/deep-chain-pilot-non-completion.md`): `recipe_runtime::evaluate_plans_marked`
+//! (`docs/fst-plan/deep-chain-pilot-non-completion.md`): `recipe_runtime::evaluate_plans`
 //! used to compute its ground-truth oracle with `pg_parse::Morpher::new(grammar, usize::MAX)` and no
 //! `.with_word_timeout(..)` -- both axes that could stop a pathological word were disabled, so one
 //! bad corpus word hung the whole evaluator call forever, before any FST build/propose/confirm work
@@ -33,7 +33,7 @@ use std::time::Duration;
 
 fn materialize_plans(
     grammar: &pg_grammar::model::Grammar,
-) -> Vec<pg_foma::enumerate::CandidatePlan> {
+) -> Vec<pg_foma::enumerate::LoweredCandidate> {
     let alphabet = SegAlphabet::new(&grammar.char_tables[0]);
     let prules = grammar
         .strata
@@ -93,7 +93,7 @@ fn a_capped_oracle_yields_an_explicit_truncation_never_a_word_mismatch_or_a_conf
 
     // THE PIN. `oracle_step_cap: Some(0)` forces every word's ground-truth `Morpher::parse_word` call
     // to report `capped: true` (see module doc for why this is deterministic). The guard in
-    // `evaluate_plans_marked` must detect that BEFORE `certify_corpus` ever runs and report every
+    // `evaluate_plans` must detect that BEFORE `certify_corpus` ever runs and report every
     // candidate's certification as the same explicit, non-certifying truncation.
     let capped = evaluate_plans(
         &grammar,

@@ -44,11 +44,12 @@
 //! must never read as "everything is fine".
 
 use pg_conformance_fixtures::{discover, FixtureRef, Root};
-use pg_foma::enumerate::{enumerate_default, CandidatePlan, EmissionStrategy};
+use pg_foma::enumerate::{enumerate_default, CandidateRole, LoweredCandidate};
+use pg_foma::executable_candidate::LoweringAdapter;
 use pg_foma::junctions::PhonologyProbe;
 use pg_foma::parity::IdentityDivergence;
 use pg_foma::recipe_registry::{MaterializerContext, Registry};
-use pg_foma::recipe_runtime::{evaluate_plans_marked_with_cache, RunEvaluationCache, RuntimeBudget};
+use pg_foma::recipe_runtime::{evaluate_plans_with_cache, RunEvaluationCache, RuntimeBudget};
 use pg_foma::replace::SegAlphabet;
 use pg_grammar::model::{Grammar, PhonRuleDef};
 
@@ -94,15 +95,16 @@ fn baseline_plan(grammar: &Grammar) -> pg_foma::plan::Plan {
     enumerate_default(grammar, &alphabet, &prules, phonology.as_ref())
 }
 
-fn baseline_only(grammar: &Grammar) -> Vec<CandidatePlan> {
-    vec![CandidatePlan {
+fn baseline_only(grammar: &Grammar) -> Vec<LoweredCandidate> {
+    vec![LoweredCandidate {
         label: "divergence-census-baseline",
         plan: baseline_plan(grammar),
-        strategy: EmissionStrategy::PlanComposed,
+        adapter: LoweringAdapter::ControllablePlanCompose,
+        role: CandidateRole::Baseline,
     }]
 }
 
-fn registry_plans(grammar: &Grammar) -> Vec<CandidatePlan> {
+fn registry_plans(grammar: &Grammar) -> Vec<LoweredCandidate> {
     let baseline = baseline_plan(grammar);
     Registry::seeded()
         .materialize_distinct(&MaterializerContext {
@@ -120,7 +122,7 @@ struct FixtureDivergence {
 
 fn census(
     include: impl Fn(&FixtureRef) -> bool,
-    select_plans: impl Fn(&Grammar) -> Vec<CandidatePlan>,
+    select_plans: impl Fn(&Grammar) -> Vec<LoweredCandidate>,
 ) -> (Vec<FixtureDivergence>, Vec<String>) {
     let mut measured = Vec::new();
     let mut skipped = Vec::new();
@@ -162,7 +164,7 @@ fn census(
 /// caught by the caller and turned into one too.
 fn measure_one_fixture(
     fixture: &FixtureRef,
-    select_plans: &impl Fn(&Grammar) -> Vec<CandidatePlan>,
+    select_plans: &impl Fn(&Grammar) -> Vec<LoweredCandidate>,
 ) -> Result<FixtureDivergence, String> {
     // Named BEFORE any work on it, so that if a fixture aborts the PROCESS rather than failing the
     // test, the last line of captured output identifies the culprit. Without this the abort is
@@ -187,19 +189,17 @@ fn measure_one_fixture(
     if plans.is_empty() {
         return Err(format!("{}: no candidate materialized", fixture.label()));
     }
-    let is_baseline: Vec<bool> = (0..plans.len()).map(|index| index == 0).collect();
     let Ok(mut cache) = RunEvaluationCache::prepare(&grammar, &words, RuntimeBudget::default())
     else {
         // An oracle preparation fault is a whole-run abort, not a per-word outcome. Recorded as
         // "could not look", never folded into the measurement.
         return Err(format!("{}: oracle preparation faulted", fixture.label()));
     };
-    evaluate_plans_marked_with_cache(
+    evaluate_plans_with_cache(
         &grammar,
         &plans,
         &words,
         RuntimeBudget::default(),
-        &is_baseline,
         &mut cache,
     );
     Ok(FixtureDivergence {
@@ -369,7 +369,8 @@ fn no_fixture_produces_a_candidate_only_identity() {
 fn no_registry_candidate_produces_a_candidate_only_identity() {
     let (measured, skipped) = census(
         |fixture| {
-            fixture.root == Root::Staging && REGISTRY_CENSUS_FIXTURES.contains(&fixture.name.as_str())
+            fixture.root == Root::Staging
+                && REGISTRY_CENSUS_FIXTURES.contains(&fixture.name.as_str())
         },
         registry_plans,
     );

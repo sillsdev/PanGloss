@@ -3,7 +3,7 @@
 //!
 //! # The question
 //!
-//! `evaluate_plans_marked_with_cache_mode` builds, finishes and runs the WHOLE corpus for every plan.
+//! `evaluate_plans_with_cache_mode` builds, finishes and runs the WHOLE corpus for every plan.
 //! Nothing notices that two plans produced the same network. The optimization that follows this file
 //! collapses those duplicates, and its entire value is the ratio measured here:
 //!
@@ -31,7 +31,7 @@
 //! measurement is a property of the compilation.
 
 use pg_conformance_fixtures::{discover, FixtureRef};
-use pg_foma::enumerate::{enumerate_default, CandidatePlan};
+use pg_foma::enumerate::{enumerate_default, LoweredCandidate};
 use pg_foma::junctions::PhonologyProbe;
 use pg_foma::recipe_registry::{MaterializerContext, Registry};
 use pg_foma::recipe_runtime::{finished_net_digests, RuntimeBudget};
@@ -51,7 +51,7 @@ fn surface_table(grammar: &Grammar) -> &pg_grammar::chardef::CharDefTable {
     &grammar.char_tables[surface_stratum.table.0 as usize]
 }
 
-fn registry_plans(grammar: &Grammar) -> Vec<CandidatePlan> {
+fn registry_plans(grammar: &Grammar) -> Vec<LoweredCandidate> {
     let alphabet = SegAlphabet::new(surface_table(grammar));
     let prules: Vec<&PhonRuleDef> = pg_foma::enumerate::prules_in_order(grammar);
     let phonology = PhonologyProbe::new(grammar);
@@ -134,7 +134,9 @@ fn measure_one_fixture(fixture: &FixtureRef) -> Result<Sizing, String> {
 #[test]
 fn distinct_finished_nets_versus_plan_count_per_fixture() {
     for name in ABORTING_FIXTURES {
-        eprintln!("EXCLUDED from this census: {name} -- aborts the test process; see ABORTING_FIXTURES");
+        eprintln!(
+            "EXCLUDED from this census: {name} -- aborts the test process; see ABORTING_FIXTURES"
+        );
     }
     let mut measured: Vec<Sizing> = Vec::new();
     let mut skipped: Vec<String> = Vec::new();
@@ -146,8 +148,9 @@ fn distinct_finished_nets_versus_plan_count_per_fixture() {
         // A panic in one fixture's compilation must not cost the corpus-wide number. Known live
         // example: `machine:edge-cases/loader-pattern-shapes` panics at `replace.rs:498` ("char table
         // too large for the PUA token scheme"). Caught, named, and counted -- never swallowed.
-        let outcome =
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| measure_one_fixture(&fixture)));
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            measure_one_fixture(&fixture)
+        }));
         match outcome {
             Ok(Ok(sizing)) => measured.push(sizing),
             Ok(Err(reason)) => skipped.push(reason),

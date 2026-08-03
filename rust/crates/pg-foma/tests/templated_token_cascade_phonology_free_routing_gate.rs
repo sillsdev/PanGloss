@@ -53,8 +53,8 @@ fn baseline_plan(grammar: &Grammar) -> pg_foma::plan::Plan {
 }
 
 fn token_cascade_candidate(
-    candidates: &[(RecipeInstance, pg_foma::enumerate::CandidatePlan)],
-) -> &pg_foma::enumerate::CandidatePlan {
+    candidates: &[(RecipeInstance, pg_foma::enumerate::LoweredCandidate)],
+) -> &pg_foma::enumerate::LoweredCandidate {
     &candidates
         .iter()
         .find(|(instance, _)| instance.family_id == FAMILY)
@@ -95,7 +95,7 @@ fn templated_phonology_free_fixture_offers_the_token_cascade_candidate() {
 
     let candidate = token_cascade_candidate(&candidates);
     assert_eq!(
-        candidate.strategy,
+        candidate.strategy(),
         EmissionStrategy::TemplatedUnderlyingTokens,
         "{FAMILY} must request the token-cascade compiler"
     );
@@ -106,11 +106,11 @@ fn templated_phonology_free_fixture_offers_the_token_cascade_candidate() {
     assert!(
         candidates
             .iter()
-            .any(|(_, c)| c.strategy.is_whole_grammar()),
+            .any(|(_, c)| c.strategy().is_whole_grammar()),
         "candidate set for a template-bearing grammar was plan-composed (uflexc) only: {:?}",
         candidates
             .iter()
-            .map(|(i, c)| (i.family_id.as_str(), c.strategy))
+            .map(|(i, c)| (i.family_id.as_str(), c.strategy()))
             .collect::<Vec<_>>()
     );
 }
@@ -137,7 +137,7 @@ fn phonology_bearing_fixture_offering_is_unchanged() {
 
     let candidate = token_cascade_candidate(&candidates);
     assert_eq!(
-        candidate.strategy,
+        candidate.strategy(),
         EmissionStrategy::TemplatedUnderlyingTokens
     );
 }
@@ -184,7 +184,7 @@ fn templated_candidate_builds_and_proposes_on_the_phonology_free_fixture() {
     let (_, evaluation) = plans
         .iter()
         .zip(&evaluations)
-        .find(|(plan, _)| plan.strategy == EmissionStrategy::TemplatedUnderlyingTokens)
+        .find(|(plan, _)| plan.strategy() == EmissionStrategy::TemplatedUnderlyingTokens)
         .expect("token-cascade-morphology's candidate must be among the evaluated plans");
 
     assert!(

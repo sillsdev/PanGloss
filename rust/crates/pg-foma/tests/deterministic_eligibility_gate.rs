@@ -33,7 +33,7 @@ fn fixture() -> (pg_grammar::model::Grammar, Vec<String>) {
     (grammar, vec!["tulik".to_string(), "menulik".to_string()])
 }
 
-fn plans(grammar: &pg_grammar::model::Grammar) -> Vec<pg_foma::enumerate::CandidatePlan> {
+fn plans(grammar: &pg_grammar::model::Grammar) -> Vec<pg_foma::enumerate::LoweredCandidate> {
     let alphabet = pg_foma::replace::SegAlphabet::new(&grammar.char_tables[0]);
     let prules = grammar
         .strata
@@ -261,9 +261,8 @@ fn exclusions_are_candidate_independent() {
     let before = cache.corpus_evidence(&words);
     let plans = plans(&grammar);
     assert!(!plans.is_empty(), "fixture must materialize candidates");
-    let flags: Vec<bool> = (0..plans.len()).map(|i| i == 0).collect();
-    let evaluations = pg_foma::recipe_runtime::evaluate_plans_marked_with_cache(
-        &grammar, &plans, &words, budget, &flags, &mut cache,
+    let evaluations = pg_foma::recipe_runtime::evaluate_plans_with_cache(
+        &grammar, &plans, &words, budget, &mut cache,
     );
     let after = cache.corpus_evidence(&words);
     assert_eq!(

@@ -64,10 +64,13 @@ fn every_applicable_distinct_recipe_builds_and_full_hc_matches_each_word() {
         .expect("baseline and every applicable registry Plan must materialize");
     assert!(!candidates.is_empty(), "registry must retain baseline");
     let mut plans = Vec::with_capacity(candidates.len());
-    plans.push(pg_foma::enumerate::CandidatePlan {
+    plans.push(pg_foma::enumerate::LoweredCandidate {
         label: "baseline",
         plan: baseline,
-        strategy: pg_foma::enumerate::EmissionStrategy::PlanComposed,
+        adapter: pg_foma::executable_candidate::LoweringAdapter::ControllablePlanCompose,
+        // Task 7.13: this candidate carries the grammar's own default plan, which is exactly what
+        // `evaluate_plans`'s deleted positional `i == 0` rule used to assert about it from outside.
+        role: pg_foma::enumerate::CandidateRole::Baseline,
     });
     // PlanComposed only, and that is this test's ORIGINAL scope rather than a narrowing to make it
     // pass. Its claim is that every distinct PLAN REWRITE still confirms on this fixture — a
@@ -84,7 +87,7 @@ fn every_applicable_distinct_recipe_builds_and_full_hc_matches_each_word() {
         candidates
             .into_iter()
             .map(|(_, p)| p)
-            .filter(|p| !p.strategy.is_whole_grammar()),
+            .filter(|p| !p.strategy().is_whole_grammar()),
     );
     assert!(
         plans.len() > 1,

@@ -66,7 +66,7 @@ fn promoted_recipe_fixtures_replay_and_offer_distinct_plans_or_elimination_evide
         // fail on a fixture whose plan space genuinely still holds exactly one member.
         let plan_candidates = candidates
             .iter()
-            .filter(|(_, c)| !c.strategy.is_whole_grammar())
+            .filter(|(_, c)| c.adapter.interprets_plan())
             .count();
         if name == "recipe-template-generic" {
             assert_eq!(plan_candidates, 1, "the checked-in elimination report is only valid while no distinct template Plan exists");
@@ -89,7 +89,7 @@ fn promoted_recipe_fixtures_replay_and_offer_distinct_plans_or_elimination_evide
         // `recipe_emission_strategy_gate.rs`.
         for (_, candidate) in candidates
             .into_iter()
-            .filter(|(_, c)| !c.strategy.is_whole_grammar())
+            .filter(|(_, c)| c.adapter.interprets_plan())
         {
             pg_foma::recipe_runtime::build_candidate(
                 &candidate,

@@ -25,7 +25,7 @@ fn fixture() -> (pg_grammar::model::Grammar, Vec<String>) {
     (grammar, words)
 }
 
-fn plans(grammar: &pg_grammar::model::Grammar) -> Vec<pg_foma::enumerate::CandidatePlan> {
+fn plans(grammar: &pg_grammar::model::Grammar) -> Vec<pg_foma::enumerate::LoweredCandidate> {
     let alphabet = SegAlphabet::new(&grammar.char_tables[0]);
     let prules = grammar
         .strata
@@ -109,10 +109,10 @@ fn prepared_oracle_is_shared_and_emission_report_is_strategy_lazy() {
     let all_plans = plans(&grammar);
     let (whole, composed): (Vec<_>, Vec<_>) = all_plans
         .into_iter()
-        .partition(|plan| plan.strategy.is_whole_grammar());
+        .partition(|plan| plan.strategy().is_whole_grammar());
     let composed = composed
         .into_iter()
-        .filter(|plan| plan.strategy == EmissionStrategy::PlanComposed)
+        .filter(|plan| plan.strategy() == EmissionStrategy::PlanComposed)
         .take(2)
         .collect::<Vec<_>>();
     assert!(

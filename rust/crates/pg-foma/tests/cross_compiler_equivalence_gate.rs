@@ -7,14 +7,15 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use pg_conformance_fixtures::{discover, Root};
-use pg_foma::enumerate::{CandidatePlan, EmissionStrategy};
+use pg_foma::enumerate::{CandidateRole, EmissionStrategy, LoweredCandidate};
+use pg_foma::executable_candidate::LoweringAdapter;
 use pg_foma::recipe_registry::{
     MaterializerContext, Registry, FAMILY_COMPLETE_TEMPLATE, FAMILY_SURFACE_PROBE_MORPHOLOGY,
     FAMILY_TOKEN_CASCADE_MORPHOLOGY,
 };
 use pg_foma::recipe_runtime::{
-    certify_corpus, check_proposal_ratio, evaluate_plans_marked_observed_with_cache,
-    evaluate_plans_marked_with_cache, RunEvaluationCache, RuntimeBudget, WordEvidence,
+    certify_corpus, check_proposal_ratio, evaluate_plans_observed_with_cache,
+    evaluate_plans_with_cache, RunEvaluationCache, RuntimeBudget, WordEvidence,
 };
 use pg_foma::replace::SegAlphabet;
 use pg_foma::{enumerate::enumerate_default, junctions::PhonologyProbe};
@@ -26,6 +27,18 @@ const REQUIRED_STRATEGIES: [EmissionStrategy; 3] = [
     EmissionStrategy::TunedSurfaceProbed,
     EmissionStrategy::TemplatedUnderlyingTokens,
 ];
+
+/// The role this gate's hand-built candidates carry, preserving exactly what its deleted
+/// `is_baseline: Vec<bool>` slice said (task 7.13): all three candidates share ONE baseline `Plan`,
+/// so the plan-COMPOSING one is that plan's own compilation and the two whole-grammar adapters --
+/// which never read a plan at all -- are not.
+fn baseline_role(strategy: EmissionStrategy) -> CandidateRole {
+    if strategy == EmissionStrategy::PlanComposed {
+        CandidateRole::Baseline
+    } else {
+        CandidateRole::Alternative
+    }
+}
 
 fn fixture() -> (pg_grammar::model::Grammar, Vec<String>) {
     let fixture = discover()
@@ -68,7 +81,9 @@ fn fixture() -> (pg_grammar::model::Grammar, Vec<String>) {
     (grammar, words)
 }
 
-fn selected_plans(grammar: &pg_grammar::model::Grammar) -> Vec<pg_foma::enumerate::CandidatePlan> {
+fn selected_plans(
+    grammar: &pg_grammar::model::Grammar,
+) -> Vec<pg_foma::enumerate::LoweredCandidate> {
     let alphabet = SegAlphabet::new(&grammar.char_tables[0]);
     let prules = grammar
         .strata
@@ -99,7 +114,7 @@ fn selected_plans(grammar: &pg_grammar::model::Grammar) -> Vec<pg_foma::enumerat
         .filter(|plan| {
             REQUIRED_STRATEGIES
                 .iter()
-                .position(|strategy| *strategy == plan.strategy)
+                .position(|strategy| *strategy == plan.strategy())
                 .is_some_and(|index| {
                     if selected[index] {
                         false
@@ -112,7 +127,7 @@ fn selected_plans(grammar: &pg_grammar::model::Grammar) -> Vec<pg_foma::enumerat
         .collect::<Vec<_>>();
     for strategy in REQUIRED_STRATEGIES {
         assert!(
-            plans.iter().any(|plan| plan.strategy == strategy),
+            plans.iter().any(|plan| plan.strategy() == strategy),
             "requested strategy was not materialized: {strategy:?}"
         );
     }
@@ -122,7 +137,7 @@ fn selected_plans(grammar: &pg_grammar::model::Grammar) -> Vec<pg_foma::enumerat
         "the gate must exercise exactly one candidate per pipeline"
     );
     assert_eq!(
-        plans.iter().map(|plan| plan.strategy).collect::<Vec<_>>(),
+        plans.iter().map(|plan| plan.strategy()).collect::<Vec<_>>(),
         REQUIRED_STRATEGIES,
         "the gate must pin plan order before deriving baseline flags"
     );
@@ -140,7 +155,7 @@ fn selected_plans(grammar: &pg_grammar::model::Grammar) -> Vec<pg_foma::enumerat
         assert!(
             plans
                 .iter()
-                .any(|plan| plan.label == family && plan.strategy == strategy),
+                .any(|plan| plan.label == family && plan.strategy() == strategy),
             "the gate must pin family {family:?} to strategy {strategy:?}"
         );
     }
@@ -225,31 +240,24 @@ fn assert_proposal_ratio(strategy: EmissionStrategy, numerator: u64, denominator
 fn pinned_three_pipeline_equivalence_observes_final_candidates_and_preserves_cache_semantics() {
     let (grammar, words) = fixture();
     let plans = selected_plans(&grammar);
-    let is_baseline = plans
-        .iter()
-        .map(|plan| plan.strategy == EmissionStrategy::PlanComposed)
-        .collect::<Vec<_>>();
-
     let mut ordinary_cache =
         RunEvaluationCache::prepare(&grammar, &words, RuntimeBudget::default())
             .expect("oracle preparation must succeed for this fixture");
-    let ordinary = evaluate_plans_marked_with_cache(
+    let ordinary = evaluate_plans_with_cache(
         &grammar,
         &plans,
         &words,
         RuntimeBudget::default(),
-        &is_baseline,
         &mut ordinary_cache,
     );
     let mut observed_cache =
         RunEvaluationCache::prepare(&grammar, &words, RuntimeBudget::default())
             .expect("oracle preparation must succeed for this fixture");
-    let observed = evaluate_plans_marked_observed_with_cache(
+    let observed = evaluate_plans_observed_with_cache(
         &grammar,
         &plans,
         &words,
         RuntimeBudget::default(),
-        &is_baseline,
         &mut observed_cache,
     );
 
@@ -278,23 +286,24 @@ fn pinned_three_pipeline_equivalence_observes_final_candidates_and_preserves_cac
         Vec<(String, Vec<pg_parse::WordAnalysis>)>,
     )> = Vec::new();
     for ((plan, ordinary), observation) in plans.iter().zip(&ordinary).zip(&observed) {
-        assert_eq!(observation.requested_strategy, plan.strategy);
+        assert_eq!(observation.requested_strategy, plan.strategy());
         assert_eq!(observation.evaluation.certification, ordinary.certification);
         assert_eq!(
             deterministic_score(observation.evaluation.score),
             deterministic_score(ordinary.score),
             "observed evidence must not alter deterministic score fields for {:?}",
-            plan.strategy
+            plan.strategy()
         );
         assert_eq!(
-            observation.evaluation.realized_strategy, plan.strategy,
+            observation.evaluation.realized_strategy,
+            plan.strategy(),
             "the observation must identify the strategy that actually ran"
         );
         assert!(
             observation.evaluation.certification.selectable(),
             "{strategy:?} did not reach full-HC confirmation: {:?}",
             observation.evaluation.certification,
-            strategy = plan.strategy
+            strategy = plan.strategy()
         );
 
         let evidence = observation
@@ -309,7 +318,7 @@ fn pinned_three_pipeline_equivalence_observes_final_candidates_and_preserves_cac
             words.iter().map(String::as_str).collect::<Vec<_>>(),
             "duplicate corpus occurrences and order must be preserved"
         );
-        assert_proposal_containment(plan.strategy, evidence);
+        assert_proposal_containment(plan.strategy(), evidence);
         assert_eq!(
             evidence
                 .iter()
@@ -321,30 +330,32 @@ fn pinned_three_pipeline_equivalence_observes_final_candidates_and_preserves_cac
         assert!(
             evidence.iter().any(|word| !word.proposals.is_empty()),
             "{strategy:?} retained no final candidate evidence",
-            strategy = plan.strategy
+            strategy = plan.strategy()
         );
         for positive in ["pakolosa", "takolola"] {
             let positive = evidence
                 .iter()
                 .find(|word| word.word == positive)
-                .unwrap_or_else(|| panic!("{:?} omitted positive word {positive}", plan.strategy));
+                .unwrap_or_else(|| {
+                    panic!("{:?} omitted positive word {positive}", plan.strategy())
+                });
             assert!(
                 !positive.expected.is_empty(),
                 "{strategy:?} positive {word:?} has no oracle analyses",
-                strategy = plan.strategy,
+                strategy = plan.strategy(),
                 word = positive.word
             );
             assert!(
                 !positive.actual.is_empty(),
                 "{strategy:?} positive {word:?} has no confirmed analyses",
-                strategy = plan.strategy,
+                strategy = plan.strategy(),
                 word = positive.word
             );
         }
         assert!(
             evidence.iter().map(|word| word.actual.len()).sum::<usize>() > 0,
             "{strategy:?} confirmed no analyses",
-            strategy = plan.strategy
+            strategy = plan.strategy()
         );
         let invalid = evidence
             .iter()
@@ -353,7 +364,7 @@ fn pinned_three_pipeline_equivalence_observes_final_candidates_and_preserves_cac
         assert!(
             invalid.expected.is_empty() && invalid.actual.is_empty(),
             "{strategy:?} changed the invalid cross-template negative: {invalid:?}",
-            strategy = plan.strategy
+            strategy = plan.strategy()
         );
 
         let oracle_confirmed = evidence
@@ -366,7 +377,7 @@ fn pinned_three_pipeline_equivalence_observes_final_candidates_and_preserves_cac
             oracle_confirmed,
         );
         oracle.get_or_insert_with(|| expected_multiset(evidence));
-        actual_by_strategy.push((plan.strategy, actual_multiset(evidence)));
+        actual_by_strategy.push((plan.strategy(), actual_multiset(evidence)));
     }
 
     let oracle = oracle.expect("the gate must observe one oracle evidence vector");
@@ -385,7 +396,7 @@ fn observed_evidence_distinguishes_failed_evaluation_from_real_empty_observation
     let baseline = vec![true; 1];
     let plan = plans
         .into_iter()
-        .find(|plan| plan.strategy == EmissionStrategy::PlanComposed)
+        .find(|plan| plan.strategy() == EmissionStrategy::PlanComposed)
         .expect("plan-composed fixture candidate");
 
     let capped_words = vec![words[0].clone()];
@@ -398,7 +409,7 @@ fn observed_evidence_distinguishes_failed_evaluation_from_real_empty_observation
         },
     )
     .expect("oracle preparation must succeed for this fixture");
-    let failed = evaluate_plans_marked_observed_with_cache(
+    let failed = evaluate_plans_observed_with_cache(
         &grammar,
         std::slice::from_ref(&plan),
         &capped_words,
@@ -406,7 +417,6 @@ fn observed_evidence_distinguishes_failed_evaluation_from_real_empty_observation
             oracle_step_cap: Some(0),
             ..RuntimeBudget::default()
         },
-        &baseline,
         &mut capped_cache,
     )
     .pop()
@@ -428,12 +438,11 @@ fn observed_evidence_distinguishes_failed_evaluation_from_real_empty_observation
 
     let mut empty_cache = RunEvaluationCache::prepare(&grammar, &[], RuntimeBudget::default())
         .expect("oracle preparation must succeed for this fixture");
-    let empty = evaluate_plans_marked_observed_with_cache(
+    let empty = evaluate_plans_observed_with_cache(
         &grammar,
         &[plan],
         &[],
         RuntimeBudget::default(),
-        &baseline,
         &mut empty_cache,
     )
     .pop()
@@ -491,18 +500,17 @@ fn template_flattened_uflexc_route_reports_typed_proposal_ratio_violation() {
         .map(|(_, plan)| plan)
         .find(|plan| {
             plan.label == FAMILY_COMPLETE_TEMPLATE
-                && plan.strategy == EmissionStrategy::PlanComposed
+                && plan.strategy() == EmissionStrategy::PlanComposed
         })
         .expect("plan-composed/uflexc candidate");
 
     let mut cache = RunEvaluationCache::prepare(&grammar, &words, RuntimeBudget::default())
         .expect("oracle preparation must succeed for this fixture");
-    let observation = evaluate_plans_marked_observed_with_cache(
+    let observation = evaluate_plans_observed_with_cache(
         &grammar,
         std::slice::from_ref(&plan),
         &words,
         RuntimeBudget::default(),
-        &[true],
         &mut cache,
     )
     .pop()
@@ -573,8 +581,8 @@ fn three_pipeline_gate_reports_proposal_ratio_violation_details() {
 /// phonological rules and no templates, so `FAMILY_TOKEN_CASCADE_MORPHOLOGY`'s
 /// `Applicability::HasPhonologyOrTemplates` gate would never offer `TemplatedUnderlyingTokens` for
 /// it (that gate only controls which candidates the OPTIMIZER auto-proposes, not what a compiler can
-/// legally be asked to build) -- so each `CandidatePlan` here is built directly, all three sharing
-/// the one baseline `Plan` (`recipe_runtime::evaluate_plans_marked_with_cache_mode`'s own dispatch
+/// legally be asked to build) -- so each `LoweredCandidate` here is built directly, all three sharing
+/// the one baseline `Plan` (`recipe_runtime::evaluate_plans_with_cache_mode`'s own dispatch
 /// proves this is safe: the two whole-grammar strategies ignore `plan` entirely and only
 /// `PlanComposed` ever reads it).
 ///
@@ -624,38 +632,37 @@ fn plan_composed_cannot_represent_compounding_construct_red1() {
         PhonologyProbe::new(&grammar).as_ref(),
     );
 
-    let plans: Vec<CandidatePlan> = REQUIRED_STRATEGIES
+    let plans: Vec<LoweredCandidate> = REQUIRED_STRATEGIES
         .iter()
-        .map(|&strategy| CandidatePlan {
+        .map(|&strategy| LoweredCandidate {
             label: "red1-compounding-cross-compiler",
             plan: baseline_plan.clone(),
-            strategy,
+            adapter: LoweringAdapter::for_strategy(strategy),
+            // Exactly what the deleted `is_baseline` slice said here: the plan-composing candidate
+            // carries the grammar's own default plan and so is the baseline; the two whole-grammar
+            // adapters never read a plan, so their role is never consulted.
+            role: baseline_role(strategy),
         })
         .collect();
-    let is_baseline = plans
-        .iter()
-        .map(|plan| plan.strategy == EmissionStrategy::PlanComposed)
-        .collect::<Vec<_>>();
-
     let mut cache = RunEvaluationCache::prepare(&grammar, &words, RuntimeBudget::default())
         .expect("oracle preparation must succeed for this fixture");
-    let observed = evaluate_plans_marked_observed_with_cache(
+    let observed = evaluate_plans_observed_with_cache(
         &grammar,
         &plans,
         &words,
         RuntimeBudget::default(),
-        &is_baseline,
         &mut cache,
     );
     assert_eq!(observed.len(), plans.len());
 
     let mut oracle: Option<Vec<(String, Vec<pg_parse::WordAnalysis>)>> = None;
     for (plan, observation) in plans.iter().zip(&observed) {
-        assert_eq!(observation.requested_strategy, plan.strategy);
+        assert_eq!(observation.requested_strategy, plan.strategy());
         let evidence = observation.words.as_ref().unwrap_or_else(|| {
             panic!(
                 "{:?} evaluation failed outright: {:?}",
-                plan.strategy, observation.evaluation
+                plan.strategy(),
+                observation.evaluation
             )
         });
         let oracle = oracle.get_or_insert_with(|| expected_multiset(evidence));
@@ -671,7 +678,7 @@ fn plan_composed_cannot_represent_compounding_construct_red1() {
             certification.selectable(),
             "{:?} produced a final candidate set for the compounding fixture's two-stem word that \
              differs from the oracle -- {:?}",
-            plan.strategy,
+            plan.strategy(),
             certification
         );
     }
@@ -699,12 +706,12 @@ fn plan_composed_cannot_represent_compounding_construct_red1() {
 ///
 /// Runs the newly-staged `head-ambiguous-compounding` fixture's two-reading witness `dakimo`
 /// (crLeftHead's dak-headed reading, root_index 0; crRightHead's imo-headed reading, root_index 1)
-/// through all three `REQUIRED_STRATEGIES`, built directly as `CandidatePlan`s exactly as RED-1
+/// through all three `REQUIRED_STRATEGIES`, built directly as `LoweredCandidate`s exactly as RED-1
 /// does: this fixture likewise declares no phonological rules and no templates, so
 /// `Registry`/`Applicability::HasPhonologyOrTemplates` would never auto-offer
 /// `TemplatedUnderlyingTokens` for it (that gate controls what the OPTIMIZER auto-proposes, not
 /// what a compiler can legally be asked to build), and `recipe_runtime::
-/// evaluate_plans_marked_with_cache_mode`'s own dispatch proves sharing one baseline `Plan` across
+/// evaluate_plans_with_cache_mode`'s own dispatch proves sharing one baseline `Plan` across
 /// all three is safe (the two whole-grammar strategies ignore `plan` entirely).
 ///
 /// **OBSERVED** (verified by running this test): all three strategies -- `PlanComposed`,
@@ -754,38 +761,34 @@ fn plan_composed_distinguishes_headedness_ambiguity_red2() {
         PhonologyProbe::new(&grammar).as_ref(),
     );
 
-    let plans: Vec<CandidatePlan> = REQUIRED_STRATEGIES
+    let plans: Vec<LoweredCandidate> = REQUIRED_STRATEGIES
         .iter()
-        .map(|&strategy| CandidatePlan {
+        .map(|&strategy| LoweredCandidate {
             label: "red2-head-ambiguous-compounding",
             plan: baseline_plan.clone(),
-            strategy,
+            adapter: LoweringAdapter::for_strategy(strategy),
+            role: baseline_role(strategy),
         })
         .collect();
-    let is_baseline = plans
-        .iter()
-        .map(|plan| plan.strategy == EmissionStrategy::PlanComposed)
-        .collect::<Vec<_>>();
-
     let mut cache = RunEvaluationCache::prepare(&grammar, &words, RuntimeBudget::default())
         .expect("oracle preparation must succeed for this fixture");
-    let observed = evaluate_plans_marked_observed_with_cache(
+    let observed = evaluate_plans_observed_with_cache(
         &grammar,
         &plans,
         &words,
         RuntimeBudget::default(),
-        &is_baseline,
         &mut cache,
     );
     assert_eq!(observed.len(), plans.len());
 
     let mut oracle: Option<Vec<(String, Vec<pg_parse::WordAnalysis>)>> = None;
     for (plan, observation) in plans.iter().zip(&observed) {
-        assert_eq!(observation.requested_strategy, plan.strategy);
+        assert_eq!(observation.requested_strategy, plan.strategy());
         let evidence = observation.words.as_ref().unwrap_or_else(|| {
             panic!(
                 "{:?} evaluation failed outright: {:?}",
-                plan.strategy, observation.evaluation
+                plan.strategy(),
+                observation.evaluation
             )
         });
         let oracle = oracle.get_or_insert_with(|| expected_multiset(evidence));
@@ -812,7 +815,7 @@ fn plan_composed_distinguishes_headedness_ambiguity_red2() {
             "{:?} produced a final candidate set for the headedness-ambiguity word that differs \
              from the oracle -- must retain BOTH readings (dak-headed root_index=0 AND imo-headed \
              root_index=1), not just one -- {:?}",
-            plan.strategy,
+            plan.strategy(),
             certification
         );
     }

@@ -32,7 +32,10 @@ use pg_foma::capability::{
     CompileDecision,
 };
 use pg_foma::compose_budget::ComposeBudget;
-use pg_foma::enumerate::{enumerate_default, prules_in_order, CandidatePlan, EmissionStrategy};
+use pg_foma::enumerate::{
+    enumerate_default, prules_in_order, CandidateRole, EmissionStrategy, LoweredCandidate,
+};
+use pg_foma::executable_candidate::LoweringAdapter;
 use pg_foma::grammar_semantics::GrammarSemantics;
 use pg_foma::junctions::PhonologyProbe;
 use pg_foma::plan::Plan;
@@ -121,17 +124,21 @@ fn enumerated_plan(g: &Grammar) -> Plan {
 /// exactly the axis a strategy-blind envelope cannot see. `PlanComposed` first so a filter that
 /// silently did nothing would leave it chosen (it is the minimum-`NodeId` candidate: the roots are
 /// equal, so the tie-break cannot rescue the assertion).
-fn two_strategy_candidates(plan: &Plan) -> Vec<CandidatePlan> {
+fn two_strategy_candidates(plan: &Plan) -> Vec<LoweredCandidate> {
     vec![
-        CandidatePlan {
+        LoweredCandidate {
             label: "plan-composed",
             plan: plan.clone(),
-            strategy: EmissionStrategy::PlanComposed,
+            adapter: LoweringAdapter::ControllablePlanCompose,
+            role: CandidateRole::Baseline,
         },
-        CandidatePlan {
+        LoweredCandidate {
             label: "tuned-surface-probed",
             plan: plan.clone(),
-            strategy: EmissionStrategy::TunedSurfaceProbed,
+            adapter: LoweringAdapter::TunedSurfaceEmit,
+            // A whole-grammar adapter never reads a plan, so it is not "the baseline plan's
+            // compilation" under any reading -- it is a different compiler.
+            role: CandidateRole::Alternative,
         },
     ]
 }

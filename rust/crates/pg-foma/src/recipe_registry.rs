@@ -7,7 +7,8 @@ use std::fmt;
 use pg_grammar::model::Grammar;
 use serde::{Deserialize, Serialize};
 
-use crate::enumerate::{CandidatePlan, EmissionStrategy};
+use crate::enumerate::{CandidateRole, LoweredCandidate};
+use crate::executable_candidate::LoweringAdapter;
 use crate::executable_candidate::{CandidateConstructionError, ExecutableCandidate};
 use crate::grammar_semantics::GrammarSemantics;
 use crate::mechanism_provider::derive_mechanism_graph;
@@ -202,7 +203,7 @@ pub trait Materializer: Send + Sync {
         &self,
         instance: &RecipeInstance,
         context: &MaterializerContext<'_>,
-    ) -> Result<CandidatePlan, MaterializeError>;
+    ) -> Result<LoweredCandidate, MaterializeError>;
 }
 
 impl<F> Materializer for F
@@ -210,7 +211,7 @@ where
     F: for<'a> Fn(
             &RecipeInstance,
             &MaterializerContext<'a>,
-        ) -> Result<CandidatePlan, MaterializeError>
+        ) -> Result<LoweredCandidate, MaterializeError>
         + Send
         + Sync,
 {
@@ -218,7 +219,7 @@ where
         &self,
         instance: &RecipeInstance,
         context: &MaterializerContext<'_>,
-    ) -> Result<CandidatePlan, MaterializeError> {
+    ) -> Result<LoweredCandidate, MaterializeError> {
         self(instance, context)
     }
 }
@@ -529,7 +530,7 @@ impl Registry {
         &self,
         instance: &RecipeInstance,
         context: &MaterializerContext<'_>,
-    ) -> Result<CandidatePlan, MaterializeError> {
+    ) -> Result<LoweredCandidate, MaterializeError> {
         self.materialize_with_semantics(
             instance,
             context,
@@ -546,7 +547,7 @@ impl Registry {
         instance: &RecipeInstance,
         context: &MaterializerContext<'_>,
         semantics: &GrammarSemantics<'_>,
-    ) -> Result<CandidatePlan, MaterializeError> {
+    ) -> Result<LoweredCandidate, MaterializeError> {
         self.validate_instance(instance)
             .map_err(|error| MaterializeError::Invalid(error.to_string()))?;
         let family = self
@@ -579,7 +580,7 @@ impl Registry {
     pub fn materialize_distinct(
         &self,
         context: &MaterializerContext<'_>,
-    ) -> Result<Vec<(RecipeInstance, CandidatePlan)>, MaterializeError> {
+    ) -> Result<Vec<(RecipeInstance, LoweredCandidate)>, MaterializeError> {
         // ONE derivation for the whole batch (task 7.11): shared by the instance enumeration below
         // AND by every per-instance applicability re-check inside `materialize_with_semantics`.
         let semantics = GrammarSemantics::derive(context.grammar);
@@ -591,7 +592,7 @@ impl Registry {
                 .plan
                 .root()
                 .ok_or_else(|| MaterializeError::RootlessPlan(instance.family_id.clone()))?;
-            if seen.insert((root, candidate.strategy.label())) {
+            if seen.insert((root, candidate.strategy().label())) {
                 candidates.push((instance, candidate));
             }
         }
@@ -603,7 +604,7 @@ impl Registry {
     /// Materializes `instance` exactly as [`Self::materialize_with_semantics`] does -- same
     /// validation, same applicability re-check, same typed [`MaterializeError`], so nothing about
     /// WHICH candidates a grammar is offered changes here -- and then binds the parts a
-    /// `CandidatePlan` never carried: a stable semantic digest, a portable round-trippable Plan
+    /// a `LoweredCandidate` does not carry: a stable semantic digest, a portable round-trippable Plan
     /// document and its digest, the exact lowering adapter, the runtime requirements the evaluator
     /// already enforces, the mechanism graph with its per-adapter bindings, and the certification
     /// scope those bindings license.
@@ -640,7 +641,7 @@ impl Registry {
             &instance.family_id,
             instance,
             &candidate.plan,
-            candidate.strategy,
+            candidate.adapter,
             derive_mechanism_graph(semantics),
         )
     }
@@ -724,7 +725,7 @@ fn expand_family(family: &RecipeFamily) -> Vec<RecipeInstance> {
 /// The plan rewrites a seeded family may apply. Every one must be SEMANTICS-PRESERVING: it may
 /// change a Plan's shape and therefore its content address, never the relation the compiled network
 /// accepts. Each variant below cites the argument that makes it safe -- none is safe by assumption.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SafeTransform {
     Identity,
     /// Reorders a `Gate` node's partition groups. Safe because `build_controllable` folds the groups
@@ -754,7 +755,7 @@ struct SeededFamily {
     /// `transform` is then what varies); a whole-grammar strategy for a family whose whole point is
     /// that it compiles the grammar a DIFFERENT way, in which case `transform` is `Identity` because
     /// that compiler does not interpret a plan at all.
-    strategy: EmissionStrategy,
+    adapter: LoweringAdapter,
     ordering: &'static [(&'static str, &'static str)],
 }
 
@@ -768,8 +769,8 @@ impl SeededFamily {
                 // For a whole-grammar strategy the varying axis is the COMPILER, not the plan
                 // rewrite, so name that instead — otherwise every such family would report
                 // `topology=baseline` and read as a relabelled duplicate of the baseline.
-                domain: vec![if self.strategy.is_whole_grammar() {
-                    self.strategy.label().to_owned()
+                domain: vec![if !self.adapter.interprets_plan() {
+                    self.adapter.strategy().label().to_owned()
                 } else {
                     match self.transform {
                         SafeTransform::Identity => "baseline",
@@ -817,7 +818,7 @@ impl Materializer for SeededFamily {
         &self,
         _instance: &RecipeInstance,
         context: &MaterializerContext<'_>,
-    ) -> Result<CandidatePlan, MaterializeError> {
+    ) -> Result<LoweredCandidate, MaterializeError> {
         let plan = match self.transform {
             SafeTransform::Identity => context.baseline.clone(),
             SafeTransform::GatePermutation => permute_gate_groups(context.baseline),
@@ -829,10 +830,27 @@ impl Materializer for SeededFamily {
                 refine_gate_partition(context.baseline, PartitionGranularity::FanOut)
             }
         };
-        Ok(CandidatePlan {
+        Ok(LoweredCandidate {
             label: self.id,
             plan,
-            strategy: self.strategy,
+            adapter: self.adapter,
+            // DERIVED, never declared -- the same discipline task 7.3 imposed on `MechanismEdge` and
+            // 7.5 on `RuntimeRequirement`. A family whose transform is `Identity` hands back
+            // `context.baseline` VERBATIM, so under the one adapter that interprets a plan that
+            // candidate IS this grammar's default compilation and nothing else can be. Every other
+            // family rewrites the assembly tree (an alternative by construction), and a whole-grammar
+            // adapter never reads the plan at all, so calling it "the baseline plan's compilation"
+            // would be a category error -- it is a different compiler, which is exactly the axis
+            // Wave 3 measured as decisive.
+            //
+            // At most one such candidate survives a batch: `materialize_distinct` dedups on
+            // `(plan root, strategy label)`, and every `Identity` + plan-composing family produces
+            // the identical root under the identical label.
+            role: if self.transform == SafeTransform::Identity && self.adapter.interprets_plan() {
+                CandidateRole::Baseline
+            } else {
+                CandidateRole::Alternative
+            },
         })
     }
 }
@@ -858,21 +876,21 @@ const SEEDS: &[SeededFamily] = &[
         id: FAMILY_ORDERED_MORPHOPHONOLOGY,
         applicability: Applicability::Always,
         transform: SafeTransform::Identity,
-        strategy: EmissionStrategy::PlanComposed,
+        adapter: LoweringAdapter::ControllablePlanCompose,
         ordering: &[("morphology", "phonology")],
     },
     SeededFamily {
         id: FAMILY_CLASS_EXCEPTION_CASCADE,
         applicability: Applicability::HasGatedExceptions,
         transform: SafeTransform::GatePermutation,
-        strategy: EmissionStrategy::PlanComposed,
+        adapter: LoweringAdapter::ControllablePlanCompose,
         ordering: &[("class-partition", "exception-cascade")],
     },
     SeededFamily {
         id: FAMILY_COMPLETE_TEMPLATE,
         applicability: Applicability::HasTemplates,
         transform: SafeTransform::UnionPermutation,
-        strategy: EmissionStrategy::PlanComposed,
+        adapter: LoweringAdapter::ControllablePlanCompose,
         ordering: &[("template-selection", "phonology")],
     },
     SeededFamily {
@@ -882,21 +900,21 @@ const SEEDS: &[SeededFamily] = &[
         // copy of UnionPermutation, contributing nothing the baseline did not already contribute.
         applicability: Applicability::HasSplittableGateGroup,
         transform: SafeTransform::PartitionBisect,
-        strategy: EmissionStrategy::PlanComposed,
+        adapter: LoweringAdapter::ControllablePlanCompose,
         ordering: &[("branch-selection", "shared-cascade")],
     },
     SeededFamily {
         id: FAMILY_COPY_BRANCH,
         applicability: Applicability::HasReduplication,
         transform: SafeTransform::UnionPermutation,
-        strategy: EmissionStrategy::PlanComposed,
+        adapter: LoweringAdapter::ControllablePlanCompose,
         ordering: &[("copy", "repair")],
     },
     SeededFamily {
         id: FAMILY_BOUNDED_METATHESIS,
         applicability: Applicability::HasMetathesis,
         transform: SafeTransform::Identity,
-        strategy: EmissionStrategy::PlanComposed,
+        adapter: LoweringAdapter::ControllablePlanCompose,
         ordering: &[("match", "switch")],
     },
     SeededFamily {
@@ -907,7 +925,7 @@ const SEEDS: &[SeededFamily] = &[
         // never used, which is part of why it silently reduced to the baseline everywhere.
         applicability: Applicability::HasSplittableGateGroup,
         transform: SafeTransform::PartitionFanOut,
-        strategy: EmissionStrategy::PlanComposed,
+        adapter: LoweringAdapter::ControllablePlanCompose,
         ordering: &[("lower-stratum", "upper-stratum")],
     },
     SeededFamily {
@@ -918,7 +936,7 @@ const SEEDS: &[SeededFamily] = &[
         id: FAMILY_SURFACE_PROBE_MORPHOLOGY,
         applicability: Applicability::Always,
         transform: SafeTransform::Identity,
-        strategy: EmissionStrategy::TunedSurfaceProbed,
+        adapter: LoweringAdapter::TunedSurfaceEmit,
         ordering: &[("morphology", "phonology")],
     },
     SeededFamily {
@@ -937,7 +955,7 @@ const SEEDS: &[SeededFamily] = &[
         // stays one family rather than two.
         applicability: Applicability::HasPhonologyOrTemplates,
         transform: SafeTransform::Identity,
-        strategy: EmissionStrategy::TemplatedUnderlyingTokens,
+        adapter: LoweringAdapter::TemplatedUnderlyingEmit,
         ordering: &[("morphotactics", "phonology")],
     },
 ];
@@ -1002,6 +1020,71 @@ mod tests {
         });
         plan.set_root(root);
         plan
+    }
+
+    /// **Task 7.13: the baseline fact is DERIVED and lives ON the candidate, and it is not position.**
+    ///
+    /// The two deleted shapes were a positional `i == 0` rule and a caller-supplied parallel
+    /// `&[bool]`. This asserts what replaced them, and it is not vacuous: it checks that the ONE
+    /// candidate whose plan is the baseline plan verbatim is the one marked `Baseline`, and that a
+    /// plan-REWRITING family is marked `Alternative` even though its plan is equally applicable — a
+    /// distinction position cannot express, since `materialize_distinct` orders candidates by FAMILY ID
+    /// and `ordered-morphophonology` sorts after `class-exception-cascade`, `complete-template`,
+    /// `copy-branch` and `bounded-metathesis`. Element zero was therefore NOT the default compilation
+    /// on any grammar those families apply to, which is exactly how a permutation came to be measured
+    /// on the baseline's own network and reported as confirmed.
+    #[test]
+    fn the_baseline_role_follows_the_baseline_plan_and_never_the_position() {
+        let grammar = minimal_grammar();
+        let base = baseline();
+        let registry = Registry::seeded();
+        let materialized = registry
+            .materialize_distinct(&MaterializerContext {
+                grammar: &grammar,
+                baseline: &base,
+            })
+            .expect("the seeded registry must materialize for this grammar");
+        assert!(
+            materialized.len() >= 2,
+            "this assertion needs at least a baseline and one non-baseline candidate to distinguish"
+        );
+
+        let baselines: Vec<&RecipeInstance> = materialized
+            .iter()
+            .filter(|(_, candidate)| candidate.is_baseline())
+            .map(|(instance, _)| instance)
+            .collect();
+        assert_eq!(
+            baselines.len(),
+            1,
+            "exactly one candidate may be this grammar's default compilation; got {baselines:?}"
+        );
+
+        for (instance, candidate) in &materialized {
+            if candidate.is_baseline() {
+                assert_eq!(
+                    candidate.plan.root(),
+                    base.root(),
+                    "{}: a candidate marked Baseline must carry the baseline plan VERBATIM, or the \
+                     role is a label rather than a derived fact",
+                    instance.family_id
+                );
+                assert!(
+                    candidate.adapter.interprets_plan(),
+                    "{}: only the plan-interpreting adapter can be a plan's own compilation",
+                    instance.family_id
+                );
+            } else {
+                let rewrites_the_plan = candidate.plan.root() != base.root();
+                let different_compiler = !candidate.adapter.interprets_plan();
+                assert!(
+                    rewrites_the_plan || different_compiler,
+                    "{}: an Alternative must differ from the baseline in its PLAN or its COMPILER; a \
+                     candidate that differs in neither is the baseline wearing a second label",
+                    instance.family_id
+                );
+            }
+        }
     }
 
     #[test]
@@ -1093,10 +1176,11 @@ mod tests {
         let mut registry = Registry::new(1).unwrap();
         let make = |label: &'static str| {
             Box::new(move |_i: &RecipeInstance, c: &MaterializerContext<'_>| {
-                Ok(CandidatePlan {
+                Ok(LoweredCandidate {
                     label,
                     plan: c.baseline.clone(),
-                    strategy: EmissionStrategy::PlanComposed,
+                    adapter: LoweringAdapter::ControllablePlanCompose,
+                    role: CandidateRole::Alternative,
                 })
             }) as MaterializerFn
         };
@@ -1129,10 +1213,11 @@ mod tests {
                 tie_family,
                 Box::new(
                     |_instance: &RecipeInstance, context: &MaterializerContext<'_>| {
-                        Ok(CandidatePlan {
+                        Ok(LoweredCandidate {
                             label: "synthetic-tie",
                             plan: context.baseline.clone(),
-                            strategy: EmissionStrategy::PlanComposed,
+                            adapter: LoweringAdapter::ControllablePlanCompose,
+                            role: CandidateRole::Alternative,
                         })
                     },
                 ),

@@ -306,12 +306,26 @@ pub fn characterize_with_semantics(
     })
 }
 
+/// One pilot row: what each stage of ONE candidate's pre-search pass actually cost.
+///
+/// # Why `build`/`evaluation` are `Option` and `materialize`/`capability` are not (task 7.13)
+/// A pilot candidate that the capability envelope REFUSES is never built and never evaluated. This
+/// type used to record `build: 0, evaluation: 0` for such a row, and [`summarize_pilot`] folded those
+/// literal zeros into the build/evaluation percentiles — so a pilot sample containing refusals
+/// reported a build cost pulled toward zero *for a stage that never executed*. That is not a
+/// cosmetic error: those percentiles are summed into `PilotCosts` and decide which search strategy
+/// the run uses.
+///
+/// `materialize` and `capability` stay unconditional because a refused row genuinely HAS both — the
+/// candidate was materialized, and the capability check is the very thing that refused it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct StageMeasurement {
     pub materialize: u64,
     pub capability: u64,
-    pub build: u64,
-    pub evaluation: u64,
+    /// `None` when this candidate was never built. Not `Some(0)`: see the type doc.
+    pub build: Option<u64>,
+    /// `None` when this candidate was never evaluated. Not `Some(0)`: see the type doc.
+    pub evaluation: Option<u64>,
     pub pruned: bool,
 }
 
@@ -330,12 +344,32 @@ pub struct PilotSummary {
     pub capability: Quantiles,
     pub build: Quantiles,
     pub evaluation: Quantiles,
+    /// How many rows the `build`/`evaluation` quantiles were actually derived from (task 7.13).
+    ///
+    /// Those two quantiles are computed over the rows where those stages RAN, not over
+    /// `sample_size`, so without this number a reader cannot tell a build p50 taken over 8 rows from
+    /// one taken over 1. `#[serde(default)]` so reports written before this field existed still
+    /// parse; a `0` there against a non-zero `build.p50` is itself the signal that the artifact
+    /// predates the fix.
+    #[serde(default)]
+    pub executed_samples: u64,
 }
 
 pub fn summarize_pilot(measurements: &[StageMeasurement], seed: u64) -> PilotSummary {
-    let quantiles = |select: fn(&StageMeasurement) -> u64| Quantiles {
+    // Stages that ALWAYS run for a sampled candidate: percentiles over every row.
+    let always = |select: fn(&StageMeasurement) -> u64| Quantiles {
         p50: percentile(measurements.iter().map(select).collect(), 50),
         p95: percentile(measurements.iter().map(select).collect(), 95),
+    };
+    // Stages that run only for a candidate the capability envelope admitted. `filter_map` drops the
+    // rows where the stage did not run rather than reading their absence as a zero cost -- see
+    // `StageMeasurement`'s own doc for what that zero used to do to the search-strategy choice.
+    let measured = |select: fn(&StageMeasurement) -> Option<u64>| {
+        let values: Vec<u64> = measurements.iter().filter_map(select).collect();
+        Quantiles {
+            p50: percentile(values.clone(), 50),
+            p95: percentile(values, 95),
+        }
     };
     let pruned = measurements
         .iter()
@@ -349,10 +383,14 @@ pub fn summarize_pilot(measurements: &[StageMeasurement], seed: u64) -> PilotSum
         } else {
             ((pruned.saturating_mul(1_000_000)) / measurements.len() as u64) as u32
         },
-        materialize: quantiles(|m| m.materialize),
-        capability: quantiles(|m| m.capability),
-        build: quantiles(|m| m.build),
-        evaluation: quantiles(|m| m.evaluation),
+        materialize: always(|m| m.materialize),
+        capability: always(|m| m.capability),
+        build: measured(|m| m.build),
+        evaluation: measured(|m| m.evaluation),
+        executed_samples: measurements
+            .iter()
+            .filter(|measurement| measurement.build.is_some())
+            .count() as u64,
     }
 }
 
@@ -425,22 +463,22 @@ mod tests {
             StageMeasurement {
                 materialize: 1,
                 capability: 2,
-                build: 3,
-                evaluation: 4,
+                build: Some(3),
+                evaluation: Some(4),
                 pruned: true,
             },
             StageMeasurement {
                 materialize: 5,
                 capability: 6,
-                build: 7,
-                evaluation: 8,
+                build: Some(7),
+                evaluation: Some(8),
                 pruned: false,
             },
             StageMeasurement {
                 materialize: 9,
                 capability: 10,
-                build: 11,
-                evaluation: 12,
+                build: Some(11),
+                evaluation: Some(12),
                 pruned: false,
             },
         ];
@@ -448,5 +486,55 @@ mod tests {
         assert_eq!(summary.materialize, Quantiles { p50: 5, p95: 9 });
         assert_eq!(summary.pruning_ratio_ppm, 333_333);
         assert_eq!(summary.seed, 42);
+        assert_eq!(summary.executed_samples, 3);
+    }
+
+    /// Task 7.13, fake zero measurements. A pilot row whose candidate was refused before any network
+    /// existed carries NO build/evaluation reading, and the quantiles must be taken over the rows that
+    /// do. With the old `build: 0` convention the p50 below was 0 -- a build cost reported for a stage
+    /// that never ran, and one that feeds the search-strategy choice.
+    #[test]
+    fn a_stage_that_never_ran_does_not_contribute_a_zero_to_its_quantiles() {
+        let refused = StageMeasurement {
+            materialize: 100,
+            capability: 200,
+            build: None,
+            evaluation: None,
+            pruned: true,
+        };
+        let ran = |build: u64| StageMeasurement {
+            materialize: 100,
+            capability: 200,
+            build: Some(build),
+            evaluation: Some(build * 2),
+            pruned: false,
+        };
+        let summary = summarize_pilot(&[refused, refused, refused, ran(1_000), ran(3_000)], 1);
+        assert_eq!(
+            summary.build,
+            Quantiles {
+                p50: 1_000,
+                p95: 3_000
+            },
+            "build quantiles must be taken over the two rows that were actually built"
+        );
+        assert_eq!(
+            summary.evaluation,
+            Quantiles {
+                p50: 2_000,
+                p95: 6_000
+            }
+        );
+        assert_eq!(
+            summary.executed_samples, 2,
+            "the honest denominator for the build/evaluation quantiles, not sample_size"
+        );
+        assert_eq!(
+            summary.sample_size, 5,
+            "every sampled candidate still counts toward the pilot's size and pruning ratio"
+        );
+        assert_eq!(summary.pruning_ratio_ppm, 600_000);
+        // The two stages a refused candidate genuinely DID pay are still summarized over every row.
+        assert_eq!(summary.materialize, Quantiles { p50: 100, p95: 100 });
     }
 }

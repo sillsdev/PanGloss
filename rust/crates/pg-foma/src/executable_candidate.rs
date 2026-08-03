@@ -2,7 +2,7 @@
 //! [`ExecutableCandidate`], and the portable [`PortablePlan`] document it binds.
 //!
 //! # What this is for
-//! Before this module, "a candidate" was [`crate::enumerate::CandidatePlan`] -- a `&'static str`
+//! Before this module, "a candidate" was a `CandidatePlan` (deleted by task 7.13) -- a `&'static str`
 //! label, an in-memory [`Plan`], and an [`EmissionStrategy`], all public fields, constructible by
 //! anyone, with no identity that survives leaving the process and no statement anywhere of what
 //! executing it would actually deliver. Every consumer therefore re-derived the missing parts on
@@ -17,7 +17,7 @@
 //! | Stable semantic digest | [`ExecutableCandidate::semantic_digest`] | SHA-256 over [`crate::recipe_mechanism::MechanismGraph::canonical_projection`] (task 7.4's byte-identical fresh-load projection) |
 //! | Portable Plan document | [`ExecutableCandidate::plan_document`] | [`PortablePlan::encode`] of the materialized [`Plan`] |
 //! | Plan document digest | [`ExecutableCandidate::plan_digest`] | SHA-256 over that document's canonical JSON |
-//! | Exact lowering adapter | [`ExecutableCandidate::adapter`] | [`LoweringAdapter::for_strategy`], 1:1 with [`EmissionStrategy`] |
+//! | Exact lowering adapter | [`ExecutableCandidate::adapter`] | the [`LoweringAdapter`] the candidate itself carries ([`crate::enumerate::LoweredCandidate::adapter`]), 1:1 with [`EmissionStrategy`] |
 //! | Existing runtime requirements | [`ExecutableCandidate::runtime_requirements`] | the checks [`crate::recipe_runtime`] already performs, made explicit |
 //! | Mechanism graph + bindings | [`ExecutableCandidate::mechanism_graph`] / [`ExecutableCandidate::mechanism_bindings`] | [`crate::mechanism_provider::derive_mechanism_graph`] + [`crate::recipe_mechanism::MechanismBinding::derive`] |
 //! | Certification scope | [`ExecutableCandidate::certification_scope`] | those bindings, per mechanism, naming the adapter |
@@ -406,13 +406,14 @@ impl PortablePlan {
             )?;
         }
         if let Some(root) = &self.root {
-            let root_id = resolved
-                .get(root)
-                .copied()
-                .ok_or_else(|| PortablePlanError::UnknownNode {
-                    referrer: "root".to_owned(),
-                    id: root.clone(),
-                })?;
+            let root_id =
+                resolved
+                    .get(root)
+                    .copied()
+                    .ok_or_else(|| PortablePlanError::UnknownNode {
+                        referrer: "root".to_owned(),
+                        id: root.clone(),
+                    })?;
             plan.set_root(root_id);
         }
         Ok(plan)
@@ -523,9 +524,9 @@ fn resolve_node(
         })?;
 
     let resolve_children = |children: &[String],
-                                plan: &mut Plan,
-                                resolved: &mut std::collections::BTreeMap<String, NodeId>,
-                                active: &mut BTreeSet<String>|
+                            plan: &mut Plan,
+                            resolved: &mut std::collections::BTreeMap<String, NodeId>,
+                            active: &mut BTreeSet<String>|
      -> Result<Vec<NodeId>, PortablePlanError> {
         children
             .iter()
@@ -574,22 +575,22 @@ fn resolve_node(
             },
             provenance: match provenance {
                 PortableProvenance::Lexicon => Provenance::Lexicon,
-                PortableProvenance::RewriteRule { rule } => Provenance::RewriteRule(decode_wire::<
-                    PRuleId,
-                >(
-                    id,
-                    "provenance.rewrite-rule",
-                    rule,
-                    WireModelKind::PRule,
-                )?),
-                PortableProvenance::MorphRule { rule } => Provenance::MorphRule(decode_wire::<
-                    MRuleId,
-                >(
-                    id,
-                    "provenance.morph-rule",
-                    rule,
-                    WireModelKind::MRule,
-                )?),
+                PortableProvenance::RewriteRule { rule } => {
+                    Provenance::RewriteRule(decode_wire::<PRuleId>(
+                        id,
+                        "provenance.rewrite-rule",
+                        rule,
+                        WireModelKind::PRule,
+                    )?)
+                }
+                PortableProvenance::MorphRule { rule } => {
+                    Provenance::MorphRule(decode_wire::<MRuleId>(
+                        id,
+                        "provenance.morph-rule",
+                        rule,
+                        WireModelKind::MRule,
+                    )?)
+                }
                 PortableProvenance::Template { template } => {
                     Provenance::Template(decode_wire::<TemplateId>(
                         id,
@@ -989,7 +990,7 @@ pub(crate) fn seal(
     family_id: &str,
     instance: &RecipeInstance,
     plan: &Plan,
-    strategy: EmissionStrategy,
+    adapter: LoweringAdapter,
     graph: MechanismGraph,
 ) -> Result<ExecutableCandidate, CandidateConstructionError> {
     if plan.root().is_none() {
@@ -997,7 +998,12 @@ pub(crate) fn seal(
             family: family_id.to_owned(),
         });
     }
-    let adapter = LoweringAdapter::for_strategy(strategy);
+    // Task 7.13: the adapter arrives from the candidate itself
+    // (`crate::enumerate::LoweredCandidate::adapter`) rather than being re-derived here from an
+    // `EmissionStrategy`. `MechanismGraph::bind` still speaks the strategy axis, which is why the
+    // projection below exists and why `EmissionStrategy` is NOT deleted: it remains the axis
+    // `strategy_coverage`, the mechanism bindings, and every report label are expressed in.
+    let strategy = adapter.strategy();
 
     // The document is not merely produced, it is PROVED faithful: encode, decode (which recomputes
     // every content address), re-encode, and require the two documents to be identical. A candidate
@@ -1052,9 +1058,7 @@ pub(crate) fn seal(
                     binding
                         .limiting_rows()
                         .iter()
-                        .filter(|row| {
-                            row.representation == StrategyRepresentation::CannotRepresent
-                        })
+                        .filter(|row| row.representation == StrategyRepresentation::CannotRepresent)
                         .map(|row| CoverageCitation {
                             mechanism: binding.mechanism().clone(),
                             kind: row.kind,
@@ -1163,13 +1167,24 @@ mod tests {
         let json = document.canonical_json();
         let parsed = PortablePlan::from_json(&json).expect("document must parse");
         assert_eq!(parsed, document, "JSON round-trip must be lossless");
-        assert_eq!(parsed.digest(), digest, "JSON round-trip must not move the digest");
+        assert_eq!(
+            parsed.digest(),
+            digest,
+            "JSON round-trip must not move the digest"
+        );
 
         let rebuilt = parsed.decode().expect("document must decode");
-        assert_eq!(rebuilt.root(), plan.root(), "root must survive the round-trip");
+        assert_eq!(
+            rebuilt.root(),
+            plan.root(),
+            "root must survive the round-trip"
+        );
         assert_eq!(rebuilt.len(), plan.len(), "every node must survive");
         let reencoded = PortablePlan::encode(&rebuilt);
-        assert_eq!(reencoded, document, "re-encoding a decoded plan must be identical");
+        assert_eq!(
+            reencoded, document,
+            "re-encoding a decoded plan must be identical"
+        );
         assert_eq!(reencoded.digest(), digest, "and therefore digest-identical");
     }
 
@@ -1280,7 +1295,9 @@ mod tests {
         let mut document = PortablePlan::encode(&sample_plan());
         for node in &mut document.nodes {
             if let PortableNodeKind::Gate { partition, .. } = &mut node.node {
-                partition.groups.push(PortableGateGroup { key: vec![false] });
+                partition
+                    .groups
+                    .push(PortableGateGroup { key: vec![false] });
             }
         }
         assert!(
@@ -1302,11 +1319,13 @@ mod tests {
             }
         }
         assert!(
-            matches!(document.decode(), Err(PortablePlanError::UnknownNode { .. }))
-                || matches!(
-                    document.decode(),
-                    Err(PortablePlanError::ContentAddressMismatch { .. })
-                ),
+            matches!(
+                document.decode(),
+                Err(PortablePlanError::UnknownNode { .. })
+            ) || matches!(
+                document.decode(),
+                Err(PortablePlanError::ContentAddressMismatch { .. })
+            ),
             "a dangling child must be refused"
         );
     }
@@ -1337,7 +1356,10 @@ mod tests {
             .iter()
             .map(|&s| LoweringAdapter::for_strategy(s))
             .collect();
-        assert_eq!(adapters.len(), crate::strategy_coverage::ALL_STRATEGIES.len());
+        assert_eq!(
+            adapters.len(),
+            crate::strategy_coverage::ALL_STRATEGIES.len()
+        );
         assert_eq!(
             adapters
                 .iter()
