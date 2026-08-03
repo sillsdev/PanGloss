@@ -288,6 +288,34 @@ struct PreparedSelection {
     exclusions: Vec<CorpusExclusion>,
 }
 
+/// Deterministic work a net-level dedup hit did NOT have to do.
+///
+/// Every field is a COUNT, never an elapsed time. That is not stylistic: this crate ranks candidates
+/// by deterministic work precisely because time decided ties by noise (`Score::key`), and a saving
+/// reported in nanoseconds could not be asserted by a gate at all. `nets_deduped` provably reads 0
+/// with [`RunEvaluationCache::without_net_dedup`] and non-zero without it, which is what makes "the
+/// mechanism engaged" a measurement rather than a claim.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct NetDedupSavings {
+    /// Candidates whose entire measurement was served from an earlier candidate's identical network.
+    pub nets_deduped: usize,
+    /// Distinct finished networks RECORDED as reusable. Not simply "candidates that paid a corpus
+    /// pass": a candidate whose certification is a [`Certification::ResourceBreach`] pays the pass and
+    /// is deliberately never recorded (see [`RunEvaluationCache::record_net_measurement`]), so this can
+    /// be smaller than the number of full passes performed.
+    pub distinct_nets: usize,
+    /// Corpus word applications (propose calls) skipped: one per comparable word per deduped
+    /// candidate. Skipping propose as well as confirm is the point — memoizing confirmation alone
+    /// would leave the whole corpus traversal in place.
+    pub propose_calls_avoided: u64,
+    /// Full-HC confirmation CALLS skipped, summed from each donor's own measured count.
+    pub confirmation_calls_avoided: u64,
+    /// Full-HC confirmation STEPS skipped — the unit `Score::key` ranks on.
+    pub confirmation_steps_avoided: u64,
+    /// Raw proposer paths not traversed, summed from each donor's own measured count.
+    pub raw_paths_avoided: u64,
+}
+
 /// All prepared, reusable evaluation inputs for one optimizer run.
 #[derive(Debug)]
 pub struct RunEvaluationCache {
@@ -295,6 +323,11 @@ pub struct RunEvaluationCache {
     emission_report: Option<crate::emit::EmitReport>,
     emission_report_calls: usize,
     divergence: IdentityDivergence,
+    /// Measurements indexed by [`net_reuse_key`]. `None` means net-level dedup is DISABLED for this
+    /// cache — see [`Self::without_net_dedup`], which exists so every dedup gate can be written as a
+    /// negative control rather than a same-path-twice comparison.
+    net_measurements: Option<std::collections::HashMap<String, EvaluatedPlan>>,
+    savings: NetDedupSavings,
 }
 
 impl RunEvaluationCache {
@@ -308,7 +341,99 @@ impl RunEvaluationCache {
             emission_report: None,
             emission_report_calls: 0,
             divergence: IdentityDivergence::default(),
+            net_measurements: Some(std::collections::HashMap::new()),
+            savings: NetDedupSavings::default(),
         })
+    }
+
+    /// Turn net-level dedup OFF for this cache.
+    ///
+    /// Provided for exactly one reason: to make every claim about dedup falsifiable. A gate that
+    /// compared the dedup path against itself would pass whatever the mechanism did; a gate that
+    /// compares it against this cannot. It is also the escape hatch if a duplicate-network claim ever
+    /// turns out to be wrong for some compiler — a caller can opt out without reverting anything.
+    pub fn without_net_dedup(mut self) -> Self {
+        self.net_measurements = None;
+        self
+    }
+
+    pub fn net_dedup_enabled(&self) -> bool {
+        self.net_measurements.is_some()
+    }
+
+    /// The deterministic work net-level dedup saved on this run. All zero when dedup is disabled.
+    pub fn net_dedup_savings(&self) -> NetDedupSavings {
+        self.savings
+    }
+
+    pub fn nets_deduped(&self) -> usize {
+        self.savings.nets_deduped
+    }
+
+    pub fn distinct_nets(&self) -> usize {
+        self.savings.distinct_nets
+    }
+
+    pub fn propose_calls_avoided(&self) -> u64 {
+        self.savings.propose_calls_avoided
+    }
+
+    pub fn confirmation_calls_avoided(&self) -> u64 {
+        self.savings.confirmation_calls_avoided
+    }
+
+    pub fn confirmation_steps_avoided(&self) -> u64 {
+        self.savings.confirmation_steps_avoided
+    }
+
+    /// A previously measured candidate whose finished network, grammar, corpus and evidence mode are
+    /// all identical to `key`'s.
+    fn net_measurement(&self, key: &str) -> Option<&EvaluatedPlan> {
+        self.net_measurements.as_ref()?.get(key)
+    }
+
+    /// Record `measured` as the reusable measurement for `key`, and count it as a distinct network.
+    ///
+    /// Deliberately refuses to record a candidate whose certification is a
+    /// [`Certification::ResourceBreach`]. A breach SHORT-CIRCUITS certification, so such a
+    /// measurement never learned what the corpus comparison would have said — and a breach on the
+    /// `build` dimension is a function of the candidate's own wall clock, which the next candidate
+    /// with the same network need not share. Serving it on would be the one way this mechanism could
+    /// make a verdict depend on evaluation order. A breached candidate simply costs a full corpus pass
+    /// for the next identical net; correctness first.
+    fn record_net_measurement(&mut self, key: String, measured: &EvaluatedPlan) {
+        let Some(measurements) = self.net_measurements.as_mut() else {
+            return;
+        };
+        if matches!(
+            measured.evaluation.certification,
+            Certification::ResourceBreach { .. }
+        ) {
+            return;
+        }
+        if measurements.insert(key, measured.clone()).is_none() {
+            self.savings.distinct_nets += 1;
+        }
+    }
+
+    fn count_net_dedup_hit(&mut self, corpus_words: usize, donor: Score) {
+        self.savings.nets_deduped += 1;
+        self.savings.propose_calls_avoided = self
+            .savings
+            .propose_calls_avoided
+            .saturating_add(corpus_words as u64);
+        self.savings.confirmation_calls_avoided = self
+            .savings
+            .confirmation_calls_avoided
+            .saturating_add(donor.confirmation);
+        self.savings.confirmation_steps_avoided = self
+            .savings
+            .confirmation_steps_avoided
+            .saturating_add(donor.confirmation_steps);
+        self.savings.raw_paths_avoided = self
+            .savings
+            .raw_paths_avoided
+            .saturating_add(donor.raw_paths);
     }
 
     pub fn oracle_calls(&self) -> usize {
@@ -566,7 +691,12 @@ fn finished_net_digest(net: &foma::types::Fsm) -> String {
 ///   not, so serving an ordinary result to an observed caller would silently drop evidence. That is a
 ///   recall-shaped regression, and keying on the mode makes it unrepresentable.
 /// - the finished net digest.
-fn net_reuse_key(
+///
+/// Exposed (hidden) so `net_dedup_gate` can assert the four-way discrimination directly. A gate that
+/// could only observe the key through a full evaluator run would have to manufacture two grammars that
+/// compile to the same network in order to test the one property that matters most.
+#[doc(hidden)]
+pub fn net_reuse_key(
     grammar_identity: &str,
     corpus_hash: &str,
     observed: bool,
@@ -663,6 +793,11 @@ pub struct RuntimeEvaluationObservation {
     pub words: Option<Vec<WordEvidence>>,
 }
 
+/// `Clone` so [`RunEvaluationCache`] can serve one candidate's whole measurement to the next
+/// candidate that compiles to the identical network. The clone is deep but bounded by the DISTINCT-net
+/// count, not the plan count, and in the ordinary (unobserved) mode `words` is `None`, so it is a
+/// certification, a `Score` and a divergence.
+#[derive(Debug, Clone)]
 struct EvaluatedPlan {
     evaluation: RuntimeEvaluation,
     words: Option<Vec<WordEvidence>>,
@@ -1105,6 +1240,31 @@ fn measure_and_certify_observed(
     )
 }
 
+/// The FIRST declared resource limit `score` exceeds, in the fixed dimension order below, or `None`.
+///
+/// # Why this is a function and not an inline array
+/// A net-level dedup hit reuses another candidate's deterministic measurement but must re-decide the
+/// breach on ITS OWN `build` time (see [`evaluate_plans_marked_with_cache_mode`]). Two copies of this
+/// ladder would drift in the one way that matters most — the ORDER, which decides not just whether a
+/// breach is reported but which `dimension` it names — and the whole soundness claim for dedup is that
+/// a deduped candidate reports exactly what it would have reported unduplicated.
+fn budget_breach(score: &Score, budget: RuntimeBudget) -> Option<(&'static str, u64, u64)> {
+    [
+        ("states", score.states, budget.states),
+        ("arcs", score.arcs, budget.arcs),
+        ("build", score.build, budget.build),
+        ("apply", score.apply, budget.apply),
+        ("proposals", score.proposals, budget.proposals),
+        ("confirmation", score.confirmation, budget.confirmation),
+    ]
+    .into_iter()
+    .find_map(|(dimension, value, limit)| {
+        limit
+            .filter(|limit| value > *limit)
+            .map(|limit| (dimension, value, limit))
+    })
+}
+
 #[inline]
 #[allow(clippy::too_many_arguments)]
 fn measure_and_certify_inner<const OBSERVE: bool>(
@@ -1162,24 +1322,15 @@ fn measure_and_certify_inner<const OBSERVE: bool>(
         confirmation_steps,
         raw_paths,
     };
-    let breach = [
-        ("states", score.states, budget.states),
-        ("arcs", score.arcs, budget.arcs),
-        ("build", build, budget.build),
-        ("apply", apply, budget.apply),
-        ("proposals", proposals, budget.proposals),
-        ("confirmation", confirmation, budget.confirmation),
-    ]
-    .into_iter()
-    .find(|(_, v, l)| l.is_some_and(|limit| *v > limit));
+    let breach = budget_breach(&score, budget);
     let (certification, divergence) = match breach {
         // A breach short-circuits BEFORE any comparison happens, so the honest divergence is
         // "nothing compared", never a clean zero.
-        Some((d, v, Some(l))) => (
+        Some((dimension, value, limit)) => (
             Certification::ResourceBreach {
-                dimension: d.into(),
-                value: v,
-                limit: l,
+                dimension: dimension.into(),
+                value,
+                limit,
             },
             IdentityDivergence::not_compared(expected.len() as u64),
         ),
@@ -1775,6 +1926,11 @@ fn evaluate_plans_marked_with_cache_mode<const OBSERVE: bool>(
         Vec<Option<crate::confirm::MorphemeOwner>>,
         pg_parse::Morpher<'_>,
     )> = None;
+    // The two run-invariant halves of every net reuse key, derived ONCE for this call and lazily, so a
+    // batch of whole-grammar candidates (which return before ever reaching the composed path) pays
+    // nothing for a dedup it cannot use. `grammar_identity` is O(grammar) and is only ever reached on
+    // a path that is about to compile the same grammar into an FST, which is strictly more expensive.
+    let mut reuse_prefix: Option<(String, String)> = None;
     let evaluated: Vec<EvaluatedPlan> = plans
         .iter()
         .enumerate()
@@ -1803,7 +1959,7 @@ fn evaluate_plans_marked_with_cache_mode<const OBSERVE: bool>(
             // Only the plan-composed strategy consumes this report, so whole-grammar candidates
             // do not pay an unconditional duplicate emission.
             let report = cache.emission_report(grammar);
-            let (proposer, score0, build) = match realize_plan_composed(
+            let (proposer, score0, build, net_digest) = match realize_plan_composed(
                 candidate,
                 grammar,
                 &opts,
@@ -1817,8 +1973,8 @@ fn evaluate_plans_marked_with_cache_mode<const OBSERVE: bool>(
                     states,
                     arcs,
                     build,
-                    net_digest: _,
-                } => (proposer, (states, arcs), build),
+                    net_digest,
+                } => (proposer, (states, arcs), build, net_digest),
                 RealizedPlanComposed::Failed {
                     certification,
                     build,
@@ -1831,47 +1987,134 @@ fn evaluate_plans_marked_with_cache_mode<const OBSERVE: bool>(
                     )
                 }
             };
-            let (peeler, owners, morpher) = confirm_pieces.take().unwrap_or_else(|| {
-                (
-                    crate::peel::ReduplicationPeeler::new(grammar),
-                    crate::confirm::build_morpheme_owners(grammar),
-                    pg_parse::Morpher::new(grammar, usize::MAX),
-                )
+            // NET-LEVEL DEDUP. Plan-shape recipes are erased by minimization -- measured spread 0
+            // across 8 fixtures, and all five Indonesian plan-composed permutations landed on
+            // identical states/arcs with identical proposals -- so by this point several candidates in
+            // one run routinely hold networks that are identical arc for arc. Everything downstream
+            // (propose, confirm, the whole corpus traversal, the certification) is a pure function of
+            // (network, grammar, corpus), so an earlier candidate's measurement IS this candidate's
+            // measurement.
+            //
+            // Score attribution is trivially sound, and that is why this shape was chosen over
+            // memoizing confirmation by proposal set: identical networks legitimately have identical
+            // deterministic scores, so nothing becomes a function of evaluation order. A
+            // set-difference confirmation scheme would be sound as a RESULT and unsound as a
+            // MEASUREMENT, which is precisely what `Score::key`'s "why work and not time" section
+            // exists to prevent.
+            //
+            // Two things are NOT inherited, and both would otherwise smuggle a clock into a verdict:
+            //   - `build` is this candidate's own measured compile time. We built its network -- we had
+            //     to, to know the digest -- so that number is real and is not the donor's.
+            //   - the breach ladder is RE-RUN over the reconstructed score. The production optimizer
+            //     passes `build: Some(remaining.build)`, a wall-clock allowance that DECLINES as the
+            //     run proceeds, so serving the donor's certification verbatim would let a late
+            //     candidate inherit an early candidate's larger allowance. Re-running
+            //     `budget_breach` reproduces exactly what the unduplicated path would have concluded
+            //     from this candidate's own numbers, naming the same dimension in the same order.
+            //
+            // `apply` is reported as 0, and NOT as the donor's reading. Three reasons, in the order
+            // they matter:
+            //   1. It is literally true. No corpus traversal happened. `failed_evaluation` in this
+            //      module already establishes that convention -- a zeroed `apply` there is documented
+            //      as "honestly 0, not 'not yet measured' masquerading as a real reading" -- and
+            //      copying the donor's number would be publishing a measurement that was never taken
+            //      for this candidate.
+            //   2. `pg_cli`'s evaluator charges `BudgetUsage::elapsed = build + apply` against the
+            //      optimizer's wall-clock allowance. Charging a deduped candidate the donor's apply
+            //      time would bill the run for work it did not do and cut exploration short --
+            //      throwing away most of what this optimization is FOR.
+            //   3. It cannot mislead a ranking, because `Score::key` excludes `apply` by design.
+            // The cost is that `apply` is no longer a usable per-candidate traversal-cost diagnostic
+            // for a deduped candidate; `net_dedup_savings` is where that cost now lives, in
+            // deterministic units.
+            //
+            // Consequently a hit is REFUSED outright when `budget.apply` is declared: an `apply` limit
+            // could only be breached by a reading a hit does not have, so serving one would let a
+            // deduped candidate pass a budget an unduplicated one would have failed. Nothing in
+            // production sets it (`pg_cli` passes `build` and `confirmation` only), so this costs
+            // nothing today and cannot rot into a wrong answer later.
+            //
+            // Scoped to THIS NET'S measurement, deliberately not to the candidate's final result. The
+            // routing below (`selectable`, then `unbuildable_markers`, then `is_baseline`) reads the
+            // PLAN and the caller's baseline flags, neither of which the network determines -- two
+            // candidates with identical nets can legitimately route differently. So dedup replaces the
+            // corpus pass and nothing else; every candidate still runs its own routing over it.
+            let reuse_key = (cache.net_dedup_enabled() && budget.apply.is_none()).then(|| {
+                let (identity, corpus) = reuse_prefix
+                    .get_or_insert_with(|| (grammar_identity(grammar), corpus_hash(words)));
+                net_reuse_key(identity, corpus, OBSERVE, &net_digest)
             });
-            let mut analyzer =
-                FomaAnalyzer::from_cached_with_morpher(grammar, proposer, peeler, owners, morpher);
-            let measured = if OBSERVE {
-                measure_and_certify_observed(
-                    EmissionStrategy::PlanComposed,
-                    grammar,
-                    &mut analyzer,
-                    words,
-                    &expected,
-                    budget,
-                    score0.0,
-                    score0.1,
-                    build,
-                )
-            } else {
-                measure_and_certify(
-                    EmissionStrategy::PlanComposed,
-                    grammar,
-                    &mut analyzer,
-                    words,
-                    &expected,
-                    budget,
-                    score0.0,
-                    score0.1,
-                    build,
-                )
+            let reused = reuse_key
+                .as_deref()
+                .and_then(|key| cache.net_measurement(key).cloned());
+            let measured = match reused {
+                Some(donor) => {
+                    let mut reused = donor;
+                    reused.evaluation.score.build = build;
+                    reused.evaluation.score.apply = 0;
+                    let score = reused.evaluation.score;
+                    if let Some((dimension, value, limit)) = budget_breach(&score, budget) {
+                        reused.evaluation.certification = Certification::ResourceBreach {
+                            dimension: dimension.into(),
+                            value,
+                            limit,
+                        };
+                        reused.divergence = IdentityDivergence::not_compared(expected.len() as u64);
+                    }
+                    cache.count_net_dedup_hit(words.len(), score);
+                    reused
+                }
+                None => {
+                    let (peeler, owners, morpher) = confirm_pieces.take().unwrap_or_else(|| {
+                        (
+                            crate::peel::ReduplicationPeeler::new(grammar),
+                            crate::confirm::build_morpheme_owners(grammar),
+                            pg_parse::Morpher::new(grammar, usize::MAX),
+                        )
+                    });
+                    let mut analyzer = FomaAnalyzer::from_cached_with_morpher(
+                        grammar, proposer, peeler, owners, morpher,
+                    );
+                    let measured = if OBSERVE {
+                        measure_and_certify_observed(
+                            EmissionStrategy::PlanComposed,
+                            grammar,
+                            &mut analyzer,
+                            words,
+                            &expected,
+                            budget,
+                            score0.0,
+                            score0.1,
+                            build,
+                        )
+                    } else {
+                        measure_and_certify(
+                            EmissionStrategy::PlanComposed,
+                            grammar,
+                            &mut analyzer,
+                            words,
+                            &expected,
+                            budget,
+                            score0.0,
+                            score0.1,
+                            build,
+                        )
+                    };
+                    // Hand the grammar-static confirm pieces back for the next candidate. Nothing
+                    // above mutates any of them -- confirm reads `&self.morpher`/`&self.owners`, and
+                    // the peeler's own entry point is `peel_candidates(&self, ..)` -- so the next
+                    // candidate gets objects indistinguishable from the ones `from_cached` would have
+                    // rebuilt for it. (Only the proposer is per-candidate mutable state, and it is
+                    // dropped here with its network.)
+                    let (_spent_proposer, peeler, owners, morpher) =
+                        analyzer.into_parts_with_morpher();
+                    confirm_pieces = Some((peeler, owners, morpher));
+                    if let Some(reuse_key) = reuse_key {
+                        cache.record_net_measurement(reuse_key, &measured);
+                    }
+                    measured
+                }
             };
-            // Hand the grammar-static confirm pieces back for the next candidate. Nothing above
-            // mutates any of them -- confirm reads `&self.morpher`/`&self.owners`, and the peeler's
-            // own entry point is `peel_candidates(&self, ..)` -- so the next candidate gets objects
-            // indistinguishable from the ones `from_cached` would have rebuilt for it. (Only the
-            // proposer is per-candidate mutable state, and it is dropped here with its network.)
-            let (_spent_proposer, peeler, owners, morpher) = analyzer.into_parts_with_morpher();
-            confirm_pieces = Some((peeler, owners, morpher));
             let certification = measured.evaluation.certification.clone();
             // Evidence first, fallback second -- and ONLY on a real failure.
             //
