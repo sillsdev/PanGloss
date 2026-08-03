@@ -1312,6 +1312,19 @@ fn evaluate_plans_marked_with_cache_mode<const OBSERVE: bool>(
             })
             .collect();
     }
+    // The confirm side's grammar-static pieces, built at most ONCE for the whole run and handed
+    // back after each candidate. Every one of the three is a pure function of `grammar` and is
+    // immutable in use, so all candidates in a run would otherwise rebuild identical objects; the
+    // `Morpher` is the expensive one, because `Morpher::new` runs `RuleCache::build`, which compiles
+    // every matcher FST in the grammar (see `FomaAnalyzer::from_cached_with_morpher`'s doc). Lazy
+    // rather than eager on purpose: a run whose candidates are all whole-grammar strategies
+    // (`TunedSurfaceProbed`/`TemplatedUnderlyingTokens`, returned below before this is touched)
+    // must not start paying for a confirm-side morpher it never uses.
+    let mut confirm_pieces: Option<(
+        crate::peel::ReduplicationPeeler,
+        Vec<Option<crate::confirm::MorphemeOwner>>,
+        pg_parse::Morpher<'_>,
+    )> = None;
     plans
         .iter()
         .enumerate()
@@ -1392,10 +1405,20 @@ fn evaluate_plans_marked_with_cache_mode<const OBSERVE: bool>(
                 }
             };
             let score0 = (net.statecount as u64, net.arccount as u64);
-            let mut analyzer = FomaAnalyzer::from_precompiled_proposer(
+            let (peeler, owners, morpher) = confirm_pieces.take().unwrap_or_else(|| {
+                (
+                    crate::peel::ReduplicationPeeler::new(grammar),
+                    crate::confirm::build_morpheme_owners(grammar),
+                    pg_parse::Morpher::new(grammar, usize::MAX),
+                )
+            });
+            let mut analyzer = FomaAnalyzer::from_cached_with_morpher(
                 grammar,
                 FomaProposer::from_precompiled_network(&net, report.clone())
                     .with_segment_query_encoder(surface_table(grammar)),
+                peeler,
+                owners,
+                morpher,
             );
             let measured = if OBSERVE {
                 measure_and_certify_observed(
@@ -1425,6 +1448,13 @@ fn evaluate_plans_marked_with_cache_mode<const OBSERVE: bool>(
                     words: None,
                 }
             };
+            // Hand the grammar-static confirm pieces back for the next candidate. Nothing above
+            // mutates any of them -- confirm reads `&self.morpher`/`&self.owners`, and the peeler's
+            // own entry point is `peel_candidates(&self, ..)` -- so the next candidate gets objects
+            // indistinguishable from the ones `from_cached` would have rebuilt for it. (Only the
+            // proposer is per-candidate mutable state, and it is dropped here with its network.)
+            let (_spent_proposer, peeler, owners, morpher) = analyzer.into_parts_with_morpher();
+            confirm_pieces = Some((peeler, owners, morpher));
             let certification = measured.evaluation.certification.clone();
             // Evidence first, fallback second -- and ONLY on a real failure.
             //

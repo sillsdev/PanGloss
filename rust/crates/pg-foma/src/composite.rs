@@ -919,7 +919,9 @@ impl<'g> FomaAnalyzer<'g> {
     /// just built for THIS instance — [`Self::into_parts`]/[`Self::from_cached`]'s cached-pieces
     /// round trip does not persist the timeout (the `Morpher<'g>` it rebuilds is never one of the
     /// cached pieces, per that method's own doc), so a caller using that path must call this again
-    /// after every `from_cached`.
+    /// after every `from_cached`. The [`Self::into_parts_with_morpher`]/
+    /// [`Self::from_cached_with_morpher`] round trip DOES persist it, precisely because it carries
+    /// the same `Morpher<'g>` across instead of rebuilding one.
     pub fn with_word_timeout(self, timeout: Option<Duration>) -> Self {
         FomaAnalyzer {
             morpher: self.morpher.with_word_timeout(timeout),
@@ -944,11 +946,40 @@ impl<'g> FomaAnalyzer<'g> {
         peeler: ReduplicationPeeler,
         owners: Vec<Option<MorphemeOwner>>,
     ) -> Self {
+        Self::from_cached_with_morpher(g, proposer, peeler, owners, Morpher::new(g, usize::MAX))
+    }
+
+    /// [`Self::from_cached`] with the confirming [`Morpher`] supplied by the caller instead of built
+    /// here, so a caller that constructs MANY analyzers over one `&Grammar` pays for it once.
+    ///
+    /// **`Morpher::new` is not cheap, and this exists because a doc comment on
+    /// [`Self::into_parts`] used to claim it was.** It builds `RootAllomorphIndex::build(g)`,
+    /// `collect_lexical_patterns(g)` and — the expensive one — `RuleCache::build(g)`, which compiles
+    /// EVERY phonological/morphological matcher FST in the grammar (`pg_rules::cache`'s own module
+    /// doc: "build once, at `Morpher` construction"). Rebuilding it per analyzer pays a
+    /// grammar-wide FST compilation for an object that is identical across all of them.
+    ///
+    /// Sharing one instance is sound because the `Morpher` is **immutable in use**: every confirm
+    /// path here reaches it as `&self.morpher` through `crate::confirm::confirm_batch`, `RuleCache`
+    /// is documented read-only after `build` (and is already shared across every
+    /// `pangloss batch --threads=N` worker as a single `&RuleCache`), and it carries no per-word
+    /// state — a `parse_word` call's mutable state lives in its own `StepBudget`/`AnalyzerConfig`,
+    /// not on the `Morpher`. The only `Morpher` fields a caller can vary (`cap`, `memo`,
+    /// `word_timeout`, `max_stem_count`) are construction-time knobs, so a supplied `Morpher` also
+    /// lets a caller set them once for a whole batch of analyzers. Pair with
+    /// [`Self::into_parts_with_morpher`] to hand it back for the next one.
+    pub fn from_cached_with_morpher(
+        g: &'g Grammar,
+        proposer: FomaProposer,
+        peeler: ReduplicationPeeler,
+        owners: Vec<Option<MorphemeOwner>>,
+        morpher: Morpher<'g>,
+    ) -> Self {
         FomaAnalyzer {
             g,
             proposer,
             peeler,
-            morpher: Morpher::new(g, usize::MAX),
+            morpher,
             owners,
             peel_budget: ComposeBudget::from_env(),
             #[cfg(all(feature = "test-concurrency-hook", not(target_arch = "wasm32")))]
@@ -957,8 +988,15 @@ impl<'g> FomaAnalyzer<'g> {
     }
 
     /// The inverse of [`Self::from_cached`]: reclaim the three owned pieces this analyzer was
-    /// built from (or built fresh in [`Self::new`]), discarding only the transient `Morpher<'g>`
-    /// borrow (recreated for free on the next [`Self::from_cached`] call).
+    /// built from (or built fresh in [`Self::new`]), DROPPING its `Morpher<'g>`.
+    ///
+    /// Dropping the morpher is a real cost, not a free discard — the next [`Self::from_cached`]
+    /// rebuilds it with `Morpher::new`, which compiles every matcher FST in the grammar
+    /// ([`Self::from_cached_with_morpher`]'s doc has the accounting). An earlier version of this
+    /// comment claimed the morpher was "recreated for free on the next `from_cached` call", which
+    /// is false and is exactly why nobody looked: a caller that round-trips one analyzer per
+    /// candidate over a fixed grammar was paying a grammar-wide FST compilation per candidate. Use
+    /// [`Self::into_parts_with_morpher`] to keep it instead.
     pub fn into_parts(
         self,
     ) -> (
@@ -966,7 +1004,22 @@ impl<'g> FomaAnalyzer<'g> {
         ReduplicationPeeler,
         Vec<Option<MorphemeOwner>>,
     ) {
-        (self.proposer, self.peeler, self.owners)
+        let (proposer, peeler, owners, _morpher) = self.into_parts_with_morpher();
+        (proposer, peeler, owners)
+    }
+
+    /// [`Self::into_parts`] that also hands back the confirming [`Morpher`] instead of dropping it —
+    /// the reclaim half of [`Self::from_cached_with_morpher`]. Nothing in this type mutates the
+    /// morpher, so what comes back is the same object that went in.
+    pub fn into_parts_with_morpher(
+        self,
+    ) -> (
+        FomaProposer,
+        ReduplicationPeeler,
+        Vec<Option<MorphemeOwner>>,
+        Morpher<'g>,
+    ) {
+        (self.proposer, self.peeler, self.owners, self.morpher)
     }
 }
 
