@@ -881,10 +881,26 @@ pub fn optimize_with_evaluator(
         // Every selected candidate was evaluated, but the *measured* cost of the last one breached a
         // budget dimension — only `evaluations` is pre-checked; `elapsed`/`build`/`memory`/
         // `confirmation` are known after the evaluator returns. Without this arm a run whose final
-        // candidate blew the deadline reported `Complete`/`Exact`, claiming it stayed inside a bound
-        // it had already exceeded. The candidate-count deficit above cannot catch it: the overrun
-        // happens on the last selected candidate, so no candidate is left unevaluated.
-        search.quality = SearchQuality::Approximate;
+        // candidate blew the deadline reported `Complete`, claiming it stayed inside a bound it had
+        // already exceeded. The candidate-count deficit above cannot catch it: the overrun happens
+        // on the last selected candidate, so no candidate is left unevaluated.
+        //
+        // TERMINATION ONLY, never `quality`, and that distinction is load-bearing rather than
+        // stylistic. `SearchQuality` answers "did the search look at everything it selected?" and
+        // `Termination` answers "why did it stop?". In THIS arm the first answer is yes — the
+        // deficit branch above owns the case where it is no — so the two answers genuinely differ,
+        // and only the second one changed.
+        //
+        // Downgrading `quality` here as well produced a report that could not be written AT ALL.
+        // `RecipeOptimizationReport::validate` refuses `Approximate` with `unexplored == 0`
+        // ("approximate search must quantify unexplored space"), and `unexplored` is zero by
+        // construction on this path — every selected candidate was evaluated. So the child exited 1
+        // with no `report.json`, and `write_supervisor_failure_report` never ran either (it fires
+        // only on a deadline/memory KILL, not on a non-zero exit), which means an entire run's
+        // banked candidates were reachable only through `progress.jsonl`. Reproduced end to end on
+        // `recipe-strata-generic` with `--confirmation-work` set one unit below the corpus's total
+        // confirmation work; pinned by
+        // `pg-cli/tests/recipe_optimize_continuation.rs::a_final_candidate_that_overruns_an_aggregate_bound_still_writes_a_report`.
         search.termination = Termination::BudgetExhausted;
     }
     let ranking: Vec<(String, Certification, Score)> = evaluated
@@ -1168,7 +1184,12 @@ mod tests {
     /// before the evaluator runs; `elapsed`/`build`/`memory`/`confirmation` are known only after it
     /// returns. When the breach happens on the LAST selected candidate, no candidate is left
     /// unevaluated, so the candidate-count deficit branch cannot fire — and the run used to report
-    /// `Complete`/`Exact` while having already spent more than the caller's deadline.
+    /// `Complete` while having already spent more than the caller's deadline.
+    ///
+    /// `quality` must nonetheless stay `Exact`, and that is not cosmetic: an `Approximate` result
+    /// with `unexplored == 0` is a combination `RecipeOptimizationReport::validate` REFUSES, so the
+    /// fix for the termination label used to make the whole report unwritable. See the arm's own
+    /// comment in `optimize_with_evaluator`.
     #[test]
     fn measured_overrun_on_the_final_candidate_still_reports_budget_exhausted() {
         struct ExpensiveEvaluator;
@@ -1233,8 +1254,16 @@ mod tests {
             !budget.admits(outcome.usage),
             "the deadline was really breached"
         );
-        assert_eq!(outcome.search.quality, SearchQuality::Approximate);
         assert_eq!(outcome.search.termination, Termination::BudgetExhausted);
+        // Nothing was left unexplored, so nothing may claim otherwise -- and the pair
+        // (`Approximate`, `unexplored == 0`) is exactly what the report validator rejects.
+        assert_eq!(outcome.search.unexplored, 0);
+        assert_eq!(
+            outcome.search.quality,
+            SearchQuality::Exact,
+            "every selected candidate WAS evaluated; only the reason for stopping changed, and \
+             downgrading quality here makes the report unwritable"
+        );
     }
 
     /// `reserve` must leave real unspent `elapsed` behind, not merely bias strategy selection.
