@@ -187,6 +187,16 @@ pub mod lower;
 /// path -- see that module's own doc for why the signature is the enforcement.
 pub mod mechanism_provider;
 pub(crate) mod morphotactics;
+/// **The speed question's cheap first-pass filter, split off from the accuracy question.** A purely
+/// STATIC structural inspection of a finished [`foma::types::Fsm`] -- cycles and self-loops in the
+/// continuation graph, zero-width (input-epsilon) cycles specifically, and the per-state
+/// branching/ambiguity distribution -- computed without applying a single word. Deliberately says
+/// NOTHING about size as a preference: on the private `sena` grammar the plan-composed net is 50x
+/// SMALLER and ~1300x slower to apply than the hand-spun one, so every size metric picks the wrong
+/// candidate. Read that module's own doc for the mechanism, and for the hard scope rule: it is a
+/// first-pass filter and a regression tripwire, wired into no `Score` field, ranking key,
+/// eligibility predicate or certification verdict, and it can never suppress a proposal.
+pub mod net_shape;
 /// Step 3 of `openspec/changes/reify-compilation-plans` (design.md D4, task 3.1): the
 /// differential-correctness oracle -- [`oracle::differential_oracle`] builds two [`plan::Plan`]s
 /// via [`build::build_controllable`] and compares their `apply_up` result sets, reporting the
