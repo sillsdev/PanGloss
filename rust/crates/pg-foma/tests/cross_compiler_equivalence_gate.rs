@@ -393,7 +393,6 @@ fn pinned_three_pipeline_equivalence_observes_final_candidates_and_preserves_cac
 fn observed_evidence_distinguishes_failed_evaluation_from_real_empty_observation() {
     let (grammar, words) = fixture();
     let plans = selected_plans(&grammar);
-    let baseline = vec![true; 1];
     let plan = plans
         .into_iter()
         .find(|plan| plan.strategy() == EmissionStrategy::PlanComposed)
