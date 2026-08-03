@@ -971,6 +971,13 @@ fn boundary_cleanup_applied_twice_equals_once() {
         if boundaries.len() > 1 {
             // A mixed run: two DIFFERENT boundary families adjacent, which is the shape a
             // multi-representation marker followed by a plain separator has.
+            //
+            // HONEST LIMITATION, written here rather than left to be inferred: both cleanup
+            // exercises declare exactly ONE boundary family today, so this branch does not execute.
+            // The marker+separator shape it exists for lives only in
+            // `boundary_marker_epsilon_collapse_gate.rs`'s un-staged inline grammar, which has no
+            // committed `words.yaml` and so cannot be a 7.7 exercise without hand-derived
+            // signatures. Staging it is owed -- see the cleanup dossier's exercise 1.
             inputs.push(format!("{seg}{}{}{seg}", boundaries[0], boundaries[1]));
         }
 
