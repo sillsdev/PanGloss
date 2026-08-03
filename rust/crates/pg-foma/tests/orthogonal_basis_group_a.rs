@@ -264,7 +264,13 @@ const EX_ALLOMORPH_PRIORITY_EARLIER_BLOCKS: &Exercise = &Exercise {
 
 const EX_ALLOMORPH_PRIORITY_LATER_REACHABLE: &Exercise = &Exercise {
     mechanism: Mechanism::AllomorphPriority,
-    root: Root::Machine,
+    // `Root::Staging`, not `Machine`: this fixture lives at
+    // `conformance-staging/edge-cases/circumfix-non-first-allomorph-selection`. The module doc above
+    // said `staging:` all along and only this constant disagreed, which is what a never-executed test
+    // file buys you. Caught by the deliberate panic-rather-than-skip on a missing fixture -- "a
+    // fixture this file could not LOOK at must never read as a fixture that passed" earned its keep
+    // on its first run.
+    root: Root::Staging,
     category: "edge-cases",
     name: "circumfix-non-first-allomorph-selection",
     independent_falsifier:
