@@ -387,6 +387,67 @@ pub(crate) fn apply_candidate_budget_from_env() -> Option<usize> {
         .and_then(|v| v.parse::<usize>().ok())
 }
 
+// --- The apply-path dimension's first CALIBRATED default (measured 2026-08-03) -------------------
+//
+// Everything above leaves this dimension default-OFF because "no real-grammar measurement of a
+// legitimate worst-case decoded-path/candidate count exists yet". That is no longer true, and the
+// measurement arrived as a process death rather than as a number.
+//
+// **Measured, `machine:edge-cases/deep-optional-affix-nesting` (byte-identical to
+// `staging:edge-cases/recipe-template-generic` bar its `<Name>` element -- diffed, so the two filed
+// symptoms are literally one grammar), plan-composed net, `evaluate_plans`:**
+//
+// | corpus word | leading `x`s | oracle analyses | raw `apply_up` paths |
+// |---|---|---|---|
+// | `k`             | 0  | 1   | 1 |
+// | `xxxxxxk`       | 6  | 924 | **2,985,984** = 12^6 |
+// | `xxxxxxxxxxxxk` | 12 | 1   | 12^12 = **8,916,100,448,256** (never reached; the process died) |
+//
+// The grammar declares 12 all-optional prefix template slots, each firing a distinct
+// `MorphologicalRule` whose `multipleApplication` is the DTD default 1, each inserting the identical
+// literal `x`. So the legitimate analysis count for a k-`x` word is `C(12, k)` and the number of
+// legal ORDERED derivations is `P(12, k) = 12!/(12-k)!`. The composed network proposes `12^k` --
+// strictly more than `P(12,k)`, i.e. it admits the SAME rule firing repeatedly, which
+// `multipleApplication = 1` forbids. At k=6 that is 2,985,984 raw paths for 924 real analyses
+// (3,231x over-generation, which confirm then filters back down to exactly 924 -- recall is not the
+// problem, magnitude is). At k=12 it is 8.9 x 10^12 strings, so `apply_up`'s eager enumeration
+// exhausts committed memory: measured "memory allocation of 52 bytes failed" after ~145s under
+// procgov's 19GB job-object cap, surfacing as `0xc0000409` because that is how MSVC's `abort()`
+// reports, NOT because anything overflowed a stack. (Ruled out directly: the same 3 words parse
+// UNCAPPED through `pg_parse::Morpher::parse_word` in 0.185s, the plan-composed net BUILDS in
+// 0.027s, and the tuned whole-grammar compiler proposes+confirms all 3 words in 0.597s. Only the
+// plan-composed propose dies, and it dies with the allocator's message, not the stack handler's.)
+//
+// **Why 1,000,000, and why it is a refusal rather than a truncation.** A cap here cannot lose an
+// analysis: `FomaAnalyzer::analyze_word_with_diagnostics_budgeted` returns
+// `ProfiledFomaApplyOutcome::Incomplete` and confirms NOTHING for that word, and
+// `recipe_runtime::measure_and_certify_inner` turns that into a whole-candidate
+// `Certification::ResourceBreach` naming the dimension, the value and the limit. There is no code
+// path on which a partial proposal set is compared against the oracle, so this can never manufacture
+// the recall failure a truncated proposal set would. The number itself sits between the two
+// magnitudes that matter: every plan-composed net in this repo's conformance corpus is at most 479
+// arcs (`recipe_runtime`'s own measured note), and 1,000,000 raw paths bounds the decode loop's
+// retained strings at tens of MB, while the ONE known pathological fixture is 3x over it at k=6 and
+// 8.9 million times over it at k=12. It is a containment boundary, not an operating target: a
+// grammar that legitimately needs a million distinct proposals for one short word is asking for a
+// different construction, not a bigger buffer.
+//
+// **Scope.** These constants are resolved ONLY by `recipe_runtime::RuntimeBudget` (the recipe
+// optimizer / census evaluation path -- where the process actually dies). `ApplyBudget::from_env`,
+// `ApplyBudget::unbounded` and `FomaProposer::propose` are untouched, so ordinary `pangloss`
+// analysis behavior is byte-identical to before this existed.
+pub const DEFAULT_EVALUATION_APPLY_PATH_BUDGET: usize = 1_000_000;
+
+/// The distinct-candidate half of [`DEFAULT_EVALUATION_APPLY_PATH_BUDGET`]'s calibration.
+///
+/// Set to the same figure deliberately. On the measured fixture the two counts are EQUAL
+/// (2,985,984 raw paths, 2,985,984 distinct candidates) because every path decodes to a distinct
+/// morpheme sequence, so nothing in the evidence distinguishes them; splitting them would imply a
+/// calibration nobody has performed. They stay separate fields because they bound genuinely
+/// different shapes (see [`apply_candidate_budget_from_env`]'s own doc), and a future measurement
+/// can move one without the other.
+pub const DEFAULT_EVALUATION_APPLY_CANDIDATE_BUDGET: usize = 1_000_000;
+
 /// Which magnitude [`ApplyOutcome::Incomplete`] reports tripped. Mirrors [`NetSizeMeasure`]'s own
 /// `label()` shape (a stable, short string for a caller-facing message/report field) one level up
 /// from the compile-time size dimensions.

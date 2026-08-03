@@ -296,14 +296,8 @@ fn finished_production_net(grammar: &Grammar) -> Fsm {
         .net
         .take()
         .expect("the default plan must produce a network");
-    pg_foma::build::finish_controllable_net(
-        &opts,
-        net,
-        &grammar.char_tables[0],
-        &alphabet,
-        &budget,
-    )
-    .expect("the boundary-cleanup finish must not trip an unbounded budget")
+    pg_foma::build::finish_controllable_net(&opts, net, &grammar.char_tables[0], &alphabet, &budget)
+        .expect("the boundary-cleanup finish must not trip an unbounded budget")
 }
 
 /// The `SegAlphabet` token characters standing for this grammar's `Boundary`-kind char-defs.
@@ -370,7 +364,10 @@ fn strip_top_level_null_shaped_affix_lines(
             out.push('\n');
             continue;
         }
-        if matches!(current.as_deref(), Some("PrefixChain") | Some("SuffixChain")) {
+        if matches!(
+            current.as_deref(),
+            Some("PrefixChain") | Some("SuffixChain")
+        ) {
             if let Some((_, underlying, _)) = parse_entry_line(trimmed) {
                 if is_null_shaped(underlying) {
                     removed += 1;
@@ -407,13 +404,11 @@ fn reconstruct_pre_fix_compound_emission(
     lexc_source: &str,
     boundary: &HashSet<char>,
 ) -> (String, usize, usize) {
-    let is_null_shaped =
-        |u: &str| !u.is_empty() && u.chars().all(|c| boundary.contains(&c));
+    let is_null_shaped = |u: &str| !u.is_empty() && u.chars().all(|c| boundary.contains(&c));
     // A compound-level prefix hop, as `uflexc::prefix_hop` names them: `UCmpPfx0` for level 1 and
     // `UCmp{k}Pfx0` after that. `*AfterNull` is the POST-fix sibling, never a hop itself.
-    let is_hop = |lex: &str| {
-        lex.starts_with("UCmp") && lex.contains("Pfx") && !lex.ends_with("AfterNull")
-    };
+    let is_hop =
+        |lex: &str| lex.starts_with("UCmp") && lex.contains("Pfx") && !lex.ends_with("AfterNull");
     let is_after_null =
         |lex: &str| lex.starts_with("UCmp") && lex.contains("Pfx") && lex.ends_with("AfterNull");
 
@@ -665,8 +660,16 @@ fn net_shape_of_the_production_compound_net_is_bounded_and_branching_is_reported
         up.evidence_line()
     );
 
-    assert!(up.states > 0, "the screen decoded no states: {}", up.evidence_line());
-    assert!(up.arcs > 0, "the screen decoded no arcs: {}", up.evidence_line());
+    assert!(
+        up.states > 0,
+        "the screen decoded no states: {}",
+        up.evidence_line()
+    );
+    assert!(
+        up.arcs > 0,
+        "the screen decoded no arcs: {}",
+        up.evidence_line()
+    );
     assert!(
         up.branching.sampled_states > 0,
         "the branching distribution sampled no states: {}",
@@ -701,19 +704,21 @@ fn net_shape_of_the_production_compound_net_is_bounded_and_branching_is_reported
 // Corpus-wide census: per-fixture structural numbers, computed without applying a word
 // -------------------------------------------------------------------------------------------------
 
-/// The fixtures this census cannot visit, verbatim from `parity_divergence_census.rs`'s own
-/// `ABORTING_FIXTURES` and for the same measured reason: they kill the test PROCESS
-/// (`STATUS_STACK_BUFFER_OVERRUN`, i.e. Rust's stack-overflow handler, not an allocation failure)
-/// somewhere inside `evaluate_plans`, and an aborting fixture does not FAIL a census — it destroys
-/// the measurement.
+/// The two fixtures that USED to kill the test process, kept as a named pair for
+/// [`net_shape_probe_of_the_two_process_aborting_fixtures`] — no longer excluded from anything here.
 ///
-/// **This exclusion is an admission of a real limitation of this whole approach, not a tidy-up.**
-/// A static screen reads a FINISHED net. If the process dies while that net is still being built,
-/// there is nothing for the screen to read and it cannot help. Whether these two die in construction
-/// or in traversal decides whether the screen would have caught them, and this census cannot answer
-/// that question because it cannot reach them — see
-/// [`net_shape_probe_of_the_two_process_aborting_fixtures`], which narrows it as far as is safe to
-/// narrow it here.
+/// The exclusion note that stood here said they die "somewhere inside `evaluate_plans`" with
+/// "`STATUS_STACK_BUFFER_OVERRUN`, i.e. Rust's stack-overflow handler, not an allocation failure",
+/// and left open whether the death was in CONSTRUCTION or in TRAVERSAL — the open question that
+/// decided whether a screen over a finished net could ever have helped.
+///
+/// **Both halves are now measured, and the note was wrong on the first (2026-08-03).** The message
+/// was the ALLOCATOR's, not the stack handler's; `0xc0000409` is what MSVC's `abort()` produces too.
+/// And the death is squarely in TRAVERSAL: the plan-composed net for this grammar BUILDS in 0.027s,
+/// while `apply_up` enumerates `12^k` paths for a k-`x` word (2,985,984 measured at k=6). So a static
+/// screen over a finished net *would* have had something to read — which is what makes this census's
+/// coverage of these two fixtures meaningful rather than vacuous. The traversal magnitude itself is
+/// now bounded by a typed refusal; see `tests/apply_path_refusal_gate.rs`.
 const ABORTING_FIXTURES: &[&str] = &["deep-optional-affix-nesting", "recipe-template-generic"];
 
 /// Every discoverable conformance fixture whose grammar this crate can emit, screened on the
@@ -728,15 +733,11 @@ const ABORTING_FIXTURES: &[&str] = &["deep-optional-affix-nesting", "recipe-temp
 /// number this run prints.
 #[test]
 fn net_shape_census_over_every_discoverable_conformance_fixture() {
-    for name in ABORTING_FIXTURES {
-        eprintln!(
-            "EXCLUDED from this census: {name} -- aborts the test process; see ABORTING_FIXTURES"
-        );
-    }
-    let fixtures: Vec<FixtureRef> = discover()
-        .into_iter()
-        .filter(|f| !ABORTING_FIXTURES.contains(&f.name.as_str()))
-        .collect();
+    // No exclusions. This census reads FINISHED nets and never proposes a word, and the two fixtures
+    // that used to abort the process are now measured to build their net in 0.027s -- see
+    // `ABORTING_FIXTURES`' own doc for why the earlier exclusion was unnecessary here even before the
+    // apply-path envelope landed.
+    let fixtures: Vec<FixtureRef> = discover().into_iter().collect();
     assert!(
         !fixtures.is_empty(),
         "no conformance fixture was discovered -- is the `machine` submodule initialized?"

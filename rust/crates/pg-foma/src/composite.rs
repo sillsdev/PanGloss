@@ -237,7 +237,7 @@ pub enum ProfiledFomaApplyOutcome {
     },
 }
 
-enum ProfiledFomaApplyOutcomeWithCandidates {
+pub(crate) enum ProfiledFomaApplyOutcomeWithCandidates {
     Complete(ProfiledFomaOutcomeWithCandidates),
     Incomplete {
         dimension: ApplyDimension,
@@ -315,7 +315,8 @@ pub(crate) fn propose_union_peel_with_diagnostics(
     let mut proposal = ProposalDiagnostics::default();
     let mut proposal_calls = 1;
     let direct_budget = remaining_apply_budget(budget, &proposal);
-    let (direct, direct_diagnostics) = proposer.propose_with_diagnostics_budgeted(word, &direct_budget);
+    let (direct, direct_diagnostics) =
+        proposer.propose_with_diagnostics_budgeted(word, &direct_budget);
     accumulate_proposal_diagnostics(&mut proposal, direct_diagnostics);
     let mut candidates = match direct {
         ApplyOutcome::Complete(candidates) => candidates,
@@ -689,25 +690,19 @@ impl<'g> FomaAnalyzer<'g> {
         }
     }
 
-    /// Diagnostic pipeline for a cache-aware equivalence observation. The final deduplicated
-    /// candidate vector is moved out only after confirmation, so the measured apply has no clone
-    /// or analyzer-level capture callback.
-    #[doc(hidden)]
-    pub(crate) fn analyze_word_with_diagnostics_and_candidates(
-        &mut self,
-        word: &str,
-    ) -> ProfiledFomaOutcomeWithCandidates {
-        match self
-            .analyze_word_with_diagnostics_budgeted_with_candidates(word, &ApplyBudget::unbounded())
-        {
-            ProfiledFomaApplyOutcomeWithCandidates::Complete(profiled) => profiled,
-            ProfiledFomaApplyOutcomeWithCandidates::Incomplete { .. } => {
-                unreachable!("ApplyBudget::unbounded() can never report Incomplete")
-            }
-        }
-    }
-
-    fn analyze_word_with_diagnostics_budgeted_with_candidates(
+    /// The UNBOUNDED cache-aware equivalence entry point, DELETED 2026-08-03 rather than left
+    /// unused.
+    ///
+    /// It was `analyze_word_with_diagnostics_and_candidates`, a thin
+    /// `ApplyBudget::unbounded()` wrapper over the budgeted method below, and
+    /// `recipe_runtime::measure_and_certify_inner`'s observed arm was its only caller. That call site
+    /// is exactly where the process died: an unbounded propose on
+    /// `machine:edge-cases/deep-optional-affix-nesting` reaches 12^12 raw `apply_up` paths and
+    /// exhausts committed memory (see `crate::compose_budget::DEFAULT_EVALUATION_APPLY_PATH_BUDGET`).
+    /// Both evidence modes now route through the budgeted method, so keeping an unbounded convenience
+    /// wrapper next to it would be an invitation to re-open the hole. Callers that genuinely want no
+    /// envelope pass `ApplyBudget::unbounded()` explicitly, which is a visible, greppable choice.
+    pub(crate) fn analyze_word_with_diagnostics_budgeted_with_candidates(
         &mut self,
         word: &str,
         budget: &ApplyBudget,

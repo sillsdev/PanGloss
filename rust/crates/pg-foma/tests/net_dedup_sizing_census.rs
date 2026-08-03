@@ -85,15 +85,14 @@ impl Sizing {
     }
 }
 
-/// Fixtures that abort the test PROCESS, copied from `parity_divergence_census::ABORTING_FIXTURES`
-/// with its reasoning: an aborting fixture does not FAIL a census, it destroys the measurement, and
-/// this census is the only thing that produces the ratio the dedup optimization rests on.
-///
-/// Excluded rather than skipped, and ANNOUNCED at the top of the run so the omission is never silent.
-/// Whether they abort in the BUILD half specifically is unknown — this census runs no propose/confirm,
-/// so it might well survive them — but the cost of a wrong exclusion is one announced line, while the
-/// cost of a wrong inclusion is losing the whole number.
-const ABORTING_FIXTURES: &[&str] = &["deep-optional-affix-nesting", "recipe-template-generic"];
+// The exclusion list that stood here is GONE (2026-08-03). It named
+// `deep-optional-affix-nesting`/`recipe-template-generic` and left the load-bearing question open in
+// its own words: "Whether they abort in the BUILD half specifically is unknown — this census runs no
+// propose/confirm, so it might well survive them". It does. Measured: `finished_net_digests` for that
+// grammar's registry plans completes in 0.027s; the death was entirely in `apply_up` traversal
+// (`12^k` paths for a k-`x` word), never in construction. See `tests/apply_path_refusal_gate.rs` and
+// `pg_foma::compose_budget::DEFAULT_EVALUATION_APPLY_PATH_BUDGET`. So this census now sweeps every
+// discoverable fixture with no exclusion at all.
 
 fn measure_one_fixture(fixture: &FixtureRef) -> Result<Sizing, String> {
     // Named BEFORE any work, so a process-killing fixture is identifiable from the last line of
@@ -133,18 +132,9 @@ fn measure_one_fixture(fixture: &FixtureRef) -> Result<Sizing, String> {
 /// number is in the run log whether the assertions pass or not.
 #[test]
 fn distinct_finished_nets_versus_plan_count_per_fixture() {
-    for name in ABORTING_FIXTURES {
-        eprintln!(
-            "EXCLUDED from this census: {name} -- aborts the test process; see ABORTING_FIXTURES"
-        );
-    }
     let mut measured: Vec<Sizing> = Vec::new();
     let mut skipped: Vec<String> = Vec::new();
-    for fixture in discover().into_iter().filter(|fixture| {
-        !ABORTING_FIXTURES
-            .iter()
-            .any(|&name| fixture.label().contains(name))
-    }) {
+    for fixture in discover() {
         // A panic in one fixture's compilation must not cost the corpus-wide number. Known live
         // example: `machine:edge-cases/loader-pattern-shapes` panics at `replace.rs:498` ("char table
         // too large for the PUA token scheme"). Caught, named, and counted -- never swallowed.

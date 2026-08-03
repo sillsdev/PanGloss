@@ -2,8 +2,8 @@
 
 use crate::analyzer::FomaProposer;
 use crate::build::build_controllable;
-use crate::compose_budget::{ComposeBudget, ComposeError};
-use crate::composite::FomaAnalyzer;
+use crate::compose_budget::{ApplyBudget, ComposeBudget, ComposeError};
+use crate::composite::{FomaAnalyzer, ProfiledFomaApplyOutcomeWithCandidates};
 use crate::emit::surface_table;
 use crate::enumerate::{EmissionStrategy, LoweredCandidate};
 use crate::executable_candidate::LoweringAdapter;
@@ -1113,9 +1113,46 @@ pub struct RuntimeBudget {
     /// resolves to [`DEFAULT_ORACLE_MEMORY_CEILING_BYTES`]. `Some(u64::MAX)` declares no ceiling
     /// (and is recorded as such in the evidence, so "unbounded" is a stated choice, not a silence).
     pub oracle_memory_ceiling: Option<u64>,
+    /// CANDIDATE-side per-word raw `apply_up` path ceiling. Same "`None` = caller did not override
+    /// the default, NOT unbounded" convention as `oracle_step_cap` above, and for the same reason in
+    /// the mirror-image direction: the oracle field exists because an unbounded ORACLE hung the run,
+    /// and this one exists because an unbounded CANDIDATE PROPOSE killed the process outright
+    /// (measured 2026-08-03 -- see [`crate::compose_budget::DEFAULT_EVALUATION_APPLY_PATH_BUDGET`]
+    /// for the full measurement and the calibration argument). Resolves to that constant. A caller
+    /// that genuinely wants the old unbounded behavior must say so explicitly with `Some(usize::MAX)`.
+    pub apply_path_budget: Option<usize>,
+    /// CANDIDATE-side per-word distinct-candidate ceiling; same `None` convention, resolving to
+    /// [`crate::compose_budget::DEFAULT_EVALUATION_APPLY_CANDIDATE_BUDGET`].
+    pub apply_candidate_budget: Option<usize>,
 }
 
 impl RuntimeBudget {
+    /// The per-word apply-path envelope this budget puts in force, resolved.
+    ///
+    /// `Some(usize::MAX)` on either field is honoured as `None` on the [`ApplyBudget`] — i.e. genuinely
+    /// unbounded — because that is the explicit opt-out the two field docs name, and
+    /// `ApplyBudget`'s own caps are `Option`s where `None` already means unbounded. Anything else,
+    /// including the ordinary `None`, resolves to the calibrated default.
+    pub fn resolved_apply_budget(&self) -> ApplyBudget {
+        fn resolve(declared: Option<usize>, default: usize) -> Option<usize> {
+            match declared {
+                Some(usize::MAX) => None,
+                Some(limit) => Some(limit),
+                None => Some(default),
+            }
+        }
+        ApplyBudget::with_caps(
+            resolve(
+                self.apply_path_budget,
+                crate::compose_budget::DEFAULT_EVALUATION_APPLY_PATH_BUDGET,
+            ),
+            resolve(
+                self.apply_candidate_budget,
+                crate::compose_budget::DEFAULT_EVALUATION_APPLY_CANDIDATE_BUDGET,
+            ),
+        )
+    }
+
     pub fn resolved_oracle_step_cap(&self) -> usize {
         self.oracle_step_cap.unwrap_or(DEFAULT_ORACLE_STEP_CAP)
     }
@@ -1284,18 +1321,61 @@ fn measure_and_certify_inner<const OBSERVE: bool>(
     let mut confirmation: u64 = 0;
     let mut confirmation_steps: u64 = 0;
     let mut raw_paths: u64 = 0;
+    // The per-word apply-path envelope. Declared, never unbounded by default -- an unbounded propose
+    // is what killed the test process on `deep-optional-affix-nesting`
+    // (`crate::compose_budget::DEFAULT_EVALUATION_APPLY_PATH_BUDGET`'s own measurement table).
+    let apply_budget = budget.resolved_apply_budget();
     for w in words {
         let t = Instant::now();
-        let (outcome, diagnostics, proposals_for_word) = if OBSERVE {
-            let profiled = analyzer.analyze_word_with_diagnostics_and_candidates(w);
-            (
+        // ONE call for both evidence modes -- the candidate-retaining entry point is a superset and
+        // the non-observed arm simply drops the vector. That is what makes "the refusal cannot
+        // depend on the evidence mode" true by construction rather than by two matching edits (the
+        // `net_reuse_key` doc's own reason for keying on `OBSERVE` at all: serving an ordinary result
+        // to an observed caller silently drops evidence).
+        let budgeted =
+            analyzer.analyze_word_with_diagnostics_budgeted_with_candidates(w, &apply_budget);
+        let (outcome, diagnostics, proposals_for_word) = match budgeted {
+            ProfiledFomaApplyOutcomeWithCandidates::Complete(profiled) => (
                 profiled.outcome,
                 profiled.diagnostics,
-                Some(profiled.candidates),
-            )
-        } else {
-            let profiled = analyzer.analyze_word_with_diagnostics(w);
-            (profiled.outcome, profiled.diagnostics, None)
+                OBSERVE.then_some(profiled.candidates),
+            ),
+            // A REFUSAL, not a truncation. The word proposed more than the declared envelope, so
+            // nothing was confirmed for it and no partial proposal set is ever compared against the
+            // oracle -- which is precisely why this cannot manufacture a recall failure. The whole
+            // candidate is certified as a resource breach naming the dimension, the value and the
+            // limit, exactly as `budget_breach`'s own ladder does for the score dimensions, and the
+            // divergence is "nothing compared" rather than a clean zero.
+            ProfiledFomaApplyOutcomeWithCandidates::Incomplete {
+                dimension,
+                value,
+                limit,
+                diagnostics,
+            } => {
+                let apply = apply.saturating_add(elapsed_ns(t).max(1));
+                return EvaluatedPlan {
+                    evaluation: RuntimeEvaluation {
+                        certification: Certification::ResourceBreach {
+                            dimension: format!("per-word apply {} ({w})", dimension.label()),
+                            value: value as u64,
+                            limit: limit as u64,
+                        },
+                        score: Score {
+                            states,
+                            arcs,
+                            build,
+                            apply,
+                            proposals,
+                            confirmation,
+                            confirmation_steps,
+                            raw_paths: raw_paths.saturating_add(diagnostics.raw_paths as u64),
+                        },
+                        realized_strategy,
+                    },
+                    words: None,
+                    divergence: IdentityDivergence::not_compared(expected.len() as u64),
+                };
+            }
         };
         apply = apply.saturating_add(elapsed_ns(t).max(1));
         proposals = proposals.saturating_add(outcome.candidates_generated as u64);
@@ -2219,6 +2299,7 @@ pub fn assess_accuracy_with_cache(
     // morpheme-owner map, because nothing here confirms.
     let peeler = crate::peel::ReduplicationPeeler::new(grammar);
     let peel_budget = ComposeBudget::from_env();
+    let apply_budget = budget.resolved_apply_budget();
     plans
         .iter()
         .map(|candidate| {
@@ -2249,6 +2330,7 @@ pub fn assess_accuracy_with_cache(
                 proposer,
                 &peeler,
                 &peel_budget,
+                &apply_budget,
                 &selection,
             );
             // EVIDENCE FIRST, FALLBACK SECOND -- and only on a real failure. This mirrors
@@ -2318,6 +2400,7 @@ pub fn assess_accuracy_with_cache(
                     tuned,
                     &peeler,
                     &peel_budget,
+                    &apply_budget,
                     &selection,
                 ),
                 Err(e) => CandidateAccuracy {
@@ -2397,26 +2480,51 @@ fn assess_one(
     mut proposer: FomaProposer,
     peeler: &crate::peel::ReduplicationPeeler,
     peel_budget: &ComposeBudget,
+    apply_budget: &ApplyBudget,
     selection: &PreparedSelection,
 ) -> CandidateAccuracy {
     let mut counters = AccuracyCounters::default();
     let mut misses = Vec::new();
     for (occurrence_ordinal, (word, oracle)) in selection.expected.iter().enumerate() {
-        // UNBOUNDED, deliberately: a bounded proposal set that trips reads as undergeneration, and a
-        // per-candidate work budget that silently prunes candidates was merged once, never fired,
-        // and was reverted. `ApplyBudget::unbounded()` therefore cannot report `Incomplete`.
+        // BOUNDED since 2026-08-03, and the bound is a REFUSAL. This loop used to pass
+        // `ApplyBudget::unbounded()` on the reasoning that "a bounded proposal set that trips reads as
+        // undergeneration" -- correct about a SILENT bound, which is why the fix is
+        // `AccuracyCounters::apply_refusals` (a trip forces `NotDetermined`, never `Undergenerated`)
+        // rather than dropping the bound. Unbounded here is not free: 12^12 raw `apply_up` paths for
+        // one 13-character word killed the process outright on
+        // `machine:edge-cases/deep-optional-affix-nesting` (measurement table on
+        // `crate::compose_budget::DEFAULT_EVALUATION_APPLY_PATH_BUDGET`), and a dead process reports
+        // no verdict at all -- strictly worse than an honest `NotDetermined`.
         let proposed = crate::composite::propose_union_peel_with_diagnostics(
             grammar,
             &mut proposer,
             peeler,
             peel_budget,
             word,
-            &crate::compose_budget::ApplyBudget::unbounded(),
+            &apply_budget,
         );
         let (proposals, _peel_used, peel_chain_depth_error, diagnostics, proposal_calls) =
             match proposed {
                 Ok(complete) => complete,
-                Err(_) => unreachable!("ApplyBudget::unbounded() can never report Incomplete"),
+                Err((dimension, value, limit, diagnostics, proposal_calls)) => {
+                    // This occurrence is COUNTED as checked and REFUSED -- never silently skipped.
+                    // `occurrences_checked` still advances so the refusal share in
+                    // `verdict_from`'s message is over the real denominator, and no membership test is
+                    // recorded, because none was performed.
+                    eprintln!(
+                        "accuracy: proposal REFUSED for {word:?} -- per-word apply {} reached \
+                         {value} against a limit of {limit}",
+                        dimension.label()
+                    );
+                    counters.absorb(AccuracyCounters {
+                        occurrences_checked: 1,
+                        apply_refusals: 1,
+                        raw_paths: diagnostics.raw_paths as u64,
+                        proposal_calls: proposal_calls as u64,
+                        ..AccuracyCounters::default()
+                    });
+                    continue;
+                }
             };
         let mut occurrence = crate::recipe_accuracy::check_occurrence(
             word,

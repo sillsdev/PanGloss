@@ -149,6 +149,23 @@ pub struct AccuracyCounters {
     /// returns [`AccuracyVerdict::NotDetermined`] instead. Production's default leaves
     /// `chain_depth_cap` unset, so this is 0 unless `HC_COMPOSE_CHAIN_DEPTH_BUDGET` says otherwise.
     pub peel_refusals: u64,
+    /// Occurrences whose PROPOSAL was refused by the per-word apply-path envelope
+    /// ([`crate::compose_budget::DEFAULT_EVALUATION_APPLY_PATH_BUDGET`]), so that occurrence's
+    /// proposal set is incomplete through no fault of the compilation.
+    ///
+    /// Exactly [`Self::peel_refusals`]'s contract, one dimension over, and it exists for the same
+    /// reason stated in the same words: a refused proposal contributes fewer candidates than the
+    /// unbounded walk would, so a missing key on such an occurrence is indistinguishable from a
+    /// genuine recall failure. [`verdict_from`] therefore refuses to report undergeneration when this
+    /// is non-zero.
+    ///
+    /// Before 2026-08-03 this path proposed with `ApplyBudget::unbounded()` on the reasoning that
+    /// "a bounded proposal set that trips reads as undergeneration" — true of a SILENT bound, and the
+    /// reason this counter is the fix rather than the bound being dropped again. Measured cost of
+    /// leaving it unbounded: `machine:edge-cases/deep-optional-affix-nesting` reaches 12^12 raw
+    /// `apply_up` paths for one 13-character word and exhausts committed memory
+    /// (see [`crate::compose_budget::DEFAULT_EVALUATION_APPLY_PATH_BUDGET`]'s measurement table).
+    pub apply_refusals: u64,
     /// **Full-HC confirmation calls performed. Structurally zero.**
     ///
     /// Read from the SAME `crate::composite::FomaWordDiagnostics` field the certification path
@@ -182,6 +199,7 @@ impl AccuracyCounters {
         self.raw_paths = self.raw_paths.saturating_add(other.raw_paths);
         self.proposal_calls = self.proposal_calls.saturating_add(other.proposal_calls);
         self.peel_refusals = self.peel_refusals.saturating_add(other.peel_refusals);
+        self.apply_refusals = self.apply_refusals.saturating_add(other.apply_refusals);
         self.confirmation_calls = self
             .confirmation_calls
             .saturating_add(other.confirmation_calls);
@@ -241,8 +259,7 @@ pub fn check_occurrence(
     proposals: &[Candidate],
     misses: &mut Vec<AccuracyMiss>,
 ) -> AccuracyCounters {
-    let proposed: BTreeSet<AdmissionKey> =
-        proposals.iter().map(candidate_admission_key).collect();
+    let proposed: BTreeSet<AdmissionKey> = proposals.iter().map(candidate_admission_key).collect();
     let required: BTreeSet<AdmissionKey> = oracle.iter().map(admission_key).collect();
     let mut counters = AccuracyCounters {
         occurrences_checked: 1,
@@ -305,6 +322,19 @@ pub fn verdict_from(counters: &AccuracyCounters, mut misses: Vec<AccuracyMiss>) 
                  budget, so their proposal sets are incomplete; a containment verdict over a \
                  truncated proposal set is not a verdict",
                 counters.peel_refusals, counters.occurrences_checked
+            ),
+        };
+    }
+    // Same rule, the other incompleteness dimension: a proposal refused by the per-word apply-path
+    // envelope is an incomplete proposal set, so it can be neither a pass nor a recall failure.
+    // Checked here, beside the peel refusal and before the miss count, for the identical reason.
+    if counters.apply_refusals > 0 {
+        return AccuracyVerdict::NotDetermined {
+            reason: format!(
+                "{} of {} occurrences had their proposal refused by the per-word apply-path \
+                 envelope, so their proposal sets are incomplete; a containment verdict over a \
+                 truncated proposal set is not a verdict",
+                counters.apply_refusals, counters.occurrences_checked
             ),
         };
     }

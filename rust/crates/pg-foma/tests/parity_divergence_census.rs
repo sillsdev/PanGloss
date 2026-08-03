@@ -287,61 +287,34 @@ fn assert_no_candidate_only_identity(label: &str, measured: &[FixtureDivergence]
     );
 }
 
-/// The fixtures this census cannot visit, and why.
+/// **The exclusion list is GONE, and this note records what it was and why it no longer exists.**
 ///
-/// `recipe-template-generic` aborts the whole test PROCESS inside `evaluate_plans` — "memory
-/// allocation of 52 bytes failed" followed by `STATUS_STACK_BUFFER_OVERRUN` (0xc0000409), which is
-/// what Rust's stack-overflow handler produces — at six words. Read the symptom correctly: a 52-byte
-/// allocation does not fail for want of memory on a machine with tens of GB free, so this is
-/// unbounded recursion in the templated evaluation path, not memory pressure. Measured 2026-08-03:
-/// pre-existing (identical before and after the accuracy path landed) and it killed this census at
-/// 251.9s, having logged SLOW at 60/120/180/240s first.
+/// Two fixtures — `machine:edge-cases/deep-optional-affix-nesting` and
+/// `staging:edge-cases/recipe-template-generic`, which
+/// `tests/apply_path_refusal_gate.rs::the_two_aborting_fixtures_are_one_grammar` proves are ONE
+/// grammar under two names — used to abort the whole test PROCESS inside `evaluate_plans`, killing
+/// this census at ~251.9s with "memory allocation of 52 bytes failed" and exit `0xc0000409`. They
+/// were excluded because an aborting fixture does not FAIL a census, it destroys the measurement,
+/// and this census is the only producer of the candidate-only-identity count that
+/// `recipe_accuracy`'s containment relation rests on.
 ///
-/// It is excluded rather than left to abort because an aborting fixture does not FAIL this test — it
-/// destroys the measurement. This census is the only thing that produces the candidate-only-identity
-/// count that `recipe_accuracy`'s containment relation depends on, so one recursive fixture would
-/// otherwise cost us the whole number.
+/// The exclusion note that stood here read the symptom as unbounded recursion, on the reasoning that
+/// `0xc0000409` is `STATUS_STACK_BUFFER_OVERRUN`. **That was wrong**, and the correction is worth
+/// keeping: `0xc0000409` is also what MSVC's `abort()` produces, and the MESSAGE decides which — this
+/// one was the allocator's, not the stack handler's. It was heap exhaustion from `apply_up`
+/// enumerating `12^k` paths for a k-`x` word (2,985,984 measured at k=6, ~8.9 x 10^12 implied at
+/// k=12). See `apply_path_refusal_gate`'s module doc for the three measurements that rule recursion
+/// out, and `pg_foma::compose_budget::DEFAULT_EVALUATION_APPLY_PATH_BUDGET` for the calibration.
 ///
-/// The exclusion is ANNOUNCED, never silent: `include` is applied by `census` before its loop, so an
-/// excluded fixture never reaches the `skipped` list and would vanish from the report entirely. A
-/// census that quietly omits a fixture is the same defect as one that compares nothing, which
-/// `supports_free_containment` already refuses. Delete this list when the recursion is fixed.
-/// MEASURED 2026-08-03, one entry per fixture, with how each was established:
-///
-/// - `deep-optional-affix-nesting` — **confirmed by this census.** It is the SECOND fixture the sweep
-///   reaches, it runs for ~250s, and then the process dies. Identified only by adding the
-///   "census: entering ..." progress line above; before that the abort was anonymous, because
-///   `report` never runs and no per-fixture output is ever emitted. Its name is the diagnosis: deep,
-///   optional, nested affixation is exactly the shape that yields unbounded expansion.
-/// - `recipe-template-generic` — **not confirmed here, excluded on other evidence.** It was observed
-///   aborting inside the recipe optimizer's `evaluate_plans`, which is a different call path from
-///   this census. The census never reached it (it dies at fixture two), so whether it also aborts
-///   HERE is unknown. Kept in the list because the cost of a wrong exclusion is one announced skip,
-///   while the cost of a wrong inclusion is losing the whole measurement.
-///
-/// Both are plausibly ONE bug: a recursive descent over an optional/self-looping structure. See the
-/// 1300x apply gap between `uflexc`'s self-looping chains and `emit.rs`'s bounded chains.
-const ABORTING_FIXTURES: &[&str] = &["deep-optional-affix-nesting", "recipe-template-generic"];
+/// Both fixtures are now IN this census and both certify as a `Certification::ResourceBreach` naming
+/// the per-word apply dimension — a typed refusal, in ~3s, instead of a dead process.
+const _: () = ();
 
-/// The census: EVERY discoverable fixture bar [`ABORTING_FIXTURES`], one candidate each — the
-/// baseline, i.e. the default compilation of that grammar, which is what a regression screen would
-/// actually be run on.
+/// The census: EVERY discoverable fixture, one candidate each — the baseline, i.e. the default
+/// compilation of that grammar, which is what a regression screen would actually be run on.
 #[test]
 fn no_fixture_produces_a_candidate_only_identity() {
-    for name in ABORTING_FIXTURES {
-        eprintln!(
-            "EXCLUDED from this census: {name} -- aborts the test process (stack overflow in \
-             evaluate_plans, not an allocation failure); see ABORTING_FIXTURES"
-        );
-    }
-    let (measured, skipped) = census(
-        |fixture| {
-            !ABORTING_FIXTURES
-                .iter()
-                .any(|&name| fixture.label().contains(name))
-        },
-        baseline_only,
-    );
+    let (measured, skipped) = census(|_| true, baseline_only);
     report(
         "baseline census over every discoverable fixture",
         &measured,
