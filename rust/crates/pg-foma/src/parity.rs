@@ -186,6 +186,169 @@ impl OccurrenceIdentities {
             .binary_search_by(|entry| entry.identity.cmp(identity))
             .is_ok()
     }
+
+    /// How many members of this set share another member's **admission key** —
+    /// `(morphemes, root_index)` — and therefore differ from it ONLY in `category`.
+    ///
+    /// `0` means the admission key is INJECTIVE on this set, which is the property a
+    /// confirmation-free accuracy verdict needs: [`crate::confirm::confirm_batch`] routes a
+    /// confirmed analysis to a candidate by exactly this key ([`admission_key`]), so a proposal set
+    /// containing the key of every oracle analysis admits every oracle analysis — but only if one
+    /// key cannot stand for two distinct identities. Where it can, "the key was proposed" is a
+    /// weaker statement than "that identity is reachable", and the difference has to be counted
+    /// rather than assumed away.
+    ///
+    /// Cheap and exact rather than a second hash pass: `entries` is already in
+    /// [`AnalysisIdentity`]'s own total order, whose leading components are `morphemes` then
+    /// `root_index`, so key-sharing members are necessarily ADJACENT.
+    pub fn admission_key_collisions(&self) -> u64 {
+        self.entries
+            .windows(2)
+            .filter(|pair| {
+                pair[0].identity.morphemes == pair[1].identity.morphemes
+                    && pair[0].identity.root_index == pair[1].identity.root_index
+            })
+            .count() as u64
+    }
+}
+
+/// The **admission key** of one analysis or proposal: its ordered morpheme ordinals plus its root
+/// position.
+///
+/// This is not a new notion invented here. It is verbatim the key
+/// [`crate::confirm::confirm_batch`] builds its `by_key` routing map from, and verbatim the key
+/// `propose UNION peel` deduplicates candidates by. Naming it once, here, is what stops a
+/// confirmation-free accuracy check from inventing a *second*, subtly different notion of "the
+/// candidate offered this analysis" — the drift that would make the fast verdict and the full
+/// certification answer different questions while appearing to answer the same one.
+///
+/// Deliberately dense ORDINALS, not the stable source keys [`AnalysisIdentity`] carries: an
+/// admission key is only ever compared WITHIN one compiled grammar and one run (proposals against
+/// that same run's oracle analyses), where ordinals are exactly what confirm itself compares. An
+/// identity is the cross-compilation notion; this is the intra-run one. Using an identity here
+/// would also be strictly wrong, because it carries `category`, which no proposal has.
+pub type AdmissionKey = (Vec<u32>, i32);
+
+/// One analysis's [`AdmissionKey`]. Mirrors `confirm_batch`'s own
+/// `(wa.morpheme_ids.clone(), wa.root_morpheme_index)`.
+pub fn admission_key(analysis: &WordAnalysis) -> AdmissionKey {
+    (
+        analysis.morpheme_ids.clone(),
+        analysis.root_morpheme_index,
+    )
+}
+
+/// Counted evidence about HOW two identity sets diverged, accumulated over a whole run.
+///
+/// # Why this exists, and why it is counted rather than reasoned about
+///
+/// A confirmation-free accuracy verdict rests on one direction of the parity relation being free:
+/// the candidate's confirmed set cannot contain an identity the oracle's set lacks. The argument
+/// for that is strong — the candidate's confirm is a RESTRICTED `parse_word_selected` and the
+/// oracle is the same engine unrestricted, so the candidate explores a subset — but it is not
+/// airtight. `pg_rules::word::WordKey`, the analysis-search dedup key, deliberately EXCLUDES the
+/// syntactic feature struct, while [`AnalysisIdentity::category`] is projected from it (via
+/// `WordAnalysis::pos_id`). Two search states differing only in `syn_fs` therefore collapse to one
+/// map entry, and which one's `syn_fs` survives is decided first-wins by traversal order — which
+/// the restriction changes. So a restricted run can in principle surface a category the
+/// unrestricted run deduplicated away, producing a **candidate-only identity**.
+///
+/// That is inference, not observation. Building containment on top of it without measuring would
+/// silently certify a wrong answer on the day it happens, so [`Self::candidate_only_identities`] is
+/// counted on the ordinary certification path and reported per run.
+///
+/// # "I could not look" is a distinct outcome
+///
+/// [`Self::occurrences_not_compared`] exists so a run that never got to compare anything (a
+/// projection fault, a v1-scope refusal, a resource breach, a refused corpus) cannot be read as a
+/// run that compared everything and found nothing wrong. A zero in
+/// [`Self::candidate_only_identities`] is only evidence in proportion to
+/// [`Self::occurrences_compared`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct IdentityDivergence {
+    /// Occurrences whose two identity sets were both projected and actually compared.
+    pub occurrences_compared: u64,
+    /// Occurrences for which no comparison happened at all — see the type's own doc.
+    pub occurrences_not_compared: u64,
+    /// Distinct oracle identities summed over compared occurrences.
+    pub oracle_identities: u64,
+    /// Distinct candidate identities summed over compared occurrences.
+    pub candidate_identities: u64,
+    /// **The recall failures.** Identities the oracle found and the candidate did not.
+    pub oracle_only_identities: u64,
+    /// **The soundness hazard.** Identities the candidate produced that the oracle's set does not
+    /// contain. Expected to be 0; a non-zero value invalidates the free-containment argument and is
+    /// a finding in its own right.
+    pub candidate_only_identities: u64,
+    /// Occurrences contributing at least one [`Self::candidate_only_identities`] — so a single
+    /// pathological word cannot be mistaken for a widespread divergence, or vice versa.
+    pub occurrences_with_candidate_only: u64,
+    /// Summed [`OccurrenceIdentities::admission_key_collisions`] over the ORACLE side of every
+    /// compared occurrence. Expected 0; non-zero means an admission key stands for more than one
+    /// oracle identity on some word, so key containment is coarser than identity containment there.
+    pub oracle_admission_key_collisions: u64,
+    /// The same, on the candidate side.
+    pub candidate_admission_key_collisions: u64,
+}
+
+impl IdentityDivergence {
+    /// The divergence of ONE compared occurrence.
+    pub fn compare(oracle: &OccurrenceIdentities, candidate: &OccurrenceIdentities) -> Self {
+        let candidate_only = candidate.identities_absent_from(oracle).len() as u64;
+        Self {
+            occurrences_compared: 1,
+            occurrences_not_compared: 0,
+            oracle_identities: oracle.len() as u64,
+            candidate_identities: candidate.len() as u64,
+            oracle_only_identities: oracle.identities_absent_from(candidate).len() as u64,
+            candidate_only_identities: candidate_only,
+            occurrences_with_candidate_only: u64::from(candidate_only > 0),
+            oracle_admission_key_collisions: oracle.admission_key_collisions(),
+            candidate_admission_key_collisions: candidate.admission_key_collisions(),
+        }
+    }
+
+    /// One occurrence that could not be compared at all.
+    pub fn not_compared(occurrences: u64) -> Self {
+        Self {
+            occurrences_not_compared: occurrences,
+            ..Self::default()
+        }
+    }
+
+    /// Field-wise saturating sum, so accumulating over a corpus or a run cannot wrap.
+    pub fn absorb(&mut self, other: Self) {
+        self.occurrences_compared = self.occurrences_compared.saturating_add(other.occurrences_compared);
+        self.occurrences_not_compared = self
+            .occurrences_not_compared
+            .saturating_add(other.occurrences_not_compared);
+        self.oracle_identities = self.oracle_identities.saturating_add(other.oracle_identities);
+        self.candidate_identities = self
+            .candidate_identities
+            .saturating_add(other.candidate_identities);
+        self.oracle_only_identities = self
+            .oracle_only_identities
+            .saturating_add(other.oracle_only_identities);
+        self.candidate_only_identities = self
+            .candidate_only_identities
+            .saturating_add(other.candidate_only_identities);
+        self.occurrences_with_candidate_only = self
+            .occurrences_with_candidate_only
+            .saturating_add(other.occurrences_with_candidate_only);
+        self.oracle_admission_key_collisions = self
+            .oracle_admission_key_collisions
+            .saturating_add(other.oracle_admission_key_collisions);
+        self.candidate_admission_key_collisions = self
+            .candidate_admission_key_collisions
+            .saturating_add(other.candidate_admission_key_collisions);
+    }
+
+    /// Whether this run's evidence supports the free-containment argument: something WAS compared,
+    /// and nothing candidate-only was found. Deliberately not `candidate_only == 0` alone — that is
+    /// also true of a run that compared nothing.
+    pub fn supports_free_containment(&self) -> bool {
+        self.occurrences_compared > 0 && self.candidate_only_identities == 0
+    }
 }
 
 /// Which side of a parity comparison a fault was found on.
@@ -366,6 +529,101 @@ mod tests {
             err,
             IdentityError::UnresolvedMorpheme { ordinal: 9_999 }
         ));
+    }
+
+    #[test]
+    fn an_admission_key_standing_for_two_identities_is_counted_not_ignored() {
+        // Two identities with the SAME ordered morphemes and the SAME root position, differing only
+        // in `category`. This is the shape that makes admission-key containment coarser than
+        // identity containment, so it must be COUNTED rather than silently collapsed.
+        let shared = vec![Some("m0".to_string())];
+        let one = AnalysisIdentity {
+            morphemes: shared.clone(),
+            root_index: 0,
+            category: Some("posA".into()),
+        };
+        let two = AnalysisIdentity {
+            morphemes: shared,
+            root_index: 0,
+            category: Some("posB".into()),
+        };
+        let mut set = OccurrenceIdentities::default();
+        // Built directly rather than projected: the projector needs a grammar carrying two
+        // categories for one morpheme sequence, and the property under test is a property of the
+        // SET, not of projection.
+        set.entries = vec![
+            IdentityEvidence {
+                identity: one,
+                duplicate_paths: 1,
+                guessed: false,
+                supplied_root: false,
+            },
+            IdentityEvidence {
+                identity: two,
+                duplicate_paths: 1,
+                guessed: false,
+                supplied_root: false,
+            },
+        ];
+        assert_eq!(set.admission_key_collisions(), 1);
+
+        // A set whose members differ in a component of the key itself has no collision.
+        let g = test_grammar();
+        let distinct = OccurrenceIdentities::project(&[analysis(0), analysis(1)], &g).unwrap();
+        assert_eq!(distinct.len(), 2);
+        assert_eq!(distinct.admission_key_collisions(), 0);
+    }
+
+    #[test]
+    fn divergence_separates_the_two_directions_and_never_calls_nothing_agreement() {
+        let g = test_grammar();
+        let oracle = OccurrenceIdentities::project(&[analysis(0), analysis(1)], &g).unwrap();
+        let candidate = OccurrenceIdentities::project(&[analysis(1), analysis(2)], &g).unwrap();
+        let divergence = IdentityDivergence::compare(&oracle, &candidate);
+        assert_eq!(divergence.occurrences_compared, 1);
+        assert_eq!(divergence.oracle_identities, 2);
+        assert_eq!(divergence.candidate_identities, 2);
+        // `analysis(0)` is oracle-only (a recall failure); `analysis(2)` is candidate-only (the
+        // soundness hazard). The two must never be summed into one "they differ" number.
+        assert_eq!(divergence.oracle_only_identities, 1);
+        assert_eq!(divergence.candidate_only_identities, 1);
+        assert_eq!(divergence.occurrences_with_candidate_only, 1);
+        assert!(
+            !divergence.supports_free_containment(),
+            "a candidate-only identity must withdraw support for free containment"
+        );
+
+        let agreeing = IdentityDivergence::compare(&oracle, &oracle);
+        assert_eq!(agreeing.candidate_only_identities, 0);
+        assert_eq!(agreeing.oracle_only_identities, 0);
+        assert!(agreeing.supports_free_containment());
+
+        // "I could not look" is not "everything is fine": zero candidate-only identities over zero
+        // compared occurrences supports nothing.
+        let blind = IdentityDivergence::not_compared(7);
+        assert_eq!(blind.candidate_only_identities, 0);
+        assert_eq!(blind.occurrences_not_compared, 7);
+        assert!(
+            !blind.supports_free_containment(),
+            "an uncompared run must not read as a clean run"
+        );
+
+        let mut total = agreeing;
+        total.absorb(blind);
+        assert_eq!(total.occurrences_compared, 1);
+        assert_eq!(total.occurrences_not_compared, 7);
+    }
+
+    #[test]
+    fn the_admission_key_is_the_key_confirm_routes_on() {
+        // Pins the correspondence this whole mechanism rests on: `confirm_batch` keys its routing
+        // map on `(wa.morpheme_ids.clone(), wa.root_morpheme_index)`. If `admission_key` ever stops
+        // being that exact pair, key containment stops implying admissibility.
+        let a = analysis(1);
+        assert_eq!(
+            admission_key(&a),
+            (a.morpheme_ids.clone(), a.root_morpheme_index)
+        );
     }
 
     #[test]

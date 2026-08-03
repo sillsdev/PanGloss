@@ -6,7 +6,9 @@ use crate::compose_budget::{ComposeBudget, ComposeError};
 use crate::composite::FomaAnalyzer;
 use crate::emit::surface_table;
 use crate::enumerate::{CandidatePlan, EmissionStrategy};
-use crate::parity::{certified_occurrence, OccurrenceIdentities, ParitySide};
+use crate::parity::{
+    certified_occurrence, IdentityDivergence, OccurrenceIdentities, ParitySide,
+};
 use crate::recipe_optimizer::{
     Certification, CorpusCompletenessEvidence, CorpusExclusion, OracleEligibilityConfig, Score,
 };
@@ -291,6 +293,7 @@ pub struct RunEvaluationCache {
     corpus: PreparedCorpus,
     emission_report: Option<crate::emit::EmitReport>,
     emission_report_calls: usize,
+    divergence: IdentityDivergence,
 }
 
 impl RunEvaluationCache {
@@ -303,11 +306,49 @@ impl RunEvaluationCache {
             corpus: PreparedCorpus::prepare(grammar, words, budget)?,
             emission_report: None,
             emission_report_calls: 0,
+            divergence: IdentityDivergence::default(),
         })
     }
 
     pub fn oracle_calls(&self) -> usize {
         self.corpus.oracle_calls()
+    }
+
+    /// This run's accumulated parity-set divergence across every candidate evaluated against this
+    /// cache.
+    ///
+    /// [`IdentityDivergence::candidate_only_identities`] is the number the
+    /// confirmation-free accuracy path's soundness rests on; see that type's doc for why it is
+    /// counted rather than argued. It accumulates across calls, so a caller measuring one run must
+    /// use one cache for it — which is already the run cache's whole purpose.
+    pub fn identity_divergence(&self) -> IdentityDivergence {
+        self.divergence
+    }
+
+    fn absorb_divergence(&mut self, divergence: IdentityDivergence) {
+        self.divergence.absorb(divergence);
+    }
+
+    /// The prepared oracle analyses for the first COMPLETE occurrence of `word`, or `None` if this
+    /// corpus has no such row.
+    ///
+    /// `None` deliberately covers two different facts — "not prepared" and "prepared but step-capped"
+    /// — because neither is a set of analyses, and a caller must not be able to treat a step-capped
+    /// row as an empty one. That distinction is what
+    /// [`CorpusCompletenessEvidence`]/[`Certification::Truncated`] exist to carry; this accessor is
+    /// for reading a ground truth that IS complete, not for classifying eligibility.
+    ///
+    /// Exposed so a gate can construct a negative control against real oracle analyses of a real
+    /// grammar rather than against hand-built values — a fabricated ground truth proves only that the
+    /// comparison compares.
+    #[doc(hidden)]
+    pub fn oracle_analyses(&self, word: &str) -> Option<&[WordAnalysis]> {
+        self.corpus.words.iter().find_map(|prepared| {
+            match (&prepared.outcome, prepared.word == word) {
+                (OracleOutcome::Complete(analyses), true) => Some(analyses.as_slice()),
+                _ => None,
+            }
+        })
     }
 
     /// The run-scoped eligibility ledger for `requested`, derived from THIS run's prepared oracle
@@ -446,6 +487,11 @@ pub struct RuntimeEvaluationObservation {
 struct EvaluatedPlan {
     evaluation: RuntimeEvaluation,
     words: Option<Vec<WordEvidence>>,
+    /// Counted parity-set divergence for THIS candidate's corpus pass. Folded into the run cache by
+    /// [`evaluate_plans_marked_with_cache_mode`] so a caller can read one run-scoped number rather
+    /// than reconstructing it from per-candidate verdicts (which, being first-failure-only, do not
+    /// carry it).
+    divergence: IdentityDivergence,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -520,35 +566,69 @@ pub fn certify_word(
     expected: &[WordAnalysis],
     actual: &[WordAnalysis],
 ) -> Certification {
+    certify_word_measured(grammar, word, expected, actual).0
+}
+
+/// [`certify_word`] plus the counted [`IdentityDivergence`] of the same comparison.
+///
+/// The two are one function rather than two because the divergence must be measured on the SAME
+/// projection the verdict came from. A second, independent pass would both double the projection
+/// cost of every ordinary run and — worse — leave open the possibility of the counter and the
+/// verdict disagreeing about what they looked at, which is exactly the property a soundness counter
+/// cannot afford to lose.
+///
+/// The divergence is [`IdentityDivergence::not_compared`] whenever the verdict is a
+/// [`crate::parity::ParityFault`]-derived truncation: a fault means no comparison happened, and
+/// silently reporting a clean divergence for it would let "I could not look" read as "nothing was
+/// wrong".
+pub fn certify_word_measured(
+    grammar: &Grammar,
+    word: impl Into<String>,
+    expected: &[WordAnalysis],
+    actual: &[WordAnalysis],
+) -> (Certification, IdentityDivergence) {
     let word = word.into();
     let expected_identities = match certified_occurrence(expected, grammar, ParitySide::Oracle) {
         Ok(identities) => identities,
         Err(fault) => {
-            return Certification::Truncated {
-                stage: fault.stage(),
-                corpus: None,
-            }
+            return (
+                Certification::Truncated {
+                    stage: fault.stage(),
+                    corpus: None,
+                },
+                IdentityDivergence::not_compared(1),
+            )
         }
     };
     let actual_identities = match certified_occurrence(actual, grammar, ParitySide::Candidate) {
         Ok(identities) => identities,
         Err(fault) => {
-            return Certification::Truncated {
-                stage: fault.stage(),
-                corpus: None,
-            }
+            return (
+                Certification::Truncated {
+                    stage: fault.stage(),
+                    corpus: None,
+                },
+                IdentityDivergence::not_compared(1),
+            )
         }
     };
+    let divergence = IdentityDivergence::compare(&expected_identities, &actual_identities);
     if expected_identities.same_identities(&actual_identities) {
-        return Certification::FullHcConfirmed {
-            words: 1,
-            corpus_hash: "runtime".into(),
-        };
+        return (
+            Certification::FullHcConfirmed {
+                words: 1,
+                corpus_hash: "runtime".into(),
+            },
+            divergence,
+        );
     }
-    Certification::IdentityMismatch {
-        word,
-        detail: describe_set_difference(&expected_identities, &actual_identities),
-    }
+    (
+        Certification::IdentityMismatch {
+            word,
+            detail: describe_set_difference(&expected_identities, &actual_identities),
+        },
+        divergence,
+    )
 }
 
 fn describe_set_difference(
@@ -589,36 +669,56 @@ pub fn certify_corpus(
     expected: &[(String, Vec<WordAnalysis>)],
     actual: &[(String, Vec<WordAnalysis>)],
 ) -> Certification {
+    certify_corpus_measured(grammar, expected, actual).0
+}
+
+/// [`certify_corpus`] plus the counted [`IdentityDivergence`] summed over every row.
+///
+/// The divergence is accumulated over ALL rows even though the verdict is decided by the first
+/// failure: the verdict only needs one witness, whereas the soundness counter is a claim about the
+/// whole corpus and would be worthless if it stopped at the first disagreement. See
+/// [`certify_word_measured`] for why the count and the verdict share one projection pass.
+pub fn certify_corpus_measured(
+    grammar: &Grammar,
+    expected: &[(String, Vec<WordAnalysis>)],
+    actual: &[(String, Vec<WordAnalysis>)],
+) -> (Certification, IdentityDivergence) {
     if expected.len() != actual.len() {
-        return Certification::Truncated {
-            stage: "full-hc".into(),
-            corpus: None,
-        };
-    }
-    let mut failures = expected
-        .iter()
-        .zip(actual)
-        .filter_map(
-            |((expected_word, expected_analyses), (actual_word, actual_analyses))| {
-                if expected_word != actual_word {
-                    return Some(Certification::Truncated {
-                        stage: "full-hc-word-order".into(),
-                        corpus: None,
-                    });
-                }
-                let verdict =
-                    certify_word(grammar, expected_word, expected_analyses, actual_analyses);
-                (!verdict.selectable()).then_some(verdict)
+        return (
+            Certification::Truncated {
+                stage: "full-hc".into(),
+                corpus: None,
             },
-        )
-        .collect::<Vec<_>>();
+            IdentityDivergence::not_compared(expected.len().max(actual.len()) as u64),
+        );
+    }
+    let mut divergence = IdentityDivergence::default();
+    let mut failures = Vec::new();
+    for ((expected_word, expected_analyses), (actual_word, actual_analyses)) in
+        expected.iter().zip(actual)
+    {
+        if expected_word != actual_word {
+            divergence.absorb(IdentityDivergence::not_compared(1));
+            failures.push(Certification::Truncated {
+                stage: "full-hc-word-order".into(),
+                corpus: None,
+            });
+            continue;
+        }
+        let (verdict, row) =
+            certify_word_measured(grammar, expected_word, expected_analyses, actual_analyses);
+        divergence.absorb(row);
+        if !verdict.selectable() {
+            failures.push(verdict);
+        }
+    }
     failures.sort_by_key(|verdict| {
         verdict
             .shortest_disagreement()
             .map(|word| (word.chars().count(), word.to_owned()))
     });
     if let Some(failure) = failures.into_iter().next() {
-        return failure;
+        return (failure, divergence);
     }
     // Agreeing about nothing is not agreement. If the HC oracle produced no analysis for ANY word in
     // this corpus, every per-word comparison above was empty-set against empty-set, which
@@ -630,15 +730,21 @@ pub fn certify_corpus(
     // corpus-gated test that silently skips -- a pass that was never earned.
     let analyses: usize = expected.iter().map(|(_, a)| a.len()).sum();
     if analyses == 0 {
-        return Certification::Truncated {
-            stage: "no-analyzable-words".into(),
-            corpus: None,
-        };
+        return (
+            Certification::Truncated {
+                stage: "no-analyzable-words".into(),
+                corpus: None,
+            },
+            divergence,
+        );
     }
-    Certification::FullHcConfirmed {
-        words: expected.len() as u64,
-        corpus_hash: "runtime".into(),
-    }
+    (
+        Certification::FullHcConfirmed {
+            words: expected.len() as u64,
+            corpus_hash: "runtime".into(),
+        },
+        divergence,
+    )
 }
 /// Builds a candidate's network with the plan-composing interpreter.
 ///
@@ -766,6 +872,10 @@ pub struct RuntimeEvaluation {
 /// comparing measurement procedures rather than compilations. This function existing is what makes
 /// adding a strategy cost nothing: the previous two strategies each carried their own copy of this
 /// block, which is exactly how they would have drifted.
+/// The ordinary (unobserved) measurement. Returns the full [`EvaluatedPlan`] — whose `words` is
+/// always `None` in this mode — rather than only its `evaluation`, so the counted
+/// [`IdentityDivergence`] reaches the run cache from every strategy's call site instead of only
+/// from the observed one.
 #[allow(clippy::too_many_arguments)]
 fn measure_and_certify(
     realized_strategy: EmissionStrategy,
@@ -777,7 +887,7 @@ fn measure_and_certify(
     states: u64,
     arcs: u64,
     build: u64,
-) -> RuntimeEvaluation {
+) -> EvaluatedPlan {
     measure_and_certify_inner::<false>(
         realized_strategy,
         grammar,
@@ -789,7 +899,6 @@ fn measure_and_certify(
         arcs,
         build,
     )
-    .evaluation
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -884,21 +993,30 @@ fn measure_and_certify_inner<const OBSERVE: bool>(
     ]
     .into_iter()
     .find(|(_, v, l)| l.is_some_and(|limit| *v > limit));
-    let certification = match breach {
-        Some((d, v, Some(l))) => Certification::ResourceBreach {
-            dimension: d.into(),
-            value: v,
-            limit: l,
-        },
-        _ => match certify_corpus(grammar, expected, &actual) {
-            Certification::FullHcConfirmed {
-                words: word_count, ..
-            } => Certification::FullHcConfirmed {
-                words: word_count,
-                corpus_hash: corpus_hash(words),
+    let (certification, divergence) = match breach {
+        // A breach short-circuits BEFORE any comparison happens, so the honest divergence is
+        // "nothing compared", never a clean zero.
+        Some((d, v, Some(l))) => (
+            Certification::ResourceBreach {
+                dimension: d.into(),
+                value: v,
+                limit: l,
             },
-            failure => failure,
-        },
+            IdentityDivergence::not_compared(expected.len() as u64),
+        ),
+        _ => {
+            let (verdict, divergence) = certify_corpus_measured(grammar, expected, &actual);
+            let verdict = match verdict {
+                Certification::FullHcConfirmed {
+                    words: word_count, ..
+                } => Certification::FullHcConfirmed {
+                    words: word_count,
+                    corpus_hash: corpus_hash(words),
+                },
+                failure => failure,
+            };
+            (verdict, divergence)
+        }
     };
     let words = observed_proposals.map(|proposals| {
         expected
@@ -932,6 +1050,7 @@ fn measure_and_certify_inner<const OBSERVE: bool>(
             realized_strategy,
         },
         words,
+        divergence,
     }
 }
 
@@ -964,14 +1083,19 @@ fn failed_evaluation(
     }
 }
 
-fn failed_evaluated(
+/// A failure that happened BEFORE any occurrence could be compared. `occurrences` is how many the
+/// caller was going to compare, recorded as [`IdentityDivergence::not_compared`] so that a run
+/// which never reached the comparison cannot report the clean zero of a run that did.
+fn failed_evaluated_over(
     realized_strategy: EmissionStrategy,
     certification: Certification,
     build: u64,
+    occurrences: u64,
 ) -> EvaluatedPlan {
     EvaluatedPlan {
         evaluation: failed_evaluation(realized_strategy, certification, build),
         words: None,
+        divergence: IdentityDivergence::not_compared(occurrences),
     }
 }
 
@@ -979,32 +1103,18 @@ fn build_failed_evaluated(
     realized_strategy: EmissionStrategy,
     reason: String,
     build: u64,
+    occurrences: u64,
 ) -> EvaluatedPlan {
-    failed_evaluated(
+    failed_evaluated_over(
         realized_strategy,
         Certification::BuildFailed { reason },
         build,
+        occurrences,
     )
 }
 
-fn evaluate_via_tuned_emit(
-    grammar: &Grammar,
-    words: &[String],
-    expected: &[(String, Vec<WordAnalysis>)],
-    budget: RuntimeBudget,
-) -> RuntimeEvaluation {
-    evaluate_via_tuned_emit_mode::<false>(grammar, words, expected, budget).evaluation
-}
-
-fn evaluate_via_tuned_emit_observed(
-    grammar: &Grammar,
-    words: &[String],
-    expected: &[(String, Vec<WordAnalysis>)],
-    budget: RuntimeBudget,
-) -> EvaluatedPlan {
-    evaluate_via_tuned_emit_mode::<true>(grammar, words, expected, budget)
-}
-
+/// [`EmissionStrategy::TunedSurfaceProbed`]: the DEFAULT compilation of this grammar, through
+/// [`FomaProposer::new`] (`emit` -> lexc -> foma compile) rather than [`build_controllable`].
 fn evaluate_via_tuned_emit_mode<const OBSERVE: bool>(
     grammar: &Grammar,
     words: &[String],
@@ -1019,6 +1129,7 @@ fn evaluate_via_tuned_emit_mode<const OBSERVE: bool>(
                 EmissionStrategy::TunedSurfaceProbed,
                 format!("tuned emit path failed to build: {e}"),
                 elapsed_ns(t).max(1),
+                expected.len() as u64,
             )
         }
     };
@@ -1040,20 +1151,17 @@ fn evaluate_via_tuned_emit_mode<const OBSERVE: bool>(
             build,
         )
     } else {
-        EvaluatedPlan {
-            evaluation: measure_and_certify(
-                EmissionStrategy::TunedSurfaceProbed,
-                grammar,
-                &mut analyzer,
-                words,
-                expected,
-                budget,
-                states.max(0) as u64,
-                arcs.max(0) as u64,
-                build,
-            ),
-            words: None,
-        }
+        measure_and_certify(
+            EmissionStrategy::TunedSurfaceProbed,
+            grammar,
+            &mut analyzer,
+            words,
+            expected,
+            budget,
+            states.max(0) as u64,
+            arcs.max(0) as u64,
+            build,
+        )
     }
 }
 
@@ -1073,24 +1181,6 @@ fn evaluate_via_tuned_emit_mode<const OBSERVE: bool>(
 /// compiler already attaches one itself. Adding a second here, or omitting it because the tuned
 /// surface-probed path omits one, is the space-mismatch this module's own doc records as
 /// manufacturing false zero-candidate results.
-fn evaluate_via_templated_emit(
-    grammar: &Grammar,
-    words: &[String],
-    expected: &[(String, Vec<WordAnalysis>)],
-    budget: RuntimeBudget,
-) -> RuntimeEvaluation {
-    evaluate_via_templated_emit_mode::<false>(grammar, words, expected, budget).evaluation
-}
-
-fn evaluate_via_templated_emit_observed(
-    grammar: &Grammar,
-    words: &[String],
-    expected: &[(String, Vec<WordAnalysis>)],
-    budget: RuntimeBudget,
-) -> EvaluatedPlan {
-    evaluate_via_templated_emit_mode::<true>(grammar, words, expected, budget)
-}
-
 fn evaluate_via_templated_emit_mode<const OBSERVE: bool>(
     grammar: &Grammar,
     words: &[String],
@@ -1105,6 +1195,7 @@ fn evaluate_via_templated_emit_mode<const OBSERVE: bool>(
                 EmissionStrategy::TemplatedUnderlyingTokens,
                 format!("templated underlying-token path failed to build: {e}"),
                 elapsed_ns(t).max(1),
+                expected.len() as u64,
             )
         }
     };
@@ -1124,20 +1215,17 @@ fn evaluate_via_templated_emit_mode<const OBSERVE: bool>(
             build,
         )
     } else {
-        EvaluatedPlan {
-            evaluation: measure_and_certify(
-                EmissionStrategy::TemplatedUnderlyingTokens,
-                grammar,
-                &mut analyzer,
-                words,
-                expected,
-                budget,
-                states.max(0) as u64,
-                arcs.max(0) as u64,
-                build,
-            ),
-            words: None,
-        }
+        measure_and_certify(
+            EmissionStrategy::TemplatedUnderlyingTokens,
+            grammar,
+            &mut analyzer,
+            words,
+            expected,
+            budget,
+            states.max(0) as u64,
+            arcs.max(0) as u64,
+            build,
+        )
     }
 }
 
@@ -1243,6 +1331,117 @@ pub fn evaluate_plans_marked_observed_with_cache(
         .collect()
 }
 
+/// One [`EmissionStrategy::PlanComposed`] candidate, realized into an owned, apply-ready proposer.
+enum RealizedPlanComposed {
+    Ready {
+        proposer: FomaProposer,
+        states: u64,
+        arcs: u64,
+        build: u64,
+    },
+    Failed {
+        certification: Certification,
+        build: u64,
+    },
+}
+
+/// Build ONE plan-composed candidate's network and turn it into a proposer.
+///
+/// # Why this is a function and not inline in the evaluator
+/// The confirmation-free accuracy path ([`assess_accuracy_with_cache`]) has to propose from the SAME
+/// network the certification path measures, or the two answer questions about different
+/// compilations while carrying the same candidate's name. A second copy of this sequence would
+/// drift, and this module's own history says so out loud: before `measure_and_certify` existed, each
+/// strategy carried its own copy of the measurement block, "which is exactly how they would have
+/// drifted".
+///
+/// # Why it can return an OWNED proposer
+/// `FomaProposer::from_precompiled_network` calls `apply_init`, which deep-clones the compiled `Fsm`
+/// into the handle. The net is therefore dead the moment the proposer exists — precisely what
+/// `FomaProposer::new` already relies on (see [`FomaProposer`]'s own doc: the `Fsm` "is consumed by
+/// `apply_init` and can be (is) dropped once the handle exists"). So dropping `net` at the end of
+/// this function is not a liberty taken here; it is the documented lifetime of that type.
+fn realize_plan_composed(
+    candidate: &CandidatePlan,
+    grammar: &Grammar,
+    opts: &FomaOptions,
+    alphabet: &SegAlphabet<'_>,
+    prules: &[&PhonRuleDef],
+    compose: &ComposeBudget,
+    report: crate::emit::EmitReport,
+) -> RealizedPlanComposed {
+    let t = Instant::now();
+    let built = build_candidate(candidate, opts, grammar, alphabet, prules, compose);
+    let build = elapsed_ns(t).max(1);
+    let Ok(mut built) = built else {
+        return RealizedPlanComposed::Failed {
+            certification: Certification::BuildFailed {
+                reason: "build failed".into(),
+            },
+            build,
+        };
+    };
+    let Some(net) = built.net.take() else {
+        return RealizedPlanComposed::Failed {
+            certification: Certification::Truncated {
+                stage: "empty-network".into(),
+                corpus: None,
+            },
+            build,
+        };
+    };
+    // Mandatory finish step, not an optimization: without the boundary-token cleanup compose
+    // and re-minimize, the net still carries the inter-morph boundary tokens `uflexc` emits,
+    // which a surface query never contains -- every `apply_up` returns nothing and recall
+    // reads as zero. See `crate::build::finish_controllable_net`.
+    let mut net = match crate::build::finish_controllable_net(
+        opts,
+        net,
+        surface_table(grammar),
+        alphabet,
+        compose,
+    ) {
+        Ok(net) => net,
+        Err(e) => {
+            return RealizedPlanComposed::Failed {
+                certification: Certification::BuildFailed {
+                    reason: format!("boundary-cleanup finish failed: {e}"),
+                },
+                build,
+            };
+        }
+    };
+    // Closes an asymmetry, not a measured hot spot. `FomaProposer::new` (the hand-spun path)
+    // calls `prepare_network_for_apply` at `crate::analyzer`; `from_precompiled_network` --
+    // the constructor EVERY plan-composed candidate goes through -- deliberately prepares
+    // nothing, so above `ARC_SORT_MIN_ARCS` the hand-spun baseline got foma's binary-search
+    // arc traversal and the plan-composed candidate it is compared against did not.
+    //
+    // MEASURED, and the measurement is a null result on everything checked in: of the 45
+    // discoverable conformance fixtures that build a plan-composed net, ZERO cross
+    // `ARC_SORT_MIN_ARCS` (10,000) -- the largest is 479 arcs
+    // (`polysynthetic-stratal-derivation-chain` / `recipe-strata-generic`). Verified by
+    // reading `net.arcs_sorted_out` directly: on those nets it is `false` as built, still
+    // `false` after this call, and only `true` under a forced `fsm_sort_arcs`. So on our
+    // fixtures this line is provably inert, and the 1.49x-2.05x figure in
+    // `ARC_SORT_MIN_ARCS`'s own doc says nothing about them. It engages only on a
+    // large real grammar -- the plan-composed net for the private `sena` corpus is 21,114
+    // arcs -- which is why this is worth having despite buying nothing in CI.
+    //
+    // Placed BEFORE the counts are read for the same reason `FomaProposer::new` reads its counts
+    // after sorting: `fsm_sort_arcs` reorders arcs and never adds or removes a state or arc, so
+    // `statecount`/`arccount` are identical either side of it and the score cannot move.
+    crate::analyzer::prepare_network_for_apply(&mut net);
+    let (states, arcs) = (net.statecount as u64, net.arccount as u64);
+    RealizedPlanComposed::Ready {
+        proposer: FomaProposer::from_precompiled_network(&net, report)
+            .with_segment_query_encoder(surface_table(grammar)),
+        states,
+        arcs,
+        build,
+    }
+}
+
 fn evaluate_plans_marked_with_cache_mode<const OBSERVE: bool>(
     grammar: &Grammar,
     plans: &[CandidatePlan],
@@ -1296,21 +1495,26 @@ fn evaluate_plans_marked_with_cache_mode<const OBSERVE: bool>(
         } else {
             "corpus-incomplete"
         };
-        return plans
+        let refused = plans
             .iter()
             .map(|plan| {
                 // Nothing compiled -- the corpus itself was refused -- so the honest answer is the
                 // strategy that was requested.
-                failed_evaluated(
+                failed_evaluated_over(
                     plan.strategy,
                     Certification::Truncated {
                         stage: stage.into(),
                         corpus: Some(corpus_evidence.clone()),
                     },
                     0,
+                    corpus_evidence.requested,
                 )
             })
-            .collect();
+            .collect::<Vec<_>>();
+        for candidate in &refused {
+            cache.absorb_divergence(candidate.divergence);
+        }
+        return refused;
     }
     // The confirm side's grammar-static pieces, built at most ONCE for the whole run and handed
     // back after each candidate. Every one of the three is a pure function of `grammar` and is
@@ -1325,7 +1529,7 @@ fn evaluate_plans_marked_with_cache_mode<const OBSERVE: bool>(
         Vec<Option<crate::confirm::MorphemeOwner>>,
         pg_parse::Morpher<'_>,
     )> = None;
-    plans
+    let evaluated: Vec<EvaluatedPlan> = plans
         .iter()
         .enumerate()
         .map(|(index, candidate)| {
@@ -1337,95 +1541,49 @@ fn evaluate_plans_marked_with_cache_mode<const OBSERVE: bool>(
                 EmissionStrategy::PlanComposed => {}
                 EmissionStrategy::TunedSurfaceProbed => {
                     return if OBSERVE {
-                        evaluate_via_tuned_emit_observed(grammar, words, &expected, budget)
+                        evaluate_via_tuned_emit_mode::<true>(grammar, words, &expected, budget)
                     } else {
-                        EvaluatedPlan {
-                            evaluation: evaluate_via_tuned_emit(grammar, words, &expected, budget),
-                            words: None,
-                        }
+                        evaluate_via_tuned_emit_mode::<false>(grammar, words, &expected, budget)
                     }
                 }
                 EmissionStrategy::TemplatedUnderlyingTokens => {
                     return if OBSERVE {
-                        evaluate_via_templated_emit_observed(grammar, words, &expected, budget)
+                        evaluate_via_templated_emit_mode::<true>(grammar, words, &expected, budget)
                     } else {
-                        EvaluatedPlan {
-                            evaluation: evaluate_via_templated_emit(
-                                grammar,
-                                words,
-                                &expected,
-                                budget,
-                            ),
-                            words: None,
-                        }
+                        evaluate_via_templated_emit_mode::<false>(grammar, words, &expected, budget)
                     }
                 }
             }
             // Only the plan-composed strategy consumes this report, so whole-grammar candidates
             // do not pay an unconditional duplicate emission.
             let report = cache.emission_report(grammar);
-            let t = Instant::now();
-            let built = build_candidate(candidate, &opts, grammar, &alphabet, &prules, &compose);
-            let build = elapsed_ns(t).max(1);
-            let Ok(mut built) = built else {
-                return build_failed_evaluated(
-                    EmissionStrategy::PlanComposed,
-                    "build failed".into(),
-                    build,
-                );
-            };
-            let Some(net) = built.net.take() else {
-                return failed_evaluated(
-                    EmissionStrategy::PlanComposed,
-                    Certification::Truncated {
-                        stage: "empty-network".into(),
-                        corpus: None,
-                    },
-                    build,
-                );
-            };
-            // Mandatory finish step, not an optimization: without the boundary-token cleanup compose
-            // and re-minimize, the net still carries the inter-morph boundary tokens `uflexc` emits,
-            // which a surface query never contains -- every `apply_up` returns nothing and recall
-            // reads as zero. See `crate::build::finish_controllable_net`.
-            let mut net = match crate::build::finish_controllable_net(
+            let (proposer, score0, build) = match realize_plan_composed(
+                candidate,
+                grammar,
                 &opts,
-                net,
-                surface_table(grammar),
                 &alphabet,
+                &prules,
                 &compose,
+                report,
             ) {
-                Ok(net) => net,
-                Err(e) => {
-                    return build_failed_evaluated(
+                RealizedPlanComposed::Ready {
+                    proposer,
+                    states,
+                    arcs,
+                    build,
+                } => (proposer, (states, arcs), build),
+                RealizedPlanComposed::Failed {
+                    certification,
+                    build,
+                } => {
+                    return failed_evaluated_over(
                         EmissionStrategy::PlanComposed,
-                        format!("boundary-cleanup finish failed: {e}"),
+                        certification,
                         build,
-                    );
+                        expected.len() as u64,
+                    )
                 }
             };
-            // Closes an asymmetry, not a measured hot spot. `FomaProposer::new` (the hand-spun path)
-            // calls `prepare_network_for_apply` at `crate::analyzer`; `from_precompiled_network` --
-            // the constructor EVERY plan-composed candidate goes through -- deliberately prepares
-            // nothing, so above `ARC_SORT_MIN_ARCS` the hand-spun baseline got foma's binary-search
-            // arc traversal and the plan-composed candidate it is compared against did not.
-            //
-            // MEASURED, and the measurement is a null result on everything checked in: of the 45
-            // discoverable conformance fixtures that build a plan-composed net, ZERO cross
-            // `ARC_SORT_MIN_ARCS` (10,000) -- the largest is 479 arcs
-            // (`polysynthetic-stratal-derivation-chain` / `recipe-strata-generic`). Verified by
-            // reading `net.arcs_sorted_out` directly: on those nets it is `false` as built, still
-            // `false` after this call, and only `true` under a forced `fsm_sort_arcs`. So on our
-            // fixtures this line is provably inert, and the 1.49x-2.05x figure in
-            // `ARC_SORT_MIN_ARCS`'s own doc says nothing about them. It engages only on a
-            // large real grammar -- the plan-composed net for the private `sena` corpus is 21,114
-            // arcs -- which is why this is worth having despite buying nothing in CI.
-            //
-            // Placed BEFORE `score0` for the same reason `FomaProposer::new` reads its counts after
-            // sorting: `fsm_sort_arcs` reorders arcs and never adds or removes a state or arc, so
-            // `statecount`/`arccount` are identical either side of it and the score cannot move.
-            crate::analyzer::prepare_network_for_apply(&mut net);
-            let score0 = (net.statecount as u64, net.arccount as u64);
             let (peeler, owners, morpher) = confirm_pieces.take().unwrap_or_else(|| {
                 (
                     crate::peel::ReduplicationPeeler::new(grammar),
@@ -1433,14 +1591,8 @@ fn evaluate_plans_marked_with_cache_mode<const OBSERVE: bool>(
                     pg_parse::Morpher::new(grammar, usize::MAX),
                 )
             });
-            let mut analyzer = FomaAnalyzer::from_cached_with_morpher(
-                grammar,
-                FomaProposer::from_precompiled_network(&net, report.clone())
-                    .with_segment_query_encoder(surface_table(grammar)),
-                peeler,
-                owners,
-                morpher,
-            );
+            let mut analyzer =
+                FomaAnalyzer::from_cached_with_morpher(grammar, proposer, peeler, owners, morpher);
             let measured = if OBSERVE {
                 measure_and_certify_observed(
                     EmissionStrategy::PlanComposed,
@@ -1454,20 +1606,17 @@ fn evaluate_plans_marked_with_cache_mode<const OBSERVE: bool>(
                     build,
                 )
             } else {
-                EvaluatedPlan {
-                    evaluation: measure_and_certify(
-                        EmissionStrategy::PlanComposed,
-                        grammar,
-                        &mut analyzer,
-                        words,
-                        &expected,
-                        budget,
-                        score0.0,
-                        score0.1,
-                        build,
-                    ),
-                    words: None,
-                }
+                measure_and_certify(
+                    EmissionStrategy::PlanComposed,
+                    grammar,
+                    &mut analyzer,
+                    words,
+                    &expected,
+                    budget,
+                    score0.0,
+                    score0.1,
+                    build,
+                )
             };
             // Hand the grammar-static confirm pieces back for the next candidate. Nothing above
             // mutates any of them -- confirm reads `&self.morpher`/`&self.owners`, and the peeler's
@@ -1504,19 +1653,21 @@ fn evaluate_plans_marked_with_cache_mode<const OBSERVE: bool>(
                 // The tuned path CAN build them, and for the baseline its network is the right answer:
                 // the default compilation of this grammar.
                 return if OBSERVE {
-                    evaluate_via_tuned_emit_observed(grammar, words, &expected, budget)
+                    evaluate_via_tuned_emit_mode::<true>(grammar, words, &expected, budget)
                 } else {
-                    EvaluatedPlan {
-                        evaluation: evaluate_via_tuned_emit(grammar, words, &expected, budget),
-                        words: None,
-                    }
+                    evaluate_via_tuned_emit_mode::<false>(grammar, words, &expected, budget)
                 };
             }
             // A permutation, though, cannot be rescued: the tuned path derives topology from a plan it
             // builds itself, so putting a permutation through it would measure the BASELINE network and
             // report it as this permutation -- a fabricated comparison. Refuse, naming why.
-            let EvaluatedPlan { evaluation, words } = measured;
+            let EvaluatedPlan {
+                evaluation,
+                words,
+                divergence,
+            } = measured;
             EvaluatedPlan {
+                divergence,
                 evaluation: RuntimeEvaluation {
                     realized_strategy: EmissionStrategy::PlanComposed,
                     certification: Certification::Unsupported {
@@ -1538,7 +1689,14 @@ fn evaluate_plans_marked_with_cache_mode<const OBSERVE: bool>(
                 words,
             }
         })
-        .collect()
+        .collect();
+    // Fold each candidate's counted parity divergence into the RUN. Done here, after the closure's
+    // mutable borrow of `cache` has ended, rather than inside it: the exclusion branch above has its
+    // own fold for the same reason, so every path out of this function contributes exactly once.
+    for candidate in &evaluated {
+        cache.absorb_divergence(candidate.divergence);
+    }
+    evaluated
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
