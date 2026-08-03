@@ -409,6 +409,64 @@ Scope cap while deferred: tasks 20–22 are a classification change plus two evi
 budget knob plus a typed verdict, and a bug hunt. If any of them starts growing new provenance
 schema beyond that, the old failure mode has returned and the answer is no.
 
+**TRIGGER TIGHTENED 2026-08-03** — the condition above now reads as SATISFIED ON A TECHNICALITY:
+tasks 20–22 are all closed (22 fixed, 21 reverted as inert rather than completed, 20 landed), so
+7.3–7.8 would resume automatically while the assessment loop is still measured in hours. That is the
+same shape as the failure this deferral was created to fix, inverted: an architecture program
+re-entering ahead of the thing it depends on. **7.3–7.8 additionally require the loop-speed bar
+below to be MET AND MEASURED**, not merely worked on. A closed task list is not a fast loop.
+
+### The two loops, and the two different bars (added 2026-08-03)
+
+Owner objective, verbatim: *"We should be able to assess a rough pass whether it works in 5 minutes
+or less. That is the whole purpose of what we're doing... the whole point of this set of tasks is to
+have an under-5-minute, ideally under-30-second assessment time."* One long pass for a baseline is
+fine — and that baseline is **already paid for**, so no new long run is needed to establish it.
+
+These are TWO loops with TWO achievable floors, and conflating them is what produced a two-hour
+verification of a two-line change:
+
+| | Loop A — developer verification | Loop B — recipe assessment |
+|---|---|---|
+| Question | "did my change break anything?" | "is this candidate any good?" |
+| Instrument | the Rust test suite | `recipe-optimize` |
+| Achievable bar | **~5 min** | **sub-30s** |
+| Why not lower | an incremental Windows build + link of `pg-foma` alone exceeds 30s | — |
+| How | filtered gates, **available today with zero code**: `pg.ps1 -Mode test -Package pg-foma -Filter <targeted>` (pg.ps1:101–102, 561–571) | ~25–50 word subset x ~3 *distinct* nets after dedup x cached oracle ≈ 15–25s |
+| Nature of the fix | **discipline, not code** — no optimization task addresses it | algorithmic |
+
+Loop B breaks only on an explosive candidate: Sena's plan-composed at ~59k proposals/word makes even
+10 words ≈ 54s, so a shape screen — or an honest deterministic *"exploded at N proposals, no
+verdict"* — is part of the minimum set, not an extra. **Aweti is out of scope for any assessment-speed
+bar** until the July `apply_up` truncation plan lands; no loop optimization changes that.
+
+### Critical-path ordering for the loop-speed objective
+
+Reordered 2026-08-03. The previous order buried the one task that delivers the number in fifth place.
+
+1. **Epsilon-loop reguard** — lands because it is a regression *we* introduced, not because it is on
+   this path.
+2. **Split the accuracy verdict from the ranking** — the intersection answers "did we undergenerate"
+   in milliseconds. THE task that delivers the owner's number. It alone is not sufficient: the run
+   still pays compile and apply for every candidate, including duplicates and explosives.
+3. **Net-level dedup** — measured: all five plan-composed permutations bit-identical on two real
+   corpora, so a 7-candidate run does ~2.3x the distinct work it needs to.
+4. **Persistent cross-run oracle cache** — the oracle is a pure deterministic function of
+   (grammar digest, word, step cap, memory ceiling); recipe churn holds the grammar FIXED, so every
+   parse after the first run of a given grammar+config recomputes a known value. Turns 15–25s from
+   *edge* into *margin*.
+5. **Shape-based screen** — the only way to identify an explosive net *before* paying its apply cost.
+
+Deferred until the bar is measured missed: cross-candidate memoization and confirm-call fusion. Both
+are real constant-factor wins and neither is load-bearing; they also carry the one recorded ordering
+hazard (a memo hit recording zero makes `Score::key` order-dependent and hands the win to whichever
+candidate was evaluated second), so step 2 must precede them.
+
+Loop A discipline, separate and cheap: fix the red CI first — with no machine-side backstop, agents
+plausibly over-verify locally to compensate — then make the minimum-sufficient-gate rule a hook
+rather than a policy, on the `block-bare-cargo.py` pattern. A prohibition a model can reason its way
+around under pressure is not a control; that is that hook's own argument, and it applies here.
+
 ### Scheduled Fable reflective checkpoints
 
 Reserved-tier reviews are normally escalations, which means they only fire once something has
