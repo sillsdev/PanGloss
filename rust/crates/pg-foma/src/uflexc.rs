@@ -58,11 +58,16 @@
 //! RootBare  -> <head-eligible root lines>     -> AfterRoot
 //!           -> <head-INeligible root lines>   -> SuffixOrEnd
 //! AfterRoot -> {SuffixOrEnd | UCmp}
-//! UCmp{k}   -> UCmp{k}Pfx0 -> {UCmp{k}Roots | self-loop over the prefix inventory}
+//! UCmp{k}   -> UCmp{k}Pfx0 -> {UCmp{k}Roots | self-loop over the ORDINARY prefix inventory
+//!                                           | UCmp{k}Pfx0AfterNull, per null-shaped prefix line}
+//! UCmp{k}Pfx0AfterNull -> {UCmp{k}Roots | self-loop over the ORDINARY prefix inventory}
 //! UCmp{k}Roots -> <grammar-wide licensed non-head root lines> -> SuffixOrEnd (k == levels)
 //!                                                             -> UCmp{k}Next (otherwise)
 //! UCmp{k}Next -> {SuffixOrEnd | UCmp{k+1}}
 //! ```
+//! (`{base}{k}` reads `UCmp` for `k == 1` and `UCmp{k}` after that; `{base}{k}Pfx` likewise reads
+//! `UCmpPfx` for `k == 1` -- so the first level's prefix hop is `UCmpPfx0`, NOT `UCmp1Pfx0`.
+//! [`build_compound_chain`] owns that naming.)
 //! **Unrolled to `levels`, never self-looped**, so depth stays bounded by construction —
 //! `levels` comes from [`crate::emit::compound_extra_levels_checked`], the SAME
 //! `capability::characterize`-derived bound and `HC_COMPOUND_CHAIN_DEPTH_BUDGET` check
@@ -88,6 +93,36 @@
 //! Every non-head root tag reachable only through this grammar-wide set is additionally declared in
 //! `Multichar_Symbols` (a tag absent from the declaration block would be read by lexc as its
 //! individual characters, silently producing a network that matches nothing).
+//!
+//! ### Null-shaped affixes are at most once per juncture -- enforced HERE, at emission time
+//! An affix allomorph whose ENTIRE underlying text is drawn from `Boundary`-kind char-defs (a
+//! zero/null-morph marker, e.g. `^0+`) is deleted to NOTHING by the boundary cleanup every caller of
+//! this module's output composes afterwards ([`crate::build::finish_controllable_net`]). On a
+//! SELF-LOOPING continuation that leaves a zero-width, tag-only arc back onto the state it came from
+//! -- a free, unboundedly repeatable insertion of that morpheme's tag, taken any number of times
+//! without consuming a single surface character. `apply_up` enumerates each repeat count as a
+//! genuinely distinct upper-tape string, so the proposal count multiplies out to its own internal
+//! search bound: measured 127 -> 53,992 proposals (425x) on a 5-word real-grammar slice
+//! (`crate::build::reroute_null_shaped_affix_chains`'s own doc records that measurement).
+//!
+//! The top-level `PrefixChain`/`SuffixChain` pair is de-looped AFTER the fact, by
+//! `crate::build::reroute_null_shaped_affix_chains` rewriting this module's raw lexc text. **The
+//! compound loop's own per-level prefix hops are NOT, and must not rely on that**: that function
+//! pattern-matches the two literal lexicon names `PrefixChain`/`SuffixChain`, so it never recognized
+//! `UCmpPfx0`/`UCmp{k}Pfx0` -- lexicons that did not exist when it was written. The bounded compound
+//! loop therefore reopened, per level, exactly the epsilon cycle that function had already closed
+//! once. A name-based guard cannot defend a lexicon added after it.
+//!
+//! So the discipline is applied structurally, in the `prefix_hop` closure below, where the lines are
+//! WRITTEN: a null-shaped prefix line continues to `{pfx_base}0AfterNull` instead of looping back to
+//! `{pfx_base}0`, and `{pfx_base}0AfterNull` re-offers every ORDINARY prefix line (self-looping, so
+//! ordinary affixes still stack freely in any order and any quantity, before AND after the marker)
+//! plus the level's roots -- but no null-shaped line at all, so a SECOND marker occurrence is
+//! unreachable and there is nothing left to repeat. Recall is preserved (the marker is still
+//! reachable, exactly once per juncture, which is its actual grammatical meaning); the cycle is gone
+//! by construction rather than by a name a later guard happens to know. A grammar with no `Boundary`
+//! char-def, or none of whose prefix allomorphs is null-shaped, emits no `*AfterNull` lexicon at all
+//! and so is byte-identical to before this discipline existed.
 
 use std::collections::HashSet;
 
@@ -142,6 +177,25 @@ pub struct UEmitReport {
     pub prefix_entries: usize,
     pub suffix_entries: usize,
     pub tag_width: usize,
+    /// **FIRE COUNT for the at-most-once null-shaped discipline** (module doc, "Null-shaped affixes
+    /// are at most once per juncture"): how many null-shaped prefix lines this emission moved OFF a
+    /// self-looping compound-level continuation and onto that level's `*AfterNull` lexicon --
+    /// summed over every emitted compound level, so a grammar with `L` levels and `N` null-shaped
+    /// prefix allomorphs reports `L * N`.
+    ///
+    /// Reported rather than left implicit because "the tests pass" cannot distinguish a mechanism
+    /// that engaged from a mechanism that is dead code on the path in question. `0` means one of
+    /// three things, all of which a caller can act on: this grammar declares no `Boundary` char-def,
+    /// none of its prefix allomorphs is null-shaped, or its compound loop was not emitted at all
+    /// (no `CompoundingRuleDef`, or no licensed non-head root). It NEVER means "the discipline was
+    /// skipped" -- there is no code path that emits a self-looping null-shaped compound line and
+    /// leaves this at zero.
+    ///
+    /// Measured (`samples/data/sena-hc.xml`, `emit_underlying`, no gate filtering): **56** -- 8
+    /// compound levels x 7 null-shaped (`^0+`) prefix allomorphs. Before this discipline existed
+    /// those same 56 lines were emitted self-looping, i.e. this count was structurally 0 and 56 free
+    /// epsilon cycles were live.
+    pub compound_null_shaped_prefix_hops_suppressed: usize,
 }
 
 /// The leading (before the first `Copy`) or trailing (after the last `Copy`) `InsertSegments`
@@ -405,6 +459,26 @@ pub fn emit_underlying_filtered_with_budget(
         }
     }
 
+    // Which prefix lines are NULL-SHAPED (module doc, "Null-shaped affixes are at most once per
+    // juncture"): their whole underlying text is drawn from `Boundary`-kind char-defs, so the
+    // boundary cleanup every downstream caller composes deletes them to nothing, and a self-looping
+    // continuation would then be a free epsilon cycle. Classified once here, consumed by the compound
+    // loop's `prefix_hop` below. `crate::build::boundary_tokens` is the SHARED definition of which
+    // char-defs count (that function's own doc) -- deliberately not re-derived, so this test and the
+    // deletion it anticipates can never disagree about the set. `alphabet.table()` is by construction
+    // the same table `alphabet` encodes against (`SegAlphabet::table`'s own doc), which is exactly
+    // what `crate::build::build_controllable` passes the rewriter for the top-level chains.
+    let boundary_set: HashSet<char> = crate::build::boundary_tokens(alphabet.table(), alphabet)
+        .into_iter()
+        .collect();
+    let prefix_line_is_null_shaped: Vec<bool> = prefix_lines
+        .iter()
+        .map(|l| {
+            !l.underlying.is_empty() && l.underlying.chars().all(|c| boundary_set.contains(&c))
+        })
+        .collect();
+    let any_null_shaped_prefix = prefix_line_is_null_shaped.iter().any(|&b| b);
+
     // --- Bounded compound loop containment, checked BEFORE any of its lexc text is written -------
     //
     // `emit_compound` is false whenever the loop would be vacuous: no `CompoundingRuleDef` at all
@@ -481,6 +555,12 @@ pub fn emit_underlying_filtered_with_budget(
         l.write(&mut out, continuation, &mut counts);
     }
 
+    // FIRE COUNT (`UEmitReport::compound_null_shaped_prefix_hops_suppressed`'s own doc): threaded
+    // through `build_compound_chain`'s own generic emitter-state parameter `C` rather than captured,
+    // so the number is produced by the SAME code path that writes the lines -- a count that could
+    // disagree with the emitted text would be worthless as evidence the mechanism engaged.
+    let mut hops_suppressed: usize = 0;
+
     if emit_compound && any_head_line {
         write_lexicon_header(&mut out, "AfterRoot");
         write_bare(&mut out, "SuffixOrEnd", &mut counts);
@@ -495,19 +575,44 @@ pub fn emit_underlying_filtered_with_budget(
                               pfx_base: &str,
                               roots_name: &str,
                               counts: &mut EmitCounts,
-                              _ctx: &mut ()| {
+                              suppressed: &mut usize| {
             let entry = format!("{pfx_base}0");
+            // The "already used the marker" universe (module doc, "Null-shaped affixes are at most
+            // once per juncture"): emitted only when this grammar actually HAS a null-shaped prefix
+            // allomorph, so an ordinary grammar's compound levels stay byte-identical.
+            let after_null = format!("{pfx_base}0AfterNull");
             write_lexicon_header(out, &entry);
             write_bare(out, roots_name, counts);
-            for l in &prefix_lines {
-                l.write(out, &entry, counts);
+            for (l, is_null) in prefix_lines.iter().zip(&prefix_line_is_null_shaped) {
+                // A null-shaped line leaves the loop instead of closing it. This is the whole fix:
+                // the epsilon cycle is not removed after the fact by a name-matching rewrite, it is
+                // never written.
+                let continuation = if *is_null {
+                    *suppressed += 1;
+                    &after_null
+                } else {
+                    &entry
+                };
+                l.write(out, continuation, counts);
+            }
+            if any_null_shaped_prefix {
+                write_lexicon_header(out, &after_null);
+                write_bare(out, roots_name, counts);
+                for (l, is_null) in prefix_lines.iter().zip(&prefix_line_is_null_shaped) {
+                    // Ordinary affixes are re-offered here, self-looping, so they still stack in any
+                    // order and quantity around the (at most one) marker. Null-shaped lines are
+                    // deliberately NOT duplicated: there is no line for a second marker to take.
+                    if !*is_null {
+                        l.write(out, &after_null, counts);
+                    }
+                }
             }
         };
         let write_root_entries = |out: &mut String,
                                   roots: &[&TokenEntry],
                                   continuation: &str,
                                   counts: &mut EmitCounts,
-                                  _ctx: &mut ()| {
+                                  _ctx: &mut usize| {
             for r in roots {
                 r.write(out, continuation, counts);
             }
@@ -519,7 +624,7 @@ pub fn emit_underlying_filtered_with_budget(
                                    _roots: &[&TokenEntry],
                                    _continuation: &str,
                                    _counts: &mut EmitCounts,
-                                   _ctx: &mut ()| {
+                                   _ctx: &mut usize| {
             unreachable!("write_stripped_root_entries is only invoked when emit_stripped is true")
         };
         let non_head_refs: Vec<&TokenEntry> = non_head_roots.iter().collect();
@@ -531,7 +636,7 @@ pub fn emit_underlying_filtered_with_budget(
             &[],
             "SuffixOrEnd",
             &mut counts,
-            &mut (),
+            &mut hops_suppressed,
             false,
             &mut prefix_hop,
             &write_root_entries,
@@ -560,6 +665,7 @@ pub fn emit_underlying_filtered_with_budget(
         suffix_entries: suffix_lines.len(),
         tag_width: width,
         skipped,
+        compound_null_shaped_prefix_hops_suppressed: hops_suppressed,
     })
 }
 
