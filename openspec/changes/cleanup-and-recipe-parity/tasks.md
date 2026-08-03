@@ -377,7 +377,7 @@ over an erased transform is not an exercise.
       `pg.ps1` exposes no `--test <target>` passthrough that would narrow compilation instead. There
       is no cheaper path to verifying this file; budget a cold pg-foma build, or batch it with other
       pg-foma work in one run.
-- [ ] 7.8 Exercise the remaining orthogonal basis at least twice where possible: template
+- [x] 7.8 Exercise the remaining orthogonal basis at least twice where possible: template
       order/co-occurrence, cascade/strata, lexical class, allomorph priority, bounded copy,
       unbounded peeled copy, bounded metathesis, interdigitation, feature/POS/MPR gates,
       compounding, and zero morphology. A language may compose any number of mechanisms.
