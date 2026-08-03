@@ -271,10 +271,46 @@ over an erased transform is not an exercise.
       rule-located observation in a stratum needs a rule->stratum map `GrammarSemantics` does not
       own, and inventing one here would mean the grammar re-walk this task forbids. Reachable from
       no routing, applicability or candidate path -- deriving a graph changes no outcome.
-- [ ] 7.5 Make the Registry the sole constructor of a validated `ExecutableCandidate` binding a
+- [x] 7.5 Make the Registry the sole constructor of a validated `ExecutableCandidate` binding a
       stable semantic digest, portable round-trippable Plan document/digest, exact lowering adapter,
       existing runtime requirements, mechanism graph/bindings, and certification scope. Reject
       bypass/corruption; never use FNV Plan roots as artifact identity or execute an implicit fallback.
+      Landed as `pg_foma::executable_candidate`, whose sole constructor is
+      `Registry::executable_candidate`. **Sole construction is enforced by a type, not a
+      convention**: `seal` requires a `recipe_registry::RegistryAuthority` whose only field is
+      private to that module, so no other module in this crate can produce one, and it is neither
+      `Copy` nor `Clone` so one cannot be kept and reused. `ExecutableCandidate`'s fields are
+      private and it implements neither `Serialize` nor `Deserialize` -- deserialization would be a
+      second constructor that skips every check, which is the bypass the task forbids; the
+      PORTABLE part is `PortablePlan`, which round-trips and re-verifies.
+      **Identity is domain-framed SHA-256, never the FNV root.** `plan.rs` documents `NodeId` as an
+      unseeded 64-bit FNV-1a that is "not collision-resistant"; that is fine for interning and
+      cannot ground a persisted artifact or a certification. Two projections
+      (`pangloss.foma.plan-document/v1`, `pangloss.foma.candidate-semantics/v1`) are
+      length-prefix-framed into the preimage, the same contract `pg_assess::digest::
+      digest_projection` uses -- computed locally because `pg-foma` deliberately does not depend on
+      the assessment layer (7.12's own slice note). The semantic digest's preimage is
+      `MechanismGraph::canonical_projection()`, i.e. task 7.4's byte-identical fresh-load
+      projection. The FNV addresses still appear INSIDE the document as its structure, and
+      `PortablePlan::decode` recomputes every one of them from the decoded content, so a tampered
+      id, payload, child list, or descendant is a typed refusal rather than a silent repair; a
+      `Gate` arity error is likewise refused BEFORE interning, because `Plan::add_node` guards it
+      with a `debug_assert!` that panics in debug and is silent in release.
+      **The typed refusal that replaces an implicit fallback** is
+      `CandidateConstructionError::MechanismRefused`: if any mechanism this grammar requires is
+      `CannotRepresent` for the candidate's adapter, construction refuses naming the mechanism, the
+      adapter, and `strategy_coverage`'s own citation -- it never reaches for a compiler that
+      happens to work. Model ids travel as `recipe_mechanism::WireModelId`, so a `PRuleId` read
+      back where a `LexEntryId` belongs is a typed decode error rather than a coerced integer.
+      `LoweringAdapter` is 1:1 with `EmissionStrategy` in both directions (task 7.13 replaces the
+      enum with it and cannot until that holds); `RuntimeRequirement` is derived from the adapter
+      and the plan, never declared. `CandidateCertificationScope` is deliberately named apart from
+      7.12's corpus-side `CertificationScope` and states no identity/multiplicity guarantee -- those
+      ARE the parity relation, measured against an oracle. Reachable from no routing, applicability
+      or evaluation path: `instances_for_*`, `materialize*` and `recipe_runtime`'s dispatch are
+      untouched, and `tests/executable_candidate_gate.rs` pins that a sealing refusal changes
+      neither the offered instances nor the materialized candidates. Migrating consumers onto it is
+      7.13's.
 - [x] 7.6 Maintain one research dossier per mechanism with scope, invariants, ≥2 language/family
       anchors, chosen/rejected architectures, complexity, evidence log, and explicit
       fits/refines/splits/adds triggers. Contract and six dossiers landed in `a80cae0`; all concrete
