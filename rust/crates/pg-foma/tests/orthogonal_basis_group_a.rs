@@ -5,7 +5,7 @@
 //!
 //! | Mechanism | Exercise 1 | Exercise 2 | Exercise 3 |
 //! |---|---|---|---|
-//! | template order / co-occurrence | `machine:languages/suffixing-extension-slot-ordering` (slot ORDER) | `machine:languages/suffixing-evidential-adjacency-chain` (CO-OCCURRENCE) | -- |
+//! | template order / co-occurrence | `machine:languages/suffixing-extension-slot-ordering` (slot ORDER, obligatory OUTERMOST, reverse order accepted) | `machine:languages/prefixal-discontinuous-slot-dependency` (DISJUNCTIVE slot, obligatory INNERMOST, reverse order refused) | `machine:languages/suffixing-evidential-adjacency-chain` (CO-OCCURRENCE) |
 //! | cascade / strata | `machine:languages/suffixing-vowel-harmony` (rule CASCADE) | `machine:languages/polysynthetic-stratal-derivation-chain` (cross-STRATUM feed) | `machine:edge-cases/bistratal-overlapping-segment-representation` (per-stratum TABLE) |
 //! | lexical class | `machine:languages/fusional-realizational-morphology` (allomorph-level stem-name regions) | `machine:languages/suffixing-extension-slot-ordering` (rule-level `requiredStemName`) | -- |
 //! | allomorph priority | `machine:edge-cases/disjunctive-recheck` (earlier index BLOCKS) | `staging:edge-cases/circumfix-non-first-allomorph-selection` (later index is REACHABLE) | -- |
@@ -14,6 +14,17 @@
 //! The other six mechanisms 7.8 lists (bounded copy, unbounded peeled copy, bounded metathesis,
 //! interdigitation, feature/POS/MPR gates, compounding) belong to group B and are deliberately
 //! untouched here.
+//!
+//! **On 7.8's slashed mechanism names.** "template order/co-occurrence", "cascade/strata", and
+//! "feature/POS/MPR gates" each name ONE mechanism with alternative labels -- nobody reads the third
+//! as three mechanisms owing six exercises. Group A is written to the stricter reading anyway
+//! wherever a committed fixture allowed it: template ORDER has two independent exercises of its own
+//! (the accepted-reverse-order and refused-reverse-order pair) on top of the co-occurrence one, and
+//! cascade and strata have one and two respectively. The one place the stricter reading is NOT met
+//! is CO-OCCURRENCE, which has a single exercise -- see this file's handback note; the only other
+//! fixture in the inventory declaring co-occurrence rules is
+//! `machine:languages/templatic-root-modification`, which is group B's interdigitation fixture, so
+//! claiming it here would have crossed the split rather than added independence.
 //!
 //! # What each exercise is, structurally
 //!
@@ -95,7 +106,7 @@ use pg_conformance_fixtures::{assert_matches_oracle, discover, FixtureRef, Root,
 use pg_foma::parity::OccurrenceIdentities;
 use pg_grammar::chardef::CharDefKind;
 use pg_grammar::model::{
-    CoOccurrenceAdjacency, Grammar, MorphRuleDef, OutputAction, PartRef, PhonRuleDef,
+    CoOccurrenceAdjacency, Grammar, MRuleId, MorphRuleDef, OutputAction, PartRef, PhonRuleDef,
 };
 use pg_parse::identity::MorphemeKey;
 use pg_parse::Morpher;
@@ -139,6 +150,24 @@ const EX_TEMPLATE_SLOT_ORDER: &Exercise = &Exercise {
          collapsed the two extension orders into a single identity loses the distinction between \
          `andikishila` and `andikilisha`. Neither defect involves a co-occurrence rule, and this \
          grammar declares none.",
+};
+
+const EX_TEMPLATE_DISJUNCTIVE_SLOT_AND_ENFORCED_ORDER: &Exercise = &Exercise {
+    mechanism: Mechanism::TemplateOrderCoOccurrence,
+    root: Root::Machine,
+    category: "languages",
+    name: "prefixal-discontinuous-slot-dependency",
+    independent_falsifier:
+        "the exact CONVERSE of the slot-ordering fixture, and the two cannot both be satisfied by \
+         one mis-implementation. There, the swappable optional pair has only optional slots between \
+         it and the root, so the stratum's fixpoint retry rescues the reverse order and \
+         `andikilisha` is ACCEPTED. Here, THREE OBLIGATORY slots lie between the swappable pair and \
+         the root, so the single-pass outer-to-inner walk dies on the first obligatory slot it \
+         reaches out of turn and `gahobishiyidkal` is REFUSED. An engine that enforced template \
+         order unconditionally on analysis loses `andikilisha`; one that rescued every out-of-order \
+         pair by retry admits `gahobishiyidkal`. This fixture also carries the DISJUNCTIVE third of \
+         the construct (one slot holding two mutually exclusive rules), which the other declares \
+         none of.",
 };
 
 const EX_CO_OCCURRENCE_ADJACENCY: &Exercise = &Exercise {
@@ -275,6 +304,7 @@ const EX_ZERO_MORPH_ZERO_DERIVATION: &Exercise = &Exercise {
 /// Every group-A exercise, in the order 7.8 lists the mechanisms.
 const EXERCISES: &[&Exercise] = &[
     EX_TEMPLATE_SLOT_ORDER,
+    EX_TEMPLATE_DISJUNCTIVE_SLOT_AND_ENFORCED_ORDER,
     EX_CO_OCCURRENCE_ADJACENCY,
     EX_CASCADE_ORDERED_RULES,
     EX_STRATA_CROSS_STRATUM_FEED,
@@ -629,6 +659,20 @@ fn morpheme_key_of(grammar: &Grammar, morph_id: &str, label: &str) -> MorphemeKe
     Some(matches[0].to_string())
 }
 
+/// The morpheme key of the morpheme a morphological rule realizes, or `None` for a compounding rule
+/// (which is not a morpheme at all -- it has no `<MorphemeId>`) or an out-of-range id.
+fn morpheme_key_of_mrule(grammar: &Grammar, id: MRuleId) -> MorphemeKey {
+    let morpheme = match grammar.mrules.get(id.0 as usize) {
+        Some(MorphRuleDef::AffixProcess(def)) => def.morpheme,
+        Some(MorphRuleDef::Realizational(def)) => def.morpheme,
+        _ => return None,
+    };
+    grammar
+        .morphemes
+        .get(morpheme.0 as usize)
+        .map(|info| info.xml_key.clone())
+}
+
 /// Every morphological rule in `grammar` whose exponence is ZERO, as `(morpheme key, rule name)`.
 ///
 /// The structural definition of zero exponence used here, and the reason it is a definition rather
@@ -760,6 +804,37 @@ fn template_order_exercise_slot_sequence_and_obligatory_slot() {
         );
     }
 
+    // -- TOP end, the two properties that make this exercise INDEPENDENT of the other template
+    //    exercise, asserted rather than asserted-by-comment:
+    //
+    //    1. The obligatory slot is OUTERMOST (last in slot order). That is exactly the condition
+    //       under which the stratum's fixpoint retry can rescue an out-of-order optional pair: the
+    //       obligatory slot is stripped first, unconditionally, leaving nothing but optional slots
+    //       between the swappable pair and the root. The other template exercise's grammar is the
+    //       mirror image (obligatory slots INNERMOST) and therefore REFUSES its own reverse order.
+    //    2. No slot holds more than one rule -- this grammar has no DISJUNCTIVE slot at all, which
+    //       is the construct the other exercise carries and this one cannot.
+    assert!(
+        !ordering_template
+            .slots
+            .last()
+            .expect("a template with >=3 slots has a last slot")
+            .optional,
+        "{label}: the obligatory slot must be OUTERMOST here; that placement is what makes the \
+         reverse-order acceptance below reachable, and it is what distinguishes this exercise from \
+         the obligatory-innermost one"
+    );
+    for slot in &ordering_template.slots {
+        assert_eq!(
+            slot.rules.len(),
+            1,
+            "{label}: no slot here may hold more than one rule -- a disjunctive slot is the OTHER \
+             template exercise's construct, and if this grammar grew one the two exercises would \
+             stop being independent ({:?})",
+            slot.name
+        );
+    }
+
     // -- BOTTOM end, claim 1: the obligatory slot is enforced.
     run.expect_refused(
         "andik",
@@ -810,7 +885,190 @@ fn template_order_exercise_slot_sequence_and_obligatory_slot() {
     );
 }
 
-/// **Exercise 2 of template order/co-occurrence: MORPHEME and ALLOMORPH CO-OCCURRENCE.**
+/// **Exercise 2 of template order/co-occurrence: a DISJUNCTIVE slot, and template order that IS
+/// enforced on analysis.**
+///
+/// The exact converse of exercise 1, and the pair is what makes either claim honest. Exercise 1's
+/// grammar puts its one obligatory slot OUTERMOST, so the stratum's fixpoint retry rescues an
+/// out-of-order optional pair and the reverse order is ACCEPTED. This grammar puts three obligatory
+/// slots between the swappable optional pair and the root, so the single-pass outer-to-inner analysis
+/// walk hits an obligatory slot out of turn and the reverse order is REFUSED. Both facts are the
+/// fixtures' own committed, reconciled findings; an engine cannot satisfy both by treating template
+/// order as unconditionally enforced, or as unconditionally rescuable.
+///
+/// TOP end: one template with at least six slots, at least three obligatory and at least three
+/// optional; its last two slots optional and at least one earlier (inward) slot obligatory -- the
+/// obligatory-INNERMOST shape whose mirror image exercise 1 asserts for itself; and at least one slot
+/// holding TWO OR MORE rules, which is the DISJUNCTIVE third of the "obligatory/disjunctive/ordering"
+/// construct and is absent from exercise 1's grammar by assertion.
+///
+/// BOTTOM end, five claims:
+/// 1. obligatory slots are enforced from the OTHER edge -- the bare root and the one-slot-short word
+///    both have no analysis;
+/// 2. the minimal well-formed word (obligatory slots only) and each added optional slot are one
+///    identity each, up to the fully-loaded six-slot word;
+/// 3. **the reverse order of the two outermost optional slots is REFUSED**, which is the claim
+///    exercise 1 cannot make;
+/// 4. the DISCONTINUOUS dependency is a real gate: an outer optional slot whose requirement is set
+///    two slots inward is refused when the intervening choice went the other way, while that other
+///    choice is independently well-formed on its own; and
+/// 5. **the disjunctive slot admits exactly ONE of its members per analysis, and both members are
+///    reachable.** Stated over every identity in the fixture, not just one word: no identity's
+///    morpheme sequence may contain two of that slot's morpheme keys, and each key must appear in
+///    at least one identity. Without the second half the first would hold vacuously for a slot whose
+///    members were both unreachable.
+///
+/// Relations: multiplicity + set per word (via [`assert_word_parity`]); claim 5 is morpheme-key
+/// CONTAINMENT counted per identity, which is neither the parity relation nor a set comparison.
+#[test]
+fn template_order_exercise_disjunctive_slot_and_enforced_order() {
+    let run = run_exercise(EX_TEMPLATE_DISJUNCTIVE_SLOT_AND_ENFORCED_ORDER);
+    let label = &run.label;
+
+    // -- TOP end.
+    let template = run
+        .grammar
+        .templates
+        .iter()
+        .find(|template| {
+            template.slots.len() >= 6
+                && template.slots.iter().filter(|slot| !slot.optional).count() >= 3
+                && template.slots.iter().filter(|slot| slot.optional).count() >= 3
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "{label}: this exercise needs a template with >=6 slots, >=3 obligatory and >=3 \
+                 optional; this grammar declares {:?}",
+                run.grammar
+                    .templates
+                    .iter()
+                    .map(|t| (t.name.clone(), t.slots.len()))
+                    .collect::<Vec<_>>()
+            )
+        });
+
+    // The obligatory-INNERMOST shape: the two outermost slots optional, with an obligatory slot
+    // somewhere inward of them. That is the structural reason claim 3 below holds here and its
+    // opposite holds in exercise 1.
+    let count = template.slots.len();
+    assert!(
+        template.slots[count - 2..].iter().all(|slot| slot.optional),
+        "{label}: the two OUTERMOST slots must both be optional -- they are the swappable pair \
+         claim 3 is about"
+    );
+    assert!(
+        template.slots[..count - 2]
+            .iter()
+            .any(|slot| !slot.optional),
+        "{label}: at least one slot INWARD of the swappable pair must be obligatory -- that is what \
+         stops a fixpoint retry from rescuing the reverse order, and it is the mirror image of the \
+         obligatory-OUTERMOST placement the other template exercise asserts for itself"
+    );
+
+    // The DISJUNCTIVE slot, and its members as morpheme keys.
+    let disjunctive = template
+        .slots
+        .iter()
+        .find(|slot| slot.rules.len() >= 2)
+        .unwrap_or_else(|| {
+            panic!(
+                "{label}: this exercise needs one slot holding TWO OR MORE rules -- that is the \
+                 DISJUNCTIVE third of the construct, and it is what the other template exercise \
+                 asserts it does not have"
+            )
+        });
+    let members: Vec<MorphemeKey> = disjunctive
+        .rules
+        .iter()
+        .map(|id| morpheme_key_of_mrule(&run.grammar, *id))
+        .collect();
+    assert!(
+        members.len() >= 2 && members.iter().all(|key| key.is_some()),
+        "{label}: every rule in the disjunctive slot must resolve to a morpheme key; got {members:?}"
+    );
+
+    // -- BOTTOM end. Claim 1: obligatory slots enforced from the inner edge.
+    run.expect_refused(
+        "kal",
+        "the bare root omits all three obligatory slots at once",
+    );
+    run.expect_refused(
+        "yidkal",
+        "one obligatory slot is omitted -- the template cannot complete without it, the mirror of \
+         the other template exercise's missing-outermost-slot control",
+    );
+
+    // Claim 2: the obligatory core, then each optional slot added.
+    run.expect_identities(
+        "shiyidkal",
+        1,
+        "the minimal well-formed word: the three obligatory slots only",
+    );
+    run.expect_identities(
+        "bishiyidkal",
+        1,
+        "the obligatory core plus the innermost optional slot",
+    );
+    run.expect_identities("gabishiyidkal", 1, "plus the next optional slot outward");
+    run.expect_identities(
+        "hogabishiyidkal",
+        1,
+        "all six slots filled, in the template's own declared order",
+    );
+
+    // Claim 3: THE order claim, and the one exercise 1 cannot make.
+    run.expect_refused(
+        "gahobishiyidkal",
+        "the two outermost optional slots in REVERSE order must be REFUSED here, because three \
+         obligatory slots lie between that pair and the root: the single-pass outer-to-inner \
+         analysis walk reaches an obligatory slot out of turn and dies. An engine that rescued every \
+         out-of-order optional pair by fixpoint retry -- the behaviour the OTHER template exercise \
+         pins as correct for ITS grammar -- admits this word",
+    );
+
+    // Claim 4: the discontinuous dependency is a real gate, with its own non-vacuity control.
+    run.expect_identities(
+        "shiwodkal",
+        1,
+        "the other member of the disjunctive slot is independently well-formed on its own terms",
+    );
+    run.expect_refused(
+        "bishiwodkal",
+        "the outer optional slot's requirement is set TWO slots inward, and the intervening \
+         disjunctive choice went the other way -- every slot's own requirement holds individually, \
+         so without the discontinuous gate this word would parse",
+    );
+
+    // Claim 5: the disjunctive slot admits exactly one member per identity, and both are reachable.
+    for (word, occurrence) in &run.occurrences {
+        for entry in occurrence.entries() {
+            let present = members
+                .iter()
+                .filter(|member| entry.identity.morphemes.contains(member))
+                .count();
+            assert!(
+                present <= 1,
+                "{label}: word {word:?} -- an identity carries {present} members of one DISJUNCTIVE \
+                 slot ({:?}); a disjunctive slot admits at most one",
+                entry.identity.morphemes
+            );
+        }
+    }
+    for member in &members {
+        assert!(
+            run.occurrences.values().any(|occurrence| {
+                occurrence
+                    .entries()
+                    .iter()
+                    .any(|entry| entry.identity.morphemes.contains(member))
+            }),
+            "{label}: the disjunctive-slot member {member:?} appears in no identity at all -- \
+             without every member being reachable, the at-most-one claim above holds vacuously"
+        );
+    }
+}
+
+/// **Exercise 3 of template order/co-occurrence: MORPHEME and ALLOMORPH CO-OCCURRENCE.**
 ///
 /// TOP end: the grammar must declare co-occurrence constraints of both polarities (`require` and
 /// `exclude`) covering at least four distinct adjacency kinds, AND at least one ALLOMORPH-level
@@ -1999,7 +2257,7 @@ fn zero_morphology_exercise_zero_derivation_changes_only_category() {
 
 /// A guard against group A's half of the basis quietly shrinking.
 ///
-/// Eleven `#[test]` functions above each assert their own exercise. If a future edit pointed two
+/// The exercise `#[test]` functions above each assert their own exercise. If a future edit pointed two
 /// exercises of ONE mechanism at the same fixture, or dropped a mechanism, or dropped an exercise,
 /// every other test in this file would still pass while the basis covered less than it claims. So
 /// this asserts the SHAPE itself:
