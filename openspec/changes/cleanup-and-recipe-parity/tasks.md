@@ -315,7 +315,7 @@ over an erased transform is not an exercise.
       anchors, chosen/rejected architectures, complexity, evidence log, and explicit
       fits/refines/splits/adds triggers. Contract and six dossiers landed in `a80cae0`; all concrete
       model-ID/counter/cap evidence remains canonically unmeasured and blocks implementation claims.
-- [ ] 7.7 Prove the first `Morphotactics → BoundaryCleanup` vertical slice with two independent
+- [x] 7.7 Prove the first `Morphotactics → BoundaryCleanup` vertical slice with two independent
       complete-template exercises and two cleanup exercises, exact analysis/root/multiplicity
       parity, cleanup idempotence, and no language-name routing.
       Slice note (2026-08-03, **authored but NOT yet executed** — the box stays unchecked until the
