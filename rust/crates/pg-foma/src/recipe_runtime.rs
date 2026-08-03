@@ -1813,52 +1813,7 @@ pub fn assess_accuracy_with_cache(
                     }
                 }
             };
-            // Mirrors the certification path's baseline fallback, and for the same reason: a plan
-            // needing subtrees `build_controllable` cannot build holds nearly all of a templated
-            // grammar's productive morphology there, so the failure is probably the builder's rather
-            // than the grammar's -- and for the BASELINE the tuned path's network IS the right
-            // answer, being the default compilation of this grammar. Unlike the certification path
-            // the trigger is checked BEFORE proposing rather than after a failed verdict: there is
-            // no cheaper signal to wait for here, and re-proposing the whole corpus to discover what
-            // `unbuildable_markers` already says would double the work for nothing.
-            let markers = crate::build::unbuildable_markers(&candidate.plan);
-            if realized_strategy == EmissionStrategy::PlanComposed
-                && !markers.is_empty()
-                && is_baseline[index]
-            {
-                match FomaProposer::new(grammar) {
-                    Ok(tuned) => {
-                        return assess_one(
-                            candidate.strategy,
-                            EmissionStrategy::TunedSurfaceProbed,
-                            grammar,
-                            tuned,
-                            &peeler,
-                            &peel_budget,
-                            &selection,
-                        )
-                    }
-                    Err(e) => {
-                        return CandidateAccuracy {
-                            requested_strategy: candidate.strategy,
-                            realized_strategy: EmissionStrategy::TunedSurfaceProbed,
-                            verdict: AccuracyVerdict::NotDetermined {
-                                reason: format!(
-                                    "plan needs subtrees build_controllable cannot build ({}) and \
-                                     the tuned emit path that can build them failed: {e}",
-                                    markers
-                                        .iter()
-                                        .map(|marker| format!("{marker:?}"))
-                                        .collect::<Vec<_>>()
-                                        .join(", ")
-                                ),
-                            },
-                            counters: AccuracyCounters::default(),
-                        }
-                    }
-                }
-            }
-            assess_one(
+            let assessed = assess_one(
                 candidate.strategy,
                 realized_strategy,
                 grammar,
@@ -1866,7 +1821,93 @@ pub fn assess_accuracy_with_cache(
                 &peeler,
                 &peel_budget,
                 &selection,
-            )
+            );
+            // EVIDENCE FIRST, FALLBACK SECOND -- and only on a real failure. This mirrors
+            // `evaluate_plans_marked_with_cache_mode`'s own fallback structure step for step, and the
+            // ordering is the load-bearing part, not the destination.
+            //
+            // An earlier version of this function checked `unbuildable_markers` BEFORE proposing, on
+            // the reasoning that the markers are already known and re-proposing costs work. That was
+            // wrong twice over. Marker presence does not mean the controllable path is inadequate, it
+            // means it MIGHT be -- `mpr-gated-exception` carries a marker and confirms on the
+            // controllable net perfectly well -- so an early check routes a candidate that would have
+            // succeeded to a DIFFERENT compiler, and the two paths then report different
+            // `realized_strategy` for the same candidate, which is precisely the mis-attribution
+            // `RuntimeEvaluation::realized_strategy`'s own doc exists to prevent. It is also slower,
+            // not faster, in exactly the case that matters: it built the composed net, threw it away,
+            // and compiled a second one, on the path whose entire purpose is speed.
+            if assessed.verdict.is_no_loss() {
+                return assessed;
+            }
+            if realized_strategy != EmissionStrategy::PlanComposed {
+                // A whole-grammar compiler's result is its own answer; there is nothing to fall back
+                // to and nothing that could rescue it.
+                return assessed;
+            }
+            let markers = crate::build::unbuildable_markers(&candidate.plan);
+            if markers.is_empty() {
+                // Assessed on a network that fully represents its own plan: a real result, as is.
+                return assessed;
+            }
+            // Assessed as lossy AND the plan needed subtrees `build_controllable` cannot build. On a
+            // templated grammar those subtrees hold nearly all of the productive morphology, so the
+            // loss is probably the builder's, not the grammar's.
+            if !is_baseline[index] {
+                // A permutation cannot be rescued: the tuned path derives topology from a plan it
+                // builds itself, so assessing a permutation there would measure the BASELINE network
+                // and report it as this permutation. Refuse, naming why -- and keep the counters,
+                // because the check DID run; only its attribution is unavailable.
+                return CandidateAccuracy {
+                    requested_strategy: candidate.strategy,
+                    realized_strategy: EmissionStrategy::PlanComposed,
+                    verdict: AccuracyVerdict::NotDetermined {
+                        reason: format!(
+                            "plan structure cannot be honoured: it lost analyses on the \
+                             controllable-only network ({:?}) and requires subtrees \
+                             build_controllable cannot build ({}); the tuned emit path that can \
+                             build them derives topology from its own plan, so assessing this \
+                             permutation there would measure the baseline network and report it as \
+                             this permutation",
+                            assessed.verdict,
+                            markers
+                                .iter()
+                                .map(|marker| format!("{marker:?}"))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        ),
+                    },
+                    counters: assessed.counters,
+                };
+            }
+            // The tuned path CAN build them, and for the baseline its network is the right answer:
+            // the default compilation of this grammar.
+            match FomaProposer::new(grammar) {
+                Ok(tuned) => assess_one(
+                    candidate.strategy,
+                    EmissionStrategy::TunedSurfaceProbed,
+                    grammar,
+                    tuned,
+                    &peeler,
+                    &peel_budget,
+                    &selection,
+                ),
+                Err(e) => CandidateAccuracy {
+                    requested_strategy: candidate.strategy,
+                    realized_strategy: EmissionStrategy::TunedSurfaceProbed,
+                    verdict: AccuracyVerdict::NotDetermined {
+                        reason: format!(
+                            "plan needs subtrees build_controllable cannot build ({}) and the tuned \
+                             emit path that can build them failed: {e}",
+                            markers
+                                .iter()
+                                .map(|marker| format!("{marker:?}"))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        ),
+                    },
+                    counters: assessed.counters,
+                },
+            }
         })
         .collect()
 }
