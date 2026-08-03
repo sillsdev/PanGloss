@@ -121,20 +121,58 @@ fixture evidence, not a universal bound.
 
 ## Conformance fixtures
 
-### Exercise 1 — Sena-shaped boundary-only allomorph
+Both exercises below are now machine-checked, as the cleanup half of task 7.7's
+`Morphotactics → BoundaryCleanup` vertical slice, by
+[`rust/crates/pg-foma/tests/morphotactics_boundary_cleanup_slice.rs`](../../../rust/crates/pg-foma/tests/morphotactics_boundary_cleanup_slice.rs).
+The two exercises are chosen so that neither grammar can exercise the other's mechanism: exercise 1
+has a boundary PRODUCER and no boundary consumer, exercise 2 has a boundary CONSUMER and no
+compounding, so neither regression can hide behind the other.
 
-Positive: the ordinary prefix and the all-boundary `^0+` prefix both remain reachable; expected
-analysis multiplicity for the marker-bearing surface remains two where the oracle has two. Applying
-cleanup twice must produce the identical normalized multiset. Negative mutation: exclude the
-multi-representation marker from cleanup; expected multiplicity drops and the gate must fail.
+### Exercise 1 — boundary produced by morphotactics, consumed terminally
 
-### Exercise 2 — Caquinte-shaped boundary consumer
+Uses `recipe-strata-generic`, whose compounding join seam is authored as a `BoundaryDefinition` and
+never a plain `SegmentDefinition` (that grammar's own comment records this as a re-verified gotcha) —
+so the boundary this exercise cleans is one the MORPHOTACTICS end of the slice created. Positive: the
+seam-bearing compound row keeps both of its analyses (the non-head resolves as both of its
+homophonous readings), at exact multiplicity one each. Cleanup is asserted terminal three independent
+ways: last in `MechanismKind::COMPOSITION_ORDER`, no outgoing edge, and the only node whose
+`boundary_output()` is `Removed` while every node's `boundary_input()` is `Present`. Negative
+mutation: excluding a boundary family from cleanup is a MEASURED recall regression
+(`MultiplicityMismatch { word: "s", expected: 2, actual: 1 }`) recorded in
+[`build.rs`](../../../rust/crates/pg-foma/src/build.rs)'s `boundary_cleanup_net`, which is why the
+relation the 7.7 gate builds is the same blanket, unconditional one and not a narrower relation
+invented for the test.
 
-Positive: a boundary-crossing epenthesis/metathesis consumer runs while the marker is present, then
-cleanup removes it; expected multiset is the one complete analysis with root, future morpheme, and
-surface identity preserved. Mutation: move cleanup before the consumer; expected multiset is empty
-or differs from the oracle and graph validation must reject the edge. This is a proposed semantic
-exercise; the checked-in boundary gate currently measures recall and epsilon precision separately.
+The Sena-shaped all-boundary `^0+` allomorph remains pinned separately, by
+[`boundary_marker_epsilon_collapse_gate.rs`](../../../rust/crates/pg-foma/tests/boundary_marker_epsilon_collapse_gate.rs)'s
+own inline synthetic grammar. It is NOT re-used as a 7.7 exercise because it is not a staged
+conformance fixture — it has no committed `words.yaml`, so a 7.7 assertion over it would have to
+hand-derive its expected signatures, which is exactly what this program's fixture discipline forbids.
+Staging it (and thereby measuring those signatures) is owed and is not done here.
+
+### Exercise 2 — boundary consumer runs before cleanup
+
+Uses `recipe-ordered-generic`, whose `mrComplexMeta` metathesis rule carries a
+`<BoundaryMarker boundary="cBnd" />` between its two switch roles: the boundary is its TRIGGER, and
+the boundary-crossing word `mu+i` retains the seam in its surface. Positive: that word keeps exactly
+one analysis at multiplicity one, with the un-metathesized neighbour `mi` as the no-site control —
+without which "the rule fired" would be indistinguishable from "the rule always fires". Mutation:
+the gate takes this fixture's OWN DERIVED graph, moves cleanup ahead of its consumer by reversing the
+single edge into it, and requires `MechanismGraph::validate` to refuse with `CleanupNotTerminal` —
+a statement about the real spine, not about a hand-built graph.
+
+### Idempotence
+
+Pinned by the same gate, on the cleanup relation built exactly as `boundary_cleanup_net` builds it
+(every `CharDefKind::Boundary` token, `tok -> 0`, blanket and unconditional), applied twice with
+`apply_down`. The load-bearing input is the ADJACENT-DOUBLED boundary (`seg tok tok seg`), plus a
+mixed run of two different boundary families where the table declares more than one: a
+once-per-position, leftmost-only, or context-restricted deletion leaves a surviving boundary token
+after the first pass, so the second pass changes the result. Three companion assertions keep it from
+passing vacuously — the boundary inventory must be non-empty, the first pass must actually delete
+something, and its output must contain no boundary token — and a fourth pins this dossier's "no
+non-boundary symbol is deleted" obligation by requiring the relation to be the identity on a
+boundary-free input.
 
 **Positive cases:** the ordinary plus boundary-only prefixes remain reachable, and a boundary consumer
 runs before terminal cleanup.
@@ -150,6 +188,12 @@ idempotence check, or use the wrong table/symbol space.
 `ps = {(surface=ps, prefix=ordinary, source_model_id=proposed:boundary-consumer, multiplicity=1)}` after cleanup; the early-cleanup and
 wrong-table mutations are `{}` or an oracle mismatch, not exact negatives. These are canonical
 expected records; the existing gate's `<= 20` proposal result is a separate measured fixture fact.
+
+The `s`/`ps` records above remain the *proposed* shape for the un-staged Sena-shaped exercise. The
+rows task 7.7 actually pins are the two staged fixtures' own committed ones, read out of their
+`words.yaml` by the gate rather than restated here: `recipe-strata-generic`'s seam-bearing compound
+(two distinct identities, multiplicity one each) and `recipe-ordered-generic`'s boundary-crossing
+`mu+i` (one identity, multiplicity one) with `mi` as the no-site control.
 
 ## Implementation status
 

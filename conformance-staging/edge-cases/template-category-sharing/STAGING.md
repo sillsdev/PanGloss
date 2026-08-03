@@ -80,3 +80,15 @@ Not yet proposed upstream (no `sillsdev/machine` PR opened). Candidate destinati
 `machine/conformance/edge-cases/template-category-sharing/` — same two files (`grammar.xml`,
 `words.yaml`), re-verified against the C# founding oracle before acceptance. On acceptance, delete
 this staged copy in the same change (the graduation guard enforces this mechanically).
+
+## Also depended on by task 7.7 (added 2026-08-03)
+
+This is **complete-template exercise 1** of the first `Morphotactics -> BoundaryCleanup` vertical
+slice, `rust/crates/pg-foma/tests/morphotactics_boundary_cleanup_slice.rs` (task 7.7 of
+`openspec/changes/cleanup-and-recipe-parity`). Its load-bearing rows there are the two cross-template
+mixes (`pakolola`, `takolosa`), which must have EMPTY identity sets, and `mbili`, which must have two
+distinct identities at multiplicity one each.
+
+That gate reads every expected count OUT OF the `parses:` rows in this directory's `words.yaml` — it
+hand-derives nothing — so editing a word entry here changes what it asserts. If you add, remove, or
+re-count a `parses:` row, re-run that gate as well as `conformance_fixtures_gate`.

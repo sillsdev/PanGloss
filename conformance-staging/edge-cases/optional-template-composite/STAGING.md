@@ -98,3 +98,19 @@ suite) — that test is what actually gates CI; the throwaway dump test was dele
 Not yet proposed upstream. Candidate destination:
 `machine/conformance/edge-cases/optional-template-composite/`. On acceptance, delete this staged
 copy in the same change (graduation guard enforces this mechanically).
+
+## Also depended on by task 7.7 (added 2026-08-03)
+
+This is **complete-template exercise 2** of the first `Morphotactics -> BoundaryCleanup` vertical
+slice, `rust/crates/pg-foma/tests/morphotactics_boundary_cleanup_slice.rs` (task 7.7 of
+`openspec/changes/cleanup-and-recipe-parity`). It replaced `recipe-template-generic`, which the
+dossier originally named but which ABORTS the test process and so cannot host a gate at all — see
+`docs/fst-plan/subrecipes/morphotactics.md`'s exercise 2 for that finding.
+
+Its load-bearing row there is `monu`: the bare root and the mandatory-but-silent `mrVacuous` slot must
+be TWO distinct identities of one surface, distinguished by their morpheme sequence. The gate also
+pins the whole-fixture shape — the silent slot doubles exactly the four bare roots and nothing else.
+
+That gate reads every expected count OUT OF the `parses:` rows in this directory's `words.yaml` — it
+hand-derives nothing — so editing a word entry here changes what it asserts. If you add, remove, or
+re-count a `parses:` row, re-run that gate as well as `conformance_fixtures_gate`.

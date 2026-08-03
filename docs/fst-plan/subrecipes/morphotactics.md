@@ -130,6 +130,12 @@ not an exact negative.
 
 ## Conformance fixtures
 
+Both exercises below are now machine-checked, as the `Morphotactics → BoundaryCleanup` half of
+task 7.7's vertical slice, by
+[`rust/crates/pg-foma/tests/morphotactics_boundary_cleanup_slice.rs`](../../../rust/crates/pg-foma/tests/morphotactics_boundary_cleanup_slice.rs).
+That gate reads every expected count out of the fixture's own committed `words.yaml` rather than
+restating a number here, so this section describes the exercises and the gate owns the assertions.
+
 ### Exercise 1 — complete-template exclusion
 
 Use the language-neutral `template-category-sharing` staging fixture. Expected oracle multiset:
@@ -137,19 +143,42 @@ Use the language-neutral `template-category-sharing` staging fixture. Expected o
 `takolosa` are empty; `mbili` contains exactly two analyses, `eMbiliA` and `eMbiliB`. Mutations
 that re-add the rules to the stratum-level free rule list must fail the cross-template gate.
 
-### Exercise 2 — complete-template scale and identity
+### Exercise 2 — complete-template zero exponence in a mandatory slot
 
-Use `recipe-template-generic`. The complete three-word fixture is the identity/multiplicity
-authority; the bounded characterization must not be promoted to full-corpus proof. The staging
-record documents the pathological midpoint `C(12,6)=924`; a conformance mutation that splits a
-paired unit must change the expected multiset and be rejected. This is a proposed dossier exercise,
-not a claim that Task 7 has already passed.
+**Changed 2026-08-03, and the reason is the point.** This exercise originally named
+`recipe-template-generic`. That fixture is one of the two that ABORT the test process outright (with
+`machine:edge-cases/deep-optional-affix-nesting`), so a gate built on it cannot report a result at
+all — it takes the whole test binary down with it, including every other exercise in the same file.
+A dossier exercise that cannot be executed is not evidence, so 7.7 uses
+`optional-template-composite` instead and the `recipe-template-generic` scale characterization stays
+parked with the process-abort defect, not folded into a green gate.
 
-**Positive cases:** `pakolosa`, `takolola`, and the complete-template scale row.
+Use `optional-template-composite`. The load-bearing row is `monu`: one surface, TWO analyses — the
+bare root, and template2's mandatory-but-silent `mrVacuous` slot applied alone, a real morpheme that
+changes nothing visible. An engine whose composite pruning treats a silent-output rule as prunable
+loses the second one, which is the recall trap
+[morphotactic-composite-pruning.md](../morphotactic-composite-pruning.md)'s "vacuous rules in
+mandatory slots" finding names. Whole-fixture shape: the silent slot doubles exactly the four bare
+roots and nothing else; every affixed word resolves to one clean analysis, which held only after the
+four template rules were removed from the Stratum's own `morphologicalRules=` list (the fixture's own
+`words.yaml` header records having measured the opposite first).
+
+**Why this is independent of exercise 1, and the honest limit of that claim.** Exercise 1's
+load-bearing claim is NEGATIVE — over-generation across template boundaries — and exercise 2's is
+POSITIVE — under-generation inside one template. Exercise 1's grammar contains no zero-output rule,
+so a regression that pruned silent rules leaves it green; exercise 2's expectations are stated over
+its own grammar's templates, so exercise 1's documented mutation cannot reach them. What would fail
+BOTH is a defect in the shared `ApplyMorphologicalRules(input).Concat(ApplyTemplates(input))`
+interleaving itself, because 7.7 asks for two template exercises and both are therefore template
+exercises. Independence here means each has a falsifier the other does not detect, not that no single
+defect can reach both.
+
+**Positive cases:** `pakolosa`, `takolola`, and `monu`'s silent-slot second analysis.
 **Negative cases:** `pakolola` and `takolosa` cross-template mixes.
-**Identity/multiplicity cases:** `mbili` retains two distinct root analyses for one surface.
-**Mutations:** re-add the four template rules to the free stratum rule list, or split a paired unit;
-both mutations must fail the contract.
+**Identity/multiplicity cases:** `mbili` retains two distinct root analyses for one surface; `monu`
+retains a bare and a silent-slot analysis of one surface.
+**Mutations:** re-add the four template rules to the free stratum rule list, or prune the vacuous
+mandatory slot; both mutations must fail the contract.
 **Exact normalized expected multisets/tuples:** the staging oracle record is
 `pakolosa = {(surface=pakolosa, signature=PFXA+KOLO+SFXA, source_model_id=[mrPfxA,mrSfxA], multiplicity=1)}`,
 `takolola = {(surface=takolola, signature=PFXB+KOLO+SFXB, source_model_id=[mrPfxB,mrSfxB], multiplicity=1)}`,

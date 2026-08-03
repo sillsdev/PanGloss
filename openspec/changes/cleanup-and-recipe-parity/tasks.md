@@ -318,6 +318,65 @@ over an erased transform is not an exercise.
 - [ ] 7.7 Prove the first `Morphotactics → BoundaryCleanup` vertical slice with two independent
       complete-template exercises and two cleanup exercises, exact analysis/root/multiplicity
       parity, cleanup idempotence, and no language-name routing.
+      Slice note (2026-08-03, **authored but NOT yet executed** — the box stays unchecked until the
+      gate has actually run green; see the "what to run" list at the end of this note):
+      `rust/crates/pg-foma/tests/morphotactics_boundary_cleanup_slice.rs` joins two ends per
+      fixture — the derived `MechanismGraph` (a `Morphotactics` node, a terminal `BoundaryCleanup`
+      node, and a directed path between them) and what the engine actually produces for that same
+      grammar's pinned words, projected through `parity::OccurrenceIdentities`. A gate asserting only
+      the graph would assert a description of a pipeline; one asserting only the analyses would not
+      have touched the slice.
+      **Every expected number is READ OUT of a committed `words.yaml`, never hand-derived.** The four
+      exercises are existing staged fixtures whose signatures were measured by their authors:
+      `template-category-sharing` (cross-template OVER-generation: two impossible mixes must have
+      empty identity sets), `optional-template-composite` (zero-exponence UNDER-generation: a
+      mandatory-but-silent slot must contribute a second distinct identity for `monu`),
+      `recipe-strata-generic` (a boundary PRODUCED by morphotactics — the compounding seam — with no
+      boundary consumer in the grammar at all) and `recipe-ordered-generic` (a boundary CONSUMED by
+      `mrComplexMeta`'s `BoundaryMarker`, with no compounding at all). The cleanup pair is
+      independent two ways: neither grammar can exercise the other's mechanism. The template pair is
+      independent in its falsifiers — each has one the other cannot detect — but NOT against a defect
+      in the shared `ApplyMorphologicalRules(input).Concat(ApplyTemplates(input))` interleaving, and
+      that limit is stated rather than papered over.
+      **Which relation each assertion uses is named at every use site**, because a relation chosen
+      for convenience is how the v1 scope was once made invisible: the program's parity relation
+      (deduplicated `AnalysisIdentity` SET equality) carries the language-rename invariance check;
+      7.7's additional MULTIPLICITY ask is carried by `raw_analyses()` against the committed
+      `parses:` row count, since `words.yaml` is sorted-but-NOT-deduped and a repeated signature
+      there is a measured multiplicity; full `WordAnalysis` equality is used nowhere. Distinct-identity
+      counts are bounded by the committed record from both sides (distinct morpheme-JOIN count below,
+      row count above) and pinned exactly only where those bounds meet — so the gate cannot assert a
+      cardinality its fixture did not record.
+      `root_index` load-bearing is pinned by `head-ambiguous-compounding`'s `dakimo` (a witness, not a
+      fifth exercise): the full relation must keep two identities, and the root-BLIND projection of
+      that same set must collapse to one, STRICTLY fewer — so the test cannot pass if root position is
+      ignored. Idempotence is pinned on the cleanup relation built exactly as `build.rs`'s own
+      `boundary_cleanup_net` builds it, applied twice via `apply_down`, with the adjacent-doubled
+      boundary as the input a once-only or context-restricted deletion fails on, plus non-vacuity and
+      an identity-on-boundary-free-input companion. No-language-name-routing reloads each fixture with
+      its `<Language><Name>` replaced and requires byte-identical `canonical_projection()` and
+      unchanged per-word identity sets AND multiplicities.
+      Two findings worth carrying forward. (1) The morphotactics dossier's designated exercise 2,
+      `recipe-template-generic`, is one of the fixtures that ABORT the test process, so it cannot host
+      a gate at all — its scale characterization stays parked with that defect rather than being
+      folded into a green gate. (2) The cleanup dossier's designated exercise 1, the Sena-shaped
+      all-boundary `^0+` allomorph, exists only as inline XML inside
+      `boundary_marker_epsilon_collapse_gate.rs` and has no committed `words.yaml`; asserting over it
+      would require hand-deriving signatures, so staging it (and measuring those signatures) is owed
+      and is NOT done here. Nothing in this slice touches an optimizer internal, a proposal ceiling,
+      or a clock.
+      **What to run:** `rust/tools/pg.ps1 -Mode test -Package pg-foma -Filter
+      morphotactics_boundary_cleanup_slice` for the slice itself, and
+      `rust/tools/pg.ps1 -Mode test -Package pg-parse -Filter conformance_fixtures_gate` to confirm
+      the five fixtures still replay (this slice edits no `grammar.xml`/`words.yaml`, only their
+      `STAGING.md`, so that gate should be unchanged and is the cheap one to run first).
+      Costing note, because three agent batches on 2026-08-02/03 spent their whole budget here and
+      produced zero measurements: `-Filter` is appended to `cargo nextest run` as a positional
+      test-NAME filter (`pg.ps1` line ~564), so it narrows EXECUTION only. `-Package pg-foma` still
+      compiles and links all ~75 of that crate's test binaries plus the vendored `foma` C library, and
+      `pg.ps1` exposes no `--test <target>` passthrough that would narrow compilation instead. There
+      is no cheaper path to verifying this file; budget a cold pg-foma build, or batch it with other
+      pg-foma work in one run.
 - [ ] 7.8 Exercise the remaining orthogonal basis at least twice where possible: template
       order/co-occurrence, cascade/strata, lexical class, allomorph priority, bounded copy,
       unbounded peeled copy, bounded metathesis, interdigitation, feature/POS/MPR gates,

@@ -125,3 +125,22 @@ set exactly. The test is committed un-`#[ignore]`d as a green regression guard.
 Not yet proposed upstream. Candidate destination:
 `machine/conformance/edge-cases/head-ambiguous-compounding/`. On acceptance, delete this staged copy
 in the same change (graduation guard enforces this mechanically).
+
+## Also depended on by task 7.7 (added 2026-08-03)
+
+A SECOND Rust gate now depends on this fixture's `dakimo` witness, alongside
+`cross_compiler_equivalence_gate.rs`'s RED-2:
+`rust/crates/pg-foma/tests/morphotactics_boundary_cleanup_slice.rs`'s
+`root_index_discriminates_two_readings_of_one_surface`, which is task 7.7's falsifier for its
+"`root_index` is load-bearing" requirement.
+
+It is **not** one of 7.7's four exercises (those are two template and two cleanup fixtures) — it is
+the property witness, used because this is the only staged fixture whose two readings of one surface
+agree on morpheme sequence AND category and differ ONLY in root position, which is exactly why no
+`words.yaml` signature diff can pin the discrimination. That test asserts both halves: the full
+identity relation keeps two members, and the root-BLIND projection of the same set collapses to one,
+strictly fewer. It therefore cannot pass if root position is ignored.
+
+Consequence for editing: if `dakimo` ever stops being ambiguous in exactly that way — a grammar edit
+that changed either compounding rule's output category, or made the two readings' morpheme sequences
+differ — that test fails as a FIXTURE regression, not an engine one.
