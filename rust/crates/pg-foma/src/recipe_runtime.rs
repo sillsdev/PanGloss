@@ -9,6 +9,7 @@ use crate::enumerate::{CandidatePlan, EmissionStrategy};
 use crate::parity::{
     certified_occurrence, IdentityDivergence, OccurrenceIdentities, ParitySide,
 };
+use crate::recipe_accuracy::{AccuracyCounters, AccuracyVerdict, CandidateAccuracy};
 use crate::recipe_optimizer::{
     Certification, CorpusCompletenessEvidence, CorpusExclusion, OracleEligibilityConfig, Score,
 };
@@ -1697,6 +1698,277 @@ fn evaluate_plans_marked_with_cache_mode<const OBSERVE: bool>(
         cache.absorb_divergence(candidate.divergence);
     }
     evaluated
+}
+
+/// **Assess ACCURACY — "did we undergenerate?" — with ZERO full-HC confirmation calls per
+/// candidate.**
+///
+/// This is the fast path the whole objective turns on: a rough pass/fail over the eligible
+/// vocabulary, cheap enough to run as a regression gate on every change, rather than a full
+/// certification battery. Read [`crate::recipe_accuracy`]'s module doc first — it carries the
+/// soundness argument, the one hazard, and the reasons this is NOT a certification.
+///
+/// # What it does per candidate
+/// 1. Realizes the candidate's network exactly as [`evaluate_plans_marked_with_cache`] does — the
+///    SAME [`realize_plan_composed`] for composed plans, the same two compilers for the whole-grammar
+///    strategies. A different network would make the verdict a statement about something else.
+/// 2. Proposes over the corpus through [`crate::composite::propose_union_peel_with_diagnostics`],
+///    the same propose-UNION-peel the certification path uses.
+/// 3. Checks admission-key containment against the oracle result THIS RUN already prepared once per
+///    occurrence.
+///
+/// # What it deliberately does not do
+/// - **It builds no `pg_parse::Morpher`.** That is the expensive confirm-side object
+///   (`Morpher::new` runs `RuleCache::build`, compiling every matcher FST in the grammar), and there
+///   is none in scope here — so "zero confirmation calls" is enforced by what this function can
+///   reach, not by a counter it remembers to keep at zero. The counter is reported anyway, from the
+///   same diagnostics field the certification path reads its `Score::confirmation` from, so the claim
+///   is checkable rather than merely asserted.
+/// - **It computes no [`Score`] and moves no ranking.** Containment cannot price a compilation; the
+///   objective stays `confirmation_steps`-led and untouched.
+/// - **It never truncates a proposal set and never caps per-candidate work.** Either would be
+///   indistinguishable from the recall failure this exists to find.
+///
+/// # Corpus eligibility is the certification path's, unchanged
+/// The same all-or-nothing rule applies: if ANY requested occurrence was excluded (a step-capped
+/// oracle result, an unprepared row), every candidate comes back
+/// [`crate::recipe_accuracy::AccuracyVerdict::NotDetermined`] rather than assessed over a silently
+/// narrowed corpus. Assessing a subset under the requested corpus's name is the failure mode
+/// [`PreparedCorpus`] exists to prevent, and it is no more acceptable for a cheap verdict than for
+/// an expensive one.
+pub fn assess_accuracy_with_cache(
+    grammar: &Grammar,
+    plans: &[CandidatePlan],
+    words: &[String],
+    budget: RuntimeBudget,
+    is_baseline: &[bool],
+    cache: &mut RunEvaluationCache,
+) -> Vec<CandidateAccuracy> {
+    assert_eq!(
+        plans.len(),
+        is_baseline.len(),
+        "one baseline flag per plan is required -- the same contract \
+         evaluate_plans_marked_with_cache states, for the same reason"
+    );
+    let alphabet = SegAlphabet::new(surface_table(grammar));
+    let prules: Vec<&PhonRuleDef> = crate::enumerate::prules_in_order(grammar);
+    let opts = FomaOptions::default();
+    let compose = ComposeBudget::from_env().with_step_timeout(
+        budget
+            .build
+            .filter(|limit| *limit != u64::MAX)
+            .map(std::time::Duration::from_nanos),
+    );
+    let selection = cache.select(words);
+    if !selection.exclusions.is_empty() {
+        let stage = if selection.capped {
+            "oracle-capped"
+        } else {
+            "corpus-incomplete"
+        };
+        return plans
+            .iter()
+            .map(|plan| CandidateAccuracy {
+                requested_strategy: plan.strategy,
+                realized_strategy: plan.strategy,
+                verdict: AccuracyVerdict::NotDetermined {
+                    reason: format!(
+                        "corpus eligibility refused the batch ({stage}): {} of {} requested \
+                         occurrences excluded",
+                        selection.exclusions.len(),
+                        words.len()
+                    ),
+                },
+                counters: AccuracyCounters::default(),
+            })
+            .collect();
+    }
+    // Grammar-static and reusable across every candidate in the run: the peeler is a pure function
+    // of the grammar and its entry point takes `&self`, exactly as the certification path's own
+    // hand-back of `confirm_pieces` relies on. Note what is NOT built beside it -- no morpher, no
+    // morpheme-owner map, because nothing here confirms.
+    let peeler = crate::peel::ReduplicationPeeler::new(grammar);
+    let peel_budget = ComposeBudget::from_env();
+    plans
+        .iter()
+        .enumerate()
+        .map(|(index, candidate)| {
+            let realized = realize_accuracy_proposer(
+                candidate,
+                grammar,
+                &opts,
+                &alphabet,
+                &prules,
+                &compose,
+                cache,
+            );
+            let (realized_strategy, proposer) = match realized {
+                Ok(ready) => ready,
+                Err((realized_strategy, reason)) => {
+                    return CandidateAccuracy {
+                        requested_strategy: candidate.strategy,
+                        realized_strategy,
+                        verdict: AccuracyVerdict::NotDetermined { reason },
+                        counters: AccuracyCounters::default(),
+                    }
+                }
+            };
+            // Mirrors the certification path's baseline fallback, and for the same reason: a plan
+            // needing subtrees `build_controllable` cannot build holds nearly all of a templated
+            // grammar's productive morphology there, so the failure is probably the builder's rather
+            // than the grammar's -- and for the BASELINE the tuned path's network IS the right
+            // answer, being the default compilation of this grammar. Unlike the certification path
+            // the trigger is checked BEFORE proposing rather than after a failed verdict: there is
+            // no cheaper signal to wait for here, and re-proposing the whole corpus to discover what
+            // `unbuildable_markers` already says would double the work for nothing.
+            let markers = crate::build::unbuildable_markers(&candidate.plan);
+            if realized_strategy == EmissionStrategy::PlanComposed
+                && !markers.is_empty()
+                && is_baseline[index]
+            {
+                match FomaProposer::new(grammar) {
+                    Ok(tuned) => {
+                        return assess_one(
+                            candidate.strategy,
+                            EmissionStrategy::TunedSurfaceProbed,
+                            grammar,
+                            tuned,
+                            &peeler,
+                            &peel_budget,
+                            &selection,
+                        )
+                    }
+                    Err(e) => {
+                        return CandidateAccuracy {
+                            requested_strategy: candidate.strategy,
+                            realized_strategy: EmissionStrategy::TunedSurfaceProbed,
+                            verdict: AccuracyVerdict::NotDetermined {
+                                reason: format!(
+                                    "plan needs subtrees build_controllable cannot build ({}) and \
+                                     the tuned emit path that can build them failed: {e}",
+                                    markers
+                                        .iter()
+                                        .map(|marker| format!("{marker:?}"))
+                                        .collect::<Vec<_>>()
+                                        .join(", ")
+                                ),
+                            },
+                            counters: AccuracyCounters::default(),
+                        }
+                    }
+                }
+            }
+            assess_one(
+                candidate.strategy,
+                realized_strategy,
+                grammar,
+                proposer,
+                &peeler,
+                &peel_budget,
+                &selection,
+            )
+        })
+        .collect()
+}
+
+/// Realize one candidate into the proposer the accuracy check will propose from — the same network
+/// the certification path measures, by construction (see [`realize_plan_composed`]).
+#[allow(clippy::type_complexity)]
+fn realize_accuracy_proposer(
+    candidate: &CandidatePlan,
+    grammar: &Grammar,
+    opts: &FomaOptions,
+    alphabet: &SegAlphabet<'_>,
+    prules: &[&PhonRuleDef],
+    compose: &ComposeBudget,
+    cache: &mut RunEvaluationCache,
+) -> Result<(EmissionStrategy, FomaProposer), (EmissionStrategy, String)> {
+    match candidate.strategy {
+        EmissionStrategy::TunedSurfaceProbed => FomaProposer::new(grammar)
+            .map(|proposer| (EmissionStrategy::TunedSurfaceProbed, proposer))
+            .map_err(|e| {
+                (
+                    EmissionStrategy::TunedSurfaceProbed,
+                    format!("tuned emit path failed to build: {e}"),
+                )
+            }),
+        EmissionStrategy::TemplatedUnderlyingTokens => {
+            crate::templated_compile::compile_templated_morphotactics(grammar)
+                .map(|output| (EmissionStrategy::TemplatedUnderlyingTokens, output.proposer))
+                .map_err(|e| {
+                    (
+                        EmissionStrategy::TemplatedUnderlyingTokens,
+                        format!("templated underlying-token path failed to build: {e}"),
+                    )
+                })
+        }
+        EmissionStrategy::PlanComposed => {
+            let report = cache.emission_report(grammar);
+            match realize_plan_composed(candidate, grammar, opts, alphabet, prules, compose, report)
+            {
+                RealizedPlanComposed::Ready { proposer, .. } => {
+                    Ok((EmissionStrategy::PlanComposed, proposer))
+                }
+                RealizedPlanComposed::Failed { certification, .. } => Err((
+                    EmissionStrategy::PlanComposed,
+                    format!("candidate network could not be realized: {certification:?}"),
+                )),
+            }
+        }
+    }
+}
+
+/// Propose over the eligible corpus and check containment. No confirmation engine is reachable from
+/// here — that is the point.
+fn assess_one(
+    requested_strategy: EmissionStrategy,
+    realized_strategy: EmissionStrategy,
+    grammar: &Grammar,
+    mut proposer: FomaProposer,
+    peeler: &crate::peel::ReduplicationPeeler,
+    peel_budget: &ComposeBudget,
+    selection: &PreparedSelection,
+) -> CandidateAccuracy {
+    let mut counters = AccuracyCounters::default();
+    let mut misses = Vec::new();
+    for (occurrence_ordinal, (word, oracle)) in selection.expected.iter().enumerate() {
+        // UNBOUNDED, deliberately: a bounded proposal set that trips reads as undergeneration, and a
+        // per-candidate work budget that silently prunes candidates was merged once, never fired,
+        // and was reverted. `ApplyBudget::unbounded()` therefore cannot report `Incomplete`.
+        let proposed = crate::composite::propose_union_peel_with_diagnostics(
+            grammar,
+            &mut proposer,
+            peeler,
+            peel_budget,
+            word,
+            &crate::compose_budget::ApplyBudget::unbounded(),
+        );
+        let (proposals, _peel_used, peel_chain_depth_error, diagnostics, proposal_calls) =
+            match proposed {
+                Ok(complete) => complete,
+                Err(_) => unreachable!("ApplyBudget::unbounded() can never report Incomplete"),
+            };
+        let mut occurrence = crate::recipe_accuracy::check_occurrence(
+            word,
+            occurrence_ordinal as u64,
+            oracle,
+            &proposals,
+            &mut misses,
+        );
+        occurrence.raw_paths = diagnostics.raw_paths as u64;
+        occurrence.proposal_calls = proposal_calls as u64;
+        // A refused peel means this occurrence's proposal set is INCOMPLETE. Recorded rather than
+        // ignored; `verdict_from` turns any non-zero total into `NotDetermined`, because a
+        // containment verdict over a truncated proposal set is not a verdict.
+        occurrence.peel_refusals = u64::from(peel_chain_depth_error.is_some());
+        counters.absorb(occurrence);
+    }
+    CandidateAccuracy {
+        requested_strategy,
+        realized_strategy,
+        verdict: crate::recipe_accuracy::verdict_from(&counters, misses),
+        counters,
+    }
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]

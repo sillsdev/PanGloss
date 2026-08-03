@@ -41,7 +41,7 @@ type TimedConfirmedBuckets = (ConfirmedBuckets, Duration);
 
 /// `Ok` payload of [`FomaAnalyzer::propose_candidates_with_diagnostics_budgeted`]: the deduped
 /// candidate set plus peel/diagnostics bookkeeping.
-type ProposeCandidatesOk = (
+pub(crate) type ProposeCandidatesOk = (
     Vec<Candidate>,
     bool,
     Option<ComposeError>,
@@ -50,7 +50,7 @@ type ProposeCandidatesOk = (
 );
 /// `Err` payload of [`FomaAnalyzer::propose_candidates_with_diagnostics_budgeted`]: which budget
 /// dimension tripped, the measured value/limit, and diagnostics for the measured prefix.
-type ProposeCandidatesErr = (ApplyDimension, usize, usize, ProposalDiagnostics, usize);
+pub(crate) type ProposeCandidatesErr = (ApplyDimension, usize, usize, ProposalDiagnostics, usize);
 
 #[cfg(all(feature = "test-concurrency-hook", not(target_arch = "wasm32")))]
 #[doc(hidden)]
@@ -288,6 +288,112 @@ fn accumulate_proposal_diagnostics(total: &mut ProposalDiagnostics, next: Propos
     total.unique_candidates += next.unique_candidates;
     total.traversal_elapsed += next.traversal_elapsed;
     total.decode_dedup_elapsed += next.decode_dedup_elapsed;
+}
+
+/// `propose(word)` UNION `peel_candidates(word, propose)`, deduped by `(morphemes, root_index)`,
+/// with diagnostics — **the whole pre-confirm half, with no [`Morpher`] anywhere in its signature.**
+///
+/// # Why this is a free function and not only a method
+/// [`FomaAnalyzer`] owns a confirming `Morpher`, and building one runs `RuleCache::build`, which
+/// compiles every matcher FST in the grammar. A caller that only wants to know WHAT a compiled
+/// network proposes — the confirmation-free accuracy check in [`crate::recipe_accuracy`] — should not
+/// have to construct the confirmation engine in order to ask. Taking the proposer and peeler as
+/// parameters makes "this call cannot confirm anything" a property of the TYPE SIGNATURE rather than
+/// a promise in a comment: there is no `Morpher` in scope to call.
+///
+/// [`FomaAnalyzer::analyze_word_with_diagnostics_budgeted`]'s own propose stage delegates straight
+/// here, so the accuracy check and the certification path propose through one shared definition —
+/// they cannot drift into offering different candidate sets for the same word and network.
+pub(crate) fn propose_union_peel_with_diagnostics(
+    g: &Grammar,
+    proposer: &mut FomaProposer,
+    peeler: &ReduplicationPeeler,
+    peel_budget: &ComposeBudget,
+    word: &str,
+    budget: &ApplyBudget,
+) -> std::result::Result<ProposeCandidatesOk, ProposeCandidatesErr> {
+    let mut proposal = ProposalDiagnostics::default();
+    let mut proposal_calls = 1;
+    let direct_budget = remaining_apply_budget(budget, &proposal);
+    let (direct, direct_diagnostics) = proposer.propose_with_diagnostics_budgeted(word, &direct_budget);
+    accumulate_proposal_diagnostics(&mut proposal, direct_diagnostics);
+    let mut candidates = match direct {
+        ApplyOutcome::Complete(candidates) => candidates,
+        ApplyOutcome::Incomplete { dimension, .. } => {
+            let (value, limit) = match dimension {
+                ApplyDimension::DecodedPaths => (
+                    proposal.raw_paths,
+                    budget.path_cap().expect("path trip requires a path cap"),
+                ),
+                ApplyDimension::Candidates => (
+                    proposal.unique_candidates,
+                    budget
+                        .candidate_cap()
+                        .expect("candidate trip requires a candidate cap"),
+                ),
+            };
+            return Err((dimension, value, limit, proposal, proposal_calls));
+        }
+    };
+
+    let mut incomplete_dimension = None;
+    let peel_result = {
+        let mut propose_fn = |root: &str| {
+            if incomplete_dimension.is_some() {
+                return Vec::new();
+            }
+            let call_budget = remaining_apply_budget(budget, &proposal);
+            let (outcome, next) = proposer.propose_with_diagnostics_budgeted(root, &call_budget);
+            proposal_calls += 1;
+            accumulate_proposal_diagnostics(&mut proposal, next);
+            match outcome {
+                ApplyOutcome::Complete(candidates) => candidates,
+                ApplyOutcome::Incomplete { dimension, .. } => {
+                    incomplete_dimension = Some(dimension);
+                    Vec::new()
+                }
+            }
+        };
+        peeler.peel_candidates(g, word, peel_budget, &mut propose_fn)
+    };
+
+    if let Some(dimension) = incomplete_dimension {
+        let (value, limit) = match dimension {
+            ApplyDimension::DecodedPaths => (
+                proposal.raw_paths,
+                budget.path_cap().expect("path trip requires a path cap"),
+            ),
+            ApplyDimension::Candidates => (
+                proposal.unique_candidates,
+                budget
+                    .candidate_cap()
+                    .expect("candidate trip requires a candidate cap"),
+            ),
+        };
+        return Err((dimension, value, limit, proposal, proposal_calls));
+    }
+
+    let (peeled, peel_chain_depth_error) = match peel_result {
+        Ok(peeled) => (peeled, None),
+        Err(error) => (Vec::new(), Some(error)),
+    };
+    let peel_used = !peeled.is_empty();
+    for candidate in peeled {
+        let already_present = candidates.iter().any(|existing| {
+            existing.root_index == candidate.root_index && existing.morphemes == candidate.morphemes
+        });
+        if !already_present {
+            candidates.push(candidate);
+        }
+    }
+
+    Ok((
+        candidates,
+        peel_used,
+        peel_chain_depth_error,
+        proposal,
+        proposal_calls,
+    ))
 }
 
 fn remaining_apply_budget(budget: &ApplyBudget, used: &ProposalDiagnostics) -> ApplyBudget {
@@ -673,95 +779,14 @@ impl<'g> FomaAnalyzer<'g> {
         word: &str,
         budget: &ApplyBudget,
     ) -> std::result::Result<ProposeCandidatesOk, ProposeCandidatesErr> {
-        let mut proposal = ProposalDiagnostics::default();
-        let mut proposal_calls = 1;
-        let direct_budget = remaining_apply_budget(budget, &proposal);
-        let (direct, direct_diagnostics) = self
-            .proposer
-            .propose_with_diagnostics_budgeted(word, &direct_budget);
-        accumulate_proposal_diagnostics(&mut proposal, direct_diagnostics);
-        let mut candidates = match direct {
-            ApplyOutcome::Complete(candidates) => candidates,
-            ApplyOutcome::Incomplete { dimension, .. } => {
-                let (value, limit) = match dimension {
-                    ApplyDimension::DecodedPaths => (
-                        proposal.raw_paths,
-                        budget.path_cap().expect("path trip requires a path cap"),
-                    ),
-                    ApplyDimension::Candidates => (
-                        proposal.unique_candidates,
-                        budget
-                            .candidate_cap()
-                            .expect("candidate trip requires a candidate cap"),
-                    ),
-                };
-                return Err((dimension, value, limit, proposal, proposal_calls));
-            }
-        };
-
-        let peel_budget = self.peel_budget;
-        let mut incomplete_dimension = None;
-        let peel_result = {
-            let proposer = &mut self.proposer;
-            let mut propose_fn = |root: &str| {
-                if incomplete_dimension.is_some() {
-                    return Vec::new();
-                }
-                let call_budget = remaining_apply_budget(budget, &proposal);
-                let (outcome, next) =
-                    proposer.propose_with_diagnostics_budgeted(root, &call_budget);
-                proposal_calls += 1;
-                accumulate_proposal_diagnostics(&mut proposal, next);
-                match outcome {
-                    ApplyOutcome::Complete(candidates) => candidates,
-                    ApplyOutcome::Incomplete { dimension, .. } => {
-                        incomplete_dimension = Some(dimension);
-                        Vec::new()
-                    }
-                }
-            };
-            self.peeler
-                .peel_candidates(self.g, word, &peel_budget, &mut propose_fn)
-        };
-
-        if let Some(dimension) = incomplete_dimension {
-            let (value, limit) = match dimension {
-                ApplyDimension::DecodedPaths => (
-                    proposal.raw_paths,
-                    budget.path_cap().expect("path trip requires a path cap"),
-                ),
-                ApplyDimension::Candidates => (
-                    proposal.unique_candidates,
-                    budget
-                        .candidate_cap()
-                        .expect("candidate trip requires a candidate cap"),
-                ),
-            };
-            return Err((dimension, value, limit, proposal, proposal_calls));
-        }
-
-        let (peeled, peel_chain_depth_error) = match peel_result {
-            Ok(peeled) => (peeled, None),
-            Err(error) => (Vec::new(), Some(error)),
-        };
-        let peel_used = !peeled.is_empty();
-        for candidate in peeled {
-            let already_present = candidates.iter().any(|existing| {
-                existing.root_index == candidate.root_index
-                    && existing.morphemes == candidate.morphemes
-            });
-            if !already_present {
-                candidates.push(candidate);
-            }
-        }
-
-        Ok((
-            candidates,
-            peel_used,
-            peel_chain_depth_error,
-            proposal,
-            proposal_calls,
-        ))
+        propose_union_peel_with_diagnostics(
+            self.g,
+            &mut self.proposer,
+            &self.peeler,
+            &self.peel_budget,
+            word,
+            budget,
+        )
     }
 
     /// `propose(word)` UNION `peel_candidates(word, propose)`, deduped by `(morphemes,

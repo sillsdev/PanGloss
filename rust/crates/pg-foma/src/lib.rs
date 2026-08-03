@@ -261,6 +261,12 @@ pub mod readiness_policy;
 /// trusted or unassessed check render as passing. See that module's own doc for the full honesty-
 /// rule contract.
 pub mod readiness_verdict;
+/// **The accuracy question, split off from the speed question.** Confirmation-free undergeneration
+/// detection by admission-key set containment against the run's already-shared oracle result — zero
+/// full-HC confirmation calls per candidate. Deliberately says NOTHING about cost; ranking stays
+/// [`recipe_optimizer::Score`]'s job. Read that module's own doc for the soundness argument and the
+/// one hazard it is counted against.
+pub mod recipe_accuracy;
 /// Serializable mechanism vocabulary and fail-closed executable-recipe graph validation.
 pub mod recipe_mechanism;
 /// Extensible, budget-aware offline search and confirmed-only recipe selection.
