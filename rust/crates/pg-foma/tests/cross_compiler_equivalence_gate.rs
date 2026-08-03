@@ -449,8 +449,29 @@ fn observed_evidence_distinguishes_failed_evaluation_from_real_empty_observation
     assert_eq!(empty.words, Some(Vec::new()));
 }
 
+/// **This test DELIBERATELY opts out of the per-word apply envelope, and that is the point of it.**
+///
+/// Its whole subject is the magnitude of the flattened uflexc route's over-generation on this
+/// fixture: it observes the proposal count, divides by the oracle's own analysis count, and requires
+/// the ratio to be a violation. The default envelope
+/// (`pg_foma::compose_budget::DEFAULT_EVALUATION_APPLY_PATH_BUDGET`, 1,000,000) exists to stop exactly
+/// that magnitude from being enumerated — measured 2,985,984 = 12^6 raw paths for `xxxxxxk` — so under
+/// the default this candidate is refused with a `ResourceBreach` and there is no proposal count to
+/// observe at all. A test that measures an over-generation and a budget that refuses it are not in
+/// conflict; they are the same finding at two seams.
+///
+/// So the envelope is raised HERE, explicitly, to 3,000,000 — just above the measured figure, chosen
+/// over `Some(usize::MAX)` so this test stays bounded rather than trading one unbounded enumeration
+/// for another. The corpus is `["k", "xxxxxxk"]` only; the fixture's third word (`xxxxxxxxxxxxk`,
+/// 12^12 raw paths) is deliberately absent and no envelope should ever admit it.
 #[test]
 fn template_flattened_uflexc_route_reports_typed_proposal_ratio_violation() {
+    // Just above the measured 12^6 for this fixture's 6-x word. See this test's own doc.
+    let budget = RuntimeBudget {
+        apply_path_budget: Some(3_000_000),
+        apply_candidate_budget: Some(3_000_000),
+        ..RuntimeBudget::default()
+    };
     let fixture = discover()
         .into_iter()
         .find(|fixture| fixture.root == Root::Staging && fixture.name == "recipe-template-generic")
@@ -503,20 +524,24 @@ fn template_flattened_uflexc_route_reports_typed_proposal_ratio_violation() {
         })
         .expect("plan-composed/uflexc candidate");
 
-    let mut cache = RunEvaluationCache::prepare(&grammar, &words, RuntimeBudget::default())
+    let mut cache = RunEvaluationCache::prepare(&grammar, &words, budget)
         .expect("oracle preparation must succeed for this fixture");
     let observation = evaluate_plans_observed_with_cache(
         &grammar,
         std::slice::from_ref(&plan),
         &words,
-        RuntimeBudget::default(),
+        budget,
         &mut cache,
     )
     .pop()
     .expect("uflexc observation");
-    let evidence = observation
-        .words
-        .expect("uflexc route must produce final-candidate evidence");
+    let evidence = observation.words.unwrap_or_else(|| {
+        panic!(
+            "uflexc route must produce final-candidate evidence at the raised envelope this test \
+             declares (see its own doc); got {:?}",
+            observation.evaluation.certification
+        )
+    });
     assert_eq!(
         observation.evaluation.realized_strategy,
         EmissionStrategy::PlanComposed,

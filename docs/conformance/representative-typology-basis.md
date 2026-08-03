@@ -128,6 +128,110 @@ row names it at all — design.md D5) and therefore has never had an occasion to
 5. **Citations:** https://www.numberanalytics.com/blog/compounding-linguistic-typology-ultimate-guide;
    https://www.researchgate.net/publication/318733335_The_types_and_categories_of_Old_English_recursive_compounding;
    https://grokipedia.com/page/Compound_(linguistics).
+   *(Low-trust: an SEO blog, a ResearchGate mirror, and a wiki. Superseded for the empirical claim by
+   §1.2.1a's peer-reviewed sources below; retained only as the trail for the FORMAL claim, which
+   §1.2.1a now cites properly.)*
+
+##### 1.2.1a The FORMAL claim and the ATTESTED claim are different claims
+
+Item 1 above makes a **formal** claim — the rule is "recursively applicable without limit", so a
+stratum can "in principle, build `((root+root)+root)+root...` to arbitrary depth". That claim is
+correct and is what a compiler must refuse gracefully. It is **not** a statement about how deep
+compounds actually go, and conflating the two is how a construction ends up sized for a depth nothing
+observes. Both halves, separated, with what the literature does and does not support:
+
+**FORMAL — unbounded, and someone has said so in exactly these terms.** Lauer (1995, PhD thesis §2.2)
+on the rule `N → N N`: it "captures the gross syntactic behaviour of compounds and is recursively
+applicable without limit," and "Unboundedness is a property of generative competence, not its
+application in performance."
+
+**ATTESTED — sharply skewed to 2 members, and NO published depth histogram exists for any language.**
+This is the substantive finding, and the negative half of it matters as much as the positive half:
+
+| Language | Measured distribution | Source |
+|---|---|---|
+| Sanskrit | 71.4% two-member, **94.1% at ≤3 members**, 98.5% at ≤4, 1.5% at 5+ (n = 29,966 instances, manually tagged 150K-word corpus) | Kulkarni & Kumar 2011, Table 1 |
+| Sanskrit | "more than 41% of compounds have 3 or more components" — **conflicts with the row above** (which gives 28.6%); different corpus (Digital Corpus of Sanskrit) and a different threshold for what counts as a compound. Recorded as a disagreement, not averaged. | Krishna et al. 2016, p. 1 |
+| German | 86.2% two-member (64,627 of 74,983 GermaNet noun-compound **lexicon types**; not corpus tokens, and "multiple split" means only "≥3 constituents", not a histogram) | Sugisaki & Tuggener 2018 |
+| English | **No published member-count histogram.** Every corpus study of N+N stacking restricts itself to THREE-noun compounds because 4+ are too sparse to extract reliably — stated qualitatively, never tabulated. | Ziering & van der Plas 2014; Nakov 2007; Vadas & Curran 2011 |
+| Icelandic | 7-constituent forms exist and are "rare" — no number attached | Daðason et al. 2020 |
+| Dutch, Finnish, Hungarian, Greek, Chinese | **Not found.** Dutch/CELEX work reports *linking-element* statistics, never constituent counts; Finnish only compound *rate*. | — |
+
+**Maximum attested member counts are much higher than any "practical ceiling":** 16 in Sanskrit
+(Sandhan et al. 2023's NeCTIS dataset spans 2–16 components across 17,656 nested spans), 7 in
+Icelandic. **So the literature does not license a hard constant, and this document does not assert
+one.** What it licenses is a percentile, and only Sanskrit's is actually measured.
+
+**The spec's own caution — "flat concatenation is NOT deep nesting" — checked, and the literature
+comes down against it.** Multi-member compounds are analysed as recursively **binary**, and flat
+treatments are consistently described as tooling or annotation-scheme limitations rather than
+linguistic claims: Kulkarni & Kumar 2011 ("formed with two words at a time and hence they can be
+represented faithfully as a binary tree"), Sandhan et al. 2023 ("a valid solution for an N-component
+compound consists of N − 1 nested spans"), Daðason et al. 2020 ("can be represented by a full binary
+tree"), Henrich & Hinrichs 2011 (criticising German splitters that offer "an analysis of all
+component parts of a compound at once without any grouping of subconstituents"). Two pieces of
+*empirical* evidence that the nesting is real rather than an analyst's artifact:
+
+- The Penn Treebank originally annotated NP interiors **flat**, and that had to be undone: of 60,959
+  ambiguous NPs, **23,129 (37.94%) required brackets to be inserted** (Vadas & Curran 2011).
+- Parser F1 **collapses** as members increase — 93.66 for 3-component Sanskrit compounds versus
+  **65.4 for 4-component** (Kulkarni & Kumar 2011) — which only makes sense if the grouping is
+  genuinely ambiguous. The number of possible groupings is the Catalan number
+  `C_n = (2n)!/((n+1)!·n!)`.
+- Branching direction is majority-but-not-uniformly left in English (67% left / 33% right on Lauer's
+  244 three-noun compounds; 59%/41% on 5,569 PTB three-word compounds, Vadas & Curran 2011) — real
+  branching, not a single chain shape. Henrich & Hinrichs 2011's own German examples include a
+  *balanced* depth-2 tree (`Autobahnanschlussstelle` = (Auto+Bahn)(Anschluss+Stelle)) alongside a
+  left-nested one (`Kraftfahrzeugsteuer` = ((Kraft+Fahrzeug)+Steuer)).
+
+So under the standard binary immediate-constituent analysis, Sanskrit's 94.1%-at-≤3-members
+corresponds to **nesting depth ≤ 2** for ~94% of compounds, and German's 86.2%-two-member to **depth
+1** for ~86%. That is the honest form of "at most two, maybe three": a percentile derived from
+member counts under an assumption the literature states but never itself measures.
+
+**One explicitly proposed constant exists, and it is theoretical rather than measured.** Marcus
+(1980), via Lauer 1995 §2.2: processing limits mean the general rule "is not quite idempotent" —
+structures in which three or more nouns all premodify another noun are prohibited, i.e. "the rewrite
+rule cannot be reapplied to its right member more than twice." That is a parsing-theory proposal,
+not a corpus result, and should be cited as such.
+
+**Deliberately NOT transferred:** Karlsson (2007) is the canonical "formally unbounded, empirically
+capped at 3" result (maximal multiple clausal centre-embedding is 3 in written language, effectively
+0 in speech, across Danish, English, German, Latin and Swedish). It is about **clause embedding**,
+not compounding. It is named here only so that nobody silently imports its "3".
+
+**What this repo's own engine does, which is the operative number and needs no literature at all.**
+`pg_rules::stratum::AnalyzerConfig::max_stem_count` — C#'s `Morpher.MaxStemCount`, ctor default **2**
+(`Morpher.cs:56`) — makes `StratumAnalyzer::apply_one_mrule` reject a `Compounding` rule as soon as
+`non_heads.len() + 1 >= max_stem_count`. C#'s own `CompoundingRuleTests.SimpleRules` raises it to **3**
+for a genuine three-root compound (`cs:87,105`). So the reference implementation's answer is 2 by
+default and 3 when someone means it, which happens to land exactly where the Sanskrit percentile does.
+`pg_foma::capability::compounding_max_depth`'s doc carries the separate, measured note on why the
+compiler's own `max_depth` (a rule-COUNT ceiling: 9 for a `sena`-shaped grammar with 8 non-repeatable
+compounding rules) must not be mistaken for this figure.
+
+**Citations (all peer-reviewed proceedings, a journal article, or an institutionally-hosted thesis):**
+
+- Kulkarni, Amba, and Anil Kumar. 2011. "Statistical Constituency Parser for Sanskrit Compounds." *Proceedings of ICON-2011*. https://sanskrit.uohyd.ac.in/faculty/amba/PUBLICATIONS/papers/samaasa_const_parser_icon2011.pdf
+- Krishna, Amrith, Pavankumar Satuluri, Shubham Sharma, Apurv Kumar, and Pawan Goyal. 2016. "Compound Type Identification in Sanskrit: What Roles do the Corpus and Grammar Play?" *WSSANLP 2016*, 1–10. https://aclanthology.org/W16-3701/
+- Sandhan, Jivnesh, Yaswanth Narsupalli, Sreevatsa Muppirala, Sriram Krishnan, Pavankumar Satuluri, Amba Kulkarni, and Pawan Goyal. 2023. "DepNeCTI: Dependency-based Nested Compound Type Identification for Sanskrit." *Findings of the ACL: EMNLP 2023*, 13679–13692. https://aclanthology.org/2023.findings-emnlp.914/
+- Lauer, Mark. 1995. *Designing Statistical Language Learners: Experiments on Noun Compounds.* PhD dissertation, Macquarie University. arXiv:cmp-lg/9609008. https://arxiv.org/abs/cmp-lg/9609008
+- Lauer, Mark. 1995. "Corpus Statistics Meet the Noun Compound: Some Empirical Results." *ACL 1995*, 47–54. https://aclanthology.org/P95-1007/
+- Vadas, David, and James R. Curran. 2011. "Parsing Noun Phrases in the Penn Treebank." *Computational Linguistics* 37(4): 753–806. https://aclanthology.org/J11-4006/
+- Ziering, Patrick, and Lonneke van der Plas. 2014. "What good are 'Nominalkomposita' for 'noun compounds'…" *COLING 2014*, 1047–1058. https://aclanthology.org/C14-1099/
+- Henrich, Verena, and Erhard Hinrichs. 2011. "Determining Immediate Constituents of Compounds in GermaNet." *RANLP 2011*, 420–426. https://aclanthology.org/R11-1058/
+- Sugisaki, Kyoko, and Don Tuggener. 2018. "German Compound Splitting Using the Compound Productivity of Morphemes." *KONVENS 2018*, 141–147. https://konvens.org/proceedings/2018/PDF/konvens18_16.pdf
+- Daðason, Jón Friðrik, David Erik Mollberg, Hrafn Loftsson, and Kristín Bjarnadóttir. 2020. "Kvistur 2.0: a BiLSTM Compound Splitter for Icelandic." arXiv:2004.07776. https://arxiv.org/abs/2004.07776
+- Nakov, Preslav I. 2007. *Using the Web as an Implicit Training Set…* PhD dissertation, UC Berkeley. UCB/EECS-2007-173. https://www2.eecs.berkeley.edu/Pubs/TechRpts/2007/EECS-2007-173.pdf
+- Karlsson, Fred. 2007. "Constraints on multiple center-embedding of clauses." *Journal of Linguistics* 43(2): 365–392.
+- Marcus, Mitchell P. 1980. *A Theory of Syntactic Recognition for Natural Language.* MIT Press. **Cited via Lauer 1995 — not independently verified here.**
+- Finin, Timothy W. 1980. *The Semantic Interpretation of Compound Nominals.* PhD dissertation, UIUC. **Cited via Lauer 1995 — not independently verified here.**
+
+**Two verification caveats, recorded rather than glossed.** The Lauer §2.2 strings above were
+recovered from a search index over the thesis PDF; full-text extraction truncated before reaching that
+section, so **page numbers should be checked against the PDF before quoting verbatim**. Sandhan et
+al.'s "2 to 16 components" range came from text extraction of the Figure 5 discussion rather than from
+the rendered figure. Both remain worth citing; neither should be quoted as though rendered.
 
 **Covered already? No** — `compounding-non-recursive` (staged) deliberately avoids this configuration
 by name and design; no fixture anywhere exercises genuine self-feeding compounding.
