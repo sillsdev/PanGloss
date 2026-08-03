@@ -1388,7 +1388,7 @@ fn evaluate_plans_marked_with_cache_mode<const OBSERVE: bool>(
             // and re-minimize, the net still carries the inter-morph boundary tokens `uflexc` emits,
             // which a surface query never contains -- every `apply_up` returns nothing and recall
             // reads as zero. See `crate::build::finish_controllable_net`.
-            let net = match crate::build::finish_controllable_net(
+            let mut net = match crate::build::finish_controllable_net(
                 &opts,
                 net,
                 surface_table(grammar),
@@ -1404,6 +1404,27 @@ fn evaluate_plans_marked_with_cache_mode<const OBSERVE: bool>(
                     );
                 }
             };
+            // Closes an asymmetry, not a measured hot spot. `FomaProposer::new` (the hand-spun path)
+            // calls `prepare_network_for_apply` at `crate::analyzer`; `from_precompiled_network` --
+            // the constructor EVERY plan-composed candidate goes through -- deliberately prepares
+            // nothing, so above `ARC_SORT_MIN_ARCS` the hand-spun baseline got foma's binary-search
+            // arc traversal and the plan-composed candidate it is compared against did not.
+            //
+            // MEASURED, and the measurement is a null result on everything checked in: of the 45
+            // discoverable conformance fixtures that build a plan-composed net, ZERO cross
+            // `ARC_SORT_MIN_ARCS` (10,000) -- the largest is 479 arcs
+            // (`polysynthetic-stratal-derivation-chain` / `recipe-strata-generic`). Verified by
+            // reading `net.arcs_sorted_out` directly: on those nets it is `false` as built, still
+            // `false` after this call, and only `true` under a forced `fsm_sort_arcs`. So on our
+            // fixtures this line is provably inert, and the 1.49x-2.05x figure in
+            // `ARC_SORT_MIN_ARCS`'s own doc says nothing about them. It engages only on a
+            // large real grammar -- the plan-composed net for the private `sena` corpus is 21,114
+            // arcs -- which is why this is worth having despite buying nothing in CI.
+            //
+            // Placed BEFORE `score0` for the same reason `FomaProposer::new` reads its counts after
+            // sorting: `fsm_sort_arcs` reorders arcs and never adds or removes a state or arc, so
+            // `statecount`/`arccount` are identical either side of it and the score cannot move.
+            crate::analyzer::prepare_network_for_apply(&mut net);
             let score0 = (net.statecount as u64, net.arccount as u64);
             let (peeler, owners, morpher) = confirm_pieces.take().unwrap_or_else(|| {
                 (
