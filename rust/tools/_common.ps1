@@ -1293,6 +1293,90 @@ $script:ExitCodeZeroCorpusCases = 16
 # and a caller that cannot tell them apart will run gc at a memory problem and conclude gc is broken.
 $script:ExitCodeLowMemory = 17
 
+# 18 is ExitCodeConformanceSubmoduleMissing, defined next to Initialize-ConformanceSubmodule.
+
+# The script being run and the directory it is being run FROM belong to different worktrees.
+#
+# Distinct from every code above because nothing is wrong with the machine or the tree -- the caller
+# asked for one worktree and would have got another. `Get-RepoRoot` resolves via
+# `git rev-parse --show-toplevel`, which answers for whichever worktree the CALLER IS STANDING IN, so
+# `pwsh -File <worktreeA>\rust\tools\pg.ps1` executed from worktreeB builds and tests **B** while
+# every visible part of the command says A.
+#
+# Measured 2026-08-03: this silently VOIDED a completed verification. A gate was reported green for a
+# commit that the built tree did not contain. It fails in the reassuring direction -- the run passes,
+# and the command text names the tree you meant -- so it reads as "I DID look", which is worse than
+# this repo's usual "I could not look" failure because there is no absent result to notice. Agents are
+# especially exposed: a shell's cwd persists across tool calls, so a `Set-Location` many calls earlier
+# silently retargets everything after it.
+#
+# Refusing rather than silently preferring $PSScriptRoot: a caller who genuinely wants worktree B
+# should invoke B's own copy of the script, and a wrapper that quietly relocated the build would make
+# the next confused report even harder to diagnose than this one was.
+$script:ExitCodeWorktreeMismatch = 19
+
+function Get-FilterZeroMatchHint {
+    <#
+      Pure function: given the -Filter a caller used and the test-target names available, return the
+      lines to print when the runner reported "no tests to run". Extracted from pg.ps1's tail rather
+      than left inline SO THAT IT IS TESTABLE WITHOUT A BUILD -- the condition it explains only arises
+      after cargo runs, and on this repo a cold cargo run is ~996s. A guard whose only exercise costs
+      sixteen minutes is a guard that never gets exercised.
+
+      Returns an array of [pscustomobject]@{ Text; Color }. Empty array means "no hint applies".
+    #>
+    param(
+        [string]$Filter,
+        [string[]]$TestTargets = @()
+    )
+
+    if (-not $Filter) { return @() }
+    $out = @([pscustomobject]@{ Text = "[pg] no test NAME matched -Filter '$Filter' (runner reported no tests to run)."; Color = 'Yellow' })
+
+    if ($TestTargets -contains $Filter) {
+        # The exact case that cost seven invocations in one session: a test TARGET (a file stem under
+        # tests/) handed to a TEST-NAME filter.
+        $out += [pscustomobject]@{ Text = "[pg] '$Filter' is a test TARGET (a file in tests/), not a test name. -Filter matches TEST NAMES as a substring."; Color = 'Yellow' }
+        $out += [pscustomobject]@{ Text = "[pg] Use:  -TestTarget $Filter    (compiles and links ONLY that binary -- much faster than the whole package)"; Color = 'Green' }
+        return $out
+    }
+
+    $out += [pscustomobject]@{ Text = '[pg] -Filter matches TEST NAMES as a substring -- never file names, never test-target names.'; Color = 'Yellow' }
+    $out += [pscustomobject]@{ Text = '[pg] To run one test FILE use -TestTarget <file-stem>; to run tests by name keep -Filter and check the spelling.'; Color = 'Yellow' }
+    $near = @($TestTargets | Where-Object { $_ -like "*$Filter*" -or $Filter -like "*$_*" } | Select-Object -First 5)
+    if ($near.Count -gt 0) {
+        $out += [pscustomobject]@{ Text = "[pg] Did you mean -TestTarget one of: $($near -join ', ')"; Color = 'Green' }
+    }
+    return $out
+}
+
+function Assert-ScriptAndCwdAgreeOnWorktree {
+    <#
+      Refuse when the invoked script's worktree and the CWD-resolved worktree differ. Returns
+      silently when they agree, when either cannot be resolved (never convert "I could not look" into
+      a refusal -- that is the same error class in the other direction), or when
+      PANGLOSS_ALLOW_WORKTREE_MISMATCH=1 is set deliberately.
+    #>
+    param([Parameter(Mandatory)][string]$ScriptRoot)
+
+    $scriptRepo = try { (Resolve-Path (Join-Path $ScriptRoot '..\..')).Path } catch { $null }
+    $cwdRepo = try { (Resolve-Path (Get-RepoRoot)).Path } catch { $null }
+    if (-not $scriptRepo -or -not $cwdRepo) { return }
+    if ($scriptRepo.TrimEnd('\', '/') -ieq $cwdRepo.TrimEnd('\', '/')) { return }
+    if ($env:PANGLOSS_ALLOW_WORKTREE_MISMATCH -eq '1') {
+        Write-Host "[build-env] WARNING: script worktree '$scriptRepo' != cwd worktree '$cwdRepo' -- allowed by PANGLOSS_ALLOW_WORKTREE_MISMATCH=1"
+        return
+    }
+
+    Write-Host "[pg] REFUSING: the script and the current directory belong to different worktrees."
+    Write-Host "[pg]   script:  $scriptRepo"
+    Write-Host "[pg]   cwd:     $cwdRepo"
+    Write-Host "[pg] The build would have used the CWD tree ('$(Split-Path $cwdRepo -Leaf)'), not the one you named."
+    Write-Host "[pg] Fix: Set-Location '$scriptRepo' first, or invoke that worktree's own rust\tools\pg.ps1."
+    Write-Host "[pg] exit $script:ExitCodeWorktreeMismatch means exactly this -- nothing is wrong with the machine or either tree."
+    exit $script:ExitCodeWorktreeMismatch
+}
+
 # ---------------------------------------------------------------------------------------------
 # Worktree metadata: the exact-base contract
 # ---------------------------------------------------------------------------------------------

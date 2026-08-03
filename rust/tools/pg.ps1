@@ -87,7 +87,29 @@ param(
     [string]$Base = '',
     [string]$Branch = '',
     [string]$Package = '',
+    # `-Filter` narrows EXECUTION ONLY. It is appended as a bare positional to `cargo nextest run`
+    # (or after `--` for libtest), where it matches TEST NAMES as a SUBSTRING -- never file names,
+    # never test-target/binary names. Cargo still compiles and LINKS every test target in the
+    # package regardless, which for pg-foma is ~78 separate binaries. If what you want is "run the
+    # tests in <file>.rs", you want -TestTarget, not -Filter.
+    #
+    # This distinction is documented here because it was got wrong SEVEN times in one session (five
+    # file names passed to -Filter, plus two subagents that concluded -TestTarget's underlying flag
+    # was unreachable). A zero-match run fails loudly -- nextest prints "error: no tests to run" and
+    # exits 4 -- but the PARTIAL match is silent: it runs some tests, exits 0, and omits the ones you
+    # meant. That produced a confidently-filed bug report about a harness defect that did not exist.
     [string]$Filter = '',
+    # `-TestTarget` narrows COMPILATION: it maps to cargo's `--test <name>`, building and linking ONE
+    # test binary instead of every target in the package. This is the difference that matters for
+    # loop speed -- measured 2026-08-03 on this repo: a warm tree running 13 tests via -TestTarget
+    # took 10.6s, while a cold dependency graph for the same package took ~996s and exceeded the
+    # 595s agent tool cap. Three agent batches produced ZERO measurements by paying the cold,
+    # all-targets cost repeatedly.
+    #
+    # Reachable before this parameter existed only as
+    # `$env:PANGLOSS_EXTRA_ARGS = '--test <name>'`, which is why two agents concluded it did not
+    # exist at all. Undiscoverable is the same as absent.
+    [string]$TestTarget = '',
     # run only: exactly ONE of these three selects what to run -- see the header comment above and
     # the -Mode run validation block below for the full contract.
     [string]$Example = '',
@@ -126,6 +148,13 @@ param(
 )
 
 . "$PSScriptRoot\_common.ps1"
+
+# FIRST thing after loading the library, before any mode dispatch, preflight, or Cargo argument is
+# built: refuse if the script and the working directory disagree about which worktree this is. Placed
+# here because every mode below (build/test/run/gc/doctor) resolves paths from the CWD-derived repo
+# root, so a mismatch would mis-target all of them equally -- and because a refusal is only useful
+# before work starts. See Assert-ScriptAndCwdAgreeOnWorktree for what this cost when it was absent.
+Assert-ScriptAndCwdAgreeOnWorktree -ScriptRoot $PSScriptRoot
 
 # Binder-proof passthrough channel. `pwsh -File pg.ps1 ... -- <cargo args>` CANNOT work: under -File
 # the bare `--` reaches PowerShell's parameter binder, which rejects it as an empty parameter name.
@@ -496,6 +525,11 @@ switch ($Mode) {
 }
 if ($Package) { $cargoArgs += @('-p', $Package) } else { $cargoArgs += '--workspace' }
 
+# Placed BEFORE the runner-specific branches below because `--test` is a CARGO argument, not a
+# nextest or libtest one: it selects which target cargo compiles, so it is valid for both runners and
+# must not land after a `--` separator. Both `cargo nextest run` and `cargo test` accept it.
+if ($TestTarget) { $cargoArgs += @('--test', $TestTarget) }
+
 if ($useNextest) {
     if ($Filter) { $cargoArgs += $Filter }
     # nextest's own flag name for "print stdout even for passing tests" -- without it,
@@ -636,6 +670,24 @@ try {
         Write-Host "[pg] WARNING: only ${freeAfter}GB free on the target drive after this run." -ForegroundColor Red
         Write-Host '[pg] Recover with: pg.ps1 -Mode gc (dry run, then -Apply). It only removes target dirs this repository owns and never touches an unmarked, preserved, or still-live one.' -ForegroundColor Yellow
         Write-Host '[pg] If that frees little, the space is likely a LOCAL rust/target from a bare-cargo run, which sits on the system drive because it bypassed target-dir redirection.' -ForegroundColor Yellow
+    }
+}
+
+# nextest exits 4 for "no tests to run". That is already loud, but it does not say WHY, and the most
+# common why on this repo is a TEST TARGET name passed to -Filter, which matches TEST NAMES. Naming the
+# alternative here turns a wasted full-package compile into a one-line correction. Measured cause for
+# this existing: seven such invocations in one session, five of them file/target names.
+if ($code -eq 4 -and $Filter -and -not $TestTarget) {
+    $targets = @()
+    try {
+        $pkgGlob = if ($Package) { $Package } else { '*' }
+        $testsDir = Join-Path $rustRoot (Join-Path 'crates' (Join-Path $pkgGlob 'tests'))
+        $targets = @(Get-ChildItem -Path $testsDir -Filter '*.rs' -File -ErrorAction SilentlyContinue |
+            ForEach-Object { [IO.Path]::GetFileNameWithoutExtension($_.Name) })
+    } catch { $targets = @() }
+
+    foreach ($line in (Get-FilterZeroMatchHint -Filter $Filter -TestTargets $targets)) {
+        Write-Host $line.Text -ForegroundColor $line.Color
     }
 }
 
