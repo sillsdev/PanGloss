@@ -675,36 +675,8 @@ pub struct RuntimeBudget {
     pub arcs: Option<u64>,
     pub build: Option<u64>,
     pub apply: Option<u64>,
-    /// POST-HOC proposal limit: the whole corpus is applied, and only then is the total compared,
-    /// producing a [`Certification::ResourceBreach`]. Contrast `candidate_proposals` below, which
-    /// stops the loop. Both exist because they answer different questions — "was this candidate
-    /// within its allowance?" versus "stop paying for this candidate now" — and only the second one
-    /// can prune a runaway.
     pub proposals: Option<u64>,
     pub confirmation: Option<u64>,
-    /// PER-CANDIDATE, MID-CORPUS proposal budget: the running proposal total is compared after each
-    /// corpus occurrence, and the candidate is abandoned with
-    /// [`Certification::BudgetExceeded`] the moment it goes over.
-    ///
-    /// This is the only bound in this struct that can stop work that has not happened yet. `apply`
-    /// and `proposals` are measured after the corpus is finished, so on the candidates that motivate
-    /// this (Sena's plan-composed candidates: ~880x the proposals and ~1300x the apply time of the
-    /// whole-grammar compilers) they report a breach only once the six hours are already spent. See
-    /// [`crate::recipe_optimizer::Budget::candidate_proposals`] for the measurements and for why the
-    /// bounded quantity is a deterministic count rather than nanoseconds.
-    ///
-    /// `None` means unbounded, matching every other `Option` field here except the three `oracle_*`
-    /// ones (whose `None` means "use the default").
-    ///
-    /// # Not [`crate::compose_budget::ApplyBudget`], and why that one cannot do this job
-    /// A per-word `ApplyBudget` already exists and is the right prefab for its own question. It is
-    /// the wrong one here on both scope and semantics: it bounds ONE word's decode loop, so it
-    /// cannot see a corpus-wide total, and when it trips it TRUNCATES the word's proposals to a
-    /// partial set. A truncated proposal set silently under-generates, which the parity relation
-    /// would then read as the candidate disagreeing with the oracle — an expensive candidate
-    /// reported as a wrong one, the exact confusion this verdict exists to prevent. This budget
-    /// never truncates a comparison; it abandons the candidate before one is made.
-    pub candidate_proposals: Option<u64>,
     /// Ground-truth oracle step cap. UNLIKE every field above, `None` here does NOT mean
     /// "unbounded" — it means "caller did not override the default", because unbounded is exactly
     /// the defect this field exists to close (an unbounded oracle `Morpher` call is what hung the
@@ -865,7 +837,7 @@ fn measure_and_certify_inner<const OBSERVE: bool>(
     let mut confirmation: u64 = 0;
     let mut confirmation_steps: u64 = 0;
     let mut raw_paths: u64 = 0;
-    for (word_index, w) in words.iter().enumerate() {
+    for w in words {
         let t = Instant::now();
         let (outcome, diagnostics, proposals_for_word) = if OBSERVE {
             let profiled = analyzer.analyze_word_with_diagnostics_and_candidates(w);
@@ -890,51 +862,6 @@ fn measure_and_certify_inner<const OBSERVE: bool>(
                 .as_mut()
                 .expect("observed mode must initialize proposal evidence")
                 .push(proposals_for_word);
-        }
-        // The abandonment point. Checked HERE, inside the corpus loop, because that is the whole
-        // difference between this budget and the post-hoc `budget.proposals` dimension below: a
-        // runaway candidate's cost is spent by the time the loop ends, so a limit that is only
-        // compared afterwards reports the overrun instead of preventing it.
-        //
-        // Checked AFTER the occurrence rather than before: a half-applied occurrence has no
-        // proposal count, so the reported `observed` can overshoot `limit` by at most one
-        // occurrence's contribution -- which is why the verdict carries the true observed total
-        // rather than the limit.
-        if let Some(limit) = budget.candidate_proposals {
-            if proposals > limit {
-                return EvaluatedPlan {
-                    evaluation: RuntimeEvaluation {
-                        realized_strategy,
-                        certification: Certification::BudgetExceeded {
-                            dimension: "proposals".into(),
-                            limit,
-                            observed: proposals,
-                            words_evaluated: word_index as u64 + 1,
-                            words_requested: words.len() as u64,
-                        },
-                        // The measurements are REAL, just partial -- these occurrences were applied
-                        // and their costs observed. `failed_evaluation`'s zeroed score is for paths
-                        // where nothing past the build ran, and using it here would report a
-                        // candidate abandoned for cost as having cost nothing. A partial score
-                        // cannot leak into selection: only `selectable()` candidates enter the
-                        // frontier or win, and this verdict is not one.
-                        score: Score {
-                            states,
-                            arcs,
-                            build,
-                            apply,
-                            proposals,
-                            confirmation,
-                            confirmation_steps,
-                            raw_paths,
-                        },
-                    },
-                    // The per-word evidence vector is INCOMPLETE, and this field's contract is that
-                    // `None` means exactly that. `Some` of a short vector would be read as a fully
-                    // observed corpus that happened to be small.
-                    words: None,
-                };
-            }
         }
     }
     let score = Score {
@@ -1510,31 +1437,6 @@ fn evaluate_plans_marked_with_cache_mode<const OBSERVE: bool>(
             // is strictly better evidence than the tuned path can give (that path cannot express a
             // permutation at all).
             if certification.selectable() {
-                return measured;
-            }
-            // ABANDONMENT IS TERMINAL, and this early return is the only thing making it so.
-            //
-            // Everything below this line reasons from a completed corpus. Both arms conclude
-            // something about whether `build_controllable` could REPRESENT this plan -- the baseline
-            // arm by re-running it on a compiler that can build the missing subtrees, the
-            // permutation arm by declaring `Unsupported`. A candidate stopped for cost supplies no
-            // evidence for either conclusion, because the corpus never finished: we do not know
-            // whether the controllable net would have confirmed.
-            //
-            // Falling through would therefore relabel "this candidate was too expensive" as "this
-            // compiler cannot represent this grammar" -- two different facts with two different
-            // remedies (raise the budget; change the compiler), and the reader of a report cannot
-            // recover the first from the second. It would also resurrect a bug this very block
-            // already records as fixed: routing on marker presence ALONE dropped
-            // `mpr-gated-exception` from 3 confirmations to 1, because marker presence means the
-            // controllable path MIGHT be inadequate, never that it is. An abandoned candidate is
-            // precisely the case where the "might" was never resolved.
-            //
-            // The other direction is safe by construction rather than by this check: a candidate
-            // that FINISHES its corpus can never produce `BudgetExceeded`, since the only producer
-            // is the in-loop `proposals > limit` test, so a plan that genuinely earns `Unsupported`
-            // cannot come back wearing a budget verdict.
-            if matches!(certification, Certification::BudgetExceeded { .. }) {
                 return measured;
             }
             let markers = crate::build::unbuildable_markers(&candidate.plan);
