@@ -403,6 +403,184 @@ fn corpus_hash(words: &[String]) -> String {
     format!("{:x}", hash.finalize())
 }
 
+// -------------------------------------------------------------------------------------------------
+// Identity digests: grammar, finished network, and the composite reuse key
+// -------------------------------------------------------------------------------------------------
+
+/// "These bytes are the whole state of one FINISHED proposer network."
+///
+/// The preimage is everything [`foma::types::Fsm`] carries that `apply_up` can observe — see
+/// [`finished_net_digest`] for the field-by-field account and the two deliberate exclusions.
+pub const FINISHED_NET_PROJECTION: &str = "pangloss.foma.finished-net/v1";
+
+/// "This is the same loaded grammar." Preimage is the grammar's own derived `Debug` projection; see
+/// [`grammar_identity`].
+pub const GRAMMAR_IDENTITY_PROJECTION: &str = "pangloss.foma.grammar-identity/v1";
+
+/// "Another candidate's measurement over this corpus is reusable verbatim for this one."
+pub const NET_REUSE_KEY_PROJECTION: &str = "pangloss.foma.net-reuse-key/v1";
+
+/// Feeds `part` into `hash` LENGTH-PREFIXED, so no two different tuples of parts can share a
+/// preimage. Without it `("ab", "c")` and `("a", "bc")` hash alike, and a projection name is exactly
+/// the kind of string that gets extended — the same framing rule
+/// [`crate::executable_candidate::digest_projection`] already states.
+fn framed(hash: &mut Sha256, part: &[u8]) {
+    hash.update((part.len() as u64).to_le_bytes());
+    hash.update(part);
+}
+
+/// A [`std::fmt::Write`] sink that hashes instead of allocating.
+///
+/// Load-bearing for [`grammar_identity`]: `format!("{grammar:?}")` on a 50k-entry grammar would
+/// materialize a multi-hundred-megabyte `String` just to hash it and drop it. Streaming the same
+/// bytes through `write!` keeps the whole projection at one SHA-256 block of live memory.
+struct DigestWriter(Sha256);
+
+impl std::fmt::Write for DigestWriter {
+    fn write_str(&mut self, s: &str) -> std::fmt::Result {
+        self.0.update(s.as_bytes());
+        Ok(())
+    }
+}
+
+/// The identity of a LOADED grammar: domain-framed SHA-256 over its derived `Debug` projection.
+///
+/// # Why `Debug` and not a hand-written field list
+/// This digest's whole job is to stop one grammar's cached measurement being served to another, so
+/// the failure mode that matters is a MISSED field: two grammars differing only in something the
+/// projection forgot would collide, silently, and in the reassuring direction. A hand-written list
+/// of "the fields that matter" is exactly the artifact that goes stale — `Grammar` gains fields, and
+/// nothing fails. `Grammar` and every type it contains derive `Debug` (no hand-written `Debug` impl
+/// exists anywhere in `pg-grammar` or `pg-featstruct`), so `{:?}` covers every field by
+/// construction, including ones added after this line was written.
+///
+/// The residual hazard is stated rather than hidden: if some future member of the grammar tree
+/// acquires a hand-written `Debug` that elides content, this digest silently narrows with it. That is
+/// checked, not assumed — `grammar_identity_gate` in the dedup gate asserts that two grammars which
+/// differ in a single allomorph shape get different identities.
+///
+/// # Why the cost is affordable
+/// It is O(grammar), and it is only ever computed on a path that has just compiled the same grammar
+/// into an FST ([`build_candidate`] plus [`crate::build::finish_controllable_net`]) — a strictly more
+/// expensive O(grammar) operation. So it can never be more than a small fraction of work already
+/// spent, and it is computed once per evaluator CALL, never once per plan.
+pub fn grammar_identity(grammar: &Grammar) -> String {
+    use std::fmt::Write as _;
+    let mut writer = DigestWriter(Sha256::new());
+    framed(&mut writer.0, GRAMMAR_IDENTITY_PROJECTION.as_bytes());
+    write!(writer, "{grammar:?}").expect("a DigestWriter cannot fail to accept bytes");
+    format!("{:x}", writer.0.finalize())
+}
+
+/// The identity of a finished proposer network: domain-framed SHA-256 over everything `apply_up` can
+/// observe about it.
+///
+/// # What is in the preimage, and why that is sufficient
+/// Two nets with the same digest have, byte for byte, the same `arity`, the same size/property
+/// counters, the same tri-state flags, the same `sigma` (number → symbol, in order), the same
+/// minimum-edit-distance table, and the same compressed line table — every state block and every arc
+/// label/target, IN ORDER. That is the entire automaton plus the entire symbol table, so `apply_up`
+/// over any query must return the same raw paths in the same order, and therefore the same
+/// proposals, the same confirmation calls, and the same `confirmation_steps`/`raw_paths`. Arc ORDER
+/// is included deliberately and not normalized: it is observable (it fixes the order raw paths come
+/// back in) and normalizing it would make the digest claim an equivalence the measurement does not
+/// have.
+///
+/// # The two exclusions
+/// - `name` is a cosmetic label. `apply` never reads it, and including it would let a per-candidate
+///   naming convention defeat every dedup opportunity while claiming to protect something.
+/// - Nothing else. `medlookup` is only read by minimum-edit-distance lookup, which this pipeline
+///   never calls, but it is a handful of `i32`s and is hashed anyway rather than argued about.
+///
+/// # Why a cryptographic hash
+/// A collision here would hand one candidate another's score. SHA-256 makes that negligible where a
+/// 64-bit structural hash would not.
+fn finished_net_digest(net: &foma::types::Fsm) -> String {
+    let mut hash = Sha256::new();
+    framed(&mut hash, FINISHED_NET_PROJECTION.as_bytes());
+    hash.update(net.arity.to_le_bytes());
+    hash.update(net.arccount.to_le_bytes());
+    hash.update(net.statecount.to_le_bytes());
+    hash.update(net.linecount.to_le_bytes());
+    hash.update(net.finalcount.to_le_bytes());
+    hash.update(net.pathcount.to_le_bytes());
+    for tern in [
+        net.is_deterministic,
+        net.is_pruned,
+        net.is_minimized,
+        net.is_epsilon_free,
+        net.is_loop_free,
+        net.is_completed,
+    ] {
+        hash.update((tern as i32).to_le_bytes());
+    }
+    hash.update([u8::from(net.arcs_sorted_in), u8::from(net.arcs_sorted_out)]);
+    hash.update((net.sigma.len() as u64).to_le_bytes());
+    for symbol in &net.sigma {
+        hash.update(symbol.number.to_le_bytes());
+        framed(&mut hash, symbol.symbol.as_bytes());
+    }
+    match &net.medlookup {
+        None => hash.update([0u8]),
+        Some(medlookup) => {
+            hash.update([1u8]);
+            hash.update((medlookup.confusion_matrix.len() as u64).to_le_bytes());
+            for cell in &medlookup.confusion_matrix {
+                hash.update(cell.to_le_bytes());
+            }
+        }
+    }
+    // Native CSR traversal: `LineTable::rows()` would materialize the whole flat row sequence into a
+    // fresh `Vec<FsmState>` first, which is the one allocation this walk exists to avoid.
+    hash.update((net.states.blocks().len() as u64).to_le_bytes());
+    for (block, arcs) in net.states.iter_blocks() {
+        hash.update(block.state_no.to_le_bytes());
+        hash.update(block.arc_len.to_le_bytes());
+        hash.update([block.final_state as u8, block.start_state as u8]);
+        hash.update((arcs.len() as u64).to_le_bytes());
+        for arc in arcs {
+            hash.update(arc.r#in.to_le_bytes());
+            hash.update(arc.out.to_le_bytes());
+            hash.update(arc.target.to_le_bytes());
+        }
+    }
+    format!("{:x}", hash.finalize())
+}
+
+/// The key under which one candidate's whole measurement may be served to another.
+///
+/// # Why the net digest alone would be wrong
+/// A network decides what gets PROPOSED. It does not decide what confirmation makes of those
+/// proposals (that is the grammar's full-HC `Morpher`), nor which words are traversed (that is the
+/// corpus), nor whether per-word proposal evidence is retained (that is the observed mode). Keyed on
+/// the net alone, a cached result could cross grammars — silently, and in the reassuring direction,
+/// because the reused verdict would usually be a pass.
+///
+/// So all four are bound, each length-prefixed:
+/// - `grammar_identity` — see [`grammar_identity`].
+/// - `corpus_hash` of the COMPARABLE words, which is the slice actually applied and the slice whose
+///   hash a [`Certification::FullHcConfirmed`] carries. It also fixes `expected`: the prepared oracle
+///   result for a given word text is a pure function of (grammar, word, step cap), so equal
+///   comparable slices imply equal ground truth.
+/// - `observed` — the observed evaluator retains per-word proposal evidence and the ordinary one does
+///   not, so serving an ordinary result to an observed caller would silently drop evidence. That is a
+///   recall-shaped regression, and keying on the mode makes it unrepresentable.
+/// - the finished net digest.
+fn net_reuse_key(
+    grammar_identity: &str,
+    corpus_hash: &str,
+    observed: bool,
+    net_digest: &str,
+) -> String {
+    let mut hash = Sha256::new();
+    framed(&mut hash, NET_REUSE_KEY_PROJECTION.as_bytes());
+    framed(&mut hash, grammar_identity.as_bytes());
+    framed(&mut hash, corpus_hash.as_bytes());
+    hash.update([u8::from(observed)]);
+    framed(&mut hash, net_digest.as_bytes());
+    format!("{:x}", hash.finalize())
+}
+
 /// Default oracle (ground-truth `pg_parse::Morpher`) step cap, used whenever
 /// [`RuntimeBudget::oracle_step_cap`] is left `None`.
 ///
@@ -1339,6 +1517,9 @@ enum RealizedPlanComposed {
         states: u64,
         arcs: u64,
         build: u64,
+        /// [`finished_net_digest`] of the net this proposer was built from, taken at the last moment
+        /// the net still exists as an `Fsm`.
+        net_digest: String,
     },
     Failed {
         certification: Certification,
@@ -1434,13 +1615,77 @@ fn realize_plan_composed(
     // `statecount`/`arccount` are identical either side of it and the score cannot move.
     crate::analyzer::prepare_network_for_apply(&mut net);
     let (states, arcs) = (net.statecount as u64, net.arccount as u64);
+    // Digested HERE, after every mutation the net will ever receive (including the arc sort
+    // immediately above, which reorders arcs and so does move this digest) and before
+    // `from_precompiled_network` deep-clones it into an apply handle. Digesting earlier would key on
+    // a net that is not the one queried; digesting later is impossible, because the `Fsm` is gone.
+    let net_digest = finished_net_digest(&net);
     RealizedPlanComposed::Ready {
         proposer: FomaProposer::from_precompiled_network(&net, report)
             .with_segment_query_encoder(surface_table(grammar)),
         states,
         arcs,
         build,
+        net_digest,
     }
+}
+
+/// **The sizing instrument for net-level dedup: how many DISTINCT networks does a plan set actually
+/// produce?**
+///
+/// Builds each plan-composed candidate exactly the way [`evaluate_plans_marked_with_cache`] does —
+/// [`build_candidate`], [`crate::build::finish_controllable_net`],
+/// [`crate::analyzer::prepare_network_for_apply`] — and returns [`finished_net_digest`] for each. It
+/// runs NO oracle, NO propose and NO confirm, so a census over many fixtures costs only the build
+/// half.
+///
+/// `Err` carries the reason there is no digest to report (whole-grammar strategy, build failure,
+/// empty network), because "this fixture produced fewer digests than plans" must never be readable as
+/// evidence of dedup opportunity when the real cause was a build that failed.
+#[doc(hidden)]
+pub fn finished_net_digests(
+    grammar: &Grammar,
+    plans: &[CandidatePlan],
+    budget: RuntimeBudget,
+) -> Vec<Result<String, String>> {
+    let alphabet = SegAlphabet::new(surface_table(grammar));
+    let prules: Vec<&PhonRuleDef> = crate::enumerate::prules_in_order(grammar);
+    let opts = FomaOptions::default();
+    let compose = ComposeBudget::from_env().with_step_timeout(
+        budget
+            .build
+            .filter(|limit| *limit != u64::MAX)
+            .map(std::time::Duration::from_nanos),
+    );
+    let mut report: Option<crate::emit::EmitReport> = None;
+    plans
+        .iter()
+        .map(|candidate| {
+            if candidate.strategy != EmissionStrategy::PlanComposed {
+                return Err(format!(
+                    "whole-grammar strategy {:?} is not realized by build_controllable",
+                    candidate.strategy
+                ));
+            }
+            let report = report
+                .get_or_insert_with(|| crate::emit::emit(grammar).report)
+                .clone();
+            match realize_plan_composed(
+                candidate,
+                grammar,
+                &opts,
+                &alphabet,
+                &prules,
+                &compose,
+                report,
+            ) {
+                RealizedPlanComposed::Ready { net_digest, .. } => Ok(net_digest),
+                RealizedPlanComposed::Failed { certification, .. } => {
+                    Err(format!("{certification:?}"))
+                }
+            }
+        })
+        .collect()
 }
 
 fn evaluate_plans_marked_with_cache_mode<const OBSERVE: bool>(
@@ -1572,6 +1817,7 @@ fn evaluate_plans_marked_with_cache_mode<const OBSERVE: bool>(
                     states,
                     arcs,
                     build,
+                    net_digest: _,
                 } => (proposer, (states, arcs), build),
                 RealizedPlanComposed::Failed {
                     certification,
