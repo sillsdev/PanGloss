@@ -446,6 +446,96 @@ over an erased transform is not an exercise.
       that PRESERVES its role as the selection axis, and delete the enum only once the adapter axis
       expresses everything the enum selected between. If Fable checkpoint 2 weakens the
       compiler-axis thesis, revisit this wording again rather than treating it as settled.
+      Slice note (2026-08-03, **compiled but the gates have NOT been run** beyond the three new
+      tests and pg-foma's 555 unit tests — box stays unchecked; the exact commands are at the end of
+      this note). Four of the six items landed, one is reported satisfied already, one is
+      deliberately NOT done.
+      **Exact adapter lowering + `CandidatePlan` deleted.** `enumerate::CandidatePlan` becomes
+      `enumerate::LoweredCandidate`, whose compiler field is the typed `LoweringAdapter` task 7.5
+      already seals onto `ExecutableCandidate` rather than a second `EmissionStrategy` kept in
+      correspondence by hand; `recipe_runtime`'s dispatch, `build_candidate`'s refusal,
+      `finished_net_digests`, `realize_accuracy_proposer` and `executable_candidate::seal` all now
+      match on that one value. `EmissionStrategy` SURVIVES, per the amendment, as the reported
+      selection axis (`RuntimeEvaluation::realized_strategy`, `winner_strategy`,
+      `strategy_coverage`, `compose_envelope_for_strategy`, `MechanismGraph::bind`), reached through
+      the `LoweredCandidate::strategy()` projection; `executable_candidate`'s
+      `every_strategy_has_exactly_one_adapter_and_back` remains the compiler-checked proof the
+      correspondence is total and injective, which is the amendment's stated precondition for ever
+      deleting the enum. Zero `CandidatePlan` references remain crate-wide.
+      **Positional baseline state deleted, in both of its forms.** `evaluate_plans` derived
+      `is_baseline` from POSITION (`i == 0`) and `evaluate_plans_marked*` took it as a parallel
+      `&[bool]` guarded only by a length `assert_eq!` whose own message admitted the hazard. Both
+      are gone; the fact is `LoweredCandidate::role` (`CandidateRole::{Baseline, Alternative}`),
+      carried by the candidate it is a fact about, and the registry DERIVES it (`SafeTransform::
+      Identity` under the plan-interpreting adapter hands back the baseline plan verbatim and is
+      therefore the default compilation) rather than declaring it. The three `_marked` entry points
+      are deleted. **This is a behaviour change, not a pure refactor, and it is the point**:
+      `materialize_distinct` orders candidates by FAMILY ID and `ordered-morphophonology` sorts
+      after `bounded-metathesis`, `class-exception-cascade`, `complete-template` and `copy-branch`,
+      so element zero was NOT the default compilation on any grammar those apply to — every caller
+      that passed `(0..n).map(|i| i == 0)` was holding an arbitrary alternative to the baseline's
+      marker-fallback rule. `recipe_runtime_net_is_queryable_gate` was one such caller (its
+      `index == 0` now reads `role.is_baseline()`); `boundary_marker_epsilon_collapse_gate` and
+      `parity_divergence_census` evaluate whole registry batches and may move for the same reason.
+      **Duplicate runtime artifacts deleted.** `RecipeOptimizationReport` inlined the full text of
+      `baseline.plan.json`, `baseline.plan.mmd`, `winner.plan.json` and `winner.plan.mmd` beside the
+      `*_path` fields naming those same already-written files. `validate()` never read them and no
+      test did either. The `*_path` fields (used by `markdown()`) stay. `report.json` therefore
+      loses four fields; `RECIPE_REPORT_SCHEMA_VERSION` was NOT bumped, because the removed fields
+      were redundant copies rather than a semantic change and nothing deserializes them.
+      **Fake zero measurements deleted, in the pilot.** A pilot candidate the capability envelope
+      REFUSED recorded `build: 0, evaluation: 0` for stages that never ran, and `summarize_pilot`
+      folded those literal zeros into the build/evaluation percentiles — which are summed into
+      `PilotCosts` and DECIDE WHICH SEARCH STRATEGY the run uses, so this was not cosmetic. Both
+      fields are `Option<u64>`, the quantiles are taken over rows where the stage executed, and a
+      new `PilotSummary::executed_samples` names the honest denominator. `materialize`/`capability`
+      stay unconditional: a refused row genuinely paid both.
+      **Run-scoped lowered-candidate reuse: reported ALREADY SATISFIED for the expensive half, and a
+      third layer deliberately not built.** `RunEvaluationCache`'s net-level dedup (landed
+      2026-08-03) keys a whole measurement on `(grammar identity, corpus hash, observed mode,
+      finished-net digest)` and serves it to any later candidate whose finished network is identical
+      arc for arc, which is the case plan-shape recipes routinely produce (spread 0 across 8
+      fixtures). What is NOT reused is the LOWERING itself — every candidate still compiles its own
+      network, deliberately, because the digest is not knowable until it has. A pre-build key of
+      `(grammar identity, plan-document digest, adapter)` would close that, and it is not built for
+      two reasons: `pg_cli` already drops root+strategy duplicates before evaluation so it would
+      almost never fire in production, and a third cache keyed differently from the existing two is
+      how caches silently miss.
+      **Implicit fallback: NOT deleted, and this is a disagreement stated rather than worked
+      around.** The remaining fallback is that a `Baseline` whose plan needs marker subtrees
+      `build_controllable` cannot build is realized by the whole-grammar tuned adapter. Deleting it
+      outright would report `BuildFailed`/`Truncated` for the default compilation of every templated
+      grammar, and the measured cost is on record in `recipe_runtime`'s own comment: 133 states /
+      3307 arcs controllable-only against 6376 / 68693 from the tuned path, which proposed correctly
+      where the controllable net proposed nothing for 19 of 20 words. So it is made EXPLICIT instead
+      — a declared `CandidateRole` on the candidate, dispatched on the adapter, reported through
+      `realized_strategy` — and the deletion is left to whoever can supply the replacement evidence.
+      The related `ResourceBreach`-relabelled-`Unsupported` defect on that same path was identified
+      and NOT fixed: `recipe_runtime_net_is_queryable_gate` currently REQUIRES `Unsupported` there,
+      so unpicking the relabel is a gate change that belongs with the filed
+      declining-allowance/`--confirmation-work` work rather than bundled here.
+      **New gates, each verified to fail with its own mechanism reverted (sabotage run 2026-08-03).**
+      `net_dedup_gate::the_plan_document_identity_is_canonical_across_two_independent_constructions`
+      — the Plan identity is byte-stable across two independent grammar LOADS and two independent
+      enumerations, and discriminates two grammars. Placed beside the RED `grammar_identity` pin so
+      the contrast in PREIMAGE is readable in one file: substituting a derived `Debug` projection
+      makes it fail, and the failure output shows the live defect (`symbol_index: {"fRoundMinus": 1,
+      "fRoundPlus": 0}` in one load, the other order in the other). `recipe_registry::
+      the_baseline_role_follows_the_baseline_plan_and_never_the_position` — exactly one Baseline, it
+      carries the baseline plan verbatim under the plan-interpreting adapter, and every Alternative
+      differs in plan or compiler. `recipe_space::
+      a_stage_that_never_ran_does_not_contribute_a_zero_to_its_quantiles`.
+      **Not done, and owed.** The end-to-end falsifier for the marker-fallback ROUTING (evaluate an
+      Alternative alone and require it is not rescued as a baseline) needs a fixture measured to
+      fail on the controllable net with unbuildable markers; none was identified, so the role change
+      is pinned structurally at the registry rather than through the evaluator. `grammar_identity`
+      stays RED — it is not the Plan identity this task names, and fixing it means a canonical
+      `Grammar` serialization, which is the queued persistent-oracle-cache owner's work.
+      **What to run** (warm tree, `--test <target>` narrows COMPILATION, `-Filter` does not):
+      `$env:PANGLOSS_EXTRA_ARGS = '--lib --test net_dedup_gate --test recipe_runtime_net_is_queryable_gate'`
+      then `pg.ps1 -Mode test -Package pg-foma`; then the wider set
+      `'--test cross_compiler_equivalence_gate --test recipe_accuracy_gate --test parity_divergence_census --test boundary_marker_epsilon_collapse_gate --test recipe_promoted_fixtures --test deletion_reduplication_exception_fixture'`;
+      then `pg.ps1 -Mode test -Package pg-cli`.
 - [ ] 7.14 Run the mandatory second Luna/xhigh cleanup audit after 7.11–7.13 and managed package gates,
       but before any mechanism becomes selectable. Resolve every duplicate-owner/claim-level blocker.
 - [ ] 7.15 After all six mechanisms have two exercises where possible, run 2–4 orthogonal Luna/xhigh

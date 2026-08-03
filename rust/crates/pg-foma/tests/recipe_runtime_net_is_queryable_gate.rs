@@ -56,22 +56,33 @@
 use pg_conformance_fixtures::{corpus, discover, Root};
 use pg_foma::build::unbuildable_markers;
 use pg_foma::enumerate::enumerate_default;
+use pg_foma::enumerate::CandidateRole;
 use pg_foma::junctions::PhonologyProbe;
 use pg_foma::recipe_optimizer::Certification;
 use pg_foma::recipe_registry::{MaterializerContext, Registry};
 use pg_foma::recipe_runtime::{evaluate_plans, RuntimeBudget};
 use pg_foma::replace::SegAlphabet;
 
-/// Returns each candidate's evaluation PAIRED WITH the strategy that produced it. The pairing is
-/// necessary, not decorative: the marker-attribution rule below applies only to candidates measured
-/// on `build_controllable`'s controllable-subtree network. A candidate compiled by a whole-grammar
-/// strategy has no marker gap to attribute anything to, so its verdict is a real measurement and must
-/// be read as one.
+/// Returns each candidate's evaluation PAIRED WITH the strategy that produced it AND its declared
+/// [`CandidateRole`]. Both pairings are necessary, not decorative:
+///
+/// * the marker-attribution rule below applies only to candidates measured on
+///   `build_controllable`'s controllable-subtree network -- a candidate compiled by a whole-grammar
+///   strategy has no marker gap to attribute anything to, so its verdict is a real measurement and
+///   must be read as one; and
+/// * task 7.13: the BASELINE rule applies to whichever candidate the runtime treats as the baseline,
+///   and this gate used to identify that candidate by POSITION (`index == 0`) because
+///   `evaluate_plans` itself did. It no longer does -- the fact is `LoweredCandidate::role` -- and
+///   position was never right here anyway: `materialize_distinct` orders candidates by FAMILY ID,
+///   and `ordered-morphophonology` (the only plan-composing `Identity` family, i.e. the one carrying
+///   the baseline plan verbatim) sorts after four other families. On any grammar those apply to,
+///   element zero was an ALTERNATIVE being held to the baseline's rule.
 fn materialize_and_evaluate(
     grammar: &pg_grammar::model::Grammar,
     words: &[String],
 ) -> Vec<(
     pg_foma::enumerate::EmissionStrategy,
+    CandidateRole,
     pg_foma::recipe_runtime::RuntimeEvaluation,
 )> {
     let alphabet = SegAlphabet::new(&grammar.char_tables[0]);
@@ -91,10 +102,14 @@ fn materialize_and_evaluate(
         .expect("materialization must succeed");
     let plans: Vec<_> = candidates.into_iter().map(|(_, p)| p).collect();
     assert!(!plans.is_empty(), "must materialize at least one candidate");
-    let strategies: Vec<_> = plans.iter().map(|p| p.strategy()).collect();
+    let declared: Vec<_> = plans.iter().map(|p| (p.strategy(), p.role)).collect();
     let evaluations = evaluate_plans(grammar, &plans, words, RuntimeBudget::default())
         .expect("the oracle liveness net / memory ceiling must not trip on this fixture");
-    strategies.into_iter().zip(evaluations).collect()
+    declared
+        .into_iter()
+        .zip(evaluations)
+        .map(|((strategy, role), evaluation)| (strategy, role, evaluation))
+        .collect()
 }
 
 /// THE pin for defect (1). Corpus-gated because no synthetic fixture reproduces it (module doc).
@@ -125,7 +140,7 @@ fn corpus_indonesian_confirms_after_the_finish_step() {
 
     let evaluations: Vec<_> = materialize_and_evaluate(&grammar, &words)
         .into_iter()
-        .map(|(_, e)| e)
+        .map(|(_, _, e)| e)
         .collect();
     let confirmed = evaluations
         .iter()
@@ -181,7 +196,7 @@ fn the_evaluator_confirms_a_wholly_in_scope_grammar() {
         .collect();
     let evaluations: Vec<_> = materialize_and_evaluate(&grammar, &words)
         .into_iter()
-        .map(|(_, e)| e)
+        .map(|(_, _, e)| e)
         .collect();
     let confirmed = evaluations
         .iter()
@@ -239,10 +254,7 @@ fn out_of_scope_marker_subtrees_are_attributed_not_blamed_on_the_grammar() {
         if words.is_empty() {
             continue;
         }
-        for (index, (strategy, e)) in materialize_and_evaluate(&grammar, &words)
-            .into_iter()
-            .enumerate()
-        {
+        for (strategy, role, e) in materialize_and_evaluate(&grammar, &words) {
             // Same rule as the baseline below, for the same reason, and it has to be checked BEFORE
             // the marker-attribution assertion: a whole-grammar strategy is compiled by its own
             // compiler, which builds the marker material rather than skipping it. There is therefore
@@ -260,7 +272,7 @@ fn out_of_scope_marker_subtrees_are_attributed_not_blamed_on_the_grammar() {
                 );
                 continue;
             }
-            if index == 0 {
+            if role.is_baseline() {
                 // The BASELINE of a marker-requiring grammar is routed to the tuned emit path, which
                 // CAN build those subtrees. So it is measured on a network that genuinely represents
                 // the grammar, and any failure here is a real result about that network -- it must NOT
