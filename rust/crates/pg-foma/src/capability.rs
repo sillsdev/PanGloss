@@ -1533,16 +1533,67 @@ fn compounding_recursive(g: &Grammar) -> HashSet<MRuleId> {
 /// itself unblock a promotion to `ConfirmOnly` (a separate, construction-side gap, not a
 /// bound-side one).
 ///
-/// **Not yet consumed by any live budget check.** This bound is expressed in the same plain `usize`,
-/// "the cap names the last value that still fits" vocabulary [`crate::compose_budget::ComposeBudget::
-/// check_chain_depth`] already uses (design.md row 2 piece 2: "the same ADR 0003 chain-depth-budget
-/// shape `unordered`/`peel` already use... do not invent a second budget mechanism") so a future
-/// construction can check it via that SAME mechanism directly, without this function's own shape
-/// changing — but no call site does so yet: `crate::emit`'s "bounded compound loop" (module doc)
+/// **CONSUMED, by two things, and the paragraph that used to stand here saying otherwise was STALE.**
+///
+/// It read: "Not yet consumed by any live budget check ... `crate::emit`'s 'bounded compound loop'
 /// hardcodes exactly ONE extra root regardless of this bound, so no construction exists today that a
-/// larger `max_depth` could safely unlock. Wiring a construction that actually consumes this bound is
-/// out of this task's own scope (its owned files do not include `crate::emit`, where that
-/// construction lives) — see [`CompoundingRecursionSafePredicate`]'s own doc for the full citation.
+/// larger `max_depth` could safely unlock." Both clauses were true when written and both were falsified
+/// by task #44. Today:
+///
+/// - `crate::emit::compound_extra_levels_checked` SIZES A CONSTRUCTION from this number
+///   (`max_depth - 1` unrolled non-head root levels, shared by BOTH emitters), and
+/// - it is checked against a live budget on the way (`DEFAULT_COMPOUND_CHAIN_DEPTH_BUDGET`, 200,
+///   overridable with `HC_COMPOUND_CHAIN_DEPTH_BUDGET`), which refuses with a typed
+///   `ComposeError::ChainDepthExceeded` rather than truncating.
+///
+/// Correcting the stale text matters because a reader who believed it would conclude that nothing
+/// depends on how large this number is. Something does.
+///
+/// # This number is a RULE-COUNT CEILING. It is not a typological depth, and the two must not be conflated
+///
+/// The formula sums `max_apps` across the transitive closure of rules that COULD feed `r`. So it
+/// answers "how many compounding APPLICATIONS could this grammar's rule set contribute in the
+/// worst case", which is grammar-counting. It does NOT answer "how deeply do compounds NEST", which is
+/// typology. Eight ways to compound is not nine levels of nesting.
+///
+/// MEASURED consequence (2026-08-03), stated with the number so it is actionable: the private `sena`
+/// grammar declares **8** `CompoundingRule`s, none with `multipleApplication`, so every `max_apps` is
+/// the DTD default 1 and this function returns `1 + 1 + 7 = 9`. `compound_extra_levels` is therefore
+/// **8**, and both emitters unroll eight non-head root levels for a grammar in which no single
+/// derivation was ever shown to chain eight compounding applications. That is also precisely the
+/// multiplier that turned 7 null-shaped `^0+` prefix allomorphs into 56 self-looping lexc lines in the
+/// epsilon-cycle regression (`crate::net_shape`'s own gate).
+///
+/// # The OPERATIVE bound is `max_stem_count`, and it is 2 — with 3 attested
+///
+/// The engine's own limit on compound depth is not this ceiling at all. It is
+/// `pg_rules::stratum::AnalyzerConfig::max_stem_count`, checked in `StratumAnalyzer::apply_one_mrule`
+/// (`w.non_heads.len() + 1 >= max_stem_count` rejects the rule outright), surfaced as
+/// `pg_parse::Morpher::with_max_stem_count`, and defaulting to **2** — C#'s own `Morpher.MaxStemCount`
+/// ctor default (`Morpher.cs:56`). C#'s own `CompoundingRuleTests.SimpleRules` raises it to **3** for a
+/// genuine three-root compound (`cs:87,105`). So the reference implementation's own answer to "how deep
+/// can a compound go" is 2 by default and 3 when someone means it — which is exactly the "at most two,
+/// maybe three" figure this bound gets compared against, and it is a fact about the ENGINE, already in
+/// this tree, not a number anyone had to invent. `docs/conformance/representative-typology-basis.md`
+/// §1.2.1 carries the separate FORMAL-vs-ATTESTED split for the typological claim.
+///
+/// `tests/cover_compounding_recursive_depth_bound.rs` pins the gap directly and non-vacuously: on the
+/// `recursive-endocentric-compounding` fixture the proposer proposes the 3-stem compound while the
+/// DEFAULT-configured oracle confirms **zero** analyses for it, and containment only becomes a real
+/// claim once `with_max_stem_count(3)` is set.
+///
+/// # What to do about it, deliberately NOT done here
+///
+/// Sizing the construction by `min(this ceiling, the operative stem bound)` is the correct shape: keep
+/// this function exactly as it is (a sound refusal ceiling — never under-counting is what makes the
+/// `ChainDepthExceeded` refusal trustworthy) and stop letting it choose how many levels to BUILD.
+/// That is not a doc change, because the operative bound has to travel from whoever configures
+/// `max_stem_count` to `crate::emit`, and the three containment tests in
+/// `tests/cover_compounding_recursive_depth_bound.rs` that deliberately raise `max_stem_count` must move
+/// in lockstep with it or the change would silently reduce a raised-cap caller's recall. Left as an
+/// explicit, named, measured follow-up rather than a half-threaded knob: recall is not negotiable, and
+/// the plumbing decision (env var, as every other budget in `crate::compose_budget` does it, versus a
+/// threaded `FomaOptions` field) deserves to be made on purpose.
 fn compounding_max_depth(g: &Grammar) -> HashMap<MRuleId, usize> {
     let compounding_rules: Vec<(MRuleId, &pg_grammar::model::CompoundingRuleDef)> = g
         .mrules

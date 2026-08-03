@@ -289,6 +289,159 @@ fn small_bound_grammar_xml(max_apps: u32, roots: &[&str]) -> String {
     )
 }
 
+/// [`small_bound_grammar_xml`]'s sibling for the OTHER way `max_depth` grows: `rule_count` DISTINCT
+/// `CompoundingRule`s in one stratum, every one at the DTD default `multipleApplication="1"`.
+///
+/// This is the real `sena` shape (8 such rules, measured), and the shape that makes
+/// `compounding_max_depth` a rule COUNT rather than a nesting DEPTH: `1 + 1 + (rule_count - 1)`.
+fn many_rule_grammar_xml(rule_count: usize, roots: &[&str]) -> String {
+    let mut entries = String::new();
+    for (i, root) in roots.iter().enumerate() {
+        entries.push_str(&format!(
+            r#"<LexicalEntry id="eRoot{i}" partOfSpeech="posRoot">
+                 <Allomorphs><Allomorph id="aRoot{i}"><PhoneticShape>{root}</PhoneticShape></Allomorph></Allomorphs>
+                 <MorphemeId>ROOT{i}</MorphemeId>
+               </LexicalEntry>"#
+        ));
+    }
+    let mut rules = String::new();
+    let mut rule_ids = Vec::new();
+    for i in 0..rule_count {
+        rule_ids.push(format!("cr{i}"));
+        rules.push_str(&format!(
+            r#"<CompoundingRule id="cr{i}" multipleApplication="1" headPartsOfSpeech="posRoot" nonHeadPartsOfSpeech="posRoot" outputPartOfSpeech="posRoot">
+                 <Name>Compound{i}</Name>
+                 <CompoundingSubrules>
+                   <CompoundingSubrule>
+                     <HeadMorphologicalInput>
+                       <PhoneticSequence id="h{i}"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence>
+                     </HeadMorphologicalInput>
+                     <NonHeadMorphologicalInput>
+                       <PhoneticSequence id="n{i}"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence>
+                     </NonHeadMorphologicalInput>
+                     <MorphologicalOutput>
+                       <CopyFromInput index="h{i}" />
+                       <CopyFromInput index="n{i}" />
+                     </MorphologicalOutput>
+                   </CompoundingSubrule>
+                 </CompoundingSubrules>
+               </CompoundingRule>"#
+        ));
+    }
+    let rule_list = rule_ids.join(" ");
+    format!(
+        r#"<?xml version="1.0" encoding="utf-8"?>
+<HermitCrabInput><Language><Name>ManyRuleFixture</Name>
+  <PartsOfSpeech><PartOfSpeech id="posRoot"><Name>root</Name></PartOfSpeech></PartsOfSpeech>
+  <CharacterDefinitionTable id="t1"><Name>Main</Name>
+    <SegmentDefinitions>
+      <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+      <SegmentDefinition id="ce"><Representations><Representation>e</Representation></Representations></SegmentDefinition>
+      <SegmentDefinition id="ci"><Representations><Representation>i</Representation></Representations></SegmentDefinition>
+      <SegmentDefinition id="co"><Representations><Representation>o</Representation></Representations></SegmentDefinition>
+      <SegmentDefinition id="cu"><Representations><Representation>u</Representation></Representations></SegmentDefinition>
+      <SegmentDefinition id="cf"><Representations><Representation>f</Representation></Representations></SegmentDefinition>
+      <SegmentDefinition id="ck"><Representations><Representation>k</Representation></Representations></SegmentDefinition>
+      <SegmentDefinition id="cl"><Representations><Representation>l</Representation></Representations></SegmentDefinition>
+      <SegmentDefinition id="cm"><Representations><Representation>m</Representation></Representations></SegmentDefinition>
+      <SegmentDefinition id="cn"><Representations><Representation>n</Representation></Representations></SegmentDefinition>
+      <SegmentDefinition id="cp"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
+      <SegmentDefinition id="cs"><Representations><Representation>s</Representation></Representations></SegmentDefinition>
+      <SegmentDefinition id="ct"><Representations><Representation>t</Representation></Representations></SegmentDefinition>
+    </SegmentDefinitions>
+  </CharacterDefinitionTable>
+  <NaturalClasses><FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass></NaturalClasses>
+  <Strata>
+    <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="linear" morphologicalRules="{rule_list}">
+      <Name>Main</Name>
+      <MorphologicalRuleDefinitions>{rules}</MorphologicalRuleDefinitions>
+      <LexicalEntries>{entries}</LexicalEntries>
+    </Stratum>
+  </Strata>
+</Language></HermitCrabInput>"#
+    )
+}
+
+/// **THE RULE-COUNT-VERSUS-DEPTH CONFLATION, proven by collision rather than described.**
+///
+/// `compounding_max_depth` sums `max_apps` across the transitive closure of rules that COULD feed a
+/// rule. That makes it blind to a distinction which decides how big a construction gets:
+///
+/// - **ONE** rule at `multipleApplication="4"` -- a rule that genuinely may re-apply to its own
+///   output four times, so a single derivation really can reach five stems;
+/// - **FOUR** rules at the DTD default `multipleApplication="1"` -- four ALTERNATIVE ways to
+///   compound, none of which may apply twice at all.
+///
+/// Both compute `max_depth == 5`. The formula cannot tell them apart, because the first quantity is
+/// typology and the second is grammar-counting. Eight ways to compound is not nine levels of nesting,
+/// and this test is that sentence as an executable collision -- it needs no FST, no corpus and no
+/// emitter, so nothing else can confound it.
+///
+/// That multiplier is live, not hypothetical: the private `sena` grammar declares **8**
+/// `CompoundingRule`s, none with `multipleApplication`, so it lands on `max_depth = 9` and
+/// `crate::emit::compound_extra_levels_checked` unrolls **8** non-head root levels for it.
+///
+/// The OPERATIVE bound is much smaller and lives elsewhere entirely:
+/// `pg_rules::stratum::AnalyzerConfig::max_stem_count` (C#'s `Morpher.MaxStemCount`, ctor default
+/// **2**, `Morpher.cs:56`) rejects a `Compounding` rule as soon as
+/// `non_heads.len() + 1 >= max_stem_count`, so a DEFAULT-configured engine confirms at most two
+/// stems. `raised_cap_oracle_finds_the_recursive_analysis_confirm_at_default_would_miss` in this same
+/// file already pins that half against the staged fixture: at the default cap the 3-stem compound
+/// confirms ZERO analyses, and only `with_max_stem_count(3)` makes it one.
+///
+/// **Deliberately a PIN, not a behavior change.** The over-approximating direction is sound, and the
+/// deeper levels are real recall for a raised-cap caller --
+/// `depth_budgeted_compound_loop_contains_the_raised_cap_oracle_analysis` (this file) would break if
+/// the construction were simply clamped to the default. Sizing the construction by
+/// `min(ceiling, operative stem bound)` requires the operative bound to travel from whoever sets
+/// `max_stem_count` into `crate::emit`, with that test moving in lockstep; see
+/// `crate::capability::compounding_max_depth`'s own doc for the full write-up. What this guarantees
+/// meanwhile is that the conflation is ASSERTED, so it cannot be quietly re-argued away.
+#[test]
+fn max_depth_cannot_distinguish_four_ways_to_compound_from_four_levels_of_nesting() {
+    let roots = ["tevi", "mafl", "isra", "kopu", "nalt"];
+
+    let depth_of = |xml: &str, what: &str| -> usize {
+        let g = pg_grammar::load(xml).unwrap_or_else(|e| panic!("{what} fixture must load: {e}"));
+        pg_foma::capability::characterize(&g)
+            .compounding_details()
+            .map(|d| d.max_depth)
+            .max()
+            .unwrap_or_else(|| panic!("{what}: a CompoundingRule must yield a depth detail"))
+    };
+
+    // Genuinely five-deep: one rule that may re-apply four times.
+    let genuinely_deep = depth_of(
+        &small_bound_grammar_xml(4, &roots),
+        "one rule at multipleApplication=4",
+    );
+    // Four alternatives, none repeatable: nothing here nests deeper than head + non-head per rule.
+    let merely_four_ways = depth_of(
+        &many_rule_grammar_xml(4, &roots),
+        "four non-repeatable rules",
+    );
+
+    eprintln!(
+        "compounding depth conflation: one-rule-x4 => max_depth={genuinely_deep}; \
+         four-rules-x1 => max_depth={merely_four_ways}; operative max_stem_count default = 2"
+    );
+    assert_eq!(
+        genuinely_deep, 5,
+        "one isolated rule at multipleApplication=4 must compute 1 + 4 = 5"
+    );
+    assert_eq!(
+        merely_four_ways, 5,
+        "four rules each at multipleApplication=1 must compute 1 + 1 + 3 = 5 -- the rule-count sum"
+    );
+    assert_eq!(
+        genuinely_deep, merely_four_ways,
+        "THE FINDING: the bound is identical for a grammar that genuinely nests five stems and one \
+         that offers four non-repeatable alternatives. It is a rule-count ceiling, not a nesting \
+         depth, and `crate::emit::compound_extra_levels_checked` sizes an unrolled construction from \
+         it either way"
+    );
+}
+
 /// **The depth-BOUND-respected gate.** A grammar whose computed `max_depth` bound is exactly `k`
 /// (here `k = 3`: one isolated `CompoundingRule`, `multipleApplication="2"`, so
 /// `max_depth = 1 + 2 = 3` -- this module's own established isolated-rule equivalence) must propose
