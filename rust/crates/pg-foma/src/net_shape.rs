@@ -45,6 +45,21 @@
 //! defaulted, and [`shape_unit_tests::direction_decides_whether_a_zero_width_cycle_exists`] pins
 //! the asymmetry on a two-arc net.
 //!
+//! # What foma already provides, and why that was not enough
+//! `foma::topsort::fsm_topsort` is a prefabricated linear Kahn's-algorithm pass that already answers
+//! "is this net cyclic" (setting `is_loop_free` / a `PATHCOUNT_CYCLIC` pathcount), and
+//! `examples/p6_templated_q1_cycle_check.rs` already used it for exactly that. It is deliberately
+//! NOT re-implemented here for the coarse question: [`shape_unit_tests::
+//! full_graph_cycle_detection_agrees_with_fomas_own_topsort`] cross-checks this module's own
+//! full-graph answer against foma's, on six nets, so a bug in the walk below shows up as a
+//! disagreement with a well-tested prefab rather than as a plausible-looking number.
+//!
+//! What `fsm_topsort` cannot do is the thing that matters: it returns one boolean for the WHOLE net,
+//! over the WHOLE arc set. It cannot say a cycle is zero-width in a given apply direction, cannot
+//! separate the deliberate input-consuming loops from the pathological free ones, and reports no
+//! per-state distribution at all. On `uflexc`'s output its answer is "cyclic" both before and after
+//! the fix that removed the explosion, so it cannot discriminate the case this module exists for.
+//!
 //! # HARD SCOPE: this is a first-pass filter and a regression tripwire, NEVER a certification signal
 //! - Nothing in this module is read by [`crate::recipe_optimizer::Score`], by any ranking key, by
 //!   any eligibility predicate, or by any certification verdict. It is not wired into
@@ -747,6 +762,60 @@ mod shape_unit_tests {
             "{}",
             ambiguous.evidence_line()
         );
+    }
+
+    /// CROSS-CHECK against a prefab, not a second hand-rolled walk (this repo's own "prefer prefab
+    /// over hand-rolled" rule). `foma::topsort::fsm_topsort` is a well-tested linear Kahn's-algorithm
+    /// pass that already decides whether a net is loop-free; this module's full-graph SCC census must
+    /// agree with it on every net, in both directions of the biconditional. A disagreement means the
+    /// walk below is wrong, not that foma is.
+    ///
+    /// Only the COARSE question is cross-checkable — `fsm_topsort` has no notion of a zero-width
+    /// cycle (module doc), which is precisely why this module exists.
+    #[test]
+    fn full_graph_cycle_detection_agrees_with_fomas_own_topsort() {
+        // Chosen to cover both answers and both mechanisms: acyclic straight-line, acyclic with an
+        // epsilon jump, self-loop, multi-state loop, epsilon-consuming self-loop, epsilon-consuming
+        // multi-state loop.
+        let cases = [
+            ("[a] [b] [c]", false),
+            ("[a] [b:0] [c]", false),
+            ("[a]*", true),
+            ("[[a] [b]]*", true),
+            ("[a:0]*", true),
+            ("[[a:0] [b:0]]*", true),
+        ];
+        for (regex, expect_cyclic) in cases {
+            let shape = NetShape::inspect(&net(regex), ApplyDirection::Up);
+            // `fsm_topsort` consumes the net and returns it with `is_loop_free` set, so it gets its
+            // own freshly compiled copy rather than mutating the one just inspected.
+            let sorted = foma::topsort::fsm_topsort(net(regex));
+            let foma_says_cyclic = match sorted.is_loop_free {
+                foma::types::Tern::Yes => false,
+                foma::types::Tern::No => true,
+                foma::types::Tern::Unk => panic!(
+                    "fsm_topsort left is_loop_free unknown for `{regex}` -- the cross-check cannot \
+                     be performed, which is NOT the same fact as agreement"
+                ),
+            };
+            eprintln!(
+                "topsort cross-check `{regex}`: foma_cyclic={foma_says_cyclic} \
+                 net_shape_cyclic={} {}",
+                shape.cycles.any(),
+                shape.evidence_line()
+            );
+            assert_eq!(
+                shape.cycles.any(),
+                foma_says_cyclic,
+                "this module's full-graph SCC census disagrees with `fsm_topsort` on `{regex}`: {}",
+                shape.evidence_line()
+            );
+            assert_eq!(
+                foma_says_cyclic, expect_cyclic,
+                "the fixture `{regex}` no longer has the shape this case was chosen for, so the \
+                 agreement above is about something other than what it claims"
+            );
+        }
     }
 
     /// The quantile reduction is ordered and non-interpolating, so an evidence line can be compared
