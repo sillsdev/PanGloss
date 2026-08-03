@@ -47,6 +47,18 @@ All work on branch `cleanup-and-recipe-parity` (one worktree), never on `main`.
       `templated_compile.rs` APIs.
 - [ ] 2.3 Full managed test pass on the branch (`pg.ps1 -Mode test` + `-Mode corpus-test` where
       corpus inputs exist); fix fallout; conformance at exact baseline.
+      **TWO KNOWN REDS BLOCK THIS, both PRE-EXISTING — not fallout from any of the 25 merged
+      commits** (measured 2026-08-03; neither is in the `-Mode test` half, which passed 1876/1876):
+      (a) two fixtures ABORT THE PROCESS via unbounded recursion — task 64, also the sole blocker
+      of 7.9; (b) `analyzer::budget_tests::aweti_trips_enumeration_budget_fast_with_typed_error`
+      flakes by construction, its allowance of 500 sitting inside the observed trip spread
+      404–532 — task 78. Earlier notes here said "exactly ONE failure"; that was the `pg-foma`
+      package alone, and the corpus half adds the second.
+      **AND the corpus half has not actually exercised anything yet**: it reported
+      `executed 0 corpus case(s) across 0 label(s)`, so the corpus-required gate found no declared
+      inputs. Until that reports a non-zero count, 2.3 cannot claim anything about corpus
+      coverage — a green corpus run over zero cases is the exact failure mode `-Mode corpus-test`
+      exists to refuse, so treat a zero count as a third red, not as a pass.
 
 ## 3. Wave 3 — measurement (sequential, release profile, out-of-band)
 
