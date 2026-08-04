@@ -217,7 +217,7 @@ impl RuleCache {
             .enumerate()
             .map(|(idx, rule)| {
                 let pid = PRuleId(idx as u32);
-                // `owning_table_for_prule` returning `None` here means "not wired into any
+                // `owning_table_for_prule` returning `None` here means "absent from every
                 // stratum's own `prules` cascade" -- either a real orphaned prule in a multi-table
                 // grammar (never reachable from the real per-word pipeline either way, since
                 // `crate::stratum` only ever applies a prule by walking `stratum.prules` itself --

@@ -1,8 +1,7 @@
 //! ADR 0004 (`docs/adr/0004-runtime-feature-compatibility.md`) load-time compatibility: the pack
 //! manifest's **required runtime-feature set** and the Runtime's own **provided** set. "The pack
 //! loads iff `required ⊆ provided`" — this module defines both sides of that containment check as
-//! plain data plus a pure comparison function. **Not wired into any loader yet** (this change is
-//! additive only, per the task brief): a future `pg-wasm`/`pg-cli` load path calls
+//! plain data plus a pure comparison function, for a `pg-wasm`/`pg-cli` load path to call
 //! [`RequiredRuntimeFeatures::satisfied_by`] against a Runtime-declared [`ProvidedRuntimeFeatures`]
 //! before constructing an analyzer.
 //!

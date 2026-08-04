@@ -18,8 +18,8 @@
 //! `Role::CircumfixPrefix` and routes through the structural-composite path instead). Declared
 //! directly in the stratum's `<MorphologicalRuleDefinitions>` and referenced by the STRATUM's own
 //! `morphologicalRules` attribute (mirrors `crate::build::compounding`'s own "stratum-attached,
-//! not template-wrapped" convention, found empirically there to be load-bearing: a rule not wired
-//! into the owning stratum's own list is dead XML `pg_rules` never attempts) — NOT wrapped in an
+//! not template-wrapped" convention, found empirically there to be load-bearing: a rule absent
+//! from the owning stratum's own list is dead XML `pg_rules` never attempts) — NOT wrapped in an
 //! `<AffixTemplate>`, so `pg_foma::emit::emit`'s "Standalone (stratum-attached) derivation rules"
 //! loop (that module's own doc, mirrors `trie.rs::run()`) picks up every one of them into its
 //! `deriv_suffix` vector, one call to `build_deriv_chain` per zone, `rules.len() == count` levels.

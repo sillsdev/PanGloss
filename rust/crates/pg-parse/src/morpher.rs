@@ -180,7 +180,7 @@ pub struct ParseOutcome {
     /// returned analysis; each `structured[i].guessed` mirrors this same value. Always `false` on
     /// the `parse_word` default path (guess off) and on the `invalid_shape` early return.
     pub guessed: bool,
-    /// Diagnostic only (not part of any C# contract, purely additive instrumentation): the total
+    /// Diagnostic only, not part of any C# contract: the total
     /// number of synthesis candidates (`vw`) yielded by the synthesis pipeline before the
     /// `is_word_valid_traced`/`is_match_traced` gate, across both the normal-match loop and (when
     /// taken) the guess-root branch. `structured.len()` is the "accepted" counterpart (the subset
@@ -566,7 +566,7 @@ impl<'g> Morpher<'g> {
         //    `Morpher.Synthesize` (SINGLE_THREADED branch, Morpher.cs:283-301).
         // Diagnostic-only counter (see `ParseOutcome::candidates_generated`'s doc): every `vw` this
         // loop and the guess-branch loop below yield from the synthesis pipeline, counted before the
-        // validity/match gate — purely additive, does not affect which candidates are matched.
+        // validity/match gate — counting alone never affects which candidates are matched.
         let mut candidates_generated: usize = 0;
         let mut matches: HashMap<WordKey, Word> = HashMap::default();
         if !opts.guess_only {

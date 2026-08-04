@@ -212,7 +212,7 @@ fn structurally_different_warnings_get_different_codes() {
     assert_eq!(dangling_env_warning.code, "snapshot.dangling-reference");
 }
 
-/// `add-grammar-assessment` task 3.8, requirement (c): this task is purely additive -- the prose
+/// The exact prose
 /// this warning has always carried is pinned exactly here (not just a substring, as the tests
 /// above check) at this representative site. Guids per `tests/data/fixture.fwdata`: the
 /// `MoStemAllomorph` with the planted unrecognized morph type is

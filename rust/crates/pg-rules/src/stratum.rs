@@ -85,8 +85,8 @@ pub type NonHeadRootFilter<'a> =
 /// `analyze_template`, plus `pg-parse::Morpher`'s stratum-descent loop on both the analysis AND
 /// synthesis side). Phonological-rule-level gating (`AnalysisRewriteRule`/`AnalysisMetathesisRule`/
 /// `SynthesisRewriteRule`/`SynthesisMetathesisRule`'s own `RuleSelector` checks) and synthesis-side
-/// mrule/template gating are NOT wired yet — deferred to F5 (`replay.rs`), the first milestone that
-/// actually needs to restrict anything beyond a stratum/template/mrule set (`FstReplay`'s own
+/// mrule/template gating have no `RuleRef` variant of their own yet, deferred until
+/// something actually needs to restrict anything beyond a stratum/template/mrule set (`FstReplay`'s own
 /// predicate keeps every phonological rule permanently open, `r is IPhonologicalRule` unconditionally
 /// true — HYBRID_FST_RUST_PLAN.md §4.3 quirk #8 — so no F1-F4 code path is blocked by this deferral).
 /// Flagged here, not silently dropped; a `PRule` variant will be added when F5/F7 needs one.
