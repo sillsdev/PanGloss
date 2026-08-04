@@ -140,7 +140,7 @@ impl GrammarFacts {
         Self::from_semantics(&GrammarSemantics::derive(grammar))
     }
 
-    /// Task 7.11 (`openspec/changes/cleanup-and-recipe-parity`): every field is a PROJECTION of a
+    /// Every field is a PROJECTION of a
     /// fact [`GrammarSemantics`] already owns — the per-stratum operation/dependency sums, the gated
     /// subrules, the entry partition, the reduplicative-allomorph and metathesis counts. This struct
     /// used to re-walk the grammar for all of them, in parallel with
@@ -189,8 +189,7 @@ pub fn characterize(
     )
 }
 
-/// [`characterize`] over an already-derived [`GrammarSemantics`] (task 7.11,
-/// `openspec/changes/cleanup-and-recipe-parity`). ONE derivation serves the admissible-instance
+/// [`characterize`] over an already-derived [`GrammarSemantics`]. ONE derivation serves the admissible-instance
 /// filter, every per-instance applicability re-check inside
 /// [`Registry::materialize_with_semantics`], and the [`GrammarFacts`] projection at the bottom.
 /// Each of those three used to walk the grammar independently -- the per-instance one once per
@@ -308,7 +307,7 @@ pub fn characterize_with_semantics(
 
 /// One pilot row: what each stage of ONE candidate's pre-search pass actually cost.
 ///
-/// # Why `build`/`evaluation` are `Option` and `materialize`/`capability` are not (task 7.13)
+/// # Why `build`/`evaluation` are `Option` and `materialize`/`capability` are not
 /// A pilot candidate that the capability envelope REFUSES is never built and never evaluated. This
 /// type used to record `build: 0, evaluation: 0` for such a row, and [`summarize_pilot`] folded those
 /// literal zeros into the build/evaluation percentiles — so a pilot sample containing refusals
@@ -344,7 +343,7 @@ pub struct PilotSummary {
     pub capability: Quantiles,
     pub build: Quantiles,
     pub evaluation: Quantiles,
-    /// How many rows the `build`/`evaluation` quantiles were actually derived from (task 7.13).
+    /// How many rows the `build`/`evaluation` quantiles were actually derived from.
     ///
     /// Those two quantiles are computed over the rows where those stages RAN, not over
     /// `sample_size`, so without this number a reader cannot tell a build p50 taken over 8 rows from
