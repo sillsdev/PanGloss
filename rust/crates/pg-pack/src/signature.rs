@@ -1,18 +1,17 @@
-//! Optional Ed25519 publisher signature (R2A: "optional Ed25519 publisher signature... signature
-//! state is reported `unsigned`/`valid`/`invalid` and NEVER controls analysis"; `make-wasm-
-//! analysis-only` spec.md "Publisher signatures are optional offline provenance": "verification
-//! SHALL require no secret, entitlement, account, or network service").
+//! Optional Ed25519 publisher signature: offline provenance only. Signature
+//! state is reported `unsigned`/`valid`/`invalid` and NEVER controls analysis; verification
+//! requires no secret, entitlement, account, or network service.
 //!
-//! **What is signed.** [`domain_separated_signed_bytes`] builds the exact byte sequence design.md
-//! specifies: "a domain-separated canonical representation of the container version, pack manifest
-//! excluding its signature value, and both framed payloads." [`crate::format::write_pack`]/
+//! **What is signed.** [`domain_separated_signed_bytes`] builds the exact byte sequence: a
+//! domain-separated canonical representation of the container version, pack manifest
+//! excluding its signature value, and both framed payloads. [`crate::format::write_pack`]/
 //! [`crate::format::read_pack`] are the only callers that assemble those bytes for real container
 //! framing; this module owns the domain-separation tag and the byte-assembly function so signing
 //! and verification can never drift apart on what bytes actually get hashed/signed.
 //!
 //! **No `rand`/`rand_core` dependency.** This crate never generates a "real" production signing
-//! key itself — `make-wasm-analysis-only` design.md is explicit that "signing tooling accepts the
-//! private key outside the package," i.e. key generation is an external concern. Every test key in
+//! key itself — signing tooling accepts the
+//! private key outside the package, i.e. key generation is an external concern. Every test key in
 //! this crate is therefore built from a fixed synthetic 32-byte seed via
 //! [`ed25519_dalek::SigningKey::from_bytes`] (deterministic, no CSPRNG needed), keeping the
 //! dependency footprint to `ed25519-dalek` alone.
@@ -25,8 +24,8 @@
 use ed25519_dalek::{Signer, SigningKey, Verifier, VerifyingKey};
 use serde::{Deserialize, Serialize};
 
-/// Domain-separation tag mixed into every signed byte sequence (spec.md: "domain-separated
-/// canonical representation"). Changing this tag is a wire-breaking change to every existing
+/// Domain-separation tag mixed into every signed byte sequence (part of the domain-separated
+/// canonical representation). Changing this tag is a wire-breaking change to every existing
 /// signature; it is not itself versioned because [`crate::format::CONTAINER_VERSION`] is already
 /// part of the signed bytes and any future incompatible signing scheme is a new container version.
 const SIGNATURE_DOMAIN_TAG: &[u8] = b"pangloss.pgpack.signature.v1";
@@ -55,8 +54,8 @@ pub struct SignatureBlock {
     pub key_id: Option<String>,
 }
 
-/// The loader's tri-state signature report (R2A: "`unsigned`, `valid`, or `invalid`... NEVER
-/// controls analysis"). Never itself serialized into a manifest — it is always *derived* fresh by
+/// The loader's tri-state signature report: `unsigned`, `valid`, or `invalid`, and it NEVER
+/// controls analysis. Never itself serialized into a manifest — it is always *derived* fresh by
 /// [`crate::format::read_pack`], never trusted from the wire.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

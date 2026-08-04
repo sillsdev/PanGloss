@@ -1,8 +1,4 @@
-//! `pg-pack`: the `.pgpack` PanGloss Language Pack container format —
-//! `openspec/changes/IMPLEMENTATION-READINESS.md` **R2A**, `docs/adr/0004-runtime-feature-
-//! compatibility.md`, `docs/adr/0005-capability-override-unproven-grammars.md`, and
-//! `openspec/changes/make-wasm-analysis-only/` (design.md/spec.md own the manifest's compat field
-//! names this crate aligns with).
+//! `pg-pack`: the `.pgpack` PanGloss Language Pack container format.
 //!
 //! # What this crate is
 //! The self-contained analysis artifact format: fixed PanGloss magic bytes, an integer container
@@ -10,8 +6,8 @@
 //! length-prefixed Rust-HermitCrab runtime payload, a length-prefixed existing-foma binary payload
 //! (opaque, unchanged encoding — see [`format`]'s module doc), and a trailing SHA-256 digest. See
 //! [`format`] for the exact byte layout, [`format::write_pack`]/[`format::read_pack`] for the
-//! writer/reader, and [`manifest::PackManifest`] for every field the manifest carries: the ADR
-//! 0004 required-runtime-feature set ([`compat::RequiredRuntimeFeatures`]), the ADR 0005
+//! writer/reader, and [`manifest::PackManifest`] for every field the manifest carries: the
+//! required-runtime-feature set ([`compat::RequiredRuntimeFeatures`]), the
 //! capability-trust stamp ([`trust::CapabilityTrust`]), the FST-health admission
 //! (`pg_foma::health::HealthReport`, reused verbatim, never redefined), an optional license
 //! declaration ([`license::LicenseDeclaration`]), and an optional Ed25519 publisher signature
