@@ -88,29 +88,28 @@ fn class_members(
 /// `Quantifier`). `pattern_slots` is a single shared lowering seam deliberately reused by THREE
 /// independent consumers with DIFFERENT verification obligations (module top doc's own "reuse, not
 /// re-derive" discipline: [`lower_span`] for `crate::capability::SimultaneousSubruleOverlapPredicate`
-/// (D3's `hc.dll`-oracle-verified span-intersection test), `crate::replace::compile_rewrite_rule_
+/// (an `hc.dll`-oracle-verified span-intersection test), `crate::replace::compile_rewrite_rule_
 /// subset`/`crate::replace::compile_metathesis_rule` for the real rewrite-rule/metathesis compile) --
 /// widening what ONE consumer accepts must never silently widen what an UNRELATED consumer accepts
 /// too, since each consumer's own soundness argument is independently made and independently
 /// verified. This enum makes that boundary an explicit, typed parameter rather than a single shared
 /// default a later change could accidentally loosen for everyone at once.
 ///
-/// `openspec/changes/plan-construct-coverage-completion` task 4.2 introduces this split: before it,
-/// `PatternNode::Segments`/`PatternNode::Anchor` were an unconditional `None` for every caller ALIKE.
+/// This split exists because `PatternNode::Segments`/`PatternNode::Anchor` were once an
+/// unconditional `None` for every caller ALIKE.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PatternLowerScope {
-    /// Every consumer's floor before task 4.2: `PatternNode::Segments`/`PatternNode::Anchor` still
-    /// refuse unconditionally (`None`), byte-identical to this crate's pre-4.2 behavior.
-    /// [`lower_span`]'s own callers stay on this tier PERMANENTLY by this task's own explicit
+    /// The floor: `PatternNode::Segments`/`PatternNode::Anchor` still
+    /// refuse unconditionally (`None`).
+    /// [`lower_span`]'s own callers stay on this tier PERMANENTLY by an explicit
     /// ownership boundary -- widening `SimultaneousRewrite`'s own admitted set is a DIFFERENT
-    /// characteristic's oracle-verification question (D6), not something a pattern-shape-lowering
+    /// characteristic's oracle-verification question, not something a pattern-shape-lowering
     /// change gets to answer as a side effect. `crate::replace::compile_metathesis_rule` also stays
     /// on this tier deliberately (not because it couldn't be widened -- `slot_candidates` would
     /// refuse an `Anchor`/cross-table-`Segments` occurrence independently anyway -- but because
-    /// `Metathesis`'s own admitted set is `openspec/changes/plan-construct-coverage-completion` task
-    /// 4.6's already-closed row, not this task's to reopen).
+    /// `Metathesis`'s own admitted set is a separately closed question, not this scope's to reopen).
     Baseline,
-    /// Task 4.2's own widening, for the rewrite-rule compile path
+    /// The widening, for the rewrite-rule compile path
     /// (`crate::replace::compile_rewrite_rule_subset`/`crate::capability::
     /// rtl_reversal_construction_attempted`, which MUST stay in lockstep with each other -- see that
     /// function's own doc): additionally accepts (1) a `PatternNode::Segments` whose OWN declared
@@ -127,13 +126,12 @@ pub(crate) enum PatternLowerScope {
 
 /// One position in a rendered pattern.
 ///
-/// `pub(crate)`: this is the canonical definition (moved here, `lower-fst-pattern-environments`
-/// Stage 1B migration follow-on) -- `crate::replace` re-exports it at its OLD path
+/// `pub(crate)`: this is the canonical definition -- `crate::replace` re-exports it at its OLD path
 /// (`pub(crate) use crate::lower::Slot;`) so `capability.rs`'s `crate::replace::Slot::Alpha`/
 /// `crate::replace::Slot::Repeat` pattern matches and `replace.rs`'s own `slot_candidates`/
 /// `reversed_slots`/`compile_rtl_branch_net` keep compiling unmodified.
 ///
-/// `Clone` (`openspec/changes/compile-right-to-left-rewrites`): `replace.rs`'s RTL reversal
+/// `Clone`: `replace.rs`'s RTL reversal
 /// construction needs a REVERSED copy of a subrule's own slot lists (`reversed_slots`, that
 /// file) alongside the original document-order lists it builds the safety-net `LeftToRight`-style
 /// branch from -- see that file's `compile_rtl_branch_net` doc.
@@ -149,8 +147,8 @@ pub(crate) enum Slot {
     /// A natural class with no alpha binding at this occurrence: renders as a `[c1|c2|...]` union.
     Union(Vec<CharDefId>),
     /// A natural class occurrence bound to one OR MORE alpha variables (Amharic's CV-merger binds
-    /// up to 20 vars on a SINGLE `SimpleContext` — report-08 §3 item 1: "the 20 variables jointly
-    /// copy the feature bundles of one (C,V) segment pair"): resolved per-tuple by
+    /// up to 20 vars on a SINGLE `SimpleContext` — the 20 variables jointly
+    /// copy the feature bundles of one (C,V) segment pair): resolved per-tuple by
     /// [`resolve_alpha_tuples`], not fixed until a concrete assignment is chosen. `occurrence` is
     /// this specific SLOT INSTANCE's own id (unique per occurrence, NOT per variable — two
     /// occurrences of the same [`VarId`] almost always draw from two DIFFERENT classes, e.g.
@@ -165,10 +163,7 @@ pub(crate) enum Slot {
         occurrence: usize,
         base_members: Vec<CharDefId>,
     },
-    /// `PatternNode::Quantifier { min, max, children }` (`openspec/changes/
-    /// compile-bounded-fst-quantifiers` for the originally-supported FINITE case;
-    /// `openspec/changes/build-unbounded-quantifier-support` widens this to the genuinely
-    /// UNBOUNDED case too): an alpha-free repetition of `children`'s own rendered slots, either
+    /// `PatternNode::Quantifier { min, max, children }`: an alpha-free repetition of `children`'s own rendered slots, either
     /// FINITELY bounded (`max: Some(max)`, `min <= max <= MAX_QUANTIFIER_BOUND`) or genuinely
     /// UNBOUNDED (`max: None`, the DTD's `max="-1"` Kleene sentinel). Renders (`render_slots`) as
     /// foma's own NATIVE repetition xre operator — `[<children text>]^{min,max}` for the finite
@@ -187,20 +182,17 @@ pub(crate) enum Slot {
     /// `PatternNode::Quantifier`'s own `max` field is already `Option<u32>` (`model.rs`: `None` ⇔
     /// the DTD's `max="-1"` unbounded sentinel, the C# loader's own default — `XmlLanguageLoader.cs`
     /// defaults an absent `max` attribute to `-1`, and the DTD's own `#IMPLIED` doc calls it
-    /// "-1 or higher", i.e. unbounded is the DTD's DEFAULT, not an exotic corner). This variant used
-    /// to narrow that down to a concrete `u32` because ONLY the finite case compiled
-    /// (`compile-bounded-fst-quantifiers`'s own original scope, `slots_from_nodes`'s prior
-    /// `let Some(max_v) = max else { return None }` bail). `build-unbounded-quantifier-support`
-    /// removes that narrowing: the backend has a native, exact, finite-SIZE construction for the
-    /// unbounded case too (`nfst-xre` parses `E^>N`/`E*`; `foma-0.4.2/src/regex.rs`'s own
-    /// `RepeatNPlus`/`Star` arms build them with no cutoff anywhere) — refusing it was a SCOPE line
-    /// inherited from the original step, never a feasibility finding (that step's own design.md).
+    /// "-1 or higher", i.e. unbounded is the DTD's DEFAULT, not an exotic corner). The backend has a
+    /// native, exact, finite-SIZE construction for the unbounded case too (`nfst-xre` parses
+    /// `E^>N`/`E*`; `foma-0.4.2/src/regex.rs`'s own `RepeatNPlus`/`Star` arms build them with no
+    /// cutoff anywhere), so refusing an unbounded quantifier would be a scope restriction, not a
+    /// genuine feasibility limit.
     /// [`MAX_QUANTIFIER_BOUND`] applies ONLY when `max` is `Some(_)` (`slots_from_nodes`'s own
     /// Quantifier arm never even evaluates it when `max` is `None`) — an unbounded quantifier's own
     /// compiled net size does not depend on any repetition count, so there is nothing for that
     /// ceiling to bound; treating `max: None` as "a bound above the ceiling" and silently clamping
-    /// it to a finite number would be exactly the ADR 0001 violation the original refusal existed
-    /// to avoid, and it stays forbidden here too — `max: None` is never coerced to `Some(_)`
+    /// it to a finite number would round an honest refusal toward false acceptance — the direction
+    /// this crate's under-approximation rule forbids — so `max: None` is never coerced to `Some(_)`
     /// anywhere in this module.
     ///
     /// # Why `children: Vec<Slot>`, not a second `Pattern`
