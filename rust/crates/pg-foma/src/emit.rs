@@ -3614,7 +3614,7 @@ fn emit_with_budget_profiled_with_strategy(
             TextMode::SurfaceProbed,
         );
         write_lexicon_header(&mut out, "TLRoots");
-        // `openspec/changes/cover-compounding` (design.md D3 head Gate): split `all_roots` into
+        // Splits `all_roots` into
         // head-eligible (continues to `TLPost`, which offers both `TLSfx0` and `TLCmp`) and
         // head-ineligible (continues to `TLPostNoCmp`, `TLSfx0` only) -- a root can still form any
         // ordinary non-compound word either way (both continuations reach `TLSfx0`), so this never
@@ -3654,17 +3654,17 @@ fn emit_with_budget_profiled_with_strategy(
         write_bare(&mut out, "TLSfx0", &mut counts);
         if has_compounding_rules {
             write_bare(&mut out, "TLCmp", &mut counts);
-            // Gate F3 3b: the compound EXTRA root(s) may themselves carry prefix-derivation
+            // The compound EXTRA root(s) may themselves carry prefix-derivation
             // morphology — a prefix on the compound's head span (`fusional-realizational-morphology`'s
             // "lexbedom" = lex + be- + dom, `LEX+BEPFX2+DOMV`; `polysynthetic-stratal-derivation-chain`'s
             // "silamanuk" = sila + ma- + nuk, `SILA+MAPFX2+NUKV`). The engine's compound splitter
             // unapplies a prefix cleanly from the head span, so a bare extra-root slot under-generates
-            // every prefixed-head compound. `build_compound_chain` (task 4.1 piece 2, above) wires a
+            // every prefixed-head compound. `build_compound_chain` (above) wires a
             // prefix-derivation chain before EVERY extra root, up to `compound_extra_levels` of them —
             // `compound_extra_levels == 1` (the ordinary non-recursive case) reproduces this exact
             // one-extra-root/`TLCmp`/`TLCmpPfx`/`TLCmpRoots` shape byte-for-byte (that closure's own doc).
             //
-            // `openspec/changes/cover-compounding` (design.md D3 non-head Gate): the compound EXTRA
+            // The compound EXTRA
             // ("non-head") root position, narrowed from `all_roots` to the licensed non-head subset --
             // every `{base}NRoots` level in the chain serves ONLY this compound continuation (nothing
             // else reaches it), so narrowing here never touches ordinary non-compound word formation.
@@ -3674,10 +3674,10 @@ fn emit_with_budget_profiled_with_strategy(
                 Some(license) => filter_roots_by_license(g, &all_roots, &license.non_head_eligible),
                 None => all_roots.clone(),
             };
-            // Task (uflexc compound loop): `build_compound_chain`'s per-level prefix hop is now a
+            // `build_compound_chain`'s per-level prefix hop is a
             // caller-supplied closure (that function's own doc) rather than a hardcoded
             // `build_deriv_chain` call -- byte-identical output here, since this closure IS that
-            // call with the same arguments it used to receive as parameters.
+            // call with the same arguments a hardcoded version would use.
             let mut tl_prefix_hop = |out: &mut String,
                                      pfx_base: &str,
                                      roots_name: &str,
