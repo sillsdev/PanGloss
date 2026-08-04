@@ -363,7 +363,7 @@ pub enum FomaTier {
     Unsupported { reason: String },
 }
 
-/// Fix 1 (fail-fast enumeration budget, `crate::morphotactics::EnumerationBudget`'s own doc): set
+/// Fail-fast enumeration budget (`crate::morphotactics::EnumerationBudget`'s own doc): set
 /// on [`EmitReport`] iff the default-on budget tripped during this `emit`/`emit_with_precision`
 /// call. Carries the exact numbers needed to build an honest, specific error message —
 /// [`crate::analyzer::FomaError::EnumerationBudgetExceeded`] is constructed directly from this
@@ -388,7 +388,7 @@ pub struct EmitReport {
     pub uncovered: Vec<UncoveredItem>,
     pub counts: EmitCounts,
     pub tier: FomaTier,
-    /// `Some` iff the default-on enumeration budget (Fix 1) aborted this build — always paired
+    /// `Some` iff the default-on enumeration budget aborted this build — always paired
     /// with `tier: FomaTier::Unsupported { .. }` when set. `None` for every ordinary
     /// `Full`/`Partial`/`Unsupported`-for-some-other-reason report.
     pub enum_budget_exceeded: Option<EnumBudgetExceeded>,
@@ -402,7 +402,7 @@ pub struct EmitResult {
 // --- Affix role classification (ported from hc-hybrid/src/token.rs, no dependency) --------------
 
 /// Mirrors `hc-hybrid/src/token.rs`'s `MorphOp` classification outcome for one allomorph's RHS —
-/// ported (not depended-on: `hc-hybrid` is being sunset, plan D8) since only the classification
+/// ported (not depended-on: `hc-hybrid` is being sunset) since only the classification
 /// logic is needed, not that crate's packed-token bit scheme (this crate's tags are
 /// `MorphemeId`-indexed strings).
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -438,7 +438,7 @@ impl Role {
 }
 
 /// Port of `hc-hybrid/src/token.rs::classify_affix` (`MorphTokenCodec.ClassifyAffix`,
-/// `MorphTokenCodec.cs:76-129`). `pub(crate)`: [`crate::peel`] (P2's reduplication peel, plan D6)
+/// `MorphTokenCodec.cs:76-129`). `pub(crate)`: [`crate::peel`]'s reduplication peel
 /// reuses this exact classification rather than re-porting it a second time.
 pub(crate) fn classify_affix(rhs: &[OutputAction]) -> Role {
     let copy_parts: Vec<PartRef> = rhs
@@ -451,18 +451,10 @@ pub(crate) fn classify_affix(rhs: &[OutputAction]) -> Role {
             }
         })
         .collect();
-    // C2 fix (`docs/conformance/circumfix-structural-composite-census.md`,
-    // `openspec/changes/plan-construct-coverage-completion` task 4.3c): this USED TO be an
-    // unconditional early return, computed and consulted before `first_copy`/`last_copy` even
-    // existed -- so an RHS that was SIMULTANEOUSLY circumfixing (insert before the first `Copy`,
-    // insert after the last) AND reduplicating (some `PartRef` echoed by >= 2 `Copy` actions)
-    // always classified `Reduplication`, before the leading-AND-trailing test further down ever ran.
-    // That preemption is now resolved the SAME direction census C3 resolved the interior-action
-    // preemption: `CircumfixPrefix` wins whenever both hold (see the long comment below the
-    // leading/trailing test for the full recall argument and the reasons this is not merely
-    // "recall was at risk"). `is_reduplicating` is only a boolean now -- consulted further down,
-    // AFTER the circumfix test -- rather than an early return, so this function can compute
-    // `first_copy`/`last_copy` first and let the circumfix test run before it.
+    // An RHS that is SIMULTANEOUSLY circumfixing (insert before the first `Copy`, insert after the
+    // last) AND reduplicating (some `PartRef` echoed by >= 2 `Copy` actions) must classify
+    // `CircumfixPrefix`, not `Reduplication` -- see the long comment below the leading/trailing test
+    // for the full argument. `is_reduplicating` is checked AFTER that circumfix test, not before.
     let is_reduplicating = copy_parts
         .iter()
         .any(|p| copy_parts.iter().filter(|&&q| q == *p).count() >= 2);
@@ -488,97 +480,46 @@ pub(crate) fn classify_affix(rhs: &[OutputAction]) -> Role {
         };
     };
 
-    // Census C3 (`docs/conformance/circumfix-structural-composite-census.md`): the leading-AND-
-    // trailing test used to run AFTER the interior-action test below, so an RHS that is
-    // SIMULTANEOUSLY circumfixing (insert before the first Copy, insert after the last) AND
-    // infixing (a non-Copy action strictly between two Copy actions) classified `Infix` -- the
-    // wrong taxonomic label for a morph that genuinely wraps the root on both sides, and one that
-    // routed the rule to `crate::preexpand` (scoped by that module's own doc to "Interdigitation
-    // (Role::Infix)"/"boundary fusion (Prefix/Suffix)", never to circumfix) instead of
-    // `build_structural_composites`, whose OWN comment two sections up names circumfix explicitly
-    // as needing this unconditional (`probe_would_refuse`-independent) path. `CircumfixPrefix` must
-    // win whenever both hold, so this check now runs FIRST.
-    //
-    // Recall argument, EMPIRICALLY CHECKED, not merely reasoned about (a fixture-backed claim was
-    // corrected here after testing it): the naive version of this argument ("preexpand can only
-    // splice literal text and cannot represent a root wrapped on both sides at all") is WRONG.
-    // `crate::preexpand::extend` (its own module doc) ALSO calls `pg_rules::morph::synthesize_cached`
-    // -- the SAME real engine `struct_extend` calls -- so an Infix-classified rule with this exact
-    // simultaneously-circumfixing-and-infixing RHS is, in fact, already correctly resynthesized by
-    // `crate::preexpand` today: verified directly by temporarily reverting this reordering and
-    // re-running `rust/crates/pg-foma/tests/circumfix_candidate_selection.rs`'s
-    // `circumfix_infix_interior_action_recall_parity` -- it PASSED even without this fix (recall was
-    // never actually lost for this construct). What the fix demonstrably changes instead (same test
-    // file's `circumfix_infix_ownership_handoff_is_clean`, confirmed to FAIL without this fix): which
-    // mechanism's candidate set claims the rule. That matters for three reasons, none of them "recall
-    // was silently lost": (1) taxonomic correctness -- the rule genuinely IS a circumfix, and
-    // `Role::Infix` is simply the wrong label regardless of downstream consequences; (2) robustness --
-    // `build_structural_composites`'s `CircumfixPrefix` admission is unconditional
-    // (`is_structural_rule`'s own comment), while relying on `preexpand`'s Infix route for a
-    // wrap-both-sides shape depends on a property that module was never DESIGNED around (its doc
-    // frames its whole mechanism as interdigitation/boundary-fusion) merely happening to also hold,
-    // not on a documented guarantee; (3) the capability layer (`crate::capability::
-    // CircumfixStructuralCompositePredicate`) reads `is_structural_rule` as its OWN ground truth for
-    // whether a drops-material allomorph's owning rule is covered -- before this fix, a rule
-    // misclassified `Infix` here would make that predicate REFUSE even on a grammar `preexpand`
-    // already covers, an over-refusal consistent with the census's own "every gap fails
-    // over-refusing, never a silent overclaim" finding. What would FALSIFY the NARROWER claim this
-    // fix actually rests on (that `build_structural_composites` is the architecturally correct,
-    // unconditionally-guaranteed home for this shape): discovering that `pg_rules::morph::synthesize`
-    // (or anything `struct_extend`/`preexpand::extend` calls) special-cases the RHS action sequence's
-    // SHAPE rather than just replaying it in order -- no such special-casing exists in either caller
-    // today (both are shape-agnostic pure functions of the RHS action list); if one is ever added,
-    // this argument must be re-checked.
-    //
-    // Ownership handoff, checked (not assumed): `crate::preexpand::candidate_rules` (read-only here,
-    // not owned by this task) selects by `rule_role(g, mid)` matching `Infix`/`Prefix`/`Suffix` on
-    // the rule's FIRST allomorph. When allomorph 0 itself is this simultaneously-circumfixing-and-
-    // infixing shape, `rule_role` (which just calls `classify_affix` on allomorph 0) now returns
-    // `CircumfixPrefix` instead of `Infix`, so `preexpand`'s candidate set drops the rule cleanly the
-    // same moment `is_structural_rule` (via the allomorph-wise scan added for census C1) picks it up
-    // — no version of this rule is ever claimed by both mechanisms or by neither (confirmed by
-    // `circumfix_infix_ownership_handoff_is_clean` reading `emit::composite_candidate_rules`, the
-    // public diagnostic that exposes both mechanisms' candidate sets side by side).
-    //
-    // Census C2 -- RESOLVED (`docs/conformance/circumfix-structural-composite-census.md`,
-    // `openspec/changes/plan-construct-coverage-completion` task 4.3c): `CircumfixPrefix` also wins
-    // over `Reduplication` whenever an RHS is simultaneously circumfix-shaped (leading AND trailing
-    // insert) and reduplication-shaped (some `Copy`d part echoed >= 2 times) -- see `is_reduplicating`
-    // below, checked AFTER this test rather than before it. DTD-reachable, not a vacuous case:
+    // `CircumfixPrefix` wins over both `Infix` and `Reduplication` whenever an RHS is
+    // simultaneously circumfix-shaped (leading AND trailing insert) and infixing/reduplicating: a
+    // morph that genuinely wraps the root on both sides is the wrong taxonomic label as either, and
+    // routes to the wrong downstream mechanism. Both alternatives are DTD-reachable, not vacuous:
     // `MorphologicalOutput` is declared `(CopyFromInput | InsertSimpleContext | ModifyFromInput |
-    // InsertSegments)*` (`HermitCrabInput.dtd:420`) -- an unconstrained repeated choice group, so
-    // `<CopyFromInput index="p1"/>` appearing twice around a leading/trailing `<InsertSegments>` is
-    // fully DTD-legal, and `pg_grammar::load` (`load.rs:1896-1901`) places no uniqueness constraint
-    // on `index` either (it only checks the referenced part exists). This decision was made JOINTLY
-    // with row 11's `Reduplication` carve-out (`crate::peel::is_reduplication_rule`'s own doc), not
-    // in isolation, because the two mechanisms this Role feeds are NOT equally general for this
-    // combined shape: `crate::peel::ReduplicationPeeler`'s four scan kinds (module doc: prefix-copy,
-    // suffix-copy, separator+tail-copy, separator+suffix-peel) are each a ONE-SIDED surface-string
-    // match (the repeated span sits at the very front, the very back, or against one separator
-    // character) -- none of them searches for a repeated span with INDEPENDENT material on BOTH
-    // sides at once, which is exactly what a genuine circumfix-plus-reduplication surface has. So
-    // leaving `Reduplication` in control here would not merely mis-attribute a still-correct
-    // construction (the way C3's Infix/preexpand case turned out) -- it would hand the shape to a
-    // mechanism structurally unable to recall it, while `build_structural_composites` handles it
-    // correctly BY CONSTRUCTION, for the identical reason C1/C3 already established: `struct_extend`
-    // calls `pg_rules::morph::synthesize` directly (`emit.rs`, `struct_extend`'s own body), which
-    // replays every `OutputAction` in RHS document order with no reference to `Role` and no
-    // assumption that a `Copy` run is contiguous or occurs only once per part (`pg_rules::morph::
-    // synth_process_allomorph`'s own per-action loop over `allo.rhs`, plus that crate's own "Tier-2
-    // #8 (reduplication morph attribution)" handling of a repeated `Input` part) -- so a rule
-    // reaching `build_structural_composites` with this shape is resynthesized faithfully, reduplicated
-    // copies and wrapping inserts alike, not merely "accepted." Checked, not assumed: see
-    // `rust/crates/pg-foma/tests/circumfix_candidate_selection.rs`'s C2 section, which proves full
-    // proposer-to-confirm containment for a real circumfix-plus-reduplication surface AND that
-    // `crate::peel::ReduplicationPeeler::new(&g).has_redup_rules()` is `false` for that same grammar
-    // (the peel relinquishes the rule cleanly the moment `classify_affix` stops calling it
-    // `Reduplication` -- `crate::peel::is_reduplication_rule`'s own `.any()` scan calls this exact
-    // function per allomorph, so no code change was needed there at all, only this reordering).
+    // InsertSegments)*` (`HermitCrabInput.dtd:420`) -- an unconstrained repeated choice group -- and
+    // the loader places no uniqueness constraint on a `CopyFromInput`'s `index` either.
     //
-    // Ordering relative to Infix is UNCHANGED by this fix: `is_reduplicating` is still consulted
-    // before the interior-action (Infix) test below, exactly as the old unconditional-early-return
-    // did — this reordering only moves the reduplication check to AFTER the circumfix test, never
-    // past the infix test.
+    // `build_structural_composites` is the architecturally correct, unconditionally-guaranteed home
+    // for this shape: `struct_extend` calls `pg_rules::morph::synthesize` directly, replaying every
+    // `OutputAction` in RHS document order with no reference to `Role` and no assumption that a
+    // `Copy` run is contiguous or occurs only once per part -- so a rule reaching it with this shape
+    // is resynthesized faithfully, wrapping inserts and reduplicated copies alike.
+    //
+    // `crate::preexpand` is not a safe alternative for the infix case even though it happens to also
+    // resynthesize correctly today: its module doc scopes its whole mechanism to
+    // interdigitation/boundary-fusion, never circumfix, so relying on it for a wrap-both-sides shape
+    // depends on a property that module was never designed around, not a documented guarantee. And
+    // the capability layer (`crate::capability::CircumfixStructuralCompositePredicate`) reads
+    // `is_structural_rule` as its own ground truth for whether such a rule is covered -- a rule
+    // misclassified `Infix` here would make that predicate refuse even on a grammar `preexpand`
+    // already covers.
+    //
+    // `crate::peel::ReduplicationPeeler` is not a safe alternative for the reduplication case: its
+    // four scan kinds (module doc: prefix-copy, suffix-copy, separator+tail-copy, separator+
+    // suffix-peel) are each a ONE-SIDED surface-string match, none of which searches for a repeated
+    // span with independent material on BOTH sides at once -- exactly what a circumfix-plus-
+    // reduplication surface has. Leaving `Reduplication` in control would not merely mis-attribute a
+    // still-correct construction, it would hand the shape to a mechanism structurally unable to
+    // recall it.
+    //
+    // Ownership handoff is clean because both mechanisms key off this same function:
+    // `crate::preexpand::candidate_rules` selects by `rule_role(g, mid)` (which calls
+    // `classify_affix` on the rule's first allomorph) matching `Infix`/`Prefix`/`Suffix`, so once
+    // `classify_affix` returns `CircumfixPrefix` for a simultaneously-shaped allomorph 0,
+    // `preexpand`'s candidate set drops the rule the same moment `is_structural_rule` picks it up --
+    // no rule is ever claimed by both mechanisms or by neither.
+    //
+    // `is_reduplicating` is checked AFTER the leading/trailing circumfix test but BEFORE the
+    // interior-action (Infix) test below -- circumfix beats both, reduplication beats infix.
     let leading_insert = first_copy > 0;
     let trailing_insert = last_copy < rhs.len() - 1;
     if leading_insert && trailing_insert {
@@ -606,8 +547,8 @@ pub(crate) fn classify_affix(rhs: &[OutputAction]) -> Role {
     }
 }
 
-/// `OutputAction::Modify`/`InsertContext` carry no concrete text (plan §2: "Not compilable as
-/// strings"). Checked independently of [`classify_affix`] because a rule's RHS can contain one of
+/// `OutputAction::Modify`/`InsertContext` carry no concrete text (not compilable as
+/// strings). Checked independently of [`classify_affix`] because a rule's RHS can contain one of
 /// these AND still classify as a plain Prefix/Suffix by copy-position alone.
 fn has_unemittable_action(rhs: &[OutputAction]) -> bool {
     rhs.iter().any(|a| {
@@ -618,21 +559,17 @@ fn has_unemittable_action(rhs: &[OutputAction]) -> bool {
     })
 }
 
-/// `openspec/changes/cover-circumfix-null-output-actions` (design.md: "never silently reduced to
-/// the first inserted segment"; ADR 0001's honest-boundary discipline): this USED TO carry a single
-/// `text`/`shape` pair — the allomorph's FIRST `InsertSegments` action only, silently dropping any
-/// later one in the same RHS. [`insert_action_texts`] now collects EVERY `InsertSegments`
-/// occurrence, so this variant carries a `Vec` of each in document order instead.
+/// Carries EVERY `InsertSegments` action's `text`/`shape` pair in document order, not just the
+/// first — an allomorph's RHS can legitimately contain more than one, and dropping all but the
+/// first silently loses inserted material.
 enum InsertText<'a> {
-    /// No `InsertSegments` action at all — a pure zero/null morph (token only, epsilon text). This
-    /// is the "null-role" shape the change above names: an allomorph whose RHS never inserts ANY
-    /// concrete text, whether or not it also `Copy`s an input part (a genuine `Role::None` zero
-    /// morph either way — see [`classify_affix`]).
+    /// No `InsertSegments` action at all — a pure zero/null morph (token only, epsilon text): an
+    /// allomorph whose RHS never inserts ANY concrete text, whether or not it also `Copy`s an input
+    /// part (a genuine `Role::None` zero morph either way — see [`classify_affix`]).
     None,
     /// `texts[i]`/`shapes[i]` are one `InsertSegments` action's own literal authored surface text
-    /// (SurfaceProbed mode's own input — `texts[0]` alone is byte-identical to the pre-fix single-
-    /// action behavior) and that SAME action's already-segmented [`Shape`] (P6:
-    /// `TextMode::UnderlyingTokens`'s input — mirrors `uflexc::affix_insert_shape`, which exposes
+    /// (SurfaceProbed mode's own input) and that SAME action's already-segmented [`Shape`]
+    /// (`TextMode::UnderlyingTokens`'s input — mirrors `uflexc::affix_insert_shape`, which exposes
     /// the identical field for the SAME reason: [`SegAlphabet::encode_shape`] needs the `Shape`,
     /// not the raw text, to render char-def-identity tokens), both in RHS document order.
     ///
@@ -654,11 +591,9 @@ enum InsertText<'a> {
 }
 
 /// Every `InsertSegments` action's underlying text/shape in `rhs`, in document order — NOT just the
-/// first (`hc-hybrid/src/trie.rs::first_insert`'s text-only single-action shape inspired the
-/// ORIGINAL version of this function; `openspec/changes/cover-circumfix-null-output-actions`
-/// closes the gap that left, see [`InsertText::Text`]'s own doc for the soundness argument for why
-/// concatenating in document order is always correct here). This emitter re-derives kept surface
-/// text itself, see [`kept_surface_text`].
+/// first (see [`InsertText::Text`]'s own doc for the soundness argument for why concatenating in
+/// document order is always correct here). This emitter re-derives kept surface text itself, see
+/// [`kept_surface_text`].
 fn insert_action_texts(rhs: &[OutputAction]) -> InsertText<'_> {
     let mut texts = Vec::new();
     let mut shapes = Vec::new();
