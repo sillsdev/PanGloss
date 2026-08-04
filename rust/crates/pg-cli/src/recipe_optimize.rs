@@ -36,7 +36,7 @@ pub struct RecipeOptimizeArgs {
     /// `--oracle-step-cap`: overrides `RuntimeBudget::oracle_step_cap`. `None` (the flag omitted)
     /// leaves `recipe_runtime`'s own default (`DEFAULT_ORACLE_STEP_CAP`) in force — NOT unbounded;
     /// see that constant's doc for why an unbounded oracle call is the defect this whole mechanism
-    /// exists to prevent (`docs/fst-plan/deep-chain-pilot-non-completion.md`).
+    /// exists to prevent.
     pub oracle_step_cap: Option<usize>,
     /// `--oracle-liveness-net-ms` (legacy alias `--oracle-word-timeout-ms`): overrides
     /// `RuntimeBudget::oracle_liveness_net`. Same "`None` = use the default, not unbounded"
@@ -391,11 +391,11 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
     // chose which occurrences count) and it is candidate-independent by construction (no candidate
     // has been materialized, let alone evaluated, at this point in the run).
     let corpus_evidence = run_cache.corpus_evidence(&words);
-    // Task 7.11 (`openspec/changes/cleanup-and-recipe-parity`): ONE derivation for this whole run.
+    // ONE derivation for this whole run.
     // It feeds the baseline enumeration, `recipe_space::characterize`, both instance-selection
-    // calls, and -- the one that actually mattered for cost -- the per-instance applicability
-    // re-check inside the materialization loop below, which re-walked the grammar once per
-    // candidate instance before this.
+    // calls, and -- the one that actually matters for cost -- the per-instance applicability
+    // re-check inside the materialization loop below, avoiding a re-walk of the grammar once per
+    // candidate instance.
     let semantics = GrammarSemantics::derive(&grammar);
     let alphabet = pg_foma::replace::SegAlphabet::new(&grammar.char_tables[0]);
     let prules = semantics.prules_in_order();
@@ -488,7 +488,7 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
             plan: baseline.clone(),
             adapter: pg_foma::executable_candidate::LoweringAdapter::ControllablePlanCompose,
             // The one candidate in this run that IS the grammar's default compilation. Stated on the
-            // candidate (task 7.13) so the evaluator can never infer it from position or from a
+            // candidate itself so the evaluator can never infer it from position or from a
             // caller-maintained parallel slice.
             role: CandidateRole::Baseline,
         },
@@ -571,13 +571,13 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
         let decision = compose_envelope(&grammar, &plan.plan, &capability);
         let capability_ns = elapsed_ns(cap_started).max(1);
         if matches!(decision, CompileDecision::Refuse(_)) {
-            // Task 7.13, fake zero measurements: this row used to carry `build: 0, evaluation: 0`.
             // Neither stage RAN -- the capability envelope refused the candidate before any network
-            // was built -- and `summarize_pilot` folded both literal zeros into the build/evaluation
-            // percentiles, so a pilot sample with refusals reported a build cost pulled toward zero
-            // for a stage that never executed. Those percentiles feed `PilotCosts` and therefore the
-            // choice of SEARCH STRATEGY, so the fake zeros were not merely cosmetic. `None` says
-            // "not measured", which is what happened.
+            // was built -- so `build`/`evaluation` must stay `None` rather than a literal `0`: a
+            // literal zero would fold into `summarize_pilot`'s build/evaluation percentiles and pull
+            // a pilot sample with refusals toward a build cost for a stage that never executed.
+            // Those percentiles feed `PilotCosts` and therefore the choice of SEARCH STRATEGY, so a
+            // fake zero would not be merely cosmetic. `None` says "not measured", which is what
+            // happened.
             measurements.push(StageMeasurement {
                 materialize: materialization_times[&state.id],
                 capability: capability_ns,
@@ -867,11 +867,11 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
         winner,
         frontier: outcome.frontier,
         candidates: evaluated,
-        // Task 7.13, duplicate runtime artifacts: `report.json` used to inline the FULL text of
-        // `baseline.plan.json`, `baseline.plan.mmd`, `winner.plan.json` and `winner.plan.mmd`
-        // alongside the paths naming those very files, which this function has already written to
-        // `out` above. Two copies of one artifact in one run directory can disagree, and nothing
-        // could say which was authoritative; the files are.
+        // `report.json` names these paths rather than inlining the FULL text of
+        // `baseline.plan.json`, `baseline.plan.mmd`, `winner.plan.json` and `winner.plan.mmd`,
+        // which this function has already written to `out` above. Two copies of one artifact in
+        // one run directory can disagree, and nothing could say which was authoritative; the files
+        // are.
         baseline_plan_json_path: Some("baseline.plan.json".into()),
         baseline_plan_mermaid_path: Some("baseline.plan.mmd".into()),
         winner_plan_json_path: winner_json_path,
