@@ -263,8 +263,7 @@ if ($Mode -eq 'run') {
 }
 
 if ($NoSccache) {
-    # "Explicit, noisy, and incompatible with parallel managed builds" (design doc, error
-    # handling): forcing MaxConcurrent to 1 means a caller can't accidentally combine no-cache
+    # Explicit and noisy on purpose: forcing MaxConcurrent to 1 means a caller can't accidentally combine no-cache
     # with the normal 2-way concurrency and double the uncached CPU/disk contention.
     Write-Host '[pg] NO-CACHE EMERGENCY MODE (-NoSccache): this build will not share compiled artifacts with any other worktree. Forcing MaxConcurrent=1.' -ForegroundColor Magenta
     $MaxConcurrent = 1
@@ -772,7 +771,7 @@ if ($code -eq 4 -and $Filter -and -not $TestTarget) {
 }
 
 if ($Mode -eq 'release' -and $code -eq 0 -and $targetDir) {
-    # A failed build never registers a release deliverable (design doc, error handling) -- only
+    # A failed build never registers a release deliverable -- only
     # mark `preserved` after cargo itself reports success.
     Write-TargetOwnership -TargetDir $targetDir -RepositoryId $repoId -WorktreePath $repoRoot -Preserved | Out-Null
 }
