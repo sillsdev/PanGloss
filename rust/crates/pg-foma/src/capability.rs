@@ -66,30 +66,30 @@ use crate::plan::{FragmentSpec, NodeId, Plan, PlanNodeKind};
 // D1: Disposition + CharacteristicKind + the characterizer
 // =================================================================================================
 
-/// A characteristic's capability disposition (design.md D1). Ordered here from "most trusted" to
+/// A characteristic's capability disposition. Ordered here from "most trusted" to
 /// "least" purely for reading convenience — no code relies on `Disposition`'s ordinal value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Disposition {
     /// Proven faithful; no predicate needed, admission-filtering allowed unconditionally.
     Proven,
     /// Compiles conditionally: `ConfirmOnly` unless/until a registered predicate proves `Admit`
-    /// for the specific configuration observed (design.md D2's landing-spot verdict).
+    /// for the specific configuration observed.
     ConfigPredicate,
     /// Recall-preserving only if the proposer proposes the superset (no proven no-false-negative
-    /// admission filter) — a first-class, non-failure verdict (ADR 0001).
+    /// admission filter) — a first-class, non-failure verdict.
     ConfirmOnly,
-    /// Hard compile-time refusal by default; only ADR 0005's explicit, indelibly-stamped override
-    /// force-compiles it.
+    /// Hard compile-time refusal by default; only the explicit, indelibly-stamped capability
+    /// override force-compiles it.
     FailClosed,
 }
 
-/// The closed set of observed grammar characteristics (design.md D1's table, one variant per
-/// table row/enum-family). Deliberately **not** one variant per individual `model.rs` enum
-/// *variant* in every case — where D1's own table collapses several variants of one enum into a
-/// single named characteristic (e.g. `OutputAction`'s four variants all feed "output-action
-/// kind"), this enum mirrors that collapse; [`characterize`]'s per-variant `match` arms still stay
-/// individually written (no catch-all), so the exhaustiveness discipline holds at the `model.rs`
-/// level even where several arms produce the same [`CharacteristicKind`].
+/// The closed set of observed grammar characteristics, one variant per characteristic family.
+/// Deliberately **not** one variant per individual `model.rs` enum *variant* in every case —
+/// where several variants of one enum collapse into a single named characteristic (e.g.
+/// `OutputAction`'s four variants all feed "output-action kind"), this enum mirrors that
+/// collapse; [`characterize`]'s per-variant `match` arms still stay individually written (no
+/// catch-all), so the exhaustiveness discipline holds at the `model.rs` level even where several
+/// arms produce the same [`CharacteristicKind`].
 /// `Ord` is additive and carries no behavior: it is derived declaration order (the same order
 /// [`CharacteristicKind::ALL`] lists), so a `BTreeSet<CharacteristicKind>` -- which is what
 /// [`crate::recipe_mechanism::MechanismNode::construct_requirements`] is -- iterates
@@ -104,15 +104,15 @@ pub enum CharacteristicKind {
     Affixation,
     /// `MorphRuleDef::Realizational` (model.rs:546).
     RealizationalMorphology,
-    /// `MorphRuleDef::Compounding` (model.rs:544). D5's first act: FailClosed.
+    /// `MorphRuleDef::Compounding` (model.rs:544).
     Compounding,
     /// `MorphRuleOrder::Linear` (model.rs:1058).
     OrderedMorphRuleApplication,
-    /// `MorphRuleOrder::Unordered` (model.rs:1059). D5's first act: FailClosed.
+    /// `MorphRuleOrder::Unordered` (model.rs:1059).
     UnorderedMorphRuleApplication,
     /// `MprGroupOutput::Append` (model.rs:833).
     MprGroupAppend,
-    /// `MprGroupOutput::Overwrite` (model.rs:832). D5's first act ("MprGroup...FailClosed").
+    /// `MprGroupOutput::Overwrite` (model.rs:832).
     MprGroupOverwrite,
     /// `RewriteMode::Iterative` (model.rs:386).
     IterativeRewrite,
@@ -133,18 +133,16 @@ pub enum CharacteristicKind {
     SubruleGating,
     /// A "circumfix-shaped" `AffixAllomorphDef`: a multi-part LHS where the RHS's
     /// `OutputAction`s (model.rs:687) never `Copy` at least one LHS part — i.e. real subtracted/
-    /// discontinuous material, D1's "cover-circumfix-null-..." row. NOT raised for every
-    /// `OutputAction` occurrence (see [`allomorph_drops_lhs_material`]'s doc for why that would be
-    /// unsound-by-over-triggering).
+    /// discontinuous material. NOT raised for every `OutputAction` occurrence (see
+    /// [`allomorph_drops_lhs_material`]'s doc for why that would be unsound-by-over-triggering).
     CircumfixOutputAction,
     /// An `AffixAllomorphDef` whose RHS truly reduplicates: some `Input` part is echoed by
     /// `Copy`/`Modify` actions >= 2 times (model.rs:679's `ReduplicationHint`). NOT raised for
     /// every allomorph carrying a `ReduplicationHint` value (see [`rhs_has_true_reduplication`]'s
     /// doc — `Implicit` is the DTD default for every non-reduplicating affix too). Discharged by
-    /// [`ReduplicationPeelSupportedPredicate`] (`openspec/changes/
-    /// cover-template-truncation-reduplication`): peeled, never compiled into the FST itself
-    /// (design.md's own "retaining the established division between compiled template morphology
-    /// and peeled reduplication").
+    /// [`ReduplicationPeelSupportedPredicate`]: peeled, never compiled into the FST itself,
+    /// retaining the established division between compiled template morphology and peeled
+    /// reduplication.
     Reduplication,
     /// A `MorphemeCoOccurrenceRuleDef`/`AllomorphCoOccurrenceRuleDef` occurrence (model.rs:508's
     /// `CoOccurrenceAdjacency`, each variant folded into this one characteristic).
@@ -156,45 +154,42 @@ pub enum CharacteristicKind {
     /// `CharacterDefinitionTable`, each stratum's own `StratumDef::table` (model.rs:1066)
     /// potentially disagreeing about what a raw segment index means. NOT one variant of an
     /// existing enum — a grammar-level configuration fact, discharged by
-    /// [`MultiTableFaithfulThreadingPredicate`] (`openspec/changes/fix-multitable-fst-compilation`).
-    /// See that predicate's own doc for the admit/confirm-only/refuse split.
+    /// [`MultiTableFaithfulThreadingPredicate`]. See that predicate's own doc for the
+    /// admit/confirm-only/refuse split.
     MultiTable,
     /// A `PatternNode::Quantifier` (`<OptionalSegmentSequence min max>`) occurrence anywhere in a
-    /// `RewriteRuleDef`'s own LHS, or any of its subrules' RHS/left-env/right-env patterns
-    /// (`openspec/changes/compile-bounded-fst-quantifiers`, widened to the genuinely unbounded case
-    /// by `openspec/changes/build-unbounded-quantifier-support`). NOT one variant of
-    /// `RewriteMode`/`Dir` (those already have their own characteristics) — a grammar-level
-    /// structural fact about WHICH pattern nodes a rule's own patterns use, discharged by
-    /// [`QuantifierBoundedExpansionPredicate`]. See that predicate's own doc for the
+    /// `RewriteRuleDef`'s own LHS, or any of its subrules' RHS/left-env/right-env patterns. NOT
+    /// one variant of `RewriteMode`/`Dir` (those already have their own characteristics) — a
+    /// grammar-level structural fact about WHICH pattern nodes a rule's own patterns use,
+    /// discharged by [`QuantifierBoundedExpansionPredicate`]. See that predicate's own doc for the
     /// compile-attempted split (bounded and unbounded both compile now; `all_bounded` is
     /// informational only, see [`QuantifierPatternDetail`]'s own doc).
     QuantifierPattern,
-    /// `RootAllomorphDef::stem_name` (model.rs:798, `Option<StemNameId>` — W5's "realizational
-    /// cluster", `StemNameDef` at model.rs:816): a root allomorph restricted to a `<StemName>`
-    /// region, checked only by `pg_rules::validity`'s `stem_name_gate_reason`/
-    /// `stem_name_required_match` (C# `StemName.IsRequiredMatch`/`IsExcludedMatch`) at confirm
-    /// time against the word's accumulated syntactic FS. Found by research report 13 to have NO
-    /// `CharacteristicKind` entry at all — a taxonomy gap one level more basic than an unbuilt
-    /// filter (the compiler's construct ledger did not even record that stem names exist).
-    /// `crate::emit` has no stem-name-aware admission filter anywhere (grep confirms zero
-    /// references outside `precision.rs`'s own `ConstraintFamily::StemName` "Not populated" note);
-    /// every stem-restricted root allomorph is proposed unconditionally, discharged only by
-    /// confirm — hence `ConfirmOnly`, never anything stronger, until a real predicate is built.
+    /// `RootAllomorphDef::stem_name` (model.rs:798, `Option<StemNameId>`; `StemNameDef` at
+    /// model.rs:816): a root allomorph restricted to a `<StemName>` region, checked only by
+    /// `pg_rules::validity`'s `stem_name_gate_reason`/`stem_name_required_match` (C#
+    /// `StemName.IsRequiredMatch`/`IsExcludedMatch`) at confirm time against the word's
+    /// accumulated syntactic FS. Not represented by any `CharacteristicKind` until this one was
+    /// added — a taxonomy gap one level more basic than an unbuilt filter (the compiler's
+    /// construct ledger did not even record that stem names exist). `crate::emit` has no
+    /// stem-name-aware admission filter anywhere (grep confirms zero references outside
+    /// `precision.rs`'s own `ConstraintFamily::StemName` "Not populated" note); every
+    /// stem-restricted root allomorph is proposed unconditionally, discharged only by confirm —
+    /// hence `ConfirmOnly`, never anything stronger, until a real predicate is built.
     StemName,
-    /// The W3.2 disjunctive-allomorph re-check (`pg_rules::validity::allomorphs_valid_impl`,
+    /// The disjunctive-allomorph re-check (`pg_rules::validity::allomorphs_valid_impl`,
     /// `free_fluctuates`/`disjunctive_candidates`/`root_constraints_equal`; C#
     /// `Allomorph.cs:127-152`): engaged whenever a `LexEntryDef` (model.rs:768) carries more than
     /// one `RootAllomorphDef` (model.rs:777, `allomorphs: Vec<RootAllomorphDef>`) — confirm then
     /// enforces "first-listed matching allomorph wins" for any two allomorphs whose own
     /// `environments`/`is_bound` (model.rs:791-792) do NOT compare equal (`root_constraints_equal`;
     /// when they DO compare equal, the allomorphs "free-fluctuate" and either is accepted). Not a
-    /// distinct `model.rs` enum variant — a derived cross-allomorph relation — so, like
-    /// `StemName`, found missing from this ledger entirely by research report 13. `crate::emit`
-    /// builds no ordering/preference machinery for this at all (every allomorph of a multi-
-    /// allomorph entry is proposed uniformly, in every position); the emitter's own bare-root
-    /// discharge (`RootRec::never_valid_bare`, `docs/fst-plan/bare-root-compile-time-discharge.md`)
-    /// deliberately restricts itself to the entry-has-exactly-one-allomorph case specifically to
-    /// avoid needing to reason about this mechanism at all — so this characteristic remains wholly
+    /// distinct `model.rs` enum variant — a derived cross-allomorph relation, so, like `StemName`,
+    /// missing from this ledger until now. `crate::emit` builds no ordering/preference machinery
+    /// for this at all (every allomorph of a multi-allomorph entry is proposed uniformly, in every
+    /// position); the emitter's own bare-root discharge (`RootRec::never_valid_bare`) deliberately
+    /// restricts itself to the entry-has-exactly-one-allomorph case specifically to avoid needing
+    /// to reason about this mechanism at all — so this characteristic remains wholly
     /// `ConfirmOnly`, undischarged by anything this crate compiles.
     FreeFluctuation,
 }
@@ -231,39 +226,36 @@ impl CharacteristicKind {
         CharacteristicKind::FreeFluctuation,
     ];
 
-    /// design.md D1's table, as code: this characteristic's disposition BEFORE any predicate runs.
-    /// Exhaustively matched (no catch-all) — adding a `CharacteristicKind` variant breaks this
-    /// build too, same discipline as [`characterize`]'s own `model.rs` matches.
+    /// The characteristic's disposition BEFORE any predicate runs. Exhaustively matched (no
+    /// catch-all) — adding a `CharacteristicKind` variant breaks this build too, same discipline
+    /// as [`characterize`]'s own `model.rs` matches.
     pub fn default_disposition(self) -> Disposition {
         match self {
             CharacteristicKind::Affixation => Disposition::Proven,
             CharacteristicKind::RealizationalMorphology => Disposition::ConfirmOnly,
-            // `cover-compounding` + `plan-construct-coverage-completion` task 4.1:
             // `crate::emit::compound_license` license-gates the lexicon into head-eligible/
-            // non-head-eligible subsets (design.md D3/D4's `compound_match`/`mpr_group_ok`
-            // (un)group-awareness contract) and proposes their budget-bounded, depth-budgeted cross
-            // product through the "bounded compound loop" lexc construction (`build_compound_chain`)
-            // -- a genuinely faithful (over-approximating, never under-proposing) FST proposal for
+            // non-head-eligible subsets (the `compound_match`/`mpr_group_ok` (un)group-awareness
+            // contract) and proposes their budget-bounded, depth-budgeted cross product through
+            // the "bounded compound loop" lexc construction (`build_compound_chain`) -- a
+            // genuinely faithful (over-approximating, never under-proposing) FST proposal for
             // EVERY observed configuration, recursive or not, no longer bare FailClosed for either
-            // split. No proven no-false-negative admission-filter argument exists (ADR 0001), so the
-            // resting disposition is the same ConfigPredicate landing spot every other Stage-2
-            // construct in this file uses -- still `ConfigPredicate` at the KIND level (a predicate
-            // IS registered, `CompoundingRecursionSafePredicate`), even though that predicate's own
-            // `evaluate()` no longer has a real split within it (see its own doc, "the recursive
-            // split is now closed too": `ConfirmOnly` unconditionally once any `Compounding` rule is
-            // observed).
+            // split. No proven no-false-negative admission-filter argument exists, so the resting
+            // disposition is the same ConfigPredicate landing spot every other construct in this
+            // file uses -- still `ConfigPredicate` at the KIND level (a predicate IS registered,
+            // `CompoundingRecursionSafePredicate`), even though that predicate's own `evaluate()`
+            // no longer has a real split within it (see its own doc: `ConfirmOnly`
+            // unconditionally once any `Compounding` rule is observed).
             CharacteristicKind::Compounding => Disposition::ConfigPredicate,
             CharacteristicKind::OrderedMorphRuleApplication => Disposition::Proven,
-            // `cover-unordered-morph-rules`: `crate::emit::build_deriv_chain`'s existing
-            // derivation-layer construction (used for BOTH Linear and Unordered strata's loose
-            // Prefix/Suffix/None-role rules identically, unconditional on `required_syn_fs`/rule
-            // order) is, on inspection, ALREADY design.md D2's "ordering-union proposal" -- a
-            // genuinely faithful (superset, never under-proposing) FST proposal for
-            // `unordered-application.chain-depth-bounded` (`crate::unordered`'s own module doc). No
-            // proven no-false-negative admission-filter argument exists (ADR 0001), so the resting
-            // disposition is the same `ConfigPredicate` landing spot every other Stage-2 construct
-            // in this file uses: `ConfirmOnly` for `chain-depth-bounded`, `Refuse` for `unbounded`
-            // (a stratum's own loose-rule count exceeding the calibrated
+            // `crate::emit::build_deriv_chain`'s existing derivation-layer construction (used for
+            // BOTH Linear and Unordered strata's loose Prefix/Suffix/None-role rules identically,
+            // unconditional on `required_syn_fs`/rule order) is, on inspection, ALREADY an
+            // ordering-union proposal -- a genuinely faithful (superset, never under-proposing)
+            // FST proposal for `unordered-application.chain-depth-bounded` (`crate::unordered`'s
+            // own module doc). No proven no-false-negative admission-filter argument exists, so
+            // the resting disposition is the same `ConfigPredicate` landing spot every other
+            // construct in this file uses: `ConfirmOnly` for `chain-depth-bounded`, `Refuse` for
+            // `unbounded` (a stratum's own loose-rule count exceeding the calibrated
             // `DEFAULT_ORDERING_MULTIPLICITY_BUDGET`), per `UnorderedOrderingUnionPredicate`'s own
             // split.
             CharacteristicKind::UnorderedMorphRuleApplication => Disposition::ConfigPredicate,
@@ -272,71 +264,68 @@ impl CharacteristicKind {
             CharacteristicKind::IterativeRewrite => Disposition::Proven,
             CharacteristicKind::SimultaneousRewrite => Disposition::ConfigPredicate,
             CharacteristicKind::LeftToRightRewrite => Disposition::Proven,
-            // `compile-right-to-left-rewrites`: the reversal-plus-safety-net-union construction
+            // The reversal-plus-safety-net-union construction
             // (`crate::replace::compile_rtl_branch_net`) makes RTL rewrite compilation faithful
             // (never a silent LTR mis-compile) for the same pattern shapes any other rewrite rule
             // already needs -- no longer bare FailClosed, but no proven no-false-positive
-            // admission-filter argument exists either (ADR 0001), so the resting disposition is
-            // the ConfigPredicate landing spot: ConfirmOnly unless/until
+            // admission-filter argument exists either, so the resting disposition is the
+            // ConfigPredicate landing spot: ConfirmOnly unless/until
             // `RightToLeftRewriteFaithfulReversalPredicate` proves `Admit` (it never does today --
             // see that predicate's own doc) or Refuses an out-of-shape rule.
             CharacteristicKind::RightToLeftRewrite => Disposition::ConfigPredicate,
-            // `compile-fst-metathesis`: the dedicated swap-relation construction
-            // (`crate::replace::compile_metathesis_rule`) makes `Dir::LeftToRight` metathesis
-            // compilation faithful (never a silent wrong reorder) for the same
-            // `pattern_slots`-acceptable pattern shape any other rewrite rule already needs -- no
-            // longer bare FailClosed, but no proven no-false-negative admission-filter argument
-            // exists either (ADR 0001), so the resting disposition is the ConfigPredicate landing
-            // spot: ConfirmOnly unless/until `MetathesisFaithfulSwapPredicate` proves the shape is
-            // in scope (it never proves `Admit` today) or Refuses an out-of-shape/`Dir::RightToLeft`
-            // rule.
+            // The dedicated swap-relation construction (`crate::replace::compile_metathesis_rule`)
+            // makes `Dir::LeftToRight` metathesis compilation faithful (never a silent wrong
+            // reorder) for the same `pattern_slots`-acceptable pattern shape any other rewrite
+            // rule already needs -- no longer bare FailClosed, but no proven no-false-negative
+            // admission-filter argument exists either, so the resting disposition is the
+            // ConfigPredicate landing spot: ConfirmOnly unless/until
+            // `MetathesisFaithfulSwapPredicate` proves the shape is in scope (it never proves
+            // `Admit` today) or Refuses an out-of-shape/`Dir::RightToLeft` rule.
             CharacteristicKind::Metathesis => Disposition::ConfigPredicate,
             CharacteristicKind::Epenthesis => Disposition::ConfigPredicate,
             CharacteristicKind::SubruleGating => Disposition::Proven,
             CharacteristicKind::CircumfixOutputAction => Disposition::ConfigPredicate,
-            // `cover-template-truncation-reduplication`: `crate::peel::ReduplicationPeeler` now
-            // faithfully PEELS (never compiles into the FST itself -- design.md's own "retaining
-            // the established division between compiled template morphology and peeled
-            // reduplication") every `AffixProcessRule` whose RHS truly reduplicates, with its
-            // nested-chain recursion ADR 0003 chain-depth-budgeted (never a silent recall gap OR
-            // an unbounded blow-up). A `RealizationalRule` allomorph carrying the same true-redup
-            // RHS shape is never peel-eligible (a real, faithfully-preserved C# quirk, `crate::
+            // `crate::peel::ReduplicationPeeler` now faithfully PEELS (never compiles into the FST
+            // itself, retaining the established division between compiled template morphology and
+            // peeled reduplication) every `AffixProcessRule` whose RHS truly reduplicates, with its
+            // nested-chain recursion chain-depth-budgeted (never a silent recall gap OR an
+            // unbounded blow-up). A `RealizationalRule` allomorph carrying the same true-redup RHS
+            // shape is never peel-eligible (a real, faithfully-preserved C# quirk, `crate::
             // peel::is_reduplication_rule`'s own doc) -- no longer bare FailClosed, but no proven
-            // no-false-negative admission-filter argument exists (ADR 0001), so the resting
-            // disposition is the ConfigPredicate landing spot: ConfirmOnly for the peel-eligible
-            // case, Refuse for the `RealizationalRule` carve-out, per
-            // `ReduplicationPeelSupportedPredicate`'s own doc.
+            // no-false-negative admission-filter argument exists, so the resting disposition is
+            // the ConfigPredicate landing spot: ConfirmOnly for the peel-eligible case, Refuse for
+            // the `RealizationalRule` carve-out, per `ReduplicationPeelSupportedPredicate`'s own
+            // doc.
             CharacteristicKind::Reduplication => Disposition::ConfigPredicate,
             CharacteristicKind::CoOccurrenceConstraint => Disposition::ConfirmOnly,
             CharacteristicKind::NaturalClassDefinition => Disposition::Proven,
-            // `fix-multitable-fst-compilation`: rewrite-rule compilation now threads each rule's
-            // own owning table faithfully (no more implicit table-zero default), so multi-table is
-            // no longer bare FailClosed -- but no no-false-positive admission-filter proof exists
-            // yet (ADR 0001), so the resting disposition is the ConfigPredicate landing spot:
-            // ConfirmOnly unless/until `MultiTableFaithfulThreadingPredicate` proves `Admit` for
-            // the specific configuration observed (pairwise-disjoint table representations).
+            // Rewrite-rule compilation now threads each rule's own owning table faithfully (no
+            // more implicit table-zero default), so multi-table is no longer bare FailClosed --
+            // but no no-false-positive admission-filter proof exists yet, so the resting
+            // disposition is the ConfigPredicate landing spot: ConfirmOnly unless/until
+            // `MultiTableFaithfulThreadingPredicate` proves `Admit` for the specific configuration
+            // observed (pairwise-disjoint table representations).
             CharacteristicKind::MultiTable => Disposition::ConfigPredicate,
-            // `compile-bounded-fst-quantifiers`, widened by `build-unbounded-quantifier-support`: a
-            // finitely bounded OR genuinely unbounded, alpha-free quantifier now compiles faithfully
-            // (`crate::replace::Slot::Repeat`'s `max: Option<u32>`), but no proven no-false-negative
-            // admission-filter argument exists (ADR 0001) -- ConfirmOnly-by-default landing spot,
-            // same shape `RightToLeftRewrite`/`MultiTable` already use. A rule whose pattern shape
-            // blocks `crate::replace::pattern_slots` from even ATTEMPTING to compile it (an inverted
-            // or over-budget-finite or alpha-nested quantifier, or some other unsupported construct
-            // elsewhere in the same rule) stays refused, per `QuantifierBoundedExpansionPredicate`'s
-            // own split -- an unbounded quantifier is no longer, by itself, such a case.
+            // A finitely bounded OR genuinely unbounded, alpha-free quantifier now compiles
+            // faithfully (`crate::replace::Slot::Repeat`'s `max: Option<u32>`), but no proven
+            // no-false-negative admission-filter argument exists -- ConfirmOnly-by-default landing
+            // spot, same shape `RightToLeftRewrite`/`MultiTable` already use. A rule whose pattern
+            // shape blocks `crate::replace::pattern_slots` from even ATTEMPTING to compile it (an
+            // inverted or over-budget-finite or alpha-nested quantifier, or some other unsupported
+            // construct elsewhere in the same rule) stays refused, per
+            // `QuantifierBoundedExpansionPredicate`'s own split -- an unbounded quantifier is no
+            // longer, by itself, such a case.
             CharacteristicKind::QuantifierPattern => Disposition::ConfigPredicate,
-            // Research report 13's taxonomy-gap finding: `crate::emit` has no stem-name-aware
-            // admission filter at all (confirmed by grep — `precision.rs`'s own
-            // `ConstraintFamily::StemName` says "Not populated" too), so a stem-restricted root
-            // allomorph is proposed unconditionally and discharged ONLY by
+            // `crate::emit` has no stem-name-aware admission filter at all (confirmed by grep —
+            // `precision.rs`'s own `ConstraintFamily::StemName` says "Not populated" too), so a
+            // stem-restricted root allomorph is proposed unconditionally and discharged ONLY by
             // `pg_rules::validity::stem_name_gate_reason` at confirm time. `ConfirmOnly` is the
             // honest resting disposition — never `Proven` (no admission-filter argument exists)
-            // and never `FailClosed` (the superset proposal is already faithful/never under-
-            // proposes, ADR 0001's own bar for a first-class non-failure verdict).
+            // and never `FailClosed` (the superset proposal is already faithful/never
+            // under-proposes, which is the bar for a first-class non-failure verdict).
             CharacteristicKind::StemName => Disposition::ConfirmOnly,
-            // Same finding, same shape: the W3.2 disjunctive-allomorph re-check has no compile-
-            // time ordering/preference machinery in `crate::emit` at all (every allomorph of a
+            // Same shape: the disjunctive-allomorph re-check has no compile-time
+            // ordering/preference machinery in `crate::emit` at all (every allomorph of a
             // multi-allomorph root entry is proposed uniformly) — confirm is the only place
             // "first-listed matching allomorph wins" is ever enforced. `ConfirmOnly`, not
             // `FailClosed`: over-proposing every allomorph is still a faithful superset, never a
