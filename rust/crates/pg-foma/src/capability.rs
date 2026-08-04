@@ -3106,13 +3106,13 @@ impl CapabilityPredicate for UnorderedOrderingUnionPredicate {
 // MprGroupAppend / MprGroupOverwrite: the config-predicates `cover-mpr-groups` registers
 // -------------------------------------------------------------------------------------------
 
-/// `openspec/changes/cover-mpr-groups`'s own capability predicate (design.md D1/D2): the
-/// NON-TRACKING baseline for `MprGroupOutput::Append` groups. Per design.md D1, the split is drawn
+/// The capability predicate for `MprGroupAppend`: the
+/// NON-TRACKING baseline for `MprGroupOutput::Append` groups. The split is drawn
 /// on `MprGroupOutput`, not on `MprGroup` wholesale — this predicate discharges ONLY
 /// [`CharacteristicKind::MprGroupAppend`]; `Overwrite` is [`MprGroupOverwriteFailClosedPredicate`]'s
-/// own, permanently different-verdict predicate (D3), never inferred from this one.
+/// own, permanently different-verdict predicate, never inferred from this one.
 ///
-/// # The baseline this predicate verifies (design.md D2, tasks.md 2.2)
+/// # The baseline this predicate verifies
 /// Checked here, not merely asserted: NEITHER of this crate's own MPR-consuming propose code paths
 /// ever tracks accumulated MPR-group state to reject a candidate mid-derivation —
 /// - `crate::gate`'s static root-entry partition (`entry_gate_key`) keys ONLY on
@@ -3131,11 +3131,11 @@ impl CapabilityPredicate for UnorderedOrderingUnionPredicate {
 /// downstream of an `out_mpr`-bearing allomorph would otherwise need dynamic state for, and leave
 /// the exact `mpr_group_ok`/`mpr_add_output` fold entirely to confirm (`pg_rules::morph.rs:
 /// 1596,1822,2842,2162,3073-3074`) — the same "unfiltered" fallback `crate::gate`'s own module doc
-/// names for the one partial code path (root-only MPR/POS gating) that exists there. This is D2's
-/// own required verification, not a restatement of "`ConfirmOnly` is safe in principle" (trivially
-/// true for ANY non-narrowing baseline, D3's own first sentence): it is the positive proof that THIS
+/// names for the one partial code path (root-only MPR/POS gating) that exists there. This is a
+/// required verification, not a restatement of "`ConfirmOnly` is safe in principle" (trivially
+/// true for ANY non-narrowing baseline): it is the positive proof that THIS
 /// crate's actual propose code never accidentally crosses from that baseline into a narrowing
-/// filter — the real risk D2's blocker 2 names. Oracle-contained (over-propose, exact-confirm) by
+/// filter. Oracle-contained (over-propose, exact-confirm) by
 /// `tests/cover_mpr_groups.rs`.
 ///
 /// # Disposition
@@ -3148,31 +3148,30 @@ impl CapabilityPredicate for UnorderedOrderingUnionPredicate {
 ///   fold" argument does not depend on any per-group structural fact the way recursion-reachability
 ///   or a stratum's own rule count does), so there is no "`mpr-group.append-output`-vs-something-
 ///   worse" case to discriminate — every observation reaches the SAME verdict.
-///   [`PredicateVerdict::Admit`] (an accumulated-state ADMISSION FILTER, D2's own "materially harder
-///   claim") is a separate, unproven step this predicate does NOT make — it only ever proves the
+///   [`PredicateVerdict::Admit`] (an accumulated-state ADMISSION FILTER, a materially harder
+///   claim) is a separate, unproven step this predicate does NOT make — it only ever proves the
 ///   safe baseline, never promotes past it.
 ///
 /// # Node applicability
 /// Like [`CompoundingRecursionSafePredicate`]/[`UnorderedOrderingUnionPredicate`]: `MprGroupAppend`
-/// has no corresponding [`crate::plan::PlanNodeKind`] in today's `enumerate_default` shape — design.md
-/// D5's net-new surface (a derivation-state-dependent `Gate` *position*, distinct from today's
-/// root-static one) does not exist in this crate at all yet, blocked on `reify-compilation-plans`;
+/// has no corresponding [`crate::plan::PlanNodeKind`] in today's `enumerate_default` shape — a
+/// derivation-state-dependent `Gate` *position*, distinct from today's
+/// root-static one, does not exist in this crate at all yet;
 /// today's only `Gate` shape (`crate::gate`'s root-static partition) is unconditionally safe and
 /// needs no predicate to say so. `evaluate` ignores `plan_node` entirely and scans
 /// [`CharacteristicsProfile::observations`] for an `MprGroupAppend` occurrence instead, safe under
 /// `meet` for the identical reason those two predicates' own docs give (every node the walk visits
 /// gets the SAME verdict).
 ///
-/// # Big-O + ADR 0004 runtime-feature declaration (tasks.md 5/6)
+/// # Big-O + runtime-feature declaration
 /// Zero marginal cost: this predicate discharges an EXISTING code path verbatim (`crate::gate`'s
 /// partition, `crate::emit::build_deriv_chain`/`emit_rule_allomorphs`, `crate::uflexc`'s lexc
 /// construction) — no new FST states/arcs, no new compile-time pass, nothing to calibrate a resource
 /// threshold against. `evaluate` itself is `O(#observations)`, a single linear scan, same as every
-/// other profile-wide predicate in this file. Per ADR 0004 (`docs/adr/
-/// 0004-runtime-feature-compatibility.md`), the required-runtime-feature set is EMPTY: the
+/// other profile-wide predicate in this file. The required-runtime-feature set is EMPTY: the
 /// non-tracking baseline changes nothing about what propose already emits, so there is no query-time
 /// operation to declare (unlike `crate::peel::RUNTIME_FEATURE_REDUPLICATION_PEEL`'s per-word peel
-/// op) — confirmed, not assumed, since D2's whole baseline argument is that it adds no new mechanism.
+/// op) — confirmed, not assumed, since the whole baseline argument is that it adds no new mechanism.
 ///
 /// # Provenance
 /// [`EvidenceProvenance::Structural`]: the claim rests on directly-inspectable `crate::gate`/
@@ -3212,7 +3211,7 @@ impl CapabilityPredicate for MprGroupAppendNonNarrowingPredicate {
     }
 }
 
-/// `openspec/changes/cover-mpr-groups`'s own capability predicate (design.md D3): `MprGroupOutput::
+/// The capability predicate for `MprGroupOverwrite`: `MprGroupOutput::
 /// Overwrite` stays `FailClosed` PERMANENTLY by default — not "not yet proven" the way
 /// `compounding.recursive`/`unordered-application.unbounded` are provisionally refused pending a
 /// future proof, but categorically refused. A monotone-accumulation admission-filter argument (the
@@ -3220,11 +3219,11 @@ impl CapabilityPredicate for MprGroupAppendNonNarrowingPredicate {
 /// BY CONSTRUCTION for `Overwrite` — [`pg_grammar::model::mpr_add_output`]'s own doc (model.rs:
 /// 915-932): a LATER rule application can retract exactly the feature an EARLIER one added, so the
 /// accumulated set at any derivation point depends on the SEQUENCE, not just the MULTISET, of prior
-/// outputs. This is the literal case ADR 0001 cites as its own worked confirm-only trap ("a naive
-/// FST filter that silently omits, e.g. history-dependent `MprGroup::Overwrite`").
+/// outputs. This is the literal case a naive FST filter would fall into: silently omitting, e.g.,
+/// a history-dependent `MprGroup::Overwrite`.
 ///
-/// Replaces this crate's own `mpr-group-overwrite.placeholder` [`FailClosedPlaceholder`] (Step 1 of
-/// `add-capability-characteristics-check`) with a real, permanently-refusing predicate — the SAME
+/// Replaces this crate's own `mpr-group-overwrite.placeholder` [`FailClosedPlaceholder`] with a
+/// real, permanently-refusing predicate — the SAME
 /// unconditional-`Refuse`-when-observed BEHAVIOR the placeholder already had (so no already-compiling
 /// grammar's verdict changes), now documented as this construct's own deliberate, named landing spot
 /// rather than a generic "not implemented yet" stub.
@@ -3234,25 +3233,25 @@ impl CapabilityPredicate for MprGroupAppendNonNarrowingPredicate {
 ///   convention.
 /// - **At least one `Overwrite`-output `MprGroup` observed**: [`PredicateVerdict::Refuse`],
 ///   UNCONDITIONALLY. The SAME non-tracking `ConfirmOnly` baseline `mpr-group.append-output` uses
-///   (D2) is available here too — not narrowing at all is trivially safe regardless of output policy
-///   (design.md D3's own first sentence) — but this predicate's OWN obligation is stronger: it must
+///   is available here too — not narrowing at all is trivially safe regardless of output policy —
+///   but this predicate's OWN obligation is stronger: it must
 ///   guarantee no admission-FILTER code path is EVER reached for an `Overwrite`-touching
 ///   configuration, permanently, not merely "not yet proven" — so it refuses outright rather than
-///   resting at `ConfirmOnly` (spec.md's own requirement: "SHALL remain `FailClosed` until a proof
-///   characterizes the group's history-dependent replace semantics as a sound admission filter").
-///   The ADR 0005 capability override remains the on-ramp for anyone who wants to force-compile and
+///   resting at `ConfirmOnly` (it SHALL remain `FailClosed` until a proof
+///   characterizes the group's history-dependent replace semantics as a sound admission filter).
+///   The capability override remains the on-ramp for anyone who wants to force-compile and
 ///   experiment with an `Overwrite`-bearing grammar under the degraded-trust signal before that proof
-///   exists (design.md D3's own closing sentence) — mirrors
-///   [`CompoundingRecursionSafePredicate`]'s identical citation for `compounding.recursive`.
+///   exists — mirrors
+///   [`CompoundingRecursionSafePredicate`]'s identical treatment for `compounding.recursive`.
 ///
 /// # Node applicability
 /// Same "no corresponding [`crate::plan::PlanNodeKind`]" shape
 /// [`MprGroupAppendNonNarrowingPredicate`]'s own doc describes — `evaluate` ignores `plan_node` and
 /// scans observations directly.
 ///
-/// # Big-O + ADR 0004 runtime-feature declaration
+/// # Big-O + runtime-feature declaration
 /// Trivial: this predicate's `Refuse` verdict means no propose construction is ever attempted for an
-/// `Overwrite`-touching configuration at all (absent the ADR 0005 override) — zero compiled states/
+/// `Overwrite`-touching configuration at all (absent the capability override) — zero compiled states/
 /// arcs, zero query-time operations, nothing to declare a required-runtime-feature for.
 ///
 /// # Provenance
