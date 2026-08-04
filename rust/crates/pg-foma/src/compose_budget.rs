@@ -1,5 +1,5 @@
-//! Phase B composition-path budget guards (`docs/fst-plan/phase-b-compose-budget-design.md`):
-//! [`EnumerationBudget`](crate::morphotactics::EnumerationBudget)'s sibling for the P6 composition
+//! Composition-path budget guards:
+//! [`EnumerationBudget`](crate::morphotactics::EnumerationBudget)'s sibling for the composition
 //! path (`crate::replace`, `crate::gate`, `crate::uflexc`) -- a path that, until this module, had
 //! **no `Result`-returning public API at all** (bare `Option`/`Fsm`/report structs, example drivers
 //! `panic!` on failure) and never imported `EnumerationBudget` (the eager-enumeration path's own
@@ -14,7 +14,7 @@
 //! and compares them against the `Fsm` the vendored `foma` crate handed back. Revisit this if the
 //! per-group loop (`crate::gate::compile_gated_grammar`) is ever parallelized.
 //!
-//! ## Vendored-crate findings this module's shape depends on (design doc §1, verified by reading
+//! ## Vendored-crate findings this module's shape depends on (verified by reading
 //! `foma = "=0.4.0"`'s own source, not inferred)
 //! - `Fsm` exposes `pub statecount: i32` / `pub arccount: i32` (`types.rs`) -- size checks are free
 //!   after every call.
@@ -28,7 +28,7 @@
 //! - `fsm_union` does **not** minimize (cheap per step) -- `crate::gate`'s per-group union fold
 //!   accumulates a non-minimal net whose eventual minimize is the true worst-case moment.
 //!
-//! ## Limitations (verbatim from the design doc -- the honest part, not hidden)
+//! ## Limitations (the honest part, not hidden)
 //! - A between-step size check cannot catch a blow-up INSIDE one call: if a single compose/minimize
 //!   call OOMs or spins, the check that would run after it never runs. There is nothing in the
 //!   vendored crate to checkpoint mid-call; the size caps only bound cost accumulating ACROSS calls.
@@ -41,7 +41,7 @@
 //!   abort the process, bypassing every check here. Large worker-thread stacks reduce but do not
 //!   eliminate overflow risk.
 //! - Full "never blow up" for a single adversarial call needs an external supervisor process --
-//!   out of Phase B scope (noted for the plan's Phase D).
+//!   out of scope here.
 
 use std::fmt;
 use std::time::Duration;
@@ -71,7 +71,7 @@ const _: fn() = || {
 // own numeric type, unset/unparsable falls back to the documented default). ------------------------
 
 /// `HC_COMPOSE_STATE_BUDGET`: ceiling on `Fsm::statecount` after any checked compose/union/minimize
-/// call (V1, design doc §4). Calibration basis (design doc §8 item 2, measured on the new
+/// call. Calibration basis (measured on the
 /// `emit_underlying_templated` + `crate::replace`/`crate::gate` path against the real Aweti grammar
 /// -- 855 entries, 135 mrules, 18 prules, 14 templates -- the largest real grammar this path has
 /// been run against as of this writing): Aweti's templated lexc alone compiles to 23,661 states;
@@ -79,45 +79,45 @@ const _: fn() = || {
 /// default sits ~56x above that measured ceiling -- generous headroom for a larger real grammar,
 /// while staying far below the eager-enumeration path's own disaster case (`EnumerationBudget`'s
 /// own doc: Aweti's *enumeration* path produces an ~8.8GB `apply_up` allocation). Refine with more
-/// real-grammar measurements in the plan's Phase D sweeps.
+/// real-grammar measurements as larger grammars are onboarded.
 pub(crate) const DEFAULT_STATE_BUDGET: usize = 2_000_000;
 
 /// `HC_COMPOSE_ARC_BUDGET`: ceiling on `Fsm::arccount`, same call sites as
-/// [`DEFAULT_STATE_BUDGET`]. Calibration basis (design doc §8 item 2, same Aweti run): the
+/// [`DEFAULT_STATE_BUDGET`]. Calibration basis (same Aweti run): the
 /// templated lexc alone is 346,727 arcs; the full composed+minimized network is 800,354 arcs. This
 /// default sits ~25x above that measured ceiling.
 pub(crate) const DEFAULT_ARC_BUDGET: usize = 20_000_000;
 
 /// `HC_COMPOSE_TUPLE_BUDGET`: ceiling on the number of alpha-tuple assignments
 /// (`crate::replace::resolve_alpha_tuples`'s `surviving` count) a single subrule may expand to
-/// before `compile_rewrite_rule_subset` starts folding them (V3, design doc §4 -- checked BEFORE
+/// before `compile_rewrite_rule_subset` starts folding them -- checked BEFORE
 /// the expensive per-tuple compile loop, the same "check the search result before the expensive
-/// part" shape `EnumerationBudget`'s own doc uses). Default 5,000: Amharic's real worst case (the
-/// 20-alpha-variable CV-merger, `reports/08-audit-corrections-and-reframed-architecture.md` §3 item
-/// 1) is `nc15=59 x nc16=6 <= 354` surviving tuples -- comfortably under this cap by ~14x.
+/// part" shape `EnumerationBudget`'s own doc uses. Default 5,000: Amharic's real worst case (the
+/// 20-alpha-variable CV-merger) is `nc15=59 x nc16=6 <= 354` surviving tuples -- comfortably under
+/// this cap by ~14x.
 pub(crate) const DEFAULT_TUPLE_BUDGET: usize = 5_000;
 
 /// `HC_COMPOSE_GROUP_BUDGET`: ceiling on `crate::gate::partition_entries`'s own group count, checked
-/// BEFORE any per-group compile work runs (V6, design doc §4 -- the single highest-leverage check
-/// in this module, since it gates all downstream V1/V4 work for every group). Default 64:
+/// BEFORE any per-group compile work runs -- the single highest-leverage check
+/// in this module, since it gates all downstream work for every group. Default 64:
 /// Indonesian (this prototype's only real gated grammar today) needs exactly 2 groups; a grammar
 /// with `k` gated subrules is bounded by `2^k` DISTINCT gating vectors in the worst case, so 64
 /// covers up to 6 simultaneously-gated subrules with every combination realized -- comfortably
 /// above every reference grammar's real gated-subrule count (Indonesian: 1; Amharic: 3) while still
 /// catching a pathological grammar before any group's lexc/rule compile even starts. **No graceful
-/// fallback by design** (design doc §4 V6): merging/dropping groups is unsound (over/under-firing
+/// fallback by design**: merging/dropping groups is unsound (over/under-firing
 /// gated rules), so a breach here always means "fall back to another engine for this grammar", never
 /// a partial group set.
 pub(crate) const DEFAULT_GROUP_BUDGET: usize = 64;
 
 /// `HC_COMPOSE_LINE_BUDGET`: ceiling on lexc lines written by `crate::emit::emit_underlying_templated`
-/// (V4, design doc §4 + §8 item 1 -- checked incrementally, per-group, so a pathological templated
+/// (checked incrementally, per-group, so a pathological templated
 /// grammar bails during the FIRST group's emission rather than after building a multi-GB string) and
-/// by `crate::uflexc::emit_underlying_filtered` (the same V4 vector, Indonesian-scoped emitter,
+/// by `crate::uflexc::emit_underlying_filtered` (the same check, Indonesian-scoped emitter,
 /// checked incrementally at its own root/prefix/suffix line-push sites). Calibration basis: Aweti's
 /// real templated lexc emission is 37,510 lines (measured via
 /// `examples/p6_aweti_replace_prototype.rs`'s own `counts.lexc_lines`, `TextMode::UnderlyingTokens`
-/// path, 2026-07-20). This default sits ~26x above that measured ceiling -- generous headroom while
+/// path). This default sits ~26x above that measured ceiling -- generous headroom while
 /// staying far below a multi-GB `.lexc` file (`EnumerationBudget`'s own doc cites a 691MB/9.7M-line
 /// lexc as the eager-enumeration path's disaster case for this same grammar).
 pub(crate) const DEFAULT_LINE_BUDGET: usize = 1_000_000;
@@ -157,20 +157,20 @@ pub(crate) fn line_budget_from_env() -> usize {
         .unwrap_or(DEFAULT_LINE_BUDGET)
 }
 
-/// `HC_COMPOUND_PAIR_BUDGET` (`openspec/changes/cover-compounding` design.md D2 item 2 / tasks.md
-/// 5.1): ceiling on the compound HEAD x NON-HEAD root-pair cross product `crate::emit`'s license-gated
+/// `HC_COMPOUND_PAIR_BUDGET`: ceiling on the compound HEAD x NON-HEAD root-pair cross product
+/// `crate::emit`'s license-gated
 /// "bounded compound loop" is about to emit, checked BEFORE any of that lexc text is written (the
 /// same "check the search result before the expensive part" discipline every other budget in this
 /// module uses). Unlike ordinary affix concatenation (one lexicon-scale operand times one small,
 /// fixed affix-inventory operand), a `CompoundingRuleDef`'s cross product is lexicon-scale on BOTH
-/// sides (design.md D2's own "no resource threshold derived" flag) — this is the threshold that
+/// sides, with no resource threshold otherwise derived — this is the threshold that
 /// closes it. A separate constant/env var from [`DEFAULT_TUPLE_BUDGET`]/`HC_COMPOSE_TUPLE_BUDGET`
 /// on purpose: that budget bounds `crate::replace::resolve_alpha_tuples`'s alpha-variable-assignment
 /// count, a semantically unrelated quantity that happens to share a "count candidates before the
 /// expensive step" shape — conflating the two would make either one's calibration silently affect
-/// the other. Default 4,000,000: generous relative to every synthetic Stage-2 fixture (a handful of
-/// roots per side) while still catching a pathological 50k-entry-scale grammar (`build-for-full-
-/// scale-grammars`'s own target) before `write_root_entries` emits millions of lexc lines for it.
+/// the other. Default 4,000,000: generous relative to every synthetic fixture exercised so far
+/// (a handful of roots per side) while still catching a pathological 50k-entry-scale grammar
+/// before `write_root_entries` emits millions of lexc lines for it.
 /// Revisit with real large-grammar measurements once one exercises compounding at that scale.
 pub(crate) const DEFAULT_COMPOUND_PAIR_BUDGET: usize = 4_000_000;
 
@@ -181,12 +181,12 @@ pub(crate) fn compound_pair_budget_from_env() -> usize {
         .unwrap_or(DEFAULT_COMPOUND_PAIR_BUDGET)
 }
 
-/// `HC_COMPOSE_STEP_TIMEOUT_MS`: wall-clock deadline (design doc §5) for every checked
+/// `HC_COMPOSE_STEP_TIMEOUT_MS`: wall-clock deadline for every checked
 /// compose/union/minimize call, via [`call_with_deadline`]. **Default OFF** (`None`) -- unlike the
 /// four size caps above (default ON, mirroring `EnumerationBudget`'s own always-live convention),
 /// this mirrors `pg-rules/src/stratum.rs`'s `StepBudget`'s own opt-in convention: a wall-clock
-/// abandon-on-timeout mechanism is a much bigger hammer (design doc §7: "detects, does not stop")
-/// than a size check, so it stays opt-in until a caller has a concrete reason to want it.
+/// abandon-on-timeout mechanism is a much bigger hammer (it detects, but does not stop, a runaway
+/// call) than a size check, so it stays opt-in until a caller has a concrete reason to want it.
 pub(crate) fn step_timeout_from_env() -> Option<Duration> {
     std::env::var("HC_COMPOSE_STEP_TIMEOUT_MS")
         .ok()
@@ -194,31 +194,21 @@ pub(crate) fn step_timeout_from_env() -> Option<Duration> {
         .map(Duration::from_millis)
 }
 
-// --- Chain-depth dimension (`docs/adr/0003-apply-time-containment.md`; `openspec/changes/
-// harden-foma-resource-safety`'s "Extension" -- STAGING.md: "add the derivation/unapplication
-// chain-depth dimension ... that deterministically closes stack overflow (the Aweti 24-level
-// chain, the 1 GiB-stack workaround). Owns `compose_budget.rs` and new budget types."). ------------
+// --- Chain-depth dimension: deterministically closes stack overflow from a deep derivation/
+// unapplication chain (Aweti's 24-level chain needed a 1 GiB stack workaround before this). --------
 //
-// **Originally shipped as a schema/budget-type step only** (mirrors `crate::health`'s own "purely
-// additive" precedent, module doc: "defines and unit-tests the schema only ... does not instrument
-// any compiler pass"): [`ComposeBudget::check_chain_depth`] existed and was unit-tested here, but no
-// production call site used it. `openspec/changes/cover-template-truncation-reduplication` is the
-// first real (non-test) consumer: [`crate::peel::ReduplicationPeeler`]'s nested-reduplication
-// recursion (its own module doc, "Chain depth and nested reduplication") calls
-// [`ComposeBudget::check_chain_depth`] once per genuine reduplication layer it is about to use.
+// [`ComposeBudget::check_chain_depth`] is called by [`crate::peel::ReduplicationPeeler`]'s
+// nested-reduplication recursion, once per genuine reduplication layer it is about to use.
 // `emit.rs`/`preexpand.rs`/`gate.rs`/`replace.rs`/`pg-rules`'s OWN general derivation/unapplication
-// recursion (the broader Aweti 24-level-chain case ADR 0003 names) still has no call site here --
-// threading a real per-word step counter through THAT recursive apply/derivation path remains a
-// separate, larger follow-on change. [`ComposeBudget::chain_depth_cap`] still defaults to `None`
-// (unbounded) everywhere -- [`ComposeBudget::from_env`], [`ComposeBudget::with_caps`], and
-// [`ComposeBudget::unbounded`] all leave it off -- so this remains a zero-behavior-change no-op for
-// every caller that does not explicitly configure a cap (every production caller, until
-// `calibrate-fst-resource-envelopes` lands a calibrated default).
+// recursion has no call site here -- threading a real per-word step counter through THAT recursive
+// apply/derivation path remains a separate, larger follow-on. [`ComposeBudget::chain_depth_cap`]
+// defaults to `None` (unbounded) everywhere -- [`ComposeBudget::from_env`],
+// [`ComposeBudget::with_caps`], and [`ComposeBudget::unbounded`] all leave it off -- so this is a
+// zero-behavior-change no-op for every caller that does not explicitly configure a cap.
 //
 // Unlike the four size caps above (state/arc/tuple/group -- default ON with a calibrated
 // production default), chain depth mirrors [`step_timeout_from_env`]'s **default-OFF** shape:
-// there is no calibrated default yet (`calibrate-fst-resource-envelopes`'s own documented
-// extension is where that calibration work happens -- STAGING.md), so this dimension stays
+// there is no calibrated default yet, so this dimension stays
 // `Option<usize>` and off until a caller opts in, rather than shipping an uncalibrated numeric
 // default that could silently start rejecting real grammars.
 
@@ -227,16 +217,15 @@ pub(crate) fn step_timeout_from_env() -> Option<Duration> {
 /// caller limits ... an emergency containment boundary, not a normal operating target"). No
 /// configured cap -- from [`chain_depth_cap_from_env`] or [`ComposeBudget::with_chain_depth_cap`]
 /// -- may exceed this value; both clamp down to it rather than reject, the same "contractually
-/// clamp excessive values ... provide no unlimited setting" discipline tasks.md 1.1c documents for
-/// every budget dimension in this change. There is no way to configure an unlimited *cap*; the
-/// schema-level `None` (this step's default) means "no cap configured yet," never "unlimited by
+/// clamp excessive values, provide no unlimited setting" discipline every budget dimension in this
+/// module follows. There is no way to configure an unlimited *cap*; the
+/// schema-level `None` default means "no cap configured yet," never "unlimited by
 /// request."
 ///
-/// Ceiling schema version 1 -- bump only via a reviewed commit (design.md's governance for this
-/// change; the same "evidence + proposed diff + human-reviewed commit" discipline
-/// `calibrate-fst-resource-envelopes` uses for the eventual calibrated default). Chosen
-/// deliberately high relative to any plausible calibrated default: the motivating case (ADR 0003;
-/// this module's own doc) is Aweti's real 24-level derivation chain, so a ceiling many orders of
+/// Ceiling schema version 1 -- bump only via a reviewed commit, the same "evidence + proposed diff
+/// + human-reviewed commit" discipline every calibrated default in this module uses. Chosen
+/// deliberately high relative to any plausible calibrated default: the motivating case
+/// is Aweti's real 24-level derivation chain, so a ceiling many orders of
 /// magnitude above 24 leaves enormous headroom below this emergency boundary for whatever default
 /// the later calibration change lands on.
 pub(crate) const CHAIN_DEPTH_ABSOLUTE_CEILING: usize = 1_000_000;
@@ -262,9 +251,8 @@ pub(crate) fn clamp_chain_depth_cap(configured: usize) -> usize {
     configured.min(CHAIN_DEPTH_ABSOLUTE_CEILING)
 }
 
-// --- Ordering-multiplicity dimension (`openspec/changes/cover-unordered-morph-rules`, design.md
-// D1 blocker 3 / D3; spec.md "Unordered application's chain-depth multiplication is a required
-// ADR 0003 budget extension, not an open question"). ------------------------------------------
+// --- Ordering-multiplicity dimension: `Unordered` application's chain-depth multiplication is a
+// required ADR 0003 budget extension, not an open question. ------------------------------------
 //
 // `MorphRuleOrder::Unordered`'s any-order/any-subset walk (`pg_rules::cascade::Cascade::
 // combination`, this crate's own citation of that module's "k!-walk over rule subsets" doc) adds a
@@ -277,7 +265,7 @@ pub(crate) fn clamp_chain_depth_cap(configured: usize) -> usize {
 // `DEFAULT_TUPLE_BUDGET` for the compounding pair-budget. This is therefore its own field, own env
 // var, own error variant.
 //
-// **Judgment call / finding (flagged, not silently assumed):** design.md frames the danger as
+// **Judgment call / finding (flagged, not silently assumed):** the theoretical danger is
 // "O(n!)" (`cascade.rs`'s own "k!-walk" naming) -- but `crate::unordered::check_unordered_strata_bound`
 // (this dimension's own, first, production call site) checks a stratum's plain loose-rule COUNT,
 // not a literally-enumerated ordering count. Two reasons this is still the correct, conservative
@@ -287,10 +275,10 @@ pub(crate) fn clamp_chain_depth_cap(configured: usize) -> usize {
 // is monotonically increasing in `n` alone, so a cap on `n` is a sound, if coarse, proxy for the
 // real danger without this crate's own compile-time gate needing to compute a factorial/exponential
 // itself; (2) no real large-scale `Unordered`-stratum grammar exists yet to calibrate the TRUE
-// joint (rule-count x chain-depth) bound design.md's own Novelty/risk section asks for -- so, exactly
+// joint (rule-count x chain-depth) bound -- so, exactly
 // like every other budget in this module, [`DEFAULT_ORDERING_MULTIPLICITY_BUDGET`] below is a
-// conservative placeholder pending real-grammar measurement (`calibrate-fst-resource-envelopes`'s
-// own governance: evidence + proposed diff + human-reviewed commit), not a final number.
+// conservative placeholder pending real-grammar measurement (evidence + proposed diff +
+// human-reviewed commit), not a final number.
 //
 // **Calibration basis (measured, this change):** every `Unordered` stratum in this repo's own
 // reference/conformance corpus, as of this writing --
@@ -314,14 +302,12 @@ pub(crate) fn ordering_multiplicity_budget_from_env() -> usize {
         .unwrap_or(DEFAULT_ORDERING_MULTIPLICITY_BUDGET)
 }
 
-// --- Apply-path dimension (ADR 0003, `docs/adr/0003-apply-time-containment.md`;
-// `openspec/changes/add-grammar-diagnostics`'s STAGING rework: "fix the apply-path containment to
-// ADR 0003's in-process cooperative magnitude budgets (not 'the watchdog', which is compile-only)").
-// -----------------------------------------------------------------------------------------------
+// --- Apply-path dimension (ADR 0003): in-process cooperative magnitude budgets, not "the
+// watchdog" (which is compile-only). -------------------------------------------------------------
 //
 // Every dimension above this point guards `crate::replace`/`crate::gate`/`crate::emit`'s
 // COMPILE-time composition path -- one process, one grammar, killable in principle by a future
-// out-of-process worker (`openspec/changes/harden-foma-resource-safety`'s own scope). The apply
+// out-of-process worker. The apply
 // path is different in kind, not just in call site: `analyzer::FomaProposer::propose` drives
 // `foma::apply::apply_up` **in-process, per word, in the caller's own process** (`analyzer.rs`'s
 // own doc: the `ApplyHandle` is built once and reused across every `propose` call). ADR 0003 is
@@ -351,17 +337,15 @@ pub(crate) fn ordering_multiplicity_budget_from_env() -> usize {
 // `HC_APPLY_PATH_BUDGET`/`HC_APPLY_CANDIDATE_BUDGET` are unset, [`ApplyBudget::unbounded`]) --
 // mirroring [`chain_depth_cap_from_env`]'s own "no calibrated default yet" shape rather than the
 // four compile-time size caps' default-ON shape: no real-grammar measurement of a legitimate
-// worst-case decoded-path/candidate count exists yet (`calibrate-fst-resource-envelopes`'s own
-// documented governance -- evidence + proposed diff + human-reviewed commit -- is where that
-// calibration happens). [`FomaProposer::propose`] (analyzer.rs) stays byte-for-byte unchanged
+// worst-case decoded-path/candidate count exists yet -- evidence + proposed diff + human-reviewed
+// commit is where that calibration happens. [`FomaProposer::propose`] (analyzer.rs) stays byte-for-byte unchanged
 // (it calls [`FomaProposer::propose_budgeted`] with [`ApplyBudget::unbounded`], which can never
 // trip) -- this is a zero-behavior-change-when-unset addition for every existing caller, exactly
 // like every other budget dimension in this module.
 //
-// `openspec/changes/add-grammar-diagnostics` is this dimension's first real (non-test) consumer:
-// its diagnostic report records each word's [`ApplyOutcome`] directly (Complete vs. Incomplete plus
-// the tripped dimension/value/limit) as the in-process, per-word containment evidence ADR 0003
-// calls for -- never a watchdog PID, never a wall-clock kill, for this dimension.
+// The grammar-diagnostics report records each word's [`ApplyOutcome`] directly (Complete vs.
+// Incomplete plus the tripped dimension/value/limit) as the in-process, per-word containment
+// evidence ADR 0003 calls for -- never a watchdog PID, never a wall-clock kill, for this dimension.
 
 /// `HC_APPLY_PATH_BUDGET`: ceiling on the raw number of `apply_up` result strings
 /// [`crate::analyzer::FomaProposer::propose_budgeted`] decodes for one word, checked as they are
@@ -387,36 +371,20 @@ pub(crate) fn apply_candidate_budget_from_env() -> Option<usize> {
         .and_then(|v| v.parse::<usize>().ok())
 }
 
-// --- The apply-path dimension's first CALIBRATED default (measured 2026-08-03) -------------------
+// --- The apply-path dimension's first CALIBRATED default -------------------------------------
 //
-// Everything above leaves this dimension default-OFF because "no real-grammar measurement of a
-// legitimate worst-case decoded-path/candidate count exists yet". That is no longer true, and the
-// measurement arrived as a process death rather than as a number.
-//
-// **Measured, `machine:edge-cases/deep-optional-affix-nesting` (byte-identical to
-// `staging:edge-cases/recipe-template-generic` bar its `<Name>` element -- diffed, so the two filed
-// symptoms are literally one grammar), plan-composed net, `evaluate_plans`:**
-//
-// | corpus word | leading `x`s | oracle analyses | raw `apply_up` paths |
-// |---|---|---|---|
-// | `k`             | 0  | 1   | 1 |
-// | `xxxxxxk`       | 6  | 924 | **2,985,984** = 12^6 |
-// | `xxxxxxxxxxxxk` | 12 | 1   | 12^12 = **8,916,100,448,256** (never reached; the process died) |
-//
-// The grammar declares 12 all-optional prefix template slots, each firing a distinct
-// `MorphologicalRule` whose `multipleApplication` is the DTD default 1, each inserting the identical
-// literal `x`. So the legitimate analysis count for a k-`x` word is `C(12, k)` and the number of
-// legal ORDERED derivations is `P(12, k) = 12!/(12-k)!`. The composed network proposes `12^k` --
-// strictly more than `P(12,k)`, i.e. it admits the SAME rule firing repeatedly, which
-// `multipleApplication = 1` forbids. At k=6 that is 2,985,984 raw paths for 924 real analyses
-// (3,231x over-generation, which confirm then filters back down to exactly 924 -- recall is not the
-// problem, magnitude is). At k=12 it is 8.9 x 10^12 strings, so `apply_up`'s eager enumeration
-// exhausts committed memory: measured "memory allocation of 52 bytes failed" after ~145s under
-// procgov's 19GB job-object cap, surfacing as `0xc0000409` because that is how MSVC's `abort()`
-// reports, NOT because anything overflowed a stack. (Ruled out directly: the same 3 words parse
-// UNCAPPED through `pg_parse::Morpher::parse_word` in 0.185s, the plan-composed net BUILDS in
-// 0.027s, and the tuned whole-grammar compiler proposes+confirms all 3 words in 0.597s. Only the
-// plan-composed propose dies, and it dies with the allocator's message, not the stack handler's.)
+// A grammar with `k` all-optional template slots, each firing a distinct `MorphologicalRule` whose
+// `multipleApplication` is the DTD default 1 and each inserting the identical literal segment, has
+// a legitimate analysis count of `C(k_slots, k)` and a legal-ORDERED-derivation count of
+// `P(k_slots, k)`. A plan-composed net can instead propose `k_slots^k` raw `apply_up` paths --
+// strictly more than `P(k_slots, k)`, i.e. it admits the SAME rule firing repeatedly, which
+// `multipleApplication = 1` forbids. This grows fast enough that a real fixture with 12 such slots
+// produced 2,985,984 raw paths for 924 real analyses at k=6 (confirm still filters back down to
+// exactly 924 -- recall is not the problem, magnitude is), and at k=12 the raw-path count
+// (8.9 x 10^12) is large enough that `apply_up`'s eager enumeration exhausts committed memory and
+// aborts the process outright, with no compile-time budget in this module positioned to catch it
+// (the plan-composed net itself builds and parses other words fine; only the propose call for the
+// pathological word dies).
 //
 // **Why 1,000,000, and why it is a refusal rather than a truncation.** A cap here cannot lose an
 // analysis: `FomaAnalyzer::analyze_word_with_diagnostics_budgeted` returns
@@ -512,8 +480,8 @@ impl ApplyBudget {
         }
     }
 
-    /// Explicit-caps constructor for tests and callers (e.g.
-    /// `openspec/changes/add-grammar-diagnostics`'s diagnostic report) that want a deterministic
+    /// Explicit-caps constructor for tests and callers (e.g. a diagnostic report) that want a
+    /// deterministic
     /// cap without touching process-global env state -- this module's own "explicit-caps
     /// constructors, never env vars" test convention.
     pub fn with_caps(path_cap: Option<usize>, candidate_cap: Option<usize>) -> Self {
@@ -563,10 +531,9 @@ impl NetSizeMeasure {
     }
 }
 
-/// Every way a [`ComposeBudget`]-checked call can fail (design doc §3). Each variant carries enough
+/// Every way a [`ComposeBudget`]-checked call can fail. Each variant carries enough
 /// to build a specific, honest message -- never a generic "something blew up" string -- and names
-/// the vector (`V1`.."V6"`, design doc §4/`docs/fst-plan/synthetic-stress-grammar-plan.md`) it
-/// guards against in its own doc line.
+/// the dimension it guards against in its own doc line.
 #[derive(Debug, Clone)]
 pub enum ComposeError {
     /// V1/V2: a checked compose/union/minimize call returned a network whose `statecount`/`arccount`
@@ -616,15 +583,15 @@ pub enum ComposeError {
         limit: usize,
         site: &'static str,
     },
-    /// `openspec/changes/cover-unordered-morph-rules`'s own ADR 0003 extension (this module's
-    /// "Ordering-multiplicity dimension" section): [`ComposeBudget::check_ordering_multiplicity`]
+    /// This module's own ADR 0003 "Ordering-multiplicity dimension" extension:
+    /// [`ComposeBudget::check_ordering_multiplicity`]
     /// found an `Unordered` stratum's loose-rule count exceeding
     /// [`ComposeBudget::ordering_multiplicity_cap`] -- the `unordered-application.unbounded`
     /// configuration predicate's own compile-time trip wire (`crate::capability::
     /// UnorderedOrderingUnionPredicate`'s doc). Named as its OWN dimension, distinct from
-    /// [`Self::ChainDepthExceeded`] (spec.md's own scenario: "compilation reports the
+    /// [`Self::ChainDepthExceeded`], so compilation reports the
     /// ordering-multiplicity dimension as the named blocking dimension, not the plain
-    /// chain-depth one").
+    /// chain-depth one.
     OrderingMultiplicityExceeded {
         rule_count: usize,
         limit: usize,
@@ -766,18 +733,18 @@ pub struct ComposeBudget {
     /// caller's behavior changes. `Some(limit)` is already clamped to
     /// [`CHAIN_DEPTH_ABSOLUTE_CEILING`] by whichever constructor set it.
     ///
-    /// **Now read by production code**: `openspec/changes/cover-template-truncation-reduplication`
-    /// wires [`crate::peel::ReduplicationPeeler`]'s nested-reduplication recursion through
+    /// **Read by production code**: [`crate::peel::ReduplicationPeeler`]'s nested-reduplication
+    /// recursion is wired through
     /// [`Self::check_chain_depth`] (`crate::peel`'s own module doc, "Chain depth and nested
-    /// reduplication" section) -- the first real (non-test) consumer of this dimension. Still
+    /// reduplication" section) -- the only real (non-test) consumer of this dimension. Still
     /// `None` everywhere [`Self::from_env`] is called with `HC_COMPOSE_CHAIN_DEPTH_BUDGET` unset
     /// (the production default), so every existing caller's behavior is unchanged until an
     /// operator opts in.
     pub(crate) chain_depth_cap: Option<usize>,
-    /// `openspec/changes/cover-unordered-morph-rules`'s own ADR 0003 extension (this module's
-    /// "Ordering-multiplicity dimension" section): `Some(cap)` bounds an `Unordered` stratum's own
+    /// This module's own ADR 0003 "Ordering-multiplicity dimension" extension: `Some(cap)` bounds
+    /// an `Unordered` stratum's own
     /// loose-rule count; `None` means unbounded/off. Unlike [`Self::chain_depth_cap`] (default
-    /// `None`, uncalibrated -- that module doc's own history), [`Self::from_env`] defaults this to
+    /// `None`, uncalibrated), [`Self::from_env`] defaults this to
     /// `Some(DEFAULT_ORDERING_MULTIPLICITY_BUDGET)` -- a real, if conservative, calibrated default
     /// ships with THIS change (mirroring the four size caps' own default-ON convention), since
     /// promoting `unordered-application.chain-depth-bounded` off `FailClosed` needs a concrete
@@ -811,13 +778,13 @@ impl ComposeBudget {
         self
     }
 
-    /// Explicit-caps constructor -- what tests use (design doc §6: "explicit-caps constructors,
+    /// Explicit-caps constructor -- what tests use ("explicit-caps constructors,
     /// never env vars"), and what [`Self::from_env`] builds internally.
     ///
-    /// Does not take a chain-depth cap (design.md's chain-depth extension landed after this
+    /// Does not take a chain-depth cap: the chain-depth extension landed after this
     /// constructor's 6-positional-argument shape was already in wide use across this crate's
     /// tests -- changing its signature would be a breaking, non-additive edit for every existing
-    /// call site). `chain_depth_cap` is always `None` (unbounded) here; use
+    /// call site. `chain_depth_cap` is always `None` (unbounded) here; use
     /// [`Self::with_chain_depth_cap`] to opt a test into an explicit cap.
     pub fn with_caps(
         state_cap: usize,
@@ -903,13 +870,12 @@ impl ComposeBudget {
     /// count directly rather than measuring a returned [`Fsm`] -- there is no `Fsm` to inspect for
     /// a recursion-depth counter, unlike the size dimensions above.
     ///
-    /// `depth <= limit` is accepted (design doc/glossary convention shared with every other cap
+    /// `depth <= limit` is accepted (the convention shared with every other cap
     /// in this module: the cap names the last depth that still fits, not the first depth that
     /// doesn't). `None` (the default; see this module's "Chain-depth dimension" section for why)
     /// always returns `Ok` -- the zero-behavior-change no-op every existing caller and test
     /// relies on when no cap is configured.
     ///
-    /// **Wired for real** by `openspec/changes/cover-template-truncation-reduplication`:
     /// [`crate::peel::ReduplicationPeeler::propose_for_residual`] calls this once per genuine
     /// nested-reduplication layer it is about to use (see that module's own doc for why the
     /// check sits at "a real match was found," not at recursive-function entry -- the distinction
@@ -951,8 +917,8 @@ impl ComposeBudget {
         self.ordering_multiplicity_cap
     }
 
-    /// Checked ordering-multiplicity dimension (`openspec/changes/cover-unordered-morph-rules`;
-    /// this module's "Ordering-multiplicity dimension" section): `Ok` iff `rule_count` (an
+    /// Checked ordering-multiplicity dimension (this module's "Ordering-multiplicity dimension"
+    /// section): `Ok` iff `rule_count` (an
     /// `Unordered` stratum's own loose-rule count) does not exceed [`Self::ordering_multiplicity_cap`]
     /// (unconfigured/`None` always `Ok`, the same zero-behavior-change-when-unset shape every other
     /// dimension in this module uses). `rule_count <= limit` is accepted, mirroring
@@ -1386,7 +1352,7 @@ mod compose_budget_tests {
     }
 
     // ---------------------------------------------------------------------------------------
-    // Ordering-multiplicity dimension (`openspec/changes/cover-unordered-morph-rules`).
+    // Ordering-multiplicity dimension.
     // ---------------------------------------------------------------------------------------
 
     #[test]
