@@ -2524,15 +2524,15 @@ mod owning_table_tests {
 }
 
 // =================================================================================================
-// Task #32: the RTL + Repeat-children mirror bug. `reversed_slots`' own doc (above) already
+// The RTL + Repeat-children mirror bug. `reversed_slots`' own doc (above) already
 // explains WHY a shallow, non-recursing reversal is wrong for a `Slot::Repeat` with 2+ heterogeneous
-// `children`; this module is the REPRODUCTION that justifies actually applying that fix (the task's
-// own "reproduce it first" instruction) rather than fixing it on reasoning alone.
+// `children`; this module is the REPRODUCTION that justifies actually applying that fix, rather
+// than fixing it on reasoning alone.
 // =================================================================================================
 
 #[cfg(test)]
 mod rtl_repeat_children_reversal_tests {
-    //! Task #32 reproduction: does the SHALLOW, non-recursing `slots.iter().rev().cloned()`
+    //! Reproduction: does the SHALLOW, non-recursing `slots.iter().rev().cloned()`
     //! `reversed_slots` used to have (before this crate's own fix, above) actually compile a WRONG
     //! `Dir::RightToLeft` reversed branch net for a rule whose quantifier group has 2+ HETEROGENEOUS
     //! children? The existing conformance-staging fixture (`conformance-staging/edge-cases/
