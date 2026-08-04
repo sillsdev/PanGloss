@@ -1,12 +1,11 @@
 //! `pangloss` — the standalone CLI mirroring C# `hc batch`'s TSV protocol so parity diffs against
-//! managed golden runs are line-for-line comparable (plan §8 layer 3).
+//! managed golden runs are line-for-line comparable.
 //!
 //! `batch <grammar.xml> <words.txt> <out.tsv> [--step-cap N] [--word-timeout-ms N] [--threads N]`
-//! loads the grammar once and parses every word, writing the BatchCommand-compatible TSV
-//! (`BatchCommand.cs`). `--step-cap N` bounds the unmemoized analysis cascade (M6 memoization
-//! removes the need).
+//! loads the grammar once and parses every word, writing the `BatchCommand`-compatible TSV.
+//! `--step-cap N` bounds the unmemoized analysis cascade (memoization removes the need).
 //!
-//! ## `--word-timeout-ms` (`docs/budget-model.md`'s addendum)
+//! ## `--word-timeout-ms`
 //! A second, independent bound: `--step-cap` bounds the *number* of analysis steps, but per-step
 //! cost is not uniform — some pathological words legitimately spend far longer per step than
 //! others (heavier narrowing/expansion analysis), so a step-count cap alone cannot bound wall-clock
@@ -17,12 +16,13 @@
 //! `-` (see the TSV row format below). Omitted (the default) is a complete no-op: no clock is ever
 //! read, and every existing invocation's output is unchanged.
 //!
-//! ## `--threads` and the two TSV-writing modes (plan §7, M7)
+//! ## `--threads` and the two TSV-writing modes
 //! C#'s own `BatchCommand` has two mutually exclusive dispatch modes with genuinely different TSV
-//! behavior, confirmed by reading `BatchCommand.cs`:
+//! behavior:
 //! - `RunSequential` (no `--parallel` flag): one word at a time, each line written and flushed
-//!   immediately, preceded by a `{idx}\t{word}\tSTARTED` sentinel — crash-resumable (the recipe
-//!   plan §8 layer 3 calls for on the nightly full-Sena run, which historically crashed a host).
+//!   immediately, preceded by a `{idx}\t{word}\tSTARTED` sentinel — crash-resumable, needed by an
+//!   interruptible, resumable full-corpus run (e.g. an overnight batch that has historically
+//!   crashed a host mid-run).
 //! - `RunParallel` (`--parallel[:N]`, `Parallel.ForEach`): results are buffered into an
 //!   index-ordered array (`rows[i] = ...`) and the whole file is written **once, sequentially, in
 //!   original order** only after every word has finished. No `STARTED` line is ever written in
@@ -30,14 +30,12 @@
 //!
 //! `--threads N` here maps onto that split by **value**, not by flag presence: `--threads 1`
 //! (the default-shaped case) keeps the exact legacy per-line/`STARTED`/flush loop — preserving
-//! crash-resumability for the one workload (nightly full Sena) that plan §8 documents as still
-//! needing it, pending the M10 budgets port. `--threads N` for `N > 1` routes through
-//! `pg_parse::hc_parse_batch` and writes the buffered result in original order with no `STARTED`
-//! lines, mirroring `RunParallel` exactly. This is a deliberate Rust-side choice (C# keys the
-//! split on flag presence; we key it on thread count) — see the M7 commit/report for the full
-//! rationale.
+//! crash-resumability for exactly this kind of long-running resumable batch. `--threads N` for
+//! `N > 1` routes through `pg_parse::hc_parse_batch` and writes the buffered result in original
+//! order with no `STARTED` lines, mirroring `RunParallel` exactly. This is a deliberate Rust-side
+//! choice (C# keys the split on flag presence; we key it on thread count).
 //!
-//! ## `import` and `.json`/`.fwdata` grammar dispatch (`docs/fwdata-import-plan.md` T4)
+//! ## `import` and `.json`/`.fwdata` grammar dispatch
 //! `import <project.fwdata> <out.json>` runs `pg_fwdata::import_file` and writes the resulting
 //! `pg_snapshot::Snapshot::to_json()` to `<out.json>`. `ImportReport` warnings (dangling refs,
 //! unsupported constructs, log-and-skip decisions) and `Snapshot::validate()` warnings (dangling
@@ -45,8 +43,7 @@
 //! separate since they come from different stages of the pipeline; exit is non-zero only on a
 //! hard `pg_fwdata::ImportError` (I/O failure / not-a-`.fwdata`-file), never on either warning list.
 //!
-//! ## `diagnose` (`openspec/changes/add-grammar-diagnostics`, see `diagnostics.rs`'s own doc for
-//! this change's STAGING-reworked scope)
+//! ## `diagnose` (see `diagnostics.rs`'s own doc for the full contract)
 //! `diagnose <grammar> <words.txt> <out-dir>` writes `<out-dir>/build.json` and
 //! `<out-dir>/assessment.json`: a build-side report (grammar identity/counts, an always-empty
 //! `pg_foma::health::HealthReport` until a real evaluator lands) and a word-run-side report whose
@@ -54,8 +51,7 @@
 //! ADR-0003 in-process apply-path containment outcome
 //! (`pg_foma::analyzer::FomaProposer::propose_budgeted`) — never a watchdog, which is compile-only.
 //!
-//! ## `fst-health` (`openspec/changes/add-fst-compilation-health-audit`, see `fst_health.rs`'s own
-//! doc for the full contract)
+//! ## `fst-health` (see `fst_health.rs`'s own doc for the full contract)
 //! `fst-health <grammar> [<words.txt>] [<out.json>]` runs `pg_foma::preflight::preflight_findings`
 //! (a cheap, pre-compile pass) plus `pg_foma::health_evaluator::evaluate_health` (a standalone
 //! profiled compile), and — only when `<words.txt>` is given — a caller-supplied word set's
@@ -96,7 +92,7 @@ mod plan_diagram;
 mod recipe_optimize;
 mod trace_render;
 
-/// P3 (docs/fst-plan/foma-fst-plan.md, gate F3): which proposer/verifier path a `batch`/`parse`
+/// Which proposer/verifier path a `batch`/`parse`
 /// invocation drives. `Default` is the pre-existing `pg_parse::Morpher` full-search engine
 /// (unchanged behavior, still the default when `--engine` is omitted). `Foma` routes through
 /// `pg_foma::composite::FomaAnalyzer` (propose via the compiled foma network, confirm via the
@@ -306,14 +302,14 @@ fn run() -> ExitCode {
     }
 }
 
-/// `import <project.fwdata> <out.json>` (`docs/fwdata-import-plan.md` T4): run `pg-fwdata` over a
+/// `import <project.fwdata> <out.json>`: run `pg-fwdata` over a
 /// FieldWorks project file and write the resulting `pg_snapshot::Snapshot::to_json()` to
 /// `<out.json>`. Prints `ImportReport` warnings and `Snapshot::validate()` warnings to stderr,
 /// each under its own labeled heading (they come from different stages -- extraction vs.
 /// cross-reference validation -- and conflating them would make root-causing a warning harder).
 /// Non-zero exit only on a hard `pg_fwdata::ImportError`; neither warning list ever fails the
-/// command (`docs/fwdata-import-plan.md` §1: this pipeline must tolerate stale/dangling real-world
-/// project data, never crash on it).
+/// command -- this pipeline must tolerate stale/dangling real-world project data, never crash
+/// on it.
 fn run_import(args: &[String]) -> Result<(), String> {
     let [fwdata_path, out_path] = args else {
         return Err("usage: import <project.fwdata> <out.json>".into());
@@ -355,17 +351,17 @@ fn run_import(args: &[String]) -> Result<(), String> {
 /// `load_grammar` returns `Vec<String>` because almost every caller only ever prints warnings, and
 /// changing that signature would churn every one of them. But an assessment report is exactly the
 /// caller that must NOT lose the code: `compare` diffs importer diagnostics **by code and count**
-/// so that rewording a message is never reported as a change in the grammar's context (task 3.8).
+/// so that rewording a message is never reported as a change in the grammar's context.
 /// Flattening first and re-tagging everything `importer.warning` would give a caller one bucket,
 /// which cannot distinguish "the importer skipped 400 more constructs" from "one message was
-/// reworded" — the exact distinction §10 asks for.
+/// reworded".
 ///
 /// So the two commands that build assessment reports use this; everything else keeps the simpler
 /// shape.
 ///
-/// `pg_grammar::compile_project`'s own warnings are still plain `String` (out of task 3.8's scope)
-/// and are tagged `compiler.warning` here — honestly one bucket, because that is genuinely all the
-/// granularity that exists on that side today, rather than a code invented to look finer.
+/// `pg_grammar::compile_project`'s own warnings are still plain `String` and are tagged
+/// `compiler.warning` here — honestly one bucket, because that is genuinely all the granularity
+/// that exists on that side today, rather than a code invented to look finer.
 pub(crate) fn load_grammar_coded(
     path: &str,
 ) -> Result<(Grammar, Vec<pg_snapshot::Warning>), String> {
@@ -429,10 +425,10 @@ pub(crate) fn load_grammar(path: &str) -> Result<(Grammar, Vec<String>), String>
             let (snapshot, report) = pg_fwdata::import_file(std::path::Path::new(path))
                 .map_err(|e| format!("import {path}: {e}"))?;
             // `report.warnings`/`snapshot.validate()` are `pg_snapshot::Warning` (stable code +
-            // prose, `add-grammar-assessment` task 3.8); `pg_grammar::compile_project`'s own
-            // warnings are still plain `String` (out of that task's scope), and this function's
-            // public return type is `Vec<String>` -- flatten to prose here, at the one place the
-            // two meet, rather than changing this signature and every one of its callers.
+            // prose); `pg_grammar::compile_project`'s own warnings are still plain `String`, and
+            // this function's public return type is `Vec<String>` -- flatten to prose here, at the
+            // one place the two meet, rather than changing this signature and every one of its
+            // callers.
             let mut warnings: Vec<String> =
                 report.warnings.into_iter().map(|w| w.to_string()).collect();
             warnings.extend(snapshot.validate().into_iter().map(|w| w.to_string()));
@@ -458,10 +454,9 @@ pub(crate) fn print_grammar_warnings(warnings: &[String]) {
     }
 }
 
-/// `openspec/changes/add-capability-characteristics-check` (ADR 0001 `docs/adr/0001-honest-
-/// capability-boundary.md`; design.md D4) plus ADR 0005's override (`docs/adr/
-/// 0005-capability-override-unproven-grammars.md`): decides what `run_batch`/`run_parse` should
-/// do about [`pg_foma::capability_entry::evaluate_capability`]'s
+/// Per ADR 0001 (`docs/adr/0001-honest-capability-boundary.md`) and ADR 0005's override
+/// (`docs/adr/0005-capability-override-unproven-grammars.md`): decides what `run_batch`/`run_parse`
+/// should do about [`pg_foma::capability_entry::evaluate_capability`]'s
 /// [`pg_foma::capability::CompileDecision`] for `g`, given the resolved `enforce`/
 /// `allow_unproven` booleans, and what to print to stderr about it.
 ///
@@ -475,8 +470,8 @@ pub(crate) fn print_grammar_warnings(warnings: &[String]) {
 /// foma-path default; `--allow-unproven` is meaningless without `enforce` (ADR 0005: "only
 /// matters WITH enforcement") -- passed alone here it is silently inert, never an error.
 ///
-/// **`enforce == false` (advisory-only, byte-for-byte the pre-existing behavior before this step
-/// and still what every `--engine=default` invocation gets): `Admit`/`ConfirmOnly`/`Refuse` are
+/// **`enforce == false` (advisory-only, and still what every `--engine=default` invocation gets):
+/// `Admit`/`ConfirmOnly`/`Refuse` are
 /// all reported as a preview only; a `Refuse` here never blocks.**
 ///
 /// **`enforce == true`:**
@@ -494,9 +489,9 @@ pub(crate) fn print_grammar_warnings(warnings: &[String]) {
 ///   `word\tsignature` line, neither an ADR 0005 pack), so there is nothing for a manifest stamp to
 ///   attach to at this call site. `pangloss pack` (`pack.rs`) is the real, persistent home for that
 ///   stamp -- it writes the ADR 0005 `capability_trust`/`CapabilityOverrideRecord` into an actual
-///   `.pgpack` manifest via `pg_pack::write_pack`, which is what this doc used to say did not exist
-///   yet. This function's own marker stays exactly what it always was: a session/report-level
-///   notice scoped to one `batch`/`parse` invocation, never a substitute for packaging.
+///   `.pgpack` manifest via `pg_pack::write_pack`. This function's own marker is only a
+///   session/report-level notice scoped to one `batch`/`parse` invocation, never a substitute for
+///   packaging.
 ///
 /// **Stderr, never stdout, in every branch.** Same convention `print_grammar_warnings`/the
 /// pre-existing advisory already established: `batch`'s TSV rows go to the `<out.tsv>` FILE
@@ -511,8 +506,8 @@ struct GateResult {
     /// proceeds.
     proceed: bool,
     /// Lines for the caller to `eprintln!`, in order -- stderr-only by construction (see this
-    /// type's own doc and the hard rule in this step's brief: the batch/parse signature the
-    /// conformance runner parses must never be polluted).
+    /// type's own doc: the batch/parse signature the conformance runner parses must never be
+    /// polluted).
     stderr_lines: Vec<String>,
     /// `true` iff this call force-compiled a `Refuse` via `allow_unproven` (ADR 0005). Exposed as
     /// a plain bool -- not only baked into `stderr_lines`' text -- so a test (or any future caller
@@ -680,9 +675,9 @@ fn capability_gate(g: &Grammar, enforce: bool, allow_unproven: bool) -> GateResu
 /// Runs [`capability_gate`] over `g`, prints its `stderr_lines` (one `eprintln!` per entry,
 /// preserving the exact pre-existing line-by-line shape when `enforce` is unset), and returns
 /// `Err` -- matching `run_batch`/`run_parse`'s own `Result<(), String>` shape -- when the gate
-/// refuses. Called at the exact point in both subcommands' control flow where the pre-existing
-/// advisory print used to sit: BEFORE any output file is created or any analysis line is printed,
-/// so a hard refusal under `--enforce-capability` truly produces no analysis output.
+/// refuses. Called at the point in both subcommands' control flow BEFORE any output file is
+/// created or any analysis line is printed, so a hard refusal under `--enforce-capability` truly
+/// produces no analysis output.
 fn run_capability_gate(g: &Grammar, enforce: bool, allow_unproven: bool) -> Result<(), String> {
     let gate = capability_gate(g, enforce, allow_unproven);
     for line in &gate.stderr_lines {
@@ -707,13 +702,13 @@ fn run_capability_gate(g: &Grammar, enforce: bool, allow_unproven: bool) -> Resu
 /// writes the tree to stdout; `--trace=<file>` writes it there instead, leaving stdout for just the
 /// parse result. Default format: indented text; `--trace-format=json` emits the structured form.
 ///
-/// `--gloss` (`docs/natural-phrases-plan.md` N0): after the existing, UNCHANGED
+/// `--gloss`: after the existing, UNCHANGED
 /// `word\tsignature` line, print one additional `gloss:\t{leipzig}` line per surviving analysis
 /// (same index order as `ParseOutcome.analyses`/`.structured`), via the new additive `pg-realize`
 /// crate. Orthogonal to `--trace` — works with or without it, and never touches
 /// the parity line above it.
 ///
-/// `--natural-gloss=eng` (`docs/natural-phrases-plan.md` N2): after the parity line (and after
+/// `--natural-gloss=eng`: after the parity line (and after
 /// the `gloss:` line for that same analysis, if `--gloss` was also given), print one additional
 /// `eng:\t{text}` line per surviving analysis -- `eng:\t{text} ({residue})` when the realization
 /// is only partial (`pg_realize::Realization::complete == false`). `eng` is the only supported
@@ -722,8 +717,7 @@ fn run_capability_gate(g: &Grammar, enforce: bool, allow_unproven: bool) -> Resu
 /// `--natural-gloss` implies building the gloss bundle -> IR -> realization chain internally, but
 /// deliberately does NOT imply `--gloss`'s own `gloss:` line -- the two flags are independent.
 ///
-/// `--guess` (HC-rust port gap G3, `docs/hermitcrab-rust-port-audit.md` sec 2/3 item 1;
-/// `docs/p11-guesser-api-design.md`): OFF by default -- omitted, `ParseOptions::default()` is
+/// `--guess`: OFF by default -- omitted, `ParseOptions::default()` is
 /// built and passed everywhere a `ParseOptions` is needed, which is byte-identical to this
 /// function's pre-existing behavior (`Morpher::parse_word`/`parse_word_traced` with the default
 /// options; see `pg-parse/tests/guesser_gate.rs`'s own pin of that equivalence). When passed, an
@@ -737,8 +731,8 @@ fn run_capability_gate(g: &Grammar, enforce: bool, allow_unproven: bool) -> Resu
 /// `--realize-map=<path>` overrides the sidecar `pg_realize::RealizeMap` used to build each
 /// analysis's `GlossIr`; omitted, it defaults to `<grammar-dir>/<grammar-stem-with-"-hc"-suffix-
 /// stripped>-realize.toml` (e.g. `samples/data/amharic-hc.xml` -> `samples/data/amharic-
-/// realize.toml`), matching `samples/data/*-realize.toml`'s naming convention
-/// (`docs/natural-phrases-plan.md` N1). A missing default-resolved file degrades to
+/// realize.toml`), matching `samples/data/*-realize.toml`'s naming convention.
+/// A missing default-resolved file degrades to
 /// `RealizeMap::empty()` (the documented no-sidecar path, e.g. Sena); a missing *explicitly*
 /// named `--realize-map` file, or any sidecar that fails to parse (default-resolved or explicit),
 /// is a hard error -- typos must not silently degrade.
@@ -750,13 +744,13 @@ fn run_parse(args: &[String]) -> Result<(), String> {
     let mut natural_gloss: Option<String> = None;
     let mut realize_map_arg: Option<String> = None;
     let mut engine = Engine::Default;
-    // ADR 0001/0005, this step: DEFAULT-ENFORCING on --engine=foma, never enforced on
+    // ADR 0001/0005: DEFAULT-ENFORCING on --engine=foma, never enforced on
     // --engine=default -- see `resolve_capability_enforcement`'s own doc for the exact scoping.
     // `enforce_flag` is `None` unless the user explicitly passed `--enforce-capability` or
     // `--no-enforce-capability`; resolved to a plain bool below, once `engine` is final.
     let mut enforce_capability_flag: Option<bool> = None;
     let mut allow_unproven = false;
-    // HC-rust port gap G3: OFF by default -- see this function's own `--guess` doc above.
+    // OFF by default -- see this function's own `--guess` doc above.
     let mut guess = false;
 
     let mut it = args.iter();
@@ -851,7 +845,7 @@ fn run_parse(args: &[String]) -> Result<(), String> {
     };
 
     if engine == Engine::Foma {
-        // P3 (docs/fst-plan/foma-fst-plan.md): `--trace` was already rejected above, so this is
+        // `--trace` was already rejected above, so this is
         // always the "minimal single-word batch" shape below, just routed through
         // `FomaAnalyzer::analyze_word` instead of `Morpher::parse_word`. Output shape (the
         // `word\tsignature` line plus `--gloss`/`--natural-gloss` lines) is identical to the
@@ -870,7 +864,7 @@ fn run_parse(args: &[String]) -> Result<(), String> {
     }
 
     let morpher = Morpher::new(&grammar, usize::MAX);
-    // `--guess` (HC-rust port gap G3, see this function's own doc above): omitted, this is exactly
+    // `--guess` (see this function's own doc above): omitted, this is exactly
     // `ParseOptions::default()`, so every call below is byte-identical to the pre-existing
     // unconditional-default-options behavior.
     let opts = pg_parse::ParseOptions::default().with_guess_root(guess);
@@ -903,7 +897,7 @@ fn run_parse(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-/// `--guess`'s own output marker (HC-rust port gap G3): printed only when `--guess` was passed at
+/// `--guess`'s own output marker: printed only when `--guess` was passed at
 /// all (guess omitted -> zero output change, not even a `guessed:\tfalse` line) — right after the
 /// parity `word\tsignature` line and before any `--gloss`/`--natural-gloss` lines, so a guessed
 /// result is never silently indistinguishable from a confirmed one when guessing was requested.
@@ -913,7 +907,7 @@ fn print_guessed_line(guess_requested: bool, guessed: bool) {
     }
 }
 
-/// `--gloss`/`--natural-gloss=eng`'s per-analysis output (N0/N2): for each `outcome.structured[i]`
+/// `--gloss`/`--natural-gloss=eng`'s per-analysis output: for each `outcome.structured[i]`
 /// (same index order as `ParseOutcome.analyses`), optionally a `gloss:\t{leipzig}` line, then
 /// optionally an `eng:\t{text}` (or `eng:\t{text} ({residue})` when residue is non-empty; an
 /// incomplete realization with empty residue prints bare -- a guessed root's `*word*` notation
@@ -923,7 +917,7 @@ fn print_guessed_line(guess_requested: bool, guessed: bool) {
 /// `.structured`, not `.analyses`, since `pg_realize::gloss_bundle` needs the numeric morpheme
 /// ordinals, not the display-string join `.analyses` carries (see `ParseOutcome`'s own doc on why
 /// the two views share an index but not a shape).
-/// Shared by both engines' `parse` output (P3, docs/fst-plan/foma-fst-plan.md): takes the same
+/// Shared by both engines' `parse` output: takes the same
 /// `.structured` slice either `pg_parse::ParseOutcome` or `pg_foma::composite::FomaOutcome` exposes
 /// (parallel by index to `.analyses` in both), so the `--gloss`/`--natural-gloss=eng` lines are
 /// byte-for-byte identical in shape regardless of which engine produced them.
@@ -957,7 +951,7 @@ fn print_realize_lines(
 
 /// Resolve and load the `--natural-gloss=eng` sidecar [`pg_realize::RealizeMap`]: `explicit_arg`
 /// (`--realize-map=<path>`) wins when given, else the default path is derived from
-/// `grammar_path`'s directory and stem (`docs/natural-phrases-plan.md` N2: strip a trailing
+/// `grammar_path`'s directory and stem (strip a trailing
 /// `-hc` from the stem, append `-realize.toml`). An explicit path that doesn't exist, or any
 /// resolved path that exists but fails to parse, is a hard error; a *default*-resolved path that
 /// doesn't exist degrades to `RealizeMap::empty()` (the documented no-sidecar path).
@@ -1016,7 +1010,7 @@ fn write_batch_row<W: Write>(
     }
 }
 
-/// `--guess`'s own parallel batch dispatch (HC-rust port gap G3): `pg_parse::hc_parse_batch` (the
+/// `--guess`'s own parallel batch dispatch: `pg_parse::hc_parse_batch` (the
 /// pre-existing free function `--threads > 1` otherwise uses) has no `ParseOptions` parameter, so
 /// it cannot express "guess on" — this is a minimal, additive sibling that does, over the exact
 /// same `Morpher` engine, called ONLY when `--guess` was actually passed (the `--guess`-omitted
@@ -1058,43 +1052,41 @@ fn parse_batch_with_opts(
 fn run_batch(args: &[String]) -> Result<(), String> {
     let mut positional: Vec<&str> = Vec::new();
     let mut step_cap: usize = usize::MAX;
-    // `--word-timeout-ms` (docs/budget-model.md's addendum): an optional wall-clock deadline per
+    // `--word-timeout-ms`: an optional wall-clock deadline per
     // word, independent of `--step-cap`. `None` (the flag omitted) is the default and a complete
     // no-op — see `Morpher::with_word_timeout`.
     let mut word_timeout_ms: Option<u64> = None;
     let mut memo = true;
-    // Default: logical CPUs, CAPPED (plan §7's "parallel by default, override for the 1/2/4/8/16
-    // benchmark sweep" M7 requirement — the sweep passes its values explicitly, so this cap only
-    // moves the *unspecified* default and leaves every recorded benchmark point reachable).
+    // Default: logical CPUs, CAPPED. A benchmark sweep that needs a specific thread count passes
+    // `--threads` explicitly, so this cap only moves the *unspecified* default.
     //
     // Why capped at all: per-word memory on a pathological grammar multiplies by thread count, and
     // an uncapped default is how a single probe reached 30+ GB RSS on a 20-CPU machine and never
-    // finished — the same word completes in ~2 minutes at `--threads 1 --word-timeout-ms N`
-    // (`docs/fst-plan/corpus-word-list-hazards.md`). The words that do this are exactly the ones a
-    // deep derivation chain produces, so the risk scales with the grammar, not the corpus size, and
-    // the cheapest guard is to stop the machine's core count from being the multiplier. 8 keeps the
-    // throughput win on ordinary corpora while bounding the worst case to well under half of what
-    // was measured; anyone who wants the old behaviour asks for it with `--threads N`.
+    // finished — the same word completes in ~2 minutes at `--threads 1 --word-timeout-ms N`. The
+    // words that do this are exactly the ones a deep derivation chain produces, so the risk scales
+    // with the grammar, not the corpus size, and the cheapest guard is to stop the machine's core
+    // count from being the multiplier. 8 keeps the throughput win on ordinary corpora while
+    // bounding the worst case to well under half of what was measured; anyone who wants the old
+    // behaviour asks for it with `--threads N`.
     const DEFAULT_THREAD_CAP: usize = 8;
     let mut threads: usize = std::thread::available_parallelism()
         .map(|n| n.get().min(DEFAULT_THREAD_CAP))
         .unwrap_or(1);
-    // 0-based resume index (C# `batch --start=N` equivalent, BatchCommand.cs): skip the first N
+    // 0-based resume index (C# `batch --start=N` equivalent): skip the first N
     // words (already-completed rows from a prior crashed/killed run) and append rather than
     // truncate `out.tsv`, so a watchdog wrapper can kill+relaunch a stalled word and continue
-    // where it left off (plan §8 layer 3's nightly full-Sena recipe).
+    // where it left off.
     let mut start_idx: usize = 0;
-    // P3 (docs/fst-plan/foma-fst-plan.md): `--engine=foma` routes the whole batch through
+    // `--engine=foma` routes the whole batch through
     // `pg_foma::composite::FomaAnalyzer` instead of `pg_parse::Morpher`. Default unchanged.
     let mut engine = Engine::Default;
-    // ADR 0001/0005, this step: DEFAULT-ENFORCING on --engine=foma, never enforced on
+    // ADR 0001/0005: DEFAULT-ENFORCING on --engine=foma, never enforced on
     // --engine=default -- see `resolve_capability_enforcement`'s own doc for the exact scoping.
     // `enforce_flag` is `None` unless the user explicitly passed `--enforce-capability` or
     // `--no-enforce-capability`; resolved to a plain bool below, once `engine` is final.
     let mut enforce_capability_flag: Option<bool> = None;
     let mut allow_unproven = false;
-    // HC-rust port gap G3 (`docs/hermitcrab-rust-port-audit.md` sec 2/3 item 1;
-    // `docs/p11-guesser-api-design.md`): OFF by default -- see `run_parse`'s own `--guess` doc for
+    // OFF by default -- see `run_parse`'s own `--guess` doc for
     // the shared contract (default-off byte-identical behavior, guessed rows always marked,
     // --engine=default only).
     let mut guess = false;
@@ -1183,16 +1175,16 @@ fn run_batch(args: &[String]) -> Result<(), String> {
         );
     };
 
-    // P3 3c (docs/fst-plan/foma-fst-plan.md): one-time cost instrumentation -- "grammar load with
-    // emit+foma-compile vs load today (native)". `LOADTIME` always prints (cheap, one line per
-    // invocation, same convention as the existing `HC_STEP_STATS`/`HC_FST_PROFILE` diagnostics
-    // below, just unconditional since a single line costs nothing to always emit).
+    // One-time cost instrumentation, comparing grammar load with emit+foma-compile against load
+    // alone. `LOADTIME` always prints (cheap, one line per invocation, same convention as the
+    // existing `HC_STEP_STATS`/`HC_FST_PROFILE` diagnostics below, just unconditional since a
+    // single line costs nothing to always emit).
     let t_load = Instant::now();
     let (grammar, warnings) = load_grammar(grammar_path)?;
     print_grammar_warnings(&warnings);
     let grammar_load_ms = t_load.elapsed().as_secs_f64() * 1e3;
-    // DEFAULT-ENFORCING on --engine=foma, never enforced on --engine=default (this step's flip --
-    // see `resolve_capability_enforcement`'s own doc): computed AFTER `grammar_load_ms` is
+    // DEFAULT-ENFORCING on --engine=foma, never enforced on --engine=default --
+    // see `resolve_capability_enforcement`'s own doc: computed AFTER `grammar_load_ms` is
     // captured so this note's own cost never perturbs the existing LOADTIME diagnostic's timing.
     // Sits BEFORE `out_path` is ever created/opened below, so a foma-path refusal (no
     // `--allow-unproven`) truly produces no analysis output -- the file is left untouched.
@@ -1223,10 +1215,10 @@ fn run_batch(args: &[String]) -> Result<(), String> {
     let mut timed_out_words = 0u64;
 
     if engine == Engine::Foma {
-        // P3 (docs/fst-plan/foma-fst-plan.md): the foma path — one `FomaAnalyzer` built once
+        // The foma path — one `FomaAnalyzer` built once
         // (the expensive emit+foma-compile step), reused across every word, exactly like
         // `pg_parse::Morpher` is built once above. `--step-cap`/`--memo` do not apply to this
-        // path (the verifier `Morpher` inside `FomaAnalyzer` is always uncapped, per plan §2) and
+        // path (the verifier `Morpher` inside `FomaAnalyzer` is always uncapped) and
         // are silently ignored, matching how the default engine silently ignores flags it doesn't
         // ship yet. `--word-timeout-ms` DOES apply here (wired via `FomaAnalyzer::with_word_timeout`,
         // threading straight to the same internal `Morpher::with_word_timeout` the default engine
@@ -1235,7 +1227,7 @@ fn run_batch(args: &[String]) -> Result<(), String> {
         //
         // `--threads`: `threads == 1` keeps the legacy per-word sequential writer (STARTED
         // sentinel + per-line flush, crash-resumable), routed through `FomaAnalyzer::analyze_word`
-        // exactly as before. `threads > 1` (perf pass, 2026-07-16) routes through
+        // exactly as before. `threads > 1` routes through
         // `FomaAnalyzer::analyze_words` instead — CONFIRM (the dominant cost, per a tracer) runs
         // across a dedicated rayon pool inside that call; PROPOSE stays sequential either way
         // (see that method's own doc for why — the single foma `ApplyHandle` this analyzer owns
@@ -1252,7 +1244,7 @@ fn run_batch(args: &[String]) -> Result<(), String> {
             "LOADTIME\tengine=foma\tgrammar_load_ms={grammar_load_ms:.3}\tanalyzer_build_ms={compile_ms:.3}\ttotal_ms={:.3}",
             grammar_load_ms + compile_ms
         );
-        // P3 3c: candidate-count/confirm distributions -- `FomaOutcome` exposes exactly
+        // Candidate-count/confirm distributions -- `FomaOutcome` exposes exactly
         // `candidates_generated`/`confirmed`; gated behind an env var (like `HC_STEP_STATS`)
         // since it is one line per word, too much for a default-on diagnostic on a 7k-word corpus.
         let stats_on = std::env::var("HC_FOMA_STATS").is_ok();
@@ -1346,7 +1338,7 @@ fn run_batch(args: &[String]) -> Result<(), String> {
         "LOADTIME\tengine=default\tgrammar_load_ms={grammar_load_ms:.3}\tmorpher_build_ms={morpher_build_ms:.3}\ttotal_ms={:.3}",
         grammar_load_ms + morpher_build_ms
     );
-    // `--guess` (HC-rust port gap G3): omitted, this is exactly `ParseOptions::default()`, so
+    // `--guess`: omitted, this is exactly `ParseOptions::default()`, so
     // `morpher.parse_word_opts(word, &opts)` below is byte-identical to `morpher.parse_word(word)`
     // (see `pg-parse/tests/guesser_gate.rs`'s own pin of that equivalence) — the pre-existing
     // behavior is untouched when `--guess` is never passed.
@@ -1354,7 +1346,7 @@ fn run_batch(args: &[String]) -> Result<(), String> {
 
     if threads == 1 {
         // Legacy sequential path (C# `RunSequential` equivalent): STARTED sentinel + per-line
-        // flush, crash-resumable. Preserved byte-for-byte from the pre-M7 implementation.
+        // flush, crash-resumable.
         for (i, word) in words.iter().enumerate() {
             if i < start_idx {
                 continue;
@@ -1448,12 +1440,12 @@ fn run_batch(args: &[String]) -> Result<(), String> {
     } else {
         // Parallel path (C# `RunParallel` equivalent): hc_parse_batch parallelizes internally
         // (rayon, longest-surface-first dispatch, large worker stacks); results come back already
-        // reindexed to original word order (plan §7). Buffer + write once, in order, no STARTED
-        // lines — matching BatchCommand.cs's own `rows[i] = ...` then single ordered write-out.
+        // reindexed to original word order. Buffer + write once, in order, no STARTED
+        // lines — matching C#'s own `rows[i] = ...` then single ordered write-out.
         // `--start` here only skips work (no per-word crash-resume is possible in this mode, same
         // as C#'s RunParallel — see module doc); indices are offset back to the original numbering.
         let remaining = &words[start_idx..];
-        // `--guess` (HC-rust port gap G3): `hc_parse_batch` (pre-existing, guess-off) stays the
+        // `--guess`: `hc_parse_batch` (guess-off) stays the
         // exact call it always was when `--guess` is omitted -- only the `--guess` path routes
         // through the additive `parse_batch_with_opts` sibling instead.
         let results = if guess {
@@ -1738,8 +1730,7 @@ mod tests {
         }
     }
 
-    /// HC-rust port gap G3 (`docs/hermitcrab-rust-port-audit.md` sec 2/3 item 1;
-    /// `docs/p11-guesser-api-design.md`): end-to-end `--guess` gate through `run_batch` itself,
+    /// End-to-end `--guess` gate through `run_batch` itself,
     /// covering both `--threads` writer paths (the sequential loop and the `parse_batch_with_opts`
     /// rayon path each needed their own wiring above). Uses the same synthetic lexical-pattern
     /// grammar shape as `conformance-staging/edge-cases/guesser-pattern-root-fallback/grammar.xml`
@@ -1933,17 +1924,16 @@ mod tests {
         /// monotone-accumulation admission filter is structurally unsound for history-dependent
         /// `Overwrite` replace semantics (`pg_grammar::model::mpr_add_output`'s own doc), so there
         /// is no promotion path that could ever flip this fixture's own verdict the way a
-        /// `ConfigPredicate` construct's could. **Originally a self-feeding `CompoundingRule`
-        /// (`multipleApplication` absent, isolated) was used here** as the "known-Refuse" stand-in
-        /// for this whole test module's capability-gate-ENFORCEMENT tests (none of which are about
-        /// compounding specifically) -- `openspec/changes/plan-construct-coverage-completion` task
-        /// 4.1 promoted `compounding.recursive` to `ConfirmOnly`, which broke that assumption for
-        /// this exact fixture. **Do not point a future "known-Refuse" test fixture at any
-        /// `ConfigPredicate`-disposition construct again** (`Compounding`, `UnorderedMorphRuleApplication`,
+        /// `ConfigPredicate` construct's could. A self-feeding `CompoundingRule`
+        /// (`multipleApplication` absent, isolated) is NOT a safe "known-Refuse" stand-in for this
+        /// whole test module's capability-gate-ENFORCEMENT tests, because `compounding.recursive`
+        /// is a `ConfigPredicate`-disposition construct and can be promoted to `ConfirmOnly` by a
+        /// later grammar/capability change. **Do not point a future "known-Refuse" test fixture at
+        /// any `ConfigPredicate`-disposition construct** (`Compounding`, `UnorderedMorphRuleApplication`,
         /// `RightToLeftRewrite`, `CircumfixOutputAction`, `Reduplication`, `MultiTable`,
         /// `QuantifierPattern`, `SimultaneousRewrite` -- every one of these has at least one
-        /// configuration that is ELIGIBLE for promotion and will eventually be promoted, per
-        /// `docs/benchmark-matrix.md`'s own coverage table) -- only `MprGroupOverwrite` (this
+        /// configuration that is ELIGIBLE for promotion and will eventually be promoted) -- only
+        /// `MprGroupOverwrite` (this
         /// fixture) and `MprGroupOverwrite`'s sibling permanent carve-outs
         /// (`RealizationalMorphology`/`MprGroupAppend`/`CoOccurrenceConstraint`, though those are
         /// always `ConfirmOnly`/`Admit`, never `Refuse`, so they cannot serve this fixture's own
@@ -2086,8 +2076,8 @@ mod tests {
             (run_batch(&args), out_path)
         }
 
-        /// THE CORE FLIP, this step: a `Refuse`-verdict grammar on `--engine=foma` with NO
-        /// capability flags at all must now fail hard by default (ADR 0001 never-overclaim) --
+        /// THE CORE FLIP: a `Refuse`-verdict grammar on `--engine=foma` with NO
+        /// capability flags at all must fail hard by default (ADR 0001 never-overclaim) --
         /// `run_batch` returns `Err` (the caller in `main()` turns this into a nonzero exit), and
         /// `out.tsv` must never have been created (not merely an empty file). The capability gate
         /// sits before `FomaAnalyzer::new` in `run_batch`'s control flow, so this refusal happens
@@ -2178,7 +2168,7 @@ mod tests {
         /// NEVER enforce -- not even with an explicit `--enforce-capability` -- since it never
         /// builds or relies on the FST proposer a `Refuse` verdict is about. Same `Refuse`-verdict
         /// grammar that hard-fails above under `--engine=foma` must still succeed here and still
-        /// write output, proving the default engine is genuinely untouched by this step's flip.
+        /// write output, proving the default engine is genuinely untouched by the enforcement flip.
         #[test]
         fn run_batch_default_engine_never_enforces_even_with_explicit_flag() {
             let (result, out_path) = run_batch_raw(
