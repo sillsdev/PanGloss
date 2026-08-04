@@ -1,13 +1,11 @@
-//! Section 3 of `openspec/changes/certify-language-readiness` (tasks.md §3; `specs/
-//! language-readiness-certification/spec.md`'s tiered-verdict and honesty requirements): the
-//! **tiered certification verdict** — [`certify`] evaluates a grammar's real capability decision,
-//! its trust status, and its measured facts against a [`crate::readiness_policy::ThresholdPolicy`],
-//! and produces a [`ReadinessReport`] naming every failed check, never presenting an unassessed or
-//! override-blocked check as passed.
+//! The **tiered certification verdict** — [`certify`] evaluates a grammar's real capability
+//! decision, its trust status, and its measured facts against a
+//! [`crate::readiness_policy::ThresholdPolicy`], and produces a [`ReadinessReport`] naming every
+//! failed check, never presenting an unassessed or override-blocked check as passed.
 //!
-//! **Non-goal, per design.md**: certifying correctness. This module composes evidence produced
-//! elsewhere (the capability gate, the conformance suite via an attested coverage rate, measured
-//! latency/size); it does not independently verify any of it.
+//! **Non-goal**: certifying correctness. This module composes evidence produced elsewhere (the
+//! capability gate, the conformance suite via an attested coverage rate, measured latency/size);
+//! it does not independently verify any of it.
 //!
 //! # The two tiers, and why a flat pass/fail cannot do this job
 //! - [`Tier::NotYet`]: the grammar compiles and runs (capability `Admit`/`ConfirmOnly`, trust
@@ -15,12 +13,12 @@
 //!   Actionable by the language team — more lexicon, better data, a smaller pack.
 //! - [`Tier::NotSupported`]: either (a) the capability gate refuses the grammar outright — cited
 //!   from the **real** [`crate::capability::CompileDecision::Refuse`] this module always computes
-//!   itself (never a caller-supplied guess, never inferred from a failure to run — task 3.2), or
-//!   (b) the artifact carries an ADR-0005 override (`trust=unproven`) — see the next section.
-//!   Actionable only by compiler work (or, for (b), a clean recompile without the override).
+//!   itself (never a caller-supplied guess, never inferred from a failure to run), or (b) the
+//!   artifact carries a capability override (`trust=unproven`) — see the next section. Actionable
+//!   only by compiler work (or, for (b), a clean recompile without the override).
 //!
 //! A single pass/fail bit cannot distinguish these — "too slow today" and "contains a permanently
-//! carved-out construct" call for completely different responses (design.md's own framing).
+//! carved-out construct" call for completely different responses.
 //!
 //! # Rule 1: an override-trusted artifact never certifies, under any configuration
 //! [`certify`] takes a caller-supplied [`TrustStatus`]. Whenever it is [`TrustStatus::Overridden`],
@@ -92,15 +90,15 @@ pub const COVERAGE_UNVERIFIED_STATEMENT: &str = "Held-out status is an ATTESTATI
     PanGloss does not train. This property is UNVERIFIED beyond the named attestor's own claim.";
 
 // =================================================================================================
-// Trust status (ADR 0005) -- a local mirror, not a dependency on pg-pack (which itself depends on
+// Trust status: a local mirror, not a dependency on pg-pack (which itself depends on
 // pg-foma for HealthReport; depending back would be circular). Field-for-field shape matches
-// pg_pack::trust::CapabilityTrust/CapabilityOverrideRecord/OverriddenConfig, the same
-// "duplicate the small shape at each layer" precedent pg-pack's own trust.rs already documents
-// against crate::health::OverrideRecord (that module's own top-doc: "not a reuse ... stays exactly
-// what it is ... distinct fields per axis").
+// pg_pack::trust::CapabilityTrust/CapabilityOverrideRecord/OverriddenConfig — the small shape is
+// deliberately duplicated at each layer rather than shared, so each layer's copy stays exactly
+// what it is, with distinct fields per axis (see `crate::health::OverrideRecord`'s own doc for the
+// same precedent).
 // =================================================================================================
 
-/// One fail-closed configuration an ADR-0005 override force-compiled through — mirrors
+/// One fail-closed configuration a capability override force-compiled through — mirrors
 /// `pg_pack::trust::OverriddenConfig`'s shape (predicate/construct/witness), the same vocabulary
 /// [`CapabilityDiagnostic`] already uses.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -110,7 +108,7 @@ pub struct OverriddenConfig {
     pub witness: String,
 }
 
-/// The permanent ADR-0005 override record — mirrors `pg_pack::trust::CapabilityOverrideRecord`'s
+/// The permanent capability override record — mirrors `pg_pack::trust::CapabilityOverrideRecord`'s
 /// shape field-for-field, so a caller assembling this from a real pack manifest is a trivial
 /// projection.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -121,7 +119,7 @@ pub struct OverrideRecord {
     pub overridden_configs: Vec<OverriddenConfig>,
 }
 
-/// ADR 0005's binary capability-trust axis, as this module consumes it. Mirrors
+/// The binary capability-trust axis, as this module consumes it. Mirrors
 /// `pg_pack::trust::CapabilityTrust` exactly (tag `"status"`, `snake_case` variants) so the two
 /// serialize identically wherever that matters.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -131,8 +129,8 @@ pub enum TrustStatus {
     /// no override was exercised.
     Proven,
     /// This artifact was force-compiled past a refusal (capability `Refuse`, or an overridden
-    /// FST-health Error/Critical band — ADR 0005 covers both) via the ADR 0005 capability
-    /// override. Permanently disqualifies certification (rule 1) regardless of every other input.
+    /// FST-health Error/Critical band — the same capability override covers both). Permanently
+    /// disqualifies certification (rule 1) regardless of every other input.
     Overridden(OverrideRecord),
 }
 
@@ -146,7 +144,7 @@ impl TrustStatus {
 // Coverage: an attestation, never a measurement (rule 2) -- worded as a rate, never accuracy (rule 3)
 // =================================================================================================
 
-/// Held-out coverage status for one language (rule 2/rule 3; tasks.md 3.4/3.5).
+/// Held-out coverage status for one language (rule 2/rule 3, above).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum CoverageAssessment {
@@ -199,9 +197,9 @@ pub struct Measurements {
 }
 
 // =================================================================================================
-// Checks: one per threshold dimension, always reported (tasks.md 3.6: every failed check reported
-// with its measured value and threshold -- this module reports EVERY check, passed or not, so a
-// reader sees the whole picture, not just the failures).
+// Checks: one per threshold dimension, always reported -- every failed check is reported with its
+// measured value and threshold, and this module reports EVERY check, passed or not, so a reader
+// sees the whole picture, not just the failures.
 // =================================================================================================
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -278,7 +276,7 @@ pub struct CheckResult {
 }
 
 // =================================================================================================
-// Capability: always the REAL evaluation (task 3.2), never a caller-supplied guess
+// Capability: always the REAL evaluation, never a caller-supplied guess
 // =================================================================================================
 
 /// One capability refusal citation, owned (not borrowed) so it outlives the [`Grammar`] this
@@ -302,7 +300,7 @@ impl From<&CapabilityDiagnostic> for RefusalCitation {
 }
 
 /// The real capability decision this report was computed from ([`certify`] always calls
-/// [`evaluate_capability_with_semantics`] itself -- see this module's top doc, task 3.2).
+/// [`evaluate_capability_with_semantics`] itself -- see this module's top doc).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "decision", rename_all = "snake_case")]
 pub enum CapabilitySummary {
@@ -327,8 +325,7 @@ impl CapabilitySummary {
 // Tier + report
 // =================================================================================================
 
-/// The tiered verdict (design.md's core decision; tasks.md 3.1). See this module's top doc for
-/// the full contract each variant carries.
+/// The tiered verdict. See this module's top doc for the full contract each variant carries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Tier {
@@ -337,27 +334,26 @@ pub enum Tier {
     /// Compiles and runs, but at least one threshold was missed or a check could not be assessed.
     /// Actionable by the language team.
     NotYet,
-    /// Either the capability gate refuses this grammar outright, or the artifact carries an
-    /// ADR-0005 override. Actionable only by compiler work (or, for an override, a clean recompile
-    /// without it).
+    /// Either the capability gate refuses this grammar outright, or the artifact carries a
+    /// capability override. Actionable only by compiler work (or, for an override, a clean
+    /// recompile without it).
     NotSupported,
 }
 
-/// The full certification report (tasks.md §3; spec.md's tiered-verdict requirement).
+/// The full certification report.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ReadinessReport {
     pub report_schema_version: u32,
-    /// The [`ThresholdPolicy::policy_id`] that produced this verdict (spec.md: "it records the
-    /// threshold policy version that produced it").
+    /// The [`ThresholdPolicy::policy_id`] that produced this verdict.
     pub policy_id: String,
     pub device_class: String,
     pub tier: Tier,
     pub capability: CapabilitySummary,
     pub trust: TrustStatus,
     /// Every check this policy declares, always -- passed, failed, not-assessed, or blocked. Never
-    /// filtered down to only the failures, so a reader sees the whole picture (tasks.md 3.6 asks
-    /// for every FAILED check to carry its measured value/threshold; reporting all of them is a
-    /// strict superset of that).
+    /// filtered down to only the failures, so a reader sees the whole picture: every failed check
+    /// carries its measured value/threshold, and reporting all of them (not just the failures) is
+    /// a strict superset of that.
     pub checks: Vec<CheckResult>,
     /// Free-form explanatory notes: why the tier is what it is, and (rule 1) that the override is
     /// the reason certification refused, when applicable.
@@ -651,8 +647,8 @@ fn build_notes(trust: &TrustStatus, capability: &CapabilitySummary, tier: Tier) 
 
 /// Certifies `g` against `policy`, given its `trust` status and (if any) its `measurements`.
 ///
-/// Always calls [`evaluate_capability_with_semantics`] itself (task 3.2: never a caller-supplied
-/// capability verdict, never inferred from a failure to run). `measurements` is `None` when no compiled
+/// Always calls [`evaluate_capability_with_semantics`] itself (never a caller-supplied capability
+/// verdict, never inferred from a failure to run). `measurements` is `None` when no compiled
 /// artifact exists to measure (e.g. the grammar was refused before compilation ever produced one);
 /// each measurement's own coverage sub-field is independently [`CoverageAssessment::NotAssessed`]
 /// or [`CoverageAssessment::Attested`] regardless of whether the rest of `measurements` is present.
@@ -665,14 +661,14 @@ pub fn certify(
     certify_with_semantics(&GrammarSemantics::derive(g), trust, measurements, policy)
 }
 
-/// [`certify`] over an already-derived [`GrammarSemantics`] (task 7.11,
-/// `openspec/changes/cleanup-and-recipe-parity`). `pangloss make-report` evaluates the capability
-/// gate three times in one process — here, in its own preamble, and inside `pack::build_pack` — and
-/// each of those used to be a full independent [`crate::capability::characterize`] walk.
+/// [`certify`] over an already-derived [`GrammarSemantics`]. `pangloss make-report` evaluates the
+/// capability gate three times in one process — here, in its own preamble, and inside
+/// `pack::build_pack` — and each of those used to be a full independent
+/// [`crate::capability::characterize`] walk.
 ///
-/// This does NOT weaken task 3.2's rule that certification never accepts a caller-supplied
-/// capability verdict: a [`GrammarSemantics`] is a pure, deterministic function of the grammar, not
-/// a verdict, and this function still computes the [`CompileDecision`] itself through
+/// This does NOT weaken the rule that certification never accepts a caller-supplied capability
+/// verdict: a [`GrammarSemantics`] is a pure, deterministic function of the grammar, not a verdict,
+/// and this function still computes the [`CompileDecision`] itself through
 /// [`evaluate_capability_with_semantics`]. The thing a caller cannot do — hand in a `Refuse` it
 /// decided on its own — remains impossible.
 pub fn certify_with_semantics(
@@ -755,10 +751,10 @@ mod tests {
       </Strata>
     </Language></HermitCrabInput>"#;
 
-    /// `openspec/changes/cover-compounding`'s single, non-recursive `Compounding` fixture (also
-    /// used verbatim by `capability_entry`'s own test module): evaluates to `ConfirmOnly`, not
-    /// `Admit` or `Refuse` -- gives this module's tests a second, distinct capability decision to
-    /// exercise without inventing a third fixture shape.
+    /// A single, non-recursive `Compounding` fixture (also used verbatim by `capability_entry`'s
+    /// own test module): evaluates to `ConfirmOnly`, not `Admit` or `Refuse` -- gives this
+    /// module's tests a second, distinct capability decision to exercise without inventing a
+    /// third fixture shape.
     const CONFIRM_ONLY_XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
       <CharacterDefinitionTable id="t1"><Name>Main</Name>
         <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
@@ -860,8 +856,8 @@ mod tests {
 
     #[test]
     fn confirm_only_grammar_can_still_certify_when_thresholds_pass() {
-        // ConfirmOnly is first-class (ADR 0001), not a failure -- ConfirmOnly + Proven + all
-        // thresholds passing must reach Certified, exactly like Admit.
+        // ConfirmOnly is first-class, not a failure -- ConfirmOnly + Proven + all thresholds
+        // passing must reach Certified, exactly like Admit.
         let g = load(CONFIRM_ONLY_XML);
         let policy = policy_v1();
         let measurements = passing_measurements(&policy);
@@ -872,10 +868,10 @@ mod tests {
     }
 
     // ---------------------------------------------------------------------------------------
-    // Task 5.1: an override-trusted artifact never certifies, proven non-vacuous by sabotage.
+    // An override-trusted artifact never certifies, proven non-vacuous by sabotage.
     // ---------------------------------------------------------------------------------------
 
-    /// Sabotage proof (tasks.md 3.3/5.1): build a report that would clearly certify cleanly under
+    /// Sabotage proof: build a report that would clearly certify cleanly under
     /// `TrustStatus::Proven` (asserted first, so the "would have passed" premise is not assumed),
     /// then flip ONLY the trust field to `Overridden` with every other input held byte-identical,
     /// and show the verdict flips to `NotSupported` with every check `Blocked` -- never `Pass`.
@@ -939,8 +935,8 @@ mod tests {
 
     #[test]
     fn override_blocks_even_a_capability_admit_grammar_under_any_configuration() {
-        // "Under any configuration" (spec.md) -- exercise it against BOTH capability decisions
-        // this test module has fixtures for, not just one.
+        // "Under any configuration" -- exercise it against BOTH capability decisions this test
+        // module has fixtures for, not just one.
         for xml in [ADMIT_XML, CONFIRM_ONLY_XML] {
             let g = load(xml);
             let policy = policy_v1();
@@ -956,7 +952,7 @@ mod tests {
     }
 
     // ---------------------------------------------------------------------------------------
-    // Task 5.2: not-assessed coverage never renders as passed.
+    // Not-assessed coverage never renders as passed.
     // ---------------------------------------------------------------------------------------
 
     #[test]
@@ -1070,7 +1066,7 @@ mod tests {
     }
 
     // ---------------------------------------------------------------------------------------
-    // Report always records the policy version + device class (spec.md).
+    // Report always records the policy version + device class.
     // ---------------------------------------------------------------------------------------
 
     #[test]
@@ -1098,8 +1094,8 @@ mod tests {
     }
 
     // ---------------------------------------------------------------------------------------
-    // Task 5.4: golden certificate for one small synthetic fixture, regenerated from the
-    // generator's own output -- never hand-edited. Mirrors `crate::coverage_ledger`'s own
+    // Golden certificate for one small synthetic fixture, regenerated from the generator's own
+    // output -- never hand-edited. Mirrors `crate::coverage_ledger`'s own
     // `regenerate_coverage_ledger_golden_json` precedent exactly.
     // ---------------------------------------------------------------------------------------
 
