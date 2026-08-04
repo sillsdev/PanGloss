@@ -9,7 +9,7 @@
 //! corpus-backed test in this crate (plan §8: "corpora stay untracked local files with self-
 //! skipping tests").
 //!
-//! Test-timing policy (revised 2026-07-17): the default local `cargo test --workspace --release`
+//! Test-timing policy: the default local `cargo test --workspace --release`
 //! run must stay under ~60s and must not depend on this gitignored fixture at all, so this test is
 //! unconditionally `#[ignore = "..."]`d; run with `--include-ignored` locally.
 

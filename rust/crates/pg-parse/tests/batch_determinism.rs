@@ -14,7 +14,7 @@
 //! If this test is ever pointed at a corpus/step-cap combination where words hit the cap, expect
 //! it to go flaky for reasons that have nothing to do with `hc_parse_batch`.
 //!
-//! Test-timing policy (revised 2026-07-17): the default local `cargo test --workspace --release`
+//! Test-timing policy: the default local `cargo test --workspace --release`
 //! run must stay under ~60s and must not depend on these gitignored fixtures at all, so both tests
 //! here are unconditionally `#[ignore = "..."]`d; run with `--include-ignored` locally.
 

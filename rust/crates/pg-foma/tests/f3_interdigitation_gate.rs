@@ -68,7 +68,7 @@
 //! test (a)). Tier stays `Partial { uncovered: 1 }` — honest, and no longer a routing decision
 //! (there is no fallback tier to route to).
 //!
-//! ## Test-timing policy (revised 2026-07-17)
+//! ## Test-timing policy
 //! The default local `cargo test --workspace --release` run must stay under ~60s and must not
 //! depend on the gitignored real-language corpus fixtures (`samples/data/*`) at all. Every test in
 //! this file loads `samples/data/amharic-hc.xml`, so all four are unconditionally

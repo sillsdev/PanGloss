@@ -30,7 +30,7 @@
 //! (fewer candidates than `Strip`, not just an equal-size coincidence) — i.e. the flags visibly
 //! prune something, not merely compile to a no-op.
 //!
-//! ## Test-timing policy (revised 2026-07-17)
+//! ## Test-timing policy
 //! The default local `cargo test --workspace --release` run must stay under ~60s and must not
 //! depend on the gitignored real-language corpus fixtures (`samples/data/*`) at all — every test
 //! in this file loads one, so ALL FOUR (including the otherwise-fast

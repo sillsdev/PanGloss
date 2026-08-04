@@ -66,7 +66,7 @@
 //! and the committed oracle XML are untracked local corpora; either being absent makes the
 //! relevant test self-skip with a printed reason rather than fail.
 //!
-//! # Test-timing policy (revised 2026-07-17)
+//! # Test-timing policy
 //! The default local `cargo test --workspace --release` run must not depend on a real FieldWorks
 //! project checkout or the gitignored `samples/data/*-hc.xml` fixtures at all, so both tests here
 //! are unconditionally `#[ignore = "..."]`d regardless of speed; the self-skip guards above already

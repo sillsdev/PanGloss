@@ -12,7 +12,7 @@
 //! output, THEN writing the expected assertion — same "run first, pin second" discipline
 //! `n0_gloss_gate.rs`/`n1_ir_gate.rs` document for their own pinned strings.
 //!
-//! ## Test-timing policy (revised 2026-07-17)
+//! ## Test-timing policy
 //! The default local `cargo test --workspace --release` run must stay under ~60s and must not
 //! depend on the gitignored real-language corpus fixtures (`samples/data/*-hc.xml`,
 //! `samples/data/*-words.txt`) at all. Every test in this file loads a real grammar (and the

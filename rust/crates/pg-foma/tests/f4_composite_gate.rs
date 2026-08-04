@@ -13,7 +13,7 @@
 //! (e) MINI-PARITY smoke: first 40 Sena corpus words + every non-redup Indonesian corpus word,
 //!     100% multiset parity required; per-word timings reported.
 //!
-//! ## Test-timing policy (revised 2026-07-17)
+//! ## Test-timing policy
 //! The default local `cargo test --workspace --release` run must stay under ~60s and must not
 //! depend on the gitignored real-language corpus fixtures (`samples/data/*`) at all. Every test in
 //! this file loads a real Sena and/or Indonesian grammar, so all five are unconditionally

@@ -20,7 +20,7 @@
 //! demonstrates all 7 redup words round-trip byte-for-byte) — this file's Indonesian test covers
 //! the full, unfiltered 121-word corpus in one place as the P3 gate record.
 //!
-//! ## Test-timing policy (revised 2026-07-17)
+//! ## Test-timing policy
 //! The default local `cargo test --workspace --release` run must stay under ~60s and must not
 //! depend on the gitignored real-language corpus fixtures (`samples/data/*`) at all. All three
 //! tests here load a real grammar from `samples/data/`, so all three are unconditionally

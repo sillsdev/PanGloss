@@ -22,7 +22,7 @@
 //! on this machine (2026-07-15): release, all four tests ~32s total (recall gate b: ~33s wall, of
 //! which ~30s is the ENGINE oracle, 0.13s the proposer); debug, ~145s total with b alone ~120s.
 //!
-//! ## Test-timing policy (revised 2026-07-17)
+//! ## Test-timing policy
 //! The default local `cargo test --workspace --release` run must stay under ~60s total and must
 //! not depend on the gitignored real-language corpus fixtures (`samples/data/*`) at all — not even
 //! a fast one. Every test in this file loads `samples/data/sena-hc.xml` (directly or via

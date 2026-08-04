@@ -9,7 +9,7 @@
 //! project's other bounded-corpus tests (`rust-conversion.md` §8, e.g. `pg-rules/tests/
 //! p7_segments_union_census.rs`).
 //!
-//! Test-timing policy (revised 2026-07-17): the default local `cargo test --workspace --release`
+//! Test-timing policy: the default local `cargo test --workspace --release`
 //! run must stay under ~60s and must not depend on this gitignored fixture at all, so this test is
 //! unconditionally `#[ignore = "..."]`d; run with `--include-ignored` locally.
 

@@ -524,7 +524,7 @@ fn amharic_new_pipeline_matches_legacy_oracle() {
 /// `WORD_TIMEOUT` (see the module doc's "The hang (fixed)" section): the pathological word now
 /// reports as timed-out rather than hanging the whole suite, and this test terminates promptly.
 ///
-/// Test-timing policy (revised 2026-07-17): despite being fast, this still loads a real
+/// Test-timing policy: despite being fast, this still loads a real
 /// FieldWorks project checkout and the gitignored `samples/data/{sena,amharic}-{hc.xml,words.txt}`
 /// corpus fixtures, so per policy it is unconditionally `#[ignore]`d too (the default local
 /// `cargo test --workspace --release` run must not depend on gitignored corpus data at all); the

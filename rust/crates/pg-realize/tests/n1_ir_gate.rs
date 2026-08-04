@@ -33,7 +33,7 @@
 //! `RealizeMap` (`amharic_sidecar_case_entries_map_as_intended` below), since no real corpus
 //! word exercises Case through `to_ir` end-to-end.
 //!
-//! ## Test-timing policy (revised 2026-07-29)
+//! ## Test-timing policy
 //! The default local `cargo test --workspace --release` run must stay under ~60s and must not
 //! depend on the gitignored real-language corpus fixtures (`samples/data/*-hc.xml`,
 //! `samples/data/*-words.txt`, `samples/data/*-realize.toml`) at all. Every test that loads a

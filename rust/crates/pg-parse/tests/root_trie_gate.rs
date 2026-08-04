@@ -5,7 +5,7 @@
 //! The sample grammars are untracked local corpus files (per `rust-conversion.md` §8); each test
 //! self-skips when they are absent (fresh clone / CI).
 //!
-//! Test-timing policy (revised 2026-07-17): the default local `cargo test --workspace --release`
+//! Test-timing policy: the default local `cargo test --workspace --release`
 //! run must stay under ~60s and must not depend on these gitignored fixtures at all, so all three
 //! tests here are unconditionally `#[ignore = "..."]`d; run with `--include-ignored` locally.
 

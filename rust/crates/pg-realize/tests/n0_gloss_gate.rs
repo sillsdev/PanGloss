@@ -15,7 +15,7 @@
 //! dashes: that is `leipzig`'s plain `-`-join faithfully reproducing real grammar data, not a
 //! rendering bug.
 //!
-//! ## Test-timing policy (revised 2026-07-17)
+//! ## Test-timing policy
 //! The default local `cargo test --workspace --release` run must stay under ~60s and must not
 //! depend on the gitignored real-language corpus fixtures (`samples/data/*`) at all. The 5 tests
 //! here that load a real sample grammar are unconditionally `#[ignore = "..."]`d (the existing

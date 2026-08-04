@@ -27,7 +27,7 @@
 //! would pass without ever exercising `catch_unwind`. So the first assertion below is on the
 //! *panicking call's own* return code, not just on a subsequent call.
 //!
-//! Test-timing policy (revised 2026-07-17): this test loads a real grammar from
+//! Test-timing policy: this test loads a real grammar from
 //! `samples/data/indonesian-hc.xml` (gitignored), so per policy it is unconditionally
 //! `#[ignore = "..."]`d even though it is fast and covers an important safety property — the
 //! default local `cargo test --workspace --release` run must not depend on gitignored corpus data
