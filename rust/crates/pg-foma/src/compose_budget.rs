@@ -7,7 +7,7 @@
 //!
 //! ## Why this budget looks different from [`EnumerationBudget`](crate::morphotactics::EnumerationBudget)
 //! `EnumerationBudget` is a shared, cross-thread `AtomicUsize` latch because `crate::preexpand`'s
-//! composite builders run their per-root work across a rayon pool. The P6 composition cascade
+//! composite builders run their per-root work across a rayon pool. The composition cascade
 //! (`crate::replace`'s per-alpha-tuple/per-rule fold, `crate::gate`'s per-group loop) is strictly
 //! sequential -- no rayon anywhere in this path -- so a plain `&ComposeBudget` with no atomics and
 //! no interior mutability is sufficient; every checked wrapper below just reads `self`'s cap fields
@@ -51,13 +51,13 @@ use foma::minimize::fsm_minimize;
 use foma::options::FomaOptions;
 use foma::types::Fsm;
 
-/// Compile-time check that `Fsm` is `Send` (design doc §1): [`call_with_deadline`]'s wall-clock
+/// Compile-time check that `Fsm` is `Send`: [`call_with_deadline`]'s wall-clock
 /// wrapper depends on being able to move an OWNED `Fsm` into a spawned worker thread and its result
 /// back out over an `mpsc` channel. Verified by direct inspection of `foma = "=0.4.0"`'s own
 /// `src/types.rs`: `Fsm` owns only `SmolStr`/`Vec<_>`/`Option<Box<_>>`/plain integers via its own
 /// `LineTable` storage seam -- no `Rc`/`RefCell`/raw pointer anywhere in its transitive fields. If a
-/// future `foma` version ever adds one of those, this line stops compiling -- the design's own
-/// documented contingency ("if `Fsm` is NOT `Send`, implement everything EXCEPT
+/// future `foma` version ever adds one of those, this line stops compiling -- the documented
+/// contingency ("if `Fsm` is NOT `Send`, implement everything EXCEPT
 /// `call_with_deadline`/`step_timeout`") applies at that point, rather than the wrapper silently
 /// becoming unsound.
 #[allow(dead_code)]
@@ -212,9 +212,9 @@ pub(crate) fn step_timeout_from_env() -> Option<Duration> {
 // `Option<usize>` and off until a caller opts in, rather than shipping an uncalibrated numeric
 // default that could silently start rejecting real grammars.
 
-/// Absolute ceiling for the chain-depth dimension (CONTEXT.md `Absolute resource ceiling`: "A
+/// Absolute ceiling for the chain-depth dimension: a
 /// versioned, hard-coded, deliberately high non-disableable limit above all default, app, and
-/// caller limits ... an emergency containment boundary, not a normal operating target"). No
+/// caller limits — an emergency containment boundary, not a normal operating target. No
 /// configured cap -- from [`chain_depth_cap_from_env`] or [`ComposeBudget::with_chain_depth_cap`]
 /// -- may exceed this value; both clamp down to it rather than reject, the same "contractually
 /// clamp excessive values, provide no unlimited setting" discipline every budget dimension in this
@@ -230,7 +230,7 @@ pub(crate) fn step_timeout_from_env() -> Option<Duration> {
 /// the later calibration change lands on.
 pub(crate) const CHAIN_DEPTH_ABSOLUTE_CEILING: usize = 1_000_000;
 
-/// `HC_COMPOSE_CHAIN_DEPTH_BUDGET`: per-word derivation/unapplication chain-depth cap (ADR 0003).
+/// `HC_COMPOSE_CHAIN_DEPTH_BUDGET`: per-word derivation/unapplication chain-depth cap.
 /// **Default `None` (unbounded/off)** -- see this section's module doc for why this dimension
 /// mirrors [`step_timeout_from_env`]'s opt-in shape rather than the four size caps' default-ON
 /// shape. When set, parses as `usize` and is clamped to [`CHAIN_DEPTH_ABSOLUTE_CEILING`]
@@ -252,13 +252,13 @@ pub(crate) fn clamp_chain_depth_cap(configured: usize) -> usize {
 }
 
 // --- Ordering-multiplicity dimension: `Unordered` application's chain-depth multiplication is a
-// required ADR 0003 budget extension, not an open question. ------------------------------------
+// required budget extension, not an open question. ------------------------------------
 //
 // `MorphRuleOrder::Unordered`'s any-order/any-subset walk (`pg_rules::cascade::Cascade::
 // combination`, this crate's own citation of that module's "k!-walk over rule subsets" doc) adds a
 // COMBINATORIAL dimension the plain [`ComposeBudget::chain_depth_cap`] above was never calibrated
 // against: that dimension bounds ORDINARY derivation/unapplication chain length (a single word's
-// nested-reduplication depth, ADR 0003's Aweti 24-level chain), a fundamentally different quantity
+// nested-reduplication depth, the Aweti 24-level chain), a fundamentally different quantity
 // from "how many DISTINCT orderings of a stratum's own loose rules exist to propose a union over."
 // Reusing `chain_depth_cap` for both would let an unrelated calibration decision on one silently
 // move the other -- exactly the trap `HC_COMPOSE_TUPLE_BUDGET`'s own doc names for NOT reusing
@@ -289,10 +289,10 @@ pub(crate) fn clamp_chain_depth_cap(configured: usize) -> usize {
 // `samples/data/sena-hc.xml` (25 loose rules in its own largest `Unordered` stratum; measured via
 // this change's own compile-time gate tripping on every one of these, since NOTHING in
 // `crate::analyzer`/`crate::emit` branched on `MorphRuleOrder` before this change). 100 leaves ~4x
-// headroom above that measured ceiling -- generous, but this change's own HARD RULE is "existing
-// behavior unchanged": a default that regresses Sena (this crate's own P1 stage-1 gate,
-// `tests/f1_sena_gate.rs`) would violate that regardless of how principled the calibration
-// reasoning is otherwise.
+// headroom above that measured ceiling -- generous, but the HARD RULE this crate follows is
+// "existing behavior unchanged": a default that regresses Sena (this crate's own baseline
+// emission-path gate, `tests/f1_sena_gate.rs`) would violate that regardless of how principled the
+// calibration reasoning is otherwise.
 pub(crate) const DEFAULT_ORDERING_MULTIPLICITY_BUDGET: usize = 100;
 
 pub(crate) fn ordering_multiplicity_budget_from_env() -> usize {
@@ -302,7 +302,7 @@ pub(crate) fn ordering_multiplicity_budget_from_env() -> usize {
         .unwrap_or(DEFAULT_ORDERING_MULTIPLICITY_BUDGET)
 }
 
-// --- Apply-path dimension (ADR 0003): in-process cooperative magnitude budgets, not "the
+// --- Apply-path dimension: in-process cooperative magnitude budgets, not "the
 // watchdog" (which is compile-only). -------------------------------------------------------------
 //
 // Every dimension above this point guards `crate::replace`/`crate::gate`/`crate::emit`'s
@@ -310,12 +310,12 @@ pub(crate) fn ordering_multiplicity_budget_from_env() -> usize {
 // out-of-process worker. The apply
 // path is different in kind, not just in call site: `analyzer::FomaProposer::propose` drives
 // `foma::apply::apply_up` **in-process, per word, in the caller's own process** (`analyzer.rs`'s
-// own doc: the `ApplyHandle` is built once and reused across every `propose` call). ADR 0003 is
-// explicit that this can never be a watchdog's job: "a native thread cannot be safely hard-killed
+// own doc: the `ApplyHandle` is built once and reused across every `propose` call). This can never
+// be a watchdog's job: "a native thread cannot be safely hard-killed
 // in Rust" once it is running inside the same process serving the caller, and a per-word worker
 // process would defeat the whole point of reusing one compiled `ApplyHandle` (`analyzer.rs`'s own
 // "Reuses `self.handle` across calls rather than rebuilding it per word" doc). The only sound
-// containment left is exactly what ADR 0003 prescribes: a **deterministic, magnitude-only**
+// containment left is a **deterministic, magnitude-only**
 // counter checked cooperatively while `propose` decodes `apply_up`'s own result iterator, mirroring
 // this module's own chain-depth dimension shape (`Option<usize>`, default off, a typed incomplete
 // outcome naming the dimension and value it hit) rather than a wall-clock kill.
@@ -329,8 +329,8 @@ pub(crate) fn ordering_multiplicity_budget_from_env() -> usize {
 // with heavy ambiguity, or an adversarial word crafted to hit every cycle in the network) --
 // `FomaProposer::propose`'s decode loop had no cap of its own before this dimension existed. Like
 // every other magnitude-only dimension in this module, a low or zero yield is never treated as
-// pathological (ADR 0003: "Magnitude-only, never yield-based... a low-yield / high-rejection
-// computation is not pathological") -- only the raw decoded-path count and the deduped-candidate
+// pathological (magnitude-only, never yield-based -- a low-yield / high-rejection
+// computation is not pathological) -- only the raw decoded-path count and the deduped-candidate
 // count are checked, never rejection share or confirm outcome.
 //
 // **Default `None` (unbounded/off) everywhere** ([`ApplyBudget::from_env`] when both
@@ -345,7 +345,7 @@ pub(crate) fn ordering_multiplicity_budget_from_env() -> usize {
 //
 // The grammar-diagnostics report records each word's [`ApplyOutcome`] directly (Complete vs.
 // Incomplete plus the tripped dimension/value/limit) as the in-process, per-word containment
-// evidence ADR 0003 calls for -- never a watchdog PID, never a wall-clock kill, for this dimension.
+// evidence this dimension's design calls for -- never a watchdog PID, never a wall-clock kill, for this dimension.
 
 /// `HC_APPLY_PATH_BUDGET`: ceiling on the raw number of `apply_up` result strings
 /// [`crate::analyzer::FomaProposer::propose_budgeted`] decodes for one word, checked as they are
@@ -436,17 +436,17 @@ impl ApplyDimension {
     }
 }
 
-/// The ADR-0003 "a word either completes (possibly with zero analyses) or returns a typed
+/// The "a word either completes (possibly with zero analyses) or returns a typed
 /// incomplete outcome naming the dimension and value it hit" contract, generic over the completed
 /// payload (`Vec<Candidate>` for [`crate::analyzer::FomaProposer::propose_budgeted`]). Deliberately
 /// NOT a `Result`/`ComposeError`: this is not a compile-time failure to surface as `Err` up a
 /// `?`-chain, it is a normal, expected, reportable per-word outcome a diagnostic caller inspects
-/// directly (mirrors CONTEXT.md's own framing: "a word either completes ... or returns a typed
-/// incomplete outcome", never "fails").
+/// directly -- a word either completes or returns a typed
+/// incomplete outcome, never "fails".
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ApplyOutcome<T> {
     /// The budget never tripped; `T` is the complete result (possibly empty -- a legitimate zero-
-    /// analysis outcome, ADR 0003: "Zero analyses is a valid complete result").
+    /// analysis outcome: zero analyses is a valid complete result).
     Complete(T),
     /// A magnitude cap was reached before the traversal finished. `value` is the count at the
     /// moment of the trip (always `limit + 1` by construction -- checked immediately after each
@@ -459,7 +459,7 @@ pub enum ApplyOutcome<T> {
     },
 }
 
-/// In-process, cooperative, magnitude-only apply-path budget (ADR 0003; this section's own module
+/// In-process, cooperative, magnitude-only apply-path budget (this section's own module
 /// doc). Unlike [`ComposeBudget`] (compile-time, checked between whole-network operations), both
 /// dimensions here are checked per-item inside a single word's decode loop -- see
 /// [`crate::analyzer::FomaProposer::propose_budgeted`].
@@ -571,19 +571,17 @@ pub enum ComposeError {
         limit: Duration,
         site: &'static str,
     },
-    /// ADR 0003's chain-depth dimension (this module's "Chain-depth dimension" section):
+    /// This crate's chain-depth dimension (this module's "Chain-depth dimension" section):
     /// [`ComposeBudget::check_chain_depth`] found a caller-reported cumulative derivation/
     /// unapplication step count exceeding [`ComposeBudget::chain_depth_cap`]. Deterministically
     /// closes the stack-overflow failure class (the Aweti 24-level chain; the 1 GiB-stack
-    /// workaround) instead of merely raising the point at which it recurs. **Not yet produced by
-    /// any production call site** -- see this module's "Chain-depth dimension" section doc; this
-    /// variant exists so the typed-error schema is complete ahead of the recursion wiring.
+    /// workaround) instead of merely raising the point at which it recurs.
     ChainDepthExceeded {
         depth: usize,
         limit: usize,
         site: &'static str,
     },
-    /// This module's own ADR 0003 "Ordering-multiplicity dimension" extension:
+    /// This module's own "Ordering-multiplicity dimension" extension:
     /// [`ComposeBudget::check_ordering_multiplicity`]
     /// found an `Unordered` stratum's loose-rule count exceeding
     /// [`ComposeBudget::ordering_multiplicity_cap`] -- the `unordered-application.unbounded`
@@ -727,7 +725,7 @@ pub struct ComposeBudget {
     pub(crate) group_cap: usize,
     pub(crate) line_cap: usize,
     pub(crate) step_timeout: Option<Duration>,
-    /// ADR 0003's chain-depth dimension (this module's "Chain-depth dimension" section). `None`
+    /// This crate's chain-depth dimension (this module's "Chain-depth dimension" section). `None`
     /// (the default everywhere -- [`Self::from_env`], [`Self::with_caps`], [`Self::unbounded`])
     /// means unbounded/off: [`Self::check_chain_depth`] always returns `Ok` and no existing
     /// caller's behavior changes. `Some(limit)` is already clamped to
@@ -741,7 +739,7 @@ pub struct ComposeBudget {
     /// (the production default), so every existing caller's behavior is unchanged until an
     /// operator opts in.
     pub(crate) chain_depth_cap: Option<usize>,
-    /// This module's own ADR 0003 "Ordering-multiplicity dimension" extension: `Some(cap)` bounds
+    /// This module's own "Ordering-multiplicity dimension" extension: `Some(cap)` bounds
     /// an `Unordered` stratum's own
     /// loose-rule count; `None` means unbounded/off. Unlike [`Self::chain_depth_cap`] (default
     /// `None`, uncalibrated), [`Self::from_env`] defaults this to
@@ -860,11 +858,11 @@ impl ComposeBudget {
         self.chain_depth_cap
     }
 
-    /// Checked chain-depth dimension (ADR 0003; this module's "Chain-depth dimension" section):
+    /// Checked chain-depth dimension (this module's "Chain-depth dimension" section):
     /// a caller reports its current cumulative derivation/unapplication step count for one word,
     /// and this returns [`ComposeError::ChainDepthExceeded`] once `depth` exceeds
-    /// [`Self::chain_depth_cap`]. Deterministic logical counter, never a wall-clock check (ADR
-    /// 0003/R6: "the primary fast-failure mechanism"). Mirrors [`compose_checked`]/
+    /// [`Self::chain_depth_cap`]. Deterministic logical counter, never a wall-clock check
+    /// (deterministic logical counters are the primary fast-failure mechanism). Mirrors [`compose_checked`]/
     /// [`union_checked`]/[`minimize_checked`]'s own "check the crate's own vocabulary of a typed
     /// `ComposeError`, `site` names the call site" shape, but takes a caller-reported logical
     /// count directly rather than measuring a returned [`Fsm`] -- there is no `Fsm` to inspect for
@@ -882,7 +880,7 @@ impl ComposeBudget {
     /// that keeps an ordinary single-layer word from tripping a small cap just because one more,
     /// ultimately-empty, layer was cheaply attempted). `emit.rs`/`preexpand.rs`/`gate.rs`/
     /// `replace.rs`/`pg-rules`' OWN derivation/unapplication recursion (the general Aweti
-    /// 24-level-chain case ADR 0003 names) still has no call site here -- that remains a
+    /// 24-level-chain case) still has no call site here -- that remains a
     /// separate, larger follow-on; this is the first, narrower one.
     pub(crate) fn check_chain_depth(
         &self,
@@ -1221,7 +1219,7 @@ mod compose_budget_tests {
     }
 
     // ---------------------------------------------------------------------------------------
-    // Chain-depth dimension (ADR 0003 / STAGING.md "Extension"). Schema/budget-type only --
+    // Chain-depth dimension. Schema/budget-type only --
     // these tests exercise `check_chain_depth` directly (no `Fsm`/foma call involved) and prove
     // the default is a zero-behavior-change no-op, exactly like `compose_budget_tests`'s own
     // tests above prove for the four size caps.
@@ -1233,7 +1231,7 @@ mod compose_budget_tests {
         // above already uses for the size dimensions) must also leave chain depth off.
         let budget = ComposeBudget::unbounded();
         assert_eq!(budget.chain_depth_cap(), None);
-        // Well past the motivating Aweti 24-level chain (ADR 0003; module doc) and still `Ok`.
+        // Well past the motivating Aweti 24-level chain (module doc) and still `Ok`.
         budget
             .check_chain_depth(1_000_000, "chain_depth_unbounded_budget_never_trips")
             .expect("unbounded chain-depth budget must never trip, at any depth");
@@ -1277,7 +1275,7 @@ mod compose_budget_tests {
 
     #[test]
     fn chain_depth_explicit_cap_trips_one_past_limit() {
-        // 24: the motivating Aweti derivation-chain depth (ADR 0003; module doc).
+        // 24: the motivating Aweti derivation-chain depth (module doc).
         let budget = ComposeBudget::unbounded().with_chain_depth_cap(24);
         let err = budget
             .check_chain_depth(25, "chain_depth_explicit_cap_trips_one_past_limit")
@@ -1295,7 +1293,7 @@ mod compose_budget_tests {
     #[test]
     fn chain_depth_absolute_ceiling_clamps_excessive_configured_cap() {
         // Requesting a cap far above the absolute ceiling must clamp down to the ceiling, not
-        // accept the requested value verbatim (CONTEXT.md `Absolute resource ceiling`; this
+        // accept the requested value verbatim (this
         // module's doc on `CHAIN_DEPTH_ABSOLUTE_CEILING`).
         let budget =
             ComposeBudget::unbounded().with_chain_depth_cap(CHAIN_DEPTH_ABSOLUTE_CEILING + 1_000);
@@ -1459,7 +1457,7 @@ mod compose_budget_tests {
     }
 
     // ---------------------------------------------------------------------------------------
-    // Apply-path dimension (ADR 0003 / `add-grammar-diagnostics`'s STAGING rework). Schema/budget-
+    // Apply-path dimension. Schema/budget-
     // type tests only, exercised directly against [`ApplyBudget`] -- the decode-loop wiring itself
     // is `analyzer.rs`'s own `propose_budgeted` tests.
     // ---------------------------------------------------------------------------------------
