@@ -6633,7 +6633,7 @@ mod tests {
     }
 
     // ---------------------------------------------------------------------------------------
-    // `openspec/changes/compile-simultaneous-rewrites`: the `owning_table` fix to
+    // The `owning_table` fix to
     // `lower_subrule_span` (this step's own doc), and the compile-facing
     // `simultaneous_rule_admitted_for_compile` consumer `crate::replace::is_fully_supported_shape`
     // now calls.
@@ -6643,7 +6643,7 @@ mod tests {
     /// (`S1`, table `t1`, 5 segments/2 features) via its own `phonologicalRules` list. Table `t0`
     /// (`S0`) is deliberately tiny (1 segment) and shares NO natural-class/feature apparatus with
     /// `t1` at all -- if [`lower_subrule_span`] still defaulted to `g.char_tables.first()` (this
-    /// predicate's OWN pre-`compile-simultaneous-rewrites` gap), it would resolve `t0` instead of
+    /// predicate's own former single-table-assumption gap), it would resolve `t0` instead of
     /// `t1`, and none of `t1`'s own `CharDefId`s (which this rule's `<SimpleContext>` nodes
     /// reference) exist in `t0`'s tiny inventory, so the real span lowering could not succeed the
     /// way it does below.
@@ -6839,9 +6839,8 @@ mod tests {
     // Registry coverage
     // ---------------------------------------------------------------------------------------
 
-    /// design.md D2 / spec.md: every `FailClosed`/`ConfigPredicate` characteristic must be
-    /// discharged by >= 1 registered predicate, else the build "breaks" (here: the test fails,
-    /// standing in for the CI-level enforcement a later step would wire up).
+    /// Every `FailClosed`/`ConfigPredicate` characteristic must be
+    /// discharged by >= 1 registered predicate, else the build "breaks" (here: the test fails).
     #[test]
     fn default_registry_discharges_every_fail_closed_or_config_predicate_kind() {
         let registry = default_registry();
@@ -6871,7 +6870,7 @@ mod tests {
     }
 
     // ---------------------------------------------------------------------------------------
-    // compose_envelope (D4, Step 2): meet lattice unit checks
+    // compose_envelope: meet lattice unit checks
     // ---------------------------------------------------------------------------------------
 
     fn diag(predicate: PredicateId, construct: &str) -> CapabilityDiagnostic {
@@ -6882,7 +6881,7 @@ mod tests {
         }
     }
 
-    /// D4's lattice, spelled out directly on [`meet`] (not via a whole grammar): `Refuse`
+    /// The lattice, spelled out directly on [`meet`] (not via a whole grammar): `Refuse`
     /// dominates `ConfirmOnly` dominates `Admit`, in every pairing.
     #[test]
     fn meet_lattice_lines_up_with_d4() {
