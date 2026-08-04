@@ -13,22 +13,22 @@
 //! cited evidence) or [`Calibration::Placeholder`] (explicitly un-calibrated, with a rationale for
 //! why the chosen number is not arbitrary even though it is not yet evidence-backed). This is the
 //! same discipline `compose_budget.rs`'s "conservative placeholder pending real-grammar
-//! measurement" / `preflight.rs`'s provisional-bound comments already use, and
-//! `calibrate-fst-resource-envelopes`'s own "provisional values cannot be presented as release
-//! policy" rule — made machine-readable here so a report can never silently launder a placeholder
+//! measurement" / `preflight.rs`'s provisional-bound comments already use: provisional values
+//! must never be presented as release policy without being flagged as such —
+//! made machine-readable here so a report can never silently launder a placeholder
 //! into a value that merely *looks* measured. Never invent a number that looks authoritative: every
 //! [`Calibration::Placeholder`] below names exactly why it has no evidence yet.
 //!
 //! # Today's seed values (policy v1) and what backs each one
 //! - **`device_class`**: named as `"dev-workstation-v1"` — the exact machine/configuration
-//!   `docs/benchmark-matrix.md` measured on (2026-07-26, Windows 11 x64, `pangloss batch
+//!   `docs/benchmark-matrix.md` measured on (Windows 11 x64, `pangloss batch
 //!   --threads 1`, release build) and the machine `rust/tools/typology-speedup.sh` runs on
 //!   locally. This is deliberately **not** a mobile/embedded device name: no such device has been
 //!   benchmarked yet, and inventing an evocative name ("reference-mobile-tier-1") for a number with
 //!   no device behind it would be exactly the kind of authoritative-looking invention this module
 //!   exists to refuse. A certificate under this policy version is scoped to this workstation class
-//!   and must not be read as evidence about any other device class (spec.md: "no silent
-//!   generalization beyond it").
+//!   and must not be read as evidence about any other device class: no silent
+//!   generalization beyond it.
 //! - **Latency (p50/p90/p99), [`Calibration::Measured`]**: grounded in two real sources — (1)
 //!   `docs/benchmark-matrix.md`'s one force-compiled data point (Indonesian, `--allow-unproven`:
 //!   p50 `<1`ms, p95 1ms, p99 1ms, max 8ms — reported there as force-compiled, not certified), and
@@ -36,8 +36,8 @@
 //!   typology-speedup.sh`; `rust/crates/pg-foma/tests/typology_speedup.rs`), which shows
 //!   sub-millisecond medians across nearly every tiny synthetic edge-case/typology fixture. Both
 //!   citations are recorded verbatim in each field's `citation` string, **including the caveat
-//!   that this evidence is thin** (one reference grammar, measured only via the ADR 0005 override;
-//!   tiny synthetic fixtures, not a full-scale lexicon) — an early, revisable estimate with an
+//!   that this evidence is thin** (one reference grammar, measured only via a force-compiled
+//!   capability override; tiny synthetic fixtures, not a full-scale lexicon) — an early, revisable estimate with an
 //!   explicit safety margin over the observed numbers, not a robust calibration. Marked `Measured`
 //!   because the numbers ARE real measurements, honestly scoped to this policy's own
 //!   `dev-workstation-v1` device class (the class those numbers were actually taken on) rather than
@@ -45,11 +45,11 @@
 //! - **`pack_size_max_bytes`, [`Calibration::Placeholder`]**: no full-scale (10^4-10^5 entry) pack
 //!   has ever been built and measured end-to-end, so there is no real evidence to calibrate a
 //!   device-storage-appropriate cap against. Borrows `crate::health::severity_for_size_bytes`'s own
-//!   R6 Warning/Error band edge (100,000,000 bytes) as a starting reference point ONLY, because
+//!   Warning/Error band edge (100,000,000 bytes) as a starting reference point ONLY, because
 //!   that is the one artifact-size policy already declared anywhere in this repo — not itself
 //!   derived from a device memory/storage budget.
 //! - **`lexicon_min_entries`, [`Calibration::Placeholder`]**: no full-scale reference grammar has
-//!   been compiled and certified end-to-end yet (`build-for-full-scale-grammars`'s own 10^4-10^5
+//!   been compiled and certified end-to-end yet (a 10^4-10^5
 //!   entry design target is a goal, not a measurement). Seeded low (1,000) as a clearly-provisional
 //!   floor pending a real study, not a claimed target.
 //! - **`coverage_min_analysis_rate`, [`Calibration::Placeholder`]**: no held-out corpus has ever
@@ -121,10 +121,9 @@ impl<T> Threshold<T> {
 }
 
 /// The declared, versioned threshold policy: pack size, lexicon scale, token analysis rate, and
-/// p50/p90/p99 latency against a named device class (tasks.md 2.1/2.2). A [`crate::
+/// p50/p90/p99 latency against a named device class. A [`crate::
 /// readiness_verdict::ReadinessReport`] records [`ThresholdPolicy::policy_id`] so an older
-/// certificate stays interpretable after the numbers move (design.md: "belong in one declared
-/// place with a version").
+/// certificate stays interpretable after the numbers move.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ThresholdPolicy {
     /// This schema's wire-shape version at the time this policy was produced.
@@ -133,9 +132,9 @@ pub struct ThresholdPolicy {
     /// — see this module's doc). Bump whenever a seeded value changes after review; never bump
     /// silently as part of an unrelated change.
     pub policy_id: String,
-    /// The target device class every latency threshold and result is measured against
-    /// (spec.md: "Latency thresholds and results SHALL name the device class they were measured
-    /// against"). Freeform, matching this crate's own predicate/construct/witness convention of
+    /// The target device class every latency threshold and result is measured against, so a
+    /// result is never read as evidence about an unbenchmarked device.
+    /// Freeform, matching this crate's own predicate/construct/witness convention of
     /// stable strings over a premature enum.
     pub device_class: String,
     /// Maximum artifact (pack) size, in bytes.
