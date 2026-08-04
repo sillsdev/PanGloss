@@ -84,11 +84,11 @@ pub mod capability;
 /// [`capability_entry::evaluate_capability`] assembles `characterize` + `enumerate_default`'s
 /// inputs the way [`emit::emit_with_budget`]'s own setup does (`surface_table` + [`replace::
 /// SegAlphabet`], `PhonologyProbe::new`, stratum-cascade `prules_in_order`) and returns the
-/// resulting `CompileDecision` from one call. Still purely additive and check-only -- see that
+/// resulting `CompileDecision` from one call. Check-only -- see that
 /// module's own doc.
 pub mod capability_entry;
-/// Phase B composition-path budget guards (`docs/fst-plan/phase-b-compose-budget-design.md`):
-/// [`morphotactics::EnumerationBudget`]'s sibling for the P6 composition path ([`replace`],
+/// Composition-path budget guards:
+/// [`morphotactics::EnumerationBudget`]'s sibling for the composition path ([`replace`],
 /// [`gate`], [`uflexc`]) -- size/count caps plus an opt-in wall-clock deadline for every
 /// compose/union/minimize call on that path. See that module's own doc for the full design.
 pub mod compose_budget;
@@ -120,70 +120,68 @@ pub mod coverage_ledger;
 /// [`replace`]'s rule cascade? Standalone, additive, same status as [`replace`]/[`uflexc`].
 pub mod e2_infix_probe;
 pub mod emit;
-/// Step 2 of `openspec/changes/reify-compilation-plans` (design.md D2): `enumerate_default`, which
+/// `enumerate_default`, which
 /// builds today's compilation topology for a `Grammar` as a single reified [`plan::Plan`], verified
 /// structurally against the real `preexpand::should_run`/`emit::probe_would_refuse`/`gate::
-/// partition_entries` seams. Task 1.3 (Step 3, `crate::emit::plan_topology_decisions`) flips
+/// partition_entries` seams. `crate::emit::plan_topology_decisions` flips
 /// `emit.rs`'s own compile path to DERIVE its composite-emission/structural-composite topology
 /// decisions from a `Plan` this function builds, rather than re-deriving `should_run`/
 /// `probe_would_refuse`/`structural_candidate_rules` a second, independent time -- still does not
-/// build/execute a `Plan` into real FSTs itself (that stays data-only), and `gate::
-/// partition_entries` (D2's third seam) is not wired into `emit.rs`'s mainline at all -- it belongs
+/// build/execute a `Plan` into real FSTs itself (that stays data-only). `gate::
+/// partition_entries` belongs
 /// to `gate.rs`'s own, separate compile entry point; see that module's own doc for full scope and
 /// the judgment calls it surfaces.
 pub mod enumerate;
-/// Task 7.5 of `openspec/changes/cleanup-and-recipe-parity`: the validated
+/// The validated
 /// [`executable_candidate::ExecutableCandidate`] and the portable, round-trippable
 /// [`executable_candidate::PortablePlan`] document it binds. Its sole constructor is
 /// [`recipe_registry::Registry::executable_candidate`], enforced by a
-/// [`recipe_registry::RegistryAuthority`] no other module can produce. Purely additive and
-/// reachable from no routing, applicability or evaluation path -- see that module's own doc for
+/// [`recipe_registry::RegistryAuthority`] no other module can produce. Builds and verifies portable
+/// data only -- see that module's own doc for
 /// why the artifact identity is domain-framed SHA-256 rather than the plan's FNV root, and for the
 /// typed refusals that replace an implicit fallback.
 pub mod executable_candidate;
-/// P6 feasibility prototype sibling of [`replace`]/[`uflexc`]: static MPR/POS subrule gating (the
-/// `docs/fst-plan/p6-prototype-report.md` §6 item 4 gap). See that module's doc for the design and
-/// why it is a flag-free static partition rather than a flag-diacritics encoding.
+/// Static MPR/POS subrule gating, a sibling of [`replace`]/[`uflexc`]. See that module's doc for
+/// the design and why it is a flag-free static partition rather than a flag-diacritics encoding.
 pub mod gate;
-/// Task 7.11 of `openspec/changes/cleanup-and-recipe-parity`: [`grammar_semantics::
+/// [`grammar_semantics::
 /// GrammarSemantics`], the ONE immutable typed owner of this crate's grammar-derived semantic
 /// facts. Capability ([`capability`]/[`capability_entry`]/[`preflight`]/[`selection`]), registry
 /// applicability ([`recipe_registry::Applicability`]), recipe-space accounting
 /// ([`recipe_space::GrammarFacts`]) and the phonology existence gate ([`junctions::PhonologyProbe`])
-/// are now projections over it rather than four independent grammar walks. See that module's own
+/// are projections over it rather than four independent grammar walks. See that module's own
 /// doc for what it deliberately does NOT own (`conformance_coverage`'s independent structural
 /// witnesses, and the compile paths themselves) and for the declared-vs-cascade phonology split.
 pub mod grammar_semantics;
-/// Stage 0D of `openspec/changes/define-fst-compilation-health` (design.md, R6): the FST
+/// The FST
 /// compilation-health finding schema -- [`health::Severity`]/[`health::severity_for_size_bytes`]
-/// (R6's exact decimal-byte size bands), the immutable [`health::FindingCode`] `PGFdddd` registry,
+/// (exact decimal-byte size bands), the immutable [`health::FindingCode`] `PGFdddd` registry,
 /// [`health::HealthFinding`]/[`health::HealthReport`], and canonical JSON. Health is REPORTED
 /// about a compile, never consulted during one; [`health_evaluator`] produces the findings.
 pub mod health;
-/// `openspec/changes/add-fst-compilation-health-audit`: the real health EVALUATOR --
+/// The real health EVALUATOR --
 /// [`health_evaluator::evaluate_health`] turns available compile measurements (final FST payload
 /// size, [`emit::EmitReport`], [`compose_budget::ComposeError`], per-word
 /// [`health_evaluator::ApplyBudgetTrip`]s) into [`health::HealthFinding`]s + a [`health::
 /// HealthReport`], consuming [`health`]'s schema without recomputing any measurement itself. See
 /// that module's own doc for the exact input -> finding mapping and which finding kinds stay
-/// unpopulated pending `profile-fst-compilation`.
+/// unpopulated pending real compile-profile instrumentation.
 pub mod health_evaluator;
 pub mod junctions;
-/// Stage 1B of `openspec/changes/lower-fst-pattern-environments` (design.md D3): the shared
+/// The shared
 /// pattern/environment → FST lowering seam -- [`lower::lower_span`] lowers one subrule's
 /// `left_env · lhs_focus · right_env` triple into foma acceptors, [`lower::spans_overlap`] tests
-/// two such spans for a non-empty intersection. The migration follow-on (`tasks.md` 2.1) inverted
-/// the original borrow-from-[`replace`] direction: [`lower::Slot`]/[`lower::pattern_slots`]/
+/// two such spans for a non-empty intersection. [`lower::Slot`]/[`lower::pattern_slots`]/
 /// [`lower::resolve_alpha_tuples`]/[`lower::render_slots`]/[`lower::AlphaAssignment`]/
-/// [`lower::TupleReport`] are now defined HERE, the canonical pattern-lowering vocabulary, with
+/// [`lower::TupleReport`] are defined HERE, the canonical pattern-lowering vocabulary, with
 /// [`replace`] re-exporting them at their old paths for its own rewrite-rule compilation and every
-/// other existing caller; see that module's own doc for full scope, what moved vs. what stayed in
+/// other existing caller; see that module's own doc for full scope, what stayed in
 /// [`replace`] (`SegAlphabet`, `owning_table`) and why, and the judgment calls it surfaces.
 pub mod lower;
-/// Task 7.4 of `openspec/changes/cleanup-and-recipe-parity`: the ONE derivation of a
+/// The ONE derivation of a
 /// [`recipe_mechanism::MechanismGraph`], taking [`grammar_semantics::GrammarSemantics`] and no
-/// `&Grammar` at all. Purely additive and reachable from no routing, applicability or candidate
-/// path -- see that module's own doc for why the signature is the enforcement.
+/// `&Grammar` at all. Builds and verifies data only -- see that module's own doc for why the
+/// signature is the enforcement.
 pub mod mechanism_provider;
 pub(crate) mod morphotactics;
 /// **The speed question's cheap first-pass filter, split off from the accuracy question.** A purely
@@ -193,16 +191,17 @@ pub(crate) mod morphotactics;
 /// NOTHING about size as a preference: on the private `sena` grammar the plan-composed net is 50x
 /// SMALLER and ~1300x slower to apply than the hand-spun one, so every size metric picks the wrong
 /// candidate. Read that module's own doc for the mechanism, and for the hard scope rule: it is a
-/// first-pass filter and a regression tripwire, wired into no `Score` field, ranking key,
-/// eligibility predicate or certification verdict, and it can never suppress a proposal.
+/// first-pass filter and a regression tripwire that can never suppress a proposal, and no `Score`
+/// field, ranking key, eligibility predicate or certification verdict consults it -- grep for
+/// callers of its public functions to confirm.
 pub mod net_shape;
-/// Step 3 of `openspec/changes/reify-compilation-plans` (design.md D4, task 3.1): the
+/// The
 /// differential-correctness oracle -- [`oracle::differential_oracle`] builds two [`plan::Plan`]s
 /// via [`build::build_controllable`] and compares their `apply_up` result sets, reporting the
 /// shortest disagreeing word plus symmetric difference on mismatch; [`oracle::permute_gate_groups`]
 /// is the second same-relation topology generator this module's own tests diff against. Cheap,
-/// always-on tier only (D4's expensive exact-equivalence stretch tier and any real confirm-engine
-/// integration are explicitly out of scope; see that module's own doc). Purely additive.
+/// always-on tier only (an expensive exact-equivalence stretch tier and any real confirm-engine
+/// integration are explicitly out of scope; see that module's own doc).
 pub mod oracle;
 /// The recipe parity RELATION, stated once: deduplicated [`pg_parse::identity::AnalysisIdentity`]
 /// set equality per word occurrence, plus the typed faults that make a candidate non-selectable
@@ -246,22 +245,22 @@ pub(crate) mod preexpand;
 /// (`Unordered`-stratum rule counts, a grammar-wide mrule x prule product). See that module's own
 /// doc for the full design and judgment calls.
 pub mod preflight;
-/// `openspec/changes/profile-fst-compilation` (proposal.md; design.md D1-D4; R6): the compile-time
+/// The compile-time
 /// **profile** type -- [`profile::CompileProfile`]/[`profile::CompileStage`]/[`profile::
 /// GroupLineCount`]/[`profile::ProfileLabel`] -- collected from the PRODUCTION
 /// `emit::emit_with_budget_profiled` -> `foma::lexcread::fsm_lexc_parse_string` path
-/// (`analyzer::FomaProposer::new_with_budget`). Phase A only (design.md D1) -- see that module's
-/// own doc for the Phase B gate this stays clear of, and [`health_evaluator::profile_findings`]
-/// for how this feeds the previously-unpopulated profile-sourced health findings.
+/// (`analyzer::FomaProposer::new_with_budget`). See that module's
+/// own doc for the more expensive profiling this stays clear of, and
+/// [`health_evaluator::profile_findings`] for how this feeds profile-sourced health findings.
 pub mod profile;
-/// Section 2 of `openspec/changes/certify-language-readiness` (tasks.md §2): the declared,
+/// The declared,
 /// versioned threshold policy — [`readiness_policy::ThresholdPolicy`]/[`readiness_policy::
 /// Threshold`]/[`readiness_policy::Calibration`] — a certification verdict ([`readiness_verdict`])
-/// is measured against. Purely additive data/schema, same "define the versioned schema" precedent
+/// is measured against, same "define the versioned schema" precedent
 /// as [`health`]/[`plan_diagram`]. See that module's own doc for exactly which seeded values are
 /// measured vs. explicitly-marked un-calibrated placeholders.
 pub mod readiness_policy;
-/// Section 3 of `openspec/changes/certify-language-readiness` (tasks.md §3): the tiered
+/// The tiered
 /// certification verdict — [`readiness_verdict::certify`] evaluates a grammar's REAL capability
 /// decision (always calling [`capability_entry::evaluate_capability`] itself), its ADR-0005 trust
 /// status, and its measured facts against a [`readiness_policy::ThresholdPolicy`], producing a
@@ -290,14 +289,13 @@ pub mod recipe_space;
 /// Replace-calculus rule compilation + underlying-form lexc -- the relational encoding of a
 /// rewrite rule, used by [`build`] and [`gate`].
 pub mod replace;
-/// Tasks 2.1/2.2 of `openspec/changes/reify-compilation-plans` (design.md D3): [`selection::
+/// [`selection::
 /// select_plan`] -- filters [`enumerate::enumerate_candidates`]'s candidate list to those whose
 /// [`capability::compose_envelope`] decision is not `Refuse` (capability-safe by construction),
 /// then picks the minimum measured `states + arcs` (via [`build::build_controllable`]), tie-broken
-/// by root [`plan::NodeId`] (D1's content address). A library capability only -- NOT wired into any
-/// production compile path (task 1.3, the production flip, stays a deliberately separate, still-open
-/// task); see that module's own doc for the full filter/rank/tie-break contract and what is parked
-/// to `add-compilation-cost-planner`.
+/// by root [`plan::NodeId`] (a content address). A library capability -- no production compile
+/// path calls it today, a deliberately separate and still-open question; see that module's own doc
+/// for the full filter/rank/tie-break contract.
 pub mod selection;
 /// The per-STRATEGY construct-coverage account: which of this crate's compilers can actually
 /// PROPOSE each [`capability::CharacteristicKind`]. [`capability::Disposition::ConfirmOnly`] is
