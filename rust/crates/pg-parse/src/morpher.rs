@@ -1,4 +1,4 @@
-//! The end-to-end Morpher pipeline (plan §2.1, §5): segment → analyze (unapply) → lexical lookup →
+//! The end-to-end Morpher pipeline: segment → analyze (unapply) → lexical lookup →
 //! synthesize (confirm) → validity/surface filter → dedup → signature.
 //!
 //! Faithful port of `SIL.Machine.Morphology.HermitCrab.Morpher.ParseWord` (Morpher.cs:112-164) +
@@ -49,28 +49,27 @@ pub struct Morpher<'g> {
     g: &'g Grammar,
     root_index: RootAllomorphIndex,
     overlay: Option<&'g SuppliedRootOverlay>,
-    /// P11 §4.3: every `IsPattern` root allomorph, flat across all strata, in document order
-    /// (C#'s single `_lexicalPatterns` list, `Morpher.cs:74-85`) — the exact counterpart of the
-    /// exclusion `RootAllomorphTrie::build` now applies. Inert until the guess subsystem
-    /// (P11 chunks 3-5) reads it.
+    /// Every `IsPattern` root allomorph, flat across all strata, in document order
+    /// (mirrors C#'s single `_lexicalPatterns` list) — the exact counterpart of the
+    /// exclusion `RootAllomorphTrie::build` applies. Read only by the guess subsystem.
     lexical_patterns: Vec<(AllomorphId, LexEntryId)>,
     /// Global per-word step budget threaded through the cascades (analysis is the hot path).
     /// `usize::MAX` = uncapped (the C# behavior). With the memo on it should rarely fire.
     cap: usize,
-    /// The #451 order-invariant analysis memo (M6). Default `true`; `false` reproduces the
-    /// unmemoized engine — the fair-baseline knob (`--memo=off`, plan §6.3). This is the
-    /// "AnalyzerConfig flag" the brief calls for, placed on `Morpher` instead of `AnalyzerConfig`
+    /// The order-invariant analysis memo. Default `true`; `false` reproduces the
+    /// unmemoized engine — the fair-baseline knob (`--memo=off`) for A/B comparison. Placed on
+    /// `Morpher` instead of `AnalyzerConfig`
     /// because the latter's fields are set by a full struct literal in a frozen test
     /// (`stratum_gate.rs`), which an added field would break.
     memo: bool,
     /// `--word-timeout-ms`: an optional wall-clock deadline armed on the [`pg_rules::stratum::StepBudget`]
     /// alongside `cap`, independent of it — two orthogonal bounds on one `parse_word` call,
-    /// whichever fires first wins (`docs/budget-model.md`'s addendum). `None` (the default) never
+    /// whichever fires first wins. `None` (the default) never
     /// reads the clock at all. Exists because per-step cost is not uniform — some pathological
     /// words legitimately spend far longer per step than others (heavier narrowing/expansion
     /// analysis), so a step-count cap alone cannot bound wall-clock time per word.
     word_timeout: Option<Duration>,
-    /// The compile-once FST pattern cache (plan §13.2 step 5): every phonological/morphological
+    /// The compile-once FST pattern cache: every phonological/morphological
     /// matcher this grammar's rules need, compiled exactly once here (mirroring C#'s `Morpher`
     /// construction compile pass) rather than per-application inside the hot analysis/synthesis
     /// loops. Built once per `Morpher`, then shared read-only across every `--threads=N` worker
@@ -82,11 +81,11 @@ pub struct Morpher<'g> {
     /// (AnalysisCompoundingRule.cs:45) reads `_morpher.MaxStemCount` off whichever `Morpher` is
     /// running, and C#'s own `CompoundingRuleTests.SimpleRules` (cs:87,105) constructs a
     /// `new Morpher(...) { MaxStemCount = 3 }` to confirm a genuine 3-root compound
-    /// ("pʰutdatpip" -> "5 8 41"/"5 9 41"). G11: this field used to be a `2` baked directly into the
-    /// `AnalyzerConfig` literal inside [`Self::parse_word_core_selected`], with — unlike C# — no way
-    /// for any caller to reach 3+ stems through the public API at all. `2` was always a faithful
-    /// **default** (it matches C#'s own ctor default byte-for-byte), but hardcoding it also silently
-    /// dropped C#'s per-instance configurability, which is the actual gap: a genuine 3-stem compound
+    /// ("pʰutdatpip" -> "5 8 41"/"5 9 41"). A bare hardcoded `2` inside the
+    /// `AnalyzerConfig` literal, with no way
+    /// for any caller to reach 3+ stems through the public API at all, would be a faithful
+    /// **default** (it matches C#'s own ctor default byte-for-byte) that silently
+    /// drops C#'s per-instance configurability -- a genuine 3-stem compound
     /// is a real construct C# supports out of the box (via this exact property), not a hole in C#'s
     /// design. Default `2` here too; raise via [`Self::with_max_stem_count`].
     ///
@@ -154,8 +153,8 @@ pub struct ParseOutcome {
     /// The numeric-id mirror of `analyses`, same length, **same index correspondence**
     /// (`structured[i]` describes the same analysis as `analyses[i]`) — built from the *same*
     /// [`Morpher::allomorphs_in_morph_order`] traversal as `analyses[i].0`'s string join, so the
-    /// two views of "the morpheme sequence" cannot drift apart (plan §4.2, M8: `pg-ffi`'s wire
-    /// format needs numeric ids, not the display strings `result_signature` prints). Consumed by
+    /// two views of "the morpheme sequence" cannot drift apart. `pg-ffi`'s wire
+    /// format needs numeric ids, not the display strings `result_signature` prints. Consumed by
     /// `pg-ffi`, which re-sorts both views together into canonical order before encoding.
     pub structured: Vec<WordAnalysis>,
     /// Whether the analysis step budget fired on any stratum (partial results possible).
@@ -167,16 +166,16 @@ pub struct ParseOutcome {
     /// report how many (un)application attempts a word actually consumed, independent of whether the
     /// cap was hit — used to compare against C#'s `--rule-stats` attempt counts on specific words.
     pub steps: usize,
-    /// Whether `--word-timeout-ms`'s wall-clock deadline fired for this word (`docs/budget-model.md`'s
-    /// addendum). Independent of `capped` — a word can time out with steps to spare, or hit the step
+    /// Whether `--word-timeout-ms`'s wall-clock deadline fired for this word.
+    /// Independent of `capped` — a word can time out with steps to spare, or hit the step
     /// cap well inside its deadline. `false` whenever no `--word-timeout-ms` was configured (the
     /// default) or the deadline never elapsed. Always `false` for the `invalid_shape` early return
     /// (segmentation happens before the budget is even constructed).
     pub timed_out: bool,
-    /// P11 §4.1: true iff these analyses came from the guess branch (`ParseOptions.guess_root =
+    /// True iff these analyses came from the guess branch (`ParseOptions.guess_root =
     /// true`, on a total normal-lexicon miss — C#'s "the caller passed `guessRoot` and got
     /// results with `RootAllomorph.Guessed`"). Per-analysis granularity is unnecessary: the guess
-    /// branch is all-or-nothing (`syntheses.Count == 0` gate, §1.2), so one flag describes every
+    /// branch is all-or-nothing (`syntheses.Count == 0` gate), so one flag describes every
     /// returned analysis; each `structured[i].guessed` mirrors this same value. Always `false` on
     /// the `parse_word` default path (guess off) and on the `invalid_shape` early return.
     pub guessed: bool,
@@ -197,7 +196,7 @@ impl ParseOutcome {
     }
 }
 
-/// Per-call parse knobs (P11 §4.1) — the Rust mirror of C#'s per-call `guessRoot` parameter to
+/// Per-call parse knobs — the Rust mirror of C#'s per-call `guessRoot` parameter to
 /// `Morpher.ParseWord`/`AnalyzeWord`, rather than a `Morpher`-construction-time flag (FieldWorks
 /// toggles this per word). `#[non_exhaustive]`: future per-call knobs land here instead of more
 /// `parse_word_*` method variants.
@@ -205,7 +204,7 @@ impl ParseOutcome {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ParseOptions {
     /// C#'s `guessRoot`: when true AND the normal (real-lexicon) synthesis pass returns zero
-    /// results, retry via the lexical-pattern guesser (§1.2's pseudocode). `false` (the `Default`)
+    /// results, retry via the lexical-pattern guesser. `false` (the `Default`)
     /// reproduces `parse_word`'s existing behavior byte-for-byte.
     pub guess_root: bool,
     /// Run the lexical guesser without consulting real or supplied root lookup. Intended for
@@ -275,7 +274,7 @@ impl<'g> Morpher<'g> {
         roots
     }
 
-    /// Toggle the #451 analysis memo (default on). `false` = the unmemoized baseline (`--memo=off`).
+    /// Toggle the order-invariant analysis memo (default on). `false` = the unmemoized baseline (`--memo=off`).
     pub fn with_memo(mut self, memo: bool) -> Self {
         self.memo = memo;
         self
@@ -288,56 +287,53 @@ impl<'g> Morpher<'g> {
         self
     }
 
-    /// G11: the per-instance analog of C#'s settable `Morpher.MaxStemCount` property
-    /// (Morpher.cs:72; ctor default `2`, Morpher.cs:56) — see [`Self::max_stem_count`]'s field doc
+    /// The per-instance analog of C#'s settable `Morpher.MaxStemCount` property
+    /// — see [`Self::max_stem_count`]'s field doc
     /// for the full C# citation trail and why raising this cannot turn into an unbounded search
     /// (`self.cap`/`self.word_timeout`'s shared [`pg_rules::stratum::StepBudget`] already bounds
     /// every `parse_word` call independently of this gate). `2` (the default from `new`) reproduces
-    /// `parse_word`'s pre-G11 behavior byte-for-byte; every existing call site is unaffected.
+    /// `parse_word`'s default-`Morpher` behavior byte-for-byte; every existing call site is unaffected.
     ///
     /// Mirrors C#'s own `CompoundingRuleTests.SimpleRules` usage
-    /// (`new Morpher(...) { MaxStemCount = 3 }`, cs:87/105) to confirm a genuine 3-stem compound.
+    /// (`new Morpher(...) { MaxStemCount = 3 }`) to confirm a genuine 3-stem compound.
     pub fn with_max_stem_count(mut self, max_stem_count: u32) -> Self {
         self.max_stem_count = max_stem_count;
         self
     }
 
-    /// P11 §4.3 introspection: the lexical-pattern root allomorphs partitioned out of the trie
-    /// (`Morpher.cs:74-85`'s `_lexicalPatterns`), flat across all strata, document order. Inert
-    /// until the guess subsystem (chunks 3-5) consumes it for real; exposed now so the chunk-2
-    /// gate test can pin the partition directly.
+    /// Introspection: the lexical-pattern root allomorphs partitioned out of the trie
+    /// (mirrors C#'s `_lexicalPatterns`), flat across all strata, document order. Read by the
+    /// guess subsystem; also exposed so a gate test can pin the partition directly.
     #[inline]
     pub fn lexical_patterns(&self) -> &[(AllomorphId, LexEntryId)] {
         &self.lexical_patterns
     }
 
     /// Parse one surface word (C# `Morpher.ParseWord`, guessRoot = false). A thin wrapper over
-    /// [`Self::parse_word_opts`] — byte-identical to the pre-P11 behavior (§4.1).
+    /// [`Self::parse_word_opts`].
     pub fn parse_word(&self, word: &str) -> ParseOutcome {
         self.parse_word_opts(word, &ParseOptions::default())
     }
 
-    /// P11 §4.1: `Morpher.ParseWord`'s full per-call surface, including the `guessRoot` parameter
-    /// C#'s `Morpher.ParseWord(string, out bool, bool)`/`AnalyzeWord` expose. See §1.2's
-    /// pseudocode for the guess branch this adds after step 4.
+    /// `Morpher.ParseWord`'s full per-call surface, including the `guessRoot` parameter
+    /// C#'s `Morpher.ParseWord(string, out bool, bool)`/`AnalyzeWord` expose.
     ///
-    /// P12 chunk 2: a thin wrapper over [`Self::parse_word_core`] with a [`NoopSink`] — byte-
-    /// identical to the pre-P12 behavior. See [`Self::parse_word_traced`] for the tracing entry
+    /// A thin wrapper over [`Self::parse_word_core`] with a [`NoopSink`]. See
+    /// [`Self::parse_word_traced`] for the tracing entry
     /// point.
     pub fn parse_word_opts(&self, word: &str, opts: &ParseOptions) -> ParseOutcome {
         let sink = NoopSink;
         self.parse_word_core(word, opts, &sink)
     }
 
-    /// P12 chunk 2 (design doc §4.3/§5): the tracing entry point — `pangloss parse --trace` (chunk 7)
+    /// The tracing entry point — `pangloss parse --trace`
     /// is the intended caller. Deliberately the smallest possible end-to-end slice: mints the root
     /// `WordAnalysis` node (C# `AnalyzeWord`, called once at `ParseWord` entry) and wires
     /// [`Self::is_word_valid_traced`]'s two morpher-level `Failed` sites
     /// (`PartialParse`/`ObligatorySyntacticFeatures`) plus [`Self::is_match_traced`]'s
-    /// `Successful`/`Failed(SurfaceFormMismatch)`. Does **not** yet reach into `pg_rules::validity`
-    /// (chunk 3) or the analysis/synthesis rule cascades (chunks 4-6) — a candidate rejected by
-    /// `allomorphs_valid_cached` produces no trace event yet (a known, temporary gap the later
-    /// chunks close; see this method's body).
+    /// `Successful`/`Failed(SurfaceFormMismatch)`. Does **not** reach into `pg_rules::validity`
+    /// or the analysis/synthesis rule cascades — a candidate rejected by
+    /// `allomorphs_valid_cached` produces no trace event at this call site (see this method's body).
     pub fn parse_word_traced(
         &self,
         word: &str,
@@ -347,17 +343,18 @@ impl<'g> Morpher<'g> {
         self.parse_word_core(word, opts, trace)
     }
 
-    /// F1 (HYBRID_FST_RUST_PLAN.md §7.1 item 1): the restricted-analysis entry point —
-    /// `hc-hybrid`'s future `FstReplay`-analog (F5) calls this to pin the search the way C#'s
+    /// The restricted-analysis entry point —
+    /// an `FstReplay`-style caller uses this to pin the search the way C#'s
     /// `Morpher.LexEntrySelector`/`RuleSelector` do. Per-call parameters rather than C#'s mutable
-    /// instance state (an approved deviation, §7.1 preamble: "Prefer per-call parameters ... "):
+    /// instance state (an approved deviation: prefer per-call parameters):
     /// thread-safe by construction, and every existing `parse_word*` call site is unaffected (this
     /// is a new, additive entry point, not a signature change to the others).
     ///
     /// `lex_entry_filter` mirrors C#'s ONE `LexEntrySelector` read site
-    /// (`Morpher.cs:370`/`LexicalLookup`) exactly — see [`Self::lexical_lookup`]. `rule_filter`
-    /// mirrors [`pg_rules::stratum::RuleRef`]'s F1 subset (stratum/template/mrule admission, both
-    /// analysis AND synthesis stratum-descent) — see that type's doc for what's deferred to F5.
+    /// (`LexicalLookup`) exactly — see [`Self::lexical_lookup`]. `rule_filter`
+    /// mirrors [`pg_rules::stratum::RuleRef`]'s admission subset (stratum/template/mrule
+    /// admission, both analysis AND synthesis stratum-descent) — see that type's doc for what has
+    /// no `RuleRef` variant yet.
     /// `None` for either reproduces [`Self::parse_word_opts`] byte-for-byte (both this method and
     /// `parse_word_opts` bottom out in the same `parse_word_core_selected`).
     pub fn parse_word_selected(
@@ -374,9 +371,8 @@ impl<'g> Morpher<'g> {
     /// [`Self::parse_word_selected`]'s traced sibling — the selector-restricted analog of
     /// [`Self::parse_word_traced`]. Additive: a thin wrapper over
     /// [`Self::parse_word_core_selected`] with a real sink instead of [`NoopSink`], so every
-    /// existing `parse_word_selected` call site is unaffected. Added for the candidate pre-filter
-    /// Phase 0 census (`docs/superpowers/specs/2026-07-16-candidate-prefilter-plan.md`): the
-    /// census needs to classify WHY a single restricted (per-candidate) reparse produced no match
+    /// existing `parse_word_selected` call site is unaffected. Added so a dead-end/prefilter census
+    /// can classify WHY a single restricted (per-candidate) reparse produced no match
     /// (validity-gate `FailureReason` vs. no derivation at all), which requires a real
     /// [`TraceSink`] on exactly the same selector-restricted path `pg_foma::confirm` uses.
     pub fn parse_word_selected_traced(
@@ -393,9 +389,9 @@ impl<'g> Morpher<'g> {
     /// The shared implementation behind [`Self::parse_word_opts`] (traced with a no-op [`NoopSink`])
     /// and [`Self::parse_word_traced`] (traced with a real sink) — one body, parameterized by
     /// `trace`, so the two paths cannot drift. Every trace call is guarded by
-    /// `trace.is_tracing()` first (§4.1's zero-cost-when-off requirement); `NoopSink`'s own methods
+    /// `trace.is_tracing()` first (zero-cost-when-off requirement); `NoopSink`'s own methods
     /// are `unreachable!()` and are never reached because of that guard. Both filters `None` — see
-    /// [`Self::parse_word_core_selected`] for the F1 selector-restricted sibling.
+    /// [`Self::parse_word_core_selected`] for the selector-restricted sibling.
     fn parse_word_core(
         &self,
         word: &str,
@@ -405,7 +401,7 @@ impl<'g> Morpher<'g> {
         self.parse_word_core_selected(word, opts, trace, None, None)
     }
 
-    /// F1: the actual shared implementation — [`Self::parse_word_core`] is a thin `(None, None)`
+    /// The actual shared implementation — [`Self::parse_word_core`] is a thin `(None, None)`
     /// wrapper over this, so the unfiltered path and the selector-restricted path can never drift.
     fn parse_word_core_selected(
         &self,
@@ -450,9 +446,9 @@ impl<'g> Morpher<'g> {
         };
         let mut input = Word::new(shape, surface_stratum);
 
-        // P12 chunk 2: mint the root `WordAnalysis` node (C# `AnalyzeWord`, called once at
-        // `ParseWord` entry — Morpher.cs). `input.trace` carries the root handle forward through
-        // every later clone (chunk 1's derived-`Clone` threading), so every candidate reaching
+        // Mint the root `WordAnalysis` node (C# `AnalyzeWord`, called once at
+        // `ParseWord` entry). `input.trace` carries the root handle forward through
+        // every later clone (derived-`Clone` threading), so every candidate reaching
         // `is_word_valid_traced`/`is_match_traced` below finds its own ancestor via `w.trace`
         // without this function touching `pg_rules` internals.
         let root = if trace.is_tracing() {
@@ -466,13 +462,12 @@ impl<'g> Morpher<'g> {
         // 2. Analysis: `AnalysisLanguageRule.Apply` — strata reversed (surface→deepest), the union of
         //    every stratum's unapplication outputs accumulated into `results` (AnalysisLanguageRule.cs).
         //
-        // P12 chunk 5: tracing forces `merge_equivalent = false`, matching C#'s own
-        // `_morpher.MergeEquivalentAnalyses && !_morpher.TraceManager.IsTracing` guard
-        // (`AnalysisStratumRule.cs:152`, comment there: "Don't merge if tracing because it messes up
-        // the tracing") -- a trace built while merging is active would silently omit the
+        // Tracing forces `merge_equivalent = false`, matching C#'s own
+        // `_morpher.MergeEquivalentAnalyses && !_morpher.TraceManager.IsTracing` guard --
+        // a trace built while merging is active would silently omit the
         // shape-equivalent alternatives the merge folded away, showing a narrower rule-attempt set
         // than the engine actually explored with tracing off. This is a real, if rare,
-        // control-flow-changing interaction (§2/§5 chunk 5 of the design doc), not just an
+        // control-flow-changing interaction, not just an
         // observability toggle: it must fire even though `pg-rules`' own `merge_equivalent` knob has
         // no other connection to tracing today.
         let cfg = AnalyzerConfig {
@@ -486,25 +481,25 @@ impl<'g> Morpher<'g> {
             max_stem_count: self.max_stem_count,
         };
         // ONE step budget for this whole `parse_word` call (see `pg_rules::stratum::StepBudget`'s
-        // doc / `docs/budget-model.md`): shared, by reference, across every stratum × every
-        // candidate word's `analyze_stratum_scoped_filtered` call below. This is the fix for the
-        // per-`StratumAnalyzer`-instance amplifier — previously each of those calls got its own
-        // fresh `cap`-sized counter, so a multi-stratum, multi-candidate word could explore
+        // doc): shared, by reference, across every stratum × every
+        // candidate word's `analyze_stratum_scoped_filtered` call below. This avoids the
+        // per-`StratumAnalyzer`-instance amplifier where each of those calls would get its own
+        // fresh `cap`-sized counter, letting a multi-stratum, multi-candidate word explore
         // `cap × (#such calls)` steps for a single `--step-cap` value.
         let budget = pg_rules::stratum::StepBudget::new(self.cap).with_timeout(self.word_timeout);
         // One memo scope per `parse_word` (C# `AnalysisScope`, one per `Morpher.ParseWord`): shared
         // across all strata + input words of this parse, never across parses. `None` when memo is
-        // off, OR (P12 chunk 5) whenever tracing is on: `Morpher.cs:239-247` only constructs
-        // `input.AnalysisScope` `if (!_traceManager.IsTracing)`, leaving it unset entirely while
-        // tracing (comment there: "traces must stay byte-identical to the unmemoized engine" --
-        // parse-optimization.md Phase 2 ground rules). This is the M6/Gate-B analog of the
+        // off, OR whenever tracing is on: C# only constructs
+        // `input.AnalysisScope` when not tracing, leaving it unset entirely while
+        // tracing, because traces must stay byte-identical to the unmemoized engine. This is the
+        // analog of the
         // `merge_equivalent` bypass just above: a trace built against a memoized replay would show a
         // narrower rule-attempt set than the real unmemoized engine explores, in exactly the cases a
         // human trusts the trace to explain.
         let scope_cell =
             (self.memo && !trace.is_tracing()).then(|| RefCell::new(AnalysisScope::new()));
         let scope = scope_cell.as_ref();
-        // M5c: the non-head lexicon filter (`AnalysisCompoundingRule.Apply`'s root-allomorph-search
+        // The non-head lexicon filter (`AnalysisCompoundingRule.Apply`'s root-allomorph-search
         // gate — see `pg_rules::stratum::NonHeadRootFilter`'s doc). `pg-parse` owns the
         // `RootAllomorphIndex`, so the closure body lives here; `pg-rules` only receives the search
         // results, never the index type itself (crate-boundary: `pg-rules` cannot depend on
@@ -515,7 +510,7 @@ impl<'g> Morpher<'g> {
         input_set.insert(input.dedup_key(), input);
         let mut results: HashMap<WordKey, Word> = HashMap::default();
         for s in (0..n).rev() {
-            // F1 (§7.1 item 1): `AnalysisLanguageRule.cs:28-29` — `if (!RuleSelector(_strata[i]))
+            // Mirrors C#'s `AnalysisLanguageRule` — `if (!RuleSelector(_strata[i]))
             // continue;`. C#'s `continue` leaves `inputSet` untouched for the next (shallower)
             // iteration, contributing nothing to `results` — mirrored here by skipping the whole
             // body WITHOUT reassigning `input_set`, so a later stratum still receives the same
@@ -526,9 +521,8 @@ impl<'g> Morpher<'g> {
             }
             let mut output_set: HashMap<WordKey, Word> = HashMap::default();
             for w in input_set.values() {
-                // 2026-07-17 dead-end-attribution census addition (`docs/superpowers/specs/
-                // 2026-07-17-better-proposing-fst-plan.md` Phase 0): swapped for the `_traced`
-                // sibling so the analysis (unapply) cascade — previously completely untraced, see
+                // Uses the `_traced`
+                // sibling so the analysis (unapply) cascade — see
                 // `pg_rules::stratum`'s own module doc — nests under this parse's trace tree exactly
                 // like the synthesis cascade already does. `w.trace.unwrap_or(root)` is the same
                 // resolved-cursor idiom used everywhere else in this function; `analyze_stratum_
@@ -596,15 +590,15 @@ impl<'g> Morpher<'g> {
             }
         }
 
-        // P11 §1.2's guess branch: only on a TOTAL miss of the normal (real-lexicon) path, and
-        // only when the caller opted in. `results.values()` is `origAnalyses` (the design doc's
-        // §1.2 notes this is the exact same analysis-candidate set, no re-analysis/copy).
+        // The guess branch: only on a TOTAL miss of the normal (real-lexicon) path, and
+        // only when the caller opted in. `results.values()` is `origAnalyses`, the exact same
+        // analysis-candidate set, no re-analysis/copy.
         let (ordered_matches, guessed): (Vec<Word>, bool) = if opts.guess_root && matches.is_empty()
         {
             let mut guess_matches: Vec<Word> = Vec::new();
             for aw in results.values() {
                 // `LexicalGuess(analysisWord).Distinct()` — the `.Distinct()` is a documented C#
-                // no-op (§1.2): every yielded `Word` is a fresh clone with no `Equals` override,
+                // no-op: every yielded `Word` is a fresh clone with no `Equals` override,
                 // so consuming `guess::lexical_guess`'s `Vec<Word>` directly is faithful.
                 for synthesis_word in
                     guess::lexical_guess(g, &self.lexical_patterns, aw, trace, root)
@@ -615,8 +609,8 @@ impl<'g> Morpher<'g> {
                             if self.is_word_valid_traced(&vw, trace, root)
                                 && self.is_match_traced(&vw, word, trace, root)
                             {
-                                // No dedup here (§1.2: "unlike the normal path's HashSet/Distinct,
-                                // duplicates ... survive into the output") — a plain `Vec`, not a
+                                // No dedup here -- unlike the normal path's HashSet/Distinct,
+                                // duplicates survive into the output — a plain `Vec`, not a
                                 // `WordKey`-deduped `HashMap` like `matches` above.
                                 guess_matches.push(vw);
                             }
@@ -625,8 +619,8 @@ impl<'g> Morpher<'g> {
                 }
             }
             // Descending by morph count (`Morphs.Count()`), C#'s `List.Sort` — Rust's `sort_by` is
-            // stable, a deliberate strengthening over C#'s unstable sort (design doc §7 open
-            // question #4): tie order becomes deterministic instead of unspecified.
+            // stable, a deliberate strengthening over C#'s unstable sort: tie order becomes
+            // deterministic instead of unspecified.
             guess_matches.sort_by_key(|w| std::cmp::Reverse(w.morphs.len()));
             (guess_matches, true)
         } else {
@@ -636,7 +630,7 @@ impl<'g> Morpher<'g> {
         // 5. Build (morpheme-join, surface) pairs for each surviving word, plus the numeric-id
         //    mirror `structured` (same index correspondence — see `ParseOutcome` docs). Iterates
         //    `ordered_matches` in order so the guess branch's sort is reflected in `structured`'s
-        //    enumeration order (§1.2: "this only matters for `AnalyzeWord` enumeration order").
+        //    enumeration order (this only matters for `AnalyzeWord` enumeration order).
         let mut analyses: Vec<(String, String)> = Vec::with_capacity(ordered_matches.len());
         let mut structured: Vec<WordAnalysis> = Vec::with_capacity(ordered_matches.len());
         for w in &ordered_matches {
@@ -663,12 +657,12 @@ impl<'g> Morpher<'g> {
     /// root morph — `Word.SetRootAllomorph`, Word.cs:137-147). The analysis history (`mrule_apps` /
     /// `mrule_app_index`) is carried over unchanged — it is what synthesis will confirm.
     ///
-    /// F1-extended (§7.1 item 1) with the ONE
-    /// `LexEntrySelector` read site (`Morpher.cs:370`, `.Where(LexEntrySelector)` on the
+    /// Extended with the ONE
+    /// `LexEntrySelector` read site (`.Where(LexEntrySelector)` on the
     /// distinct-entries sequence, checked BEFORE the `.Distinct()`/per-allomorph expansion below —
     /// mirrored here by filtering `matched` before the dedup loop, so a rejected entry contributes
     /// no allomorph clones at all, exactly like C#'s `Where` short-circuiting the LINQ pipeline
-    /// before `Distinct()` runs). `None` reproduces the pre-F1 unfiltered behavior byte-for-byte —
+    /// before `Distinct()` runs). `None` reproduces the unfiltered behavior byte-for-byte —
     /// every existing call site (there was exactly one) passes `None`/`lex_entry_filter` straight
     /// through from [`Self::parse_word_core`].
     fn lexical_lookup_filtered(
@@ -794,15 +788,15 @@ impl<'g> Morpher<'g> {
         self.synthesis_pipeline_selected(syn_word, &sink, TraceHandle::DUMMY, None, &budget, None)
     }
 
-    /// P12 chunks 4/5 (the applied-event spine): [`Self::synthesis_pipeline`]'s traced sibling.
+    /// [`Self::synthesis_pipeline`]'s traced sibling.
     /// Threads `trace`/`parent` into `pg_rules::stratum::synthesize_stratum_traced`, whose
     /// `guided_synth` fires `MorphologicalRuleApplied` on every successful rule confirmation and
     /// reassigns each output word's trace cursor -- the mechanism that makes a traced multi-rule
-    /// synthesis render as a followable rule sequence (design doc §6's acceptance bar) rather than
+    /// synthesis render as a followable rule sequence rather than
     /// a single `Successful` leaf under the root.
     ///
     /// Only reached from [`Self::parse_word_core_selected`]'s guess branch, which already owns a
-    /// real per-`parse_word` `StepBudget` — threaded straight through here (Fix 2).
+    /// real per-`parse_word` `StepBudget` — threaded straight through here.
     fn synthesis_pipeline_traced(
         &self,
         syn_word: Word,
@@ -813,12 +807,12 @@ impl<'g> Morpher<'g> {
         self.synthesis_pipeline_selected(syn_word, trace, parent, None, budget, None)
     }
 
-    /// F1 (§7.1 item 1): [`Self::synthesis_pipeline_traced`]'s selector-restricted sibling — adds
-    /// `SynthesisStratumRule.cs:51`'s `!_morpher.RuleSelector(_stratum)` half of that method's entry
+    /// [`Self::synthesis_pipeline_traced`]'s selector-restricted sibling — adds
+    /// C#'s `!_morpher.RuleSelector(_stratum)` half of that method's entry
     /// gate (the `input.RootAllomorph.Morpheme.Stratum.Depth > _stratum.Depth` half is already
     /// enforced INSIDE `synthesize_stratum_traced` itself — see that function's doc, which notes
-    /// "`RuleSelector` is always the identity in the batch tool", i.e. this half was never wired
-    /// until now). On rejection the word passes through UNCHANGED (C#'s `input.ToEnumerable()`), not
+    /// "`RuleSelector` is always the identity in the batch tool"). On rejection the word passes
+    /// through UNCHANGED (C#'s `input.ToEnumerable()`), not
     /// dropped — mirrored here by inserting `w.clone()` into `next` directly instead of calling
     /// `synthesize_stratum_traced`. `None` reproduces [`Self::synthesis_pipeline_traced`]
     /// byte-for-byte (both bottom out here).
@@ -875,10 +869,10 @@ impl<'g> Morpher<'g> {
         cur.into_values().collect()
     }
 
-    /// C# `Morpher.IsWordValid` (Morpher.cs:555-582): the realizational FS unifies with the syntactic
+    /// Mirrors C#'s `Morpher.IsWordValid`: the realizational FS unifies with the syntactic
     /// FS (always — realizational is empty in v1), every morphological rule has been re-applied
     /// (`IsAllMorphologicalRulesApplied` = `mrule_app_index == -1`), every obligatory syntactic
-    /// feature is present, and (plan §13.1 Tier-1 #5, Morpher.cs:581) every distinct allomorph used
+    /// feature is present, and every distinct allomorph used
     /// in the word passes its own `Allomorph.IsWordValid` — environments, bound-root, and per-
     /// allomorph required-syntactic-FS gates (`pg_rules::validity::allomorphs_valid`).
     fn is_word_valid(&self, w: &Word) -> bool {
@@ -886,10 +880,10 @@ impl<'g> Morpher<'g> {
         self.is_word_valid_traced(w, &sink, TraceHandle::DUMMY)
     }
 
-    /// P12 chunk 2/3: [`Self::is_word_valid`]'s traced sibling — the single source of truth both
+    /// [`Self::is_word_valid`]'s traced sibling — the single source of truth both
     /// share (`is_word_valid` calls this with a [`NoopSink`]). Wires C#'s `Failed(PartialParse)`/
-    /// `Failed(ObligatorySyntacticFeatures)` (Morpher.cs:723, the two morpher-level clauses ahead of
-    /// the allomorph-validity gate — §3.1's direct 1:1 matches), then (chunk 3) delegates the final
+    /// `Failed(ObligatorySyntacticFeatures)` (the two morpher-level clauses ahead of
+    /// the allomorph-validity gate), then delegates the final
     /// gate to [`pg_rules::validity::allomorphs_valid_cached_traced`], which reports exactly which
     /// of its own 11 `FailureReason`s rejected the word. `parent` is `w.trace.unwrap_or(parent)`:
     /// once later chunks set `Word::trace` as the parse progresses (mirroring C#'s `CurrentTrace`
@@ -914,12 +908,12 @@ impl<'g> Morpher<'g> {
         pg_rules::validity::allomorphs_valid_cached_traced(self.g, w, &self.cache, trace, parent)
     }
 
-    /// C# `Morpher.IsMatch` (Morpher.cs:584): the synthesized shape's surface matches the input
-    /// word. P12 chunk 2: the sole (traced) implementation — `trace.is_tracing()` guards every
+    /// Mirrors C#'s `Morpher.IsMatch`: the synthesized shape's surface matches the input
+    /// word. The sole (traced) implementation — `trace.is_tracing()` guards every
     /// trace call, so the [`NoopSink`] path pays only the guard check, matching
     /// [`Self::is_word_valid_traced`]'s pattern. Wires C#'s `Successful`/
-    /// `Failed(SurfaceFormMismatch)` (Morpher.cs:740, `IsMatch`'s own gate — §3.1's direct 1:1
-    /// match). Only reached for candidates that already passed [`Self::is_word_valid_traced`] (the
+    /// `Failed(SurfaceFormMismatch)` (`IsMatch`'s own gate). Only reached for candidates that
+    /// already passed [`Self::is_word_valid_traced`] (the
     /// `&&` short-circuit at both call sites), matching C#'s `IsWordValid(word) && IsMatch(word,
     /// input)` order exactly.
     fn is_match_traced(
@@ -957,7 +951,7 @@ impl<'g> Morpher<'g> {
     /// morph order. The single shared traversal that both [`Self::morpheme_join`] (the display
     /// string) and [`Self::structured_analysis`] (the FFI's numeric ids) are built from, so the
     /// two representations of "the morpheme sequence" cannot disagree on count, order, or dedup
-    /// (flagged as a drift risk during M8 review — kept as one traversal, two projections).
+    /// — a drift risk kept off by construction: one traversal, two projections.
     fn allomorphs_in_morph_order(&self, w: &Word) -> Vec<MorphRecord> {
         let mut ms = w.morphs.clone();
         ms.sort_by_key(|m| m.order);
@@ -978,9 +972,10 @@ impl<'g> Morpher<'g> {
             .collect()
     }
 
-    /// The signature's morpheme half: `join("+", AllomorphsInMorphOrder.Select(a => a.Morpheme.Id))`
-    /// (BatchCommand.cs:233), mapped to each morpheme's `<MorphemeId>` string (empty when the
-    /// morpheme declares none — every Indonesian morpheme). P11 §4.4-2: the sentinel
+    /// The signature's morpheme half: mirrors C#'s
+    /// `join("+", AllomorphsInMorphOrder.Select(a => a.Morpheme.Id))`, mapped to each morpheme's
+    /// `<MorphemeId>` string (empty when the
+    /// morpheme declares none — every Indonesian morpheme). The sentinel
     /// `MorphemeId::GUESSED` has no `Grammar::morphemes` row — its join text is
     /// `Word::guessed_root`'s rendered `text` (C#'s fabricated `Morpheme.Id = shapeString`, which
     /// is exactly what `BatchCommand` prints for a guessed root).
@@ -1008,12 +1003,12 @@ impl<'g> Morpher<'g> {
             .join("+")
     }
 
-    /// The FFI's numeric mirror of one analysis (plan §4.2, M8): the same
+    /// The FFI's numeric mirror of one analysis: the same
     /// [`Self::allomorphs_in_morph_order`] sequence, projected to grammar-tier `MorphemeId`
     /// ordinals (dense indices into `Grammar::morphemes` — **not** the `<MorphemeId>` XML string
-    /// `morpheme_join` prints, and not yet mapped to a managed `IMorpheme`; that mapping is the
-    /// out-of-scope §4.1 C# facade), plus the root's position in that sequence and the word's POS
-    /// symbol index (`Morpher.cs`'s `WordAnalysis`, cs:637). P11 §4.4-2: `morpheme_ids` needs no
+    /// `morpheme_join` prints, and not mapped to a managed `IMorpheme`; that mapping belongs to a
+    /// C# facade this port does not implement), plus the root's position in that sequence and the
+    /// word's POS symbol index (mirrors C#'s `Morpher.WordAnalysis`). `morpheme_ids` needs no
     /// sentinel special-casing — `MorphemeId::GUESSED.0 == u32::MAX` passes through as a plain
     /// numeric id, exactly as the design calls for; `root_morpheme_index`'s
     /// `Some(*allo) == w.root_allomorph` comparison likewise works unmodified, since both sides
@@ -1217,13 +1212,13 @@ fn interleavings<T: Clone>(left: &[T], right: &[T]) -> Vec<Vec<T>> {
 }
 
 impl<'g> Morpher<'g> {
-    /// C# `Morpher.GenerateWords(LexEntry, IEnumerable<Morpheme>, FeatureStruct)` (Morpher.cs:169-237
-    /// — the trace-less overload; this port has no `ITraceManager`, plan rust-conversion.md §7, and
-    /// no parallel-cascade mode, same §7). Builds one seed [`Word`] per `(root allomorph,
+    /// Mirrors C#'s `Morpher.GenerateWords(LexEntry, IEnumerable<Morpheme>, FeatureStruct)`
+    /// — the trace-less overload; this port has no `ITraceManager` and
+    /// no parallel-cascade mode. Builds one seed [`Word`] per `(root allomorph,
     /// otherMorphemes permutation)` pair — `rootEntry.Allomorphs × PermuteRules(otherMorphemes)`
-    /// (Morpher.cs:185,195-198) — runs each through [`Self::synthesis_pipeline`], and keeps the
-    /// [`Self::is_word_valid`] survivors' rendered surface forms, deduplicated (C# `words.Distinct()`,
-    /// Morpher.cs:236). Returned in sorted order (a `BTreeSet`, not C#'s unordered `HashSet`) — a
+    /// — runs each through [`Self::synthesis_pipeline`], and keeps the
+    /// [`Self::is_word_valid`] survivors' rendered surface forms, deduplicated (C# `words.Distinct()`).
+    /// Returned in sorted order (a `BTreeSet`, not C#'s unordered `HashSet`) — a
     /// strengthening, not a behavior difference: the returned *set* of words is what C# guarantees.
     ///
     /// Deliberately **not** filtered by [`Self::is_match`]: generation has no input surface string to
@@ -1502,7 +1497,7 @@ impl<'g> Morpher<'g> {
         surface::to_plain_string(table, &w.shape, false)
     }
 
-    /// Add-to-dictionary support (pg-lexicon design doc, 2026-07-14): fabricate a hypothetical root
+    /// Add-to-dictionary support: fabricate a hypothetical root
     /// word for `shape_text` under an EXISTING lexical entry's class assignment (`exemplar`'s own
     /// `syn_fs`/`mpr`/`partial`/stratum), then run it through the ordinary synthesis pipeline —
     /// optionally applying exactly one inflectional affix/realizational rule first. This is the same
@@ -1687,10 +1682,10 @@ fn contains_feature(fs: &FeatureStruct, feat: FeatId) -> bool {
 
 #[cfg(test)]
 mod trace_tests {
-    //! P12 chunk 2: `is_word_valid_traced`'s `PartialParse` clause is exercised here (rather than in
+    //! `is_word_valid_traced`'s `PartialParse` clause is exercised here (rather than in
     //! `pg-parse/tests/trace_gate.rs`) because a natural repro needs a multi-stratum/template
-    //! scenario this crate's shared integration-test grammar helper does not cheaply build (see
-    //! `docs/p12-tracemanager-design.md` §5 chunk 2's own note); a hand-built `Word` against a
+    //! scenario this crate's shared integration-test grammar helper does not cheaply build;
+    //! a hand-built `Word` against a
     //! minimal (zero-stratum) grammar exercises the exact gate directly and deterministically --
     //! `is_word_valid_traced` never reads `Grammar::strata` at all, only `w.mrule_app_index`/
     //! `w.obligatory`/`w.syn_fs` plus `pg_rules::validity::allomorphs_valid_cached` (a no-op on a
