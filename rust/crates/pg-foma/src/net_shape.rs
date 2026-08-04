@@ -61,9 +61,9 @@
 //! the fix that removed the explosion, so it cannot discriminate the case this module exists for.
 //!
 //! # HARD SCOPE: this is a first-pass filter and a regression tripwire, NEVER a certification signal
-//! - Nothing in this module is read by [`crate::recipe_optimizer::Score`], by any ranking key, by
-//!   any eligibility predicate, or by any certification verdict. It is not wired into
-//!   [`crate::recipe_runtime`]'s evaluator at all. Deliberate: the owner accepted that a shape proxy
+//! - This module computes a diagnostic value and nothing more: no `Score` field, ranking key,
+//!   eligibility predicate, or certification verdict may consult it (grep to confirm). Deliberate:
+//!   the owner accepted that a shape proxy
 //!   *may mislead*, and that acceptance does not extend to letting it decide correctness.
 //! - **A pathological verdict is INFORMATION, not permission to stop proposing.** Nothing here can
 //!   skip, truncate, or prune a candidate or a proposal set — there is no code path from this module

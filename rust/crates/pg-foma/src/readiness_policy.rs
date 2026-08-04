@@ -1,11 +1,10 @@
-//! Section 2 of `openspec/changes/certify-language-readiness` (tasks.md §2; `specs/
-//! language-readiness-certification/spec.md`'s "threshold policy version" requirement): one
+//! One
 //! declared, **versioned** place for the thresholds a certification verdict ([`crate::
 //! readiness_verdict`]) is measured against — pack size, lexicon scale, token analysis rate, and
 //! p50/p90/p99 latency against a named device class — so a verdict can cite the policy version
 //! that produced it and an older certificate stays interpretable after the numbers move.
 //!
-//! **Purely additive, data-only.** This module defines and unit-tests the schema and today's seed
+//! This module owns the schema and today's seed
 //! values only; it does not gate any compile path, mirroring `crate::health`/`crate::plan_diagram`'s
 //! own "define the versioned schema first" precedent.
 //!

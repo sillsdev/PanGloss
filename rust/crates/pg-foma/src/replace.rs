@@ -1158,10 +1158,10 @@ pub fn compile_rewrite_rule_subset(
     if !is_fully_supported_shape(g, rule) {
         return Ok(None);
     }
-    // `openspec/changes/fix-multitable-fst-compilation`: resolved ONCE per rule (LHS is shared
+    // Resolved ONCE per rule (LHS is shared
     // across every subrule, module doc), never re-derived per subrule/slot and never an implicit
     // `g.char_tables[0]` default -- see [`owning_table`]'s own doc for how it finds the rule's
-    // owning stratum. `None` (rule not wired into any stratum's own cascade at all) is treated
+    // owning stratum. `None` (a rule absent from every stratum's own cascade) is treated
     // exactly like an unsupported pattern construct -- uncovered, reported `skipped` by this
     // function's own callers, never a silent table-zero guess.
     let Some(table) = owning_table(g, rule) else {

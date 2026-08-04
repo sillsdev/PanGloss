@@ -622,11 +622,10 @@ impl Registry {
     /// candidate (Amharic's 2.2x-cheaper `identity-mismatch`), so a substitution made here would be
     /// indistinguishable, downstream, from a measurement of the candidate that was asked for.
     ///
-    /// # Reachable from no routing or selection path
-    /// Like [`crate::mechanism_provider`], this is additive: no applicability predicate, no
-    /// dispatch, and no evaluation in [`crate::recipe_runtime`] consumes an `ExecutableCandidate`
-    /// yet. Constructing one changes no outcome and makes nothing selectable that was not
-    /// selectable before; task 7.13 owns the migration of consumers onto it.
+    /// # Builds and verifies data only, like [`crate::mechanism_provider`]
+    /// Constructing an `ExecutableCandidate` changes no outcome and makes nothing selectable that
+    /// was not selectable before -- no applicability predicate, dispatch, or evaluation in
+    /// [`crate::recipe_runtime`] is required to consume one.
     pub fn executable_candidate(
         &self,
         instance: &RecipeInstance,

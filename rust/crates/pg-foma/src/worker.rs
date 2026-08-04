@@ -69,7 +69,8 @@
 //! [`WorkerOutcome::health_report`], reusing [`crate::health::FindingCode::ResourceBudgetReached`]
 //! (this module's own judgment call, documented on that function: none of [`crate::health::Metric`]'s
 //! existing variants name "parent-observed wall-clock kill" or "sampled child RSS", so one new
-//! variant, [`crate::health::Metric::SampledCompileRssBytes`], is appended -- purely additive, the
+//! variant, [`crate::health::Metric::SampledCompileRssBytes`], is appended, never inserted or
+//! renumbered -- the
 //! same "new codes/variants only ever append" discipline `crate::health`'s own module doc
 //! documents, and the same reuse this crate's `OrderingRuleCount`/`enum_budget_finding` precedents
 //! already established for "no existing variant fits, but the finding vocabulary itself is closed

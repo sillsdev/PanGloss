@@ -1,10 +1,9 @@
-//! Tasks 2.1/2.2 of `openspec/changes/reify-compilation-plans` (design.md **D3**, ADR 0002):
-//! capability-safe plan selection over [`crate::enumerate::enumerate_candidates`]'s candidate list,
-//! plus D3's deterministic default selection objective.
+//! Capability-safe plan selection over [`crate::enumerate::enumerate_candidates`]'s candidate list,
+//! plus a deterministic default selection objective.
 //!
-//! # D3, restated
-//! > The enumerator emits only plans all of whose nodes pass the characteristics-check envelope
-//! > (`add-capability-characteristics-check`). Every capability-passing plan is recall-preserving,
+//! # The invariant this relies on
+//! > The enumerator emits only plans all of whose nodes pass the characteristics-check envelope.
+//! > Every capability-passing plan is recall-preserving,
 //! > so all produce the identical confirmed set — selection can never pick a fast-but-wrong plan; it
 //! > only trades cost. The default selection objective is deterministic and cheap: minimize a
 //! > measure-or-estimate of `(states + arcs)` (controllable path) / payload size (black-box foma
@@ -13,14 +12,14 @@
 //! [`select_plan`] is exactly this, done twice, in this order:
 //! 1. **Filter**: run [`crate::capability::compose_envelope_for_strategy`] over every candidate. A candidate
 //!    whose [`crate::capability::CompileDecision`] is `Refuse` is excluded from being chosen —
-//!    capability-safe BY CONSTRUCTION, per D3's own words, never a runtime check bolted on after the
+//!    capability-safe BY CONSTRUCTION, never a runtime check bolted on after the
 //!    fact. This is the ONLY filter: an `Admit` candidate and a `ConfirmOnly` candidate are equally
-//!    admissible here (both are recall-preserving; D3 draws the admissibility line at `Refuse`, not
+//!    admissible here (both are recall-preserving; the line is drawn at `Refuse`, not
 //!    at `ConfirmOnly` — see [`crate::capability::CompileDecision`]'s own doc, "`ConfirmOnly`... is
 //!    first-class, not a failure").
 //!
-//!    **The filter is STRATEGY-AWARE**, and this is the only place in the crate that can be. D3's
-//!    "every capability-passing plan is recall-preserving" rests on
+//!    **The filter is STRATEGY-AWARE**, and this is the only place in the crate that can be.
+//!    "Every capability-passing plan is recall-preserving" rests on
 //!    [`crate::capability::Disposition::ConfirmOnly`]'s precondition — "recall-preserving only if
 //!    the proposer proposes the superset" — which is a claim about a PROPOSER, not about a grammar
 //!    or a plan. A bare `compose_envelope` has no proposer in hand and so was checking that
@@ -30,22 +29,22 @@
 //!    one. See [`crate::strategy_coverage`] for the table and the whole-construct recall hole that
 //!    survived undetected without it.
 //! 2. **Rank**: among admissible candidates, build each one via [`crate::build::build_controllable`]
-//!    (the only builder that exists today — task's own instruction: "measured `(states + arcs)`
-//!    from `build_controllable`'s net where available") and pick the minimum `states + arcs`,
-//!    tie-broken by the candidate's root [`crate::plan::NodeId`] (D1's content address, already a
+//!    (the only builder that exists today, so measured `(states + arcs)`
+//!    from its net is what ranking uses where available) and pick the minimum `states + arcs`,
+//!    tie-broken by the candidate's root [`crate::plan::NodeId`] (a content address, already a
 //!    total, deterministic order via `NodeId`'s derived `Ord`).
 //!
-//! # What this module deliberately does NOT do (PARKED to `add-compilation-cost-planner`, ADR 0002)
+//! # What this module deliberately does NOT do
 //! No projected-cost model with error bounds, no committed-plan cache, no profile-guided
 //! autotuning, no payload-size measurement for the black-box foma (composite/structural-composite)
-//! path — design.md D3's own words: "v1 is 'enumerate, filter by capability, pick by
-//! measured/estimated size, build.'" This module ships exactly that v1, nothing more.
+//! path: "enumerate, filter by capability, pick by
+//! measured/estimated size, build" is the whole of what this module ships, nothing more.
 //!
-//! # Not wired into any production compile path (task's own hard rule)
+//! # A library capability, not a production compile path
 //! [`select_plan`] is a library capability callers can invoke, not something `emit.rs`/`analyzer.rs`/
-//! `composite.rs` calls today. Task 1.3 (the production flip: replacing the hardcoded `should_run`/
-//! `probe_would_refuse`/`partition_entries` branching with a selected `Plan`) stays a deliberately
-//! separate, still-open task — this module's own existence does not imply that wiring happened.
+//! `composite.rs` calls today. Replacing the hardcoded `should_run`/
+//! `probe_would_refuse`/`partition_entries` branching with a selected `Plan` stays a deliberately
+//! separate, still-open question — this module's own existence does not imply that flip happened.
 //!
 //! # A candidate that fails to build is unmeasurable, not un-admissible
 //! A [`crate::compose_budget::ComposeBudget`] cap can trip inside [`crate::build::
