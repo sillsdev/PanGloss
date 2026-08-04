@@ -3081,7 +3081,7 @@ fn emit_with_budget_profiled_with_strategy(
     // `tests/f1_sena_gate.rs`, depends on this).
     let phon = PhonologyProbe::new(g);
 
-    // reify-compilation-plans task 1.3 (design.md D2): build the reified Plan ONCE here and derive
+    // Build the reified Plan ONCE here and derive
     // this function's two topology decisions from IT — see [`plan_topology_decisions`]'s own doc.
     // Single source of truth: from this point on, `plan_wants_composite_emission`/
     // `plan_wants_structural_composite` (NOT a second, independent call to
@@ -3092,7 +3092,7 @@ fn emit_with_budget_profiled_with_strategy(
         SurfaceDerivationPolicy::ReifiedPlan => plan_topology_decisions(g, phon.as_ref()),
     };
 
-    // Gate F3 3b ("Structural composites" section above): `struct_rules` is the actual candidate
+    // ("Structural composites" section above): `struct_rules` is the actual candidate
     // rule LIST [`build_structural_composites`] needs — a `Plan` leaf is an opaque marker
     // ([`crate::plan::FragmentSpec::StructuralCompositeMarker`]'s own doc), so it does not carry
     // rule content and this is still computed directly. It's a cheap, purely-static computation
@@ -3134,8 +3134,8 @@ fn emit_with_budget_profiled_with_strategy(
     }
     stage_start = Instant::now();
 
-    // Morphotactic pruning (`crate::morphotactics`, `docs/fst-plan/morphotactic-composite-pruning.md`
-    // -- the Aweti scale fix): built ONCE here and shared by BOTH composite builders below, so
+    // Morphotactic pruning (`crate::morphotactics`) -- the Aweti scale fix: built ONCE here and
+    // shared by BOTH composite builders below, so
     // `crate::preexpand::build_composites_with_mode` and `build_structural_composites` prune against
     // the identical automaton/instrumentation rather than each building (and each independently
     // reading env vars for) their own. `HC_PREEXPAND_FLAT`/`HC_PREEXPAND_PROBE_CAP` are read exactly
