@@ -2742,7 +2742,7 @@ fn struct_extend(
                         // than one surface when the chain's own LHS matching is genuinely ambiguous
                         // (`mruleTruncOptIns` on a root beginning with its own optional segment: "sas"
                         // admits BOTH "gas" and "gsas" as legitimate parses) -- every one is upward-safe
-                        // to pair with THIS `w`'s own tag order (cross-product, plan's iron rule).
+                        // to pair with THIS `w`'s own tag order (cross-product, upward-only).
                         // Boundary-insertion (module doc, [`with_boundary_insertions`]): a metathesis in
                         // this chain may have left a boundary char inside the surface (mu+i) that
                         // `generate_words` stripped — a no-op when the grammar has no boundary defs.
@@ -2969,14 +2969,14 @@ pub fn emit_with_precision(g: &Grammar, precision: PrecisionConfig) -> EmitResul
     emit_with_budget(g, precision, &enum_budget)
 }
 
-/// [`emit_with_precision`]'s core, with the Fix 1 enumeration budget threaded in explicitly rather
+/// [`emit_with_precision`]'s core, with the fail-fast enumeration budget threaded in explicitly rather
 /// than read from env — see [`emit_with_precision`]'s own doc for why tests should call this
 /// directly (with a small [`crate::morphotactics::EnumerationBudget::with_caps`]) instead of
 /// setting `HC_ENUM_ENTRY_BUDGET`/`HC_ENUM_PROBE_BUDGET`.
 ///
 /// Thin, zero-behavior-change wrapper over [`emit_with_budget_profiled`] with `profile: None`
-/// (`openspec/changes/profile-fst-compilation`'s own D2/"no observer-induced minimization" rule,
-/// proven byte-for-byte by `tests::fst_profile_emitted_artifact_is_byte_identical_with_profiling_on_or_off`
+/// ("no observer-induced minimization" rule, proven byte-for-byte by
+/// `tests::fst_profile_emitted_artifact_is_byte_identical_with_profiling_on_or_off`
 /// in this file's own test module below): every existing caller of this function is completely
 /// unaffected by the profiling machinery's existence.
 pub(crate) fn emit_with_budget(
@@ -3019,8 +3019,8 @@ enum SurfaceRootScopePolicy {
 }
 
 /// [`emit_with_budget`]'s real core, with an optional compile-profile sink
-/// (`openspec/changes/profile-fst-compilation`, `crate::profile`'s own module doc "Stage
-/// boundaries") threaded through as its fourth parameter. `profile: None` is byte-for-byte
+/// (`crate::profile`'s own module doc "Stage boundaries") threaded through as its fourth
+/// parameter. `profile: None` is byte-for-byte
 /// identical to this function's pre-profiling behavior (nothing here branches on `profile` for any
 /// purpose OTHER than pushing a timing/count record) -- `crate::analyzer::FomaProposer::
 /// new_with_budget` is the one production caller that passes `Some`.
