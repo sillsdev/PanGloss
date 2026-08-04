@@ -61,7 +61,7 @@
 mod test_support;
 
 pub mod analyzer;
-/// Step 3a of `openspec/changes/reify-compilation-plans` (design.md D3): [`build::
+/// [`build::
 /// build_controllable`], a [`plan::Plan`] interpreter for the controllable subtree (the `Gate`
 /// node and its per-group `Compose{LexiconFragment, Replace}` children [`enumerate::
 /// enumerate_default`] emits) into a real, composed [`foma::types::Fsm`] -- proven equivalent to
@@ -70,7 +70,7 @@ pub mod analyzer;
 /// `String`, not this module's `Fsm`); see that module's own doc for the full scope and the
 /// per-group-Replace-variance obstacle this step surfaced.
 pub mod build;
-/// Step 1 of `openspec/changes/add-capability-characteristics-check` (design.md D1/D2/D3): the
+/// The
 /// `CharacteristicsProfile` projection, the `CapabilityPredicate` trait + `PredicateVerdict`, the
 /// exhaustive default-deny `characterize`, and the `simultaneous.subrule-overlap` predicate.
 /// Gates SELECTION, not compilation: `compose_envelope_for_strategy` decides what [`selection`]
@@ -90,28 +90,25 @@ pub mod capability_entry;
 pub mod compose_budget;
 pub mod composite;
 pub mod confirm;
-/// Task 5.1 of `openspec/changes/add-capability-characteristics-check` (ADR 0001): the
+/// The
 /// conformance-coverage cross-check — [`conformance_coverage::construct_ids_for`] (the
 /// [`capability::CharacteristicKind`] → `machine/conformance/constructs.txt` identifier mapping,
 /// the contract) and [`conformance_coverage::supported_coverage_report`]/[`conformance_coverage::
 /// supported_uncovered`] (the pure cross-check over a caller-supplied passing-construct set).
-/// **NON-BLOCKING PREVIEW**: this module reports gaps, it does not enforce `gaps.is_empty()` —
-/// see its own doc for the mapping, today's reported gaps, and the deferred build-breaking end
-/// state. The fixture-replay glue that builds the "passing" set lives in
+/// Reports gaps — see its own doc for the mapping and today's reported gaps. The fixture-replay
+/// glue that builds the "passing" set lives in
 /// `tests/conformance_coverage_gate.rs` (dev-dependency-only).
 pub mod conformance_coverage;
-/// `openspec/changes/define-grammar-coverage-contract` (demoted to an evidence role — `docs/adr/
-/// 0001-honest-capability-boundary.md`; `openspec/changes/STAGING.md` Stage 0B): the one-time,
+/// The one-time,
 /// audited coverage LEDGER over the frozen `pg-grammar/src/model.rs` construct set —
 /// [`coverage_ledger::LedgerRow`]/[`coverage_ledger::CoverageLedger`]/[`coverage_ledger::
 /// build_ledger`] (a consolidated, serializable view over [`capability::CharacteristicKind`]'s
 /// existing disposition/predicate/conformance-mapping facts) plus [`coverage_ledger::
 /// containment_evidence_for`] (the curated, hand-reviewed proposer-to-confirm containment-test
-/// citation table). **Evidence, not a gate** — nothing here is consulted by any compile path; see
-/// that module's own doc for the full per-task assessment of what already existed vs. what this
-/// module adds.
+/// citation table). **Evidence, not a gate**: a report input, not a compile-time check — see
+/// that module's own doc.
 pub mod coverage_ledger;
-/// E2 feasibility probe (not mainline; see that module's doc): does token-space Infix-rule
+/// A feasibility probe (not mainline; see that module's doc): does token-space Infix-rule
 /// splicing (Amharic root-and-pattern interdigitation) reach 100% recall composed with
 /// [`replace`]'s rule cascade? Standalone, additive, same status as [`replace`]/[`uflexc`].
 pub mod e2_infix_probe;
