@@ -1,27 +1,27 @@
-//! P12: the `TraceManager` port (rule-by-rule parse tracing). Design: `docs/p12-tracemanager-design.md`.
+//! The `TraceManager` port: rule-by-rule parse tracing.
 //!
-//! Pure data types + the [`TraceSink`] trait (chunk 0, §5 of the design doc). No call sites live
-//! here — `pg-rules`/`pg-parse`'s own functions gain `trace` parameters in later chunks. This module
+//! Pure data types plus the [`TraceSink`] trait. No call sites live
+//! here — `pg-rules`/`pg-parse`'s own functions gain `trace` parameters elsewhere. This module
 //! is unit-testable in isolation: build a small tree by hand through the trait and assert the
 //! resulting [`TreeTraceSink`]'s structure (see the tests below, which pin the two trickiest pieces
 //! of C#'s `TraceManager.cs` cursor semantics: the "applying a rule reassigns the cursor so later
 //! events nest UNDER it" behavior, and `SynthesizeWord`'s two-levels-deep
-//! `curTrace.Children.Last.Children.Add` reach — §1.2 of the design doc).
+//! `curTrace.Children.Last.Children.Add` reach).
 //!
-//! ## Zero-cost-when-off (§4.1)
+//! ## Zero-cost-when-off
 //! [`NoopSink`] is the always-present no-op [`TraceSink`] every existing call path uses by default
-//! (`Morpher::parse_word` stays a thin wrapper over a traced variant called with `NoopSink`, later
-//! chunks). Every real call site must check [`TraceSink::is_tracing`] BEFORE doing any other
+//! (`Morpher::parse_word` stays a thin wrapper over a traced variant called with `NoopSink`).
+//! Every real call site must check [`TraceSink::is_tracing`] BEFORE doing any other
 //! trace-related work (cloning a `Word`, computing a [`FailureReason`]) — the single branch that
 //! must be free when tracing is off.
 //!
-//! ## Deliberate simplification vs. the design sketch (flagged)
-//! The design doc's trait sketch (§4.1) takes `input`/`output` as `&Word` and leaves "the sink
+//! ## Deliberate simplification vs. the design sketch
+//! The original sketch takes `input`/`output` as `&Word` and leaves "the sink
 //! itself decides whether/when to clone" up to the implementation. This port's [`TreeTraceSink`]
 //! always snapshots via `Word::clone()` (a whole owned [`Word`], not a hand-trimmed lighter struct) —
 //! simpler than threading a separate `WordSnapshot` type through every call site, and costs nothing
 //! on the no-op path (the clone only happens inside `TreeTraceSink`'s methods, never inside
-//! `NoopSink`'s, and call sites must check `is_tracing()` before calling either). The design's
+//! `NoopSink`'s, and call sites must check `is_tracing()` before calling either). The sketch's
 //! `FailureObj` (C#'s `object failureObj` parameter — a free-form extra failure detail, e.g. which
 //! specific co-occurrence rule rejected) is dropped entirely: no call site in this landing needs it
 //! to answer "why", and adding a type for it now would be speculative. Both simplifications are
@@ -35,7 +35,7 @@ use crate::word::Word;
 
 /// A stable handle into the trace tree a [`TraceSink`] is building — the Rust analog of C#'s
 /// `Word.CurrentTrace`, carried as an explicit value (an arena index) rather than a mutated field.
-/// `Word` itself carries `trace: Option<TraceHandle>` (chunk 1) mirroring `CurrentTrace: object`.
+/// `Word` itself carries `trace: Option<TraceHandle>` mirroring `CurrentTrace: object`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TraceHandle(u32);
 
@@ -299,8 +299,7 @@ pub trait TraceSink {
         subrule: i32,
         output: &Word,
     ) -> TraceHandle;
-    /// 2026-07-17 dead-end-attribution census addition (`deadend_census.rs`; plan
-    /// `docs/superpowers/specs/2026-07-17-better-proposing-fst-plan.md` Phase 0): unlike the
+    /// Dead-end-attribution census addition (`deadend_census.rs`): unlike the
     /// synthesis-side [`Self::morphological_rule_not_applied`] (which has carried a `FailureReason`
     /// since P12 chunk 4), this method originally carried none — there was no call site at all
     /// (`pg_rules::stratum::StratumAnalyzer`'s analysis cascade has never been traced; confirmed by

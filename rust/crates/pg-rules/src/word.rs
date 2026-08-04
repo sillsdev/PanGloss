@@ -281,7 +281,7 @@ pub struct Word {
     /// leaves `_alternatives` fresh-empty, Word.cs:87), so only the two sites that build a canonical
     /// (the stratum merge) ever populate it.
     pub alternatives: Vec<Word>,
-    /// P12 (plan §P12, chunk 1): C# `Word.CurrentTrace` (`object`), the live cursor a `TraceManager`
+    /// Mirrors C# `Word.CurrentTrace` (`object`), the live cursor a `TraceManager`
     /// call reassigns as the parse progresses (`Trace.cs`/`TraceManager.cs`; see
     /// `crate::trace`'s module doc for why this port carries the cursor as an explicit
     /// [`crate::trace::TraceHandle`] value alongside the word instead of a mutated field the sink
@@ -464,7 +464,7 @@ impl Word {
     /// `non_heads.len() - 1`, which holds while the trail only ever grows (fresh analysis splits,
     /// `Word::non_head_unapplied`) but stops holding once a compounding rule confirms and
     /// `guided_synth` decrements `non_head_app_index` **without** removing anything from
-    /// `non_heads` (P4, 2026-07-09 — see `pg-rules/src/morph.rs`'s `synth_compound_subrule` doc for
+    /// `non_heads` (see `pg-rules/src/morph.rs`'s `synth_compound_subrule` doc for
     /// why `non_heads` is deliberately never popped). With two or more non-heads on the trail
     /// (reachable today via `pg_parse::Morpher::generate_words`'s direct API, which pushes one
     /// non-head per `GenMorpheme::NonHead` with no `max_stem_count` gate — that gate is analysis-

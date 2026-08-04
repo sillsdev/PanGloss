@@ -46,7 +46,7 @@ use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 // submodule of `rewrite`) reuses this exact mutable-shape machinery rather than duplicating it —
 // the "resolve to concrete node data before mutating" discipline this type already encodes is
 // precisely what the metathesis synthesis reorder (`pg_rules::metathesis::synthesis_reorder`) needs,
-// per the C# "RUSTIFY Stage 2" comment (`SynthesisMetathesisRuleSpec.cs:78-80`) both modules port.
+// matching how the C# original structures this same operation.
 #[derive(Clone, Debug)]
 pub(crate) struct MutNode {
     pub(crate) kind: NodeKind,

@@ -47,11 +47,10 @@ use crate::rewrite::{self, EnvFst, PruleCache};
 // =================================================================================================
 // Owning-table resolution -- this module's fix for the "implicit table-zero default" antipattern
 // class (`pg_foma::replace::owning_table`'s doc names this precedent on the compiled-net side; the
-// functions below are its confirm-side/oracle equivalent, closing the gap
-// `docs/conformance/multitable-shared-representation-design.md`'s own "residual gap" section left
-// open -- the oracle never got the table-threading fix the compiled side did). Table zero is never
-// an implicit default: every phonological rule/allomorph resolves its own natural classes and
-// environments against whichever table its OWN stratum actually owns.
+// functions below are its confirm-side/oracle equivalent -- the oracle never got the
+// table-threading fix the compiled side did). Table zero is never an implicit default: every
+// phonological rule/allomorph resolves its own natural classes and environments against whichever
+// table its OWN stratum actually owns.
 // =================================================================================================
 
 /// Resolve the table that owns a grammar-resident phonological rule (`g.prules[pid.0]`), by finding
@@ -509,12 +508,12 @@ mod owning_table_tests {
         );
     }
 
-    /// 2026-07-27 follow-up (defect (a), `pg-rules/src/morph.rs`'s own module-level `const TABLE`):
+    /// Follow-up (defect (a), `pg-rules/src/morph.rs`'s own module-level `const TABLE`):
     /// the SAME regression this module's two tests above pin for a phonological rule, but for an
     /// **affix allomorph's own LHS/RHS pattern** (`morph::compile_parts`/`morph::build_ana_affix_lhs`,
     /// threaded via `morph::build_allomorph_lhs_cache`) -- the "environment half" of an allomorph
-    /// (`build_env_cache`, this module) was fixed by the earlier sweep, but its LHS/RHS *pattern*
-    /// stayed hardcoded at `TableId(0)` until this task's own fix. Two tables/strata, deliberately
+    /// (`build_env_cache`, this module) was fixed separately, but its LHS/RHS *pattern*
+    /// stayed hardcoded at `TableId(0)` until fixed here. Two tables/strata, deliberately
     /// misaligned raw indices, mirroring the phonological-rule probe's own fixture exactly: `t0`
     /// (stratum `S0`, no rules) has one decoy segment "z" (`f`=`+`, raw index 0); `t1` (stratum
     /// `S1`, owning the affix rule below) has "q" (`f`=`-`, raw index 0) and "p" (`f`=`+`, raw index

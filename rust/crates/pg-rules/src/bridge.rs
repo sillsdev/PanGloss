@@ -221,11 +221,11 @@ impl<'g> PatternBridge<'g> {
 
     /// Resolve a natural-class constraint to canonical `u64` lanes.
     ///
-    /// KNOWN RESIDUAL (plan §13.1 Tier-1 #3) — **now largely closed by P10's identity lane** for
+    /// KNOWN RESIDUAL — **now largely closed by P10's identity lane** for
     /// bridges compiled with [`PatternBridge::id_lane`] on ≤64-char-def tables (the morphological
     /// LHS + allomorph-environment paths; exactly the paths where the residual bit Sena). Still
     /// open *in principle* for: id-lane-off consumers (the phonological rewrite/metathesis
-    /// pipelines) and >64-def tables (Amharic) — but **P7 (2026-07-10) measured and censused that
+    /// pipelines) and >64-def tables (Amharic) — but **P7 measured and censused that
     /// residual as inert on every reference grammar**: all `Segments`-kind class unions in
     /// Indonesian and Amharic are exact (zero over-matching non-members — their rich feature
     /// systems fully pin every char-def), the only unifiable char-def pairs are unreachable
