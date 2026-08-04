@@ -175,10 +175,8 @@ impl LoadedPack {
         }
     }
 
-    /// The FST-health "admission result" (CONTEXT.md; `pg_foma::health::HealthReport::admission`,
-    /// reused verbatim — this module never redefines or re-derives the health schema, per this
-    /// crate's task brief to reconcile with, not duplicate,
-    /// `add-fst-compilation-health-audit`'s finding schema). The worst non-overridden severity
+    /// The FST-health "admission result" (`pg_foma::health::HealthReport::admission`,
+    /// reused verbatim — this module never redefines or re-derives the health schema). The worst non-overridden severity
     /// among this pack's FST-health findings; [`pg_foma::health::Severity::Ideal`] for an empty or
     /// fully-overridden report.
     pub fn fst_health_admission(&self) -> pg_foma::health::Severity {
