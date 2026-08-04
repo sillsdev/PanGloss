@@ -1,29 +1,31 @@
-//! `openspec/changes/profile-fst-compilation` (proposal.md "What Changes"; design.md D1-D4;
-//! `IMPLEMENTATION-READINESS.md` R6: "measurements come from the admission walker, budget tracker,
-//! and compile profile once ... the health evaluator consumes them without recomputation"): the
+//! The
 //! compile-time **profile** type — per-stage timings, per-group emitted-line counts, and the final
 //! compiled network's own state/arc counts — collected from the PRODUCTION surface-prebaked
 //! `crate::emit::emit_with_budget` -> `foma::lexcread::fsm_lexc_parse_string` path
-//! (`crate::analyzer::FomaProposer::new_with_budget`).
+//! (`crate::analyzer::FomaProposer::new_with_budget`). Measurements come from the admission walker,
+//! budget tracker, and compile profile once; the health evaluator consumes them without
+//! recomputation.
 //!
-//! # Scope: Phase A only (design.md D1 "Two gated profile phases")
-//! Design.md is explicit that Phase A profiles ONLY the production emitter/probe/lexc stages;
-//! Phase B (per-rule cascade own-net metrics, alpha-tuple/group counts, the running composition
-//! state/arc curve) is "blocked until Stage 2 semantic changes wire the replacement cascade into
-//! the production constructor" — merely having experimental `crate::replace`/`crate::gate`
-//! functions is insufficient (design.md "Dependencies"). This module defines [`ProfileLabel`] as
-//! the gate that gap requires (spec.md "Compile profiles identify the compiled pipeline": "Metrics
+//! # Scope: the production path only
+//! This module profiles ONLY the production emitter/probe/lexc stages;
+//! profiling the experimental `crate::replace`/`crate::gate` cascade (per-rule cascade own-net
+//! metrics, alpha-tuple/group counts, the running composition
+//! state/arc curve) needs that cascade wired into
+//! the production constructor first — merely having experimental `crate::replace`/`crate::gate`
+//! functions is insufficient. This module defines [`ProfileLabel`] as
+//! the gate that gap requires ("Metrics
 //! from an experimental cascade SHALL NOT be labeled as production") and [`CompileProfile::label`]
 //! is always [`ProfileLabel::Production`] for every profile this module's own production
-//! constructor ([`CompileProfileBuilder::production`]) builds — nothing in this change wires
-//! `crate::replace`/`crate::gate`'s experimental cascade to this module at all (that remains
-//! genuinely out of scope until Stage 2, tasks.md section B), but [`ProfileLabel::ExperimentalComposition`]
-//! exists now so a future Phase B change has a place to land its own label rather than inventing
+//! constructor ([`CompileProfileBuilder::production`]) builds — nothing here wires
+//! `crate::replace`/`crate::gate`'s experimental cascade to this module at all, but
+//! [`ProfileLabel::ExperimentalComposition`]
+//! exists now so a future change profiling the experimental cascade has a place to land its own
+//! label rather than inventing
 //! one under time pressure, and so `crate::health_evaluator::profile_findings` can enforce the gate
 //! today (its own doc/tests) even though nothing yet constructs the experimental variant outside
 //! this module's own tests.
 //!
-//! # D2 — no observer-induced minimization
+//! # No observer-induced minimization
 //! Every measurement here is a value the production path already computes for its own purposes:
 //! [`std::time::Instant`] deltas around code that runs unconditionally anyway, [`EmitCounts::
 //! lexc_lines`] snapshots (a plain integer field already incremented by `write_tag_entry`/
@@ -32,18 +34,18 @@
 //! Nothing here calls `fsm_compose`/`fsm_union`/`fsm_minimize`/`fsm_lexc_parse_string` an extra
 //! time, clones an `Fsm`, or otherwise performs automaton work solely to produce a metric.
 //!
-//! # D3 — top-line compile time is mandatory
+//! # Top-line compile time is mandatory
 //! [`CompileProfileBuilder::production`] starts its own wall-clock timer at construction (called at
 //! the very top of `FomaProposer::new_with_budget`, before `crate::emit::emit_with_budget_profiled`
 //! even runs) and [`CompileProfileBuilder::finish`] (called after `fsm_lexc_parse_string` returns)
 //! stamps [`CompileProfile::total_elapsed_millis`] from that SAME timer — the full
 //! grammar-to-ready-network wall time, spanning both this crate's own emission work and the
 //! vendored `foma` crate's lexc-parse call. Per-stage timings ([`CompileProfile::stages`]) are
-//! attribution, not a guaranteed additive partition of the total (design.md D3): they cover the
+//! attribution, not a guaranteed additive partition of the total: they cover the
 //! stages this module names below, not every line of `emit_with_budget_profiled`'s own glue code
 //! between them.
 //!
-//! # Stage boundaries (Phase A, task A.1/A.2)
+//! # Stage boundaries
 //! [`CompileStage`]'s six variants are the real, pre-existing sequential boundaries inside
 //! `crate::emit::emit_with_budget_profiled` (the profiled core `crate::emit::emit_with_budget`
 //! thinly wraps) plus the one boundary that lives in `crate::analyzer` instead (lexc parsing itself
@@ -54,7 +56,7 @@
 //! (`crate::emit::build_structural_composites`, zero-cost/zero-elapsed for a grammar with no
 //! structural-composite candidate rules), `LexcConstruction` (every remaining lexc-source
 //! string-building step: derivation layers, per-template-group slot chains, root-entry writing —
-//! design.md's "derivation layers, lexc writing" named as one stage here because, in this emitter's
+//! named as one stage here because, in this emitter's
 //! own architecture, they are the SAME interleaved pass: `build_deriv_chain`/`build_slot_chain`
 //! write directly into the growing `out: String` as they classify each rule, so there is no
 //! separate "derive, then write" boundary to time independently without threading a timer through
@@ -63,7 +65,7 @@
 //! (`foma::lexcread::fsm_lexc_parse_string`, timed in `crate::analyzer`, the one stage this module
 //! names but `emit.rs` never runs).
 //!
-//! # Per-template/continuation lexc line counts (task A.1) are per-GROUP, not per-literal-template
+//! # Per-template/continuation lexc line counts are per-GROUP, not per-literal-template
 //! This emitter's own module doc ("Deliberate supersets" item 1) is explicit that templates sharing
 //! an identical `required_syn_fs` are collapsed into ONE shared category-group root+derivation
 //! section — lexc has no per-template graph-sharing equivalent, so line counts genuinely attach to
@@ -87,19 +89,19 @@
 //!    network at all (an `Unsupported`/budget-exceeded early return) -- see
 //!    `crate::analyzer::FomaProposer::new_with_budget`'s own call site for exactly which outcomes
 //!    leave this `None`.
-//! 3. **No experimental-cascade instrumentation ships in this change** (see this module's own
-//!    "Scope: Phase A only" section above) -- [`ProfileLabel::ExperimentalComposition`] is a real,
+//! 3. **No experimental-cascade instrumentation ships here** (see this module's own
+//!    "Scope: the production path only" section above) -- [`ProfileLabel::ExperimentalComposition`] is a real,
 //!    tested enum variant (`crate::health_evaluator::profile_findings`'s own gate test constructs
-//!    one directly) but nothing in `crate::replace`/`crate::gate` builds one yet; that wiring is
-//!    Phase B's job, per design.md's own dependency note.
+//!    one directly) but nothing in `crate::replace`/`crate::gate` builds one yet; that wiring
+//!    depends on the experimental cascade reaching the production constructor first.
 
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
-/// This profile's own pipeline fingerprint string for [`ProfileLabel::Production`] (spec.md
-/// "Compile profiles identify the compiled pipeline": "Every compile profile SHALL name and
-/// fingerprint the constructor/network it measures"). Named after the exact production call chain
+/// This profile's own pipeline fingerprint string for [`ProfileLabel::Production`]: every compile
+/// profile names and fingerprints the constructor/network it measures. Named after the exact
+/// production call chain
 /// (`crate::analyzer::FomaProposer::new_with_budget` -> `crate::emit::emit_with_budget_profiled` ->
 /// `foma::lexcread::fsm_lexc_parse_string`) so a report reader can locate the real code path this
 /// profile describes without guessing.
@@ -107,20 +109,20 @@ pub const PRODUCTION_PIPELINE: &str =
     "pg_foma::analyzer::FomaProposer::new_with_budget (crate::emit::emit_with_budget_profiled -> \
      foma::lexcread::fsm_lexc_parse_string)";
 
-/// Which pipeline a [`CompileProfile`] measures (design.md D1's Phase A/Phase B gate; spec.md
-/// "Compile profiles identify the compiled pipeline"). See this module's doc "Scope: Phase A only"
-/// section — nothing in this change constructs [`ProfileLabel::ExperimentalComposition`] outside
+/// Which pipeline a [`CompileProfile`] measures.
+/// See this module's doc "Scope: the production path only"
+/// section — nothing here constructs [`ProfileLabel::ExperimentalComposition`] outside
 /// this module's own tests, but the variant exists now so `crate::health_evaluator::
-/// profile_findings` can enforce spec.md's "Experimental cascade is profiled early" scenario today.
+/// profile_findings` can enforce "an experimental cascade's profile is labeled early" today.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProfileLabel {
     /// The surface-prebaked `crate::emit::emit_with_budget` -> `fsm_lexc_parse_string` path that is
     /// the ACTUAL network `crate::analyzer::FomaProposer::propose` looks up against today.
     Production,
-    /// A pre-production capture of `crate::replace`/`crate::gate`'s experimental cascade (Phase B,
-    /// not yet wired into the production constructor). spec.md: "the result is labeled
-    /// `experimental_composition` and cannot satisfy production-profile gates" —
+    /// A pre-production capture of `crate::replace`/`crate::gate`'s experimental cascade,
+    /// not wired into the production constructor. The result is labeled
+    /// `experimental_composition` and cannot satisfy production-profile gates —
     /// `crate::health_evaluator::profile_findings` refuses to fold a profile carrying this label
     /// into a production [`crate::health::HealthReport`].
     ExperimentalComposition,
@@ -168,8 +170,8 @@ impl CompileStage {
     }
 }
 
-/// One stage's own elapsed wall time (design.md D3: attribution, not a guaranteed additive
-/// partition of [`CompileProfile::total_elapsed_millis`]).
+/// One stage's own elapsed wall time -- attribution, not a guaranteed additive
+/// partition of [`CompileProfile::total_elapsed_millis`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StageTiming {
     pub stage: CompileStage,
@@ -186,12 +188,13 @@ pub struct GroupLineCount {
     pub lines: u64,
 }
 
-/// The Phase A compile profile (design.md/spec.md; this module's own doc). Every field is a value
-/// the production path already computed for another reason — see module doc "D2" section.
+/// The production-path compile profile (this module's own doc). Every field is a value
+/// the production path already computed for another reason — see module doc "No observer-induced
+/// minimization" section.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CompileProfile {
-    /// Which pipeline this profile measures (spec.md "Compile profiles identify the compiled
-    /// pipeline"). Always [`ProfileLabel::Production`] for every profile this change's own
+    /// Which pipeline this profile measures. Always [`ProfileLabel::Production`] for every profile
+    /// this crate's own
     /// production code path builds.
     pub label: ProfileLabel,
     /// This profile's pipeline fingerprint ([`PRODUCTION_PIPELINE`] for
@@ -374,9 +377,9 @@ mod tests {
 
     #[test]
     fn fst_profile_experimental_composition_label_is_distinct_from_production() {
-        // spec.md "Experimental cascade is profiled early": the label exists and is distinguishable
-        // from Production, even though nothing in this change constructs one outside this test (see
-        // module doc "Scope: Phase A only").
+        // An experimental cascade's profile is labeled early: the label exists and is distinguishable
+        // from Production, even though nothing outside this test constructs one (see
+        // module doc "Scope: the production path only").
         assert_ne!(
             ProfileLabel::Production,
             ProfileLabel::ExperimentalComposition
