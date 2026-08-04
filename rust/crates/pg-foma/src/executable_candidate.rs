@@ -1,20 +1,20 @@
-//! Task 7.5 of `openspec/changes/cleanup-and-recipe-parity`: the ONE validated
+//! The ONE validated
 //! [`ExecutableCandidate`], and the portable [`PortablePlan`] document it binds.
 //!
 //! # What this is for
-//! Before this module, "a candidate" was a `CandidatePlan` (deleted by task 7.13) -- a `&'static str`
-//! label, an in-memory [`Plan`], and an [`EmissionStrategy`], all public fields, constructible by
-//! anyone, with no identity that survives leaving the process and no statement anywhere of what
-//! executing it would actually deliver. Every consumer therefore re-derived the missing parts on
-//! its own, and the two that mattered -- which compiler realizes it, and what that compiler can
-//! represent -- were re-derived independently in [`crate::recipe_runtime`] and
+//! A raw candidate as a `&'static str`
+//! label, an in-memory [`Plan`], and an [`EmissionStrategy`] -- all public fields, constructible by
+//! anyone -- would have no identity that survives leaving the process and no statement anywhere of what
+//! executing it would actually deliver. Every consumer would therefore have to re-derive the missing parts on
+//! its own, and the two that matter most -- which compiler realizes it, and what that compiler can
+//! represent -- would be re-derived independently in [`crate::recipe_runtime`] and
 //! [`crate::strategy_coverage`].
 //!
 //! [`ExecutableCandidate`] binds all of it in one validated value:
 //!
 //! | Bound | Field | Derived from |
 //! |---|---|---|
-//! | Stable semantic digest | [`ExecutableCandidate::semantic_digest`] | SHA-256 over [`crate::recipe_mechanism::MechanismGraph::canonical_projection`] (task 7.4's byte-identical fresh-load projection) |
+//! | Stable semantic digest | [`ExecutableCandidate::semantic_digest`] | SHA-256 over [`crate::recipe_mechanism::MechanismGraph::canonical_projection`] (a byte-identical fresh-load projection) |
 //! | Portable Plan document | [`ExecutableCandidate::plan_document`] | [`PortablePlan::encode`] of the materialized [`Plan`] |
 //! | Plan document digest | [`ExecutableCandidate::plan_digest`] | SHA-256 over that document's canonical JSON |
 //! | Exact lowering adapter | [`ExecutableCandidate::adapter`] | the [`LoweringAdapter`] the candidate itself carries ([`crate::enumerate::LoweredCandidate::adapter`]), 1:1 with [`EmissionStrategy`] |
@@ -26,7 +26,7 @@
 //! [`ExecutableCandidate`]'s fields are private, it has no public constructor, and -- unlike every
 //! other data type in this crate that carries provenance -- it deliberately implements neither
 //! [`serde::Serialize`] nor [`serde::Deserialize`]. Deserialization would be a second constructor
-//! that skips every check below, which is precisely the bypass this task forbids; the PORTABLE part
+//! that skips every check below, which is precisely the bypass this design forbids; the PORTABLE part
 //! of a candidate is its [`PortablePlan`], which round-trips and re-verifies, not the validated
 //! binding around it.
 //!
@@ -46,8 +46,8 @@
 //!
 //! So identity here is SHA-256, domain-framed by a projection name exactly as
 //! `pg_assess::digest::digest_projection` frames its own (same contract, computed locally because
-//! `pg-foma` deliberately does not depend on the assessment layer -- see task 7.12's slice note on
-//! why `pg_parse::identity` was moved rather than the dependency added). The FNV addresses still
+//! `pg-foma` deliberately does not depend on the assessment layer -- `pg_parse::identity` was moved
+//! rather than the dependency added). The FNV addresses still
 //! APPEAR inside the document, because they are the plan's own structure; what makes them safe
 //! there is that [`PortablePlan::decode`] RECOMPUTES every one of them from the decoded content and
 //! refuses on the first disagreement. A tampered id is therefore a decode failure, never a silently
@@ -57,8 +57,8 @@
 //! # Nothing here ranks, selects, or routes
 //! Constructing an [`ExecutableCandidate`] changes no
 //! outcome and makes nothing selectable that was not selectable before -- this module only builds
-//! and verifies portable data, like [`crate::mechanism_provider`]. That is deliberate. Wave 3
-//! measured a candidate that was 2.2x cheaper than the winner and returned a DIFFERENT analysis set
+//! and verifies portable data, like [`crate::mechanism_provider`]. That is deliberate: measurement
+//! found a candidate that was 2.2x cheaper than the winner and returned a DIFFERENT analysis set
 //! (`@templated-underlying-tokens` on Amharic); ranking is only ever legitimate downstream of the
 //! parity relation measured against an oracle ([`crate::parity`]), never from anything this module
 //! can compute. [`CandidateCertificationScope`] accordingly states what a named compiler can
@@ -67,9 +67,9 @@
 //! # And no implicit fallback
 //! Every way construction can fail is a variant of [`CandidateConstructionError`]. There is no arm
 //! that substitutes a different plan, a different adapter, or a different compiler for one that
-//! could not be built. The session that motivated this found a budget verdict being relabelled
-//! `Unsupported` three call frames away from where it was produced; a quiet substitution is the
-//! same disease, and the type system is the cure that does not rot.
+//! could not be built. A budget verdict relabelled
+//! `Unsupported` several call frames away from where it was produced is exactly the same disease as
+//! a quiet substitution, and the type system is the cure that does not rot.
 
 use std::collections::BTreeSet;
 use std::fmt;
@@ -104,7 +104,7 @@ pub const PORTABLE_PLAN_SCHEMA_VERSION: u16 = 1;
 pub const PLAN_DOCUMENT_PROJECTION: &str = "pangloss.foma.plan-document/v1";
 
 /// "These candidates were derived from the same grammar semantics." The preimage is
-/// [`MechanismGraph::canonical_projection`], which task 7.4 established is byte-identical across
+/// [`MechanismGraph::canonical_projection`], which is byte-identical across
 /// independent loads of the same grammar.
 pub const CANDIDATE_SEMANTICS_PROJECTION: &str = "pangloss.foma.candidate-semantics/v1";
 
@@ -676,11 +676,10 @@ fn resolve_node(
 /// than left implicit in a `match` on [`EmissionStrategy`] scattered across
 /// [`crate::recipe_runtime`].
 ///
-/// One variant per [`EmissionStrategy`], both directions exhaustively matched, because task 7.13
-/// will replace the enum with this identity and must be able to prove the adapter axis expresses
-/// everything the enum selected between. Wave 3 measured that axis to be the DECISIVE one (two
-/// whole-grammar compilers win two different languages), so nothing here hard-codes a winner and
-/// nothing here ranks.
+/// One variant per [`EmissionStrategy`], both directions exhaustively matched, so the adapter axis
+/// provably expresses everything the enum selects between. Measurement showed that axis to be the
+/// DECISIVE one (two whole-grammar compilers win two different languages), so nothing here
+/// hard-codes a winner and nothing here ranks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum LoweringAdapter {
@@ -738,8 +737,8 @@ impl LoweringAdapter {
 /// per evaluation.
 ///
 /// Every variant is DERIVED from the adapter and the plan; none is declared by whoever builds the
-/// candidate. That is the same discipline task 7.3 imposed on
-/// [`crate::recipe_mechanism::MechanismEdge`] after the initial vocabulary let an edge assert a
+/// candidate. That is the same discipline imposed on
+/// [`crate::recipe_mechanism::MechanismEdge`], after an earlier vocabulary let an edge assert a
 /// property its endpoints lacked.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -779,7 +778,7 @@ pub struct CoverageCitation {
 /// What a certification of this candidate could HONESTLY cover -- per mechanism, under one named
 /// adapter.
 ///
-/// Deliberately narrow, and deliberately not called `CertificationScope`: task 7.12 owns the
+/// Deliberately narrow, and deliberately not called `CertificationScope`: the assessment layer owns the
 /// versioned corpus-side `CorpusSnapshot`/`CertificationScope` (profile, authority, source/model
 /// revision, options, occurrence order, normalization, exclusions, oracle completeness), and this
 /// is the candidate-side half only. The two must not collapse into one type; a corpus scope says
@@ -998,7 +997,7 @@ pub(crate) fn seal(
             family: family_id.to_owned(),
         });
     }
-    // Task 7.13: the adapter arrives from the candidate itself
+    // The adapter arrives from the candidate itself
     // (`crate::enumerate::LoweredCandidate::adapter`) rather than being re-derived here from an
     // `EmissionStrategy`. `MechanismGraph::bind` still speaks the strategy axis, which is why the
     // projection below exists and why `EmissionStrategy` is NOT deleted: it remains the axis
@@ -1341,8 +1340,8 @@ mod tests {
         ));
     }
 
-    /// The adapter axis is 1:1 with the strategy axis in BOTH directions. Task 7.13 replaces the
-    /// enum with the adapter identity and cannot do so unless this holds.
+    /// The adapter axis is 1:1 with the strategy axis in BOTH directions -- required for the
+    /// adapter identity to soundly stand in for the enum.
     #[test]
     fn every_strategy_has_exactly_one_adapter_and_back() {
         for &strategy in crate::strategy_coverage::ALL_STRATEGIES {
