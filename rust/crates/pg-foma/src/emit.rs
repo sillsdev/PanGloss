@@ -2314,20 +2314,19 @@ fn rhs_drops_lhs_material(a: &AffixAllomorphDef) -> bool {
 /// (module doc, item 2, covers the case where it ALSO needs this mechanism); `CircumfixPrefix`/
 /// `Reduplication`/`Process` remain `uncovered`'s job, unchanged.
 ///
-/// `pub(crate)` (widened from private, no body change): `openspec/changes/
-/// cover-circumfix-null-output-actions`'s `crate::capability::CircumfixStructuralCompositePredicate`
-/// calls this directly to decide whether a given `CircumfixOutputAction` observation's owning rule
-/// actually reaches the faithful, oracle-backed [`build_structural_composites`] construction — the
-/// same "predicate reads the identical structural fact the real compile path branches on, not a
-/// re-derivation of it" precedent [`probe_would_refuse`]/[`structural_candidate_rules`] already set
-/// for `reify-compilation-plans`.
+/// `pub(crate)` (widened from private, no body change): `crate::capability::
+/// CircumfixStructuralCompositePredicate` calls this directly to decide whether a given
+/// `CircumfixOutputAction` observation's owning rule actually reaches the faithful, oracle-backed
+/// [`build_structural_composites`] construction — the same "predicate reads the identical
+/// structural fact the real compile path branches on, not a re-derivation of it" precedent
+/// [`probe_would_refuse`]/[`structural_candidate_rules`] already set.
 /// Whether ANY allomorph of `mid` classifies [`Role::CircumfixPrefix`] — unlike [`rule_role`],
 /// which inspects allomorph 0 only. [`is_structural_rule`]'s own question is "would ANY allomorph of
 /// this rule need [`build_structural_composites`]", so it must not miss a circumfix-shaped allomorph
-/// declared at index ≥ 1 merely because allomorph 0 happens to classify as something else (census
-/// C1, `docs/conformance/circumfix-structural-composite-census.md`: this gap is order-of-
-/// declaration-dependent — it appears and disappears purely as a grammar author reorders a rule's
-/// allomorphs, which is what makes it worth fixing here rather than documenting as a boundary).
+/// declared at index ≥ 1 merely because allomorph 0 happens to classify as something else (this gap
+/// is order-of-declaration-dependent — it appears and disappears purely as a grammar author
+/// reorders a rule's allomorphs, which is what makes it worth fixing here rather than documenting
+/// as a boundary).
 ///
 /// Deliberately NOT a change to `rule_role`'s own contract: `rule_role`'s other call sites
 /// (`slot_role`/`classify_template` — deciding a template slot's prefix/suffix zone — and the
@@ -2355,10 +2354,10 @@ pub(crate) fn is_structural_rule(g: &Grammar, mid: MRuleId) -> bool {
             return true;
         }
     }
-    // Census C1 fix: check EVERY allomorph for `CircumfixPrefix`, not just the one `rule_role`
-    // reports from allomorph 0. Safe to check unconditionally before the `match` below — if
-    // allomorph 0 itself is `CircumfixPrefix`, `rule_role` already agrees and the `match` arm just
-    // below would return `true` anyway; this only ADDS the case `rule_role` used to miss.
+    // Check EVERY allomorph for `CircumfixPrefix`, not just the one `rule_role` reports from
+    // allomorph 0. Safe to check unconditionally before the `match` below — if allomorph 0 itself
+    // is `CircumfixPrefix`, `rule_role` already agrees and the `match` arm just below would return
+    // `true` anyway; this only ADDS the case a first-allomorph-only check would miss.
     if any_allomorph_is_circumfix_prefix(g, mid)
         || allomorphs_of(g, mid)
             .iter()
@@ -2398,10 +2397,9 @@ pub(crate) fn is_structural_rule(g: &Grammar, mid: MRuleId) -> bool {
 /// a safe, conservative over-approximation of "could this ever refuse", cheap enough to run
 /// unconditionally.
 ///
-/// `pub(crate)` (widened from private, no body change): `openspec/changes/reify-compilation-plans`
-/// Step 2 (design.md D2) mirrors this seam's decision structurally in `crate::enumerate::
-/// enumerate_default`, and that module's own tests compare the enumerated `Plan` against calling
-/// this REAL function directly — the whole correctness argument for that step depends on both
+/// `pub(crate)` (widened from private, no body change): `crate::enumerate::enumerate_default`
+/// mirrors this seam's decision structurally, and that module's own tests compare the enumerated
+/// `Plan` against calling this REAL function directly — the correctness argument depends on both
 /// sides calling the identical predicate, not a re-derivation of it.
 pub(crate) fn probe_would_refuse(g: &Grammar) -> bool {
     g.prules.iter().any(|pr| match pr {
@@ -2418,11 +2416,10 @@ pub(crate) fn probe_would_refuse(g: &Grammar) -> bool {
 /// anywhere in this emitter's rule-application mechanisms).
 ///
 /// `pub(crate)` (widened from private, no body change): see [`probe_would_refuse`]'s doc for why --
-/// same `reify-compilation-plans` Step 2 rationale, this is the other half of D2's row 2 seam
-/// (`crate::enumerate::enumerate_default` calls this directly to decide the structural-composite
-/// route's presence). Task 1.3 (below, [`plan_topology_decisions`]) is what makes
-/// [`emit_with_budget_profiled`]'s own gate match this seam BY CONSTRUCTION rather than by two
-/// independently-written call sites happening to agree.
+/// this is the other half of that same seam (`crate::enumerate::enumerate_default` calls this
+/// directly to decide the structural-composite route's presence). [`plan_topology_decisions`]
+/// (below) is what makes [`emit_with_budget_profiled`]'s own gate match this seam BY CONSTRUCTION
+/// rather than by two independently-written call sites happening to agree.
 pub(crate) fn structural_candidate_rules(g: &Grammar) -> Vec<MRuleId> {
     let broad = probe_would_refuse(g);
     (0..g.mrules.len() as u32)
