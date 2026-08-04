@@ -91,12 +91,12 @@ pub enum TraceSource {
 }
 
 /// `FailureReason` (C# `ITraceManager.cs`'s enum), ported 1:1 by name — a human diffing a Rust trace
-/// against a C# trace should see identical reason names (§4.2). Per §3's cross-reference: 11 of
-/// these are already exact 1:1 gates in Rust today, 9 more exist as gates that fold two C# reasons
-/// into one bool (need to report which fired), and `Pattern`/`HeadPattern`/`NonHeadPattern` are the
-/// residual last-resort case. See the design doc §4.2 for the two explicitly flagged, NOT-yet-closed
-/// gaps this port carries forward (the `RequiredSyntacticFeatureStruct` apply-time timing mismatch,
-/// and the FST-granularity ceiling on `Pattern`).
+/// against a C# trace should see identical reason names. Cross-referenced against the C# original:
+/// 11 of these are already exact 1:1 gates in Rust today, 9 more exist as gates that fold two C#
+/// reasons into one bool (need to report which fired), and `Pattern`/`HeadPattern`/`NonHeadPattern`
+/// are the residual last-resort case. Two gaps are carried forward, NOT yet closed: the
+/// `RequiredSyntacticFeatureStruct` apply-time timing mismatch, and the FST-granularity ceiling on
+/// `Pattern`.
 ///
 /// No `None` variant: C#'s sentinel exists only to seed `CurrentRuleResults`' dictionary slot before
 /// a subrule is evaluated (`SynthesisRewriteSubruleSpec.cs:82`) — an implementation artifact of that
@@ -345,7 +345,7 @@ pub trait TraceSink {
     ) -> TraceHandle;
 
     /// `LexicalLookup(stratum, input)` — one per stratum's root-allomorph search (both the real
-    /// lexicon path and P11's guesser pattern-match path reuse this exact hook, per the design doc).
+    /// lexicon path and P11's guesser pattern-match path reuse this exact hook).
     fn lexical_lookup(&self, parent: TraceHandle, stratum: StratumId, input: &Word) -> TraceHandle;
 
     /// A rule that would have applied again but was blocked by the "don't re-apply to your own

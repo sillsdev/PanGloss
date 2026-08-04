@@ -1137,8 +1137,8 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
     /// `#if SINGLE_THREADED` switch — a sequential one (cs:62-80) and a `Parallel.ForEach` one
     /// (cs:82-129) — each firing the SAME two logical events (`unapplied=false` when a non-optional
     /// slot forces an early return, cs:71-72/107-108; `unapplied=true` at the natural fall-through,
-    /// cs:77-78/116-117), once per implementation. That is why the design doc cites FOUR C# line
-    /// pairs for what is structurally only TWO distinct trace events. This port has no
+    /// cs:77-78/116-117), once per implementation -- FOUR C# line pairs for what is structurally
+    /// only TWO distinct trace events. This port has no
     /// parallel/sequential split — one walk, below — so both C# implementations collapse onto it;
     /// the sequential citations (cs:71-72, cs:77-78) are wired here as the faithful placement, and
     /// the parallel citations are the SAME two events under the other `#if` branch, not additional

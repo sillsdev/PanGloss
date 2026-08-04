@@ -475,7 +475,7 @@ pub fn allomorphs_valid_cached(g: &Grammar, w: &Word, cache: &RuleCache) -> bool
 /// P12 chunk 3: [`allomorphs_valid_cached`]'s traced sibling -- the single source of truth both
 /// share (`allomorphs_valid_cached` calls this with a [`NoopSink`]). Closes the gap chunk 2 left
 /// open: `pg-parse::Morpher::is_word_valid_traced`'s final gate now reports exactly which of the 11
-/// `FailureReason`s in this function's cross-reference table (design doc §3.1/§3.2) rejected the
+/// `FailureReason`s in this function's cross-reference table rejected the
 /// word, at the first morph occurrence that fails.
 pub fn allomorphs_valid_cached_traced(
     g: &Grammar,

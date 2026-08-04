@@ -979,12 +979,12 @@ fn classify(rule: &RewriteRuleDef, sr: &RewriteSubruleDef) -> Kind {
 /// [`pg_grammar::model::Grammar::mpr_group_ok`] (W3.1: MPR-group-aware; this was a flat overlap
 /// check before that fix, correct only because every reference grammar's groups are singletons).
 ///
-/// **Plan item 1 (wave-3) / originally W1 item 4's stopgap**: before the POS half was ported, every
+/// Before the POS half was ported, every
 /// subrule declaring a nonempty `requiredPartsOfSpeech` was unconditionally treated as inapplicable
 /// during synthesis, regardless of the actual word's POS — Amharic authors this 3× (`amharic-hc.xml
 /// :12151,12169,12188`), so those subrules silently never fired. Real Amharic corpus impact measured
 /// after the fix (see `pg-parse/tests/csharp_port_rewrite.rs::boundary_rules_required_pos_on_subrule
-/// _finding`'s doc for the synthetic-fixture confirmation and the plan doc for the corpus delta).
+/// _finding`'s doc for the synthetic-fixture confirmation).
 ///
 /// Before the MPR half was ported (an earlier fix, unrelated to this one): every subrule declaring a
 /// nonempty `required_mpr`/`excluded_mpr` was unconditionally treated as inapplicable during
@@ -1098,11 +1098,11 @@ pub fn synthesize_with_mpr(
         if !subrule_applicable(g, sr, syn_fs, mpr) {
             continue;
         }
-        // P13 §4.2: `rule.mode` selects the function pair for Feature/Narrow; Epenthesis reuses
-        // `syn_epenthesis` for both modes (§4.1 — its existing one-snapshot-collect-then-apply
+        // P13: `rule.mode` selects the function pair for Feature/Narrow; Epenthesis reuses
+        // `syn_epenthesis` for both modes -- its existing one-snapshot-collect-then-apply
         // shape already matches `SimultaneousPhonologicalPatternRule`'s semantics, and is also the
         // (pre-existing, unrelated-to-P13) best-available stand-in for Iterative epenthesis today
-        // -- see `syn_epenthesis`'s doc / the design doc §2.3 for the documented residual).
+        // -- see `syn_epenthesis`'s own doc for the documented residual.
         let did = match (classify(rule, sr), rule.mode) {
             (Kind::Feature, RewriteMode::Iterative) => {
                 let target = lhs_fst(g, table_id, &rule.lhs, dir_of(rule), true);

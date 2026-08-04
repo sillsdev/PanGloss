@@ -630,7 +630,7 @@ fn synthesize_with_pattern(
 // -- just `PhonologicalRuleApplied(_rule, -1, origInput, input)` on success or
 // `PhonologicalRuleNotApplied(_rule, -1, input, FailureReason.Pattern, null)` on failure, subrule
 // index ALWAYS -1 either way (cs:47,52). `FailureReason::Pattern` is the ONLY reason a metathesis
-// rule can ever report (§1.4 of the design doc: metathesis's sole call site is in the `Pattern`
+// rule can ever report (metathesis's sole call site is in the `Pattern`
 // row's fan-out list) -- there is no gate to decompose the way rewrite's subrules have.
 // =================================================================================================
 
