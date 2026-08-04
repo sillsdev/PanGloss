@@ -19,7 +19,7 @@ use crate::plan::{NodeId, Plan};
 
 pub const REGISTRY_SCHEMA_VERSION: u16 = 1;
 
-/// The witness that an [`ExecutableCandidate`] was built by the Registry (task 7.5).
+/// The witness that an [`ExecutableCandidate`] was built by the Registry.
 ///
 /// Its only field is a private unit, declared in THIS module. That single fact is the whole
 /// enforcement: no other module -- in this crate or any other -- can name the field, so no other
@@ -28,7 +28,7 @@ pub const REGISTRY_SCHEMA_VERSION: u16 = 1;
 /// authority obtained for one candidate cannot be kept and reused to seal a second, unvalidated
 /// one.
 ///
-/// This is the same shape task 7.3 used for [`crate::recipe_mechanism::MechanismBinding`] -- private
+/// This is the same shape used for [`crate::recipe_mechanism::MechanismBinding`] -- private
 /// fields plus a single constructor -- scaled up to a type whose validation lives in a different
 /// module from the type itself, where field privacy alone would not have reached.
 pub struct RegistryAuthority(());
@@ -92,8 +92,7 @@ impl Applicability {
         self.matches_semantics(&GrammarSemantics::derive(grammar))
     }
 
-    /// The authoritative applicability predicate (task 7.11,
-    /// `openspec/changes/cleanup-and-recipe-parity`): every arm is a PROJECTION of a fact
+    /// The authoritative applicability predicate: every arm is a PROJECTION of a fact
     /// [`GrammarSemantics`] already owns, never a fresh grammar walk. In particular
     /// `HasGatedExceptions` no longer re-runs `prules_in_order` + `find_gated_subrules` per family
     /// per instance — those ran up to `families x instances` times through
@@ -140,7 +139,7 @@ impl Applicability {
             // `declared_phonology`, NOT `cascade_phonology`. These two are different questions and
             // genuinely disagree on a rule declared globally but named by no stratum
             // (`grammar_semantics`'s module doc). This arm keeps the grammar-wide reading it always
-            // had -- task 7.11 is a consolidation, and switching predicates here would change which
+            // had -- switching predicates here would change which
             // families a grammar is offered.
             Self::HasPhonology => semantics.declared_phonology(),
             Self::HasPhonologyOrTemplates => {
@@ -470,7 +469,7 @@ impl Registry {
         self.instances_for_semantics(&GrammarSemantics::derive(grammar))
     }
 
-    /// [`Self::instances_for_grammar`] over an already-derived [`GrammarSemantics`] (task 7.11).
+    /// [`Self::instances_for_grammar`] over an already-derived [`GrammarSemantics`].
     pub fn instances_for_semantics(&self, semantics: &GrammarSemantics<'_>) -> Vec<RecipeInstance> {
         self.instances_matching(|family| family.applicability.matches_semantics(semantics))
     }
@@ -490,7 +489,7 @@ impl Registry {
         )
     }
 
-    /// [`Self::instances_for_search`] over an already-derived [`GrammarSemantics`] (task 7.11).
+    /// [`Self::instances_for_search`] over an already-derived [`GrammarSemantics`].
     pub fn instances_for_search_with_semantics(
         &self,
         semantics: &GrammarSemantics<'_>,
@@ -538,7 +537,7 @@ impl Registry {
         )
     }
 
-    /// [`Self::materialize`] over an already-derived [`GrammarSemantics`] (task 7.11). The
+    /// [`Self::materialize`] over an already-derived [`GrammarSemantics`]. The
     /// applicability re-check is unchanged; what changes is that a batch materializer
     /// ([`Self::materialize_distinct`]) no longer re-derives the grammar's semantic facts once per
     /// instance on top of the one derivation its own instance enumeration already made.
@@ -581,7 +580,7 @@ impl Registry {
         &self,
         context: &MaterializerContext<'_>,
     ) -> Result<Vec<(RecipeInstance, LoweredCandidate)>, MaterializeError> {
-        // ONE derivation for the whole batch (task 7.11): shared by the instance enumeration below
+        // ONE derivation for the whole batch: shared by the instance enumeration below
         // AND by every per-instance applicability re-check inside `materialize_with_semantics`.
         let semantics = GrammarSemantics::derive(context.grammar);
         let mut seen = BTreeSet::<(NodeId, &'static str)>::new();
@@ -599,7 +598,7 @@ impl Registry {
         Ok(candidates)
     }
 
-    /// Task 7.5: the SOLE constructor of a validated [`ExecutableCandidate`].
+    /// The SOLE constructor of a validated [`ExecutableCandidate`].
     ///
     /// Materializes `instance` exactly as [`Self::materialize_with_semantics`] does -- same
     /// validation, same applicability re-check, same typed [`MaterializeError`], so nothing about
@@ -610,7 +609,7 @@ impl Registry {
     /// scope those bindings license.
     ///
     /// The mechanism graph is derived from `semantics` alone, through
-    /// [`crate::mechanism_provider::derive_mechanism_graph`] -- task 7.4's rule that no provider may
+    /// [`crate::mechanism_provider::derive_mechanism_graph`] -- the rule that no provider may
     /// reread the `Grammar` to decide applicability is inherited here rather than restated, because
     /// this function has no other way to obtain a graph.
     ///
@@ -833,14 +832,14 @@ impl Materializer for SeededFamily {
             label: self.id,
             plan,
             adapter: self.adapter,
-            // DERIVED, never declared -- the same discipline task 7.3 imposed on `MechanismEdge` and
-            // 7.5 on `RuntimeRequirement`. A family whose transform is `Identity` hands back
+            // DERIVED, never declared -- the same discipline imposed on `MechanismEdge` and
+            // `RuntimeRequirement`. A family whose transform is `Identity` hands back
             // `context.baseline` VERBATIM, so under the one adapter that interprets a plan that
             // candidate IS this grammar's default compilation and nothing else can be. Every other
             // family rewrites the assembly tree (an alternative by construction), and a whole-grammar
             // adapter never reads the plan at all, so calling it "the baseline plan's compilation"
-            // would be a category error -- it is a different compiler, which is exactly the axis
-            // Wave 3 measured as decisive.
+            // would be a category error -- it is a different compiler, which measurement showed to
+            // be a decisive axis for candidate selection.
             //
             // At most one such candidate survives a batch: `materialize_distinct` dedups on
             // `(plan root, strategy label)`, and every `Identity` + plan-composing family produces
@@ -858,8 +857,8 @@ impl Materializer for SeededFamily {
 // used IN `SEEDS` below (not duplicated as literals), so decision sites elsewhere (`pg-cli`'s
 // `recipe_optimize.rs` baseline detection, any test asserting on family identity) reference these
 // constants instead of comparing strings -- a rename then fails the build at every use site rather
-// than silently changing behavior (recipe-pipeline-hygiene D7 / spec.md "Family identities are
-// compiler-checked at decision sites").
+// than silently changing behavior: family identities are
+// compiler-checked at decision sites.
 pub const FAMILY_ORDERED_MORPHOPHONOLOGY: &str = "ordered-morphophonology";
 pub const FAMILY_CLASS_EXCEPTION_CASCADE: &str = "class-exception-cascade";
 pub const FAMILY_COMPLETE_TEMPLATE: &str = "complete-template";
@@ -1021,10 +1020,10 @@ mod tests {
         plan
     }
 
-    /// **Task 7.13: the baseline fact is DERIVED and lives ON the candidate, and it is not position.**
+    /// **The baseline fact is DERIVED and lives ON the candidate, and it is not position.**
     ///
-    /// The two deleted shapes were a positional `i == 0` rule and a caller-supplied parallel
-    /// `&[bool]`. This asserts what replaced them, and it is not vacuous: it checks that the ONE
+    /// A positional `i == 0` rule and a caller-supplied parallel `&[bool]` are both rejected
+    /// alternatives: this asserts what replaced them, and it is not vacuous: it checks that the ONE
     /// candidate whose plan is the baseline plan verbatim is the one marked `Baseline`, and that a
     /// plan-REWRITING family is marked `Alternative` even though its plan is equally applicable — a
     /// distinction position cannot express, since `materialize_distinct` orders candidates by FAMILY ID
