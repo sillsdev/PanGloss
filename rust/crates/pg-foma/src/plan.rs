@@ -514,7 +514,7 @@ mod tests {
         assert_eq!(plan.len(), 1, "must be stored exactly once, not duplicated");
     }
 
-    /// Task 1.4's core content-addressing claim, at the `ReplaceCascadeSpec` level directly (no
+    /// The core content-addressing claim, at the `ReplaceCascadeSpec` level directly (no
     /// `Grammar`/`Gate` node involved -- `crate::enumerate`/`crate::build`'s own tests exercise the
     /// same property end-to-end on real seam-derived data; this is the minimal, data-only proof):
     /// two `Replace` nodes with the SAME `rules`/`gated_subrules` but DIFFERENT `group_key` must get

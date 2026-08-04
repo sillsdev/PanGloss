@@ -1646,7 +1646,7 @@ fn evaluate_via_templated_emit_mode<const OBSERVE: bool>(
 /// cannot build those subtrees and a templated grammar keeps nearly all of its productive morphology
 /// there.
 ///
-/// # Task 7.13 deleted the positional AND the parallel-slice baseline state
+/// # Neither positional NOR parallel-slice baseline state is used here
 /// This function used to derive `is_baseline` from POSITION (`i == 0`), and a second entry point took
 /// it as a parallel `&[bool]` kept honest only by a length assertion. Both are gone: the fact is
 /// [`crate::enumerate::LoweredCandidate::role`], carried by the candidate it is a fact about. See
@@ -1963,9 +1963,9 @@ fn evaluate_plans_with_cache_mode<const OBSERVE: bool>(
             // realized by their own compilers and never touch `build_controllable`, so routing them
             // through the composed path below would build the controllable subtree and then
             // attribute that network to a candidate that asked for a different compilation
-            // entirely. Task 7.13: this matches the candidate's own `LoweringAdapter` -- the same
-            // value `ExecutableCandidate` seals -- instead of a second enum that had to be kept in
-            // correspondence with it by hand.
+            // entirely. Keyed on the candidate's own `LoweringAdapter` -- the same
+            // value `ExecutableCandidate` seals -- instead of a second enum that would have to be
+            // kept in correspondence with it by hand.
             match candidate.adapter {
                 LoweringAdapter::ControllablePlanCompose => {}
                 LoweringAdapter::TunedSurfaceEmit => {

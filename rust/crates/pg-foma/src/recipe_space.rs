@@ -488,7 +488,7 @@ mod tests {
         assert_eq!(summary.executed_samples, 3);
     }
 
-    /// Task 7.13, fake zero measurements. A pilot row whose candidate was refused before any network
+    /// No fake zero measurements. A pilot row whose candidate was refused before any network
     /// existed carries NO build/evaluation reading, and the quantiles must be taken over the rows that
     /// do. With the old `build: 0` convention the p50 below was 0 -- a build cost reported for a stage
     /// that never ran, and one that feeds the search-strategy choice.

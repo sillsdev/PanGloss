@@ -589,7 +589,7 @@ pub fn build_controllable(
         let lexc_net = foma::lexcread::fsm_lexc_parse_string(opts, None, &lexc_source)
             .unwrap_or_else(|| panic!("gated group lexc failed to compile:\n{lexc_source}"));
 
-        // Task 1.4 (module doc): this group's own gating key, read from its OWN Replace node's
+        // Module doc's "soundness obstacle" section: this group's own gating key, read from its OWN Replace node's
         // cascade (never re-derived from the Gate node's partition), threaded into a per-group
         // subrule_ok closure. This is now a pure read of that Replace NodeId's own content -- no
         // cross-group state, no cache to get wrong.
