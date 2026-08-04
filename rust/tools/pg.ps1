@@ -1,6 +1,5 @@
 <#
-  Managed entry point for the PanGloss Rust workspace
-  (docs/superpowers/specs/2026-07-29-categorical-build-hardening-design.md). Run from any
+  Managed entry point for the PanGloss Rust workspace. Run from any
   worktree -- it resolves its own paths (Get-RepoRoot/Get-RustRoot), same as build.ps1/test.ps1
   always have.
 

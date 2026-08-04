@@ -1,8 +1,7 @@
 <#
   Build entry point for the PanGloss Rust workspace. THIN FRONT END: all actual policy (target-dir
   redirection, sccache wiring, worktree base-commit check, disk/build-slot gates, ownership
-  markers) now lives in rust/tools/pg.ps1 (docs/superpowers/specs/
-  2026-07-29-categorical-build-hardening-design.md). This script just translates its own
+  markers) now lives in rust/tools/pg.ps1. This script just translates its own
   long-standing parameter names into a `pg.ps1 -Mode build` call, so existing callers keep working
   unchanged and there is exactly ONE place build policy is decided rather than two copies that drift.
 
@@ -21,7 +20,7 @@
   silently (`-p foo` -> -Package, so cargo never sees it). For -File / automation callers use the
   env channel instead, which never touches the binder:
     $env:PANGLOSS_EXTRA_ARGS = '--features foo'; pwsh -File rust\tools\build.ps1
-  Verified 2026-07-31; see Split-ExtraArgsSpec in _common.ps1 for the reproduction.
+  Verified; see Split-ExtraArgsSpec in _common.ps1 for the reproduction.
 #>
 # See pg.ps1's own note: without this, `build.ps1 --features foo` binds "--features" to -Package and
 # the documented `-- --features foo` passthrough below never reaches cargo either.
