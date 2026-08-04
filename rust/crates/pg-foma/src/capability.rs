@@ -1947,7 +1947,7 @@ pub fn characterize(g: &Grammar) -> CharacteristicsProfile {
 /// A predicate's stable identity (design.md D2: `"simultaneous.subrule-overlap"`, etc.).
 pub type PredicateId = &'static str;
 
-/// Where a predicate's evidence comes from (ADR 0001, design.md D2).
+/// Where a predicate's evidence comes from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EvidenceProvenance {
     /// Evidence comes from testing black-box behavior (e.g. foma `apply_up`/`apply_down` oracle
@@ -1960,8 +1960,8 @@ pub enum EvidenceProvenance {
 }
 
 /// A `Refuse` verdict's typed payload: which predicate refused, what construct/config, and a
-/// human-readable witness (design.md's scenario: "compilation fails... with a typed diagnostic
-/// naming the construct and configuration").
+/// human-readable witness: compilation fails with a typed diagnostic naming the construct and
+/// configuration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CapabilityDiagnostic {
     pub predicate: PredicateId,
@@ -1969,26 +1969,26 @@ pub struct CapabilityDiagnostic {
     pub witness: String,
 }
 
-/// A capability predicate's verdict for one plan node (design.md D2, exactly).
+/// A capability predicate's verdict for one plan node.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PredicateVerdict {
     /// Proven faithful; admission-filtering allowed.
     Admit,
-    /// Propose the superset; no no-false-negative proof. First-class, not a failure (ADR 0001).
+    /// Propose the superset; no no-false-negative proof. First-class, not a failure.
     ConfirmOnly,
-    /// Hard compile-time fail (overridable per ADR 0005).
+    /// Hard compile-time fail (overridable via the capability override).
     Refuse(CapabilityDiagnostic),
 }
 
-/// design.md D2, exactly: an oracle-verified, conservative proof obligation. Implementors MUST
-/// over-refuse rather than under-refuse — the discipline every predicate in this module follows.
+/// An oracle-verified, conservative proof obligation. Implementors MUST over-refuse rather than
+/// under-refuse — the discipline every predicate in this module follows.
 pub trait CapabilityPredicate {
     /// e.g. `"simultaneous.subrule-overlap"`.
     fn id(&self) -> PredicateId;
     /// Which [`CharacteristicKind`](s) this predicate claims to discharge.
     fn discharges(&self) -> &[CharacteristicKind];
     /// This predicate's verdict for `plan_node`, given the grammar-wide `profile` (see this
-    /// module's own top-doc for why `plan_node: &PlanNodeKind` rather than D2's literal
+    /// module's own top-doc for why `plan_node: &PlanNodeKind` rather than the literal
     /// `&PlanNode` — `crate::plan` has no type by that name).
     fn evaluate(
         &self,
@@ -2000,7 +2000,7 @@ pub trait CapabilityPredicate {
 }
 
 // -------------------------------------------------------------------------------------------
-// D3: the worked simultaneous.subrule-overlap predicate
+// The worked simultaneous.subrule-overlap predicate
 // -------------------------------------------------------------------------------------------
 
 /// Extracts the [`PRuleId`] a rewrite-rule [`PlanNodeKind::Leaf`] is addressed by, if `plan_node`
@@ -2018,7 +2018,7 @@ fn rewrite_rule_of(plan_node: &PlanNodeKind) -> Option<PRuleId> {
     }
 }
 
-/// Design.md D3's "cheap orthogonality early-out": `true` iff NO lexical entry can ever satisfy
+/// The "cheap orthogonality early-out": `true` iff NO lexical entry can ever satisfy
 /// both `a` and `b`'s MPR gates simultaneously, because one subrule REQUIRES an MPR feature the
 /// other EXCLUDES (in either direction). This is a SUFFICIENT, not necessary, condition for
 /// disjointness — deliberately conservative in the safe direction: it can miss some genuinely
@@ -2029,9 +2029,8 @@ fn mpr_gates_disjoint(a: &SubruleGateInfo, b: &SubruleGateInfo) -> bool {
     a.required_mpr.overlaps(b.excluded_mpr) || b.required_mpr.overlaps(a.excluded_mpr)
 }
 
-/// The worked example (design.md D3, ADR 0001's cited case): a `RewriteRuleDef` with `mode ==
-/// Simultaneous` is faithfully compilable UNLESS two of its subrules' environments can match at
-/// the same input position.
+/// The worked example: a `RewriteRuleDef` with `mode == Simultaneous` is faithfully compilable
+/// UNLESS two of its subrules' environments can match at the same input position.
 ///
 /// ```text
 /// evaluate(rule):
@@ -2043,28 +2042,25 @@ fn mpr_gates_disjoint(a: &SubruleGateInfo, b: &SubruleGateInfo) -> bool {
 ///   return Admit
 /// ```
 ///
-/// # The real automaton intersection (Stage 1B, `lower-fst-pattern-environments`)
-/// D3's precise test is `intersect(span(s_i), span(s_j))` where `span(s) = left_env · lhs_focus ·
-/// right_env`, lowered to an `Fsm` via [`crate::lower::lower_span`]. That facility now exists
-/// (Stage 1B landed alongside this predicate's own upgrade): every pair that survives the
+/// # The real automaton intersection
+/// The precise test is `intersect(span(s_i), span(s_j))` where `span(s) = left_env · lhs_focus ·
+/// right_env`, lowered to an `Fsm` via [`crate::lower::lower_span`]. Every pair that survives the
 /// `self_opaquing`/`mpr_gates_disjoint` early-outs is decided by
 /// [`crate::lower::spans_overlap`] over each subrule's [`SubruleGateInfo::span`] (pre-lowered by
 /// [`characterize`] — see [`LoweredSpan`]'s own doc for why lowering happens THERE, not in this
 /// `evaluate` call). `Refuse` only when the intersection is genuinely NON-EMPTY (a real witness
 /// overlap), or when either span's [`LoweredSpan`] is [`LoweredSpan::Unsupported`] (a pattern node
-/// kind `lower_span` cannot yet represent — D3's own words, "any approximation rounds toward
-/// Refuse," still applies to THAT residual gap). This `Admit`s strictly more pairs than the prior
-/// unconditional-`Refuse` fallback did (never fewer — over-refusal only ever narrows as proof
-/// machinery improves, per ADR 0001); see this module's test module for a pair that was
-/// `Refuse`-only before this step and is now proven `Admit`.
+/// kind `lower_span` cannot yet represent — any approximation rounds toward `Refuse`, which still
+/// applies to THAT residual gap). This `Admit`s strictly more pairs than an unconditional-`Refuse`
+/// fallback would (never fewer — over-refusal only ever narrows as proof machinery improves); see
+/// this module's test module for a pair that is provably `Admit` under this test.
 ///
 /// # Provenance
 /// [`EvidenceProvenance::Structural`]: `self_opaquing`/`mpr_gates_disjoint` still read directly-
 /// inspectable `model.rs` fields for their own early-outs, and the surviving-pair test now
-/// genuinely intersects REAL lowered automata (`crate::lower`) — exactly the "controllable
-/// composition path" design.md D3 reserves `Structural` for, no longer a judgment call: this is no
-/// longer evidence-kind-matches-but-proof-not-yet-built (the prior step's own caveat), it now IS
-/// that controllable-composition proof.
+/// genuinely intersects REAL lowered automata (`crate::lower`) — a controllable composition path,
+/// not a judgment call: this is not evidence-kind-matches-but-proof-not-yet-built, it IS the
+/// controllable-composition proof.
 pub struct SimultaneousSubruleOverlapPredicate;
 
 impl CapabilityPredicate for SimultaneousSubruleOverlapPredicate {
@@ -2090,7 +2086,7 @@ impl CapabilityPredicate for SimultaneousSubruleOverlapPredicate {
         };
         let Some(detail) = profile.simultaneous_detail(rule) else {
             // Not observed as a Simultaneous rule at all (e.g. it's Iterative) -- Iterative is
-            // Proven (D1), this predicate has nothing to say about it.
+            // Proven, this predicate has nothing to say about it.
             return PredicateVerdict::Admit;
         };
 
@@ -2105,9 +2101,9 @@ impl CapabilityPredicate for SimultaneousSubruleOverlapPredicate {
     }
 }
 
-/// D3's own per-pair decision, over an ALREADY-lowered `&[SubruleGateInfo]` — factored out of
-/// [`SimultaneousSubruleOverlapPredicate::evaluate`] (this function's ONLY caller before
-/// `compile-simultaneous-rewrites`) so [`simultaneous_rule_admitted_for_compile`] (below, `crate::
+/// The per-pair decision, over an ALREADY-lowered `&[SubruleGateInfo]` — factored out of
+/// [`SimultaneousSubruleOverlapPredicate::evaluate`] (originally its only caller) so
+/// [`simultaneous_rule_admitted_for_compile`] (below, `crate::
 /// replace`'s own compile-time consumer) can share the IDENTICAL overlap algorithm rather than
 /// re-derive it — the gate (this predicate, used by [`compose_envelope`]) and the actual compiler
 /// (`crate::replace::is_fully_supported_shape`) must never disagree on what counts as a genuine
@@ -2122,7 +2118,7 @@ fn subrules_pairwise_verdict(subrules: &[SubruleGateInfo]) -> Result<(), (usize,
             let a = &subrules[i];
             let b = &subrules[j];
 
-            // D3: "if either subrule is self_opaquing, do not attempt Admit" -- checked BEFORE
+            // If either subrule is self_opaquing, do not attempt Admit -- checked BEFORE
             // the mpr-gate early-out, unconditionally.
             if a.self_opaquing || b.self_opaquing {
                 return Err((
@@ -2140,9 +2136,9 @@ fn subrules_pairwise_verdict(subrules: &[SubruleGateInfo]) -> Result<(), (usize,
                 continue;
             }
 
-            // Stage 1B: the real automaton intersection (see this type's own doc). Either
-            // span being Unsupported rounds to Refuse (D3: "any approximation rounds toward
-            // Refuse"), naming the unhandled construct rather than silently admitting it.
+            // The real automaton intersection (see this type's own doc). Either span being
+            // Unsupported rounds to Refuse (any approximation rounds toward Refuse), naming
+            // the unhandled construct rather than silently admitting it.
             let opts = foma::options::FomaOptions::default();
             match (&a.span, &b.span) {
                 (LoweredSpan::Ok(span_a), LoweredSpan::Ok(span_b)) => {
@@ -2182,11 +2178,10 @@ fn subrules_pairwise_verdict(subrules: &[SubruleGateInfo]) -> Result<(), (usize,
     Ok(())
 }
 
-/// `crate::replace`'s own compile-time consumer of D3 (`openspec/changes/
-/// compile-simultaneous-rewrites`; cites ADR 0001's own worked example): `Ok(())` iff `rule` is
-/// either not `Simultaneous` at all (nothing for this check to say — `is_fully_supported_shape`'s
+/// `crate::replace`'s own compile-time consumer of the pairwise-overlap proof: `Ok(())` iff `rule`
+/// is either not `Simultaneous` at all (nothing for this check to say — `is_fully_supported_shape`'s
 /// caller already treats `Iterative` as unconditionally in-shape) or is `Simultaneous` with
-/// subrules D3 proves pairwise non-overlapping, in which case the ADMITTED case's own defining
+/// subrules proven pairwise non-overlapping, in which case the ADMITTED case's own defining
 /// property applies: simultaneous application == sequential application, so `crate::replace`'s
 /// existing plain/iterative sequential-compose machinery (fold every subrule's compiled branch via
 /// `fsm_compose`, unchanged) is CORRECT for it, not merely reused for convenience. `Err(reason)`
@@ -2198,26 +2193,25 @@ fn subrules_pairwise_verdict(subrules: &[SubruleGateInfo]) -> Result<(), (usize,
 /// node the walk visits, [`node_decision`]'s own doc), so re-deriving [`SubruleGateInfo`] here
 /// (rather than requiring a caller to have already run [`characterize`]) is the right cost
 /// tradeoff, and lets a caller ask this question for one rule without characterizing the whole
-/// grammar. Reuses [`lower_subrule_span`] (this step's own `owning_table` fix, see that function's
-/// doc) and [`subrules_pairwise_verdict`] (the SAME overlap algorithm the capability GATE's own
+/// grammar. Reuses [`lower_subrule_span`] (see that function's own `owning_table` doc) and
+/// [`subrules_pairwise_verdict`] (the SAME overlap algorithm the capability GATE's own
 /// [`SimultaneousSubruleOverlapPredicate`] uses) — one shared proof, two call sites, so the gate
 /// and the compiler can never disagree about which configurations are faithful.
 ///
-/// # Stricter than D3's own published pairwise algorithm, by one case
-/// D3's pairwise loop has no PAIR to examine when `rule.subrules.len() < 2`, so
+/// # Stricter than the registered predicate's own pairwise algorithm, by one case
+/// The pairwise loop has no PAIR to examine when `rule.subrules.len() < 2`, so
 /// [`SimultaneousSubruleOverlapPredicate`] itself vacuously `Admit`s a *lone* self-opaquing
-/// subrule — correct for D3's own proof obligation (subrule-vs-subrule overlap only), but not
-/// sufficient for this function's SEPARATE obligation (never compile a configuration whose
+/// subrule — correct for that predicate's own proof obligation (subrule-vs-subrule overlap only),
+/// but not sufficient for this function's SEPARATE obligation (never compile a configuration whose
 /// faithfulness against the actual confirm engine cannot be established): a self-opaquing subrule
-/// needs `pg_rules::rewrite`'s analysis-side repeat-until-fixpoint wrapper (`rust/docs/
-/// p13-simultaneous-design.md` §4.3/§4.4) to be faithfully ANALYZED, which the plain/iterative
-/// sequential-compose path this function admits into does not reproduce (one pass, never a
-/// fixpoint loop) — so this function refuses ANY self-opaquing subrule unconditionally, even one
-/// with no peer to overlap with. Strictly MORE conservative than D3's own algorithm (over-refuses
-/// further, never under-refuses) — the same discipline every predicate in this module already
-/// holds itself to; D3's own registered predicate is intentionally left unchanged by this
-/// addition (out of this change's scope — see this crate's own task report for why touching D3's
-/// published algorithm/tests was judged unnecessary risk for a case no existing fixture exercises).
+/// needs `pg_rules::rewrite`'s analysis-side repeat-until-fixpoint wrapper to be faithfully
+/// ANALYZED, which the plain/iterative sequential-compose path this function admits into does not
+/// reproduce (one pass, never a fixpoint loop) — so this function refuses ANY self-opaquing
+/// subrule unconditionally, even one with no peer to overlap with. Strictly MORE conservative than
+/// the registered predicate's own algorithm (over-refuses further, never under-refuses) — the same
+/// discipline every predicate in this module already holds itself to; that predicate is
+/// intentionally left unchanged by this addition, since touching its published algorithm/tests for
+/// a case no existing fixture exercises was judged unnecessary risk.
 pub(crate) fn simultaneous_rule_admitted_for_compile(
     g: &Grammar,
     rule: &pg_grammar::model::RewriteRuleDef,
