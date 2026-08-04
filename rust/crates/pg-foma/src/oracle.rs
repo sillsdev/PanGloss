@@ -1,39 +1,39 @@
-//! Step 3 of `openspec/changes/reify-compilation-plans` (design.md **D4**, task 3.1): the
-//! differential-correctness oracle -- ADR 0002's "the refactor pays for its own correctness check"
-//! promise, made concrete. Per design.md's own framing, this is flagged as the change's genuinely
+//! The
+//! differential-correctness oracle: the refactor this crate's plan reification is built on
+//! pays for its own correctness check, made concrete. This is flagged as this crate's genuinely
 //! novel research contribution ("building >=2 independently-derived over-approximations of one
 //! grammar and using their disagreement as a designed-in correctness oracle"); this module ships
-//! ONLY D4's cheap, always-on tier.
+//! ONLY the cheap, always-on tier.
 //!
-//! # What this module does NOT do (explicitly out of scope, per D4)
-//! - **No confirm-engine integration.** D4's cheap tier as shipped elsewhere in this crate's own
+//! # What this module does NOT do (explicitly out of scope)
+//! - **No confirm-engine integration.** The cheap tier as shipped elsewhere in this crate's own
 //!   product (`crate::composite::FomaAnalyzer`) would run `confirm(propose_P1(w)) ==
 //!   confirm(propose_P2(w))` through the trusted HC confirm engine. This module instead compares
 //!   the two plans' raw `apply_up` result SETS directly -- [`build::build_controllable`]'s own
 //!   `equivalence_tests` module's predicate, generalized to two arbitrary [`Plan`]s + a word list +
-//!   shortest-witness reporting, per this task's own instruction. Wiring a real confirm pass in is
-//!   future work, not this step's.
-//! - **No exact-equivalence stretch tier.** D4's "expensive, opt-in tier" (decidable FST
+//!   shortest-witness reporting. Wiring a real confirm pass in is
+//!   future work, not this module's.
+//! - **No exact-equivalence stretch tier.** An "expensive, opt-in tier" (decidable FST
 //!   equivalence for finite-valued transducers) is explicitly marked a stretch goal, not a v1
-//!   requirement, in design.md -- not attempted here.
+//!   requirement -- not attempted here.
 //!
-//! # The D1 soundness caveat this module must respect (task 1.4: now RESOLVED)
-//! design.md D1's soundness invariant (added after Step 3a, `crate::build`'s own module doc) is:
+//! # The soundness caveat this module must respect
+//! The soundness invariant this module depends on is:
 //! **a node's compiled artifact must be a pure function of its `NodeId`** for any `NodeId`-keyed
-//! memoization to be sound. That was **not true** in general for `Gate`/`Replace` pairing at Step
-//! 3a -- [`build::build_controllable`] sidestepped it by being Gate-aware (re-deriving each group's
+//! memoization to be sound. That was **not true** in general for `Gate`/`Replace` pairing in an
+//! earlier construction -- [`build::build_controllable`] sidestepped it by being Gate-aware (re-deriving each group's
 //! `subrule_ok` from the `Gate` node's own partition, never caching a compiled `Fsm` against a
-//! shared `Replace` `NodeId`) rather than by a generic `NodeId`-memoizing interpreter. Task 1.4
-//! closed the gap at its root: `crate::enumerate::enumerate_default` now builds one `Replace` node
+//! shared `Replace` `NodeId`) rather than by a generic `NodeId`-memoizing interpreter. This was
+//! closed at its root: `crate::enumerate::enumerate_default` now builds one `Replace` node
 //! PER GROUP, carrying that group's own `gated_subrules`/`group_key` directly in its
 //! `crate::plan::ReplaceCascadeSpec` (that struct's own doc), so distinct groups get distinct
 //! `Replace` `NodeId`s and `build_controllable` reads `subrule_ok` from the Replace node's own
 //! content, not the `Gate` node's partition (`build`'s own module doc). This module calls
 //! [`build::build_controllable`] itself for BOTH plans it diffs, so it inherits that same
-//! now-content-pure behavior -- it never memoizes a compiled artifact by `NodeId` across the two
+//! content-pure behavior -- it never memoizes a compiled artifact by `NodeId` across the two
 //! builds (still true, and now provably safe if it did). [`permute_gate_groups`] (below) is careful
 //! to keep this sound too: it reorders a `Gate` node's `groups` and `children` IN LOCKSTEP (each
-//! group's key travels with its own child, and -- since task 1.4 -- its own `Replace` node,
+//! group's key travels with its own child, and its own `Replace` node,
 //! implicitly, as part of that child subtree), never separately -- so every group's `subrule_ok` is
 //! still resolved from the correct key at `build_controllable` time, on both plans.
 //!
@@ -44,9 +44,8 @@
 //! each built net (an empty set, not a panic, for a plan whose build produced no net at all --
 //! `GatedCompileResult::net`'s `None` case, e.g. every partition group empty). Words whose two
 //! result sets are unequal are disagreements; among those, the SHORTEST disagreeing word (by `char`
-//! count, ties broken lexicographically -- design.md D4's own words: "emit the shortest disagreeing
-//! word") is reported, together with the symmetric difference of the two result sets (the
-//! CFG-equivalence-tool pattern D4 cites). The selection logic itself
+//! count, ties broken lexicographically) is reported, together with the symmetric difference of
+//! the two result sets (a pattern borrowed from CFG-equivalence tooling). The selection logic itself
 //! ([`resolve_verdict`]) is a small pure function over `(word, results_a, results_b)` triples,
 //! deliberately factored out of the foma-build-heavy entry point so it can be unit-tested directly
 //! against synthetic result sets (this module's own `shortest witness` tests) without needing a
@@ -144,16 +143,16 @@
 //!   relation" could even be asked of the built net. Confirmed empirically by this module's own
 //!   `reversing_replace_cascade_is_mechanically_rejected_by_build_controllable` test, not just argued.
 //!
-//! # Deliverable 2: seeded random subtree mutation ([`mutate_plan_seeded`])
+//! # Seeded random subtree mutation ([`mutate_plan_seeded`])
 //! [`mutate_plan_seeded`] draws ONE of the two sound restructurings above (never anything else, by
 //! construction: [`eligible_mutation_targets`] only ever names `Gate`/`Union` nodes) at a randomly
 //! chosen node, using [`SplitMix64`] -- a tiny, hand-rolled PRNG seeded only by its caller-supplied
 //! seed (see that type's own doc for why: no dependency, no wall-clock, no thread-local state, so the
 //! SAME seed against the SAME plan always draws the SAME target and the SAME permutation). The draw
 //! is packaged as a [`MutationRecipe`] (target kind/id + permutation + the seed itself), so a failure
-//! report carries everything needed to replay it exactly, per this task's own requirement.
+//! report carries everything needed to replay it exactly.
 //!
-//! # Deliverable 3: failure minimisation ([`minimize_disagreement`])
+//! # Failure minimisation ([`minimize_disagreement`])
 //! A [`MutationStep`] is a named, replayable, chainable plan transform (typically
 //! [`MutationStep::from_seed`], which re-draws [`mutate_plan_seeded`] against whatever plan IT is
 //! applied to at its position in the chain -- so dropping an earlier step changes what a later step's
@@ -163,7 +162,7 @@
 //! still holds, over full passes, until no further step is removable (a standard 1-minimal
 //! delta-debugging fixed point) -- the surviving steps plus [`resolve_verdict`]'s own
 //! shortest-disagreeing-word are reported as a [`MinimizedRecipe`], whose `Display` impl is the
-//! paste-into-a-test format this task asks for (see that type's own doc for the exact shape).
+//! paste-into-a-test format (see that type's own doc for the exact shape).
 
 use std::collections::{BTreeSet, HashSet};
 use std::fmt;
@@ -183,14 +182,14 @@ use crate::plan::{
 };
 use crate::replace::SegAlphabet;
 
-/// The outcome of one [`differential_oracle`] run (design.md D4).
+/// The outcome of one [`differential_oracle`] run.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OracleResult {
     /// Every word compared produced identical `apply_up` result sets on both plans.
     Agree,
-    /// At least one word disagreed. `word` is the SHORTEST such word (D4's own words), ties broken
+    /// At least one word disagreed. `word` is the SHORTEST such word, ties broken
     /// lexicographically; `only_in_a`/`only_in_b` are the symmetric difference of the two plans'
-    /// `apply_up` result sets for THAT word (D4: "the CFG-equivalence-tool pattern"); `plan_a_label`/
+    /// `apply_up` result sets for THAT word (a pattern borrowed from CFG-equivalence tooling); `plan_a_label`/
     /// `plan_b_label` echo [`differential_oracle`]'s own `labels` argument, so a caller printing this
     /// variant does not need to thread the labels through separately.
     Disagree {
@@ -225,8 +224,8 @@ fn apply_up_results(net: Option<&Fsm>, alphabet: &SegAlphabet, word: &str) -> Ha
 
 /// The pure selection core (module doc): given each word's two `apply_up` result sets, returns
 /// `Agree` if all agree, else `Disagree` naming the SHORTEST disagreeing word (`char` count, ties
-/// broken lexicographically by the word itself -- a total, deterministic order, per D4's own "break
-/// ties deterministically" framing this task states explicitly). Factored out of
+/// broken lexicographically by the word itself -- a total, deterministic order, so ties are broken
+/// deterministically). Factored out of
 /// [`differential_oracle`] so it can be unit-tested directly against synthetic `(word, results_a,
 /// results_b)` triples, independent of building any real `Fsm`.
 fn resolve_verdict(
@@ -262,7 +261,7 @@ fn resolve_verdict(
     }
 }
 
-/// D4's cheap, always-on differential-correctness tier: builds BOTH `plan_a` and `plan_b` via
+/// The cheap, always-on differential-correctness tier: builds BOTH `plan_a` and `plan_b` via
 /// [`build_controllable`] (never recomputing a partition/cascade itself), then compares their
 /// `apply_up` result sets over every word in `words`. Returns `Ok(OracleResult::Agree)` iff every
 /// word's two result sets are identical; otherwise `Ok(OracleResult::Disagree { .. })` naming the
@@ -315,14 +314,14 @@ pub fn differential_oracle(
 /// copy for a `Gate` node: given that node's own `NodeId` plus its own `(partition, children)`,
 /// returns the `(partition, children)` to install in the copy. Takes the node's `NodeId` (not just
 /// its content) so a caller can single out ONE specific node by identity and leave every other `Gate`
-/// node in the plan untouched -- [`apply_permutation_at`] (deliverable 2) needs exactly that; the
+/// node in the plan untouched -- [`apply_permutation_at`] needs exactly that; the
 /// whole-plan generator ([`permute_gate_groups`]) simply ignores the id and transforms every `Gate`
 /// node uniformly. Named purely to satisfy `clippy::type_complexity` -- not a new abstraction beyond
 /// what [`copy_plan_transforming`]'s own doc already describes.
 type GateTransform<'a> =
     dyn FnMut(NodeId, &GatePartitionSpec, &[NodeId]) -> (GatePartitionSpec, Vec<NodeId>) + 'a;
 
-/// The `Union`-node counterpart of [`GateTransform`] (deliverable 1's [`permute_union_children`]):
+/// The `Union`-node counterpart of [`GateTransform`], used by [`permute_union_children`]:
 /// given a `Union` node's own `NodeId` and its own `children`, returns the `children` to install in
 /// the copy.
 type UnionTransform<'a> = dyn FnMut(NodeId, &[NodeId]) -> Vec<NodeId> + 'a;
@@ -332,11 +331,10 @@ type UnionTransform<'a> = dyn FnMut(NodeId, &[NodeId]) -> Vec<NodeId> + 'a;
 /// children)` as each is encountered -- BEFORE recursing into whichever children the callback decides
 /// to keep, so a transform that drops a child entirely never even copies that subtree into the new
 /// plan. A single unified walk (rather than two near-duplicate copies of the same five-arm match) so
-/// [`permute_gate_groups`], [`permute_union_children`], and [`apply_permutation_at`] (deliverable 2)
+/// [`permute_gate_groups`], [`permute_union_children`], and [`apply_permutation_at`]
 /// all exercise the identical recursion, and this module's own test-only "drop a gate group"
-/// deliberately-wrong-plan constructor keeps sharing it too -- the same reasoning the pre-deliverable-2
-/// version of this function already applied when it shared ONE walk between [`permute_gate_groups`]
-/// and that test constructor.
+/// deliberately-wrong-plan constructor keeps sharing it too -- one shared walk rather than
+/// several near-duplicate copies.
 ///
 /// Every non-`Gate`/non-`Union` node is copied verbatim (same fragment/provenance/strategy/cascade,
 /// children recursively copied) -- [`Plan::add_node`]'s own content-addressed dedup means an
@@ -424,9 +422,9 @@ fn copy_node(
     }
 }
 
-/// The second same-relation topology this task asks for (module doc): a copy of `plan` with every
+/// The second same-relation topology (module doc): a copy of `plan` with every
 /// `Gate` node's `partition.groups` (and each group's OWN paired `children` entry) reversed. Each
-/// group's key travels with its own child in lockstep -- the D1 soundness caveat this module doc
+/// group's key travels with its own child in lockstep -- the soundness caveat this module doc
 /// discusses: `build_controllable` re-derives a group's `subrule_ok` from THAT group's own key, so
 /// as long as key and child stay paired, reordering groups cannot desync which key gates which
 /// compiled network. Only the ORDER changes, never membership, so [`differential_oracle`] run over
@@ -466,7 +464,7 @@ pub fn permute_gate_groups(plan: &Plan) -> Plan {
     )
 }
 
-/// Deliverable 1's `Union` generator (module doc: "sound, and now shipped"): a copy of `plan` with
+/// The `Union` second-topology generator (module doc: "sound, and now shipped"): a copy of `plan` with
 /// every `Union` node's `children` reversed. Sound because `Union` denotes a set union over its
 /// children (`plan.rs`'s own doc: "merges independently-compiled branches"), and set union is
 /// commutative -- reordering `children` cannot change what the node denotes, independent of whether
@@ -599,8 +597,8 @@ fn lexicon_entries(plan: &Plan, lexicon_id: NodeId) -> Vec<LexEntryId> {
 /// as `A ∪ B` (an arbitrary partition of that SAME entry set into disjoint pieces) and its own
 /// `Replace` cascade as `R`: splitting the group's `LexiconFragment` into several smaller
 /// `LexiconFragment`s, each still composed with the group's OWN, UNCHANGED `Replace` node (so
-/// `subrule_ok` -- read from that node's own `cascade.gated_subrules`/`group_key`, task 1.4's own
-/// discipline -- is identical for every sub-group), and re-unioning them back together produces
+/// `subrule_ok` -- read from that node's own `cascade.gated_subrules`/`group_key`, the same
+/// content-pure discipline this module's top doc discusses -- is identical for every sub-group), and re-unioning them back together produces
 /// EXACTLY the original group's compiled net, byte for byte, before the outer union-of-all-groups
 /// fold even runs. Refining a partition therefore cannot change what the whole `Gate` node accepts,
 /// for the same underlying reason `permute_gate_groups` cannot: only ENTRY MEMBERSHIP matters to the
@@ -615,7 +613,7 @@ fn lexicon_entries(plan: &Plan, lexicon_id: NodeId) -> Vec<LexEntryId> {
 /// addressing dedups it straight back to the SAME `NodeId` -- never a forced, purposeless rebuild.
 ///
 /// Reuses each ORIGINAL group's own `Replace` `NodeId` for every one of its sub-groups (recomputed
-/// via a plain recursive copy, never re-derived) -- content addressing (D1) dedups it back to ONE
+/// via a plain recursive copy, never re-derived) -- content addressing dedups it back to ONE
 /// stored node automatically, since none of `cascade.rules`/`gated_subrules`/`group_key` changed;
 /// only each sub-group's OWN `LexiconFragment` leaf (a smaller `entries` subset) and its wrapping
 /// `Compose` node are genuinely new.
@@ -736,7 +734,7 @@ fn refine_node(
 }
 
 // -------------------------------------------------------------------------------------------------
-// Deliverable 2: seeded random subtree mutation
+// Seeded random subtree mutation
 // -------------------------------------------------------------------------------------------------
 
 /// A tiny, deterministic, seedable pseudo-random source (SplitMix64, Vigna 2015) -- used ONLY by
@@ -849,13 +847,13 @@ fn identity_copy(plan: &Plan) -> Plan {
     )
 }
 
-/// Applies exactly ONE permutation at exactly one target node (deliverable 2: "applies a random
-/// relation-preserving restructuring... at a randomly chosen subtree") -- built on the SAME
+/// Applies exactly ONE permutation at exactly one target node -- a random
+/// relation-preserving restructuring at a randomly chosen subtree, built on the SAME
 /// [`copy_plan_transforming`] walk [`permute_gate_groups`]/[`permute_union_children`] use, just
 /// parameterized by a single `(target, permutation)` pair resolved at runtime instead of a fixed
 /// whole-plan rule. Every OTHER `Gate`/`Union` node in `plan` is copied with its children in their
 /// ORIGINAL order -- only `target`'s own children (and, if `target` is a `Gate`, its paired
-/// `partition.groups`, in lockstep -- the same D1 soundness discipline [`permute_gate_groups`]'s own
+/// `partition.groups`, in lockstep -- the same soundness discipline [`permute_gate_groups`]'s own
 /// doc states) are reordered by `permutation`.
 ///
 /// # Panics (debug only)
@@ -904,8 +902,8 @@ fn apply_permutation_at(plan: &Plan, target: NodeId, permutation: &[usize]) -> P
     )
 }
 
-/// The replay-recipe for one [`mutate_plan_seeded`] draw (deliverable 2: "the seed must appear in any
-/// failure report so a disagreement can be replayed exactly"). `target_kind`/`target_node_id`/
+/// The replay-recipe for one [`mutate_plan_seeded`] draw: the seed must appear in any
+/// failure report so a disagreement can be replayed exactly. `target_kind`/`target_node_id`/
 /// `permutation` are the mutation's own already-resolved output -- enough to redo exactly this
 /// mutation without re-running the RNG at all; `seed` is carried too purely for a human-readable
 /// failure report, not because replay needs to re-draw from it.
@@ -935,7 +933,7 @@ pub struct MutationOutcome {
     pub recipe: Option<MutationRecipe>,
 }
 
-/// Deliverable 2: a deterministic, seeded generator that applies ONE random relation-preserving
+/// A deterministic, seeded generator that applies ONE random relation-preserving
 /// restructuring -- [`permute_gate_groups`]'s per-node form or [`permute_union_children`]'s, the only
 /// two node kinds this module has proven sound (module doc) -- at a randomly chosen subtree of
 /// `plan`.
@@ -984,7 +982,7 @@ pub fn mutate_plan_seeded(plan: &Plan, seed: u64) -> MutationOutcome {
 }
 
 // -------------------------------------------------------------------------------------------------
-// Deliverable 3: failure minimisation to a named recipe
+// Failure minimisation to a named recipe
 // -------------------------------------------------------------------------------------------------
 
 /// One step in a [`minimize_disagreement`] repro sequence: a named, replayable plan transform.
@@ -1034,7 +1032,7 @@ fn apply_step_chain(base: &Plan, steps: &[MutationStep]) -> Plan {
 /// disagreeing word and symmetric difference [`resolve_verdict`] itself computed for that minimal
 /// sequence (NOT the original, possibly-larger one).
 ///
-/// `Display` is the paste-into-a-test recipe format this task asks for: a numbered step list plus the
+/// `Display` is the paste-into-a-test recipe format: a numbered step list plus the
 /// witness word/symmetric-difference, one field per line -- see this module's own
 /// `minimization_converges_to_the_injected_breakage` test for a verbatim example of what this prints
 /// on a real (deliberately broken) case.
@@ -1059,7 +1057,7 @@ impl fmt::Display for MinimizedRecipe {
     }
 }
 
-/// Deliverable 3: shrinks `steps` (a sequence already known to make `differential_oracle(base_plan,
+/// Shrinks `steps` (a sequence already known to make `differential_oracle(base_plan,
 /// apply_step_chain(base_plan, steps), ...)` return `Disagree`, asserted up front) to a 1-minimal
 /// subsequence -- repeatedly tries dropping each remaining step and keeps the drop permanently
 /// whenever the shorter sequence STILL disagrees, over full passes, until no single step is removable
@@ -1842,7 +1840,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------------------------
-    // Deliverable 1: the `Union` second-topology generator, on a real grammar.
+    // The `Union` second-topology generator, on a real grammar.
     // -----------------------------------------------------------------------------------------
 
     #[test]
@@ -1928,7 +1926,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------------------------
-    // Deliverable 1: `Compose`/`Replace` have NO sound generator -- confirmed empirically (module
+    // `Compose`/`Replace` have NO sound generator -- confirmed empirically (module
     // doc), not just argued: reordering either is mechanically rejected by build_controllable.
     // -----------------------------------------------------------------------------------------
 
@@ -2105,7 +2103,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------------------------
-    // Deliverable 2: seeded random subtree mutation.
+    // Seeded random subtree mutation.
     // -----------------------------------------------------------------------------------------
 
     #[test]
@@ -2258,7 +2256,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------------------------
-    // Deliverable 3: failure minimisation to a named recipe.
+    // Failure minimisation to a named recipe.
     // -----------------------------------------------------------------------------------------
 
     #[test]
@@ -2366,9 +2364,9 @@ mod tests {
             }
         }
 
-        // Report the recipe's own Display format verbatim (deliverable 3: "a recipe a human can
-        // act on... state the format" -- this IS that format, printed here so a test failure or a
-        // `--nocapture` run shows exactly what a human would paste into a bug report).
+        // Report the recipe's own Display format verbatim: a recipe a human can
+        // act on -- this IS that format, printed here so a test failure or a
+        // `--nocapture` run shows exactly what a human would paste into a bug report.
         println!("{recipe}");
     }
 }
