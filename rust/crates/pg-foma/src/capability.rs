@@ -4333,7 +4333,7 @@ mod tests {
             details.iter().all(|d| d.recursive),
             "two co-located CompoundingRules must both characterize recursive: {details:?}"
         );
-        // Task 4.1: max_depth(cr1) = 1 (base) + max_apps(cr1)=1 + max_apps(cr2)=1 = 3, and
+        // max_depth(cr1) = 1 (base) + max_apps(cr1)=1 + max_apps(cr2)=1 = 3, and
         // symmetrically for cr2 (each is the other's own ancestor under same-stratum co-location).
         assert!(
             details.iter().all(|d| d.max_depth == 3),
@@ -4621,9 +4621,8 @@ mod tests {
         );
     }
 
-    /// D1's table: `MprGroupOutput::Append` -> ConfirmOnly, `MprGroupOutput::Overwrite` ->
-    /// FailClosed (explicit task requirement, resolving D1's own "ConfirmOnly / FailClosed"
-    /// ambiguity for `Overwrite` in favor of FailClosed).
+    /// `MprGroupOutput::Append` -> ConfirmOnly, `MprGroupOutput::Overwrite` ->
+    /// FailClosed.
     #[test]
     fn characterize_marks_append_confirm_only_and_overwrite_fail_closed() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
@@ -4823,10 +4822,9 @@ mod tests {
         );
     }
 
-    /// `fix-multitable-fst-compilation`: two tables with DISJOINT representations characterize
-    /// `MultiTable`/`ConfigPredicate` (D1's table: `ConfirmOnly` unless/until a predicate proves
-    /// `Admit`) — never `FailClosed` outright, since the threading fix makes per-rule resolution
-    /// faithful.
+    /// Two tables with DISJOINT representations characterize
+    /// `MultiTable`/`ConfigPredicate` (`ConfirmOnly` unless/until a predicate proves
+    /// `Admit`) — never `FailClosed` outright, since per-rule table resolution is faithful.
     #[test]
     fn characterize_marks_disjoint_multi_table_config_predicate() {
         let g = load(TWO_TABLE_DISJOINT_XML);
@@ -4850,7 +4848,7 @@ mod tests {
         assert!(detail.shared_representation_witness.is_none());
     }
 
-    /// Positive witness (task 2.1): [`MultiTableFaithfulThreadingPredicate`] admits `ConfirmOnly`
+    /// Positive witness: [`MultiTableFaithfulThreadingPredicate`] admits `ConfirmOnly`
     /// (never `Refuse`) for two tables with disjoint representations — the exact
     /// `two-table-symbol-divergence` shape `tests/two_table_symbol_divergence.rs` proves matches
     /// the oracle end to end.
@@ -4868,14 +4866,12 @@ mod tests {
         );
     }
 
-    /// Positive witness (task 4.4b, flipped from the old `Refuse` verdict): two tables that SHARE
-    /// a literal representation must now `ConfirmOnly`, not `Refuse` — `docs/conformance/
-    /// multitable-shared-representation-design.md`'s own headline finding is that a shared
+    /// Positive witness: two tables that SHARE
+    /// a literal representation must `ConfirmOnly`, not `Refuse` — a shared
     /// representation is a FALSE-NEGATIVE risk (render-time cross-table aliasing,
     /// `crate::replace::RepresentationAliasMap`/`SegAlphabet::render_tokens` for rewrite rules,
     /// `crate::replace::slot_candidates`'s own alias-expanded candidate sets for `MetathesisRule`,
-    /// closes it for both), not a false-positive one — the direction the old `Refuse` verdict
-    /// assumed.
+    /// closes it for both), not a false-positive one.
     #[test]
     fn multi_table_predicate_confirm_only_when_tables_share_a_representation() {
         let g = load(TWO_TABLE_OVERLAPPING_XML);
