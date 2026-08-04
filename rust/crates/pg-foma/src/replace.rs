@@ -36,14 +36,13 @@
 //! [`VarId`], enumerate the CROSS PRODUCT of each slot's own (non-alpha-feature) candidate
 //! members, then keep only the combinations where every pair of same-`VarId` slots agrees (same
 //! symbolic-feature value at that variable's lane — `AlphaVar::plus` polarity; `minus`/"disagree"
-//! is unimplemented, see the doc on [`AlphaOccurrence`]). This is the "count of segment tuples
-//! satisfying the joint constraint" bound from `reports/08-audit-corrections-and-reframed-
-//! architecture.md` §3 item 1 (Amharic's 20-variable CV-merger: nc15=59 × nc16=6 ⇒ ≤354, never
+//! is unimplemented, see the doc on [`AlphaOccurrence`]). This bounds the count of segment tuples
+//! satisfying the joint constraint (Amharic's 20-variable CV-merger: nc15=59 × nc16=6 ⇒ ≤354, never
 //! v^20) — implemented once, generically over N variables and N slots-per-variable, so the same
 //! code path that resolves Indonesian's single-variable prule4 is what would resolve Amharic's
 //! rule without modification.
 //!
-//! ## What this module does NOT attempt (see the prototype report for the full list)
+//! ## What this module does NOT attempt
 //! - [`PatternNode::Quantifier`] (`OptionalSegmentSequence`) that is inverted (`min > max`, `max`
 //!   concrete), pathologically large (a concrete `max` past [`MAX_QUANTIFIER_BOUND`]), or carries
 //!   an alpha-bound occurrence anywhere in its own children — [`pattern_slots`] still returns
@@ -67,9 +66,8 @@
 //! `Dir::RightToLeft` used to be honestly skipped (the same `Ok(None)` treatment `Simultaneous`
 //! still gets); this change gives it real, direction-faithful semantics via the STANDARD
 //! finite-state technique for "prefer the rightmost, not leftmost, non-overlapping match" (Beesley
-//! & Karttunen, *Finite State Morphology*, ch. 6 "Directional replacement rules"; ADR 0001, `docs/
-//! adr/0001-honest-capability-boundary.md`, "confirm-only-by-default"): reverse ∘ compile(mirror
-//! rule) ∘ reverse, NOT "compile as if `LeftToRight`".
+//! & Karttunen, *Finite State Morphology*, ch. 6 "Directional replacement rules"): reverse ∘
+//! compile(mirror rule) ∘ reverse, NOT "compile as if `LeftToRight`".
 //!
 //! **The mirror rule.** Foma's native `->` only ever prefers the LEFTMOST of several
 //! non-overlapping candidate matches (there is no built-in "prefer rightmost" operator). To get
@@ -96,8 +94,8 @@
 //! sort — i.e. this repo's current full-HC oracle is, empirically, direction-BLIND for the "which
 //! overlapping match wins" question (verified directly: a hand-built `aa -> b` rule applied to
 //! `"aaa"` synthesizes to `"ba"` whether the rule is declared `LeftToRight` or
-//! `rightToLeftIterative`). ADR 0001: *"Where the oracle itself is unverified for a configuration...
-//! the configuration is unsupported by definition."* Rather than let a THEORETICALLY-faithful
+//! `rightToLeftIterative`). Where the oracle itself is unverified for a configuration, the
+//! configuration is unsupported by definition. Rather than let a THEORETICALLY-faithful
 //! reversal-only compile under-propose relative to what this repo's own confirm engine actually
 //! requires for recall (the reversal-only net for `aa -> b`/`RightToLeft` maps `"aaa"` to `"ab"`,
 //! never `"ba"` — so it would never even PROPOSE the lexical form the current oracle confirms for
@@ -208,7 +206,7 @@
 //! depend on any repetition count at all, so "the bound is above the ceiling" is not even a
 //! meaningful question to ask of `max: None` — this is a DIFFERENT native construction, not a
 //! finite one that happens to be very large, and `max: None` is never coerced to a concrete number
-//! anywhere in this path (ADR 0001: a finite cutoff must never masquerade as unbounded semantics —
+//! anywhere in this path (a finite cutoff must never masquerade as unbounded semantics —
 //! this is the SAME rule the original refusal existed to enforce, now honored by actually building
 //! the unbounded construction instead of refusing every quantifier that might need it). Inverted/
 //! over-[`MAX_QUANTIFIER_BOUND`]/alpha-nested quantifiers stay `None` exactly as before — those
@@ -759,9 +757,9 @@ mod representation_alias_map_tests {
     }
 }
 
-/// Resolves `rule`'s OWNING [`CharDefTable`] via its owning stratum's `StratumDef::table`
-/// (`openspec/changes/fix-multitable-fst-compilation`, design.md: "Every compiled rule carries its
-/// owning character-table identity explicitly; table zero is never an implicit default").
+/// Resolves `rule`'s OWNING [`CharDefTable`] via its owning stratum's `StratumDef::table`.
+/// Every compiled rule carries its owning character-table identity explicitly; table zero is
+/// never an implicit default.
 ///
 /// `rule` is looked up in `g.prules` by `xml_id` (document-unique, per the DTD's own `xs:ID`
 /// discipline for every element's `id=` attribute — `pg_grammar::load`'s own convention) rather
@@ -781,8 +779,8 @@ mod representation_alias_map_tests {
 /// is an honest `None` a caller can route to its OWN "uncovered"/`Unsupported` handling, never a
 /// silent guess. [`compile_rewrite_rule_subset`] treats `None` exactly like an unsupported pattern
 /// construct (`Ok(None)`, reported `skipped` by its own caller); `capability.rs`'s
-/// `lower_subrule_span` rounds it to [`LoweredSpan::Unsupported`] (D3's own "any approximation
-/// rounds toward Refuse").
+/// `lower_subrule_span` rounds it to [`LoweredSpan::Unsupported`] (any approximation rounds toward
+/// `Refuse`).
 pub(crate) fn owning_table<'g>(g: &'g Grammar, rule: &RewriteRuleDef) -> Option<&'g CharDefTable> {
     let idx = g
         .prules
@@ -793,8 +791,7 @@ pub(crate) fn owning_table<'g>(g: &'g Grammar, rule: &RewriteRuleDef) -> Option<
 
 /// [`owning_table`]'s sibling returning the resolved [`TableId`] itself rather than the
 /// `&CharDefTable` — needed by [`compile_rewrite_rule_subset`] to build a [`SegAlphabet::
-/// with_table_id`] alphabet that can name itself for cross-table representation aliasing
-/// (`docs/conformance/multitable-shared-representation-design.md`). Shares
+/// with_table_id`] alphabet that can name itself for cross-table representation aliasing. Shares
 /// [`owning_table_id_for_prule_position`] with [`owning_table_for_prule_position`] (both derive
 /// from the exact SAME stratum lookup, never two independently-derived resolutions that could
 /// silently disagree).
@@ -806,9 +803,9 @@ pub(crate) fn owning_table_id(g: &Grammar, rule: &RewriteRuleDef) -> Option<Tabl
     owning_table_id_for_prule_position(g, idx)
 }
 
-/// [`owning_table`]'s sibling for a [`MetathesisRuleDef`] (`openspec/changes/compile-fst-metathesis`,
-/// design.md/ADR 0001): identical reasoning, just matched against the `PhonRuleDef::Metathesis`
-/// variant instead of `PhonRuleDef::Rewrite` — a `MetathesisRuleDef` lives in the SAME `g.prules`
+/// [`owning_table`]'s sibling for a [`MetathesisRuleDef`]: identical reasoning, just matched
+/// against the `PhonRuleDef::Metathesis` variant instead of `PhonRuleDef::Rewrite` — a
+/// `MetathesisRuleDef` lives in the SAME `g.prules`
 /// vec and is wired to a stratum's own `prules: Vec<PRuleId>` list exactly the same way, so the
 /// "find this rule's own index, then find which stratum's own cascade contains it" algorithm is
 /// identical; only the variant match differs. Shares [`owning_table_for_prule_position`] with
@@ -826,8 +823,7 @@ pub(crate) fn owning_table_for_metathesis<'g>(
 
 /// [`owning_table_for_metathesis`]'s sibling returning the resolved [`TableId`] itself, needed by
 /// [`compile_metathesis_rule`] to build a [`SegAlphabet::with_table_id`]-shaped alias context for
-/// cross-table representation aliasing (`docs/conformance/multitable-shared-representation-
-/// design.md`'s "Residual gap this fix does NOT close" section — this closes it). Mirrors
+/// cross-table representation aliasing. Mirrors
 /// [`owning_table_id`]'s own relationship to [`owning_table`]: shares
 /// [`owning_table_id_for_prule_position`] with [`owning_table_for_metathesis`] (both derive from the
 /// exact same stratum lookup, never two independently-derived resolutions that could silently
@@ -863,14 +859,13 @@ fn owning_table_id_for_prule_position(g: &Grammar, idx: usize) -> Option<TableId
     Some(stratum.table)
 }
 
-/// `slots` in REVERSE document order (`openspec/changes/compile-right-to-left-rewrites`'s mirror-
-/// rule construction, module doc): never mutates in place, so the caller's own document-order
-/// `Vec<Slot>` (needed unchanged for the safety-net plain branch, [`compile_rtl_branch_net`]'s doc)
-/// is untouched.
+/// `slots` in REVERSE document order (the mirror-rule construction, module doc): never mutates in
+/// place, so the caller's own document-order `Vec<Slot>` (needed unchanged for the safety-net plain
+/// branch, [`compile_rtl_branch_net`]'s doc) is untouched.
 ///
-/// # Recurses into a `Slot::Repeat`'s own `children` (task #32 fix, REPRODUCED before being applied
-/// -- see this crate's own `rtl_repeat_children_reversal_tests` module below for the concrete
-/// witness)
+/// # Recurses into a `Slot::Repeat`'s own `children`
+/// A shallow, non-recursing reversal is wrong here — see this crate's own
+/// `rtl_repeat_children_reversal_tests` module below for the concrete witness.
 /// A `Slot::Repeat{children, ..}` is NOT an atomic, single-token "position" the way
 /// `Slot::Fixed`/`Slot::Union`/`Slot::Alpha` are — it is itself a variable-length SEQUENCE (each
 /// repetition contributes `children.len()` tokens, repeated some number of times). Reversing the
@@ -887,8 +882,8 @@ fn owning_table_id_for_prule_position(g: &Grammar, idx: usize) -> Option<TableId
 /// for the SAME reason the top-level reversal is: `Slot::Repeat`'s own `min`/`max` bound is
 /// direction-invariant (reversing a language does not change how many times a repeated group can
 /// occur), so only `children`'s own internal order needs to flip, never `min`/`max` themselves —
-/// including the `max: None` (genuinely unbounded, `openspec/changes/
-/// build-unbounded-quantifier-support`) case, which carries no numeric bound to touch at all.
+/// including the `max: None` (genuinely unbounded) case, which carries no numeric bound to touch
+/// at all.
 fn reversed_slots(slots: &[Slot]) -> Vec<Slot> {
     slots
         .iter()
@@ -910,18 +905,15 @@ fn reversed_slots(slots: &[Slot]) -> Vec<Slot> {
 /// left/right-swapped — for [`compile_rtl_branch_net`]'s intermediate mirror-rule compile).
 ///
 /// Empty `lhs`/`rhs` render as foma's own epenthesis/deletion literals, `"[..]"`/`"0"` (foma's xre
-/// grammar rejects a literally-blank LHS/RHS operand — confirmed empirically, `docs/fst-plan/
-/// p6-prototype-report.md`-style bisection: `"0 -> x || a _ b"` silently compiles to a rule that
-/// NEVER inserts on either tape, while `"[..] -> x || a _ b"`, foma's own documented epenthesis
-/// notation — `foma::rewrite`'s own test `rewrite_epenthesis`, `"[..] -> x"` inserting `x` at
-/// every position — behaves correctly). The RHS `"0"` deletion literal was already this file's own
-/// convention before this change (deletion IS exercised by the reference grammars); the LHS
-/// `"[..]"` epenthesis literal is new here — no existing caller ever renders an empty-LHS branch
-/// (`rule.lhs.nodes.is_empty()` is [`CharacteristicKind::Epenthesis`](crate::capability::
-/// CharacteristicKind::Epenthesis)'s own trigger, still `FailClosed`-placeholder'd in
-/// `capability.rs` for unrelated reasons — this fix only makes THIS FILE's own compile mechanics
-/// epenthesis-capable; it does not by itself flip that placeholder), so this changes no existing
-/// test's compiled output.
+/// grammar rejects a literally-blank LHS/RHS operand — confirmed empirically by bisection:
+/// `"0 -> x || a _ b"` silently compiles to a rule that NEVER inserts on either tape, while
+/// `"[..] -> x || a _ b"`, foma's own documented epenthesis notation — `foma::rewrite`'s own test
+/// `rewrite_epenthesis`, `"[..] -> x"` inserting `x` at every position — behaves correctly). The
+/// RHS `"0"` deletion literal is exercised by the reference grammars; the LHS `"[..]"` epenthesis
+/// literal has no existing caller yet (`rule.lhs.nodes.is_empty()` is
+/// [`CharacteristicKind::Epenthesis`](crate::capability::CharacteristicKind::Epenthesis)'s own
+/// trigger, still `FailClosed`-placeholder'd in `capability.rs` for unrelated reasons), so this
+/// changes no existing test's compiled output.
 fn render_branch_regex(
     alphabet: &SegAlphabet,
     lhs_slots: &[Slot],
@@ -1106,47 +1098,46 @@ pub fn compile_rewrite_rule(
 /// supported-but-gated subrule reports the WHOLE rule uncovered for every group, matching
 /// [`compile_rewrite_rule`]'s own pre-existing all-or-nothing `?` short-circuit — not a regression).
 ///
-/// `budget`: checked at two points (design doc `phase-b-compose-budget-design.md` §4) -- V3
-/// immediately after [`resolve_alpha_tuples`] returns, BEFORE the (potentially expensive) per-tuple
-/// compile loop runs (`AlphaTupleBudgetExceeded` if `report.surviving` exceeds
-/// [`ComposeBudget::tuple_cap`]'s value, the cheapest-possible-predictor principle Fix 1's own
-/// `EnumerationBudget` already uses); and V1, via [`compose_checked`], on every fold step of the
-/// per-alpha-tuple union-by-composition below.
+/// `budget`: checked at two points -- V3 immediately after [`resolve_alpha_tuples`] returns,
+/// BEFORE the (potentially expensive) per-tuple compile loop runs (`AlphaTupleBudgetExceeded` if
+/// `report.surviving` exceeds [`ComposeBudget::tuple_cap`]'s value, the same cheapest-possible-
+/// predictor principle `EnumerationBudget` already uses); and V1, via [`compose_checked`], on every
+/// fold step of the per-alpha-tuple union-by-composition below.
 ///
-/// **Mode/dir detection (Phase C, `docs/fst-plan/phase-c-generator-design.md` §5/§6):**
+/// **Mode/dir detection:**
 /// `rule.mode`/`rule.dir` are checked FIRST, via [`is_fully_supported_shape`] -- a rule outside
 /// that shape returns `Ok(None)` immediately, exactly the same "uncovered, caller reports it
 /// `skipped`" contract [`pattern_slots`] already uses for an unsupported PATTERN construct (a
 /// malformed `Quantifier` or a disagree-polarity alpha var -- cross-table and same-table
-/// `Segments` plus any `Anchor` no longer disqualify a rewrite rule's own pattern at all,
-/// `openspec/changes/plan-construct-coverage-completion` task 4.2, this function's own
-/// `PatternLowerScope::RewriteRuleCompile` call below). Before this check existed, an unsupported mode/dir was silently
+/// `Segments` plus any `Anchor` no longer disqualify a rewrite rule's own pattern at all, per this
+/// function's own `PatternLowerScope::RewriteRuleCompile` call below). Before this check existed,
+/// an unsupported mode/dir was silently
 /// compiled via plain foma `->` as if it were Iterative/LeftToRight -- a WRONG network with no
-/// signal (design doc §5's "SILENT MIS-MAP" row). `Dir::RightToLeft` used to be gated out here too
-/// (`Ok(None)`, honestly skipped) until `openspec/changes/compile-right-to-left-rewrites` gave it
+/// signal ("silent mis-map"). `Dir::RightToLeft` used to be gated out here too
+/// (`Ok(None)`, honestly skipped) until it gained
 /// real semantics ([`compile_rtl_branch_net`], module doc) -- both `Iterative` directions now
 /// compile unconditionally. `RewriteMode::Simultaneous` used to be gated out here UNCONDITIONALLY
-/// too, until `openspec/changes/compile-simultaneous-rewrites` gave `is_fully_supported_shape` a
+/// too, until `is_fully_supported_shape` gained a
 /// per-rule admission check for it (that function's own doc) -- a `Simultaneous` rule whose
-/// subrules the `simultaneous.subrule-overlap` predicate (D3) proves pairwise non-overlapping now
+/// subrules the `simultaneous.subrule-overlap` predicate proves pairwise non-overlapping now
 /// compiles via this SAME sequential-compose loop, unmodified; one the predicate cannot clear
 /// stays gated here exactly as before. Every reference-grammar rule (Indonesian/Amharic/Sena) is
-/// already `Iterative`/`LeftToRight` (this function's own prior module-level doc), so none of
+/// already `Iterative`/`LeftToRight`, so none of
 /// these three changes alters any existing grammar's compiled output -- verified by
 /// `tests/p6_gate_parity.rs`'s byte-exact Amharic state/arc-count regression guard and
 /// `tests/f3_parity.rs`'s multiset parity gates staying green.
 ///
-/// # `_alphabet` is unused (`docs/conformance/multitable-shared-representation-design.md`)
+/// # `_alphabet` is unused
 /// Every existing caller (this file's own `compile_and_compose_rules(_gated)_with_budget`, every
 /// `tests/phase_c_*`/example driver) passes a single, grammar-wide `&SegAlphabet` built once
 /// (typically `SegAlphabet::new(surface_table(g))`, the LAST stratum's table) and reused across
-/// EVERY rule in the cascade, regardless of which table that rule actually owns — exactly the
-/// table-blind assumption the design doc's fix targets. Since [`owning_table`]/[`owning_table_id`]
-/// already resolve THIS rule's own correct table below, this function now builds its OWN
-/// [`SegAlphabet::with_table_id`] (`render_alphabet`) for every render call instead of trusting the
-/// caller's possibly-unrelated one — so the parameter is kept (removing it would ripple through
-/// every one of those call sites, most outside this task's own single-owner boundary) but no
-/// longer read. Renamed rather than silently unused to make that explicit.
+/// EVERY rule in the cascade, regardless of which table that rule actually owns. Since
+/// [`owning_table`]/[`owning_table_id`] already resolve THIS rule's own correct table below, this
+/// function now builds its OWN [`SegAlphabet::with_table_id`] (`render_alphabet`) for every render
+/// call instead of trusting the caller's possibly-unrelated one — so the parameter is kept
+/// (removing it would ripple through every one of those call sites, most outside this file's own
+/// single-owner boundary) but no longer read. Renamed rather than silently unused to make that
+/// explicit.
 pub fn compile_rewrite_rule_subset(
     opts: &FomaOptions,
     g: &Grammar,
@@ -1172,9 +1163,9 @@ pub fn compile_rewrite_rule_subset(
     // `owning_table_id_for_prule_position`), so it is guaranteed `Some` here too.
     let table_id = owning_table_id(g, rule)
         .expect("owning_table_id shares owning_table's own lookup, which just resolved Some");
-    // Cross-table representation aliasing (design doc): built once per rule (cheap,
+    // Cross-table representation aliasing: built once per rule (cheap,
     // `RepresentationAliasMap::build`'s own doc) rather than threaded down from the outer
-    // cascade functions, so this fix stays entirely inside `compile_rewrite_rule_subset` --
+    // cascade functions, so this stays entirely inside `compile_rewrite_rule_subset` --
     // `compile_and_compose_rules(_gated)_with_budget`'s own public signatures (external callers
     // in `gate.rs`/`build.rs`) need no change at all.
     let alias_map = RepresentationAliasMap::build(g);
@@ -1191,8 +1182,7 @@ pub fn compile_rewrite_rule_subset(
         // scoping is per-subrule, module doc), so `lhs_slots` is (re)computed here, not hoisted
         // above the loop.
         let mut next_occurrence = 0usize;
-        // `PatternLowerScope::RewriteRuleCompile` (`openspec/changes/
-        // plan-construct-coverage-completion` task 4.2): this is the ONE real production compile
+        // `PatternLowerScope::RewriteRuleCompile`: this is the ONE real production compile
         // path for an ordinary rewrite rule, EITHER `Dir` -- widening it to additionally accept a
         // same-table `Segments`/any `Anchor` (`crate::lower::PatternLowerScope`'s own doc) benefits
         // `Dir::LeftToRight` and `Dir::RightToLeft` alike, since this floor has always been Dir-
@@ -1277,8 +1267,8 @@ pub fn compile_rewrite_rule_subset(
 
 /// Compile every `Rewrite`-kind [`PhonRuleDef`] in `stratum_prules` order into individual foma
 /// nets and left-fold-compose them via [`fsm_compose`] (stratum/document order = feeding order —
-/// prule4's assimilated output is prule5's own deletion-context input, verified against
-/// `menulis`/`memukul` by hand in the prototype report). `Metathesis`-kind rules and any
+/// prule4's assimilated output is prule5's own deletion-context input, verified by hand against
+/// `menulis`/`memukul`). `Metathesis`-kind rules and any
 /// `Rewrite` rule this module can't render are skipped, their `xml_id`s returned in `skipped` so
 /// the caller can report them (never silently dropped).
 ///
@@ -1290,14 +1280,12 @@ pub fn compile_rewrite_rule_subset(
 /// budget should call [`compile_and_compose_rules_with_budget`] directly instead.
 ///
 /// Deliberately NOT given a final `minimize_checked` call (unlike `crate::gate::
-/// compile_gated_grammar`, design doc §4 V2): `tests/p6_gate_parity.rs`'s
+/// compile_gated_grammar`): `tests/p6_gate_parity.rs`'s
 /// `amharic_gated_subrules_and_tuple_counts_unregressed` hard-asserts this function's return value
-/// is BYTE IDENTICAL to the pre-Phase-B numbers (82 states / 1,110,358 arcs) with no minimize
+/// is BYTE IDENTICAL to a fixed state/arc count (82 states / 1,110,358 arcs) with no minimize
 /// applied by this function itself -- adding one here would change those counts (composing minimal
-/// nets is not itself guaranteed minimal) and break that regression guard. This is a deliberate
-/// deviation from the design doc's V2 text, which named this function alongside
-/// `compile_gated_grammar` for the final-minimize-ownership change; see this crate's own task report
-/// for the full reasoning. Callers that want a minimal composed rule net should call
+/// nets is not itself guaranteed minimal) and break that regression guard. Callers that want a
+/// minimal composed rule net should call
 /// `crate::compose_budget::minimize_checked` themselves (every example driver already does, via
 /// `foma::minimize::fsm_minimize`, on the FULL `lexc .o. rules .o. cleanup` composition, not on this
 /// function's return value alone).
@@ -1387,11 +1375,10 @@ fn compile_and_compose_rules_internal(
         let rule = match pr {
             PhonRuleDef::Rewrite(rule) => rule,
             PhonRuleDef::Metathesis(m) => {
-                // `openspec/changes/compile-fst-metathesis`: attempt the dedicated swap relation
-                // (module doc on `compile_metathesis_rule`) instead of an unconditional skip. A
-                // shape this change leaves honestly unsupported (module doc's "Scope" section)
-                // still falls through to the SAME `skipped` report every unsupported construct
-                // uses, never a silent wrong compile.
+                // Attempts the dedicated swap relation (module doc on `compile_metathesis_rule`)
+                // instead of an unconditional skip. A shape left honestly unsupported (module
+                // doc's "Scope" section) still falls through to the SAME `skipped` report every
+                // unsupported construct uses, never a silent wrong compile.
                 match compile_metathesis_rule(opts, g, alphabet, m, budget)? {
                     Some(net) => {
                         composed = Some(match composed {
@@ -1414,7 +1401,7 @@ fn compile_and_compose_rules_internal(
         // seen is `Iterative`/`LeftToRight`, compiled via plain foma `->` (unioned per alpha-tuple,
         // see [`compile_rewrite_rule`]'s doc). A `RightToLeft` or `Simultaneous` rule is honestly
         // reported `skipped` instead -- [`compile_rewrite_rule_subset`]'s own `is_fully_supported_
-        // shape` check (Phase C, that function's doc) makes this a detected, reported gap rather
+        // shape` check (that function's doc) makes this a detected, reported gap rather
         // than a silent mis-map.
         match compile_rewrite_rule_subset(opts, g, alphabet, rule, &|_| true, budget)? {
             Some((net, reports)) => {
@@ -1501,10 +1488,10 @@ pub fn compile_and_compose_rules_gated_with_budget(
         let rule = match pr {
             PhonRuleDef::Rewrite(rule) => rule,
             PhonRuleDef::Metathesis(m) => {
-                // `openspec/changes/compile-fst-metathesis`: a `MetathesisRuleDef` carries no
-                // subrules at all (no MPR/POS gating surface, module doc on `MetathesisRuleDef`),
-                // so `subrule_ok`/gating simply does not apply -- every group compiles the SAME
-                // metathesis relation `compile_and_compose_rules_with_budget` does.
+                // A `MetathesisRuleDef` carries no subrules at all (no MPR/POS gating surface,
+                // module doc on `MetathesisRuleDef`), so `subrule_ok`/gating simply does not
+                // apply -- every group compiles the SAME metathesis relation
+                // `compile_and_compose_rules_with_budget` does.
                 match compile_metathesis_rule(opts, g, alphabet, m, budget)? {
                     Some(net) => {
                         composed = Some(match composed {
@@ -1550,15 +1537,14 @@ pub fn compile_and_compose_rules_gated_with_budget(
 /// `true` iff `rule.mode` (and, for `Simultaneous`, `rule`'s own subrule shape against `g`) is a
 /// shape this file's compile functions claim fidelity for. `RewriteMode::Iterative` compiles under
 /// EITHER `Dir` (`Dir::LeftToRight` via the plain construction; `Dir::RightToLeft` via
-/// [`compile_rtl_branch_net`]'s reversal-plus-safety-net-union construction, `openspec/changes/
-/// compile-right-to-left-rewrites`), unconditionally in-shape regardless of subrule content.
+/// [`compile_rtl_branch_net`]'s reversal-plus-safety-net-union construction), unconditionally
+/// in-shape regardless of subrule content.
 ///
-/// `RewriteMode::Simultaneous` (`openspec/changes/compile-simultaneous-rewrites`; ADR 0001, `docs/
-/// adr/0001-honest-capability-boundary.md`, the "simultaneous rewrite" worked example): NOT
+/// `RewriteMode::Simultaneous`: NOT
 /// wholesale in/out of shape the way `Iterative`/`RightToLeft` are -- admitted *unless* two of
 /// `rule`'s own subrules' environments can match at the same input position
 /// (`crate::capability::simultaneous_rule_admitted_for_compile`, the SAME `simultaneous.subrule-
-/// overlap` proof (D3) the capability GATE's own `SimultaneousSubruleOverlapPredicate` uses — one
+/// overlap` proof the capability GATE's own `SimultaneousSubruleOverlapPredicate` uses — one
 /// shared algorithm, two call sites, so the gate and this compiler can never disagree). When
 /// admitted, this file's EXISTING plain/iterative sequential-compose machinery
 /// (`compile_rewrite_rule_subset`'s own per-subrule `fsm_compose` fold, unchanged code) is used
@@ -1583,8 +1569,7 @@ pub fn is_fully_supported_shape(g: &Grammar, rule: &RewriteRuleDef) -> bool {
 pub type Subrule = RewriteSubruleDef;
 
 // =================================================================================================
-// Metathesis (`openspec/changes/compile-fst-metathesis`; ADR 0001, `docs/adr/
-// 0001-honest-capability-boundary.md`): the dedicated swap relation.
+// Metathesis: the dedicated swap relation.
 //
 // A [`MetathesisRuleDef`] (model.rs's own doc, cited there) is ONE match pattern plus two switch
 // POSITIONS (`left_switch`/`right_switch`, each a single index into `pattern.nodes` — never a
@@ -1627,10 +1612,8 @@ pub type Subrule = RewriteSubruleDef;
 // — a real input position holds exactly one concrete token) literal context matches, so unioning
 // adds no spurious identity path.
 //
-// # Cross-table representation aliasing, closing the residual gap (`docs/conformance/
-// multitable-shared-representation-design.md`'s "Residual gap this fix does NOT close" section)
-// `docs/conformance/multitable-shared-representation-design.md`'s 4.4b fix renders an ordinary
-// rewrite rule's atoms via [`SegAlphabet::render_tokens`] — a render-TIME union over every table
+// # Cross-table representation aliasing, closing a residual gap
+// An ordinary rewrite rule's atoms render via [`SegAlphabet::render_tokens`] — a render-TIME union over every table
 // sharing a spelling, applied in [`crate::lower::render_slots`]'s `Slot::Fixed`/`Slot::Union` arms.
 // That shape is WRONG for this construction: [`slot_candidates`] feeds directly into the per-branch
 // literal cross product above, whose whole point is identity preservation between a matched value
@@ -1647,7 +1630,7 @@ pub type Subrule = RewriteSubruleDef;
 // The fix instead pushes the aliasing DOWN into [`slot_candidates`] itself: every slot's own
 // candidate `CharDefId` set is expanded, member-by-member, to every `(table, cd)` pair sharing that
 // member's normalized representation ([`RepresentationAliasMap::aliases_for`], the SAME grammar-wide
-// multimap 4.4b built, reused unchanged). This composes cleanly with the existing cross-product
+// multimap built above, reused unchanged). This composes cleanly with the existing cross-product
 // construction with NO change to that construction's own shape: each branch still fixes exactly ONE
 // concrete `CharDefId` per slot (now possibly drawn from another table, but still a single value,
 // never a union), and `rhs_vals.swap(lo, hi)` still transposes that SAME `Vec<CharDefId>` element —
@@ -1671,10 +1654,8 @@ pub type Subrule = RewriteSubruleDef;
 // `[cd]` — no reordering, no duplication — whenever `cd`'s spelling is unique to its own table,
 // which is every grammar `tests/phase_c_metathesis.rs`/`tests/p6_gate_parity.rs` already cover.
 //
-// # `Dir::RightToLeft`: the SAME mirror-and-reverse construction (`openspec/changes/
-// plan-construct-coverage-completion` task 4.6; `docs/conformance/needs-decision-resolutions.md`
-// row 8)
-// Row 8's own resolution: a from-scratch RTL-metathesis construction was never actually needed —
+// # `Dir::RightToLeft`: the SAME mirror-and-reverse construction
+// A from-scratch RTL-metathesis construction was never actually needed —
 // [`compile_rtl_branch_net`]'s reverse-mirror-then-[`fsm_reverse`] technique is not rewrite-rule-
 // specific (it operates on `Vec<Slot>` and `Fsm`), so it transfers directly. [`compile_metathesis_
 // rule`] now runs the SAME four moves for `Dir::RightToLeft`: (1) [`reversed_slots`] over the
@@ -1726,7 +1707,7 @@ pub type Subrule = RewriteSubruleDef;
 // confirm engine actually needs for recall, so the union with the plain branch is the
 // recall-safe choice, not merely a defensive one.
 //
-// # Disposition: `ConfirmOnly`, never `Admit` (ADR 0001), for BOTH directions now
+// # Disposition: `ConfirmOnly`, never `Admit`, for BOTH directions now
 // The per-branch cross-product union (below) is already not proven oracle-exact beyond the
 // specific attested shapes `tests/phase_c_metathesis.rs` checks, and the ADDITIONAL `Dir::
 // RightToLeft` safety-net union (`plain ∪ reverse(mirror)`) is, like [`compile_rtl_branch_net`]'s
@@ -1736,7 +1717,7 @@ pub type Subrule = RewriteSubruleDef;
 // MetathesisFaithfulSwapPredicate`'s own doc.
 //
 // # Scope this change compiles faithfully vs. leaves honestly unsupported
-// **Faithful (`ConfirmOnly`, never `Admit` — ADR 0001, no proven no-false-negative admission-filter
+// **Faithful (`ConfirmOnly`, never `Admit` — no proven no-false-negative admission-filter
 // argument exists), EITHER `Dir`:** the rule resolves to a real owning [`CharDefTable`]
 // ([`owning_table_for_metathesis`]); its WHOLE pattern (both switches, every interior/exterior
 // context node) is a shape [`pattern_slots`] accepts with no [`Slot::Alpha`]/[`Slot::Repeat`]
@@ -1748,13 +1729,13 @@ pub type Subrule = RewriteSubruleDef;
 // **Honest-unsupported (`Ok(None)`, reported `skipped` — never a silent wrong compile), EITHER
 // `Dir`:**
 // - Any pattern needing a malformed `Quantifier`, a disagree-polarity alpha var, or (for THIS
-//   function specifically — see below) `Segments`/`Anchor` anywhere. `openspec/changes/
-//   plan-construct-coverage-completion` task 4.2 widens `pattern_slots` to additionally accept a
+//   function specifically — see below) `Segments`/`Anchor` anywhere. `pattern_slots` was widened
+//   to additionally accept a
 //   same-table `Segments`/any `Anchor` for the ORDINARY rewrite-rule compile path
 //   (`compile_rewrite_rule_subset`, via `crate::lower::PatternLowerScope::RewriteRuleCompile`) --
 //   `compile_metathesis_rule` (this function) deliberately stays on `PatternLowerScope::Baseline`
-//   instead (that call site's own doc has the full reasoning: `Metathesis`'s own admitted set is
-//   task 4.6's already-closed row, not task 4.2's to reopen; `slot_candidates` below would refuse
+//   instead (that call site's own doc has the full reasoning: `Metathesis`'s own admitted set is a
+//   separate, already-closed scope, not this one's to reopen; `slot_candidates` below would refuse
 //   an `Anchor` occurrence independently anyway, so this is a deliberate scope choice, not a
 //   residual gap). So `finalBoundaryCondition`/`initialBoundaryCondition` (`mrComplexMeta`'s own
 //   shape: an anchor lowers to a `PatternNode::Anchor` node INSIDE `pattern.nodes` for a
@@ -1797,8 +1778,7 @@ pub type Subrule = RewriteSubruleDef;
 
 /// Every [`CharDefId`] a slot may concretely resolve to, in this rule's own document order, WITH
 /// cross-table representation aliasing applied member-by-member (module doc's "Cross-table
-/// representation aliasing" section, closing `docs/conformance/multitable-shared-representation-
-/// design.md`'s residual gap): each member is expanded to every `(table, cd)` pair sharing its own
+/// representation aliasing" section): each member is expanded to every `(table, cd)` pair sharing its own
 /// normalized representation ([`RepresentationAliasMap::aliases_for`]), deduplicated, in insertion
 /// order. `table`/`table_id` are this rule's own owning table/id (the caller's job to resolve
 /// correctly and pass together — never defaulted, same discipline [`SegAlphabet::with_table_id`]'s
@@ -1813,8 +1793,7 @@ pub type Subrule = RewriteSubruleDef;
 /// notion of "the anchor that matched" reappearing, unchanged, at a swapped output position, unlike
 /// an ordinary segment). This last arm is unreachable in PRACTICE today: `compile_metathesis_rule`'s
 /// own `pattern_slots` call stays on `crate::lower::PatternLowerScope::Baseline`
-/// (`openspec/changes/plan-construct-coverage-completion` task 4.2's own scope boundary, that
-/// function's doc), which already refuses ANY `Anchor` occurrence before a `Slot::Anchor` value
+/// (that function's own doc has the scope boundary), which already refuses ANY `Anchor` occurrence before a `Slot::Anchor` value
 /// could ever reach this function — kept here anyway because `Slot` is a shared enum this match must
 /// stay exhaustive over (adding a variant elsewhere in this crate must not silently compile a
 /// wrong/no-op arm here).
@@ -1973,7 +1952,7 @@ fn compile_metathesis_swap_net(
 /// mirror: `(n - 1 - left_idx, n - 1 - right_idx)`. Factored into its own function (rather than left
 /// inline) specifically so `metathesis_mirror_switch_index_remap_tests` (below) can pin the exact
 /// arithmetic independently of building a whole `Fsm` — the single most likely bug in this
-/// construction (module doc, task 4.6's own final report), so it gets its own direct, off-by-one-
+/// construction (module doc has the full derivation), so it gets its own direct, off-by-one-
 /// sensitive regression test rather than only an indirect behavioral one.
 fn metathesis_mirror_switch_indices(n: usize, left_idx: usize, right_idx: usize) -> (usize, usize) {
     (n - 1 - left_idx, n - 1 - right_idx)
@@ -1983,7 +1962,7 @@ fn metathesis_mirror_switch_indices(n: usize, left_idx: usize, right_idx: usize)
 mod metathesis_mirror_switch_index_remap_tests {
     //! Pins [`metathesis_mirror_switch_indices`]'s exact arithmetic against an off-by-one in either
     //! direction (`n - left_idx` / `n - 2 - left_idx` instead of the correct `n - 1 - left_idx`) —
-    //! module doc's "switch-index remap, worked out" derivation, and task 4.6's own final report.
+    //! see the module doc's "switch-index remap, worked out" derivation.
     use super::metathesis_mirror_switch_indices;
 
     /// An ASYMMETRIC placement (switches at the two lowest indices of a 5-slot pattern, not
@@ -2045,7 +2024,7 @@ mod metathesis_mirror_switch_index_remap_tests {
 /// `Dir::LeftToRight` compiles via [`compile_metathesis_swap_net`] alone (byte-identical to what
 /// this function has always done for a grammar with no cross-table shared representation — no
 /// behavior change for any such `Dir::LeftToRight` rule).
-/// `Dir::RightToLeft` (`openspec/changes/plan-construct-coverage-completion` task 4.6; module doc's
+/// `Dir::RightToLeft` (module doc's
 /// own "`Dir::RightToLeft`" section above for the full construction/remap derivation) additionally
 /// mirrors the pattern via [`reversed_slots`], remaps the two switch indices, compiles the mirror's
 /// own swap net, [`fsm_reverse`]s it, and unions that with the plain net — the SAME four moves
@@ -2055,8 +2034,7 @@ mod metathesis_mirror_switch_index_remap_tests {
 /// [`compile_metathesis_swap_net`] call (module doc's "Cross-table representation aliasing"
 /// section) — mirroring [`compile_rewrite_rule_subset`]'s own per-rule alias-map construction, so a
 /// `MetathesisRule` in a grammar whose tables share a normalized representation gets the SAME
-/// render-time recall fix a `RewriteRuleDef` already does, closing `docs/conformance/
-/// multitable-shared-representation-design.md`'s residual gap.
+/// render-time recall fix a `RewriteRuleDef` already does.
 pub(crate) fn compile_metathesis_rule(
     opts: &FomaOptions,
     g: &Grammar,
@@ -2075,10 +2053,9 @@ pub(crate) fn compile_metathesis_rule(
         .expect("owning_table_id_for_metathesis shares owning_table_for_metathesis's own lookup, which just resolved Some");
     let alias_map = RepresentationAliasMap::build(g);
     let mut next_occurrence = 0usize;
-    // `PatternLowerScope::Baseline`, deliberately (`openspec/changes/
-    // plan-construct-coverage-completion` task 4.2's own scope boundary): `Metathesis`'s own
-    // admitted set is task 4.6's already-closed row, not this task's to reopen -- widening it here
-    // would be a silent, unowned side effect of a DIFFERENT task's own pattern-shape lowering
+    // `PatternLowerScope::Baseline`, deliberately: `Metathesis`'s own
+    // admitted set is a separate, already-closed scope, not this one's to reopen -- widening it here
+    // would be a silent, unowned side effect of a DIFFERENT pattern-shape lowering
     // change. This costs nothing in practice: `slot_candidates` (below) independently refuses any
     // `Slot::Anchor`/cross-table-`Segments` occurrence anyway, so the observable behavior would be
     // identical either way -- `Baseline` is simply the more conservative, more obviously-correct
@@ -2159,7 +2136,7 @@ pub(crate) fn compile_metathesis_rule(
 
 #[cfg(test)]
 mod compose_budget_tests {
-    //! `docs/fst-plan/phase-b-compose-budget-design.md` §6's own test plan for this module: a
+    //! This module's own test plan: a
     //! hand-authored, minimal grammar with ONE alpha-bound rewrite rule whose RHS occurrence draws
     //! from a natural class with a KNOWN, exact member count (6 -- an "Any"-style
     //! `FeatureNaturalClass` with zero explicit `FeatureValue` constraints of its own, so
@@ -2355,7 +2332,7 @@ mod compose_budget_tests {
     }
 }
 
-/// `openspec/changes/fix-multitable-fst-compilation` task 1.1's positive witness: a synthetic,
+/// A positive witness for [`owning_table`]: a synthetic,
 /// delanguaged "two-table-symbol-divergence" fixture -- two `<CharacterDefinitionTable>`s with
 /// DIFFERENT segment counts (2 vs 3), two strata (each owning one of the tables), and an
 /// alpha-bound `Simultaneous`-free rewrite rule on the SECOND stratum whose RHS natural class
@@ -2376,8 +2353,8 @@ mod owning_table_tests {
     /// against the wrong table produces a DIFFERENT, wrong `surviving` count, not merely a
     /// same-count coincidentally-plausible one. `prule_alpha_t1` belongs to stratum "S1" (table
     /// "t1") via `phonologicalRules="prule_alpha_t1"`; stratum "S0" carries no rule of its own --
-    /// it exists purely so this grammar genuinely has TWO strata each owning ITS OWN table, the
-    /// design.md scenario ("two strata... tables"), not just two orphaned tables.
+    /// it exists purely so this grammar genuinely has TWO strata each owning ITS OWN table
+    /// ("two strata, two tables"), not just two orphaned tables.
     const TWO_TABLE_ALPHA_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
@@ -2479,7 +2456,7 @@ mod owning_table_tests {
         panic!("prule {xml_id:?} not found in g.prules");
     }
 
-    /// Positive witness (task 1.1): [`owning_table`] resolves `prule_alpha_t1` to table 1 (3
+    /// Positive witness: [`owning_table`] resolves `prule_alpha_t1` to table 1 (3
     /// segments), never table 0 (2 segments) -- the fixture's own sanity check that the two
     /// tables genuinely differ in cardinality, and that stratum "S1" (not "S0") owns this rule.
     #[test]
@@ -2513,7 +2490,7 @@ mod owning_table_tests {
         );
     }
 
-    /// Positive witness (task 1.1), full compile-level proof: [`resolve_alpha_tuples`]'s own
+    /// Positive witness, full compile-level proof: [`resolve_alpha_tuples`]'s own
     /// `surviving` tuple count for `prule_alpha_t1`'s alpha-bound RHS (`ncBig`, matches every
     /// segment of WHICHEVER table it resolves against) is EXACTLY 3 -- table 1's own cardinality,
     /// reached by resolving against table 1 (this rule's real owning table, via [`owning_table`]),
@@ -2588,9 +2565,9 @@ mod rtl_repeat_children_reversal_tests {
     //! REPRODUCED, not merely theorized -- which is why `reversed_slots` above was actually changed
     //! to recurse, not left alone on reasoning-only grounds.
     //!
-    //! # The two tasks interact (per this crate's own task instructions)
-    //! `build-unbounded-quantifier-support` (task 4.5) widens `Slot::Repeat.max` to `Option<u32>`,
-    //! so a genuinely UNBOUNDED (`max: None`) quantifier is now ALSO a case `reversed_slots` must
+    //! # Interaction with unbounded quantifiers
+    //! Widening `Slot::Repeat.max` to `Option<u32>` means
+    //! a genuinely UNBOUNDED (`max: None`) quantifier is now ALSO a case `reversed_slots` must
     //! handle correctly -- [`reproduce_for_max_attr`] (below) is parameterized over the DTD's own
     //! `max` attribute text and is run for BOTH a finitely bounded (`"2"`) and a genuinely unbounded
     //! (`"-1"`) quantifier group, proving the fix covers both, not just the pre-existing bounded case.
@@ -2724,8 +2701,8 @@ mod rtl_repeat_children_reversal_tests {
              compile-bounded-fst-quantifiers; max=\"-1\": build-unbounded-quantifier-support)",
         );
 
-        // Sanity: exactly one top-level `Slot::Repeat`, with 2 HETEROGENEOUS children -- the exact
-        // shape task #32 flags (module doc): a shallow reversal only reorders the OUTER,
+        // Sanity: exactly one top-level `Slot::Repeat`, with 2 HETEROGENEOUS children -- this is
+        // the shape a shallow reversal gets wrong (module doc): it only reorders the OUTER,
         // single-element list (a no-op here), never the Repeat's own 2-element `children`.
         assert_eq!(right_slots.len(), 1);
         match &right_slots[0] {
@@ -2812,17 +2789,15 @@ mod rtl_repeat_children_reversal_tests {
         );
     }
 
-    /// Reproduction + regression pin, FINITELY bounded quantifier (`max="2"`,
-    /// `compile-bounded-fst-quantifiers`'s own pre-existing shape).
+    /// Reproduction + regression pin, FINITELY bounded quantifier (`max="2"`).
     #[test]
     fn rtl_repeat_children_reversal_bug_reproduced_and_fixed_bounded() {
         reproduce_for_max_attr("2");
     }
 
-    /// Reproduction + regression pin, GENUINELY UNBOUNDED quantifier (`max="-1"`,
-    /// `build-unbounded-quantifier-support`'s new case) -- pins this task's own "the two tasks
-    /// interact" note: `max: None` inside a reversed slot list hits the SAME defect as the bounded
-    /// case, and the SAME fix covers it.
+    /// Reproduction + regression pin, GENUINELY UNBOUNDED quantifier (`max="-1"`) -- pins the
+    /// "interaction with unbounded quantifiers" note above: `max: None` inside a reversed slot
+    /// list hits the SAME defect as the bounded case, and the SAME fix covers it.
     #[test]
     fn rtl_repeat_children_reversal_bug_reproduced_and_fixed_unbounded() {
         reproduce_for_max_attr("-1");
