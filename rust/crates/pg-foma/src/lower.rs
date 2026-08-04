@@ -971,8 +971,8 @@ fn parse_template(opts: &FomaOptions, text: &str) -> Fsm {
 /// # Returns
 /// `Err` names the FIRST unsupported node encountered (checked in `left_env`, `focus`, `right_env`
 /// order) via [`UnsupportedPatternNode`] — the caller (`capability.rs`) rounds this to a
-/// conservative `Refuse` naming the kind, per this module's own top-doc and design.md D3's "any
-/// approximation rounds toward Refuse".
+/// conservative `Refuse` naming the kind: any approximation here rounds toward `Refuse`, never
+/// toward `Admit`.
 pub fn lower_span(
     opts: &FomaOptions,
     g: &Grammar,
@@ -982,8 +982,8 @@ pub fn lower_span(
     right_env: Option<&Pattern>,
 ) -> Result<(Fsm, Fsm), UnsupportedPatternNode> {
     let mut next_occurrence = 0usize;
-    // `openspec/changes/fix-multitable-fst-compilation`: `pattern_slots`/`resolve_alpha_tuples`
-    // now take an explicit table (no more implicit `g.char_tables[0]`) -- `alphabet.table()` is
+    // `pattern_slots`/`resolve_alpha_tuples`
+    // take an explicit table (never an implicit `g.char_tables[0]`) -- `alphabet.table()` is
     // already the correct table for this call, by this function's OWN caller contract (module
     // doc: `lower_span` is handed whichever `SegAlphabet` its caller already resolved correctly,
     // e.g. `capability.rs`'s `lower_subrule_span` now resolves it via
@@ -991,8 +991,8 @@ pub fn lower_span(
     let table = alphabet.table();
 
     // `PatternLowerScope::Baseline`: `lower_span` is `SimultaneousSubruleOverlapPredicate`'s own
-    // machinery (D3's `hc.dll`-oracle-verified span-intersection test, module top doc) -- it MUST
-    // stay on this tier permanently, unaffected by task 4.2's `RewriteRuleCompile` widening
+    // machinery (an `hc.dll`-oracle-verified span-intersection test, module top doc) -- it MUST
+    // stay on this tier permanently, unaffected by `RewriteRuleCompile` widening
     // elsewhere in this module (`PatternLowerScope`'s own doc).
     let scope = PatternLowerScope::Baseline;
     let left_slots = match left_env {
@@ -1057,7 +1057,7 @@ pub fn lower_span(
     ))
 }
 
-/// design.md D3's intersection test: `true` iff subrules `a` and `b`'s spans (each a
+/// The intersection test: `true` iff subrules `a` and `b`'s spans (each a
 /// `(left_language, focus_right_language)` pair from [`lower_span`]) can hold AT THE SAME shared
 /// focus position — i.e. genuinely overlap.
 ///
@@ -1082,7 +1082,7 @@ pub fn lower_span(
 /// subrule's OWN internally-consistent alpha tuples down to a left-only / focus+right-only piece
 /// before unioning across tuples) can only ever make a language LARGER than the true "matches
 /// under some single self-consistent assignment" set — i.e. can only report MORE overlap than
-/// truly exists, never less — which rounds toward `Refuse`, the safe direction (ADR 0001).
+/// truly exists, never less — which rounds toward `Refuse`, the safe direction.
 pub fn spans_overlap(opts: &FomaOptions, a: &(Fsm, Fsm), b: &(Fsm, Fsm)) -> bool {
     let (left_a, focus_right_a) = a;
     let (left_b, focus_right_b) = b;
@@ -1256,8 +1256,7 @@ mod tests {
     }
 
     // =============================================================================================
-    // `openspec/changes/build-unbounded-quantifier-support` (tasks.md 4.5): `Slot::Repeat.max`
-    // widened to `Option<u32>` -- a genuinely unbounded (`max: None`) quantifier now compiles via
+    // `Slot::Repeat.max` is `Option<u32>` -- a genuinely unbounded (`max: None`) quantifier compiles via
     // foma's own native `E*`/`E^>N` operator, `MAX_QUANTIFIER_BOUND`/the inverted-bound check apply
     // ONLY to a finite `max`, and every OTHER out-of-scope shape (inverted finite, over-budget
     // finite, alpha-nested) stays exactly as unsupported as before.
@@ -1567,8 +1566,8 @@ mod tests {
         );
     }
 
-    /// Cross-table representation aliasing (`docs/conformance/multitable-shared-representation-
-    /// design.md` item 3): `render_slots`' `Slot::Fixed`/`Slot::Union` arms, not `class_members`.
+    /// Cross-table representation aliasing happens in
+    /// `render_slots`' `Slot::Fixed`/`Slot::Union` arms, not `class_members`.
     /// Two tables (t0: one segment "x"; t1: "z"/"x"/"y", "x" deliberately at a DIFFERENT raw index
     /// than t0's own) -- an alphabet built via `SegAlphabet::with_table_id(table_b, ..)` must
     /// render t1's own "x" atom as the bracketed union of BOTH tables' tokens, while `SegAlphabet::
