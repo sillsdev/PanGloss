@@ -107,8 +107,8 @@
 //! regardless of whether the corpus file itself is NFC or NFD on disk.
 //!
 //! ## Junction-aware affix/root emission (Indonesian: `meN+tulis -> menulis`)
-//! Stage 1 (Sena, 0 phonological rules) emitted every affix/root surface as its literal, boundary-
-//! stripped authored text. That is exactly wrong for a grammar with real junction phonology: the
+//! The baseline emission path (Sena, 0 phonological rules) emits every affix/root surface as its
+//! literal, boundary-stripped authored text. That is exactly wrong for a grammar with real junction phonology: the
 //! `meN` rule's authored insert text is `"meⁿ+"` (`ⁿ` a placeholder nasal segment that phonological
 //! rules assimilate in place and, before a voiceless obstruent + vowel, delete the OBSTRUENT too),
 //! and no literal spelling of that text is ever the surface word. [`crate::junctions::PhonologyProbe`]
@@ -139,8 +139,8 @@
 //! [`stripped_variants`] (root text with its first SEGMENT — not first character; multi-char
 //! representations like `"ny"`/`"ng"` are one segment — removed). Every `deletion_junctions` hit for
 //! a rule at that final level is routed to `{exit}Stripped` instead of `exit`; every ordinary
-//! `variants` hit still goes to `exit` (module doc superset: nothing here ever narrows what stage 1
-//! already accepted). Deliberately UNGATED by onset class — every root gets a stripped entry
+//! `variants` hit still goes to `exit` (module doc superset: nothing here ever narrows what the
+//! baseline emission path already accepted). Deliberately UNGATED by onset class — every root gets a stripped entry
 //! regardless of whether its own initial segment would really delete after that particular
 //! assimilated spelling (e.g. `"mem"` + `baca`'s stripped `"aca"`, which the real grammar never
 //! licenses) — an explicit upward approximation: the extra candidate is harmless
@@ -150,9 +150,9 @@
 //!
 //! **Reduplication is explicitly out of scope here** (the peel is a later verification pass's job): every rule
 //! whose primary allomorph classifies `Role::Reduplication` (Indonesian's `-Cont`, `-Pl`,
-//! `REDUP-meN`) is already routed to `uncovered` by the SAME zone-mismatch logic stage 1 uses for
-//! every other exotic role (see "Not emittable as literal lexc" below) — nothing new needed for
-//! this stage to exclude it; the recall gate (`tests/f2_indonesian_gate.rs`) separately excludes the
+//! `REDUP-meN`) is already routed to `uncovered` by the SAME zone-mismatch logic the baseline
+//! emission path uses for every other exotic role (see "Not emittable as literal lexc" below) —
+//! nothing new needed to exclude it; the recall gate (`tests/f2_indonesian_gate.rs`) separately excludes the
 //! 7 corpus words that only have a reduplicated analysis, printing each with its reason.
 //!
 //! ## Composite entries (interdigitation + Ge'ez boundary fusion)
@@ -1341,7 +1341,7 @@ fn collect_roots(
                 // remains text-based — no reference/edge-case grammar needs a stripped pattern
                 // root, and an empty `stripped` list can only under-supply the already-upward
                 // junction path, never regress it). Overflow on the stripped side is not separately
-                // reported for the same reason stage 1 never reported it.
+                // reported for the same reason the baseline emission path never reported it.
                 let stripped = if allo.is_pattern {
                     Vec::new()
                 } else {
@@ -1809,11 +1809,12 @@ pub(crate) fn compound_extra_levels_checked(g: &Grammar) -> Result<usize, Compos
 ///
 /// `phon` (module doc, "Junction-aware affix/root emission"): when `Some`, every `InsertText::Text`
 /// allomorph ALSO gets [`PhonologyProbe::variants`]'s spellings unioned into `next` (safe at any
-/// zone/level: these are context-generic, upward-only additions to what stage 1 already emits).
+/// zone/level: these are context-generic, upward-only additions to what the baseline emission path
+/// already emits).
 /// `junction_target`, when `Some`, additionally routes every [`PhonologyProbe::deletion_junctions`]
 /// hit to THAT lexicon instead of `next` — callers only pass it at a genuinely root-adjacent final
 /// derivation level (see `build_deriv_chain`); everywhere else it's `None` and this behaves exactly
-/// like stage 1.
+/// like the baseline emission path.
 ///
 /// `pk` (`crate::precision`'s module doc): every entry this function writes for allomorph `allo`
 /// passes `Some(allo.id)` as [`write_tag_entry`]'s owner — the ENVIRONMENT family's `AllFlags`
@@ -3067,7 +3068,7 @@ fn emit_with_budget_profiled_with_strategy(
         ..Default::default()
     };
 
-    // FST precision knob (`crate::precision`, step 1): the catalog walk is cheap (a handful of
+    // FST precision knob (`crate::precision`): the catalog walk is cheap (a handful of
     // `Vec` scans over what `collect_roots`/the rule loop below already traverse) and safe to run
     // unconditionally — `PrecisionEmit::build` only populates any lookup table when `precision ==
     // AllFlags`, so under `Strip` every `pk.tagged_lower(..)` call below is a pure passthrough (see
@@ -3075,9 +3076,9 @@ fn emit_with_budget_profiled_with_strategy(
     let catalog = ConstraintCatalog::build(g);
     let mut pk = PrecisionEmit::build(&catalog, precision);
 
-    // P1 stage 2 (module doc, "Junction-aware affix/root emission"): `None` for a grammar with no
+    // (module doc, "Junction-aware affix/root emission"): `None` for a grammar with no
     // phonological rules at all (Sena) -- every call site below that takes `phon.as_ref()` then
-    // sees `None` and behaves EXACTLY as stage 1 did, byte-for-byte (the Sena regression gate,
+    // sees `None` and behaves EXACTLY as the baseline emission path did, byte-for-byte (the Sena regression gate,
     // `tests/f1_sena_gate.rs`, depends on this).
     let phon = PhonologyProbe::new(g);
 
