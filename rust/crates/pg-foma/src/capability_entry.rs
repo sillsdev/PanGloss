@@ -3,12 +3,10 @@
 //! `CompileDecision` for this `Grammar`" without hand-assembling `characterize`'s `enumerate_default`
 //! inputs themselves.
 //!
-//! **Check-only, non-blocking** — same discipline as `crate::capability`'s own
-//! top-doc: [`evaluate_capability`] only ever COMPUTES a [`crate::capability::CompileDecision`], it
-//! does not consult one, and nothing in this module (or its caller, `pg-cli`) alters what
-//! `emit.rs`/`gate.rs`/`replace.rs`/`preexpand.rs` actually compile. See ADR 0001 (`docs/adr/
-//! 0001-honest-capability-boundary.md`) for why a `Refuse` is reported rather than silently
-//! papered over. Whether a `CompileDecision` actually blocks/stamps a real compile path is a fact
+//! [`evaluate_capability`] only ever COMPUTES a [`crate::capability::CompileDecision`], it
+//! does not consult one itself: a `Refuse` is reported rather than silently
+//! papered over so an unrepresentable construct never turns into a quietly wrong parse. Whether a
+//! `CompileDecision` actually blocks/stamps a real compile path is a fact
 //! about the call graph, not this module — grep for callers of [`evaluate_capability`] to check.
 //!
 //! # Mirroring the real compile setup
@@ -30,15 +28,13 @@
 //!   modules) builds it the same way: `g`'s strata, in order, flattened over each stratum's own
 //!   `phonologicalRules` id list, as literal borrows of `g.prules` (required for
 //!   [`crate::enumerate::rule_id_of`]'s pointer-identity `PRuleId` recovery). That construction is
-//!   now the shared [`crate::enumerate::prules_in_order`], which [`evaluate_capability`] calls —
-//!   this module used to carry its own private copy of the three-line body, one of four identical
-//!   production copies.
+//!   the shared [`crate::enumerate::prules_in_order`], which [`evaluate_capability`] calls.
 //!
-//! `evaluate_capability` then hands all three to [`crate::enumerate::enumerate_default`] (Step 2,
-//! `reify-compilation-plans`) to get the reified [`crate::plan::Plan`], and folds that together with
+//! `evaluate_capability` then hands all three to [`crate::enumerate::enumerate_default`]
+//! to get the reified [`crate::plan::Plan`], and folds that together with
 //! [`crate::capability::characterize`]'s profile via [`crate::capability::compose_envelope`] against
-//! [`crate::capability::default_registry`] — the same two spines Step 2 of
-//! `add-capability-characteristics-check` already connects, just assembled from a bare `&Grammar` in
+//! [`crate::capability::default_registry`] — the same two spines
+//! already connected, just assembled from a bare `&Grammar` in
 //! one call instead of by hand at every call site.
 
 use pg_grammar::model::Grammar;
@@ -65,8 +61,7 @@ pub fn evaluate_capability(g: &Grammar) -> CompileDecision {
     evaluate_capability_with_semantics(&GrammarSemantics::derive(g))
 }
 
-/// [`evaluate_capability`] over an already-derived [`GrammarSemantics`] (task 7.11,
-/// `openspec/changes/cleanup-and-recipe-parity`). A caller that needs BOTH the profile and the
+/// [`evaluate_capability`] over an already-derived [`GrammarSemantics`]. A caller that needs BOTH the profile and the
 /// verdict -- [`crate::preflight::preflight_findings`] is exactly that, and `pangloss make-report`
 /// needs the verdict three times in one process -- derives the owner once and calls this, instead of
 /// paying for a second (and third) full [`crate::capability::characterize`] walk.
@@ -155,8 +150,8 @@ mod tests {
         assert_eq!(evaluate_capability(&g), CompileDecision::Admit);
     }
 
-    /// `openspec/changes/cover-compounding`: a grammar with a single, non-recursive `Compounding`
-    /// rule must evaluate to `ConfirmOnly` through this entry point too (no longer bare `Refuse`) —
+    /// A grammar with a single, non-recursive `Compounding`
+    /// rule must evaluate to `ConfirmOnly` through this entry point too (not bare `Refuse`) —
     /// the same fixture/assertion shape
     /// `capability::tests::compose_envelope_confirm_only_for_non_recursive_compounding_grammar`
     /// already proves against `compose_envelope` called directly.
