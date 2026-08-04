@@ -53,7 +53,7 @@ pub enum FomaError {
         /// `HC_ENUM_PROBE_BUDGET` override).
         limit: usize,
     },
-    /// `openspec/changes/cover-unordered-morph-rules`: [`crate::unordered::check_unordered_strata_bound`]
+    /// [`crate::unordered::check_unordered_strata_bound`]
     /// found an `Unordered` stratum's own loose-rule count exceeding
     /// [`crate::compose_budget::ComposeBudget::ordering_multiplicity_cap`] -- checked FIRST, before
     /// `emit::emit_with_budget` is ever called, so `unordered-application.unbounded` never pays the
@@ -256,8 +256,7 @@ impl FomaProposer {
         Self::new_with_budget(g, &enum_budget, &compose_budget)
     }
 
-    /// `openspec/changes/profile-fst-compilation` (task A.2 "thread an optional sink through the
-    /// active `emit_with_budget` and production `FomaProposer` constructor"): [`Self::new`], plus
+    /// [`Self::new`], plus
     /// its own [`CompileProfile`] -- the production compile-time-profiling entry point. Reads the
     /// same env vars [`Self::new`] does, exactly once, mirroring its convention.
     pub fn new_with_profile(g: &Grammar) -> (Result<Self>, CompileProfile) {
@@ -266,8 +265,8 @@ impl FomaProposer {
         Self::new_with_budget_and_profile(g, &enum_budget, &compose_budget)
     }
 
-    /// [`Self::new`]'s core, with the Fix 1 enumeration budget AND
-    /// `openspec/changes/cover-unordered-morph-rules`'s ordering-multiplicity budget both threaded
+    /// [`Self::new`]'s core, with the fail-fast enumeration budget AND
+    /// the ordering-multiplicity budget both threaded
     /// in explicitly rather than read from env -- what tests call directly (with a small
     /// [`crate::morphotactics::EnumerationBudget::with_caps`]/
     /// [`ComposeBudget::with_ordering_multiplicity_cap`]) to exercise
@@ -290,8 +289,8 @@ impl FomaProposer {
     }
 
     /// [`Self::new_with_budget`]'s real core, with a [`CompileProfileBuilder`]
-    /// (`openspec/changes/profile-fst-compilation`) threaded through: [`CompileProfileBuilder::
-    /// production`] starts D3's top-line wall-clock timer at the very top of this function, before
+    /// threaded through: [`CompileProfileBuilder::
+    /// production`] starts the top-line wall-clock timer at the very top of this function, before
     /// any emission work runs, and [`CompileProfileBuilder::finish`] is called exactly once on
     /// EVERY return path (including every early-return error path) so the returned [`CompileProfile`]
     /// always reflects real elapsed time up to that outcome, never a fabricated/zero value.
@@ -302,11 +301,11 @@ impl FomaProposer {
     ) -> (Result<Self>, CompileProfile) {
         let mut profile = CompileProfileBuilder::production();
 
-        // `openspec/changes/cover-unordered-morph-rules`: checked FIRST, before `emit::
+        // Checked FIRST, before `emit::
         // emit_with_budget_profiled` is ever called -- `unordered-application.unbounded` never pays
         // the cost of building a (potentially large) `build_deriv_chain` network only to refuse it
-        // (mirrors Fix 1's own "checked before the expensive derivation-layer/lexc-string-writing
-        // work" placement, just below).
+        // (mirrors the fail-fast enumeration budget's own "checked before the expensive
+        // derivation-layer/lexc-string-writing work" placement, just below).
         if let Err(err) = crate::unordered::check_unordered_strata_bound(g, compose_budget) {
             let err = match err {
                 crate::compose_budget::ComposeError::OrderingMultiplicityExceeded {
@@ -344,14 +343,15 @@ impl FomaProposer {
         let opts = FomaOptions::default();
         let lexc_parse_start = Instant::now();
         let parsed = fsm_lexc_parse_string(&opts, None, &result.lexc_source);
-        // D3/D2 (`crate::profile`'s own doc): a plain `Instant` delta around a call this function
-        // already makes unconditionally -- never a second parse, never an extra clone.
+        // A plain `Instant` delta around a call this function
+        // already makes unconditionally -- never a second parse, never an extra clone
+        // (`crate::profile`'s own doc).
         profile.push_stage(CompileStage::LexcParse, lexc_parse_start.elapsed());
         match parsed {
             Some(mut net) => {
                 prepare_network_for_apply(&mut net);
-                // `foma::types::Fsm::statecount`/`arccount` are free public-field reads (D2;
-                // `crate::compose_budget`'s own doc) -- `fsm_sort_arcs` reorders arcs, it never adds
+                // `foma::types::Fsm::statecount`/`arccount` are free public-field reads
+                // (`crate::compose_budget`'s own doc) -- `fsm_sort_arcs` reorders arcs, it never adds
                 // or removes a state/arc, so reading these after it is the SAME count either way.
                 let final_state_count = net.statecount;
                 let final_arc_count = net.arccount;
@@ -397,13 +397,13 @@ impl FomaProposer {
         }
     }
 
-    /// [`Self::propose`]'s core, plus ADR 0003's in-process cooperative magnitude containment
+    /// [`Self::propose`]'s core, plus in-process cooperative magnitude containment
     /// (`crate::compose_budget`'s own "Apply-path dimension" section doc): checks `budget`'s two
     /// magnitude dimensions -- raw decoded-path count, distinct-candidate count -- as this word's
     /// `apply_up` result iterator is walked, returning [`ApplyOutcome::Incomplete`] the instant
     /// either cap is exceeded rather than continuing to decode/allocate further for this word. This
-    /// is deliberately NOT a watchdog: there is no worker process to spawn or kill here (ADR 0003:
-    /// "a native thread cannot be safely hard-killed in Rust"; this method runs entirely in the
+    /// is deliberately NOT a watchdog: there is no worker process to spawn or kill here (a native
+    /// thread cannot be safely hard-killed in Rust; this method runs entirely in the
     /// caller's own process, on `self.handle`, exactly like [`Self::propose`] always has) -- the
     /// containment is a plain deterministic counter, checked cooperatively, the same discipline
     /// [`ComposeBudget::check_chain_depth`] already uses one call stack over in the compile-time
@@ -589,9 +589,9 @@ impl FomaProposer {
     }
 
     /// Serializes this proposer's own compiled network to foma's existing binary-memory encoding
-    /// (`foma::io::fsm_write_binary` — the same gzip'd format `fsm_read_binary_mem` reads, per
-    /// `make-wasm-analysis-only/design.md`: "Reuse foma's tested binary-memory representation
-    /// inside a PanGloss envelope rather than inventing another network encoding"). This is the
+    /// (`foma::io::fsm_write_binary` — the same gzip'd format `fsm_read_binary_mem` reads):
+    /// foma's tested binary-memory representation is reused
+    /// inside a PanGloss envelope rather than inventing another network encoding. This is the
     /// REAL foma payload `pg-cli`'s `pack.rs` writes into a `.pgpack` container — no second network
     /// format, no fabricated bytes.
     ///
@@ -638,7 +638,7 @@ impl FomaProposer {
 /// [`FomaProposer::foma_binary_payload`], exposed here (rather than requiring every caller to add
 /// its own direct `foma` crate dependency) so `pg-pack`/`pg-cli` round-trip tests, and eventually a
 /// packaged-analyzer loader, can reconstruct the compiled network from `.pgpack` bytes using the
-/// SAME entry point `make-wasm-analysis-only/design.md` names (`fsm_read_binary_mem`), never a
+/// SAME entry point (`fsm_read_binary_mem`), never a
 /// second parser.
 pub fn read_foma_binary_payload(
     bytes: &[u8],
@@ -660,8 +660,7 @@ pub fn apply_up_against(net: &foma::types::Fsm, word: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod budget_tests {
-    //! Fix 1 regression tests (`docs/fst-plan/morphotactic-composite-pruning.md`'s addendum, "Fix 1:
-    //! fail-fast enumeration budget"): the default-on `crate::morphotactics::EnumerationBudget` must
+    //! Fail-fast enumeration budget regression tests: the default-on `crate::morphotactics::EnumerationBudget` must
     //! abort `FomaProposer::new`'s build with the typed [`FomaError::EnumerationBudgetExceeded`] --
     //! never a panic, never an unbounded run toward the Aweti-scale blow-up (551s emit, 691MB lexc,
     //! ~8.8GB `apply_up` allocation, process death on the very first word) -- and it must do so FAST.
@@ -689,8 +688,8 @@ mod budget_tests {
     use super::*;
     use crate::morphotactics::EnumerationBudget;
 
-    /// Loads the real Aweti grammar (the motivating case for this fix: 855 roots, 123 rules, 3
-    /// strata, 14 templates -- see `docs/fst-plan/morphotactic-composite-pruning.md`'s addendum) if
+    /// Loads the real Aweti grammar (the motivating case for this budget: 855 roots, 123 rules, 3
+    /// strata, 14 templates) if
     /// present on disk. `samples/data/aweti.json`/`aweti-words.txt` are gitignored (same convention
     /// as every other real-corpus fixture this crate's gates use, e.g. `preexpand.rs`'s own
     /// `sample_path` helper) -- copy them from the main checkout's `samples/data/` if missing.
@@ -866,7 +865,7 @@ mod budget_tests {
 
 #[cfg(test)]
 mod apply_budget_tests {
-    //! ADR 0003's apply-path magnitude-only containment (`crate::compose_budget`'s own "Apply-path
+    //! Apply-path magnitude-only containment (`crate::compose_budget`'s own "Apply-path
     //! dimension" section doc): [`FomaProposer::propose_budgeted`] must (1) behave byte-for-byte
     //! identically to plain [`FomaProposer::propose`] when given [`ApplyBudget::unbounded`], and
     //! (2) trip each dimension deterministically and cheaply, in-process, with no watchdog/worker
@@ -1086,7 +1085,7 @@ mod apply_budget_tests {
 
 #[cfg(test)]
 mod profile_tests {
-    //! `openspec/changes/profile-fst-compilation`: [`FomaProposer::new_with_profile`]/
+    //! [`FomaProposer::new_with_profile`]/
     //! [`FomaProposer::new_with_budget_and_profile`] must (1) populate a real [`CompileProfile`]
     //! (`LexcParse` stage timing, final state/arc counts) on a successful build, (2) leave the
     //! network/`Result` byte-for-byte identical to the non-profiled entry points, and (3) still
@@ -1159,8 +1158,8 @@ mod profile_tests {
         assert!(profile.total_lexc_lines.is_some_and(|v| v > 0));
     }
 
-    /// D2 (`crate::profile`'s own doc): the profiled path must build the SAME network as the
-    /// non-profiled path -- proven here via identical `propose` results, not just "both `Ok`".
+    /// The profiled path must build the SAME network as the
+    /// non-profiled path (`crate::profile`'s own doc) -- proven here via identical `propose` results, not just "both `Ok`".
     #[test]
     fn new_with_budget_and_profile_matches_new_with_budget_byte_for_byte() {
         let g = load_fixture();
