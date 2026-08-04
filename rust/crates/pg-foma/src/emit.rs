@@ -3464,8 +3464,8 @@ fn emit_with_budget_profiled_with_strategy(
         // Conservative exposure estimate: the HEAD side stays unfiltered in the per-template-group
         // sections below (module doc judgment call -- the shared `G{gi}Roots` root section also
         // serves ordinary non-compound word formation, so narrowing it there risks regressing plain
-        // recall; over-proposing on the head side remains sound, ADR 0001 never requires narrowing,
-        // only forbids it), so this uses `all_roots.len()` (not the smaller, template-less-section-
+        // recall; over-proposing on the head side remains sound, since the invariant only forbids
+        // narrowing, never requires it), so this uses `all_roots.len()` (not the smaller, template-less-section-
         // only `head_eligible` count) as the pessimistic head-side operand -- never UNDER-counts the
         // real cost this emit call is about to incur.
         let non_head_count =
