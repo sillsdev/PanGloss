@@ -2377,7 +2377,7 @@ impl CapabilityPredicate for MultiTableFaithfulThreadingPredicate {
 // RightToLeftRewrite: the config-predicate `compile-right-to-left-rewrites` registers
 // -------------------------------------------------------------------------------------------
 
-/// `openspec/changes/compile-right-to-left-rewrites`'s own capability predicate: a `Dir::
+/// The capability predicate for `RightToLeftRewrite`: a `Dir::
 /// RightToLeft` rewrite rule is now faithfully COMPILABLE (never a silent LTR mis-compile) by
 /// [`crate::replace::compile_rtl_branch_net`]'s reversal-plus-safety-net-union construction
 /// (that function's own doc), PROVIDED the rule's own LHS/RHS/environment patterns are within the
@@ -2394,21 +2394,17 @@ impl CapabilityPredicate for MultiTableFaithfulThreadingPredicate {
 ///   the safety-net `LeftToRight`-style branch alone is already recall-complete against
 ///   `pg_rules::rewrite`'s own, empirically-verified direction-blind pick-order; the genuinely-
 ///   reversed branch only ever ADDS candidates, never drops one), but no PROVEN no-false-positive
-///   admission-filter argument exists (ADR 0001's own bar for `Admit`) — so this is confirm-only-
-///   by-default, never `Admit`.
-/// - **Pattern shape outside scope** (`reversal_construction_attempted == false` — after
-///   `openspec/changes/plan-construct-coverage-completion` task 4.2, the REMAINING reasons are: the
-///   rule's own LHS/RHS/environment needs a disagree-polarity alpha var, contains a malformed
-///   `Quantifier` (inverted, over-budget-finite, alpha-nested -- a genuinely UNBOUNDED quantifier
-///   is no longer out of scope, `openspec/changes/build-unbounded-quantifier-support`), or has no
-///   resolvable owning table. Same-table or table-qualified cross-table `Segments` and any `Anchor`
-///   no longer trigger `Refuse` at all (task 4.2's own widening,
-///   `crate::lower::PatternLowerScope::RewriteRuleCompile`)):
+///   admission-filter argument exists — so this is confirm-only-by-default, never `Admit`.
+/// - **Pattern shape outside scope** (`reversal_construction_attempted == false` — the REMAINING
+///   reasons are: the rule's own LHS/RHS/environment needs a disagree-polarity alpha var, contains
+///   a malformed `Quantifier` (inverted, over-budget-finite, alpha-nested -- a genuinely UNBOUNDED
+///   quantifier is no longer out of scope), or has no resolvable owning table. Same-table or
+///   table-qualified cross-table `Segments` and any `Anchor` no longer trigger `Refuse` at all
+///   (`crate::lower::PatternLowerScope::RewriteRuleCompile`)):
 ///   [`PredicateVerdict::Refuse`], NAMING the exact failing shape via
-///   [`RightToLeftRewriteDetail::unsupported_reason`] (task 4.2's own "make the witness name that
-///   specific shape" requirement) — the real compiler already honestly skips (`Ok(None)`) exactly
-///   this rule (never a silent LTR fallback), so a grammar depending on it must be refused rather
-///   than silently missing recall; overridable per ADR 0005.
+///   [`RightToLeftRewriteDetail::unsupported_reason`] — the real compiler already honestly skips
+///   (`Ok(None)`) exactly this rule (never a silent LTR fallback), so a grammar depending on it
+///   must be refused rather than silently missing recall; overridable via the capability override.
 ///
 /// # Provenance
 /// [`EvidenceProvenance::Structural`]: `rtl_reversal_construction_attempted` reads directly-
@@ -2451,10 +2447,10 @@ impl CapabilityPredicate for RightToLeftRewriteFaithfulReversalPredicate {
             return PredicateVerdict::Admit;
         };
         if !detail.reversal_construction_attempted {
-            // `openspec/changes/plan-construct-coverage-completion` task 4.2: name the SPECIFIC
-            // failing shape when one was found (`unsupported_reason`), rather than a laundry-list
-            // "could be any of these" message -- falling back to the "no owning table" phrasing
-            // only for the one case `crate::lower::UnsupportedPatternNode` has no variant for.
+            // Name the SPECIFIC failing shape when one was found (`unsupported_reason`), rather
+            // than a laundry-list "could be any of these" message -- falling back to the "no
+            // owning table" phrasing only for the one case
+            // `crate::lower::UnsupportedPatternNode` has no variant for.
             let witness = match detail.unsupported_reason {
                 Some(reason) => format!(
                     "this rule's own LHS/RHS/environment pattern needs a construct \
@@ -2482,30 +2478,27 @@ impl CapabilityPredicate for RightToLeftRewriteFaithfulReversalPredicate {
 // Metathesis: the config-predicate `compile-fst-metathesis` registers
 // -------------------------------------------------------------------------------------------
 
-/// `openspec/changes/compile-fst-metathesis`'s own capability predicate: a `PhonRuleDef::Metathesis`
+/// The capability predicate for `Metathesis`: a `PhonRuleDef::Metathesis`
 /// rule is faithfully COMPILABLE via `crate::replace::compile_metathesis_rule`'s dedicated swap
 /// relation (that function's own module doc: a per-branch literal cross-product union, mirroring
 /// `resolve_alpha_tuples`'s own identity-preservation fix) for a `pattern_slots`-acceptable shape,
-/// EITHER `Dir` since `openspec/changes/plan-construct-coverage-completion` task 4.6
-/// (`docs/conformance/needs-decision-resolutions.md` row 8): `Dir::RightToLeft` now additionally
-/// mirrors the pattern, remaps the two switch indices, reverses, and unions with the plain net --
-/// the SAME construction `compile_rtl_branch_net` uses for RTL rewrite rules (that function's own
-/// module doc, "`Dir::RightToLeft`" section, has the full derivation this predicate's disposition
-/// below relies on). Any pattern needing `Quantifier`/`Segments`/`Anchor`/a disagree-polarity alpha
-/// var/`Slot::Alpha`/`Slot::Repeat` anywhere, or with no resolvable owning table, stays exactly as
-/// unsupported as before this change (`crate::replace::compile_metathesis_rule` itself returns
-/// `Ok(None)`, honestly skipped) -- direction was never what made those shapes unsupported.
+/// EITHER `Dir`: `Dir::RightToLeft` mirrors the pattern, remaps the two switch indices, reverses,
+/// and unions with the plain net -- the SAME construction `compile_rtl_branch_net` uses for RTL
+/// rewrite rules (that function's own module doc, "`Dir::RightToLeft`" section, has the full
+/// derivation this predicate's disposition below relies on). Any pattern needing
+/// `Quantifier`/`Segments`/`Anchor`/a disagree-polarity alpha var/`Slot::Alpha`/`Slot::Repeat`
+/// anywhere, or with no resolvable owning table, stays unsupported
+/// (`crate::replace::compile_metathesis_rule` itself returns `Ok(None)`, honestly skipped) --
+/// direction was never what made those shapes unsupported.
 ///
-/// **Cross-table shared-representation recall** (`docs/conformance/
-/// multitable-shared-representation-design.md`'s own "Residual gap this fix does NOT close"
-/// section, now resolved): `crate::replace::slot_candidates` alias-expands every switch position's
-/// own candidate set via the SAME `RepresentationAliasMap` `MultiTableFaithfulThreadingPredicate`'s
-/// own rewrite-rule fix uses, so a `MetathesisRule` in a grammar whose tables share a normalized
-/// representation is no longer exposed to the false negative that predicate's own doc used to flag
-/// as residual here. This predicate's own disposition is unaffected either way (`ConfirmOnly` is
-/// already the ceiling for `swap_construction_attempted == true`, cross-table or not) -- the fix
-/// only ever REMOVES a recall gap this predicate's `ConfirmOnly` verdict already had to tolerate,
-/// never changes which shapes this predicate itself admits or refuses.
+/// **Cross-table shared-representation recall.** `crate::replace::slot_candidates` alias-expands
+/// every switch position's own candidate set via the SAME `RepresentationAliasMap`
+/// `MultiTableFaithfulThreadingPredicate`'s own rewrite-rule fix uses, so a `MetathesisRule` in a
+/// grammar whose tables share a normalized representation is not exposed to the false negative
+/// that would otherwise result. This predicate's own disposition is unaffected either way
+/// (`ConfirmOnly` is already the ceiling for `swap_construction_attempted == true`, cross-table or
+/// not) -- alias-expansion only ever REMOVES a recall gap this predicate's `ConfirmOnly` verdict
+/// already had to tolerate, never changes which shapes this predicate itself admits or refuses.
 ///
 /// # Disposition
 /// - **Not observed as `PhonRuleDef::Metathesis` at all**: vacuously `Admit` — nothing for this
@@ -2517,7 +2510,7 @@ impl CapabilityPredicate for RightToLeftRewriteFaithfulReversalPredicate {
 ///   SAFE, FAITHFUL FST compile for the SUPPORTED case (`tests/phase_c_metathesis.rs`'s
 ///   `metathesis_adjacent_singleton_swap_matches_oracle_exactly` proves oracle-EXACT equality
 ///   against `pg_rules::metathesis`, not merely a safe superset) but still has no PROVEN
-///   no-false-negative admission-filter argument (ADR 0001's own bar for `Admit`). `Dir::
+///   no-false-negative admission-filter argument. `Dir::
 ///   RightToLeft` additionally unions in the reversed-mirror branch (module doc above) — a proven
 ///   SUPERSET of the true RTL relation, sound under propose-and-confirm (the proposer may
 ///   over-approximate; it must never omit — `tests/phase_c_metathesis.rs`'s own `Dir::RightToLeft`
@@ -2530,7 +2523,7 @@ impl CapabilityPredicate for RightToLeftRewriteFaithfulReversalPredicate {
 ///   occurrence — `crate::replace::compile_metathesis_rule`'s own module doc, "Scope" section, has
 ///   the full, evidence-based account of which of these is genuinely reachable): [`PredicateVerdict
 ///   ::Refuse`] — the real compiler already honestly skips (`Ok(None)`) exactly this rule, never a
-///   silent wrong compile; overridable per ADR 0005.
+///   silent wrong compile; overridable via the capability override.
 ///
 /// # Provenance
 /// [`EvidenceProvenance::Structural`]: `swap_construction_attempted` reads directly-inspectable
@@ -2609,7 +2602,7 @@ impl CapabilityPredicate for MetathesisFaithfulSwapPredicate {
 // CircumfixOutputAction: the config-predicate `cover-circumfix-null-output-actions` registers
 // -------------------------------------------------------------------------------------------
 
-/// `openspec/changes/cover-circumfix-null-output-actions`'s own capability predicate: an
+/// The capability predicate for `CircumfixOutputAction`: an
 /// `AffixAllomorphDef` whose RHS drops real LHS material — a circumfix wrapping the stem, a
 /// null-role subtractive input (an LHS part matched for context but never copied to the output),
 /// or an ordered multi-`InsertSegments` output-action sequence built on top of either shape — is
@@ -2618,65 +2611,63 @@ impl CapabilityPredicate for MetathesisFaithfulSwapPredicate {
 /// mechanism resynthesizes every candidate surface via the REAL morphological engine
 /// (`pg_rules::morph::synthesize`) rather than splicing literal text, so it is faithful for
 /// whatever concrete `OutputAction` sequence a covered rule's allomorphs actually carry — including
-/// the "never silently reduced to the first inserted segment" ordered-multi-insert fix
-/// (`crate::emit::insert_action_texts`) this change also ships for the allomorphs that stay on the
-/// ordinary (non-structural) emission path.
+/// an ordered-multi-insert fix (`crate::emit::insert_action_texts`, "never silently reduced to the
+/// first inserted segment") for the allomorphs that stay on the ordinary (non-structural) emission
+/// path.
 ///
 /// A rule stays OUTSIDE `is_structural_rule`'s admitted set only when NONE of its allomorphs
 /// classifies `Role::CircumfixPrefix` AND its allomorph-0 role (per `crate::emit::classify_affix`)
 /// is `Role::Infix`/`Role::Reduplication`/`Role::Process` with no allomorph dropping LHS material —
-/// e.g. a rule whose RHS uses `OutputAction::Modify`/`InsertContext` (ablaut/simulfix-style "process
-/// morphs", D1's own "not compilable as strings" citation) is never routed there, and the ordinary
+/// e.g. a rule whose RHS uses `OutputAction::Modify`/`InsertContext` (ablaut/simulfix-style
+/// "process morphs", never compilable as literal strings) is never routed there, and the ordinary
 /// emission path already honestly reports it `uncovered` (`crate::emit::emit_rule_allomorphs`'s
-/// `has_unemittable_action` check) rather than silently mis-compiling it. Before census C1's fix
-/// (`docs/conformance/circumfix-structural-composite-census.md`), a rule whose allomorph 0 was one
-/// of those other roles but whose allomorph 1..n was circumfix-shaped was ALSO wrongly excluded —
-/// `is_structural_rule` now scans every allomorph for `CircumfixPrefix` before falling back to
-/// allomorph-0-only classification, so that gap is closed and the exclusion above is exhaustive.
+/// `has_unemittable_action` check) rather than silently mis-compiling it. `is_structural_rule`
+/// scans every allomorph for `CircumfixPrefix` before falling back to allomorph-0-only
+/// classification (a rule whose allomorph 0 is some OTHER role but a later allomorph is
+/// circumfix-shaped is still admitted), so the exclusion above is exhaustive.
 ///
-/// Since census C3's fix to `crate::emit::classify_affix` (same census document), an RHS that is
-/// simultaneously circumfixing (insert before the first `Copy`, insert after the last) AND infixing
-/// (a non-`Copy` action strictly between two `Copy`s) now classifies `CircumfixPrefix` rather than
-/// `Infix`, so it is admitted here instead of being routed to `crate::preexpand`.
+/// An RHS that is simultaneously circumfixing (insert before the first `Copy`, insert after the
+/// last) AND infixing (a non-`Copy` action strictly between two `Copy`s) classifies
+/// `CircumfixPrefix` rather than `Infix`, so it is admitted here instead of being routed to
+/// `crate::preexpand`.
 ///
 /// This is NOT primarily a raw-recall fix — checked empirically, not merely reasoned about:
 /// `crate::preexpand::extend` (its own module doc) ALSO calls `pg_rules::morph::synthesize_cached`,
 /// the SAME real engine `build_structural_composites` uses, so an `Infix`-misclassified rule with
-/// this exact shape was ALREADY correctly resynthesized by `crate::preexpand` before this fix
-/// (confirmed by temporarily reverting `classify_affix`'s reordering and re-running
+/// this exact shape is ALREADY correctly resynthesized by `crate::preexpand` regardless (confirmed
+/// by temporarily reverting `classify_affix`'s reordering and re-running
 /// `rust/crates/pg-foma/tests/circumfix_candidate_selection.rs`'s
-/// `circumfix_infix_interior_action_recall_parity` — it passed either way). What the fix
-/// demonstrably changes is OWNERSHIP, not recall (the same test file's
-/// `circumfix_infix_ownership_handoff_is_clean` DOES fail without this fix): `crate::preexpand`
-/// relinquishes the rule and `build_structural_composites` claims it instead. That still matters
-/// here specifically, because THIS predicate reads `is_structural_rule` as its own ground truth for
-/// `structural_composite_attempted` — before the fix, a rule misclassified `Infix` here made this
-/// predicate `Refuse` a grammar `crate::preexpand` was already covering correctly, an over-refusal
-/// (never a silent overclaim) consistent with the census's own finding that every one of these gaps
-/// fails in the honest, fail-closed direction. `build_structural_composites` remains the
-/// architecturally correct home regardless: its `CircumfixPrefix` admission is unconditional
-/// (`is_structural_rule`'s own comment), where `crate::preexpand`'s Infix coverage of this shape is
-/// real but incidental to a module whose own doc scopes it to interdigitation/boundary-fusion, never
-/// to circumfix.
+/// `circumfix_infix_interior_action_recall_parity` — it passes either way). What actually changes
+/// is OWNERSHIP, not recall (the same test file's `circumfix_infix_ownership_handoff_is_clean` DOES
+/// fail without the reordering): `crate::preexpand` relinquishes the rule and
+/// `build_structural_composites` claims it instead. That matters here specifically because THIS
+/// predicate reads `is_structural_rule` as its own ground truth for
+/// `structural_composite_attempted`: a rule misclassified `Infix` here would make this predicate
+/// `Refuse` a grammar `crate::preexpand` was already covering correctly — an over-refusal (never a
+/// silent overclaim), consistent with every one of these gaps failing in the honest, fail-closed
+/// direction. `build_structural_composites` remains the architecturally correct home regardless:
+/// its `CircumfixPrefix` admission is unconditional (`is_structural_rule`'s own comment), where
+/// `crate::preexpand`'s Infix coverage of this shape is real but incidental to a module whose own
+/// doc scopes it to interdigitation/boundary-fusion, never to circumfix.
 ///
-/// Since census C2's fix (same census document, `plan-construct-coverage-completion` task 4.3c), an
-/// RHS that is simultaneously circumfixing AND reduplicating (some `Copy`d part echoed >= 2 times)
-/// ALSO now classifies `CircumfixPrefix` rather than `Reduplication`, so `structural_composite_
-/// attempted` becomes `true` for it too. Unlike C3, this one is NOT merely an ownership relabeling of
-/// an already-correct outcome: `crate::peel::ReduplicationPeeler`'s four scan kinds (that module's own
-/// doc) are each a one-sided surface-string match and have no shape that recalls a genuine
-/// wrap-both-sides-plus-reduplication surface, so before this fix such a rule (when `AffixProcess`-
-/// kind, i.e. peel-eligible per [`ReduplicationPeelSupportedPredicate`]) risked a REAL recall gap
-/// dressed up as a `ConfirmOnly` verdict — the peel claimed it but could not actually recall it.
-/// `build_structural_composites` resynthesizes it correctly instead (same "shape-agnostic replay of
-/// `pg_rules::morph::synthesize`" argument this predicate's C1/C3 paragraphs already make), proven
-/// non-vacuous by `tests/circumfix_candidate_selection.rs`'s C2 section (full proposer-to-confirm
-/// containment against `pg_parse::Morpher` for a real circumfix-plus-reduplication surface, plus a
-/// check that `crate::peel::ReduplicationPeeler::new(&g).has_redup_rules()` is `false` for that same
-/// grammar — the peel relinquishes the rule cleanly). See
-/// [`ReduplicationPeelSupportedPredicate`]'s own doc for why its `peel_eligible_rule_kind` field can
-/// still read `true` for an `AffixProcess` rule with this exact combined shape without that being a
-/// stale or false claim.
+/// An RHS that is simultaneously circumfixing AND reduplicating (some `Copy`d part echoed >= 2
+/// times) ALSO classifies `CircumfixPrefix` rather than `Reduplication`, so
+/// `structural_composite_attempted` is `true` for it too. Unlike the infixing case above, this one
+/// is NOT merely an ownership relabeling of an already-correct outcome:
+/// `crate::peel::ReduplicationPeeler`'s four scan kinds (that module's own doc) are each a
+/// one-sided surface-string match and have no shape that recalls a genuine
+/// wrap-both-sides-plus-reduplication surface, so such a rule (when `AffixProcess`-kind, i.e.
+/// peel-eligible per [`ReduplicationPeelSupportedPredicate`]) would otherwise risk a REAL recall
+/// gap dressed up as a `ConfirmOnly` verdict — the peel would claim it but could not actually
+/// recall it. `build_structural_composites` resynthesizes it correctly instead (same
+/// shape-agnostic replay of `pg_rules::morph::synthesize` this predicate's other paragraphs already
+/// make), proven non-vacuous by `tests/circumfix_candidate_selection.rs`'s dedicated section (full
+/// proposer-to-confirm containment against `pg_parse::Morpher` for a real
+/// circumfix-plus-reduplication surface, plus a check that
+/// `crate::peel::ReduplicationPeeler::new(&g).has_redup_rules()` is `false` for that same grammar —
+/// the peel relinquishes the rule cleanly). See [`ReduplicationPeelSupportedPredicate`]'s own doc
+/// for why its `peel_eligible_rule_kind` field can still read `true` for an `AffixProcess` rule
+/// with this exact combined shape without that being a stale or false claim.
 ///
 /// # Disposition
 /// - **Not observed at all** (no allomorph drops LHS material anywhere in the grammar): vacuously
@@ -2688,14 +2679,14 @@ impl CapabilityPredicate for MetathesisFaithfulSwapPredicate {
 ///   oracle-backed compile for the SUPPORTED case (this change's own containment fixture proves
 ///   oracle-exact equality against `pg_parse::Morpher` for a covered circumfix/null-role rule,
 ///   mirroring [`MetathesisFaithfulSwapPredicate`]'s own "exact containment, not merely a safe
-///   superset" precedent), but no PROVEN no-false-negative admission-filter argument exists (ADR
-///   0001's own bar for `Admit`) — confirm-only-by-default, the same landing spot every other
-///   `ConfigPredicate` characteristic in this registry already uses.
+///   superset" precedent), but no PROVEN no-false-negative admission-filter argument exists —
+///   confirm-only-by-default, the same landing spot every other `ConfigPredicate` characteristic in
+///   this registry already uses.
 /// - **At least one observed occurrence does NOT reach `build_structural_composites`**
 ///   (`structural_composite_attempted == false`): [`PredicateVerdict::Refuse`] — the real compiler
 ///   already honestly skips this exact allomorph everywhere (module doc above), never a silent wrong
 ///   compile, but a grammar depending on it must be refused rather than silently missing recall;
-///   overridable per ADR 0005.
+///   overridable via the capability override.
 ///
 /// # Provenance
 /// [`EvidenceProvenance::Structural`]: `structural_composite_attempted` reads directly-inspectable
