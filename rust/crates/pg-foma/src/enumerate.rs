@@ -1,31 +1,30 @@
-//! `enumerate_default` (Step 2 of `openspec/changes/reify-compilation-plans`, design.md D2): builds
-//! today's compilation topology as a single reified [`Plan`] (Step 1, `crate::plan`), verified
-//! structurally against the REAL seam functions rather than a re-derivation of their decisions.
+//! `enumerate_default` builds today's compilation topology as a single reified [`Plan`]
+//! (`crate::plan`), verified structurally against the REAL seam functions rather than a
+//! re-derivation of their decisions.
 //!
-//! This module is purely **additive and behavior-preserving**: it does not implement a plan
-//! builder/interpreter (no live [`foma::types::Fsm`] is built anywhere here), and does not modify
-//! the bodies of the three seam functions it mirrors (their *visibility* was widened from private
-//! to `pub(crate)` so this module and its tests can call them directly — see [`crate::emit::
-//! probe_would_refuse`]/[`crate::emit::structural_candidate_rules`]'s own doc comments for that
-//! rationale; [`crate::preexpand::should_run`] and [`crate::gate::partition_entries`]/
-//! [`crate::gate::find_gated_subrules`] were already `pub(crate)`/`pub`). Building/executing a
-//! [`Plan`] into real FSTs stays out of scope here (`crate::plan`'s own module doc; `crate::build`'s
-//! `build_controllable` is the one interpreter, over the CONTROLLABLE Gate/Replace/Compose subtree
-//! only). Task 1.3 (Step 3) DOES now flip a slice of a production compile path: `crate::emit::
+//! This module does not implement a plan builder/interpreter (no live [`foma::types::Fsm`] is
+//! built anywhere here), and does not modify the bodies of the three seam functions it mirrors
+//! (their *visibility* was widened from private to `pub(crate)` so this module and its tests can
+//! call them directly — see [`crate::emit::probe_would_refuse`]/[`crate::emit::
+//! structural_candidate_rules`]'s own doc comments for that rationale; [`crate::preexpand::
+//! should_run`] and [`crate::gate::partition_entries`]/[`crate::gate::find_gated_subrules`] were
+//! already `pub(crate)`/`pub`). Building/executing a [`Plan`] into real FSTs stays out of scope
+//! here (`crate::plan`'s own module doc; `crate::build`'s `build_controllable` is the one
+//! interpreter, over the CONTROLLABLE Gate/Replace/Compose subtree only). `crate::emit::
 //! plan_topology_decisions` calls [`enumerate_default`] and reads the built `Plan`'s composite-
 //! emission/structural-composite marker presence to decide `emit_with_budget_profiled`'s own
 //! topology, replacing that function's independent `preexpand::should_run`/`structural_candidate_
-//! rules(...).is_empty()` calls — see that function's own doc. `gate::partition_entries` (D2's
-//! third seam) stays unwired into `emit.rs`'s mainline: that seam belongs to `gate.rs`'s own,
+//! rules(...).is_empty()` calls — see that function's own doc. `gate::partition_entries` stays
+//! unwired into `emit.rs`'s mainline: that seam belongs to `gate.rs`'s own,
 //! separate compile entry point, which `emit.rs`'s lexc-emission path never calls at all.
 //!
-//! # The three seams, as D2's table names them, and how this module models each
+//! # The three seams and how this module models each
 //!
-//! | D2 row | Real seam | Modeled as |
+//! | Row | Real seam | Modeled as |
 //! |---|---|---|
 //! | 1 | [`crate::preexpand::should_run`] | An `Option<NodeId>` for a [`PlanNodeKind::Leaf`] tagged [`FragmentSpec::CompositeEmissionMarker`] — present iff `should_run` is `true`. |
 //! | 2 | [`crate::emit::probe_would_refuse`] / [`crate::emit::structural_candidate_rules`] | An `Option<NodeId>` for a [`PlanNodeKind::Leaf`] tagged [`FragmentSpec::StructuralCompositeMarker`] — present iff `structural_candidate_rules(g)` is non-empty (the REAL gate `emit::emit_with_budget` uses, `!struct_rules.is_empty()`; a strict superset of "`probe_would_refuse` alone" — see that function's own doc). |
-//! | 3 | [`crate::gate::partition_entries`] / [`crate::gate::find_gated_subrules`] | A [`PlanNodeKind::Gate`] node whose `partition.groups` has one [`GateGroupSpec`] per group `partition_entries` yields, one child subplan per group. An ungated grammar collapses to a single-group `Gate` with an empty key (design.md D2's own words, `GatePartitionSpec`'s doc) — the pre-refactor behavior preserved as a specific enumerable plan, not a special case. |
+//! | 3 | [`crate::gate::partition_entries`] / [`crate::gate::find_gated_subrules`] | A [`PlanNodeKind::Gate`] node whose `partition.groups` has one [`GateGroupSpec`] per group `partition_entries` yields, one child subplan per group. An ungated grammar collapses to a single-group `Gate` with an empty key (`GatePartitionSpec`'s doc) — the pre-refactor behavior preserved as a specific enumerable plan, not a special case. |
 //!
 //! # Shape (mirrors `emit::emit_with_budget`'s own compose order: lexicon, composites, structural
 //! composites, rules cascade, gate partition)
@@ -48,20 +47,19 @@
 //! The `Union` at the root (rather than nesting the composite-emission/structural-composite markers
 //! *inside* each group) is a judgment call, not free of ambiguity — see "Judgment calls" below.
 //!
-//! # Judgment calls (surfaced for Step 3, per this step's own review instructions)
+//! # Judgment calls
 //!
 //! - **Composite/structural markers sit OUTSIDE the `Gate` node, as `Union` siblings, not nested
 //!   inside every group.** `crate::gate`'s own module doc says gated compilation's affix chains are
 //!   "shared, unfiltered" across every partition group — i.e. NOT gated at all. Composite/structural
 //!   entries are exactly this kind of grammar-wide, non-partitioned material in today's code (in
 //!   fact `crate::gate`'s prototype compile path doesn't even call `crate::preexpand`/structural
-//!   composites at all today — those live only in `emit::emit_with_budget`'s mainline path). D2
-//!   asks for ONE enumerator that treats all three seams as choices over the SAME plan, which today's
-//!   code doesn't literally do (they're two separate compile entry points): this module's shape is
+//!   composites at all today — those live only in `emit::emit_with_budget`'s mainline path). One
+//!   enumerator that treats all three seams as choices over the SAME plan doesn't match what today's
+//!   code literally does (they're two separate compile entry points): this module's shape is
 //!   the natural unification, not a literal mirror of one existing function's call graph.
-//! - **Every gate group gets its OWN `Replace` node** (task 1.4, design.md D1 "Soundness
-//!   invariant" — resolved; this bullet was a Step-2 judgment call flagging exactly the gap Step 3a
-//!   found and task 1.4 closed). An EARLIER version of this module built one Replace node SHARED by
+//! - **Every gate group gets its OWN `Replace` node.** An EARLIER version of this module built one
+//!   Replace node SHARED by
 //!   every group, on the reasoning that [`ReplaceCascadeSpec`] is rule-level (`Vec<PRuleId>`) and
 //!   the per-group subrule-inclusion distinction lives on [`GatePartitionSpec::gated_subrules`] +
 //!   each group's own `key`, so duplicating it into `Replace` would be "redundant, not more
@@ -70,7 +68,7 @@
 //!   (a `NodeId`-memoizing interpreter would build the cascade once and silently reuse the WRONG
 //!   network for every other group). The fix: `ReplaceCascadeSpec` now carries `gated_subrules` +
 //!   `group_key` directly (see that struct's own doc), so THIS group's own `Replace` node's content
-//!   fully determines its `subrule_ok` — content-addressing (D1) then does the right thing on its
+//!   fully determines its `subrule_ok` — content-addressing then does the right thing on its
 //!   own: two groups with DIFFERENT keys get DIFFERENT `Replace` `NodeId`s (no false sharing, this
 //!   module's own tests assert it), while two groups that happen to gate IDENTICALLY still dedup to
 //!   the SAME `Replace` `NodeId` (also asserted) — the shared rewrite-rule Leaf CHILDREN still dedup
@@ -86,9 +84,9 @@
 //!   builds the `Gate` node. `partition_entries` buckets through a `HashMap`, whose iteration order
 //!   is not stable across processes; a `Gate` node's `children` order is part of its content
 //!   address (`PlanNodeKind::Gate`'s derived `Hash`), so leaving it in `HashMap` order would make
-//!   the SAME grammar's enumerated `Plan` hash differently between runs — a direct violation of D1
-//!   ("NodeIds must be reproducible across processes"). This is enumerate.rs's own post-processing
-//!   of the seam's return value, not a change to `partition_entries` itself.
+//!   the SAME grammar's enumerated `Plan` hash differently between runs — a direct violation of the
+//!   requirement that NodeIds be reproducible across processes. This is enumerate.rs's own
+//!   post-processing of the seam's return value, not a change to `partition_entries` itself.
 //! - **Recovering each `prules_in_order` entry's `PRuleId`** (needed for [`ReplaceCascadeSpec`] and
 //!   [`FragmentSpec::RewriteRule`], which are addressed by the grammar-wide id, NOT by position in
 //!   `prules_in_order` — that's `GatedSubruleRef::rule_pos`'s own, different, addressing scheme) is
@@ -132,17 +130,17 @@ pub fn prules_in_order(g: &Grammar) -> Vec<&PhonRuleDef> {
         .collect()
 }
 
-/// Builds today's compilation topology for `g` as a single reified [`Plan`] (Step 2, design.md D2).
+/// Builds today's compilation topology for `g` as a single reified [`Plan`].
 ///
 /// Takes exactly the inputs the real compile seams take: `alphabet`/`prules_in_order` (the shape
 /// `crate::gate::compile_gated_grammar_with_budget` and `crate::replace`'s cascade builders take)
 /// plus `phon` (what `crate::preexpand::should_run` and `crate::emit::emit_with_budget` take).
 ///
-/// `alphabet` is accepted, not read: this step is data-only (module doc — no live `Fsm` is built
-/// here), and none of today's three topology seams this step mirrors ( `should_run`,
+/// `alphabet` is accepted, not read: this is data-only (module doc — no live `Fsm` is built
+/// here), and none of today's three topology seams this mirrors ( `should_run`,
 /// `probe_would_refuse`/`structural_candidate_rules`, `partition_entries`) consult the segment
-/// alphabet to decide topology — only Step 3's actual FST builder will need it. Kept as a parameter
-/// anyway so this function's signature already matches what a Step-3 builder will need to thread
+/// alphabet to decide topology — only a real FST builder will need it. Kept as a parameter
+/// anyway so this function's signature already matches what such a builder will need to thread
 /// through, rather than growing a new parameter later.
 pub fn enumerate_default(
     g: &Grammar,
@@ -152,7 +150,7 @@ pub fn enumerate_default(
 ) -> Plan {
     let mut plan = Plan::new();
 
-    // D2 row 1: preexpand::should_run -> composite-emission subtree presence.
+    // Row 1: preexpand::should_run -> composite-emission subtree presence.
     let composite_leaf = preexpand::should_run(g, phon).then(|| {
         plan.add_node(PlanNodeKind::Leaf {
             fragment: FragmentSpec::CompositeEmissionMarker,
@@ -160,7 +158,7 @@ pub fn enumerate_default(
         })
     });
 
-    // D2 row 2: emit::probe_would_refuse / structural_candidate_rules -> structural-composite
+    // Row 2: emit::probe_would_refuse / structural_candidate_rules -> structural-composite
     // subtree presence. Mirrors `emit::emit_with_budget`'s own `!struct_rules.is_empty()` gate
     // exactly (module doc: a strict superset of "probe_would_refuse alone").
     let structural_leaf = (!emit::structural_candidate_rules(g).is_empty()).then(|| {
@@ -170,14 +168,14 @@ pub fn enumerate_default(
         })
     });
 
-    // D2 row 3: gate::find_gated_subrules / gate::partition_entries -> the Gate node's partition.
+    // Row 3: gate::find_gated_subrules / gate::partition_entries -> the Gate node's partition.
     let gated = find_gated_subrules(g, prules_in_order);
     let mut groups = partition_entries(g, &gated, prules_in_order);
     // Reproducibility (module doc): `partition_entries` buckets through a `HashMap`, so re-sort by
     // key before this order becomes part of the Gate node's content address.
     groups.sort_by(|a, b| a.key.cmp(&b.key));
 
-    // The gated-subrule universe (task 1.4/D1): the SAME for every group in this grammar, so
+    // The gated-subrule universe: the SAME for every group in this grammar, so
     // computed once and cloned into each group's own Replace node below (only `group_key` differs
     // per group).
     let gated_subrule_refs: Vec<GatedSubruleRef> = gated
@@ -190,9 +188,9 @@ pub fn enumerate_default(
     let cascade_rules: Vec<PRuleId> = prules_in_order.iter().map(|pr| rule_id_of(g, pr)).collect();
 
     // The rewrite-rule Leaf children (`replace.rs`'s per-rule transducers, promoted to `Replace`
-    // per D1/D2): content-identical regardless of which group compiles them, so these dedup across
+    // leaves): content-identical regardless of which group compiles them, so these dedup across
     // every group's own Replace node below even though the Replace PARENT node itself no longer
-    // does (task 1.4's fix -- see module doc's "Judgment calls").
+    // does (see module doc's "Judgment calls").
     let rule_children: Vec<NodeId> = prules_in_order
         .iter()
         .map(|pr| {
@@ -206,7 +204,7 @@ pub fn enumerate_default(
 
     // One Compose (group lexicon fragment .o. THIS GROUP'S OWN Replace node) per partition group --
     // mirrors `compile_gated_grammar_with_budget`'s own per-group `lexc_net .o. rules_net` step.
-    // Task 1.4: each group's Replace node carries its OWN `group_key`, so distinct groups get
+    // Each group's Replace node carries its OWN `group_key`, so distinct groups get
     // distinct Replace NodeIds (module doc) rather than sharing one node under different intended
     // meanings.
     let group_children: Vec<NodeId> = groups
@@ -268,7 +266,7 @@ pub fn enumerate_default(
 
 /// Whether a candidate IS this grammar's default compilation, stated by whoever built it.
 ///
-/// # Why this is a field and not a position (task 7.13)
+/// # Why this is a field and not a position
 /// It used to be a parallel `is_baseline: &[bool]` slice passed alongside the candidate slice, and
 /// before that it was position zero. Both were wrong, in ways that were measured rather than
 /// theorised:
@@ -304,20 +302,20 @@ impl CandidateRole {
     }
 }
 
-/// One candidate topology [`enumerate_candidates`] emits, labeled for provenance/diagnostics
-/// (task 2.1/2.2, `openspec/changes/reify-compilation-plans`). The label is a static string naming
+/// One candidate topology [`enumerate_candidates`] emits, labeled for provenance/diagnostics.
+/// The label is a static string naming
 /// WHICH axis produced this candidate (`"default"`, `"gate-group-permuted"`, ...), not a
 /// user-facing description — see [`crate::selection::select_plan`]'s own doc for how this feeds a
 /// caller's provenance report.
 ///
-/// # Task 7.13: this replaces `CandidatePlan`, and the two differences are the point
+/// # Why the compiler axis is a typed adapter, and the baseline fact lives here
 /// 1. **The compiler axis is a typed [`LoweringAdapter`], not an [`EmissionStrategy`].** The
-///    adapter is the identity `ExecutableCandidate` already binds (task 7.5), so the lowering step
+///    adapter is the identity `ExecutableCandidate` already binds, so the lowering step
 ///    dispatches on the same value the sealed candidate carries instead of on a second enum that
 ///    had to be kept in correspondence with it by hand. `EmissionStrategy` survives, deliberately:
 ///    it is the REPORTED selection axis (`RuntimeEvaluation::realized_strategy`,
-///    `RecipeOptimizationReport::winner_strategy`, `strategy_coverage`), and Wave 3 measured that
-///    axis to be the decisive one — two whole-grammar compilers win two different languages. The
+///    `RecipeOptimizationReport::winner_strategy`, `strategy_coverage`), measured to be the
+///    decisive one — two whole-grammar compilers win two different languages. The
 ///    two are 1:1 in both directions (`executable_candidate`'s own
 ///    `every_strategy_has_exactly_one_adapter_and_back`), so [`Self::strategy`] is a projection,
 ///    not a second source of truth.
@@ -409,11 +407,11 @@ impl EmissionStrategy {
     }
 }
 
-/// Task 2.1/2.2 (`openspec/changes/reify-compilation-plans`, design.md D3): the candidate
+/// The candidate
 /// ENUMERATOR — every legal, **buildable** topology this crate can emit for `g` today, as
 /// content-addressed [`Plan`]s a caller (typically [`crate::selection::select_plan`]) can filter by
 /// capability and rank by cost. Always emits [`enumerate_default`]'s own plan first (candidate
-/// `"default"`); the D3 selection story only becomes meaningful once there is a second, genuinely
+/// `"default"`); the selection story only becomes meaningful once there is a second, genuinely
 /// distinct candidate to choose between.
 ///
 /// # Which axes are emitted, and why
@@ -424,7 +422,7 @@ impl EmissionStrategy {
 /// [`crate::compose_budget::union_checked`] (commutative) and always finishes with
 /// [`crate::compose_budget::minimize_checked`], so a `Gate` node's group ORDER cannot affect the
 /// final relation — only membership does. Reordering the groups changes the `Gate` node's content
-/// address (D1: `NodeId = hash(kind, children, config)`, and both `partition.groups` and `children`
+/// address (`NodeId = hash(kind, children, config)`, and both `partition.groups` and `children`
 /// are part of that content) without changing what the built network recognizes: a real, distinct,
 /// SAME-relation candidate topology, not a relabeling of the identical `Plan`. **Only added when it
 /// is actually a different plan**: a grammar with 0 or 1 partition groups reverses to the identical
@@ -447,14 +445,13 @@ impl EmissionStrategy {
 /// - **An alternative partition function for the `Gate` node** (grouping entries differently than
 ///   [`crate::gate::partition_entries`] does). No second partition-computing seam exists anywhere in
 ///   this crate; inventing one here would mean re-deriving `gate.rs`'s own gating semantics a second,
-///   independent way — squarely the kind of change this task's own scope excludes ("do NOT touch
-///   replace.rs or lower.rs"; by the same discipline, this step does not reach into `gate.rs` either
-///   to manufacture a second partition strategy it was never asked to build).
+///   independent way — squarely the kind of change this module's own scope excludes: this file does
+///   not reach into `gate.rs` to manufacture a second partition strategy it was never asked to build.
 /// - **Reordering a `Replace` cascade's rule sequence.** Unlike gate-group order, rewrite-rule order
 ///   is NOT proven irrelevant — `replace.rs`'s cascade is explicitly order-sensitive (each rule's
 ///   output feeds the next), so two different rule orders are not, in general, the SAME relation at
-///   all. Emitting a reordered-cascade candidate here would risk exactly what D3 rules out by
-///   construction ("selection can never pick a fast-but-wrong plan"): a candidate that LOOKS like an
+///   all. Emitting a reordered-cascade candidate here would risk exactly the failure this design
+///   rules out by construction ("selection can never pick a fast-but-wrong plan"): a candidate that LOOKS like an
 ///   alternative topology for the same logical request but actually computes a different relation.
 ///   Absent a proof of order-irrelevance (which no seam in this crate currently supplies), this axis
 ///   is left unexplored rather than emitted unsoundly.
@@ -497,9 +494,9 @@ pub fn enumerate_candidates(
 /// If `pr` is not found in `g.prules` by pointer identity — this would mean a caller passed a
 /// `prules_in_order` slice NOT borrowed from this same `g`, which is a caller bug this function
 /// cannot silently paper over (silently returning a wrong `PRuleId` would corrupt every downstream
-/// consumer of that id, e.g. capability-evidence-provenance tagging, ADR 0001).
+/// consumer of that id, e.g. capability-evidence-provenance tagging).
 ///
-/// Widened from private to `pub(crate)` for Step 3a (`crate::build`): that module's own
+/// Widened from private to `pub(crate)` for `crate::build`: that module's own
 /// `validate_replace_cascade` needs the identical pointer-identity `PRuleId` recovery to
 /// cross-check a `Plan`'s `Replace` cascade against a caller-supplied `prules_in_order` slice, and
 /// re-deriving the same safety-relevant logic a second time would risk the two copies silently
@@ -539,7 +536,7 @@ mod tests {
     /// `PhonologyProbe::new` returns `None`), no `MorphologicalRuleDefinitions` (so no `Role::Infix`
     /// rule exists either) -- `should_run` must be `false`. No gated subrule can exist (there are no
     /// phonological subrules at all), so this is also the ungated case: exactly one partition group
-    /// with an empty key (D2: "ungated grammar collapses to a single-group Gate").
+    /// with an empty key ("ungated grammar collapses to a single-group Gate").
     fn ungated_no_composite_fixture() -> String {
         r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
@@ -698,9 +695,9 @@ mod tests {
             .expect("plan must contain exactly one Gate node")
     }
 
-    /// D2 row 3: the enumerated Plan's Gate `partition.groups.len()` equals the REAL
+    /// Row 3: the enumerated Plan's Gate `partition.groups.len()` equals the REAL
     /// `partition_entries(g, &gated, &prules_in_order).len()` -- for the ungated fixture, both must
-    /// be 1 (D2's degenerate-collapse case).
+    /// be 1 (the degenerate-collapse case).
     #[test]
     fn ungated_fixture_collapses_to_single_group_gate_matching_real_seam() {
         let g = load(&ungated_no_composite_fixture());
@@ -731,7 +728,7 @@ mod tests {
             "no gated subrules declared"
         );
 
-        // D2 row 1/2: neither composite marker should be present.
+        // Row 1/2: neither composite marker should be present.
         assert!(leaves_matching(&plan, |f| matches!(
             f,
             FragmentSpec::CompositeEmissionMarker
@@ -744,7 +741,7 @@ mod tests {
         .is_empty());
     }
 
-    /// D2 row 1: the composite-emission subtree is present in the enumerated Plan IFF the REAL
+    /// Row 1: the composite-emission subtree is present in the enumerated Plan IFF the REAL
     /// `preexpand::should_run` says so, for a grammar that actually exercises it.
     #[test]
     fn composite_subtree_present_iff_should_run() {
@@ -771,7 +768,7 @@ mod tests {
             "composite-emission subtree presence must match preexpand::should_run exactly"
         );
 
-        // D2 row 2: the structural route must be ABSENT here (probe_would_refuse is false and this
+        // Row 2: the structural route must be ABSENT here (probe_would_refuse is false and this
         // fixture declares no circumfix/dropped-material rule).
         let structural_leaves = leaves_matching(&plan, |f| {
             matches!(f, FragmentSpec::StructuralCompositeMarker)
@@ -784,12 +781,12 @@ mod tests {
         );
     }
 
-    /// D2 row 3 on a REAL gated multi-group grammar: the enumerated Plan's Gate
+    /// Row 3 on a REAL gated multi-group grammar: the enumerated Plan's Gate
     /// `partition.groups.len()` equals `partition_entries(...).len()` (here, 2), one
-    /// `GatedSubruleRef` per `find_gated_subrules` entry, and (task 1.4, D1's soundness invariant)
+    /// `GatedSubruleRef` per `find_gated_subrules` entry, and (the soundness invariant)
     /// each group's `Compose` child now references its OWN, DISTINCT `Replace` `NodeId` — the two
     /// groups here realize different gate keys (`[true]`/`[false]`), so they MUST get different
-    /// `Replace` nodes (a single shared node, this module's pre-task-1.4 behavior, would be unsound:
+    /// `Replace` nodes (a single shared node would be unsound:
     /// see `ReplaceCascadeSpec`'s own doc). The companion test below,
     /// `identically_gated_groups_across_independent_plans_share_the_same_replace_node_id`, proves
     /// the other half of the invariant: groups that DO gate identically still dedup to the SAME
@@ -831,9 +828,9 @@ mod tests {
         keys.sort();
         assert_eq!(keys, vec![vec![false], vec![true]]);
 
-        // Task 1.4 (D1's soundness invariant): every group's Compose child must reference its OWN
+        // The soundness invariant: every group's Compose child must reference its OWN
         // Replace NodeId -- these two groups gate DIFFERENTLY ([true] vs. [false]), so sharing one
-        // Replace node between them would be the exact unsoundness task 1.4 closes.
+        // Replace node between them would be unsound.
         let PlanNodeKind::Gate { children, .. } = plan.get(gate_id).unwrap() else {
             unreachable!("gate_of only ever returns a Gate node")
         };
@@ -875,7 +872,7 @@ mod tests {
         );
     }
 
-    /// The other half of task 1.4's soundness invariant (companion to the test above, which proves
+    /// The other half of the soundness invariant (companion to the test above, which proves
     /// DIFFERENTLY-gated groups get DISTINCT `Replace` NodeIds): groups that gate IDENTICALLY still
     /// dedup to the SAME `Replace` `NodeId`, even across two INDEPENDENT `enumerate_default` calls
     /// (two separate `Plan` arenas) -- content addressing dedups by CONTENT (`rules` +
@@ -935,7 +932,7 @@ mod tests {
     /// enumerated Plan's Replace cascade must equal the `PRuleId` `prules_in_order` was itself built
     /// from (`g.strata`'s own `phonologicalRules` id-list order), not merely "some id or other" --
     /// this is what makes `FragmentSpec::RewriteRule`/`Provenance::RewriteRule` a faithful
-    /// capability-evidence-provenance tag (ADR 0001) rather than a coincidentally-plausible one.
+    /// capability-evidence-provenance tag rather than a coincidentally-plausible one.
     #[test]
     fn rewrite_rule_leaves_carry_the_correct_prule_id() {
         let g = load(&should_run_ordinary_phonology_fixture());
@@ -1004,7 +1001,7 @@ mod tests {
         );
     }
 
-    /// Determinism (D1): building the same fixture's Plan twice yields the same root NodeId and the
+    /// Determinism: building the same fixture's Plan twice yields the same root NodeId and the
     /// same node count -- content addresses must be reproducible across independent calls, not just
     /// stable within one.
     #[test]
@@ -1022,7 +1019,7 @@ mod tests {
     }
 
     // ---------------------------------------------------------------------------------------------
-    // Task 2.1/2.2: enumerate_candidates
+    // enumerate_candidates
     // ---------------------------------------------------------------------------------------------
 
     /// A grammar with ≥2 gate groups must yield 2 candidates: `"default"` and
@@ -1070,7 +1067,7 @@ mod tests {
         assert_eq!(candidates[0].label, "default");
     }
 
-    /// Determinism across independent calls (D1, mirrored for the candidate list): building the
+    /// Determinism across independent calls (mirrored for the candidate list): building the
     /// same fixture's candidates twice yields the same root NodeIds in the same order.
     #[test]
     fn enumerate_candidates_is_deterministic_across_independent_calls() {
