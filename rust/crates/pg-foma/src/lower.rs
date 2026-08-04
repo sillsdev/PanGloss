@@ -224,8 +224,7 @@ pub(crate) enum Slot {
         children: Vec<Slot>,
     },
     /// `PatternNode::Anchor` (`initialBoundaryCondition`/`finalBoundaryCondition` on a
-    /// `<PhoneticTemplate>`, or a bare leading/trailing `#` in an environment string --
-    /// `openspec/changes/plan-construct-coverage-completion` task 4.2): accepted only under
+    /// `<PhoneticTemplate>`, or a bare leading/trailing `#` in an environment string): accepted only under
     /// [`PatternLowerScope::RewriteRuleCompile`] ([`PatternLowerScope`]'s own doc). Renders
     /// ([`render_slots`]) as foma's own `.#.` xre atom -- "signifies both end and beginning of
     /// word/string" (`foma-0.4.2/src/iface/print.rs`'s own built-in help text for the operator,
@@ -274,29 +273,27 @@ fn slots_contain_alpha(slots: &[Slot]) -> bool {
     })
 }
 
-/// Preflight ceiling on a [`PatternNode::Quantifier`]'s own FINITE `max` bound (`openspec/changes/
-/// compile-bounded-fst-quantifiers`, design.md: "Preflight the product of alternatives/repetitions
-/// and report a typed budget or unsupported result"). Checked in `slots_from_nodes` BEFORE any xre
+/// Preflight ceiling on a [`PatternNode::Quantifier`]'s own FINITE `max` bound: preflights the
+/// product of alternatives/repetitions and reports a typed budget or unsupported result. Checked in `slots_from_nodes` BEFORE any xre
 /// text is rendered or any `Fsm` is built at all — the cheapest possible predictor, the same "check
 /// the search result before the expensive part" principle `resolve_alpha_tuples`' own V3 alpha-tuple
 /// cap uses. `pattern_slots`/`slots_from_nodes` are pure structural walks with no
 /// [`crate::compose_budget::ComposeBudget`] threaded through them (a fixed, always-on structural
 /// ceiling rather than a new env-configurable budget dimension) — a finite `max` above this ceiling
-/// is honestly reported unsupported (`None`), never silently clamped down to it (that would be
-/// exactly the finite-cutoff-masquerading-as-something-else move ADR 0001 forbids, just at a
-/// different bound). Generous relative to any authored HC grammar this crate has ever seen
+/// is honestly reported unsupported (`None`), never silently clamped down to it (that would round
+/// an honest refusal toward false acceptance, just at a
+/// different bound — the direction this crate's under-approximation rule forbids). Generous relative to any authored HC grammar this crate has ever seen
 /// (`OptionalSegmentSequence` bounds in the reference/synthetic grammars are single digits) while
 /// keeping even an UNCHECKED first branch net trivially bounded before any `ComposeBudget` size
 /// check ever runs.
 ///
-/// **Never applied to a genuinely UNBOUNDED quantifier** (`openspec/changes/
-/// build-unbounded-quantifier-support`): `max: None` is not "a bound above this ceiling" — it is a
+/// **Never applied to a genuinely UNBOUNDED quantifier**: `max: None` is not "a bound above this ceiling" — it is a
 /// DIFFERENT construction entirely (foma's native `E*`/`E^>N` Kleene star/plus, [`Slot::Repeat`]'s
 /// own doc), whose compiled net size does not scale with any repetition count at all, so there is
 /// nothing here for this ceiling to usefully bound. `slots_from_nodes`'s own Quantifier arm never
 /// evaluates this constant when `max` is `None` — silently coercing an unbounded quantifier into a
-/// finite one just to run this check would itself be the ADR 0001 violation this ceiling exists to
-/// prevent for the FINITE case, so that path is never taken.
+/// finite one just to run this check would round toward false acceptance for the FINITE case just
+/// the same, so that path is never taken.
 const MAX_QUANTIFIER_BOUND: u32 = 512;
 
 /// Walk `pattern`'s nodes into [`Slot`]s, numbering each `Alpha` occurrence sequentially from
@@ -304,16 +301,15 @@ const MAX_QUANTIFIER_BOUND: u32 = 512;
 /// `replace.rs`'s `compile_rewrite_rule`, or this module's own [`lower_span`], which resets its own
 /// FRESH counter per span). Returns `None` (uncovered) on a disagree-polarity `Context`; an
 /// out-of-scope `Quantifier` (inverted/over-budget-finite/alpha-nested/empty-children — see
-/// [`Slot::Repeat`]'s own doc; a genuinely UNBOUNDED quantifier is no longer, by itself, out of
-/// scope, `openspec/changes/build-unbounded-quantifier-support`); or, when `scope` is
+/// [`Slot::Repeat`]'s own doc; a genuinely UNBOUNDED quantifier is not, by itself, out of
+/// scope); or, when `scope` is
 /// [`PatternLowerScope::Baseline`], any `Segments`/`Anchor` node at all (when `scope` is
 /// [`PatternLowerScope::RewriteRuleCompile`], both same-table and table-qualified cross-table
-/// `Segments` plus any `Anchor` lower successfully --
-/// `openspec/changes/plan-construct-coverage-completion` task 4.2, [`PatternLowerScope`]'s own doc).
+/// `Segments` plus any `Anchor` lower successfully -- see [`PatternLowerScope`]'s own doc).
 ///
 /// `table`: every `Context` node's `NatClassId` is resolved against THIS table
 /// ([`class_members`]), never an implicit grammar-wide default
-/// (`openspec/changes/fix-multitable-fst-compilation`, design.md: "table zero is never an
+/// ("table zero is never an
 /// implicit default"). The caller is responsible for choosing the RIGHT table — see
 /// [`crate::replace::owning_table`]'s own doc for how `replace.rs`'s `compile_rewrite_rule_subset`
 /// picks it (the rule's own stratum's `StratumDef::table`), and [`lower_span`]'s own call sites for
@@ -323,7 +319,7 @@ const MAX_QUANTIFIER_BOUND: u32 = 512;
 /// vec this pattern's own grammar owns) -- cheap, exact, and needs no new `TableId`-threading
 /// through this function's signature.
 ///
-/// `pub(crate)`: canonical definition (moved here, migration follow-on) -- `replace.rs`
+/// `pub(crate)`: canonical definition -- `replace.rs`
 /// re-exports it at its OLD path so `capability.rs`'s structural probes and every existing
 /// `crate::replace::pattern_slots`/`pg_foma::replace::pattern_slots` caller keep compiling
 /// unmodified.
@@ -338,8 +334,7 @@ pub(crate) fn pattern_slots(
 }
 
 /// [`pattern_slots`]'s own per-node walk, factored out over a bare node slice (rather than a whole
-/// `&Pattern`) so [`PatternNode::Quantifier`]'s own `children` (`openspec/changes/
-/// compile-bounded-fst-quantifiers`) can recurse through the IDENTICAL per-node semantics
+/// `&Pattern`) so [`PatternNode::Quantifier`]'s own `children` can recurse through the IDENTICAL per-node semantics
 /// `pattern_slots` already gives a whole pattern — one pattern-node-to-slot mapping, not two
 /// independently-maintained ones (mirrors this module's own "one shared occurrence counter"
 /// discipline for LHS/RHS/environment: `next_occurrence` threads through this recursion exactly
@@ -507,7 +502,7 @@ pub struct TupleReport {
 /// this function's own `table` parameter must be the identical table [`pattern_slots`] used to
 /// build `slot_lists` in the first place — never a second, independently-chosen one.
 ///
-/// `pub(crate)`: canonical definition (moved here, migration follow-on) -- `replace.rs`
+/// `pub(crate)`: canonical definition -- `replace.rs`
 /// re-exports it at its OLD path (`pub(crate) use crate::lower::resolve_alpha_tuples;`) so its own
 /// `compile_rewrite_rule_subset` and every other existing caller keep compiling unmodified.
 pub(crate) fn resolve_alpha_tuples(
@@ -635,7 +630,7 @@ pub(crate) fn resolve_alpha_tuples(
 /// symbols, which is exactly what a char-def-identity token alphabet is built from. Mainline P6
 /// must carry this forward as a hard rule for ANY xre string this compiler emits.
 ///
-/// `pub(crate)`: canonical definition (moved here, migration follow-on) -- `replace.rs`
+/// `pub(crate)`: canonical definition -- `replace.rs`
 /// re-exports it at its old path so `replace.rs`'s own `render_branch_regex` and every other
 /// existing caller keep compiling unmodified.
 /// Render an already-deduplicated token set as one atom: a bare char for a singleton (the ordinary
