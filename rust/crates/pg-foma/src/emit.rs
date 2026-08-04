@@ -2444,8 +2444,7 @@ fn plan_has_leaf(plan: &Plan, fragment: &FragmentSpec) -> bool {
         .any(|(_, kind)| matches!(kind, PlanNodeKind::Leaf { fragment: f, .. } if f == fragment))
 }
 
-/// Task 1.3 (`openspec/changes/reify-compilation-plans`, design.md D2): builds `g`'s reified
-/// [`Plan`] (Step 2, [`crate::enumerate::enumerate_default`]) and returns
+/// Builds `g`'s reified [`Plan`] ([`crate::enumerate::enumerate_default`]) and returns
 /// [`emit_with_budget_profiled`]'s two topology decisions **derived from it** --
 /// `(plan wants the composite-emission subtree, plan wants the structural-composite subtree)` --
 /// rather than that function calling `crate::preexpand::should_run`/
@@ -2559,7 +2558,7 @@ fn boundary_reps(table: &CharDefTable) -> Vec<String> {
 }
 
 /// `surface` plus every SINGLE-boundary-insertion variant (each rep in `bnd_reps` at each interior
-/// character gap). Gate F3 3b (`metathesis-phase-isolation`'s "mu+i"): a `MetathesisRule` can leave a
+/// character gap; `metathesis-phase-isolation`'s "mu+i"): a `MetathesisRule` can leave a
 /// boundary character INSIDE the surface word (`mi` + suffix `+u` --metathesis--> `mu+i`), but the
 /// only mechanism that renders a metathesized surface at all — [`Morpher::generate_words`] — strips
 /// every boundary (`include_boundaries = false`, `pg_parse::surface::to_plain_string`'s only
