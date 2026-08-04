@@ -1,16 +1,15 @@
-//! A production-shaped convenience entry point into [`crate::capability::compose_envelope`] (D4,
-//! `add-capability-characteristics-check`), for callers (`pg-cli`, this step) that just want "the
+//! A production-shaped convenience entry point into [`crate::capability::compose_envelope`], for
+//! callers (`pg-cli`) that just want "the
 //! `CompileDecision` for this `Grammar`" without hand-assembling `characterize`'s `enumerate_default`
 //! inputs themselves.
 //!
-//! **Purely additive, check-only, non-blocking** — same discipline as `crate::capability`'s own
+//! **Check-only, non-blocking** — same discipline as `crate::capability`'s own
 //! top-doc: [`evaluate_capability`] only ever COMPUTES a [`crate::capability::CompileDecision`], it
 //! does not consult one, and nothing in this module (or its caller, `pg-cli`) alters what
 //! `emit.rs`/`gate.rs`/`replace.rs`/`preexpand.rs` actually compile. See ADR 0001 (`docs/adr/
 //! 0001-honest-capability-boundary.md`) for why a `Refuse` is reported rather than silently
-//! papered over, and `design.md` D4 for the bottom-up envelope this wraps. Wiring a `CompileDecision`
-//! to actually block/stamp a real compile path is `add-capability-characteristics-check`'s task 3.3
-//! — still pending, still deliberately NOT this step.
+//! papered over. Whether a `CompileDecision` actually blocks/stamps a real compile path is a fact
+//! about the call graph, not this module — grep for callers of [`evaluate_capability`] to check.
 //!
 //! # Mirroring the real compile setup
 //! [`crate::emit::emit_with_budget`]'s own SETUP (its first few lines, before any lexc text is

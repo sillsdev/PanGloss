@@ -29,8 +29,9 @@
 //! a distinct wire format/magic from `hc_parse_word`/`hc_parse_batch`'s, carrying the `guessed`
 //! bit `ParseOutcome`/`WordAnalysis` already track — so a guessed analysis is never wire-
 //! indistinguishable from a confirmed one. `hc_parse_word`/`hc_parse_batch` themselves, and their
-//! existing wire format, are completely untouched by this addition (purely additive, per ABI
-//! discipline — see `crate::HC_ABI_VERSION`'s doc).
+//! existing wire format, are completely untouched by this addition (per ABI
+//! discipline — see `crate::HC_ABI_VERSION`'s doc, every new entry point gets its own new symbol
+//! rather than changing an existing one's contract).
 
 use crate::error::{
     write_buf, write_empty_buf, HcResultBuf, HC_ERR_INVALID_ARG, HC_ERR_NULL_ARG, HC_ERR_PANIC,

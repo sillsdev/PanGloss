@@ -1,14 +1,13 @@
-//! E2 feasibility probe (standalone, NOT wired into `emit`/`analyzer` — same status as
-//! [`crate::replace`]/[`crate::uflexc`]): does splicing Amharic's `Role::Infix` rules
+//! A standalone feasibility probe, exercised only by this module's own tests/examples: does
+//! splicing Amharic's `Role::Infix` rules
 //! (root-and-pattern interdigitation: `-ipfv-`/`-conv-`/`-pfv-`) into UNDERLYING token-space
 //! composite entries — via the plain, non-recursive `pg_rules::morph::synthesize`, not
 //! `crate::preexpand`'s real-phonology probe — then composing with the already-proven replace-rule
 //! cascade ([`crate::replace`]), reach 100% propose recall on Amharic's corpus?
 //!
-//! ## Why this question needed asking (not assumed from the P6 prototype report)
-//! The P6 prototype (`docs/fst-plan/p6-prototype-report.md`) never exercises Amharic's actual
-//! morphotactics end-to-end (its Amharic stretch goal is rule-COMPILATION only, explicitly "NOT
-//! attempted: ... any recall gate"). A census run against the real engine oracle
+//! ## Why this question needed asking
+//! No earlier prototype exercises Amharic's actual
+//! morphotactics end-to-end for recall. A census run against the real engine oracle
 //! (`examples/e2_amharic_census.rs`, `examples/e2_template_census.rs`) found: Amharic's 3 Infix
 //! rules sit in ZERO template slots (pure standalone rules — `emit.rs`'s own `build_deriv_chain`
 //! cannot place them in a Prefix or Suffix zone either) and, on a 300-word corpus sample, 43/79
@@ -672,9 +671,8 @@ fn build_splice_composites(
 /// `emit.rs`'s own per-group root-eligibility filter collapse to "admit every root to every
 /// group" for THIS grammar — replicated directly here rather than re-deriving the general filter,
 /// since a probe should match what mainline actually does for this grammar, not build unexercised
-/// generality). Compounding's own extra-root loop (`TLCmp`/`G{gi}Cmp`) is NOT wired — omitted
-/// unless the recall gate demands it (test-driven, matches the project's own P1c->P1d investigation
-/// discipline: build minimal, look at misses, add exactly what's needed).
+/// generality). Compounding's own extra-root loop (`TLCmp`/`G{gi}Cmp`) is omitted here
+/// deliberately: build minimal, look at misses, add exactly what's needed.
 pub fn emit_underlying_amharic_probe(g: &Grammar, alphabet: &SegAlphabet<'_>) -> UProbeResult {
     let width = tags::tag_width(g.morphemes.len());
     let mut uncovered: Vec<String> = Vec::new();

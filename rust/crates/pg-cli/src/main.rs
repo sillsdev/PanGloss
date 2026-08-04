@@ -710,7 +710,7 @@ fn run_capability_gate(g: &Grammar, enforce: bool, allow_unproven: bool) -> Resu
 /// `--gloss` (`docs/natural-phrases-plan.md` N0): after the existing, UNCHANGED
 /// `word\tsignature` line, print one additional `gloss:\t{leipzig}` line per surviving analysis
 /// (same index order as `ParseOutcome.analyses`/`.structured`), via the new additive `pg-realize`
-/// crate. Purely additive — orthogonal to `--trace`, works with or without it, and never touches
+/// crate. Orthogonal to `--trace` — works with or without it, and never touches
 /// the parity line above it.
 ///
 /// `--natural-gloss=eng` (`docs/natural-phrases-plan.md` N2): after the parity line (and after

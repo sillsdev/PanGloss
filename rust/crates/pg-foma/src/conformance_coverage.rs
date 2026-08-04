@@ -1,8 +1,8 @@
-//! Task 5.1 of `openspec/changes/add-capability-characteristics-check` (ADR 0001,
-//! `docs/adr/0001-honest-capability-boundary.md`): the conformance-coverage cross-check, shipped
+//! The conformance-coverage cross-check (ADR 0001,
+//! `docs/adr/0001-honest-capability-boundary.md`), shipped
 //! here as a **NON-BLOCKING, advisory preview** — the same non-blocking-first pattern
-//! [`crate::capability`]'s own Step 1 (`characterize`, purely additive) → Step 2
-//! (`compose_envelope`, CHECK-ONLY) → a later, deliberate compile-blocking step already used.
+//! [`crate::capability`]'s own `characterize` (computes only) → `compose_envelope` (CHECK-ONLY) →
+//! a later, deliberate compile-blocking step already used.
 //!
 //! ADR 0001, verbatim: *"'Supported' is mechanically gated on passing conformance coverage... CI
 //! cross-checks the capability registry (the source-controlled, per-construct

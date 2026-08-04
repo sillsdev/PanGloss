@@ -181,7 +181,8 @@ fn resolve_pins(owners: &[Option<MorphemeOwner>], candidate: &Candidate) -> Opti
 /// `None` when the candidate's pins don't resolve (mirrors `confirm_all`'s empty-result case for
 /// the same inputs — `resolve_pins`'s doc explains the two rejection cases).
 ///
-/// Deliberately NOT wired into any production call path — census-only instrumentation, additive.
+/// Census-only instrumentation: traces one candidate's confirm outcome without touching the timed
+/// batch/all paths above.
 pub fn confirm_one_traced(
     g: &Grammar,
     owners: &[Option<MorphemeOwner>],
