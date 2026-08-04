@@ -4986,8 +4986,8 @@ mod structural_and_pattern_tests {
         )
     }
 
-    /// Gate F3 3b regression: `edge-cases/loader-pattern-shapes`'s mandatory `[Vowel]` class
-    /// reference (`b[Vowel]t`, NOT `is_pattern` — P11 §4.2's "bare mandatory class node" carve-out)
+    /// Regression: `edge-cases/loader-pattern-shapes`'s mandatory `[Vowel]` class
+    /// reference (`b[Vowel]t`, NOT `is_pattern` — the C#-faithful "bare mandatory class node" carve-out)
     /// must enumerate every class member as its own spelling.
     #[test]
     fn pattern_variants_enumerates_mandatory_class_members() {
@@ -5001,7 +5001,7 @@ mod structural_and_pattern_tests {
         assert_eq!(sorted, vec!["bat".to_string(), "bet".to_string()]);
     }
 
-    /// Gate F3 3b regression: `b([Vowel])t`'s optional class node must ALSO admit the vowel-absent
+    /// Regression: `b([Vowel])t`'s optional class node must ALSO admit the vowel-absent
     /// branch ("bt"), on top of "bat"/"bet".
     #[test]
     fn pattern_variants_optional_class_admits_the_absent_branch() {
@@ -5018,7 +5018,7 @@ mod structural_and_pattern_tests {
         );
     }
 
-    /// Gate F3 3b regression: `edge-cases/truncate-morphotactic`'s subtractive rules
+    /// Regression: `edge-cases/truncate-morphotactic`'s subtractive rules
     /// (`mruleTruncTrail`/`mruleTruncLead`, `Role::None` with a dropped LHS part) and the
     /// optional-truncation-plus-insert rule (`mruleTruncOptIns`, `Role::Prefix` with a dropped
     /// optional LHS part) must all classify as [`is_structural_rule`] — this is what routes them
@@ -5038,7 +5038,7 @@ mod structural_and_pattern_tests {
         );
     }
 
-    /// Gate F3 3b regression: the emitter must actually PROPOSE every one of the fixture's rule
+    /// Regression: the emitter must actually PROPOSE every one of the fixture's rule
     /// analyses via [`crate::analyzer::FomaProposer`] — end-to-end coverage, not just the
     /// classification unit tests above.
     #[test]
@@ -5073,7 +5073,7 @@ mod structural_and_pattern_tests {
         assert!(!probe_would_refuse(&g));
     }
 
-    /// Gate F3 3b regression: `languages/suffixing-extension-slot-ordering`'s "mba" — a BARE root ("mpa") whose surface
+    /// Regression: `languages/suffixing-extension-slot-ordering`'s "mba" — a BARE root ("mpa") whose surface
     /// only exists via an obligatory post-nasal-voicing phonological rule, no morphological rule
     /// involved at all — must become proposable via the bare-root phonology enrichment in
     /// [`collect_roots`].
@@ -5087,7 +5087,7 @@ mod structural_and_pattern_tests {
         );
     }
 
-    /// Gate F3 3b regression (found via this test's own diagnosis): [`probe_surface`] is POS-BLIND
+    /// Regression: [`probe_surface`] is POS-BLIND
     /// (`pg_rules::rewrite::probe_apply_rule_cached` applies every phonological subrule in the
     /// stratum unconditionally, `FeatureStruct::EMPTY` vacuously satisfying every
     /// `requiredPartsOfSpeech` gate) — wrong for a bare root in a grammar that scopes DIFFERENT
@@ -5119,7 +5119,7 @@ mod structural_and_pattern_tests {
         );
     }
 
-    /// Gate F3 3b regression: `languages/suffixing-vowel-harmony`'s full construct mix — ordinary
+    /// Regression: `languages/suffixing-vowel-harmony`'s full construct mix — ordinary
     /// suffix rules needing the harmony/gradation/epenthesis cascade
     /// (`generate_words`-fallback composites), an infix rule in the SAME probe-refusing stratum,
     /// and bare-root vowel coalescence — must all be proposable together.
@@ -5162,7 +5162,7 @@ mod structural_and_pattern_tests {
         }
     }
 
-    /// Gate F3 3b regression: a prefix on the compound HEAD span — the compound extra-root slot
+    /// Regression: a prefix on the compound HEAD span — the compound extra-root slot
     /// wired through a prefix-derivation chain (`fusional-realizational-morphology`'s "lexbedom" = `LEX+BEPFX2+DOMV`;
     /// `polysynthetic-stratal-derivation-chain`'s "silamanuk" = `SILA+MAPFX2+NUKV`). The v1 bare extra-root slot could
     /// not place a prefix between the two roots, so both under-generated (foma returned zero).
@@ -5175,7 +5175,7 @@ mod structural_and_pattern_tests {
         );
     }
 
-    /// Gate F3 3b regression: `redupMorphType="prefix"` reduplication — the peel must PREPEND the
+    /// Regression: `redupMorphType="prefix"` reduplication — the peel must PREPEND the
     /// redup morpheme (`[RED, root]`, root_index shifted) so `crate::confirm`'s positional match
     /// succeeds (`metathesis-phase-isolation`'s "tutula" = `RDP+TULA`, "tulatula" = `RDPL+TULA`). The v1
     /// append-only peel produced `[root, RED]` which confirm rejected.
@@ -5187,7 +5187,7 @@ mod structural_and_pattern_tests {
         );
     }
 
-    /// Gate F3 3b regression: metathesis that leaves a BoundaryDefinition char inside the surface
+    /// Regression: metathesis that leaves a BoundaryDefinition char inside the surface
     /// word (`metathesis-phase-isolation`'s "mu+i" = `mi` + suffix `+u` --metathesis--> `mu+i`,
     /// `MI+3SGU`). `generate_words` strips the boundary ("mui"); [`with_boundary_insertions`]
     /// re-introduces it at every interior gap so the boundary-bearing query is reachable.
@@ -5212,8 +5212,8 @@ mod structural_and_pattern_tests {
         assert_eq!(got.len(), 3, "original + 2 interior gaps");
     }
 
-    /// Gate F3 regression (Sena `musandilesera`, formerly the last f3_parity ledger entry, foma 2 vs
-    /// engine 10): the `eligible_roots` broadening for compound grammars must make every
+    /// Regression (Sena `musandilesera`, foma proposed 2 vs the engine's 10 before this fix): the
+    /// `eligible_roots` broadening for compound grammars must make every
     /// compound-HEAD-re-categorized `é`-first analysis proposable-and-confirmable. Full parity (10)
     /// end-to-end via `FomaAnalyzer`. Skips if `samples/data/sena-hc.xml` is absent.
     #[test]
