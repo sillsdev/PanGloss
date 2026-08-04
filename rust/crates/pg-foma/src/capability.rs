@@ -3708,7 +3708,7 @@ pub enum CompileDecision {
 /// ```
 /// Two `Refuse`s meet to a `Refuse` carrying the UNION of both sides' diagnostics, content-
 /// deduplicated: the same [`CapabilityDiagnostic`] can be reached via two different DAG paths to a
-/// shared node (D1's content-addressed sharing means a single offending leaf can be a descendant of
+/// shared node (content-addressed sharing means a single offending leaf can be a descendant of
 /// several parents), and it must not appear twice in the final report merely because it was visited
 /// twice.
 pub fn meet(a: CompileDecision, b: CompileDecision) -> CompileDecision {
@@ -3731,9 +3731,9 @@ pub fn meet(a: CompileDecision, b: CompileDecision) -> CompileDecision {
     }
 }
 
-/// Widens one predicate's [`PredicateVerdict`] (D2: one diagnostic max) into a [`CompileDecision`]
-/// (this section: a `Vec` of diagnostics) so it can be [`meet`]-folded together with other nodes'/
-/// observations' decisions.
+/// Widens one predicate's [`PredicateVerdict`] (a single-diagnostic verdict) into a
+/// [`CompileDecision`] (a `Vec` of diagnostics) so it can be [`meet`]-folded together with other
+/// nodes'/observations' decisions.
 fn verdict_to_decision(verdict: PredicateVerdict) -> CompileDecision {
     match verdict {
         PredicateVerdict::Admit => CompileDecision::Admit,
@@ -3744,8 +3744,8 @@ fn verdict_to_decision(verdict: PredicateVerdict) -> CompileDecision {
 
 /// The overall decision floor for an observed, non-`Proven` [`CharacteristicKind`] that NO
 /// registered predicate discharges at all — there is no `evaluate` call to make for it, only
-/// `kind`'s own default [`Disposition`] to fold in directly (design.md's D1 table, restated as a
-/// [`CompileDecision`]).
+/// `kind`'s own default [`Disposition`] to fold in directly, restated as a
+/// [`CompileDecision`].
 ///
 /// - [`Disposition::ConfirmOnly`]/[`Disposition::ConfigPredicate`] rest at
 ///   [`CompileDecision::ConfirmOnly`] absent a predicate proving `Admit` — exactly
@@ -3754,21 +3754,20 @@ fn verdict_to_decision(verdict: PredicateVerdict) -> CompileDecision {
 ///   proposer proposes the superset — never promotable to `Admit` without a proof this function has
 ///   no predicate to supply). This is the landing spot for e.g. an observed
 ///   [`CharacteristicKind::CoOccurrenceConstraint`]: [`default_registry`] intentionally registers no
-///   predicate for it at all (`ConfirmOnly` already IS its resting disposition, per D1's table —
+///   predicate for it at all (`ConfirmOnly` already IS its resting disposition —
 ///   there is nothing to prove up to `Admit` and no coverage gap either, since
 ///   [`undischarged_kinds`] only requires coverage for `FailClosed`/`ConfigPredicate` kinds).
 ///   [`CharacteristicKind::MprGroupAppend`] rests at the SAME `ConfirmOnly` disposition, but (unlike
 ///   `CoOccurrenceConstraint`) DOES have a registered predicate,
-///   [`MprGroupAppendNonNarrowingPredicate`] — registered anyway, per `cover-mpr-groups` design.md
-///   D2's own verification obligation ("positively verify the baseline never uses tracked
-///   accumulated MPR state to reject a candidate"), even though [`undischarged_kinds`] would not
-///   have required it.
+///   [`MprGroupAppendNonNarrowingPredicate`] — registered anyway, to positively verify the baseline
+///   never uses tracked accumulated MPR state to reject a candidate, even though
+///   [`undischarged_kinds`] would not have required it.
 /// - [`Disposition::FailClosed`] with NO discharging predicate registered at all is a REGISTRY
 ///   COVERAGE GAP ([`undischarged_kinds`] exists precisely to catch this at the registry level, and
 ///   [`default_registry`]'s own test proves it never happens for that registry). Handled here
 ///   defensively for any OTHER caller-supplied [`PredicateRegistry`] that omits it, by folding in a
 ///   synthetic `Refuse` naming the gap rather than silently `Admit`ting an unproven-by-construction
-///   characteristic — the exact failure mode ADR 0001 forbids.
+///   characteristic.
 /// - [`Disposition::Proven`] never actually reaches this function in practice (callers only invoke
 ///   it for observations already filtered to `disposition != Proven`); matched here anyway for the
 ///   same no-catch-all discipline the rest of this module holds itself to.
@@ -3790,9 +3789,9 @@ fn disposition_floor(kind: CharacteristicKind, disposition: Disposition) -> Comp
     }
 }
 
-/// Computes `node_id`'s bottom-up [`CompileDecision`] within `plan` (design.md D4: "a node's
-/// verdict is the meet of its children's verdicts and its own node-level predicate"), memoized by
-/// [`NodeId`] in `cache` so a node shared by multiple parents (D1's content-addressed DAG sharing)
+/// Computes `node_id`'s bottom-up [`CompileDecision`] within `plan`: a node's
+/// verdict is the meet of its children's verdicts and its own node-level predicate, memoized by
+/// [`NodeId`] in `cache` so a node shared by multiple parents (content-addressed DAG sharing)
 /// is evaluated exactly once, not once per parent referencing it.
 ///
 /// A node's "own predicate verdicts" are every predicate in `registry` whose
@@ -3808,8 +3807,8 @@ fn disposition_floor(kind: CharacteristicKind, disposition: Disposition) -> Comp
 ///
 /// A predicate whose construct DOES occur (e.g. [`SimultaneousSubruleOverlapPredicate`]) is still
 /// called at literally EVERY node the walk visits, not just the "right" one — correctness relies on
-/// well-behaved predicates already being self-gating on node applicability (D2's own contract:
-/// `evaluate` "may return `Refuse` too eagerly, never `Admit` too eagerly", and
+/// well-behaved predicates already being self-gating on node applicability (the contract every
+/// predicate holds itself to: `evaluate` "may return `Refuse` too eagerly, never `Admit` too eagerly", and
 /// [`SimultaneousSubruleOverlapPredicate::evaluate`]'s own early `Admit` returns for a non-
 /// `RewriteRule` leaf, or a `RewriteRule` leaf whose `PRuleId` isn't the observed `Simultaneous`
 /// rule), not on this function pre-filtering by node shape. This is also exactly how a
@@ -3862,13 +3861,13 @@ fn node_decision(
     decision
 }
 
-/// Step 2 of `add-capability-characteristics-check` (design.md D4): composes the capability
+/// Composes the capability
 /// envelope bottom-up over `plan` (the reified compilation plan `crate::enumerate::
-/// enumerate_default` builds) and returns the overall CHECK-ONLY [`CompileDecision`] — connecting
-/// Step 1's two spines, [`characterize`] (the profile) and `enumerate_default` (the plan), through
+/// enumerate_default` builds) and returns the overall [`CompileDecision`] — connecting
+/// [`characterize`] (the profile) and `enumerate_default` (the plan) through
 /// `registry`.
 ///
-/// # Algorithm (design.md D4, spec.md)
+/// # Algorithm
 /// 1. [`characterize`] projects `g` into a [`CharacteristicsProfile`].
 /// 2. Every observed [`CharacteristicKind`] whose disposition is NOT [`Disposition::Proven`] is
 ///    collected into a `relevant_kinds` set ([`node_decision`]'s own doc explains why).
@@ -3918,8 +3917,8 @@ fn node_decision(
 /// SAME "no distinct plan node" shape (peeling and structural-composite resynthesis both happen
 /// entirely OUTSIDE the compiled FST, so there is genuinely no plan node to address either by), but
 /// are no longer bare placeholders: [`CircumfixStructuralCompositePredicate`]
-/// (`cover-circumfix-null-output-actions`) and [`ReduplicationPeelSupportedPredicate`]
-/// (`cover-template-truncation-reduplication`) ALSO ignore `plan_node` (same reasoning), but each
+/// and [`ReduplicationPeelSupportedPredicate`]
+/// ALSO ignore `plan_node` (same reasoning), but each
 /// own `evaluate` reads real per-allomorph structural facts rather than unconditionally refusing —
 /// see either predicate's own "Node applicability" doc. [`CharacteristicKind::SimultaneousRewrite`]
 /// is the one kind that DOES need (and gets, via the plan walk itself) a SPECIFIC node — see
@@ -3935,10 +3934,9 @@ pub fn compose_envelope(g: &Grammar, plan: &Plan, registry: &PredicateRegistry) 
     compose_envelope_with_semantics(&GrammarSemantics::derive(g), plan, registry)
 }
 
-/// [`compose_envelope`] over an already-derived [`GrammarSemantics`] -- the form task 7.11
-/// (`openspec/changes/cleanup-and-recipe-parity`) makes the primary one, so a caller with several
-/// plans for one grammar characterizes ONCE. Behaviorally identical: `compose_envelope` is this
-/// function with a freshly derived owner.
+/// [`compose_envelope`] over an already-derived [`GrammarSemantics`] -- the primary form, so a
+/// caller with several plans for one grammar characterizes ONCE. Behaviorally identical:
+/// `compose_envelope` is this function with a freshly derived owner.
 pub fn compose_envelope_with_semantics(
     semantics: &GrammarSemantics<'_>,
     plan: &Plan,
