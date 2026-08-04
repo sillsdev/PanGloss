@@ -3532,16 +3532,15 @@ impl CapabilityPredicate for EpenthesisStructuralRoutePredicate {
 }
 
 // =================================================================================================
-// The predicate registry (design.md D2's "no silent vacuous pass" coverage check)
+// The predicate registry (the "no silent vacuous pass" coverage check)
 // =================================================================================================
 
 /// A placeholder [`CapabilityPredicate`] for a `FailClosed`/`ConfigPredicate` characteristic that
-/// has no real predicate implemented yet (every characteristic besides
-/// [`CharacteristicKind::SimultaneousRewrite`], as of this step). Unconditionally `Refuse`s —
+/// has no real predicate implemented yet. Unconditionally `Refuse`s —
 /// correct under this module's conservative discipline (over-refuse is always safe), and exists
 /// only so [`undischarged_kinds`] can report TRUE 100% coverage of the registry contract rather
-/// than a coverage check that itself has silent gaps. `owning_change` names the Stage-2 OpenSpec
-/// change expected to replace this placeholder with a real per-construct predicate.
+/// than a coverage check that itself has silent gaps. `owning_change` names the change expected to
+/// replace this placeholder with a real per-construct predicate.
 pub struct FailClosedPlaceholder {
     id: PredicateId,
     discharges: Vec<CharacteristicKind>,
@@ -3620,7 +3619,7 @@ impl PredicateRegistry {
     }
 }
 
-/// The registry this step ships: twelve REAL predicates
+/// The registry this crate ships: twelve REAL predicates
 /// ([`SimultaneousSubruleOverlapPredicate`], [`MultiTableFaithfulThreadingPredicate`],
 /// [`RightToLeftRewriteFaithfulReversalPredicate`], [`QuantifierBoundedExpansionPredicate`],
 /// [`MetathesisFaithfulSwapPredicate`], [`CircumfixStructuralCompositePredicate`],
@@ -3628,10 +3627,8 @@ impl PredicateRegistry {
 /// [`UnorderedOrderingUnionPredicate`], [`MprGroupAppendNonNarrowingPredicate`],
 /// [`MprGroupOverwriteFailClosedPredicate`], [`EpenthesisStructuralRoutePredicate`]) — proving the
 /// coverage contract holds with a real, evidenced proof for every `FailClosed`/`ConfigPredicate`
-/// characteristic this crate's `model.rs` names. `openspec/changes/cover-mpr-groups` was the last
-/// of the three net-new Stage-2 constructs (`STAGING.md`'s own ordering); replacing
-/// `epenthesis.placeholder` with [`EpenthesisStructuralRoutePredicate`] means this registry now has
-/// NO remaining bare [`FailClosedPlaceholder`] at all — every characteristic is discharged by a
+/// characteristic this crate's `model.rs` names. This registry has NO remaining bare
+/// [`FailClosedPlaceholder`]: every characteristic is discharged by a
 /// predicate that actually reads `profile`, not a stub that unconditionally refuses regardless of
 /// what the grammar contains. [`FailClosedPlaceholder`] itself stays defined (not dead code): it
 /// remains the correct, conservative landing spot for any FUTURE `FailClosed`/`ConfigPredicate`
@@ -3653,7 +3650,7 @@ pub fn default_registry() -> PredicateRegistry {
     r
 }
 
-/// design.md D2 / spec.md's "no silent vacuous pass" requirement: every [`CharacteristicKind`]
+/// The "no silent vacuous pass" requirement: every [`CharacteristicKind`]
 /// whose [`CharacteristicKind::default_disposition`] is [`Disposition::FailClosed`] or
 /// [`Disposition::ConfigPredicate`] must be named by at least one registered predicate's
 /// [`CapabilityPredicate::discharges`]. Returns the undischarged kinds (empty iff `registry` is
@@ -3673,29 +3670,24 @@ pub fn undischarged_kinds(registry: &PredicateRegistry) -> Vec<CharacteristicKin
 }
 
 // =================================================================================================
-// D4: bottom-up envelope composition + the CHECK-ONLY compile decision (Step 2)
+// Bottom-up envelope composition + the compile decision
 // =================================================================================================
 
-/// The overall, whole-plan CHECK-ONLY compile decision [`compose_envelope`] returns (design.md D4;
-/// spec.md: "A node verdict SHALL be the meet of its children's verdicts and its own predicate,
-/// with Refuse dominating and any ConfirmOnly demoting the subtree"). Distinct from
-/// [`PredicateVerdict`] (D2's PER-PREDICATE, single-node verdict, carrying at most one
+/// The overall, whole-plan compile decision [`compose_envelope`] returns: a node verdict is the
+/// meet of its children's verdicts and its own predicate, with `Refuse` dominating and any
+/// `ConfirmOnly` demoting the subtree. Distinct from
+/// [`PredicateVerdict`] (a PER-PREDICATE, single-node verdict, carrying at most one
 /// [`CapabilityDiagnostic`]): composing a whole plan can collect refusals from many different
 /// nodes/observations, and a caller should see all of them, not just whichever one [`meet`] folded
 /// in first — this type widens the single diagnostic to a deduplicated `Vec` at exactly the point
 /// those per-node/per-observation verdicts get folded together.
-///
-/// **CHECK-ONLY** (this module's own top-doc "D4 (Step 2)" section): nothing in this crate
-/// consults a [`CompileDecision`] to block or alter any real compile path yet. That wiring — the
-/// production flip, ADR 0005's override, and the CI cross-check — is later `tasks.md` work.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CompileDecision {
     /// Every construct in the plan is `Proven`, or has a predicate-proven [`PredicateVerdict::Admit`].
     /// Admission-filtering is licensed.
     Admit,
     /// At least one construct rests at (or was proven no better than) `ConfirmOnly`, and NONE is
-    /// refused. Propose the superset, no admission-filtering — first-class, not a failure (ADR
-    /// 0001).
+    /// refused. Propose the superset, no admission-filtering — first-class, not a failure.
     ConfirmOnly,
     /// At least one construct is refused. Carries EVERY [`CapabilityDiagnostic`] collected while
     /// composing the plan (content-deduplicated — see [`meet`]'s own doc), not just the first, so a
