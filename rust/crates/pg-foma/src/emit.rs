@@ -1866,7 +1866,7 @@ fn emit_rule_allomorphs(
                 write_tag_entry(out, &tag_lexc, "", next, counts, pk, owner);
                 counts.allomorphs_emitted += 1;
             }
-            // P6 (`TextMode::UnderlyingTokens`): concatenate EVERY `InsertSegments` action's own
+            // `TextMode::UnderlyingTokens`: concatenate EVERY `InsertSegments` action's own
             // token string via `SegAlphabet::encode_shape`, in document order (`InsertText::Text`'s
             // own doc: never just the first) — no surface_variants cartesian product, no
             // `phon`/junction-probe consultation at all (module doc on `TextMode`; each action's
@@ -1954,8 +1954,7 @@ fn emit_rule_allomorphs(
 /// level plus one token+arc path per rule allomorph). Always defines `{prefix}0`, even when
 /// `rules` is empty (a plain passthrough), so callers can reference it unconditionally.
 ///
-/// Two distinct level-assignment strategies, gated on `mode` (P6 deep-truncation-chain
-/// chain-restriction finding, `docs/fst-plan/p6-deep-truncation-chain-report.md`):
+/// Two distinct level-assignment strategies, gated on `mode`:
 /// - [`TextMode::SurfaceProbed`] (legacy, unchanged): EVERY level offers EVERY rule in `rules`;
 ///   depth = `rules.len()` floored at [`DERIV_DEPTH_MIN`] (module doc: the engine-faithful bound
 ///   for `multipleApplication = 1` — each rule can apply at most once, so no derivation chain is
@@ -1966,16 +1965,15 @@ fn emit_rule_allomorphs(
 ///   cap is never exercised there; it exists only to bound a hypothetical uncapped/Realizational
 ///   rule, which this codebase's dedicated mode does not attempt to represent faithfully beyond
 ///   the cap). This eliminates the "same rule chosen at any of N levels, N times independently"
-///   nondeterminism the legacy strategy has — measured on Aweti (P6-Aweti investigation, Q2/Q3):
-///   a single epsilon-yielding rule could have its tag chosen up to 22x (prefix) / 48x (suffix)
+///   nondeterminism the legacy strategy has — measured on Aweti: a single epsilon-yielding rule
+///   could have its tag chosen up to 22x (prefix) / 48x (suffix)
 ///   along one path under the legacy strategy; dedicated levels bound that to (at most) the
 ///   number of independent chain INSTANCES a path crosses (2, for a template-taking word: this
 ///   chain instance once, the OTHER same-zone instance — e.g. `OuterPfx` vs `G{gi}PfxD` — once).
 ///   COST: this fixes the RELATIVE SURFACE ORDER of any two standalone rules chosen within the
 ///   SAME chain instance to `rules`' own document order (previously free at any two of the
 ///   `rules.len()` levels) — a real recall risk if some oracle analysis needs two standalone rules
-///   in the OTHER order; the corpus recall gate is the judge (`docs/fst-plan/
-///   p6-deep-truncation-chain-report.md` documents the measurement for Aweti specifically — no
+///   in the OTHER order; the corpus recall gate is the judge (measured on Aweti specifically: no
 ///   regression observed).
 ///
 /// `phon`/`exit_is_roots` (module doc, "Junction-aware affix/root emission"): `phon` is unioned
