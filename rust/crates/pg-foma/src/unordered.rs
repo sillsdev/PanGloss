@@ -1,11 +1,11 @@
-//! `openspec/changes/cover-unordered-morph-rules`: the compile-time cardinality gate for
+//! The compile-time cardinality gate for
 //! `MorphRuleOrder::Unordered` (`pg-grammar/src/model.rs:1057-1060`; `StratumDef.mrule_order`,
 //! `1067`) -- the second real production consumer of
 //! [`crate::compose_budget::ComposeBudget`]'s chain-depth-shaped budget discipline, after
 //! `crate::peel::ReduplicationPeeler`'s own per-word chain-depth check
 //! (`crate::compose_budget`'s "Chain-depth dimension" section doc).
 //!
-//! # What `Unordered` actually reaches, and what this module gates (design.md Context)
+//! # What `Unordered` actually reaches, and what this module gates
 //! `pg-rules/src/cascade.rs` ports three cascades off one shared recursion shape: `Cascade::linear`
 //! (phonological rules), `Cascade::permutation` (a `Linear` stratum: non-decreasing rule-index
 //! recursion), and `Cascade::combination` (an `Unordered` stratum: the module's own "k!-walk over
@@ -15,14 +15,14 @@
 //! identical rule set would reach under `Linear` (never the reverse), so a faithful *propose*-side
 //! union must be at least as permissive.
 //!
-//! # The ordering-union proposal (design.md D1/D2) IS an existing mechanism, not a new one
+//! # The ordering-union proposal IS an existing mechanism, not a new one
 //! `crate::emit::build_deriv_chain` (the standalone/loose, non-template derivation-layer lexc
 //! builder every stratum's `Role::Prefix`/`Role::Suffix`/`Role::None` loose mrules already compile
 //! through, REGARDLESS of `mrule_order`) offers **every** candidate rule at **every** one of its
 //! `depth = rules.len()` chain levels, unconditional on any `required_syn_fs`/prior-rule state --
-//! design.md D2's "search-discipline widening... recurses in any order over any subset of the
-//! stratum's rules, mirroring `combination_rec`'s own loop shape rather than `permutation_rec`'s"
-//! is, on inspection, EXACTLY this pre-existing construction: it was never restricted to a
+//! it recurses in any order over any subset of the stratum's rules, mirroring
+//! `combination_rec`'s own loop shape rather than `permutation_rec`'s. This is, on inspection,
+//! EXACTLY this pre-existing construction: it was never restricted to a
 //! non-decreasing rule-index walk the way `permutation_rec` is (no code in `crate::emit` branches
 //! on `MorphRuleOrder` at all -- confirmed by grep: zero references outside this module,
 //! `crate::capability`, `crate::morphotactics`'s doc-only mention, and `crate::peel`'s doc-only
@@ -31,19 +31,19 @@
 //! superset of ANY cascade semantics' reachable set, `Unordered`'s included -- this is proven by
 //! oracle containment in `tests/cover_unordered_morph_rules.rs`, not merely asserted here.
 //!
-//! **This is this change's own load-bearing finding (design.md D1 blocker 2's "a separate proof
-//! SHALL establish that the resulting composed proposal's language equals the union over every
-//! admissible ordering's surface output" -- spec.md's own requirement).** It is deliberately NOT
-//! the same claim as `morphotactics.rs`'s own "Linear-as-Unordered" pruning convention (spec.md's
-//! third requirement, "the existing morphotactic-legality over-approximation is not treated as a
-//! proposal-language proof"): that automaton characterizes chain-ATTACHMENT legality for the
+//! **The load-bearing finding this module depends on: a separate proof establishes that the
+//! resulting composed proposal's language equals the union over every admissible ordering's
+//! surface output.** It is deliberately NOT
+//! the same claim as `morphotactics.rs`'s own "Linear-as-Unordered" pruning convention (the
+//! existing morphotactic-legality over-approximation is not itself treated as a
+//! proposal-language proof): that automaton characterizes chain-ATTACHMENT legality for the
 //! PHONOLOGICAL fusion/interdigitation composite builders (`crate::preexpand::extend`/
 //! `crate::emit::struct_extend`), a DIFFERENT code path from `build_deriv_chain`'s ordinary
 //! derivation layers -- a grammar with zero phonological rules and zero `Role::Infix` rules never
 //! even builds that automaton's consuming callers at all (`crate::preexpand::should_run` is
 //! `false`), yet still gets full `Unordered` containment purely through `build_deriv_chain`. The
 //! synthetic fixture's `no_phonology_no_infix_rules_isolates_build_deriv_chain` test is the witness
-//! that isolates this (design.md's own "distinguishing witness", tasks.md 3.3).
+//! that isolates this.
 //!
 //! # What THIS module adds: the chain-depth-bounded / unbounded split's compile-time gate
 //! `build_deriv_chain`'s `depth` for a role zone equals that zone's rule count (its own doc:
@@ -67,18 +67,17 @@
 //! confirm-side combination cascade must itself explore (`cascade.rs`'s own naming) -- because
 //! `build_deriv_chain` encodes the union of admissible orderings IMPLICITLY, as a shared per-level
 //! choice point, rather than enumerating each of the (up to) `n!` orderings as a separate literal
-//! path. This is this change's own flagged judgment call (see this module's doc above and the
-//! `openspec/changes/cover-unordered-morph-rules` final report): the calibrated bound gates
-//! `rule_count` directly (a sound, conservative proxy for the design-doc-named combinatorial
+//! path. This is a deliberate choice: the calibrated bound gates
+//! `rule_count` directly (a sound, conservative proxy for the combinatorial
 //! danger) rather than a literally-computed ordering count, since no code path in this crate
 //! actually materializes `n!` distinct candidates for this construct.
 //!
-//! # ADR 0004 runtime-feature declaration (tasks.md 6.1)
+//! # Runtime-feature declaration
 //! **None required.** `build_deriv_chain`'s construction fully LOWERS into the compiled FST network
-//! at compile time (ADR 0004's own "most constructs are fully lowered and impose no runtime
-//! requirement" default) -- there is no query-time operation analogous to
+//! at compile time (most constructs are fully lowered and impose no runtime
+//! requirement) -- there is no query-time operation analogous to
 //! `crate::peel::RUNTIME_FEATURE_REDUPLICATION_PEEL`'s per-word peel op. Confirmed before
-//! declaring anything, per tasks.md 6.1's own instruction, rather than inventing a placeholder
+//! declaring anything, rather than inventing a placeholder
 //! constant with nothing to name.
 
 use pg_grammar::model::{Grammar, MorphRuleOrder, StratumId};
@@ -88,8 +87,8 @@ use crate::compose_budget::{ComposeBudget, ComposeError};
 /// [`crate::compose_budget::ComposeError`]'s `site` label for every check this module makes.
 const ORDERING_MULTIPLICITY_SITE: &str = "unordered::check_unordered_strata_bound";
 
-/// One `Unordered` stratum's own cardinality facts (design.md D1's "chain-depth-bounded" cardinality
-/// check, tasks.md 1.2) -- shared by [`check_unordered_strata_bound`] (the compile-time gate) and
+/// One `Unordered` stratum's own cardinality facts (the chain-depth-bounded cardinality
+/// check) -- shared by [`check_unordered_strata_bound`] (the compile-time gate) and
 /// `crate::capability`'s [`crate::capability::UnorderedStratumDetail`] (the STATIC characterization,
 /// computed independently over the same `rule_count`/`within_bound` facts so the declared capability
 /// verdict and the real compile-time refusal can never silently drift apart).
@@ -103,7 +102,7 @@ pub(crate) struct UnorderedStratumMetrics {
 /// One stratum's own [`UnorderedStratumMetrics`], computed against
 /// [`crate::compose_budget::DEFAULT_ORDERING_MULTIPLICITY_BUDGET`] directly (not a live
 /// [`ComposeBudget`] instance) -- `crate::capability::characterize` is a pure, `Grammar`-only
-/// static projection (design.md D1) with no `ComposeBudget` in scope anywhere else in that module,
+/// static projection with no `ComposeBudget` in scope anywhere else in that module,
 /// so `crate::capability::UnorderedStratumDetail` is built directly from THIS function's own
 /// result (not a re-derived copy of its formula), sharing the SAME calibrated constant
 /// [`check_unordered_strata_bound`]'s own production-default [`ComposeBudget::from_env`]
@@ -139,8 +138,8 @@ pub(crate) fn unordered_stratum_metrics(g: &Grammar) -> Vec<UnorderedStratumMetr
 
 /// The compile-time gate (module doc): `Err` iff SOME `Unordered` stratum's own loose-rule count
 /// exceeds `budget`'s [`ComposeBudget::ordering_multiplicity_cap`] -- checked against every
-/// `Unordered` stratum independently (spec.md's own "the two strata receive independent capability
-/// verdicts, and neither is inferred from the other" scenario), returning the FIRST breach found
+/// `Unordered` stratum independently (two strata receive independent capability
+/// verdicts, and neither is inferred from the other), returning the FIRST breach found
 /// (document stratum order) rather than collecting every one -- mirrors
 /// `crate::morphotactics::EnumerationBudget`'s own "fail fast, do not keep computing once tripped"
 /// discipline; a caller that wants every breach can call [`unordered_stratum_metrics`] directly.
@@ -160,8 +159,8 @@ pub(crate) fn check_unordered_strata_bound(
 mod tests {
     use super::*;
 
-    /// Synthetic, delanguaged fixture generator (`openspec/changes/STAGING.md`'s "synthetic data
-    /// only" hard rule): one stratum declaring `order` with `rule_count` trivial suffix rules
+    /// Synthetic, delanguaged fixture generator (this repo's "synthetic data
+    /// only" hard rule for grammar fixtures): one stratum declaring `order` with `rule_count` trivial suffix rules
     /// (`ruleN` inserts a distinct literal segment `xN`) -- only `mrule_order`/loose-rule COUNT
     /// matter to this module's own checks, so every rule is otherwise as bare as `pg_grammar::load`
     /// accepts (mirrors `crates/pg-foma/src/morphotactics.rs`'s own inline `FIXTURE_SLOTS` style).
