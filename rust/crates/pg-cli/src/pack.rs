@@ -227,11 +227,11 @@ pub fn run_pack(args: &[String]) -> Result<(), String> {
 /// The result of one `.pgpack` build: the assembled manifest, the full container bytes
 /// ([`pg_pack::write_pack`]'s own output), and whether the foma payload section inside those bytes
 /// is real compiled-network bytes or the honestly-labeled placeholder fallback (see this module's
-/// top doc, "What is real vs. placeholder"). Factored out of [`run_pack`] (`openspec/changes/
-/// certify-language-readiness` task 4: `pangloss make-report` needs the SAME real pack-build logic
-/// — a real trust stamp and a real artifact size — without going through `run_pack`'s own CLI
-/// arg-parsing/file-writing/stderr-summary shell) so both call sites share one implementation
-/// rather than `make-report` re-deriving a second, potentially-drifting notion of "what a pack is."
+/// top doc, "What is real vs. placeholder"). Factored out of [`run_pack`] so `pangloss make-report`
+/// can share the SAME real pack-build logic — a real trust stamp and a real artifact size —
+/// without going through `run_pack`'s own CLI arg-parsing/file-writing/stderr-summary shell, so
+/// both call sites share one implementation rather than `make-report` re-deriving a second,
+/// potentially-drifting notion of "what a pack is."
 pub(crate) struct BuiltPack {
     pub manifest: PackManifest,
     pub bytes: Vec<u8>,
@@ -248,8 +248,8 @@ pub(crate) struct BuiltPack {
 /// and stderr diagnostic below is identical to what `run_pack` always printed; this function is a
 /// pure extraction, not a behavior change).
 ///
-/// `semantics` must be [`pg_foma::grammar_semantics::GrammarSemantics::derive`]d from `grammar`
-/// (task 7.11, `openspec/changes/cleanup-and-recipe-parity`). Taking it rather than deriving it
+/// `semantics` must be [`pg_foma::grammar_semantics::GrammarSemantics::derive`]d from `grammar`.
+/// Taking it rather than deriving it
 /// here is what lets `pangloss make-report` — which needs the capability verdict in its own
 /// preamble, here, and again in `readiness_verdict::certify` — pay for the grammar walk once
 /// instead of three times.
@@ -525,12 +525,12 @@ mod tests {
     /// capability`) `Refuse`s this UNCONDITIONALLY and PERMANENTLY (a monotone-accumulation
     /// admission filter is structurally unsound for history-dependent `Overwrite` replace
     /// semantics, `pg_grammar::model::mpr_add_output`'s own doc) -- no promotion can ever flip this
-    /// fixture's own verdict. **Originally a self-feeding (`multipleApplication="2"`) `Compounding`
-    /// rule** served as this module's "known-Refuse" fixture; `openspec/changes/
-    /// plan-construct-coverage-completion` task 4.1 promoted `compounding.recursive` to
-    /// `ConfirmOnly`, breaking that assumption. Do not point a future "known-Refuse" fixture at any
-    /// `ConfigPredicate`-disposition construct again (every one of those has at least one promotable
-    /// configuration, `docs/benchmark-matrix.md`'s own coverage table) -- `MprGroupOverwrite` is the
+    /// fixture's own verdict. A self-feeding (`multipleApplication="2"`) `Compounding`
+    /// rule is NOT a safe "known-Refuse" fixture here, because `compounding.recursive` is a
+    /// `ConfigPredicate`-disposition construct and can be promoted to `ConfirmOnly` by a later
+    /// grammar/capability change. Do not point a future "known-Refuse" fixture at any
+    /// `ConfigPredicate`-disposition construct (every one of those has at least one promotable
+    /// configuration) -- `MprGroupOverwrite` is the
     /// stable, by-construction-permanent choice (`main.rs`'s own
     /// `capability_gate_tests::PERMANENTLY_REFUSED_GRAMMAR_XML`, same swap, same rationale).
     const REFUSE_GRAMMAR_XML: &str = include_str!("../../../../conformance-staging/edge-cases/simultaneous-subrule-genuine-overlap/grammar.xml");
