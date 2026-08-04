@@ -4093,8 +4093,8 @@ mod tests {
             .collect()
     }
 
-    /// Builds `g`'s enumerated [`crate::plan::Plan`] via the REAL `enumerate_default` seam (Step 2
-    /// of `reify-compilation-plans`), exactly the way a real caller would -- these
+    /// Builds `g`'s enumerated [`crate::plan::Plan`] via the REAL `enumerate_default` seam,
+    /// exactly the way a real caller would -- these
     /// `compose_envelope` tests exercise the full characterize+enumerate+compose pipeline end to
     /// end, not a hand-built `Plan`.
     fn enumerated_plan(g: &Grammar) -> Plan {
@@ -4108,8 +4108,8 @@ mod tests {
     // characterize(): FailClosed triggers
     // ---------------------------------------------------------------------------------------
 
-    /// `openspec/changes/cover-compounding`: `MorphRuleDef::Compounding` now characterizes at the
-    /// `ConfigPredicate` landing spot (no longer bare `FailClosed`), and a single, isolated,
+    /// `MorphRuleDef::Compounding` characterizes at the
+    /// `ConfigPredicate` landing spot (not bare `FailClosed`), and a single, isolated,
     /// `multipleApplication`-default (1) `CompoundingRule` characterizes as `compounding.non-recursive`
     /// (`CompoundingDetail::recursive == false`) — `compounding_recursive`'s reachability pass finds
     /// no other `Compounding` rule and no self-application to flag.
@@ -4164,7 +4164,7 @@ mod tests {
             !details[0].recursive,
             "a single isolated CompoundingRule must characterize non-recursive: {details:?}"
         );
-        // Task 4.1 (design.md row 2, piece 1): the depth bound for the ordinary head+non-head
+        // The depth bound for the ordinary head+non-head
         // shape is exactly 2 stems -- the number `compounding.non-recursive`'s own construction
         // already covers faithfully.
         assert_eq!(
@@ -4174,7 +4174,7 @@ mod tests {
         );
     }
 
-    /// `openspec/changes/cover-compounding` (design.md D2 item 3): a `CompoundingRule` with
+    /// A `CompoundingRule` with
     /// `multipleApplication > 1` self-feeds (the rule may re-apply to its own prior compound output)
     /// and must characterize `compounding.recursive`.
     #[test]
@@ -4217,7 +4217,7 @@ mod tests {
             details[0].recursive,
             "multipleApplication > 1 must characterize compounding.recursive: {details:?}"
         );
-        // Task 4.1: max_depth = 1 (base) + max_apps(2) = 3 stems for this isolated self-feeding rule.
+        // max_depth = 1 (base) + max_apps(2) = 3 stems for this isolated self-feeding rule.
         assert_eq!(
             details[0].max_depth, 3,
             "multipleApplication=2 on an otherwise-isolated rule must bound at exactly 3 stems: \
@@ -4225,7 +4225,7 @@ mod tests {
         );
     }
 
-    /// Task 4.1 (design.md row 2, piece 1): the depth bound must SCALE with `multipleApplication`,
+    /// The depth bound must SCALE with `multipleApplication`,
     /// not just cross the non-recursive/recursive threshold -- pins an exact, larger number
     /// (`multipleApplication="5"` -> `max_depth = 6`), and doubles as a "never a hang" witness: this
     /// grammar's reachability pass must terminate promptly despite a real self-loop in the "feeds"
@@ -4274,7 +4274,7 @@ mod tests {
         );
     }
 
-    /// `openspec/changes/cover-compounding` (design.md D2 item 3): TWO `CompoundingRule`s sharing one
+    /// TWO `CompoundingRule`s sharing one
     /// stratum must BOTH characterize recursive — either rule's output could feed the other's
     /// head/non-head search (the coarse, deliberately conservative same-stratum co-location test).
     #[test]
