@@ -63,7 +63,7 @@ use crate::grammar_semantics::GrammarSemantics;
 use crate::plan::{FragmentSpec, NodeId, Plan, PlanNodeKind};
 
 // =================================================================================================
-// D1: Disposition + CharacteristicKind + the characterizer
+// Disposition + CharacteristicKind + the characterizer
 // =================================================================================================
 
 /// A characteristic's capability disposition. Ordered here from "most trusted" to
