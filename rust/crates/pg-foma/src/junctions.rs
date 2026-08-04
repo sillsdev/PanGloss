@@ -1,16 +1,16 @@
-//! Phonology probe (plan `docs/fst-plan/foma-fst-plan.md` D3, P1 stage 2 "Indonesian: phonology
+//! Phonology probe ("Indonesian: phonology
 //! via pre-probed junction variants"): drives the grammar's REAL synthesis machinery
 //! (`pg_rules::surface_probe::probe_synthesize`) to discover, for one affix's underlying insert
 //! text, every surface spelling it can realize as and every spelling that additionally causes an
 //! adjacent morph's own leading segment to delete — the exact trick `hc-hybrid/src/surface.rs`'s
-//! `SurfacePhonology` uses to build its trie (plan §2's citation). This is a FRESH port (`hc-hybrid`
-//! is sunsetting, plan D8 — `pg-foma` must never depend on it), not a code reuse, and it is
+//! `SurfacePhonology` uses to build its trie. This is a FRESH port (`hc-hybrid`
+//! is sunsetting — `pg-foma` must never depend on it), not a code reuse, and it is
 //! deliberately SMALLER than the original in two ways:
 //!
 //! 1. **No `bare_root_surfaces`.** That method needs a live `pg_parse::Morpher` (obligatory-
-//!    inflection checking) — out of scope for an emitter that never constructs one (stage 1's bare
-//!    roots are already permissive; see `emit.rs`'s module doc, "Bare roots skip the obligatory-
-//!    inflection gate").
+//!    inflection checking) — out of scope for an emitter that never constructs one (the baseline
+//!    emission path's bare roots are already permissive; see `emit.rs`'s module doc, "Bare roots
+//!    skip the obligatory-inflection gate").
 //! 2. **No `DeletionJunction::deleted_neighbor`/`_lanes` bookkeeping.** The original needs the
 //!    deleted neighbor's own FeatureStruct lanes to GATE a deletion-skip edge onto only the roots
 //!    whose actual onset unifies with that class (`FstTemplateAnalyzer.WireDeletionSkips`'s real
@@ -20,12 +20,12 @@
 //!    state that way: it instead offers a root-initial-stripped SPELLING to every root uniformly
 //!    whenever [`PhonologyProbe::deletion_junctions`] proves SOME context deletes the following
 //!    segment for this affix text (see `emit.rs`'s "Junction-aware prefix emission" section) — an
-//!    upward approximation (the plan's iron rule: extra accepted spellings are harmless; confirm,
-//!    P2, prunes them) that trades a little overgeneration for not needing lane-level gating at all.
+//!    upward approximation (extra accepted spellings are harmless; confirm
+//!    prunes them) that trades a little overgeneration for not needing lane-level gating at all.
 //!
 //! Capability-gated exactly like the original: [`PhonologyProbe::new`] returns `None` when the
-//! grammar has no phonological rules at all (Sena), so stage 1's phonology-unaware emission path is
-//! completely untouched for grammars this stage doesn't target — the Sena regression gate
+//! grammar has no phonological rules at all (Sena), so the baseline phonology-unaware emission path
+//! is completely untouched for grammars that don't need this probe — the Sena regression gate
 //! (`tests/f1_sena_gate.rs`) depends on this being a true no-op, not just an empty result.
 
 use std::collections::BTreeSet;
@@ -49,18 +49,18 @@ pub struct PhonologyProbe<'g> {
     /// (mirrors `hc-hybrid/src/surface.rs`'s `_alphabet`).
     alphabet: Vec<String>,
     /// Subset of `alphabet` restricted to segments that actually appear as the FIRST real segment
-    /// of some root allomorph's or some affix rule's authored text in THIS grammar (P1 stage 3,
-    /// the Amharic hazard-1 fix: see [`neighbor_first_segments`]'s doc for the soundness
+    /// of some root allomorph's or some affix rule's authored text in THIS grammar (the Amharic
+    /// hazard-1 fix: see [`neighbor_first_segments`]'s doc for the soundness
     /// argument). Used ONLY for [`compute_deletion_junctions`]'s outer (C1) loop -- an affix's
     /// real right-neighbor in any synthesized word is always some root's or some rule's own first
     /// segment, a closed, enumerable set, so narrowing the C1 loop to it can never drop a
     /// deletion junction that could actually occur. The inner C2 loop stays over the FULL
     /// `alphabet` (a neighbor's own SECOND segment has no equivalent closed characterization here
-    /// -- narrowing it would risk losing recall, the plan's one forbidden direction). On a small
+    /// -- narrowing it would risk losing recall, which must never happen). On a small
     /// alphabet (Sena has none -- no phonological rules at all; Indonesian's restricted set is
     /// close to its full alphabet already) this changes nothing measurable; on Amharic's 417-
-    /// segment table it cuts the measured wall time from ~150-230s to single-digit seconds (P1
-    /// stage 3 investigation numbers, recorded in this stage's report) by shrinking the outer loop
+    /// segment table it cuts the measured wall time from ~150-230s to single-digit seconds
+    /// by shrinking the outer loop
     /// from 417 to the ~46 segments that can actually start a root or affix in this grammar.
     neighbor_alphabet: Vec<String>,
     any_deletion_subrule: bool,
@@ -132,7 +132,7 @@ fn first_segment_id(table: &CharDefTable, text: &str) -> Option<CharDefId> {
 /// derivation-layer rule) -- there is no third kind of morph. So this set is the complete,
 /// closed enumeration of every segment that can EVER be probed as `compute_deletion_junctions`'s
 /// C1 (the immediate right-neighbor); no real adjacency is excluded by restricting the C1 loop to
-/// it, so recall cannot be lost (plan's iron rule: approximate only upward, and this is not even
+/// it, so recall cannot be lost (approximate only upward — and this is not even
 /// an approximation, just an unreachable-input elimination).
 fn neighbor_first_segments(g: &Grammar, table: &CharDefTable) -> BTreeSet<CharDefId> {
     let mut ids = BTreeSet::new();
@@ -163,8 +163,7 @@ fn neighbor_first_segments(g: &Grammar, table: &CharDefTable) -> BTreeSet<CharDe
                     // always that first action's first segment regardless of how many more
                     // `InsertSegments` actions follow it (`emit.rs::insert_action_texts` now
                     // concatenates every one of them for the affix's FULL text, a distinct
-                    // question this loop does not need to answer -- `openspec/changes/
-                    // cover-circumfix-null-output-actions`).
+                    // question this loop does not need to answer).
                     break;
                 }
             }
@@ -175,7 +174,8 @@ fn neighbor_first_segments(g: &Grammar, table: &CharDefTable) -> BTreeSet<CharDe
 
 impl<'g> PhonologyProbe<'g> {
     /// `None` when the grammar declares no phonological rules at all — nothing to probe, and
-    /// `emit.rs` treats `None` as "this grammar's affix/root emission is unchanged from stage 1".
+    /// `emit.rs` treats `None` as "this grammar's affix/root emission is unchanged from the
+    /// baseline emission path".
     ///
     /// Derives a [`GrammarSemantics`] to answer the existence question. A caller that already holds
     /// one should use [`Self::new_with_semantics`]; `GrammarSemantics::derive` is cheap (it does not
@@ -185,8 +185,7 @@ impl<'g> PhonologyProbe<'g> {
         Self::new_with_semantics(&GrammarSemantics::derive(g))
     }
 
-    /// [`Self::new`] over an already-derived [`GrammarSemantics`] (task 7.11,
-    /// `openspec/changes/cleanup-and-recipe-parity`).
+    /// [`Self::new`] over an already-derived [`GrammarSemantics`].
     ///
     /// The existence gate is [`GrammarSemantics::cascade_phonology`], NOT
     /// [`GrammarSemantics::declared_phonology`] — this probe drives the trailing per-stratum rewrite
