@@ -560,8 +560,7 @@ pub struct CircumfixOutputActionDetail {
     /// candidate surface via the REAL morphological engine (`pg_rules::morph::synthesize`) rather
     /// than splicing literal `InsertSegments` text, and so is faithful (never a silent wrong
     /// compile) for whatever shape a rule routed there actually has, `OutputAction` variant
-    /// notwithstanding. `is_structural_rule` is per-RULE: since census C1
-    /// (`docs/conformance/circumfix-structural-composite-census.md`) it admits a rule whenever ANY
+    /// notwithstanding. `is_structural_rule` is per-RULE: it admits a rule whenever ANY
     /// of its allomorphs classifies `Role::CircumfixPrefix` (not only allomorph 0 — `rule_role`'s
     /// own first-allomorph contract is unchanged and unrelated; `is_structural_rule` asks its own
     /// allomorph-wise question via a dedicated helper), so a rule with a mix of plain and
@@ -710,8 +709,7 @@ impl CharacteristicObservation {
     }
 }
 
-/// D1's "cardinality/stem" fields: cheap grammar-scale facts fed to cost/planning, not the
-/// correctness gate itself.
+/// Cheap grammar-scale facts fed to cost/planning, not the correctness gate itself.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct GrammarCardinality {
     pub entry_count: usize,
@@ -719,16 +717,14 @@ pub struct GrammarCardinality {
     pub mrule_count: usize,
     pub prule_count: usize,
     pub stratum_count: usize,
-    /// D1: "max reachable derivation chain depth (ADR 0003 dimension — the Aweti 24-level
-    /// chain)... if cheaply computable — else leave a documented TODO, do NOT invent an unsound
-    /// estimate." Computing this for real needs the morphotactic reachability automaton
-    /// (`crate::morphotactics`/`pg_rules::stratum`) — a genuine per-grammar graph analysis, not a
-    /// field lookup, and out of scope for this purely-additive data-modeling step. Left `None`
-    /// rather than guessed; a later step should wire in the real computation here.
+    /// Max reachable derivation chain depth (e.g. the Aweti 24-level chain), left `None` rather
+    /// than guessed when not cheaply computable: computing it for real needs the morphotactic
+    /// reachability automaton (`crate::morphotactics`/`pg_rules::stratum`), a genuine per-grammar
+    /// graph analysis rather than a field lookup.
     pub max_derivation_chain_depth: Option<usize>,
 }
 
-/// D1's full projection: every observed characteristic plus the grammar's cardinality facts.
+/// Every observed characteristic plus the grammar's cardinality facts.
 #[derive(Debug, Clone, Default)]
 pub struct CharacteristicsProfile {
     observations: Vec<CharacteristicObservation>,
