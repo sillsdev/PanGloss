@@ -3805,13 +3805,13 @@ fn emit_with_budget_profiled_with_strategy(
         if has_compounding_rules {
             let cmp_name = format!("G{gi}Cmp");
             write_bare(&mut out, &cmp_name, &mut counts);
-            // Gate F3 3b: the compound extra root(s) may carry prefix-derivation morphology (a
+            // The compound extra root(s) may carry prefix-derivation morphology (a
             // prefix on the compound's head span) — see the template-less `TLCmp` comment above for
             // the full rationale (`lexbedom`/`silamanuk`). Same fix per group, via the SAME
-            // `build_compound_chain` depth-budgeted chain (task 4.1 piece 2, above) — the HEAD side
+            // `build_compound_chain` depth-budgeted chain (above) — the HEAD side
             // of this per-group section is deliberately left ungated (matches `eligible_roots`' own
             // pre-existing full-broadening-when-compounding comment just below) -- template+
-            // compounding interaction is an unproven composition node (design.md D4), so this change
+            // compounding interaction is an unproven composition node, so this change
             // does not add new precision there, only preserves the existing safe-over-approximation
             // shape.
             let group_non_head_roots: Vec<&RootRec> = match &compound_license {
@@ -3863,7 +3863,7 @@ fn emit_with_budget_profiled_with_strategy(
         let eligible_roots: Vec<&RootRec> = roots
             .iter()
             .filter(|r| {
-                // Gate F3 3b (Sena `musandilesera`): a grammar with compounding rules can
+                // Sena `musandilesera`: a grammar with compounding rules can
                 // re-categorize a root via its compound HEAD — the compound `é + tentar` is headed
                 // by `tentar` (category `FsId(6)`), so the whole stem is licensed by `tentar`'s
                 // group (the one whose template carries the inflectional `HAB`/`IND` slots), even
@@ -3895,7 +3895,7 @@ fn emit_with_budget_profiled_with_strategy(
         } else {
             write_root_entries(&mut out, &eligible_roots, &post_name, &mut counts, &mut pk);
         }
-        // P1d (`crate::preexpand`): the group's root section also admits every composite stem, via
+        // `crate::preexpand`: the group's root section also admits every composite stem, via
         // the shared `Composites` lexicon (see LEXICON Root's comment — no per-group category
         // filtering; upward-only, confirm prunes).
         if has_composites {
@@ -3965,7 +3965,7 @@ fn emit_with_budget_profiled_with_strategy(
         }
     }
 
-    // ---- P1d shared composites section (see LEXICON Root's comment for the design) ----
+    // ---- Shared composites section (see LEXICON Root's comment for the design) ----
     if has_composites {
         write_lexicon_header(&mut out, "Composites");
         for c in &composites {
@@ -3993,13 +3993,13 @@ fn emit_with_budget_profiled_with_strategy(
         }
     }
 
-    // P1d: an `Infix` rule that `crate::preexpand` rendered into at least one composite entry IS
+    // An `Infix` rule that `crate::preexpand` rendered into at least one composite entry IS
     // representable now (rule-application pre-expansion) — drop its "infix" uncovered items, from
     // EVERY push site uniformly (standalone-rule classification, template-slot classification,
     // allomorph-level zone mismatches — all use the `mrule{N}`/`mrule{N}#allo{K}` id convention).
     // An infix rule that matched zero roots keeps its uncovered items, honestly.
     //
-    // Gate F3 3b: same drop for a `circumfix-prefix` rule [`build_structural_composites`] covered
+    // Same drop for a `circumfix-prefix` rule [`build_structural_composites`] covered
     // ([`StructAcc::covered_rules`]) — `metathesis-phase-isolation`'s "keadilan"/`fusional-realizational-morphology`'s
     // "gelobt"/"gelobth" need this so their now-representable circumfix rule stops being reported
     // uncovered.
