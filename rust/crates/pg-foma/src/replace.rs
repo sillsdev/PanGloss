@@ -49,9 +49,8 @@
 //!   an alpha-bound occurrence anywhere in its own children — [`pattern_slots`] still returns
 //!   `None`/bails for exactly these configurations (a rule whose pattern needs one is reported
 //!   uncovered, not silently mis-rendered). A FINITELY bounded, alpha-free quantifier (`min`/`max`
-//!   both concrete, `min <= max <= MAX_QUANTIFIER_BOUND`) compiles via [`Slot::Repeat`]
-//!   (`openspec/changes/compile-bounded-fst-quantifiers`), and — `openspec/changes/
-//!   build-unbounded-quantifier-support` — a genuinely UNBOUNDED, alpha-free quantifier (`max ==
+//!   both concrete, `min <= max <= MAX_QUANTIFIER_BOUND`) compiles via [`Slot::Repeat`],
+//!   and a genuinely UNBOUNDED, alpha-free quantifier (`max ==
 //!   None`, the DTD's `max="-1"` sentinel) now ALSO compiles, via that SAME `Slot::Repeat`
 //!   (`max: Option<u32>`), rendered with foma's native `E*`/`E^>N` operator instead of `E^{min,max}`
 //!   — see that variant's own doc for the construction, and "Bounded quantifiers" below for the
@@ -61,11 +60,10 @@
 //!   `crate::capability`) cannot prove pairwise non-overlapping (self-opaquing, an unresolved
 //!   overlap, or an unsupported pattern node in a lowered span) — see "`RewriteMode::Simultaneous`:
 //!   compiling the ADMITTED case" below for the (now real) admitted case.
-//! - MPR gating (`required_mpr`/`excluded_mpr` on a subrule) — flag-diacritic emission is P6
-//!   mainline work per the plan (`§P6` item 1's own text), not attempted in this slice.
+//! - MPR gating (`required_mpr`/`excluded_mpr` on a subrule) — flag-diacritic emission is
+//!   out of scope, not attempted in this slice.
 //!
-//! ## `Dir::RightToLeft`: the reversal construction (`openspec/changes/
-//! compile-right-to-left-rewrites`)
+//! ## `Dir::RightToLeft`: the reversal construction
 //! `Dir::RightToLeft` used to be honestly skipped (the same `Ok(None)` treatment `Simultaneous`
 //! still gets); this change gives it real, direction-faithful semantics via the STANDARD
 //! finite-state technique for "prefer the rightmost, not leftmost, non-overlapping match" (Beesley
@@ -115,26 +113,25 @@
 //! [`compile_rtl_branch_net`]'s own doc for why this differs from the alpha-tuple union-is-wrong
 //! finding above.
 //!
-//! ## `RewriteMode::Simultaneous`: compiling the ADMITTED case (`openspec/changes/
-//! compile-simultaneous-rewrites`)
+//! ## `RewriteMode::Simultaneous`: compiling the ADMITTED case
 //! `RewriteMode::Simultaneous` used to be honestly skipped UNCONDITIONALLY (`Ok(None)` for every
 //! such rule, regardless of subrule shape — the same treatment metathesis and an unsupported
 //! pattern construct get). It still stays that way for a rule whose subrules the
-//! `simultaneous.subrule-overlap` predicate (D3, `crate::capability::
-//! SimultaneousSubruleOverlapPredicate`, already built by Stage 1B) cannot prove pairwise
+//! `simultaneous.subrule-overlap` predicate (`crate::capability::
+//! SimultaneousSubruleOverlapPredicate`) cannot prove pairwise
 //! non-overlapping. What changes here: for a rule the predicate DOES admit —
 //! [`is_fully_supported_shape`] now asks `crate::capability::
-//! simultaneous_rule_admitted_for_compile` (that function's own doc: the SAME D3 proof, freshly
+//! simultaneous_rule_admitted_for_compile` (that function's own doc: the SAME proof, freshly
 //! computed, sharing its algorithm with the capability gate's own predicate so the two can never
 //! disagree) — this file's EXISTING plain/iterative sequential-compose machinery is reused UNCHANGED,
 //! not reimplemented: no new branch net construction, no new fold shape, nothing analogous to
 //! [`compile_rtl_branch_net`]'s mirror-plus-reverse-plus-union.
 //!
-//! **Why reuse, not a new algorithm, is actually correct here (not merely convenient).** D3's own
+//! **Why reuse, not a new algorithm, is actually correct here (not merely convenient).** The
 //! Admit boundary is defined EXACTLY as "no two subrules' environments can ever match at the same
 //! input position" — precisely the condition under which HC's true `Simultaneous` semantics (find
-//! every match against ONE untouched input snapshot, then apply them all — `rust/docs/
-//! p13-simultaneous-design.md` §1.1's `SimultaneousPhonologicalPatternRule.Apply`) and a sequential
+//! every match against ONE untouched input snapshot, then apply them all —
+//! `SimultaneousPhonologicalPatternRule.Apply`, HC's own reference behavior) and a sequential
 //! per-subrule fold (this file's existing `Iterative`-labeled machinery) produce IDENTICAL output:
 //! with no shared focus position in contention, subrule application order can never change which
 //! subrule wins where, so "compose subrule 1's net, then subrule 2's net" (what this file already
@@ -144,8 +141,8 @@
 //! snapshot-style construction (Beesley & Karttunen's classical replace-rule automaton finds every
 //! non-overlapping match against the rule's own input tape and rewrites them all in one
 //! transduction — it cannot self-feed within one compiled expression the way `pg-rules`'
-//! `syn_feature`'s re-scan-after-every-mutation loop can, `p13-simultaneous-design.md` §2.2/§2.3's
-//! own finding that `syn_epenthesis` is "already Simultaneous-shaped" for exactly this reason). So
+//! `syn_feature`'s re-scan-after-every-mutation loop can (`syn_epenthesis` is "already
+//! Simultaneous-shaped" for exactly this reason). So
 //! this file's foma-`->`-based compile was ALREADY structurally closer to true `Simultaneous`
 //! semantics than to HC's `Iterative` re-scan semantics, for ANY rule it has ever compiled — the
 //! `Iterative` label on the existing machinery names which HC mode it happens to have been used
@@ -156,23 +153,25 @@
 //! `Kind::Feature`/`Kind::Narrow` synthesis to genuinely distinct `sim_feature`/`sim_narrow`
 //! functions (vs. `syn_feature`/`syn_narrow` for `Iterative`), and its analysis side wraps
 //! `ana_feature`/`ana_epenthesis` in a repeat-until-fixpoint loop whenever a subrule is
-//! `self_opaquing` (`p13-simultaneous-design.md` §1.3/§4.3-4.4) — a real, load-bearing mode
-//! dependence, ported and shipped (P13), not a gap this change needs to patch around. D3's own
+//! `self_opaquing` — a real, load-bearing mode
+//! dependence, ported and shipped from HC's own reference behavior, not a gap this change needs to
+//! patch around. The
 //! `self_opaquing`-Refuse early-out is exactly what keeps the ADMITTED case inside the region where
 //! this asymmetry never actually bites: `self_opaquing` is REQUIRED true for the repeat-wrapper to
-//! ever trigger, and D3 refuses any pair containing one (this crate's own
+//! ever trigger, and the admit predicate refuses any pair containing one (this crate's own
 //! `simultaneous_rule_admitted_for_compile` additionally refuses a LONE self-opaquing subrule too,
-//! stricter than D3's own pairwise-only algorithm — see that function's doc for why). So for every
+//! stricter than the predicate's own pairwise-only algorithm — see that function's doc for why). So
+//! for every
 //! rule this file now actually compiles under `Simultaneous`, confirm's analysis side runs
 //! `ana_feature`/`ana_epenthesis` exactly once, per subrule, with no fixpoint loop — the SAME shape
-//! `Iterative` mode's analysis already uses (`p13-simultaneous-design.md` §1.3: "`ApplicationMode`
-//! has zero effect on which pattern rule analysis uses" for Feature subrules). No safety-net union
+//! `Iterative` mode's analysis already uses ("`ApplicationMode`
+//! has zero effect on which pattern rule analysis uses" for Feature subrules, HC's own reference
+//! behavior). No safety-net union
 //! is needed here (contrast [`compile_rtl_branch_net`]'s own documented judgment call): there is no
 //! known faithfulness gap between what this file compiles and what confirm accepts for the admitted
 //! case, so no superset-widening is required to stay recall-safe.
 //!
-//! ## Bounded quantifiers (`openspec/changes/compile-bounded-fst-quantifiers`; ADR 0001, `docs/adr/
-//! 0001-honest-capability-boundary.md`)
+//! ## Bounded quantifiers
 //! [`PatternNode::Quantifier`] (`<OptionalSegmentSequence min max>`) used to be `pattern_slots`'
 //! unconditional bail (module doc, "What this module does NOT attempt") regardless of `min`/`max`.
 //! Now a FINITELY bounded, alpha-free quantifier — `max == Some(_)`, `min <= max <=
@@ -190,15 +189,13 @@
 //! (`max` concrete), or alpha-nested quantifiers are UNCHANGED: still `None`, still honestly
 //! reported uncovered by every existing caller.
 //!
-//! ## Unbounded quantifiers (`openspec/changes/build-unbounded-quantifier-support`; ADR 0001, `docs/
-//! adr/0001-honest-capability-boundary.md`)
+//! ## Unbounded quantifiers
 //! A genuinely UNBOUNDED, alpha-free quantifier — `max == None`, the DTD's `max="-1"` Kleene
 //! sentinel, the loader's own DEFAULT when the attribute is absent (`XmlLanguageLoader.cs`, the
 //! DTD's own `#IMPLIED` doc: "-1 or higher") — used to be refused for exactly the same reason a
-//! bounded one used to be: `pattern_slots`' unconditional bail, inherited from the ORIGINAL
-//! `compile-bounded-fst-quantifiers` step's own narrower scope line, never a feasibility finding
-//! (that step's own design.md never claimed the unbounded case was uncompilable, only that it was
-//! out of scope for that step). It compiles now, via the SAME [`Slot::Repeat`] (widened to
+//! bounded one used to be: `pattern_slots`' unconditional bail, inherited from bounded quantifier
+//! support's own narrower original scope, never a feasibility finding (the unbounded case was
+//! never uncompilable, only out of scope for that first step). It compiles now, via the SAME [`Slot::Repeat`] (widened to
 //! `max: Option<u32>`), rendered as foma's own native `E*`/`E^>N` xre operator instead of
 //! `E^{min,max}` (`crate::lower::render_slots`'s own doc has the exact operator-selection rule):
 //! `min == 0` ("zero or more") is plain `*` (`nfst-xre`'s `Token::Star`, `foma-0.4.2`'s
@@ -235,7 +232,8 @@
 //! check already guards on the alpha axis; the quantifier axis gets its OWN eager, cheaper-than-any-
 //! `Fsm` preflight ([`MAX_QUANTIFIER_BOUND`], checked in `pattern_slots` before any regex is even
 //! rendered, let alone parsed — the same "check the search result before the expensive part"
-//! principle `docs/fst-plan/phase-b-compose-budget-design.md`'s V3 already uses for alpha tuples),
+//! principle [`ComposeBudget::tuple_cap`](crate::compose_budget::ComposeBudget::tuple_cap) already
+//! uses for alpha tuples),
 //! rather than a new [`crate::compose_budget::ComposeBudget`] dimension: `pattern_slots` is a pure
 //! structural walk with no `ComposeBudget` threaded through it (every existing caller — this file's
 //! own compile path, `crate::lower::lower_span`, `crate::capability`'s structural probes — calls it
@@ -274,9 +272,8 @@
 //! existing gap this change surfaces rather than silently works around — flagged for a follow-on
 //! entirely outside `replace.rs`'s single-owner boundary, exactly like the RTL gap above.
 //!
-//! ## Additional `RightToLeftRewrite` pattern shapes (`openspec/changes/
-//! plan-construct-coverage-completion` task 4.2)
-//! Before this task, `pattern_slots` refused `PatternNode::Segments`/`PatternNode::Anchor`
+//! ## Additional `RightToLeftRewrite` pattern shapes
+//! `pattern_slots` used to refuse `PatternNode::Segments`/`PatternNode::Anchor`
 //! unconditionally, for EVERY caller alike — the RTL predicate's own witness listed them alongside
 //! a malformed `Quantifier`/a disagree-polarity alpha var as the shapes `compile_rtl_branch_net`
 //! excludes. Re-examining each one at the reversal construction's own level (`crate::lower::
@@ -339,8 +336,7 @@ use crate::compose_budget::{compose_checked, union_checked, ComposeBudget, Compo
 /// overflow the PUA block.
 const PUA_BASE: u32 = 0xE000;
 
-/// Cross-table representation aliasing (`docs/conformance/multitable-shared-representation-
-/// design.md`, "The recommended fix: cross-table representation aliasing"): a normalized
+/// Cross-table representation aliasing: a normalized
 /// representation -> every `(TableId, CharDefId)` across the WHOLE grammar that spells it,
 /// built once per grammar. **Same NFD normalization as [`CharDefTable::lookup_nfd`]/
 /// [`crate::emit::surface_variants`]** — this reuses [`pg_grammar::chardef::CharDef::
@@ -453,8 +449,7 @@ impl RepresentationAliasMap {
 pub struct SegAlphabet<'t> {
     table: &'t CharDefTable,
     /// This alphabet's own table identity plus the grammar-wide [`RepresentationAliasMap`],
-    /// together — only ever both-or-neither (`docs/conformance/multitable-shared-representation-
-    /// design.md` item 2: "no defaulted `TableId`" — a `TableId` with no alias map to consult
+    /// together — only ever both-or-neither: no defaulted `TableId` — a `TableId` with no alias map to consult
     /// would be exactly the same "implicit default" mistake class [`owning_table`] was introduced
     /// to remove; an alias map with no `TableId` to alias FROM is meaningless). `None` for every
     /// call site built via [`Self::new`] (every pre-existing caller in this crate: `emit.rs`,
@@ -593,28 +588,18 @@ impl<'t> SegAlphabet<'t> {
 }
 
 // =================================================================================================
-// `Slot`/`pattern_slots`/`resolve_alpha_tuples`/`render_slots`/`AlphaAssignment`/`TupleReport`
-// MOVED to `crate::lower` (`openspec/changes/lower-fst-pattern-environments` Stage 1B migration
-// follow-on, that module's own top doc: "What is reused vs. newly written vs. MOVED HERE").
-// `crate::lower` is now the sole/canonical home for this pattern/environment-lowering vocabulary;
-// this crate's own `pg-grammar` model is unaffected (`lower.rs`'s design.md: "frozen consumers").
-// Re-exported here at the SAME paths/visibility they always had, so every existing caller in this
-// file (`compile_rewrite_rule_subset`, `compile_rtl_branch_net`, `compile_metathesis_rule`,
-// `slot_candidates`, `render_branch_regex`, `reversed_slots`) and every OUTSIDE caller
-// (`capability.rs`'s structural probes -- a concurrent agent's exclusive file this change does not
-// open; every `tests/phase_c_*` gate; every `pg_foma::replace::TupleReport`-importing example)
-// keeps compiling completely unmodified -- see `crate::lower`'s own module doc for the full
-// "what moved and why" account and this task's own final report for the byte-identical-output
-// proof.
+// `crate::lower` is the sole/canonical home for the `Slot`/`pattern_slots`/`resolve_alpha_tuples`/
+// `render_slots`/`AlphaAssignment`/`TupleReport` pattern/environment-lowering vocabulary.
+// Re-exported here at the SAME paths/visibility every caller in this file and outside it already
+// depends on, so nothing importing from `pg_foma::replace` needs to change.
 // =================================================================================================
 pub(crate) use crate::lower::{pattern_slots, render_slots, resolve_alpha_tuples, Slot};
 pub use crate::lower::{AlphaAssignment, TupleReport};
 
 #[cfg(test)]
 mod representation_alias_map_tests {
-    //! Unit-level proof for [`RepresentationAliasMap`]/[`SegAlphabet::render_tokens`]
-    //! (`plan-construct-coverage-completion` task 4.4b, `docs/conformance/
-    //! multitable-shared-representation-design.md`) -- narrower and faster than the full
+    //! Unit-level proof for [`RepresentationAliasMap`]/[`SegAlphabet::render_tokens`] --
+    //! narrower and faster than the full
     //! grammar-level containment gate (`tests/two_table_shared_representation_recall.rs`), pinning
     //! the aliasing MECHANISM directly: the multimap's own contents, and `render_tokens`' union/
     //! degenerate-singleton contract.
