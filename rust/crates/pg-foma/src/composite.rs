@@ -498,7 +498,7 @@ impl<'g> FomaAnalyzer<'g> {
         }
         let mut analyses = Vec::new();
         let mut structured = Vec::new();
-        // Batched confirm (John, 2026-07-15): ONE union re-parse routes every outcome analysis to
+        // Batched confirm: ONE union re-parse routes every outcome analysis to
         // its candidate's bucket — content-identical to per-candidate confirm_all (soundness
         // argument in `confirm::confirm_batch`'s doc) at 1/N the re-parse cost. Buckets come back
         // in candidate order, each in outcome order, preserving the previous concatenation order.
@@ -690,18 +690,16 @@ impl<'g> FomaAnalyzer<'g> {
         }
     }
 
-    /// The UNBOUNDED cache-aware equivalence entry point, DELETED 2026-08-03 rather than left
-    /// unused.
+    /// Deliberately no UNBOUNDED cache-aware equivalence convenience wrapper exists next to this
+    /// method.
     ///
-    /// It was `analyze_word_with_diagnostics_and_candidates`, a thin
-    /// `ApplyBudget::unbounded()` wrapper over the budgeted method below, and
-    /// `recipe_runtime::measure_and_certify_inner`'s observed arm was its only caller. That call site
-    /// is exactly where the process died: an unbounded propose on
-    /// `machine:edge-cases/deep-optional-affix-nesting` reaches 12^12 raw `apply_up` paths and
-    /// exhausts committed memory (see `crate::compose_budget::DEFAULT_EVALUATION_APPLY_PATH_BUDGET`).
-    /// Both evidence modes now route through the budgeted method, so keeping an unbounded convenience
-    /// wrapper next to it would be an invitation to re-open the hole. Callers that genuinely want no
-    /// envelope pass `ApplyBudget::unbounded()` explicitly, which is a visible, greppable choice.
+    /// An unbounded propose on a real fixture (all-optional template slots) can reach 12^k raw
+    /// `apply_up` paths and exhaust committed memory (see
+    /// `crate::compose_budget::DEFAULT_EVALUATION_APPLY_PATH_BUDGET`, and that module's own doc for
+    /// the mechanism). Every evidence mode routes through this budgeted method, so a convenience
+    /// wrapper defaulting to unbounded would be an invitation to re-open that hole. Callers that
+    /// genuinely want no envelope pass `ApplyBudget::unbounded()` explicitly, which is a visible,
+    /// greppable choice.
     pub(crate) fn analyze_word_with_diagnostics_budgeted_with_candidates(
         &mut self,
         word: &str,
@@ -847,8 +845,8 @@ impl<'g> FomaAnalyzer<'g> {
         (candidates, peel_used, peel_chain_depth_error)
     }
 
-    /// Batch entry point (perf pass, 2026-07-16): analyze every word in `words`, running PROPOSE
-    /// sequentially (unchanged) but CONFIRM in parallel across words.
+    /// Batch entry point: analyze every word in `words`, running PROPOSE
+    /// sequentially but CONFIRM in parallel across words.
     ///
     /// **Why propose stays sequential:** [`FomaProposer::propose`] takes `&mut self` because it
     /// drives the single foma `ApplyHandle` this analyzer owns — that handle is deliberately
@@ -1255,7 +1253,7 @@ mod tests {
         assert_eq!(outcome.structured.len(), engine.structured.len());
     }
 
-    /// Perf pass regression guard (2026-07-16): [`FomaAnalyzer::analyze_words`]'s parallel-confirm
+    /// Regression guard: [`FomaAnalyzer::analyze_words`]'s parallel-confirm
     /// batch path must produce, per word, the exact same confirmed-analysis multiset as calling
     /// [`FomaAnalyzer::analyze_word`] on that word alone — compared via `pg_parse::result_signature`
     /// (order-independent over the analysis set), the same fingerprint the CLI's own TSV rows use.
