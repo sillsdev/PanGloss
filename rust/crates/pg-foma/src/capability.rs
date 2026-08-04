@@ -2255,34 +2255,28 @@ pub(crate) fn simultaneous_rule_admitted_for_compile(
 // MultiTable: the config-predicate `fix-multitable-fst-compilation` registers
 // -------------------------------------------------------------------------------------------
 
-/// `openspec/changes/fix-multitable-fst-compilation`'s own capability predicate: a `Grammar` with
-/// more than one `CharacterDefinitionTable` (D1's `MultiTable` characteristic) is faithfully
-/// compilable by `pg_foma::replace` now that every rewrite rule resolves its own natural
-/// classes/alpha variables against ITS OWNING stratum's table (`owning_table`, never an implicit
-/// `char_tables[0]` default — `fix-multitable-fst-compilation`'s whole `replace.rs`/`lower.rs`
-/// fix), and — `plan-construct-coverage-completion` task 4.4b, `docs/conformance/
-/// multitable-shared-representation-design.md` — a SHARED representation across two tables is now
-/// ALSO faithful, via render-time cross-table representation aliasing
+/// The capability predicate for `MultiTable`: a `Grammar` with more than one
+/// `CharacterDefinitionTable` is faithfully compilable by `pg_foma::replace` now that every
+/// rewrite rule resolves its own natural classes/alpha variables against ITS OWNING stratum's
+/// table (`owning_table`, never an implicit `char_tables[0]` default), and a SHARED representation
+/// across two tables is now ALSO faithful, via render-time cross-table representation aliasing
 /// (`crate::replace::RepresentationAliasMap`, `crate::replace::SegAlphabet::render_tokens`,
 /// consumed by `crate::lower::render_slots`'s `Slot::Fixed`/`Slot::Union` arms), never `Refuse`.
 ///
 /// # Why representation-disjointness is the proof obligation — the FALSE-NEGATIVE direction, not
-/// the false-positive one (corrected; see the design doc's own "headline finding")
-/// `pg_foma::replace::SegAlphabet::token` is (and remains — this fix does not change it) a PURE
-/// function of a `CharDefId`'s raw per-table index (`PUA_BASE + cd.0`), not of which table that
-/// index came from. This module's doc USED TO reason that a shared representation was dangerous
-/// because table B's rule might accidentally match a table-A-originated token that merely shares a
-/// raw index with one of table B's own segments — a FALSE POSITIVE. Tracing the actual failure
-/// mode (design doc, "The plan's assumed fix would make things worse") shows that reasoning
-/// backwards: two tables sharing a representation `s` at DIFFERENT raw indices produce DIFFERENT
-/// tokens for the SAME spelling, so table B's rule — rendered, pre-fix, using only table B's own
-/// token for `s` — simply NEVER FIRES on table-A-originated material spelled `s`. That is a FALSE
-/// NEGATIVE: under the propose-and-confirm invariant, the one error class that can never be
-/// recovered downstream (a proposer may over-approximate freely; an omission is final). A
-/// coincidental raw-index COLLISION (the false-positive worry the old doc named) is exactly the
-/// SAFE direction — `pg_rules::rewrite` (the oracle, resolving every rule via an explicit `TableId`
-/// with no PUA collapsing at all) already prunes it, which is precisely why this predicate lands at
-/// `ConfirmOnly` rather than `Admit` in every case, not only the shared-representation one.
+/// the false-positive one
+/// `pg_foma::replace::SegAlphabet::token` is a PURE function of a `CharDefId`'s raw per-table
+/// index (`PUA_BASE + cd.0`), not of which table that index came from. Two tables sharing a
+/// representation `s` at DIFFERENT raw indices produce DIFFERENT tokens for the SAME spelling, so
+/// table B's rule — rendered using only table B's own token for `s` — simply NEVER FIRES on
+/// table-A-originated material spelled `s`. That is a FALSE NEGATIVE: under the
+/// propose-and-confirm invariant, the one error class that can never be recovered downstream (a
+/// proposer may over-approximate freely; an omission is final). A coincidental raw-index
+/// COLLISION (two DIFFERENT spellings landing on the same raw index across tables) is the SAFE
+/// direction instead — `pg_rules::rewrite` (the oracle, resolving every rule via an explicit
+/// `TableId` with no PUA collapsing at all) already prunes it, which is precisely why this
+/// predicate lands at `ConfirmOnly` rather than `Admit` in every case, not only the
+/// shared-representation one.
 ///
 /// The fix (`RepresentationAliasMap`) keeps tokens keyed by `(table, char-def)` exactly as before,
 /// and only ADDS alternatives at render time: when a normalized representation appears in more than
@@ -2292,18 +2286,15 @@ pub(crate) fn simultaneous_rule_admitted_for_compile(
 /// it already prunes the coincidental-collision case — recall-safe by construction, since aliasing
 /// only ever adds candidate tokens to an atom, never removes the atom's own.
 ///
-/// **Residual gap CLOSED** (`docs/conformance/multitable-shared-representation-design.md`'s own
-/// "Residual gap this fix does NOT close" section, now resolved): `crate::replace::
-/// compile_metathesis_swap_net` used to render tokens via a direct `alphabet.token(cd)` call, not
-/// through `crate::lower::render_slots`, so a `PhonRuleDef::Metathesis` rule sharing a
-/// representation across tables kept the SAME false negative this predicate already treated as
-/// covered for rewrite rules. It is fixed the SAME way `MultiTableFaithfulThreadingPredicate`'s own
-/// rewrite-rule fix is, but via a DIFFERENT mechanism, since text-level render-time unioning is
-/// UNSAFE for metathesis (see `crate::replace`'s own module doc, "Cross-table representation
-/// aliasing" section under "Metathesis", for the full argument: independently unioning a matched
-/// LHS position and its swapped RHS position would let the compiled transducer pair a matched alias
-/// with a DIFFERENT alias's token — a new correctness bug, not merely a missed optimization).
-/// Instead, `crate::replace::slot_candidates` alias-expands each switch position's own candidate
+/// **Metathesis needs a different mechanism than rewrite rules.** `crate::replace::
+/// compile_metathesis_swap_net` renders tokens via a direct `alphabet.token(cd)` call, not
+/// through `crate::lower::render_slots`, so text-level render-time unioning (the rewrite-rule fix
+/// above) is UNSAFE for a `PhonRuleDef::Metathesis` rule sharing a representation across tables
+/// (see `crate::replace`'s own module doc, "Cross-table representation aliasing" section under
+/// "Metathesis", for the full argument: independently unioning a matched LHS position and its
+/// swapped RHS position would let the compiled transducer pair a matched alias with a DIFFERENT
+/// alias's token — a new correctness bug, not merely a missed optimization). Instead,
+/// `crate::replace::slot_candidates` alias-expands each switch position's own candidate
 /// `CharDefId` SET (every `(table, cd)` pair sharing a member's normalized representation, via the
 /// SAME `RepresentationAliasMap`), and the pre-existing per-branch cross-product construction (built
 /// for exactly this "reproduce the SAME matched value at its swapped position" reason,
@@ -2323,17 +2314,15 @@ pub(crate) fn simultaneous_rule_admitted_for_compile(
 ///
 /// # Disposition
 /// - **Zero or one table observed at all:** vacuously `Admit` (this predicate has nothing to say —
-///   [`Disposition::Proven`] already covers the ordinary single-table case, D1's own resting
+///   [`Disposition::Proven`] already covers the ordinary single-table case, the resting
 ///   disposition for every characteristic the grammar never exercises).
 /// - **Two or more tables, ANY relationship between their representations (disjoint OR shared):**
 ///   [`PredicateVerdict::ConfirmOnly`] — per-rule table-correct resolution (`owning_table`) plus,
 ///   for a shared representation, render-time aliasing (`RepresentationAliasMap`) together rule out
 ///   the false-negative risk for rewrite rules; the residual false-positive risk (raw-index
 ///   collision, disjoint OR shared) is exactly what the oracle (`pg_rules::rewrite`) already prunes
-///   downstream. No PROVEN no-false-positive admission-filter argument exists (ADR 0001's own bar
-///   for `Admit`), so this stays confirm-only-by-default in every case — never `Refuse` for a
-///   shared representation anymore (that was the over-cautious, wrong-direction verdict this fix
-///   replaces).
+///   downstream. No PROVEN no-false-positive admission-filter argument exists, so this stays
+///   confirm-only-by-default in every case — never `Refuse` for a shared representation.
 ///
 /// # Provenance
 /// [`EvidenceProvenance::Structural`]: `multi_table_detail`'s pairwise-representation check reads
@@ -2374,15 +2363,12 @@ impl CapabilityPredicate for MultiTableFaithfulThreadingPredicate {
             // Not observed at all (<= 1 table) -- nothing for this predicate to say (module doc).
             return PredicateVerdict::Admit;
         };
-        // A shared representation across tables used to `Refuse` here (the false-positive-shaped
-        // worry the module doc's "Why representation-disjointness is the proof obligation" section
-        // used to name). `plan-construct-coverage-completion` task 4.4b/`docs/conformance/
-        // multitable-shared-representation-design.md` corrects that: the real risk was a false
-        // NEGATIVE (a table-B rule failing to fire on table-A-originated material spelled the same
-        // way), which `crate::replace::RepresentationAliasMap`/`SegAlphabet::render_tokens` now
-        // closes at render time for rewrite rules (module doc's own "Residual" paragraph names the
-        // one still-open case, metathesis rules). `ConfirmOnly` for EVERY multi-table grammar now,
-        // disjoint or shared alike -- never `Refuse` for this characteristic.
+        // The real risk from a shared representation is a false NEGATIVE (a table-B rule failing
+        // to fire on table-A-originated material spelled the same way), which
+        // `crate::replace::RepresentationAliasMap`/`SegAlphabet::render_tokens` closes at render
+        // time for rewrite rules (module doc's own "Metathesis needs a different mechanism"
+        // paragraph names the one still-open case, metathesis rules). `ConfirmOnly` for EVERY
+        // multi-table grammar, disjoint or shared alike -- never `Refuse` for this characteristic.
         PredicateVerdict::ConfirmOnly
     }
 }
