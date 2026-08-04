@@ -737,36 +737,33 @@ pub(crate) fn render_slots(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnsupportedPatternNode {
     /// `PatternNode::Quantifier` (`<OptionalSegmentSequence min max>`) that
-    /// [`crate::replace::pattern_slots`] still refuses: genuinely UNBOUNDED (`max == None`),
-    /// inverted (`min > max`), pathologically large (past
-    /// [`crate::replace`]'s own preflight bound), carrying an alpha-bound occurrence anywhere in
-    /// its own children (`openspec/changes/compile-bounded-fst-quantifiers`, that module's own
-    /// `Slot::Repeat` doc names exactly this scope line), or with no renderable child at all. A
-    /// FINITELY bounded, alpha-free quantifier no longer reaches this variant at all — `pattern_slots`
-    /// accepts it directly (a new `Slot::Repeat`), so [`lower_span`] lowers it transparently, same as
+    /// [`crate::replace::pattern_slots`] still refuses: inverted (`min > max`), pathologically
+    /// large (past [`crate::replace`]'s own preflight bound), carrying an alpha-bound occurrence
+    /// anywhere in its own children, or with no renderable child at all. A
+    /// FINITELY bounded OR genuinely UNBOUNDED (`max == None`), alpha-free quantifier does not reach
+    /// this variant at all — `pattern_slots`
+    /// accepts it directly (a `Slot::Repeat`), so [`lower_span`] lowers it transparently, same as
     /// any other supported node.
     Quantifier,
     /// `PatternNode::Segments` (`<Segments><PhoneticShape>`) — an inline pre-segmented literal shape
-    /// group. Under [`PatternLowerScope::Baseline`] ANY `Segments` node triggers this (unchanged,
-    /// pre-4.2 behavior); under [`PatternLowerScope::RewriteRuleCompile`]
-    /// (`openspec/changes/plan-construct-coverage-completion` task 4.2), neither same-table nor
+    /// group. Under [`PatternLowerScope::Baseline`] ANY `Segments` node triggers this;
+    /// under [`PatternLowerScope::RewriteRuleCompile`],
+    /// neither same-table nor
     /// table-qualified cross-table `Segments` reaches this variant; both preserve table semantics
     /// and lower successfully. This variant remains the baseline-scope refusal only.
     Segments,
     /// `PatternNode::Anchor` (`initialBoundaryCondition`/`finalBoundaryCondition`, or a bare
     /// leading/trailing `#` in an environment string) — a word-boundary condition. Under
-    /// [`PatternLowerScope::Baseline`] this triggers unconditionally (unchanged, pre-4.2 behavior);
-    /// under [`PatternLowerScope::RewriteRuleCompile`] (task 4.2) `Anchor` no longer reaches this
+    /// [`PatternLowerScope::Baseline`] this triggers unconditionally;
+    /// under [`PatternLowerScope::RewriteRuleCompile`] `Anchor` no longer reaches this
     /// variant AT ALL — it always lowers to [`Slot::Anchor`] instead.
     Anchor,
     /// A `PatternNode::Context` carrying an [`pg_grammar::model::AlphaVar`] with `plus == false`
     /// ("disagree" polarity) — not a distinct node KIND, but the same "cannot lower faithfully"
     /// outcome [`pattern_slots`] already reports as unrendered. Scope-independent: no
-    /// [`PatternLowerScope`] tier accepts this shape (`openspec/changes/
-    /// plan-construct-coverage-completion` task 4.2 deliberately leaves it refused — an orthogonal,
+    /// [`PatternLowerScope`] tier accepts this shape — an orthogonal,
     /// pre-existing gap in `resolve_alpha_tuples`' own joint-agreement filter, unrelated to
-    /// direction/reversal, and out of this task's own scope; see that task's final report for the
-    /// full reasoning).
+    /// direction/reversal.
     AlphaDisagreePolarity,
 }
 
