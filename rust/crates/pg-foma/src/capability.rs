@@ -1497,18 +1497,12 @@ fn compounding_recursive(g: &Grammar) -> HashSet<MRuleId> {
 /// `multipleApplication` enumerated attribute tops out at `9` (this crate's own
 /// `recursive-endocentric-compounding` fixture uses that exact ceiling). A finite grammar has a
 /// finite `CompoundingRuleDef` set, each with a finite `max_apps`, so this sum is always computable
-/// and this function always terminates — design.md row 2's own escape valve ("if the depth bound
-/// turns out to be unboundable for some grammar shape... stays Refuse") is therefore never
-/// exercised for this construct; see this task's own final report for why that finding does NOT by
-/// itself unblock a promotion to `ConfirmOnly` (a separate, construction-side gap, not a
+/// and this function always terminates — a grammar shape where the depth bound is unboundable
+/// would still stay `Refuse`, but that case is never exercised for this construct; that alone does
+/// NOT unblock a promotion to `ConfirmOnly` (a separate, construction-side gap, not a
 /// bound-side one).
 ///
-/// **CONSUMED, by two things, and the paragraph that used to stand here saying otherwise was STALE.**
-///
-/// It read: "Not yet consumed by any live budget check ... `crate::emit`'s 'bounded compound loop'
-/// hardcodes exactly ONE extra root regardless of this bound, so no construction exists today that a
-/// larger `max_depth` could safely unlock." Both clauses were true when written and both were falsified
-/// by task #44. Today:
+/// **This number is CONSUMED, by two things — it is not a dead computation nobody reads.**
 ///
 /// - `crate::emit::compound_extra_levels_checked` SIZES A CONSTRUCTION from this number
 ///   (`max_depth - 1` unrolled non-head root levels, shared by BOTH emitters), and
@@ -1516,7 +1510,7 @@ fn compounding_recursive(g: &Grammar) -> HashSet<MRuleId> {
 ///   overridable with `HC_COMPOUND_CHAIN_DEPTH_BUDGET`), which refuses with a typed
 ///   `ComposeError::ChainDepthExceeded` rather than truncating.
 ///
-/// Correcting the stale text matters because a reader who believed it would conclude that nothing
+/// A reader who assumed otherwise would conclude that nothing
 /// depends on how large this number is. Something does.
 ///
 /// # This number is a RULE-COUNT CEILING. It is not a typological depth, and the two must not be conflated
@@ -1526,7 +1520,7 @@ fn compounding_recursive(g: &Grammar) -> HashSet<MRuleId> {
 /// worst case", which is grammar-counting. It does NOT answer "how deeply do compounds NEST", which is
 /// typology. Eight ways to compound is not nine levels of nesting.
 ///
-/// MEASURED consequence (2026-08-03), stated with the number so it is actionable: the private `sena`
+/// Measured consequence, stated with the number so it is actionable: the private `sena`
 /// grammar declares **8** `CompoundingRule`s, none with `multipleApplication`, so every `max_apps` is
 /// the DTD default 1 and this function returns `1 + 1 + 7 = 9`. `compound_extra_levels` is therefore
 /// **8**, and both emitters unroll eight non-head root levels for a grammar in which no single
@@ -7149,14 +7143,12 @@ mod tests {
         );
     }
 
-    /// `openspec/changes/plan-construct-coverage-completion` task 4.1 (design.md row 2): a
-    /// `Compounding` rule with `multipleApplication > 1` (self-feeding) now composes to
+    /// A
+    /// `Compounding` rule with `multipleApplication > 1` (self-feeding) composes to
     /// `ConfirmOnly`, exactly like the non-recursive case — `crate::emit`'s "bounded compound loop"
-    /// (`build_compound_chain`) now unrolls enough extra non-head root levels to realize this
-    /// rule's own computed `max_depth`, closing the construction gap
-    /// `CompoundingRecursionSafePredicate`'s own doc used to cite for staying `Refuse`. Renamed from
-    /// `compose_envelope_refuses_recursive_compounding_grammar` (this exact fixture previously
-    /// pinned the pre-task-4.1 `Refuse` verdict this promotion supersedes).
+    /// (`build_compound_chain`) unrolls enough extra non-head root levels to realize this
+    /// rule's own computed `max_depth`, closing the construction gap that would otherwise force
+    /// `CompoundingRecursionSafePredicate` to stay `Refuse`.
     #[test]
     fn compose_envelope_confirm_only_for_recursive_compounding_grammar() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>

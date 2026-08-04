@@ -198,14 +198,11 @@ mod tests {
         assert_eq!(evaluate_capability(&g), CompileDecision::ConfirmOnly);
     }
 
-    /// `openspec/changes/plan-construct-coverage-completion` task 4.1 (design.md row 2): a
-    /// self-feeding (`multipleApplication="2"`) `Compounding` rule now evaluates to `ConfirmOnly`
+    /// A self-feeding (`multipleApplication="2"`) `Compounding` rule evaluates to `ConfirmOnly`
     /// through this entry point too, not just through `compose_envelope` called directly (mirrors
     /// `evaluate_capability_admits_ordinary_affix_and_iterative_rewrite_grammar`'s own "same verdict
-    /// through the convenience wrapper" job). Renamed from
-    /// `evaluate_capability_refuses_recursive_compounding_grammar` (this exact fixture previously
-    /// pinned the pre-task-4.1 `Refuse` verdict `crate::capability::
-    /// compose_envelope_confirm_only_for_recursive_compounding_grammar` also documents).
+    /// through the convenience wrapper" job) -- the same verdict `crate::capability::
+    /// compose_envelope_confirm_only_for_recursive_compounding_grammar` also documents.
     #[test]
     fn evaluate_capability_confirm_only_for_recursive_compounding_grammar() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>

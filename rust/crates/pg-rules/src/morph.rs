@@ -92,12 +92,9 @@ use crate::trace::{FailureReason, TraceHandle, TraceSink};
 use crate::word::{MorphRecord, MorphStatus, Word};
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 
-// 2026-07-27 follow-up (defect (a), the STAGING.md-cited "table-blindness" antipattern's morph.rs
-// instance): this module used to default every char-def/natural-class resolution to a hardcoded
-// `const TABLE: TableId = TableId(0)`, regardless of which table an affix allomorph's/compounding
-// rule's own owning stratum actually declares (table zero is never an implicit default -- see
-// `crate::cache`'s own module doc for the precedent this mirrors). Every function that used to read
-// that constant now takes an explicit `table: TableId` parameter instead, resolved ONCE per rule
+// Table zero is never an implicit default -- see `crate::cache`'s own module doc for the precedent
+// this mirrors. Every function in this module that resolves a char-def/natural-class identity
+// takes an explicit `table: TableId` parameter, resolved ONCE per rule
 // application (not re-derived by each low-level helper) at the top of each `synth_*`/`ana_*` entry
 // point via `crate::cache::owning_table_for_morpheme` (`AffixProcess`/`Realizational`, which carry
 // their own `MorphemeId` directly) or `crate::cache::owning_table_for_mrule`/
@@ -107,8 +104,7 @@ use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 // (`build_allomorph_lhs_cache`/`build_compound_cache`) take `table` from their `crate::cache`
 // caller, which already resolves it once at `RuleCache::build` time.
 //
-// Architectural note this sweep surfaced (flagged per this task's own instructions, not papered
-// over): no function in this module ever needs MORE than one table for a single rule application,
+// Architectural note: no function in this module ever needs MORE than one table for a single rule application,
 // even though a word's shape can carry material that originated on an earlier (different-table)
 // stratum. That material is already frozen into concrete `char_def`/lane values by whichever
 // earlier rule produced it; every helper this sweep touches (`cd_lanes`/`ctx_pins`/`ctx_lanes`/
