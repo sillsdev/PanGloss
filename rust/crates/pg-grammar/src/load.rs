@@ -1161,11 +1161,11 @@ fn load_allomorph_environments(
 
 fn load_rewrite_rule(pr: &Node, ro: &Ro) -> Result<RewriteRuleDef, GrammarError> {
     let mult = pr.attr("multipleApplicationOrder").unwrap_or("");
-    // P13 (rust-optimizations-phase2.md §P13 / rust/docs/p13-simultaneous-design.md): the former
+    // P13: the former
     // stopgap hard lint here (W1.4) has been REMOVED now that `RewriteMode::Simultaneous` has real
     // execution semantics in `pg-rules` (`rewrite::sim_feature`/`sim_narrow` for synthesis;
-    // `analyze`/`analyze_cached`'s `self_opaquing` repeat-wrapper for analysis — see the design
-    // doc's §4). A grammar authoring `multipleApplicationOrder="simultaneous"` now loads and runs
+    // `analyze`/`analyze_cached`'s `self_opaquing` repeat-wrapper for analysis). A grammar
+    // authoring `multipleApplicationOrder="simultaneous"` now loads and runs
     // with its authored semantics instead of hard-failing.
     let mode = match mult {
         "simultaneous" => RewriteMode::Simultaneous,
@@ -1282,7 +1282,7 @@ fn load_rewrite_subrule(
 }
 
 // ---------------------------------------------------------------------------------------------
-// P13 §4.3: `RewriteSubruleDef::self_opaquing` -- computed once at load time from the rule's own
+// P13: `RewriteSubruleDef::self_opaquing` -- computed once at load time from the rule's own
 // (already-loaded) patterns; see that field's doc for the exact per-kind formula.
 // ---------------------------------------------------------------------------------------------
 
@@ -1307,7 +1307,7 @@ fn compute_self_opaquing(
     }
     if lhs.nodes.len() != rhs.nodes.len() {
         // Narrow/Expansion: irrelevant field, this kind's analysis is always unconditionally
-        // Simultaneous+Deletion regardless of `rule.mode` (§2.2/§1.3 of the design doc).
+        // Simultaneous+Deletion regardless of `rule.mode`.
         return false;
     }
     // Feature: self-opaquing iff some RHS constraint is not feature-unifiable with every
@@ -3083,7 +3083,7 @@ mod tests {
 
     /// P13: the former W1.4 stopgap lint (`RewriteMode::Simultaneous` hard-failed at load because
     /// it had zero readers in `pg-rules`) is gone now that Simultaneous has real execution
-    /// semantics (`rust/docs/p13-simultaneous-design.md`). This test now asserts the POSITIVE
+    /// semantics. This test now asserts the POSITIVE
     /// case the lint used to block: a `multipleApplicationOrder="simultaneous"` rule loads
     /// successfully and round-trips into `RewriteRuleDef.mode`.
     #[test]
@@ -3125,10 +3125,9 @@ mod tests {
         assert_eq!(pr0b.mode, RewriteMode::Iterative);
     }
 
-    /// P13 §4.3 / §7 open question 5's own ask ("Unit-test the `IsUnifiable`-equivalent
-    /// computation directly against hand-built patterns"): pin `RewriteSubruleDef::self_opaquing`'s
+    /// Pin `RewriteSubruleDef::self_opaquing`'s
     /// per-kind formula directly, mirroring C#'s own dispatch (`AnalysisRewriteRule.cs:26-104`)
-    /// rather than just eyeballing agreement against the design doc's prose. Five rules, one
+    /// rather than just eyeballing agreement. Five rules, one
     /// subrule each:
     /// - `prA` (Feature, Simultaneous): RHS pin `Voiced` (voi+) IS feature-unifiable with its
     ///   RightEnvironment `Voiced` (voi+ again, bits overlap) -> `self_opaquing` must be `false`.
