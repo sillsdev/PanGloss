@@ -5591,12 +5591,12 @@ mod tests {
     }
 
     // ---------------------------------------------------------------------------------------
-    // CircumfixOutputAction (`openspec/changes/cover-circumfix-null-output-actions`)
+    // CircumfixOutputAction
     // ---------------------------------------------------------------------------------------
 
     /// Synthetic, delanguaged fixture: a single `MorphologicalRule` whose only allomorph has a
     /// 2-part `MorphologicalInput` (`qA`, `qB`) but a RHS that `CopyFromInput`s only `qA` — a
-    /// null-role subtractive shape (D1's "cover-circumfix-null-..." row): `qB` is matched/consumed
+    /// null-role subtractive shape: `qB` is matched/consumed
     /// but never reaches the output. `classify_affix` reads this as `Role::None` (no `InsertSegments`
     /// at all, so no leading/trailing insert), and `crate::emit::is_structural_rule`'s own
     /// `Role::None` branch admits it (`rhs_drops_lhs_material` is `true`: `qB` is never copied) — the
@@ -5630,7 +5630,7 @@ mod tests {
     </Language></HermitCrabInput>"#;
 
     /// Same 2-part-LHS-drop shape, but the RHS uses `ModifyFromInput` (an ablaut/simulfix-style
-    /// "process morph", D1's "not compilable as strings" citation) instead of ever `CopyFromInput`ing
+    /// "process morph", never compilable as literal strings) instead of ever `CopyFromInput`ing
     /// either part -- `classify_affix` reads this as `Role::Process` (no `Copy` action at all, but a
     /// `Modify` is present), which `crate::emit::is_structural_rule`'s own match falls through to its
     /// `_ => false` arm for -- the OUT-OF-SCOPE case that must stay honestly unsupported (the real
@@ -5792,7 +5792,7 @@ mod tests {
     }
 
     // ---------------------------------------------------------------------------------------
-    // Reduplication (`openspec/changes/cover-template-truncation-reduplication`)
+    // Reduplication
     // ---------------------------------------------------------------------------------------
 
     /// Synthetic, delanguaged fixture: an `AffixProcessRule` whose only allomorph `CopyFromInput`s
@@ -5976,7 +5976,7 @@ mod tests {
     }
 
     // ---------------------------------------------------------------------------------------
-    // QuantifierPattern (`openspec/changes/compile-bounded-fst-quantifiers`)
+    // QuantifierPattern
     // ---------------------------------------------------------------------------------------
 
     /// Synthetic, delanguaged fixture: an ordinary fixed-segment feature rewrite (`a -> b`) gated
