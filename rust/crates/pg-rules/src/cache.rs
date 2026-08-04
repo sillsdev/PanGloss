@@ -520,8 +520,7 @@ mod owning_table_tests {
     /// 1). `mrQtoQP`'s single allomorph's LHS is `ncQ`, a `SegmentNaturalClass` (table-DEPENDENT by
     /// construction, unlike every pre-existing multi-table fixture's `FeatureNaturalClass` --
     /// `PatternBridge::nat_class_lanes`'s `Feature` branch never reads `self.table` at all, so this
-    /// crate's whole pre-existing conformance suite could not see this bug class; see this fixture's
-    /// own STAGING.md follow-up note). If `ncQ` is ever wrongly compiled against table 0 again, its
+    /// crate's whole pre-existing conformance suite could not see this bug class). If `ncQ` is ever wrongly compiled against table 0 again, its
     /// constraint becomes `t0`'s "z" (`f`=`+`) instead of `t1`'s real "q" (`f`=`-`) -- a real `t1`
     /// "q" root's own lanes (`f`=`-`) then fail to match the allomorph's LHS FST at all, synthesis
     /// finds nothing, and this test fails (empty output, not a silently-passing wrong answer). The
