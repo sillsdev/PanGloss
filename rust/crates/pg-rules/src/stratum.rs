@@ -1,4 +1,4 @@
-//! Per-stratum analysis/synthesis orchestration + the affix-template battery (M4b, part 2/2).
+//! Per-stratum analysis/synthesis orchestration + the affix-template battery.
 //!
 //! This composes the already-built engines — [`crate::rewrite`] (phonological analyze/synthesize),
 //! [`crate::morph`] (morphological rule analyze/synthesize), and [`crate::cascade`] (the
@@ -10,7 +10,7 @@
 //!   `SynthesisAffixTemplatesRule.cs` (the slot battery), and
 //! - `SIL.Machine/Rules/RuleBatch.cs` (union of rule outputs; disjunctive = early-exit).
 //!
-//! ## Termination (unmemoized; M6 adds the memo that makes this cheap)
+//! ## Termination (unmemoized here; memoization elsewhere in this crate is what makes it cheap)
 //! The mrule cascades are multi-application (`multi_app=true`): a rule may re-apply to its own
 //! output. Because every unapplication grows the word's `mrule_apps` list, the cascade's
 //! `key(input) != key(result)` self-loop guard is *always* true, so the walk terminates only when
@@ -23,8 +23,8 @@
 //! to `cascade.rs` and bounds both cascade breadth and recursion depth with a single counter.
 //!
 //! **The budget is shared across the whole `parse_word` call, not just one `StratumAnalyzer`'s own
-//! descent** (see [`StepBudget`]'s doc / `docs/budget-model.md` — this closes an amplifier where a
-//! fresh per-instance counter let a multi-stratum, multi-candidate word explore `cap × (#stratum-
+//! descent** (see [`StepBudget`]'s doc — this closes an amplifier where a
+//! fresh per-instance counter would let a multi-stratum, multi-candidate word explore `cap × (#stratum-
 //! analyze calls)` steps instead of `cap`).
 
 use std::cell::{Cell, RefCell};
@@ -33,10 +33,7 @@ use std::rc::Rc;
 // std::time::Instant panics ("time not implemented on this platform") on wasm32-unknown-unknown
 // -- this module's deadline check and always-on profiling timers (below) are unconditional on
 // every parse, so this crate's `web-time` dependency (already used the same way in `morph.rs` and
-// `pg-fst::traverse`, see those modules' own comments) belongs here too; this was the one spot the
-// wasm32 sweep missed (found by inspection while investigating a wasm32-runtime panic during P4
-// gate F4 work -- not itself reached by that panic, which turned out to be in a dependency, see
-// docs/fst-plan/foma-fst-plan.md's P4 report for the full story).
+// `pg-fst::traverse`, see those modules' own comments) belongs here too.
 // web_time re-exports std's `Duration` unchanged, so this is a pure drop-in for `Instant` alone.
 use web_time::{Duration, Instant};
 
@@ -51,61 +48,57 @@ use rustc_hash::FxHashMap as HashMap;
 
 /// Callback injected so compounding analysis can prune non-heads against the lexicon without
 /// `pg-rules` depending on `pg-parse` (crate-boundary: `pg-parse` depends on `pg-rules`, not the
-/// reverse — plan §5.1 crate map). The signature matches `pg-parse`'s
+/// reverse). The signature matches `pg-parse`'s
 /// `RootAllomorphIndex::search`'s exact return shape (`(AllomorphId, LexEntryId)` pairs), so
 /// `pg-parse` can hand its own method straight in as the closure body.
 ///
 /// Only the lexicon *search* crosses the boundary this way. The two C# sub-checks that follow each
-/// matched root (syntactic-FS unifiability, MPR productivity match —
-/// AnalysisCompoundingRule.cs:67-97), the per-allomorph resolution/pin (cs:119-124), and the
-/// per-subrule dedup (cs:99-117) are all done on the `pg-rules` side instead (`morph::
-/// resolve_non_head_roots`, called from `morph::ana_compound_subrule` — plan Tier-2 #7), because
+/// matched root (syntactic-FS unifiability, MPR productivity match, mirroring
+/// `AnalysisCompoundingRule`), the per-allomorph resolution/pin, and the
+/// per-subrule dedup are all done on the `pg-rules` side instead (`morph::
+/// resolve_non_head_roots`, called from `morph::ana_compound_subrule`), because
 /// `Grammar` already carries everything they need (the rule's `non_head_required_syn_fs` /
 /// `non_head_prod_restrictions_mpr`, every `LexEntryDef`'s `syn_fs`/`mpr`/`allomorphs`, and
 /// `pg_rules::shape_feat::segment_with_features` to re-segment the matched allomorph's text) — no
 /// need to widen the callback itself beyond a raw shape search.
 ///
-/// `+ Sync` even though nothing is threaded yet: M7 parallelizes batch parsing across words, and a
-/// non-`Sync` closure type baked in now would be a breaking API change later — cheap to get right
-/// now.
+/// `+ Sync` even though nothing is threaded yet: a future change parallelizing batch parsing across
+/// words would otherwise need a breaking API change to add it later — cheap to get right now.
 pub type NonHeadRootFilter<'a> =
     &'a (dyn Fn(StratumId, &Shape) -> Vec<crate::word::ResolvedRoot> + Sync);
 
-/// F1 (HYBRID_FST_RUST_PLAN.md §7.1 item 1): the admission unit C#'s `Morpher.RuleSelector` gates —
-/// one variant per `IHCRule`-implementing kind that has its own `RuleSelector` read site (see the
-/// grep inventory in `docs/fst-plan/F1_QUIRK_AUDIT.md`'s "Selector read-site inventory"). Mirrors
+/// The admission unit C#'s `Morpher.RuleSelector` gates —
+/// one variant per `IHCRule`-implementing kind that has its own `RuleSelector` read site. Mirrors
 /// C#'s `Func<IHCRule, bool>` taking a *type-tagged* rule reference rather than a shared supertype,
 /// since Rust has no single `IHCRule` object to hand back — the caller's closure switches on the
-/// variant instead of doing an `is` check, an approved deviation in mechanism only (§7.1 preamble):
+/// variant instead of doing an `is` check, an approved deviation in mechanism only:
 /// the SET of admissible rules a given predicate computes is what parity requires, not how the
 /// predicate is shaped.
 ///
-/// **F1 scope note**: only [`RuleRef::Stratum`], [`RuleRef::Template`], and [`RuleRef::MRule`] are
-/// wired into the analysis cascade this milestone (`StratumAnalyzer::apply_one_mrule`/
+/// Only [`RuleRef::Stratum`], [`RuleRef::Template`], and [`RuleRef::MRule`] are
+/// wired into the analysis cascade (`StratumAnalyzer::apply_one_mrule`/
 /// `analyze_template`, plus `pg-parse::Morpher`'s stratum-descent loop on both the analysis AND
 /// synthesis side). Phonological-rule-level gating (`AnalysisRewriteRule`/`AnalysisMetathesisRule`/
 /// `SynthesisRewriteRule`/`SynthesisMetathesisRule`'s own `RuleSelector` checks) and synthesis-side
-/// mrule/template gating have no `RuleRef` variant of their own yet, deferred until
-/// something actually needs to restrict anything beyond a stratum/template/mrule set (`FstReplay`'s own
+/// mrule/template gating have no `RuleRef` variant of their own: `FstReplay`'s own
 /// predicate keeps every phonological rule permanently open, `r is IPhonologicalRule` unconditionally
-/// true — HYBRID_FST_RUST_PLAN.md §4.3 quirk #8 — so no F1-F4 code path is blocked by this deferral).
-/// Flagged here, not silently dropped; a `PRule` variant will be added when F5/F7 needs one.
+/// true, so no analysis/synthesis code path today is blocked by the absence of one.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum RuleRef {
-    /// `AnalysisLanguageRule.cs:29` / `SynthesisStratumRule.cs:51`'s stratum-level gate.
+    /// Mirrors C#'s stratum-level gate (`AnalysisLanguageRule`/`SynthesisStratumRule`).
     Stratum(StratumId),
-    /// `AnalysisAffixTemplateRule.cs:34`'s template-level gate.
+    /// Mirrors C#'s template-level gate (`AnalysisAffixTemplateRule`).
     Template(TemplateId),
-    /// The morphological-rule-level gate shared, textually identically, by
-    /// `AnalysisAffixProcessRule.cs:42`, `AnalysisCompoundingRule.cs:42`, and
-    /// `AnalysisRealizationalAffixProcessRule.cs:42` (one `MRuleId` covers all three C# rule kinds,
+    /// The morphological-rule-level gate shared, textually identically, by C#'s
+    /// `AnalysisAffixProcessRule`, `AnalysisCompoundingRule`, and
+    /// `AnalysisRealizationalAffixProcessRule` (one `MRuleId` covers all three C# rule kinds,
     /// matching `pg_grammar::model::MorphRuleDef`'s own unification of them under one id space).
     MRule(MRuleId),
 }
 
 /// The Rust mirror of `Morpher.RuleSelector` (`Func<IHCRule, bool>`) — see [`RuleRef`]'s doc for
-/// exactly which gates this predicate reaches at F1. `None` (every pre-existing caller) means
-/// "every rule admitted", byte-identical to C#'s default `rule => true` (`Morpher.cs:72`).
+/// exactly which gates this predicate reaches. `None` (every pre-existing caller) means
+/// "every rule admitted", byte-identical to C#'s default `rule => true`.
 pub type RuleFilter<'a> = &'a (dyn Fn(RuleRef) -> bool + Sync);
 
 use crate::cache::RuleCache;
@@ -147,41 +140,33 @@ impl OrderedDedup {
     }
 }
 
-/// The shared per-`parse_word` search-step budget (see `docs/budget-model.md`). One is constructed
+/// The shared per-`parse_word` search-step budget. One is constructed
 /// per `Morpher::parse_word` call and threaded by reference through every
 /// `analyze_stratum_scoped_filtered` invocation of that word's analysis descent — across every
-/// stratum AND every candidate word — closing the old per-`StratumAnalyzer`-instance amplifier
-/// (previously a fresh `Cell::new(0)` was built per stratum-analyze call, so the effective budget
-/// was `cap × #such calls`, not `cap`). Test call sites with no natural "one parse_word" scope
-/// construct their own `StepBudget::new(cap)` per call — identical to the old per-instance-`Cell`
-/// behavior for an isolated single call.
+/// stratum AND every candidate word, so the effective budget is `cap`, not `cap × #stratum-analyze
+/// calls` (a fresh per-call `Cell::new(0)` would let each call spend the full cap independently).
+/// Test call sites with no natural "one parse_word" scope
+/// construct their own `StepBudget::new(cap)` per call.
 ///
-/// Ordinary parsing and generation deliberately keep synthesis's historical independent local step
+/// Ordinary parsing and generation deliberately keep synthesis's own independent local step
 /// cap: [`StepBudget::new`] leaves synthesis counting disabled, so a heavy analysis cannot starve
 /// the candidates it just found of confirmation steps. Bounded diagnostic/classification generation
 /// is the explicit exception: [`StepBudget::with_synthesis_counting`] opts into one shared counter
 /// and deadline across its synthesis calls, allowing the caller to bound the complete exploratory
-/// engine walk. See `docs/budget-model.md`'s "scope of this change" section.
-/// **O1b history:** `over_budget()` used to re-sample the wall clock only every
-/// `WALL_CLOCK_CHECK_INTERVAL` (1024) ticks, gated on `self.steps.get().is_multiple_of(1024)` —
-/// the reasoning being that `Instant::now()` is more expensive than the `Cell` compare the step-cap
-/// check already does, so reading the clock on every call seemed wasteful. This was a real bug, not
-/// just a missed optimization: per-tick cost is NOT uniform (a single (un)application attempt can
-/// legitimately cost microseconds or, for an Optional-flooded affix-matcher shape, over a second —
-/// `docs/phase2-completed/narrowing-budget-w8.md`'s "46s FST traversal" finding, pre-guard era but
-/// illustrative of the range), so a cadence gated on the *global step count landing on an exact
-/// multiple of 1024* only fires as often as "1024 ticks accrue" — completely decoupled from wall
-/// time. A word whose entire natural run takes fewer than 1024 ticks (measured on real Amharic
-/// pathological words: ~1-1.5s per tick, so a few hundred ticks spans several minutes) gets exactly
-/// ONE wall-clock sample, at construction (`steps() == 0`), and then NEVER AGAIN — the deadline
-/// check silently stops mattering for the rest of that word's run, no matter how long it takes.
-/// This is exactly the mechanism behind `rust-optimizations-phase2.md`'s O1b finding: some words
-/// (e.g. በመጨረሻ, 489073ms against a 120000ms deadline) ran ~4x past their deadline and reported `ok`
-/// instead of `TIMEOUT`, while others (whose total tick count happens to cross a 1024 boundary
-/// before their deadline elapses) correctly timed out. No smaller *step-count* interval fixes this
-/// in principle — it only pushes the same failure mode onto slower words; the only sound fix is to
-/// stop gating the wall-clock read on step count at all: read the clock on **every** `over_budget()`
-/// call once a deadline is armed. `over_budget()` fires at rule-attempt/recursion-entry granularity
+/// engine walk.
+///
+/// `over_budget()` reads the wall clock on **every** call once a deadline is armed, rather than
+/// gating the read on the step count reaching a fixed cadence (e.g. every 1024 ticks). A
+/// cadence gated on step count decouples entirely from wall time, because per-tick cost is NOT
+/// uniform: a single (un)application attempt can legitimately cost microseconds or, for a
+/// pathological affix-matcher shape, over a second. A word whose entire natural run takes fewer
+/// than one cadence interval's worth of ticks would then get exactly ONE wall-clock sample, at
+/// construction, and NEVER AGAIN — the deadline check would silently stop mattering for the rest of
+/// that word's run no matter how long it takes, while a word whose tick count happens to cross a
+/// cadence boundary before its deadline elapses would correctly time out. No smaller *step-count*
+/// interval fixes this in principle — it only pushes the same failure mode onto slower words; the
+/// only sound fix is to stop gating the wall-clock read on step count at all. `over_budget()` fires
+/// at rule-attempt/recursion-entry granularity
 /// (a few times per tick, not per innermost-loop-iteration of an FST traversal — that finer-grained
 /// hot loop is `pg-fst::traverse`, deliberately NOT touched here), so `Instant::now()`'s real cost
 /// (tens of nanoseconds) is negligible next to the per-call work it gates. No deadline (`None`, the
@@ -192,7 +177,7 @@ pub struct StepBudget {
     capped: Cell<bool>,
     /// The `--word-timeout-ms` deadline, resolved to an absolute instant at construction time
     /// (`with_timeout`), or `None` — no wall-clock bound at all (the default). Independent of
-    /// `cap`/`capped`: this is a *second*, orthogonal bound (`docs/budget-model.md`'s addendum),
+    /// `cap`/`capped`: this is a *second*, orthogonal bound,
     /// not a re-expression of the step cap.
     deadline: Option<Instant>,
     timed_out: Cell<bool>,
@@ -212,8 +197,8 @@ impl StepBudget {
     }
 
     /// Arm (or leave unarmed) an optional wall-clock deadline alongside the existing step cap —
-    /// two independent bounds on the same `parse_word` call, whichever fires first wins
-    /// (`docs/budget-model.md`'s addendum). `timeout: None` is a complete no-op (matches `new`'s
+    /// two independent bounds on the same `parse_word` call, whichever fires first wins.
+    /// `timeout: None` is a complete no-op (matches `new`'s
     /// default), so callers that never pass `--word-timeout-ms` pay nothing extra.
     pub fn with_timeout(mut self, timeout: Option<Duration>) -> Self {
         self.deadline = timeout.map(|d| Instant::now() + d);
@@ -298,7 +283,7 @@ impl StepBudget {
         self.timed_out.get()
     }
 
-    /// Raw tick count so far (diagnostic only — see `docs/budget-model.md`). Lets callers report how
+    /// Raw tick count so far (diagnostic only). Lets callers report how
     /// many (un)application attempts a `parse_word` call actually consumed, independent of whether
     /// the cap was hit; used to compare against C#'s `--rule-stats` attempt counts on specific words.
     pub fn steps(&self) -> usize {
@@ -375,20 +360,18 @@ mod step_budget_timeout_tests {
         assert!(!budget.capped());
     }
 
-    /// **O1b regression guard.** The bug this module's O1b doc describes: before the fix,
-    /// `over_budget()`'s wall-clock branch was gated on `self.steps.get().is_multiple_of(1024)`, so
-    /// a run whose total tick count never reaches 1024 only ever sampled the clock ONCE, at
+    /// **Wall-clock cadence regression guard.** A wall-clock branch gated on step count reaching a
+    /// fixed cadence (e.g. `self.steps.get().is_multiple_of(1024)`) means
+    /// a run whose total tick count never reaches that cadence only ever samples the clock ONCE, at
     /// construction — the deadline could then elapse arbitrarily far past without ever being
     /// re-checked. `word_timeout_pathological_gate.rs`'s existing fixture doesn't catch this (its
-    /// ~13,699-step run crosses many 1024 boundaries, so the old cadence happened to work there).
-    /// This test pins the exact failure shape the old cadence missed: fewer than 1024 ticks total,
-    /// each with real wall-clock time elapsing between them (a `sleep`, standing in for a single
-    /// expensive (un)application attempt — measured on real Amharic pathological words at ~1-1.5s
-    /// per tick, `docs/budget-model.md`'s O1b addendum), with a deadline that elapses partway
-    /// through. Red on the pre-fix cadence (200 ticks < 1024, so `over_budget()` only ever sampled
-    /// the clock at step 0 — before the sleeps had accrued any real time — and the loop ran to
-    /// completion, never firing); green after (every call reads the clock once armed, so the
-    /// deadline fires within about one tick of the 50ms mark).
+    /// ~13,699-step run crosses many cadence boundaries, so a step-gated cadence happens to work there).
+    /// This test pins the exact failure shape a step-gated cadence misses: fewer than one cadence
+    /// interval's ticks total, each with real wall-clock time elapsing between them (a `sleep`,
+    /// standing in for a single expensive (un)application attempt), with a deadline that elapses
+    /// partway through: reading the clock only ever at step 0 — before the sleeps had accrued any
+    /// real time — would run the loop to completion, never firing; reading it on every call once
+    /// armed fires the deadline within about one tick of the 50ms mark.
     #[test]
     fn wall_clock_deadline_fires_even_when_total_ticks_never_reach_the_old_check_interval() {
         const N: u64 = 200; // well under the old 1024-tick cadence interval
@@ -451,28 +434,28 @@ mod step_budget_timeout_tests {
 }
 
 /// Configuration for a stratum (un)application run. C# reads these off the `Morpher`; here they are
-/// explicit so M5/tests can pin them.
+/// explicit so callers/tests can pin them.
 #[derive(Clone, Copy, Debug)]
 pub struct AnalyzerConfig {
-    /// C# `Morpher.MergeEquivalentAnalyses` (ctor default `true`, Morpher.cs:110): collapse this
+    /// Mirrors C# `Morpher.MergeEquivalentAnalyses` (ctor default `true`): collapse this
     /// stratum's analysis candidates that share a [`Shape`] into one canonical word, folding the
-    /// repeats into its [`Word::alternatives`] (AnalysisStratumRule.cs:150-177). The alternatives are
+    /// repeats into its [`Word::alternatives`]. The alternatives are
     /// re-expanded at synthesis by [`super::stratum`]'s caller via [`Word::expand_alternatives`], so
     /// no candidate history is lost — this is a per-stratum de-duplication that keeps only one word
-    /// per shape flowing into the deeper strata (the "second Sena perf lever", plan §13.1.1 Tier-2
-    /// #14), not a pruning. Default `true`, as in C#.
+    /// per shape flowing into the deeper strata (a real perf lever on high-fan-out grammars),
+    /// not a pruning. Default `true`, as in C#.
     pub merge_equivalent: bool,
-    /// C# `Morpher.MaxUnapplications`: stop once the analysis output reaches this many candidates
-    /// (`0` = unlimited). AnalysisStratumRule.cs:144.
+    /// Mirrors C# `Morpher.MaxUnapplications`: stop once the analysis output reaches this many
+    /// candidates (`0` = unlimited).
     pub max_unapplications: usize,
-    /// C# `Morpher.MaxStemCount` (default `2`, Morpher.cs:108/174): the depth gate on recursive
-    /// compounding. `AnalysisCompoundingRule.Apply` (AnalysisCompoundingRule.cs:44-49) refuses to
+    /// Mirrors C# `Morpher.MaxStemCount` (default `2`): the depth gate on recursive
+    /// compounding. C#'s `AnalysisCompoundingRule.Apply` refuses to
     /// unapply a compounding rule once `input.NonHeadCount + 1 >= MaxStemCount` — with the default
     /// of 2, at most one non-head may ever be split off, so a word can be de-compounded once, never
     /// recursively re-compounded. Without this gate, a compounding subrule whose head/non-head
     /// patterns are `1+ of any segment` (as both Indonesian compounding rules are) matches every
     /// split point of every substring at every depth — a Catalan-scale blowup in reachable states
-    /// that both explodes the memoized cascade's per-node stored subtree size (M6) and, unmemoized,
+    /// that both explodes the memoized cascade's per-node stored subtree size and, unmemoized,
     /// just burns the whole step budget on meaningless fragments. Enforced in
     /// [`StratumAnalyzer::apply_one_mrule`], mirroring where C# enforces it (the rule's own `Apply`
     /// wrapper), not inside `morph::ana_compound` itself.
@@ -502,10 +485,10 @@ pub struct StratumAnalysis {
 // Analysis stratum rule.
 // =================================================================================================
 
-/// Analyze (unapply) `input` through `stratum` — a faithful port of `AnalysisStratumRule`
-/// (AnalysisStratumRule.cs). Returns the deduplicated candidate set; see [`StratumAnalysis`].
+/// Analyze (unapply) `input` through `stratum` — a faithful port of C#'s `AnalysisStratumRule`.
+/// Returns the deduplicated candidate set; see [`StratumAnalysis`].
 ///
-/// This is the primary M5 entry point: M5's lexical lookup runs this per stratum (deepest first)
+/// This is the primary analysis entry point: lexical lookup runs this per stratum (deepest first)
 /// and matches root allomorphs against each candidate's shape.
 pub fn analyze_stratum(
     g: &Grammar,
@@ -535,11 +518,11 @@ pub fn analyze_stratum(
     .analyze(input)
 }
 
-/// Analyze `input` through `stratum` with the #451 order-invariant memo active (M6). Identical to
+/// Analyze `input` through `stratum` with the order-invariant memo active. Identical to
 /// [`analyze_stratum`] except an [`AnalysisScope`] carries the nogood/positive/template memo across
 /// the whole descent — and, because `pg-parse` reuses one scope for every stratum + input word of a
 /// single `parse_word`, across the whole parse. Passing `None` (via [`analyze_stratum`]) reproduces
-/// the unmemoized engine byte-for-byte — the fair-baseline knob (plan §6.3).
+/// the unmemoized engine byte-for-byte — the fair-baseline knob for A/B comparison.
 pub fn analyze_stratum_scoped(
     g: &Grammar,
     stratum: StratumId,
@@ -566,16 +549,16 @@ pub fn analyze_stratum_scoped(
 }
 
 /// Identical to [`analyze_stratum_scoped`], plus the compounding non-head root filter
-/// (`AnalysisCompoundingRule.Apply`'s root-allomorph-search gate, AnalysisCompoundingRule.cs:61-125
-/// — M5c). `pg-parse::Morpher` calls this (wiring in its `RootAllomorphIndex::search`); everything
+/// (mirrors C#'s `AnalysisCompoundingRule.Apply`'s root-allomorph-search gate).
+/// `pg-parse::Morpher` calls this (wiring in its `RootAllomorphIndex::search`); everything
 /// else — `pg-rules`'s own lexicon-free tests included — keeps calling [`analyze_stratum_scoped`] /
 /// [`analyze_stratum`], which pass `None` and see every candidate, unfiltered, exactly as before.
 ///
 /// The one entry point of the three (`analyze_stratum`/`_scoped`/`_scoped_filtered`) with a real
 /// production call site (`pg-parse::Morpher::parse_word`): `cache` is mandatory here — a `RuleCache`
 /// built once at `Morpher` construction and shared across every stratum/candidate of a parse (and
-/// across every `--threads=N` worker), the whole point of the compile-once cache (plan §13.2 step
-/// 5; see `crate::cache`'s module doc). Its only test caller (`non_head_root_filter_gate.rs`) builds
+/// across every `--threads=N` worker), the whole point of the compile-once cache (see
+/// `crate::cache`'s module doc). Its only test caller (`non_head_root_filter_gate.rs`) builds
 /// its own `RuleCache` too — safely, since that suite's grammars are compounding-only and never mint
 /// an `AllomorphId`, so they are unaffected by the registry caveat [`analyze_stratum`]'s doc raises.
 #[allow(clippy::too_many_arguments)]
@@ -633,10 +616,10 @@ pub fn analyze_stratum_scoped_filtered_ruled(
     .analyze(input)
 }
 
-/// 2026-07-17 dead-end-attribution census addition (see `crate::morph`'s analysis-tracing module
-/// doc, and [`StratumAnalyzer`]'s `trace`/`parent` fields): [`analyze_stratum_scoped_filtered_ruled`]'s
-/// traced sibling — identical in every other respect. The only intended caller is the census's own
-/// `pg_parse::Morpher::parse_word_selected_traced` path; every pre-existing entry point above keeps
+/// See `crate::morph`'s analysis-tracing module
+/// doc, and [`StratumAnalyzer`]'s `trace`/`parent` fields: [`analyze_stratum_scoped_filtered_ruled`]'s
+/// traced sibling — identical in every other respect. The only intended caller is
+/// `pg_parse::Morpher::parse_word_selected_traced`; every pre-existing entry point above keeps
 /// calling the untraced function (or passes `&NoopSink`/`TraceHandle::DUMMY` itself), so this is a
 /// new, additive call path, not a change to any existing one.
 #[allow(clippy::too_many_arguments)]
@@ -676,27 +659,27 @@ struct StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
     stratum: &'g pg_grammar::model::StratumDef,
     order: MorphRuleOrder,
     /// The stratum's morphological rules **reversed** — C# `AnalysisStratumRule` does
-    /// `stratum.MorphologicalRules.Select(Compile).Reverse()` for *both* Linear and Unordered
-    /// (cs:32-34). The cascade indexes this reversed list; the closure maps `i -> reversed[i]` so
+    /// `stratum.MorphologicalRules.Select(Compile).Reverse()` for *both* Linear and Unordered.
+    /// The cascade indexes this reversed list; the closure maps `i -> reversed[i]` so
     /// the correct `MRuleId` is recorded regardless of order.
     reversed_mrules: Vec<MRuleId>,
     cfg: AnalyzerConfig,
     budget: &'b StepBudget,
-    /// The #451 memo (M6), or `None` for the unmemoized baseline. Threaded here rather than through
+    /// The order-invariant memo, or `None` for the unmemoized baseline. Threaded here rather than through
     /// every recursion argument. See [`analyze_stratum_scoped`].
     scope: Option<&'s MemoScope>,
-    /// The M5c non-head lexicon filter, or `None` (unfiltered — every pre-existing caller). See
+    /// The non-head lexicon filter, or `None` (unfiltered — every pre-existing caller). See
     /// [`NonHeadRootFilter`] and [`Self::non_head_root_matches`].
     non_head_root_filter: Option<NonHeadRootFilter<'f>>,
-    /// F1 (§7.1 item 1): the mrule/template selector, or `None` (every pre-existing caller — every
+    /// The mrule/template selector, or `None` (every pre-existing caller — every
     /// rule admitted). See [`RuleFilter`]'s doc.
     rule_filter: Option<RuleFilter<'r>>,
-    /// The compile-once FST cache (plan §13.2 step 5) — see `crate::cache`'s module doc. `None`
+    /// The compile-once FST cache — see `crate::cache`'s module doc. `None`
     /// falls all the way back to the pre-cache recompile-every-call behavior (see [`analyze_stratum`]'s
     /// doc for why that's still needed).
     cache: Option<&'c RuleCache>,
-    /// 2026-07-17 dead-end-attribution census addition (see `crate::morph`'s analysis-tracing
-    /// module doc): the analysis-side trace sink + cursor, threaded exactly like every synthesis-
+    /// See `crate::morph`'s analysis-tracing
+    /// module doc: the analysis-side trace sink + cursor, threaded exactly like every synthesis-
     /// side function already does (`&NoopSink`/`TraceHandle::DUMMY` for every pre-existing caller —
     /// `analyze_stratum`/`_scoped`/`_scoped_filtered`/`_scoped_filtered_ruled` all pass this
     /// unchanged, so `trace.is_tracing()` is `false` and every gated call below takes its existing
@@ -810,10 +793,10 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         // allomorph-search gate, AnalysisCompoundingRule.cs:61-125) is now threaded straight into
         // `morph::ana_compound`/`ana_compound_cached` rather than post-filtering the returned
         // `Vec<Word>`: the root-allomorph resolution + per-candidate pin must join the same
-        // **per-subrule** duplicate-elimination scope C# uses (cs:99-117), which only
+        // **per-subrule** duplicate-elimination scope C# uses, which only
         // `ana_compound_subrule` itself has in hand. `None` (`pg-rules`'s own lexicon-free tests,
-        // and every `AffixProcess` rule) preserves the pre-#7 unfiltered/unresolved behavior.
-        // 2026-07-17 dead-end-attribution census addition: `w.trace.unwrap_or(self.parent)` is the
+        // and every `AffixProcess` rule) preserves the unfiltered/unresolved behavior for those callers.
+        // `w.trace.unwrap_or(self.parent)` is the
         // same "resolved cursor" idiom every synthesis-side call site already uses (e.g.
         // `synth_apply_mrules`'s `w_parent`) — `w` carries forward whichever trace handle the
         // DEEPEST successful analysis event along this branch minted, so a chain of successful
@@ -851,10 +834,10 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         };
         for o in &mut outs {
             // Analysis always records the *known* rule (never C#'s null "unknown compounding rule"
-            // — that only arises from generation seeding a bare non-head directly, W7).
+            // — that only arises from generation seeding a bare non-head directly).
             o.mrule_apps.push(Some(id));
             o.mrule_app_index = o.mrule_apps.len() as i32 - 1;
-            // The M6 order-invariant count multiset (C# `Word.MorphologicalRuleUnapplied`), paired
+            // The order-invariant count multiset (C# `Word.MorphologicalRuleUnapplied`), paired
             // with the `mrule_apps.push` above. Consumed only by [`Self::state_key`]; on the
             // unmemoized path it is computed but unread (additive, harmless).
             o.record_unapplication(id);
@@ -1044,11 +1027,10 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         result
     }
 
-    /// The template `RuleBatch` (AnalysisStratumRule.cs:26-30), memoized via the separate
-    /// `TemplateMemo` table when a scope is present (AnalysisScope.cs:43-53). The battery is invoked
-    /// far more often than there are distinct keys (C#: 38,840 calls vs. ~2,581 keys on atawirambo —
-    /// 93% of parse time), so collapsing equal-keyed arrivals to one battery run + replay is the bulk
-    /// of the M6 win.
+    /// The template `RuleBatch`, memoized via the separate
+    /// `TemplateMemo` table when a scope is present. On a pathological word the battery is invoked
+    /// far more often than there are distinct keys, so collapsing equal-keyed arrivals to one
+    /// battery run + replay is the bulk of the win from memoization.
     fn run_template_batch(&self, input: &Word) -> Vec<Word> {
         let Some(scope) = self.scope else {
             return self.run_template_batch_raw(input);
@@ -1243,21 +1225,20 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         input.source = Some(source.clone());
         input.alternatives.clear();
 
-        // `_prulesRule.Apply(input)` — a LinearRuleCascade over the prules **reversed**, applied in
-        // place: C# discards the cascade's return value and freezes/uses `input` itself (cs:111).
+        // Mirrors C#'s `_prulesRule.Apply(input)` — a LinearRuleCascade over the prules **reversed**,
+        // applied in place: C# discards the cascade's return value and freezes/uses `input` itself.
         // Modelled as an in-place fold: each phonological rule that unapplies replaces the shape.
-        // (Zero prules in Sena; untested by any acceptance gate — flagged in the report.)
+        // (Zero prules in Sena; untested by any acceptance gate.)
         //
-        // 2026-07-17 dead-end-attribution census addition: swapped for the `_traced` siblings
+        // Uses the `_traced` siblings
         // (`rewrite::analyze_cached_traced`/`analyze_traced`, `metathesis::analyze_cached_traced`/
-        // `analyze_traced`) — all four already existed, built but unwired (see their own doc
-        // comments: "not yet wired into the live per-word pipeline"). Each fast-paths straight back
+        // `analyze_traced`). Each fast-paths straight back
         // to the untraced call above when `self.trace.is_tracing()` is false, so every pre-existing
         // (production) caller is unaffected. No per-prule cursor advance (`self.parent` used
         // unchanged for every prule in this loop) — see `deadend_census.rs`'s frontier-definition
         // doc for why that coarser depth is an accepted simplification here.
         for &pid in self.stratum.prules.iter().rev() {
-            // Fix 2 follow-up: this loop had no budget check at all (unlike every other
+            // This loop needs a budget check (unlike every other
             // (un)application site in this module). A deadline-only check (never the step cap --
             // see `StepBudget::deadline_expired`'s doc for why conflating the two here would risk
             // golden parity) closes the same class of gap synthesis's own unguarded prule loop had.
@@ -1392,17 +1373,17 @@ fn slot_optional(slot: &SlotDef) -> bool {
 
 // =================================================================================================
 // Synthesis affix-template rule (self-contained; the stratum-level synthesis driver below is
-// gated on M5 lexicon state and flagged).
+// gated on lexicon state).
 // =================================================================================================
 
-/// Port of `SynthesisAffixTemplateRule.Apply` + `ApplySlots` (SynthesisAffixTemplateRule.cs): apply
+/// Mirrors C#'s `SynthesisAffixTemplateRule.Apply` + `ApplySlots`: apply
 /// slots **bottom-up** (ascending), a non-optional slot that produced nothing terminating the path.
-/// Returns the set of words with the template's slots applied. Independent of M5 lexicon state, so
-/// usable now (e.g. an analyze→synthesize template round trip).
+/// Returns the set of words with the template's slots applied. Independent of lexicon state, so
+/// usable standalone (e.g. an analyze→synthesize template round trip).
 ///
 /// This is the **ungated** slot walk: it applies each slot rule unconditionally (used by round-trip
-/// tests that start from a hand-built word with no unapplication history). The M5 pipeline's
-/// synthesis instead uses [`synth_apply_templates`] → [`guided_template_apply`], which threads the
+/// tests that start from a hand-built word with no unapplication history). The production
+/// synthesis pipeline instead uses [`synth_apply_templates`] → [`guided_template_apply`], which threads the
 /// `IsMorphologicalRuleApplicable` confirmation gate (see [`guided_synth`]).
 ///
 /// `cap` bounds total single-rule application attempts (same safety valve as analysis).
@@ -1412,7 +1393,7 @@ pub fn synthesize_template(g: &Grammar, tid: TemplateId, input: &Word, cap: usiz
     let mut out: HashMap<WordKey, Word> = HashMap::default();
     let apply =
         |g: &Grammar, rid: MRuleId, w: &Word| morph::synthesize(g, w, &g.mrules[rid.0 as usize]);
-    // Fix 2: `synth_slots_generic` now also takes a `&StepBudget` for the wall-clock deadline
+    // `synth_slots_generic` also takes a `&StepBudget` for the wall-clock deadline
     // check (see that function's doc). This standalone/round-trip-test entry point has no natural
     // `parse_word`-scoped deadline to thread in, so it builds its own budget with no timeout armed
     // -- `deadline_expired()` is then a complete no-op, exactly reproducing this function's
@@ -1435,12 +1416,12 @@ pub fn synthesize_template(g: &Grammar, tid: TemplateId, input: &Word, cap: usiz
     out.into_values().collect()
 }
 
-/// The M5 pipeline's slot walk: identical structure to [`synthesize_template`] but the per-rule
+/// The production pipeline's slot walk: identical structure to [`synthesize_template`] but the per-rule
 /// application is the **guided** [`guided_synth`] (confirms `IsMorphologicalRuleApplicable` and
 /// decrements `mrule_app_index`). Shares the caller's step budget.
 ///
-/// P12 chunk 5: `BeginApplyTemplate` fires ONCE here, at the top-level `Apply` entry
-/// (`SynthesisAffixTemplateRule.cs:29-30`) -- the per-level `EndApplyTemplate` calls (both the
+/// `BeginApplyTemplate` fires ONCE here, at the top-level `Apply` entry
+/// (mirrors C#'s `SynthesisAffixTemplateRule`) -- the per-level `EndApplyTemplate` calls (both the
 /// `applied=false` early-return and the `applied=true` completion) are recursive and live inside
 /// [`synth_slots_generic`] itself (cs:38-53), since C#'s own `ApplySlots` fires them at every
 /// recursion depth, not just the outermost one.
@@ -1474,20 +1455,20 @@ fn guided_template_apply(
 /// guided ([`guided_template_apply`]) callers. `apply(g, rule_id, word)` returns the rule's synthesis
 /// outputs (empty = did not apply).
 ///
-/// P12 chunk 5: `trace`/`tid`/`parent` mirror C#'s per-recursion-depth `EndApplyTemplate` calls
-/// (`SynthesisAffixTemplateRule.cs:38-53`) -- each recursion level's OWN `input` word may fire its
-/// own `EndApplyTemplate(false)` (a mandatory slot at this depth had nothing recurse further with,
-/// cs:43-47) or, at the walk's natural end (every slot tried/skipped), `EndApplyTemplate(true)`
-/// (cs:51-53) -- neither reassigns the word's trace cursor in C# (`TraceManager.cs:204-216`, both
+/// `trace`/`tid`/`parent` mirror C#'s per-recursion-depth `EndApplyTemplate` calls --
+/// each recursion level's OWN `input` word may fire its
+/// own `EndApplyTemplate(false)` (a mandatory slot at this depth had nothing recurse further with)
+/// or, at the walk's natural end (every slot tried/skipped), `EndApplyTemplate(true)` --
+/// neither reassigns the word's trace cursor in C# (both
 /// bodies just append a sibling under `word.CurrentTrace`), so `input.trace.unwrap_or(parent)` (the
 /// SAME resolved fallback idiom used throughout this module) is exactly right at every depth.
 /// [`synthesize_template`] (the untraced, standalone-fixture caller) passes [`crate::trace::NoopSink`]
 /// and [`TraceHandle::DUMMY`] -- `tid` is passed for real (harmless; `NoopSink` never reads it).
 ///
-/// Fix 2 (synthesis-side `--word-timeout-ms` enforcement): `budget` is consulted via
+/// Synthesis-side `--word-timeout-ms` enforcement: `budget` is consulted via
 /// [`StepBudget::deadline_expired`] -- the wall-clock-only half of the budget, never its step-cap
-/// (this walk's own `cap`/`steps` remain the sole step-count authority, unchanged from before this
-/// fix -- see `deadline_expired`'s doc for why conflating the two would risk golden parity). A
+/// (this walk's own `cap`/`steps` remain the sole step-count authority
+/// -- see `deadline_expired`'s doc for why conflating the two would risk golden parity). A
 /// `None`-deadline budget (every step-cap-only caller, including [`synthesize_template`]'s own
 /// freshly-built one) makes every one of these checks a no-op, so this walk's behavior is
 /// byte-for-byte unchanged when `--word-timeout-ms` is not set.
@@ -1564,40 +1545,36 @@ fn synth_slots_generic<F>(
 }
 
 // =================================================================================================
-// Synthesis stratum rule (M5b — the confirmation gates completed).
+// Synthesis stratum rule.
 // =================================================================================================
 
-/// Guided single-rule synthesis — the completion of the M4b-partial synthesis path (M5b). This is
-/// the faithful port of `SynthesisAffixProcessRule.Apply`'s entry gate + `MorphologicalRuleApplied`
-/// bookkeeping (SynthesisAffixProcessRule.cs:43,195 / Word.cs:344-356), which together make
+/// Guided single-rule synthesis. This is
+/// the faithful port of C#'s `SynthesisAffixProcessRule.Apply`'s entry gate + `MorphologicalRuleApplied`
+/// bookkeeping, which together make
 /// synthesis **confirm the analysis**: a rule may re-apply only if it is the current expected rule
 /// on the word's unapplication stack, and applying it advances that stack.
 ///
-/// - `IsMorphologicalRuleApplicable(rule)` (Word.cs:237-244): `mrule_app_index >= 0` and the rule at
-///   that index equals `id`, OR (Word.cs:243) that slot is C#'s null "unknown compounding rule" and
-///   `id` names a `CompoundingRule` — reachable when [`pg_parse`]'s `generate_words` (W7) seeds a
+/// - `IsMorphologicalRuleApplicable(rule)`: `mrule_app_index >= 0` and the rule at
+///   that index equals `id`, OR that slot is C#'s null "unknown compounding rule" and
+///   `id` names a `CompoundingRule` — reachable when [`pg_parse`]'s `generate_words` seeds a
 ///   bare non-head `LexEntry` directly (the `None` variant of [`Word::mrule_apps`]'s element type;
 ///   analysis itself never produces one, see that field's doc).
-/// - `MorphologicalRuleApplied` (Word.cs:344-356): on success decrement `mrule_app_index`; for a
+/// - `MorphologicalRuleApplied`: on success decrement `mrule_app_index`; for a
 ///   compounding rule also decrement `non_head_app_index`.
 ///
-/// `MaxApplicationCount` gating (SynthesisAffixProcessRule.cs:46) is **not** enforced — it needs the
-/// per-word `rule_counts` deferred to M6. The guided index already bounds re-applications to the
-/// analysis history length; the only place this can over-generate is a multi-application rule
-/// (reduplication). Flagged in the M5b report, not hacked.
-/// P12 chunks 4/5 (the applied-event spine, landed together -- see the plan doc's DONE note for why
-/// this straddles the chunk 4/5 boundary): on success, fires C#'s `MorphologicalRuleApplied`
-/// (`TraceManager.cs`) and reassigns each output's trace cursor to the new node (`Word.CurrentTrace
-/// = trace`, Word.cs -- §1.2's cursor-reassignment subtlety), so a LATER event on this candidate's
-/// branch nests UNDER this rule's node rather than as a sibling. `subrule_index` is not yet
-/// populated (`-1`/absent from this call) -- `morph::synthesize_cached` does not report which
-/// allomorph/subrule fired back up to this caller; wiring that through is chunk 4's remaining,
-/// not-yet-landed work (the ~27 `FailureReason`-reporting call sites `morph.rs` itself needs).
-/// Failed-to-apply attempts (any of the three early returns below, or a zero-output
-/// `synthesize_cached` call) are **not yet traced** -- this landing only wires the SUCCESS event,
-/// which is what the design's §6 acceptance walkthrough and the "rule sequence a human can follow"
-/// bar need; the `MorphologicalRuleNotApplied(reason)` wiring is explicitly deferred, flagged here
-/// rather than silently dropped.
+/// C#'s `MaxApplicationCount` gating is **not** enforced — it needs a
+/// per-word `rule_counts` this port does not carry. The guided index already bounds re-applications
+/// to the analysis history length; the only place this can over-generate is a multi-application rule
+/// (reduplication).
+///
+/// On success, fires C#'s `MorphologicalRuleApplied` trace event
+/// and reassigns each output's trace cursor to the new node (`Word.CurrentTrace = trace`), so a
+/// LATER event on this candidate's branch nests UNDER this rule's node rather than as a sibling.
+/// `subrule_index` is always `-1`/absent from this call, because
+/// `morph::synthesize_cached` does not report which allomorph/subrule fired back up to this caller.
+/// Only the SUCCESS event is traced here; a failed-to-apply attempt (any of the three early returns
+/// below, or a zero-output `synthesize_cached` call) has no `MorphologicalRuleNotApplied` trace
+/// event of its own at this call site.
 fn guided_synth(
     g: &Grammar,
     id: MRuleId,
@@ -1621,8 +1598,8 @@ fn guided_synth(
     if !applicable {
         return Vec::new();
     }
-    // P12 chunk 4: `node_parent` resolves to the correct cursor (the word's own trace handle if
-    // already set, else the caller's ambient `parent`) exactly as before, but is now threaded INTO
+    // `node_parent` resolves to the correct cursor (the word's own trace handle if
+    // already set, else the caller's ambient `parent`), threaded INTO
     // `synthesize_cached_traced` itself rather than applied after the fact -- `synth_affix_cached`/
     // `synth_compound_cached`/`synth_realizational_cached` fire BOTH `MorphologicalRuleApplied` (with
     // the REAL subrule index, closing the `-1` placeholder) and `MorphologicalRuleNotApplied`/
@@ -1687,16 +1664,16 @@ fn has_remaining_rules_from_stratum(g: &Grammar, w: &Word, stratum: StratumId) -
     }
 }
 
-/// Port of `SynthesisStratumRule.Apply` (SynthesisStratumRule.cs:49-92) — M5b-complete.
+/// Mirrors C#'s `SynthesisStratumRule.Apply`.
 ///
-/// Faithful gates now enforced:
-/// - **Entry gate** (cs:51): pass the word through unchanged if its root's stratum is shallower than
+/// Faithful gates enforced:
+/// - **Entry gate**: pass the word through unchanged if its root's stratum is shallower than
 ///   this stratum (`root.Stratum.Depth > stratum.Depth`). Depth = strata index; the word's
 ///   `stratum` is set to the root entry's stratum by lexical lookup, so `input.stratum` *is*
 ///   `RootAllomorph.Morpheme.Stratum`. (`RuleSelector` is always the identity in the batch tool.)
-/// - **Final gating** (cs:60): only words whose last applied rule was final proceed.
-/// - **`HasRemainingRulesFromStratum`** (cs:65): drop words that still owe this stratum a rule.
-/// - **Trailing in-place prules** (cs:81) then clear the final flag (cs:82).
+/// - **Final gating**: only words whose last applied rule was final proceed.
+/// - **`HasRemainingRulesFromStratum`**: drop words that still owe this stratum a rule.
+/// - **Trailing in-place prules** then clear the final flag.
 ///
 /// No test calls this directly (only `pg-parse::Morpher::parse_word`'s synthesis pipeline does), so
 /// — unlike `analyze_stratum`/`analyze_stratum_scoped` above — `cache` is a required parameter: this
@@ -1708,13 +1685,13 @@ pub fn synthesize_stratum(
     cap: usize,
     cache: &RuleCache,
 ) -> Vec<Word> {
-    // Fix 2: `synthesize_stratum_traced` now also takes a `&StepBudget` for the wall-clock
+    // `synthesize_stratum_traced` also takes a `&StepBudget` for the wall-clock
     // deadline check. This untraced entry point has no production call site (only
     // `pg-parse::Morpher`'s synthesis pipeline, which threads its own real per-`parse_word`
     // budget through `synthesize_stratum_traced` directly, calls this path in production) --
     // every existing (test) call site of THIS function builds no timeout, so a freshly
-    // constructed no-timeout budget reproduces the pre-fix behavior byte-for-byte
-    // (`deadline_expired()` is a no-op when `deadline` is `None`).
+    // constructed no-timeout budget makes the deadline check a no-op
+    // (`deadline_expired()` returns `false` when `deadline` is `None`).
     let budget = StepBudget::new(cap);
     synthesize_stratum_traced(
         g,
@@ -1728,18 +1705,18 @@ pub fn synthesize_stratum(
     )
 }
 
-/// P12 chunks 4/5: [`synthesize_stratum`]'s traced sibling -- the single source of truth both share
+/// [`synthesize_stratum`]'s traced sibling -- the single source of truth both share
 /// (`synthesize_stratum` calls this with a [`crate::trace::NoopSink`]). `parent` falls back to
 /// `input.trace` at every rule-application site (`guided_synth`), so the caller only needs to pass
 /// a real handle once, at the top of the per-word synthesis pipeline (`pg-parse::Morpher`'s
 /// `synthesis_pipeline`) -- every deeper call reads the cursor off the `Word` itself, exactly
 /// mirroring C#'s `Word.CurrentTrace`.
 ///
-/// P12 chunk 5: this function's body is `SynthesisStratumRule.Apply` (`SynthesisStratumRule.cs:
-/// 48-90`) itself, not just `synth_apply_mrules`/`synth_apply_templates`'s caller -- wires
+/// This function's body is C#'s `SynthesisStratumRule.Apply`
+/// itself, not just `synth_apply_mrules`/`synth_apply_templates`'s caller -- wires
 /// `BeginApplyStratum`/`NonFinalTemplateAppliedLast`/`Failed(PartialParse)`/`EndApplyStratum`
-/// (twice: per surviving candidate, cs:83-84, AND once more for the whole call when NO candidate
-/// survives, cs:88-89) at exactly C#'s call sites. `BeginApplyStratum` is a marker sibling event in
+/// (twice: per surviving candidate, AND once more for the whole call when NO candidate
+/// survives) at exactly C#'s call sites. `BeginApplyStratum` is a marker sibling event in
 /// C# (`void` return, never reassigns `input.CurrentTrace`) -- so, unlike a rule-Applied event, its
 /// return handle is discarded here; every subsequent nesting point is still `word.trace.unwrap_or
 /// (node_parent)` per word, exactly the existing idiom `guided_synth` already established.
@@ -1818,21 +1795,20 @@ pub fn synthesize_stratum_traced(
         // (`SynthesisRewriteSubruleSpec.IsApplicable`) must see this word's actual syntactic FS and
         // MPR set, not assumed-empty ones — see that function's doc for why the MPR half mattered
         // for Indonesian's `meN-` prefix (`prule5`'s `excludedMPRFeatures="mpr1"`) and the POS half
-        // for Amharic's 3 `requiredPartsOfSpeech`-gated subrules (plan item 1 / wave-3).
-        // P12 chunk 6: `_traced` siblings (`rewrite::synthesize_with_mpr_cached_traced`/
-        // `metathesis::synthesize_cached_traced`) replace the untraced calls this loop used to make
+        // for Amharic's 3 `requiredPartsOfSpeech`-gated subrules.
+        // Uses the `_traced` siblings (`rewrite::synthesize_with_mpr_cached_traced`/
+        // `metathesis::synthesize_cached_traced`), not the untraced calls
         // -- both take the real `&nw` (not a bare `Shape`/`syn_fs`/`mpr` triple) so
         // `PhonologicalRuleApplied`/`PhonologicalRuleNotApplied` can fire with `nw`'s actual full
         // state, mirroring every other traced call site in this function (`w_parent` is already the
         // resolved cursor for this candidate). Each function's own `!trace.is_tracing()` fast path
         // delegates straight back to the untraced body, so this is a no-op when tracing is off.
         //
-        // Fix 2: this loop previously had NO budget check at all -- the exact gap the bug report
-        // ("synthesis never checks the deadline") describes, since every synthesis (un)application
-        // above it (`synth_apply_mrules`/`synth_apply_templates`/`guided_template_apply`/
-        // `synth_slots_generic`) now consults `budget.deadline_expired()` but this trailing
-        // in-place prule fold did not. `break` (not `return`) mirrors the analysis-side sibling
-        // gap's fix just above `StratumAnalyzer::analyze`'s own prule loop: leave `nw.shape`
+        // This loop must consult `budget.synthesis_over_budget()` like every other synthesis
+        // (un)application above it (`synth_apply_mrules`/`synth_apply_templates`/`guided_template_apply`/
+        // `synth_slots_generic`) -- a trailing in-place prule fold with no budget check would let a
+        // pathological word's deadline elapse silently right at the end of the walk.
+        // `break` (not `return`) mirrors `StratumAnalyzer::analyze`'s own prule loop: leave `nw.shape`
         // however far the fold got and fall through to this candidate's existing bookkeeping,
         // rather than unwinding the whole function. A `None` deadline (`--word-timeout-ms` unset)
         // makes this a no-op, so every step-cap-only run is unaffected.
@@ -1903,12 +1879,12 @@ fn synth_apply_mrules(
     // respectively), so capturing them here costs nothing and does not fight the cascade's `Fn`
     // (not `FnMut`) bound — see `crate::trace`'s module doc for why `TraceSink` takes `&self`.
     //
-    // Fix 2: `budget.deadline_expired()` (wall-clock-only, see that method's doc) is consulted
-    // alongside the pre-existing `steps.get() >= cap` local-cap check, at the same granularity --
-    // every single-rule application attempt. This is the loop the "kaminuʼatpuza ran 70+s past a
-    // 10s --word-timeout-ms" bug report traced to: a `--word-timeout-ms` deadline could elapse here
-    // and this closure would keep being called by the cascade regardless, since neither `cap` (a
-    // step COUNT) nor the cascade's own internal `usize::MAX` cap had any wall-clock notion at all.
+    // `budget.deadline_expired()` (wall-clock-only, see that method's doc) is consulted
+    // alongside the `steps.get() >= cap` local-cap check, at the same granularity --
+    // every single-rule application attempt. Without it, a `--word-timeout-ms` deadline could
+    // elapse here and this closure would keep being called by the cascade regardless, since neither
+    // `cap` (a step COUNT) nor the cascade's own internal `usize::MAX` cap has any wall-clock notion
+    // at all.
     let apply_rule = |i: usize, w: &Word| -> Vec<Word> {
         if steps.get() >= cap {
             return Vec::new();
@@ -2090,38 +2066,30 @@ fn synth_apply_templates(
             out.entry(w.dedup_key()).or_insert(w);
         }
     }
-    // cs:59-77: no template output. Tier-2 #13, gate 1: C# passes the input through (marked final)
+    // No template output: C# passes the input through (marked final)
     // *unless* the input is non-partial AND some template was applicable — in which case the
     // applicable-but-unapplied word is dropped (C# only traces `ApplicableTemplatesNotApplied`).
-    // The previous Rust gated the passthrough on `!applicable` alone, so a partial word with an
-    // applicable template was wrongly dropped instead of passed through.
+    // Gating the passthrough on `!applicable` alone would wrongly drop a partial word with an
+    // applicable template instead of passing it through.
     //
-    // P12 chunk 9 follow-up: this passthrough insertion must happen BEFORE the "recurse mrules on
+    // This passthrough insertion must happen BEFORE the "recurse mrules on
     // differing template output" step below, not after. `out` here is the direct Rust analog of
-    // C#'s `_templatesRule.Apply(input)` (`SynthesisAffixTemplatesRule.Apply`, cs:25-78) — that
-    // C# method's OWN return value already includes this exact passthrough candidate (its
-    // cs:64-74 else-branch), so by the time `SynthesisStratumRule.ApplyTemplates` (cs:110-130)
+    // C#'s `_templatesRule.Apply(input)` — that
+    // C# method's OWN return value already includes this exact passthrough candidate, so by the
+    // time `SynthesisStratumRule.ApplyTemplates`
     // iterates "every tempOutWord in _templatesRule.Apply(input)" to decide whether to recurse
     // `ApplyMorphologicalRules` on each one, the passthrough word is just as much a candidate as a
-    // genuine template hit. The previous code ran the recursion loop first (over a snapshot of
-    // `out` that could not yet contain the passthrough, since the passthrough is only computed
-    // afterward), so a stratum with NO templates at all -- true of every stratum in
-    // `indonesian-hc.xml`, which declares zero `<AffixTemplate>` elements -- silently skipped this
-    // recursion on EVERY call: `applicable` stays `false`, `out` starts (and, absent this reorder,
-    // stays) empty, so `templated` was always `[]`. Confirmed empirically: a live C# trace for
-    // `membaca`/`baca` shows the "meN" synthesis rule and its whole downstream phonological-rule
-    // subtree applied TWICE under `Stratum Synthesis In [Stratum: Morphology]` -- once via the
-    // direct `ApplyMorphologicalRules(input)` cascade, once via this exact passthrough-then-recurse
-    // path -- both fully traced down to `Stratum Synthesis Out`, with only the SECOND attempt's
-    // final word then silently dropped by `SynthesisStratumRule.Apply`'s own `output.Add(newWord)`
-    // HashSet (`SynthesisStratumRule.cs:86`) because it structurally duplicates the first attempt's
-    // `mem+baca` -- i.e. C# does NOT dedup these two attempts against each other before recursing;
-    // it explores (and traces) both, and only the LAST HashSet-add step (after all trace events
-    // already fired) merges them. This was a genuine control-flow gap, not merely a
-    // tracing/dedup-interaction artifact as first hypothesized: reordering restores the exploration
-    // C# always performs, matching the shape of C#'s own algorithm rather than a
+    // genuine template hit. Running the recursion loop first, over a snapshot of
+    // `out` that cannot yet contain the passthrough (since the passthrough is only computed
+    // afterward), would make a stratum with NO templates at all silently skip this
+    // recursion on EVERY call: `applicable` stays `false`, `out` starts (and, absent this ordering,
+    // stays) empty, so `templated` would always be `[]`. C# does NOT dedup a passthrough candidate
+    // against a genuine recursion candidate before recursing -- it explores (and traces) both, and
+    // only a later HashSet-add step (after all trace events already fired) merges duplicates -- so
+    // this ordering is a genuine control-flow requirement, not merely a tracing/dedup nicety: it
+    // matches the shape of C#'s own algorithm rather than a
     // tracing-only special case (contrast the analysis-side `merge_equivalent`/`AnalysisScope`
-    // fix, which IS tracing-gated because C#'s own guards there are literally
+    // handling, which IS tracing-gated because C#'s own guards there are literally
     // `&& !TraceManager.IsTracing`; here C# has no such guard at all -- the doubled exploration
     // happens unconditionally, tracing or not).
     if out.is_empty() {
@@ -2132,8 +2100,8 @@ fn synth_apply_templates(
             }
             out.insert(w.dedup_key(), w);
         } else if trace.is_tracing() {
-            // P12 chunk 5: the complementary branch (`!is_partial && applicable`,
-            // `SynthesisAffixTemplatesRule.cs:59-63`) -- C# traces `ApplicableTemplatesNotApplied`
+            // The complementary branch (`!is_partial && applicable`) --
+            // C# traces `ApplicableTemplatesNotApplied`
             // and adds NOTHING to `output` (unlike the passthrough branch above), so this word is
             // correctly dropped here too, just with a trace event recorded first.
             let node_parent = input.trace.unwrap_or(parent);
