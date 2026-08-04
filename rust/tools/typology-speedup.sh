@@ -14,6 +14,16 @@
 #
 # Usage: rust/tools/typology-speedup.sh [--out-dir DIR] [--repeats N]
 #
+# ON WINDOWS / IN ANY AGENT WORKFLOW, USE `rust/tools/typology-speedup.ps1` INSTEAD.
+# This script cannot run on this repo's own machine and never could: it is bash on a Windows box,
+# and its payload is BARE CARGO, which .claude/hooks/block-bare-cargo.py refuses as a PreToolUse
+# hook. The result was a finished harness that nothing could start -- while docs/fst-plan/
+# grammar-optimization-techniques.md called per-candidate apply cost "the one dimension with no
+# measurement gap" and cited this file. An unreachable tool reads exactly like an absent one.
+# The .ps1 routes the same run through pg.ps1 -Mode test, which additionally auto-initializes the
+# conformance submodule -- so the silently-narrower "only staging fixtures will be measured"
+# degraded run warned about below cannot happen there.
+#
 # Env vars the harness itself reads (set by this script from the flags above, or export them
 # yourself before calling this script directly):
 #   PG_TYPOLOGY_OUT_DIR  -- output directory (default: rust/target/typology-speedup)
