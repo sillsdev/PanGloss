@@ -4923,7 +4923,7 @@ mod tests {
     }
 
     // ---------------------------------------------------------------------------------------
-    // RightToLeftRewrite (`openspec/changes/compile-right-to-left-rewrites`)
+    // RightToLeftRewrite
     // ---------------------------------------------------------------------------------------
 
     const RTL_PLAIN_XML: &str = r#"<HermitCrabInput><Language><Name>RtlPlain</Name>
@@ -5037,16 +5037,13 @@ mod tests {
         );
     }
 
-    /// **Was a negative witness (Refuse); now a positive one (ConfirmOnly)**, since
-    /// `openspec/changes/build-unbounded-quantifier-support`: a `Dir::RightToLeft` rule whose LHS
-    /// is a genuinely UNBOUNDED (`max="-1"`) `Quantifier` (`OptionalSegmentSequence`) -- this used
-    /// to be a construct `crate::replace::pattern_slots` refused for ANY rewrite rule, RTL or not,
-    /// so this test used to pin `reversal_construction_attempted == false` and a `Refuse` verdict.
-    /// `pattern_slots` now ACCEPTS a well-formed unbounded quantifier (`crate::replace::Slot::Repeat`'s
+    /// A positive `ConfirmOnly` witness: a `Dir::RightToLeft` rule whose LHS
+    /// is a genuinely UNBOUNDED (`max="-1"`) `Quantifier` (`OptionalSegmentSequence`).
+    /// `pattern_slots` ACCEPTS a well-formed unbounded quantifier (`crate::replace::Slot::Repeat`'s
     /// `max: Option<u32>` widening), so `rtl_reversal_construction_attempted` (the SAME Dir-agnostic
-    /// structural probe [`QuantifierPatternDetail::compile_attempted`] also reuses) now succeeds for
-    /// this rule too, and the predicate must `ConfirmOnly` it instead (never silently `Admit` --
-    /// still no proven no-false-positive admission-filter argument, ADR 0001).
+    /// structural probe [`QuantifierPatternDetail::compile_attempted`] also reuses) succeeds for
+    /// this rule too, and the predicate must `ConfirmOnly` it (never silently `Admit` --
+    /// still no proven no-false-positive admission-filter argument).
     #[test]
     fn right_to_left_predicate_confirm_only_for_unbounded_quantifier_shaped_rule() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>RtlQuantifier</Name>
@@ -5097,15 +5094,14 @@ mod tests {
     }
 
     // ---------------------------------------------------------------------------------------
-    // `openspec/changes/plan-construct-coverage-completion` task 4.2: `Anchor`/`Segments` no
-    // longer disqualify a `Dir::RightToLeft` rule (a same-table `Segments`, any `Anchor`); a
-    // cross-table `Segments` and a disagree-polarity alpha var still do, now with a PRECISE named
-    // witness (`unsupported_reason`) instead of a laundry-list message.
+    // `Anchor`/`Segments` do not disqualify a `Dir::RightToLeft` rule (a same-table `Segments`,
+    // any `Anchor`); a cross-table `Segments` and a disagree-polarity alpha var still do, with a
+    // PRECISE named witness (`unsupported_reason`) instead of a laundry-list message.
     // ---------------------------------------------------------------------------------------
 
     /// Positive witness: an `Anchor`-shaped `Dir::RightToLeft` rule (right environment is JUST
-    /// `finalBoundaryCondition="true"`, an empty `<PhoneticSequence/>`) now characterizes
-    /// `reversal_construction_attempted == true` (was `false` before task 4.2), and the predicate
+    /// `finalBoundaryCondition="true"`, an empty `<PhoneticSequence/>`) characterizes
+    /// `reversal_construction_attempted == true`, and the predicate
     /// `ConfirmOnly`s it.
     #[test]
     fn right_to_left_predicate_confirm_only_for_anchor_shaped_rule() {
@@ -5377,7 +5373,7 @@ mod tests {
     }
 
     // ---------------------------------------------------------------------------------------
-    // Metathesis (`openspec/changes/compile-fst-metathesis`)
+    // Metathesis
     // ---------------------------------------------------------------------------------------
 
     /// Synthetic, delanguaged fixture: two adjacent, distinct, singleton-class switch segments,
@@ -5478,13 +5474,11 @@ mod tests {
         );
     }
 
-    /// Positive witness (was `metathesis_predicate_refuses_right_to_left_rule` -- RENAMED, see this
-    /// module's own top-of-task note and `docs/conformance/needs-decision-resolutions.md` row 8):
-    /// a `Dir::RightToLeft` metathesis rule, otherwise identical in shape to `METATHESIS_PLAIN_XML`
-    /// above, now characterizes `swap_construction_attempted == true` and the predicate returns
-    /// `ConfirmOnly` -- `openspec/changes/plan-construct-coverage-completion` task 4.6 built the
+    /// Positive witness: a `Dir::RightToLeft` metathesis rule, otherwise identical in shape to
+    /// `METATHESIS_PLAIN_XML` above, characterizes `swap_construction_attempted == true` and the
+    /// predicate returns `ConfirmOnly` -- the
     /// mirror-and-reverse construction (`crate::replace::compile_metathesis_rule`'s module doc,
-    /// "`Dir::RightToLeft`" section) that makes this rule genuinely compilable now, matching
+    /// "`Dir::RightToLeft`" section) makes this rule genuinely compilable, matching
     /// `RightToLeftRewrite`'s own disposition and for the identical reason (a proven superset of
     /// the true RTL relation, sound under propose-and-confirm, not proven exact -- never `Admit`).
     /// The construction's own exactness against `pg_rules::metathesis` (the containment obligation)
