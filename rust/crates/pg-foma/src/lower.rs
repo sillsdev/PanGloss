@@ -376,15 +376,15 @@ fn slots_from_nodes(
                 }
             }
             PatternNode::Quantifier { min, max, children } => {
-                // `openspec/changes/build-unbounded-quantifier-support`: a genuinely unbounded
-                // quantifier (`max == None`, the DTD's `max="-1"` Kleene sentinel) is ACCEPTED here
-                // now -- it has its own native, exact, finite-SIZE foma construction (`render_slots`'
-                // own doc: `E*`/`E^>N`), so refusing it was a scope line, not a feasibility finding.
+                // A genuinely unbounded
+                // quantifier (`max == None`, the DTD's `max="-1"` Kleene sentinel) is ACCEPTED here:
+                // it has its own native, exact, finite-SIZE foma construction (`render_slots`'
+                // own doc: `E*`/`E^>N`), so refusing it would be a scope line, not a feasibility finding.
                 // The checks below (inverted bound, `MAX_QUANTIFIER_BOUND` preflight) apply ONLY to
                 // a FINITE bound -- neither is well-formed to ask of `None` (there is no upper value
                 // to compare, and no repetition count for the ceiling to bound, `Slot::Repeat`'s own
                 // doc) -- so both are skipped entirely for the unbounded case; `max` is never
-                // silently coerced to a concrete number to force them to run (ADR 0001: a finite
+                // silently coerced to a concrete number to force them to run (a finite
                 // cutoff must never masquerade as unbounded semantics).
                 if let Some(max_v) = max {
                     // Inverted bound -- no sound finite construction exists for it; conservative
@@ -392,8 +392,8 @@ fn slots_from_nodes(
                     if min > max_v {
                         return None;
                     }
-                    // Preflight (design.md: "Preflight the product of alternatives/repetitions and
-                    // report a typed budget or unsupported result") -- checked BEFORE recursing into
+                    // Preflights the product of alternatives/repetitions and
+                    // reports a typed budget or unsupported result -- checked BEFORE recursing into
                     // children/rendering any xre text at all, the cheapest possible predictor.
                     if *max_v > MAX_QUANTIFIER_BOUND {
                         return None;
@@ -454,11 +454,10 @@ fn slots_from_nodes(
 }
 
 // =================================================================================================
-// Alpha-tuple resolution (reports/08 §3.1): cartesian product per variable, filtered by joint
+// Alpha-tuple resolution: cartesian product per variable, filtered by joint
 // agreement, generic over N variables / N slots-per-variable.
 //
-// MOVED HERE from `replace.rs` (migration follow-on, module top doc) -- logic byte-for-byte
-// unchanged, `replace.rs` re-exports `AlphaAssignment`/`TupleReport`/`resolve_alpha_tuples` at
+// Defined here; `replace.rs` re-exports `AlphaAssignment`/`TupleReport`/`resolve_alpha_tuples` at
 // their old paths.
 // =================================================================================================
 
@@ -473,7 +472,7 @@ pub struct AlphaAssignment {
 
 /// Report for one alpha-bearing subrule: the naive per-slot product size (what a per-variable-name
 /// expander would enumerate before any filtering) vs. the number of tuples surviving the joint
-/// agreement constraint (reports/08's "count of segment tuples satisfying the joint constraint").
+/// agreement constraint.
 #[derive(Debug, Clone, Copy)]
 pub struct TupleReport {
     pub raw_product: usize,
@@ -487,16 +486,16 @@ pub struct TupleReport {
 /// wrong), filtered to combinations where every pair of occurrences sharing a [`VarId`] AGREES —
 /// unify (bitwise-overlap, matching this codebase's own natural-class-membership idiom, not
 /// strict equality, since an underspecified segment's lane can carry more than one live bit) — at
-/// that variable's feature lane. This is reports/08 §3.1's "count of segment tuples satisfying
-/// the joint constraint" bound (Amharic's 20-var CV-merger: nc15=59 × nc16=6 ⇒ ≤354, never v^20),
+/// that variable's feature lane. This bounds the count of segment tuples satisfying
+/// the joint constraint (Amharic's 20-var CV-merger: nc15=59 × nc16=6 ⇒ ≤354, never v^20),
 /// implemented generically over N variables and N occurrences per variable. Returns
 /// `(assignments, report)`; a rule with zero alpha slots returns one trivial
 /// `AlphaAssignment { values: {} }` and a `raw_product`/`surviving` of 1 (nothing to expand).
 ///
 /// `table`: every alpha occurrence's feature-lane agreement test (`lane_value`, below) resolves
 /// against THIS table, never an implicit `g.char_tables[0]` default
-/// (`openspec/changes/fix-multitable-fst-compilation` — the second of the two hardcoded sites that
-/// change's design.md names, alongside [`pattern_slots`]'s own former `table_of` call). The
+/// (the second of two former hardcoded-table sites, alongside [`pattern_slots`]'s own former
+/// `table_of` call). The
 /// `members: Vec<CharDefId>` each [`Slot::Alpha`] already carries were themselves resolved against
 /// this SAME table by [`pattern_slots`] (the caller's job: pass ONE consistent table to both), so
 /// this function's own `table` parameter must be the identical table [`pattern_slots`] used to
