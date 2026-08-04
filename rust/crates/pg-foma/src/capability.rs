@@ -6101,13 +6101,12 @@ mod tests {
         );
     }
 
-    /// **Was a negative witness (Refuse); now a positive one (ConfirmOnly)**, since
-    /// `openspec/changes/build-unbounded-quantifier-support`: [`QuantifierBoundedExpansionPredicate`]
-    /// no longer `Refuse`s a rule merely for using a genuinely unbounded quantifier -- this fixture's
+    /// A positive `ConfirmOnly` witness: [`QuantifierBoundedExpansionPredicate`]
+    /// does not `Refuse` a rule merely for using a genuinely unbounded quantifier -- this fixture's
     /// quantifier is used in a RIGHT ENVIRONMENT (well-formed, alpha-free, non-empty children), so
-    /// `crate::replace::pattern_slots` now accepts the rule's whole pattern shape
+    /// `crate::replace::pattern_slots` accepts the rule's whole pattern shape
     /// (`compile_attempted == true`), and the predicate must `ConfirmOnly` it (never `Admit` --
-    /// still no proven no-false-negative admission-filter argument, ADR 0001).
+    /// still no proven no-false-negative admission-filter argument).
     #[test]
     fn quantifier_predicate_confirm_only_for_unbounded_shape() {
         let g = load(QUANT_UNBOUNDED_ENV_XML);
@@ -6259,7 +6258,7 @@ mod tests {
     }
 
     // ---------------------------------------------------------------------------------------
-    // simultaneous.subrule-overlap (D3)
+    // simultaneous.subrule-overlap
     // ---------------------------------------------------------------------------------------
 
     const SIMULTANEOUS_PROBE_XML: &str = r#"<HermitCrabInput><Language><Name>SimultaneousOverlapProbe</Name>
@@ -6339,7 +6338,7 @@ mod tests {
     }
 
     /// Admit when the two subrules' MPR gates are provably disjoint (one requires what the other
-    /// excludes) -- design.md D3's "cheap orthogonality early-out" for the common well-authored
+    /// excludes) -- the "cheap orthogonality early-out" for the common well-authored
     /// case, and neither subrule is self_opaquing.
     #[test]
     fn simultaneous_predicate_admits_mpr_disjoint_subrules() {
@@ -6383,7 +6382,7 @@ mod tests {
         }
     }
 
-    /// Refuse when a subrule is self_opaquing -- D3: "do not attempt Admit" regardless of mpr
+    /// Refuse when a subrule is self_opaquing -- do not attempt Admit regardless of mpr
     /// gating.
     #[test]
     fn simultaneous_predicate_refuses_self_opaquing_subrule() {
@@ -6408,7 +6407,7 @@ mod tests {
         }
     }
 
-    /// A non-Simultaneous (Iterative) rule is always Admit -- D3's own first line.
+    /// A non-Simultaneous (Iterative) rule is always Admit.
     #[test]
     fn simultaneous_predicate_admits_iterative_rule_unconditionally() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
@@ -6438,7 +6437,7 @@ mod tests {
     }
 
     // ---------------------------------------------------------------------------------------
-    // Stage 1B (`lower-fst-pattern-environments`): the real automaton intersection replacing the
+    // The real automaton intersection replacing the
     // conservative unconditional-Refuse fallback. No `PhonologicalFeatureSystem` in any of these
     // three fixtures -- deliberately: every `Context` node's self-opaquing pin-bit computation
     // (`pg_grammar::load::pattern_node_pin_bits`) is vacuously empty with zero declared features,
@@ -6456,8 +6455,8 @@ mod tests {
     /// (`Front` = {`i`}, `Back` = {`u`}, no shared segment) -- genuinely CANNOT overlap at the
     /// shared focus position. Neither is mpr-disjoint nor self-opaquing, so the PRIOR
     /// unconditional-`Refuse` fallback would have rounded this pair to `Refuse`; the real
-    /// automaton intersection (Stage 1B) now proves their spans disjoint and `Admit`s -- the
-    /// whole point of this step (strictly fewer refusals, never more, per ADR 0001).
+    /// automaton intersection now proves their spans disjoint and `Admit`s -- strictly fewer
+    /// refusals, never more.
     #[test]
     fn simultaneous_predicate_admits_genuinely_non_overlapping_subrules_via_lowered_span() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>SimLowerAdmit</Name>
