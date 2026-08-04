@@ -1,14 +1,12 @@
-//! Stratum-depth scale builder (synthetic-stress-grammar-plan.md §2 row `Strata`; design doc §6
-//! priority (5)). Adds `extra_strata` ADDITIONAL strata beyond the base single-table/single-stratum
+//! Stratum-depth scale builder. Adds `extra_strata` ADDITIONAL strata beyond the base single-table/single-stratum
 //! scaffold [`crate::render::render_indexed`] always builds, each REUSING the SAME table 0 (never a
-//! new table) -- deliberately sidesteps the still-open multi-table threading gap
-//! (`pg_foma::replace::table_of`/`resolve_alpha_tuples`'s hardcoded `char_tables[0]`, design doc §5)
+//! new table) -- deliberately sidesteps the multi-table threading question
+//! (`pg_foma::replace::table_of`/`resolve_alpha_tuples`'s handling of `char_tables[0]`)
 //! rather than exercising it a second time: GATE 1 already covers multi-TABLE wrongness; this gate
 //! is about multi-STRATUM CASCADING specifically, which is orthogonal and provably correct against
 //! a single, always-table-0 grammar.
 //!
-//! Mirrors `pg-foma/src/morphotactics.rs`'s own `FIXTURE_STRATA` shape (the design doc's named
-//! precedent): each extra stratum declares ONE OBLIGATORY `<MorphologicalRule>`, wired via the
+//! Mirrors `pg-foma/src/morphotactics.rs`'s own `FIXTURE_STRATA` shape: each extra stratum declares ONE OBLIGATORY `<MorphologicalRule>`, wired via the
 //! `<Stratum>` element's OWN `morphologicalRules="..."` attribute (NOT an `<AffixTemplate>` slot --
 //! that attribute is what makes the rule apply UNCONDITIONALLY to every word entering that stratum,
 //! no optionality, so a root's surface form after `N` extra strata is mechanically `markerN-1 ...

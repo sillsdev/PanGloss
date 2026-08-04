@@ -1,5 +1,5 @@
-//! Deterministic per-prefix XML id minting (design doc §2: "Builders return XML fragments +
-//! minted ids"). A plain monotonic counter per prefix -- no randomness involved -- so id
+//! Deterministic per-prefix XML id minting: builders return XML fragments plus minted ids.
+//! A plain monotonic counter per prefix -- no randomness involved -- so id
 //! assignment depends only on CALL ORDER, which [`crate::render::render`] fixes deterministically
 //! for a given recipe (never on [`crate::rng::Rng`] draws), keeping ids stable, human-legible, and
 //! reproducible across re-renders of the same recipe.

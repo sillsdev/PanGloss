@@ -1,5 +1,4 @@
-//! Alpha-variable scale builder (synthetic-stress-grammar-plan.md §2 row `alpha-variables (tuple
-//! expansion)`; design doc §6 priority (4)). Exercises `pg_foma::replace::resolve_alpha_tuples`'s
+//! Alpha-variable scale builder. Exercises `pg_foma::replace::resolve_alpha_tuples`'s
 //! own tuple-expansion budget (`AlphaTupleBudgetExceeded`, `pg-foma/src/compose_budget.rs`)
 //! parameterized over `alpha_var_count` × `alpha_class_size`.
 //!
@@ -20,7 +19,7 @@
 //!    segments long from the real engine's own synthesis) -- `<LeftEnvironment>` interacting with
 //!    an `<AlphaVariable>` occurrence has some real-engine behavior this investigation did not fully
 //!    characterize in the time available, and chasing it further risked scope creep into `pg_rules`
-//!    engine internals well outside Phase C's own remit.
+//!    engine internals well outside this crate's own remit.
 //!
 //! This builder instead uses a construction that is UNAMBIGUOUS for both implementations BY
 //! CONSTRUCTION, sidestepping the open question rather than needing to resolve it: LHS and RHS are
@@ -35,7 +34,7 @@
 //! occurrences, `var_count` independent rules, `alpha_class_size`-many real tuples each, actually
 //! compiled and composed) -- the recall claim under test is "a grammar with this many real alpha
 //! tuples in its cascade still compiles and still relates the root's own tag to its own (unchanged)
-//! surface correctly," which is exactly the scale/budget concern design doc §6 names, without
+//! surface correctly," which is exactly the scale/budget concern that matters here, without
 //! staking the gate on an unresolved real-engine semantics question.
 //!
 //! `var_count` independent rules, each on its own dedicated marker segment (unnecessary for

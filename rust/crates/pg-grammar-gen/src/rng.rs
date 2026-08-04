@@ -1,11 +1,11 @@
-//! In-house SplitMix64 (design doc §2: "no `rand` dependency for a dev tool"). Not cryptographic,
+//! In-house SplitMix64 -- no `rand` dependency for a dev tool. Not cryptographic,
 //! not published as its own crate -- just a small, fast, well-mixed, deterministic bit source
 //! seeded from `hash(name, seed)` so [`crate::render::render`] can stay a pure function of the
 //! recipe alone (that module's own determinism contract).
 
 /// A SplitMix64 generator (Vigna & Steele's public-domain 64-bit mixing recurrence -- the same
 /// one, e.g., `java.util.SplittableRandom`'s seeding step uses -- chosen here purely for "fast,
-/// well-mixed, zero external crates" properties, not for any cryptographic guarantee stage 1's
+/// well-mixed, zero external crates" properties, not for any cryptographic guarantee this crate's
 /// tiny fixed recipes don't need).
 #[derive(Debug, Clone)]
 pub struct Rng {

@@ -1,7 +1,7 @@
-//! Bounded Morpher-as-generator sweep (design doc §3): `pg_parse::Morpher::generate_words` runs
+//! Bounded Morpher-as-generator sweep: `pg_parse::Morpher::generate_words` runs
 //! the REAL synthesis pipeline + validity gate, so it is ground truth for what a correct engine
 //! should recall -- this module's own job is only the BULK SWEEP (root × applicable-rule-subset)
-//! around that single-call primitive, under the mandatory safety bounds design doc §3 requires.
+//! around that single-call primitive, under the mandatory safety bounds below.
 //!
 //! ## Why this lives behind the `oracle` feature, not as a plain dev-dependency
 //! `pg-foma`'s own gate files (`tests/phase_c_*.rs`) need to call this module too, and those are a
@@ -9,12 +9,11 @@
 //! a plain `#[cfg(test)]`-only or `[dev-dependencies]`-only oracle would be invisible to them (a
 //! dev-dependency's dev-dependencies, and a crate's own `#[cfg(test)]` items, are never part of
 //! its public library surface). Gating the `pg-parse` dependency behind a Cargo feature (this
-//! crate's `Cargo.toml`, `oracle = ["dep:pg-parse"]`) is the design doc's own named alternative
-//! ("if a lib dep is cleaner, use a feature") and keeps `pg-grammar-gen`'s DEFAULT build
-//! `pg-grammar`-only, matching design doc §2's "Dep: pg-grammar only" for the render/recipe
-//! surface -- `oracle` is opt-in, read by nobody unless a caller enables it.
+//! crate's `Cargo.toml`, `oracle = ["dep:pg-parse"]`) keeps `pg-grammar-gen`'s DEFAULT build
+//! `pg-grammar`-only for the render/recipe surface -- `oracle` is opt-in, read by nobody unless a
+//! caller enables it.
 //!
-//! ## MANDATORY safety bounds (design doc §3 -- hangs are documented repo history, not folklore)
+//! ## MANDATORY safety bounds (hangs are documented repo history, not folklore)
 //! 1. Never `Morpher::new(g, usize::MAX)` -- a bounded step cap ([`OracleOpts::step_cap`],
 //!    default 20,000, the same default the P6/Aweti investigation settled on after `usize::MAX`
 //!    hung >10 minutes on a real corpus word).
@@ -23,13 +22,12 @@
 //!    `StepBudget` is per-(stratum, candidate), not cumulative across the whole sweep.
 //! 3. The sweep itself is bounded: [`OracleOpts::max_rules_per_root`] caps how many single-rule
 //!    "other morphemes" combinations are tried per root (depth 1 -- bare root, plus each
-//!    individually-applicable rule once; stage 2's own scale-sweep recipes are expected to widen
-//!    this if a deeper combination is ever needed), and [`OracleOpts::max_total_words`] caps the
+//!    individually-applicable rule once; a deeper combination would need this widened), and
+//!    [`OracleOpts::max_total_words`] caps the
 //!    deduplicated, deterministically-truncated (sorted, then take) total word list size.
 //!
-//! Stage-1 recipes are sized so the oracle is cheap BY CONSTRUCTION (design doc §3's own
-//! framing) -- these bounds are a safety net for a mis-sized recipe, not something stage-1 gates
-//! are expected to ever hit.
+//! Existing recipes are sized so the oracle is cheap BY CONSTRUCTION -- these bounds are a safety
+//! net for a mis-sized recipe, not something they are expected to ever hit.
 
 use std::time::Duration;
 
@@ -74,7 +72,7 @@ pub struct OracleWord {
 /// `opts.max_rules_per_root` (module doc bound 3a). `Realizational`/`Compounding` rules are
 /// skipped -- `Morpher::generate_words`'s own `others: &[GenMorpheme]` contract (that function's
 /// doc) only ever takes `GenMorpheme::Rule` for an ordinary affix-process rule or
-/// `GenMorpheme::NonHead` for a compounding non-head root, and stage 1's circumfix recipe has no
+/// `GenMorpheme::NonHead` for a compounding non-head root, and the circumfix recipe has no
 /// compounding/realizational material to exercise anyway.
 fn candidate_rules(g: &Grammar, opts: &OracleOpts) -> Vec<MRuleId> {
     g.mrules

@@ -1,14 +1,13 @@
-//! Deep standalone-affix-chain builder (synthetic-stress-grammar-plan.md §2's "AffixTemplate
-//! morphotactics" row's sibling case — a STANDALONE, non-template chain of optional rules — and
-//! the direct generalization of `docs/fst-plan/p6-deep-truncation-chain-report.md`'s own root
-//! cause). Part C of the delanguaging effort: this is the synthetic reproduction of Aweti's
+//! Deep standalone-affix-chain builder (the "AffixTemplate morphotactics" sibling case —
+//! a STANDALONE, non-template chain of optional rules — and the direct generalization of a known
+//! deep-truncation root cause). This is the synthetic reproduction of Aweti's
 //! "11-rule prefix / 24-rule suffix STANDALONE sets" that fed `pg_foma::emit`'s
 //! `build_deriv_chain` under `TextMode::SurfaceProbed` (the legacy, MAINLINE `emit()` strategy,
-//! still unchanged today — that report's chain-restriction fix is `TextMode::UnderlyingTokens`
+//! still unchanged today — that root cause's chain-restriction fix is `TextMode::UnderlyingTokens`
 //! (P6/Aweti-templated-emit) ONLY): "EVERY level offers EVERY rule in `rules`; depth =
 //! `rules.len()`" — a single epsilon-yielding standalone rule's tag is choosable at any of
-//! `rules.len()` levels, independently each time, which is exactly the mechanism the report found
-//! behind both Aweti's `PATHCOUNT_OVERFLOW`-scale ambiguity and `apply_up`'s pre-fix non-
+//! `rules.len()` levels, independently each time, which is exactly the mechanism behind
+//! both Aweti's `PATHCOUNT_OVERFLOW`-scale ambiguity and `apply_up`'s pre-fix non-
 //! termination.
 //!
 //! `count` INDEPENDENT standalone `MorphologicalRule`s, each `Copy(whole input) +

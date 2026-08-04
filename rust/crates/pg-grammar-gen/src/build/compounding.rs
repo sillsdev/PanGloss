@@ -1,5 +1,4 @@
-//! Compounding-rule scale builder (synthetic-stress-grammar-plan.md §2 row `CompoundingRuleDef`;
-//! design doc §6 priority (6), first emit-scale exerciser). Mirrors `machine/conformance/languages/
+//! Compounding-rule scale builder -- the first emit-scale exerciser. Mirrors `machine/conformance/languages/
 //! fusional-realizational-morphology/grammar.xml`'s own `mrCompoundHN` shape (the only real `<CompoundingRule>` fixture
 //! in this repo): a head root + a non-head root, concatenated with a literal `+` compound-seam
 //! marker in between (`CopyFromInput(head) + InsertSegments("+") + CopyFromInput(nonhead)`). That
@@ -14,13 +13,13 @@
 //! declares a `MorphRuleDef::Compounding` rule, routing compound words through its template-less/
 //! structural-composite machinery. The `_overbudget` variant instead drives `pg_foma::uflexc::
 //! emit_underlying_filtered_with_budget`'s own root-entry line count over a tiny test
-//! [`ComposeBudget`] (design doc §6, "first emit-scale exerciser") -- `uflexc.rs`'s own module doc
+//! [`ComposeBudget`] -- `uflexc.rs`'s own module doc
 //! records that it does not even SEE compounding rules ("no `CompoundingRuleDef` allomorph is even
 //! visible through `emit::allomorphs_of`, so there is nothing to enumerate wrongly, only something
 //! absent"), so this is a scale check on plain root-entry COUNT (the `entries_per_stratum` scale
 //! knob) in a grammar that happens to also declare a compounding rule, not a compounding-specific
 //! code path -- an honest, deliberate choice recorded here rather than hidden: it is the
-//! grammar-wide entry-count vector (V4, synthetic-stress-grammar-plan.md §3) that trips first, and
+//! grammar-wide entry-count vector that trips first, and
 //! compounding is the construct that motivated giving this vector its own gate.
 
 use crate::build::tables::TableSpec;

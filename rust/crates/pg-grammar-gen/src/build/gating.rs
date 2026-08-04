@@ -1,6 +1,5 @@
-//! Partition-k / MPR-POS subrule gating builder (synthetic-stress-grammar-plan.md §2 row `MPR/POS
-//! subrule gating`; design doc §6 priority (3)). Generalizes `pg-foma/src/gate.rs`'s own
-//! `sixteen_group_fixture_xml` (the working, hand-authored precedent this design doc names) into a
+//! Partition-k / MPR-POS subrule gating builder. Generalizes `pg-foma/src/gate.rs`'s own
+//! `sixteen_group_fixture_xml` (the working, hand-authored precedent) into a
 //! parameterized-over-`k` builder: `k` INDEPENDENT gated `<PhonologicalRule>`s (each with exactly
 //! one `<PhonologicalSubrule requiredMPRFeatures="mprJ">`), plus `2^k` lexical entries realizing
 //! EVERY possible gating-key combination (entry `i`'s own `ruleFeatures` is exactly the subset of

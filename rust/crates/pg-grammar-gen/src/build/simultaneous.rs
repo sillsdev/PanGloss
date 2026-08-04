@@ -1,8 +1,7 @@
-//! `RewriteMode::Simultaneous` HONEST-SKIP bail gate builder (synthetic-stress-grammar-plan.md §2
-//! row `RewriteMode::Simultaneous`; design doc §6 priority (7)). Needs the detection wiring
-//! (`pg_foma::replace::compile_rewrite_rule_subset`'s `is_fully_supported_shape` check, wired in
-//! this same Phase C change) to route an unsupported mode to `skipped` rather than silently
-//! compiling it as if it were `Iterative` -- see `pg-foma/src/replace.rs`'s own updated doc.
+//! `RewriteMode::Simultaneous` HONEST-SKIP bail gate builder. Needs the detection wiring
+//! (`pg_foma::replace::compile_rewrite_rule_subset`'s `is_fully_supported_shape` check) to route
+//! an unsupported mode to `skipped` rather than silently compiling it as if it were `Iterative`
+//! -- see `pg-foma/src/replace.rs`'s own updated doc.
 //!
 //! XML shape: an ordinary unconditional `<PhonologicalRule>` (no environment, no MPR/POS gating --
 //! nothing here should trip any OTHER budget/skip path first) with

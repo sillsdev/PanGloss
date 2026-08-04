@@ -1,26 +1,25 @@
-//! Assembles a full `<HermitCrabInput>` XML document from a [`crate::recipe::Recipe`] (design doc
-//! §2's `render(recipe) -> String`). Generalizes the working precedent this design doc names:
-//! `pg-foma/src/gate.rs`'s `sixteen_group_fixture_xml` (a string-built XML fixture
-//! `pg_grammar::load` accepts) and `pg-foma/src/morphotactics.rs`'s `FIXTURE_SLOTS`/
-//! `FIXTURE_STRATA` -- same hand-verified element shapes, parameterized over a `Recipe` instead of
-//! hardcoded.
+//! Assembles a full `<HermitCrabInput>` XML document from a [`crate::recipe::Recipe`].
+//! Generalizes the working precedent: `pg-foma/src/gate.rs`'s `sixteen_group_fixture_xml`
+//! (a string-built XML fixture `pg_grammar::load` accepts) and `pg-foma/src/morphotactics.rs`'s
+//! `FIXTURE_SLOTS`/`FIXTURE_STRATA` -- same hand-verified element shapes, parameterized over a
+//! `Recipe` instead of hardcoded.
 //!
-//! Determinism (design doc §2): `render`/`render_indexed` are pure functions of `recipe`'s own
+//! Determinism: `render`/`render_indexed` are pure functions of `recipe`'s own
 //! fields -- [`IdMinter`] assigns ids purely by CALL ORDER (fixed for a given recipe, never by
 //! `Rng` draws) and every character/segment choice below is knob-driven, not randomized, so the
 //! same recipe renders byte-identically every time (`tests/self_check.rs` pins this). [`Rng`] is
-//! still seeded and drawn from here (one throwaway draw) so the mechanism is exercised end-to-end;
-//! stage 2's scale-sweep builders are expected to be the first REAL consumers of further draws.
+//! still seeded and drawn from here (one throwaway draw) so the mechanism is exercised end-to-end
+//! even though nothing here currently consumes further draws.
 //!
-//! ## Stage 2: one "singular construct" active per recipe
-//! Every stage-2 `ConstructKnobs` field beyond `table_count`/`circumfix_count`/
-//! `template_slot_optional` (design doc §6 priority (3)-(7): `gated_subrule_count`,
+//! ## One "singular construct" active per recipe
+//! Every `ConstructKnobs` field beyond `table_count`/`circumfix_count`/
+//! `template_slot_optional` (`gated_subrule_count`,
 //! `alpha_var_count`, `extra_strata`, `compounding_rule_count`, `quantifier_bound`,
 //! `metathesis_rule_count`, `simultaneous_rule_count`, `rtl_rule_count`) REPLACES stratum 0's
 //! generic per-root entries with its own construct-specific entries (mirrors `circumfix`'s own
-//! ti==0 special case, taken further). Every stage-2 gate's own recipe sets exactly ONE of these at
-//! a time (like stage 1's own GATE 1/GATE 2 recipes each set exactly one stage-1 knob) -- this
-//! module does not attempt to render a composite of several stage-2 constructs in one grammar.
+//! ti==0 special case, taken further). Each construct-specific gate's own recipe sets exactly ONE
+//! of these at a time (like GATE 1/GATE 2 recipes each set exactly one knob) -- this
+//! module does not attempt to render a composite of several such constructs in one grammar.
 
 use crate::build;
 use crate::build::tables::TableSpec;
@@ -49,7 +48,7 @@ pub struct TableIndex {
     pub circumfix_mrule_xml_ids: Vec<String>,
 }
 
-/// Bookkeeping for a `gated_subrule_count > 0` recipe (design doc §6 priority (3)).
+/// Bookkeeping for a `gated_subrule_count > 0` recipe.
 #[derive(Debug, Clone)]
 pub struct GatingIndex {
     /// The `k` gated rules' own xml ids, in `j` order.
@@ -59,7 +58,7 @@ pub struct GatingIndex {
     pub entry_xml_ids: Vec<String>,
 }
 
-/// Bookkeeping for an `alpha_var_count > 0` recipe (design doc §6 priority (4)).
+/// Bookkeeping for an `alpha_var_count > 0` recipe.
 #[derive(Debug, Clone)]
 pub struct AlphaIndex {
     /// The `var_count` independent alpha rules' own xml ids ([`crate::build::alpha`]'s own doc: one
@@ -72,14 +71,14 @@ pub struct AlphaIndex {
     pub root_shape: String,
 }
 
-/// One additional stratum beyond the base scaffold (design doc §6 priority (5)).
+/// One additional stratum beyond the base scaffold.
 #[derive(Debug, Clone)]
 pub struct ExtraStratumIndex {
     pub stratum_name: String,
     pub rule_xml_id: String,
 }
 
-/// Bookkeeping for a `compounding_rule_count > 0` recipe (design doc §6 priority (6)).
+/// Bookkeeping for a `compounding_rule_count > 0` recipe.
 #[derive(Debug, Clone)]
 pub struct CompoundingIndex {
     pub rule_xml_ids: Vec<String>,
@@ -87,7 +86,7 @@ pub struct CompoundingIndex {
     pub nonhead_entry_xml_ids: Vec<String>,
 }
 
-/// Bookkeeping for a `quantifier_bound.is_some()` recipe (design doc §6 priority (7)).
+/// Bookkeeping for a `quantifier_bound.is_some()` recipe.
 #[derive(Debug, Clone)]
 pub struct QuantifierIndex {
     pub rule_xml_id: String,
@@ -105,19 +104,19 @@ pub struct ChainIndex {
     pub root_shape: String,
 }
 
-/// Bookkeeping for a `metathesis_rule_count > 0` recipe (design doc §6 priority (7)).
+/// Bookkeeping for a `metathesis_rule_count > 0` recipe.
 #[derive(Debug, Clone)]
 pub struct MetathesisIndex {
     pub rule_xml_ids: Vec<String>,
 }
 
-/// Bookkeeping for a `simultaneous_rule_count > 0` recipe (design doc §6 priority (7)).
+/// Bookkeeping for a `simultaneous_rule_count > 0` recipe.
 #[derive(Debug, Clone)]
 pub struct SimultaneousIndex {
     pub rule_xml_ids: Vec<String>,
 }
 
-/// Bookkeeping for an `rtl_rule_count > 0` recipe (design doc §6 priority (7)).
+/// Bookkeeping for an `rtl_rule_count > 0` recipe.
 #[derive(Debug, Clone)]
 pub struct RightToLeftIndex {
     pub rule_xml_ids: Vec<String>,
@@ -133,8 +132,8 @@ pub struct RenderedGrammar {
     pub xml: String,
     pub tables: Vec<TableIndex>,
     /// Present iff the recipe declared `table_count >= 2` (GATE 1's shape) -- the demo devoicing
-    /// rule's own xml id, plus the two feature-based natural class ids it references (design doc
-    /// §5's detect-wrong construct; see `build::tables`'s module doc for the full mechanism).
+    /// rule's own xml id, plus the two feature-based natural class ids it references (a
+    /// detect-wrong construct; see `build::tables`'s module doc for the full mechanism).
     pub devoice_rule_xml_id: Option<String>,
     pub nc_voiced_xml_id: String,
     pub nc_voiceless_xml_id: String,
@@ -179,8 +178,8 @@ fn one_entry_xml(ids: &mut IdMinter, pos: &str, shape: &str, morph_id: &str) -> 
     (xml, entry_xml_id)
 }
 
-/// Render `recipe` into a full `<HermitCrabInput>` XML string (design doc §2's `render(recipe) ->
-/// String`). Thin wrapper over [`render_indexed`] for callers that only need the XML (e.g.
+/// Render `recipe` into a full `<HermitCrabInput>` XML string. Thin wrapper over
+/// [`render_indexed`] for callers that only need the XML (e.g.
 /// `tests/self_check.rs`'s round-trip check) -- gates that need to resolve their own generated
 /// material back out of the loaded `Grammar` should call [`render_indexed`] instead.
 pub fn render(recipe: &Recipe) -> String {
@@ -425,11 +424,11 @@ pub fn render_indexed(recipe: &Recipe) -> RenderedGrammar {
 
         // The demo devoicing rule (module doc of `build::tables`) sits on the LAST stratum only
         // (GATE 1's own 2-table shape puts it on table/stratum 1; a `table_count > 2` recipe
-        // would still put it on the final one -- stage 2's concern if that ever needs to vary).
-        // Every stage-2 phonological/metathesis rule targets stratum 0 (module doc: single-table
-        // recipes), merged into the SAME attribute alongside the devoice id when both happen to
-        // apply (never true in practice -- GATE 1 and every stage-2 construct are mutually
-        // exclusive per recipe -- but merging is harmless either way).
+        // would still put it on the final one -- not something this module currently varies).
+        // Every construct-specific phonological/metathesis rule targets stratum 0 (module doc:
+        // single-table recipes), merged into the SAME attribute alongside the devoice id when both
+        // happen to apply (never true in practice -- GATE 1 and every other construct-specific
+        // gate are mutually exclusive per recipe -- but merging is harmless either way).
         let mut phon_ids: Vec<&str> = Vec::new();
         if ti == table_count - 1 {
             if let Some(id) = tb.devoice_rule_xml_id.as_deref() {
@@ -502,7 +501,7 @@ pub fn render_indexed(recipe: &Recipe) -> RenderedGrammar {
         });
     }
 
-    // --- Stratum-depth (design doc §6 priority (5)): additional strata reusing table 0, appended
+    // --- Stratum-depth: additional strata reusing table 0, appended
     // AFTER the base per-table loop's own strata (document order = cascade order). ---
     let extra_strata_build = has_extra_strata.then(|| {
         build::strata::build(

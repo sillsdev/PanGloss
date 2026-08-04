@@ -1,5 +1,4 @@
-//! Quantifier / `OptionalSegmentSequence` HONEST-SKIP bail gate builder (synthetic-stress-grammar-
-//! plan.md §2 row `Quantifier / OptionalSegmentSequence`; design doc §6 priority (7), pure
+//! Quantifier / `OptionalSegmentSequence` HONEST-SKIP bail gate builder (pure
 //! test-writing -- `pg_foma::replace::pattern_slots` already returns `None` on a `PatternNode::
 //! Quantifier` it meets in a REWRITE rule's own LHS/RHS/environment, which
 //! `compile_rewrite_rule_subset` turns into `Ok(None)` for the whole rule, and the caller

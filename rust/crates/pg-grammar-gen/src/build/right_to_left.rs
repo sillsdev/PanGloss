@@ -1,5 +1,4 @@
-//! `Dir::RightToLeft` HONEST-SKIP bail gate builder (synthetic-stress-grammar-plan.md §2 row
-//! `Dir::RightToLeft`; design doc §6 priority (7) -- same detection-wiring dependency as
+//! `Dir::RightToLeft` HONEST-SKIP bail gate builder (same detection-wiring dependency as
 //! [`crate::build::simultaneous`]).
 //!
 //! XML shape: identical to [`crate::build::simultaneous`] but `multipleApplicationOrder=

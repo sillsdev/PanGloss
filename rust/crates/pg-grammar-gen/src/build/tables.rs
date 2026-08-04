@@ -1,4 +1,4 @@
-//! Char-def table + shared feature-system builder (design doc §2, "tables"). Every table shares
+//! Char-def table + shared feature-system builder. Every table shares
 //! ONE grammar-global `<PhonologicalFeatureSystem>` (a single binary "voice" feature, `+`/`-`) --
 //! `pg_grammar::load`'s pass 1 (`load.rs`'s `load_char_def_table_from_xml`) loads exactly one
 //! feature system for the whole document, so per-table feature systems are not a shape the loader
@@ -7,8 +7,8 @@
 //!
 //! ## Why GATE 1's tables are deliberately "out of phase"
 //! `pg_foma::replace` used to hardcode `&g.char_tables[0]` for EVERY natural-class resolution
-//! (the former `table_of`/`resolve_alpha_tuples` sites, that crate's own module doc, and the
-//! design doc §5/§1's "SILENT MIS-MAP" row), regardless of which table the rule's own stratum
+//! (the former `table_of`/`resolve_alpha_tuples` sites, that crate's own module doc's "SILENT
+//! MIS-MAP" case), regardless of which table the rule's own stratum
 //! actually uses, while `SegAlphabet::token` (`pg-foma/src/replace.rs`) is a PURE function of a
 //! `CharDefId`'s raw numeric index (`PUA_BASE + cd.0`) that never looks at which table that id
 //! came from. Composing those two facts: a natural class resolved against table 0 yielded
@@ -20,7 +20,7 @@
 //! segment -- useless for a detect-wrong gate. `misaligned = true` gives table 1 (and beyond) the
 //! OPPOSITE index/feature alignment table 0 uses, so the mix-up provably named the WRONG segment.
 //!
-//! `openspec/changes/fix-multitable-fst-compilation` fixed both hardcoded sites (each rewrite rule
+//! Both hardcoded sites were fixed (each rewrite rule
 //! now resolves against its OWN owning stratum's table, via `pg_foma::replace::owning_table`); this
 //! module's `misaligned = true` recipe is UNCHANGED -- it is now what proves the fix is real (a
 //! misaligned rule that resolved correctly by ACCIDENT, e.g. because both tables happened to agree,
@@ -135,7 +135,7 @@ const FEAT_ID_XML_ID: &str = "featId";
 /// isolated probing)", i.e. this is load-bearing, not stylistic.
 ///
 /// Panics if `table_count * segment_inventory` exceeds the 26 available disjoint ASCII letters --
-/// stage-1 recipes stay far under this (design doc §3's "oracle-cheap-by-construction" sizing).
+/// existing recipes stay far under this by construction, to keep the oracle cheap.
 pub fn build(
     table_count: usize,
     segment_inventory: usize,
