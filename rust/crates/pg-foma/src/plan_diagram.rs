@@ -1,6 +1,6 @@
-//! `openspec/changes/visualize-compilation-plan`: a grammar author has no way to see how their
+//! A grammar author has no way to see how their
 //! language is actually handled. `crate::plan`/`crate::enumerate::enumerate_default` already turned
-//! compilation into an explicit, content-addressed AND-OR DAG (`reify-compilation-plans` ADR 0002);
+//! compilation into an explicit, content-addressed AND-OR DAG;
 //! this module renders THAT real `Plan` — never a parallel, hand-maintained description that could
 //! drift — first as a versioned JSON document, then as a mermaid diagram over that same document.
 //!
@@ -16,8 +16,8 @@
 //! not a separately-invented diagram-local id. Two runs over an unchanged grammar therefore produce
 //! byte-identical JSON (this module's own `plan_diagram_determinism` test pins that), and a diff
 //! between two grammar revisions highlights exactly the subtrees whose *meaning* changed (this
-//! module's own `plan_diagram_content_address_property` test pins that too, per this change's own
-//! "pinned rather than assumed" instruction).
+//! module's own `plan_diagram_content_address_property` test pins that too, rather than assuming
+//! it).
 //!
 //! # Linguistic labelling (never a second source of truth)
 //! Every [`PlanDocumentNode::label`] names the linguistic work that node performs (a stratum, a
@@ -34,7 +34,7 @@
 //! [`per_node_verdicts`] computes each node's real, bottom-up [`crate::capability::CompileDecision`]
 //! by mirroring `crate::capability`'s own private `node_decision` walk — same registry, same
 //! [`crate::capability::CharacteristicsProfile`], same [`crate::capability::meet`] — over ONLY that
-//! module's own public API (this file does not, and per this change's scope may not, modify
+//! module's own public API (this file never modifies
 //! `capability.rs`). [`PlanDocument::overall_verdict`] is, separately, the literal, unmodified return
 //! value of [`crate::capability::compose_envelope`] itself, so a reader always has the ONE
 //! authoritative whole-grammar answer available even where a characteristic has no distinct
@@ -119,7 +119,7 @@ impl From<&CapabilityDiagnostic> for DiagnosticView {
 pub enum NodeVerdict {
     /// Proven faithful; admission-filtering licensed.
     Admit,
-    /// Propose the superset; no no-false-negative proof, but a first-class non-failure (ADR 0001).
+    /// Propose the superset; no no-false-negative proof, but a first-class non-failure.
     ConfirmOnly,
     /// Refused, carrying every diagnostic collected for this node (or, for the whole-plan
     /// [`PlanDocument::overall_verdict`], for the whole plan).
@@ -138,8 +138,8 @@ impl NodeVerdict {
     }
 
     /// `true` iff this verdict is [`NodeVerdict::Refuse`] — the one fact [`render_mermaid`] must
-    /// show unmistakably (design.md: "a refused construct is visible in the picture rather than
-    /// only in a diagnostic").
+    /// show unmistakably: a refused construct must be visible in the picture, not only in a
+    /// diagnostic.
     pub fn is_refused(&self) -> bool {
         matches!(self, NodeVerdict::Refuse { .. })
     }
@@ -147,8 +147,8 @@ impl NodeVerdict {
 
 /// Converts a single predicate's [`PredicateVerdict`] into the same three-way [`CompileDecision`]
 /// lattice `crate::capability`'s own (private) `verdict_to_decision` uses — restated here (not
-/// imported: that helper is private) as the one-line, unambiguous mapping design.md D2/D4 already
-/// specify (`Admit`->`Admit`, `ConfirmOnly`->`ConfirmOnly`, `Refuse(d)`->`Refuse(vec![d])`).
+/// imported: that helper is private) as the one-line, unambiguous mapping
+/// (`Admit`->`Admit`, `ConfirmOnly`->`ConfirmOnly`, `Refuse(d)`->`Refuse(vec![d])`).
 fn predicate_verdict_to_decision(v: PredicateVerdict) -> CompileDecision {
     match v {
         PredicateVerdict::Admit => CompileDecision::Admit,
@@ -411,8 +411,8 @@ impl From<&GatedSubruleRef> for GatedSubruleRefView {
 }
 
 /// A structured, machine-checkable projection of one [`PlanNodeKind`]'s own config (excluding
-/// `children`, which [`PlanDocumentNode::children`] already carries) — this is the "independently
-/// usable for machine checks" half of design.md's "JSON first" decision: a caller diffing two
+/// `children`, which [`PlanDocumentNode::children`] already carries) — independently
+/// usable for machine checks: a caller diffing two
 /// grammar revisions can compare `payload` fields directly, not just the human-readable `label`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -445,8 +445,8 @@ pub enum NodePayload {
 }
 
 /// One node in a [`PlanDocument`]. `id` is [`NodeId`]'s own content address (`Display`, 16 lowercase
-/// hex digits) — never a diagram-local counter (design.md: "`NodeId` is the diagram's node
-/// identity").
+/// hex digits) — never a diagram-local counter: `NodeId` is the diagram's node
+/// identity.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PlanDocumentNode {
     pub id: String,
@@ -462,7 +462,7 @@ pub struct PlanDocumentNode {
     pub verdict: NodeVerdict,
 }
 
-/// The versioned JSON projection of a [`Plan`] (design.md: "a documented, versioned JSON shape").
+/// The versioned JSON projection of a [`Plan`]: a documented, versioned JSON shape.
 /// See this module's top-doc for the full contract.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PlanDocument {
@@ -598,17 +598,17 @@ fn build_node(
 /// supplies the real per-node verdicts (mirroring the same algorithm, see its own doc). Every label
 /// is derived from each node's own payload plus `g` — see this module's top-doc.
 ///
-/// Task 7.11 (`openspec/changes/cleanup-and-recipe-parity`): ONE
-/// [`crate::grammar_semantics::GrammarSemantics`] for the whole document. This function used to run
+/// Shares ONE
+/// [`crate::grammar_semantics::GrammarSemantics`] for the whole document, rather than running
 /// **three** independent [`crate::capability::characterize`] walks for one diagram — one in its own
 /// `plan_and_profile` call, a second in the `plan_and_profile` call inside
-/// [`build_plan_document_for_plan`] (whose `Plan` half was then discarded), and a third inside
+/// [`build_plan_document_for_plan`] (whose `Plan` half would then be discarded), and a third inside
 /// [`compose_envelope`].
 pub fn build_plan_document(g: &Grammar) -> PlanDocument {
     build_plan_document_with_semantics(&GrammarSemantics::derive(g))
 }
 
-/// [`build_plan_document`] over an already-derived [`GrammarSemantics`] (task 7.11).
+/// [`build_plan_document`] over an already-derived [`GrammarSemantics`].
 pub fn build_plan_document_with_semantics(semantics: &GrammarSemantics<'_>) -> PlanDocument {
     let plan = plan_for_semantics(semantics);
     build_plan_document_for_plan_with_semantics(semantics, &plan)
@@ -620,7 +620,7 @@ pub fn build_plan_document_for_plan(g: &Grammar, plan: &Plan) -> PlanDocument {
     build_plan_document_for_plan_with_semantics(&GrammarSemantics::derive(g), plan)
 }
 
-/// [`build_plan_document_for_plan`] over an already-derived [`GrammarSemantics`] (task 7.11).
+/// [`build_plan_document_for_plan`] over an already-derived [`GrammarSemantics`].
 pub fn build_plan_document_for_plan_with_semantics(
     semantics: &GrammarSemantics<'_>,
     plan: &Plan,
@@ -665,7 +665,7 @@ pub const DEFAULT_LEAF_COLLAPSE_THRESHOLD: usize = 24;
 pub enum RenderMode {
     /// Collapse sibling leaf groups whose count exceeds `threshold` under any one parent.
     Summarized { threshold: usize },
-    /// Opt-in full rendering: draw every node, regardless of size (design.md's explicit non-default
+    /// Opt-in full rendering: draw every node, regardless of size (an explicit non-default
     /// escape hatch).
     Full,
 }
@@ -679,8 +679,8 @@ impl Default for RenderMode {
 }
 
 /// [`render_mermaid`]'s result: the rendered text plus the honesty facts a reader needs regardless
-/// of whether they read the text closely (design.md: "the renderer should report the node count it
-/// emitted so a failed render is diagnosable").
+/// of whether they read the text closely -- the renderer reports the node count it
+/// emitted so a failed render is diagnosable.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MermaidRender {
     pub mermaid: String,
@@ -751,7 +751,7 @@ fn reachable_node_count(by_id: &HashMap<&str, &PlanDocumentNode>, root: &str) ->
 }
 
 /// Renders `doc` as a mermaid `flowchart` — a pure function over the documented [`PlanDocument`]
-/// shape (design.md: "the mermaid renderer stays a pure function over a documented shape"). See
+/// shape, never over the `Plan`/`Grammar` again. See
 /// this module's top-doc "Honest summarization" section for the collapsing contract.
 pub fn render_mermaid(doc: &PlanDocument, mode: RenderMode) -> MermaidRender {
     let by_id: HashMap<&str, &PlanDocumentNode> =
@@ -1021,8 +1021,8 @@ mod tests {
 
     /// A 2-stratum grammar (distinguishable stratum names in every leaf label) plus an
     /// `MprGroupOutput::Overwrite` MPR group -- the permanent carve-out (`mpr-group.overwrite-
-    /// output`) that all three reference grammars exercise today. Used by the render test (tasks.md
-    /// 3.4): asserts BOTH stratum names appear AND a refusal is visible.
+    /// output`) that all three reference grammars exercise today. Used by the render test:
+    /// asserts BOTH stratum names appear AND a refusal is visible.
     fn multi_stratum_refused_fixture() -> String {
         r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
@@ -1249,8 +1249,8 @@ mod tests {
         );
     }
 
-    /// design.md/spec.md: "an unchanged grammar is planned twice -> the serialized JSON is
-    /// identical, including node identities."
+    /// An unchanged grammar planned twice must produce identical serialized JSON, including node
+    /// identities.
     #[test]
     fn plan_diagram_determinism() {
         let g = load(&gated_plus_independent_stratum_fixture(false));
@@ -1265,7 +1265,7 @@ mod tests {
     }
 
     // ---------------------------------------------------------------------------------------
-    // 2. The content-address property, pinned (tasks.md 1.3)
+    // 2. The content-address property, pinned
     // ---------------------------------------------------------------------------------------
 
     #[test]
@@ -1449,7 +1449,7 @@ mod tests {
     // 5. Mermaid rendering
     // ---------------------------------------------------------------------------------------
 
-    /// tasks.md 3.4: a multi-stratum fixture's diagram distinguishes the strata, and a refused
+    /// A multi-stratum fixture's diagram distinguishes the strata, and a refused
     /// construct is marked refused.
     #[test]
     fn plan_diagram_render_distinguishes_strata_and_marks_refusal() {
