@@ -1,15 +1,15 @@
-//! `FomaAnalyzer` (plan §1 architecture / P2 "propose→confirm composite", gate F2): the public
+//! `FomaAnalyzer`: the public
 //! product API tying [`crate::analyzer::FomaProposer`] (propose), [`crate::peel::ReduplicationPeeler`]
-//! (D6), and [`crate::confirm`] (verify + D4 multiplicity recovery) into one `analyze_word` call
+//! (the redup peel), and [`crate::confirm`] (verify + multiplicity recovery) into one `analyze_word` call
 //! whose output shape mirrors `pg_parse::ParseOutcome`'s essentials — `analyses`/`structured`,
 //! parallel by index, `pg-parse/src/morpher.rs:79-120` — plus diagnostics.
 //!
-//! Pipeline (plan §1's diagram): `propose(word)` UNION `peel_candidates(word, propose)`, deduped by
-//! `(morphemes, root_index)` (plan §2: "Allomorph IDs are NOT part of candidate identity"), then
+//! Pipeline: `propose(word)` UNION `peel_candidates(word, propose)`, deduped by
+//! `(morphemes, root_index)` (allomorph IDs are NOT part of candidate identity), then
 //! `confirm_all` on each surviving candidate, concatenating every match. Over-generation is pruned
 //! silently by `confirm_all` (candidates that don't re-derive under restricted search simply
 //! contribute zero matches); under-generation would be a recall bug in `propose`/`peel_candidates`
-//! themselves (P1's job, already gated).
+//! themselves, already gated elsewhere.
 
 use std::time::Duration;
 
@@ -152,7 +152,7 @@ mod word_timer {
 }
 
 /// The outcome of [`FomaAnalyzer::analyze_word`] — the `pg_parse::ParseOutcome`-compatible shape
-/// plan P2 calls for (`analyses`/`structured`), plus diagnostics the P2 gate's numbers come from:
+/// (`analyses`/`structured`), plus diagnostics the propose/confirm gate's numbers come from:
 /// how many distinct candidates were proposed before confirm, how many survived confirm, and
 /// whether the reduplication peel contributed any candidate for this particular word.
 pub struct FomaOutcome {
@@ -161,19 +161,19 @@ pub struct FomaOutcome {
     pub analyses: Vec<(String, String)>,
     pub structured: Vec<WordAnalysis>,
     /// Distinct `(morphemes, root_index)` candidates offered to confirm (propose UNION peel,
-    /// deduped) — the over-generation half of the P2 gate's headline number.
+    /// deduped) — the over-generation half of the propose/confirm gate's headline number.
     pub candidates_generated: usize,
     /// `structured.len()` — kept as its own field (rather than making callers re-derive it) since
     /// it is the OTHER half of the same headline number (candidates_generated vs confirmed).
     pub confirmed: usize,
     /// Whether [`crate::peel::ReduplicationPeeler::peel_candidates`] returned at least one
     /// candidate for this word (regardless of whether it survived the union dedup against
-    /// `propose`'s own output) — the redup gate's own diagnostic (plan P2 gate item "redup words
+    /// `propose`'s own output) — the redup gate's own diagnostic ("redup words
     /// round-trip"). `false` whenever [`Self::peel_chain_depth_error`] is `Some` too (a refused
     /// peel contributes zero candidates for this word).
     pub peel_used: bool,
     /// `Some` iff [`crate::peel::ReduplicationPeeler::peel_candidates`] returned
-    /// [`crate::compose_budget::ComposeError::ChainDepthExceeded`] for this word (ADR 0003; see
+    /// [`crate::compose_budget::ComposeError::ChainDepthExceeded`] for this word (see
     /// `crate::peel`'s own module doc) — a genuinely deep nested-reduplication chain exceeded the
     /// configured [`crate::compose_budget::ComposeBudget::chain_depth_cap`]. This word's
     /// `analyses`/`structured`/`candidates_generated` still reflect whatever `propose` (the FST
@@ -409,7 +409,7 @@ fn remaining_apply_budget(budget: &ApplyBudget, used: &ProposalDiagnostics) -> A
 }
 
 /// One grammar's compiled foma proposer, uncapped verify [`Morpher`], prebuilt morpheme-owner map,
-/// and redup peeler, owned together (plan §1: "propose→confirm composite"). `'g` ties this to the
+/// and redup peeler, owned together — the propose→confirm composite. `'g` ties this to the
 /// same `&Grammar` borrow the verify `Morpher` itself needs.
 pub struct FomaAnalyzer<'g> {
     g: &'g Grammar,
@@ -418,7 +418,7 @@ pub struct FomaAnalyzer<'g> {
     morpher: Morpher<'g>,
     owners: Vec<Option<MorphemeOwner>>,
     /// The [`ComposeBudget`] [`Self::propose_candidates`] threads into every
-    /// [`ReduplicationPeeler::peel_candidates`] call (ADR 0003; `crate::peel`'s own module doc).
+    /// [`ReduplicationPeeler::peel_candidates`] call (`crate::peel`'s own module doc).
     /// Built ONCE here from `HC_COMPOSE_*` env vars (mirrors [`ComposeBudget::from_env`]'s own "read
     /// env exactly once, in the production entry point" convention/doc) rather than per word —
     /// [`ComposeBudget`] is `Copy`, so re-reading it per word would be pure waste, not a correctness
@@ -435,9 +435,9 @@ impl<'g> FomaAnalyzer<'g> {
     /// verify `Morpher` (`Morpher::new(g, usize::MAX)` — see [`crate::confirm::confirm_all`]'s doc
     /// for why a cap here would be a silent parity bug, not a performance knob), and the
     /// morpheme-owner reverse map confirm needs. `Err` iff the grammar's emitted lexc source itself
-    /// fails to foma-compile. Per the revised plan §0 there is no per-grammar fallback tier: this
+    /// fails to foma-compile. There is no per-grammar fallback tier: this
     /// composite IS the mainline for every grammar, so a compile failure here is an emitter gap to
-    /// fix (later plan stages), not a routing decision — the `Err` just surfaces it to the caller.
+    /// fix, not a routing decision — the `Err` just surfaces it to the caller.
     // See the `#[allow(clippy::result_large_err)]` justification on `FomaProposer::new`
     // (crate::analyzer): FomaError is a deliberately small, flat enum and boxing its largest
     // variant would change the public enum's shape for every downstream `match`.
@@ -481,7 +481,7 @@ impl<'g> FomaAnalyzer<'g> {
     /// a word the engine itself would only reach via `guess_root` (this crate never sets it —
     /// `confirm_all` always calls `parse_word_selected` with `ParseOptions::default()` — so the
     /// result here is consistent with `Morpher::parse_word_opts(word, &ParseOptions::default())`
-    /// under the SAME options, matching P2's own gate requirement).
+    /// under the SAME options).
     pub fn analyze_word(&mut self, word: &str) -> FomaOutcome {
         let (candidates, peel_used, peel_chain_depth_error) = self.propose_candidates(word);
         let candidates_generated = candidates.len();
@@ -489,8 +489,7 @@ impl<'g> FomaAnalyzer<'g> {
         // precedent as `HC_PREEXPAND_FLAT`/`HC_PREEXPAND_PROBE_CAP`): prints the proposed-candidate
         // count right after `propose_candidates` returns, before `confirm_batch` runs -- the fast
         // way to tell whether a runaway is in propose/peel vs. confirm without a debugger attached
-        // (`docs/fst-plan/morphotactic-composite-pruning.md`'s Aweti investigation used this to
-        // localize an allocation-failure crash to inside `propose_candidates`).
+        // (used to localize an allocation-failure crash to inside `propose_candidates` on Aweti).
         if std::env::var("HC_DEBUG_CANDIDATES").is_ok() {
             eprintln!(
                 "[HC_DEBUG_CANDIDATES] word={word:?} candidates_generated={candidates_generated}"
@@ -787,7 +786,7 @@ impl<'g> FomaAnalyzer<'g> {
     /// factored out so the batch path can run this stage sequentially over every word (see
     /// [`Self::analyze_words`]'s doc for why it stays sequential) before handing the results to
     /// confirm. Returns the deduped candidate list, whether the redup peel contributed anything
-    /// for this word, and (ADR 0003) `Some` iff the peel hit its configured chain-depth budget for
+    /// for this word, and `Some` iff the peel hit its configured chain-depth budget for
     /// this word (`self.peel_budget`; [`FomaOutcome::peel_chain_depth_error`]'s own doc) — a refused
     /// peel contributes zero candidates of its own for this word, but never touches `propose`'s
     /// own (unaffected) candidates.
@@ -821,7 +820,7 @@ impl<'g> FomaAnalyzer<'g> {
             }
         }
 
-        // Plan §2/D4: distinct candidates yield disjoint matched sequences (confirm's
+        // Distinct candidates yield disjoint matched sequences (confirm's
         // `analyses_match` is keyed on exactly a candidate's own `(morphemes, root_index)`), so no
         // cross-candidate double-count is possible once this list itself has no duplicate key —
         // asserted here (debug-only: a real invariant of the dedup above, not a runtime check meant
@@ -949,8 +948,7 @@ impl<'g> FomaAnalyzer<'g> {
 
     /// Rehydrate a `FomaAnalyzer` from previously-built OWNED pieces (a compiled [`FomaProposer`]
     /// — the expensive `emit`+foma-compile step — a [`ReduplicationPeeler`], and an owners map)
-    /// plus a fresh borrow of `g` for this call. Plan P4 (`docs/fst-plan/foma-fst-plan.md`
-    /// "`PanGlossGrammar::new` builds `FomaAnalyzer`"): a long-lived host (`pg-wasm`'s
+    /// plus a fresh borrow of `g` for this call. `PanGlossGrammar::new` builds `FomaAnalyzer`: a long-lived host (`pg-wasm`'s
     /// `PanGlossGrammar`) that also OWNS the `Grammar` these borrow from can't store a
     /// `FomaAnalyzer<'g>` as a sibling field of that same `Grammar` (that would be a
     /// self-referential struct) — but it CAN store the three owned pieces here and reconstruct a
