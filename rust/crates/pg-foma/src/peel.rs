@@ -1,17 +1,17 @@
-//! Reduplication peel (plan D6, `docs/fst-plan/foma-fst-plan.md` P2): a fresh port of
+//! Reduplication peel: a fresh port of
 //! `hc-hybrid/src/proposers.rs::ReduplicationProposer` (`ReduplicationProposer.cs`'s four scan
 //! kinds — prefix-copy, suffix-copy, separator+tail-copy, separator+suffix-peel), with the
-//! recursion target swapped from the trie-based bare walker to the caller's foma proposer (plan §2:
-//! "Redup peel is proposer-agnostic ... only needs a `fn(&str) -> Vec<Candidate>` to recurse
-//! residuals into").
+//! recursion target swapped from the trie-based bare walker to the caller's foma proposer:
+//! reduplication peeling is proposer-agnostic — it only needs a `fn(&str) -> Vec<Candidate>` to
+//! recurse residuals into.
 //!
 //! Reuses [`crate::emit`]'s own port of `hc-hybrid/src/token.rs`'s `MorphOp`/`ClassifyAffix`
 //! (`Role`/`classify_affix`, made `pub(crate)` there for exactly this reason) plus its
 //! `owning_morpheme`/`surface_table` helpers, rather than re-porting the same classification logic
 //! a second time in this module — both the emitter and this peel need the identical affix-role
-//! answer, and `hc-hybrid` itself is being sunset (plan D8), so neither may depend on it.
+//! answer, and `hc-hybrid` itself is being sunset, so neither may depend on it.
 //!
-//! ## Chain depth and nested reduplication (`openspec/changes/cover-template-truncation-reduplication`)
+//! ## Chain depth and nested reduplication
 //! [`ReduplicationPeeler::peel_candidates`] originally peeled at most ONE layer: strip a
 //! prefix/suffix/separator copy, then hand the residual STRAIGHT to the caller's FST `propose`
 //! closure (never back to itself). That is faithful for every reference/synthetic grammar this
@@ -19,23 +19,24 @@
 //! grammar whose confirm-side oracle (`pg_rules::morph::synthesize`/`pg_parse::Morpher`) can
 //! legitimately chain TWO reduplication-classified rules (or the same rule applied twice via
 //! `max_apps`) — HermitCrab's own morphotactics has no rule against it, so `propose`-side
-//! under-generation here would be exactly the "implemented in confirm, never proposed" shape ADR
-//! 0001 exists to close (`Compounding`/`MorphRuleOrder::Unordered`'s own citation). This module now
+//! under-generation here would be exactly the "implemented in confirm, never proposed" shape this
+//! crate's honest-capability discipline exists to close (`Compounding`/`MorphRuleOrder::Unordered`'s
+//! own citation). This module now
 //! ALSO tries peeling the residual again — the same operation one level deeper — closing that gap.
 //!
-//! **The hazard this creates, and how ADR 0003 closes it.** A self-similar surface string (the
+//! **The hazard this creates, and how the chain-depth cap closes it.** A self-similar surface string (the
 //! degenerate case: every character identical) matches this module's prefix/suffix/separator scans
 //! at MANY positions simultaneously, and — once residuals recurse into a further peel — each match
 //! spawns its own recursive subtree. Recursion depth is bounded above by the word's own length (each
 //! layer consumes >= 1 character), but for a long enough adversarial word this is exactly the
-//! Aweti-style "derivation chain deep enough to matter" failure class ADR 0003 names (deep native
+//! Aweti-style "derivation chain deep enough to matter" failure class (deep native
 //! recursion risks a stack overflow; the branching multiplies total work superlinearly in the
 //! number of layers actually taken). [`crate::compose_budget::ComposeBudget::check_chain_depth`] —
 //! until this change, a schema-only type with no production caller (that module's own doc) — is
 //! wired here as the fix: [`ReduplicationPeeler::propose_for_residual`] checks it once per
 //! reduplication layer it is ABOUT to use, turning a runaway chain into the typed, deterministic
 //! [`crate::compose_budget::ComposeError::ChainDepthExceeded`] instead of an unbounded
-//! stack/candidate blow-up. Per ADR 0004 (`docs/adr/0004-runtime-feature-compatibility.md`), this
+//! stack/candidate blow-up. This
 //! module's own operation is declared as the required-runtime-feature
 //! [`RUNTIME_FEATURE_REDUPLICATION_PEEL`] — see that constant's own doc.
 //!
@@ -63,12 +64,10 @@
 //! production's default via [`crate::compose_budget::ComposeBudget::from_env`], leaves `D` bounded
 //! only by the word's own length, per [`crate::compose_budget::ComposeBudget`]'s own documented
 //! "uncalibrated default" caveat — the same one every other dimension in that module already
-//! carries until `calibrate-fst-resource-envelopes` lands a calibrated number).
+//! carries until a calibrated number lands.
 //!
-//! ## Task 2.2's recall proof — precisely what is proven vs. left open
-//! `openspec/changes/cover-template-truncation-reduplication/tasks.md` item 2.2 ("Prove peeler
-//! candidates retain complete proposer-to-confirm recall and multiplicity") is this change's own
-//! self-flagged open item. Status, stated precisely rather than rounded up:
+//! ## The recall proof — precisely what is proven vs. left open
+//! Status, stated precisely rather than rounded up:
 //! - **Proven**: single-layer (depth-1) reduplication is oracle-CONTAINED, and for the one real,
 //!   previously-zero-coverage in-repo construct available to check against
 //!   (`machine/conformance/languages/suffixing-extension-slot-ordering`'s `mrRedup`,
@@ -87,7 +86,7 @@
 //!   TWO-rule reduplication chain (or one rule at `max_apps >= 2`) today, so there is no oracle
 //!   witness to check the new recursive candidates against at all. The capability disposition
 //!   reflects this honestly: [`crate::capability::ReduplicationPeelSupportedPredicate`] verdicts
-//!   ConfirmOnly for the depth-1-eligible case (never Admit — ADR 0001's own bar), which already
+//!   ConfirmOnly for the depth-1-eligible case (never Admit), which already
 //!   means confirm is trusted to prune whatever this module over-generates, nested candidates
 //!   included; a wrong/spurious nested candidate is therefore safe by construction (confirm drops
 //!   it), but a grammar whose ORACLE truly needs depth >= 2 to recall a real word has no witness
@@ -96,7 +95,7 @@
 //!   case — flagged here for a follow-on, not silently assumed proven.
 //! - **Left OPEN** (unrelated to nesting): multiplicity beyond "exactly 1" is unchecked — the one
 //!   proven word above happens to have exactly one oracle analysis; whether this peel preserves
-//!   D4's own multiplicity-recovery guarantee (`crate::confirm`'s doc) for a word with SEVERAL
+//!   the multiplicity-recovery guarantee (`crate::confirm`'s doc) for a word with SEVERAL
 //!   distinct reduplication-derived analyses is not separately witnessed.
 
 use pg_grammar::chardef::{CharDefId, CharDefTable};
@@ -107,24 +106,20 @@ use crate::compose_budget::{ComposeBudget, ComposeError};
 use crate::emit::{classify_affix, owning_morpheme, surface_table, Role};
 use crate::tags::Candidate;
 
-/// ADR 0004 (`docs/adr/0004-runtime-feature-compatibility.md`) required-runtime-feature identifier
+/// The required-runtime-feature identifier
 /// this module's own operation contributes to a compiled pack's
-/// `pg_pack::compat::RequiredRuntimeFeatures::runtime_operations` set: "only constructs needing a
-/// runtime operation (e.g. reduplication → the query-time peel op) contribute" (that ADR's own
-/// worked example). A grammar with `ReduplicationPeeler::has_redup_rules() == true` requires a
+/// `pg_pack::compat::RequiredRuntimeFeatures::runtime_operations` set: only constructs needing a
+/// runtime operation (e.g. reduplication → the query-time peel op) contribute. A grammar with `ReduplicationPeeler::has_redup_rules() == true` requires a
 /// Runtime whose OWN provided set includes this string; a grammar with none needs nothing from this
 /// module at all (every reference/synthetic grammar with zero reduplication rules — `has_redup_
-/// rules() == false` — never depends on it, mirroring that ADR's "most constructs are fully lowered
-/// and impose no runtime requirement" observation).
+/// rules() == false` — never depends on it: most constructs are fully lowered and impose no
+/// runtime requirement).
 ///
-/// **Declared here, not yet wired into `pg-pack`.** `pg-pack/src/manifest.rs` has no production code
-/// path yet that builds a real `PackManifest` from a compiled grammar's own characteristics (per
-/// `openspec/changes/STAGING.md`, "Packaging/WASM/compat are downstream" of the Stage-2 compilation
-/// spine this change belongs to) — that manifest-BUILDING step, whenever it lands, is what should
-/// read [`ReduplicationPeeler::has_redup_rules`] and push this exact string into the pack's required
-/// set. `pg-pack` is a separate crate/single-owner boundary this change does not cross; this
-/// constant is the stable identifier that future wiring should reach for, rather than inventing a
-/// second ad hoc name for the same operation.
+/// **Declared here; consuming it is `pg-pack`'s responsibility.** `pg-pack` is a separate
+/// crate/single-owner boundary this module does not cross; this constant is the stable identifier
+/// a `pg-pack` manifest-builder should read [`ReduplicationPeeler::has_redup_rules`] against and
+/// push into the pack's required set, rather than inventing a second ad hoc name for the same
+/// operation.
 pub const RUNTIME_FEATURE_REDUPLICATION_PEEL: &str = "reduplication.peel";
 
 /// [`crate::compose_budget::ComposeBudget::check_chain_depth`]'s `site` label for every check this
@@ -142,9 +137,8 @@ const CHAIN_DEPTH_SITE: &str = "peel::ReduplicationPeeler::propose_for_residual"
 /// allomorph route in the morphotactic chain", this asks "does ANY allomorph of this rule
 /// reduplicate").
 ///
-/// **Census C2, re-checked after C3's reordering — still faithful, no code change needed here**
-/// (`docs/conformance/circumfix-structural-composite-census.md`, `openspec/changes/
-/// plan-construct-coverage-completion` task 4.3c). `classify_affix` now lets `Role::CircumfixPrefix`
+/// **Still faithful after `classify_affix`'s circumfix-vs-reduplication reordering — no code
+/// change needed here.** `classify_affix` now lets `Role::CircumfixPrefix`
 /// win whenever an RHS is SIMULTANEOUSLY circumfix-shaped (leading AND trailing insert) and
 /// reduplication-shaped (some `Copy`d part echoed >= 2 times) — this function's `.any()` scan calls
 /// that exact same port, so an allomorph with that combined shape now silently drops out of THIS
@@ -255,8 +249,8 @@ impl ReduplicationPeeler {
     }
 
     /// C# `ReduplicationProposer.AnalyzeWord` (`ReduplicationProposer.cs:134-209`), recursion target
-    /// swapped to the caller's `propose` closure (plan D6) instead of the trie-based bare walker —
-    /// plus, since `cover-template-truncation-reduplication`, ALSO back to itself for a residual that
+    /// swapped to the caller's `propose` closure instead of the trie-based bare walker —
+    /// plus ALSO back to itself for a residual that
     /// carries its own further reduplication structure (module doc, "Chain depth and nested
     /// reduplication"). Operates on `char`s (Rust's `char` == a Unicode scalar value; every
     /// reference grammar's alphabet is BMP-only, where C#'s UTF-16 `string.Length`/`Substring`
@@ -551,8 +545,7 @@ mod tests {
     }
 
     // =============================================================================================
-    // Chain-depth / nested-reduplication tests (`openspec/changes/
-    // cover-template-truncation-reduplication`). These build a MINIMAL hand-authored `Grammar`
+    // Chain-depth / nested-reduplication tests. These build a MINIMAL hand-authored `Grammar`
     // directly (no XML, no gitignored corpus data -- always run, never `#[ignore]`d) carrying
     // nothing but the one shape `ReduplicationPeeler::new` needs: an `AffixProcessRule` whose RHS
     // classifies `Role::Reduplication` (`is_reduplication_rule`'s own trigger). The `propose`
@@ -638,7 +631,7 @@ mod tests {
     /// recursion (module doc) is genuinely, repeatedly exercised layer after layer, not merely
     /// attempted-and-empty. This is the adversarial shape the chain-depth budget exists for
     /// (module doc's "Big-O" section): with NO cap this is exactly the unbounded-branching hazard
-    /// ADR 0003 names, so every test below that does NOT expect a refusal uses a small INPUT
+    /// the chain-depth cap exists for, so every test below that does NOT expect a refusal uses a small INPUT
     /// (never an unbounded budget on a large one) to stay fast and safe regardless.
     fn monochar_word(len: usize) -> String {
         "a".repeat(len)
