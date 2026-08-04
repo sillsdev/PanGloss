@@ -863,9 +863,9 @@ impl CharacteristicsProfile {
 /// over every LHS/RHS/environment pattern this rule's subrules carry, EXACTLY the same shape
 /// [`crate::replace::compile_rewrite_rule_subset`] itself checks before ever compiling a foma
 /// automaton — `false` the instant any one of them returns `None` (a malformed `Quantifier`, a
-/// disagree-polarity alpha var, or -- since `openspec/changes/plan-construct-coverage-completion`
-/// task 4.2 -- a cross-table `Segments`; a same-table `Segments` and any `Anchor` no longer
-/// disqualify), or the rule has no resolvable owning table ([`crate::replace::owning_table`]
+/// disagree-polarity alpha var, or a cross-table `Segments`; a same-table `Segments` and any
+/// `Anchor` no longer disqualify), or the rule has no resolvable owning table
+/// ([`crate::replace::owning_table`]
 /// returning `None`). Cheap and purely structural: no [`foma::options::FomaOptions`]/
 /// [`crate::replace::SegAlphabet`] needed, unlike the real compile.
 ///
@@ -1077,8 +1077,8 @@ fn rule_has_unbounded_quantifier(r: &pg_grammar::model::RewriteRuleDef) -> bool 
 /// (model.rs:682) is the DTD's own default value for EVERY non-reduplicating affix subrule
 /// (`pg_grammar::load`'s `_ => ReduplicationHint::Implicit` fallback when the `redupMorphType`
 /// attribute is simply absent) — treating the hint's mere presence as the trigger would fail-close
-/// literally every ordinary affixation grammar ever loaded, which is not what D1's "reduplication"
-/// row means and would break this step's own "ordinary grammar characterizes Proven" test.
+/// literally every ordinary affixation grammar ever loaded, which is not what "reduplication"
+/// means here and would break the "ordinary grammar characterizes Proven" test.
 ///
 /// # The single authority for "is this reduplication"
 /// `pub` because this is now the ONLY definition of the fact in this crate.
@@ -1205,7 +1205,7 @@ fn multi_table_detail(g: &Grammar) -> MultiTableDetail {
     }
 }
 
-/// Lowers one `Simultaneous`-mode subrule's D3 span via [`crate::lower::lower_span`], for
+/// Lowers one `Simultaneous`-mode subrule's span via [`crate::lower::lower_span`], for
 /// [`SubruleGateInfo::span`] — see that field's own doc for why this runs HERE (inside
 /// `characterize`, which owns a live `&Grammar`) rather than inside
 /// [`SimultaneousSubruleOverlapPredicate::evaluate`] itself.
@@ -1213,29 +1213,28 @@ fn multi_table_detail(g: &Grammar) -> MultiTableDetail {
 /// Builds a fresh [`crate::replace::SegAlphabet`]/[`foma::options::FomaOptions`] per call rather
 /// than threading them through `characterize`'s own signature — cheap (`SegAlphabet::new` only
 /// borrows a table reference; `FomaOptions::default()` is a plain value struct), and keeps
-/// `characterize`'s signature (`fn characterize(g: &Grammar) -> CharacteristicsProfile`, unchanged
-/// since Step 1 of `add-capability-characteristics-check`) untouched.
+/// `characterize`'s signature (`fn characterize(g: &Grammar) -> CharacteristicsProfile`) untouched.
 ///
-/// # `owning_table`, not `g.char_tables[0]` (`compile-simultaneous-rewrites`'s own fix)
+/// # `owning_table`, not `g.char_tables[0]`
 /// This function used to unconditionally read `g.char_tables.first()` — a single-table assumption
-/// `fix-multitable-fst-compilation` deliberately left unchanged (its own scope was
-/// `pg_foma::replace`'s rewrite-COMPILATION path, not this predicate). Now that
-/// `crate::replace::owning_table` exists, this function threads the rule's OWN owning table
-/// through, exactly like `replace.rs`'s own compile path does — closing the gap for a genuinely
-/// multi-table grammar (a real risk: table 0's alphabet is not guaranteed to be the natural-
-/// class/alpha-variable alphabet a rule wired to a DIFFERENT stratum's table actually resolves
-/// against, per `MultiTableFaithfulThreadingPredicate`'s own doc on why per-rule table identity
-/// matters). `owning_table` returning `None` (no `<Strata>` block wires this rule to any stratum at
-/// all — several of this module's own minimal unit fixtures deliberately omit `<Strata>` entirely)
-/// is handled gracefully, never a panic and never a wrong `Admit`:
+/// left over from when rewrite COMPILATION (`pg_foma::replace`), not this predicate, was the only
+/// path threading per-rule table identity. Now that `crate::replace::owning_table` exists, this
+/// function threads the rule's OWN owning table through, exactly like `replace.rs`'s own compile
+/// path does — closing the gap for a genuinely multi-table grammar (a real risk: table 0's
+/// alphabet is not guaranteed to be the natural-class/alpha-variable alphabet a rule wired to a
+/// DIFFERENT stratum's table actually resolves against, per
+/// `MultiTableFaithfulThreadingPredicate`'s own doc on why per-rule table identity matters).
+/// `owning_table` returning `None` (no `<Strata>` block wires this rule to any stratum at all —
+/// several of this module's own minimal unit fixtures deliberately omit `<Strata>` entirely) is
+/// handled gracefully, never a panic and never a wrong `Admit`:
 /// - **Exactly one table declared** (the ordinary single-table case, and every pre-existing unit
 ///   fixture in this module's own test suite): falls back to that one table. Unambiguous by
 ///   construction — there is no SECOND table `owning_table`'s `None` could have silently confused
 ///   this with — so this preserves every existing test's behavior byte-for-byte.
 /// - **Zero or 2+ tables declared, but no owning stratum resolved**: genuinely ambiguous (which of
 ///   several tables' alphabets should this rule's patterns resolve against?) or simply absent —
-///   conservatively `LoweredSpan::Unsupported` (D3's own "any approximation rounds toward Refuse"
-///   discipline), naming the table count, rather than guessing table 0.
+///   conservatively `LoweredSpan::Unsupported` (any approximation rounds toward `Refuse`), naming
+///   the table count, rather than guessing table 0.
 fn lower_subrule_span(
     g: &Grammar,
     rule: &pg_grammar::model::RewriteRuleDef,
@@ -1368,9 +1367,8 @@ fn mrule_stratum_rank(g: &Grammar, mid: MRuleId) -> Option<usize> {
     None
 }
 
-/// The `compounding.non-recursive` vs `compounding.recursive` reachability pass (design.md D2 item
-/// 3 / Novelty-risk note: "a new kind of predicate input... the characterizer needs a graph-
-/// reachability pass over `Grammar.mrules`"). Returns the [`MRuleId`]s of every `Compounding` rule
+/// The `compounding.non-recursive` vs `compounding.recursive` reachability pass — a graph-
+/// reachability pass over `Grammar.mrules`. Returns the [`MRuleId`]s of every `Compounding` rule
 /// this pass could NOT prove non-recursive.
 ///
 /// **What "recursive" means here**: `pg_rules::morph::synth_compound`'s own `word: &Word` head
@@ -1380,8 +1378,7 @@ fn mrule_stratum_rank(g: &Grammar, mid: MRuleId) -> Option<usize> {
 /// search, i.e. `r` fires again (or a DIFFERENT compounding rule fires) on a word that has ALREADY
 /// been through a compounding application.
 ///
-/// **The reachability test (deliberately coarse, rounding every uncertainty toward "recursive" —
-/// design.md's own "if uncertain, conservatively treat as recursive"):**
+/// **The reachability test (deliberately coarse, rounding every uncertainty toward "recursive"):**
 /// - `r.max_apps() > 1`: `r` itself may apply more than once in one derivation, so a second
 ///   application's head can be the first application's own compound output — direct self-recursion,
 ///   regardless of stratum/template structure.
@@ -1392,9 +1389,8 @@ fn mrule_stratum_rank(g: &Grammar, mid: MRuleId) -> Option<usize> {
 ///   stratum. The same-stratum case is intentionally NOT refined by `MorphRuleOrder`
 ///   (`Linear`-order's real forward-only restriction, or template slot order, would in principle let
 ///   some same-stratum pairs be proven safe) — two co-located rules are treated as mutually
-///   reachable unconditionally. This over-flags some pairs a finer analysis could clear, which is
-///   exactly the conservative direction design.md's own novelty note asks for; a later change may
-///   tighten it once a real motivating grammar needs the extra precision.
+///   reachable unconditionally. This over-flags some pairs a finer analysis could clear, but is
+///   the conservative direction absent a real motivating grammar that needs the extra precision.
 /// - `mrule_stratum_rank` returning `None` for either rule (should not happen for a well-formed
 ///   grammar) is treated as "cannot prove non-recursive" — recursive, never silently ignored.
 fn compounding_recursive(g: &Grammar) -> HashSet<MRuleId> {
@@ -1435,16 +1431,15 @@ fn compounding_recursive(g: &Grammar) -> HashSet<MRuleId> {
     recursive
 }
 
-/// `openspec/changes/plan-construct-coverage-completion` task 4.1 (design.md row 2, piece 1):
-/// extends [`compounding_recursive`]'s existing ONE-HOP boolean reachability test into an actual
-/// finite MAXIMUM DEPTH bound over the SAME "feeds" edge — design.md's own framing, "turning a
-/// boolean into a bound," not a replacement classifier ([`compounding_recursive`] above is
-/// byte-for-byte unchanged; this is an additional pass computed alongside it).
+/// Extends [`compounding_recursive`]'s existing ONE-HOP boolean reachability test into an actual
+/// finite MAXIMUM DEPTH bound over the SAME "feeds" edge — turning a boolean into a bound, not a
+/// replacement classifier ([`compounding_recursive`] above is byte-for-byte unchanged; this is an
+/// additional pass computed alongside it).
 ///
 /// **Depth unit**: total STEM count (lexical roots) reachable in a single compounding derivation
 /// chain ending in an application of `r`. `2` is the ordinary head+non-head shape today's
 /// `crate::emit::compound_license`/"bounded compound loop" construction already covers faithfully
-/// (`compounding.non-recursive`); `>= 3` is what design.md D2 item 3 calls "recursive/self-feeding."
+/// (`compounding.non-recursive`); `>= 3` is "recursive/self-feeding."
 /// `recursive(r) == (max_depth(r) > 2)` always holds: the minimum legal `multipleApplication`/
 /// `max_apps` is `1` (DTD default), so `compounding_recursive`'s "some other rule qualifies" test
 /// (self `max_apps > 1`, or ANY distinct co-located/earlier rule at all) can only ever be triggered
