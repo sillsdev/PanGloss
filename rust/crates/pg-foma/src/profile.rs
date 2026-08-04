@@ -121,7 +121,7 @@ pub enum ProfileLabel {
     /// the ACTUAL network `crate::analyzer::FomaProposer::propose` looks up against today.
     Production,
     /// A pre-production capture of `crate::replace`/`crate::gate`'s experimental cascade,
-    /// not wired into the production constructor. The result is labeled
+    /// separate from the production constructor. The result is labeled
     /// `experimental_composition` and cannot satisfy production-profile gates —
     /// `crate::health_evaluator::profile_findings` refuses to fold a profile carrying this label
     /// into a production [`crate::health::HealthReport`].
