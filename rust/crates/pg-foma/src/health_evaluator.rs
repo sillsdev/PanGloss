@@ -24,8 +24,8 @@
 //! [`profile_findings`] populates [`crate::health::FindingCode::IntermediateNetworkGrowth`] (the
 //! production network's own final state/arc count approaching, but not tripping,
 //! `crate::compose_budget::DEFAULT_STATE_BUDGET`/`DEFAULT_ARC_BUDGET` — reused as the closest
-//! existing calibrated size dimension; see [`profile_findings`]'s own doc for why Phase A's
-//! production path has no earlier "intermediate" composition product to measure instead) and
+//! existing calibrated size dimension; see [`profile_findings`]'s own doc for why the production
+//! path has no earlier "intermediate" composition product to measure instead) and
 //! [`crate::health::FindingCode::CompileWorkBudget`] (total emitted lexc lines approaching, but not
 //! tripping, `crate::compose_budget::DEFAULT_LINE_BUDGET` — a dimension the production path does
 //! not even check today, unlike the experimental `emit_underlying_templated`/`crate::uflexc`
@@ -110,15 +110,15 @@
 //!    with no specific construct identifier (e.g. a payload-size finding) leave `affected` empty.
 //! 8. **[`profile_findings`] reuses [`Metric::IntermediateStateCount`]/[`Metric::IntermediateArcCount`]
 //!    for the PRODUCTION path's own FINAL compiled network**, not a mid-cascade intermediate
-//!    composition product — `crate::emit::emit_with_budget`'s Phase A production path pre-bakes
+//!    composition product — `crate::emit::emit_with_budget`'s production path pre-bakes
 //!    phonology into emitted surface forms, so replacement-rule nets do not exist there: it
 //!    performs no separate `fsm_compose`/`fsm_union`/`fsm_minimize` call at all;
 //!    the single `foma::lexcread::fsm_lexc_parse_string` call IS the only network-construction step,
 //!    so its own state/arc count is simultaneously the "final" and the only "intermediate" product
 //!    available. This reuses the existing `Metric`/`MetricValue`
 //!    vocabulary rather than inventing a parallel one; the finding's own `explanation` text says so
-//!    explicitly, so a report reader is never misled into expecting Phase B's future per-rule
-//!    cascade curve from a Phase A report.
+//!    explicitly, so a report reader is never misled into expecting a future per-rule
+//!    cascade curve from this kind of report.
 //! 9. **A single flat 80%-of-budget threshold, not a banded severity scale**
 //!    ([`APPROACHING_BUDGET_WARNING_FRACTION`]) — no real large-grammar measurement of a legitimate
 //!    "approaching" curve exists yet for either dimension (mirrors `crate::compose_budget`'s own
@@ -126,10 +126,10 @@
 //!    defaults); always [`Severity::Warning`], never escalated further by this evaluator, because an
 //!    ACTUAL trip of the same dimension is a completely different, already-handled code path
 //!    ([`compose_error_finding`]'s [`FindingCode::ResourceBudgetReached`]/
-//!    [`FindingCode::ProvenBoundExceedsBudget`] arms) that this function never reaches (Phase A's
+//!    [`FindingCode::ProvenBoundExceedsBudget`] arms) that this function never reaches (the
 //!    production path has no compose-budget-checked call site at all, module doc).
 //! 10. **[`profile_findings`] refuses a non-[`crate::profile::ProfileLabel::Production`] profile
-//!     outright** (empty `Vec`, never a partial fold) — the Phase B gate: an
+//!     outright** (empty `Vec`, never a partial fold): an
 //!     `ExperimentalComposition`-labeled profile "cannot
 //!     satisfy production-profile gates." [`evaluate_health`] never even needs to check this itself;
 //!     [`profile_findings`] is the one and only place this gate is enforced.
@@ -188,7 +188,7 @@ fn approaching_budget_finding(
 /// total emitted lexc line count approaching (but not tripping) [`DEFAULT_LINE_BUDGET`] — see this
 /// module's "Judgment calls" items 8/9 for the reuse/threshold rationale.
 ///
-/// Phase B gate (this module's "Judgment calls" item 10): a `profile.label !=
+/// The production-only gate (this module's "Judgment calls" item 10): a `profile.label !=
 /// crate::profile::ProfileLabel::Production` is refused outright, returning an empty `Vec` — never
 /// partially folded in as production evidence.
 pub fn profile_findings(profile: &CompileProfile) -> Vec<HealthFinding> {
@@ -659,8 +659,8 @@ fn apply_budget_trip_finding(trip: &ApplyBudgetTrip) -> HealthFinding {
 /// - `apply_budget_trips`: every per-word [`ApplyBudgetTrip`] this compilation's callers observed.
 /// - `compile_profile`: this crate's own [`CompileProfile`], if this
 ///   compilation collected one (`crate::analyzer::FomaProposer::new_with_profile`) — see
-///   [`profile_findings`]'s own doc for exactly which finding kinds this populates, and the Phase B
-///   gate it enforces on a non-production-labeled profile.
+///   [`profile_findings`]'s own doc for exactly which finding kinds this populates, and the
+///   production-only gate it enforces on a non-production-labeled profile.
 pub fn evaluate_health(
     payload_bytes: Option<u64>,
     emit_report: Option<&EmitReport>,
@@ -993,7 +993,7 @@ mod tests {
 
     // ---------------------------------------------------------------------------------------
     // fst_health_evaluator_profile: IntermediateNetworkGrowth/CompileWorkBudget populate from
-    // `crate::profile::CompileProfile`, and the Phase B `ProfileLabel` gate.
+    // `crate::profile::CompileProfile`, and the production-only `ProfileLabel` gate.
     // ---------------------------------------------------------------------------------------
 
     fn synthetic_profile(
@@ -1089,7 +1089,7 @@ mod tests {
         );
     }
 
-    /// Phase B gate: a profile
+    /// The production-only gate: a profile
     /// labeled `ExperimentalComposition` must be refused OUTRIGHT by `profile_findings`/
     /// `evaluate_health`, even when its own values would otherwise trip every dimension at once --
     /// proving this is a hard label check, not merely "these particular synthetic values happen not
