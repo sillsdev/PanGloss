@@ -1,38 +1,37 @@
-//! Compile-worker watchdog subsystem: `harden-foma-resource-safety` section 3/4, the second half
-//! of that change (section 1-2's budget foundation is [`crate::compose_budget`], already landed).
-//! This is ADR 0003's **COMPILE-side** containment -- a killable native worker process, distinct
-//! from [`crate::compose_budget`]'s in-process cooperative APPLY-side budgets
-//! (`docs/adr/0003-apply-time-containment.md`: "Compile-time work runs in a killable native worker
-//! under the parent watchdog. **Apply-time (word analysis) runs in-process**"). Do not add
+//! Compile-worker watchdog subsystem. Compile-time work runs in a killable native
+//! worker process under the parent watchdog, distinct
+//! from [`crate::compose_budget`]'s in-process cooperative APPLY-side budgets, under which
+//! apply-time (word analysis) runs in-process. Do not add
 //! anything here that touches per-word `propose`/`apply_up` -- that is `compose_budget.rs`'s
 //! `ApplyBudget`/`ApplyOutcome`, unchanged by this module.
 //!
-//! # The contract this module implements (quoted verbatim)
-//! `openspec/changes/IMPLEMENTATION-READINESS.md` **R2**: "Windows and Linux are equal,
+//! # The contract this module implements
+//! **Platform parity.** Windows and Linux are equal,
 //! first-class native production targets. Both use ONE compiler worker, ONE versioned
 //! request/result protocol, standard-library `Child::try_wait`/`Child::kill` wall-time control,
 //! deterministic compiler budgets, bounded input/output, and sampled RSS through a
 //! Rust-1.90-compatible `sysinfo` release. Production compilation launches no descendants, so Job
 //! Objects, cgroups, process-tree management, Tokio, and `processkit` are out of scope. Sampled RSS
 //! is reported with its interval and observed peak; it is NOT called a hard memory ceiling. WASM is
-//! analysis-only and needs no compile watchdog."
+//! analysis-only and needs no compile watchdog.
 //!
-//! **R6**: "Deterministic logical counters are the primary fast-failure mechanism; cooperative
-//! elapsed checks and the parent wall timeout are outer safeguards." This module's wall-clock/RSS
+//! **Fast-failure primacy.** Deterministic logical counters are the primary fast-failure mechanism;
+//! cooperative
+//! elapsed checks and the parent wall timeout are outer safeguards. This module's wall-clock/RSS
 //! checks are exactly that outer safeguard -- [`CompileWorkerRequest::compose_budget`] is what the
 //! child compiles UNDER (the same [`crate::compose_budget::ComposeBudget`] every other production
 //! call site uses), never a substitute for it.
 //!
-//! `docs/adr/0003-apply-time-containment.md` is the compile-vs-apply split this module is the
-//! compile half of; `compose_budget.rs`'s own module doc names the exact gap this module closes:
-//! "Full 'never blow up' for a single adversarial call needs an external supervisor process -- out
-//! of Phase B scope (noted for the plan's Phase D)." This is that Phase D piece.
+//! This module is the
+//! compile half of the compile-vs-apply split; `compose_budget.rs`'s own module doc names the exact gap this module closes:
+//! "Full 'never blow up' for a single adversarial call needs an external supervisor process." This
+//! module is that external supervisor process.
 //!
 //! # Why this whole module is non-wasm only
 //! `#[cfg(not(target_arch = "wasm32"))]`-gated in `lib.rs`, and its three extra dependencies
 //! (`sysinfo`, `pg-snapshot`, `pg-fwdata`) are scoped to the identical target cfg in this crate's
 //! `Cargo.toml` -- not merely dead code on wasm32, genuinely absent from `pg-wasm`'s dependency
-//! graph, mirroring R2's "WASM is analysis-only and needs no compile watchdog." `wasm32-unknown-
+//! graph, mirroring the contract above: "WASM is analysis-only and needs no compile watchdog." `wasm32-unknown-
 //! unknown` has no `std::process::Command`, so a process-spawning watchdog cannot exist there by
 //! construction, not merely by choice.
 //!
@@ -52,7 +51,8 @@
 //!   writes the request, drains stdout/stderr on capped reader threads, and polls
 //!   `Child::try_wait` in a loop that also samples the child's RSS via `sysinfo` and checks a wall
 //!   deadline -- killing the child (`Child::kill`) and returning a typed [`WorkerOutcome`] the
-//!   instant any bound is breached. No Tokio, no process tree, no Job Objects/cgroups (R2); the
+//!   instant any bound is breached. No Tokio, no process tree, no Job Objects/cgroups (platform
+//!   parity, above); the
 //!   only "descendant" is the one worker process itself.
 //!
 //! # Typed outcomes -> existing health/error vocabulary (do not invent a parallel one)
@@ -76,9 +76,9 @@
 //! already established for "no existing variant fits, but the finding vocabulary itself is closed
 //! against inventing a whole second schema").
 //!
-//! # Sampled RSS is not a hard ceiling (R2's exact wording matters)
+//! # Sampled RSS is not a hard ceiling (the platform-parity contract's exact wording matters)
 //! [`WorkerOutcome::RssLimitExceeded`]'s own doc, [`sample_rss_mb`]'s own doc, and every place this
-//! module surfaces a sampled RSS value in prose all say the same thing R2 says verbatim:
+//! module surfaces a sampled RSS value in prose all say the same thing the contract above says verbatim:
 //! **allocation can occur between samples, so a sampled value below the limit is never proof the
 //! child never exceeded it, and a sampled value above the limit is a real observed measurement,
 //! not a kernel-enforced ceiling.** The kill this module performs on breach is real (the child
@@ -121,13 +121,14 @@ use crate::health::{
 // =================================================================================================
 
 /// This worker protocol's own version, carried inside every [`CompileWorkerRequest`]/
-/// [`CompileWorkerResult`] (R2: "ONE versioned request/result protocol"). Bump only on a
+/// [`CompileWorkerResult`] (the platform-parity contract's "ONE versioned request/result
+/// protocol"). Bump only on a
 /// wire-incompatible change to either type.
 pub const WORKER_PROTOCOL_VERSION: u32 = 1;
 
 /// Versioned, hard-coded ceilings for this protocol (design discipline shared with
-/// `pg_pack::format::VersionLimits`; `openspec/changes/harden-foma-resource-safety` tasks.md 1.1c's
-/// "every configurable dimension has a hard-coded, versioned, deliberately high absolute ceiling").
+/// `pg_pack::format::VersionLimits`: every configurable dimension has a hard-coded, versioned,
+/// deliberately high absolute ceiling).
 /// These bound the WIRE MESSAGES themselves (request/result JSON frames, captured stdout/stderr) --
 /// a completely different thing from [`ComposeBudget`]'s logical compile-work caps or this
 /// envelope's own wall-clock/RSS fields, all three of which travel INSIDE a request that itself
@@ -261,7 +262,8 @@ pub enum GrammarFormat {
     Fwdata,
 }
 
-/// One versioned, bounded compile request (R2: "ONE versioned request/result protocol"). Carries a
+/// One versioned, bounded compile request (the platform-parity contract's "ONE versioned
+/// request/result protocol"). Carries a
 /// grammar-file PATH rather than embedded grammar bytes -- the worker child runs on the same host
 /// and can read the file itself, keeping this frame small (well under [`WorkerLimits::
 /// max_request_bytes`]) regardless of the referenced grammar's own size; the referenced grammar's
@@ -340,7 +342,8 @@ impl CompileWorkerRequest {
 // Result / typed outcomes the CHILD reports
 // =================================================================================================
 
-/// One versioned compile-worker result (the child's one write, per R2/[`run_worker_child`]'s doc).
+/// One versioned compile-worker result (the child's one write, per the platform-parity contract /
+/// [`run_worker_child`]'s doc).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompileWorkerResult {
     pub protocol_version: u32,
@@ -363,7 +366,8 @@ pub enum CompileWorkerOutcome {
         health: HealthReport,
     },
     /// A deterministic logical [`ComposeBudget`]/enumeration budget tripped before or during
-    /// compilation (R6: "the primary fast-failure mechanism"). `detail` is the originating typed
+    /// compilation (the fast-failure-primacy contract's "primary fast-failure mechanism"). `detail`
+    /// is the originating typed
     /// error's own `Display` text (never a re-derived message); `health` is real whenever the
     /// tripped dimension carries a [`ComposeError`] (today: the ordering-multiplicity dimension,
     /// [`crate::analyzer::FomaError::UnorderedOrderingMultiplicityExceeded`], the one production
@@ -503,7 +507,7 @@ fn compile_grammar_from_request(request: &CompileWorkerRequest) -> CompileWorker
             // Documented exception (this type's own doc): `FomaError::EnumerationBudgetExceeded`
             // does not expose the originating `EmitReport` through this crate's public API, so no
             // real `HealthReport` can be built here without recomputing the compile (forbidden --
-            // R6: "the health evaluator consumes them without recomputation"). `detail` still
+            // `crate::health_evaluator`'s own "consume, never remeasure" scope). `detail` still
             // carries the complete typed message.
             CompileWorkerOutcome::BudgetTripped {
                 detail: err.to_string(),
@@ -529,8 +533,7 @@ fn compile_grammar_from_request(request: &CompileWorkerRequest) -> CompileWorker
     }
 }
 
-/// The worker CHILD's entry point (R2's "child-side entry point that performs one compile and
-/// writes one result"): reads exactly one [`CompileWorkerRequest`] frame from `input`, compiles it,
+/// The worker CHILD's entry point: reads exactly one [`CompileWorkerRequest`] frame from `input`, compiles it,
 /// and writes exactly one [`CompileWorkerResult`] frame to `output`. Never panics on malformed
 /// input -- an oversized/malformed request frame is reported as
 /// [`CompileWorkerOutcome::ProtocolViolation`], not a crash, so a hostile/buggy parent still gets a
@@ -608,10 +611,10 @@ fn write_result<W: Write>(output: &mut W, result: &CompileWorkerResult) -> io::R
 // Supervisor (parent side)
 // =================================================================================================
 
-/// The parent-requested wall-time/RSS envelope, clamped to [`WorkerLimits`]' absolute ceilings
-/// (tasks.md 1.1c: "contractually clamp excessive values ... provide no unlimited setting" --
-/// applied here to the watchdog envelope exactly as `compose_budget::clamp_chain_depth_cap` applies
-/// it to the chain-depth dimension).
+/// The parent-requested wall-time/RSS envelope, clamped to [`WorkerLimits`]' absolute ceilings --
+/// contractually clamps excessive values and provides no unlimited setting, applied here to the
+/// watchdog envelope exactly as `compose_budget::clamp_chain_depth_cap` applies
+/// it to the chain-depth dimension.
 #[derive(Debug, Clone, Copy)]
 pub struct WatchdogEnvelope {
     pub wall_timeout: Duration,
@@ -666,9 +669,9 @@ pub enum OutputStream {
 pub enum WorkerOutcome {
     /// The child ran to completion and reported its own typed outcome.
     Completed(CompileWorkerOutcome),
-    /// The child was killed after `elapsed` exceeded `limit` (R6: "the parent wall-time limit
-    /// SHALL remain an outer host-safety watchdog... rather than the normal compiler-health
-    /// cutoff"). Never a normal/expected outcome for a well-behaved grammar under its calibrated
+    /// The child was killed after `elapsed` exceeded `limit` (the fast-failure-primacy contract's
+    /// "the parent wall-time limit remains an outer host-safety watchdog... rather than the normal
+    /// compiler-health cutoff"). Never a normal/expected outcome for a well-behaved grammar under its calibrated
     /// [`ComposeBudget`] -- reaching this means either a genuinely uninstrumented stall or an
     /// envelope set too small for legitimate work.
     WallTimeoutKilled { elapsed: Duration, limit: Duration },
@@ -683,8 +686,9 @@ pub enum WorkerOutcome {
         interval: Duration,
         peak_mb: u64,
     },
-    /// Captured stdout or stderr reached its byte cap; the child was killed (R2: "Worker request
-    /// bytes, result bytes, stdout, stderr... SHALL have versioned limits enforced by the parent").
+    /// Captured stdout or stderr reached its byte cap; the child was killed (the platform-parity
+    /// contract: worker request bytes, result bytes, stdout, and stderr all have versioned limits
+    /// enforced by the parent).
     OutputLimitExceeded {
         stream: OutputStream,
         limit_bytes: u64,
@@ -703,9 +707,10 @@ pub enum WorkerOutcome {
 }
 
 impl WorkerOutcome {
-    /// Maps this outcome into the existing [`HealthReport`]/[`HealthFinding`] vocabulary (R6: "the
-    /// report must carry the effective envelope, the reached metric, and partial measurements where
-    /// available") -- never a second, parallel report shape. [`WorkerOutcome::Completed`] returns
+    /// Maps this outcome into the existing [`HealthReport`]/[`HealthFinding`] vocabulary (the
+    /// fast-failure-primacy contract: the report must carry the effective envelope, the reached
+    /// metric, and partial measurements where available) -- never a second, parallel report shape.
+    /// [`WorkerOutcome::Completed`] returns
     /// the child's own real report unchanged; every other variant builds ONE synthetic finding
     /// describing the parent-observed watchdog event, reusing [`FindingCode::ResourceBudgetReached`]
     /// throughout.
@@ -900,7 +905,7 @@ fn parse_result_frame(buf: &[u8]) -> Result<CompileWorkerResult, String> {
 }
 
 /// Samples one process's resident set size, in mebibytes, via `sysinfo` -- refreshing only that
-/// PID (R2/`openspec/changes/IMPLEMENTATION-READINESS.md`: "refresh only the worker PID"), never a
+/// PID, never a
 /// system-wide scan. Returns `None` if the process has already exited or `sysinfo` cannot find it
 /// (a benign race with the child exiting between the last `try_wait` and this sample, not an
 /// error).
@@ -938,14 +943,14 @@ fn classify_exit(
     }
 }
 
-/// The parent-side supervisor (R2's "standard-library `Child::try_wait`/`Child::kill` wall-time
-/// control"): spawns `child_exe child_args...` (expected to eventually call [`run_worker_child`] on
+/// The parent-side supervisor (the platform-parity contract's "standard-library
+/// `Child::try_wait`/`Child::kill` wall-time control"): spawns `child_exe child_args...` (expected to eventually call [`run_worker_child`] on
 /// its own stdin/stdout -- e.g. `pangloss`'s hidden `__compile-worker-child` subcommand, or this
 /// crate's own `worker_test_child` test-support binary), writes `request` to its stdin, and polls
 /// until the child exits or `envelope` is breached -- whichever comes first -- returning exactly one
 /// typed [`WorkerOutcome`].
 ///
-/// No Tokio, no process tree, no Job Objects/cgroups (R2) -- `std::process::Command`/`Child::
+/// No Tokio, no process tree, no Job Objects/cgroups (platform parity, above) -- `std::process::Command`/`Child::
 /// try_wait`/`Child::kill` plus two capped reader threads and a `sysinfo` sample per poll tick are
 /// the entire mechanism. Windows-compatible: every API used here (`Command`, `Child::kill`/
 /// `try_wait`, `sysinfo::System`) is cross-platform in the standard library / `sysinfo` itself, with
