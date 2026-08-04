@@ -48,7 +48,7 @@
 //! `<out-dir>/assessment.json`: a build-side report (grammar identity/counts, an always-empty
 //! `pg_foma::health::HealthReport` until a real evaluator lands) and a word-run-side report whose
 //! entries reuse `pg_realize::word_gloss_signature` for gloss signatures and record each word's
-//! ADR-0003 in-process apply-path containment outcome
+//! in-process apply-path containment outcome
 //! (`pg_foma::analyzer::FomaProposer::propose_budgeted`) — never a watchdog, which is compile-only.
 //!
 //! ## `fst-health` (see `fst_health.rs`'s own doc for the full contract)
@@ -454,8 +454,7 @@ pub(crate) fn print_grammar_warnings(warnings: &[String]) {
     }
 }
 
-/// Per ADR 0001 (`docs/adr/0001-honest-capability-boundary.md`) and ADR 0005's override
-/// (`docs/adr/0005-capability-override-unproven-grammars.md`): decides what `run_batch`/`run_parse`
+/// Decides what `run_batch`/`run_parse`
 /// should do about [`pg_foma::capability_entry::evaluate_capability`]'s
 /// [`pg_foma::capability::CompileDecision`] for `g`, given the resolved `enforce`/
 /// `allow_unproven` booleans, and what to print to stderr about it.
@@ -464,31 +463,31 @@ pub(crate) fn print_grammar_warnings(warnings: &[String]) {
 /// boolean contract below. **Which engines actually pass `enforce == true` is a policy decision
 /// made by the caller** (`run_batch`/`run_parse`'s own arg-handling, see their doc comments):
 /// DEFAULT-ENFORCING on the `--engine=foma` path (the FST proposer is what a `Refuse` verdict is
-/// about -- ADR 0001's never-overclaim), never enforced on `--engine=default` (the HC-oracle path
+/// about -- never-overclaim), never enforced on `--engine=default` (the HC-oracle path
 /// never builds/relies on the FST proposer; it is always faithful, so there is nothing for this
 /// gate to refuse on its behalf). `--no-enforce-capability` is the escape hatch out of the
-/// foma-path default; `--allow-unproven` is meaningless without `enforce` (ADR 0005: "only
-/// matters WITH enforcement") -- passed alone here it is silently inert, never an error.
+/// foma-path default; `--allow-unproven` is meaningless without `enforce` -- it only
+/// matters WITH enforcement -- passed alone here it is silently inert, never an error.
 ///
 /// **`enforce == false` (advisory-only, and still what every `--engine=default` invocation gets):
 /// `Admit`/`ConfirmOnly`/`Refuse` are
 /// all reported as a preview only; a `Refuse` here never blocks.**
 ///
 /// **`enforce == true`:**
-/// - `Admit`/`ConfirmOnly` -> proceed. `ConfirmOnly` is ADR 0001's own first-class non-failure
+/// - `Admit`/`ConfirmOnly` -> proceed. `ConfirmOnly` is its own first-class non-failure
 ///   verdict ("propose the superset... first-class, not a failure") -- enforcement does not
 ///   demand `Admit`, only rules out `Refuse`.
 /// - `Refuse`, `allow_unproven == false` -> the caller must fail hard with **no analysis output**:
 ///   [`GateResult::proceed`] is `false`, so `run_batch`/`run_parse` return `Err` before writing any
 ///   TSV row / `word\tsignature` line (both call sites sit before any such output is produced).
-/// - `Refuse`, `allow_unproven == true` -> ADR 0005's override: force-compile anyway
+/// - `Refuse`, `allow_unproven == true` -> the override: force-compile anyway
 ///   (`proceed: true`), but [`GateResult::overridden`] is `true` and `stderr_lines` carries an
 ///   **unmissable** `trust=unproven` degraded-trust marker naming every overridden diagnostic --
 ///   see [`GateResult::overridden`]'s own doc for why this remains a report/stderr-level marker
 ///   HERE: `batch`/`parse` produce no persistent artifact of their own (a TSV file / a
-///   `word\tsignature` line, neither an ADR 0005 pack), so there is nothing for a manifest stamp to
+///   `word\tsignature` line, neither a pack), so there is nothing for a manifest stamp to
 ///   attach to at this call site. `pangloss pack` (`pack.rs`) is the real, persistent home for that
-///   stamp -- it writes the ADR 0005 `capability_trust`/`CapabilityOverrideRecord` into an actual
+///   stamp -- it writes the `capability_trust`/`CapabilityOverrideRecord` into an actual
 ///   `.pgpack` manifest via `pg_pack::write_pack`. This function's own marker is only a
 ///   session/report-level notice scoped to one `batch`/`parse` invocation, never a substitute for
 ///   packaging.
@@ -509,7 +508,7 @@ struct GateResult {
     /// type's own doc: the batch/parse signature the conformance runner parses must never be
     /// polluted).
     stderr_lines: Vec<String>,
-    /// `true` iff this call force-compiled a `Refuse` via `allow_unproven` (ADR 0005). Exposed as
+    /// `true` iff this call force-compiled a `Refuse` via `allow_unproven`. Exposed as
     /// a plain bool -- not only baked into `stderr_lines`' text -- so a test (or any future caller
     /// wanting a machine-readable hook beyond stderr) can key off the degraded-trust fact
     /// directly.
@@ -519,7 +518,7 @@ struct GateResult {
     /// crate's `capability_gate_tests` module) and any future non-stderr consumer to key off
     /// directly rather than string-matching stderr; `#[allow(dead_code)]` reflects that it is
     /// genuine, documented API surface with no non-test reader yet, not an oversight. This is
-    /// `batch`/`parse`'s own SESSION/REPORT-LEVEL rendition of the ADR 0005 trust signal --
+    /// `batch`/`parse`'s own SESSION/REPORT-LEVEL rendition of the trust signal --
     /// `pangloss pack` (`pack.rs`) is the separate, PERSISTENT home for the real indelible
     /// pack-manifest stamp (`pg_pack::CapabilityTrust`/`CapabilityOverrideRecord`, written into an
     /// actual `.pgpack` file); this field never claims to be that, it only reports the same fact
@@ -529,8 +528,7 @@ struct GateResult {
 }
 
 /// This step's DEFAULT-ENFORCING flip, scoped to exactly where `--engine` selects the FST/foma
-/// compile path (ADR 0001 `docs/adr/0001-honest-capability-boundary.md`'s never-overclaim; ADR
-/// 0005 `docs/adr/0005-capability-override-unproven-grammars.md`'s override): resolves the
+/// compile path (never-overclaim; the override): resolves the
 /// effective `enforce` boolean [`capability_gate`] takes, from the parsed `--engine` and the
 /// user's explicit `--enforce-capability`/`--no-enforce-capability` choice (`enforce_flag`,
 /// `None` when neither was passed).
@@ -637,11 +635,11 @@ fn capability_gate(g: &Grammar, enforce: bool, allow_unproven: bool) -> GateResu
                 };
             }
 
-            // ADR 0005's override: force-compile behind an unmissable degraded-trust marker.
+            // The override: force-compile behind an unmissable degraded-trust marker.
             // `trust=unproven` is the machine-readable token, repeated at both the top and the
             // bottom of the block -- a long diagnostic list must never let the marker scroll out
-            // of view -- and every overridden config is individually named ("recorded... exactly
-            // which fail-closed configurations were overridden", ADR 0005).
+            // of view -- and every overridden config is individually named (recorded exactly
+            // which fail-closed configurations were overridden).
             let mut lines = vec![format!(
                 "CAPABILITY-OVERRIDE trust=unproven: --allow-unproven force-compiled {} refused \
                  construct(s) (ADR 0005) -- THIS RUN'S OUTPUT IS RECALL-UNSAFE, NOT a clean \
@@ -696,9 +694,9 @@ fn run_capability_gate(g: &Grammar, enforce: bool, allow_unproven: bool) -> Resu
     }
 }
 
-/// P12 chunk 7 (design doc §4.3): `pangloss parse <grammar.xml> <word> [--trace[=<file>]]
+/// `pangloss parse <grammar.xml> <word> [--trace[=<file>]]
 /// [--trace-format=text|json]` -- today's CLI only has `batch`/`generate`, neither the right shape
-/// for "trace exactly one word" (see the design doc's own rationale). `--trace` with no value
+/// for "trace exactly one word". `--trace` with no value
 /// writes the tree to stdout; `--trace=<file>` writes it there instead, leaving stdout for just the
 /// parse result. Default format: indented text; `--trace-format=json` emits the structured form.
 ///
@@ -744,7 +742,7 @@ fn run_parse(args: &[String]) -> Result<(), String> {
     let mut natural_gloss: Option<String> = None;
     let mut realize_map_arg: Option<String> = None;
     let mut engine = Engine::Default;
-    // ADR 0001/0005: DEFAULT-ENFORCING on --engine=foma, never enforced on
+    // DEFAULT-ENFORCING on --engine=foma, never enforced on
     // --engine=default -- see `resolve_capability_enforcement`'s own doc for the exact scoping.
     // `enforce_flag` is `None` unless the user explicitly passed `--enforce-capability` or
     // `--no-enforce-capability`; resolved to a plain bool below, once `engine` is final.
@@ -1080,7 +1078,7 @@ fn run_batch(args: &[String]) -> Result<(), String> {
     // `--engine=foma` routes the whole batch through
     // `pg_foma::composite::FomaAnalyzer` instead of `pg_parse::Morpher`. Default unchanged.
     let mut engine = Engine::Default;
-    // ADR 0001/0005: DEFAULT-ENFORCING on --engine=foma, never enforced on
+    // DEFAULT-ENFORCING on --engine=foma, never enforced on
     // --engine=default -- see `resolve_capability_enforcement`'s own doc for the exact scoping.
     // `enforce_flag` is `None` unless the user explicitly passed `--enforce-capability` or
     // `--no-enforce-capability`; resolved to a plain bool below, once `engine` is final.
@@ -1905,8 +1903,7 @@ mod tests {
         }
     }
 
-    /// ADR 0001 (`docs/adr/0001-honest-capability-boundary.md`) / ADR 0005 (`docs/adr/
-    /// 0005-capability-override-unproven-grammars.md`): DEFAULT-ENFORCING, scoped to
+    /// DEFAULT-ENFORCING, scoped to
     /// `--engine=foma`, `--allow-unproven`-overridable gating. Covers both the pure
     /// [`super::capability_gate`] boolean contract directly (no stderr capture needed -- see that
     /// function's own "pure" doc) AND [`super::resolve_capability_enforcement`]'s engine-scoping
@@ -2004,7 +2001,7 @@ mod tests {
         }
 
         /// `--enforce-capability --allow-unproven` on the SAME `Refuse` grammar: must proceed
-        /// (ADR 0005's override), must be flagged `overridden`, and the stderr report must carry
+        /// (the override), must be flagged `overridden`, and the stderr report must carry
         /// an unmissable, machine-readable `trust=unproven` marker plus the overridden
         /// diagnostic(s) by name.
         #[test]
@@ -2077,7 +2074,7 @@ mod tests {
         }
 
         /// THE CORE FLIP: a `Refuse`-verdict grammar on `--engine=foma` with NO
-        /// capability flags at all must fail hard by default (ADR 0001 never-overclaim) --
+        /// capability flags at all must fail hard by default (never-overclaim) --
         /// `run_batch` returns `Err` (the caller in `main()` turns this into a nonzero exit), and
         /// `out.tsv` must never have been created (not merely an empty file). The capability gate
         /// sits before `FomaAnalyzer::new` in `run_batch`'s control flow, so this refusal happens
@@ -2124,7 +2121,7 @@ mod tests {
         /// Same `Refuse`-verdict grammar on `--engine=foma`, this time with `--allow-unproven`
         /// (no need to also pass `--enforce-capability` -- enforcement is already the foma-path
         /// default): `run_batch` must succeed and actually write `out.tsv` (analysis proceeds,
-        /// force-compiled, ADR 0005's override).
+        /// force-compiled, via the override).
         #[test]
         fn run_batch_foma_engine_allow_unproven_overrides_default_enforcement() {
             let (result, out_path) = run_batch_raw(
