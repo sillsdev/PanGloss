@@ -11,55 +11,45 @@
 //!
 //! # The characteristics projection
 //! [`characterize`] walks a [`Grammar`] and matches **every** variant of **every** frozen
-//! `model.rs` enum design.md D1 names, with **no catch-all arm** — the discipline that would have
-//! caught the `Compounding` silent-recall hole (design.md's own words). Adding a new `model.rs`
+//! `model.rs` enum, with **no catch-all arm** — the discipline that would have caught the
+//! `Compounding` silent-recall hole. Adding a new `model.rs`
 //! variant to any of those enums breaks THIS file's build until [`characterize`] (or one of its
 //! private per-construct helpers) is updated to give it an explicit [`Disposition`] — see this
 //! module's tests for a from-scratch check of that property against
 //! [`pg_grammar::model::ReduplicationHint`]/[`pg_grammar::model::OutputAction`]/etc.
 //!
-//! # D2: the predicate trait + verdict
-//! [`CapabilityPredicate`] is D2's oracle-verified proof-obligation trait: conservative by
+//! # The predicate trait + verdict
+//! [`CapabilityPredicate`] is an oracle-verified proof-obligation trait: conservative by
 //! construction (`evaluate` may return [`PredicateVerdict::Refuse`] too eagerly, never
 //! [`PredicateVerdict::Admit`] too eagerly). [`PredicateRegistry`]/[`undischarged_kinds`] give the
-//! "no silent vacuous pass" coverage check design.md D2 requires: every `FailClosed`/
+//! "no silent vacuous pass" coverage check: every `FailClosed`/
 //! `ConfigPredicate` [`CharacteristicKind`] must be named by at least one registered predicate's
 //! [`CapabilityPredicate::discharges`].
 //!
-//! # D3: the worked example
+//! # A worked example
 //! [`SimultaneousSubruleOverlapPredicate`] implements the `simultaneous.subrule-overlap` predicate
-//! design.md D3 works through in full, now via the REAL automaton intersection
-//! `lower-fst-pattern-environments` (Stage 1B, [`crate::lower`]) provides — see that type's own
+//! via the REAL automaton intersection [`crate::lower`] provides — see that type's own
 //! doc for how the intersection runs and [`LoweredSpan`]'s doc for where the lowering itself
 //! happens (`characterize`, not `evaluate`).
 //!
 //! # `PlanNode` vs. `PlanNodeKind`
-//! design.md D2's pseudocode signature is `evaluate(&self, profile: &CharacteristicsProfile,
-//! plan_node: &PlanNode) -> PredicateVerdict`. `crate::plan` has no type literally named
-//! `PlanNode` (its closed node-kind enum is [`crate::plan::PlanNodeKind`]; a node's *identity* is
-//! its separately-interned [`crate::plan::NodeId`]) — this module's trait takes
-//! `&PlanNodeKind` where D2 says `&PlanNode`, which is the concrete type D2's own co-designed
-//! `crate::plan` module actually shipped. Flagged as a judgment call for review, not silently
-//! reconciled.
+//! This module's trait takes `&PlanNodeKind`, not `&PlanNode`: `crate::plan` has no type literally
+//! named `PlanNode` — its closed node-kind enum is [`crate::plan::PlanNodeKind`], while a node's
+//! *identity* is its separately-interned [`crate::plan::NodeId`]. Flagged here as a deliberate
+//! naming divergence, not silently reconciled.
 //!
-//! # D4 (Step 2): bottom-up envelope composition + the CHECK-ONLY [`CompileDecision`]
-//! [`compose_envelope`] is this crate's Step 2 of `add-capability-characteristics-check`: it runs
-//! [`characterize`] to get the profile, walks `crate::enumerate::enumerate_default`'s reified
-//! [`crate::plan::Plan`] bottom-up (design.md D4: "a node's verdict is the meet of its children's
-//! verdicts and its own node-level predicate"), and folds in every observed non-`Proven`
-//! characteristic that has no plan-node-addressable predicate at all. [`meet`] is D4's lattice
-//! made explicit (`Refuse` dominates `ConfirmOnly` dominates `Admit`); [`CompileDecision`] widens
-//! [`PredicateVerdict`]'s single-diagnostic `Refuse` into a deduplicated `Vec` so a caller sees
-//! every refusing construct in one pass. **Still purely additive and check-only**: nothing in this
-//! crate consults [`CompileDecision`] to block or alter any production compile path — the
-//! production flip, ADR 0005's override, and the CI cross-check are later `tasks.md` items. D4's
-//! third paragraph (interaction predicates for `Union`/`Compose` nodes, via parallel-independence)
-//! is deliberately NOT implemented here: no interaction predicate exists in [`default_registry`]
-//! yet — `lower-fst-pattern-environments` (Stage 1B, [`crate::lower`]) now exists and
-//! [`SimultaneousSubruleOverlapPredicate`] uses it, but no `Union`/`Compose`-level interaction
-//! predicate has been built ON TOP of that seam yet — so a `Union`/`Compose` node's "own predicate
-//! verdicts" are simply empty today — flagged as a documented gap, not a silent omission; see
-//! [`compose_envelope`]'s own doc for the per-construct plan-node-mapping judgment calls.
+//! # Bottom-up envelope composition + the CHECK-ONLY [`CompileDecision`]
+//! [`compose_envelope`] runs [`characterize`] to get the profile, walks
+//! `crate::enumerate::enumerate_default`'s reified [`crate::plan::Plan`] bottom-up (a node's
+//! verdict is the meet of its children's verdicts and its own node-level predicate), and folds in
+//! every observed non-`Proven` characteristic that has no plan-node-addressable predicate at all.
+//! [`meet`] makes the lattice explicit (`Refuse` dominates `ConfirmOnly` dominates `Admit`);
+//! [`CompileDecision`] widens [`PredicateVerdict`]'s single-diagnostic `Refuse` into a deduplicated
+//! `Vec` so a caller sees every refusing construct in one pass. [`compose_envelope`] only computes
+//! a decision — nothing here blocks or alters a compile path on it, and no interaction predicate
+//! for `Union`/`Compose` nodes (via parallel-independence) exists in [`default_registry`], so such
+//! a node's "own predicate verdicts" are simply empty; see [`compose_envelope`]'s own doc for the
+//! per-construct plan-node-mapping judgment calls.
 
 use std::collections::{HashMap, HashSet};
 
@@ -356,8 +346,8 @@ impl CharacteristicKind {
     }
 }
 
-/// Which `model.rs` construct occurrence induced a [`CharacteristicObservation`] (design.md D1:
-/// "each tagged with the model location(s) that induced it").
+/// Which `model.rs` construct occurrence induced a [`CharacteristicObservation`] — each
+/// observation is tagged with the model location(s) that induced it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModelLocation {
     MorphRule(MRuleId),
@@ -380,21 +370,21 @@ pub enum ModelLocation {
     AllomorphCoOccurrence(AllomorphId),
 }
 
-/// A subrule's D3 `span(s) = left_env · lhs_focus · right_env`, pre-lowered at [`characterize`]
-/// time via [`crate::lower::lower_span`] (Stage 1B, `lower-fst-pattern-environments`) into the
+/// A subrule's `span(s) = left_env · lhs_focus · right_env`, pre-lowered at [`characterize`]
+/// time via [`crate::lower::lower_span`] into the
 /// `(left_language, focus_right_language)` pair [`crate::lower::spans_overlap`] intersects.
 ///
 /// Lowered HERE (inside `characterize`, which walks the `&Grammar` directly) rather than lazily
 /// inside [`SimultaneousSubruleOverlapPredicate::evaluate`] itself: [`CapabilityPredicate::
-/// evaluate`]'s signature (design.md D2, exactly) takes only `&CharacteristicsProfile`/
+/// evaluate`]'s signature takes only `&CharacteristicsProfile`/
 /// `&PlanNodeKind` — no `&Grammar`/`SegAlphabet`/`FomaOptions`, everything `lower_span` needs to
-/// run. Pre-lowering into the profile (which the trait's OWN doc already calls "a self-contained
-/// projection", design.md D1) keeps that generic trait signature untouched rather than widening it
-/// crate-wide for one predicate's sake. Flagged as a judgment call for review (the same kind
-/// `crate::lower`'s own doc names for its `PlanNode`/`PlanNodeKind` naming gap), not silently
-/// reconciled: a cleaner long-term shape might carry `&Grammar`/an alphabet through
-/// [`CapabilityPredicate::evaluate`] itself once more predicates need Stage-1B lowering, but that
-/// is a wider trait change this additive step does not take.
+/// run. Pre-lowering into the profile (a self-contained
+/// projection, per the trait's own doc) keeps that generic trait signature untouched rather than
+/// widening it crate-wide for one predicate's sake. Flagged as a judgment call for review (the
+/// same kind `crate::lower`'s own doc names for its `PlanNode`/`PlanNodeKind` naming gap), not
+/// silently reconciled: a cleaner long-term shape might carry `&Grammar`/an alphabet through
+/// [`CapabilityPredicate::evaluate`] itself once more predicates need this kind of lowering, but
+/// that is a wider trait change than this one takes.
 #[derive(Debug, Clone)]
 pub enum LoweredSpan {
     /// Lowered successfully to `(left_language, focus_right_language)` — boxed (clippy
@@ -409,8 +399,8 @@ pub enum LoweredSpan {
 
 /// Per-subrule gate/opacity facts a [`RewriteRuleDef`](pg_grammar::model::RewriteRuleDef)'s
 /// [`ObservationDetail::SimultaneousRewrite`] carries — exactly what
-/// [`SimultaneousSubruleOverlapPredicate`] (D3) needs, without re-walking the `Grammar` at
-/// evaluate-time (the profile is meant to be a self-contained projection, design.md D1).
+/// [`SimultaneousSubruleOverlapPredicate`] needs, without re-walking the `Grammar` at
+/// evaluate-time (the profile is meant to be a self-contained projection).
 ///
 /// No longer `Copy` (dropped from the derive by this step): [`LoweredSpan::Ok`] carries owned
 /// [`foma::types::Fsm`] values, which are `Clone` but not `Copy` upstream.
@@ -420,7 +410,7 @@ pub struct SubruleGateInfo {
     pub required_mpr: MprSet,
     pub excluded_mpr: MprSet,
     pub self_opaquing: bool,
-    /// Stage 1B (`lower-fst-pattern-environments`): this subrule's pre-lowered D3 span.
+    /// This subrule's pre-lowered span.
     pub span: LoweredSpan,
 }
 
@@ -431,11 +421,10 @@ pub struct SimultaneousRewriteDetail {
     pub subrules: Vec<SubruleGateInfo>,
 }
 
-/// [`ObservationDetail::MultiTable`]'s payload
-/// (`openspec/changes/fix-multitable-fst-compilation`): the structural fact
+/// [`ObservationDetail::MultiTable`]'s payload: the structural fact
 /// [`MultiTableFaithfulThreadingPredicate`] needs, computed once here rather than re-derived at
-/// `evaluate` time (this profile is meant to be a self-contained projection, design.md D1 — same
-/// reasoning [`LoweredSpan`]'s own doc gives for pre-lowering D3's spans).
+/// `evaluate` time (this profile is meant to be a self-contained projection — same
+/// reasoning [`LoweredSpan`]'s own doc gives for pre-lowering its spans).
 #[derive(Debug, Clone)]
 pub struct MultiTableDetail {
     /// `g.char_tables.len()`.
@@ -452,28 +441,26 @@ pub struct MultiTableDetail {
     pub shared_representation_witness: Option<String>,
 }
 
-/// [`ObservationDetail::RightToLeftRewrite`]'s payload (`openspec/changes/
-/// compile-right-to-left-rewrites`; widened `openspec/changes/plan-construct-coverage-completion`
-/// task 4.2): whether [`crate::replace::compile_rtl_branch_net`]'s reversal construction can even be
+/// [`ObservationDetail::RightToLeftRewrite`]'s payload: whether
+/// [`crate::replace::compile_rtl_branch_net`]'s reversal construction can even be
 /// ATTEMPTED for this specific `Dir::RightToLeft` rule — computed once here (self-contained
 /// projection, same reasoning [`LoweredSpan`]'s own doc gives) by re-running the SAME structural
 /// pattern-shape check `crate::replace::compile_rewrite_rule_subset` itself gates on: every
 /// LHS/RHS/environment pattern must avoid a disagree-polarity alpha var and a malformed `Quantifier`
 /// (non-inverted if finitely bounded, at or under `MAX_QUANTIFIER_BOUND` if finite, alpha-free in
 /// its own children; a genuinely UNBOUNDED quantifier, `max=-1`, is no longer by itself
-/// disqualifying, `openspec/changes/build-unbounded-quantifier-support`), and — since task 4.2 —
-/// `Segments`/`Anchor` no longer disqualify EITHER, provided any `Segments` node shares the rule's
-/// own owning table (`crate::lower::PatternLowerScope::RewriteRuleCompile`'s own doc has the full,
-/// current exclusion list) — via [`crate::replace::pattern_slots`]/[`crate::replace::owning_table`]
-/// directly, WITHOUT compiling any foma automaton (cheap, purely structural, no
-/// `FomaOptions`/`SegAlphabet` needed). `Simultaneous` mode is handled by its own
-/// [`CharacteristicKind::SimultaneousRewrite`] observation (whose own admitted set this task's
-/// widening does NOT touch — `crate::lower::lower_span` stays on `PatternLowerScope::Baseline`,
-/// unaffected), so this detail is only ever computed for `Dir::RightToLeft` rules (`characterize`'s
+/// disqualifying), and `Segments`/`Anchor` no longer disqualify EITHER, provided any `Segments`
+/// node shares the rule's own owning table (`crate::lower::PatternLowerScope::RewriteRuleCompile`'s
+/// own doc has the full, current exclusion list) — via [`crate::replace::pattern_slots`]/
+/// [`crate::replace::owning_table`] directly, WITHOUT compiling any foma automaton (cheap, purely
+/// structural, no `FomaOptions`/`SegAlphabet` needed). `Simultaneous` mode is handled by its own
+/// [`CharacteristicKind::SimultaneousRewrite`] observation (whose own admitted set this does NOT
+/// touch — `crate::lower::lower_span` stays on `PatternLowerScope::Baseline`, unaffected), so this
+/// detail is only ever computed for `Dir::RightToLeft` rules (`characterize`'s
 /// own `Dir::RightToLeft` arm) — a rule that is BOTH `Simultaneous` and `RightToLeft` gets both
 /// observations, and `RightToLeftRewriteFaithfulReversalPredicate`'s own verdict is irrelevant
 /// there since `SimultaneousRewrite`'s `FailClosed`-by-default disposition already dominates under
-/// `meet` (D4).
+/// `meet`.
 #[derive(Debug, Clone, Copy)]
 pub struct RightToLeftRewriteDetail {
     pub rule: PRuleId,
@@ -490,18 +477,16 @@ pub struct RightToLeftRewriteDetail {
     /// reason is a pattern-shape one — `None` when `reversal_construction_attempted` is `true`
     /// (nothing to diagnose), or when the rule has no resolvable owning table at all (a
     /// non-pattern-shape reason [`crate::lower::UnsupportedPatternNode`] has no variant for).
-    /// `openspec/changes/plan-construct-coverage-completion` task 4.2's own "make the predicate's
-    /// witness name that specific shape, not a generic 'unsupported pattern'" requirement —
+    /// Names the specific shape rather than a generic "unsupported pattern" —
     /// [`RightToLeftRewriteFaithfulReversalPredicate::evaluate`] reads this to build a precise
     /// `Refuse` witness instead of a laundry-list "could be any of these" message.
     pub unsupported_reason: Option<crate::lower::UnsupportedPatternNode>,
 }
 
-/// [`ObservationDetail::QuantifierPattern`]'s payload (`openspec/changes/
-/// compile-bounded-fst-quantifiers`): the two independent facts
+/// [`ObservationDetail::QuantifierPattern`]'s payload: the two independent facts
 /// [`QuantifierBoundedExpansionPredicate`] needs about a rule observed to use
 /// `PatternNode::Quantifier` somewhere in its own LHS/RHS/environment patterns.
-/// [`ObservationDetail::Metathesis`]'s payload (`openspec/changes/compile-fst-metathesis`): the
+/// [`ObservationDetail::Metathesis`]'s payload: the
 /// one structural fact [`MetathesisFaithfulSwapPredicate`] needs about a `PhonRuleDef::Metathesis`
 /// rule, computed once here (self-contained projection, same reasoning [`LoweredSpan`]'s own doc
 /// gives) rather than re-derived at `evaluate` time.
@@ -514,8 +499,7 @@ pub struct MetathesisDetail {
     /// [`crate::replace::pattern_slots`] accepts with no `crate::replace::Slot::Alpha`/
     /// `crate::replace::Slot::Repeat` occurrence anywhere.
     ///
-    /// **Dir-agnostic since `openspec/changes/plan-construct-coverage-completion` task 4.6**
-    /// (`docs/conformance/needs-decision-resolutions.md` row 8): this field no longer gates on
+    /// **Dir-agnostic**: this field no longer gates on
     /// `Dir::LeftToRight` at all -- `crate::replace::compile_metathesis_rule` now compiles
     /// `Dir::RightToLeft` too, via the SAME mirror-and-reverse construction
     /// `compile_rtl_branch_net` already uses for RTL rewrite rules (that function's own module
@@ -537,8 +521,8 @@ pub struct MetathesisDetail {
     ///
     /// Does NOT check the cross-product tuple-budget dimension (`ComposeBudget::tuple_cap`) -- the
     /// same convention [`RightToLeftRewriteDetail`]/[`QuantifierPatternDetail`] already use: a
-    /// runtime resource concern the D1 profile does not model, not a structural fact about the
-    /// rule itself.
+    /// runtime resource concern the characteristics profile does not model, not a structural fact
+    /// about the rule itself.
     pub swap_construction_attempted: bool,
 }
 
@@ -550,7 +534,7 @@ pub struct QuantifierPatternDetail {
     /// (`rule_has_unbounded_quantifier`'s own negation) — `false` means at least one is genuinely
     /// unbounded (`max == None`, the DTD's `max="-1"` Kleene sentinel).
     ///
-    /// **Informational only, since `openspec/changes/build-unbounded-quantifier-support`**:
+    /// **Informational only**:
     /// [`QuantifierBoundedExpansionPredicate`] no longer branches on this field at all (a genuinely
     /// unbounded quantifier compiles via the SAME `crate::replace::Slot::Repeat` construction a
     /// bounded one does, `compile_attempted` below is the only fact that matters for disposition
@@ -572,8 +556,7 @@ pub struct QuantifierPatternDetail {
     pub compile_attempted: bool,
 }
 
-/// [`ObservationDetail::CircumfixOutputAction`]'s payload (`openspec/changes/
-/// cover-circumfix-null-output-actions`): the one structural fact
+/// [`ObservationDetail::CircumfixOutputAction`]'s payload: the one structural fact
 /// [`CircumfixStructuralCompositePredicate`] needs about an [`AffixAllomorphDef`] whose RHS drops
 /// real LHS material ([`allomorph_drops_lhs_material`]'s own trigger — circumfix wrapping, a
 /// null-role subtractive input, or any other "real subtracted/discontinuous material" shape that
@@ -614,8 +597,7 @@ pub struct CircumfixOutputActionDetail {
     pub structural_composite_attempted: bool,
 }
 
-/// [`ObservationDetail::Reduplication`]'s payload (`openspec/changes/
-/// cover-template-truncation-reduplication`): the one structural fact
+/// [`ObservationDetail::Reduplication`]'s payload: the one structural fact
 /// [`ReduplicationPeelSupportedPredicate`] needs about an `AffixAllomorphDef` whose RHS truly
 /// reduplicates ([`rhs_has_true_reduplication`]'s own trigger) — whether the OWNING rule is one
 /// `crate::peel::ReduplicationPeeler::new`'s own `is_reduplication_rule` would ever classify at
@@ -638,25 +620,24 @@ pub struct ReduplicationDetail {
     pub peel_eligible_rule_kind: bool,
 }
 
-/// [`ObservationDetail::Compounding`]'s payload (`openspec/changes/cover-compounding` design.md
-/// D2/D3): the one structural fact [`CompoundingRecursionSafePredicate`] needs about a
+/// [`ObservationDetail::Compounding`]'s payload: the one structural fact
+/// [`CompoundingRecursionSafePredicate`] needs about a
 /// `MorphRuleDef::Compounding` occurrence — whether `compounding_recursive` (this module's own
-/// grammar-rule-graph reachability pass, design.md's Novelty/risk note: "a new kind of predicate
-/// input beyond the per-rule/per-subrule checks the other Stage-2 predicates use") proved this
+/// grammar-rule-graph reachability pass — a kind of predicate input beyond the per-rule/per-subrule
+/// checks other predicates in this file use) proved this
 /// specific rule's head/non-head stem search can be reached by another `Compounding` application's
 /// own output.
 #[derive(Debug, Clone, Copy)]
 pub struct CompoundingDetail {
     pub rule: MRuleId,
-    /// `true` iff `rule` is `compounding.recursive` (design.md D2 item 3 / the split this change's
-    /// own Novelty/risk note flags) — self-feeding (`rule.max_apps() > 1`) or reachable from a
+    /// `true` iff `rule` is `compounding.recursive` — self-feeding (`rule.max_apps() > 1`) or
+    /// reachable from a
     /// DISTINCT `Compounding` rule sharing or preceding its stratum (`compounding_recursive`'s own
     /// doc for the exact, deliberately conservative reachability test). `false` means
     /// `compounding.non-recursive` — the license-gated propose shape (`crate::emit::
     /// compound_license`) applies and [`CompoundingRecursionSafePredicate`] returns `ConfirmOnly`.
     pub recursive: bool,
-    /// `openspec/changes/plan-construct-coverage-completion` task 4.1 (design.md row 2, piece 1):
-    /// "turning a boolean into a bound" — [`compounding_max_depth`]'s own finite upper bound on the
+    /// Turning a boolean into a bound: [`compounding_max_depth`]'s own finite upper bound on the
     /// number of STEMS (lexical roots) any single compounding derivation chain ending in an
     /// application of `rule` could combine. `2` is the ordinary head+non-head shape `compounding.
     /// non-recursive` already covers faithfully; `recursive == (max_depth > 2)` always holds (see
@@ -668,8 +649,7 @@ pub struct CompoundingDetail {
     pub max_depth: usize,
 }
 
-/// [`ObservationDetail::UnorderedStratum`]'s payload (`openspec/changes/
-/// cover-unordered-morph-rules` design.md D1): the one cardinality fact
+/// [`ObservationDetail::UnorderedStratum`]'s payload: the one cardinality fact
 /// [`UnorderedOrderingUnionPredicate`] needs about a `StratumDef` declaring
 /// `MorphRuleOrder::Unordered` — its own loose-rule count against the calibrated
 /// `unordered-application.chain-depth-bounded` / `unordered-application.unbounded` split
@@ -687,22 +667,22 @@ pub struct UnorderedStratumDetail {
     pub rule_count: usize,
     /// `true` iff `rule_count` is within [`crate::compose_budget::DEFAULT_ORDERING_MULTIPLICITY_BUDGET`]
     /// — `unordered-application.chain-depth-bounded` (target `ConfirmOnly`). `false` means
-    /// `unordered-application.unbounded` (stays `Refuse`/`FailClosed`; the ADR 0005 override is its
-    /// on-ramp) — spec.md's own "two distinct configuration predicates... independently
-    /// registered... independently promotable" split.
+    /// `unordered-application.unbounded` (stays `Refuse`/`FailClosed`; an explicit, indelibly-
+    /// stamped override is its on-ramp) — two distinct configuration predicates, independently
+    /// registered and independently promotable.
     pub within_bound: bool,
 }
 
 /// Extra structured data an observation needs beyond `kind`/`disposition`/`location`, for the
-/// characteristics that a predicate must inspect at finer grain than "did this occur at all"
-/// (design.md D2/D3). Most characteristics carry `None` — [`CharacteristicKind::
-/// SimultaneousRewrite`] needs [`Self::SimultaneousRewrite`] (D3's worked example),
-/// [`CharacteristicKind::MultiTable`] needs [`Self::MultiTable`]
-/// (`fix-multitable-fst-compilation`), [`CharacteristicKind::RightToLeftRewrite`] needs
-/// [`Self::RightToLeftRewrite`] (`compile-right-to-left-rewrites`),
-/// [`CharacteristicKind::CircumfixOutputAction`] needs [`Self::CircumfixOutputAction`]
-/// (`cover-circumfix-null-output-actions`), and [`CharacteristicKind::Reduplication`] needs
-/// [`Self::Reduplication`] (`cover-template-truncation-reduplication`).
+/// characteristics that a predicate must inspect at finer grain than "did this occur at all".
+/// Most characteristics carry `None` — [`CharacteristicKind::
+/// SimultaneousRewrite`] needs [`Self::SimultaneousRewrite`],
+/// [`CharacteristicKind::MultiTable`] needs [`Self::MultiTable`],
+/// [`CharacteristicKind::RightToLeftRewrite`] needs
+/// [`Self::RightToLeftRewrite`],
+/// [`CharacteristicKind::CircumfixOutputAction`] needs [`Self::CircumfixOutputAction`],
+/// and [`CharacteristicKind::Reduplication`] needs
+/// [`Self::Reduplication`].
 #[derive(Debug, Clone)]
 pub enum ObservationDetail {
     None,
@@ -717,7 +697,7 @@ pub enum ObservationDetail {
     UnorderedStratum(UnorderedStratumDetail),
 }
 
-/// One occurrence of a characteristic in a [`CharacteristicsProfile`] (design.md D1).
+/// One occurrence of a characteristic in a [`CharacteristicsProfile`].
 #[derive(Debug, Clone)]
 pub struct CharacteristicObservation {
     pub kind: CharacteristicKind,
@@ -729,7 +709,7 @@ pub struct CharacteristicObservation {
 impl CharacteristicObservation {
     /// `disposition` is always derived from `kind` via [`CharacteristicKind::default_disposition`]
     /// — there is no code path that can push an observation whose disposition disagrees with its
-    /// own kind's D1 table entry (a correctness invariant this constructor enforces structurally
+    /// own kind's default entry (a correctness invariant this constructor enforces structurally
     /// rather than by convention at each of [`characterize`]'s many call sites).
     fn new(kind: CharacteristicKind, location: ModelLocation, detail: ObservationDetail) -> Self {
         CharacteristicObservation {
