@@ -3150,21 +3150,20 @@ fn emit_with_budget_profiled_with_strategy(
         cap,
         counter: &probe_counter,
     });
-    // Fix 1's default-on, non-panicking enumeration budget (`crate::morphotactics::
+    // The default-on, non-panicking enumeration budget (`crate::morphotactics::
     // EnumerationBudget`'s own doc): threaded in by the caller ([`emit_with_precision`]'s env-driven
     // wrapper in production, an explicit small budget in tests), shared by BOTH composite builders
     // below so a grammar shaped like Aweti trips a single shared cross-thread total rather than each
     // builder tracking (and independently overrunning) its own.
 
-    // P1d (`crate::preexpand`, plan's Amharic capability stage): rule-application pre-expansion
-    // (interdigitation) + boundary-fusion composite probing. reify-compilation-plans task 1.3:
-    // `plan_wants_composite_emission` (D2 row 1, derived from the Plan built above) is what decides
-    // whether this mechanism runs at all — a grammar with no phonological rules AND no `Role::Infix`
-    // rule at all (Sena) has the composite-emission subtree ABSENT from the plan, so this call is
-    // skipped entirely rather than made and internally short-circuited by `crate::preexpand::
-    // should_run` a second time; either way the result is the identical zero pairs/zero composites
-    // (`build_composites_with_mode`'s own `should_run` check has no side effects when it trips), so
-    // this keeps Sena's emitted lexc byte-for-byte, exactly as before.
+    // `crate::preexpand`: rule-application pre-expansion (interdigitation) + boundary-fusion
+    // composite probing. `plan_wants_composite_emission` (derived from the Plan built above) is
+    // what decides whether this mechanism runs at all — a grammar with no phonological rules AND
+    // no `Role::Infix` rule at all (Sena) has the composite-emission subtree ABSENT from the plan,
+    // so this call is skipped entirely rather than made and internally short-circuited by
+    // `crate::preexpand::should_run` a second time; either way the result is the identical zero
+    // pairs/zero composites (`build_composites_with_mode`'s own `should_run` check has no side
+    // effects when it trips), so this keeps Sena's emitted lexc byte-for-byte, exactly as before.
     let (mut composites, composite_report) = if plan_wants_composite_emission {
         crate::preexpand::build_composites_with_mode(
             g,
@@ -3186,10 +3185,10 @@ fn emit_with_budget_profiled_with_strategy(
     }
     stage_start = Instant::now();
 
-    // Gate F3 3b: rules `crate::preexpand`'s own mechanism cannot represent at all ("Structural
-    // composites" section above) — reify-compilation-plans task 1.3: `plan_wants_structural_
-    // composite` (D2 row 2, the SAME plan-derived decision that gated the `Morpher` build above)
-    // short-circuits this to zero cost/zero entries for every one of the three reference grammars
+    // Rules `crate::preexpand`'s own mechanism cannot represent at all ("Structural
+    // composites" section above) — `plan_wants_structural_composite` (the SAME plan-derived
+    // decision that gated the `Morpher` build above) short-circuits this to zero cost/zero entries
+    // for every one of the three reference grammars
     // (verified: none has a `Role::None`/multi-part-LHS rule, a `Role::CircumfixPrefix` rule, or a
     // probe-refusing construct) — equal to the old `!struct_rules.is_empty()` gate by construction.
     let mut struct_covered_rules: BTreeSet<u32> = BTreeSet::new();
@@ -3220,7 +3219,7 @@ fn emit_with_budget_profiled_with_strategy(
     }
     stage_start = Instant::now();
 
-    // Fix 1 (fail-fast enumeration budget): both composite builders above check `enum_budget`
+    // Fail-fast enumeration budget: both composite builders above check `enum_budget`
     // cooperatively DURING their own recursion (module doc), but the grammar-level verdict is
     // decided HERE, once, before any of the expensive derivation-layer/lexc-string-writing work
     // below runs. A trip means the grammar exceeds the foma-engine's eager-enumeration compiler —
