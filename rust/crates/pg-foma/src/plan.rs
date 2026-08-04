@@ -2,13 +2,26 @@
 //! `docs`/design.md decision **D1**): a content-addressed AND-OR DAG over a **closed** node-kind
 //! enum, replacing the idea of "the compile step's topology" with first-class, enumerable data.
 //!
-//! This module is **purely additive** and does **not** rewire `replace.rs`/`gate.rs`/`emit.rs`/
-//! `preexpand.rs` — it defines the `Plan` data type only. Building a `Plan` into real [`foma`]
-//! [`foma::types::Fsm`]s, a strategy enumerator that emits candidate plans for a `Grammar`, and
-//! swapping the three hardcoded seams (`preexpand::should_run`, `emit::probe_would_refuse`,
-//! `gate::partition_entries`) for enumerator decisions (design D2) are later steps — see
-//! `openspec/changes/reify-compilation-plans/tasks.md` §1.2/§1.3. Nothing in this file is wired
-//! into `analyzer`/`composite`/any other module's compile path yet.
+//! This module defines the `Plan` data type; it does not itself rewire `replace.rs`/`gate.rs`/
+//! `emit.rs`/`preexpand.rs`. **But the later steps it used to describe as pending have landed**:
+//! [`crate::enumerate::enumerate_default`] emits a `Plan` for a `Grammar`, and
+//! [`crate::build::build_controllable`] is a `Plan` INTERPRETER that builds real [`foma`]
+//! [`foma::types::Fsm`]s from one. Until 2026-08-04 this paragraph ended "Nothing in this file is
+//! wired into `analyzer`/`composite`/any other module's compile path yet", which had stopped being
+//! true and made the whole recipe path read as unbuilt.
+//!
+//! Precisely what is and is not the case today, since the distinction is the entire point:
+//! - a `Plan` IS built, interpreted, and evaluated — `recipe_registry` transforms them into
+//!   candidates and `recipe_runtime` measures the networks they produce;
+//! - the three hardcoded seams (`preexpand::should_run`, `emit::probe_would_refuse`,
+//!   `gate::partition_entries`) are NOT yet replaced by enumerator decisions (design D2);
+//! - no shipped `pangloss` command consults a `Plan` — `analyze`/`batch` go straight to
+//!   `emit::emit_with_budget_profiled`. `recipe-optimize` is the only caller.
+//!
+//! This module is the composable-subrecipe substrate: the reason it exists is to make compilation
+//! topology enumerable data so new techniques can be COMPOSED rather than hand-written. That is
+//! why "it wins no language today" is not an argument against it. See
+//! `docs/doc-code-mismatch-ledger.md`.
 //!
 //! # The five node kinds (D1)
 //! - [`PlanNodeKind::Leaf`] — an atomic FST-to-be-compiled-from-source: a [`FragmentSpec`]

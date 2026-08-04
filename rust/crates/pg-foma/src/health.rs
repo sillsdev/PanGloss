@@ -3,7 +3,19 @@
 //! **finding schema** — types, stable codes, severity/override semantics, size bands, and
 //! canonical JSON.
 //!
-//! **Purely additive.** This module defines and unit-tests the schema only. It does **not**
+//! **The evaluator this doc calls "a later change" has landed.** Until 2026-08-04 the paragraph
+//! below stood unqualified, while [`crate::health_evaluator`]'s own module doc already quoted it
+//! verbatim and announced itself as that later change — and `worker.rs` calls
+//! `health_evaluator::evaluate_health` on three paths, including the `LexcCompileFailed` one. So
+//! this schema IS populated from real compilation today. The stale half is "wire it up later"; the
+//! accurate half is the narrow list: `emit.rs`/`gate.rs`/`replace.rs`/`preexpand.rs`/
+//! `compose_budget.rs` still do not consult it, because health is REPORTED about a compile, never
+//! consulted during one.
+//!
+//! Kept as the original Step-1 statement, because the quoted readiness rule below is still the
+//! governing policy:
+//!
+//! This module defines and unit-tests the schema only. It does **not**
 //! instrument any compiler pass and is not consulted by `emit.rs`/`gate.rs`/`replace.rs`/
 //! `preexpand.rs`/`compose_budget.rs` — the same "define the data type, wire it up later" shape
 //! `crate::plan`/`crate::capability` use for their own Step 1s. Per

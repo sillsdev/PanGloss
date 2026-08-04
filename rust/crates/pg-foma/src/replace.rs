@@ -1,9 +1,22 @@
 //! P6 feasibility prototype (docs/fst-plan/foma-fst-plan.md §P6 item 1, `docs/fst-plan/
 //! p6-prototype-report.md`): compile HC [`RewriteRuleDef`]s into real foma replace-calculus
 //! regex source (`A -> B || L _ R`), instead of enumerating every surface junction variant at
-//! build time the way [`crate::junctions`]/[`crate::preexpand`] do. This module is NOT wired into
-//! the mainline `emit`/`analyzer` path — it is a standalone prototype module exercised by
-//! `examples/p6_replace_prototype.rs`.
+//! build time the way [`crate::junctions`]/[`crate::preexpand`] do.
+//!
+//! **This is a production rule compiler, not a prototype.** Until 2026-08-04 the paragraph above
+//! read "NOT wired into the mainline `emit`/`analyzer` path — a standalone prototype module
+//! exercised by `examples/p6_replace_prototype.rs`", which was true when written (P6 feasibility)
+//! and has been false since the recipe path started building real networks:
+//! [`crate::build::build_controllable`] and [`crate::gate`] both call into this module's
+//! `compile_and_compose_rules_gated_with_budget`. It is the relational half of the compiler — the
+//! part that expresses a rewrite rule AS A RELATION rather than enumerating its surface variants —
+//! and the strategy currently winning on Indonesian (`TemplatedUnderlyingTokens`) keeps it.
+//!
+//! What remains true, and is the reason the old sentence survived so long: nothing on the
+//! `emit`/`analyzer` path — the path every shipped `pangloss analyze`/`batch` invocation still
+//! takes — reaches this module. "Not on Path A" is not the same fact as "not in production", and
+//! conflating them is what left the crate's largest relational component labelled a prototype. See
+//! `docs/doc-code-mismatch-ledger.md` for the class and the rest of its instances.
 //!
 //! ## Symbol alphabet: char-def IDENTITY, not literal spelling
 //! The engine matches phonological segments by **char-def identity**, never by literal spelling

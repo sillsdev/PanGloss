@@ -3,12 +3,21 @@
 //! [`PredicateVerdict`], the exhaustive default-deny [`characterize`], and the worked
 //! `simultaneous.subrule-overlap` predicate (design.md D3).
 //!
-//! **Purely additive.** This module defines and unit-tests the types and characterizer only — it
-//! does NOT wire a gate into any production compile path (`emit.rs`/`gate.rs`/`replace.rs`/
-//! `preexpand.rs` bodies are untouched), the way `crate::plan` (Step 1 of
-//! `reify-compilation-plans`) defines its `Plan` data type without rewiring anything either. A
-//! later step composes the envelope bottom-up over `crate::plan::Plan` (design.md D4) and flips a
-//! real compile seam to consult it — see that change's `tasks.md`.
+//! **The "later step" described below has landed; this is no longer Step-1-only.** Until
+//! 2026-08-04 this paragraph said the module "does NOT wire a gate into any production compile
+//! path" and that composing the envelope over `crate::plan::Plan` was a future step. D4 shipped:
+//! [`compose_envelope_for_strategy`] is consulted by [`crate::selection`] to decide what is
+//! offered as selectable, and [`crate::capability_entry`] evaluates it from `preflight` and
+//! `readiness_verdict`. A grammar/strategy pair this module refuses is a pair the optimizer will
+//! not select.
+//!
+//! The narrow claim that remains TRUE, and is worth keeping separate from the stale one above: the
+//! bodies of `emit.rs`/`gate.rs`/`replace.rs`/`preexpand.rs` are still untouched — nothing here
+//! alters how a compile that IS run proceeds. So this gates SELECTION, not COMPILATION. Those are
+//! different seams and the old wording collapsed them, which is how a 7,400-line module that
+//! decides what may be chosen came to describe itself as inert. See ADR 0001 for why a `Refuse` is
+//! reported honestly rather than silently degraded, and `docs/doc-code-mismatch-ledger.md` for the
+//! other instances of this class.
 //!
 //! # D1: the characteristics projection
 //! [`characterize`] walks a [`Grammar`] and matches **every** variant of **every** frozen
