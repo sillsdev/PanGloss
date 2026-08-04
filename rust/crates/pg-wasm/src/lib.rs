@@ -4,7 +4,7 @@
 //! `print_realize_lines`) but for a whole run of text at once, tokenized here rather than one
 //! word at a time on a command line.
 //!
-//! P4 (`docs/fst-plan/foma-fst-plan.md` §4 P4, gate F4): `PanGlossGrammar::new` also builds an `pg_foma::composite::FomaAnalyzer`
+//! `PanGlossGrammar::new` also builds a `pg_foma::composite::FomaAnalyzer`
 //! for the grammar; `analyze_text` routes each word through it when present. A grammar whose
 //! emitted lexc source fails to foma-compile falls back automatically to the full engine (logged,
 //! see [`log_foma_fallback`]) — see [`FomaState`]'s doc for why the compiled proposer is stored as
@@ -462,7 +462,7 @@ impl PanGlossGrammar {
                             }
                         });
                         // `guess_fallback: true` -- explicit, and load-bearing. The guesser retry
-                        // used to be unconditional inside `pg_lexicon`; it is now opt-in, defaulting
+                        // is opt-in inside `pg_lexicon`, defaulting
                         // OFF, because `hc_parse_word`/`hc_parse_batch`'s wire format cannot mark a
                         // guessed analysis and so must never return one. This demo is the opposite
                         // case: its own `analyze_text` doc states that unknown words producing a
@@ -757,8 +757,8 @@ fn api_error(code: &str, message: &str) -> pg_lexicon::StructuredError {
     }
 }
 
-/// The wasm-bindgen-facing handle for a validated `.pgpack` artifact (R2A;
-/// `openspec/changes/make-wasm-analysis-only`). Construction runs [`pack::load_pack`]: the
+/// The wasm-bindgen-facing handle for a validated `.pgpack` artifact.
+/// Construction runs [`pack::load_pack`]: the
 /// container's own structural validation, then ADR 0004's `required ⊆ provided` runtime-feature
 /// containment check against this build's own [`pack::provided_runtime_features`] -- replacing
 /// what would otherwise be a monolithic engine-compatibility-identifier equality check. A pack
@@ -766,7 +766,7 @@ fn api_error(code: &str, message: &str) -> pg_lexicon::StructuredError {
 /// `pack_incompatible_runtime_features` diagnostic (see [`pack_load_err_to_js`]), never a crash.
 ///
 /// Every getter below is a read-only view over the manifest [`pack::load_pack`] already accepted;
-/// this handle does not (yet) construct a working analyzer from the packaged runtime/foma payload
+/// this handle constructs no working analyzer from the packaged runtime/foma payload
 /// bytes -- see [`pack`]'s own module doc "Analysis-only boundary" section for that scope
 /// boundary. Loading a pack here performs zero FST/lexc compilation.
 #[wasm_bindgen]
@@ -804,7 +804,7 @@ impl PgPack {
     }
 
     /// The same ADR 0005 signal as [`PgPack::is_unproven`], exposed under the name a per-analysis-
-    /// result flag would also use once packaged-artifact analysis is wired (tasks.md §3): every
+    /// result flag on packaged-artifact analysis should also use: every
     /// result drawn from an unproven pack must carry this flag.
     #[wasm_bindgen(js_name = analysisTrustFlag)]
     pub fn analysis_trust_flag(&self) -> bool {
@@ -1173,15 +1173,15 @@ mod tests {
         );
     }
 
-    // --- P4 gate F4: native parity smoke (docs/fst-plan/foma-fst-plan.md §4 P4) ---------------
+    // --- Native parity smoke -------------------------------------------------------------------
     //
     // Not a browser round-trip, but the IDENTICAL Rust functions `PanGlossGrammar::new`/
     // `analyze_text` call (`build_foma_state`, `pg_foma::composite::FomaAnalyzer::from_cached`/
     // `analyze_word`), compiled natively, run over real corpus words from `samples/data/` and
     // compared against the full engine's own `Morpher::parse_word_opts` as multisets keyed by
-    // `(morpheme_ids, root_index)` -- exactly the parity contract plan §P3/§D7 already gates the
-    // underlying `pg-foma` crate on; this test just confirms the wasm-facing wiring didn't lose
-    // anything in translation.
+    // `(morpheme_ids, root_index)` -- exactly the parity contract the
+    // underlying `pg-foma` crate is already gated on; this test just confirms the wasm-facing
+    // wiring didn't lose anything in translation.
 
     /// Loads `grammar_file`/`words_file` from `samples/data/` (skipping quietly if either is
     /// absent, matching this workspace's usual "sample data may not be checked out" convention),
@@ -1254,8 +1254,8 @@ mod tests {
     #[test]
     #[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with --include-ignored"]
     fn foma_path_matches_full_engine_on_indonesian_corpus() {
-        // Indonesian's whole corpus file is only 121 words (plan §P3: "all 121 corpus words
-        // required 100%") -- small enough to run in full rather than sampling.
+        // Indonesian's whole corpus file is only 121 words -- small enough to run in full rather
+        // than sampling.
         assert_foma_matches_engine("indonesian-hc.xml", "indonesian-words.txt", usize::MAX);
     }
 }
