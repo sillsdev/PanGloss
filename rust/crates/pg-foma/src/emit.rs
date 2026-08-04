@@ -1412,9 +1412,9 @@ fn collect_roots(
     roots
 }
 
-/// The bare-root compile-time discharge (`docs/fst-plan/bare-root-compile-time-discharge.md`,
-/// research report 12's `BoundRoot` finding): filters `all_roots` down to the subset safe to offer
-/// on the `"#"`-continuation (word = this root alone, nothing else) `Root`/`Root` (P6) `LEXICON`.
+/// The bare-root compile-time discharge: filters `all_roots` down to the subset safe to offer
+/// on the `"#"`-continuation (word = this root alone, nothing else) `Root`/`Root` (underlying-token
+/// mode) `LEXICON`.
 /// [`RootRec::never_valid_bare`] roots are OMITTED here ONLY — every other call site
 /// (`TLPost`/`TLPostNoCmp`/per-group `Roots`/compound-chain roots) keeps using the full,
 /// unfiltered `all_roots`, since a word with any other morph attached is untouched by the
@@ -1429,8 +1429,8 @@ fn collect_roots(
 /// and returns `all_roots` unfiltered rather than risk handing the caller an empty list where an
 /// empty `LEXICON Root` block would otherwise have no OTHER continuation to fall back on. This can
 /// only ever make the emitted network larger (a superset), never narrower than what this function
-/// was asked to guarantee is safe to omit — the iron rule (module doc) never trades away recall
-/// for a states/arcs win.
+/// was asked to guarantee is safe to omit — the over-approximation invariant (module doc) never
+/// trades away recall for a states/arcs win.
 fn bare_admissible_roots<'a>(
     all_roots: &[&'a RootRec],
     counts: &mut EmitCounts,
@@ -1449,7 +1449,7 @@ fn bare_admissible_roots<'a>(
     out
 }
 
-// --- Compounding license gate (`openspec/changes/cover-compounding` design.md D3/D4) -------------
+// --- Compounding license gate ---------------------------------------------------------------------
 
 /// The two license-gated lexical-entry subsets the `Gate` partitions a reified `Plan`'s
 /// `Union(Gate(head-trie) x Gate(non_head-trie))`
@@ -1471,7 +1471,7 @@ pub(crate) struct CompoundLicense {
 /// (the overwhelmingly common case — this function, and every call site consuming its result, is a
 /// pure no-op for a grammar that never uses compounding).
 ///
-/// **The (un)group-awareness contract (design.md D4, load-bearing — never reverse these):**
+/// **The (un)group-awareness contract (load-bearing — never reverse these):**
 /// - The three RULE-level restriction fields (`head_prod_restrictions_mpr`,
 ///   `non_head_prod_restrictions_mpr`; `output_prod_restrictions_mpr` is confirm-only, see below)
 ///   are tested with [`MprSet::compound_match`] — group-UNAWARE, mirroring C#'s
@@ -1482,7 +1482,7 @@ pub(crate) struct CompoundLicense {
 ///   test than confirm does (harmless for propose's over-approximation, but not what confirm
 ///   verifies against); using the group-aware helper on the RULE-level fields instead (the
 ///   opposite mistake) would apply a STRICTER test than C# and confirm actually use there, a
-///   genuine under-propose/recall-loss bug — design.md D4's own worked trap. This function follows
+///   genuine under-propose/recall-loss bug. This function follows
 ///   the contract exactly, in the direction that matches `pg_rules::morph` line for line.
 ///
 /// **Head-subrule union, not per-subrule partitions (a documented simplification, not a precision
@@ -1505,8 +1505,8 @@ pub(crate) struct CompoundLicense {
 /// still a safe superset of any one rule's own exact requirement, and matches the granularity the
 /// existing lexc sections (`TLCmp`/`G{gi}Cmp`, shared across every compounding rule) already use.
 ///
-/// **Left to confirm, deliberately** (design.md D3: "only language-preserving/widening operations
-/// belong in propose"): `head_required_syn_fs`/`non_head_required_syn_fs` (syntactic-FS
+/// **Left to confirm, deliberately** (only language-preserving/widening operations belong in
+/// propose): `head_required_syn_fs`/`non_head_required_syn_fs` (syntactic-FS
 /// unification), `output_prod_restrictions_mpr`, `out_syn_fs`, `obligatory_features`, and the exact
 /// `head_lhs`/`non_head_lhs` pattern match itself. None of those narrow this function's result.
 pub(crate) fn compound_license(g: &Grammar) -> Option<CompoundLicense> {
