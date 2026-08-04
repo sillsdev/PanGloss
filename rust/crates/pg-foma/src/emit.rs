@@ -4117,77 +4117,45 @@ fn emit_line_budget_breach(
     }
 }
 
-/// Post-emission reachability verification (found during a 2026-07-25 regression investigation,
-/// `tests/p6_templated_morphotactics_gate.rs`'s own `BASELINE_MISSES` doc: Aweti's `mrule105`, a
-/// standalone `AffixProcess` rule on a stratum ABOVE the root/template stratum, is correctly
-/// classified `Role::Prefix`, included in `deriv_prefix`, has its `<M:0805>` tag declared in
-/// `Multichar_Symbols`, and gets its lexicon entries written at every derivation-chain call site —
-/// but its tag was absent from the compiled net's own `sigma`).
+/// Post-emission reachability verification: catches a tag that was correctly classified, declared
+/// in `Multichar_Symbols`, and had its lexicon entries written at every derivation-chain call site,
+/// but is absent from the compiled net's own `sigma`.
 ///
-/// ## 2026-07-25 correction: this is NOT `lexc_merge_states`, and NOT a recall bug
+/// ## The known false-positive class this narrows: `foma`'s `0`-digit multichar-symbol bug
 ///
-/// A prior version of this doc (and of the gate at
-/// `tests/emit_underlying_templated_tag_reachability_gate.rs`) attributed the gap to the vendored
-/// `foma` crate's `lexc_merge_states`/`lexc_suffix_hash` state-deduplication pass over-merging
-/// structurally-similar chained levels "at scale". **That attribution was wrong**, found by
-/// building a minimal standalone reproduction depending on nothing but the `foma` crate (no
-/// PanGloss types at all — the deliverable of the follow-up investigation this comment records)
-/// and tracing the actual mechanism:
+/// The real cause lives in `foma::lexcread::lexc_string_to_tokens` (the tokenizer used for
+/// lexicon-entry text). Any multichar symbol whose NAME contains a literal `0` digit (which lexc
+/// source must spell as `%0`, since a bare `0` means the alignment epsilon) fails to be recognized
+/// as ITS OWN atomic token wherever it is referenced in a lexicon entry: `lexc_add_mc` (used for the
+/// `Multichar_Symbols` DECLARATION) calls `normalize_mc_symbol`, which fully resolves the shared
+/// `nfst-lexc` lexer's `@ZERO@` marker (its representation of an escaped literal zero) back to the
+/// literal character `"0"` before registering the symbol. But `lexc_string_to_tokens` (used for
+/// ENTRY text) checks for a literal `"@ZERO@"` SUBSTRING first, converting it to a lone `"0"` symbol
+/// one character at a time, and only THEN tries the multichar-prefix match against the REMAINING
+/// text — which, at that point, no longer matches the fully-normalized registered symbol text. The
+/// declared symbol is consequently never recognized as one token in entry text and gets silently
+/// decomposed into its constituent single-character symbols instead (each of which usually already
+/// exists in `sigma` as an ordinary 1-character entry) — hence the exact atomic tag text is absent
+/// from `sigma`, `sigma.contains(tag_text)` reports a false gap, and the affected-tag pattern is
+/// exactly (and only) the set of tags whose zero-padded numeral text contains a literal `0` digit
+/// (`tags::tag_width` only zero-pads once `morpheme_count > 10`, so this affects essentially every
+/// real, non-tiny grammar). Filed upstream as `divvun/foma-rs`; the original C foma reader does not
+/// have this defect, since it de-escapes `%0` to a literal byte in a single unambiguous pass before
+/// any multichar matching happens.
 ///
-/// - The real cause is in `foma::lexcread::lexc_string_to_tokens` (the tokenizer used for
-///   lexicon-entry text), NOT `lexc_merge_states` — the minimal repro triggers with a SINGLE
-///   `Multichar_Symbols` declaration and a SINGLE entry (no chaining, no scale, no synthetic
-///   states for `lexc_merge_states` to touch at all).
-/// - The trigger is purely textual: any multichar symbol whose NAME contains a literal `0` digit
-///   (which lexc source must spell as `%0`, since a bare `0` means the alignment epsilon) fails to
-///   be recognized as ITS OWN atomic token wherever it is referenced in a lexicon entry. foma's
-///   `lexc_add_mc` (used for the `Multichar_Symbols` DECLARATION) calls `normalize_mc_symbol`,
-///   which fully resolves the shared `nfst-lexc` lexer's `@ZERO@` marker (its representation of an
-///   escaped literal zero) back to the literal character `"0"` before registering the symbol.  But
-///   `lexc_string_to_tokens` (used for ENTRY text) checks for a literal `"@ZERO@"` SUBSTRING first,
-///   converting it to a lone `"0"` symbol one character at a time, and only THEN tries
-///   `first_mc_prefix` (the multichar-prefix match) against the REMAINING text — which, at that
-///   point, no longer matches the fully-normalized registered symbol text. The declared symbol is
-///   consequently never recognized as one token in entry text and gets silently decomposed into
-///   its constituent single-character symbols instead (each of which usually already exists in
-///   `sigma` as an ordinary 1-character entry) — hence the exact atomic tag text is absent from
-///   `sigma`, `sigma.contains(tag_text)` reports a false gap, and the previously-scattered,
-///   non-monotonic pattern of affected tags is fully explained: it is exactly (and only) the set
-///   of tags whose zero-padded numeral text contains a literal `0` digit (`tags::tag_width` only
-///   zero-pads once `morpheme_count > 10`, so this affects essentially every real, non-tiny
-///   grammar).
-/// - **The compiled network's LANGUAGE is unaffected.** Verified directly (not assumed): for every
-///   tag this function used to flag in the real stratum-scale recipe below, a fresh
-///   `foma::apply::apply_down` query for that tag's exact text (paired with a root tag where the
-///   grammar's own structure requires one) returns `Some(_)` — the arc sequence is there, just
-///   spelled via several single-character symbols in a row instead of one atomic multichar symbol,
-///   which still concatenates to the correct string. This was also confirmed at the exact
-///   "many chained derivation levels" scale this gate was built to stress (24 levels × 3 parallel
-///   complexes, mirroring this recipe/the real generator's shape) using a foma-crate-only
-///   reproduction, and confirmed unchanged on foma 0.4.2 (the current crates.io release; this
-///   crate is still pinned to 0.4.0 — see that Cargo.toml comment). So this crate's own prior
-///   "pure silent recall loss" / "real compiler-level hazard, not folklore" severity claim was
-///   overstated: it is a genuine, narrow, upstream `sigma`-completeness bug (filed as
-///   `divvun/foma-rs` — see that issue for the minimal repro and the C-foma comparison showing the
-///   original C reader does not have this defect, since it de-escapes `%0` to a literal byte in a
-///   single unambiguous pass before any multichar matching happens), not a recall bug, and not this
-///   emitter's own structural fault either.
-///
-/// ## 2026-07-27 update: the trigger is now avoided at the source, not just tolerated here
-/// A second, more damaging consequence of the SAME upstream defect was found in the templated-
-/// morphotactics recall investigation (`tests/p6_templated_morphotactics_gate.rs`'s
-/// `d_bare_root_tag_atomicity_boundary`): a tag whose text got decomposed into single-character
-/// arcs (rather than staying one atomic `Multichar_Symbols` arc) still traverses fine via
-/// `apply_up`/`apply_down` (as this doc already established), but silently fails ANY construction
-/// that expects it to be one indivisible alphabet symbol — e.g. `foma::constructions::
-/// fsm_intersect`, which the corpus recall gate's own compose-restrict-project-intersect technique
-/// uses. That is a real, silent recall-COUNTING bug (not a language bug), and it is what actually
-/// held Aweti's measured recall at 68/106 for weeks. `pg_foma::tags` (module doc, point 3) now
-/// fixes this at the SOURCE — no tag numeral this crate emits ever contains a literal `0` byte, so
-/// the `lexc_string_to_tokens`/`@ZERO@`-normalization mismatch below can never trigger in the first
-/// place — rather than continuing to special-case its symptom here. This function's own detection
-/// logic is UNCHANGED and kept as a defensive safety net (a future code path could still declare a
-/// zero-containing multichar symbol some other way), but it should not normally fire again.
+/// **The compiled network's LANGUAGE is unaffected.** A fresh `foma::apply::apply_down` query for
+/// an affected tag's exact text (paired with a root tag where the grammar's own structure requires
+/// one) returns `Some(_)` — the arc sequence is there, just spelled via several single-character
+/// symbols in a row instead of one atomic multichar symbol, which still concatenates to the correct
+/// string. But any construction that expects a tag to be one indivisible alphabet symbol — e.g.
+/// `foma::constructions::fsm_intersect`, which the corpus recall gate's own
+/// compose-restrict-project-intersect technique uses — silently miscounts: a real, silent
+/// recall-COUNTING bug, not a language bug. `pg_foma::tags` (module doc, point 3) fixes this at the
+/// SOURCE — no tag numeral this crate emits ever contains a literal `0` byte, so the
+/// `lexc_string_to_tokens`/`@ZERO@`-normalization mismatch can never trigger in the first place —
+/// rather than continuing to special-case its symptom here. This function's own detection logic is
+/// kept as a defensive safety net (a future code path could still declare a zero-containing
+/// multichar symbol some other way), but it should not normally fire again.
 ///
 /// ## What this function actually checks, given that finding
 ///
@@ -4205,12 +4173,11 @@ fn emit_line_budget_breach(
 /// safety net for a genuinely different future defect.
 ///
 /// This deliberately crosses `crate::profile`'s documented "`emit.rs` never calls
-/// `fsm_lexc_parse_string`" boundary (that module's own D2 doc): that boundary describes the
+/// `fsm_lexc_parse_string`" boundary: that boundary describes the
 /// PROFILING path's own no-extra-compile discipline, not a hard rule for every function in this
 /// module, and here an extra compile is the only way to see what this class of bug does. The cost
 /// (one additional lexc compile) is accepted as the price of turning a silent, unbounded-severity
-/// recall gap into a loud, itemized one -- the task's own explicit priority ("a loud gap is vastly
-/// better than a silent one").
+/// recall gap into a loud, itemized one -- a loud gap is vastly better than a silent one.
 ///
 /// Every declared tag (root and affix; `symbols`, this function's caller) that is NOT found in the
 /// freshly-compiled net's own sigma (by the rule above) gets one [`UncoveredItem`] (kind
@@ -4238,7 +4205,7 @@ fn verify_tags_reachable(
     };
     let sigma: HashSet<&str> = net.sigma.iter().map(|s| s.symbol.as_str()).collect();
 
-    // Known upstream artifact (divvun/foma-rs, filed 2026-07-25 — see this function's own doc):
+    // Known upstream artifact (divvun/foma-rs — see this function's own doc):
     // a multichar symbol whose name contains a literal `0` digit is silently decomposed into its
     // constituent single-character symbols by `foma::lexcread::lexc_string_to_tokens` instead of
     // being recognized atomically, so its exact text never lands in `sigma` even though the
