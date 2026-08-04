@@ -1599,12 +1599,11 @@ fn compounding_max_depth(g: &Grammar) -> HashMap<MRuleId, usize> {
 }
 
 thread_local! {
-    /// How many times [`characterize`] has run on THIS thread. Task 7.11
-    /// (`openspec/changes/cleanup-and-recipe-parity`) introduced
-    /// [`crate::grammar_semantics::GrammarSemantics`] specifically to stop this number from scaling
-    /// with the number of consumers/candidate plans, and a claim like that is worthless without a
-    /// way to observe it -- so the observation ships with the fix rather than being a one-off
-    /// measurement in a report nobody can re-run.
+    /// How many times [`characterize`] has run on THIS thread.
+    /// [`crate::grammar_semantics::GrammarSemantics`] exists specifically to stop this number from
+    /// scaling with the number of consumers/candidate plans, and a claim like that is worthless
+    /// without a way to observe it -- so the observation ships with the fix rather than being a
+    /// one-off measurement in a report nobody can re-run.
     ///
     /// **Thread-local on purpose.** A process-global counter cannot be read reliably from a test:
     /// Rust runs the tests in one binary on parallel threads, so any other test that characterizes
@@ -1627,8 +1626,8 @@ pub fn reset_characterize_call_count() {
     CHARACTERIZE_CALLS.with(|c| c.set(0));
 }
 
-/// D1's exhaustive default-deny characterizer: walks `g` and matches EVERY variant of EVERY
-/// `model.rs` enum design.md D1 names, with no catch-all arm.
+/// The exhaustive default-deny characterizer: walks `g` and matches EVERY variant of EVERY
+/// `model.rs` enum, with no catch-all arm.
 ///
 /// **Not cheap, and not memoized here.** This walk builds real [`foma::types::Fsm`] networks for
 /// every `Simultaneous`-mode subrule (via [`lower_subrule_span`]). Callers that need the profile
@@ -1639,12 +1638,10 @@ pub fn characterize(g: &Grammar) -> CharacteristicsProfile {
     CHARACTERIZE_CALLS.with(|c| c.set(c.get().saturating_add(1)));
     let mut observations = Vec::new();
 
-    // `openspec/changes/cover-compounding` (design.md D2/D3): computed ONCE, grammar-wide, before
-    // the per-rule walk below -- a rule-graph reachability pass, not a per-rule check (design.md's
-    // own Novelty/risk note).
+    // Computed ONCE, grammar-wide, before the per-rule walk below -- a rule-graph reachability
+    // pass, not a per-rule check.
     let compounding_recursive_set = compounding_recursive(g);
-    // `openspec/changes/plan-construct-coverage-completion` task 4.1 (design.md row 2, piece 1):
-    // the depth-BOUND sibling pass, computed alongside the boolean one above (never replacing it).
+    // The depth-BOUND sibling pass, computed alongside the boolean one above (never replacing it).
     let compounding_max_depth_map = compounding_max_depth(g);
 
     // --- MorphRuleDef (model.rs:542) --------------------------------------------------------
@@ -1659,8 +1656,8 @@ pub fn characterize(g: &Grammar) -> CharacteristicsProfile {
                 ));
             }
             MorphRuleDef::Compounding(_) => {
-                // `openspec/changes/cover-compounding`: `compounding.non-recursive` (target
-                // `ConfirmOnly`) vs `compounding.recursive` (stays `FailClosed`/`Refuse`) — see
+                // `compounding.non-recursive` (target `ConfirmOnly`) vs `compounding.recursive`
+                // (stays `FailClosed`/`Refuse`) — see
                 // `CompoundingDetail`'s own doc. `CharacteristicKind::Compounding`'s own
                 // `default_disposition` is the PRE-predicate resting spot (`ConfigPredicate`);
                 // `CompoundingRecursionSafePredicate` reads this detail to decide `ConfirmOnly` vs
@@ -1696,9 +1693,9 @@ pub fn characterize(g: &Grammar) -> CharacteristicsProfile {
 
         // `CompoundingRule`'s own subrules carry `OutputAction`s too (model.rs:725) -- matched
         // exhaustively for the same discipline, but minting no NEW characteristic: `Compounding`
-        // is already unconditionally `FailClosed` at the rule level above (D5's first act), so a
-        // per-subrule `CircumfixOutputAction`/`Reduplication` observation here would be redundant,
-        // not more faithful.
+        // is already captured by one observation at the rule level above, so a per-subrule
+        // `CircumfixOutputAction`/`Reduplication` observation here would be redundant, not more
+        // faithful.
         if let MorphRuleDef::Compounding(def) = mrule {
             for sub in &def.subrules {
                 for action in &sub.rhs {
@@ -1734,7 +1731,7 @@ pub fn characterize(g: &Grammar) -> CharacteristicsProfile {
 
     // --- MprGroup / MprGroupOutput (model.rs:824-842) ---------------------------------------
     for (i, group) in g.mpr_groups.iter().enumerate() {
-        // `MprGroupMatchType` (model.rs:825) has no disposition of its own in D1's table (only
+        // `MprGroupMatchType` (model.rs:825) has no disposition of its own (only
         // `MprGroupOutput` does) -- matched exhaustively anyway, no-op, purely so a third
         // match-type variant is forced through this file rather than silently ignored.
         match group.match_type {
@@ -1811,11 +1808,9 @@ pub fn characterize(g: &Grammar) -> CharacteristicsProfile {
                         ));
                     }
                 }
-                // "Epenthesis" (D1) is an empty-`lhs` RULE, not a subrule field (model.rs:417's
-                // own doc: "empty pattern if absent (epenthesis rules)" is on `RewriteRuleDef.lhs`
-                // -- design.md's table cites `RewriteSubruleDef` for this row, but the frozen
-                // model actually carries it one level up; flagged for review, not silently
-                // "corrected" without note).
+                // "Epenthesis" is an empty-`lhs` RULE, not a subrule field (model.rs:417's own
+                // doc: "empty pattern if absent (epenthesis rules)" is on `RewriteRuleDef.lhs`,
+                // one level up from where a per-subrule field would sit).
                 if r.lhs.nodes.is_empty() {
                     observations.push(CharacteristicObservation::new(
                         CharacteristicKind::Epenthesis,
@@ -1838,8 +1833,8 @@ pub fn characterize(g: &Grammar) -> CharacteristicsProfile {
                         ));
                     }
                 }
-                // `PatternNode::Quantifier` (`openspec/changes/compile-bounded-fst-quantifiers`):
-                // a grammar-level structural fact about which pattern nodes this rule's own
+                // `PatternNode::Quantifier`: a grammar-level structural fact about which pattern
+                // nodes this rule's own
                 // LHS/RHS/environment patterns use, independent of `RewriteMode`/`Dir` (both
                 // already characterized above) -- see `CharacteristicKind::QuantifierPattern`'s
                 // own doc.
