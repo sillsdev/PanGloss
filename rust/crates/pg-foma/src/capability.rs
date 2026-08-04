@@ -2895,48 +2895,45 @@ impl CapabilityPredicate for ReduplicationPeelSupportedPredicate {
 // Compounding: the config-predicate `cover-compounding` registers
 // -------------------------------------------------------------------------------------------
 
-/// `openspec/changes/cover-compounding`'s own capability predicate (design.md D2/D3): splits
+/// The capability predicate for `Compounding`: splits
 /// `CharacteristicKind::Compounding` at CONFIGURATION-PREDICATE granularity (never a blanket
-/// variant claim, per ADR 0001). Originally split `compounding.non-recursive`/`compounding.recursive`
+/// variant claim). Originally split `compounding.non-recursive`/`compounding.recursive`
 /// into two DIFFERENT verdicts, keyed by [`CompoundingDetail::recursive`] (`compounding_recursive`'s
-/// rule-graph reachability pass, design.md's own Novelty/risk note — the first Stage-2 predicate
-/// whose input is a GRAPH property of `Grammar.mrules`, not a per-rule/per-subrule check).
+/// rule-graph reachability pass — the first predicate here whose input is a GRAPH property of
+/// `Grammar.mrules`, not a per-rule/per-subrule check).
 ///
-/// # Task 4.1 (`plan-construct-coverage-completion`, design.md row 2): the recursive split is now
-/// closed too — no split remains
-/// Design.md row 2 asked for three things: (1) bound the self-feeding depth; (2) a depth-budgeted
-/// faithful cross-product construction; (3) a no-false-negative containment proof. (1) closed first
-/// ([`CompoundingDetail::max_depth`]/[`compounding_max_depth`] — always finite, no "genuinely
-/// unboundable" shape exists for `Compounding`, unlike [`CharacteristicKind::QuantifierPattern`]'s
-/// real Kleene case). (2)/(3) close via `crate::emit`'s "bounded compound loop" (module doc), which
-/// now unrolls `max_depth - 1` extra (non-head) root LEVELS — not hardcoded to exactly one — reusing
-/// the SAME license-gated non-head root set at every level (`crate::emit::compound_license`, no new
-/// precision, only depth), and consumes THIS predicate's own precomputed `max_depth` bound directly
-/// (one source of truth: the construction never re-derives it). Containment (propose ⊇ confirm,
-/// non-vacuously) is checked against `pg_parse::Morpher::with_max_stem_count` raised past its
-/// hardcoded default (`tests/cover_compounding_recursive_depth_bound.rs`'s own containment test,
-/// naming both old and new test names in its module doc). The over-counting direction
-/// `compounding_max_depth`'s own doc already establishes ("this over-counts, never under-counts")
-/// means the construction's unrolled depth is always AT LEAST the grammar's real achievable depth —
-/// the safe direction for an over-approximating proposer.
+/// # The recursive split is now closed too — no split remains
+/// Closing the recursive split required three things: (1) bound the self-feeding depth; (2) a
+/// depth-budgeted faithful cross-product construction; (3) a no-false-negative containment proof.
+/// (1) closed first ([`CompoundingDetail::max_depth`]/[`compounding_max_depth`] — always finite,
+/// no "genuinely unboundable" shape exists for `Compounding`, unlike
+/// [`CharacteristicKind::QuantifierPattern`]'s real Kleene case). (2)/(3) close via `crate::emit`'s
+/// "bounded compound loop" (module doc), which now unrolls `max_depth - 1` extra (non-head) root
+/// LEVELS — not hardcoded to exactly one — reusing the SAME license-gated non-head root set at
+/// every level (`crate::emit::compound_license`, no new precision, only depth), and consumes THIS
+/// predicate's own precomputed `max_depth` bound directly (one source of truth: the construction
+/// never re-derives it). Containment (propose ⊇ confirm, non-vacuously) is checked against
+/// `pg_parse::Morpher::with_max_stem_count` raised past its hardcoded default
+/// (`tests/cover_compounding_recursive_depth_bound.rs`'s own containment test). The over-counting
+/// direction `compounding_max_depth`'s own doc already establishes ("this over-counts, never
+/// under-counts") means the construction's unrolled depth is always AT LEAST the grammar's real
+/// achievable depth — the safe direction for an over-approximating proposer.
 ///
 /// # Disposition
 /// - **Not observed at all** (no `Compounding` rule in the grammar): vacuously `Admit` — nothing
 ///   for this predicate to say (mirrors [`ReduplicationPeelSupportedPredicate`]'s own convention).
 /// - **At least one `Compounding` rule observed, recursive or not**: [`PredicateVerdict::ConfirmOnly`]
 ///   UNCONDITIONALLY — no further split. `crate::emit::compound_license`'s license-gated head/
-///   non-head cross product, now depth-budgeted (task 4.1 piece 2, `crate::emit`'s "bounded compound
+///   non-head cross product, now depth-budgeted (`crate::emit`'s "bounded compound
 ///   loop"/`build_compound_chain`), is a genuinely faithful, over-approximating proposal for EVERY
-///   observed configuration, recursive or not (design.md D3's `Gate`/`Compose`/`Union` shape,
-///   authored directly against this crate's lexc emitter rather than a real
-///   `crate::plan::PlanNodeKind::Gate` node, since `reify-compilation-plans` does not wire this
-///   crate's emitters to the reified `Plan` yet). No proven no-false-negative admission-filter
-///   argument exists either way (ADR 0001's own bar for `Admit`), so `ConfirmOnly` is the correct,
-///   permanent landing spot — the same shape [`MprGroupAppendNonNarrowingPredicate`]'s own doc draws
-///   for a kind with no further split ("every observation reaches the SAME verdict"). Not `Admit`:
-///   promoting an already-`ConfirmOnly` construction further is explicitly out of `plan-construct-
-///   coverage-completion`'s own scope (design.md D1) — only `SimultaneousRewrite`'s non-overlap split
-///   has reached `Admit` today.
+///   observed configuration, recursive or not (a `Gate`/`Compose`/`Union` shape authored directly
+///   against this crate's lexc emitter rather than a real `crate::plan::PlanNodeKind::Gate` node,
+///   since this crate does not wire its emitters to the reified `Plan` yet). No proven
+///   no-false-negative admission-filter argument exists either way, so `ConfirmOnly` is the
+///   correct, permanent landing spot — the same shape [`MprGroupAppendNonNarrowingPredicate`]'s own
+///   doc draws for a kind with no further split ("every observation reaches the SAME verdict").
+///   Not `Admit`: promoting an already-`ConfirmOnly` construction further is out of scope here —
+///   only `SimultaneousRewrite`'s non-overlap split has reached `Admit` today.
 ///
 /// # Cost stays a SEPARATE, per-grammar concern — never this predicate's own verdict
 /// `max_depth` is always finite but never guaranteed SMALL: `CompoundingRuleDef::max_apps` is a bare
@@ -2949,13 +2946,12 @@ impl CapabilityPredicate for ReduplicationPeelSupportedPredicate {
 /// `unordered-application.chain-depth-bounded` stays `ConfirmOnly` (this file's own
 /// [`UnorderedOrderingUnionPredicate`]) even though `DEFAULT_ORDERING_MULTIPLICITY_BUDGET` can
 /// separately refuse an oversized stratum. Unlike THAT predicate (whose own `unordered-application.
-/// unbounded` split is a PERMANENT cost carve-out this plan explicitly does not attempt to close,
-/// design.md D2 row 3), `Compounding`'s row was marked PROVABLE precisely because its classifying
-/// signal (`detail.recursive`) was a CONSTRUCTION gap, not a cost one — so once the construction
-/// exists, nothing about `Compounding` licenses a capability-layer cost carve-out the way
-/// `UnorderedMorphRuleApplication`'s does. `ADR 0005`'s override remains available for any grammar
-/// this predicate's own `ConfirmOnly` verdict does not by itself unblock (e.g. a grammar tripping
-/// `crate::emit`'s own compile-time budget).
+/// unbounded` split is a PERMANENT cost carve-out this file does not attempt to close),
+/// `Compounding` was provable precisely because its classifying signal (`detail.recursive`) was a
+/// CONSTRUCTION gap, not a cost one — so once the construction exists, nothing about `Compounding`
+/// licenses a capability-layer cost carve-out the way `UnorderedMorphRuleApplication`'s does. The
+/// capability override remains available for any grammar this predicate's own `ConfirmOnly` verdict
+/// does not by itself unblock (e.g. a grammar tripping `crate::emit`'s own compile-time budget).
 ///
 /// # Node applicability
 /// Like [`ReduplicationPeelSupportedPredicate`]/[`CircumfixStructuralCompositePredicate`]:
@@ -2991,7 +2987,7 @@ impl CapabilityPredicate for CompoundingRecursionSafePredicate {
         profile: &CharacteristicsProfile,
         _plan_node: &PlanNodeKind,
     ) -> PredicateVerdict {
-        // Task 4.1 (design.md row 2): `crate::emit`'s "bounded compound loop" now unrolls
+        // `crate::emit`'s "bounded compound loop" now unrolls
         // `max_depth - 1` extra non-head root levels (`build_compound_chain`), consuming this
         // predicate's own precomputed `CompoundingDetail::max_depth` bound directly -- so every
         // observed `Compounding` rule, `detail.recursive` true or false, gets the SAME faithful,
@@ -3011,10 +3007,9 @@ impl CapabilityPredicate for CompoundingRecursionSafePredicate {
 // UnorderedMorphRuleApplication: the config-predicate `cover-unordered-morph-rules` registers
 // -------------------------------------------------------------------------------------------
 
-/// `openspec/changes/cover-unordered-morph-rules`'s own capability predicate (design.md D1):
-/// splits `CharacteristicKind::UnorderedMorphRuleApplication` at CONFIGURATION-PREDICATE
-/// granularity (never a blanket `Unordered` verdict, per ADR 0001 and spec.md's own first
-/// requirement) into `unordered-application.chain-depth-bounded` and
+/// The capability predicate for `UnorderedMorphRuleApplication`:
+/// splits it at CONFIGURATION-PREDICATE
+/// granularity (never a blanket `Unordered` verdict) into `unordered-application.chain-depth-bounded` and
 /// `unordered-application.unbounded`, keyed by [`UnorderedStratumDetail::within_bound`]
 /// (`crate::unordered::unordered_stratum_metrics`'s own cardinality check, mirrored here over the
 /// SAME `stratum.mrules.len()` / [`crate::compose_budget::DEFAULT_ORDERING_MULTIPLICITY_BUDGET`]
@@ -3026,17 +3021,17 @@ impl CapabilityPredicate for CompoundingRecursionSafePredicate {
 /// - **`unordered-application.chain-depth-bounded`** (every observed `Unordered` stratum has
 ///   `detail.within_bound == true`): [`PredicateVerdict::ConfirmOnly`] — `crate::emit::
 ///   build_deriv_chain`'s existing derivation-layer construction (`crate::unordered`'s own module
-///   doc: "the ordering-union proposal design.md calls for IS an existing mechanism") is a
+///   doc: "the ordering-union proposal IS an existing mechanism") is a
 ///   genuinely faithful, over-approximating FST proposal for this case, oracle-contained against
 ///   `pg_parse::Morpher` (`tests/cover_unordered_morph_rules.rs`) — but no proven
-///   no-false-negative admission-filter argument exists (ADR 0001's own bar for `Admit`), so the
-///   resting disposition is the same `ConfigPredicate` landing spot every other Stage-2 construct
+///   no-false-negative admission-filter argument exists, so the
+///   resting disposition is the same `ConfigPredicate` landing spot every other construct
 ///   in this file uses.
 /// - **`unordered-application.unbounded`** (at least one observed `Unordered` stratum has
 ///   `detail.within_bound == false` — its own loose-rule count exceeds
 ///   [`crate::compose_budget::DEFAULT_ORDERING_MULTIPLICITY_BUDGET`]):
-///   [`PredicateVerdict::Refuse`] — design.md D1's own "stays FailClosed" landing for the
-///   uncalibrated-bound case; the ADR 0005 override remains this stratum's on-ramp to
+///   [`PredicateVerdict::Refuse`] — the "stays FailClosed" landing for the
+///   uncalibrated-bound case; the capability override remains this stratum's on-ramp to
 ///   force-compile it. Mirrors `crate::analyzer::FomaProposer::new_with_budget`'s own,
 ///   INDEPENDENTLY-derived refusal (`crate::compose_budget::ComposeError::
 ///   OrderingMultiplicityExceeded`) — this predicate is the CHECK-ONLY declaration of the same
