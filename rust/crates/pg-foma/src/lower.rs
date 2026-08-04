@@ -617,7 +617,7 @@ pub(crate) fn resolve_alpha_tuples(
 /// the note below on why). A single space also separates union members inside one `[...]` group,
 /// same reason.
 ///
-/// **Load-bearing finding (prototype report):** this vendored foma-rs's xre lexer (`nfst-xre`)
+/// **Load-bearing finding:** this vendored foma-rs's xre lexer (`nfst-xre`)
 /// does NOT reliably treat two ADJACENT non-ASCII (here: Private-Use-Area) codepoints written
 /// back-to-back with NO separator as two independent single-symbol atoms — confirmed by direct
 /// bisection (`examples/p6_bisect.rs`): `"t -> 0 || e n + _ u"` (PUA tokens, SPACE-separated)
@@ -626,8 +626,8 @@ pub(crate) fn resolve_alpha_tuples(
 /// error, no panic, just a rule that never fires, the worst kind of failure to debug blind. ASCII
 /// letters tolerate bare concatenation fine (`"cat"` == `"c a t"`, both split per-character,
 /// verified by the vendored crate's own tests) — the gap is specific to non-ASCII/high-codepoint
-/// symbols, which is exactly what a char-def-identity token alphabet is built from. Mainline P6
-/// must carry this forward as a hard rule for ANY xre string this compiler emits.
+/// symbols, which is exactly what a char-def-identity token alphabet is built from. This is a hard
+/// rule for ANY xre string this compiler emits.
 ///
 /// `pub(crate)`: canonical definition -- `replace.rs`
 /// re-exports it at its old path so `replace.rs`'s own `render_branch_regex` and every other
@@ -655,9 +655,8 @@ pub(crate) fn render_slots(
     let mut pieces: Vec<String> = Vec::with_capacity(slots.len());
     for slot in slots {
         let piece = match slot {
-            // `Slot::Fixed`/`Slot::Union`: render-time cross-table alias expansion
-            // (`docs/conformance/multitable-shared-representation-design.md` item 3 — "in
-            // `lower::render_slots`' `Slot::Fixed`/`Slot::Union` arms, NOT in `class_members`").
+            // `Slot::Fixed`/`Slot::Union`: render-time cross-table alias expansion happens HERE,
+            // NOT in `class_members`.
             // `alphabet.render_tokens(cd)` is exactly `vec![alphabet.token(cd)]` (byte-identical
             // to the pre-aliasing rendering below) whenever `alphabet` carries no table identity
             // (every existing caller, built via `SegAlphabet::new`) or `cd`'s spelling is unique to
@@ -693,14 +692,13 @@ pub(crate) fn render_slots(
                 // already establishes; no second text-rendering path, for either arm below.
                 let inner = render_slots(alphabet, children, assignment);
                 match max {
-                    // `openspec/changes/compile-bounded-fst-quantifiers` ("Bounded quantifiers"):
-                    // foma's own native bounded-repetition xre operator, `^{min,max}` (`nfst-xre`'s
+                    // Foma's own native bounded-repetition xre operator, `^{min,max}` (`nfst-xre`'s
                     // `CatenateNToK`, lexed as a POSTFIX operator over whatever `[...]`-grouped term
                     // precedes it -- `[...]` is foma's plain GROUPING bracket, distinct from `(...)`'s
                     // OPTIONALITY meaning `replace.rs`'s own `render_branch_regex` relies on for
                     // epenthesis).
                     Some(max_v) => format!("[{inner}]^{{{min},{max_v}}}"),
-                    // `openspec/changes/build-unbounded-quantifier-support`: `max: None`, the DTD's
+                    // `max: None`, the DTD's
                     // `max="-1"` Kleene sentinel. `min == 0` ("zero or more") is foma's plain `*`
                     // postfix (`nfst-xre`'s `Token::Star`, `UnaryOp::Star` -> `fsm_kleene_star`).
                     // `min >= 1` ("`min` or more") needs `nfst-xre`'s `E^>N` ("MORENCONCAT",
@@ -718,7 +716,7 @@ pub(crate) fn render_slots(
                     None => format!("[{inner}]^>{}", min - 1),
                 }
             }
-            // `openspec/changes/plan-construct-coverage-completion` task 4.2: foma's own `.#.`
+            // Foma's own `.#.`
             // word-boundary xre atom, IDENTICAL text regardless of `AnchorSide` -- [`Slot::Anchor`]'s
             // own doc has the full argument for why the side never needs to be inspected here (the
             // rendered POSITION, not the tag, is what conveys "word-initial" vs "word-final").
@@ -729,8 +727,8 @@ pub(crate) fn render_slots(
     pieces.join(" ")
 }
 
-/// A pattern node kind [`lower_span`] cannot yet represent (design.md `spec.md`'s "typed
-/// unsupported disposition... does not omit or weaken the node"). Named after the `model.rs`
+/// A pattern node kind [`lower_span`] cannot yet represent -- a typed
+/// unsupported disposition that does not omit or weaken the node. Named after the `model.rs`
 /// [`PatternNode`] variant (or, for the one non-node case, the [`pg_grammar::model::AlphaVar`]
 /// shape) it names, so a caller's diagnostic can cite the EXACT construct rather than a generic
 /// "pattern too complex" message — exactly the naming [`crate::replace::pattern_slots`]'s own doc
