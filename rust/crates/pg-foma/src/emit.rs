@@ -1,4 +1,4 @@
-//! The emitter (plan `docs/fst-plan/foma-fst-plan.md` D3, P1 stage 1): `Grammar -> lexc source`.
+//! The emitter: `Grammar -> lexc source`.
 //!
 //! ## Structure: a faithful mirror of `hc-hybrid/src/trie.rs`'s morphotactics
 //! This emitter reproduces the SAME morphotactic language `hc-hybrid`'s trie encodes (upward
@@ -8,10 +8,9 @@
 //!   accepting. Deviation (upward): trie gates bare roots on `bare_root_surfaces` non-empty
 //!   (the obligatory-inflection check, which needs a live `Morpher`); this emitter admits every
 //!   root bare EXCEPT the one sub-case [`bare_admissible_roots`] proves safe to omit at compile
-//!   time (`docs/fst-plan/bare-root-compile-time-discharge.md`, research report 12's `BoundRoot`
-//!   finding: an entry with exactly one allomorph that is `is_bound` can never be valid bare,
-//!   confirm's `distinct_count == 1 && is_bound` gate rejects it unconditionally) — every other
-//!   root is still a superset; the verify pass (P2) prunes.
+//!   time: an entry with exactly one allomorph that is `is_bound` can never be valid bare,
+//!   confirm's `distinct_count == 1 && is_bound` gate rejects it unconditionally — every other
+//!   root is still a superset; the verify pass prunes.
 //! - **Template-less derivation section** (`trie.rs:1035-1063`): prefix derivation layer →
 //!   every root → optional single compound root → suffix derivation layer → accept. Only built
 //!   when the grammar has standalone derivation rules or compounding rules, like trie.
@@ -47,8 +46,7 @@
 //!   `CompoundingRule` exists, exactly ONE extra root may follow the head root, then control
 //!   passes to the suffix derivation layer — same one-extra-root bound as trie.
 //!
-//! ## Deliberate supersets (upward approximations — the plan's iron rule allows ONLY this
-//! direction; a subset is a bug)
+//! ## Deliberate supersets (upward approximations only — a subset is a bug)
 //! 1. **Group sharing decouples a template's prefix side from its suffix side.** trie replicates
 //!    root wiring per template (cheap epsilon edges into shared root chains — a graph trick lexc
 //!    has no equivalent for: a `LEXICON` name is a single forward continuation, so per-template
@@ -73,9 +71,9 @@
 //! real surface spelling. This keeps [`tags::decode_path`] a trivial tag-occurrence scan (no
 //! literal upper-tape text can ever contain `<`/`>`). The tag for each morpheme sits at the
 //! morpheme's SURFACE position — prefix tags precede the root tag, suffix tags follow it —
-//! because confirm's `analyses_match` is positional in ascending surface order (plan §2's
-//! "positional match trap"; engine order = `allomorphs_in_morph_order`, ascending surface
-//! position, `pg-parse/src/morpher.rs:725-746`). Multiple allomorphs of one morpheme are multiple
+//! because confirm's `analyses_match` is positional in ascending surface order — the "positional
+//! match trap": engine order = `allomorphs_in_morph_order`, ascending surface
+//! position, `pg-parse/src/morpher.rs:725-746`. Multiple allomorphs of one morpheme are multiple
 //! lexc entries sharing ONE tag symbol; free-fluctuating allomorphs are naturally separate
 //! entries.
 //!
@@ -108,7 +106,7 @@
 //! calling `apply_up`, so lexc surface text and query text live in the same normalization space
 //! regardless of whether the corpus file itself is NFC or NFD on disk.
 //!
-//! ## Junction-aware affix/root emission (P1 stage 2, Indonesian: `meN+tulis -> menulis`)
+//! ## Junction-aware affix/root emission (Indonesian: `meN+tulis -> menulis`)
 //! Stage 1 (Sena, 0 phonological rules) emitted every affix/root surface as its literal, boundary-
 //! stripped authored text. That is exactly wrong for a grammar with real junction phonology: the
 //! `meN` rule's authored insert text is `"meⁿ+"` (`ⁿ` a placeholder nasal segment that phonological
@@ -145,19 +143,19 @@
 //! already accepted). Deliberately UNGATED by onset class — every root gets a stripped entry
 //! regardless of whether its own initial segment would really delete after that particular
 //! assimilated spelling (e.g. `"mem"` + `baca`'s stripped `"aca"`, which the real grammar never
-//! licenses) — an explicit upward approximation (plan's iron rule): the extra candidate is harmless
-//! (P2's confirm prunes it), and it avoids needing lane-level unification data this emitter has no
+//! licenses) — an explicit upward approximation: the extra candidate is harmless
+//! (confirm prunes it), and it avoids needing lane-level unification data this emitter has no
 //! other use for. See [`crate::junctions`]'s module doc for why this is smaller in scope than
 //! `hc-hybrid`'s original (no `bare_root_surfaces`, no per-junction neighbor-class bookkeeping).
 //!
-//! **Reduplication is explicitly out of scope here** (plan D6 — the peel is P2's job): every rule
+//! **Reduplication is explicitly out of scope here** (the peel is a later verification pass's job): every rule
 //! whose primary allomorph classifies `Role::Reduplication` (Indonesian's `-Cont`, `-Pl`,
 //! `REDUP-meN`) is already routed to `uncovered` by the SAME zone-mismatch logic stage 1 uses for
 //! every other exotic role (see "Not emittable as literal lexc" below) — nothing new needed for
 //! this stage to exclude it; the recall gate (`tests/f2_indonesian_gate.rs`) separately excludes the
 //! 7 corpus words that only have a reduplicated analysis, printing each with its reason.
 //!
-//! ## Composite entries (P1d — interdigitation + Ge'ez boundary fusion)
+//! ## Composite entries (interdigitation + Ge'ez boundary fusion)
 //! [`crate::preexpand`] (see that module's doc for the full design) applies the engine's own
 //! morphological rules to each root allomorph — and, recursively, to each resulting stem — and
 //! emits every surface the ordinary entries above cannot reach as ONE multi-tag entry in a single
@@ -165,7 +163,7 @@
 //! bare redirect into `Composites`; each composite entry continues to `CompositeExit`, a
 //! bare-redirect UNION of every post-root continuation (`#`, `TLPost`, every `G{gi}Post`) — so a
 //! composite stem sits exactly where an ordinary root does (any prefix chain before it, any suffix
-//! chain after it; plan P1d interaction item 4), at the cost of a cross-group superset (upward
+//! chain after it), at the cost of a cross-group superset (upward
 //! only, confirm prunes). An `Infix` rule that produced at least one composite is removed from
 //! `uncovered` (it IS representable now); one that matched zero roots stays, honestly. Zero-cost
 //! and zero-entry for a grammar with no phonological rules and no `Infix` rules (Sena,
@@ -176,7 +174,7 @@
 //! - `RootAllomorphDef::is_pattern` allomorphs (iterative/optional shape nodes — no concrete
 //!   spelling).
 //! - `OutputAction::Modify`/`InsertContext` ("process morphs" — ablaut/simulfix/class-insertion,
-//!   plan §2's "not compilable as strings" citation). Zero uses in Sena; this path is defensive.
+//!   not compilable as strings). Zero uses in Sena; this path is defensive.
 //! - Any allomorph whose `classify_affix` role doesn't fit the zone it was reached from (Infix,
 //!   Reduplication, Circumfix, Process) — mirrors `trie.rs::append_slots`'s per-allomorph
 //!   mismatch check (`trie.rs:941-946`) and `classify_template`'s slot-level uncovered routing
@@ -215,11 +213,10 @@ use crate::tags;
 
 /// Mode switch for every LEAF text-producing site this module threads it through
 /// ([`collect_roots`], [`insert_action_texts`]/[`emit_rule_allomorphs`]) and the purely-structural
-/// functions that call them ([`build_deriv_chain`], [`build_slot_chain`]) — the P6 templated-
-/// morphotactics emitter (`docs/fst-plan/foma-fst-plan.md` §P6, `docs/fst-plan/
-/// p6-prototype-report.md` §6 item 2 / §7's refit note).
+/// functions that call them ([`build_deriv_chain`], [`build_slot_chain`]) — the templated-
+/// morphotactics emitter.
 ///
-/// `SurfaceProbed` MUST stay byte-identical to this module's pre-existing (pre-P6) behavior —
+/// `SurfaceProbed` MUST stay byte-identical to this module's pre-existing behavior —
 /// every structural function's own logic is UNCHANGED by this parameter's existence, only the
 /// leaf text sites branch on it, and only the leaf sites are touched by `UnderlyingTokens` at
 /// all. Every recall gate this crate already has (`f1_sena_gate`, `f2_indonesian_gate`,
@@ -243,7 +240,7 @@ pub const DERIV_DEPTH_MIN: usize = 2;
 
 /// Cap on how many CONSECUTIVE dedicated levels [`build_deriv_chain`]'s `TextMode::
 /// UnderlyingTokens` strategy gives one rule (`rule.max_apps()` clamped to this). Every Aweti rule
-/// declares `max_apps() == 1` (P6-Aweti investigation, Q3) so this never actually binds there —
+/// declares `max_apps() == 1`, so this never actually binds there —
 /// it exists purely to keep a hypothetical `max_apps() > 4` rule (or an uncapped `Realizational`
 /// rule, which reports `u16::MAX`, `MorphRuleDef::max_apps`'s own doc) from inflating one chain
 /// instance's depth unboundedly; a grammar that needs more real repetitions of one rule than this
@@ -255,8 +252,7 @@ const MAX_DEDICATED_LEVELS_PER_RULE: usize = 4;
 /// "Surface spelling"). Overflow is reported as an uncovered item, never silent.
 pub const REP_VARIANT_CAP: usize = 64;
 
-/// `openspec/changes/plan-construct-coverage-completion` task 4.1 piece 2 (design.md row 2): cap on
-/// how many extra (non-head) compound-root LEVELS the depth-budgeted "bounded compound loop"
+/// Cap on how many extra (non-head) compound-root LEVELS the depth-budgeted "bounded compound loop"
 /// (module doc, "Bounded compound loop") will unroll for one compile. This consumes
 /// `crate::capability::characterize`'s already-computed `CompoundingDetail::max_depth` bound (one
 /// source of truth -- this crate never re-derives it) -- but "always finite" (`compounding_max_depth`'s
@@ -283,7 +279,7 @@ pub const REP_VARIANT_CAP: usize = 64;
 /// (`crate::compose_budget`) already names for keeping THAT dimension separate from
 /// `DEFAULT_TUPLE_BUDGET`. Unlike `chain_depth_cap` (opt-in, no calibrated default yet), this
 /// dimension defaults ON, mirroring `DEFAULT_COMPOUND_PAIR_BUDGET`'s own always-on convention:
-/// "never blow up on any grammar" (`build-for-full-scale-grammars`) is a standing requirement, not an
+/// never blowing up on any grammar is a standing requirement, not an
 /// opt-in safety net. Generous headroom above the DTD's practical ceiling (9) while still catching a
 /// pathological grammar before this loop's own (linear-in-depth, see `build_compound_chain`'s own
 /// doc) lexc emission grows unreasonably large. `HC_COMPOUND_CHAIN_DEPTH_BUDGET` overrides it.
@@ -331,31 +327,30 @@ pub struct EmitCounts {
     pub allomorphs_skipped: usize,
     /// Total lexc entry lines written — the number that most directly predicts foma compile cost.
     pub lexc_lines: usize,
-    /// P1d (`crate::preexpand`): (root allomorph, candidate rule) pairs actually attempted for the
+    /// `crate::preexpand`: (root allomorph, candidate rule) pairs actually attempted for the
     /// rule-application/fusion composite mechanisms, after the cheap required-FS pre-filter — the
     /// module's own scale-bridge number (`crate::preexpand`'s module doc).
     pub composite_pairs_probed: usize,
-    /// Composite lexc entries emitted for `Role::Infix` rules (interdigitation, plan P1d item 1 —
-    /// e.g. Amharic's `-pfv-`/`-conv-`).
+    /// Composite lexc entries emitted for `Role::Infix` rules (interdigitation — e.g. Amharic's
+    /// `-pfv-`/`-conv-`).
     pub composite_interdigitation_entries: usize,
     /// Composite lexc entries emitted for `Role::Prefix`/`Role::Suffix` rules whose fused surface
-    /// differs from what the ordinary two-entry emission already reaches (plan P1d item 2 — Ge'ez
-    /// boundary fusion).
+    /// differs from what the ordinary two-entry emission already reaches (Ge'ez boundary fusion).
     pub composite_fusion_entries: usize,
-    /// Composite lexc entries emitted by [`build_structural_composites`] (gate F3 3b,
-    /// `edge-cases/truncate-morphotactic`/`languages/suffixing-vowel-harmony`): rules `crate::preexpand`
+    /// Composite lexc entries emitted by [`build_structural_composites`]
+    /// (`edge-cases/truncate-morphotactic`/`languages/suffixing-vowel-harmony`): rules `crate::preexpand`
     /// cannot represent at all — `Role::None`/multi-part-LHS truncation, or (when
     /// [`probe_would_refuse`]) an ordinary `Prefix`/`Suffix`/`Infix` rule in a grammar whose own
     /// phonological cascade defeats `crate::preexpand`'s probe-based fusion mechanism entirely.
     pub composite_structural_entries: usize,
     /// Bare-root (`"#"`-continuation) lexc entry lines OMITTED because [`RootRec::never_valid_bare`]
-    /// proved them dead weight — `docs/fst-plan/bare-root-compile-time-discharge.md`. Counts entry
+    /// proved them dead weight. Counts entry
     /// LINES (one per surface variant), not distinct roots, matching `lexc_lines`'/`allomorphs_
     /// emitted`'s own convention; zero for any grammar with no bound single-allomorph root entries.
     pub bare_root_arcs_pruned: usize,
 }
 
-/// Overall verdict for this grammar's foma path (plan §4, P1 gate F1).
+/// Overall verdict for this grammar's foma path.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FomaTier {
     /// Every construct the grammar uses was representable (no `uncovered` entries).
