@@ -1714,7 +1714,7 @@ pub(crate) fn build_compound_chain<R, C>(
 /// BEFORE any of the chain's own lexc text is written (same "check the search result before the
 /// expensive part" discipline as the compound-pair-budget check every caller runs just before this).
 ///
-/// Shared by both emitters (task #44) so this budget discipline can never drift between them --
+/// Shared by both emitters so this budget discipline can never drift between them --
 /// mirrors [`build_compound_chain`]'s own "one construction" rationale.
 ///
 /// `Err(EmitResult)` is the caller's own early-return refusal outcome (`FomaTier::Unsupported`, a
@@ -4267,7 +4267,7 @@ pub fn emit_underlying_templated(
     allowed_entries: Option<&HashSet<LexEntryId>>,
 ) -> EmitResult {
     let enum_budget = crate::morphotactics::EnumerationBudget::from_env();
-    // V4 (design doc §4 + §8 item 1): the templated emitter's own line-count guard. Reuses
+    // The templated emitter's own line-count guard. Reuses
     // `EmitCounts::lexc_lines` (already incremented by `write_tag_entry`/`write_bare`, the number
     // that most directly predicts foma compile cost, module doc on `EmitCounts`) rather than adding
     // a second counter. Checked at a handful of natural checkpoints between this function's own
@@ -4477,7 +4477,7 @@ pub fn emit_underlying_templated(
     };
     let all_roots: Vec<&RootRec> = roots.iter().collect();
 
-    // `openspec/changes/cover-compounding` (design.md D2/D3/D4): the same license-gated head/
+    // The same license-gated head/
     // non-head subsets + compound-pair budget check `emit_with_budget` computes, mirrored here
     // (this function's own doc: no composite pipeline, but the SAME "bounded compound loop"
     // template-less/per-group structure). `None` for the common no-compounding-rule grammar.
@@ -4520,11 +4520,10 @@ pub fn emit_underlying_templated(
     // mirroring `emit_with_budget_profiled`'s own identical default.
     let mut compound_extra_levels: usize = 1;
     if compound_license.is_some() {
-        // Task #44: was hardcoded to exactly one non-head-root level regardless of any rule's own
-        // `compounding_max_depth` bound (see `build_compound_chain`'s own doc, "before task #44 this
-        // was a SurfaceProbed-only closure... emit_underlying_templated hardcoded exactly one") --
-        // now consumes the SAME precomputed depth bound + budget check
-        // `emit_with_budget_profiled` does, via the function both emitters share.
+        // Consumes the SAME precomputed depth bound + budget check
+        // `emit_with_budget_profiled` does, via the function both emitters share, so this path
+        // proposes a genuinely self-feeding compound as many non-head levels as its
+        // `compounding_max_depth` bound licenses rather than exactly one.
         compound_extra_levels = match compound_chain_depth_and_budget_check(g, &uncovered, &counts)
         {
             Ok(levels) => levels,
@@ -4645,7 +4644,7 @@ pub fn emit_underlying_templated(
             mode,
         );
         write_lexicon_header(&mut out, "TLRoots");
-        // `openspec/changes/cover-compounding` (design.md D3 head Gate): same head-eligible/
+        // Same head-eligible/
         // head-ineligible split as `emit_with_budget`'s own `TLRoots`/`TLPost`/`TLPostNoCmp` -- see
         // that function's own comment for the full rationale. `None` (no compound license) leaves
         // `tl_head_no` empty, byte-identical to the pre-gating behavior.
@@ -4663,15 +4662,13 @@ pub fn emit_underlying_templated(
         write_bare(&mut out, "TLSfx0", &mut counts);
         if has_compounding_rules {
             write_bare(&mut out, "TLCmp", &mut counts);
-            // Task #44: the depth-budgeted chain (`build_compound_chain`, shared with
-            // `emit_with_budget_profiled` -- see that function's own doc) replaces what used to be a
-            // manually-inlined, hardcoded single `TLCmpPfx`/`TLCmpRoots` level here. Byte-identical
-            // output for `compound_extra_levels == 1` (every grammar this task did not change,
-            // `build_compound_chain`'s own doc); a genuinely self-feeding `CompoundingRuleDef` now
-            // gets as many chained non-head levels as its computed `max_depth` bound licenses,
-            // exactly like the SurfaceProbed path already does.
+            // The depth-budgeted chain (`build_compound_chain`, shared with
+            // `emit_with_budget_profiled` -- see that function's own doc) gives a genuinely
+            // self-feeding `CompoundingRuleDef` as many chained non-head levels as its computed
+            // `max_depth` bound licenses, exactly like the SurfaceProbed path. Byte-identical
+            // output for `compound_extra_levels == 1` (`build_compound_chain`'s own doc).
             //
-            // `openspec/changes/cover-compounding` (design.md D3 non-head Gate): narrow to the
+            // Narrow to the
             // licensed non-head subset -- every `TLCmp*Roots` level in the chain serves ONLY this
             // compound continuation.
             let tl_non_head_roots: Vec<&RootRec> = match &compound_license {
@@ -4804,12 +4801,11 @@ pub fn emit_underlying_templated(
         if has_compounding_rules {
             let cmp_name = format!("G{gi}Cmp");
             write_bare(&mut out, &cmp_name, &mut counts);
-            // Task #44: same depth-budgeted chain as the template-less `TLCmp` section above (see
-            // that block's own comment) -- replaces what used to be a manually-inlined, hardcoded
-            // single `G{gi}CmpPfx`/`G{gi}CmpRoots` level. The HEAD side of this per-group section
-            // stays ungated (unproven template+compounding interaction, design.md D4; see
+            // Same depth-budgeted chain as the template-less `TLCmp` section above (see
+            // that block's own comment). The HEAD side of this per-group section
+            // stays ungated (unproven template+compounding interaction; see
             // `emit_with_budget_profiled`'s own comment on `eligible_roots` for the pre-existing
-            // broadening this preserves) -- only the NON-HEAD side below is narrowed, same as before.
+            // broadening this preserves) -- only the NON-HEAD side below is narrowed.
             let group_non_head_roots: Vec<&RootRec> = match &compound_license {
                 Some(license) => filter_roots_by_license(g, &all_roots, &license.non_head_eligible),
                 None => all_roots.clone(),
@@ -4912,7 +4908,7 @@ pub fn emit_underlying_templated(
             );
         }
 
-        // V4 (design doc §4 + §8 item 1): checked at the END of each group's own emission -- a
+        // Checked at the END of each group's own emission -- a
         // pathological templated grammar (many groups/slots) bails during the group whose own
         // writes crossed the cap, not several groups later.
         if counts.lexc_lines > line_cap {
