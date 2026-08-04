@@ -4046,8 +4046,7 @@ fn emit_with_budget_profiled_with_strategy(
     }
 }
 
-/// P6 templated-morphotactics emitter (`docs/fst-plan/foma-fst-plan.md` §P6 item 1's costed gap 2,
-/// `docs/fst-plan/p6-prototype-report.md` §6 item 2 / §7's own refit note): [`emit_with_budget`]'s
+/// Templated-morphotactics emitter: [`emit_with_budget`]'s
 /// structural skeleton (template grouping, slot chains, derivation layers) refitted with
 /// [`TextMode::UnderlyingTokens`] instead of [`TextMode::SurfaceProbed`] — every leaf text site
 /// emits plain UNDERLYING text in `alphabet`'s token space, meant to be composed with
@@ -4061,8 +4060,7 @@ fn emit_with_budget_profiled_with_strategy(
 /// caller today; Aweti has zero gated subrules — `crate::gate::find_gated_subrules` returns empty
 /// for it) includes every entry, unfiltered.
 ///
-/// What this function deliberately does NOT do, and why (module doc / task brief, both point the
-/// same way):
+/// What this function deliberately does NOT do, and why:
 /// - **No FST precision knob.** [`PrecisionConfig::Strip`] only, hardcoded — every `write_tag_entry`/
 ///   `build_deriv_chain`/`build_slot_chain` call below still takes a [`PrecisionEmit`] (unchanged
 ///   function signatures), but it is always the pure-passthrough one (`crate::precision`'s own
@@ -4077,7 +4075,7 @@ fn emit_with_budget_profiled_with_strategy(
 ///   eager Rust-side enumeration is exactly what OOMs on Aweti (855 roots × 135 mrules;
 ///   `EmitReport::enum_budget_exceeded`'s own error text cites 2,833,559 fusion entries / 691MB
 ///   lexc / ~8.8GB `apply_up` allocation for this grammar specifically), so skipping it
-///   unconditionally is the scale fix this function exists for. Fix 1's [`EnumerationBudget`]
+///   unconditionally is the scale fix this function exists for. The [`EnumerationBudget`]
 ///   plumbing is still threaded in and checked below regardless — defensive parity with
 ///   [`emit_with_budget`]'s own shape, even though nothing in this function's own call graph
 ///   (`collect_roots`/`build_deriv_chain`/`build_slot_chain` under this mode never recurse the way
@@ -4089,14 +4087,12 @@ fn emit_with_budget_profiled_with_strategy(
 ///   verbatim, with no drop applied — upward-safe in the sense that it never emits LESS than a
 ///   correct entry would (module doc convention throughout this crate), but it can genuinely MISS
 ///   the correct underlying form for a root that needs the drop, if no OTHER allomorph of the same
-///   rule happens to cover it unconditionally (see the P6 driver/gate's own recall numbers and
-///   `docs/fst-plan/p6-prototype-report.md`'s own §6 item 2 costing for the general shape of the
-///   fix: representing a structural allomorph via its OWN alternative underlying forms rather than
-///   the surface-probe composite path).
-///   V4 breach constructor for [`emit_underlying_templated`] (design doc §8 item 1): builds the same
+///   rule happens to cover it unconditionally. The general shape of the fix would be representing a
+///   structural allomorph via its OWN alternative underlying forms rather than the surface-probe
+///   composite path.
+///   Breach constructor for [`emit_underlying_templated`]: builds the same
 ///   `EmitResult` shape every other breach in this module uses (`lexc_source` empty,
-///   `tier: FomaTier::Unsupported`), never `Result`-ifying this function's own signature (task brief:
-///   "INSTEAD of Result-ifying emit.rs").
+///   `tier: FomaTier::Unsupported`), never `Result`-ifying this function's own signature.
 fn emit_line_budget_breach(
     uncovered: Vec<UncoveredItem>,
     counts: EmitCounts,
