@@ -1,79 +1,31 @@
-//! Stage 1B (`openspec/changes/lower-fst-pattern-environments`): the shared pattern/environment →
-//! FST lowering seam `openspec/changes/add-capability-characteristics-check/design.md` D3 needs
-//! for `simultaneous.subrule-overlap`'s REAL automaton-intersection test, replacing
-//! `capability.rs`'s prior conservative unconditional-`Refuse` fallback — see
-//! [`crate::capability::SimultaneousSubruleOverlapPredicate`]'s own doc for exactly what this
-//! replaces and how.
+//! The shared pattern/environment → FST lowering seam: [`lower_span`] lowers one subrule's
+//! `left_env · lhs_focus · right_env` triple into foma acceptors, and [`spans_overlap`] tests two
+//! such spans for a non-empty intersection at the shared focus position — the real
+//! automaton-intersection test behind [`crate::capability::SimultaneousSubruleOverlapPredicate`],
+//! replacing a conservative unconditional-`Refuse` fallback.
 //!
-//! # Scope of the ORIGINAL step (D3's own worked predicate)
-//! `lower-fst-pattern-environments`'s own `design.md` asks for one lowering seam covering anchors,
-//! polarity, groups, alternation, table identity, and quantifier metadata, and migrating EVERY
-//! existing replacement caller (`replace.rs`/`gate.rs`) onto it (`tasks.md` 1.1-1.2, 2.1-2.3). The
-//! original step was narrower, scoped to exactly what D3's worked predicate needs: [`lower_span`]
-//! lowers one subrule's `left_env · lhs_focus · right_env` triple (D3's own `span(s)` formula) into
-//! foma acceptors, and [`spans_overlap`] tests two such spans for a non-empty intersection at the
-//! shared focus position. At that point `replace.rs`/`gate.rs` were UNTOUCHED beyond three
-//! visibility bumps (`pattern_slots`/`resolve_alpha_tuples`/`render_slots` going `pub(crate)`) so
-//! this module could REUSE their pattern semantics rather than re-derive it; migrating
-//! `replace.rs`'s OWN rewrite-rule compilation onto this seam (design.md's "Migrate existing
-//! replacement callers", `tasks.md` 2.1) was flagged as a separate, larger follow-on not attempted
-//! in that step. **That follow-on is THIS step** — see "What is reused vs. newly written vs. MOVED
-//! HERE" below for what changed. Full Stage 1B coverage (multi-table ownership, alternation) is
-//! still future work — see [`UnsupportedPatternNode`]'s own doc for exactly which node kinds
-//! [`lower_span`] does and does not represent. Quantifier metadata is PARTIALLY covered,
-//! transparently: `openspec/changes/compile-bounded-fst-quantifiers` teaches [`pattern_slots`]
-//! itself to accept a finitely bounded, alpha-free `PatternNode::Quantifier` (a new
-//! `Slot::Repeat`, that variant's own doc), and `openspec/changes/build-unbounded-quantifier-support`
-//! widens that SAME acceptance to a genuinely UNBOUNDED, alpha-free `Quantifier` too (`max: None`,
-//! `Slot::Repeat`'s own doc for the native `E*`/`E^>N` construction) — since [`lower_span`] calls
-//! `pattern_slots` directly (never re-deriving pattern coverage), either shape anywhere in
-//! `left_env`/`focus`/`right_env` lowers for free, no code change needed for that. An inverted-bound
-//! (`min > max`, `max` concrete), over-budget-finite (`max` concrete but past
-//! [`MAX_QUANTIFIER_BOUND`]), or alpha-nested quantifier is UNCHANGED: `pattern_slots` still returns
-//! `None` for it, and [`UnsupportedPatternNode::Quantifier`] is still the typed reason
-//! [`diagnose_unsupported`] reports.
+//! This module owns the pattern-lowering vocabulary ([`Slot`], [`pattern_slots`],
+//! [`slots_from_nodes`], [`resolve_alpha_tuples`], [`render_slots`], [`AlphaAssignment`],
+//! [`TupleReport`], `class_members`, `slots_contain_alpha`, `MAX_QUANTIFIER_BOUND`) that
+//! `replace.rs`'s rewrite-rule/metathesis compilation also uses; `replace.rs` re-exports every one
+//! at its own path so existing callers are unaffected by where the logic actually lives.
 //!
-//! # What is reused vs. newly written vs. MOVED HERE (migration follow-on, this step)
-//! This step is the "migrate `replace.rs`'s own rewrite-rule pattern compilation onto the shared
-//! seam" follow-on the section above flags as NOT attempted in the original step — `tasks.md`
-//! 2.1's "adapt existing replacement callers without changing their network semantics". The
-//! dependency used to run backwards for a true seam (this module BORROWING `replace.rs`'s
-//! pattern-slot/alpha-tuple/rendering logic via three visibility bumps); it is now INVERTED:
-//! [`Slot`], [`pattern_slots`], [`slots_from_nodes`], [`resolve_alpha_tuples`], [`render_slots`],
-//! [`AlphaAssignment`], [`TupleReport`], `class_members`, `slots_contain_alpha`, and
-//! `MAX_QUANTIFIER_BOUND` (all formerly defined in `replace.rs`, `pub(crate)`-reused from there)
-//! now live HERE as this module's own canonical pattern-lowering vocabulary — moved byte-for-byte
-//! (logic untouched, only doc cross-references and a handful of `crate::replace` path prefixes
-//! updated to plain in-module names), not re-derived. `replace.rs` no longer defines any of them;
-//! it re-exports every one at its OLD path (`pub(crate) use crate::lower::{Slot, pattern_slots,
-//! resolve_alpha_tuples, render_slots};` / `pub use crate::lower::{AlphaAssignment, TupleReport};`)
-//! so every existing caller keeps compiling completely unmodified — `replace.rs`'s own
-//! rewrite-rule/metathesis compilation (`compile_rewrite_rule_subset`, `compile_metathesis_rule`,
-//! `compile_rtl_branch_net`, `slot_candidates`), `capability.rs`'s structural probes
-//! (`crate::replace::pattern_slots`/`crate::replace::Slot::Alpha`/`crate::replace::Slot::Repeat`,
-//! untouched — that file is a concurrent agent's exclusive territory this step does not open),
-//! every `tests/phase_c_*` gate, and every `pg_foma::replace::TupleReport`-importing example all
-//! resolve through the re-export, unchanged.
+//! [`crate::replace::SegAlphabet`] (the char-def <-> PUA-token codec) and
+//! [`crate::replace::owning_table`]/[`crate::replace::owning_table_for_metathesis`] (rule ->
+//! owning-stratum -> `CharDefTable` resolution) stay in `replace.rs`: the former is general
+//! token-alphabet infrastructure several other modules depend on directly, not something
+//! pattern/environment lowering owns; the latter is rule/stratum bookkeeping that [`lower_span`]'s
+//! own callers already resolve before calling in, so this module never needs to call it itself.
 //!
-//! Two pieces deliberately did NOT move, kept in `replace.rs` on purpose:
-//! - [`crate::replace::SegAlphabet`] (the char-def ↔ PUA-token codec, still `pub`, untouched) —
-//!   general token-alphabet infrastructure `emit.rs`/`uflexc.rs`/`gate.rs`/`enumerate.rs`/
-//!   `oracle.rs`/`capability.rs`/`capability_entry.rs`/`plan_interaction_coverage.rs` all depend
-//!   on directly, not something this change's own scope (pattern/environment → FST lowering)
-//!   claims ownership of. Still imported here (below) exactly as before this step.
-//! - [`crate::replace::owning_table`]/[`crate::replace::owning_table_for_metathesis`] (rule →
-//!   owning-stratum → `CharDefTable` resolution) — rule/stratum bookkeeping, not pattern lowering;
-//!   [`lower_span`]'s own callers (`capability.rs`) already resolve the table themselves before
-//!   calling in (this function's own doc, "the caller's own contract"), so this module never
-//!   needed to call either function itself. Left in `replace.rs` as the more defensible home.
-//!
-//! Newly written in the ORIGINAL step, unchanged by this one: [`lower_span`] itself (how to
-//! COMBINE the pattern-lowering vocabulary above into acceptors — the `Σ*`-padding construction
-//! its own doc works through), [`UnsupportedPatternNode`] (the typed disposition evidence
-//! design.md's `spec.md` asks for — "a typed unsupported disposition... does not omit or weaken
-//! the node"), and [`spans_overlap`] (the intersect-nonempty test over
-//! `foma::constructions::{fsm_intersect, fsm_union, fsm_concat, fsm_universal}` /
-//! `foma::structures::fsm_isempty`).
+//! [`UnsupportedPatternNode`] is the typed disposition for a pattern node kind [`lower_span`]
+//! cannot yet represent — always returned explicitly rather than silently omitting or weakening the
+//! node. Quantifier metadata is partially covered, transparently: [`pattern_slots`] accepts both a
+//! finitely bounded and a genuinely unbounded (`max: None`) alpha-free `PatternNode::Quantifier`
+//! natively (`Slot::Repeat`), and since [`lower_span`] calls `pattern_slots` directly rather than
+//! re-deriving pattern coverage, either shape anywhere in `left_env`/`focus`/`right_env` lowers for
+//! free. An inverted-bound (`min > max`), over-budget-finite (past [`MAX_QUANTIFIER_BOUND`]), or
+//! alpha-nested quantifier is not representable: `pattern_slots` returns `None` for it, and
+//! [`UnsupportedPatternNode::Quantifier`] is the typed reason [`diagnose_unsupported`] reports.
 
 use std::collections::HashSet;
 
