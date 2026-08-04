@@ -4343,7 +4343,7 @@ mod tests {
         );
     }
 
-    /// Task 4.1 (design.md row 2, piece 1): THREE co-located `CompoundingRule`s (not just two) must
+    /// THREE co-located `CompoundingRule`s (not just two) must
     /// scale the bound accordingly (`1 + 1 + 1 + 1 = 4`) and must all agree (a genuine mutual cycle
     /// of size 3, not just a pair) -- also a "never a hang" witness for a larger reachability graph.
     #[test]
@@ -4424,7 +4424,7 @@ mod tests {
         );
     }
 
-    /// Task 4.1 (design.md row 2, piece 1): the bound is NOT always symmetric across a rule pair --
+    /// The bound is NOT always symmetric across a rule pair --
     /// two DISTINCT strata where only the EARLIER rule feeds the LATER one (never the reverse) must
     /// give the earlier rule its own isolated (non-recursive, depth-2) bound while the later rule's
     /// bound reflects being fed (recursive, depth-3). Pins the directionality
@@ -4510,7 +4510,7 @@ mod tests {
         );
     }
 
-    /// Task 4.1 (`compounding_max_depth`'s own doc, "Depth unit" paragraph): a direct, from-scratch
+    /// (`compounding_max_depth`'s own doc, "Depth unit" paragraph): a direct, from-scratch
     /// proof that `detail.recursive == (detail.max_depth > 2)` holds across every shape the tests
     /// above exercise -- not merely asserted in the doc comment, checked here against
     /// `compounding_recursive`/`compounding_max_depth` run independently over four distinct grammars
