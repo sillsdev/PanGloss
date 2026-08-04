@@ -1,18 +1,14 @@
-//! Stage 3 of `openspec/changes/add-pairwise-grammar-interaction-coverage` (the REFRAMED design —
-//! see that change's `design.md`/`proposal.md`/`specs/grammar-interactions/spec.md`, and
-//! `docs/adr/0001-honest-capability-boundary.md`): tree-structured node/subtree interaction
+//! Tree-structured node/subtree interaction
 //! coverage over the REIFIED COMPILATION PLAN (`crate::plan`/`crate::enumerate::enumerate_default`),
-//! not pairwise covering arrays over raw grammar "knobs" — the design's own reframe, because the
-//! plan DAG's composition nodes are exactly where constructs meet and emergent hazards
+//! not pairwise covering arrays over raw grammar "knobs" — the plan DAG's composition nodes are
+//! exactly where constructs meet and emergent hazards
 //! (feeding/bleeding, order-dependence) actually arise.
 //!
-//! **BUILD-BREAKING as of 2026-07-26** (`openspec/changes/plan-construct-coverage-completion`
-//! tasks.md 6.3, design.md §D7 step 7 — "Flip both cross-checks ... This is the finish line, not a
-//! follow-on cleanup step"): this module's own integration test (`tests/
-//! plan_interaction_coverage_gate.rs`) now asserts `uncovered().is_empty()` over the full
+//! **BUILD-BREAKING**: this module's own integration test (`tests/
+//! plan_interaction_coverage_gate.rs`) asserts `uncovered().is_empty()` over the full
 //! discovered corpus, not merely that the report runs and is non-empty. The flip followed the same
-//! discipline `conformance_coverage_gate.rs`'s own flip did (that module's own doc; ADR 0001's
-//! "'Supported' is mechanically gated..." precedent; a green build-breaking gate that can silently
+//! discipline `conformance_coverage_gate.rs`'s own flip did (that module's own doc: a green
+//! build-breaking gate that can silently
 //! start lying is worse than an advisory report, because the green light is what gets cited):
 //! **zero `Uncovered` required tuples** confirmed against the real corpus; non-vacuity re-checked
 //! (the 7-shape closed set, `unexpected_tuples.is_empty()`, and a non-empty discovered-fixture
@@ -27,12 +23,12 @@
 //! Nothing in `plan.rs`/`enumerate.rs`/`build.rs`/`oracle.rs`/`capability.rs` is modified by this
 //! module — read/reuse only.
 //!
-//! # The tuple model (deliverable 1)
+//! # The tuple model
 //! An [`AdjacencyTuple`] is a `(parent PlanNodeKind kind_name, child kind_name, child's own Leaf-
 //! fragment-kind detail if the child is a [`crate::plan::PlanNodeKind::Leaf`], the [`crate::plan::
-//! ComposeStrategy`] name if either endpoint is a [`crate::plan::PlanNodeKind::Compose`])` — the
-//! design's own "(parent kind, child kind) pairs, and where cheap (parent, child, ComposeStrategy)
-//! triples" (task's own deliverable 1 wording). [`legal_adjacency_tuples`] is the CLOSED set of
+//! ComposeStrategy`] name if either endpoint is a [`crate::plan::PlanNodeKind::Compose`])` —
+//! (parent kind, child kind) pairs, and where cheap (parent, child, ComposeStrategy)
+//! triples. [`legal_adjacency_tuples`] is the CLOSED set of
 //! seven shapes [`crate::enumerate::enumerate_default`] — this crate's only enumerator strategy
 //! today — can ever produce, read directly off that module's own "Shape" doc diagram:
 //! ```text
@@ -45,15 +41,14 @@
 //! (Replace, Leaf/RewriteRule)
 //! ```
 //! A SECOND enumerator strategy (none exists yet) would need this list extended — a documented scope
-//! boundary, not an oversight: this module characterizes ONE enumerator's plan shape, per this
-//! step's own "real, working, advisory-first slice" instruction, not a general cross-product over
+//! boundary, not an oversight: this module characterizes ONE enumerator's plan shape,
+//! not a general cross-product over
 //! every [`crate::plan::PlanNodeKind`] pairing (most of which — e.g. `Leaf -> Leaf` — are not
 //! anything `enumerate_default` (or, structurally, any sane enumerator) could ever produce, since
 //! [`crate::plan::PlanNodeKind::Leaf`] never has children at all).
 //!
-//! Each tuple is TAGGED with the [`crate::capability::CharacteristicKind`]s its endpoints carry
-//! (deliverable 1's "each tagged with the characteristics/constructs those nodes carry (via the Leaf
-//! provenance + the profile)"): a [`crate::plan::PlanNodeKind::Leaf`] tagged
+//! Each tuple is TAGGED with the [`crate::capability::CharacteristicKind`]s its endpoints carry,
+//! via the Leaf provenance and the profile: a [`crate::plan::PlanNodeKind::Leaf`] tagged
 //! [`crate::plan::FragmentSpec::RewriteRule`] carries every characteristic
 //! [`crate::capability::characterize`] observed at that rule's own [`crate::capability::
 //! ModelLocation::PhonRule`]/[`crate::capability::ModelLocation::RewriteSubrule`] (mirrors
@@ -69,11 +64,10 @@
 //! flagged, not silently reconciled: a future step with a real `ModelLocation -> NodeId` table could
 //! attach these more precisely once one exists.
 //!
-//! # Orthogonality pruning (deliverable 2) — what is actually retired, and why
+//! # Orthogonality pruning — what is actually retired, and why
 //! [`retired_interactions`] is a SMALL, HAND-CITED, evidence-backed list — never invented. Two
-//! entries exist today, both load-bearing proofs already in this crate/its sibling changes:
-//! 1. **`mpr-group.append-output` × `unordered-application`** (`openspec/changes/cover-mpr-groups`
-//!    design.md D4, "× unordered morphological rule application — load-bearing, not open"): `Append`
+//! entries exist today, both load-bearing proofs already in this crate:
+//! 1. **`mpr-group.append-output` × `unordered-application`** — load-bearing, not open: `Append`
 //!    accumulation is a commutative-monoid set union — order-invariant BY CONSTRUCTION — so
 //!    `cover-unordered-morph-rules`' any-order proposal composes with `mpr-group.append-output` for
 //!    free once both reach `ConfirmOnly`. Both characteristics fold onto the SAME representative
@@ -89,18 +83,18 @@
 //!    (union is commutative; the partition is a proven-disjoint, hence proven-safe, union). This
 //!    retires PAIRWISE interaction among a `Gate` node's own `Compose`-group SIBLINGS — their
 //!    relative order never needs a dedicated fuzz case, only membership does.
-//!    [`fuzz_gate_group_reordering_for_grammar`] (deliverable 5) re-confirms this SAME claim on every
+//!    [`fuzz_gate_group_reordering_for_grammar`] re-confirms this SAME claim on every
 //!    REAL corpus grammar, not just `oracle.rs`'s own hand-built two-group fixture.
 //!
 //! Neither retirement is an ADJACENCY-tuple-level claim (an adjacency tuple like `(Gate, Compose)` is
-//! most emphatically NOT proven orthogonal in general — that is exactly where task 1.4's real
-//! soundness bug lived, `crate::plan::ReplaceCascadeSpec`'s own doc). Both retirements operate one
+//! most emphatically NOT proven orthogonal in general — that is exactly where a real
+//! soundness bug once lived, see `crate::plan::ReplaceCascadeSpec`'s own doc). Both retirements operate one
 //! level down: characteristic CO-OCCURRENCE at a shared node, and sibling-ORDER independence under a
 //! shared parent. [`InteractionCoverageReport`] reports them in their own `retired` section,
 //! separate from (not a subtype of) the required/covered/uncovered/contains-unsupported adjacency-
 //! tuple table — a deliberate, documented shape, not a missing unification.
 //!
-//! # The coverage report (deliverables 3-4)
+//! # The coverage report
 //! [`compute_interaction_coverage`] is a pure function over caller-supplied `(label, &Plan,
 //! &CharacteristicsProfile)` triples — mirrors [`crate::conformance_coverage::
 //! supported_coverage_report`]'s own "pure core, wired-up glue lives at the edge" split exactly: this
@@ -146,23 +140,23 @@
 //! flip on this analysis alone, without first mechanizing a mitigation the way the sibling flip
 //! needed `structural_witness_gate.rs` before it could go build-breaking.
 //!
-//! # Fuzz slice (deliverable 5)
+//! # Fuzz slice
 //! [`fuzz_gate_group_reordering_for_grammar`] is TARGETED subtree fuzzing for the `Gate` node — the
-//! one node kind this crate's own history shows is genuinely non-orthogonal in the small (task 1.4's
+//! one node kind this crate's own history shows is genuinely non-orthogonal in the small (a
 //! per-group `Replace`-node soundness bug lived exactly here) — reusing existing machinery
 //! end-to-end: [`crate::enumerate::enumerate_default`] + [`crate::oracle::permute_gate_groups`] +
-//! [`crate::oracle::differential_oracle`], exactly the task's own suggested shape. It is a
+//! [`crate::oracle::differential_oracle`]. It is a
 //! CORRECTNESS check, not a coverage-completeness claim — `tests/plan_interaction_coverage_gate.rs`
-//! runs it as a hard assertion for every discovered fixture with >=2 Gate partition groups (it
-//! always did, even before the coverage-report half's own 2026-07-26 flip above), because a real
+//! runs it as a hard assertion for every discovered fixture with >=2 Gate partition groups,
+//! because a real
 //! disagreement here would mean retirement #2 above is WRONG for that grammar, a genuine
 //! regression, never something to paper over.
 //!
-//! A FULLER fuzzer (out of scope here, per this step's own "do NOT build a general CIT engine"
-//! instruction) would need: (a) seeded RANDOM subtree mutation (not just the one deterministic
+//! A FULLER fuzzer (deliberately out of scope: this module does NOT build a general CIT engine)
+//! would need: (a) seeded RANDOM subtree mutation (not just the one deterministic
 //! group-reversal transform `permute_gate_groups` ships), (b) equivalent transforms for `Union`/
 //! `Compose`/`Replace` nodes (today only `Gate` has a second-topology generator at all), (c) failure
-//! minimization to a stable named recipe (tasks.md 3.2 — not attempted here), and (d) a real
+//! minimization to a stable named recipe (not attempted here), and (d) a real
 //! confirm-engine comparison rather than raw `apply_up` result-set diffing (`crate::oracle`'s own
 //! documented scope limit, inherited unchanged here).
 
@@ -288,7 +282,7 @@ pub fn legal_adjacency_tuples() -> Vec<AdjacencyTuple> {
     ]
 }
 
-/// Every adjacency tuple actually present in `plan` (deliverable 1's extraction step), deduplicated
+/// Every adjacency tuple actually present in `plan`, deduplicated
 /// — a single grammar can realize the SAME tuple many times (e.g. one `(Replace, Leaf/RewriteRule)`
 /// edge per rule); this set answers "which SHAPES occur", not "how many times".
 pub fn observed_adjacency_tuples(plan: &Plan) -> HashSet<AdjacencyTuple> {
@@ -350,8 +344,8 @@ fn kinds_for_rule(profile: &CharacteristicsProfile, rule: PRuleId) -> HashSet<Ch
         .collect()
 }
 
-/// `NodeId -> its own tag`, for every node in `plan` (deliverable 1's "tagged with the
-/// characteristics/constructs those nodes carry"). Only [`PlanNodeKind::Leaf`] (`RewriteRule`
+/// `NodeId -> its own tag`, for every node in `plan`, tagged with the
+/// characteristics/constructs those nodes carry. Only [`PlanNodeKind::Leaf`] (`RewriteRule`
 /// fragments) and [`PlanNodeKind::Gate`] nodes ever carry a non-empty tag — every other node kind
 /// (`Compose`/`Union`/`Replace`, and non-`RewriteRule` leaves) is purely structural at this
 /// granularity, so its OWN tag is empty (an edge touching it can still be non-trivially tagged via
@@ -377,12 +371,12 @@ pub(crate) fn node_own_characteristics(
 }
 
 // =================================================================================================
-// Orthogonality pruning (deliverable 2) — the retired list
+// Orthogonality pruning — the retired list
 // =================================================================================================
 
 /// One proven-orthogonal interaction, retired from the required/fuzzed set — see this module's own
 /// top-doc for the full citation of each entry. Never invented: every entry here names a proof that
-/// already exists elsewhere in this crate or a sibling `openspec` change.
+/// already exists elsewhere in this crate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RetiredInteraction {
     pub label: &'static str,
@@ -390,8 +384,8 @@ pub struct RetiredInteraction {
 }
 
 /// The two orthogonality proofs this crate can actually cite today (module top-doc). Deliberately
-/// small: "use what actually exists as proof today... where no proof exists, the tuple is REQUIRED"
-/// (this task's own instruction) — this is not a place to speculate about future proofs.
+/// small: use what actually exists as proof today; where no proof exists, the tuple is REQUIRED
+/// — this is not a place to speculate about future proofs.
 pub fn retired_interactions() -> Vec<RetiredInteraction> {
     vec![
         RetiredInteraction {
@@ -490,8 +484,8 @@ impl InteractionCoverageReport {
     /// deliberate, not a mismatch to fix — a `ContainsUnsupported` tuple was never a candidate for
     /// "needs a covering fixture" to begin with (`TupleStatus`'s own doc; the
     /// `compute_interaction_coverage_flags_contains_unsupported_for_overwrite_tagged_gate_edge` test
-    /// below pins exactly this exclusion). **BUILD-BREAKING as of 2026-07-26**:
-    /// `tests/plan_interaction_coverage_gate.rs` now asserts this is empty over the full discovered
+    /// below pins exactly this exclusion). **BUILD-BREAKING**:
+    /// `tests/plan_interaction_coverage_gate.rs` asserts this is empty over the full discovered
     /// corpus — see this module's own top-doc for why that flip is honest.
     pub fn uncovered(&self) -> Vec<&TupleReport> {
         self.required
@@ -610,8 +604,8 @@ pub fn compute_interaction_coverage(
 /// `tests/plan_interaction_coverage_gate.rs` (an external test crate) cannot call it directly, so
 /// this one clean, additive entry point does the assembly once here.
 ///
-/// Task 7.11 (`openspec/changes/cleanup-and-recipe-parity`): both halves now come off ONE
-/// [`GrammarSemantics`], and the module-local `prules_in_order` copy this used to carry is gone —
+/// Both halves come off ONE
+/// [`GrammarSemantics`], rather than a module-local `prules_in_order` copy —
 /// the owner hands back exactly the borrow-from-`g.prules` slice `enumerate::rule_id_of`'s
 /// pointer-identity recovery requires.
 pub fn plan_and_profile(g: &Grammar) -> (Plan, CharacteristicsProfile) {
@@ -621,15 +615,15 @@ pub fn plan_and_profile(g: &Grammar) -> (Plan, CharacteristicsProfile) {
     (plan, profile)
 }
 
-/// The PLAN half of [`plan_and_profile`], over an already-derived [`GrammarSemantics`] (task 7.11,
-/// `openspec/changes/cleanup-and-recipe-parity`).
+/// The PLAN half of [`plan_and_profile`], over an already-derived [`GrammarSemantics`].
 ///
 /// Split out because the profile half is the expensive one and a caller holding a
 /// `&GrammarSemantics` can read it by reference off the owner instead of taking the owned clone
-/// `plan_and_profile` must return. [`crate::plan_diagram::build_plan_document`] was calling
+/// `plan_and_profile` must return. Without this split, [`crate::plan_diagram::build_plan_document`]
+/// would need to call
 /// `plan_and_profile` TWICE and `compose_envelope` once — three full `characterize` walks for one
-/// document, with the first call's `Plan` and the second call's `Plan` both discarded in part — and
-/// this is what lets it do one.
+/// document, with the first call's `Plan` and the second call's `Plan` both discarded in part —
+/// where sharing one [`GrammarSemantics`] lets it do one.
 pub fn plan_for_semantics(semantics: &GrammarSemantics<'_>) -> Plan {
     let g = semantics.grammar();
     let alphabet = SegAlphabet::new(surface_table(g));
@@ -638,7 +632,7 @@ pub fn plan_for_semantics(semantics: &GrammarSemantics<'_>) -> Plan {
 }
 
 // =================================================================================================
-// Fuzz slice (deliverable 5)
+// Fuzz slice
 // =================================================================================================
 
 /// `plan`'s own [`PlanNodeKind::Gate`] node's partition-group count, if it has one (`0` for a plan
@@ -653,7 +647,7 @@ pub fn gate_group_count(plan: &Plan) -> usize {
         .unwrap_or(0)
 }
 
-/// Deliverable 5: targeted subtree fuzzing for the `Gate` node, reusing existing machinery
+/// Targeted subtree fuzzing for the `Gate` node, reusing existing machinery
 /// end-to-end (module top-doc) — builds `g`'s default plan, its [`permute_gate_groups`] twin, and
 /// asserts (via [`differential_oracle`]) that the two agree over `words`. Returns the source plan's
 /// own Gate partition-group count alongside the [`OracleResult`] so a caller can report/skip
