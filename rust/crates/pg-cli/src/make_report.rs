@@ -1,7 +1,6 @@
-//! `pangloss make-report <grammar> <out.md> [options]` — section 4 of `openspec/changes/
-//! certify-language-readiness` (tasks.md §4; `specs/language-readiness-certification/spec.md`'s
-//! final requirement, "A per-language report composes the evidence and states what was not
-//! tested"): ONE command producing ONE markdown file containing build time, artifact size, latency
+//! `pangloss make-report <grammar> <out.md> [options]` — a per-language report that composes the
+//! evidence and states what was not tested: ONE command producing ONE markdown file containing
+//! build time, artifact size, latency
 //! percentiles, the compilation-plan mermaid diagram, and the conformance verdict — composing
 //! sections 1-3 (`pg_foma::readiness_policy`/`readiness_verdict`/`plan_diagram`), never
 //! reimplementing any of them.
@@ -725,10 +724,10 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
         None => None,
     };
 
-    // Task 7.11 (`openspec/changes/cleanup-and-recipe-parity`): ONE derivation, shared by all three
+    // ONE derivation, shared by all three
     // places this command needs the capability verdict -- here, `pack::build_pack`'s trust stamp,
-    // and `readiness_verdict::certify`. Each of those was previously an independent
-    // `pg_foma::capability::characterize` walk over the same grammar.
+    // and `readiness_verdict::certify` -- rather than three independent
+    // `pg_foma::capability::characterize` walks over the same grammar.
     let semantics = GrammarSemantics::derive(&grammar);
     let decision = evaluate_capability_with_semantics(&semantics);
     let attempt_compile = matches!(
@@ -753,7 +752,7 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
     // Separate from `verdict.checks` on purpose: `CheckResult` only carries the numeric
     // Pass/Fail/NotAssessed outcome for coverage (a rate vs. a threshold), never the attestor/date
     // an attestation itself carries (`pg_foma::readiness_verdict::CoverageAssessment::Attested`'s
-    // own fields) -- spec.md's "the certificate records the attestor and date" requirement is
+    // own fields) -- the certificate's attestor/date fields are
     // rendered from HERE, the actual `CoverageAssessment` this command built, not reconstructed
     // from the tiered verdict after the fact.
     let coverage_attestation_line: String;
@@ -988,7 +987,7 @@ mod tests {
     use std::sync::atomic::{AtomicU32, Ordering};
 
     // The `&Grammar` front ends, used only by the golden-render test below: the live command drives
-    // the `_with_semantics` forms off its one shared owner (task 7.11), so these two are not
+    // the `_with_semantics` forms off its one shared owner, so these two are not
     // referenced outside `cfg(test)`.
     use pg_foma::plan_diagram::build_plan_document;
     use pg_foma::readiness_verdict::certify;
@@ -1057,7 +1056,7 @@ mod tests {
         (run_make_report(&args), out_path)
     }
 
-    /// Task 4.4/spec.md's headline case: a permanently-refused grammar (no `--allow-unproven`)
+    /// The headline case: a permanently-refused grammar (no `--allow-unproven`)
     /// produces a report that plainly says NOT SUPPORTED, names the refusing predicate/construct,
     /// and marks build time/latency/coverage as not measured/not assessed -- NEVER a passing check.
     #[test]
@@ -1133,7 +1132,7 @@ mod tests {
         assert!(text.contains("## Build time"), "{text}");
     }
 
-    /// Task 5.2's own render-layer proof: not-assessed coverage must never appear as `PASS` in the
+    /// Render-layer proof: not-assessed coverage must never appear as `PASS` in the
     /// rendered checks table, on a grammar that WOULD otherwise certify cleanly (every other
     /// threshold passing) -- proves the render layer, not just `certify` itself, respects the rule.
     #[test]
@@ -1264,24 +1263,22 @@ mod tests {
         );
     }
 
-    /// Task 7.11 (`openspec/changes/cleanup-and-recipe-parity`), the measurement that motivated the
-    /// `GrammarSemantics` owner: ONE `make-report` invocation must resolve the ADR 0001 capability
-    /// verdict from ONE `pg_foma::capability::characterize` walk, not one per consumer.
-    ///
-    /// Before the owner existed this command characterized the same grammar in FIVE independent
-    /// places on this path: its own preamble, `readiness_verdict::certify`, and three inside a
-    /// single `plan_diagram::build_plan_document` (its own `plan_and_profile`, the second
-    /// `plan_and_profile` inside `build_plan_document_for_plan`, and `compose_envelope`). Each
-    /// rebuilt the whole profile, real `Simultaneous`-mode `foma::types::Fsm` construction included.
+    /// ONE `make-report` invocation must resolve the ADR 0001 capability
+    /// verdict from ONE `pg_foma::capability::characterize` walk, not one per consumer: the
+    /// preamble, `readiness_verdict::certify`, and every call inside `plan_diagram::build_plan_document`
+    /// (`plan_and_profile`, the second `plan_and_profile` inside `build_plan_document_for_plan`, and
+    /// `compose_envelope`) must all resolve from the same `GrammarSemantics` owner rather than each
+    /// rebuilding the whole profile, real `Simultaneous`-mode `foma::types::Fsm` construction
+    /// included.
     ///
     /// The fixture is the REFUSED grammar with no `--allow-unproven`, deliberately: that takes the
     /// `!attempt_compile` branch, so no pack is built and no foma compile runs. The count this
-    /// measures is therefore exactly the capability derivations this task owns -- **5 before 7.11**
-    /// against the 1 asserted here. `pack::build_pack`'s trust stamp is a sixth, reachable only on
-    /// the compile path, and it is fixed by the same shared owner; measuring it here would drag in
-    /// `emit.rs`'s own separate `compound_chain_depth_and_budget_check` characterize call, which is
-    /// NOT one of the duplicated verdict derivations and was deliberately left alone, and this
-    /// assertion could not then attribute the total.
+    /// measures is therefore exactly the capability derivations the shared owner is responsible
+    /// for. `pack::build_pack`'s trust stamp is reachable only on the compile path and is fixed by
+    /// the same shared owner, but is deliberately excluded from this count: including it would drag
+    /// in `emit.rs`'s own separate `compound_chain_depth_and_budget_check` characterize call, which
+    /// is not one of the duplicated verdict derivations, and this assertion could not then
+    /// attribute the total.
     ///
     /// The counter is thread-local (see `pg_foma::capability::characterize_call_count`), so the
     /// reading is this test's own thread and cannot be polluted by tests running in parallel. The
@@ -1346,7 +1343,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------------------------
-    // Task 5.4: a golden report for one small synthetic fixture, regenerated from the
+    // A golden report for one small synthetic fixture, regenerated from the
     // generator's own output -- never hand-edited (mirrors `pg_foma::readiness_verdict`'s own
     // `regenerate_readiness_verdict_golden_json` precedent exactly).
     //
@@ -1468,7 +1465,7 @@ mod tests {
     const GOLDEN_MD: &str = include_str!("make_report_golden.md");
 
     // -----------------------------------------------------------------------------------------
-    // Reference-grammar gate (task 4.4): `samples/data/{indonesian,amharic,sena}-hc.xml` are
+    // Reference-grammar gate: `samples/data/{indonesian,amharic,sena}-hc.xml` are
     // real-language corpus data, deliberately gitignored (this repo's own synthetic-conformance-
     // only rule -- never committed). Gated exactly like `tests/f3_parity.rs`/`tests/
     // readiness_certification_gate.rs`: unconditionally `#[ignore]`d, each with its own self-skip
