@@ -1,29 +1,10 @@
-//! Stage 0D of `openspec/changes/define-fst-compilation-health` (design.md, R6 —
-//! `openspec/changes/IMPLEMENTATION-READINESS.md` §R6): the Rust-owned FST compilation-health
-//! **finding schema** — types, stable codes, severity/override semantics, size bands, and
-//! canonical JSON.
+//! The FST compilation-health finding schema: types, stable codes, severity and override
+//! semantics, size bands, and canonical JSON.
 //!
-//! **The evaluator this doc calls "a later change" has landed.** Until 2026-08-04 the paragraph
-//! below stood unqualified, while [`crate::health_evaluator`]'s own module doc already quoted it
-//! verbatim and announced itself as that later change — and `worker.rs` calls
-//! `health_evaluator::evaluate_health` on three paths, including the `LexcCompileFailed` one. So
-//! this schema IS populated from real compilation today. The stale half is "wire it up later"; the
-//! accurate half is the narrow list: `emit.rs`/`gate.rs`/`replace.rs`/`preexpand.rs`/
-//! `compose_budget.rs` still do not consult it, because health is REPORTED about a compile, never
-//! consulted during one.
-//!
-//! Kept as the original Step-1 statement, because the quoted readiness rule below is still the
-//! governing policy:
-//!
-//! This module defines and unit-tests the schema only. It does **not**
-//! instrument any compiler pass and is not consulted by `emit.rs`/`gate.rs`/`replace.rs`/
-//! `preexpand.rs`/`compose_budget.rs` — the same "define the data type, wire it up later" shape
-//! `crate::plan`/`crate::capability` use for their own Step 1s. Per
-//! `IMPLEMENTATION-READINESS.md`: "FST health policy/schema may land before instrumentation;
-//! observed audit fields populate as their owning profile/budget changes merge and are never
-//! independently remeasured." A later change wires a real evaluator that reads
-//! `crate::compose_budget`/`crate::morphotactics::EnumerationBudget` measurements and produces
-//! [`HealthFinding`]s from them.
+//! Health is REPORTED about a compile, never consulted during one — [`crate::health_evaluator`]
+//! produces [`HealthFinding`]s from budget measurements after the fact, so no compiler pass
+//! branches on anything here. Observed audit fields are populated by whichever pass owns the
+//! measurement and are never independently remeasured.
 //!
 //! # Two distinct axes (do not conflate)
 //! CONTEXT.md's `FST compilation health` / `FST admission result` glossary entries and ADR 0005

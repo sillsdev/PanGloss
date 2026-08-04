@@ -76,11 +76,9 @@ pub mod analyzer;
 pub mod build;
 /// Step 1 of `openspec/changes/add-capability-characteristics-check` (design.md D1/D2/D3): the
 /// `CharacteristicsProfile` projection, the `CapabilityPredicate` trait + `PredicateVerdict`, the
-/// exhaustive default-deny `characterize`, and the worked `simultaneous.subrule-overlap`
-/// predicate. Gates SELECTION, not compilation: `compose_envelope_for_strategy` is consulted by
-/// [`selection`] to decide what may be offered, while `emit.rs`/`gate.rs`/`replace.rs`/
-/// `preexpand.rs` bodies remain untouched. See that module's own doc for full scope and the
-/// judgment calls it surfaces.
+/// exhaustive default-deny `characterize`, and the `simultaneous.subrule-overlap` predicate.
+/// Gates SELECTION, not compilation: `compose_envelope_for_strategy` decides what [`selection`]
+/// may offer, while the compile passes themselves are untouched.
 pub mod capability;
 /// A production-shaped convenience entry point into [`capability::compose_envelope`]:
 /// [`capability_entry::evaluate_capability`] assembles `characterize` + `enumerate_default`'s
@@ -159,10 +157,8 @@ pub mod grammar_semantics;
 /// Stage 0D of `openspec/changes/define-fst-compilation-health` (design.md, R6): the FST
 /// compilation-health finding schema -- [`health::Severity`]/[`health::severity_for_size_bytes`]
 /// (R6's exact decimal-byte size bands), the immutable [`health::FindingCode`] `PGFdddd` registry,
-/// [`health::HealthFinding`]/[`health::HealthReport`], and canonical JSON. Populated for real:
-/// [`health_evaluator::evaluate_health`] is called from `worker.rs` on three paths. Health is
-/// REPORTED about a compile, never consulted during one. See that module's own doc for full
-/// scope, the R6-corrected Error/Critical override policy, and the judgment calls it surfaces.
+/// [`health::HealthFinding`]/[`health::HealthReport`], and canonical JSON. Health is REPORTED
+/// about a compile, never consulted during one; [`health_evaluator`] produces the findings.
 pub mod health;
 /// `openspec/changes/add-fst-compilation-health-audit`: the real health EVALUATOR --
 /// [`health_evaluator::evaluate_health`] turns available compile measurements (final FST payload
@@ -215,11 +211,9 @@ pub mod oracle;
 /// changed without reading the evaluator that applies it.
 pub mod parity;
 pub mod peel;
-/// The reified, content-addressed compilation-`Plan` data type (`openspec/changes/
-/// reify-compilation-plans`, design.md D1) -- the substrate that makes compilation topology
-/// enumerable data. Built by [`enumerate::enumerate_default`], interpreted into real `Fsm`s by
-/// [`build::build_controllable`]. Does not rewire [`emit`]/[`preexpand`]'s own seams; no shipped
-/// `pangloss` command consults a `Plan` (only `recipe-optimize`). See that module's doc.
+/// The content-addressed compilation-`Plan` data type -- compilation topology as enumerable data,
+/// so a compiler can be composed rather than hand-written. Built by [`enumerate`], interpreted
+/// into real `Fsm`s by [`build`].
 pub mod plan;
 /// `openspec/changes/visualize-compilation-plan`: renders a [`plan::Plan`] as a versioned JSON
 /// document ([`plan_diagram::PlanDocument`], schema-versioned like [`coverage_ledger`]/[`health`])
@@ -293,10 +287,8 @@ pub mod recipe_report;
 pub mod recipe_runtime;
 /// Grammar-derived recipe-space bounds, pruning accounting, and pilot measurements.
 pub mod recipe_space;
-/// Replace-calculus rule compilation + underlying-form lexc (originally the P6 feasibility
-/// prototype, docs/fst-plan/p6-prototype-report.md). PRODUCTION on the recipe path: called by
-/// [`build::build_controllable`] and [`gate`]. Not on the `emit`/`analyzer` path, which is a
-/// different fact from "not in production" -- see that module's doc.
+/// Replace-calculus rule compilation + underlying-form lexc -- the relational encoding of a
+/// rewrite rule, used by [`build`] and [`gate`].
 pub mod replace;
 /// Tasks 2.1/2.2 of `openspec/changes/reify-compilation-plans` (design.md D3): [`selection::
 /// select_plan`] -- filters [`enumerate::enumerate_candidates`]'s candidate list to those whose

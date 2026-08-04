@@ -1,25 +1,15 @@
-//! Step 1 of `openspec/changes/add-capability-characteristics-check` (the keystone gate, ADR
-//! 0001): the [`CharacteristicsProfile`] projection, the [`CapabilityPredicate`] trait +
-//! [`PredicateVerdict`], the exhaustive default-deny [`characterize`], and the worked
-//! `simultaneous.subrule-overlap` predicate (design.md D3).
+//! Decides what a compiler strategy may honestly claim to represent for a given grammar.
 //!
-//! **The "later step" described below has landed; this is no longer Step-1-only.** Until
-//! 2026-08-04 this paragraph said the module "does NOT wire a gate into any production compile
-//! path" and that composing the envelope over `crate::plan::Plan` was a future step. D4 shipped:
-//! [`compose_envelope_for_strategy`] is consulted by [`crate::selection`] to decide what is
-//! offered as selectable, and [`crate::capability_entry`] evaluates it from `preflight` and
-//! `readiness_verdict`. A grammar/strategy pair this module refuses is a pair the optimizer will
-//! not select.
+//! Holds the [`CharacteristicsProfile`] projection, the [`CapabilityPredicate`] trait and
+//! [`PredicateVerdict`], the exhaustive default-deny [`characterize`], and the
+//! `simultaneous.subrule-overlap` predicate.
 //!
-//! The narrow claim that remains TRUE, and is worth keeping separate from the stale one above: the
-//! bodies of `emit.rs`/`gate.rs`/`replace.rs`/`preexpand.rs` are still untouched — nothing here
-//! alters how a compile that IS run proceeds. So this gates SELECTION, not COMPILATION. Those are
-//! different seams and the old wording collapsed them, which is how a 7,400-line module that
-//! decides what may be chosen came to describe itself as inert. See ADR 0001 for why a `Refuse` is
-//! reported honestly rather than silently degraded, and `docs/doc-code-mismatch-ledger.md` for the
-//! other instances of this class.
+//! This gates SELECTION, not COMPILATION: [`compose_envelope_for_strategy`] decides what
+//! [`crate::selection`] may offer, while `emit`/`gate`/`replace`/`preexpand` compile exactly as
+//! they would otherwise. A refusal is reported rather than silently degraded, so an unrepresentable
+//! construct never turns into a quietly wrong parse.
 //!
-//! # D1: the characteristics projection
+//! # The characteristics projection
 //! [`characterize`] walks a [`Grammar`] and matches **every** variant of **every** frozen
 //! `model.rs` enum design.md D1 names, with **no catch-all arm** — the discipline that would have
 //! caught the `Compounding` silent-recall hole (design.md's own words). Adding a new `model.rs`
