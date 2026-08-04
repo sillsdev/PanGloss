@@ -3296,8 +3296,8 @@ impl CapabilityPredicate for MprGroupOverwriteFailClosedPredicate {
 // QuantifierPattern: the config-predicate `compile-bounded-fst-quantifiers` registers
 // -------------------------------------------------------------------------------------------
 
-/// `openspec/changes/compile-bounded-fst-quantifiers`'s own capability predicate, WIDENED by
-/// `openspec/changes/build-unbounded-quantifier-support` to cover the genuinely unbounded case too: a
+/// The capability predicate for `QuantifierPattern`, covering both bounded and the genuinely
+/// unbounded case: a
 /// `PatternNode::Quantifier` occurrence is now faithfully COMPILABLE (`crate::replace::Slot::Repeat`,
 /// whose `max: Option<u32>` renders EITHER foma's native `^{min,max}` bounded-repetition operator or
 /// its native `*`/`^>N` unbounded-repetition operator, `crate::lower::render_slots`'s own doc)
@@ -3320,7 +3320,7 @@ impl CapabilityPredicate for MprGroupOverwriteFailClosedPredicate {
 ///   focus-quantified rule's full containment against `pg_rules::rewrite` is a SEPARATE,
 ///   documented, pre-existing confirm-engine gap this change surfaces but does not fix,
 ///   `crate::replace` module doc's "Confirm-engine finding"), but no PROVEN no-false-negative
-///   admission-filter argument exists for the construct in general (ADR 0001's own bar for `Admit`)
+///   admission-filter argument exists for the construct in general
 ///   — so this is confirm-only-by-default, the same landing spot
 ///   [`RightToLeftRewriteFaithfulReversalPredicate`]/[`MultiTableFaithfulThreadingPredicate`]
 ///   already use. **A genuinely unbounded quantifier (`!all_bounded`) is no longer, by itself, a
@@ -3374,8 +3374,8 @@ impl CapabilityPredicate for QuantifierBoundedExpansionPredicate {
             // Not observed to use Quantifier at all -- nothing for this predicate to say (doc).
             return PredicateVerdict::Admit;
         };
-        // `openspec/changes/build-unbounded-quantifier-support`: `detail.all_bounded` is no longer
-        // consulted here at all -- a genuinely unbounded quantifier is no longer, by itself, a
+        // `detail.all_bounded` is not
+        // consulted here at all -- a genuinely unbounded quantifier is not, by itself, a
         // reason to Refuse (doc above, "Disposition"). Whether THIS rule's whole pattern shape
         // actually compiles (bounded or unbounded) is exactly what `detail.compile_attempted`
         // already answers, so that is now the ONLY gate this predicate checks.
@@ -3403,9 +3403,8 @@ impl CapabilityPredicate for QuantifierBoundedExpansionPredicate {
 // Epenthesis: replaces the last remaining `epenthesis.placeholder` `FailClosedPlaceholder`
 // -------------------------------------------------------------------------------------------
 
-/// Replaces this crate's own `epenthesis.placeholder` [`FailClosedPlaceholder`] (design.md D1's
-/// "TODO: no owning Stage-2 change named ... yet" row) with a real predicate — this crate's LAST
-/// remaining bare placeholder. `CharacteristicKind::Epenthesis`'s own trigger
+/// Replaces this crate's own `epenthesis.placeholder` [`FailClosedPlaceholder`] with a real
+/// predicate — this crate's LAST remaining bare placeholder. `CharacteristicKind::Epenthesis`'s own trigger
 /// (`RewriteRuleDef::lhs.nodes.is_empty()`, `characterize`'s own comment on model.rs:417's "empty
 /// pattern if absent (epenthesis rules)" convention) is, on inspection, ALREADY handled faithfully
 /// by mechanisms this crate ships for an unrelated reason — this predicate documents and verifies
@@ -3462,7 +3461,7 @@ impl CapabilityPredicate for QuantifierBoundedExpansionPredicate {
 ///   (`FomaOutcome::candidates_generated > 0` including the raw, un-inserted-into spelling) while
 ///   confirm prunes to EXACTLY the oracle's own `pg_parse::Morpher` analysis set — no shape was
 ///   found where containment fails, so no `Refuse` witness exists to carve out. [`PredicateVerdict::
-///   Admit`] (an accumulated no-false-negative admission-filter proof, ADR 0001's own bar) is a
+///   Admit`] (an accumulated no-false-negative admission-filter proof) is a
 ///   separate, unproven step this predicate does NOT make — it only ever proves the safe baseline
 ///   ConfigPredicate landing spot every other characteristic in this file rests at absent such a
 ///   proof.
@@ -3471,9 +3470,9 @@ impl CapabilityPredicate for QuantifierBoundedExpansionPredicate {
 /// Like [`MetathesisDetail::swap_construction_attempted`]'s own disclaimer, this predicate does not
 /// model a runtime-resource dimension: [`crate::emit::build_structural_composites`]'s own bounded
 /// recursion (`crate::emit::STRUCT_MAX_EXTRA_RULES`) and the shared
-/// [`crate::morphotactics::EnumerationBudget`] are calibrated resource limits the D1 profile does
+/// [`crate::morphotactics::EnumerationBudget`] are calibrated resource limits the profile does
 /// not represent, not a structural fact about any one epenthesis rule — the same "a runtime
-/// resource concern the D1 profile does not model, not a structural fact about the rule itself"
+/// resource concern the profile does not model, not a structural fact about the rule itself"
 /// convention [`MetathesisDetail`]'s own doc already draws for `ComposeBudget::tuple_cap`.
 ///
 /// # Node applicability
