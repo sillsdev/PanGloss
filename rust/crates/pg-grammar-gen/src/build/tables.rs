@@ -269,7 +269,7 @@ pub fn build(
 }
 
 /// Xml id of the always-present universal wildcard natural class (matches every segment,
-/// regardless of table) -- every non-stage-1-stub builder that captures a root span
+/// regardless of table) -- every builder that captures a root span
 /// (`MorphologicalInput`'s `OptionalSegmentSequence`) references this, mirroring every existing
 /// fixture's own `ncAny`/`Any` convention (e.g. `machine/conformance/languages/fusional-realizational-morphology/
 /// grammar.xml`'s `ncAny`).

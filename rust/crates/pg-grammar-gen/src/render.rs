@@ -163,7 +163,7 @@ fn sub_table_pair(table: &TableSpec, start: usize) -> TableSpec {
 }
 
 /// Mint one `<LexicalEntry>` with a single-allomorph `shape` spelling, part of speech `pos`, and
-/// `<MorphemeId>` text `morph_id` -- returns `(xml, entry_xml_id)`. Shared by every stage-2
+/// `<MorphemeId>` text `morph_id` -- returns `(xml, entry_xml_id)`. Shared by every
 /// construct whose gate doesn't need real linguistic root material (alpha/quantifier/metathesis/
 /// simultaneous/rtl), which only need SOME valid, loadable root for their own single- or
 /// multi-rule demonstration (module doc).
@@ -212,7 +212,7 @@ pub fn render_indexed(recipe: &Recipe) -> RenderedGrammar {
 
     // Circumfix affix material needs its own declared characters distinct from root characters
     // (module doc of `build::circumfix`) -- pad the requested segment inventory up so table 0 has
-    // enough (roots + 2 affix letters), never SHRINK an explicit larger request. Every stage-2
+    // enough (roots + 2 affix letters), never SHRINK an explicit larger request. Every
     // "replaces stratum 0" construct (module doc) has its OWN segment requirement, folded into the
     // same max() -- each recipe activates exactly one of these, so only one term is ever load-
     // bearing, but computing the max of all of them is simpler and safe than a construct-keyed
@@ -265,7 +265,7 @@ pub fn render_indexed(recipe: &Recipe) -> RenderedGrammar {
         &mut ids,
     );
 
-    // --- Stage-2 "replaces stratum 0" construct builders (module doc): built ONCE, before the
+    // --- "Replaces stratum 0" construct builders (module doc): built ONCE, before the
     // per-table loop, since every one of them consumes table 0's own segments. ---
     let gating_build = has_gating
         .then(|| build::gating::build(c.gated_subrule_count, POS_XML_ID, &tb.tables[0], &mut ids));

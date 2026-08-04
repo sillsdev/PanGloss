@@ -39,7 +39,7 @@
 //!
 //! `var_count` independent rules, each on its own dedicated marker segment (unnecessary for
 //! correctness now -- an identity map is harmless wherever it matches -- but kept for symmetry with
-//! every other stage-2 builder's "one dedicated position per instance" convention, and so a gate
+//! every other construct builder's "one dedicated position per instance" convention, and so a gate
 //! can still name each rule's own target character if useful for diagnostics).
 
 use crate::build::tables::TableSpec;

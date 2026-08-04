@@ -33,7 +33,7 @@ pub struct StrataBuild {
 
 /// Build `extra_strata` (`>= 1`) additional strata, all sharing `table`'s own xml id, referencing
 /// part of speech `pos_xml_id`, numbered starting at `first_index` (so a caller building strata
-/// `S0..S{first_index-1}` itself can continue the naming sequence without collision -- stage-2
+/// `S0..S{first_index-1}` itself can continue the naming sequence without collision -- existing
 /// recipes always use `first_index = 1`, the base stratum being `S0`). Needs at least
 /// `extra_strata` distinct segments in `table` (one dedicated marker character per extra stratum,
 /// mirroring [`crate::build::gating`]/[`crate::build::alpha`]'s own "one dedicated position"

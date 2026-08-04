@@ -28,7 +28,7 @@
 //! `segment_inventory` up to at least this (mirrors `crate::build::circumfix`'s own "pad the
 //! table" convention). `crate::build::tables::build`'s own 26-ASCII-letter ceiling
 //! (`table_count * segment_inventory <= 26`) caps `count` at 25 for a single-table recipe — which
-//! comfortably covers Aweti's real real-grammar scale (11/24 rules per zone), so no stage-2 scale
+//! comfortably covers Aweti's real real-grammar scale (11/24 rules per zone), so no scale
 //! knob beyond a single `usize` count is needed here.
 
 use crate::build::tables::TableSpec;

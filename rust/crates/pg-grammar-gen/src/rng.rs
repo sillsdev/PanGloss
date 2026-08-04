@@ -34,9 +34,9 @@ impl Rng {
         z ^ (z >> 31)
     }
 
-    /// A value in `0..bound` (`bound` must be `> 0`) via `next_u64() % bound`. Stage-1 recipes
+    /// A value in `0..bound` (`bound` must be `> 0`) via `next_u64() % bound`. Existing recipes
     /// only ever draw from tiny bounds (a handful of segment letters), so the small modulo bias
-    /// this introduces is not worth a rejection-sampling loop; revisit if a stage-2 builder needs
+    /// this introduces is not worth a rejection-sampling loop; revisit if a builder ever needs
     /// a larger, bias-sensitive draw.
     pub fn gen_below(&mut self, bound: usize) -> usize {
         assert!(bound > 0, "Rng::gen_below: bound must be > 0");
