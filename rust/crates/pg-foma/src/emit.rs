@@ -729,7 +729,7 @@ pub(crate) fn surface_variants(table: &CharDefTable, text: &str) -> Option<(Vec<
 /// bound and `overflowed` convention as [`surface_variants`] itself (folded across every piece).
 ///
 /// For a single piece this is byte-identical to `surface_variants(table, texts[0])` (the module
-/// doc's "byte-identical to this module's pre-existing (pre-P6) behavior" invariant on
+/// doc's "byte-identical to this module's pre-existing behavior" invariant on
 /// [`TextMode::SurfaceProbed`] holds unchanged): the fold starts from `vec![String::new()]` and one
 /// pass through one piece's own variant list produces exactly that list back, just each member
 /// re-sorted/re-deduped (a no-op on an already-sorted-deduped `Vec`).
@@ -1130,7 +1130,7 @@ pub(crate) fn write_bare(out: &mut String, continuation: &str, counts: &mut Emit
 /// lets [`PrecisionEmit::tagged_lower`] gate the ENVIRONMENT family's `AllFlags` preset without
 /// touching every call site's own logic — `owner` identifies the allomorph THIS entry realizes
 /// (`Some(allo.id)` from [`emit_rule_allomorphs`] and `Some(root.id)` from the root-entry writers;
-/// `None` only for P1d composite entries, which are never an owner-side gate this step), and
+/// `None` only for composite entries, which are never an owner-side gate this step), and
 /// `surface` (this entry's own literal spelling, pre-escape) is checked against every covered
 /// constraint's set-side literal match regardless of owner. Under [`PrecisionConfig::Strip`] (`pk`
 /// built from that config) `tagged_lower` always returns exactly what this function wrote before
@@ -1188,16 +1188,15 @@ struct RootRec {
     /// emission"). Empty when `phon` is `None` (no phonological rules at all — nothing needs it) or
     /// when the root has no segment to strip.
     stripped: Vec<String>,
-    /// Compile-time-provable "never valid bare" fact (`docs/fst-plan/bare-root-compile-time-
-    /// discharge.md`; `pg_rules::validity::allomorphs_valid_impl`'s `def.is_bound && distinct_count
-    /// == 1` gate, `FailureReason::BoundRoot` — precision.rs's own `ConstraintFamily::BoundRoot`,
-    /// "cannot be the word's only allomorph"): `true` iff this allomorph's OWNING ENTRY has exactly
-    /// one allomorph total AND that allomorph is `is_bound`. For a bare-root candidate (this
-    /// allomorph alone, no other morph — exactly what the `"#"`-continuation `Root` lexicon
-    /// proposes) confirm's `distinct_count` is trivially 1, so `is_bound` alone already dooms the
-    /// word; the entry-has-exactly-one-allomorph restriction is deliberate extra caution (module
-    /// doc's iron rule: never lose recall) — it sidesteps entirely the W3.2 disjunctive-allomorph
-    /// re-check's cross-allomorph reasoning (`free_fluctuates`/`disjunctive_candidates`), which
+    /// Compile-time-provable "never valid bare" fact (`pg_rules::validity::allomorphs_valid_impl`'s
+    /// `def.is_bound && distinct_count == 1` gate, `FailureReason::BoundRoot` — precision.rs's own
+    /// `ConstraintFamily::BoundRoot`, "cannot be the word's only allomorph"): `true` iff this
+    /// allomorph's OWNING ENTRY has exactly one allomorph total AND that allomorph is `is_bound`.
+    /// For a bare-root candidate (this allomorph alone, no other morph — exactly what the
+    /// `"#"`-continuation `Root` lexicon proposes) confirm's `distinct_count` is trivially 1, so
+    /// `is_bound` alone already dooms the word; the entry-has-exactly-one-allomorph restriction is
+    /// deliberate extra caution (never lose recall) — it sidesteps entirely the disjunctive-
+    /// allomorph re-check's cross-allomorph reasoning (`free_fluctuates`/`disjunctive_candidates`), which
     /// does not apply when there is nothing to disjoin against. When `true`, [`collect_roots`]'s
     /// callers must OMIT this `RootRec` from the bare (`"#"`-continuation) `write_root_entries`
     /// call only — every other continuation (`TLPost`, per-group `Roots`, compound chains) still
@@ -1221,26 +1220,19 @@ fn collect_roots(
     // Stratum order then entry order, mirroring trie.rs's own roots collection (`run()`,
     // trie.rs:966-981) — deterministic Vec walks only.
     for sd in &g.strata {
-        // Table-blindness fix (task #45): a root allomorph's `Shape` char-def ids are indices
-        // into ITS OWN stratum's `CharacterDefinitionTable` (`sd.table`), never necessarily the
-        // single table a caller-supplied `table: &CharDefTable` argument used to fix for the
-        // whole function — a real multi-table grammar (`Grammar::char_tables.len() > 1`, e.g.
-        // `machine/conformance/edge-cases/bistratal-overlapping-segment-representation`, two
-        // strata each pointing at a DIFFERENT, differently-sized table) can and does have entries
-        // whose char-def ids are only valid in their OWN table, not in whichever table a
-        // grammar-wide constant happened to be. The old fixed `table` parameter (always
-        // `surface_table(g)`, i.e. the LAST stratum's table, or `alphabet.table()`) silently
-        // indexed an EARLIER stratum's entry against the LAST stratum's (possibly shorter) table
-        // — `CharDefTable::get`'s direct `Vec` index panics rather than refusing, exactly this
-        // fixture's "index out of bounds: the len is 3 but the index is 3" (t1/"Inner" has 4
-        // segments, index 3 valid there; t2/"Outer" has only 3, index 3 out of bounds). Resolving
-        // the table fresh per stratum, from `sd.table` (the same field `pg_parse::Morpher`
-        // already resolves per-rule via an explicit `TableId`, per this fixture's own doc), is the
-        // same fix class `crate::replace::owning_table` applies to rewrite rules — this is that
-        // fix applied to root-allomorph collection, the one path that never got it.
+        // A root allomorph's `Shape` char-def ids are indices into ITS OWN stratum's
+        // `CharacterDefinitionTable` (`sd.table`), never necessarily whichever table a caller
+        // supplies for the whole function: a multi-table grammar (`Grammar::char_tables.len() > 1`,
+        // strata pointing at different, differently-sized tables) can have entries whose char-def
+        // ids are only valid in their OWN table, not a grammar-wide constant one. Indexing an
+        // earlier stratum's entry against a later stratum's (possibly shorter) table panics rather
+        // than refusing, since `CharDefTable::get`'s direct `Vec` index has no bounds check of its
+        // own. Resolving the table fresh per stratum, from `sd.table` (the same field
+        // `pg_parse::Morpher` already resolves per-rule via an explicit `TableId`), is the same fix
+        // class `crate::replace::owning_table` applies to rewrite rules.
         let stratum_table = &g.char_tables[sd.table.0 as usize];
         for &entry_id in &sd.entries {
-            // `allowed_entries` (P6's `emit_underlying_templated`, mirrors `uflexc::
+            // `allowed_entries` (`emit_underlying_templated`, mirrors `uflexc::
             // emit_underlying_filtered`'s own convention exactly — same "not a coverage gap, a
             // DIFFERENT group's lexicon has it" doc): every existing caller passes `None`
             // (unfiltered), so this is a pure no-op there.
@@ -1260,7 +1252,7 @@ fn collect_roots(
                     "entry{}(morpheme={morpheme_name})#allo{allo_idx}",
                     entry_id.0
                 );
-                // P6 (`TextMode::UnderlyingTokens`, `emit_underlying_templated`): ONE token string
+                // `TextMode::UnderlyingTokens` (`emit_underlying_templated`): ONE token string
                 // via `SegAlphabet::encode_shape` — char-def identity already collapses the
                 // representation cartesian product [`pattern_variants`] exists for, so that
                 // machinery (and the bare-root-phonology enrichment below, which needs a real
@@ -1308,15 +1300,14 @@ fn collect_roots(
                 // `unsegmentable-root` uncovered path this replaces was only ever a defensive
                 // fallback per this module's own doc, "Not emittable as literal lexc").
                 //
-                // Was routed straight to `uncovered` whenever `allo.is_pattern` (a lexical PATTERN
-                // — iterative/optional shape nodes) — but `edge-cases/loader-pattern-shapes` (gate
-                // F3 3b) exposed a second, narrower miss: a MANDATORY (non-optional, non-iterative)
-                // `[ClassName]` node does NOT set `is_pattern` at all (P11 §4.2's C#-faithful rule:
-                // "a bare mandatory `[Class]` node does NOT qualify... that's a normal
-                // trie-indexed root, e.g. `b[Vowel]t`" — `pg_grammar::load::load_root_allomorph`),
-                // so that shape fell through to the OLD `surface_variants(text)` call, which failed
-                // outright (the literal string `"b[Vowel]t"` cannot re-segment) — routing every
-                // root uniformly through the Shape-based path fixes both cases with one change.
+                // A MANDATORY (non-optional, non-iterative) `[ClassName]` node does NOT set
+                // `is_pattern` (C#-faithful rule: "a bare mandatory `[Class]` node does NOT
+                // qualify... that's a normal trie-indexed root, e.g. `b[Vowel]t`" —
+                // `pg_grammar::load::load_root_allomorph`), so a literal-text re-segmentation of
+                // `allo.shape.text` fails outright for such a root (the literal string
+                // `"b[Vowel]t"` cannot re-segment) even though `is_pattern` alone would not route it
+                // to `uncovered`. Routing every root uniformly through the Shape-based path above
+                // handles both the pattern and the mandatory-class case with one mechanism.
                 let (variants, overflowed) = pattern_variants(stratum_table, &allo.shape.shape);
                 if overflowed {
                     uncovered.push(UncoveredItem {
