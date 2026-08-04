@@ -16,26 +16,24 @@
 //!   [`ApplyBudgetTrip`] (this module's own lightweight distillation of a per-word
 //!   `crate::compose_budget::ApplyOutcome::Incomplete` — see that type's own doc for why it exists
 //!   instead of taking `ApplyOutcome<T>` generically).
-//! - **[`crate::profile::CompileProfile`]** (`openspec/changes/profile-fst-compilation`): [`profile_findings`]
+//! - **[`crate::profile::CompileProfile`]**: [`profile_findings`]
 //!   reads its final compiled-network state/arc counts and total emitted-line count to produce the
-//!   two *approaching-but-not-yet-tripped* finding kinds this module's own doc used to list as
-//!   deferred (see immediately below) — the compile-time-series instrumentation R6 asked for.
+//!   two *approaching-but-not-yet-tripped* finding kinds this crate's compile-time-series
+//!   instrumentation supports.
 //!
-//! **Previously deferred, now populated by [`profile_findings`]** (`profile-fst-compilation`):
-//! [`crate::health::FindingCode::IntermediateNetworkGrowth`] (the production network's own final
-//! state/arc count approaching, but not tripping, `crate::compose_budget::DEFAULT_STATE_BUDGET`/
-//! `DEFAULT_ARC_BUDGET` — reused as the closest existing calibrated size dimension; see
-//! [`profile_findings`]'s own doc for why Phase A's production path has no earlier "intermediate"
-//! composition product to measure instead) and [`crate::health::FindingCode::CompileWorkBudget`]
-//! (total emitted lexc lines approaching, but not tripping, `crate::compose_budget::
-//! DEFAULT_LINE_BUDGET` — a dimension the production path does not even check today, unlike the
-//! experimental `emit_underlying_templated`/`crate::uflexc` paths' own incremental `line_cap`
-//! check).
+//! [`profile_findings`] populates [`crate::health::FindingCode::IntermediateNetworkGrowth`] (the
+//! production network's own final state/arc count approaching, but not tripping,
+//! `crate::compose_budget::DEFAULT_STATE_BUDGET`/`DEFAULT_ARC_BUDGET` — reused as the closest
+//! existing calibrated size dimension; see [`profile_findings`]'s own doc for why Phase A's
+//! production path has no earlier "intermediate" composition product to measure instead) and
+//! [`crate::health::FindingCode::CompileWorkBudget`] (total emitted lexc lines approaching, but not
+//! tripping, `crate::compose_budget::DEFAULT_LINE_BUDGET` — a dimension the production path does
+//! not even check today, unlike the experimental `emit_underlying_templated`/`crate::uflexc`
+//! paths' own incremental `line_cap` check).
 //!
-//! **Still explicitly deferred, not populated here** (R6: "FST health policy/schema may land before
-//! instrumentation; observed audit fields populate as their owning profile/budget changes merge
-//! and are never independently remeasured" — `openspec/changes/IMPLEMENTATION-READINESS.md`
-//! "Conditional/later work"): [`crate::health::FindingCode::ApplicationTimeWork`]'s
+//! Not populated here (observed audit fields populate only as their owning profile/budget
+//! instrumentation exists, and are never independently remeasured):
+//! [`crate::health::FindingCode::ApplicationTimeWork`]'s
 //! [`crate::health::Metric::ElapsedMillis`]/[`crate::health::Metric::ApplyAllocationBytes`]
 //! dimensions (no per-word wall-clock/allocation instrumentation exists yet, only the two
 //! magnitude caps [`ApplyBudgetTrip`] already covers — `profile-fst-compilation` is a COMPILE-time
@@ -51,20 +49,20 @@
 //!
 //! # Two distinct axes, again (see `crate::health`'s own doc first)
 //! Every [`HealthFinding`] this module builds carries `severity` on the cost/health axis only
-//! (never the ADR 0001/0005 capability-trust axis) and always `override_record: None` — attaching
+//! (never the capability-trust axis) and always `override_record: None` — attaching
 //! an [`crate::health::OverrideRecord`] to a finding is a separate, later, explicitly-authorized
-//! caller action (`tasks.md` section 4, "Admission and packages"), not something this evaluator
+//! caller action, not something this evaluator
 //! (which only reads compiler measurements) can decide on its own. [`HealthReport::admission`]
 //! (unmodified, called as-is — never re-derived here) is what turns this report's findings into
-//! CONTEXT.md's `FST admission result`.
+//! the "FST admission result".
 //!
 //! # Judgment calls flagged for review
 //! 1. **[`crate::compose_budget::ComposeError`] variants split into two [`crate::health::
 //!    FindingCode`]s by *when* the check runs, not by variant name alone**: `AlphaTupleBudgetExceeded`/
 //!    `GroupBudgetExceeded`/`OrderingMultiplicityExceeded` are checked BEFORE the expensive
 //!    operation they would gate even starts (`compose_budget.rs`'s own doc, verbatim, for all
-//!    three: "checked BEFORE..."), on an exact, already-known count — CONTEXT.md's `Proven work
-//!    bound` — so they map to [`FindingCode::ProvenBoundExceedsBudget`] with
+//!    three: "checked BEFORE..."), on an exact, already-known count — a proven work bound — so
+//!    they map to [`FindingCode::ProvenBoundExceedsBudget`] with
 //!    [`ValueProvenance::ProvenBound`]. `NetSizeExceeded`/`EmitLineBudgetExceeded`/
 //!    `ComposeStepTimedOut`/`ChainDepthExceeded` are only detected AFTER the checked operation (an
 //!    actual compose/union/minimize call, an actual emission run, an actual wall-clock wait, an
@@ -78,8 +76,8 @@
 //!    [`FindingCode::UnknownUnboundedConstruct`] at [`Severity::Warning`]**, not
 //!    [`Severity::Critical`]: `FomaTier::Partial`'s own doc is explicit that this is "still safe to
 //!    use — those constructs simply cannot contribute candidates; nothing was emitted incorrectly"
-//!    — the same shape R6 names for cost uncertainty ("not itself Critical"), even though
-//!    CONTEXT.md's `Cost uncertainty` glossary entry literally describes *unknown* cost under a
+//!    — the same shape cost uncertainty gets elsewhere in this schema ("not itself Critical"), even
+//!    though cost uncertainty proper describes *unknown* cost under a
 //!    recall-preserving disposition, and an uncovered construct is instead a *confirmed*, exactly-
 //!    counted zero-candidate gap for those specific occurrences. [`FindingCode::UnknownUnboundedConstruct`]
 //!    is nonetheless the closest of this schema's ten registered codes for a per-construct coverage
@@ -90,7 +88,7 @@
 //! 4. **`crate::emit::FomaTier::Unsupported` maps to the SAME [`FindingCode::UnknownUnboundedConstruct`]
 //!    but at [`Severity::Critical`]**, deliberately diverging from that code's general "not itself
 //!    Critical" framing: `Unsupported` means this compile path produced no usable network at all —
-//!    R6's "any uncertainty that could omit an analysis fails closed" taken to its maximal case
+//!    "any uncertainty that could omit an analysis fails closed" taken to its maximal case
 //!    (total, not partial, coverage loss), not the ordinary bounded-cost-uncertainty shape the code
 //!    otherwise names. [`MetricValue::Unbounded`] is used here (this compile's residual
 //!    coverage is definitionally unknown, not a countable partial gap).
@@ -112,12 +110,12 @@
 //!    with no specific construct identifier (e.g. a payload-size finding) leave `affected` empty.
 //! 8. **[`profile_findings`] reuses [`Metric::IntermediateStateCount`]/[`Metric::IntermediateArcCount`]
 //!    for the PRODUCTION path's own FINAL compiled network**, not a mid-cascade intermediate
-//!    composition product — `crate::emit::emit_with_budget`'s Phase A production path (proposal.md's
-//!    own "Context": "pre-bakes phonology into emitted surface forms, so replacement-rule nets ...
-//!    do not exist there") performs no separate `fsm_compose`/`fsm_union`/`fsm_minimize` call at all;
+//!    composition product — `crate::emit::emit_with_budget`'s Phase A production path pre-bakes
+//!    phonology into emitted surface forms, so replacement-rule nets do not exist there: it
+//!    performs no separate `fsm_compose`/`fsm_union`/`fsm_minimize` call at all;
 //!    the single `foma::lexcread::fsm_lexc_parse_string` call IS the only network-construction step,
 //!    so its own state/arc count is simultaneously the "final" and the only "intermediate" product
-//!    available pre-Stage-2. This reuses the task brief's required existing `Metric`/`MetricValue`
+//!    available. This reuses the existing `Metric`/`MetricValue`
 //!    vocabulary rather than inventing a parallel one; the finding's own `explanation` text says so
 //!    explicitly, so a report reader is never misled into expecting Phase B's future per-rule
 //!    cascade curve from a Phase A report.
@@ -131,8 +129,8 @@
 //!    [`FindingCode::ProvenBoundExceedsBudget`] arms) that this function never reaches (Phase A's
 //!    production path has no compose-budget-checked call site at all, module doc).
 //! 10. **[`profile_findings`] refuses a non-[`crate::profile::ProfileLabel::Production`] profile
-//!     outright** (empty `Vec`, never a partial fold) — design.md's Phase B gate/spec.md
-//!     "Experimental cascade is profiled early": an `ExperimentalComposition`-labeled profile "cannot
+//!     outright** (empty `Vec`, never a partial fold) — the Phase B gate: an
+//!     `ExperimentalComposition`-labeled profile "cannot
 //!     satisfy production-profile gates." [`evaluate_health`] never even needs to check this itself;
 //!     [`profile_findings`] is the one and only place this gate is enforced.
 
@@ -147,10 +145,10 @@ use crate::health::{
 };
 use crate::profile::{CompileProfile, ProfileLabel};
 
-/// `openspec/changes/profile-fst-compilation`: the fraction of a calibrated compose-budget
+/// The fraction of a calibrated compose-budget
 /// dimension ([`DEFAULT_STATE_BUDGET`]/[`DEFAULT_ARC_BUDGET`]/[`DEFAULT_LINE_BUDGET`]) at or above
 /// which [`profile_findings`] raises an "approaching, not yet tripped" [`Severity::Warning`]
-/// finding — this module's own doc's previously-deferred "continuous '80% of budget' measurement."
+/// finding.
 /// A single flat threshold, not a banded severity scale — see this module's "Judgment calls" item
 /// 9 for why.
 const APPROACHING_BUDGET_WARNING_FRACTION: f64 = 0.8;
@@ -184,8 +182,7 @@ fn approaching_budget_finding(
     })
 }
 
-/// `crate::profile::CompileProfile`-sourced findings (`openspec/changes/profile-fst-compilation`;
-/// this module's own doc, "Previously deferred, now populated"): [`FindingCode::IntermediateNetworkGrowth`]
+/// `crate::profile::CompileProfile`-sourced findings: [`FindingCode::IntermediateNetworkGrowth`]
 /// from the production network's final state/arc count approaching (but not tripping)
 /// [`DEFAULT_STATE_BUDGET`]/[`DEFAULT_ARC_BUDGET`], and [`FindingCode::CompileWorkBudget`] from the
 /// total emitted lexc line count approaching (but not tripping) [`DEFAULT_LINE_BUDGET`] — see this
@@ -296,7 +293,7 @@ fn retry_full_engine_remedy() -> Remedy {
     }
 }
 
-/// [`severity_for_size_bytes`]'s own band boundaries (R6), returned as the crossed threshold for
+/// [`severity_for_size_bytes`]'s own band boundaries, returned as the crossed threshold for
 /// every non-[`Severity::Ideal`] band — e.g. an [`Severity::Error`] finding's threshold is
 /// `100_000_000` (the [`Severity::Warning`] band's own ceiling, the boundary this payload crossed
 /// to become Error). Mirrors `crate::health`'s own golden test's worked Error finding
@@ -315,7 +312,7 @@ fn size_band_crossed_threshold(severity: Severity) -> MetricValue {
 
 /// Maps a final FST payload byte count to a [`HealthFinding`] via
 /// [`severity_for_size_bytes`] (reused unchanged, never re-derived). `None` when the payload is
-/// within the Ideal band — R6/`crate::health`'s own convention: "Ideal: Within every band; nothing
+/// within the Ideal band — `crate::health`'s own convention: "Ideal: Within every band; nothing
 /// to report."
 fn payload_size_finding(bytes: u64) -> Option<HealthFinding> {
     let severity = severity_for_size_bytes(bytes);
@@ -644,9 +641,9 @@ fn apply_budget_trip_finding(trip: &ApplyBudgetTrip) -> HealthFinding {
     }
 }
 
-/// The evaluator (design.md's own brief: "`fn evaluate_health(...) -> HealthReport`"): turns every
+/// The evaluator: turns every
 /// available compile measurement into [`HealthFinding`]s and returns the aggregated
-/// [`HealthReport`] — call [`HealthReport::admission`] on the result for CONTEXT.md's `FST
+/// [`HealthReport`] — call [`HealthReport::admission`] on the result for the `FST
 /// admission result` (unmodified, never re-derived here).
 ///
 /// Every parameter is optional/empty-by-default so a caller with only some measurements (e.g. just
@@ -660,7 +657,7 @@ fn apply_budget_trip_finding(trip: &ApplyBudgetTrip) -> HealthFinding {
 ///   chain-depth/ordering-multiplicity calls raised (typically zero or one per grammar, but a
 ///   caller collecting evidence across a batch or a diagnostic sweep may pass more than one).
 /// - `apply_budget_trips`: every per-word [`ApplyBudgetTrip`] this compilation's callers observed.
-/// - `compile_profile`: `openspec/changes/profile-fst-compilation`'s own [`CompileProfile`], if this
+/// - `compile_profile`: this crate's own [`CompileProfile`], if this
 ///   compilation collected one (`crate::analyzer::FomaProposer::new_with_profile`) — see
 ///   [`profile_findings`]'s own doc for exactly which finding kinds this populates, and the Phase B
 ///   gate it enforces on a non-production-labeled profile.
@@ -995,9 +992,8 @@ mod tests {
     }
 
     // ---------------------------------------------------------------------------------------
-    // fst_health_evaluator_profile: `openspec/changes/profile-fst-compilation` -- the two
-    // previously-unpopulated finding kinds (IntermediateNetworkGrowth, CompileWorkBudget) now
-    // populate from `crate::profile::CompileProfile`, and the Phase B `ProfileLabel` gate.
+    // fst_health_evaluator_profile: IntermediateNetworkGrowth/CompileWorkBudget populate from
+    // `crate::profile::CompileProfile`, and the Phase B `ProfileLabel` gate.
     // ---------------------------------------------------------------------------------------
 
     fn synthetic_profile(
@@ -1018,11 +1014,9 @@ mod tests {
         }
     }
 
-    /// Before this change, NOTHING could ever produce an `IntermediateNetworkGrowth`/
-    /// `CompileWorkBudget` finding for an "approaching, not yet tripped" grammar -- this evaluator's
-    /// own module doc used to list both as deferred. A profile whose values sit comfortably below
-    /// the 80% threshold must still produce nothing (Ideal), proving the new code path is real
-    /// gating, not an unconditional finding.
+    /// A profile whose values sit comfortably below
+    /// the 80% threshold must still produce nothing (Ideal), proving the approaching-budget code
+    /// path is real gating, not an unconditional finding.
     #[test]
     fn fst_health_evaluator_profile_below_threshold_produces_no_finding() {
         // 50% of DEFAULT_STATE_BUDGET/DEFAULT_ARC_BUDGET/DEFAULT_LINE_BUDGET.
@@ -1041,9 +1035,8 @@ mod tests {
         assert_eq!(health.admission(), Severity::Ideal);
     }
 
-    /// The real case this change exists for: a profile whose final network state count sits at 90%
-    /// of `DEFAULT_STATE_BUDGET` -- a case that produced NO finding before this change (no code path
-    /// could see this measurement at all) now produces a real, Observed
+    /// A profile whose final network state count sits at 90%
+    /// of `DEFAULT_STATE_BUDGET` produces a real, Observed
     /// `IntermediateNetworkGrowth`/`IntermediateStateCount` Warning finding with the exact measured
     /// value and the calibrated budget as its threshold.
     #[test]
@@ -1078,8 +1071,7 @@ mod tests {
         assert_eq!(finding.severity, Severity::Warning);
     }
 
-    /// The total-emitted-lexc-lines dimension -- `CompileWorkBudget`, the OTHER
-    /// previously-unpopulated finding kind.
+    /// The total-emitted-lexc-lines dimension -- `CompileWorkBudget`.
     #[test]
     fn fst_health_evaluator_profile_compile_work_lines_approaching_budget_produces_warning() {
         let lines = (DEFAULT_LINE_BUDGET as f64 * 0.95) as u64;
@@ -1097,7 +1089,7 @@ mod tests {
         );
     }
 
-    /// Phase B gate (design.md D1; spec.md "Experimental cascade is profiled early"): a profile
+    /// Phase B gate: a profile
     /// labeled `ExperimentalComposition` must be refused OUTRIGHT by `profile_findings`/
     /// `evaluate_health`, even when its own values would otherwise trip every dimension at once --
     /// proving this is a hard label check, not merely "these particular synthetic values happen not
@@ -1126,7 +1118,7 @@ mod tests {
     /// One representative compile's measurements: a Warning-band payload, a Partial-tier emit
     /// report with one uncovered construct, and one compile-time net-size budget trip -- three
     /// distinct measurement sources feeding one report, the shape a real caller (e.g.
-    /// `pangloss fst-health`, once task 3.1 lands) assembles.
+    /// `pangloss fst-health`) assembles.
     fn representative_inputs() -> (u64, EmitReport, ComposeError) {
         let payload_bytes = 25_000_000u64; // Warning band
         let emit_report = EmitReport {
