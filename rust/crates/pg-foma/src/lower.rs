@@ -783,10 +783,9 @@ impl std::fmt::Display for UnsupportedPatternNode {
 
 /// Scans `pattern` for the FIRST node [`pattern_slots`] (called with this SAME `g`/`table`/`scope`)
 /// cannot lower, to recover a typed reason after `pattern_slots` has already returned `None` for it.
-/// `pub(crate)` (`openspec/changes/plan-construct-coverage-completion` task 4.2): exposed so
+/// `pub(crate)`: exposed so
 /// `capability.rs`'s `RightToLeftRewriteFaithfulReversalPredicate` can name the EXACT failing shape
-/// in its own `Refuse` witness, rather than a laundry-list "could be any of these" message — the
-/// task's own "make the predicate's witness name that specific shape" requirement.
+/// in its own `Refuse` witness, rather than a laundry-list "could be any of these" message.
 ///
 /// Recurses into a `Quantifier`'s own `children` ([`diagnose_unsupported_nodes`]) rather than
 /// assuming the FIRST `Quantifier` node encountered is automatically the culprit: a well-formed
@@ -906,31 +905,32 @@ fn parse_template(opts: &FomaOptions, text: &str) -> Fsm {
     }
 }
 
-/// Lowers one subrule's `left_env · lhs_focus · right_env` triple (design.md D3's `span(s)`
+/// Lowers one subrule's `left_env · lhs_focus · right_env` triple (the `span(s)`
 /// formula) into a pair of foma acceptors over `alphabet`'s token space, for [`spans_overlap`]'s
 /// intersection test. `focus` is `RewriteRuleDef.lhs` — shared verbatim across every subrule of
 /// one rule (`RewriteSubruleDef` only supplies its own `rhs`/`left_env`/`right_env`, model.rs
 /// `RewriteSubruleDef` doc).
 ///
 /// # Why a `(left_language, focus_right_language)` PAIR, not one combined `Fsm`
-/// D3 writes `span(s) = left_env · lhs_focus · right_env` and says to intersect two subrules'
+/// `span(s) = left_env · lhs_focus · right_env`, and the goal is to intersect two subrules'
 /// spans. Read as a literal concatenation of the three patterns' own node sequences and compared
 /// as ONE automaton, that is only sound when both subrules' `left_env`/`right_env` describe the
 /// SAME fixed length: `left_env`/`right_env` are boundary-anchored templates (they constrain the
 /// segments immediately adjacent to the shared focus, not "some point in the word"), so two
 /// subrules whose environments describe DIFFERENT lengths (whether because they have different
-/// node counts, or — `openspec/changes/compile-bounded-fst-quantifiers` — because one or both
+/// node counts, or because one or both
 /// contain a bounded `Quantifier` whose own `min..max` range makes even ONE subrule's own template
 /// match more than one length) describe overlapping-but-different-length windows around the SAME
 /// anchor point. A literal fixed-length concatenation, intersected whole, would (wrongly) report
 /// them as non-overlapping merely because the two automata accept different string lengths — an
-/// UNSOUND under-refusal (ADR 0001 forbids rounding toward `Admit`; ["`Refuse`(never) rounds toward
-/// `Admit`"] is exactly backwards from the required direction). The `Σ*`-padding fix below does not
+/// UNSOUND under-refusal (rounding toward `Admit` when a real overlap is missed is exactly
+/// backwards from this crate's required direction: `Refuse` must round toward "never", not toward
+/// "always"). The `Σ*`-padding fix below does not
 /// depend on either side being fixed-length in the first place — a bounded quantifier's own
 /// template is still a plain REGULAR language (a finite union of finite lengths, exactly what
-/// `Slot::Repeat`'s `^{min,max}` compiles to, `crate::replace` module doc's "Bounded quantifiers"),
-/// which `fsm_parse_regex` compiles the same as any other template; only a GENUINELY unbounded
-/// quantifier stays a [`UnsupportedPatternNode`] here, same as everywhere else in this crate.
+/// `Slot::Repeat`'s `^{min,max}` compiles to), which `fsm_parse_regex` compiles the same as any
+/// other template, and a genuinely unbounded quantifier's own native construction is unaffected by
+/// this padding either.
 ///
 /// The fix: represent `left_env` as the SUFFIX language `Σ* · left_env` (any prefix, ending in the
 /// template) and fold `lhs_focus`/`right_env` into the PREFIX language `lhs_focus · right_env ·
@@ -939,11 +939,11 @@ fn parse_template(opts: &FomaOptions, text: &str) -> Fsm {
 /// own templates. [`spans_overlap`] then intersects the two subrules' LEFT halves and FOCUS+RIGHT
 /// halves SEPARATELY (not concatenated into one "contains the whole span somewhere in the word"
 /// automaton) — see that function's own doc for why checking them separately is the CORRECT
-/// decomposition of D3's "at a shared focus position" requirement, not merely a convenient
+/// decomposition of "at a shared focus position", not merely a convenient
 /// approximation of one (a single combined `Σ* · L · F · R · Σ*` "contains" automaton would
 /// actually be WRONG here: it would accept a witness word where subrule i's context holds at one
 /// position and subrule j's holds at an unrelated OTHER position, which is not the same-position
-/// overlap D3 asks about).
+/// overlap this is meant to catch).
 ///
 /// # Alpha variables
 /// `left_env`/`focus`/`right_env` are lowered with a FRESH, shared occurrence counter local to
