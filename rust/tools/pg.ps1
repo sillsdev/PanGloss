@@ -113,10 +113,9 @@ param(
     [string]$Filter = '',
     # `-TestTarget` narrows COMPILATION: it maps to cargo's `--test <name>`, building and linking ONE
     # test binary instead of every target in the package. This is the difference that matters for
-    # loop speed -- measured 2026-08-03 on this repo: a warm tree running 13 tests via -TestTarget
-    # took 10.6s, while a cold dependency graph for the same package took ~996s and exceeded the
-    # 595s agent tool cap. Three agent batches produced ZERO measurements by paying the cold,
-    # all-targets cost repeatedly.
+    # loop speed -- measured: a warm tree running 13 tests via -TestTarget took 10.6s, while a cold
+    # dependency graph for the same package took ~996s and exceeded the 595s agent tool cap. Three
+    # agent batches produced ZERO measurements by paying the cold, all-targets cost repeatedly.
     #
     # Reachable before this parameter existed only as
     # `$env:PANGLOSS_EXTRA_ARGS = '--test <name>'`, which is why two agents concluded it did not
@@ -171,7 +170,7 @@ Assert-ScriptAndCwdAgreeOnWorktree -ScriptRoot $PSScriptRoot
 # Binder-proof passthrough channel. `pwsh -File pg.ps1 ... -- <cargo args>` CANNOT work: under -File
 # the bare `--` reaches PowerShell's parameter binder, which rejects it as an empty parameter name.
 # Worse, dropping the `--` silently misbinds any single-dash cargo argument that prefix-matches a
-# parameter here (`-p foo` binds to -Package; cargo never sees it). Both verified 2026-07-31 -- see
+# parameter here (`-p foo` binds to -Package; cargo never sees it). Both verified -- see
 # Split-ExtraArgsSpec for the full reproduction. Nothing inside this script can intercept either
 # case, because binding fails or mis-resolves before the first line of the body runs.
 #
