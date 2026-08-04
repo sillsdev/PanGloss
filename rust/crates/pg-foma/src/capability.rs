@@ -117,7 +117,7 @@ pub enum CharacteristicKind {
     /// `RewriteMode::Iterative` (model.rs:386).
     IterativeRewrite,
     /// `RewriteMode::Simultaneous` (model.rs:387). Discharged by
-    /// [`SimultaneousSubruleOverlapPredicate`] (design.md D3).
+    /// [`SimultaneousSubruleOverlapPredicate`].
     SimultaneousRewrite,
     /// `Dir::LeftToRight` (model.rs:392).
     LeftToRightRewrite,
@@ -1518,8 +1518,7 @@ fn compounding_recursive(g: &Grammar) -> HashSet<MRuleId> {
 /// genuine three-root compound (`cs:87,105`). So the reference implementation's own answer to "how deep
 /// can a compound go" is 2 by default and 3 when someone means it — which is exactly the "at most two,
 /// maybe three" figure this bound gets compared against, and it is a fact about the ENGINE, already in
-/// this tree, not a number anyone had to invent. `docs/conformance/representative-typology-basis.md`
-/// §1.2.1 carries the separate FORMAL-vs-ATTESTED split for the typological claim.
+/// this tree, not a number anyone had to invent.
 ///
 /// `tests/cover_compounding_recursive_depth_bound.rs` pins the gap directly and non-vacuously: on the
 /// `recursive-endocentric-compounding` fixture the proposer proposes the 3-stem compound while the
@@ -1941,10 +1940,10 @@ pub fn characterize(g: &Grammar) -> CharacteristicsProfile {
 }
 
 // =================================================================================================
-// D2: CapabilityPredicate + PredicateVerdict + EvidenceProvenance + CapabilityDiagnostic
+// CapabilityPredicate + PredicateVerdict + EvidenceProvenance + CapabilityDiagnostic
 // =================================================================================================
 
-/// A predicate's stable identity (design.md D2: `"simultaneous.subrule-overlap"`, etc.).
+/// A predicate's stable identity (e.g. `"simultaneous.subrule-overlap"`).
 pub type PredicateId = &'static str;
 
 /// Where a predicate's evidence comes from.
@@ -3593,7 +3592,7 @@ impl CapabilityPredicate for FailClosedPlaceholder {
 }
 
 /// A collection of [`CapabilityPredicate`]s, queryable for whether a [`CharacteristicKind`] is
-/// discharged by at least one of them (design.md D2's coverage requirement).
+/// discharged by at least one of them.
 #[derive(Default)]
 pub struct PredicateRegistry {
     predicates: Vec<Box<dyn CapabilityPredicate>>,
@@ -3695,7 +3694,7 @@ pub enum CompileDecision {
     Refuse(Vec<CapabilityDiagnostic>),
 }
 
-/// D4's lattice, made explicit: `Refuse` dominates `ConfirmOnly` dominates `Admit`/`Proven` —
+/// The lattice, made explicit: `Refuse` dominates `ConfirmOnly` dominates `Admit`/`Proven` —
 /// `meet(a, b)` is this lattice's greatest-lower-bound over the total order `Admit < ConfirmOnly <
 /// Refuse`.
 ///
