@@ -5415,7 +5415,7 @@ mod structural_and_pattern_tests {
     }
 
     // ---------------------------------------------------------------------------------------
-    // `openspec/changes/profile-fst-compilation`: compile-profile instrumentation on the
+    // Compile-profile instrumentation on the
     // production `emit_with_budget_profiled` path.
     // ---------------------------------------------------------------------------------------
 
@@ -5528,7 +5528,7 @@ mod structural_and_pattern_tests {
         );
     }
 
-    /// D2/D3 (`crate::profile`'s own doc): profiling must never change the emitted artifact. Proves
+    /// `crate::profile`'s own doc: profiling must never change the emitted artifact. Proves
     /// byte-identical `lexc_source` (and identical `EmitCounts`) with profiling on vs. off, on the
     /// same synthetic grammar used above.
     #[test]
@@ -5649,14 +5649,14 @@ mod structural_and_pattern_tests {
     }
 
     // ---------------------------------------------------------------------------------------------
-    // reify-compilation-plans task 1.3 (design.md D2): anti-drift guard for `plan_topology_
+    // Anti-drift guard for `plan_topology_
     // decisions`. Loads only inline, synthetic (delanguaged) fixtures -- no reference-grammar
     // corpus dependency -- so this pins the INVARIANT itself (plan-derived decision == real seam
     // result), not any one grammar's particular verdict.
     // ---------------------------------------------------------------------------------------------
 
     /// Asserts [`plan_topology_decisions`]'s two booleans equal the REAL, directly-called seam
-    /// functions' results for `g` -- the exact property task 1.3 exists to guarantee: if
+    /// functions' results for `g` -- the exact property this guards: if
     /// `crate::enumerate::enumerate_default` (the plan enumerator) and this module's own topology
     /// gates (`build_composites_with_mode`'s call, the `Morpher`/`build_structural_composites`
     /// gate) ever disagree, this fails, not silently diverges. `expected` additionally pins the
@@ -5758,8 +5758,9 @@ mod structural_and_pattern_tests {
 
     /// An epenthesis-kind rewrite subrule (empty `<PhoneticInput>`, `probe_would_refuse` -> true)
     /// PLUS an ordinary suffix morphological rule: `broad` widens `structural_candidate_rules` to
-    /// include that suffix rule (D2 row 2's "ADDITIONALLY every ordinary Prefix/Suffix/Infix rule
-    /// when probe_would_refuse holds"), and `phon.is_some()` alone already makes `should_run` true.
+    /// include that suffix rule (see [`structural_candidate_rules`]'s own doc: "ADDITIONALLY every
+    /// ordinary Prefix/Suffix/Infix rule when probe_would_refuse holds"), and `phon.is_some()` alone
+    /// already makes `should_run` true.
     /// (composite-emission, structural-composite) = (true, true) -- both subtrees present at once.
     #[test]
     fn plan_topology_decisions_matches_real_seams_epenthesis_plus_suffix() {
