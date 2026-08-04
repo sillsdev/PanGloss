@@ -780,8 +780,7 @@ impl CharacteristicsProfile {
     }
 
     /// The grammar-wide [`MultiTableDetail`], if `g.char_tables.len() > 1` was observed at all
-    /// ([`MultiTableFaithfulThreadingPredicate`]'s own lookup;
-    /// `openspec/changes/fix-multitable-fst-compilation`).
+    /// ([`MultiTableFaithfulThreadingPredicate`]'s own lookup).
     pub fn multi_table_detail(&self) -> Option<&MultiTableDetail> {
         self.observations.iter().find_map(|o| match &o.detail {
             ObservationDetail::MultiTable(d) => Some(d),
@@ -790,7 +789,7 @@ impl CharacteristicsProfile {
     }
 
     /// `rule`'s own [`RightToLeftRewriteDetail`], if it was observed as a `Dir::RightToLeft` rule
-    /// at all (`characterize`'s own `Dir::RightToLeft` arm; `compile-right-to-left-rewrites`).
+    /// at all (`characterize`'s own `Dir::RightToLeft` arm).
     pub fn right_to_left_detail(&self, rule: PRuleId) -> Option<&RightToLeftRewriteDetail> {
         self.observations.iter().find_map(|o| match &o.detail {
             ObservationDetail::RightToLeftRewrite(d) if d.rule == rule => Some(d),
@@ -799,8 +798,7 @@ impl CharacteristicsProfile {
     }
 
     /// `rule`'s own [`QuantifierPatternDetail`], if it was observed to use `PatternNode::Quantifier`
-    /// anywhere in its own patterns at all (`characterize`'s own quantifier-scan block;
-    /// `openspec/changes/compile-bounded-fst-quantifiers`).
+    /// anywhere in its own patterns at all (`characterize`'s own quantifier-scan block).
     pub fn quantifier_detail(&self, rule: PRuleId) -> Option<&QuantifierPatternDetail> {
         self.observations.iter().find_map(|o| match &o.detail {
             ObservationDetail::QuantifierPattern(d) if d.rule == rule => Some(d),
@@ -809,8 +807,7 @@ impl CharacteristicsProfile {
     }
 
     /// `rule`'s own [`MetathesisDetail`], if it was observed as a `PhonRuleDef::Metathesis` rule at
-    /// all (`characterize`'s own `PhonRuleDef::Metathesis` arm; `openspec/changes/
-    /// compile-fst-metathesis`).
+    /// all (`characterize`'s own `PhonRuleDef::Metathesis` arm).
     pub fn metathesis_detail(&self, rule: PRuleId) -> Option<&MetathesisDetail> {
         self.observations.iter().find_map(|o| match &o.detail {
             ObservationDetail::Metathesis(d) if d.rule == rule => Some(d),
@@ -819,8 +816,7 @@ impl CharacteristicsProfile {
     }
 
     /// Every [`CircumfixOutputActionDetail`] observed at all (`characterize_allomorph`'s own
-    /// `allomorph_drops_lhs_material` trigger; `openspec/changes/
-    /// cover-circumfix-null-output-actions`) — plural, unlike the other `*_detail` lookups above:
+    /// `allomorph_drops_lhs_material` trigger) — plural, unlike the other `*_detail` lookups above:
     /// [`CircumfixStructuralCompositePredicate`] has no per-node address to key a single lookup on
     /// (this characteristic has no corresponding [`crate::plan::PlanNodeKind`] at all, same
     /// "grammar-wide, not node-specific" shape [`MultiTableFaithfulThreadingPredicate`]'s own doc
@@ -835,8 +831,7 @@ impl CharacteristicsProfile {
     }
 
     /// Every [`ReduplicationDetail`] observed at all (`characterize_allomorph`'s own
-    /// `rhs_has_true_reduplication` trigger; `openspec/changes/
-    /// cover-template-truncation-reduplication`) — plural, like
+    /// `rhs_has_true_reduplication` trigger) — plural, like
     /// [`Self::circumfix_output_action_details`]: `Reduplication` has no corresponding
     /// [`crate::plan::PlanNodeKind`] either (peeling happens entirely outside the compiled FST, so
     /// there is no plan node to address it by), so [`ReduplicationPeelSupportedPredicate`] scans
@@ -848,8 +843,8 @@ impl CharacteristicsProfile {
         })
     }
 
-    /// Every [`CompoundingDetail`] observed at all (`openspec/changes/cover-compounding` design.md
-    /// D2/D3) — plural, same "no corresponding [`crate::plan::PlanNodeKind`]" shape
+    /// Every [`CompoundingDetail`] observed at all — plural, same "no corresponding
+    /// [`crate::plan::PlanNodeKind`]" shape
     /// [`Self::reduplication_details`]/[`Self::circumfix_output_action_details`] already use:
     /// [`CompoundingRecursionSafePredicate`] scans every observation itself rather than looking one
     /// up by a specific plan node.
@@ -860,8 +855,7 @@ impl CharacteristicsProfile {
         })
     }
 
-    /// Every [`UnorderedStratumDetail`] observed at all (`openspec/changes/
-    /// cover-unordered-morph-rules` design.md D1) — plural, same "no corresponding
+    /// Every [`UnorderedStratumDetail`] observed at all — plural, same "no corresponding
     /// [`crate::plan::PlanNodeKind`]" shape [`Self::compounding_details`]/
     /// [`Self::reduplication_details`] already use: [`UnorderedOrderingUnionPredicate`] scans every
     /// observation itself rather than looking one up by a specific plan node (`Unordered`'s
@@ -879,8 +873,8 @@ impl CharacteristicsProfile {
 // Private per-construct characterization helpers
 // -------------------------------------------------------------------------------------------
 
-/// [`RightToLeftRewriteDetail::reversal_construction_attempted`]'s own computation
-/// (`openspec/changes/compile-right-to-left-rewrites`): re-runs [`crate::replace::pattern_slots`]
+/// [`RightToLeftRewriteDetail::reversal_construction_attempted`]'s own computation:
+/// re-runs [`crate::replace::pattern_slots`]
 /// over every LHS/RHS/environment pattern this rule's subrules carry, EXACTLY the same shape
 /// [`crate::replace::compile_rewrite_rule_subset`] itself checks before ever compiling a foma
 /// automaton — `false` the instant any one of them returns `None` (a malformed `Quantifier`, a
@@ -890,9 +884,9 @@ impl CharacteristicsProfile {
 /// returning `None`). Cheap and purely structural: no [`foma::options::FomaOptions`]/
 /// [`crate::replace::SegAlphabet`] needed, unlike the real compile.
 ///
-/// Thin `bool` wrapper over [`rtl_reversal_diagnosis`] (task 4.2): kept as its own named function,
+/// Thin `bool` wrapper over [`rtl_reversal_diagnosis`]: kept as its own named function,
 /// unchanged in SIGNATURE, because `characterize`'s own quantifier-scan block
-/// (`openspec/changes/compile-bounded-fst-quantifiers`) reuses it VERBATIM for
+/// reuses it VERBATIM for
 /// [`QuantifierPatternDetail::compile_attempted`] rather than re-deriving the identical "is this
 /// rule's whole pattern shape compilable at all" structural probe a second time -- that reuse site
 /// only ever needed the `bool`, never the richer diagnosis. Despite its RTL-flavored name (this
@@ -902,9 +896,9 @@ fn rtl_reversal_construction_attempted(g: &Grammar, r: &pg_grammar::model::Rewri
     rtl_reversal_diagnosis(g, r).is_ok()
 }
 
-/// [`RightToLeftRewriteDetail::unsupported_reason`]'s own computation
-/// (`openspec/changes/plan-construct-coverage-completion` task 4.2's own "name the specific shape"
-/// requirement): the SAME structural probe [`rtl_reversal_construction_attempted`] runs, but
+/// [`RightToLeftRewriteDetail::unsupported_reason`]'s own computation — names the specific shape
+/// rather than a generic "unsupported pattern": the SAME structural probe
+/// [`rtl_reversal_construction_attempted`] runs, but
 /// returning `Ok(())` (attempted) or `Err(reason)` instead of collapsing straight to a `bool` --
 /// `Err(None)` for "no resolvable owning table" (a non-pattern-shape reason
 /// [`crate::lower::UnsupportedPatternNode`] has no variant for), `Err(Some(reason))` for the FIRST
@@ -914,7 +908,7 @@ fn rtl_reversal_construction_attempted(g: &Grammar, r: &pg_grammar::model::Rewri
 /// loop checks them in, so the reported reason is always the REAL first-encountered one, never a
 /// re-derived approximation that could silently name the wrong node).
 ///
-/// `PatternLowerScope::RewriteRuleCompile` (task 4.2): MUST be the identical scope
+/// `PatternLowerScope::RewriteRuleCompile`: MUST be the identical scope
 /// `compile_rewrite_rule_subset` itself passes to `pattern_slots` — passing a different one here
 /// would let this predicate and the real compiler silently disagree on which rules are admitted,
 /// exactly the class of bug `crate::lower::PatternLowerScope`'s own doc warns against.
@@ -953,10 +947,8 @@ fn rtl_reversal_diagnosis(
     Ok(())
 }
 
-/// [`MetathesisDetail::swap_construction_attempted`]'s own computation (`openspec/changes/
-/// compile-fst-metathesis`; widened to be Dir-agnostic by `openspec/changes/
-/// plan-construct-coverage-completion` task 4.6, `docs/conformance/needs-decision-resolutions.md`
-/// row 8): re-runs the SAME structural admission floor `crate::replace::compile_metathesis_rule`
+/// [`MetathesisDetail::swap_construction_attempted`]'s own computation, Dir-agnostic:
+/// re-runs the SAME structural admission floor `crate::replace::compile_metathesis_rule`
 /// itself checks before ever rendering an xre regex -- a resolvable owning table, in-bounds
 /// distinct switch indices, and a whole pattern `crate::replace::pattern_slots` accepts with no
 /// `crate::replace::Slot::Alpha`/`crate::replace::Slot::Repeat` occurrence anywhere. Deliberately
@@ -980,8 +972,8 @@ fn metathesis_swap_construction_attempted(
     }
     let mut next_occurrence = 0usize;
     // `PatternLowerScope::Baseline` -- MUST be the identical scope
-    // `crate::replace::compile_metathesis_rule` itself passes (that function's own doc: task 4.2
-    // deliberately leaves `Metathesis`'s own admitted set untouched, task 4.6's already-closed row).
+    // `crate::replace::compile_metathesis_rule` itself passes (that function's own doc:
+    // `Metathesis`'s own admitted set is deliberately left untouched here).
     // Passing a different scope here than the real compile uses would let this predicate and the
     // real compiler silently disagree on which rules are admitted.
     let scope = crate::lower::PatternLowerScope::RewriteRuleCompile;
@@ -1172,8 +1164,7 @@ fn output_action_label(action: &OutputAction) -> &'static str {
 
 /// Exhaustively (no catch-all) matched per `CoOccurrenceAdjacency` value (model.rs:508) purely for
 /// the discipline itself — every variant folds into the same [`CharacteristicKind::
-/// CoOccurrenceConstraint`]/`ConfirmOnly` outcome (design.md D1's table: "(each) | co-occurrence
-/// constraint | ConfirmOnly").
+/// CoOccurrenceConstraint`]/`ConfirmOnly` outcome.
 fn co_occurrence_adjacency_label(
     adjacency: pg_grammar::model::CoOccurrenceAdjacency,
 ) -> &'static str {
@@ -1187,7 +1178,7 @@ fn co_occurrence_adjacency_label(
     }
 }
 
-/// Computes [`MultiTableDetail`] for `g` (`fix-multitable-fst-compilation`): every pair of
+/// Computes [`MultiTableDetail`] for `g`: every pair of
 /// distinct `char_tables` is checked for a shared normalized representation (any `<Representation>`
 /// text any `CharDef` in one table claims, NFD-normalized exactly like
 /// `pg_grammar::chardef::CharDefTable::lookup_nfd`'s own key) — `O(table_count^2 *
