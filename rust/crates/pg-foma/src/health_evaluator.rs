@@ -1,15 +1,12 @@
-//! `openspec/changes/add-fst-compilation-health-audit`: the Rust health **evaluator** — the first
-//! real (non-test) producer of `crate::health::HealthFinding`s. `crate::health` (Stage 0D of
-//! `openspec/changes/define-fst-compilation-health`) defined and unit-tested the finding schema
-//! only ("purely additive... does not instrument any compiler pass"); this module is "a later
-//! change [that] wires a real evaluator that reads `crate::compose_budget`/
-//! `crate::morphotactics::EnumerationBudget` measurements and produces `HealthFinding`s from them"
-//! — that module's own doc, quoted verbatim, naming this file's job.
+//! The Rust health **evaluator**: reads `crate::compose_budget`/
+//! `crate::morphotactics::EnumerationBudget` measurements and produces
+//! `crate::health::HealthFinding`s from them. `crate::health` owns the finding schema itself; this
+//! module is the one place that reads real compile measurements and turns them into findings.
 //!
-//! # Scope: consume, never remeasure (R6)
-//! `openspec/changes/IMPLEMENTATION-READINESS.md` §R6: "Measurements come from the admission
+//! # Scope: consume, never remeasure
+//! Measurements come from the admission
 //! walker, budget tracker, and compile profile once; the health evaluator consumes them without
-//! recomputation." This module reads exactly four measurement sources that exist in this crate
+//! recomputation. This module reads exactly four measurement sources that exist in this crate
 //! **today** — nothing here calls `foma`, walks a grammar, or measures anything itself:
 //! - **Payload size**: a plain `u64` byte count the caller already has (the emitted network /
 //!   `pg-pack` payload), scored by [`crate::health::severity_for_size_bytes`] (unchanged, reused).
@@ -75,8 +72,8 @@
 //!    [`FindingCode::ResourceBudgetReached`] with [`ValueProvenance::Observed`].
 //! 2. **[`crate::health::Metric::OrderingRuleCount`] is a new variant this change appends** to
 //!    `crate::health`'s `Metric` enum (see that enum's own doc on the variant) — the only schema
-//!    edit this evaluator makes, and purely additive (no renumbering, no removal, no change to any
-//!    existing golden JSON).
+//!    edit this evaluator makes: an appended variant, with no renumbering, no removal, no change to
+//!    any existing golden JSON.
 //! 3. **`crate::emit::FomaTier::Partial`'s `uncovered` count maps to
 //!    [`FindingCode::UnknownUnboundedConstruct`] at [`Severity::Warning`]**, not
 //!    [`Severity::Critical`]: `FomaTier::Partial`'s own doc is explicit that this is "still safe to

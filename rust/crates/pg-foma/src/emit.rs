@@ -1530,14 +1530,13 @@ fn bare_admissible_roots<'a>(
 
 // --- Compounding license gate (`openspec/changes/cover-compounding` design.md D3/D4) -------------
 
-/// The two license-gated lexical-entry subsets `openspec/changes/cover-compounding`'s design.md D3
-/// names as the `Gate` partitions a reified `Plan`'s `Union(Gate(head-trie) x Gate(non_head-trie))`
+/// The two license-gated lexical-entry subsets the `Gate` partitions a reified `Plan`'s
+/// `Union(Gate(head-trie) x Gate(non_head-trie))`
 /// node would author for `compounding.non-recursive`. Computed directly against `Grammar` here
 /// (rather than authored as real `crate::plan::PlanNodeKind::Gate` nodes) because
-/// `reify-compilation-plans`'s enumerator/builder does not wire this crate's lexc emitters to a real
-/// `Plan` yet (`crate::capability`'s own top doc: "purely additive... does not wire a gate into any
-/// production compile path") — this is the concrete stand-in the emitter itself consults, ahead of
-/// that wiring.
+/// this crate's lexc emitters consult `Grammar` directly rather than a reified
+/// `Plan` — this is the concrete stand-in the emitter itself consults instead of a real `Gate`
+/// node.
 pub(crate) struct CompoundLicense {
     /// Entries licensed to serve as a compound's HEAD stem by at least one `CompoundingRuleDef` in
     /// the grammar.
@@ -2540,12 +2539,12 @@ fn plan_has_leaf(plan: &Plan, fragment: &FragmentSpec) -> bool {
 /// `(plan wants the composite-emission subtree, plan wants the structural-composite subtree)` --
 /// rather than that function calling `crate::preexpand::should_run`/
 /// `structural_candidate_rules(...).is_empty()` a second, independently-derived time. This is the
-/// production flip D2 names: "the pre-refactor behavior SHALL be preserved as a specific enumerable
-/// plan" -- [`crate::enumerate::enumerate_default`] is now the ONE place these two seams are
-/// consulted to decide topology; this function only ever READS the plan it built. (D2's third seam,
-/// `gate::partition_entries`, is NOT wired here -- see [`emit_with_budget_profiled`]'s own doc for
-/// why: that seam belongs to `gate.rs`'s separate compile entry point, which this mainline
-/// lexc-emission path never calls at all.)
+/// production flip: the pre-refactor behavior is preserved as a specific enumerable
+/// plan --
+/// [`crate::enumerate::enumerate_default`] is the ONE place these two seams are
+/// consulted to decide topology; this function only ever READS the plan it built. (The third seam,
+/// `gate::partition_entries`, belongs to `gate.rs`'s separate compile entry point, which this
+/// mainline lexc-emission path never calls at all -- see [`emit_with_budget_profiled`]'s own doc.)
 ///
 /// `prules_in_order`/`alphabet` mirror [`crate::capability_entry::evaluate_capability`]'s own
 /// construction of these same `enumerate_default` inputs (that module's own doc: this crate's

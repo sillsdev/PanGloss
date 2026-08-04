@@ -55,9 +55,9 @@
 //! identity.
 //!
 //! # Nothing here ranks, selects, or routes
-//! Like [`crate::mechanism_provider`] before it, this module is reachable from no routing,
-//! applicability, or candidate-evaluation path: constructing an [`ExecutableCandidate`] changes no
-//! outcome and makes nothing selectable that was not selectable before. That is deliberate. Wave 3
+//! Constructing an [`ExecutableCandidate`] changes no
+//! outcome and makes nothing selectable that was not selectable before -- this module only builds
+//! and verifies portable data, like [`crate::mechanism_provider`]. That is deliberate. Wave 3
 //! measured a candidate that was 2.2x cheaper than the winner and returned a DIFFERENT analysis set
 //! (`@templated-underlying-tokens` on Amharic); ranking is only ever legitimate downstream of the
 //! parity relation measured against an oracle ([`crate::parity`]), never from anything this module

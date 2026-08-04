@@ -53,13 +53,13 @@
 //! style outcome (a [`FindingCode::ResourceBudgetReached`] finding, [`ValueProvenance::Observed`])
 //! or a [`ValueProvenance::ProvenBound`] that cannot fit the remaining budget
 //! ([`FindingCode::ProvenBoundExceedsBudget`]) does. This module records the distinction; it does
-//! not enforce it at construction time (no compiler pass populates these types yet — see the
-//! module doc's "purely additive" note), so a caller-supplied `HealthFinding` is still free-form
-//! data. A later evaluator is where this policy becomes load-bearing.
+//! not enforce it at construction time, so a caller-supplied `HealthFinding` is still free-form
+//! data as far as this schema is concerned — [`crate::health_evaluator`] is where this policy
+//! becomes load-bearing.
 //!
 //! # Finding codes
-//! [`FindingCode`] is the immutable `PGFdddd` registry design.md requires ("codes never renumber
-//! after publication"). [`FindingCode::ALL`] plus [`FindingCode::code`]/[`FindingCode::meaning`]
+//! [`FindingCode`] is the immutable `PGFdddd` registry: codes never renumber
+//! after publication. [`FindingCode::ALL`] plus [`FindingCode::code`]/[`FindingCode::meaning`]
 //! are the registry; [`FindingCode::from_code`] is the reverse lookup used by
 //! `Deserialize`. Every `match` over [`FindingCode`]/[`Severity`]/[`Phase`]/[`Metric`]/
 //! [`ValueProvenance`] in this file has **no catch-all arm** — the same closed-enum discipline
@@ -68,8 +68,8 @@
 //!
 //! # Canonical JSON
 //! [`HealthReport::to_json`]/[`HealthReport::from_json`] are this schema's canonical
-//! machine-readable form (design.md: "Canonical JSON is the source artifact; Markdown is a
-//! rendering of the same findings" — no Markdown renderer exists in this purely-additive step).
+//! machine-readable form: the source artifact, with any human-readable rendering (e.g. Markdown)
+//! meant to be derived from it rather than authored independently — no such renderer exists yet.
 //! Pretty-printed with two-space indentation and struct fields in Rust declaration order (serde's
 //! default, unmodified), mirroring `pg-snapshot`'s own determinism convention.
 //!
@@ -80,15 +80,15 @@
 //!   budget-reached outcome, a proven-bound rejection, and apply-time work) without inventing
 //!   per-construct codes no instrumentation exists to emit yet. Growing this list is additive
 //!   (new codes only ever append; no code is ever renumbered or removed).
-//! - **[`Phase`]** has three values (`Preflight`, `Compile`, `Apply`) rather than literally the
-//!   two words design.md's prose uses ("preflight/observed phase"): `Compile` and `Apply` are
+//! - **[`Phase`]** has three values (`Preflight`, `Compile`, `Apply`) rather than the
+//!   simpler "preflight/observed phase" split: `Compile` and `Apply` are
 //!   R6's own two production phases (compile-time construction vs. per-word application), and
 //!   `Preflight` is the characteristics-profile-style prediction stage that runs before either.
 //!   "Observed" is not a `Phase` value here — it is [`ValueProvenance::Observed`], the axis
 //!   distinguishing predicted/proven-bound/measured values *within* a phase.
 //! - **[`OverrideRecord`] carries no timestamp type** (a plain caller-supplied `recorded_at:
-//!   String`) to avoid adding a date/time dependency to this crate for a purely additive schema
-//!   step; a later change may tighten this to a real timestamp type if one is already available
+//!   String`) to avoid adding a date/time dependency to this crate for a schema-only
+//!   type; a later change may tighten this to a real timestamp type if one is already available
 //!   workspace-wide by then.
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
