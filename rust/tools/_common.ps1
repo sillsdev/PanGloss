@@ -1274,7 +1274,7 @@ function Get-LiveBuildProcesses {
 # decision logic is testable without a real build, a real drive, or a real git worktree registry.
 # =================================================================================================
 
-# One code per distinct preflight failure (design doc, "Error handling"): a caller (or a human
+# One code per distinct preflight failure: a caller (or a human
 # reading a CI log) can tell "wrong commit" from "disk full" from "corpus missing" without parsing
 # text. Picked to avoid colliding with cargo's own exit codes (101 on build failure, etc.) and with
 # PowerShell's own reserved low range.
@@ -1449,8 +1449,8 @@ function Test-WorktreeBase {
     # off: explicit opt-out, e.g. `pg.ps1 doctor` runs against a worktree nobody has bootstrapped.
     #
     # Absent metadata is reported as Checked=$false, Ok=$true ("unverified"), never as a failure --
-    # see Read-WorktreeMeta's doc for why. This function never checks out or rebases anything: the
-    # design doc is explicit that either action can silently discard context or invalidate a build
+    # see Read-WorktreeMeta's doc for why. This function never checks out or rebases anything:
+    # either action can silently discard context or invalidate a build
     # cache the caller was relying on.
     param(
         [ValidateSet('strict', 'development', 'off')][string]$Mode = 'development',
@@ -1571,7 +1571,7 @@ function Test-SccacheHealth {
     # Three states, not two: "not installed" is a normal, expected local-dev situation (falls back
     # to an uncached build); "installed but --show-stats fails" means something IS on PATH named
     # sccache but can't actually talk to its cache (bad SCCACHE_DIR permissions, a stale/corrupt
-    # cache, a wrapped compiler mismatch) -- that's the state the design doc says must FAIL the
+    # cache, a wrapped compiler mismatch) -- that state must FAIL the
     # build rather than silently proceed uncached, because a silent fallback there is exactly how
     # "sccache active" claims in a build log stop being trustworthy.
     if (-not (Get-Command sccache -ErrorAction SilentlyContinue)) {
@@ -1631,8 +1631,7 @@ function Get-CorpusRoot {
 }
 
 function Test-CorpusPresent {
-    # Validates every REQUIRED manifest file before cargo starts (design doc: "It validates every
-    # requested file before Cargo starts"). Digests are truncated (first 12 hex chars of SHA-256)
+    # Validates every REQUIRED manifest file before cargo starts. Digests are truncated (first 12 hex chars of SHA-256)
     # -- enough to catch "this isn't the file you think it is" across machines/runs without
     # printing a full 64-char hash into every build log.
     param(
@@ -1912,7 +1911,7 @@ function Test-DiskReserve {
     # preference, not a safety gate, and a build should not hard-fail just because the SSD alone
     # dipped below its preference threshold when the HDD fallback is fine. This is the last-resort
     # "the chosen target dir's own drive is nearly full" check that must reject the build outright
-    # -- the 1.3GB-free crisis the whole design doc opens with.
+    # -- the 1.3GB-free crisis this guards against.
     # [Nullable[double]], NOT [double]: a plain [double] parameter silently coerces a passed $null
     # into 0.0 rather than keeping it null, which would make the "free space unknown" case
     # indistinguishable from "0GB free" and wrongly fail the build. Caught by a test asserting
@@ -1943,7 +1942,7 @@ function Test-DiskReserve {
 function Write-Preflight {
     # One record, printed before cargo starts, naming everything an agent or a human would
     # otherwise have to reconstruct after the fact from a build log: worktree, commit, target
-    # dir, cache state, corpus state, disk state, and build slot (design doc goal 6).
+    # dir, cache state, corpus state, disk state, and build slot.
     param(
         [string]$Mode,
         [string]$Profile,
@@ -2076,8 +2075,8 @@ function Get-ManagedTargetDirs {
 function Get-TargetClassification {
     # Five classes, only one of which gc may ever delete:
     #  - unknown:     no ownership marker at all. Never deleted -- an unmarked directory could be
-    #                  anything (a manual experiment, a tool this design doesn't know about); the
-    #                  design doc is explicit that gc must never guess here.
+    #                  anything (a manual experiment, a tool this design doesn't know about); gc
+    #                  must never guess here.
     #  - other-repo:   marker names a DIFFERENT repository_id. Not this repo's to touch.
     #  - preserved:    marker's `preserved` flag is set (an explicitly registered release
     #                  deliverable). Never deleted.
@@ -2129,10 +2128,9 @@ function Get-TargetClassification {
 
 function Invoke-TargetGc {
     # The only function in this file allowed to delete a managed target directory. Dry-run
-    # (-Apply not passed) is the default and NEVER deletes anything, matching the design doc's
-    # "the first gc run is dry-run only" migration note -- $Apply defaults to $false here on
-    # purpose, not just at the pg.ps1 call site, so a test (or a future caller) that forgets to
-    # pass it explicitly fails safe.
+    # (-Apply not passed) is the default and NEVER deletes anything -- $Apply defaults to $false
+    # here on purpose, not just at the pg.ps1 call site, so a test (or a future caller) that
+    # forgets to pass it explicitly fails safe.
     param(
         [Parameter(Mandatory)][object[]]$Classification,
         [switch]$Apply,
