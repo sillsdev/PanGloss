@@ -72,13 +72,10 @@ fn characterize_reports_the_computed_depth_bound_for_the_staged_fixture() {
     );
 }
 
-/// **Renamed from `capability_gate_diagnostic_reports_the_computed_depth_bound`.** That test pinned
-/// the PRE-task-4.1 fact that this fixture's self-feeding `CompoundingRule` made `evaluate_capability`
-/// `Refuse`, with a diagnostic naming the computed depth bound. Task 4.1 pieces 2/3 close the
-/// construction gap that Refuse existed for (`crate::capability::CompoundingRecursionSafePredicate`'s
-/// own doc, "the recursive split is now closed too") -- so the real, honest supersession is this
-/// fixture now composing to `ConfirmOnly`, not a diagnostic-text check against a verdict that no
-/// longer fires. Kept as its own test (not merged into the char­acterize test above) since it checks
+/// This fixture's self-feeding `CompoundingRule` composes to `ConfirmOnly`: the construction gap
+/// that would otherwise force `Refuse` is closed (`crate::capability::
+/// CompoundingRecursionSafePredicate`'s own doc, "the recursive split is now closed too"). Kept as
+/// its own test (not merged into the characterize test above) since it checks
 /// a DIFFERENT public surface (`evaluate_capability`/`compose_envelope`, not `characterize` directly).
 #[test]
 fn capability_gate_is_now_confirm_only_for_the_computed_depth_bound() {
@@ -92,15 +89,11 @@ fn capability_gate_is_now_confirm_only_for_the_computed_depth_bound() {
     );
 }
 
-/// **Renamed from `unmodified_compound_loop_cannot_propose_the_bounded_recursive_shape`** (task 4.1
-/// pieces 2/3): that test pinned the real, checked fact that the UNMODIFIED "bounded compound loop"
-/// (exactly one extra root, regardless of any rule's bound) could not propose ANY candidate for the
-/// genuine 3-stem self-feeding compound `tevimaflisra`. `crate::emit::build_compound_chain` now
+/// `crate::emit::build_compound_chain`
 /// unrolls enough extra non-head levels to realize this fixture's own computed bound (10 stems), so
 /// the real, unmodified, production `FomaProposer` (exactly what `FomaAnalyzer`/`pangloss
-/// --engine=foma` uses) now DOES propose it -- this is the fact that supersedes the old test's own,
-/// re-authored rather than deleted (its own prior doc: "this is the test that should FAIL the day
-/// support lands").
+/// --engine=foma` uses) DOES propose the genuine 3-stem self-feeding compound `tevimaflisra` --
+/// an "exactly one extra root, regardless of any rule's bound" loop could not.
 #[test]
 fn depth_budgeted_compound_loop_now_proposes_the_bounded_recursive_shape() {
     let g = load();

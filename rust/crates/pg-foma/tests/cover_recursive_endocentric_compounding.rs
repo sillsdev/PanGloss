@@ -48,11 +48,10 @@ fn load() -> Grammar {
     pg_grammar::load(&xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"))
 }
 
-/// **Renamed from `capability_gate_refuses_recursive_compounding_shape`** (task 4.1 pieces 2/3, this
-/// file's own top-doc update): the capability gate's own verdict for the self-feeding shape this
-/// fixture's `cr1` declares (`multipleApplication="9"`, PoS re-entering its own input set) is now
+/// The capability gate's own verdict for the self-feeding shape this
+/// fixture's `cr1` declares (`multipleApplication="9"`, PoS re-entering its own input set) is
 /// `ConfirmOnly`, not `Refuse` -- `crate::emit`'s depth-budgeted compound loop closes the
-/// construction gap that used to make this Refuse.
+/// construction gap that would otherwise force `Refuse`.
 #[test]
 fn capability_gate_is_confirm_only_for_recursive_compounding_shape() {
     let g = load();

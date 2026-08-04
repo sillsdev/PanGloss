@@ -781,10 +781,9 @@ fn deletion_rules_negative_case() {
     assert_empty(&m5.parse_word("b"));
 }
 
-/// RESOLVED (P2, 2026-07-09) -- the former **FINDING** here (and rust-optimizations-phase2.md P2's
-/// "C# explores the power-set of reinsertion sites via iterative reapplication" framing) was based
-/// on a wrong mental model of the C# mechanism, and its "now 2/4" status note was stale. What C#
-/// actually does (all verified against the oracle source, `.worktrees/parse-opt`):
+/// What C# actually does (all verified against the oracle source) is NOT an iterative
+/// power-set search over reinsertion sites -- it is a single analysis pass whose optional-insert
+/// annotations get expanded combinatorially downstream, at root lookup:
 ///
 /// - `AnalysisRewriteRule.Apply`'s Deletion branch runs exactly `1 + Morpher.DeletionReapplications`
 ///   passes (`AnalysisRewriteRule.cs:143-157`), and `DeletionReapplications` is a bare auto-property
@@ -805,11 +804,8 @@ fn deletion_rules_negative_case() {
 ///
 /// Rust's `ana_narrow_deletion` (`pg-rules/src/rewrite.rs`) implements exactly this shape:
 /// all-sites-in-one-pass optional inserts (`new_seg_node(.., true)`), with the skip-or-consume
-/// branching in `pg_parse::root_trie`'s `search_segs_opt`. All 4 sub-cases pass, and pass even at
-/// pre-P1 `92f2e166~1` (forced rebuild) -- the ignore note's "2/4" reflected an intermediate dev
-/// state inside the `27b7a7a4` squash (before `ana_narrow_deletion`'s word-initial-site fix and the
-/// optional-insert completion landed there) and was never re-checked. Oracle conformance fixture:
-/// `rust/conformance/rewrite/deletion-reinsertion/` (live C# oracle, byte-identical).
+/// branching in `pg_parse::root_trie`'s `search_segs_opt`. All 4 sub-cases pass. Oracle conformance
+/// fixture: `rust/conformance/rewrite/deletion-reinsertion/` (live C# oracle, byte-identical).
 #[test]
 fn deletion_rules_multi_position_reinsertion() {
     // (1) delete a high-front-unrounded vowel after a high vowel.

@@ -101,7 +101,7 @@ fn simple_rules_1_negative_cases() {
 /// site for the full trace). `dedup_key()` itself, and every one of its ~20 call sites in
 /// `stratum.rs`/`morpher.rs`, is unchanged.
 ///
-/// A second, related bug surfaced during review: `Word::current_non_head()` used to read
+/// A second, related bug: `Word::current_non_head()` read
 /// `non_heads.last()` (the physically last element) instead of C#'s index-based
 /// `_nonHeadApps[_nonHeadAppIndex]` (Word.cs:453-461). Those only agree while `non_heads` never
 /// holds more than one un-consumed entry beyond the confirmed ones -- true for every grammar this

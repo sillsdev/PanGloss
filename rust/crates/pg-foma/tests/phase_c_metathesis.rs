@@ -33,10 +33,9 @@
 //! reachable, just never attested in any fixture this crate has authored, and stays refused for
 //! either direction (`pg_foma::replace`'s own module doc has the full citation trail).
 //!
-//! ## `Dir::RightToLeft`: what changed (task 4.6) and what this file pins for it
-//! `metathesis_right_to_left_reversal_matches_oracle_exactly` (below, RENAMED from
-//! `metathesis_right_to_left_stays_honestly_unsupported` — that old name and behavior no longer
-//! hold) is the load-bearing Stage-2 containment witness: every analysis `pg_parse::Morpher` finds
+//! ## `Dir::RightToLeft`: what this file pins for it
+//! `metathesis_right_to_left_reversal_matches_oracle_exactly` (below) is the load-bearing
+//! containment witness: every analysis `pg_parse::Morpher` finds
 //! for its own words is a member of the FST proposer's candidate set. It reuses `RIGHT_TO_LEFT_XML`
 //! (below) unchanged — that grammar has exactly ONE valid switch window per lexical entry, so it
 //! cannot by itself distinguish `Dir::RightToLeft` from `Dir::LeftToRight` (see the empirical
@@ -63,70 +62,22 @@
 //! automaton and oracle-free (the one place an overlap genuinely needs to be constructed, and the
 //! oracle's own behavior on it is irrelevant to what that witness checks).
 //!
-//! ## Two confirm-engine (`pg_rules::metathesis`) gaps found while building this containment suite
-//! **UPDATE (2026-07-25): both gaps below are now FIXED** (a follow-on task, `pg_rules::
-//! metathesis::build_analysis_pattern`'s own doc has the full citation trail + rationale for both
-//! fixes). This section is kept, historically, as the record of what was found and why; the two
-//! tests it names (`metathesis_grammar_gen_recipe_confirms_the_reversed_tag_round_trip` and
-//! `metathesis_middle_context_node_now_matches_the_oracle`, renamed from their original
-//! `_is_a_documented_oracle_gap` names) now assert the CORRECT, fixed behavior instead of pinning
-//! the gap as data — the only change made to this file for that follow-on task, which owns
-//! `pg_rules::metathesis` exclusively; this file's own `replace.rs`/`pg_foma` surface is untouched.
+//! ## Two `pg_rules::metathesis::build_analysis_pattern` invariants this suite pins
+//! `pg_rules::metathesis::synthesize`'s `synthesis_reorder`/`move_nodes_after` algorithm is driven
+//! by PHYSICAL position: whichever switch is physically LAST in `pattern.nodes` always ends up
+//! FIRST in the output, tag-name-agnostic (`left_switch`/`right_switch` naming does not predict the
+//! output order by itself). `build_analysis_pattern` mirrors that: it orders its rebuilt search
+//! pattern by PHYSICAL position, not by tag name, so analysis and synthesis agree even for a rule
+//! whose `left_switch` node is physically first (`pg_grammar_gen::build::metathesis::build`'s own
+//! demo rule uses exactly this ordering).
 //!
-//! `pg_rules::metathesis` was this change's oracle (design.md's own Ownership section: "the frozen
-//! `MetathesisRule` switch identities and HermitCrab behavior"), and was READ-ONLY here (a bug fix
-//! there was explicitly called out as a SEPARATE, out-of-scope task, design.md's own words — the
-//! follow-on task referenced above). Two real, pre-existing gaps were discovered and were
-//! documented (not silently worked around), per ADR 0001's recall-preserve discipline (the same
-//! discipline `tests/phase_c_right_to_left.rs`'s own "Known, out-of-scope oracle gap" section
-//! already established for RTL rewrites):
+//! A context node strictly between the two switches keeps its slot in the rebuilt search pattern
+//! (`synthesis_reorder` does not drop it either) UNLESS it resolves to a `CharDefKind::Boundary`,
+//! which is excluded from the analysis match sequence regardless of pattern shape.
 //!
-//! 1. **Reversed switch-tag order** (originally
-//!    `metathesis_reversed_tag_order_is_a_documented_oracle_gap`, now
-//!    `metathesis_grammar_gen_recipe_confirms_the_reversed_tag_round_trip`, below):
-//!    `pg_grammar::model::MetathesisRuleDef::left_switch`'s own doc claimed "After synthesis,
-//!    whatever this index identifies always ends up FIRST in the output ... regardless of which one
-//!    was physically first in `pattern.nodes`." Verified FALSE for the case where `left_switch`'s
-//!    own node is physically FIRST and `right_switch`'s is physically LAST:
-//!    `pg_rules::metathesis::synthesize`'s own `synthesis_reorder`/`move_nodes_after` algorithm is
-//!    actually driven by PHYSICAL position (whichever switch is physically LAST always ends up
-//!    FIRST in the output, tag-name-agnostic — direct hand-trace, confirmed by calling
-//!    `pg_rules::metathesis::synthesize` directly: a rule tagging `leftSwitch` on the physically-
-//!    FIRST node synthesizes `"qp"` to `"pq"`, not the vacuous no-op the doc's claim would predict).
-//!    `build_analysis_pattern`'s own rebuild used to ALWAYS emit `left_switch`'s node first and
-//!    `right_switch`'s node second, unconditionally — correct only when `left_switch` HAPPENS to be
-//!    physically last already (the "well-formed" convention every real HermitCrab fixture this
-//!    repo has ever seen actually uses, `machine/conformance/languages/metathesis-phase-isolation`'s
-//!    `mrSimpleMeta`/`mrComplexMeta`). For the reversed tag order, synthesis and analysis used to
-//!    disagree outright: `pg_parse::Morpher` found ZERO parses for EITHER the raw underlying
-//!    spelling OR the correctly-synthesized swapped spelling. **Now fixed**: `build_analysis_
-//!    pattern` orders by PHYSICAL position instead of tag name (identical output for every attested
-//!    grammar, additionally correct for this reversed one), so analysis recovers the swapped
-//!    spelling. `pg_grammar_gen::build::metathesis::build`'s own demo rule (used by the renamed test
-//!    below) happens to use exactly this reversed convention -- this repo's own generator fixture
-//!    was already a live witness of the gap, and is now a live witness of the fix.
-//! 2. **Middle context node between the two switches** (originally
-//!    `metathesis_middle_context_node_is_a_documented_oracle_gap`, now
-//!    `metathesis_middle_context_node_now_matches_the_oracle`, below): `build_analysis_pattern`'s
-//!    own doc used to say a context node strictly between the two switches "is dropped" from its
-//!    rebuilt search pattern — but `synthesis_reorder` does NOT drop it ("a node strictly between
-//!    them keeps its slot untouched"). A metathesis rule with >= 1 context node between its two
-//!    switches (`machine/conformance/languages/metathesis-phase-isolation`'s own `mrComplexMeta`
-//!    shape, minus its `finalBoundaryCondition` anchor) could therefore synthesize a real surface
-//!    its OWN analysis side could never recognize (it searched for the two switches immediately
-//!    adjacent, which the real surface never is). **Now fixed**: a middle node is preserved in the
-//!    rebuild unless it resolves to a `CharDefKind::Boundary` (a boundary is excluded from the
-//!    analysis match sequence regardless of pattern shape, so requiring one there could never be
-//!    satisfied — see `build_analysis_pattern`'s own doc for why C#'s own unconditional drop never
-//!    surfaced this as a problem for the one real shape, a `<BoundaryMarker>`, its own conformance
-//!    suite ever exercises there).
-//!
-//! Both gaps were entirely inside `pg_rules::metathesis`, outside `replace.rs`'s single-owner
-//! boundary. This change's OWN swap-relation construction was unaffected by either: it is
-//! tag-name-agnostic (driven by physical position, matching `synthesis_reorder`'s REAL behavior,
-//! not the doc's incorrect claim) and does not drop the middle node — so in BOTH gap cases the
-//! FST's own proposal was already the semantically CORRECT one (verified directly against
-//! `pg_rules::metathesis::synthesize`/`fst_candidate_set` below), and now the oracle confirms it too.
+//! `replace.rs`'s own swap-relation construction is tag-name-agnostic and does not drop the middle
+//! node either (verified directly against `pg_rules::metathesis::synthesize`/`fst_candidate_set`
+//! below), so its proposals are already the semantically correct ones under both rules above.
 
 mod common;
 
@@ -774,8 +725,7 @@ const RIGHT_TO_LEFT_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 </HermitCrabInput>
 "#;
 
-/// RENAMED from `metathesis_right_to_left_stays_honestly_unsupported` (that old name/behavior no
-/// longer hold -- `Dir::RightToLeft` now compiles, task 4.6). **This is the load-bearing Stage-2
+/// **This is the load-bearing
 /// containment witness**: every analysis `pg_parse::Morpher` finds for `entryQP`'s own words is a
 /// member of `pg_foma::replace::compile_metathesis_rule`'s FST proposer candidate set -- turning
 /// "the union is a superset, never an omission" from an argument into a checked claim, exactly the
