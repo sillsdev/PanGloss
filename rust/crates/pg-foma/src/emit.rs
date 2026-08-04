@@ -720,8 +720,8 @@ pub(crate) fn surface_variants(table: &CharDefTable, text: &str) -> Option<(Vec<
 }
 
 /// [`surface_variants`], extended to MULTIPLE insert-text pieces in document order
-/// (`openspec/changes/cover-circumfix-null-output-actions`, [`insert_action_texts`]'s own doc):
-/// [`surface_variants`] each piece SEPARATELY (never re-segmenting the raw concatenation of two
+/// (see [`insert_action_texts`]'s own doc): [`surface_variants`] each piece SEPARATELY (never
+/// re-segmenting the raw concatenation of two
 /// pieces as one string, which could spuriously merge a segment across an authored `InsertSegments`
 /// boundary the real engine keeps distinct — mirrors how the oracle keeps each action's own `Shape`
 /// nodes separate rather than re-parsing a merged string), then takes the CARTESIAN PRODUCT of the
@@ -2219,9 +2219,9 @@ fn build_slot_chain(
 
 // --- Structural composites: rules `crate::preexpand` cannot represent at all ---------------------
 //
-// Gate F3 3b (`docs/fst-plan/foma-fst-plan.md`): the conformance suite's `edge-cases/
+// The conformance suite's `edge-cases/
 // truncate-morphotactic` and `languages/suffixing-vowel-harmony` fixtures exercise two related gaps
-// `crate::preexpand`'s rule-application composite mechanism (plan P1d) does not close:
+// `crate::preexpand`'s rule-application composite mechanism does not close:
 //
 // 1. **Truncation/subtraction rules.** [`classify_affix`] only inspects RHS `Copy`/`Insert`
 //    POSITIONS, blind to whether the rule's LHS pattern has more than one top-level part and, if
@@ -2273,8 +2273,8 @@ fn build_slot_chain(
 // in the sense that matters (`crate::preexpand`'s own composites, and everything else this emitter
 // already produced, are completely unchanged; this section only ever ADDS entries).
 //
-// Morphotactic pruning (`crate::morphotactics`, `docs/fst-plan/morphotactic-composite-pruning.md` --
-// the Aweti scale fix): [`struct_extend`]'s flat depth-3 recursion below is pruned by the SAME
+// Morphotactic pruning (`crate::morphotactics`) -- the Aweti scale fix: [`struct_extend`]'s flat
+// depth-3 recursion below is pruned by the SAME
 // automaton `crate::preexpand::extend` consults (`crate::morphotactics::MorphotacticIndex::
 // next_state`), built once by [`emit_with_precision`] and shared across both builders — see
 // `crate::preexpand`'s own module-doc addendum for the full design.
