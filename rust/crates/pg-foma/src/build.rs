@@ -1,6 +1,6 @@
-//! Step 3a of `openspec/changes/reify-compilation-plans` (design.md D3): [`build_controllable`], a
-//! [`crate::plan::Plan`] INTERPRETER -- the first piece of Step 3 that turns a reified `Plan` into a
-//! real, live [`foma::types::Fsm`] rather than only describing one (Step 1, `crate::plan`; Step 2,
+//! [`build_controllable`], a
+//! [`crate::plan::Plan`] INTERPRETER -- turns a reified `Plan` into a
+//! real, live [`foma::types::Fsm`] rather than only describing one (`crate::plan`;
 //! `crate::enumerate::enumerate_default`, which is purely data -- "no live `Fsm` is built anywhere
 //! there", that module's own doc). This module walks exactly the node kinds
 //! [`crate::enumerate::enumerate_default`] emits on the **controllable subtree** -- the [`crate::
@@ -9,45 +9,45 @@
 //! ([`crate::uflexc::emit_underlying_filtered_with_budget`], [`crate::replace::
 //! compile_and_compose_rules_gated_with_budget`], [`crate::compose_budget`]'s checked compose/union/
 //! minimize wrappers). Neither `gate.rs`'s nor `replace.rs`'s bodies are touched -- this module only
-//! calls their existing `pub` entry points (the task's own constraint).
+//! calls their existing `pub` entry points.
 //!
 //! Proven equivalent to [`crate::gate::compile_gated_grammar_with_budget`]'s own direct-compile
 //! output by an APPLY-based test (`equivalence_tests`, below) -- run real query words through BOTH
 //! nets' `apply_up` and assert identical results, exactly the predicate a future differential oracle
-//! (design.md D4) would use. This is a genuine correctness argument, not a structural-equality
+//! would use. This is a genuine correctness argument, not a structural-equality
 //! shortcut: two networks can differ in shape (state numbering, arc order) and still be the *same
 //! relation* modulo determinization/minimization choices, so `apply` is what actually matters here;
 //! the module's own test additionally checks minimized state/arc counts as a cheap, meaningful
 //! (not merely coincidental, given both paths run the same final `minimize_checked` on networks
 //! built from the same primitives) extra signal -- but never in place of the apply comparison.
 //!
-//! # Scope: controllable subtree only (task's own scope call)
+//! # Scope: controllable subtree only
 //! The composite-emission / structural-composite branches ([`crate::plan::FragmentSpec::
 //! CompositeEmissionMarker`] / [`crate::plan::FragmentSpec::StructuralCompositeMarker`], the
-//! black-box lexc `String` [`crate::emit::emit_with_budget`] produces) are OUT OF SCOPE for this
-//! step: that path's artifact type is a lexc source string handed to a *separate* lexc-compile step,
+//! black-box lexc `String` [`crate::emit::emit_with_budget`] produces) are OUT OF SCOPE here:
+//! that path's artifact type is a lexc source string handed to a *separate* lexc-compile step,
 //! not this module's own composed `Fsm` -- unifying the two artifact types into one interpreter
-//! result is a later step's problem, not this one's. If `enumerate_default`'s plan root is a `Union`
-//! carrying those markers alongside a `Gate` node (D2's own shape, `enumerate`'s module doc), this
+//! result is a later problem, not this module's. If `enumerate_default`'s plan root is a `Union`
+//! carrying those markers alongside a `Gate` node (`enumerate`'s own module doc has the shape), this
 //! module's [`build_controllable`] locates the single `Gate` child and interprets ONLY that subtree;
 //! the marker leaves are checked for by kind (so a genuinely unrecognized Union child is a loud,
 //! documented programmer-error panic, never a silent skip of something unexpected) but never built.
 //!
-//! # Task 1.4: the obstacle this step surfaced, now RESOLVED
-//! Step 3a (an earlier version of this module) flagged a real interpretation obstacle here, and
-//! design.md D1's "Soundness invariant" paragraph (added after Step 3a) named it precisely: **every
+//! # A soundness obstacle, and how it was closed
+//! An earlier version of this module built ONE shared `Replace` subplan per grammar, so every
 //! gate group's `Replace` subplan was the identical, content-addressed-SHARED [`crate::plan::
-//! NodeId`]**, yet the COMPILED `Fsm` that node had to produce differed PER GROUP, because
+//! NodeId`], yet the COMPILED `Fsm` that node had to produce differed PER GROUP, because
 //! [`crate::replace::compile_and_compose_rules_gated_with_budget`]'s `subrule_ok` callback is a
 //! function of the *group*, not of the `Replace` node's own content. A naive content-addressed
 //! interpreter that memoizes a built `Fsm` per `NodeId` would therefore have built the shared
 //! `Replace` node's cascade ONCE and silently reused that WRONG network for every other group -- an
-//! unsound, silent correctness bug, not a missing feature. At Step 3a, [`build_controllable`]
-//! sidestepped this by being Gate-aware (re-deriving each group's `subrule_ok` from the `Gate`
-//! node's own `partition`, never caching a compiled `Fsm` against the shared `Replace` `NodeId`),
-//! which was correct but kept `Gate` from being "just another n-ary node."
+//! unsound, silent correctness bug, not a missing feature. That earlier version of
+//! [`build_controllable`] sidestepped this by being Gate-aware (re-deriving each group's
+//! `subrule_ok` from the `Gate` node's own `partition`, never caching a compiled `Fsm` against the
+//! shared `Replace` `NodeId`), which was correct but kept `Gate` from being "just another n-ary
+//! node."
 //!
-//! **Task 1.4's fix** (`crate::plan::ReplaceCascadeSpec`'s own doc, `crate::enumerate::
+//! **The fix** (`crate::plan::ReplaceCascadeSpec`'s own doc, `crate::enumerate::
 //! enumerate_default`'s own module doc): `enumerate_default` now builds ONE `Replace` node PER
 //! GROUP, and that node's own `cascade` carries `gated_subrules` + `group_key` directly -- so a
 //! group's `subrule_ok` is now fully determined by its OWN `Replace` node's content, not by which
@@ -59,9 +59,9 @@
 //! `partition.groups[group_idx].key` against the Replace node's own `group_key` as a redundant
 //! sanity check -- see the loop in [`build_controllable`]), but **correctness no longer depends on
 //! Gate-awareness of the Replace node**: `Replace`'s compiled artifact is now a pure function of its
-//! own `NodeId`, exactly what D1's soundness invariant requires for content-addressed dedup / a
+//! own `NodeId`, exactly what a soundness invariant requires for content-addressed dedup / a
 //! future `NodeId`-keyed plan-cache / the differential oracle (`crate::oracle`) to memoize safely.
-//! This step does not build a generic memoizing interpreter -- that remains future work -- it only
+//! This module does not build a generic memoizing interpreter -- that remains future work -- it only
 //! removes the soundness caveat that would have made one unsound.
 //!
 //! # Node kinds handled (exactly what `enumerate_default` emits on the controllable path)
@@ -186,10 +186,10 @@ fn boundary_cleanup_net(
     foma::regex::fsm_parse_regex(opts, &cleanup_regex, None, None)
 }
 
-/// The actual fix for `docs/fst-plan/large-lexicon-proposal-explosion.md`'s precision regression,
+/// A fix for a large-lexicon proposal-explosion precision regression,
 /// applied to a group's raw `uflexc` lexc source BEFORE it is compiled to an `Fsm` (i.e. before
 /// [`boundary_cleanup_net`] ever runs) -- this is the "stop putting boundary tokens on the queryable
-/// tape at all" mechanism the diagnosis doc's own recommendation #2 named, mirrored from
+/// tape at all" mechanism, mirrored from
 /// [`crate::emit`]'s working approach (its own module doc: "boundary characters dropped,
 /// representation variants enumerated" -- never emitted onto the tape, then blanket-deleted after
 /// the fact), adapted to `uflexc`'s much simpler self-looping-lexicon model instead of `emit.rs`'s
@@ -537,8 +537,8 @@ pub fn build_controllable(
 
         // Walks THIS group's OWN Replace node's data (cascade + rule-leaf children) and
         // cross-checks it against `prules_in_order` -- see this function's own doc, module doc's
-        // "task 1.4" note. Returns the cascade itself so this group's `subrule_ok` can be derived
-        // straight from it below, rather than from the Gate node's partition.
+        // "soundness obstacle" note. Returns the cascade itself so this group's `subrule_ok` can be
+        // derived straight from it below, rather than from the Gate node's partition.
         let cascade = validate_replace_cascade(plan, replace_id, g, prules_in_order);
         assert_eq!(
             &cascade.group_key, group_key,
@@ -659,7 +659,7 @@ pub fn build_controllable(
 
 /// Locates the single `Gate` node this function will interpret: `plan`'s root itself if it IS a
 /// `Gate`, or -- when `enumerate_default` wrapped the root in a `Union` alongside composite/
-/// structural marker leaves (D2's own shape) -- the one `Gate` child of that `Union`. Every OTHER
+/// structural marker leaves -- the one `Gate` child of that `Union`. Every OTHER
 /// `Union` child is checked by kind: a [`FragmentSpec::CompositeEmissionMarker`]/
 /// [`FragmentSpec::StructuralCompositeMarker`] leaf is the documented out-of-scope case (module
 /// doc) and is silently skipped (never built); anything else is a plan shape this module does not
@@ -784,7 +784,7 @@ fn lexicon_fragment_entries(plan: &Plan, lexicon_id: NodeId) -> Vec<LexEntryId> 
 /// which subrules a group's key gates without any other signal). Panics loudly on any mismatch,
 /// mirroring `crate::enumerate::rule_id_of`'s own panic for the identical caller-contract shape.
 ///
-/// Returns the validated `&ReplaceCascadeSpec` itself (task 1.4: this group's `subrule_ok` is now
+/// Returns the validated `&ReplaceCascadeSpec` itself (this group's `subrule_ok` is now
 /// read straight off THIS return value's `gated_subrules`/`group_key` -- see
 /// [`subrule_ok_for_group`] -- rather than re-derived from the `Gate` node's partition).
 fn validate_replace_cascade<'a>(
@@ -842,11 +842,11 @@ fn validate_replace_cascade<'a>(
 }
 
 /// Builds one group's `subrule_ok(rule_pos, sub_idx)` predicate from a `Replace` node's OWN
-/// `cascade.gated_subrules` + `cascade.group_key` (task 1.4) -- IDENTICAL shape to `crate::gate::
+/// `cascade.gated_subrules` + `cascade.group_key` -- IDENTICAL shape to `crate::gate::
 /// compile_gated_grammar_with_budget`'s own inline closure (that function's body, the `subrule_ok`
 /// local), just reading its inputs back out of `plan` data instead of `crate::gate::EntryGroup`/
-/// `crate::gate::GatedSubrule`. Before task 1.4 this had to be re-derived from the GATE node's
-/// partition instead (see the module doc's "task 1.4" note for why that was the unsound
+/// `crate::gate::GatedSubrule`. This used to be re-derived from the GATE node's
+/// partition instead (see the module doc's "soundness obstacle" note for why that was the unsound
 /// arrangement) -- now it is a pure read of the Replace node's own content, matching whichever
 /// `Replace` `NodeId` was resolved for this group.
 fn subrule_ok_for_group<'a>(
@@ -1076,13 +1076,13 @@ mod null_shaped_guard_scope_tests {
 
 #[cfg(test)]
 mod equivalence_tests {
-    //! The correctness argument for Step 3a (the task's own instruction: "make it semantically
-    //! meaningful, not trivial"). For an in-crate gated synthetic fixture, builds BOTH (a)
+    //! The correctness argument for this module's equivalence claim, made semantically meaningful
+    //! rather than trivial. For an in-crate gated synthetic fixture, builds BOTH (a)
     //! `compile_gated_grammar_with_budget` (today's direct-compile path) and (b)
     //! `build_controllable(enumerate_default(...))` (this module's plan-walk), then asserts the two
     //! resulting networks are EQUIVALENT BY APPLY -- `apply_up` on every distinguishing query word
     //! must yield IDENTICAL result sets. This is exactly the predicate a future differential oracle
-    //! (design.md D4) would use; the module doc explains why it -- not a structural/byte-identity
+    //! would use; the module doc explains why it -- not a structural/byte-identity
     //! claim -- is the one that matters. Minimized state/arc counts are ALSO asserted equal, as a
     //! cheap and (here) meaningful extra signal, never a substitute for the apply comparison.
 
@@ -1263,10 +1263,10 @@ mod equivalence_tests {
         );
     }
 
-    /// Task 1.4's node-purity claim, proven end-to-end on this module's own gated fixture: (a) the
+    /// The node-purity claim, proven end-to-end on this module's own gated fixture: (a) the
     /// two gate groups' OWN `Replace` `NodeId`s must now be DISTINCT (the fix's whole point -- a
     /// single shared `Replace` node across differently-gated groups was the unsound arrangement
-    /// design.md D1's "Soundness invariant" paragraph named), and (b) that distinctness changes
+    /// the module doc's "soundness obstacle" section named), and (b) that distinctness changes
     /// nothing about the compiled RELATION: `build_controllable`'s plan-walk must still be
     /// apply-equivalent to the direct-compile path, exactly the load-bearing correctness argument
     /// [`plan_walk_matches_direct_compile_by_apply_on_gated_two_group_fixture`] already makes (this
