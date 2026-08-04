@@ -1,25 +1,24 @@
-//! Part 2 (phase-2 W4) — metathesis rule application: synthesis (physical node reorder) / analysis
+//! Metathesis rule application: synthesis (physical node reorder) / analysis
 //! (feature union). Ports `SIL.Machine.Morphology.HermitCrab/PhonologicalRules/{MetathesisRule,
-//! AnalysisMetathesisRule(Spec),SynthesisMetathesisRule(Spec)}.cs`
-//! (`rust/docs/phase2-completed/metathesis-w4.md`'s class map). Driven from the same `MutShape` working-
-//! shape machinery `pg_rules::rewrite` uses (reused, not duplicated — both ports independently need
-//! the "resolve to concrete node data before mutating" discipline the C# "RUSTIFY Stage 2" comment
-//! calls for, `SynthesisMetathesisRuleSpec.cs:78-80`).
+//! AnalysisMetathesisRule(Spec),SynthesisMetathesisRule(Spec)}.cs`. Driven from the same
+//! `MutShape` working-shape machinery `pg_rules::rewrite` uses (reused, not duplicated — both
+//! ports independently need the "resolve to concrete node data before mutating" discipline the C#
+//! implementation also calls for).
 //!
-//! ## Model shape (deliberate divergence from the sub-plan's sketch)
+//! ## Model shape (deliberate divergence from an authored-`Group`-kind design)
 //! [`pg_grammar::model::MetathesisRuleDef`] carries ONE compiled pattern (no separate LHS/RHS split,
 //! no environments — C#'s `IPhonologicalPatternSubruleSpec.LeftEnvironmentMatcher`/
 //! `RightEnvironmentMatcher` are hardcoded `null` for both Analysis/SynthesisMetathesisRuleSpec) plus
-//! two switch positions (`left_switch`/`right_switch`, indices into `pattern.nodes`). The sub-plan
-//! sketched adding an authored `PatternNode::Group` kind (+ a `CompileNode::Group` case in
-//! `pg_rules::bridge::PatternBridge`) to represent a switch. This port does that lowering **post-hoc**
+//! two switch positions (`left_switch`/`right_switch`, indices into `pattern.nodes`). An authored
+//! `PatternNode::Group` kind (+ a `CompileNode::Group` case in `pg_rules::bridge::PatternBridge`)
+//! could represent a switch, but this port does that lowering **post-hoc**
 //! instead ([`compile_switch_pattern`]): compile the plain pattern via `PatternBridge` as usual, then
 //! wrap the two switch positions' already-compiled nodes in a named `pg_fst::CompileNode::Group` and
 //! recover their matched spans via `Fst::get_offsets` after a match — exactly the technique
-//! `pg_rules::rewrite::compile_env_impl` already uses to recover alpha-variable positions (Tier-2
-//! #12), and the same primitive `pg_rules::morph::compile_parts` uses for affix-part captures. This
+//! `pg_rules::rewrite::compile_env_impl` already uses to recover alpha-variable positions, and the
+//! same primitive `pg_rules::morph::compile_parts` uses for affix-part captures. This
 //! is strictly less new surface (no model/bridge change at all) and is justified by a fact only
-//! discovered while building this milestone's fixtures: a real grammar's switch group is **always
+//! discovered while building fixtures for this rule: a real grammar's switch group is **always
 //! exactly one shape node wide** (`<Segments>`/`<OptionalSegmentSequence>` switch-tagging is DTD-legal
 //! but fails to compile against the real C# engine — see
 //! `rust/conformance/metathesis/complex_rule/README.md`'s finding), so there is nothing for a
@@ -344,12 +343,11 @@ fn seg_range_to_nodes(node_of: &[usize], range: (usize, usize)) -> Vec<usize> {
 /// get right in general form than to special-case down to width 1.
 ///
 /// `left`/`right` are the two switch ranges as `ms.nodes` index lists (already resolved from the
-/// match BEFORE any mutation — the "RUSTIFY Stage 2" fix `SynthesisMetathesisRuleSpec.cs:78-80` asks
-/// for, mirrored here by resolving everything to concrete `MutNode` data up front and performing one
-/// final `Vec::splice`, rather than mutating `ms.nodes` in place through a sequence of index-shifting
-/// operations).
+/// match BEFORE any mutation, mirroring the C# implementation's own discipline: resolve everything
+/// to concrete `MutNode` data up front and perform one final `Vec::splice`, rather than mutating
+/// `ms.nodes` in place through a sequence of index-shifting operations).
 ///
-/// `table` (2026-07-27 follow-up) is the metathesis rule's own owning table (`crate::cache::
+/// `table` is the metathesis rule's own owning table (`crate::cache::
 /// owning_table_for_metathesis_rule`'s result at the caller, never an implicit table-0 default) --
 /// consulted below to decide, PER MOVED NODE, whether that node's own `char_def` still means
 /// anything once re-interpreted against `table` (see the inline comment at the actual check for the
@@ -375,12 +373,12 @@ fn synthesis_reorder(ms: &mut MutShape, left: &[usize], right: &[usize], table: 
 
     let mut order: Vec<usize> = (0..window.len()).collect();
 
-    // Step 1 (C#: `MoveNodesAfter(shape, leftEnd, rightRange)`): move the right switch's segments to
+    // First (C#: `MoveNodesAfter(shape, leftEnd, rightRange)`): move the right switch's segments to
     // just after the left switch's own last node.
     let left_end = *left_loc.last().expect("switch range non-empty");
     move_nodes_after(&mut order, &window, Some(left_end), &right_loc);
 
-    // Step 2 (C#: `MoveNodesAfter(shape, beforeRightGroup, leftRange)`): move the left switch's
+    // Second (C#: `MoveNodesAfter(shape, beforeRightGroup, leftRange)`): move the left switch's
     // segments to just after whatever ORIGINALLY preceded the right switch's start (`None` = the
     // right switch started the window, i.e. "insert at the very front").
     let right_start = *right_loc.first().expect("switch range non-empty");
@@ -399,15 +397,14 @@ fn synthesis_reorder(ms: &mut MutShape, left: &[usize], right: &[usize], table: 
             let mut n = window[i].clone();
             if moved.contains(&i) {
                 n.dirty = true;
-                // 2026-07-27 follow-up (STAGING.md's "cross-table surface-match gate" finding,
-                // `multi-table-metathesis-shared-representation`): every OTHER identity-changing
-                // rewrite path (`rewrite::syn_feature`/`sim_feature`) resets a touched node's
+                // Every OTHER identity-changing rewrite path
+                // (`rewrite::syn_feature`/`sim_feature`) resets a touched node's
                 // `char_def` to `NO_CHAR_DEF` once its post-rule state can no longer be trusted to
                 // mean what its ORIGINAL literal char-def said (see `syn_feature`'s own doc for the
-                // full "archiphoneme" precedent this mirrors) -- this reorder used to be the one
-                // exception: a relocated segment kept its pre-move `char_def` verbatim forever, so
+                // full "archiphoneme" precedent this mirrors); this reorder must do the same rather
+                // than keeping a relocated segment's pre-move `char_def` verbatim, because
                 // on a multi-table grammar (this rule's own owning stratum's table can differ from
-                // wherever the segment was originally spelled) the node went on carrying its ORIGIN
+                // wherever the segment was originally spelled) the node would go on carrying its ORIGIN
                 // table's raw char-def index into `pg_parse::Morpher::is_match_traced`, which always
                 // renders against the grammar's OUTERMOST stratum's table -- an apples-to-oranges
                 // raw-index collision specific to metathesis (the only rule kind that moves material
@@ -516,8 +513,8 @@ fn move_nodes_after(
 ///
 /// Also resets both nodes' `char_def` to `NO_CHAR_DEF` (`pg_shape::NO_CHAR_DEF`), mirroring
 /// `pg_rules::rewrite::syn_feature`'s identical, already-documented choice: after a lane-widening
-/// mutation, a node's stale literal `char_def` identity (the Sena-motivated "restrict to this one
-/// segment's own representations" lock, plan §13.1 Tier-1 #3) would otherwise keep root-trie/surface
+/// mutation, a node's stale literal `char_def` identity (the "restrict to this one
+/// segment's own representations" lock) would otherwise keep root-trie/surface
 /// lookups pinned to the *pre-union* segment's own representations, unable to recognize the other
 /// (equally valid, now-unioned-in) segment identity. C#'s `Union` has no analogous per-node identity
 /// dimension to reset (it is pure `FeatureStruct` algebra), so this is this port's own addition to a
@@ -549,13 +546,10 @@ fn ana_union(ms: &mut MutShape, left: &[usize], right: &[usize]) {
 /// rule at all (see `MetathesisRuleDef`'s doc) — unlike `rewrite::synthesize_with_mpr`, there is no
 /// `_with_mpr` sibling to call instead.
 pub fn synthesize(g: &Grammar, rule: &MetathesisRuleDef, input: &Shape) -> Vec<Shape> {
-    // Resolve `rule`'s own owning stratum's table (`crate::cache::owning_table_for_metathesis_rule`
-    // -- the fix for the "implicit table-zero default" defect this function used to have: it
-    // previously hardcoded `TableId(0)` regardless of which table the rule's own stratum actually
-    // owns, the exact antipattern `pg_foma::replace::owning_table` was introduced to remove on the
-    // compiled side; see `docs/conformance/multitable-shared-representation-design.md`'s "residual
-    // gap" section and the `multi-table-metathesis-shared-representation` fixture's own STAGING.md
-    // finding). Falls back to `TableId(0)` only when `rule` is NOT grammar-resident at all (never
+    // Resolve `rule`'s own owning stratum's table (`crate::cache::owning_table_for_metathesis_rule`)
+    // rather than hardcoding `TableId(0)` regardless of which table the rule's own stratum actually
+    // owns -- the exact antipattern `pg_foma::replace::owning_table` exists to remove on the
+    // compiled side. Falls back to `TableId(0)` only when `rule` is NOT grammar-resident at all (never
     // registered into any `Grammar`'s `prules` -- this crate's well-established "standalone rule"
     // fixture pattern, `crate::cache`'s module doc; e.g. `tests/metathesis_gate.rs`'s hand-built
     // rules, never loaded via `pg_grammar::load`), where there is no owning-stratum concept to
