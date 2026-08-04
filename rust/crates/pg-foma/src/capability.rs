@@ -6944,7 +6944,7 @@ mod tests {
     }
 
     // ---------------------------------------------------------------------------------------
-    // compose_envelope (D4, Step 2): end-to-end over characterize() + enumerate_default()
+    // compose_envelope: end-to-end over characterize() + enumerate_default()
     // ---------------------------------------------------------------------------------------
 
     /// An ordinary affix + iterative-rewrite grammar (no Compounding, no Unordered strata, no MPR
@@ -7008,9 +7008,9 @@ mod tests {
         );
     }
 
-    /// `openspec/changes/cover-compounding`: a grammar with a single, non-recursive `Compounding`
-    /// rule must now compose to `ConfirmOnly` (no longer bare `Refuse` — the license-gated propose
-    /// shape supersedes the pre-change placeholder's unconditional refusal).
+    /// A grammar with a single, non-recursive `Compounding`
+    /// rule must compose to `ConfirmOnly` (not bare `Refuse` — the license-gated propose
+    /// shape supersedes an unconditionally refusing placeholder).
     #[test]
     fn compose_envelope_confirm_only_for_non_recursive_compounding_grammar() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
@@ -7104,9 +7104,8 @@ mod tests {
         );
     }
 
-    /// `cover-unordered-morph-rules`: a chain-depth-bounded (zero-rule, trivially within-bound)
-    /// `MorphRuleOrder::Unordered` grammar must now compose to `ConfirmOnly`, never `Refuse` --
-    /// the promotion this change ships (task 7.1).
+    /// A chain-depth-bounded (zero-rule, trivially within-bound)
+    /// `MorphRuleOrder::Unordered` grammar must compose to `ConfirmOnly`, never `Refuse`.
     #[test]
     fn compose_envelope_confirm_only_for_unordered_within_bound() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
@@ -7184,8 +7183,7 @@ mod tests {
 
     /// A grammar whose `Unordered` stratum's own loose-rule count exceeds the calibrated
     /// `DEFAULT_ORDERING_MULTIPLICITY_BUDGET` must compose to `Refuse`, naming
-    /// `unordered-application.unbounded` -- the split half this change's promotion does NOT cover
-    /// (design.md D1's own "stays FailClosed" landing).
+    /// `unordered-application.unbounded` -- the split half that stays FailClosed.
     #[test]
     fn compose_envelope_refuses_unordered_morph_rule_order_grammar() {
         let xml = unordered_stratum_xml(
