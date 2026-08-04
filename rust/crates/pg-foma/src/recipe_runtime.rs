@@ -29,13 +29,13 @@ use std::time::{Duration, Instant};
 /// property, not a convention someone must remember — as long as a clock could produce an
 /// eligibility outcome, raising the clock's value only moves the race, never removes it.
 ///
-/// Measured motivation (2026-08-01/02): Amharic word U+1264 U+1273 PASSED the oracle in a 673-row
-/// run and was excluded as `oracle-timeout` in a 573-row run — same grammar, same caps, same
-/// binary, only machine load differed. A digest over a set that a concurrent build can change is
-/// not a digest. Separately, the two bounds masked each other: re-running 669 words with a 120s net
-/// instead of 2s moved the step-capped count from 4 to 12, so words that would exhaust their step
-/// budget were being misrecorded as timeouts, and 80 Amharic words were called intractable that
-/// never were.
+/// A wall-clock-based outcome is not reproducible: the same grammar, same caps, and same binary
+/// can pass or exclude the SAME word between runs purely because machine load differed, and a
+/// digest over a set that machine load can change is not a digest. A step cap has no such hazard —
+/// it is deterministic per (grammar, word, cap). The two bound types can also mask each other: a
+/// too-tight wall-clock bound can misrecord a real step-cap exhaustion as a timeout instead,
+/// making words look intractable that a looser clock would have correctly classified as
+/// step-capped.
 #[derive(Debug, Clone)]
 enum OracleOutcome {
     /// The oracle finished this occurrence within its step cap. The analyses are the ground truth.
@@ -713,7 +713,7 @@ pub fn net_reuse_key(
 /// Default oracle (ground-truth `pg_parse::Morpher`) step cap, used whenever
 /// [`RuntimeBudget::oracle_step_cap`] is left `None`.
 ///
-/// Justified by measurement (`docs/fst-plan/deep-chain-pilot-non-completion.md`): on the
+/// Justified by measurement: on the
 /// deep-truncation-chain stress grammar, the pathological corpus word that the fully-unbounded
 /// `Morpher::new(g, usize::MAX)` call never returns for (>20s, previously observed >10 minutes)
 /// completes in 91.6ms with `cap = 20_000`, reporting `capped: true` and 2 analyses. That is also
@@ -735,7 +735,7 @@ pub const DEFAULT_ORACLE_STEP_CAP: usize = 20_000;
 /// made exclusions load-sensitive and masked the deterministic axis. A net's only job is to be
 /// unreachable by anything except a genuine hang, so it is set far above any legitimate per-word
 /// cost: the pathological deep-truncation-chain word that motivated these bounds completes in
-/// 91.6ms at `cap = 20_000` (`docs/fst-plan/deep-chain-pilot-non-completion.md`). Raising it costs
+/// 91.6ms at `cap = 20_000`. Raising it costs
 /// nothing on a healthy corpus and makes an abort mean what it says.
 pub const DEFAULT_ORACLE_LIVENESS_NET: Duration = Duration::from_secs(300);
 
@@ -1099,8 +1099,7 @@ pub struct RuntimeBudget {
     /// Ground-truth oracle step cap. UNLIKE every field above, `None` here does NOT mean
     /// "unbounded" — it means "caller did not override the default", because unbounded is exactly
     /// the defect this field exists to close (an unbounded oracle `Morpher` call is what hung the
-    /// deep-truncation-chain grammar's pilot indefinitely; see
-    /// `docs/fst-plan/deep-chain-pilot-non-completion.md`). `evaluate_plans` resolves `None`
+    /// deep-truncation-chain grammar's pilot indefinitely). `evaluate_plans` resolves `None`
     /// to [`DEFAULT_ORACLE_STEP_CAP`]. A caller that genuinely wants the old unbounded behavior must
     /// say so explicitly with `Some(usize::MAX)`.
     pub oracle_step_cap: Option<usize>,
@@ -1117,7 +1116,7 @@ pub struct RuntimeBudget {
     /// the default, NOT unbounded" convention as `oracle_step_cap` above, and for the same reason in
     /// the mirror-image direction: the oracle field exists because an unbounded ORACLE hung the run,
     /// and this one exists because an unbounded CANDIDATE PROPOSE killed the process outright
-    /// (measured 2026-08-03 -- see [`crate::compose_budget::DEFAULT_EVALUATION_APPLY_PATH_BUDGET`]
+    /// (see [`crate::compose_budget::DEFAULT_EVALUATION_APPLY_PATH_BUDGET`]
     /// for the full measurement and the calibration argument). Resolves to that constant. A caller
     /// that genuinely wants the old unbounded behavior must say so explicitly with `Some(usize::MAX)`.
     pub apply_path_budget: Option<usize>,
@@ -1466,7 +1465,7 @@ fn measure_and_certify_inner<const OBSERVE: bool>(
 /// Shared constructor for every evaluation outcome whose `Score` is zeroed except `build` --
 /// nothing past the build step ran, so `apply`/`proposals`/`confirmation`/`confirmation_steps`/
 /// `states`/`arcs` are honestly `0`, not "not yet measured" masquerading as a real reading.
-/// Recipe-pipeline-hygiene D7: every zeroed-`Score` failure path in this module routes through
+/// Every zeroed-`Score` failure path in this module routes through
 /// here (rather than re-inlining the same `Score { .. }` literal at each call site) so a future
 /// `Score` field addition has exactly one place to account for it -- forgetting it here fails to
 /// compile everywhere it matters, forgetting it at an inline literal fails silently at whichever
@@ -2486,7 +2485,7 @@ fn assess_one(
     let mut counters = AccuracyCounters::default();
     let mut misses = Vec::new();
     for (occurrence_ordinal, (word, oracle)) in selection.expected.iter().enumerate() {
-        // BOUNDED since 2026-08-03, and the bound is a REFUSAL. This loop used to pass
+        // BOUNDED, and the bound is a REFUSAL. This loop used to pass
         // `ApplyBudget::unbounded()` on the reasoning that "a bounded proposal set that trips reads as
         // undergeneration" -- correct about a SILENT bound, which is why the fix is
         // `AccuracyCounters::apply_refusals` (a trip forces `NotDetermined`, never `Undergenerated`)
