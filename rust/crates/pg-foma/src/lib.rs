@@ -207,7 +207,7 @@ pub mod peel;
 /// so a compiler can be composed rather than hand-written. Built by [`enumerate`], interpreted
 /// into real `Fsm`s by [`build`].
 pub mod plan;
-/// `openspec/changes/visualize-compilation-plan`: renders a [`plan::Plan`] as a versioned JSON
+/// Renders a [`plan::Plan`] as a versioned JSON
 /// document ([`plan_diagram::PlanDocument`], schema-versioned like [`coverage_ledger`]/[`health`])
 /// and, from that document, a mermaid diagram ([`plan_diagram::render_mermaid`]) labelled by the
 /// linguistic work each node performs and marked with its REAL [`capability`] verdict (never
@@ -215,21 +215,18 @@ pub mod plan;
 /// `plan_interaction_coverage` — no compile path is touched. See that module's own doc for the full
 /// contract, including the honest summarization convention for large plans.
 pub mod plan_diagram;
-/// Stage 3 of `openspec/changes/add-pairwise-grammar-interaction-coverage` (the REFRAMED design):
-/// tree-structured node/subtree interaction coverage over the reified compilation plan --
+/// Tree-structured node/subtree interaction coverage over the reified compilation plan --
 /// [`plan_interaction_coverage::AdjacencyTuple`] extraction + tagging,
 /// [`plan_interaction_coverage::retired_interactions`] (orthogonality pruning, evidence-cited, never
 /// invented), [`plan_interaction_coverage::compute_interaction_coverage`] (the required/covered/
 /// uncovered/contains-unsupported report), and [`plan_interaction_coverage::
 /// fuzz_gate_group_reordering_for_grammar`] (targeted Gate-node subtree fuzzing via
-/// [`oracle::permute_gate_groups`] + [`oracle::differential_oracle`]). **BUILD-BREAKING as of
-/// 2026-07-26** (`openspec/changes/plan-construct-coverage-completion` tasks.md 6.3): see that
-/// module's own doc for the mapping and `tests/plan_interaction_coverage_gate.rs` for the flipped
-/// gate.
+/// [`oracle::permute_gate_groups`] + [`oracle::differential_oracle`]). **BUILD-BREAKING**: see that
+/// module's own doc for the mapping and `tests/plan_interaction_coverage_gate.rs` for the gate.
 pub mod plan_interaction_coverage;
 pub mod precision;
 pub(crate) mod preexpand;
-/// `openspec/changes/add-fst-compilation-health-audit`, tasks.md section 1 ("Preflight"): the
+/// The
 /// cheap, pre-compile health pass -- [`preflight::preflight_findings`] turns
 /// [`capability::characterize`]'s already-computed [`capability::CharacteristicsProfile`] and
 /// [`capability_entry::evaluate_capability`]'s already-resolved [`capability::CompileDecision`]
@@ -297,32 +294,31 @@ pub mod selection;
 /// inherited by all three. Consulted by [`capability::compose_envelope_for_strategy`], which
 /// [`selection::select_plan`] calls at the point a candidate becomes selectable.
 pub mod strategy_coverage;
-/// Exact shared P6 templated-morphotactics compile pipeline and its stage profile.
+/// Exact shared templated-morphotactics compile pipeline and its stage profile.
 pub mod structural_allomorph;
 pub mod tags;
 pub mod templated_compile;
-/// P6 feasibility prototype sibling of [`replace`]: the underlying-form lexc emitter.
+/// A feasibility prototype sibling of [`replace`]: the underlying-form lexc emitter.
 pub mod uflexc;
-/// `openspec/changes/cover-unordered-morph-rules`: the `MorphRuleOrder::Unordered` chain-depth-
+/// The `MorphRuleOrder::Unordered` chain-depth-
 /// bounded/unbounded compile-time cardinality gate -- [`unordered::check_unordered_strata_bound`],
 /// wired into [`analyzer::FomaProposer::new_with_budget`], the second real production consumer of
 /// [`compose_budget::ComposeBudget`]'s chain-depth-shaped budget discipline after
-/// [`peel::ReduplicationPeeler`]. See that module's own doc for the full design, including this
-/// change's own load-bearing finding that the "ordering-union proposal" design.md calls for is an
+/// [`peel::ReduplicationPeeler`]. See that module's own doc for the full design, including the
+/// load-bearing finding that the "ordering-union proposal" is an
 /// EXISTING mechanism (`crate::emit::build_deriv_chain`), not a new one.
 pub(crate) mod unordered;
-/// `openspec/changes/harden-foma-resource-safety` section 3/4 (`openspec/changes/
-/// IMPLEMENTATION-READINESS.md` R2): the compile-worker watchdog -- a versioned request/result
+/// The compile-worker watchdog -- a versioned request/result
 /// protocol, a killable native worker process (`std::process::Command`/`Child::try_wait`/
 /// `Child::kill`, sampled RSS via `sysinfo`), and typed outcomes mapped into [`health`]'s existing
-/// vocabulary. ADR 0003's COMPILE-side containment, distinct from [`compose_budget`]'s in-process
+/// vocabulary. COMPILE-side containment, distinct from [`compose_budget`]'s in-process
 /// cooperative APPLY-side budgets -- see that module's own doc. `#[cfg(not(target_arch =
-/// "wasm32"))]`: this crate's own wasm32 dependency-graph discipline (R2: "WASM is analysis-only
-/// and needs no compile watchdog") -- see that module's own top doc for why its three extra
+/// "wasm32"))]`: this crate's own wasm32 dependency-graph discipline (WASM is analysis-only
+/// and needs no compile watchdog) -- see that module's own top doc for why its three extra
 /// dependencies are scoped to the identical target cfg in `Cargo.toml`.
 #[cfg(not(target_arch = "wasm32"))]
 pub mod worker;
 
-/// Re-exported so downstream crates (and the P0 tests) have a single, versioned door into the
+/// Re-exported so downstream crates have a single, versioned door into the
 /// `foma` runtime rather than depending on it directly.
 pub use foma as foma_runtime;
