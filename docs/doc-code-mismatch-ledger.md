@@ -43,26 +43,34 @@ are corroborated by named call sites; Tier 2 entries are not yet.
 
 ---
 
-## Tier 1 — CONFIRMED STALE (call site named; fix these first)
+## Tier 1 — CONFIRMED STALE — **ALL FIXED 2026-08-04 in `50611a2`** (branch `crp-depth-abort`)
 
-| Module | Lines | Header claims | Reality |
-|---|---:|---|---|
-| `pg-foma/capability.rs` | 7,421 | *"Purely additive... does NOT wire a gate into any production compile path"* (`:6`, restated `:54`) | `compose_envelope_for_strategy` (`capability.rs:4117`) is called by `selection.rs`, which gates what is selectable |
-| `pg-foma/replace.rs` | 2,739 | *"NOT wired into the mainline `emit`/`analyzer` path — a standalone prototype exercised by `examples/p6_replace_prototype.rs`"* (`:4-5`) | Called from `build.rs:599` and `gate.rs:388`. It is Path B's rule compiler — the validated core of the relational direction |
-| `pg-foma/plan.rs` | 704 | *"purely additive and does not rewire... Nothing in this file is wired into `analyzer`/`composite`/any other module's compile path yet"* (`:5`) | `build.rs` is a `Plan` INTERPRETER by its own module doc; `recipe_runtime`/`recipe_registry` consume plans |
-| `pg-foma/lib.rs` | — | Mirrors all three above at `:31`, `:79`, `:87`, `:216`, plus 8 more | The crate index restates each stale claim, so the wrong summary is what a reader meets first |
+| Module | Lines | Header claimed | Reality | Status |
+|---|---:|---|---|---|
+| `pg-foma/capability.rs` | 7,421 | *"Purely additive... does NOT wire a gate into any production compile path"* (`:6`, restated `:54`) | `compose_envelope_for_strategy` (`:4117`) consulted by `selection.rs`; `capability_entry` evaluates it from `preflight`/`readiness_verdict` | **fixed** |
+| `pg-foma/replace.rs` | 2,739 | *"NOT wired into the mainline path — a standalone prototype exercised by `examples/p6_replace_prototype.rs`"* (`:4-5`) | Called from `build.rs:599`, `gate.rs:388`. The relational half of the compiler | **fixed** |
+| `pg-foma/plan.rs` | 704 | *"Nothing in this file is wired into `analyzer`/`composite`/any other module's compile path yet"* (`:5`) | `enumerate::enumerate_default` emits Plans; `build::build_controllable` interprets them into real `Fsm`s | **fixed** |
+| `pg-foma/health.rs` | — | *"does not instrument any compiler pass"*, evaluator described as "a later change" (`:6`) | That change landed. `health_evaluator.rs`'s own doc **quotes this sentence verbatim** and announces itself as it; `worker.rs` calls `evaluate_health` on 3 paths | **fixed** |
+| `pg-foma/lib.rs` | — | Restated all four at `:31`, `:79`, `:160`, `:216`, `:292` | The crate index is where a reader meets the wrong summary first | **fixed** |
 
-## Tier 2 — LIKELY STALE (high reference count, call site NOT yet confirmed)
+**Fix principle used, worth reusing:** in three of the four the stale sentence was **collapsing two
+different true facts**, so the paragraph was corrected rather than deleted —
+*"not on Path A" ≠ "not in production"* (`replace`); *"gates SELECTION" ≠ "gates COMPILATION"*
+(`capability`); *health is REPORTED about a compile, never consulted during one* (`health`).
+`plan.rs` additionally now states what is still NOT true, because that is the useful half.
 
-Each needs one look to promote to Tier 1 or demote to Tier 3.
+## Tier 2 — ADJUDICATED 2026-08-04 (counts re-run excluding comment lines)
 
-| Module | External refs | Claim |
+The original counts included doc links, which inflated every row. Re-measured against
+**non-comment** references only:
+
+| Module | Non-comment refs | Verdict |
 |---|---:|---|
-| `pg-foma/health.rs` | 75 | *"Purely additive. This module defines and unit-tests the schema only"* (`:6`) |
-| `pg-foma/profile.rs` | 31 | *"not yet wired into the production constructor"* (`:122`) |
-| `pg-foma/health_evaluator.rs` | 24 | *"purely additive... does not instrument any compiler pass"* (`:4`) |
-| `pg-foma/capability_entry.rs` | 14 | *"Purely additive, check-only, non-blocking"* (`:6`) |
-| `pg-foma/readiness_policy.rs` | 11 | *"Purely additive, data-only"* (`:8`) |
+| `pg-foma/health.rs` | 10 (`health_evaluator`, `preflight`) | **Promoted to Tier 1 — fixed** |
+| `pg-foma/health_evaluator.rs` | 5 (`worker.rs:469/489/514`) | **Accurate → Tier 3.** Its doc correctly describes itself as the evaluator that health.rs deferred |
+| `pg-foma/capability_entry.rs` | 6 (`preflight`, `readiness_verdict`) | **OPEN.** Claim is "COMPUTES a `CompileDecision`, does not consult one." Needs one check: does `preflight` act on the decision? |
+| `pg-foma/readiness_policy.rs` | 5 (`readiness_verdict`) | **Accurate → Tier 3.** "Data-only" still holds; it is a threshold schema |
+| `pg-foma/profile.rs` | 16 (`analyzer.rs`) | **Mis-filed by this ledger.** `:122` documents an ENUM VARIANT (the Phase B experimental-cascade label), not module reachability. Not a Tier 2 item |
 
 ## Tier 3 — ACCURATE, or DECLARED POLICY THAT MUST STAY
 
