@@ -1,6 +1,6 @@
 //! `pangloss assess | compare | golden-diff | investigate` — the grammar-assessment evidence layer.
 //!
-//! `openspec/changes/add-grammar-assessment`. The four operations are one caller-facing contract
+//! The four operations are one caller-facing contract
 //! with one owner of the wire format: split them across commands that each own a piece of the
 //! schema and no single one can honour the PanGloss/caller boundary.
 //!
@@ -40,14 +40,14 @@ use pg_rules::word::Word;
 
 use crate::load_grammar;
 
-/// Typed process outcomes (task 3.10).
+/// Typed process outcomes.
 pub const EXIT_OK: u8 = 0;
 pub const EXIT_INVALID_INPUT: u8 = 2;
 pub const EXIT_UNSUPPORTED: u8 = 3;
 pub const EXIT_CONTAINED: u8 = 4;
 pub const EXIT_INTERNAL: u8 = 70;
 
-/// Which analysis pipeline runs (task 3.3, D13).
+/// Which analysis pipeline runs.
 ///
 /// Replaces `--engine default|foma` and inverts its default: `foma-confirm` is what production
 /// runs, so it is what evidence should describe. An unavailable pipeline is an
@@ -293,9 +293,9 @@ pub fn run_assess(args: &[String]) -> Result<(), CliError> {
         Some(value) => Pipeline::parse(value)?,
     };
 
-    // Logical budgets stay unbounded unless a resource envelope is named (task 3.4). No default is
-    // invented: `calibrate-fst-resource-envelopes` is data-blocked, so any number here would be
-    // guesswork that silently truncates analyses on real grammars.
+    // Logical budgets stay unbounded unless a resource envelope is named. No default is
+    // invented: any number here would be guesswork that silently truncates analyses on real
+    // grammars.
     let budget = ApplyBudget::with_caps(
         args.number("budget-paths")?,
         args.number("budget-candidates")?,
@@ -316,7 +316,7 @@ pub fn run_assess(args: &[String]) -> Result<(), CliError> {
         compiler_version: compiler_version.to_string(),
     };
 
-    // Import or compile failing after suite validation passed is not an error exit (task 3.11). A
+    // Import or compile failing after suite validation passed is not an error exit. A
     // caller that asked for evidence gets evidence: a `failed` artifact whose every case is
     // `not_attempted/assessment_setup_failed`, with the compiler's own message retained as a
     // diagnostic. Exiting non-zero with nothing to read would tell a CI consumer only that
@@ -329,10 +329,9 @@ pub fn run_assess(args: &[String]) -> Result<(), CliError> {
             return emit(&args, &report.to_value());
         }
     };
-    // Each warning keeps the stable code its emission site assigned (task 3.8), because `compare`
+    // Each warning keeps the stable code its emission site assigned, because `compare`
     // diffs diagnostics by code and count. Collapsing them into one bucket here would leave a
-    // caller unable to tell "the importer skipped different data" from "a message was reworded" —
-    // the distinction §10 exists to give them.
+    // caller unable to tell "the importer skipped different data" from "a message was reworded".
     let diagnostics = warnings
         .iter()
         .map(|warning| Diagnostic {
@@ -374,7 +373,7 @@ pub fn run_assess(args: &[String]) -> Result<(), CliError> {
     emit(&args, &report.to_value())
 }
 
-/// The artifact a run produces when setup failed safely (task 3.11).
+/// The artifact a run produces when setup failed safely.
 ///
 /// Every case is `not_attempted/assessment_setup_failed`, so [`pg_assess::derive_status`] reports
 /// `failed` and no case can be mistaken for a grammar that analyzes nothing.
@@ -400,7 +399,7 @@ fn setup_failed_report(
             severity: Severity::Error,
             message: message.to_string(),
         }],
-        // The typed top-level reason (spec 17.7). A consumer reading this artifact may have no
+        // The typed top-level reason. A consumer reading this artifact may have no
         // access to our exit code, so `status: failed` alone would leave it inferring the cause
         // from prose.
         failure: Some(AssessmentFailure {
@@ -430,10 +429,10 @@ struct PendingCase {
     supersedes: Vec<String>,
 }
 
-/// A suite, or a bare word list with synthesized case IDs (task 3.12).
+/// A suite, or a bare word list with synthesized case IDs.
 ///
 /// The word-list path exists so a caller need not author a suite for a quick run — it keeps
-/// `diagnose`'s ergonomics now that one assessment artifact exists in the repo (D14). Its case IDs
+/// `diagnose`'s ergonomics now that one assessment artifact exists in the repo. Its case IDs
 /// are deterministic but positional, so they are stable across reruns of the same list and not
 /// across edits to it; authoring a suite is what buys identity that survives reordering.
 fn load_cases(args: &Args) -> Result<(SuiteRef, Vec<PendingCase>), CliError> {
@@ -655,7 +654,7 @@ pub fn run_compare(args: &[String]) -> Result<(), CliError> {
     let delta =
         compare(&baseline, &candidate).map_err(|e| CliError::internal(format!("compare: {e}")))?;
     // Exit 0 even when every case is `not_comparable`: the artifact is valid and a typed refusal is
-    // evidence a consumer can act on (task 4.9).
+    // evidence a consumer can act on.
     emit(&args, &delta.to_value())
 }
 
@@ -751,7 +750,7 @@ pub fn run_investigate(args: &[String]) -> Result<(), CliError> {
                     // that the report's own recorded outcome for this case does not contain —
                     // exactly the "missing analysis" class `investigate` exists to explain. A
                     // fuller workflow would seed this from `compare`'s `removed` set for the
-                    // case; re-running both pipelines here is what D11 asks for and needs no
+                    // case; re-running both pipelines here needs no
                     // extra input from the caller.
                     let report_observed: Vec<AnalysisIdentity> = case
                         .outcome
@@ -922,7 +921,7 @@ fn collect_hermitcrab_failures_node(
             step: NarrativeStep {
                 candidate,
                 at,
-                // `pg_rules::trace::FailureReason`'s variant name, carried verbatim (task 6.5).
+                // `pg_rules::trace::FailureReason`'s variant name, carried verbatim.
                 failure_reason: format!("{reason:?}"),
                 // Factual: what was observed, never why the grammar is wrong or what to change.
                 detail: format!(
@@ -1092,7 +1091,7 @@ mod tests {
 
     #[test]
     fn the_default_pipeline_is_foma_confirm() {
-        // D13 inverts today's `--engine` default: production runs propose-and-confirm, so that is
+        // Inverts `--engine`'s own default: production runs propose-and-confirm, so that is
         // what an assessment should describe.
         let args = parse_args(&["g.xml".to_string()]).unwrap();
         assert!(args.flag("pipeline").is_none());
