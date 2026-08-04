@@ -3364,7 +3364,7 @@ fn emit_with_budget_profiled_with_strategy(
             }
         }
     }
-    // P1d: composite entries' tag chains can reference a rule morpheme NO other site declares (an
+    // Composite entries' tag chains can reference a rule morpheme NO other site declares (an
     // Infix rule is in no deriv layer and no slot). Roots re-inserting here is a harmless no-op.
     for c in &composites {
         for &(is_root, m) in &c.chain_morphemes {
@@ -3451,10 +3451,10 @@ fn emit_with_budget_profiled_with_strategy(
     // where `build_compound_chain` is never even called.
     let mut compound_extra_levels: usize = 1;
 
-    // `openspec/changes/cover-compounding` (design.md D2/D3/D4, tasks.md 2/5): the license-gated
-    // head/non-head subsets + the compound-pair budget check, computed once, right after `all_roots`
-    // and before any lexc text is written (fail fast, mirroring the enum-budget check above). `None`
-    // for the overwhelmingly common no-compounding-rule grammar -- a pure no-op there.
+    // The license-gated head/non-head subsets + the compound-pair budget check, computed once,
+    // right after `all_roots` and before any lexc text is written (fail fast, mirroring the
+    // enum-budget check above). `None` for the overwhelmingly common no-compounding-rule grammar --
+    // a pure no-op there.
     let compound_license = if has_compounding_rules {
         compound_license(g)
     } else {
@@ -3497,8 +3497,7 @@ fn emit_with_budget_profiled_with_strategy(
             };
         }
 
-        // `openspec/changes/plan-construct-coverage-completion` task 4.1 piece 2 (design.md row 2),
-        // now shared with `emit_underlying_templated` (task #44) via
+        // Shared with `emit_underlying_templated` via
         // [`compound_chain_depth_and_budget_check`] -- see that function's own doc.
         compound_extra_levels = match compound_chain_depth_and_budget_check(g, &uncovered, &counts)
         {
@@ -3508,14 +3507,14 @@ fn emit_with_budget_profiled_with_strategy(
     }
 
     let has_templates = !g.templates.is_empty();
-    // P1d (`crate::preexpand`): composites are emitted ONCE, in a single shared `Composites`
+    // `crate::preexpand` composites are emitted ONCE, in a single shared `Composites`
     // lexicon (each entry's upper tape = the ALREADY-CONCATENATED multi-tag chain,
     // [`preexpand::CompositeRec::tag_lexc`]; `write_tag_entry` accepts any tag string), whose
     // continuation `CompositeExit` is a bare-redirect UNION of every post-root continuation in the
     // grammar (`#`, `TLPost`, every `G{gi}Post`). Every roots lexicon (`Root`, `TLRoots`,
     // `G{gi}Roots`) gets one bare redirect INTO `Composites`, so a composite stem is reachable
     // exactly where an ordinary root is — after any prefix chain — and can continue into any suffix
-    // chain (plan P1d interaction item 4: root-section replacement, not bare-only). Sharing one
+    // chain (root-section replacement, not bare-only). Sharing one
     // lexicon instead of copying all entries per site is a pure fan-out refactor plus an UPWARD
     // approximation (a composite can now pair group A's prefixes with group B's suffix continuation
     // — the same superset direction the emitter's group sharing already takes, module doc item 1;
