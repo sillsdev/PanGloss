@@ -285,8 +285,7 @@ pub fn analyze_with_root_filter(
 }
 
 // =================================================================================================
-// 2026-07-17 dead-end-attribution census addition (`docs/superpowers/specs/
-// 2026-07-17-better-proposing-fst-plan.md` Phase 0; harness: `rust/crates/pg-foma/examples/
+// Dead-end-attribution census support (harness: `rust/crates/pg-foma/examples/
 // deadend_census.rs`) — the analysis-side mirror of [`synthesize_cached_traced`], which this
 // module already has for synthesis. `pg_rules::stratum::StratumAnalyzer`'s analysis cascade has
 // NEVER threaded a trace sink before this landing (confirmed by grep: zero production or test
@@ -1638,8 +1637,8 @@ fn synth_affix(g: &Grammar, word: &Word, rule: &AffixProcessRuleDef) -> Vec<Word
         return Vec::new();
     };
 
-    // 2026-07-27: resolve ONCE per call, against the rule's OWN owning stratum (via its
-    // `morpheme`), never the implicit `TableId(0)` default this used to fall back to -- see this
+    // Resolve ONCE per call, against the rule's OWN owning stratum (via its
+    // `morpheme`), never an implicit `TableId(0)` default -- see this
     // module's top-of-file note and `crate::cache::owning_table_for_morpheme`'s doc. `unwrap_or`
     // only fires for a non-grammar-resident test fixture (this uncached path's own documented
     // audience), matching every other "not really grammar-resident" fallback in this crate.
@@ -3408,7 +3407,7 @@ fn ana_compound_subrule(
                 w.shape = head_shape;
                 w.syn_fs = new_syn.clone();
                 // NonHeadUnapplied (Word.cs:477-482): push the split-off non-head word AND advance
-                // `non_head_app_index` to point at it -- P4 (2026-07-09) made `current_non_head()`
+                // `non_head_app_index` to point at it -- `current_non_head()` is
                 // index-based (matching C#'s `CurrentNonHead`, Word.cs:453-461), so a raw
                 // `non_heads.push` here (leaving the index stale) would make the just-split non-head
                 // invisible to `synth_compound`'s `word.current_non_head()` gate. Use the helper that
@@ -3607,10 +3606,10 @@ pub(crate) struct AllomorphLhsCache {
 /// Build the LHS/RHS half of one affix allomorph's cache entry (`crate::cache::RuleCache::build`
 /// pairs this with the environment-gate half it builds itself via `crate::rewrite::compile_env`).
 /// `table` is the allomorph's own owning table, already resolved once by the caller
-/// (`crate::cache::owning_table_for_allomorph`) -- see this module's top-of-file note. Defect (a)
-/// (2026-07-27): this used to ignore its caller's `table` entirely and compile against the
-/// module-level `TableId(0)` default, so an affix allomorph's own LHS/RHS *pattern* stayed
-/// table-blind even after the environment half (`build_env_cache`, `crate::cache`) was fixed.
+/// (`crate::cache::owning_table_for_allomorph`) -- see this module's top-of-file note. Defect (a):
+/// compiling against the module-level `TableId(0)` default instead of this `table` parameter would
+/// leave an affix allomorph's own LHS/RHS *pattern* table-blind even after the environment half
+/// (`build_env_cache`, `crate::cache`) was fixed.
 pub(crate) fn build_allomorph_lhs_cache(
     g: &Grammar,
     table: TableId,
