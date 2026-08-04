@@ -2761,14 +2761,12 @@ impl CapabilityPredicate for CircumfixStructuralCompositePredicate {
 // Reduplication: the config-predicate `cover-template-truncation-reduplication` registers
 // -------------------------------------------------------------------------------------------
 
-/// `openspec/changes/cover-template-truncation-reduplication`'s own capability predicate: a truly
-/// reduplicating `AffixAllomorphDef` (design.md's own worked example: "Prove reduplication
-/// peeler-to-confirm contracts and resource bounds") is faithfully PROPOSABLE via
-/// [`crate::peel::ReduplicationPeeler`] -- deliberately NOT via FST compilation at all (this
-/// change's design.md: "retaining the established division between compiled template morphology
-/// and peeled reduplication"); the FST proposer + this peel together over-generate candidates for
+/// The capability predicate for `Reduplication`: a truly reduplicating `AffixAllomorphDef` is
+/// faithfully PROPOSABLE via [`crate::peel::ReduplicationPeeler`] -- deliberately NOT via FST
+/// compilation at all (retaining the established division between compiled template morphology
+/// and peeled reduplication); the FST proposer + this peel together over-generate candidates for
 /// `crate::confirm`'s own restricted reparse to prune, the standard confirm-only-by-default shape
-/// (ADR 0001) every other `ConfigPredicate` characteristic in this registry already uses.
+/// every other `ConfigPredicate` characteristic in this registry already uses.
 ///
 /// # Disposition
 /// - **Not observed at all** (no allomorph truly reduplicates anywhere in the grammar): vacuously
@@ -2782,27 +2780,24 @@ impl CapabilityPredicate for CircumfixStructuralCompositePredicate {
 ///   CONTAINMENT against `pg_parse::Morpher` for a real, previously-zero-coverage full-stem
 ///   reduplication construct — `machine/conformance/languages/
 ///   suffixing-extension-slot-ordering`'s `mrRedup`, "kimbiakimbia"), but no PROVEN
-///   no-false-negative admission-filter argument exists (ADR 0001's own bar for `Admit`) —
-///   confirm-only-by-default, the same landing spot every other `ConfigPredicate` characteristic
-///   in this registry already uses.
+///   no-false-negative admission-filter argument exists — confirm-only-by-default, the same
+///   landing spot every other `ConfigPredicate` characteristic in this registry already uses.
 /// - **At least one observed occurrence is NOT peel-eligible** (a true-reduplicating allomorph
 ///   belonging to a `RealizationalRule`): [`PredicateVerdict::Refuse`] — `crate::peel::
 ///   ReduplicationPeeler::new`'s own `is_reduplication_rule` never classifies it (a real,
 ///   faithfully-preserved C# quirk, that function's own doc), so the peel never proposes it at
 ///   all; a grammar depending on it must be refused rather than silently missing recall,
-///   overridable per ADR 0005.
+///   overridable via the capability override.
 ///
-/// # Census C2's interaction with `peel_eligible_rule_kind` (checked, deliberately left unchanged)
+/// # Interaction with `peel_eligible_rule_kind` (checked, deliberately left unchanged)
 /// `peel_eligible_rule_kind` (`characterize_allomorph`'s own computation site,
 /// `matches!(g.mrules[rule.0 as usize], MorphRuleDef::AffixProcess(_))`) is a RULE-KIND check only —
-/// it mirrors `crate::peel::is_reduplication_rule`'s OWN `AffixProcess`-vs-`Realizational` split
-/// (row 11's carve-out), not that function's full `classify_affix`-based per-allomorph test. Since
-/// census C2's fix (`docs/conformance/circumfix-structural-composite-census.md`,
-/// `plan-construct-coverage-completion` task 4.3c), an allomorph can have `rhs_has_true_
-/// reduplication == true` (this predicate's own trigger, which only counts repeated `Copy`/`Modify`
-/// occurrences and does not consult `Role` at all) while `crate::emit::classify_affix` classifies it
-/// `CircumfixPrefix` rather than `Reduplication` — i.e. an `AffixProcess` allomorph that is
-/// simultaneously circumfix-and-reduplication-shaped. For exactly that allomorph,
+/// it mirrors `crate::peel::is_reduplication_rule`'s OWN `AffixProcess`-vs-`Realizational` split,
+/// not that function's full `classify_affix`-based per-allomorph test. An allomorph can have
+/// `rhs_has_true_reduplication == true` (this predicate's own trigger, which only counts repeated
+/// `Copy`/`Modify` occurrences and does not consult `Role` at all) while `crate::emit::classify_affix`
+/// classifies it `CircumfixPrefix` rather than `Reduplication` — i.e. an `AffixProcess` allomorph
+/// that is simultaneously circumfix-and-reduplication-shaped. For exactly that allomorph,
 /// `peel_eligible_rule_kind` stays `true` even though `crate::peel::is_reduplication_rule`'s own
 /// `.any()` scan (which DOES call `classify_affix`) no longer picks this specific allomorph up —
 /// the peel is not, in fact, the mechanism that covers it. This is deliberately left as `true`
@@ -2814,22 +2809,22 @@ impl CapabilityPredicate for CircumfixStructuralCompositePredicate {
 /// characterized here), so `build_structural_composites` — a real, oracle-backed construction, not a
 /// hand-wave — is guaranteed to attempt it. The `ConfirmOnly` verdict this predicate reports therefore
 /// stays TRUE in outcome for this shape; only the predicate's own CITATION of "the peel covers it" is
-/// imprecise for this one combined case, and [`CircumfixStructuralCompositePredicate`]'s own doc (see
-/// its C2 paragraph) is where the actually-operative construction and its containment proof are
-/// recorded. `rhs_has_true_reduplication == true` with `classify_affix` returning anything OTHER than
-/// `CircumfixPrefix` or `Reduplication` cannot happen (`classify_affix`'s own structure: the
-/// reduplication check is the only other place `is_reduplicating` is consulted, immediately after the
-/// circumfix test), so this is an exhaustive two-way split, not a partial account.
+/// imprecise for this one combined case, and [`CircumfixStructuralCompositePredicate`]'s own doc (its
+/// paragraph on the circumfix-plus-reduplication interaction) is where the actually-operative
+/// construction and its containment proof are recorded. `rhs_has_true_reduplication == true` with
+/// `classify_affix` returning anything OTHER than `CircumfixPrefix` or `Reduplication` cannot happen
+/// (`classify_affix`'s own structure: the reduplication check is the only other place
+/// `is_reduplicating` is consulted, immediately after the circumfix test), so this is an exhaustive
+/// two-way split, not a partial account.
 ///
 /// # Deep/nested reduplication chains stay a SEPARATE, cost (not capability), concern
 /// `crate::peel::ReduplicationPeeler`'s nested-reduplication recursion (its own module doc, "Chain
-/// depth and nested reduplication") is bounded by the ADR 0003 [`crate::compose_budget::
-/// ComposeBudget::chain_depth_cap`] dimension, not by this predicate: a deep chain that exceeds a
-/// CONFIGURED cap is a per-word, cost-uncertain runtime refusal
+/// depth and nested reduplication") is bounded by the
+/// [`crate::compose_budget::ComposeBudget::chain_depth_cap`] dimension, not by this predicate: a
+/// deep chain that exceeds a CONFIGURED cap is a per-word, cost-uncertain runtime refusal
 /// ([`crate::compose_budget::ComposeError::ChainDepthExceeded`]), never a compile-time
-/// supported/unsupported capability verdict (`openspec/changes/STAGING.md`'s own "Capability and
-/// cost are gated by different standards" -- capability is proven a-priori and hard-fails; cost is
-/// cost-uncertain and only warns/refuses at apply-time under the runtime counter). This predicate's
+/// supported/unsupported capability verdict — capability is proven a-priori and hard-fails; cost is
+/// cost-uncertain and only warns/refuses at apply-time under the runtime counter. This predicate's
 /// own verdict is therefore identical regardless of how deep any given grammar's reduplication
 /// chains happen to run.
 ///
