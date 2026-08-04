@@ -1572,22 +1572,20 @@ fn filter_roots_by_license<'a>(
         .collect()
 }
 
-// --- Bounded compound loop (module doc, "Bounded compound loop"): the shared depth-budgeted chain,
-// task #44 -------------------------------------------------------------------------------------
+// --- Bounded compound loop (module doc, "Bounded compound loop"): the shared depth-budgeted chain
+// -------------------------------------------------------------------------------------------------
 
-/// `openspec/changes/plan-construct-coverage-completion` task 4.1 piece 2 (design.md row 2): the
-/// depth-budgeted extension of the "bounded compound loop" (module doc) -- a chain of `levels`
+/// The depth-budgeted extension of the "bounded compound loop" (module doc) -- a chain of `levels`
 /// license-gated non-head-root LEVELS under `base` (e.g. `"TLCmp"`/`"G3Cmp"`), each with its own
-/// optional prefix-derivation hop (Gate F3 3b -- a prefix on the compound's non-head span,
-/// `lexbedom`/`silamanuk`, module doc's "Bounded compound loop" citation), realizing every compound
+/// optional prefix-derivation hop (a prefix on the compound's non-head span, e.g.
+/// `lexbedom`/`silamanuk` -- see module doc's "Bounded compound loop" section), realizing every compound
 /// depth from 2 stems (head + 1 extra root) up to `1 + levels` stems (head + `levels` extra roots)
 /// as accepted paths through ONE compiled network, not `levels` separately-sized copies --
 /// `compound_license`'s own license-gated non-head set is reused, UNCHANGED, at every level (this
 /// adds depth, never new precision, matching every other over-approximating simplification the
 /// module doc's "Deliberate supersets" section already accepts).
 ///
-/// **Byte-identical to the pre-existing single-level construction when `levels == 1`** (every
-/// grammar this task did not change stays byte-for-byte the same): level 1 reuses the EXACT
+/// **Byte-identical to the pre-existing single-level construction when `levels == 1`**: level 1 reuses the EXACT
 /// pre-existing names (`{base}`, `{base}Pfx`, `{base}Roots`[`Stripped`]) and, since `levels == 1`
 /// makes it also the LAST level, its root entries continue DIRECTLY to `exit` -- no dispatcher
 /// lexicon is ever written for the single-level case. Level `k >= 2` (only emitted when
@@ -1603,28 +1601,25 @@ fn filter_roots_by_license<'a>(
 /// still make `levels` itself unreasonably large.
 ///
 /// **Shared by BOTH emitters** (`emit_with_budget_profiled`'s `TextMode::SurfaceProbed` path AND
-/// `emit_underlying_templated`'s P6 templated path -- task #44): one construction, generalized over
+/// `emit_underlying_templated`'s templated path): one construction, generalized over
 /// `mode`/`phon`/`write_root_entries`/`write_stripped_root_entries` exactly the way
 /// `build_deriv_chain` (this file's other shared chain-builder) is already generalized over `mode`.
-/// Before task #44 this was a `SurfaceProbed`-only closure local to `emit_with_budget_profiled`, and
-/// `emit_underlying_templated` hardcoded exactly one non-head-root level regardless of any rule's
-/// own `compounding_max_depth` bound -- silently unable to propose a recursive compound on the
-/// templated path even though `CompoundingRecursionSafePredicate` is `ConfirmOnly` unconditionally
-/// for `Compounding` (`capability.rs`'s own doc: "the recursive split is now closed too"). Extracting
-/// this one function (rather than writing a second unroller for the templated path) is what closes
-/// that gap without a second construction that can drift from this one.
+/// A per-emitter unroller could silently drift from this one and, on the templated path, propose
+/// fewer compound depths than a rule's own `compounding_max_depth` bound allows even though
+/// `CompoundingRecursionSafePredicate` is `ConfirmOnly` unconditionally for `Compounding`
+/// (`capability.rs`'s own doc) -- one shared function rules that out by construction.
 ///
 /// `write_prefix_hop`/`write_root_entries`/`write_stripped_root_entries` are supplied by the caller
 /// (each emitter's own local closure, capturing that emitter's own `width`/tag-writing convention --
 /// mirrors how `build_deriv_chain`'s callers already pass their own `mode`) rather than re-derived
 /// here, so this function never needs any emitter's own closure SHAPE.
 /// `write_stripped_root_entries` is only ever actually invoked when `emit_stripped` (the caller's own
-/// `phon.is_some()`; never true on the P6 templated path or the `crate::uflexc` path, module doc: "No
+/// `phon.is_some()`; never true on the templated path or the `crate::uflexc` path, module doc: "No
 /// junction probing... under this mode"), so a caller with no real `Stripped` sibling can pass any
 /// closure with the right signature; it is provably never called there.
 ///
-/// **Generic over the root record type `R` and the emitter-state type `C` (task: uflexc's own
-/// compound loop).** The third caller, [`crate::uflexc`], is a deliberately minimal
+/// **Generic over the root record type `R` and the emitter-state type `C`.** The third caller,
+/// [`crate::uflexc`], is a deliberately minimal
 /// `SegAlphabet`-token-space emitter that shares NONE of this module's emission state: it has no
 /// [`RootRec`] (its roots are `(tag, underlying-token)` pairs read straight off `Grammar::entries`),
 /// no [`PrecisionEmit`] (no FST precision knob at all), no [`PhonologyProbe`], and -- most
