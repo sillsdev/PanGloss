@@ -1,72 +1,37 @@
-//! `openspec/changes/define-grammar-coverage-contract` (proposal.md/design.md/tasks.md;
-//! `specs/grammar-coverage-contract/spec.md`) — **demoted to an evidence role**, per that change's
-//! own proposal.md and `openspec/changes/STAGING.md` Stage 0B: this is the one-time, audited
-//! coverage LEDGER over the frozen `pg-grammar/src/model.rs` construct set. It is evidence that
-//! feeds *into* `add-capability-characteristics-check`'s Stage 0A gate
+//! The one-time, audited coverage LEDGER over the frozen `pg-grammar/src/model.rs` construct set.
+//! It is evidence that feeds *into* the capability gate
 //! (`crate::capability::compose_envelope`) — it is **not itself a gate**. See "Evidence, not a
 //! gate" below for what that means concretely in this file.
 //!
-//! `openspec/changes/IMPLEMENTATION-READINESS.md` R1 (verbatim): *"HermitCrab and the Rust model
-//! are assumed complete apart from bug fixes. Implement a one-time REVIEWED ledger over the current
-//! model; do NOT add source-AST/reflection infrastructure."* `docs/adr/0001-honest-capability-
-//! boundary.md`'s own words: *"The pre-existing coverage ledger (`define-grammar-coverage-
-//! contract`) supplies evidence into this gate; it is not itself the gate."*
+//! HermitCrab and the Rust model are assumed complete apart from bug fixes, so this module
+//! implements a one-time REVIEWED ledger over the current model rather than source-AST/reflection
+//! infrastructure that would try to stay in sync automatically. The pre-existing coverage ledger
+//! supplies evidence into the capability gate; it is not itself the gate.
 //!
-//! # Per-task assessment — what already existed vs. what this module actually adds
-//! `tasks.md`'s own three items under "1. Inventory" and its own "Verification" item 3.3, checked
-//! one at a time (this crate does not re-litigate `tasks.md` section "2. Gate contract v2" — see
-//! "Out of scope" below):
-//!
-//! - **1.1** ("coverage-ledger schema v1 and a one-time reviewed inventory of the frozen public
-//!   variants and behavior-bearing fields in `model.rs`"): the INVENTORY half of this task was
-//!   **already fully done** by `crate::capability`: [`crate::capability::CharacteristicKind`] (20
-//!   variants, [`crate::capability::CharacteristicKind::ALL`]) and [`crate::capability::
-//!   characterize`] (the exhaustive, no-catch-all per-`model.rs`-variant walk) together ARE the
-//!   one-time reviewed inventory R1 asks for — see that module's own top-doc: "walks a `Grammar`
-//!   and matches every variant of every frozen `model.rs` enum design.md D1 names, with no
-//!   catch-all arm". This module does not re-inventory `model.rs`; the genuinely missing SCHEMA
-//!   half — a consolidated, queryable, *serializable* row-per-construct VIEW over that existing
-//!   inventory — is what [`LedgerRow`]/[`CoverageLedger`]/[`build_ledger`] supply.
-//! - **1.2** ("map every variant to compiler disposition, owning tests, positive witness, and
-//!   negative witness"): the disposition mapping **already exists** and is the crate's own single
-//!   source of truth — [`crate::capability::CharacteristicKind::default_disposition`]. This module
-//!   never hardcodes a second copy of it (see [`LedgerRow::disposition`]'s own doc and this file's
-//!   `ledger_disposition_never_diverges_from_default_disposition` test). "Owning tests"/witnesses
-//!   *partially* existed: every citation in [`containment_evidence_for`] below names a REAL,
-//!   already-merged test file (`tests/cover_*.rs`, `tests/phase_c_*.rs`, `tests/
+//! # What this module owns, and what it reuses rather than re-deriving
+//! - The INVENTORY of every frozen `model.rs` variant already exists as
+//!   [`crate::capability::CharacteristicKind`] (its own `ALL` constant) and
+//!   [`crate::capability::characterize`] (the exhaustive, no-catch-all per-`model.rs`-variant
+//!   walk) — this module does not re-inventory `model.rs`. What it adds is the SCHEMA half: a
+//!   consolidated, queryable, *serializable* row-per-construct VIEW over that existing inventory,
+//!   via [`LedgerRow`]/[`CoverageLedger`]/[`build_ledger`].
+//! - The disposition mapping is not duplicated here either — [`LedgerRow::disposition`] always
+//!   reads [`crate::capability::CharacteristicKind::default_disposition`], never a second,
+//!   hardcoded copy (pinned by this file's own
+//!   `ledger_disposition_never_diverges_from_default_disposition` test).
+//! - [`containment_evidence_for`] is a curated, hand-reviewed table naming, for every construct,
+//!   which REAL already-merged test file (`tests/cover_*.rs`, `tests/phase_c_*.rs`, `tests/
 //!   epenthesis_structural_route_containment.rs`, `tests/two_table_symbol_divergence.rs`, `tests/
-//!   f6_reduplication_peel_chain_depth.rs`, `tests/p6_gate_parity.rs`) — but **no single table
-//!   collected which construct each one is a witness FOR** before this module. That curated,
-//!   hand-reviewed table is the genuine gap this module closes — exactly R1's own prescription
-//!   ("a one-time REVIEWED ledger", not a mechanically-derived one).
-//! - **1.3** ("render the ledger into maintained documentation and reconcile stale Phase B/C/P6
-//!   statuses"): **out of scope for this merge unit** — proposal.md's own "Impact" section splits
-//!   this change into three SERIAL merge units ("inventory/schema, oracle identity and containment
-//!   library, then migration of named Phase-C and Aweti fixtures"); documentation rendering and
-//!   reconciling stale planning prose is neither of the first unit's concerns. [`CoverageLedger::
-//!   to_json`] is the machine-readable source artifact a later renderer would consume (mirrors
-//!   `crate::health`'s own "Canonical JSON is the source artifact; Markdown is a rendering of the
-//!   same findings" framing) — no Markdown/prose renderer is written here.
-//! - **Section 2** ("Gate contract v2": versioned oracle-analysis records, exact identity/
-//!   multiplicity comparison, the Machine `WordAnalysis.Equals` projection, dense-ordinal-to-HC-
-//!   XML-key resolution, a key-decision precedent record): **out of scope for this merge unit**.
-//!   `IMPLEMENTATION-READINESS.md`'s own "Safe initial dispatch" list scopes unit 1 to "audit the
-//!   frozen model and classify every row; no permanent source-parser mechanism is required" —
-//!   nothing about oracle-identity plumbing. Proposal.md's own three-unit split names this "oracle
-//!   identity and containment library" as the SECOND, separate unit. Not attempted here; this
-//!   module's [`ContainmentEvidence`] cites EXISTING containment tests, it does not build new
-//!   oracle-identity infrastructure.
-//! - **3.1** ("convert `phase_c_multi_table`, `phase_c_right_to_left`, `phase_c_simultaneous`, and
-//!   `p6_templated_morphotactics_gate` to the new contract") and **3.2** ("prove old word-level gates cannot silently
-//!   pass an analysis-loss fixture"): the THIRD merge unit (fixture migration) — not attempted here.
-//! - **3.3** ("validate all ledger rows have an explicit disposition and evidence owner; document
-//!   that any future model-shape change must reopen this audit rather than silently extending the
-//!   ledger"): **implemented here** — see this module's own `tests` submodule, especially
-//!   `every_characteristic_kind_appears_exactly_once`, `every_config_predicate_or_fail_closed_row_
-//!   names_a_discharging_predicate`, and this file's own top-doc "A future model-shape change" note
-//!   below (mirrors `crate::capability::CharacteristicKind::ALL`'s own doc: hand-maintained because
-//!   Rust has no enum reflection, so `CharacteristicKind::ALL`'s own doc is this module's closest
-//!   available backstop too).
+//!   f6_reduplication_peel_chain_depth.rs`, `tests/p6_gate_parity.rs`) is a witness for it — a
+//!   one-time REVIEWED table, not a mechanically-derived one.
+//! - [`CoverageLedger::to_json`] is the machine-readable source artifact (mirrors `crate::health`'s
+//!   own "canonical JSON is the source artifact" convention); no Markdown/prose renderer exists
+//!   here.
+//! - Every ledger row's disposition and evidence owner is validated exhaustively by this module's
+//!   own `tests` submodule (`every_characteristic_kind_appears_exactly_once`,
+//!   `every_config_predicate_or_fail_closed_row_names_a_discharging_predicate`, and this file's
+//!   own "A future model-shape change" note below), hand-maintained because Rust has no enum
+//!   reflection (the same reason `crate::capability::CharacteristicKind::ALL`'s own doc gives).
 //!
 //! # Coverage is claimed PER STRATEGY, never for "the compiler"
 //! This crate has three compilers ([`crate::enumerate::EmissionStrategy`]), and until
@@ -93,10 +58,9 @@
 //! notably no row names [`crate::enumerate::EmissionStrategy::TemplatedUnderlyingTokens`] at all.
 //!
 //! # A future model-shape change
-//! Per `specs/grammar-coverage-contract/spec.md`'s own "A future change attempts to extend the
-//! model" scenario: adding a new `pg-grammar/src/model.rs` construct or behavior-bearing field is
-//! OUTSIDE this ledger's standing frozen-model assumption (R1) and must explicitly reopen and
-//! revise this coverage contract before merge — concretely, that means updating `crate::capability`
+//! Adding a new `pg-grammar/src/model.rs` construct or behavior-bearing field is OUTSIDE this
+//! ledger's standing frozen-model assumption and must explicitly reopen and revise this coverage
+//! contract before merge — concretely, that means updating `crate::capability`
 //! first (`CharacteristicKind`, `CharacteristicKind::ALL`, `default_disposition`, `characterize`,
 //! per that module's own exhaustiveness discipline), which breaks THIS module's build the moment a
 //! new `CharacteristicKind::ALL` entry appears (every exhaustive match in this file has no
@@ -105,16 +69,15 @@
 //! # Evidence, not a gate
 //! Nothing in this module is consulted by any compile path. [`build_ledger`] is a pure function;
 //! [`CoverageLedger`] is inert data. The load-bearing, hard-failing artifact remains
-//! [`crate::capability::compose_envelope`] (Stage 0A) — this ledger's rows are read BY a human/CI
+//! [`crate::capability::compose_envelope`] — this ledger's rows are read BY a human/CI
 //! reviewer and by that gate's own predicate authors as evidence when they write or review a
 //! [`crate::capability::CapabilityPredicate`], never consulted at compile time to admit or refuse a
 //! grammar. No test in this file asserts `gaps.is_empty()` for conformance/containment coverage —
 //! same non-blocking-first discipline `crate::conformance_coverage`/`crate::
 //! plan_interaction_coverage` already established for their own advisory reports; this module goes
-//! one step further and is not even wired into a CI report yet, deliberately (that wiring, if any,
-//! belongs to a later merge unit).
+//! one step further and is not wired into any CI report.
 //!
-//! # The four rows this ledger fills in per `CharacteristicKind` (deliverable, `tasks.md` 1.1/1.2)
+//! # The four rows this ledger fills in per `CharacteristicKind`
 //! [`LedgerRow`]: the [`crate::capability::CharacteristicKind`] itself; its
 //! [`crate::capability::Disposition`] (ALWAYS [`crate::capability::CharacteristicKind::
 //! default_disposition`] — never a second, divergent copy); every [`crate::capability::
@@ -136,7 +99,7 @@
 //!
 //! # Why `CharacteristicKind`/`Disposition`/`EvidenceProvenance`/`CoverageStatus` gain `Serialize`/
 //! `Deserialize` impls IN THIS FILE, not in `capability.rs`/`conformance_coverage.rs`
-//! This task's own hard rule: "additive only (don't change `capability.rs` semantics)". Rust's
+//! This module's own hard rule: additive only, never changing `capability.rs` semantics. Rust's
 //! orphan rule permits implementing a foreign trait (`serde::Serialize`/`Deserialize`) for a type
 //! local to this crate from ANY module in the crate — so these four wire-format impls live here,
 //! next to the one module that actually needs them, leaving `capability.rs`/`conformance_coverage.
@@ -306,7 +269,7 @@ impl<'de> Deserialize<'de> for CoverageStatus {
 }
 
 // =================================================================================================
-// The curated containment-evidence table (tasks.md 1.2's "owning tests" half)
+// The curated containment-evidence table ("owning tests" per construct)
 // =================================================================================================
 
 /// Which shape of evidence [`ContainmentEvidence::citation`] provides. Not every
@@ -316,8 +279,8 @@ impl<'de> Deserialize<'de> for CoverageStatus {
 #[serde(rename_all = "snake_case")]
 pub enum ContainmentEvidenceKind {
     /// A test whose specific, stated purpose is proving THIS construct's proposer-to-confirm
-    /// containment (over-propose, confirm prunes to exactly the oracle's set) — the ADR 0001
-    /// default shape every `ConfigPredicate`/`ConfirmOnly` characteristic's kit needs.
+    /// containment (over-propose, confirm prunes to exactly the oracle's set) — the default shape
+    /// every `ConfigPredicate`/`ConfirmOnly` characteristic's kit needs.
     Dedicated,
     /// No single dedicated fixture exists (or is needed): the characteristic is
     /// [`Disposition::Proven`] and is exercised pervasively, as ordinary background material, by
@@ -332,7 +295,7 @@ pub enum ContainmentEvidenceKind {
     RefusalWitness,
 }
 
-/// One curated, hand-reviewed containment-evidence citation (tasks.md 1.2). Every field is a
+/// One curated, hand-reviewed containment-evidence citation. Every field is a
 /// `String` (not `&'static str`) so [`LedgerRow`] round-trips through [`CoverageLedger::from_json`]
 /// losslessly, matching `crate::health::HealthFinding`'s own `String`-field convention.
 ///
@@ -390,7 +353,7 @@ fn ev(
     }
 }
 
-/// Deliverable, tasks.md 1.2's "owning tests" column: `kind`'s curated proposer-to-confirm
+/// `kind`'s curated proposer-to-confirm
 /// containment (or, for [`Disposition::FailClosed`], refusal) witness, if this crate's test suite
 /// has one — `None` only where no witness exists at all (a genuine, honestly-reported gap, never
 /// silently invented; see [`CharacteristicKind::NaturalClassDefinition`]'s own arm below).
@@ -572,8 +535,8 @@ pub fn containment_evidence_for(kind: CharacteristicKind) -> Option<ContainmentE
              min-boundary occurrence counts; an inverted/over-budget-finite/alpha-nested \
              quantifier stays honestly unsupported.",
         ),
-        // Research report 13's taxonomy-gap fix: `RootAllomorphDef::stem_name` (model.rs:798) --
-        // NOT `MorphRuleDef::required_stem_name` (model.rs:648), which stays folded into
+        // `RootAllomorphDef::stem_name` (model.rs:798) -- NOT `MorphRuleDef::required_stem_name`
+        // (model.rs:648), which stays folded into
         // `Affixation`/`RealizationalMorphology` per `tests/cover_realizational_morphology_
         // constraints.rs`'s own doc ("folding them into a separate CharacteristicKind would
         // double-count the same ModelLocation::MorphRule occurrence"). The ALLOMORPH-level
@@ -590,7 +553,7 @@ pub fn containment_evidence_for(kind: CharacteristicKind) -> Option<ContainmentE
              default-allomorph-excluded-by-a-restricted-sibling case) -- the FST proposes every \
              stem-restricted allomorph unconditionally; confirm's stem_name_gate_reason prunes.",
         ),
-        // Research report 13's taxonomy-gap fix: the W3.2 disjunctive-allomorph re-check
+        // The disjunctive-allomorph re-check
         // (`pg_rules::validity`'s `free_fluctuates`/`disjunctive_candidates`). No DEDICATED
         // pg-foma-crate propose-then-confirm containment test exists for this specific mechanism
         // today (unlike `StemName`, which `cover_realizational_morphology_constraints.rs` already
@@ -616,7 +579,7 @@ pub struct DischargingPredicate {
     pub provenance: EvidenceProvenance,
 }
 
-/// One row of the coverage ledger (tasks.md 1.1/1.2's deliverable): everything this crate can say
+/// One row of the coverage ledger: everything this crate can say
 /// today about one [`CharacteristicKind`] — the frozen-model construct(s) it represents (see that
 /// type's own per-variant doc in `capability.rs` for the exact `model.rs` citation), its
 /// disposition, which predicates (if any) discharge it, which `constructs.txt` id(s) it maps to and
@@ -661,9 +624,8 @@ pub struct LedgerRow {
     pub strategies_unwitnessed: Vec<String>,
 }
 
-/// The full, versioned, one-time-audited coverage ledger (tasks.md 1.1's deliverable). See this
-/// module's own top-doc "Evidence, not a gate" section: this type is inert data, consulted by no
-/// compile path.
+/// The full, versioned, one-time-audited coverage ledger. See this module's own top-doc "Evidence,
+/// not a gate" section: this type is inert data, consulted by no compile path.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CoverageLedger {
     pub schema_version: u32,
@@ -836,10 +798,10 @@ mod tests {
     }
 
     // ---------------------------------------------------------------------------------------
-    // tasks.md 3.3: exhaustiveness / no-drift
+    // Exhaustiveness / no-drift
     // ---------------------------------------------------------------------------------------
 
-    /// The ledger's own honesty test (tasks.md 3.3): every `CharacteristicKind` appears in the
+    /// The ledger's own honesty test: every `CharacteristicKind` appears in the
     /// built ledger EXACTLY once. A future `CharacteristicKind` variant added without a
     /// corresponding `ALL` entry would silently never appear here at all (the same documented,
     /// non-panicking gap `CharacteristicKind::ALL`'s own doc names) -- the closed-match discipline
@@ -855,7 +817,7 @@ mod tests {
         }
     }
 
-    /// Single source of truth (tasks.md's own "no divergent copy" discipline): every row's
+    /// Single source of truth ("no divergent copy" discipline): every row's
     /// `disposition` is always exactly `kind.default_disposition()`, never a hardcoded or
     /// independently-computed value.
     #[test]
