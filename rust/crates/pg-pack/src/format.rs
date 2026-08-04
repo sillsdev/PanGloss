@@ -1,5 +1,4 @@
-//! The `.pgpack` container's exact physical byte layout (R2A; `make-wasm-analysis-only`
-//! design.md/spec.md). This module owns [`write_pack`]/[`read_pack`] and every typed failure
+//! The `.pgpack` container's exact physical byte layout. This module owns [`write_pack`]/[`read_pack`] and every typed failure
 //! [`PgPackError`] names; nothing above this module touches raw bytes.
 //!
 //! # Byte layout (container version 1)
@@ -20,8 +19,8 @@
 //! ```
 //!
 //! **Judgment call: the three length prefixes are grouped in a fixed-size header** (offsets
-//! 12..36), rather than interleaved immediately before each of their own sections. Design.md
-//! describes each section as "length-prefixed" without mandating interleaving; grouping them
+//! 12..36), rather than interleaved immediately before each of their own sections. Each section is
+//! length-prefixed without mandating interleaving; grouping them
 //! together is what makes the hard rule -- "EVERY length validated against versioned limits
 //! BEFORE allocation" -- straightforward to enforce as a single up-front pass: [`read_pack`] reads
 //! and validates all three declared lengths (bounds, overflow, per-section limit, total-package
@@ -50,7 +49,7 @@ use thiserror::Error;
 use crate::manifest::PackManifest;
 use crate::signature::{self, SignatureState};
 
-/// Fixed PanGloss magic bytes opening every `.pgpack` container (R2A).
+/// Fixed PanGloss magic bytes opening every `.pgpack` container.
 pub const MAGIC: [u8; 8] = *b"PGLOPACK";
 /// The container framing version this build writes and reads. Distinct from
 /// [`crate::manifest::MANIFEST_SCHEMA_VERSION`] (the manifest's own shape) and from
@@ -65,8 +64,7 @@ const LEN_FIELD_SIZE: usize = 8;
 const HEADER_LEN: usize = MAGIC_LEN + VERSION_LEN + 3 * LEN_FIELD_SIZE;
 const DIGEST_LEN: usize = 32;
 
-/// Versioned per-section and total byte ceilings (design.md tasks.md 1.3: "Define versioned
-/// per-section and total byte limits"). These are deliberately conservative, provisional
+/// Versioned per-section and total byte ceilings. These are deliberately conservative, provisional
 /// container-level allocation ceilings for this additive step -- distinct from, and not derived
 /// from, `pg_foma::health`'s FST-payload severity bands (which judge a *compiled FST's* health,
 /// not this container's allocation safety) -- flagged as a judgment call for later calibration,
@@ -137,8 +135,8 @@ pub enum PgPackError {
     ManifestJson(String),
 }
 
-/// The anti-mix-across-grammars package fingerprint (R2A: "One package fingerprint binds both
-/// payloads so they can't be mixed across grammars"): lowercase-hex SHA-256 over each payload's
+/// The anti-mix-across-grammars package fingerprint: one fingerprint binds both
+/// payloads so they can't be mixed across grammars. Lowercase-hex SHA-256 over each payload's
 /// own length prefix (u64 little-endian) followed by its bytes, runtime then foma -- so the
 /// fingerprint pins each payload's exact length as well as its content, and is independent of
 /// everything else in the manifest (identity, license, health, signature, ...), letting
@@ -242,7 +240,7 @@ pub struct ReadPack {
     /// See [`crate::signature::SignatureState`]'s own doc: reported for the caller's information
     /// only. **Never used by this function to decide whether to return `Ok`** -- an `Invalid`
     /// signature state is returned inside a successful [`ReadPack`], exactly like `Valid` and
-    /// `Unsigned` are (R2A: signature state "NEVER controls analysis").
+    /// `Unsigned` are: signature state NEVER controls analysis.
     pub signature_state: SignatureState,
 }
 
@@ -781,7 +779,7 @@ mod tests {
 
         let bytes =
             write_pack(&manifest, SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD).unwrap();
-        // Must NOT be an Err: an invalid signature never blocks reading/analysis (R2A).
+        // Must NOT be an Err: an invalid signature never blocks reading/analysis.
         let read = read_pack(&bytes).expect("an invalid signature must not block reading");
         assert_eq!(read.signature_state, SignatureState::Invalid);
         assert_eq!(read.runtime_payload, SYNTHETIC_RUNTIME_PAYLOAD);

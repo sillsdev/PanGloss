@@ -1,20 +1,20 @@
-//! ADR 0004 (`docs/adr/0004-runtime-feature-compatibility.md`) load-time compatibility: the pack
+//! Load-time compatibility: the pack
 //! manifest's **required runtime-feature set** and the Runtime's own **provided** set. "The pack
 //! loads iff `required ⊆ provided`" — this module defines both sides of that containment check as
 //! plain data plus a pure comparison function, for a `pg-wasm`/`pg-cli` load path to call
 //! [`RequiredRuntimeFeatures::satisfied_by`] against a Runtime-declared [`ProvidedRuntimeFeatures`]
 //! before constructing an analyzer.
 //!
-//! ADR 0004 names five stamped inputs: "payload-format version, the runtime *operations* its
-//! execution needs, foma-feature level, HC-port semantic version, extensions." Each becomes a
-//! field below. `runtime_operations`/`extensions` are open, append-only string sets (ADR 0004:
-//! "The provided set is append-only... a new foma/HC capability... appends"); `hc_port_semver` is
+//! Five stamped inputs: payload-format version, the runtime *operations* its
+//! execution needs, foma-feature level, HC-port semantic version, extensions. Each becomes a
+//! field below. `runtime_operations`/`extensions` are open, append-only string sets --
+//! the provided set is append-only, so a new foma/HC capability only ever appends; `hc_port_semver` is
 //! compared as a simple `(major, minor, patch)` tuple ordering (no pre-release/build-metadata
 //! parsing — this schema-only step does not pull in a full semver dependency for one comparison).
 
 use serde::{Deserialize, Serialize};
 
-/// The required-runtime-feature set a pack was compiled against (ADR 0004). Carried verbatim in
+/// The required-runtime-feature set a pack was compiled against. Carried verbatim in
 /// [`crate::manifest::PackManifest::required_runtime_features`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -23,8 +23,8 @@ pub struct RequiredRuntimeFeatures {
     /// at the time the pack was written; kept as a plain field rather than re-derived so a
     /// manifest is meaningful even read out of its container framing).
     pub payload_format_version: u32,
-    /// Stable runtime-operation identifiers this pack's execution needs (ADR 0004: "only
-    /// constructs needing a runtime operation... contribute" — e.g. a reduplication peel op).
+    /// Stable runtime-operation identifiers this pack's execution needs (only
+    /// constructs needing a runtime operation contribute — e.g. a reduplication peel op).
     /// Freeform stable strings; this schema step does not mint an operation-identifier registry.
     #[serde(default)]
     pub runtime_operations: Vec<String>,
@@ -33,13 +33,12 @@ pub struct RequiredRuntimeFeatures {
     /// The Rust-HermitCrab port's semantic version this pack's runtime payload assumes, as
     /// `(major, minor, patch)`.
     pub hc_port_semver: (u32, u32, u32),
-    /// Additional named extensions beyond the fixed fields above (ADR 0004's own "extensions"
-    /// dimension) — append-only, freeform.
+    /// Additional named extensions beyond the fixed fields above — append-only, freeform.
     #[serde(default)]
     pub extensions: Vec<String>,
 }
 
-/// The Runtime's own declared **provided** set (ADR 0004's other half of the containment check).
+/// The Runtime's own declared **provided** set (the other half of the containment check).
 /// Never serialized into a pack — a Runtime constructs this from its own build, not from any
 /// `.pgpack` file.
 #[derive(Debug, Clone, PartialEq)]
@@ -52,12 +51,12 @@ pub struct ProvidedRuntimeFeatures {
 }
 
 impl RequiredRuntimeFeatures {
-    /// ADR 0004's containment check: `required ⊆ provided`. `true` iff every dimension this pack
+    /// The containment check: `required ⊆ provided`. `true` iff every dimension this pack
     /// requires is present in `provided` — the Runtime's declared payload-format versions include
     /// this pack's, `provided`'s foma-feature level is at least this pack's, `provided`'s HC-port
     /// semver is at least this pack's, and every required runtime operation/extension string is
     /// present in `provided`'s corresponding list. A pure function; callers decide what to do with
-    /// `false` (a typed, allowed incompatibility per ADR 0004 — never a crash).
+    /// `false` (a typed, allowed incompatibility — never a crash).
     pub fn satisfied_by(&self, provided: &ProvidedRuntimeFeatures) -> bool {
         provided
             .payload_format_versions
@@ -112,7 +111,7 @@ mod tests {
 
     #[test]
     fn old_pack_runs_on_newer_runtime_append_only() {
-        // ADR 0004: "old packs run unchanged forever" under an append-only provided set.
+        // Old packs run unchanged forever under an append-only provided set.
         let required = synthetic_required();
         let mut provided = synthetic_provided_superset();
         provided

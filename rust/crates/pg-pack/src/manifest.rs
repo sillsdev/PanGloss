@@ -1,12 +1,9 @@
-//! The `.pgpack` **pack manifest** (R2A; `docs/adr/0004-runtime-feature-compatibility.md`;
-//! `docs/adr/0005-capability-override-unproven-grammars.md`; `openspec/changes/
-//! make-wasm-analysis-only/design.md`: "The pack manifest carries package/grammar identity,
-//! payload format versions, the required-runtime-feature set (ADR 0004), the ADR 0005
-//! capability-trust stamp..., an FST-health admission/findings/override field..., creation
-//! metadata, and a versioned licensing/authenticity section"). "Pack manifest" is the per-
-//! `.pgpack` blob's own name (ADR 0005: distinct from the source-controlled capability registry
-//! of ADR 0001; bare unqualified "manifest" is banned) — every doc comment in this crate uses the
-//! full term.
+//! The `.pgpack` **pack manifest**: carries package/grammar identity, payload format versions,
+//! the required-runtime-feature set, a capability-trust stamp, an FST-health
+//! admission/findings/override field, creation metadata, and a versioned licensing/authenticity
+//! section. "Pack manifest" is the per-`.pgpack` blob's own name -- distinct from the
+//! source-controlled capability registry; bare unqualified "manifest" is banned -- every doc
+//! comment in this crate uses the full term.
 //!
 //! Field declaration order below is envelope-first, matching this crate's own [serde] default
 //! (unmodified struct-field order), the same "canonical JSON" convention `pg-snapshot` and
@@ -30,7 +27,7 @@ pub const MANIFEST_FORMAT_TAG: &str = "pangloss-pack-manifest";
 pub const MANIFEST_SCHEMA_VERSION: u32 = 1;
 
 /// The `.pgpack` pack manifest: canonical JSON, embedded length-prefixed in the container by
-/// [`crate::format::write_pack`]. Every field this module's doc's design.md quote names has a slot
+/// [`crate::format::write_pack`]. Every field this module's own doc names has a slot
 /// here.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PackManifest {
@@ -43,21 +40,21 @@ pub struct PackManifest {
     pub grammar_id: String,
     /// Lowercase-hex SHA-256 over both framed payloads (see [`crate::format::fingerprint_bytes`]
     /// for the exact bytes hashed). Binds the runtime and foma payloads together so they cannot be
-    /// mixed across grammars (R2A) — [`crate::format::read_pack`] recomputes this from the payload
+    /// mixed across grammars — [`crate::format::read_pack`] recomputes this from the payload
     /// bytes it actually read and rejects a mismatch as
     /// [`crate::format::PgPackError::FingerprintMismatch`], independent of the container's own
     /// whole-file SHA-256 structural-integrity digest.
     pub package_fingerprint: String,
-    /// ADR 0004's required-runtime-feature set this pack was built against.
+    /// The required-runtime-feature set this pack was built against.
     pub required_runtime_features: RequiredRuntimeFeatures,
-    /// ADR 0005's capability-trust stamp: proven, or overridden/unproven with its permanent
+    /// The capability-trust stamp: proven, or overridden/unproven with its permanent
     /// override record.
     pub capability_trust: CapabilityTrust,
     /// The FST-health admission/findings/override report (reusing
-    /// `pg_foma::health::HealthReport`/`Severity`/[`HealthReport::admission`] verbatim, per this
-    /// crate's task brief — never redefined here).
+    /// `pg_foma::health::HealthReport`/`Severity`/[`HealthReport::admission`] verbatim --
+    /// never redefined here).
     pub fst_health: HealthReport,
-    /// Optional license declaration (R2A: declaration/provenance only; never gates analysis).
+    /// Optional license declaration: declaration/provenance only; never gates analysis.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub license: Option<LicenseDeclaration>,
     /// Free-form creation metadata: who/what produced this pack.
@@ -94,8 +91,8 @@ impl PackManifest {
     }
 
     /// A clone of this manifest with `signature` cleared, exactly the bytes
-    /// [`crate::signature::sign`]/[`crate::signature::verify`] must operate on (design.md: "pack
-    /// manifest excluding its signature value").
+    /// [`crate::signature::sign`]/[`crate::signature::verify`] must operate on: the pack
+    /// manifest excluding its signature value.
     pub fn without_signature(&self) -> Self {
         let mut cleared = self.clone();
         cleared.signature = None;
