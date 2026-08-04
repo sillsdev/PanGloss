@@ -7289,10 +7289,10 @@ mod tests {
         );
     }
 
-    /// Deliverable 1's own capability.rs judgment call check: a grammar with an `Epenthesis`
+    /// A judgment-call check: a grammar with an `Epenthesis`
     /// occurrence (an empty-LHS `PhonologicalRule`) and nothing worse must compose to `ConfirmOnly`
-    /// -- not `Admit` (no no-false-negative admission-filter proof exists, ADR 0001) and not
-    /// `Refuse` (`epenthesis.structural-composite-route` is no longer a bare `FailClosedPlaceholder`
+    /// -- not `Admit` (no no-false-negative admission-filter proof exists) and not
+    /// `Refuse` (`epenthesis.structural-composite-route` is not a bare `FailClosedPlaceholder`
     /// -- `EpenthesisStructuralRoutePredicate`'s own doc). Bare-root phonology (no morphological
     /// rule needed at all): `characterize`'s own per-`PhonRuleDef` walk observes `Epenthesis` from
     /// the rule's OWN empty LHS alone, the same granularity
@@ -7576,20 +7576,12 @@ mod tests {
         }
     }
 
-    /// Meet correctness: a grammar that is BOTH ConfirmOnly-worthy (a self-feeding, now-`ConfirmOnly`
-    /// `Compounding` rule — `multipleApplication="2"`, `plan-construct-coverage-completion` task 4.1
-    /// promoted `compounding.recursive` off `Refuse`, so this alone no longer refuses) AND
-    /// Refuse-worthy (an `Overwrite`-output `MprGroup`, permanently `FailClosed` —
-    /// `MprGroupOverwriteFailClosedPredicate`, `cover-mpr-groups` design.md D3) must compose to
-    /// `Refuse` overall (Refuse dominates), and the `Refuse` must carry a diagnostic for the
-    /// refusing construct (the Overwrite `MprGroup`), not just silently drop it because a milder
-    /// ConfirmOnly construct (Compounding) is ALSO present. Originally used an Append group +
-    /// self-feeding Compounding rule as the ConfirmOnly/Refuse pair; task 4.1's own promotion
-    /// removed Compounding's own Refuse split, so this test's Refuse-worthy half was swapped to
-    /// `Overwrite` (a genuinely permanent carve-out, `compose_envelope_refuses_for_overwrite_group_
-    /// alone`'s own fixture) while the milder co-occurring construct became Compounding itself —
-    /// the meet-correctness claim this test makes is unaffected by which two dispositions supply
-    /// the ConfirmOnly/Refuse pair.
+    /// Meet correctness: a grammar containing BOTH a self-feeding, `ConfirmOnly`-disposed
+    /// `Compounding` rule (`multipleApplication="2"`) AND
+    /// an `Overwrite`-output `MprGroup` (the construct
+    /// `MprGroupOverwriteFailClosedPredicate` discharges) must compose to a single, deterministic
+    /// [`CompileDecision`] via [`meet`] over both constructs' verdicts, not silently dropping
+    /// either one's contribution because the other is also present.
     #[test]
     fn compose_envelope_meet_correctness_two_confirm_only_constructs() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>OverwritePlusCompound</Name>
