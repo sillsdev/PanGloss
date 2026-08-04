@@ -433,14 +433,12 @@ if ($Mode -eq 'doctor') {
         Write-Host "  if this keeps happening: wrap the offending binary with 'pg.ps1 -Mode run' instead of invoking it directly -- that puts it under the same kernel-enforced --maxjobmem ceiling a managed build already gets." -ForegroundColor Yellow
     }
 
-    # Comment hygiene, reported here rather than left to whoever remembers to run it -- nobody
-    # remembers, which is why the ratchet exists at all. Deliberately NOT folded into $unsafe: a
-    # stale comment cannot make a build wrong, and a documentation finding that blocks every managed
-    # build is the shape of gate this repo has already watched get switched off. Reported loudly,
-    # never fatal -- same treatment as the exhaustion history above, for the same reason.
+    # Deliberately NOT folded into $unsafe: a stale comment cannot make a build wrong, and a
+    # documentation finding that blocks every managed build is the kind of gate that gets switched
+    # off and then protects nothing. Reported loudly, never fatal -- as with the exhaustion history.
     #
-    # The ratchet fails only on a category GROWING, so a red line here means someone added markers
-    # since the baseline, not that a 1,475-item backlog still exists.
+    # The ratchet fails only on a category GROWING, so a red line means markers were added since the
+    # baseline, not that a backlog still exists.
     $hygiene = Join-Path $PSScriptRoot 'comment-hygiene.ps1'
     if (Test-Path $hygiene) {
         $hygieneOut = & pwsh -NoProfile -File $hygiene 2>&1

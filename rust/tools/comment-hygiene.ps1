@@ -1,11 +1,10 @@
 <#
   Counts comment-hygiene violations in Rust sources and fails when a category grows.
 
-  A hard "zero violations" gate is unusable here: the tree currently carries ~1,300 plan
-  references and status markers accumulated over months. A gate that cannot pass gets disabled, and
-  then protects nothing -- so this is a RATCHET. The baseline records today's count per category;
-  the run fails only if a category goes UP. Cleanup lowers the baseline, and the number can never
-  climb back.
+  A hard "zero violations" gate is unusable against a large existing backlog, and a gate that
+  cannot pass gets disabled and then protects nothing. So this is a RATCHET: the baseline records
+  the current count per category and the run fails only if a category goes UP. Cleanup lowers the
+  baseline; the number cannot climb back.
 
   Usage:
     rust\tools\comment-hygiene.ps1            # check against the baseline
@@ -38,10 +37,16 @@ $categories = [ordered]@{
 }
 
 # Comment lines only. A plan path inside a string literal is usually a real file the code opens.
-$commentLine = '^\s*(//|///|//!|\*|/\*)'
+# `#` covers PowerShell and Python; the block-comment forms cover Rust and PowerShell's <# #>.
+$commentLine = '^\s*(//|///|//!|\*|/\*|#|<#)'
 
-$files = Get-ChildItem -Path (Join-Path $repoRoot 'rust\crates') -Filter '*.rs' -Recurse -File |
-    Where-Object { $_.FullName -notmatch '\\target\\' }
+# Tooling is included, not just crates. The first version scanned only `rust/crates` and so missed
+# every violation in the scripts that enforce the rule -- a checker exempt from its own check.
+$files = @(
+    Get-ChildItem -Path (Join-Path $repoRoot 'rust\crates') -Filter '*.rs' -Recurse -File
+    Get-ChildItem -Path (Join-Path $repoRoot 'rust\tools') -Filter '*.ps1' -Recurse -File
+    Get-ChildItem -Path (Join-Path $repoRoot '.claude\hooks') -Filter '*.py' -File -ErrorAction SilentlyContinue
+) | Where-Object { $_.FullName -notmatch '\\target\\' }
 
 $counts = [ordered]@{}
 $hits = @{}

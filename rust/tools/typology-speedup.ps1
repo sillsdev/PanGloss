@@ -4,57 +4,22 @@
   (`pg_foma::composite::FomaAnalyzer`) -- writing `typology-speedup.csv` (canonical data) and
   `typology-speedup.md` (a rendered view of it).
 
-  THIN FRONT END, same relationship `test.ps1` has to `pg.ps1`: this sets the two environment
-  variables the harness reads and then calls the managed entry point. It contains no policy.
+  Thin front end: sets the two environment variables the harness reads, then calls the managed
+  entry point. No policy lives here.
 
-  ## Why this exists, given `typology-speedup.sh` already did
+  Preferred over `typology-speedup.sh`, which drives the same harness with bare cargo and so is
+  unusable on Windows and refused by the bare-cargo hook.
 
-  The harness (`rust/crates/pg-foma/tests/typology_speedup.rs`) has been complete since 2026-07-31
-  and its ONLY driver was a bash script whose payload is `cargo test --release -p pg-foma --test
-  typology_speedup -- --ignored --nocapture full_corpus_report`. On this repo's own machine that
-  command cannot run at all:
+  Routing through `pg.ps1 -Mode test` also buys three things the bash driver could not:
+  `--run-ignored all` is already the default, `-TestTarget` compiles one test binary rather than
+  every target in the package, and preflight initializes the conformance submodule -- without which
+  the run silently measures only the staging fixtures and still produces a confident-looking CSV.
+  The run is also slot-gated and memory-capped, which matters here because timing every word in two
+  engines over the whole suite is long and memory-hungry.
 
-    - it is `.sh` on a Windows/PowerShell box, and
-    - it is BARE CARGO, which `.claude/hooks/block-bare-cargo.py` refuses as a PreToolUse hook.
-
-  So a finished measurement was unreachable by construction. The cost of that was not theoretical:
-  `docs/fst-plan/grammar-optimization-techniques.md:521` lists per-candidate apply cost as "the one
-  dimension with no measurement gap" and names this harness, while the project's own working notes
-  simultaneously recorded that no per-word cost baseline existed for any compiler and that the
-  harness still had to be BUILT. Both statements were written about the same code. An unreachable
-  tool reads exactly like an absent one -- the same lesson `-TestTarget` earned two days earlier
-  ("undiscoverable is the same as absent"), one level up: there, a flag existed and nobody could
-  find it; here, a whole harness exists and nobody can start it.
-
-  This matters beyond convenience. The endgame bar -- strip the hand-spun path once the recipe path
-  is as good or better on completeness AND arcs AND raw-HC-word-verified -- plus the standing
-  invariant "we should never be slower than rust HC itself" are BOTH questions this harness answers
-  and nothing else does: it is the only thing in the tree that times the two engines over the same
-  words. A bar nobody can evaluate is not a bar.
-
-  ## What the managed path fixes for free
-
-  Routing through `pg.ps1 -Mode test` is not merely "the allowed spelling of the same command" --
-  it is strictly better than what the bash script did:
-
-    - `--run-ignored all` is already the default there, so the `--ignored` passthrough is unneeded.
-    - `-TestTarget` compiles ONE test binary instead of every target in the package (measured
-      2026-08-03: 10.6s warm versus ~996s cold for the package).
-    - the conformance submodule is auto-initialized in preflight, so the bash script's "warning:
-      machine/conformance is empty, only staging fixtures will be measured" degraded run -- a
-      SILENTLY narrower corpus -- cannot happen here. That warning was the measurement-integrity
-      hazard in the old driver: fewer fixtures still produces a confident-looking CSV.
-    - the run takes a build slot, is priority-capped, and is bounded by a procgov job object. This
-      one matters more than usual for THIS script: it times every word repeatedly in two engines
-      over the whole suite, which is exactly the long, heavy, memory-hungry shape that produced
-      three separate 90-118GB direct-invocation incidents when run outside the managed path.
-
-  Profile note: `-Mode test` builds with `pg-test-opt` (release-derived, thin LTO) rather than the
-  bash script's `--release` (fat LTO). Deliberate, and the timings remain comparable across a run
-  because BOTH engines are measured inside that same binary -- the harness reports a ratio between
-  two engines built identically, not an absolute figure to be compared against some other build.
-  If you need fat-LTO absolute numbers for an external comparison, that is a different question and
-  should say so out loud rather than being silently assumed here.
+  Profile: `-Mode test` builds with `pg-test-opt` (thin LTO), not `--release` (fat LTO). The harness
+  reports a RATIO between two engines built inside the same binary, so cross-engine comparison is
+  unaffected; only absolute figures compared against some other build would be.
 
   Usage:
     rust\tools\typology-speedup.ps1
@@ -83,10 +48,7 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 if (-not $OutDir) { $OutDir = Join-Path $repoRoot 'rust\target\typology-speedup' }
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 
-# Saved and restored rather than just set: this script's whole point is that it can be called
-# repeatedly from one long-lived agent session, and a leaked PG_TYPOLOGY_* would silently retarget
-# the NEXT run's output -- the same "a Set-Location many calls earlier retargets everything after
-# it" failure `Assert-ScriptAndCwdAgreeOnWorktree` exists to refuse, in environment-variable form.
+# Saved and restored: a leaked PG_TYPOLOGY_* would silently retarget a later run's output.
 $priorOutDir = $env:PG_TYPOLOGY_OUT_DIR
 $priorRepeats = $env:PG_TYPOLOGY_REPEATS
 
@@ -97,9 +59,8 @@ try {
     Write-Host "[typology-speedup] out-dir: $OutDir"
     Write-Host "[typology-speedup] timing BOTH engines over every conformance fixture -- this is a long run."
 
-    # -TestTarget selects the binary (compilation), -Filter selects the test (execution). Passing
-    # the file name to -Filter instead is the mistake this repo made seven times in one session; see
-    # pg.ps1's own parameter comments. Both are needed here and they are NOT interchangeable.
+    # -TestTarget selects the binary (compilation), -Filter selects the test (execution). Both are
+    # needed and they are not interchangeable.
     $pgArgs = @{
         Mode       = 'test'
         Package    = 'pg-foma'
