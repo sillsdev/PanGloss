@@ -37,6 +37,30 @@ Do not "correct" them — remove them.
 | Restating the code — `// increment i`, `/// Returns the name` on `fn name()` | Pure maintenance liability | Nothing. Rename the thing if it is unclear |
 | Commented-out code | Dead weight; nobody dares delete it | Delete it. Git has it |
 
+## Generalise the incident to the class
+
+The most common thing worth SAVING is buried in the most common thing worth deleting: a comment
+that justifies a guard by retelling the incident that produced it. Keep the mechanism, drop the
+war story.
+
+An incident is a date, a machine, a process name, a number measured once. The class is what the
+guard actually defends against, and it is the only part still true next year on a different box.
+
+| Incident-shaped (delete the narrative) | Class-shaped (keep) |
+|---|---|
+| "Measured 2026-07-30: `predict_census.exe` climbed to 118GB over ~45 minutes and took the machine to zero." | "Bounds committed memory; an unbounded run can otherwise exhaust the machine." |
+| "Got wrong seven times in one session — five file names passed to `-Filter`, plus two subagents that concluded the flag was unreachable." | "`-Filter` matches test names; `-TestTarget` selects the binary. Only the second reduces build time." |
+| "The semaphore deadlocked every worktree on 2026-07-31; recoverable only by hand-releasing it until it threw." | "A mutex is used because the kernel releases it when a holder dies; a counted semaphore leaks its count." |
+| "Sena's 8 non-multi-app CompoundingRules turned 7 null-shaped allomorphs into 56 self-looping lexc lines." | "Null-shaped allomorphs can form epsilon cycles when unrolled per level." |
+
+The test: **would a reader on a different machine, a year from now, act differently knowing the
+date and the process name?** If no, it is decoration on a real reason — keep the reason.
+
+Two things this does not license. Do not generalise away a *number the code depends on* — a
+threshold's actual value and units stay. And if the incident is genuinely the only evidence for a
+surprising claim, put the evidence in a test or an evidence doc and let the comment state the
+claim; a measurement that only exists inside a comment is unverifiable anyway.
+
 ## What a good comment looks like here
 
 Keep these. Write more of these.
