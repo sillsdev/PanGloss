@@ -723,7 +723,7 @@ pub fn run_investigate(args: &[String]) -> Result<(), CliError> {
             ),
         });
 
-        // Task 6.4/6.5: attribute a missing analysis to HermitCrab rejection vs. a proposer
+        // Attribute a missing analysis to HermitCrab rejection vs. a proposer
         // recall gap by running the case on both pipelines, and emit the pruned failure
         // narrative from HermitCrab's own trace. `investigate` itself refuses the whole handoff
         // below if `current_model_fingerprint` disagrees with the report, so anything gathered
@@ -1128,8 +1128,7 @@ mod tests {
 
     #[test]
     fn budgets_are_unbounded_when_no_envelope_is_named() {
-        // Task 3.4. No default is invented: `calibrate-fst-resource-envelopes` is data-blocked, and
-        // a guessed cap would silently truncate analyses on real grammars.
+        // No default is invented: a guessed cap would silently truncate analyses on real grammars.
         let args = parse_args(&["g.xml".into()]).unwrap();
         assert_eq!(args.number("budget-paths").unwrap(), None);
         assert_eq!(args.number("budget-candidates").unwrap(), None);

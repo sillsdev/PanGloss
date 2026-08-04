@@ -24,13 +24,13 @@
 //!   collide with a token, since PUA codepoints are outside xre's entirely-ASCII reserved set.
 //!
 //! The price: the composed network's own lower tape is not human-legible orthography. That's
-//! fine for the propose→confirm contract (plan §1): [`FomaProposer`]-equivalent callers only need
+//! fine for the propose→confirm contract: [`FomaProposer`]-equivalent callers only need
 //! the UPPER tape's tag sequence; a query word is transliterated into token space
 //! ([`SegAlphabet::encode_query`], reusing [`pg_grammar::segment::segment_phonemes_only`] — the
 //! same greedy longest-match the engine's own segmentation uses) before `apply_up`, and the
 //! result is decoded via [`crate::tags::decode_path`] exactly like the mainline proposer.
 //!
-//! ## alpha-variable expansion: tuple-indexed, not per-variable (reports/08 §3.1)
+//! ## alpha-variable expansion: tuple-indexed, not per-variable
 //! A rule's alpha-bound slots (RHS/LHS/environment [`PatternNode::Context`] nodes carrying
 //! [`AlphaVar`]s) are resolved by [`resolve_alpha_tuples`]: gather every slot referencing a given
 //! [`VarId`], enumerate the CROSS PRODUCT of each slot's own (non-alpha-feature) candidate

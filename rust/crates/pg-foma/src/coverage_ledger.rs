@@ -74,8 +74,7 @@
 //! [`crate::capability::CapabilityPredicate`], never consulted at compile time to admit or refuse a
 //! grammar. No test in this file asserts `gaps.is_empty()` for conformance/containment coverage —
 //! same non-blocking-first discipline `crate::conformance_coverage`/`crate::
-//! plan_interaction_coverage` already established for their own advisory reports; this module goes
-//! one step further and is not wired into any CI report.
+//! plan_interaction_coverage` already established for their own advisory reports.
 //!
 //! # The four rows this ledger fills in per `CharacteristicKind`
 //! [`LedgerRow`]: the [`crate::capability::CharacteristicKind`] itself; its

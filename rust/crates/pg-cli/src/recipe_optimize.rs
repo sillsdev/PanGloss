@@ -293,11 +293,11 @@ impl CandidateEvaluator for Evaluator<'_> {
                 usage: BudgetUsage::default(),
             };
         }
-        // Task 7.13: no baseline argument. This evaluator is called once per candidate with a
-        // single-element slice, so a POSITIONAL test answered `true` for every candidate, and the
-        // `&[c.baseline]` slice that replaced it was a second copy of a fact the candidate already
-        // owns -- correct only for as long as this call site kept passing the matching element. The
-        // role now travels on the `LoweredCandidate` in `self.plans`, set once at materialization.
+        // No baseline argument. This evaluator is called once per candidate with a
+        // single-element slice, so a POSITIONAL test would answer `true` for every candidate, and a
+        // `&[c.baseline]` slice would be a second copy of a fact the candidate already
+        // owns -- correct only for as long as a call site keeps passing the matching element. The
+        // role travels on the `LoweredCandidate` in `self.plans` instead, set once at materialization.
         let e = evaluate_plans_with_cache(
             self.grammar,
             std::slice::from_ref(plan),
