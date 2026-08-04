@@ -1,21 +1,20 @@
-//! The conformance-coverage cross-check (ADR 0001,
-//! `docs/adr/0001-honest-capability-boundary.md`), shipped
+//! The conformance-coverage cross-check, shipped
 //! here as a **NON-BLOCKING, advisory preview** — the same non-blocking-first pattern
 //! [`crate::capability`]'s own `characterize` (computes only) → `compose_envelope` (CHECK-ONLY) →
 //! a later, deliberate compile-blocking step already used.
 //!
-//! ADR 0001, verbatim: *"'Supported' is mechanically gated on passing conformance coverage... CI
+//! This crate's own honest-capability discipline: "'Supported' is mechanically gated on passing conformance coverage... CI
 //! cross-checks the capability registry (the source-controlled, per-construct
 //! supported/unsupported contract)... against conformance coverage (`constructs.txt` / per-word
 //! `exercises:` / `rules.csv`), and marking anything supported without a covering, passing fixture
-//! **breaks the build**."* This module supplies the mapping (deliverable 1) and the pure
+//! **breaks the build**." This module supplies the mapping (deliverable 1) and the pure
 //! cross-check function (deliverable 2) that claim answers; **nothing in this crate or its test
 //! suite yet enforces `gaps.is_empty()`** — see "End state" below.
 //!
 //! # The two sides of the cross-check
 //! - **The registry side**: [`crate::capability::CharacteristicKind`] + [`crate::capability::
 //!   CharacteristicKind::default_disposition`] — [`Disposition::Proven`] is today's actual
-//!   "supported (admission-proven)" set (design.md's table); `ConfirmOnly`/`ConfigPredicate`/
+//!   "supported (admission-proven)" set; `ConfirmOnly`/`ConfigPredicate`/
 //!   `FailClosed` are compiled-or-relied-upon capabilities in their own right, just not
 //!   admission-proven — see "G8: widening the cross-check ledger-wide" below for why this module
 //!   now reasons about all four dispositions, not `Proven` alone.
@@ -42,7 +41,7 @@
 //! refused at compile time and never analyzed by anything.
 //!
 //! [`supported_kinds`] now returns every [`CharacteristicKind`] ([`crate::capability::
-//! CharacteristicKind::ALL`]), and [`evidence_requirement_for`] encodes ADR 0001's honest
+//! CharacteristicKind::ALL`]), and [`evidence_requirement_for`] encodes this crate's honest
 //! per-disposition rule as code: `Proven`/`ConfigPredicate`/`ConfirmOnly` all still need a
 //! covering, PASSING analysis fixture ([`EvidenceRequirement::PassingFixture`] — the same
 //! requirement, kept distinguishable from `Proven` via [`CoverageReportRow::disposition`] so a
@@ -54,7 +53,7 @@
 //! below.
 //!
 //! # What "passing" means here (a judgment call, flagged)
-//! ADR 0001 says a construct needs "a covering, **passing** fixture" — not merely a fixture that
+//! This crate's honest-capability discipline says a construct needs "a covering, **passing** fixture" — not merely a fixture that
 //! *mentions* the construct in an `exercises:` tag. This module itself takes no position on how
 //! "passing" is established (it is a pure function over a caller-supplied
 //! `passing_covered_constructs: &HashSet<&str>>`), so the actual engine-replay work stays a
@@ -74,8 +73,7 @@
 //! # The mapping (deliverable 1 — THE CONTRACT)
 //! [`construct_ids_for`] is hand-authored and exhaustively matched (no catch-all arm — adding a
 //! [`CharacteristicKind`] variant breaks this file's build, same discipline `characterize`/
-//! `default_disposition` already hold themselves to). Before G9 (`machine` PR
-//! sillsdev/machine#465), three kinds returned an **empty slice** —
+//! `default_disposition` already hold themselves to). Before G9, three kinds returned an **empty slice** —
 //! [`CharacteristicKind::LeftToRightRewrite`], [`CharacteristicKind::RightToLeftRewrite`], and
 //! [`CharacteristicKind::SubruleGating`] ([`CharacteristicKind::MultiTable`] was the fourth,
 //! already documented separately below) — because `constructs.txt` had no row distinguishing
@@ -107,15 +105,15 @@
 //! replay rather than by asking for new fixture tagging.
 //!
 //! # End state (deferred, NOT this step)
-//! Task 5.1 proper turns this into a hard CI gate — mechanically, replacing this module's non-
+//! A hard CI gate would mechanically replace this module's non-
 //! assertion with `assert!(supported_uncovered(&covered, &witnessed).is_empty(), "...")` in
 //! `tests/conformance_coverage_gate.rs`. Deferred here deliberately: gaps exist today (see that
-//! test's own report), and ADR 0001's own non-blocking-first precedent (`compose_envelope`/
+//! test's own report), and this crate's own non-blocking-first precedent (`compose_envelope`/
 //! `CompileDecision` were CHECK-ONLY for a full step before any compile path consulted them) is
-//! the model this task explicitly asks to repeat. G8 makes the widened report accurate and
+//! the model to repeat. G8 makes the widened report accurate and
 //! flip-ready but deliberately does NOT flip it — a real flip should stage `Proven` rows (a hard
 //! error) ahead of `ConfigPredicate`/`ConfirmOnly` rows (also required, but distinguishable via
-//! `disposition` so they can gate on a later date), per the task's own framing.
+//! `disposition` so they can gate on a later date).
 //!
 //! # The structural-witness gate: closing the last silent-inheritance hole before a flip
 //! [`construct_ids_for`] maps some `constructs.txt` row ids from MORE THAN ONE [`CharacteristicKind`]
@@ -200,7 +198,7 @@ use pg_grammar::model::{Grammar, MorphRuleOrder, MprGroupOutput, PhonRuleDef};
 /// lands truncation, so the mapping is honest about what `Affixation`'s `Proven` disposition is
 /// actually claiming to cover.
 ///
-/// # G9 update (`machine` PR sillsdev/machine#465, branch `g9-add-missing-construct-rows`)
+/// # G9 update
 /// The four characteristics that used to return an empty slice here — [`CharacteristicKind::
 /// LeftToRightRewrite`], [`CharacteristicKind::RightToLeftRewrite`], [`CharacteristicKind::
 /// SubruleGating`], [`CharacteristicKind::MultiTable`] — now map to four NEW `constructs.txt`
@@ -227,7 +225,7 @@ pub fn construct_ids_for(kind: CharacteristicKind) -> &'static [&'static str] {
             &["RewriteRule Iterative (epenthesis/deletion/feature/expansion/merge)"]
         }
         SimultaneousRewrite => &["RewriteRule Simultaneous"],
-        // `compile-right-to-left-rewrites`/G9: `constructs.txt`'s `RewriteRule Iterative(...)`/
+        // G9: `constructs.txt`'s `RewriteRule Iterative(...)`/
         // `RewriteRule Simultaneous` rows tag *multiple-application order*, not *directionality* --
         // no row named direction as its own phenomenon existed before G9. Added upstream as
         // `"RewriteRule direction (Dir): left-to-right"` / `"...right-to-left"`.
@@ -252,21 +250,21 @@ pub fn construct_ids_for(kind: CharacteristicKind) -> &'static [&'static str] {
         NaturalClassDefinition => {
             &["NaturalClass: Segments vs FeatureNaturalClass/SegmentNaturalClass precision"]
         }
-        // `fix-multitable-fst-compilation`/G9: the two PRE-EXISTING rows that mention
+        // G9: the two PRE-EXISTING rows that mention
         // `CharacterDefinitionTable` at all -- "Boundary markers" and "pattern shapes: optional
         // group / Kleene star" -- are about segmentation/pattern constructs WITHIN one table, not
         // about multiple tables disagreeing across strata, so neither was a valid mapping target;
         // no row distinctly tagged multi-table stratification before G9. Added upstream as
         // `"CharacterDefinitionTable: more than one table, one per stratum"`.
         MultiTable => &["CharacterDefinitionTable: more than one table, one per stratum"],
-        // `compile-bounded-fst-quantifiers`: `constructs.txt`'s own "optional group / Kleene star"
+        // `constructs.txt`'s own "optional group / Kleene star"
         // row is exactly `PatternNode::Quantifier` (`<OptionalSegmentSequence min max>`) -- unlike
         // `MultiTable`/`LeftToRightRewrite`/etc above, this construct already had a distinctly-
         // tagged coverage identifier before G9.
         QuantifierPattern => {
             &["CharacterDefinitionTable pattern shapes: optional group / Kleene star"]
         }
-        // Research report 13 / `capability.rs`'s `CharacteristicKind::StemName` own doc: this row
+        // `capability.rs`'s `CharacteristicKind::StemName` own doc: this row
         // used to be one of the "genuine constructs.txt row with no CharacteristicKind" entries in
         // [`ORPHAN_CONSTRUCT_ROWS`] below -- removed from there now that a characteristic exists.
         // Real, already-merged fixtures already tag this row (`machine/conformance/languages/
@@ -283,17 +281,17 @@ pub fn construct_ids_for(kind: CharacteristicKind) -> &'static [&'static str] {
 /// The `constructs.txt` rows that name a genuine construct with NO corresponding
 /// [`CharacteristicKind`] at all (the mirror image of the empty-slice arms [`construct_ids_for`]
 /// used to have before G9 — there, a characteristic existed with no row; here, a row exists with
-/// no characteristic). Per the G9 task's own instruction: **do not invent characteristics for
+/// no characteristic). This crate's own discipline: **do not invent characteristics for
 /// these** — some are genuinely not compiler/FST-capability concerns at all. This function exists
 /// purely as living documentation (nothing calls it at runtime; no test asserts these ARE the only
 /// entries — that would require parsing `constructs.txt` at build time, which this crate
 /// deliberately does not do, per [`construct_ids_for`]'s own "hand-authored, verbatim" contract) —
 /// see each tuple's second field for why no `CharacteristicKind` was added for it.
 ///
-/// **Correction (research report 13):** "Stem names" and "Disjunctive allomorphs /
+/// **Correction:** "Stem names" and "Disjunctive allomorphs /
 /// free-fluctuation" used to be listed here. Both were wrong: each names a real, separate
 /// `model.rs` construct site (`RootAllomorphDef::stem_name`, model.rs:798; the multi-allomorph
-/// entry shape the W3.2 disjunctive re-check engages, `LexEntryDef::allomorphs`, model.rs:777)
+/// entry shape the disjunctive re-check engages, `LexEntryDef::allomorphs`, model.rs:777)
 /// this crate's capability ledger had simply never recorded at all — not, as the removed entries
 /// claimed, ordinary bookkeeping already folded into another characteristic. Both now have their
 /// own [`CharacteristicKind`] (`StemName`/`FreeFluctuation`, both `ConfirmOnly`) and a real
@@ -385,7 +383,7 @@ pub fn supported_kinds() -> Vec<CharacteristicKind> {
     CharacteristicKind::ALL.to_vec()
 }
 
-/// Which evidence shape a disposition's ADR 0001 honest, per-disposition rule (task G8) demands.
+/// Which evidence shape a disposition's honest, per-disposition rule (G8) demands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EvidenceRequirement {
     /// [`Disposition::Proven`], [`Disposition::ConfigPredicate`], [`Disposition::ConfirmOnly`]:
@@ -395,7 +393,7 @@ pub enum EvidenceRequirement {
     /// three differently (gate on `Proven` first); this module reports `disposition` on every row
     /// precisely so that staging is possible without re-deriving the report.
     PassingFixture,
-    /// [`Disposition::FailClosed`]: nothing compiles for this construct by design (ADR 0005's
+    /// [`Disposition::FailClosed`]: nothing compiles for this construct by design (an
     /// indelible override is the only escape hatch), so a passing ANALYSIS fixture is not even the
     /// right kind of evidence to demand. Needs a REFUSAL witness instead — a fixture/test proving
     /// `compose_envelope` genuinely refuses whenever this construct is observed (e.g. `tests/
@@ -426,7 +424,7 @@ pub enum CoverageStatus {
     /// caller's refusal-witnessed set.
     Covered,
     /// [`construct_ids_for`] names at least one construct id, but the evidence
-    /// [`EvidenceRequirement`] demands was NOT found — a gap (ADR 0001's "marking anything
+    /// [`EvidenceRequirement`] demands was NOT found — a gap ("marking anything
     /// supported without a covering, passing fixture" case, generalized to `FailClosed`'s own
     /// refusal-witness requirement).
     Uncovered,
@@ -633,7 +631,6 @@ pub fn grammar_has_empty_lhs_rewrite_rule(g: &Grammar) -> bool {
 /// [`crate::emit::classify_affix`] — the COMPILER'S OWN classifier, called here directly rather
 /// than re-implemented, so this gate and the compiler cannot drift apart. Deliberately scans
 /// EVERY allomorph of every rule (`MorphRuleDef::affix_allomorphs`), not just allomorph 0 —
-/// `docs/conformance/circumfix-structural-composite-census.md`'s "C1" finding is that
 /// `crate::emit::rule_role` (the compiler's OWN candidate-selection path) classifies a rule by its
 /// FIRST allomorph only, so a rule whose non-first allomorph is circumfix-shaped is a real,
 /// order-of-declaration-dependent gap on the COMPILE side — this predicate must not repeat that
@@ -718,7 +715,7 @@ mod tests {
         assert!(supported.len() > proven_only);
     }
 
-    /// [`evidence_requirement_for`] is exhaustive and matches the ADR 0001 rule literally:
+    /// [`evidence_requirement_for`] is exhaustive and matches the honest-capability rule literally:
     /// `FailClosed` needs a `RefusalWitness`, everything else needs a `PassingFixture`.
     #[test]
     fn evidence_requirement_matches_disposition_exactly() {
