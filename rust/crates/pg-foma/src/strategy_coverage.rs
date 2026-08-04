@@ -28,9 +28,9 @@
 //! # What this module is, and is not
 //! It is a hand-curated, source-cited table: for each `(EmissionStrategy, CharacteristicKind)`
 //! pair, one [`StrategyRepresentation`] plus the citation that establishes it. It is deliberately
-//! curated rather than derived, for the same reason [`crate::coverage_ledger`] is (that module's
-//! own `IMPLEMENTATION-READINESS.md` R1 quote: *"Implement a one-time REVIEWED ledger over the
-//! current model; do NOT add source-AST/reflection infrastructure"*). Nothing here inspects an
+//! curated rather than derived, for the same reason [`crate::coverage_ledger`] is: a one-time
+//! REVIEWED table over the current model, deliberately without source-AST/reflection
+//! infrastructure. Nothing here inspects an
 //! emitter at runtime; a reviewer reads the emitter and writes the row.
 //!
 //! It is NOT a second disposition table. [`CharacteristicKind::default_disposition`] remains the
@@ -46,7 +46,7 @@
 //! no grammar input at all. Re-keying the memo on `(grammar, strategy)` would force a full
 //! `characterize` walk (real `foma::types::Fsm` construction for every `Simultaneous`-mode subrule)
 //! once per strategy to recompute facts that are provably identical, re-introducing exactly the
-//! per-candidate cost `openspec/changes/cleanup-and-recipe-parity` task 7.11 removed -- and it
+//! per-candidate cost this crate already removed -- and it
 //! would put a compiler fact inside a type whose whole contract is "pure function of `&Grammar`".
 //! So the strategy-dependent half is SPLIT OUT here instead.
 //! `tests/strategy_aware_capability_gate.rs`'s
