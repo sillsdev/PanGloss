@@ -93,12 +93,10 @@ function Get-SpawnFloorGB {
 #    separately from -j, so N concurrent jobs can mean N overlapping LTO peaks; that is why this is
 #    a per-job allowance rather than a separate link-concurrency knob.
 #
-#    MEASURED on the primary dev box (2026-07-30, i7-12700, 63.7GB, warm sccache, -j3, touching
-#    pg-cli/src/main.rs to force a real recompile + fat-LTO relink of the pangloss binary): peak
-#    rustc working set 0.71GB, peak SUM across the whole cargo/rustc/sccache fan-out 1.2GB,
-#    available memory moved 55.0 -> 52.9GB across 87 samples. So fat-LTO codegen here costs well
-#    under a gigabyte per job, and this workspace has only one bin target plus 4 cdylib/staticlib
-#    crates, bounding how many such peaks can ever coexist.
+#    Measured for a real recompile plus fat-LTO relink of the pangloss binary: peak rustc working
+#    set 0.71GB, peak SUM across the whole cargo/rustc/sccache fan-out 1.2GB. Fat-LTO codegen here
+#    costs well under a gigabyte per job, and this workspace has only one bin target plus 4
+#    cdylib/staticlib crates, bounding how many such peaks can ever coexist.
 #
 #    2GB is that measurement with roughly 3x headroom for a cold full build and for the binary
 #    growing. It is deliberately NOT sized to bind on an idle machine: an earlier draft assumed 8GB
@@ -184,10 +182,10 @@ function Get-CommitChargeGB {
     # Committed bytes and the commit LIMIT, which are a different resource from available physical
     # memory and are the ones that actually matter here.
     #
-    # Reported because the two diverge exactly when it counts. During the 2026-07-31 incident window
-    # a `git` fork failed with "MEM_COMMIT failed / Resource temporarily unavailable" while doctor
-    # cheerfully showed 52GB of available PHYSICAL memory -- because the commit charge was near its
-    # limit even though RAM was free. Both things this repo now relies on are commit-denominated:
+    # Reported because the two diverge exactly when it counts: a `git` fork can fail with
+    # "MEM_COMMIT failed / Resource temporarily unavailable" while available PHYSICAL memory reads
+    # generously high, because the commit charge was near its limit even though RAM was free. Both
+    # things this repo now relies on are commit-denominated:
     # Resource-Exhaustion-Detector event 2004 reports committed memory per process, and procgov's
     # --maxjobmem caps committed bytes. Reporting only available physical while enforcing on commit
     # is how "there is plenty of memory" and "allocation failed" end up true at the same time.
@@ -359,11 +357,10 @@ function Get-JobMemoryCapGB {
     # slot semaphore actually holds that many, and it does not: a named semaphore's maximum is fixed
     # by whichever process creates it FIRST and cannot be queried or changed afterwards, so one
     # caller passing a larger -MaxConcurrent silently raises the ceiling for every other worktree for
-    # as long as the object lives. MEASURED 2026-07-31 on this machine: three procgov-wrapped builds
-    # running concurrently under a nominal limit of 2, with the semaphore reporting zero free slots
-    # (all three had genuine live parents -- not orphans, and not a Global\ vs Local\ namespace
-    # split; both were ruled out). At 28GB each that permitted 84GB of commit on a 63.7GB box, so
-    # CLAUDE.md's "bounded by construction" claim was simply false.
+    # as long as the object lives. Measured: three procgov-wrapped builds ran concurrently under a
+    # nominal limit of 2, with the semaphore reporting zero free slots and all three holding genuine
+    # live parents -- not orphans, and not a Global\ vs Local\ namespace split; both were ruled out.
+    # That much over-admission was enough to make CLAUDE.md's "bounded by construction" claim false.
     #
     # Dividing by MaxConcurrent + 1 keeps the bound true through one slot of over-admission --
     # 64GB -> (63.7-6)/3 = 19GB, so even three concurrent builds stay inside the reserve. It costs
@@ -454,9 +451,9 @@ function Split-ExtraArgsSpec {
     # This exists because of a PowerShell limitation that cannot be worked around inside the scripts
     # it affects. `pwsh -File script.ps1 -Mode test -- --nocapture` FAILS at parameter-binding time
     # with "Parameter cannot be processed because the parameter name '' is ambiguous": under -File,
-    # the bare `--` reaches the binder, which reads it as a parameter with an empty name. Verified
-    # 2026-07-31: it fails identically with and without [CmdletBinding()], and quoting it ('--')
-    # does not help, because -File passes raw strings that PowerShell then re-parses. The same
+    # the bare `--` reaches the binder, which reads it as a parameter with an empty name. Verified:
+    # it fails identically with and without [CmdletBinding()], and quoting it ('--') does not help,
+    # because -File passes raw strings that PowerShell then re-parses. The same
     # command works fine via the call operator (`& .\pg.ps1 -Mode test -- --nocapture`), because
     # there PowerShell's own parser consumes the `--` before binding ever sees it.
     #
@@ -585,7 +582,7 @@ function Get-ExhaustionConsumersFromMessage {
     # same split).
     #
     # MESSAGE TEXT, verified against real Microsoft-Windows-Resource-Exhaustion-Detector (event ID
-    # 2004) events on this machine (2026-07-31):
+    # 2004) events:
     #   "Windows successfully diagnosed a low virtual memory condition. The following programs
     #    consumed the most virtual memory: predict_census.exe (30004) consumed 118387073024 bytes,
     #    vmmemCmZygote (9984) consumed 853762048 bytes, and MsMpEng.exe (5320) consumed 529256448
@@ -614,11 +611,11 @@ function Get-ExhaustionConsumersFromMessage {
 function Get-ResourceExhaustionEvents {
     # Windows already diagnoses this and logs it: Microsoft-Windows-Resource-Exhaustion-Detector
     # fires event ID 2004 into the System log when the OS is approaching its commit limit, and the
-    # message names the top-3 processes it picked plus how many bytes each had committed. This
-    # machine had three such events BEFORE this function existed and nobody was reading the log:
-    #   2026-07-04  hc-rs.exe         97 GB
-    #   2026-07-26  pangloss.exe      90 GB
-    #   2026-07-30  predict_census.exe  118 GB (repeated over ~45 minutes as it climbed)
+    # message names the top-3 processes it picked plus how many bytes each had committed. Real
+    # events recorded before this function existed:
+    #   hc-rs.exe             97 GB
+    #   pangloss.exe          90 GB
+    #   predict_census.exe   118 GB (climbed over roughly 45 minutes)
     # All three were a single PanGloss binary invoked DIRECTLY -- never through cargo, so nothing
     # that only wrapped cargo (Invoke-CargoWithReaper, before this file's `run`-mode support) could
     # ever have bounded them. This function is what lets `pg.ps1 -Mode doctor` surface that history
@@ -816,7 +813,7 @@ function Set-SccacheServerPriority {
 # ---------------------------------------------------------------------------------------------
 # Build slots: N named MUTEXES, not one counted semaphore.
 #
-# The semaphore this replaced deadlocked every worktree on this machine on 2026-07-31. A counted
+# The semaphore this replaced deadlocked every worktree on this machine. A counted
 # semaphore's count is NOT restored when its holder dies, and in agent workflows the holder dies
 # constantly: a tool timeout, an agent stop/resume, or a detached invocation whose parent
 # conversation has gone all kill pg.ps1 somewhere between Enter-BuildSlot and Exit-BuildSlot. Any
@@ -1270,9 +1267,9 @@ function Get-LiveBuildProcesses {
 }
 
 # =================================================================================================
-# docs/superpowers/specs/2026-07-29-categorical-build-hardening-design.md, parts 2-4:
-# distinct preflight exit codes, worktree base-commit contract, target ownership, sccache health,
-# corpus-manifest validation, the one-line preflight record, and marker-aware gc classification.
+# Preflight and build-hardening surface: distinct preflight exit codes, worktree base-commit
+# contract, target ownership, sccache health, corpus-manifest validation, the one-line preflight
+# record, and marker-aware gc classification.
 # Consumed by rust/tools/pg.ps1; also exercised directly by rust/tools/tests/*.tests.ps1 so the
 # decision logic is testable without a real build, a real drive, or a real git worktree registry.
 # =================================================================================================
@@ -1310,7 +1307,7 @@ $script:ExitCodeConformanceSubmoduleMissing = 18
 # `pwsh -File <worktreeA>\rust\tools\pg.ps1` executed from worktreeB builds and tests **B** while
 # every visible part of the command says A.
 #
-# Measured 2026-08-03: this silently VOIDED a completed verification. A gate was reported green for a
+# Measured: this silently VOIDED a completed verification. A gate was reported green for a
 # commit that the built tree did not contain. It fails in the reassuring direction -- the run passes,
 # and the command text names the tree you meant -- so it reads as "I DID look", which is worse than
 # this repo's usual "I could not look" failure because there is no absent result to notice. Agents are
@@ -1693,7 +1690,7 @@ function Test-CorpusPresent {
 # <1MB per worktree is the entire point of scoping -- gigabytes saved fleet-wide for zero loss of
 # what the suite actually reads.
 #
-# VERIFIED 2026-08-01 against git 2.51.0 on this machine, inside an actual linked worktree (not
+# VERIFIED against git 2.51.0, inside an actual linked worktree (not
 # the primary checkout): `git submodule update --init --no-checkout -- machine` is NOT valid
 # syntax -- `--no-checkout` is not one of `submodule update`'s recognized flags (`--checkout` is
 # the only member of that family, and it's the default). The equivalent that IS a supported, stable
