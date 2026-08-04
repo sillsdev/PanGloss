@@ -1,72 +1,37 @@
-//! `pangloss diagnose` — the report schema and CLI skeleton for
-//! `openspec/changes/add-grammar-diagnostics`.
+//! `pangloss diagnose` — the report schema and CLI skeleton that assesses a grammar against a
+//! word list.
 //!
-//! # STAGING rework (read this before the rest of this module's doc)
-//! `openspec/changes/STAGING.md`'s "Downstream — post-multi-topology, pre-ship" section reworks
-//! this change down to two concrete pieces, since its own `design.md`/`tasks.md` depend on several
-//! changes that have not merged yet (`define-grammar-coverage-contract`'s Complete/Truncated
-//! per-word contract, `harden-foma-resource-safety`'s cumulative batch budgets and worker
-//! watchdog, `certify-four-language-matrix`'s comparison plumbing): *"fix the apply-path
-//! containment to ADR 0003's in-process cooperative magnitude budgets (not 'the watchdog', which
-//! is compile-only)"*. This module implements exactly that plus the additive report schema/CLI
-//! skeleton the fix needs to be reportable at all — see "What this module defers" below for the
-//! larger pieces of `tasks.md` deliberately left as follow-on work.
+//! # Apply-path containment: budgets, not a watchdog
+//! Apply-time (per-word) analysis runs **in-process** and is contained by **deterministic
+//! cooperative magnitude budgets**, never a watchdog: apply runs constantly, per word, in the
+//! caller's own process, where a native thread cannot be safely hard-killed (a watchdog that kills
+//! a whole process is a viable tool at compile time, when there is one killable worker per grammar
+//! compile, but not here). [`assess_words`] drives the production foma pipeline through
+//! [`pg_foma::composite::FomaAnalyzer::analyze_word_budgeted`] against an explicit
+//! [`pg_foma::compose_budget::ApplyBudget`] and records `pg_assess::IncompleteReason::LogicalBudget`
+//! — naming the tripped dimension, value, and limit — so a word either completes or returns a typed
+//! incomplete outcome naming exactly what it hit.
 //!
-//! # (a) Apply-path containment: ADR 0003, not a watchdog
-//! `docs/adr/0003-apply-time-containment.md`: apply-time (per-word) analysis runs **in-process**
-//! and is contained by **deterministic cooperative magnitude budgets**, never a watchdog — a
-//! watchdog is `harden-foma-resource-safety`'s COMPILE-time-only mechanism (one killable worker
-//! per grammar compile), and apply runs constantly, per word, in the caller's own process, where a
-//! native thread cannot be safely hard-killed. This module's [`assess_words`] drives the production
-//! foma pipeline through [`pg_foma::composite::FomaAnalyzer::analyze_word_budgeted`] against an
-//! explicit [`pg_foma::compose_budget::ApplyBudget`] (that method's own module,
-//! `compose_budget.rs`'s "Apply-path dimension" section, is this same change's other half of the
-//! fix) and records `pg_assess::IncompleteReason::LogicalBudget` — naming the tripped dimension,
-//! value, and limit — exactly the ADR 0003 contract: *"a word either completes ... or returns a
-//! typed incomplete outcome naming the dimension and value it hit"*.
+//! The budget is measured on the same compiled network and traversal that produces the analyses
+//! (via [`FomaAnalyzer::analyze_word_budgeted`], not a second standalone measurement pass), so the
+//! recorded outcome can never describe a run other than the one that actually happened.
 //!
-//! Originally this measured the budget on a **second** compiled network, because `FomaAnalyzer`
-//! exposed no budgeted entry point. It now does, so there is one compile and one traversal, and
-//! the recorded outcome describes the run that produced the analyses rather than a parallel one
-//! that could disagree with it (`add-grammar-assessment` task 3.14).
-//!
-//! # (b) One assessment artifact, reusing the emission units it needs
-//! `assess_words` returns `pg_assess::AssessmentReport` — the repo's single
-//! `pangloss.assessment-report/v1` (D14, task 3.13). This module no longer defines a report shape
-//! of its own: two artifacts describing what happened to a word against a compiled model is the
-//! "second path" the handoff spec §2 forbids, and they would drift.
+//! # One assessment artifact, reusing the emission units it needs
+//! `assess_words` returns `pg_assess::AssessmentReport`, the repo's single canonical assessment
+//! artifact. This module does not define a report shape of its own: two artifacts describing what
+//! happened to a word against a compiled model would be able to disagree, with no rule for which to
+//! believe.
 //!
 //! Diagnostic evidence the canonical report has no field for is carried under the report's
 //! namespaced `extensions`. Gloss signatures there come from `pg_realize::word_gloss_signature`
-//! (`rust/crates/pg-realize/src/signature.rs`, Stage 0E of
-//! `openspec/changes/add-reference-hermitcrab-parity`) directly — this module never re-renders a
-//! gloss chain or re-implements the tagged `g:`/`m:`/`|s:` encoding itself. Health findings, when
-//! any exist, are `pg_foma::health::HealthReport` values verbatim (Stage 0D of
-//! `define-fst-compilation-health`, R6 — `openspec/changes/IMPLEMENTATION-READINESS.md`), never a
-//! parallel report shape.
+//! directly — this module never re-renders a gloss chain or re-implements the tagged
+//! `g:`/`m:`/`|s:` encoding itself. Health findings, when any exist, are `pg_foma::health::HealthReport`
+//! values verbatim, never a parallel report shape.
 //!
-//! # What this module defers (documented follow-on, per this change's own STAGING scope)
-//! - **Health findings are always empty today.** `pg_foma::health`'s own module doc: "purely
-//!   additive... a later change wires a real evaluator." [`build_report`] embeds a real, empty
-//!   [`pg_foma::health::HealthReport`] (never a duplicate/placeholder type) so this report's shape
-//!   never has to change when that evaluator lands — it will simply start populating findings.
-//! - **No default-engine (`pg_parse::Morpher`-only) comparison pipeline, no golden-identity diff,
-//!   no build/assessment report-to-report comparison** (`tasks.md` 2.5–2.11): those need the
-//!   coverage contract's canonical analysis-identity/Complete-Truncated types, which have not
-//!   landed (`define-grammar-coverage-contract`'s own tasks are all unchecked as of this writing).
-//!   Inventing a substitute contract here would violate design.md D2 ("Diagnostics serializes
-//!   these values but does not define substitute caps or certification rules").
-//! - **No cumulative/batch-level resource policy, no worker watchdog integration**
-//!   (`harden-foma-resource-safety`, Stage 0C): every one of that change's tasks is unchecked. ADR
-//!   0003 itself is explicit that a watchdog would be the wrong tool for the apply path this
-//!   module measures in the first place (see "(a)" above) — the batch-level POLICY that change
-//!   would add (aggregate batch budgets, cooperative cancellation) is a real, separate, larger
-//!   piece of work this module does not attempt.
-//! - **No `glosses.tsv`/`debug.jsonl`, no PowerShell `scripts/diagnose.ps1`, no `incoming/`
-//!   convention, no CI smoke fixture, no `.claude/skills/grammar-diagnostic/`** (`tasks.md`
-//!   3.2–3.5, 4.1–4.5): all additive presentation/orchestration layered on top of the report
-//!   schema this module defines; none of it changes the schema's own shape, so it is safe to add
-//!   later without another schema revision.
+//! Health findings are always empty today, because no evaluator populates them yet.
+//! [`build_report`] still embeds the real [`pg_foma::health::HealthReport`] type (never a
+//! duplicate/placeholder) so the report's shape does not have to change when an evaluator starts
+//! populating findings — it only has to start returning a non-empty vector.
 
 use std::fs;
 use std::path::Path;
@@ -87,9 +52,9 @@ use pg_grammar::model::Grammar;
 /// `HEALTH_SCHEMA_VERSION` convention one crate over).
 pub const DIAGNOSTICS_SCHEMA_VERSION: u32 = 1;
 
-/// D1 (design.md): "separate immutable `build.json` and `assessment.json`" — this is the
-/// build-side report, produced once per grammar load, independent of any word list. Compilation
-/// may stay entirely in memory (design.md D1): nothing here requires a `.pgpack` to exist.
+/// The build-side report, kept separate and immutable from `assessment.json`: it is produced once
+/// per grammar load, independent of any word list. Compilation may stay entirely in memory —
+/// nothing here requires a `.pgpack` to exist.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BuildReport {
     pub schema_version: u32,
@@ -97,9 +62,8 @@ pub struct BuildReport {
     /// never invents a name when the grammar declares none).
     pub grammar_name: Option<String>,
     /// `Grammar::entries.len()` — the lexical-entry count, part of this report's own lightweight
-    /// build-identity fingerprint (design.md D1: "record grammar/network fingerprint" — a full
-    /// content hash is future work; these three counts are the honest, cheap fingerprint available
-    /// today without adding a hashing dependency to this crate).
+    /// build-identity fingerprint. A full content hash is future work; these three counts are the
+    /// honest, cheap fingerprint available today without adding a hashing dependency to this crate.
     pub lex_entry_count: usize,
     pub morpheme_count: usize,
     pub stratum_count: usize,
@@ -108,8 +72,7 @@ pub struct BuildReport {
     /// ([`crate::print_grammar_warnings`]); recorded here too so a `build.json` consumer has them
     /// without re-running the load.
     pub load_warnings: Vec<String>,
-    /// `pg_foma::health::HealthReport` verbatim (this module's own top doc, "(b)" / "What this
-    /// module defers") — always empty today (no evaluator exists yet anywhere in this workspace),
+    /// `pg_foma::health::HealthReport` verbatim — always empty today (see this module's top doc),
     /// never a duplicate schema.
     pub health: HealthReport,
 }
@@ -129,28 +92,15 @@ pub fn build_report(grammar: &Grammar, load_warnings: Vec<String>) -> BuildRepor
 }
 
 /// Assess `words` against `grammar`'s production pipeline, producing the repo's ONE assessment
-/// artifact (`pangloss.assessment-report/v1`).
+/// artifact (`pangloss.assessment-report/v1`) — never a local report type of its own, since two
+/// artifacts describing what happened to a word against a compiled model could disagree with no
+/// rule for which to believe. The canonical artifact carries structured analysis identities, three
+/// digests, and atomic per-case outcomes.
 ///
-/// # Why this no longer has a report type of its own (D14, task 3.13)
-///
-/// This module used to define its own `AssessmentReport`. Two artifacts describing what happened to
-/// a word against a compiled model is the "second path" the handoff spec §2 forbids, and they would
-/// drift: the same question answered twice, differently, with no rule for which to believe. The
-/// canonical artifact carries structured analysis identities, three digests, and atomic per-case
-/// outcomes, none of which the local shape had.
-///
-/// # Why there is now one compiled network, not two (task 3.14)
-///
-/// The previous implementation compiled `grammar` to foma **twice** — once inside [`FomaAnalyzer`]
-/// for the real propose→confirm run, and once as a standalone `FomaProposer` purely to measure
-/// against an [`ApplyBudget`] — because `FomaAnalyzer` exposed no budgeted entry point. It now does
-/// ([`FomaAnalyzer::analyze_word_budgeted`]), so the workaround is gone and `diagnose` pays one
-/// compile.
-///
-/// That also removes a subtler problem. Measuring the budget on a *separate* network meant the
-/// recorded apply status described a different traversal from the one that produced the analyses,
-/// so the two could in principle disagree about the same word. Now the budget and the analyses come
-/// from a single run and cannot.
+/// `grammar` is compiled to foma exactly once — [`FomaAnalyzer::analyze_word_budgeted`] both runs
+/// the real propose→confirm pipeline and measures against the [`ApplyBudget`] on the same network
+/// and traversal, so the recorded apply status can never describe a different run from the one that
+/// produced the analyses.
 ///
 /// Diagnostic evidence the canonical report has no field for — propose-side over-generation and the
 /// gloss rendering — is carried in the report's namespaced `extensions`, which is excluded from both
@@ -266,7 +216,7 @@ pub fn assess_words(
         },
         // Codes carried through from the importer rather than flattened to one bucket: `compare`
         // diffs these by code and count, so "the importer skipped 400 more constructs" has to be
-        // distinguishable from "one message was reworded" (task 3.8).
+        // distinguishable from "one message was reworded".
         diagnostics: warnings
             .iter()
             .map(|w| Diagnostic {
@@ -285,12 +235,12 @@ pub fn assess_words(
     .map_err(|e| format!("finish assessment report: {e}"))
 }
 
-/// `pangloss diagnose <grammar> <words.txt> <out-dir>` (tasks.md 1.1, reworked scope — see this
-/// module's top doc): loads `grammar` via [`crate::load_grammar`] (the existing `.xml`/`.json`/
-/// `.fwdata` extension dispatch every other subcommand already uses), reads one word per
-/// non-empty trimmed line from `words.txt` (the same convention `run_batch` already uses), and
-/// writes `<out-dir>/build.json` and `<out-dir>/assessment.json` — always both, always separate
-/// files (D1), never a combined artifact. `<out-dir>` is created if missing.
+/// `pangloss diagnose <grammar> <words.txt> <out-dir>`: loads `grammar` via
+/// [`crate::load_grammar`] (the existing `.xml`/`.json`/`.fwdata` extension dispatch every other
+/// subcommand already uses), reads one word per non-empty trimmed line from `words.txt` (the same
+/// convention `run_batch` already uses), and writes `<out-dir>/build.json` and
+/// `<out-dir>/assessment.json` — always both, always separate files, never a combined artifact.
+/// `<out-dir>` is created if missing.
 pub fn run_diagnose(args: &[String]) -> Result<(), String> {
     let [grammar_path, words_path, out_dir] = args else {
         return Err("usage: diagnose <grammar> <words.txt> <out-dir>".to_string());
@@ -458,8 +408,8 @@ mod tests {
 
     #[test]
     fn diagnose_emits_the_one_canonical_assessment_artifact() {
-        // Task 3.13 / D14: this module no longer has a report shape of its own. Two artifacts
-        // answering "what happened to this word" is the second path §2 forbids.
+        // This module has no report shape of its own: two artifacts answering "what happened to
+        // this word" could disagree, with no rule for which to believe.
         let report = assess(&["kal", "tuz", "zzzz"], &ApplyBudget::unbounded());
         let value = report.to_value();
 
@@ -582,9 +532,9 @@ mod tests {
 
     #[test]
     fn importer_warning_codes_reach_the_report_rather_than_one_bucket() {
-        // The point of task 3.8: `compare` diffs diagnostics by code and count. If every warning
-        // arrived as `importer.warning`, a caller could not tell "the importer skipped different
-        // data" from "a message was reworded" — the distinction §10 asks for.
+        // `compare` diffs diagnostics by code and count. If every warning arrived as
+        // `importer.warning`, a caller could not tell "the importer skipped different data" from
+        // "a message was reworded".
         let path = grammar_file();
         let warnings = vec![
             pg_snapshot::Warning::new(
