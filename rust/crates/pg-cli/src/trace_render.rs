@@ -1,6 +1,6 @@
-//! P12 chunk 7: rendering a [`TreeTraceSink`] for `pangloss parse --trace` (design doc §4.3).
+//! Rendering a [`TreeTraceSink`] for `pangloss parse --trace`.
 //!
-//! Two formats, deliberately different design points (§4.3): **text** is an indented tree, one line
+//! Two formats, deliberately different design points: **text** is an indented tree, one line
 //! per node, shaped to be visually diffable against a hand-transcribed or tooling-extracted C#
 //! trace; **JSON** is a nested-object tree for a script comparing `(TraceType, rule/subrule identity,
 //! FailureReason)` tuples without caring about whitespace. Both live here (not in `pg-parse`/
@@ -76,7 +76,7 @@ fn source_label(g: &Grammar, source: TraceSource) -> Option<String> {
     }
 }
 
-/// The indented plain-text renderer (design doc §4.3's example format).
+/// The indented plain-text renderer.
 pub fn render_text(g: &Grammar, sink: &TreeTraceSink, root: TraceHandle) -> String {
     let mut out = String::new();
     render_text_node(g, sink, root, 0, &mut out);
@@ -117,7 +117,7 @@ fn render_text_node(
     }
 }
 
-/// Minimal hand-rolled JSON emission (design doc §4.3: JSON is a secondary, tooling-facing format --
+/// Minimal hand-rolled JSON emission (JSON is a secondary, tooling-facing format --
 /// `pg-cli` has no `serde` dependency today and adding one purely for this would be more than this
 /// landing needs; surface/rule-name strings are plain ASCII/IPA text with no special escaping needs
 /// in every reference grammar this port ports).
@@ -180,7 +180,7 @@ fn render_json_node(g: &Grammar, sink: &TreeTraceSink, h: TraceHandle, out: &mut
 
 #[cfg(test)]
 mod tests {
-    //! Chunk 7's own acceptance criterion (design doc §5): a golden test comparing the fixed
+    //! A golden test comparing the fixed
     //! text-tree output for a small hand-built grammar/word against a checked-in expected string.
 
     use super::*;
@@ -269,7 +269,7 @@ mod tests {
         // MORE faithful trace, not a regression: this is exactly what a live C# trace would also
         // show (an unmemoized replay), which is the whole point of the memo-bypass fix.
         //
-        // P12 chunk 9 follow-up (2026-07-10): a THIRD new node, the second `MorphologicalRuleSynthesis
+        // P12 chunk 9 follow-up: a THIRD new node, the second `MorphologicalRuleSynthesis
         // "ed_suffix"` attempt (rejected `NonPartialRuleProhibitedAfterFinalTemplate`). This golden
         // grammar's "S" stratum is `morphologicalRuleOrder="unordered"` with ZERO `<AffixTemplate>`
         // elements -- the exact minimal repro of the bug fixed in `synth_apply_templates`
@@ -288,19 +288,18 @@ mod tests {
         // and every stratum in `indonesian-hc.xml`. Reordering (passthrough inserted first, then the
         // recursion loop reads the complete set) restores the second attempt Rust was silently never
         // exploring, tracing or not -- a genuine control-flow fix, not a tracing-only special case.
-        // 2026-07-17 (dead-end-attribution census, `docs/superpowers/specs/
-        // 2026-07-17-better-proposing-fst-plan.md` Phase 0): the analysis (unapply) cascade is now
-        // traced too (`pg-rules/src/morph.rs`/`stratum.rs`'s `_traced` wiring), so the tree gains a
+        // The dead-end-attribution census added tracing for the analysis (unapply) cascade too
+        // (`pg-rules/src/morph.rs`/`stratum.rs`'s `_traced` wiring), so the tree gains a
         // `MorphologicalRuleAnalysis "ed_suffix"` node -- the unapplication of "sagd" back to "sag"
         // that seeds the whole synthesis attempt, previously invisible -- and the entire synthesis
         // chain now correctly nests under it (its input IS that unapplication's output). Same class
         // of change as `pg-parse/tests/trace_rule_sequence_gate.rs`'s direct-child -> descendant
         // loosening, and a more faithful trace (C# traces analysis as well), not a regression.
         //
-        // 2026-07-25 (G4: the five previously-unwired trace events --
+        // G4: the five previously-unwired trace events --
         // `begin_unapply_stratum`/`end_unapply_stratum`/`begin_unapply_template`/
         // `end_unapply_template`/`lexical_lookup` -- see `pg-rules/src/stratum.rs`'s `analyze`/
-        // `template_unapply_slots` and `pg-parse/src/morpher.rs`'s `lexical_lookup_filtered`):
+        // `template_unapply_slots` and `pg-parse/src/morpher.rs`'s `lexical_lookup_filtered` --
         // regenerated from this test's own computed `rendered` value (never hand-typed) after
         // wiring those call sites. Five new nodes for this golden grammar (no `<AffixTemplate>`, so
         // `begin_unapply_template`/`end_unapply_template` don't fire on this particular path):
