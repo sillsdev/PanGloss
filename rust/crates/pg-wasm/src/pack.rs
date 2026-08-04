@@ -1,10 +1,7 @@
-//! `.pgpack` load-time compatibility gate for this WASM Runtime build (R2A;
-//! `openspec/changes/make-wasm-analysis-only/{proposal,design,tasks}.md`;
-//! `docs/adr/0004-runtime-feature-compatibility.md`; `docs/adr/0005-capability-override-
-//! unproven-grammars.md`).
+//! `.pgpack` load-time compatibility gate for this WASM Runtime build.
 //!
 //! This module replaces what would otherwise be a monolithic engine-compatibility-identifier
-//! **equality** check with ADR 0004's load-time containment check: a pack's manifest stamps the
+//! **equality** check with a load-time containment check: a pack's manifest stamps the
 //! **required** runtime-feature set it was built against; this Runtime declares the **provided**
 //! set it actually supports ([`provided_runtime_features`]); the pack loads iff
 //! `required ⊆ provided` ([`pg_pack::RequiredRuntimeFeatures::satisfied_by`], reused verbatim —
@@ -14,23 +11,23 @@
 //! feature this build genuinely lacks is refused, with a typed [`PackLoadError`], never a crash
 //! and never a version-equality mismatch.
 //!
-//! [`load_pack`] also surfaces, at load time, the two other signals design.md's pack manifest
-//! carries: the ADR 0005 [`pg_pack::CapabilityTrust`] stamp (a pack force-compiled past a
+//! [`load_pack`] also surfaces, at load time, the two other signals the pack manifest
+//! carries: the [`pg_pack::CapabilityTrust`] stamp (a pack force-compiled past a
 //! characteristics-check refusal is indelibly `Overridden`/unproven, and still loads — see
 //! [`LoadedPack::is_unproven`] — the degraded-trust *signal*, not a refusal, is the safety
 //! mechanism) and the pack's [`pg_pack::SignatureState`] (reported for the caller's information
-//! only; per R2A it never gates a load, exactly as [`pg_pack::read_pack`] itself already
+//! only; it never gates a load, exactly as [`pg_pack::read_pack`] itself already
 //! guarantees). The FST-health admission field is [`pg_foma::health::HealthReport`] reused
 //! verbatim through [`pg_pack::PackManifest::fst_health`] — this module does not redefine, re-
 //! derive, or duplicate that schema; see [`LoadedPack::fst_health_admission`].
 //!
-//! # Analysis-only boundary (R2A/R2)
+//! # Analysis-only boundary
 //! This module depends only on `pg_pack` (plain data types: manifest, compat, trust) and reuses
 //! `pg_foma::health` (also plain data). It performs zero FST/lexc compilation, links no compiler
 //! constructor, and never calls `pg_foma::analyzer::FomaProposer::new` or any other emit/compile
 //! entry point — the one thing it does is validate an already-compiled artifact's envelope and
 //! report on it. It does not (yet) construct a working analyzer from the packaged runtime/foma
-//! payload bytes; that is `make-wasm-analysis-only` tasks.md §3's separate, larger "WASM
+//! payload bytes; that is a separate, larger "WASM
 //! analysis-only loading" scope (deserializing the Rust-HermitCrab runtime payload and
 //! reconstructing the foma proposer from its existing binary-memory encoding via
 //! `foma::io::fsm_read_binary_mem` — never recompiling it). This module is the load-time gate
@@ -41,21 +38,21 @@ use pg_pack::{
     RequiredRuntimeFeatures, SignatureState,
 };
 
-/// This build's own required-runtime-feature vocabulary (ADR 0004: "only constructs needing a
-/// runtime operation... contribute" — e.g. reduplication's query-time peel op). Freeform, stable,
+/// This build's own required-runtime-feature vocabulary (only constructs needing a
+/// runtime operation contribute — e.g. reduplication's query-time peel op). Freeform, stable,
 /// delanguaged identifiers; this module does not mint a registry, it only names the ones this
 /// Runtime build actually implements today.
 ///
 /// **Re-exported from the producing side, deliberately not re-spelled.** This is the identifier
 /// `pangloss pack` writes into a manifest's `required_runtime_features.runtime_operations` whenever a
 /// grammar needs peeling, so the *provided* set here and the *required* set there MUST be the same
-/// string or ADR 0004's `required ⊆ provided` check rejects a pack this Runtime can in fact serve.
+/// string or the `required ⊆ provided` check rejects a pack this Runtime can in fact serve.
 /// This crate previously spelled it `"pg.reduplication.peel"` while the producer wrote
 /// `"reduplication.peel"` — a latent load-rejection bug that only became reachable once both sides
 /// existed. Aliasing the producer's constant makes the mismatch unrepresentable.
 pub use pg_foma::peel::RUNTIME_FEATURE_REDUPLICATION_PEEL as OP_REDUPLICATION_PEEL;
 
-/// This Runtime build's own declared **provided** runtime-feature set (ADR 0004's other half of
+/// This Runtime build's own declared **provided** runtime-feature set (the other half of
 /// the `required ⊆ provided` containment check) — never read from any `.pgpack` file, always
 /// derived from this build itself:
 ///
@@ -78,14 +75,14 @@ pub fn provided_runtime_features() -> ProvidedRuntimeFeatures {
 }
 
 /// This build's own foma-feature level. A plain constant (not derived from any external registry)
-/// because, per ADR 0004, this dimension is this Runtime's own compile-time capability declaration
+/// because this dimension is this Runtime's own compile-time capability declaration
 /// — bump it only when this build gains a new foma-level capability a pack's
 /// `required_runtime_features.foma_feature_level` could legitimately require.
 const FOMA_FEATURE_LEVEL: u32 = 1;
 
 /// This crate's own `Cargo.toml` semantic version, read from the compile-time `CARGO_PKG_VERSION_*`
 /// environment variables `cargo` always sets — used as the Rust-HermitCrab port version this
-/// Runtime build declares it provides (ADR 0004's `hc_port_semver` dimension). Every workspace
+/// Runtime build declares it provides (the `hc_port_semver` dimension). Every workspace
 /// crate shares one `version.workspace = true` value, so this is the same number `pg-parse`/
 /// `pg-foma` themselves ship at.
 fn this_crate_semver() -> (u32, u32, u32) {
@@ -116,7 +113,7 @@ pub enum PackLoadError {
     /// the containment check at all.
     #[error("pack container invalid: {0}")]
     Container(#[from] PgPackError),
-    /// ADR 0004's allowed, typed incompatibility: the pack's `required_runtime_features` is not a
+    /// The allowed, typed incompatibility: the pack's `required_runtime_features` is not a
     /// subset of this Runtime's `provided` set. Carries both sides so a caller can report exactly
     /// what is missing (e.g. "upgrade PanGloss to run this grammar") rather than a bare boolean.
     /// Boxed (clippy `result_large_err`): both feature-set structs carry several `Vec<String>`
@@ -133,42 +130,42 @@ pub enum PackLoadError {
 }
 
 /// A `.pgpack` that has passed both the container's own structural validation
-/// ([`pg_pack::read_pack`]) and this Runtime's ADR 0004 `required ⊆ provided` containment check.
-/// Carries everything [`load_pack`]'s caller needs to surface the ADR 0005 trust signal and the
+/// ([`pg_pack::read_pack`]) and this Runtime's `required ⊆ provided` containment check.
+/// Carries everything [`load_pack`]'s caller needs to surface the trust signal and the
 /// FST-health admission alongside the raw parsed manifest and payload bytes.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LoadedPack {
     pub manifest: PackManifest,
     pub runtime_payload: Vec<u8>,
     pub foma_payload: Vec<u8>,
-    /// Reported for the caller's information only — R2A: signature state never gates a load, so
+    /// Reported for the caller's information only — signature state never gates a load, so
     /// this is present on every [`LoadedPack`] regardless of its value, exactly as
     /// [`pg_pack::ReadPack::signature_state`] already guarantees at the container level.
     pub signature_state: SignatureState,
 }
 
 impl LoadedPack {
-    /// ADR 0005's pack-level degraded-trust signal: `true` iff this pack was force-compiled past
+    /// The pack-level degraded-trust signal: `true` iff this pack was force-compiled past
     /// a characteristics-check refusal via the capability override
     /// ([`pg_pack::CapabilityTrust::Overridden`]). A consuming application keys its "this is
     /// potentially broken" banner off this at load time. See [`LoadedPack::analysis_trust_flag`]
-    /// for the same signal reused as the per-analysis-result flag ADR 0005 also requires.
+    /// for the same signal reused as the per-analysis-result flag.
     pub fn is_unproven(&self) -> bool {
         self.manifest.capability_trust.is_unproven()
     }
 
-    /// The per-analysis-result degraded/experimental flag ADR 0005's "two-level" trust signal
-    /// names ("At load, the pack reports pack-level `unproven`/`overridden` status; on every
-    /// analysis, each result carries a degraded/experimental flag"). Identical truth value to
+    /// The per-analysis-result degraded/experimental flag this pack's "two-level" trust signal
+    /// names: at load, the pack reports pack-level `unproven`/`overridden` status; on every
+    /// analysis, each result carries a degraded/experimental flag. Identical truth value to
     /// [`LoadedPack::is_unproven`] today — a pack's trust stamp is a single pack-wide fact, so
     /// every analysis drawn from the same pack necessarily carries the same flag — kept as its own
-    /// named accessor so the eventual per-word analysis result type (tasks.md §3, not yet wired)
+    /// named accessor so the eventual per-word analysis result type (not yet wired)
     /// has one obvious call to copy onto itself rather than reaching into `manifest` directly.
     pub fn analysis_trust_flag(&self) -> bool {
         self.is_unproven()
     }
 
-    /// The ADR 0005 override record when [`LoadedPack::is_unproven`] is `true` — who authorized
+    /// The override record when [`LoadedPack::is_unproven`] is `true` — who authorized
     /// the override, why, and exactly which fail-closed configurations were force-compiled through
     /// (`None` for a cleanly [`pg_pack::CapabilityTrust::Proven`] pack).
     pub fn override_record(&self) -> Option<&pg_pack::CapabilityOverrideRecord> {
@@ -192,7 +189,7 @@ impl LoadedPack {
 /// Loads and validates one `.pgpack` container against this Runtime build's own provided
 /// runtime-feature set: first the container's own structural validation
 /// ([`pg_pack::read_pack`] — magic, version, section limits, truncation, trailing bytes, digest,
-/// cross-payload fingerprint), then, only once that passes, ADR 0004's `required ⊆ provided`
+/// cross-payload fingerprint), then, only once that passes, the `required ⊆ provided`
 /// containment check via [`RequiredRuntimeFeatures::satisfied_by`] against
 /// [`provided_runtime_features`]. Fails closed with a typed [`PackLoadError`] at either stage;
 /// never partially constructs a [`LoadedPack`].
@@ -289,7 +286,7 @@ mod tests {
 
     #[test]
     fn old_pack_with_no_extra_requirements_keeps_loading_append_only() {
-        // ADR 0004: "old packs run unchanged forever" -- a pack requiring nothing beyond this
+        // Old packs run unchanged forever -- a pack requiring nothing beyond this
         // build's baseline must load exactly like a fully-populated one.
         let manifest = synthetic_manifest(
             synthetic_required(Vec::new()),
@@ -414,7 +411,7 @@ mod tests {
 
     // ---------------------------------------------------------------------------------------
     // Signature state is reported, never gates -- even paired with an incompatible feature set,
-    // signing/signature validity plays no role in the ADR 0004 containment decision.
+    // signing/signature validity plays no role in the containment decision.
     // ---------------------------------------------------------------------------------------
 
     #[test]
