@@ -39,7 +39,7 @@ fn up_all(net: &Fsm, word: &str) -> BTreeSet<String> {
 // Tag escaping helpers -- a genuine gate finding, not incidental plumbing. The logic (and its
 // full rationale: `%<`/`%:`/`%>` escaping for the lexc dialects, `%0` for every zero digit
 // because a bare `0` is lexc's alignment-epsilon and silently collapses tag symbols) now lives
-// in `pg_foma::tags` (P1 stage 1) -- these are 4-digit-width wrappers so the P0 test bodies stay
+// in `pg_foma::tags` -- these are 4-digit-width wrappers so the test bodies below stay
 // byte-identical to what the gate originally verified, while exercising the REAL production
 // codec rather than a private copy that could drift.
 fn lexc_tag(prefix: &str, n: u32) -> String {
@@ -383,7 +383,7 @@ fn binary_round_trip_via_memory() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Gate F0 step 6 (C-foma fidelity oracle): these two `#[ignore]`d tests dump the *exact* lexc
+// C-foma fidelity oracle: these two `#[ignore]`d tests dump the *exact* lexc
 // source strings this file compiles internally (byte-for-byte, via the same `toy_lexc()` /
 // `rule_lexc()` builders the real tests use) so they can be fed to the official C foma v0.10.0
 // Windows CLI (github.com/mhulden/foma releases) for a side-by-side comparison against
