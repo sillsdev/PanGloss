@@ -1,4 +1,4 @@
-//! Throwaway diagnostic (2026-07-18): how big is Aweti's emitted lexc, and how much of
+//! Throwaway diagnostic: how big is Aweti's emitted lexc, and how much of
 //! `FomaAnalyzer::new`'s ~13min wall time is `emit()` (Rust-side composite generation) vs the
 //! foma lexc compile itself? Calls `pg_foma::emit::emit` directly, WITHOUT compiling it -- much
 //! cheaper than a full `FomaProposer::new`/`FomaAnalyzer::new` run, to separate the two phases.
