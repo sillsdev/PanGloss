@@ -155,6 +155,22 @@ launders unverified findings reproduces the defect it exists to document.
 | `pg-grammar-gen/build/strata.rs` claimed a *"still-open multi-table threading gap"* in `pg_foma::replace`; `build/tables.rs` said the same sites *"were fixed"* | **`tables.rs` is right; `strata.rs` was stale.** `owning_table`/`owning_table_id` do per-rule resolution with two tests pinning it. Swept the whole crate: the only production `char_tables[0]` left is `capability.rs:1252`, which is the `len() == 1` branch — the genuinely multi-table case refuses explicitly with a diagnostic. Every other hit is a `cfg(test)` single-table fixture |
 | **Corrected agent claim** — that `selection.rs` proves `CompileDecision` gates a real compile path | **The evidence was wrong, though the conclusion held via a different route.** `select_plan` has **zero** production callers repo-wide: its own `cfg(test)` block plus `grammar_semantics_owner_gate.rs` and `strategy_aware_capability_gate.rs`. That is not a defect — it matches Tier 3's declared constraint for `selection.rs`. What actually gates production is `pack.rs::build_pack`, per the Tier 2 row above |
 | **Corrected agent claim** — that `pg-grammar/compile`'s "Phase B" labels marked a live gap | **Recast, not fixed-as-bug.** "Phase B" named a plan the reader cannot see; the underlying facts (metathesis, reduplication, circumfix cross-products, custom `<Strata>` are unimplemented and warn) are true and were kept, restated as "not implemented" (`ba3101c`). One genuinely false claim was removed: a section header calling clitics "Phase B" sat above a test asserting clitics *are* implemented |
+| `health.rs`: `Severity::overridable` returns `true` for `Critical`, while a spec says Critical `SHALL not publish` | **NO ACTION — there is no contradiction, and this one should not be re-opened.** The two statements are about different things: `spec.md:59` governs *publishing*, `overridable()` governs *the capability override*. Every override-side source agrees with the code (`design.md:13` "Error and Critical are BOTH overridable"; `IMPLEMENTATION-READINESS.md:99`; `spec.md:35` has an explicit force-compile-a-Critical scenario; `tasks.md 2.3` is checked off). `health.rs:110-113` already draws the distinction correctly — the only non-overridable floor is apply-time execution containment, which is not a `Severity` at all |
+
+## Defect in the checker itself, found 2026-08-04 — **OPEN**
+
+`rust/tools/comment-hygiene.ps1` scores with PowerShell `-match`, which is **case-insensitive by
+default**. So `Phase [A-Z]\b` matches "phase a" and `Stage \d[A-Z]?\b` matches "stage 1" — and this
+repo uses exactly that lowercase vocabulary for real algorithm structure, e.g. `composite.rs:881`'s
+*"propose (stage 1) plus confirm (stage 2)"*, which is domain terminology and not project state.
+
+Consequence, and it cuts both ways: the ratchet over-counts, and worse, it pressures a sweep agent
+into rewriting correct technical prose to satisfy a regex. Measured on the residue at the time of
+writing: 4 genuine `step-marker` hits versus 3 case-insensitive-only false positives.
+
+Fix is one character per pattern (`-cmatch`, or an inline `(?-i)`), but it **changes every count**,
+so it must land with a re-baseline and not while a sweep is in flight. Deliberately deferred to
+avoid moving the target under the agents.
 
 ## Non-code mismatches
 
