@@ -1,7 +1,6 @@
-//! `openspec/changes/fix-multitable-fst-compilation` task 3: PROPOSER-TO-CONFIRM CONTAINMENT for
-//! the multi-table construct -- named by construct ("two-table-symbol-divergence"), synthetic and
-//! delanguaged, no language nouns anywhere (per `openspec/changes/STAGING.md`'s "Hard rule:
-//! synthetic data only"). Hand-authored XML (mirroring `pg_foma::replace`'s/`pg_foma::capability`'s
+//! PROPOSER-TO-CONFIRM CONTAINMENT for the multi-table construct -- named by construct
+//! ("two-table-symbol-divergence"), synthetic and delanguaged, no language nouns anywhere.
+//! Hand-authored XML (mirroring `pg_foma::replace`'s/`pg_foma::capability`'s
 //! own test-module convention) rather than `pg_grammar_gen`'s recipe generator: the generator's
 //! own `build::tables` module always adds a per-segment-unique `featId` feature (needed for ITS
 //! OWN unrelated purpose, avoiding `generate_words` surface collisions -- that module's own doc),
@@ -12,9 +11,9 @@
 //!
 //! ## What this proves, beyond `tests/phase_c_multi_table.rs`
 //! `phase_c_multi_table.rs` (GATE 1, now inverted) proves recall-via-compose for ONE stratum's own
-//! rule. This file proves the STRONGER claim design.md's own scenario asks for: "two strata, same
-//! symbol differs between tables... each compiled rule uses its own table AND proposer-to-confirm
-//! results match the oracle" -- using this codebase's own established containment methodology
+//! rule. This file proves the STRONGER claim: two strata where the same symbol differs between
+//! tables, each compiled rule uses its own table AND proposer-to-confirm results match the oracle
+//! -- using this codebase's own established containment methodology
 //! (`tests/f2_junction_gate.rs`'s `engine_sequences`/`candidates_cover`, `tests/f3_parity.rs`'s
 //! "multiset parity" framing, `tests/p6_templated_morphotactics_gate.rs` test (c)'s `apply_up` ->
 //! `tags::decode_path` -> `tags::to_candidates` decode): decode every raw `apply_up` result off the
@@ -38,7 +37,7 @@
 //! 's own module doc: extra strata need an OBLIGATORY rule specifically to let a root reach the
 //! surface) -- `tests/phase_c_multi_table.rs`/GATE 1 never queries stratum 0 via the oracle either,
 //! for the same reason. Table 0 exists here purely so the fixture genuinely has TWO strata each
-//! owning their OWN table (design.md's scenario), not one orphaned second table.
+//! owning their OWN table, not one orphaned second table.
 //!
 //! ## Known, out-of-scope anomaly (documented, not hidden)
 //! `pg_parse::Morpher`'s root lookup, when run over the UNFILTERED whole grammar, returns a THIRD,
