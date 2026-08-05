@@ -142,13 +142,11 @@ pub fn compile_templated_morphotactics(
         .join(", ");
     let started = Instant::now();
     // A grammar with NO boundary char-defs has nothing to delete, and `cleanup_regex` is then the
-    // empty string -- which `foma::regex::fsm_parse_regex` rejects, so this path used to fail with
-    // `CleanupCompileFailed("")` on any boundary-free grammar. Measured: two synthetic conformance
-    // fixtures were unbuildable for exactly this reason, having never been run through this compiler
-    // (its only prior callers were the P6 gate and its own tests, all on grammars that do declare
-    // boundaries). Skipping the pass is the correct semantics, not a workaround -- deleting nothing
-    // from a tape with no boundary tokens on it is the identity -- and it matches how the two
-    // optional layers above are already handled (`Some` compose / `None` leave alone).
+    // empty string, which `foma::regex::fsm_parse_regex` does not accept as a regex -- skip the
+    // pass rather than attempting to compile it. Skipping is the correct semantics, not a
+    // workaround: deleting nothing from a tape with no boundary tokens on it is the identity, and
+    // it matches how the two optional layers above are already handled (`Some` compose / `None`
+    // leave alone).
     let cleanup_net = if boundary_tokens.is_empty() {
         None
     } else {

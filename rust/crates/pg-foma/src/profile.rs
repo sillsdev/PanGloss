@@ -122,9 +122,10 @@ pub enum ProfileLabel {
     Production,
     /// A pre-production capture of `crate::replace`/`crate::gate`'s experimental cascade,
     /// separate from the production constructor. The result is labeled
-    /// `experimental_composition` and cannot satisfy production-profile gates —
-    /// `crate::health_evaluator::profile_findings` refuses to fold a profile carrying this label
-    /// into a production `crate::health::HealthReport`.
+    /// `experimental_composition` and cannot satisfy production-profile gates: a profile carrying
+    /// this label is refused outright before it can fold into a production
+    /// `crate::health::HealthReport`, pinned by
+    /// `fst_health_evaluator_experimental_composition_profile_is_refused`.
     ExperimentalComposition,
 }
 
@@ -289,7 +290,7 @@ impl CompileProfileBuilder {
 
     /// Finishes the profile: stamps `total_elapsed_millis` from this builder's own start time (D3)
     /// and attaches the compiled network's final state/arc counts (`None` when the production path
-    /// never reached a compiled network at all — see `CompileProfile::final_state_count`'s doc).
+    /// has no compiled network to report at all — see `CompileProfile::final_state_count`'s doc).
     pub(crate) fn finish(
         self,
         final_state_count: Option<i32>,

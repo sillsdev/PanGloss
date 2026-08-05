@@ -1469,9 +1469,9 @@ fn guided_template_apply(
 /// `StepBudget::deadline_expired` -- the wall-clock-only half of the budget, never its step-cap
 /// (this walk's own `cap`/`steps` remain the sole step-count authority
 /// -- see `deadline_expired`'s doc for why conflating the two would risk golden parity). A
-/// `None`-deadline budget (every step-cap-only caller, including `synthesize_template`'s own
-/// freshly-built one) makes every one of these checks a no-op, so this walk's behavior is
-/// byte-for-byte unchanged when `--word-timeout-ms` is not set.
+/// `None`-deadline budget (every caller relying solely on the step cap, including
+/// `synthesize_template`'s own freshly-built one) makes every one of these checks a no-op, so
+/// this walk's behavior is byte-for-byte unchanged when `--word-timeout-ms` is not set.
 #[allow(clippy::too_many_arguments)]
 fn synth_slots_generic<F>(
     g: &Grammar,
@@ -2034,8 +2034,8 @@ fn synth_apply_templates(
     // the guided walk (confirmation gate).
     //
     // W5 cs:29-30: `!input.RealizationalFeatureStruct.IsUnifiable(input.SyntacticFeatureStruct)`
-    // rejects outright, BEFORE `choose_inflectional_stem` even runs (checked against the word as
-    // handed in, not the swapped stem).
+    // returns early right here, BEFORE `choose_inflectional_stem` even runs (checked against the
+    // word as handed in, not the swapped stem).
     if !is_unifiable(&input.real_fs, &input.syn_fs) {
         return Vec::new();
     }

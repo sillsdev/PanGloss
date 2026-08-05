@@ -604,7 +604,8 @@ pub struct LedgerRow {
     /// Every `EmissionStrategy` whose proposer emits nothing at all for this construct
     /// (`crate::strategy_coverage::StrategyRepresentation::CannotRepresent`), as
     /// `EmissionStrategy::label` strings. A whole-construct recall hole for that compiler --
-    /// `crate::capability::compose_envelope_for_strategy` refuses a candidate realized by one.
+    /// a candidate realized by one is a typed refusal, pinned by
+    /// `a_construct_the_adapter_cannot_represent_is_a_typed_refusal_never_a_substitution`.
     #[serde(default)]
     pub strategies_cannot_represent: Vec<String>,
     /// Every strategy that CAN represent this construct but which no citation in

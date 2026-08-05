@@ -591,7 +591,7 @@ fn apply_blocking(g: &Grammar, words: Vec<Word>, blockable: bool) -> Vec<Word> {
         .collect()
 }
 
-/// `apply_blocking`'s traced sibling (`synthesize_cached_traced`'s only caller). C# fires
+/// `apply_blocking`'s traced sibling, called only from `synthesize_cached_traced`. C# fires
 /// `Blocked(rule, newWord)` (a sibling trace node, still under the ambient `parent` — C#'s
 /// `output.CurrentTrace` at that point has not yet been reassigned to the rule's own `Applied` node)
 /// BEFORE `MorphologicalRuleApplied` reassigns the cursor to the (possibly blocked-replaced) output

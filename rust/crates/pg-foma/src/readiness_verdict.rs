@@ -11,9 +11,9 @@
 //! - `Tier::NotYet`: the grammar compiles and runs (capability `Admit`/`ConfirmOnly`, trust
 //!   `Proven`), but at least one threshold is missed or a required check could not be assessed.
 //!   Actionable by the language team — more lexicon, better data, a smaller pack.
-//! - `Tier::NotSupported`: either (a) the capability gate refuses the grammar outright — cited
-//!   from the **real** `crate::capability::CompileDecision::Refuse` this module always computes
-//!   itself (never a caller-supplied guess, never inferred from a failure to run), or (b) the
+//! - `Tier::NotSupported`: either (a) the grammar carries a permanent
+//!   `crate::capability::CompileDecision::Refuse` — the **real** verdict this module always
+//!   computes itself (never a caller-supplied guess, never inferred from a failure to run), or (b) the
 //!   artifact carries a capability override (`trust=unproven`) — see the next section. Actionable
 //!   only by compiler work (or, for (b), a clean recompile without the override).
 //!

@@ -179,8 +179,8 @@ fn unify_lanes(a: &[u64], b: &[u64]) -> Option<Vec<u64>> {
 /// against a Boundary pattern node or vice versa — always fails, exactly as it would fail C#'s
 /// full-`FeatureStruct` unify (the type symbol is part of that FS). C#'s `fs.ValueEquals(node.FS)
 /// ? node : new ShapeNode(fs)` object-identity optimization has no analog for a value type — this
-/// always returns a freshly narrowed `GuessNode`, which is behaviorally identical content
-/// either way.
+/// constructs a freshly narrowed `GuessNode` whenever unification succeeds, which is behaviorally
+/// identical content either way.
 fn unify_shape_nodes(node: &GuessNode, pattern: &GuessNode) -> Option<GuessNode> {
     if node.kind != pattern.kind {
         return None;

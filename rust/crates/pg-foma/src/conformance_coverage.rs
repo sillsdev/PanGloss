@@ -33,8 +33,8 @@
 //! made the cross-check vacuous for most of the ledger — the majority of rows were never asked
 //! about at all. Every disposition here is a compiled-or-relied-upon capability, so every row
 //! needs the same evidence: a covering, PASSING analysis fixture.
-//! `CoverageReportRow::disposition` stays on the row so a build-breaking flip can stage `Proven`
-//! ahead of `ConfigPredicate`/`ConfirmOnly` without re-deriving the report.
+//! `CoverageReportRow::disposition` is carried on the row itself so a build-breaking flip can
+//! stage `Proven` ahead of `ConfigPredicate`/`ConfirmOnly` without re-deriving the report.
 //!
 //! # What "passing" means here (a judgment call, flagged)
 //! This crate's honest-capability discipline says a construct needs "a covering, **passing** fixture" — not merely a fixture that

@@ -24,13 +24,14 @@
 //! `compound_extra_levels`/license arguments (see `emit.rs`'s own "Per-group root sections" comment),
 //! so this file's coverage of the shared function is not narrowed by avoiding templates here.
 //!
-//! `pg_foma::emit::emit_underlying_templated` has no production caller in this crate today
-//! (`grep` confirms zero call sites outside `tests/`) -- it is driven directly here, exactly like
-//! `tests/p6_templated_morphotactics_gate.rs`'s own `run_emit_compile_compose`/`run_spot_check`
-//! helpers: emit -> `foma::lexcread::fsm_lexc_parse_string` -> `foma::apply::apply_init` ->
-//! `apply_up` -> `pg_foma::tags::decode_path`/`to_candidates`. No phonological rule composition is
-//! needed here (this fixture has none), so a bare `apply_up` against the compiled lexc net alone is
-//! the templated path's own analogue of `FomaProposer::propose`.
+//! This file drives `pg_foma::emit::emit_underlying_templated` directly, at a lower level than its
+//! production caller `crate::templated_compile::compile_templated_morphotactics`
+//! (`TemplatedUnderlyingTokens`'s strategy): emit -> `foma::lexcread::fsm_lexc_parse_string` ->
+//! `foma::apply::apply_init` -> `apply_up` -> `pg_foma::tags::decode_path`/`to_candidates`, the
+//! same shape `tests/p6_templated_morphotactics_gate.rs`'s own `run_emit_compile_compose`/
+//! `run_spot_check` helpers use. No phonological rule composition is needed here (this fixture
+//! has none), so a bare `apply_up` against the compiled lexc net alone is the templated path's
+//! own analogue of `FomaProposer::propose`.
 
 use std::time::{Duration, Instant};
 

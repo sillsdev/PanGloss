@@ -37,10 +37,10 @@
 //! excluded, because a certification computed over a silently-narrowed analysis set would carry the
 //! full corpus's name.
 //!
-//! Note the layering: `OccurrenceIdentities::project` RECORDS the guessed/supplied annotations as
-//! evidence and refuses nothing; `certified_occurrence` applies the scope. Evidence and policy are
-//! separate on purpose — a later profile that admits guessing needs a different policy, not a
-//! different projector.
+//! Note the layering, pinned by `projection_records_annotations_while_certification_refuses_them`:
+//! `OccurrenceIdentities::project` records the guessed/supplied annotations as evidence;
+//! `certified_occurrence` applies the scope. Evidence and policy are separate on purpose — a
+//! later profile that admits guessing needs a different policy, not a different projector.
 
 use std::collections::BTreeMap;
 

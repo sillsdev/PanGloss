@@ -182,7 +182,8 @@ pub struct RecipeOptimizationReport {
     /// re-verifying across N per-candidate copies.
     ///
     /// # Why it is required for a certifying report
-    /// `Self::validate` refuses a report that has a selectable candidate but no ledger. A run that
+    /// A report with a selectable candidate but no ledger is refused, pinned by
+    /// `a_certifying_report_must_carry_its_corpus_eligibility_ledger`. A run that
     /// excluded nothing must still SAY so, over a named requested corpus, or a hand-filtered word
     /// list fed in from outside is indistinguishable from an honest full-corpus run — which is
     /// exactly how a certification came to be labelled provisional after a 653-row filtered list

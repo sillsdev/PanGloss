@@ -267,10 +267,11 @@ fn non_document_order_analysis_is_proposed_and_confirmed() {
 }
 
 /// **The distinguishing property witness (module doc).** The IDENTICAL grammar, differing ONLY in
-/// `mrule_order="linear"`, must NOT confirm `"kqp"` at all: this test pins that firing `mrQ`
-/// before `mrP` is unreachable under `pg_rules::cascade::Cascade::permutation`'s own
-/// non-decreasing-index restriction (rule index 1 before rule index 0) -- the real semantic
-/// difference `Unordered`'s promotion depends on.
+/// `mrule_order="linear"`, must NOT confirm `"kqp"` at all, pinned by
+/// `linear_variant_of_the_same_grammar_does_not_confirm_the_reverse_order`: firing `mrQ` before
+/// `mrP` is out of scope for `pg_rules::cascade::Cascade::permutation`'s own non-decreasing-index
+/// restriction (rule index 1 before rule index 0) -- the real semantic difference `Unordered`'s
+/// promotion depends on.
 #[test]
 fn linear_variant_of_the_same_grammar_does_not_confirm_the_reverse_order() {
     let g = load(&fixture_xml("linear"));

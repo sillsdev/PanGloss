@@ -26,8 +26,8 @@
 //! `crate::capability::rhs_has_true_reduplication` test, the single authority for the fact), so
 //! an inert hint produces no observation, therefore no source, therefore no `CopyProcess` node.
 //! This module does not re-decide the question, which is precisely why it cannot get it wrong.
-//! `tests/mechanism_provider_gate.rs` pins both halves: inert hint -> zero copy nodes, real
-//! reduplication -> exactly one.
+//! Pinned by `an_inert_reduplication_hint_creates_no_copy_process_mechanism`, both halves: inert
+//! hint -> zero copy nodes, real reduplication -> exactly one.
 //!
 //! # Canonical identity
 //! Nodes are emitted in `MechanismKind::COMPOSITION_ORDER` and edges chain the present nodes in

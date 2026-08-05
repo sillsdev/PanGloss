@@ -781,18 +781,15 @@ fn analyze_with_pattern(
 }
 
 // =================================================================================================
-// P12 chunk 6 — phonological rule tracing (metathesis, analysis side).
+// Phonological rule tracing (metathesis, analysis side).
 //
 // C# `AnalysisMetathesisRule.Apply` (`PhonologicalRules/AnalysisMetathesisRule.cs:38-58`): same
 // single-pattern, no-subrule shape as the synthesis side, but the analysis event pair carries no
 // `FailureReason` at all (`ITraceManager.cs:42-43`) -- `PhonologicalRuleUnapplied(_rule, -1,
 // origInput, input)` on success, `PhonologicalRuleNotUnapplied(_rule, -1, input)` on failure
-// (cs:49-55). Not yet wired into the live per-word pipeline for the same reason
-// `pg_rules::rewrite::analyze_cached_traced` isn't: `crate::stratum::StratumAnalyzer::analyze`
-// (the sole caller of `analyze`/`analyze_cached` today) is itself untraced -- a pre-existing,
-// separately-documented P12 gap (see that function's doc). Built and unit-tested now so the
-// mechanism exists; a future pass that traces `StratumAnalyzer::analyze` calls these instead of
-// `analyze`/`analyze_cached`.
+// (cs:49-55). `crate::stratum::StratumAnalyzer::analyze` dispatches to `analyze_traced`/
+// `analyze_cached_traced` below, which fast-path straight back to the untraced call above whenever
+// `self.trace.is_tracing()` is false, so every pre-existing (production) caller is unaffected.
 // =================================================================================================
 
 /// `analyze`'s traced sibling — standalone (recompiles every call). `pid` is a nominal trace-tree
@@ -812,11 +809,11 @@ pub fn analyze_traced(
     result
 }
 
-/// The `MetaCache`-aware sibling of `analyze_traced`. Not yet called from live code (see this
-/// section's doc: the analysis-side stratum caller is itself untraced) — `MetaCache`'s own
+/// The `MetaCache`-aware sibling of `analyze_traced`, called from
+/// `crate::stratum::StratumAnalyzer::analyze` (this section's doc). `MetaCache`'s own
 /// `pub(crate)` visibility rules out the "export it `pub`" dodge `pg_rules::rewrite::
 /// analyze_cached_traced` uses for the identical situation, so `dead_code` is silenced explicitly
-/// here instead; exercised directly by this module's own unit tests.
+/// here instead; also exercised directly by this module's own unit tests.
 #[allow(dead_code)]
 pub(crate) fn analyze_cached_traced(
     pid: PRuleId,

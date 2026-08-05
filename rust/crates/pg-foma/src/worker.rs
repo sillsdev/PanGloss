@@ -623,9 +623,9 @@ pub struct WatchdogEnvelope {
 }
 
 impl WatchdogEnvelope {
-    /// Clamps every field to `V1_WORKER_LIMITS`' absolute ceilings/floors -- never rejects, always
-    /// returns a usable envelope (mirrors `crate::compose_budget::clamp_chain_depth_cap`'s own
-    /// "clamp, don't reject" convention).
+    /// Clamps every field to `V1_WORKER_LIMITS`' absolute ceilings/floors -- a total function with
+    /// no rejection path, mirroring `crate::compose_budget::clamp_chain_depth_cap`'s own "clamp,
+    /// don't reject" convention.
     pub fn clamped(
         wall_timeout: Duration,
         rss_limit_mb: u64,

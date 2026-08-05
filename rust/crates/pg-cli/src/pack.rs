@@ -521,12 +521,11 @@ mod tests {
 </HermitCrabInput>
 "#;
 
-    /// A grammar with genuinely-overlapping simultaneous subrules: `simultaneous.subrule-overlap`
-    /// refuses it on a real automaton intersection, so the `Refuse` verdict is a structural fact
-    /// about the fixture. Do not point a future "known-Refuse" fixture at a construct that is
-    /// refused only pending a proof (e.g. `compounding.recursive`) -- promoting it to `ConfirmOnly`
-    /// would make these tests vacuous (`main.rs`'s own
-    /// `capability_gate_tests::PERMANENTLY_REFUSED_GRAMMAR_XML`, same rationale).
+    /// A grammar with genuinely-overlapping simultaneous subrules -- its `Refuse` verdict is a
+    /// structural fact about the fixture, pinned by
+    /// `fixture_grammar_subrules_genuinely_overlap_and_are_refused`. Do not point a future
+    /// "known-Refuse" fixture at a construct that is refused only pending a proof (e.g.
+    /// `compounding.recursive`) -- promoting it to `ConfirmOnly` would make these tests vacuous.
     const REFUSE_GRAMMAR_XML: &str = include_str!("../../../../conformance-staging/edge-cases/simultaneous-subrule-genuine-overlap/grammar.xml");
 
     /// A grammar with one ordinary `MorphologicalRule` whose subrule's output copies the SAME input

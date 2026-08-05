@@ -714,8 +714,8 @@ impl LoweringAdapter {
     }
 
     /// Whether this adapter INTERPRETS the candidate's plan. `false` for both whole-grammar
-    /// adapters, which is exactly why `crate::recipe_runtime::build_candidate` refuses to be
-    /// handed one: honouring it there would measure a different compiler than the candidate names.
+    /// adapters: honouring one in `crate::recipe_runtime::build_candidate` would measure a
+    /// different compiler than the candidate names.
     pub fn interprets_plan(self) -> bool {
         matches!(self, Self::ControllablePlanCompose)
     }

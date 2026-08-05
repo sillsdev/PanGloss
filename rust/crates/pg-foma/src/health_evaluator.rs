@@ -128,11 +128,11 @@
 //!    (`compose_error_finding`'s `FindingCode::ResourceBudgetReached`/
 //!    `FindingCode::ProvenBoundExceedsBudget` arms) that this function never reaches (the
 //!    production path has no compose-budget-checked call site at all, module doc).
-//! 10. **`profile_findings` refuses a non-`crate::profile::ProfileLabel::Production` profile
-//!     outright** (empty `Vec`, never a partial fold): an
-//!     `ExperimentalComposition`-labeled profile "cannot
-//!     satisfy production-profile gates." `evaluate_health` never even needs to check this itself;
-//!     `profile_findings` is the one and only place this gate is enforced.
+//! 10. **A non-`crate::profile::ProfileLabel::Production` profile is refused outright**
+//!     (empty `Vec`, never a partial fold), pinned by
+//!     `fst_health_evaluator_experimental_composition_profile_is_refused`. `evaluate_health`
+//!     never even needs to check this itself; `profile_findings` is the one and only place this
+//!     gate is enforced.
 
 use crate::compose_budget::{
     ApplyDimension, ComposeError, NetSizeMeasure, DEFAULT_ARC_BUDGET, DEFAULT_LINE_BUDGET,

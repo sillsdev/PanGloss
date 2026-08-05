@@ -1188,10 +1188,10 @@ mod tests {
     /// `Complete` while having already spent more than the caller's deadline.
     ///
     /// `quality` must nonetheless stay `Exact`, and that is not cosmetic: an `Approximate` result
-    /// with `unexplored == 0` is a combination
-    /// `crate::recipe_report::RecipeOptimizationReport::validate` REFUSES, so the
-    /// fix for the termination label used to make the whole report unwritable. See the arm's own
-    /// comment in `optimize_with_evaluator`.
+    /// with `unexplored == 0` is a combination that makes
+    /// `crate::recipe_report::RecipeOptimizationReport::validate`'s own `if` arm return `Err`, so
+    /// the fix for the termination label used to make the whole report unwritable. See the arm's
+    /// own comment in `optimize_with_evaluator`.
     #[test]
     fn measured_overrun_on_the_final_candidate_still_reports_budget_exhausted() {
         struct ExpensiveEvaluator;
@@ -1257,9 +1257,9 @@ mod tests {
             "the deadline was really breached"
         );
         assert_eq!(outcome.search.termination, Termination::BudgetExhausted);
-        // Nothing was left unexplored, so nothing may claim otherwise -- and the pair
-        // (`Approximate`, `unexplored == 0`) is exactly what
-        // `crate::recipe_report::RecipeOptimizationReport::validate` rejects.
+        // Nothing was left unexplored, so nothing may claim otherwise -- the pair
+        // (`Approximate`, `unexplored == 0`) is exactly the combination
+        // `crate::recipe_report::RecipeOptimizationReport::validate`'s own `if` arm returns `Err` for.
         assert_eq!(outcome.search.unexplored, 0);
         assert_eq!(
             outcome.search.quality,

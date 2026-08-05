@@ -185,8 +185,9 @@
 //!
 //! Everything above is gated on `PrecisionEmit::build` only ever populating its lookup tables
 //! when `config` is `PrecisionConfig::AllFlags` — under the default `PrecisionConfig::Strip`,
-//! `PrecisionEmit::tagged_lower` always returns exactly what the pre-precision-knob emitter wrote
-//! (`escaped` unchanged, or lexc's `0` epsilon marker for an empty surface), which is what makes
+//! `PrecisionEmit::tagged_lower` is a byte-identical passthrough to what the pre-precision-knob
+//! emitter wrote (`escaped` unchanged, or lexc's `0` epsilon marker for an empty surface), pinned
+//! by `precision_emit_tagged_lower_is_passthrough_under_strip`, which is what makes
 //! `crate::emit::emit`'s byte-identical-to-before guarantee a property of the CODE PATH itself
 //! (one implementation, exercised both ways) rather than something a second, forked emitter would
 //! need to be kept in sync with by hand. No `LEXICON` blocks are ever synthesized by this module —

@@ -204,8 +204,9 @@ pub(crate) enum Slot {
     /// way it renders every other slot list, with no special-cased second PatternNode-to-text path.
     ///
     /// # Why no `Slot::Alpha` may ever appear (transitively) inside `children`
-    /// `slots_from_nodes` REFUSES (returns `None`) to build a `Slot::Repeat` whose own `children`
-    /// contain a `Slot::Alpha` occurrence at ANY nesting depth (checked recursively through any
+    /// Building a `Slot::Repeat` whose own `children` contain a `Slot::Alpha` occurrence at ANY
+    /// nesting depth is out of scope and returns `None`, pinned by
+    /// `alpha_nested_unbounded_quantifier_still_unsupported` (checked recursively through any
     /// further-nested `Slot::Repeat`, never just the immediate level) — `resolve_alpha_tuples`'s
     /// own occurrence-flattening walks `slot_lists: &[&[Slot]]` at exactly ONE level (the top-level
     /// LHS/RHS/left-env/right-env lists `replace.rs`'s `compile_rewrite_rule_subset`/this module's
@@ -736,7 +737,8 @@ pub(crate) fn render_slots(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnsupportedPatternNode {
     /// `PatternNode::Quantifier` (`<OptionalSegmentSequence min max>`) that
-    /// `crate::replace::pattern_slots` still refuses: inverted (`min > max`), pathologically
+    /// `crate::replace::pattern_slots` still leaves unsupported, pinned by
+    /// `inverted_finite_quantifier_still_unsupported`: inverted (`min > max`), pathologically
     /// large (past `crate::replace`'s own preflight bound), carrying an alpha-bound occurrence
     /// anywhere in its own children, or with no renderable child at all. A
     /// FINITELY bounded OR genuinely UNBOUNDED (`max == None`), alpha-free quantifier does not reach

@@ -3299,10 +3299,9 @@ pub(crate) fn build_prule_cache(
 // originating position whatsoever, which this position-preserving model has nothing to anchor
 // them to. None of the three reference grammars (Indonesian/Sena/Amharic) has such a rule
 // (verified: every `PhonologicalRule`'s `PhoneticInput` is non-empty) or a `MetathesisRule`
-// (verified: zero `<MetathesisRule>` elements in any of the three), so
-// `probe_apply_rule_cached` refuses (`ProbeOutcome::Refused`) rather than silently mis-track positions
-// if either is ever reached -- a conservative stance for a case the gate grammars never exercise,
-// not a gap in the covered cases.
+// (verified: zero `<MetathesisRule>` elements in any of the three), so reaching either here
+// returns `ProbeOutcome::Refused` rather than silently mis-tracking positions -- a conservative
+// stance for a case the gate grammars never exercise, not a gap in the covered cases.
 
 /// Soft-delete sibling of `syn_narrow` (Iterative Narrow, i.e. deletion/narrowing/expansion).
 /// See the module note above for exactly what differs (one line: `deleted = true` instead of

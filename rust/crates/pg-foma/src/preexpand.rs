@@ -231,8 +231,9 @@ fn candidate_rules(g: &Grammar) -> Vec<(MRuleId, Role)> {
     out
 }
 
-/// `(required_syn_fs, out_syn_fs, owning morpheme)` for the two rule kinds that carry allomorphs
-/// (never called on `Compounding` -- `candidate_rules` never includes one).
+/// `(required_syn_fs, out_syn_fs, owning morpheme)` for the two rule kinds that carry allomorphs.
+/// `candidate_rules` (above) filters `Compounding` out before this is reached; the `unreachable!`
+/// below enforces that at this call site too.
 fn rule_fs_and_morpheme(rule: &MorphRuleDef) -> (FsId, MorphemeId) {
     match rule {
         MorphRuleDef::AffixProcess(def) => (def.required_syn_fs, def.morpheme),

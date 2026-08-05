@@ -271,14 +271,11 @@ impl CharacteristicKind {
             // see that predicate's own doc) or Refuses an out-of-shape rule.
             CharacteristicKind::RightToLeftRewrite => Disposition::ConfigPredicate,
             // The dedicated swap-relation construction (`crate::replace::compile_metathesis_rule`)
-            // makes `Dir::LeftToRight` metathesis compilation faithful (never a silent wrong
-            // reorder) for the same `pattern_slots`-acceptable pattern shape any other rewrite
-            // rule already needs -- but no proven no-false-negative
-            // admission-filter argument exists either, so the resting disposition is the
-            // ConfigPredicate landing spot: ConfirmOnly unless/until
-            // `MetathesisFaithfulSwapPredicate` proves the shape is in scope (it never proves
-            // `Admit` today) or `MetathesisFaithfulSwapPredicate` refuses an out-of-shape/
-            // `Dir::RightToLeft` rule.
+            // makes metathesis compilation faithful for any `pattern_slots`-acceptable shape, in
+            // either `Dir` -- pinned by
+            // `metathesis_predicate_confirm_only_for_right_to_left_rule`. No proven
+            // no-false-negative admission-filter argument exists, so the resting disposition stays
+            // ConfigPredicate: ConfirmOnly for an in-scope shape, Refuse otherwise.
             CharacteristicKind::Metathesis => Disposition::ConfigPredicate,
             CharacteristicKind::Epenthesis => Disposition::ConfigPredicate,
             CharacteristicKind::SubruleGating => Disposition::Proven,
@@ -441,8 +438,8 @@ pub struct MultiTableDetail {
 /// own doc has the full, current exclusion list) — via `crate::replace::pattern_slots`/
 /// `crate::replace::owning_table` directly, WITHOUT compiling any foma automaton (cheap, purely
 /// structural, no `FomaOptions`/`SegAlphabet` needed). `Simultaneous` mode is handled by its own
-/// `CharacteristicKind::SimultaneousRewrite` observation (whose own admitted set this does NOT
-/// touch — `crate::lower::lower_span` stays on `PatternLowerScope::Baseline`, unaffected), so this
+/// `CharacteristicKind::SimultaneousRewrite` observation, whose own admitted set this detail
+/// computation leaves untouched, so this
 /// detail is only ever computed for `Dir::RightToLeft` rules (`characterize`'s
 /// own `Dir::RightToLeft` arm) — a rule that is BOTH `Simultaneous` and `RightToLeft` gets both
 /// observations, and `RightToLeftRewriteFaithfulReversalPredicate`'s own verdict is irrelevant
@@ -1482,9 +1479,8 @@ fn compounding_recursive(g: &Grammar) -> HashSet<MRuleId> {
 /// - `crate::emit::compound_extra_levels_checked` SIZES A CONSTRUCTION from this number
 ///   (`max_depth - 1` unrolled non-head root levels, shared by BOTH emitters), and
 /// - it is checked against a live budget on the way (`DEFAULT_COMPOUND_CHAIN_DEPTH_BUDGET`, 200,
-///   overridable with `HC_COMPOUND_CHAIN_DEPTH_BUDGET`), which
-///   refuses via a typed `crate::compose_budget::ComposeError::ChainDepthExceeded` rather than
-///   truncating.
+///   overridable with `HC_COMPOUND_CHAIN_DEPTH_BUDGET`): exceeding it is a typed
+///   `crate::compose_budget::ComposeError::ChainDepthExceeded`, never a silent truncation.
 ///
 /// A reader who assumed otherwise would conclude that nothing
 /// depends on how large this number is. Something does.
@@ -2097,7 +2093,7 @@ impl CapabilityPredicate for SimultaneousSubruleOverlapPredicate {
 }
 
 /// The per-pair decision, over an ALREADY-lowered `&[SubruleGateInfo]` — factored out of
-/// `SimultaneousSubruleOverlapPredicate::evaluate` (originally its only caller) so
+/// `SimultaneousSubruleOverlapPredicate::evaluate` so
 /// `simultaneous_rule_admitted_for_compile` (below, `crate::
 /// replace`'s own compile-time consumer) can share the IDENTICAL overlap algorithm rather than
 /// re-derive it — the gate (this predicate, used by `compose_envelope`) and the actual compiler
@@ -2513,9 +2509,9 @@ impl CapabilityPredicate for RightToLeftRewriteFaithfulReversalPredicate {
 ///   is `ConfirmOnly` rather than `Admit`. Either way, confirm-only-by-default, the same landing
 ///   spot every other `ConfigPredicate` characteristic in this registry already uses.
 /// - **Pattern shape outside scope** (`swap_construction_attempted == false` — an unresolvable
-///   owning table, `left_switch == right_switch` or out of bounds, or a pattern
-///   `crate::replace::pattern_slots` refuses/that carries a `Slot::Alpha`/`Slot::Repeat`
-///   occurrence — `crate::replace::compile_metathesis_rule`'s own module doc, "Scope" section, has
+///   owning table, `left_switch == right_switch` or out of bounds, or a pattern shape
+///   `crate::replace::pattern_slots` does not accept (a `Slot::Alpha`/`Slot::Repeat`
+///   occurrence) — `crate::replace::compile_metathesis_rule`'s own module doc, "Scope" section, has
 ///   the full, evidence-based account of which of these is genuinely reachable): [`PredicateVerdict
 ///   ::Refuse`] — the real compiler already honestly skips (`Ok(None)`) exactly this rule, never a
 ///   silent wrong compile; overridable via the capability override.
@@ -2806,11 +2802,10 @@ impl CapabilityPredicate for CircumfixStructuralCompositePredicate {
 /// stays TRUE in outcome for this shape; only the predicate's own CITATION of "the peel covers it" is
 /// imprecise for this one combined case, and `CircumfixStructuralCompositePredicate`'s own doc (its
 /// paragraph on the circumfix-plus-reduplication interaction) is where the actually-operative
-/// construction and its containment proof are recorded. `rhs_has_true_reduplication == true` with
-/// `crate::emit::classify_affix` returning anything OTHER than `CircumfixPrefix` or `Reduplication` cannot happen
-/// (`classify_affix`'s own structure: the reduplication check is the only other place
-/// `is_reduplicating` is consulted, immediately after the circumfix test), so this is an exhaustive
-/// two-way split, not a partial account.
+/// construction and its containment proof are recorded. `rhs_has_true_reduplication == true`
+/// limits `crate::emit::classify_affix`'s result to exactly `CircumfixPrefix` or `Reduplication`
+/// (`classify_affix`'s own structure checks `is_reduplicating` only once, immediately after the
+/// circumfix test), so this is an exhaustive two-way split, not a partial account.
 ///
 /// # Deep/nested reduplication chains stay a SEPARATE, cost (not capability), concern
 /// `crate::peel::ReduplicationPeeler`'s nested-reduplication recursion (its own module doc, "Chain
@@ -7081,7 +7076,7 @@ mod tests {
 
     /// A grammar with an `MprGroupOutput::Append` group and nothing worse must compose to
     /// `ConfirmOnly` -- not `Admit` (the group is real, unproven-to-Admit material) and not
-    /// `Refuse` (no predicate refuses it).
+    /// `Refuse` (nothing forces a refusal for this shape).
     #[test]
     fn compose_envelope_confirm_only_for_append_group_alone() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>AppendOnly</Name>
@@ -7232,7 +7227,7 @@ mod tests {
     /// `cover-realizational-morphology-constraints`: a grammar with a `RealizationalRule` and
     /// nothing worse must compose to `ConfirmOnly` — not `Admit` (no compiled admission filter is
     /// ever attempted for this construct, see `characterize_marks_realizational_rule_confirm_only`'s
-    /// own doc) and not `Refuse` (no predicate refuses it).
+    /// own doc) and not `Refuse` (nothing forces a refusal here).
     #[test]
     fn compose_envelope_confirm_only_for_realizational_rule_alone() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>RealizAlone</Name>

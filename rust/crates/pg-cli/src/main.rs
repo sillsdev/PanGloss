@@ -1916,11 +1916,11 @@ mod tests {
         use std::fs;
         use std::sync::atomic::{AtomicU32, Ordering};
 
-        /// A grammar with genuinely-overlapping simultaneous subrules: `simultaneous.subrule-overlap`
-        /// refuses it on a real automaton intersection, so the `Refuse` verdict is a structural
-        /// fact about the fixture rather than a not-yet-proven configuration. A construct refused
-        /// only pending a proof (e.g. `compounding.recursive`) is NOT a safe "known-Refuse" fixture
-        /// for these enforcement tests: it can be promoted to `ConfirmOnly` by a later capability
+        /// A grammar with genuinely-overlapping simultaneous subrules — its `Refuse` verdict is a
+        /// structural fact about the fixture rather than a not-yet-proven configuration, pinned by
+        /// `fixture_grammar_subrules_genuinely_overlap_and_are_refused`. A construct refused only
+        /// pending a proof (e.g. `compounding.recursive`) is NOT a safe "known-Refuse" fixture for
+        /// these enforcement tests: it can be promoted to `ConfirmOnly` by a later capability
         /// change and silently make the whole module vacuous.
         const PERMANENTLY_REFUSED_GRAMMAR_XML: &str = include_str!("../../../../conformance-staging/edge-cases/simultaneous-subrule-genuine-overlap/grammar.xml");
 

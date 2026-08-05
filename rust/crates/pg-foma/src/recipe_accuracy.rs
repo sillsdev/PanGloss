@@ -145,9 +145,11 @@ pub struct AccuracyCounters {
     /// This must never be zero-and-forgotten. A refused peel contributes zero candidates of its own,
     /// so a missing key on such an occurrence is indistinguishable from a genuine recall failure —
     /// which is exactly the "never truncate a word's proposal set" rule stated as a counter.
-    /// `verdict_from` therefore refuses to report undergeneration when this is non-zero and
-    /// returns `AccuracyVerdict::NotDetermined` instead. Production's default leaves
-    /// `chain_depth_cap` unset, so this is 0 unless `HC_COMPOSE_CHAIN_DEPTH_BUDGET` says otherwise.
+    /// A non-zero count here is `AccuracyVerdict::NotDetermined` in `verdict_from`, never
+    /// undergeneration, pinned by
+    /// `a_truncated_proposal_set_is_undetermined_rather_than_a_recall_failure`. Production's
+    /// default leaves `chain_depth_cap` unset, so this is 0 unless
+    /// `HC_COMPOSE_CHAIN_DEPTH_BUDGET` says otherwise.
     pub peel_refusals: u64,
     /// Occurrences whose PROPOSAL was refused by the per-word apply-path envelope
     /// (`crate::compose_budget::DEFAULT_EVALUATION_APPLY_PATH_BUDGET`), so that occurrence's
@@ -156,8 +158,9 @@ pub struct AccuracyCounters {
     /// Exactly `Self::peel_refusals`'s contract, one dimension over, and it exists for the same
     /// reason stated in the same words: a refused proposal contributes fewer candidates than the
     /// unbounded walk would, so a missing key on such an occurrence is indistinguishable from a
-    /// genuine recall failure. `verdict_from` therefore refuses to report undergeneration when this
-    /// is non-zero.
+    /// genuine recall failure. A non-zero count here is `AccuracyVerdict::NotDetermined` in
+    /// `verdict_from`, never undergeneration -- the identical branch shape `peel_refusals` has,
+    /// pinned by `a_truncated_proposal_set_is_undetermined_rather_than_a_recall_failure`.
     ///
     /// This path proposes with a bounded
     /// `crate::compose_budget::DEFAULT_EVALUATION_APPLY_PATH_BUDGET` rather than

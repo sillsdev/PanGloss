@@ -19,8 +19,9 @@
 //! ```json
 //! { "format": "pangloss-project", "version": 1, "project": { ... }, ... }
 //! ```
-//! `Snapshot::from_json` rejects any document whose `format`/`version` don't match what this
-//! build understands, with a specific `SnapshotError` variant — never a generic parse failure.
+//! A document whose `format`/`version` don't match what this build understands is refused with a
+//! specific `SnapshotError` variant — never a generic parse failure, pinned by
+//! `from_json_rejects_wrong_format_tag`/`from_json_rejects_unsupported_version`.
 //!
 //! # Determinism
 //!
@@ -38,9 +39,9 @@
 //! # Validation
 //!
 //! `Snapshot::validate` is a light, warning-only check for dangling GUID references (see the
-//! `validate` module doc for exactly what is and isn't checked). It never rejects a snapshot —
-//! real FieldWorks projects contain stale references, and this pipeline must tolerate them
-//! (`docs/fwdata-import-plan.md` §1).
+//! `validate` module doc for exactly what is and isn't checked), returning `Vec<Warning>` rather
+//! than a `Result` — real FieldWorks projects contain stale references, and this pipeline must
+//! tolerate them (`docs/fwdata-import-plan.md` §1).
 #![forbid(unsafe_code)]
 
 pub mod common;

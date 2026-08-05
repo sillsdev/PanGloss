@@ -727,8 +727,8 @@ pub struct ComposeBudget {
     pub(crate) step_timeout: Option<Duration>,
     /// This crate's chain-depth dimension (this module's "Chain-depth dimension" section). `None`
     /// (the default everywhere -- `Self::from_env`, `Self::with_caps`, `Self::unbounded`)
-    /// means unbounded/off: `Self::check_chain_depth` always returns `Ok` and no existing
-    /// caller's behavior changes. `Some(limit)` is already clamped to
+    /// means unbounded/off, at any depth -- pinned by `chain_depth_unbounded_budget_never_trips`
+    /// -- so no existing caller's behavior changes. `Some(limit)` is already clamped to
     /// `CHAIN_DEPTH_ABSOLUTE_CEILING` by whichever constructor set it.
     ///
     /// **Read by production code**: `crate::peel::ReduplicationPeeler`'s nested-reduplication

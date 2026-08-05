@@ -157,8 +157,8 @@
 //! `self_opaquing`-Refuse early-out is exactly what keeps the ADMITTED case inside the region where
 //! this asymmetry never actually bites: `self_opaquing` is REQUIRED true for the repeat-wrapper to
 //! ever trigger, and the admit predicate refuses any pair containing one
-//! (`crate::capability::simultaneous_rule_admitted_for_compile` additionally refuses a LONE
-//! self-opaquing subrule too, stricter than the predicate's own pairwise-only algorithm). So
+//! (`crate::capability::simultaneous_rule_admitted_for_compile` is additionally stricter still for
+//! a LONE self-opaquing subrule, unlike the predicate's own pairwise-only algorithm). So
 //! for every
 //! rule this file now actually compiles under `Simultaneous`, confirm's analysis side runs
 //! `ana_feature`/`ana_epenthesis` exactly once, per subrule, with no fixpoint loop — the SAME shape
@@ -304,8 +304,8 @@
 //!   of this task's own scope (`crate::lower::UnsupportedPatternNode::AlphaDisagreePolarity`'s own
 //!   doc; `crate::capability::RightToLeftRewriteFaithfulReversalPredicate`'s own tests pin this
 //!   refusal with this specific named witness).
-//! - **This widening is scope-gated** (`crate::lower::PatternLowerScope`), not a blanket change
-//!   for every `pattern_slots` caller: `crate::lower::lower_span` stays on
+//! - **This widening is scope-gated** (`crate::lower::PatternLowerScope`), not a blanket change:
+//!   `crate::lower::lower_span`'s own callers are unaffected, still passing
 //!   `crate::lower::PatternLowerScope::Baseline`.
 
 use foma::constructions::fsm_universal;
@@ -839,8 +839,8 @@ pub(crate) fn owning_table_id_for_metathesis(
 /// (`PRuleId`, found by the caller's own variant-specific `xml_id` lookup) in `g.prules`, find the
 /// stratum whose `prules` list contains it and return that stratum's own `CharDefTable`. `None`
 /// (never a panic, never an implicit table-zero guess) when no stratum's own `prules` list
-/// contains it — see `owning_table`'s own doc for the full "unreachable from any stratum" case
-/// this covers.
+/// contains it — see `owning_table`'s own doc for the full case this covers: a rule wired into
+/// no stratum at all.
 fn owning_table_for_prule_position(g: &Grammar, idx: usize) -> Option<&CharDefTable> {
     let table_id = owning_table_id_for_prule_position(g, idx)?;
     Some(&g.char_tables[table_id.0 as usize])
@@ -1742,8 +1742,9 @@ pub type Subrule = RewriteSubruleDef;
 //   `vars` table that blocks `Slot::Alpha` above (a quantifier's own `min`/`max` carry no variable
 //   reference at all) — so a `<MetathesisRule>` pattern CAN structurally contain an
 //   `OptionalSegmentSequence`, DTD-legal and loader-legal, just never attested in any fixture this
-//   crate has authored. `slot_candidates` refuses ANY `Slot::Repeat` regardless of `Dir` (it
-//   always did, for `Dir::LeftToRight`, before this change), so this stays an honest, REACHABLE
+//   crate has authored. `slot_candidates` returns `None` for ANY `Slot::Repeat` regardless of
+//   `Dir` (see its own `match` arm below; already true for `Dir::LeftToRight` before this change),
+//   so this stays an honest, REACHABLE
 //   scope line for both directions after this change too — not silently inherited, stated here and
 //   in `crate::capability::MetathesisFaithfulSwapPredicate`'s own witness text.
 // - No resolvable owning table (`owning_table_for_metathesis` returning `None`).

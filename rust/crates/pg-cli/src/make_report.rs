@@ -73,10 +73,10 @@
 //! `below_floor_latency_never_reports_as_a_bare_millis_zero` test pins that).
 //!
 //! # Coverage's token definition
-//! A corpus's tokens are its whitespace-separated words (`str::split_whitespace`). A token this
-//! grammar's own segmentation rejects outright (`crate::foma_invalid_shape`, the SAME guard
-//! `run_batch`/`run_parse` use to keep the `SKIPPED` vs. `ok` status column identical between
-//! engines) counts as a miss, not an exclusion — the analysis-rate denominator is every token in the
+//! A corpus's tokens are its whitespace-separated words (`str::split_whitespace`). A token flagged
+//! unsegmentable by `crate::foma_invalid_shape` (the same check `run_batch`/`run_parse` use to keep
+//! the `SKIPPED` vs. `ok` status column identical between engines) counts as a miss here, not an
+//! exclusion — the analysis-rate denominator is every token in the
 //! corpus, never a pre-filtered subset (`pg_foma::readiness_verdict::COVERAGE_RATE_STATEMENT`: "the
 //! fraction of tokens receiving at least one analysis").
 //!

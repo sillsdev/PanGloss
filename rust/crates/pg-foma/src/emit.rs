@@ -2563,9 +2563,10 @@ fn boundary_reps(table: &CharDefTable) -> Vec<String> {
 /// `Morpher::generate_words` strips every boundary (`include_boundaries = false`) before
 /// rendering, so its output "mui" can never match the boundary-bearing query "mu+i". The shape
 /// (which WOULD carry the boundary at its true position) is not exposed by `generate_words`'
-/// string-only API, and `probe_surface` (above) refuses whenever the [`pg_rules::surface_probe::
-/// probe_synthesize`] cascade it drives does (module doc, item 2 — metathesis is one of that
-/// cascade's refusal triggers), so the exact position is unrecoverable at this layer — enumerate
+/// string-only API, and `probe_surface` (above) returns `None` in exactly the same cases its own
+/// `pg_rules::surface_probe::probe_synthesize` call does (via `?`; module doc, item 2 —
+/// metathesis is one of that cascade's refusal triggers), so the exact position is unrecoverable
+/// at this layer — enumerate
 /// every interior insertion instead: bounded (one boundary, `bnd_reps.len() * (n-1)` extra strings
 /// for an n-char surface), upward-only (`crate::confirm` prunes; a spurious "m+ui" is simply never
 /// the query and matches nothing). A no-op when `bnd_reps` is empty (every grammar with no boundary

@@ -421,9 +421,11 @@ mod tests {
         </Language></HermitCrabInput>"#
     }
 
-    /// A grammar `compose_envelope` refuses, so a selector run over its candidates must find NONE
-    /// admissible. Genuinely-overlapping simultaneous subrules are the construct: a construct
-    /// refused only pending a proof (`compounding.recursive`) can be reclassified later.
+    /// A grammar with a permanent `compose_envelope` refusal, so a selector run over its
+    /// candidates must find NONE admissible. Genuinely-overlapping simultaneous subrules are the
+    /// construct, pinned by `fixture_grammar_subrules_genuinely_overlap_and_are_refused`: unlike a
+    /// construct refused only pending a proof (`compounding.recursive`), this one cannot be
+    /// reclassified later.
     fn refuse_overwrite_mpr_group_fixture_xml() -> &'static str {
         include_str!("../../../../conformance-staging/edge-cases/simultaneous-subrule-genuine-overlap/grammar.xml")
     }
