@@ -13,8 +13,8 @@
 //! - `nonhead-not-root`: the same grammar with head+nonHead output order — the affixed span
 //!   becomes the NON-HEAD, which `AnalysisCompoundingRule` requires to be a bare root, so BOTH
 //!   engines return no analyses (parity pin for the shared "non-head must already be a root"
-//!   design limit; this is the grammar the P3 plan item mistook for an engine gap). Its "pʰutdat"
-//!   row (P4, 2026-07-09) additionally pins the homophone-disjunction fix: the dat-homophone pair
+//!   design limit; this is a grammar shape that was once mistaken for an engine gap). Its
+//!   "pʰutdat" row additionally pins the homophone-disjunction fix: the dat-homophone pair
 //!   (entries 8/9) resolves via the NON-HEAD under this grammar's word order, which is exactly the
 //!   path `simple_rules_1_homophone_disjunction_finding` documents.
 
@@ -75,7 +75,7 @@ fn nonhead_not_root_matches_oracle() {
     }
     let g = load_fixture("nonhead-not-root");
     let m = Morpher::new(&g, usize::MAX);
-    // "pʰutdat" (P4, 2026-07-09): with head+nonHead order the dat-homophone pair (entries 8/9)
+    // "pʰutdat": with head+nonHead order the dat-homophone pair (entries 8/9)
     // resolves via the NON-HEAD; the live oracle keeps both ("5+8|...;5+9|..."). Previously omitted
     // from this fixture because Rust's engine collapsed them to "5+8" only -- see
     // `csharp_port_compounding.rs::simple_rules_1_homophone_disjunction_finding` for the root cause
