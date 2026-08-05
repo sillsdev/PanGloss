@@ -16,7 +16,7 @@
 //! localizes a change without diffing anything.
 //!
 //! Diagnostics reach the semantic projection as `(code, count)` pairs rather than prose, so
-//! rewording an importer warning is never reported as a context difference (task 3.8).
+//! rewording an importer warning is never reported as a context difference.
 
 use std::collections::BTreeMap;
 
@@ -33,7 +33,7 @@ pub const REPORT_SCHEMA: &str = "pangloss.assessment-report";
 pub const REPORT_SCHEMA_VERSION: u32 = 1;
 
 /// The suite this report answers, recorded so `golden-diff` can refuse to evaluate an old run
-/// against revised policy (task 5.4).
+/// against revised policy.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SuiteRef {
@@ -51,7 +51,7 @@ pub struct Execution {
     /// on complete cases, and a disagreement is exactly what a reader needs to see.
     pub pipeline: String,
     /// Effective logical budgets by dimension. Empty means unbounded, which is the default until a
-    /// resource envelope is named (task 3.4).
+    /// resource envelope is named.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub budgets: BTreeMap<String, u64>,
     /// The outer wall-clock safety net, if one was armed. Recorded in the report but never in a
@@ -85,7 +85,7 @@ pub enum Severity {
 /// One importer or compiler diagnostic.
 ///
 /// The `code` is what `compare` diffs; `message` is for humans and never reaches a digest, so
-/// rewording it is not a change in the grammar's context (task 3.8).
+/// rewording it is not a change in the grammar's context.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Diagnostic {
