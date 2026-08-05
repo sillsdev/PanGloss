@@ -1,6 +1,5 @@
-//! Task 7.11 of `openspec/changes/cleanup-and-recipe-parity`: ONE immutable, typed owner for the
-//! semantic facts this crate derives from a [`Grammar`], and the projections its consumers read
-//! instead of walking the grammar themselves.
+//! ONE immutable, typed owner for the semantic facts this crate derives from a [`Grammar`], and
+//! the projections its consumers read instead of walking the grammar themselves.
 //!
 //! # The problem this replaces
 //! Four consumer areas -- the capability gate ([`crate::capability`]/[`crate::capability_entry`]/
@@ -12,9 +11,9 @@
 //! [`crate::selection::select_plan`] called it ONCE PER CANDIDATE PLAN -- re-running the whole
 //! grammar walk, including the real [`foma::types::Fsm`] construction `characterize`'s
 //! `lower_subrule_span` performs for every `Simultaneous`-mode subrule. `pangloss make-report`
-//! re-derived the whole capability verdict three times in one process; `pangloss fst-health` twice,
-//! with [`crate::preflight`]'s own module doc calling that "an acceptable duplication" while
-//! waiting on this task.
+//! re-derived the whole capability verdict three times in one process; `pangloss fst-health` twice
+//! -- duplication [`crate::preflight`]'s own module doc called "an acceptable duplication" and this
+//! type now removes by memoizing the derivation once.
 //!
 //! # What this owns, and what it deliberately does not
 //! [`GrammarSemantics::derive`] is the single derivation point. It is a pure function of `&Grammar`,
@@ -59,8 +58,8 @@
 //! So this type owns BOTH, under names that say which is which --
 //! [`GrammarSemantics::declared_phonology`] and [`GrammarSemantics::cascade_phonology`] -- and each
 //! consumer projects the one it already meant. This is deliberately NOT a unification: collapsing
-//! them would change which recipe families a grammar is offered, and task 7.11 is a consolidation,
-//! not a behavior change.
+//! them would change which recipe families a grammar is offered, and this type's split is a
+//! consolidation of existing facts, not a behavior change.
 //!
 //! Templates have no such split, and that is a reasoned negative, not an unchecked assumption. Both
 //! grammar loaders keep `g.templates` and the owning stratum's `sd.templates` in lockstep by
@@ -411,7 +410,7 @@ impl<'g> GrammarSemantics<'g> {
     }
 
     /// [`crate::capability::characterize`]'s exhaustive construct profile, computed AT MOST ONCE per
-    /// `GrammarSemantics` (module doc: this is the memoization task 7.11 exists to introduce).
+    /// `GrammarSemantics` (see the module doc: this is the memoization this type exists to provide).
     pub fn characteristics(&self) -> &CharacteristicsProfile {
         self.characteristics
             .get_or_init(|| characterize(self.grammar))
