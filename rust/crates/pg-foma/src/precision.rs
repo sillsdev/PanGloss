@@ -1,6 +1,5 @@
-//! The FST precision knob (`docs/superpowers/specs/2026-07-15-fst-precision-knob-design.md`),
-//! **step 1 only** (design §8 sequencing item (1)): the [`ConstraintCatalog`] for the
-//! GATE-CONSTRAINT **ENVIRONMENT** family (design §2's table — allomorph-selection environments,
+//! The FST precision knob, step 1 only: the [`ConstraintCatalog`] for the
+//! GATE-CONSTRAINT **ENVIRONMENT** family (allomorph-selection environments,
 //! where v1's emitter today ([`crate::emit`]) emits every allomorph permissively regardless of its
 //! declared `RequiredEnvironments`/`ExcludedEnvironments` and lets HC confirm prune the
 //! wrong-environment candidates), [`PrecisionAction`]/[`PrecisionConfig`], and the `AllFlags`
@@ -146,10 +145,11 @@
 //!   phonetic shape of its own, so it must leave whatever the previous real morph already set
 //!   untouched, exactly matching the real engine, which only ever inspects the assembled PHONETIC
 //!   shape).
-//! - **Owner side**: the OWNING allomorph's own entries (identified the same way stage 1 already
-//!   threads it — `Some(allo.id)` from [`crate::emit::emit_rule_allomorphs`], `Some(root.id)` from
-//!   `write_root_entries`/`write_stripped_root_entries`) additionally get `@R.ENV{id}.y@`
-//!   PREPENDED (require: only `y` is ever meaningful here — exclude is declined, finding 4).
+//! - **Owner side**: the OWNING allomorph's own entries (identified the same way already
+//!   threaded above — `Some(allo.id)` from [`crate::emit::emit_rule_allomorphs`],
+//!   `Some(root.id)` from `write_root_entries`/`write_stripped_root_entries`) additionally get
+//!   `@R.ENV{id}.y@` PREPENDED (require: only `y` is ever meaningful here — exclude is
+//!   declined, finding 4).
 //!   `@R@` reads whatever the immediately preceding non-empty entry's `@P@` last set — at word
 //!   start nothing has set anything, so `@R@` correctly fails there (a left-literal environment can
 //!   never hold with no left context at all).

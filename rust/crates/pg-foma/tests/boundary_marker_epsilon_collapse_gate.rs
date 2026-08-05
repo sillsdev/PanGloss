@@ -1,8 +1,6 @@
-//! Regression pin for the `finish_controllable_net` precision regression
-//! (`docs/fst-plan/large-lexicon-proposal-explosion.md`): a synthetic fixture reproducing the exact
-//! boundary-token pathology that document's own commit trail flagged as "owed" ("A synthetic fixture
-//! reproducing the boundary-token pathology is owed" -- no checked-in fixture exercised it before
-//! this).
+//! Regression pin for the `finish_controllable_net` precision regression: a synthetic fixture
+//! reproducing the exact boundary-token pathology, since no checked-in fixture exercised it before
+//! this.
 //!
 //! # The shape this fixture reproduces
 //! Sena's own explosion traced to ONE specific construction: an affix allomorph whose ENTIRE
@@ -247,7 +245,7 @@ fn null_morph_prefix_does_not_collapse_to_a_free_epsilon_loop() {
 /// The slice is DERIVED from the corpus at run time rather than hardcoded, for two reasons: the words
 /// are real-language data and must not enter the repository, and deriving them keeps the slice honest
 /// if the corpus changes. Hyphenated entries are dropped because this grammar's char table has no
-/// hyphen, so they can only ever be `SKIPPED` (`docs/fst-plan/corpus-word-list-hazards.md`).
+/// hyphen, so they can only ever be `SKIPPED`.
 #[test]
 #[ignore = "needs the private corpus at samples/data/sena-hc.xml; run with --include-ignored"]
 fn corpus_large_lexicon_proposals_stay_bounded_after_the_reroute() {
