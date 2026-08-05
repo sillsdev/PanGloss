@@ -531,9 +531,9 @@ pub struct BoundaryCleanupSpec {
 /// [`MechanismNode::sources`]) plus `bounded_local_shape`, `CopyKind`, `max_span` and
 /// `max_chain_depth`, none of which any semantic owner can derive today. An empty body is the
 /// honest shape: everything currently knowable about these two mechanisms is their typed sources
-/// and their construct requirements. Task 7.8's bounded-vs-unbounded-copy axis needs a real
-/// derivation before it can be modelled; inventing the field now would re-create exactly the
-/// unproved blanket contract this rework deletes.
+/// and their construct requirements. The bounded-vs-unbounded-copy axis needs a real derivation
+/// before it can be modelled; inventing the field now would re-create exactly the unproved blanket
+/// contract this vocabulary avoids.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "spec", rename_all = "kebab-case")]
 pub enum MechanismBody {
