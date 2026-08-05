@@ -1,5 +1,4 @@
-//! Closes the routing gap named in `openspec/changes/cleanup-and-recipe-parity/specs/
-//! recipe-strategy-routing/spec.md`: a template-bearing grammar with NO phonological rules (the
+//! Closes a routing gap: a template-bearing grammar with NO phonological rules (the
 //! measured Sena shape) must still be offered `EmissionStrategy::TemplatedUnderlyingTokens`, the
 //! only candidate whose lexicon carries template-aware morphotactic structure (slot ordering and
 //! bounded slot occupancy) rather than the plan-composed baseline's deliberately-minimal
