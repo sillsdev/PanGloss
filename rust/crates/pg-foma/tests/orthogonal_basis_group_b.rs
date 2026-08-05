@@ -1,5 +1,5 @@
-//! Task 7.8 of `openspec/changes/cleanup-and-recipe-parity`, **group B**: six of the eleven
-//! orthogonal-basis mechanisms, exercised at least twice where an honest second exercise exists.
+//! **Group B**: six of the eleven orthogonal-basis mechanisms, exercised at least twice where an
+//! honest second exercise exists.
 //!
 //! Group A (a disjoint file) owns template order/co-occurrence, cascade/strata, lexical class,
 //! allomorph priority, and zero morphology. This file owns exactly six:
@@ -16,15 +16,14 @@
 //! Every exercise is an ALREADY-COMMITTED conformance fixture and every expected number an
 //! assertion compares against is READ OUT of that fixture's own committed `words.yaml`. Nothing
 //! here hand-derives a signature, an analysis count, or a multiplicity, so this gate cannot certify
-//! a claim its own author invented. That discipline is 7.7's
-//! (`morphotactics_boundary_cleanup_slice.rs`), which this file follows deliberately rather than
-//! inventing a second convention.
+//! a claim its own author invented. That discipline is `morphotactics_boundary_cleanup_slice.rs`'s
+//! own, which this file follows deliberately rather than inventing a second convention.
 //!
 //! # Which relation each assertion uses, named at every site
 //!
 //! This matters enough to spell out, because a relation chosen for convenience is how the v1
 //! certification scope was once made invisible (`pg_foma::parity`'s own module doc, and the
-//! 2026-08-01 fix that restored it). Three distinct relations appear below:
+//! fix that restored it). Three distinct relations appear below:
 //!
 //! - **Deduplicated [`pg_foma::parity::OccurrenceIdentities`] SET cardinality**
 //!   ([`OccurrenceIdentities::len`]) -- the PROGRAM's own parity relation, counted. Multiplicity is
