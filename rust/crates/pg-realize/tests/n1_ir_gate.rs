@@ -1,16 +1,15 @@
-//! N1 integration gate (`docs/natural-phrases-plan.md` N1): parse real sample-grammar words
-//! end-to-end through `Morpher` -> `pg_realize::gloss_bundle` -> `pg_realize::to_ir`, loading the
-//! real sidecar files from `samples/data/*-realize.toml`, and pin the exact resulting `GlossIr`
-//! values.
+//! Parse real sample-grammar words end-to-end through `Morpher` -> `pg_realize::gloss_bundle` ->
+//! `pg_realize::to_ir`, loading the real sidecar files from `samples/data/*-realize.toml`, and pin
+//! the exact resulting `GlossIr` values.
 //!
 //! Same self-skip discipline as `n0_gloss_gate.rs`: every real-grammar test no-ops when the
 //! grammar XML is absent on disk. The two sidecar TOML files this milestone adds
 //! (`samples/data/amharic-realize.toml`, `samples/data/indonesian-realize.toml`) are gitignored
-//! real-language data, same as every other `samples/data/*` fixture (revised 2026-07-29: they
-//! were briefly tracked, but tracking real-language data and language-named paths violates this
-//! repo's synthetic-only rule, so they were untracked and gitignored -- see `.gitignore`); a
-//! missing sidecar is therefore an ordinary environment difference like a missing grammar XML,
-//! not an authoring bug, and self-skips rather than panicking.
+//! real-language data, same as every other `samples/data/*` fixture: tracking real-language data
+//! and language-named paths violates this repo's synthetic-only rule, so they stay untracked and
+//! gitignored (see `.gitignore`); a missing sidecar is therefore an ordinary environment
+//! difference like a missing grammar XML, not an authoring bug, and self-skips rather than
+//! panicking.
 //!
 //! Every pinned `GlossIr` below was obtained by first running the parse with `--gloss` (or via
 //! `pg_realize::gloss_bundle`/`leipzig` directly) to see the actual bundle, THEN writing the
@@ -41,9 +40,9 @@
 //! existing self-skip above already keeps `--include-ignored` green when the fixture is absent).
 //! Only `guessed_root_becomes_guessed_concept_and_never_panics` stays in the default run: it uses a
 //! fully synthetic inline grammar and touches no `samples/data/*` fixture.
-//! (`both_real_sidecar_files_parse_without_error` moved into this `#[ignore]`d set 2026-07-29,
-//! when the two `*-realize.toml` sidecars were untracked and gitignored -- it no longer gets a
-//! carve-out, since both files it reads are now ordinary gitignored real-language data.)
+//! (`both_real_sidecar_files_parse_without_error` moved into this `#[ignore]`d set once the two
+//! `*-realize.toml` sidecars were untracked and gitignored -- it no longer gets a carve-out, since
+//! both files it reads are now ordinary gitignored real-language data.)
 
 use std::path::{Path, PathBuf};
 
@@ -64,8 +63,8 @@ fn load_grammar(xml_name: &str) -> Option<Grammar> {
     Some(pg_grammar::load(&xml).unwrap_or_else(|e| panic!("failed to load {xml_name}: {e}")))
 }
 
-/// Load a sidecar map. Gitignored real-language data (`samples/data/*-realize.toml`, revised
-/// 2026-07-29 -- see the module doc); callers that reach this function are expected to have
+/// Load a sidecar map. Gitignored real-language data (`samples/data/*-realize.toml` -- see the
+/// module doc); callers that reach this function are expected to have
 /// already self-skipped via `sample_path`/`load_grammar` when the fixture is absent, so a missing
 /// file here still panics (a genuine read/parse error once execution has already committed to the
 /// fixture being present), it just isn't reachable from the always-on default test run any more.
