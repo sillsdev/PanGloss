@@ -1,6 +1,6 @@
-//! Task 1.12 (`openspec/changes/add-grammar-assessment`): "Verify duplicate-count determinism
-//! under parallel batch; if nondeterministic, move duplicate counts out of the semantic
-//! projection and record the finding."
+//! Verifies duplicate-count determinism under parallel batch, rather than assuming it holds: if
+//! multiplicity turned out to depend on scheduling, duplicate counts would need to move out of
+//! the semantic projection entirely.
 //!
 //! `AnalysisSet::to_semantic_value` (`pg-assess/src/set.rs`) folds each entry's `duplicate_count`
 //! into the semantic projection, and `ReportDraft::semantic_value` (`pg-assess/src/report.rs`)
@@ -44,7 +44,7 @@
 //! `AnalysisIdentity` (a different ordered morpheme list) — reading its full oracle table (924
 //! distinct `rules:` lists, no two alike) confirms it produces zero `AnalysisSet` duplicates. It
 //! is included below as `sanity_deep_optional_affix_nesting_produces_no_identity_duplicates` to
-//! record that finding rather than silently discard it, exactly as task 1.12 asks.
+//! record that finding rather than silently discard it.
 //!
 //! A genuine duplicate needs the SAME `(morphemes, root_index, category)` triple recovered more
 //! than once. `pg-foma/src/confirm.rs`'s own doc names the real-language precedent this mirrors
@@ -123,7 +123,7 @@ fn project_set(g: &Grammar, structured: &[pg_parse::WordAnalysis]) -> AnalysisSe
     AnalysisSet::from_observed(identities)
 }
 
-/// Records the finding the task asks for explicitly: the suggested fixture does NOT exercise
+/// Records a finding rather than silently discarding it: the suggested fixture does NOT exercise
 /// duplicate multiplicity at all (every one of its C(12,6) analyses for "xxxxxxk" fires a
 /// different subset of the 12 optional rules, hence a different `AnalysisIdentity`), so it cannot
 /// be the vehicle for this determinism check. Self-skips if the (untracked-by-git-status but
@@ -197,7 +197,7 @@ fn dup_root_fixture_genuinely_produces_a_triple_duplicate() {
     );
 }
 
-/// The real load-bearing check (task 1.12): run the SAME word list through
+/// The real load-bearing check: run the SAME word list through
 /// `FomaAnalyzer::analyze_words_with_threads` many times, at several thread counts including 1
 /// and >1, and assert that every word's `AnalysisSet` (identities AND duplicate counts) and the
 /// semantic-projection digest built from them are byte-identical across every run and every
