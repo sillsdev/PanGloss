@@ -1,5 +1,5 @@
-//! Task 6.1 evidence: a minimal exact-shaped projection of the Divvun `lang-sme`
-//! derivation-order filter, with direction-specific apply-time checks.
+//! A minimal exact-shaped projection of the Divvun `lang-sme` derivation-order filter, with
+//! direction-specific apply-time checks.
 
 use std::collections::BTreeSet;
 
