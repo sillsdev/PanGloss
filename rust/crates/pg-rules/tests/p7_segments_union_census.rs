@@ -1,4 +1,4 @@
-//! P7 closure census (plan §P7, decided 2026-07-10): the evidence that the remaining
+//! P7 closure census: the evidence that the remaining
 //! `NaturalClassKind::Segments` union over-approximation (id-lane-OFF matching — the
 //! rewrite/metathesis pipelines on every table, and ALL compile sites on >64-char-def tables,
 //! where P10's `StrRep` identity lane is disabled) is **inert on the reference grammars**.
@@ -16,8 +16,8 @@
 //!     including Amharic's 417-member "S" class; so (a) never occurs;
 //!   - the only unifiable distinct char-def pairs are the three boundary defs among themselves
 //!     (`+` / the `^0 *0 &0 ∅` null boundary / `.`; both grammars) plus Amharic's known
-//!     byte-identical-FS authoring artifact ቂː/ሺ (ids 217/221, the pair the P5 census found,
-//!     `docs/p5-crosstable-featurestruct-design.md` §2) — and none of these is reachable: no
+//!     byte-identical-FS authoring artifact ቂː/ሺ (ids 217/221, the pair the P5 census found)
+//!     — and none of these is reachable: no
 //!     Indonesian/Amharic `<PhoneticShape>` contains any boundary character other than `+`
 //!     (asserted here), so a `+`-literal constraint can never sit against a different boundary
 //!     kind, and neither ቂː nor ሺ occurs in any shape.
