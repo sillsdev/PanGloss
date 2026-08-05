@@ -1,11 +1,10 @@
-//! P3 gate 3a (docs/fst-plan/foma-fst-plan.md, "P3 — CLI wiring + full parity, conformance, and
-//! timing gates (gate F3)"): corpus parity harness comparing the foma path
+//! Corpus parity harness comparing the foma path
 //! (`pg_foma::composite::FomaAnalyzer::analyze_word`) against the full engine
 //! (`pg_parse::Morpher::parse_word_opts`, `ParseOptions::default()`) as MULTISETS keyed by
-//! `(morpheme_ids sequence, root_morpheme_index)` — plan D7: "parity oracle = our own full engine
-//! ... the property being tested is exactly 'the foma path loses nothing vs full search'."
+//! `(morpheme_ids sequence, root_morpheme_index)`: the parity oracle is our own full engine, and
+//! the property being tested is exactly "the foma path loses nothing vs full search".
 //!
-//! Denominators, per plan §P3 3a verbatim:
+//! Denominators:
 //! - Indonesian: all 121 corpus words — required 100%.
 //! - Sena: sample-300 corpus (first 300 lines of `sena-words.txt`) — required 100%.
 //! - Amharic: corpus words file (`amharic-words.txt`, all 673 lines) — required 100%, following
@@ -219,9 +218,9 @@ fn compare_word(
     let dt_engine = t_engine.elapsed();
 
     if engine_outcome.timed_out {
-        // A partial full-search result cannot be a parity baseline (plan §P3 3a / f3 gate
-        // precedent): foma's confirm is uncapped, so it can legitimately find MORE than a
-        // timed-out full search did. Exclude rather than false-fail.
+        // A partial full-search result cannot be a parity baseline: foma's confirm is uncapped,
+        // so it can legitimately find MORE than a timed-out full search did. Exclude rather than
+        // false-fail.
         stats.n_excluded += 1;
         return CompareResult::ExcludedTimeout;
     }
