@@ -1,6 +1,5 @@
-//! Section 1 of `openspec/changes/certify-language-readiness` (tasks.md §1; `specs/
-//! language-readiness-certification/spec.md`'s first three requirements): per-word timing over the
-//! synthetic-language conformance suite, in both engine modes, grouped so speedup is attributable
+//! Per-word timing over the synthetic-language conformance suite, in both engine modes, grouped
+//! so speedup is attributable
 //! **per construct/typology** rather than as a single aggregate. Replaces the hand-run recipe in
 //! `docs/benchmark-matrix.md` (see that doc's own "Reproducing" section for the manual `pangloss
 //! batch` + `awk` pipeline this supersedes) with a runnable harness: `rust/tools/typology-speedup.sh`
