@@ -24,6 +24,21 @@ members = [
     "crates/pg-assess",
 ]
 
+# Doc-comment link integrity. `broken_intra_doc_links` only WARNS by default, and a warning nobody
+# reads is not a check -- so it is denied here and every member crate opts in with `[lints] workspace
+# = true`. A bare `[workspace.lints]` with no per-crate opt-in silently does nothing, which is worse
+# than absent: a gate that looks enabled.
+#
+# This is load-bearing for the comment policy, not cosmetic. `.claude/skills/code-comments/SKILL.md`
+# lets a comment block exceed three lines only if it carries a machine-checked anchor, and an
+# intra-doc link is the cheapest such anchor -- so the anchor is only meaningful while something
+# actually resolves it. `pg.ps1 -Mode doc` is what runs it; nothing else in the build invokes rustdoc.
+#
+# It catches renames and deletions, never semantic drift: `[`slot_candidates`]` still resolves after
+# its behavior changes. That gap is closed by a test, not by a link.
+[workspace.lints.rustdoc]
+broken_intra_doc_links = "deny"
+
 [workspace.package]
 version = "0.1.0"
 edition = "2021"

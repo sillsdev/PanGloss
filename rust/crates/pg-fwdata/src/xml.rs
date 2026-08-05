@@ -56,7 +56,7 @@ impl RawGraph {
     /// *not* satisfy "importing the same file twice produces byte-identical JSON" across two
     /// separate process runs (an intra-process determinism test using the same `HashMap` would
     /// pass while still hiding this). The **only** current caller is
-    /// [`crate::extract::project::find_lang_project`], which is safe precisely because
+    /// `extract::project::find_lang_project`, which is safe precisely because
     /// `LangProject` is a file singleton — `.next()` over a one-element filtered set can't
     /// observe ordering. Every other ordered output in this crate comes from a named-field
     /// `objsur_list` walk, a `CmPossibilityList`/`SubPossibilities` tree walk, or

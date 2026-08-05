@@ -1,12 +1,12 @@
 //! `pg_grammar::compile`: compile a `pg_snapshot::Snapshot` (a PanGloss-owned, FieldWorks-GUID
 //! keyed project snapshot, produced by `pg-fwdata`) into a runnable [`crate::model::Grammar`] —
-//! sibling to [`crate::load`] (which compiles the legacy HermitCrab XML export instead), reusing
+//! sibling to [`mod@crate::load`] (which compiles the legacy HermitCrab XML export instead), reusing
 //! its internal construction machinery (the [`crate::chardef`]/[`crate::featsys`]/[`crate::segment`]
 //! modules, `pg_featstruct::Interner`/`FeatureStructBuilder`) rather than duplicating it.
 //!
 //! Semantically this is a Rust port of FieldWorks' `HCLoader.cs` — the *front half* of the pipeline
 //! is new (LCM-shaped `Snapshot` data, not XML), but the *back half* (patterns, feature structs,
-//! char-def tables, the `Grammar` assembly order) is exactly what [`crate::load`] already builds,
+//! char-def tables, the `Grammar` assembly order) is exactly what [`mod@crate::load`] already builds,
 //! so this module leans on the same [`crate::model`] types and the same
 //! `chardef`/`featsys`/`segment` helpers.
 //!
@@ -25,7 +25,7 @@
 //! Never panics on real data: dangling snapshot references, malformed environment strings, and
 //! unsupported constructs all become warnings (an allomorph/entry/rule is dropped, not the whole
 //! grammar), except where the *language itself* is unrepresentable (e.g. >64 parts of speech),
-//! which mirrors [`crate::load`]'s own [`GrammarError::Unsupported`] hard-stop convention.
+//! which mirrors [`mod@crate::load`]'s own [`GrammarError::Unsupported`] hard-stop convention.
 
 mod affixes;
 mod chardef;
@@ -54,8 +54,8 @@ use pg_snapshot::Snapshot;
 
 /// Compile a `pg-snapshot` [`Snapshot`] into a runnable [`Grammar`], returning any non-fatal
 /// warnings alongside it (dangling references, unsupported Phase-B constructs, dropped
-/// allomorphs/entries — see the module doc). Only a handful of hard limits (plan-inherited from
-/// [`crate::load`]: >64 symbols in a feature, >64 total MPR features) surface as `Err`.
+/// allomorphs/entries — see the module doc). Only a handful of hard limits inherited from
+/// [`mod@crate::load`] — >64 symbols in a feature, >64 total MPR features — surface as `Err`.
 pub fn compile_project(snapshot: &Snapshot) -> Result<(Grammar, Vec<String>), GrammarError> {
     let mut warnings: Vec<String> = Vec::new();
 

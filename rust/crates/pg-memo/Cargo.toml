@@ -9,3 +9,7 @@ license.workspace = true
 pg-featstruct.workspace = true
 pg-shape.workspace = true
 pg-grammar.workspace = true
+
+# Opt in to [workspace.lints] (rustdoc::broken_intra_doc_links = deny).
+[lints]
+workspace = true

@@ -99,7 +99,7 @@ pub fn segment(table: &CharDefTable, word: &str) -> Result<Shape, InvalidShape> 
 /// never includes a `BoundaryMarker`, let alone a boundary HCLoader synthesizes internally after
 /// the fact. A literal (non-`#`/`[...]`/`(...)`）text token inside an environment string
 /// (`nodes_from_tokens`'s call site, both for real LHS-pattern building and for
-/// [`super::compile::environment::validate_environment`]'s upfront dry run) must therefore fail
+/// `compile::environment::validate_environment`'s upfront dry run) must therefore fail
 /// to recognize such a token even when it happens to collide with a boundary's representation —
 /// e.g. Sena 3's `/ o ... _` environment (guid `6f252993`, on the "separado" affix rule's `ok`
 /// allomorph): every table always carries the synthetic `.` boundary, so plain [`segment`] happily

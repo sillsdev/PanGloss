@@ -21,3 +21,7 @@ sha2.workspace = true
 # analyzer. It rendezvous-synchronizes two tasks only when the batch and pool can support them;
 # otherwise it records non-overlap without blocking. Unarmed analyzers remain unchanged.
 pg-foma = { workspace = true, features = ["test-concurrency-hook"] }
+
+# Opt in to [workspace.lints] (rustdoc::broken_intra_doc_links = deny).
+[lints]
+workspace = true

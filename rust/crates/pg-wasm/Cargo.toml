@@ -37,3 +37,7 @@ web-time.workspace = true
 # call site uses `eprintln!` instead (see `log_foma_fallback`'s `cfg(target_arch = "wasm32")` split).
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 web-sys = { version = "0.3", features = ["console"] }
+
+# Opt in to [workspace.lints] (rustdoc::broken_intra_doc_links = deny).
+[lints]
+workspace = true

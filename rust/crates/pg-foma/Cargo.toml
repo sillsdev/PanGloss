@@ -86,3 +86,7 @@ pg-conformance-fixtures.workspace = true
 # any crate's `src/`). Already a transitive dependency (via `pg-rules`/`pg-parse`) -- this only makes
 # it nameable from this crate's own tests, same rationale as the other dev-only entries above.
 pg-fst.workspace = true
+
+# Opt in to [workspace.lints] (rustdoc::broken_intra_doc_links = deny).
+[lints]
+workspace = true

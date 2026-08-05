@@ -18,7 +18,8 @@
 //!
 //! ## Feature lanes (plan §5.2/§5.3)
 //! Each node carries `W` inline `u64` lanes, stored SoA in one flat `feat_lanes` block: node `i`'s
-//! lanes are `feat_lanes[i*W .. (i+1)*W]`. One lane is one symbolic feature's [`SymbolBits`] set
+//! lanes are `feat_lanes[i*W .. (i+1)*W]`. One lane is one symbolic feature's
+//! [`pg_featstruct::SymbolBits`] set
 //! (raw `u64`, so [`node_lanes`](Shape::node_lanes) feeds `pg_featstruct::flat_unifiable` with no
 //! newtype friction). `W` (`feat_width`) is fixed per shape.
 //!

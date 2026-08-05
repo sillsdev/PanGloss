@@ -70,6 +70,7 @@
     rust\tools\pg.ps1 -Mode test
     rust\tools\pg.ps1 -Mode corpus-test -Package pg-foma -Filter f1_sena
     rust\tools\pg.ps1 -Mode release
+    rust\tools\pg.ps1 -Mode doc            # rustdoc; the only thing that enforces the doc-link deny
     rust\tools\pg.ps1 -Mode doctor
     rust\tools\pg.ps1 -Mode gc            # dry run, reports only
     rust\tools\pg.ps1 -Mode gc -Apply     # actually deletes disposable targets
@@ -91,7 +92,7 @@
 [CmdletBinding(PositionalBinding = $false)]
 param(
     [Parameter(Mandatory, Position = 0)]
-    [ValidateSet('build', 'test', 'corpus-test', 'release', 'doctor', 'gc', 'run', 'new-worktree')]
+    [ValidateSet('build', 'test', 'corpus-test', 'release', 'doc', 'doctor', 'gc', 'run', 'new-worktree')]
     [string]$Mode,
     # new-worktree only: where to create it, which revision to base it on, and the branch name.
     [string]$Path = '',
@@ -394,6 +395,7 @@ $profileLabel = switch ($Mode) {
     'release' { 'release (fat LTO)' }
     'test' { if ($DebugProfile) { 'dev' } else { $script:TestOptProfile } }
     'corpus-test' { if ($DebugProfile) { 'dev' } else { $script:TestOptProfile } }
+    'doc' { 'dev (rustdoc; no codegen)' }
     'doctor' { '<none -- doctor runs no cargo command>' }
     'gc' { '<none -- gc runs no cargo command>' }
     'run' {
@@ -575,6 +577,16 @@ switch ($Mode) {
     'release' {
         $cargoArgs += @('build', '--release')
     }
+    'doc' {
+        # The only thing in this repo that runs rustdoc, and therefore the only thing that enforces
+        # `[workspace.lints.rustdoc] broken_intra_doc_links = "deny"` (rust/Cargo.toml). Without this
+        # mode that deny is unreachable and the comment policy's link anchors are checked by nobody.
+        #
+        # `--document-private-items` is required, not a nicety: most of this workspace is private, and
+        # rustdoc does not process a private item's doc comment without it -- so the majority of the
+        # intra-doc links the comment policy relies on would go unvalidated.
+        $cargoArgs += @('doc', '--no-deps', '--document-private-items')
+    }
     'test' {
         if ($useNextest) {
             # nextest's own flag, BEFORE `--` (it selects how many test processes run at once).
@@ -713,7 +725,7 @@ try {
         $code = Invoke-ProcessInJobObject -Exe $runPlan.LaunchExe -CmdArgs $runPlan.LaunchArgs -WorkingDirectory $rustRoot `
             -Priority $Priority -JobMemoryGB $runMemGB -CpuRatePercent $runCpuRate -Subject 'run'
     } elseif ($Mode -eq 'corpus-test') {
-        $runnerLabel = if ($useNextest) { 'nextest' } elseif ($Mode -eq 'build' -or $Mode -eq 'release') { 'cargo build' } else { 'cargo test' }
+        $runnerLabel = if ($useNextest) { 'nextest' } elseif ($Mode -eq 'build' -or $Mode -eq 'release') { 'cargo build' } elseif ($Mode -eq 'doc') { 'rustdoc' } else { 'cargo test' }
         Write-Host "[pg] cargo $($cargoArgs -join ' ')  (target-dir: $(if ($targetDir) { $targetDir } else { '<default>' }), runner: $runnerLabel)" -ForegroundColor Cyan
         $capturePath = Join-Path ([System.IO.Path]::GetTempPath()) "pg-corpus-test-$PID.log"
         $code = Invoke-CargoWithReaper -Exe 'cargo' -CmdArgs $cargoArgs -WorkingDirectory $rustRoot -CaptureStdoutPath $capturePath -Priority $Priority -JobMaxConcurrent $MaxConcurrent
@@ -732,7 +744,7 @@ try {
         }
         Write-Host "[pg] corpus-test executed $totalCases corpus case(s) across $($caseLines.Count) label(s)." -ForegroundColor Green
     } else {
-        $runnerLabel = if ($useNextest) { 'nextest' } elseif ($Mode -eq 'build' -or $Mode -eq 'release') { 'cargo build' } else { 'cargo test' }
+        $runnerLabel = if ($useNextest) { 'nextest' } elseif ($Mode -eq 'build' -or $Mode -eq 'release') { 'cargo build' } elseif ($Mode -eq 'doc') { 'rustdoc' } else { 'cargo test' }
         Write-Host "[pg] cargo $($cargoArgs -join ' ')  (target-dir: $(if ($targetDir) { $targetDir } else { '<default>' }), runner: $runnerLabel)" -ForegroundColor Cyan
         $code = Invoke-CargoWithReaper -Exe 'cargo' -CmdArgs $cargoArgs -WorkingDirectory $rustRoot -Priority $Priority -JobMaxConcurrent $MaxConcurrent
     }

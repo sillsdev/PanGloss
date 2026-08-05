@@ -34,3 +34,7 @@ pg-conformance-fixtures.workspace = true
 # `cargo test` but never for the shipped `pangloss_ffi.dll` (`cargo build --release -p pg-ffi`
 # builds only `[dependencies]`, never `[dev-dependencies]`). See `batch.rs::TEST_PANIC_WORD`.
 test-panic-hook = []
+
+# Opt in to [workspace.lints] (rustdoc::broken_intra_doc_links = deny).
+[lints]
+workspace = true

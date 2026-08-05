@@ -69,7 +69,7 @@ impl MorphemeId {
     pub const GUESSED: MorphemeId = MorphemeId(u32::MAX);
 }
 
-/// Index into [`Grammar::allomorphs`] — the unified allomorph registry (root allomorphs and
+/// Index into [`Grammar::allomorph_owners`] — the unified allomorph registry (root allomorphs and
 /// affix-process allomorphs), mirroring C#'s `_allomorphs` dictionary keyed by XML id.
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, PartialOrd, Ord)]
 pub struct AllomorphId(pub u32);

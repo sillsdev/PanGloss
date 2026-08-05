@@ -9,3 +9,7 @@ license.workspace = true
 pg-featstruct.workspace = true
 smallvec.workspace = true
 hashbrown.workspace = true
+
+# Opt in to [workspace.lints] (rustdoc::broken_intra_doc_links = deny).
+[lints]
+workspace = true

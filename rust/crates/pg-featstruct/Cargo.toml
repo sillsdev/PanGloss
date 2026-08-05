@@ -12,3 +12,7 @@ serde.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
+
+# Opt in to [workspace.lints] (rustdoc::broken_intra_doc_links = deny).
+[lints]
+workspace = true

@@ -28,3 +28,7 @@ pg-foma = { workspace = true, features = ["test-concurrency-hook"] }
 # `[dev-dependencies]` at all — see pg-parse/Cargo.toml and `tests/abort_safety.rs`).
 pg-parse = { workspace = true, features = ["test-panic-hook"] }
 cc = "1"
+
+# Opt in to [workspace.lints] (rustdoc::broken_intra_doc_links = deny).
+[lints]
+workspace = true

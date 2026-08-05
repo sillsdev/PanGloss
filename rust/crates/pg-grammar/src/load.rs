@@ -1709,7 +1709,7 @@ fn try_load_affix_process_rule(
 
 /// `TryLoadRealizationalRule` (`XmlLanguageLoader.cs:947-1014`, W5). Shares `load_affix_allomorph`
 /// with the regular affix-process loader above (C#'s `LoadAffixProcessAllomorph` is the one method
-/// both call) — see [`pg_grammar::model::MorphRuleDef::affix_allomorphs`]'s doc for why that's
+/// both call) — see [`crate::model::MorphRuleDef::affix_allomorphs`]'s doc for why that's
 /// exact, not coincidental.
 fn try_load_realizational_rule(
     real: &Node,

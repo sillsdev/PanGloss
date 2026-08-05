@@ -34,3 +34,7 @@ pg-foma.workspace = true
 # `pg-wasm`'s build graph (`pg-wasm` depends on this crate's LIBRARY, never its test binary).
 # Bumped to 0.4.2 alongside pg-foma's own Cargo.toml (2026-07-25) — see that file's comment.
 foma = "=0.4.2"
+
+# Opt in to [workspace.lints] (rustdoc::broken_intra_doc_links = deny).
+[lints]
+workspace = true

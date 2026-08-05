@@ -56,6 +56,7 @@
 param(
     [switch]$List,
     [switch]$Update,
+    [int]$ListLimit = 400,
     [string]$BaselinePath = ''
 )
 
@@ -224,8 +225,10 @@ if ($List) {
     foreach ($cat in $categories.Keys) {
         if ($hits[$cat].Count -eq 0) { continue }
         Write-Host "";  Write-Host "### $cat ($($counts[$cat]))" -ForegroundColor Cyan
-        $hits[$cat] | Select-Object -First 40 | ForEach-Object { Write-Host "  $_" }
-        if ($hits[$cat].Count -gt 40) { Write-Host "  ... $($hits[$cat].Count - 40) more" }
+        # High enough to list a whole category: truncating at 40 silently hid 56 of 96 hits while a
+        # cleanup pass was being partitioned from this output, which is how work goes unassigned.
+        $hits[$cat] | Select-Object -First $ListLimit | ForEach-Object { Write-Host "  $_" }
+        if ($hits[$cat].Count -gt $ListLimit) { Write-Host "  ... $($hits[$cat].Count - $ListLimit) more" }
     }
     Write-Host ''
 }

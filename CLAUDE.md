@@ -18,6 +18,12 @@ Use:
   corpus cases.
 - `rust/tools/pg.ps1 -Mode release` for optimized deliverables (keeps `[profile.release]`'s fat
   LTO — `test`/`corpus-test` use the lighter `pg-test-opt` profile instead).
+- `rust/tools/pg.ps1 -Mode doc` for rustdoc. This is the ONLY thing in the repo that runs rustdoc,
+  and therefore the only thing that enforces `[workspace.lints.rustdoc] broken_intra_doc_links =
+  "deny"` — which the comment policy depends on, since a doc comment may exceed three lines only if
+  it carries a machine-checked anchor and an intra-doc link is the cheapest one. It passes
+  `--document-private-items` deliberately: most of this workspace is private, and without it rustdoc
+  never reads a private item's doc comment, so the majority of those anchors would go unvalidated.
 - `rust/tools/pg.ps1 -Mode doctor` to check the environment (worktree base, disk, cache, corpus)
   before either, with no Cargo invocation at all.
 - `rust/tools/pg.ps1 -Mode gc` to report (dry run, the default) or `-Apply` to remove stale managed
