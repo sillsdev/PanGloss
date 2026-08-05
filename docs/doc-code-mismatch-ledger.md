@@ -47,7 +47,7 @@ are corroborated by named call sites; Tier 2 entries are not yet.
 
 | Module | Lines | Header claimed | Reality | Status |
 |---|---:|---|---|---|
-| `pg-foma/capability.rs` | 7,421 | *"Purely additive... does NOT wire a gate into any production compile path"* (`:6`, restated `:54`) | `compose_envelope_for_strategy` (`:4117`) consulted by `selection.rs`; `capability_entry` evaluates it from `preflight`/`readiness_verdict` | **fixed** |
+| `pg-foma/capability.rs` | 7,421 | *"Purely additive... does NOT wire a gate into any production compile path"* (`:6`, restated `:54`) | **Evidence sharpened 2026-08-04.** The original row cited `selection.rs` consuming `compose_envelope_for_strategy` — true as a code reference but **not** proof of production wiring, since `select_plan` has zero production callers. The load-bearing evidence is `pg-cli/pack.rs::build_pack` (`:267-296`), which returns `Err` and writes no pack on `Refuse` | **fixed** |
 | `pg-foma/replace.rs` | 2,739 | *"NOT wired into the mainline path — a standalone prototype exercised by `examples/p6_replace_prototype.rs`"* (`:4-5`) | Called from `build.rs:599`, `gate.rs:388`. The relational half of the compiler | **fixed** |
 | `pg-foma/plan.rs` | 704 | *"Nothing in this file is wired into `analyzer`/`composite`/any other module's compile path yet"* (`:5`) | `enumerate::enumerate_default` emits Plans; `build::build_controllable` interprets them into real `Fsm`s | **fixed** |
 | `pg-foma/health.rs` | — | *"does not instrument any compiler pass"*, evaluator described as "a later change" (`:6`) | That change landed. `health_evaluator.rs`'s own doc **quotes this sentence verbatim** and announces itself as it; `worker.rs` calls `evaluate_health` on 3 paths | **fixed** |
