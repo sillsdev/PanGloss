@@ -1,4 +1,4 @@
-//! P6 feasibility prototype driver (docs/fst-plan/p6-prototype-report.md): builds the composed
+//! Feasibility prototype driver: builds the composed
 //! network `underlying-lexc .o. rule1 .o. rule2 .o. ... .o. rule5 .o. boundary-cleanup` for
 //! Indonesian, runs the 4-word smoke test, then the full corpus parity gate against
 //! `pg_parse::Morpher` (the SAME oracle/predicate `tests/f2_indonesian_gate.rs` uses), and prints
