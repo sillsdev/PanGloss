@@ -219,6 +219,45 @@ counterparts are `..._composes_to_confirm_only` and
 citation whose file is local — an unresolvable reference into `foma-rs` or ported C# is not evidence of
 a defect, and treating it as one produced 22 false positives before the guard was added.
 
+## Round 2 outcome — what a first-ever machine check found
+
+`rustdoc::broken_intra_doc_links` had **never been run** in this repo's history. Enabling it
+(`[workspace.lints.rustdoc]` + per-crate opt-in + `pg.ps1 -Mode doc`, which is the only thing here that
+invokes rustdoc) found **551 broken references** on the first pass. Not typos: renamed items whose docs
+never followed (`Grammar::allomorphs`, long since `allomorph_owners`; `fingerprint_bytes` →
+`fingerprint_hex`), self-crate references by external name, and **eight comments citing code that does
+not exist at all** — `AlphaOccurrence`, `kept_surface_text`, `write_roots_lexicon`,
+`synth_affix_allomorph`, `expected_marker_state`, `NetShape::branching_max`, `compare_latency`,
+`Self::non_head_root_matches`.
+
+**Resolution: the links were deleted, not repaired.** 4,986 code-to-code links became plain backticks;
+551 → 0. The reasoning is recorded in `.claude/skills/code-comments/SKILL.md` and is worth restating
+here because it reverses an earlier decision in this same file's history: a link couples a comment to
+another item's exact path forever and validates only that the path resolves, never that the sentence is
+true — `[`slot_candidates`]` kept resolving throughout the eight days its paragraph was false. That 551
+could rot unnoticed is itself the evidence nobody navigated by them. Links to **research**
+(`docs/research`, papers, upstream issues) are kept and checked.
+
+**Three structural limits, measured rather than assumed** — do not "improve" these without re-measuring:
+- `cargo doc` has no `--tests` and rejects `--all-targets`, so a link in `tests/*.rs` is
+  **unvalidatable**. Use a ``pinned by `<test>` `` citation there instead.
+- `--examples` turns a clean run into **501 false errors** in the lib doc by stopping
+  `--document-private-items` applying to it.
+- You cannot path *through* a private module from outside its parent; `--document-private-items` makes
+  items documented, not nameable.
+
+**Two gate numbers rose, and both are exposed debt rather than new debt.** `comment-block-too-long`
+1,980 → 3,272 (1,320 blocks were anchored *only* by a link) and `cross-reference-claim` 0 → 54 (those
+had been "fixed" hours earlier by adding a link — never a real fix). Recorded rather than laundered.
+
+**The methodological lesson, which is this file's whole subject applied to its own author.** Three
+transformation bugs, each a confident general rule about a body of code that turned out more varied:
+`[`x`]` is not always an intra-doc link (markdown links were mangled); `[`x`]:` is usually prose, not a
+reference definition (109 cases); `take[s]` reads as a shortcut link. And two repair attempts **silently
+did nothing** — a backtick inside a PowerShell double-quoted string is an escape character, so the
+scripts failed to parse and exited without output, which read as success. Only running the thing caught
+any of it.
+
 ## Tier 5 — OTHER CRATES (unverified, lower priority)
 
 `pg-rules/stratum.rs:88,1254`, `pg-rules/rewrite.rs:1836`, `pg-rules/metathesis.rs:796`,
