@@ -157,6 +157,68 @@ safety argument was false while the guard itself was fine**. The comment claimed
 nothing in practice"; it does cost something, and the cost is acceptable. Being right for a stated
 wrong reason is what no gate here catches.
 
+## Tier 4c — THE WIDENING WAS SYSTEMATIC, AND IT EMPTIED A GRADING PATH (round 2)
+
+Tier 4b recorded one comment whose constraint the code later broke, and treated it as an isolated
+event. It was not. The same event — **a capability predicate widened from `Refuse` to `ConfirmOnly`,
+with the comments, test names, cited evidence and rationale strings left behind** — appears at least
+four times, and in one place it has hollowed out a regression gate.
+
+### `Disposition::FailClosed` is returned by nothing, and its gate cannot fail — **OPEN, highest priority**
+
+`grep '=> Disposition::FailClosed'` in `pg-foma/capability.rs`: **zero matches.** `Compounding`,
+`UnorderedMorphRuleApplication` and `MprGroupOverwrite` were each promoted to `ConfigPredicate` (this
+file's own "Adjudicated" table records the promotion) and nothing replaced them.
+
+`coverage_ledger.rs` has a grading path reachable *only* from a `FailClosed` row: `build_ledger`'s G8
+branch (`:1022`), `EvidenceRequirement::RefusalWitness` (`:726-728`), and
+`ContainmentEvidenceKind::RefusalWitness` (`:294`). With no such row, none of it is exercised.
+
+And `fail_closed_row_is_covered_via_refusal_witness_regardless_of_passing_set` (`:1043`), the test that
+looks like it pins that path, contradicts its own name and doc three ways:
+
+| Name / doc says | Body asserts |
+|---|---|
+| a **`FailClosed`** row | `row.disposition == Disposition::ConfigPredicate` (`:1048`) |
+| covered via its **`RefusalWitness`** | `containment.kind == ContainmentEvidenceKind::Dedicated` (`:1057`) |
+| *"EVEN with a completely empty passing-fixture set"* | passes `fully_covered_constructs()` (`:1044`) — every construct id of every kind (`:789-797`) |
+
+The third is fatal. The G8 bug it names is *"a `FailClosed` row showing `Covered` only because a
+sibling's passing fixture tagged the same shared `constructs.txt` id."* Supplying a set in which
+**everything** passes is exactly the condition that produces that contamination, so the test cannot
+distinguish the bug from the fix — **it would pass with its own fix reverted.** The sibling test at
+`:1019` also `continue`s past `FailClosed` rows and defers to this one by name, so if such a row ever
+returns, nothing grades it.
+
+Decide: retire the `FailClosed`/`RefusalWitness` machinery as dead, or restore a genuine `FailClosed`
+characteristic and make the gate assert what its name claims (empty passing set, `RefusalWitness`
+evidence). Either way the test's name and doc must stop describing behavior it does not check.
+
+### `coverage_ledger.rs:421` ships a false rationale — **OPEN**
+
+*"FailClosed: containment is not the applicable property here -- this witness proves compose_envelope
+genuinely Refuses whenever `MprGroupOutput::Overwrite` is observed."* The cited witness,
+`cover_mpr_groups.rs::overwrite_group_composes_to_confirm_only` (`:392`), asserts
+`CompileDecision::ConfirmOnly`; the disposition is `ConfigPredicate`. A **production string literal**
+making a false claim in the file that is the authority on containment evidence — the second layer of
+the four-layer table, not the comment layer.
+
+### Dead test citations — **fixed**
+
+Three comments cited tests that exist nowhere, each asserting the opposite of the citing prose:
+`overwrite_group_composes_to_refuse` (`conformance_coverage.rs:70`, `:400`),
+`right_to_left_predicate_refuses_quantifier_shaped_rule`, and a claim in
+`csharp_port_morpher.rs:21` that a C# test was *"PORTED as
+`guesser_gate.rs::analyze_word_can_guess_returns_correct_analysis`"* when neither that file nor that
+test exists (guessing is in fact covered by `pg-cli/tests/guesser_conformance_gate.rs`). The live
+counterparts are `..._composes_to_confirm_only` and
+`right_to_left_predicate_confirm_only_for_unbounded_quantifier_shaped_rule`.
+
+`comment-hygiene.ps1` now has a `dead-citation` category that checks a cited name against every
+`fn`/`struct`/`const` in the tree, so this class is caught rather than found by luck. It only judges a
+citation whose file is local — an unresolvable reference into `foma-rs` or ported C# is not evidence of
+a defect, and treating it as one produced 22 false positives before the guard was added.
+
 ## Tier 5 — OTHER CRATES (unverified, lower priority)
 
 `pg-rules/stratum.rs:88,1254`, `pg-rules/rewrite.rs:1836`, `pg-rules/metathesis.rs:796`,
