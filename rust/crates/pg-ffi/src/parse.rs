@@ -1,37 +1,34 @@
-//! `hc_parse_word` / `hc_parse_batch` (plan §4.2): the two result-producing entry points. Both
-//! encode through the same [`crate::buffer`] writer (`hc_parse_word` is the `word_count == 1`
-//! case), and both wrap their **entire** body in `catch_unwind` (plan §8 layer 7) — including,
-//! for `hc_parse_batch`, the call-scoped unified-analysis Rayon pool, so a panic
-//! raised inside a worker thread and propagated out through `par_iter`/`.install()` is caught
-//! here, not left to unwind across the `extern "C"` frame.
+//! `hc_parse_word` / `hc_parse_batch`: the two result-producing entry points. Both encode
+//! through the same [`crate::buffer`] writer (`hc_parse_word` is the `word_count == 1` case),
+//! and both wrap their **entire** body in `catch_unwind` — including, for `hc_parse_batch`,
+//! the call-scoped unified-analysis Rayon pool, so a panic raised inside a worker thread and
+//! propagated out through `par_iter`/`.install()` is caught here, not left to unwind across
+//! the `extern "C"` frame.
 //!
-//! ## Guess-off overclaim fix (2026-07-25)
-//! These two used to retry through `pg_lexicon`'s guesser unconditionally on a total analysis
-//! miss and encode the result through this module's `guessed`-less wire format — a guessed
-//! analysis was byte-indistinguishable from a confirmed one. Both now pass `guess_fallback: false`
-//! into `GrammarHandle::analyze_word`/`analyze_words` (which forward it to
-//! `pg_lexicon::SuppliedLexiconRuntime::analyze_word_opts`), so a total miss stays a total miss
-//! here — zero analyses, never an unmarked guess. Callers that want guessing use
-//! `hc_parse_word_opts`/`hc_parse_batch_opts` below, whose wire format can mark it honestly. See
-//! `crate::buffer`'s `write_word` for the belt-and-braces encoder-side guard that makes this format
-//! unable to emit a guessed analysis even if a future change to this file passed `true`.
+//! ## Guessed analyses must never be wire-indistinguishable from confirmed ones
+//! These two pass `guess_fallback: false` into `GrammarHandle::analyze_word`/`analyze_words`
+//! (which forward it to `pg_lexicon::SuppliedLexiconRuntime::analyze_word_opts`), so a total
+//! miss stays a total miss here — zero analyses, never an unmarked guess. Callers that want
+//! guessing use `hc_parse_word_opts`/`hc_parse_batch_opts` below, whose wire format can mark
+//! it honestly. See `crate::buffer`'s `write_word` for the belt-and-braces encoder-side guard
+//! that makes this format unable to emit a guessed analysis even if a future change to this
+//! file passed `true`.
 //!
-//! ## `hc_parse_word_opts` / `hc_parse_batch_opts` (HC-rust port gap G3, ABI v3)
-//! Additive siblings of the two entry points above, closing
-//! `docs/hermitcrab-rust-port-audit.md` sec 2/3 item 1: the Guesser (`guessRoot`/`LexicalGuess`,
-//! `docs/p11-guesser-api-design.md`) engine logic was ported and unit-tested but had no FFI
-//! surface. These two route through the grammar handle's plain `pg_parse::Morpher` (`gh.morpher`
-//! — the SAME engine `pg-cli`'s `pangloss batch/parse --guess` uses), **not** the supplied-
-//! lexicon/foma union `hc_parse_word`/`hc_parse_batch` use, so `guess_root == 0` reproduces
-//! `Morpher::parse_word` byte-for-byte (the default, pre-existing behavior) and the CLI/FFI/
-//! library paths are all provably the same computation (see `tests/parse_opts_gate.rs`). They
-//! encode through [`crate::buffer::encode_single_guess`]/[`crate::buffer::encode_batch_guess`] —
-//! a distinct wire format/magic from `hc_parse_word`/`hc_parse_batch`'s, carrying the `guessed`
-//! bit `ParseOutcome`/`WordAnalysis` already track — so a guessed analysis is never wire-
-//! indistinguishable from a confirmed one. `hc_parse_word`/`hc_parse_batch` themselves, and their
-//! existing wire format, are completely untouched by this addition (per ABI
-//! discipline — see `crate::HC_ABI_VERSION`'s doc, every new entry point gets its own new symbol
-//! rather than changing an existing one's contract).
+//! ## `hc_parse_word_opts` / `hc_parse_batch_opts` (ABI v3)
+//! Additive siblings of the two entry points above, giving the Guesser (`guessRoot`/
+//! `LexicalGuess`) engine logic an FFI surface for the first time. These two route through the
+//! grammar handle's plain `pg_parse::Morpher` (`gh.morpher` — the SAME engine `pg-cli`'s
+//! `pangloss batch/parse --guess` uses), **not** the supplied-lexicon/foma union
+//! `hc_parse_word`/`hc_parse_batch` use, so `guess_root == 0` reproduces `Morpher::parse_word`
+//! byte-for-byte (the default, pre-existing behavior) and the CLI/FFI/library paths are all
+//! provably the same computation (see `tests/parse_opts_gate.rs`). They encode through
+//! [`crate::buffer::encode_single_guess`]/[`crate::buffer::encode_batch_guess`] — a distinct
+//! wire format/magic from `hc_parse_word`/`hc_parse_batch`'s, carrying the `guessed` bit
+//! `ParseOutcome`/`WordAnalysis` already track — so a guessed analysis is never wire-
+//! indistinguishable from a confirmed one. `hc_parse_word`/`hc_parse_batch` themselves, and
+//! their existing wire format, are completely untouched by this addition (per ABI discipline —
+//! see `crate::HC_ABI_VERSION`'s doc, every new entry point gets its own new symbol rather than
+//! changing an existing one's contract).
 
 use crate::error::{
     write_buf, write_empty_buf, HcResultBuf, HC_ERR_INVALID_ARG, HC_ERR_NULL_ARG, HC_ERR_PANIC,
@@ -39,7 +36,7 @@ use crate::error::{
 };
 use crate::grammar::HcGrammarHandle;
 
-/// A borrowed UTF-8 string passed into `hc_parse_batch` (plan §4.2's `HcStr`): a pointer + byte
+/// A borrowed UTF-8 string passed into `hc_parse_batch` (`HcStr`): a pointer + byte
 /// length, no ownership transfer, no terminator assumed (not nul-terminated — `len` is exact).
 #[repr(C)]
 pub struct HcStr {
@@ -47,10 +44,9 @@ pub struct HcStr {
     pub len: usize,
 }
 
-/// `hc_parse_word(HcGrammarHandle, const uint8_t* word_utf8, size_t len, HcResultBuf* out)`
-/// (plan §4.2). Parses one word on the caller's own thread (no rayon involvement — safe to call
-/// concurrently from many host threads against the same handle, per plan §4.2's "grammar handle
-/// is Send + Sync" contract).
+/// `hc_parse_word(HcGrammarHandle, const uint8_t* word_utf8, size_t len, HcResultBuf* out)`.
+/// Parses one word on the caller's own thread (no rayon involvement — safe to call concurrently
+/// from many host threads against the same handle, since the grammar handle is `Send + Sync`).
 ///
 /// Returns `HC_OK` (0) on success, otherwise a nonzero `HC_ERR_*` code; `*out` is always left in
 /// a valid, freeable state (either the encoded result, or `HcResultBuf::EMPTY` on any error path
@@ -104,7 +100,7 @@ fn unified_to_parse(unified: pg_lexicon::UnifiedAnalysis) -> pg_parse::ParseOutc
 }
 
 /// `hc_parse_batch(HcGrammarHandle, const HcStr* words, size_t n, int32_t max_threads,
-/// HcResultBuf* out)` (plan §4.2). `max_threads == 0` means Rayon's available-core default.
+/// HcResultBuf* out)`. `max_threads == 0` means Rayon's available-core default.
 /// A requested-size call-scoped pool parallelizes unified runtime analysis across words. Do not
 /// call this concurrently with itself or with `hc_parse_word` calls that would oversubscribe the
 /// host beyond what the caller intends (the grammar handle itself is safe to share; this is a
@@ -167,7 +163,7 @@ pub unsafe extern "C" fn hc_parse_batch(
 }
 
 /// `hc_parse_word_opts(HcGrammarHandle, const uint8_t* word_utf8, size_t len, int32_t guess_root,
-/// HcResultBuf* out)` (HC-rust port gap G3 — see this module's own doc). `guess_root == 0`
+/// HcResultBuf* out)` (see this module's own doc). `guess_root == 0`
 /// reproduces `Morpher::parse_word`/`hc_parse_word`'s pre-existing analysis set byte-for-byte
 /// (guess off, the default); nonzero enables the P11 lexical-pattern guesser on a total
 /// normal-lexicon miss. Parses one word on the caller's own thread, exactly like
@@ -207,7 +203,7 @@ pub unsafe extern "C" fn hc_parse_word_opts(
 }
 
 /// `hc_parse_batch_opts(HcGrammarHandle, const HcStr* words, size_t n, int32_t max_threads,
-/// int32_t guess_root, HcResultBuf* out)` (HC-rust port gap G3 — see this module's own doc).
+/// int32_t guess_root, HcResultBuf* out)` (see this module's own doc).
 /// `guess_root == 0` reproduces the pre-existing guess-off analysis set byte-for-byte, per word;
 /// nonzero enables the guesser for every word in the batch. Internally parallel (rayon) via
 /// [`parse_batch_with_opts`] — a smaller, additive sibling of `pg_parse::hc_parse_batch` that
@@ -324,7 +320,7 @@ pub(crate) fn finish(
     }
 }
 
-/// `hc_buf_free(HcResultBuf*)` (plan §4.2). Frees a buffer produced by `hc_parse_word`,
+/// `hc_buf_free(HcResultBuf*)`. Frees a buffer produced by `hc_parse_word`,
 /// `hc_parse_batch`, or embedded in an `HcError::message`. Idempotent: a null pointer, or a
 /// buffer already zeroed (`data == null`), is a no-op — safe to call more than once or on a
 /// buffer that was never populated (e.g. the `HcError::message` of a *successful*

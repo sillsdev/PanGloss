@@ -1,8 +1,6 @@
-//! Verifies `CLAUDE.md` still states the managed-build-command contract from
-//! `docs/superpowers/specs/2026-07-29-categorical-build-hardening-design.md` (Definition of done:
-//! "A direct agent-workflow Cargo command is absent from maintained PanGloss instructions"). Runs
-//! in CI with no private corpus: it only reads a tracked markdown file, nothing under
-//! `samples/data/`.
+//! Verifies `CLAUDE.md` still states the managed-build-command contract: a direct agent-workflow
+//! Cargo command must be absent from maintained PanGloss instructions. Runs in CI with no private
+//! corpus: it only reads a tracked markdown file, nothing under `samples/data/`.
 //!
 //! This is a REGRESSION LOCK, not a style check. CLAUDE.md is free to reword the surrounding
 //! prose, reorder sections, or add more guidance -- but if a future edit drops the prohibition on

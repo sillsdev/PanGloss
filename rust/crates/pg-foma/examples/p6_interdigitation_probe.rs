@@ -1,8 +1,8 @@
-//! P6 prototype stretch goal (docs/fst-plan/p6-prototype-report.md): does Amharic's 7 phonological
-//! rules — including prule6/prule7, the 20-alpha-variable CV-merger reports/08 §3 item 1 names as
-//! the load-bearing test of the tuple-indexed cost model — compile and compose via
-//! `pg_foma::replace`? Scope (per the prototype brief): COMPILE + tuple-expansion counts +
-//! composition sizes only. NO recall gate (the underlying-form lexc emitter in `pg_foma::uflexc`
+//! Interdigitation feasibility probe: does Amharic's 7 phonological rules — including
+//! prule6/prule7, the 20-alpha-variable CV-merger that is the load-bearing test of the
+//! tuple-indexed cost model — compile and compose via `pg_foma::replace`? Scope: COMPILE +
+//! tuple-expansion counts + composition sizes only. NO recall gate (the underlying-form lexc
+//! emitter in `pg_foma::uflexc`
 //! is Indonesian-scoped, template-less-morphotactics only; Amharic uses `<AffixTemplate>` slots
 //! this prototype's emitter never attempts) and NO `pg_foma::emit::emit()` call (that is the
 //! Aweti-scale OOM this whole effort routes around, and Amharic's emitter path shares the same
