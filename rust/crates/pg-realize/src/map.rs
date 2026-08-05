@@ -114,13 +114,12 @@ impl RealizeMap {
 
     /// Merge `overrides` into `self`, per gloss key: every key present in `overrides` replaces
     /// (or adds) that key's assignment here; keys only in `self` are left untouched. This is the
-    /// small additive method the design doc's `pg-wasm` precedence rule needs (`docs/superpowers/
-    /// specs/2026-07-14-add-to-dictionary-and-realize-inference-design.md`, "Sub-project 2:
-    /// RealizeMap inference": "inferred map is the base; a sidecar `realize.toml`, when present,
-    /// overrides per gloss key") — `self` is expected to be an [`crate::infer::infer_english`]
-    /// base map and `overrides` a parsed sidecar, but this method itself is agnostic to which
-    /// side is which; it just merges, sidecar-wins ordering is the caller's responsibility (call
-    /// it as `base.extend_overriding(sidecar)`, not the other way around).
+    /// small additive method the `pg-wasm` precedence rule needs ("inferred map is the base; a
+    /// sidecar `realize.toml`, when present, overrides per gloss key") — `self` is expected to be
+    /// an [`crate::infer::infer_english`] base map and `overrides` a parsed sidecar, but this
+    /// method itself is agnostic to which side is which; it just merges, sidecar-wins ordering is
+    /// the caller's responsibility (call it as `base.extend_overriding(sidecar)`, not the other
+    /// way around).
     pub fn extend_overriding(&mut self, overrides: RealizeMap) {
         self.entries.extend(overrides.entries);
     }

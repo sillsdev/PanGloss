@@ -1,9 +1,8 @@
-//! PK1 (design `docs/superpowers/specs/2026-07-15-fst-precision-knob-design.md` §8 sequencing
-//! item (1), §6 "Testing"): the recall-invariance harness for the FST precision knob's step-1
-//! `AllFlags` preset (`pg_foma::precision`) — THE key property (§0/§6): the knob is
-//! performance-only, so the composite propose→confirm path must reach IDENTICAL confirmed
-//! analyses at [`PrecisionConfig::Strip`] (default) and [`PrecisionConfig::AllFlags`], and the
-//! raw candidate set must only ever SHRINK (never gain a candidate) between them.
+//! The recall-invariance harness for the FST precision knob's step-1 `AllFlags` preset
+//! (`pg_foma::precision`) — THE key property: the knob is performance-only, so the composite
+//! propose→confirm path must reach IDENTICAL confirmed analyses at [`PrecisionConfig::Strip`]
+//! (default) and [`PrecisionConfig::AllFlags`], and the raw candidate set must only ever SHRINK
+//! (never gain a candidate) between them.
 //!
 //! ## Why this file drives `apply_up`/peel/confirm directly instead of `FomaAnalyzer`
 //! `pg_foma::composite::FomaAnalyzer::new`/`pg_foma::analyzer::FomaProposer::new` both hardcode

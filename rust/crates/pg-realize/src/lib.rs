@@ -1,40 +1,36 @@
-//! Natural-phrases N0 (`docs/natural-phrases-plan.md` N0): the gloss-bundle extraction layer.
+//! The gloss-bundle extraction layer: additive, display-only presentation of an analysis, on top
+//! of the frozen parity engine.
 //!
-//! Additive, display-only layer on top of the frozen parity engine. `gloss_bundle` resolves a
-//! [`pg_parse::WordAnalysis`]'s grammar-tier morpheme ordinals against `Grammar::morphemes` to
-//! produce a [`GlossBundle`], and [`leipzig`] renders that bundle as a Leipzig-style gloss string
-//! (`house-pl-poss.1s`). Neither function touches `result_signature`, `ParseOutcome.analyses`, or
-//! any other parity-frozen output — this crate is consumed only by new, additive call sites
-//! (`pg-cli`'s `--gloss` flag today; later milestones' IR/realizer layers build on top of it).
+//! [`gloss_bundle`] resolves a [`pg_parse::WordAnalysis`]'s grammar-tier morpheme ordinals against
+//! `Grammar::morphemes` to produce a [`GlossBundle`], and [`leipzig`] renders that bundle as a
+//! Leipzig-style gloss string (`house-pl-poss.1s`). Neither function touches `result_signature`,
+//! `ParseOutcome.analyses`, or any other parity-frozen output — this crate is consumed only by
+//! new, additive call sites (`pg-cli`'s `--gloss` flag today; later IR/realizer layers build on
+//! top of it).
 //!
-//! Degrades gracefully everywhere (`docs/natural-phrases-plan.md`'s non-negotiable constraint 4):
-//! an out-of-range morpheme ordinal, a missing gloss, or a guessed root never panics — worst case
-//! is a `[?]` token in the rendered string.
+//! Degrades gracefully everywhere: an out-of-range morpheme ordinal, a missing gloss, or a
+//! guessed root never panics — worst case is a `[?]` token in the rendered string.
 //!
-//! N1 (`docs/natural-phrases-plan.md` N1) adds a typed IR on top: [`ir`] defines
-//! [`ir::GlossIr`] and its closed-enum feature slots, and [`map`] defines [`map::RealizeMap`],
-//! the per-grammar sidecar mapping from raw gloss strings to those features. [`ir::to_ir`]
-//! builds a `GlossIr` from a `GlossBundle` the same way `gloss_bundle`/`leipzig` are built:
-//! total, additive, never touching parity output.
+//! [`ir`] defines a typed IR on top of the gloss bundle: [`ir::GlossIr`] and its closed-enum
+//! feature slots, and [`map`] defines [`map::RealizeMap`], the per-grammar sidecar mapping from
+//! raw gloss strings to those features. [`ir::to_ir`] builds a `GlossIr` from a `GlossBundle` the
+//! same way `gloss_bundle`/`leipzig` are built: total, additive, never touching parity output.
 //!
-//! N2 (`docs/natural-phrases-plan.md` N2) adds the realizer layer on top of the IR: [`realize`]
-//! defines the [`realize::Realizer`] trait and its [`realize::Realization`] result type (the
-//! Architecture-A upgrade seam, see that module's doc), and [`table`] defines
-//! [`table::TableRealizer`], the compile-time English construction-table implementation this
-//! milestone ships.
+//! [`realize`] defines the realizer layer on top of the IR: the [`realize::Realizer`] trait and
+//! its [`realize::Realization`] result type (the Architecture-A upgrade seam, see that module's
+//! doc), and [`table`] defines [`table::TableRealizer`], a compile-time English
+//! construction-table implementation.
 //!
-//! `PanGloss-demo` repo's `docs/superpowers/specs/2026-07-14-add-to-dictionary-and-realize-
-//! inference-design.md` ("Sub-project 2: RealizeMap inference") adds [`infer`]: `infer_english`
-//! builds a [`RealizeMap`] straight from a grammar's affix glosses via a built-in English alias
-//! table, so grammars without a hand-authored sidecar still get natural-ish phrases. Wiring the
-//! inferred-map/sidecar-override precedence into `pg-wasm` is a separate, later phase.
+//! [`infer`]: `infer_english` builds a [`RealizeMap`] straight from a grammar's affix glosses via
+//! a built-in English alias table, so grammars without a hand-authored sidecar still get
+//! natural-ish phrases. Wiring the inferred-map/sidecar-override precedence into `pg-wasm` is a
+//! separate, later phase.
 //!
-//! Stage 0E (`openspec/changes/IMPLEMENTATION-READINESS.md` R4) adds [`signature`]: the R4 gloss
-//! signature, a canonical string encoding of a word's whole analysis set (`gloss_bundle`'s tokens
-//! plus each analysis's surface shape) for `add-reference-hermitcrab-parity`'s and
-//! `add-grammar-diagnostics`'s shared use — see that module's doc for the full encoding, and its
-//! own top-of-file note for why it is a parallel format next to `pg_parse::result_signature`,
-//! never a change to it.
+//! [`signature`]: a canonical string encoding of a word's whole analysis set (`gloss_bundle`'s
+//! tokens plus each analysis's surface shape), for shared use across downstream consumers that
+//! need to compare whole analysis sets — see that module's doc for the full encoding, and its own
+//! top-of-file note for why it is a parallel format next to `pg_parse::result_signature`, never a
+//! change to it.
 #![forbid(unsafe_code)]
 
 use pg_grammar::model::Grammar;
