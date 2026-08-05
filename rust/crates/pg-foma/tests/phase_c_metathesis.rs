@@ -1,20 +1,17 @@
-//! `openspec/changes/compile-fst-metathesis`: `PhonRuleDef::Metathesis` real FST semantics, via
+//! `PhonRuleDef::Metathesis` real FST semantics, via
 //! [`pg_foma::replace::compile_metathesis_rule`]'s dedicated swap relation (that function's own
 //! module doc: a per-branch literal cross-product union, mirroring `resolve_alpha_tuples`'s own
-//! identity-preservation fix). BEFORE that change, every `<MetathesisRule>` was unconditionally
-//! reported `skipped` (`"{xml_id} (metathesis, unhandled)"`, this file's OLD sole test). Now any
-//! rule whose whole pattern is a shape `pg_foma::replace::pattern_slots` accepts (no `Quantifier`/
-//! `Segments`/`Anchor`, no `Slot::Alpha`/`Slot::Repeat` anywhere) compiles to a real swap relation,
-//! oracle-exact for the well-formed switch-tag convention (below) — for `Dir::LeftToRight`. As of
-//! `openspec/changes/plan-construct-coverage-completion` task 4.6 (`docs/conformance/
-//! needs-decision-resolutions.md` row 8), `Dir::RightToLeft` compiles too, via the SAME
-//! mirror-and-reverse construction `compile_rtl_branch_net` already uses for RTL rewrite rules
-//! (`pg_foma::replace`'s own module doc, "`Dir::RightToLeft`" section, has the full derivation) —
-//! a proven SAFE SUPERSET of the true RTL relation (`ConfirmOnly`, never `Admit`), not proven
-//! oracle-exact the way the `Dir::LeftToRight` case is.
+//! identity-preservation fix). Any rule whose whole pattern is a shape
+//! `pg_foma::replace::pattern_slots` accepts (no `Quantifier`/`Segments`/`Anchor`, no
+//! `Slot::Alpha`/`Slot::Repeat` anywhere) compiles to a real swap relation, oracle-exact for the
+//! well-formed switch-tag convention (below) — for `Dir::LeftToRight`. `Dir::RightToLeft`
+//! compiles too, via the SAME mirror-and-reverse construction `compile_rtl_branch_net` already
+//! uses for RTL rewrite rules (`pg_foma::replace`'s own module doc, "`Dir::RightToLeft`" section,
+//! has the full derivation) — a proven SAFE SUPERSET of the true RTL relation (`ConfirmOnly`,
+//! never `Admit`), not proven oracle-exact the way the `Dir::LeftToRight` case is.
 //!
-//! Synthetic, delanguaged fixtures (`openspec/changes/STAGING.md`'s "Hard rule: synthetic data
-//! only"), named by construct. Each compilable fixture is checked against `pg_parse::Morpher`
+//! Synthetic, delanguaged fixtures ("synthetic data only"), named by construct. Each compilable
+//! fixture is checked against `pg_parse::Morpher`
 //! (this codebase's own full-HC oracle), following `tests/phase_c_right_to_left.rs`/
 //! `tests/two_table_symbol_divergence.rs`'s established methodology exactly
 //! (`fst_candidate_set`/`oracle_candidate_set`, decode via `pg_foma::tags`).
@@ -450,11 +447,10 @@ fn metathesis_multi_member_classes_transpose_precisely_not_naively() {
 // context node sits between them (mirrors `machine/conformance/languages/metathesis-phase-
 // isolation`'s own `mrComplexMeta` shape, minus its `finalBoundaryCondition` anchor -- see
 // `metathesis_anchor_pattern_stays_honestly_unsupported`, below, for why that piece stays out of
-// scope). UPDATE (2026-07-25): this file's own top doc, gap 2, is now FIXED
+// scope). This file's own top doc, gap 2, is now FIXED
 // (`pg_rules::metathesis::build_analysis_pattern` no longer drops a middle segment node) -- this is
 // now a FULL containment witness (`full_containment_check`, same as the adjacent-singleton test
-// above), not just an FST-only recall witness. Originally
-// `metathesis_middle_context_node_is_a_documented_oracle_gap`; renamed to reflect the fix.
+// above), not just an FST-only recall witness.
 // =================================================================================================
 
 const MIDDLE_CONTEXT_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
@@ -534,12 +530,10 @@ fn metathesis_middle_context_node_now_matches_the_oracle() {
 // this repo has seen uses (this file's own top doc, gap 1). `pg_grammar_gen`'s own
 // `metathesis_rule_count` recipe (`pg_grammar_gen::build::metathesis::build`) happens to author
 // exactly this convention -- reused here as the fix witness so the pre-existing recipe stays
-// exercised, rather than only ever hitting the honest-skip gate it used to pin. UPDATE
-// (2026-07-25): this file's own top doc, gap 1, is now FIXED (`pg_rules::metathesis::
-// build_analysis_pattern` now orders by physical position, not tag name) -- this is now a full
-// oracle-recall witness, not just an FST-only recall witness. Originally
-// `metathesis_grammar_gen_recipe_reproduces_the_reversed_tag_oracle_gap`; renamed to reflect the
-// fix.
+// exercised, rather than only ever hitting the honest-skip gate it used to pin. This file's own
+// top doc, gap 1, is now FIXED (`pg_rules::metathesis::build_analysis_pattern` now orders by
+// physical position, not tag name) -- this is now a full oracle-recall witness, not just an
+// FST-only recall witness.
 // =================================================================================================
 
 fn reversed_tag_recipe() -> Recipe {
@@ -665,10 +659,9 @@ fn metathesis_grammar_gen_recipe_confirms_the_reversed_tag_round_trip() {
 }
 
 // =================================================================================================
-// metathesis-right-to-left: `Dir::RightToLeft` now compiles (`openspec/changes/
-// plan-construct-coverage-completion` task 4.6; `docs/conformance/needs-decision-resolutions.md`
-// row 8) via the SAME mirror-and-reverse construction `compile_rtl_branch_net` already uses for RTL
-// rewrite rules -- see `pg_foma::replace`'s own module doc, "`Dir::RightToLeft`" section, for the
+// metathesis-right-to-left: `Dir::RightToLeft` now compiles via the SAME mirror-and-reverse
+// construction `compile_rtl_branch_net` already uses for RTL rewrite rules -- see
+// `pg_foma::replace`'s own module doc, "`Dir::RightToLeft`" section, for the
 // full construction and the empirical finding (recorded there and in this file's own top doc) that
 // `pg_rules::metathesis` is direction-BLIND, at least for the overlapping-window shape checked,
 // mirroring what `tests/phase_c_right_to_left.rs`'s own top doc found (before its own fix) for
