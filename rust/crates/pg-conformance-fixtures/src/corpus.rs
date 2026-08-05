@@ -14,8 +14,7 @@
 //!
 //! In a fresh worktree `samples/data/` does not exist at all, so every such test passes while
 //! testing no corpus data. That is not hypothetical: it happened repeatedly in this repo's own
-//! agent worktrees, and it is the second false-success path
-//! `docs/superpowers/specs/2026-07-29-categorical-build-hardening-design.md` was written to close.
+//! agent worktrees, and it is the second false-success path this module exists to close.
 //!
 //! # The contract
 //! [`required`] reads `PANGLOSS_CORPUS_REQUIRED`, which `rust/tools/pg.ps1 -Mode corpus-test` sets
@@ -113,9 +112,9 @@ pub fn record_cases(label: &str, cases: usize) {
 // ---------------------------------------------------------------------------------------------
 
 /// Word-list hazard metadata for a `role: "corpus"` file, so a reader (or a future automated
-/// slicer) does not have to rediscover what `docs/fst-plan/corpus-word-list-hazards.md` already
-/// found by hand -- e.g. the amharic-words.txt bug where `head -3` silently returns three
-/// unanalyzable English glosses instead of a build/recall failure.
+/// slicer) does not have to rediscover hazards already found by hand -- e.g. the amharic-words.txt
+/// bug where `head -3` silently returns three unanalyzable English glosses instead of a
+/// build/recall failure.
 ///
 /// This is descriptive metadata, not an enforced contract: nothing in this crate currently slices
 /// a word list using it. It exists so the facts (line endings, a non-word header, an expected
