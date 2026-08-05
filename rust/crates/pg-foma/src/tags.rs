@@ -1,4 +1,4 @@
-//! Tag codec for the emitter (plan `docs/fst-plan/foma-fst-plan.md` D2/D3): multichar analysis-
+//! Tag codec for the emitter: multichar analysis-
 //! tape symbols `<R:nnnn>` (root morpheme) and `<M:nnnn>` (non-root morpheme), where `nnnn` is the
 //! morpheme's own [`MorphemeId`] index directly — no separate first-seen codec is needed the way
 //! `hc-hybrid/src/token.rs`'s `MorphTokenCodec` needs one for its packed-token scheme, because
@@ -18,10 +18,10 @@
 //!      need every `0` escaped to `%0` to avoid `<R:0001>` and `<R:0010>` silently collapsing to
 //!      the same registered symbol. **This module sidesteps that requirement entirely (point 3
 //!      below) rather than relying on the escape** — see there for why.
-//!   3. **Root-caused 2026-07-27** (the templated-morphotactics recall investigation,
+//!   3. **Root-caused** (the templated-morphotactics recall investigation,
 //!      `tests/p6_templated_morphotactics_gate.rs`'s bare-root miss `"mã"`/`morpheme 400`, and
 //!      independently rediscovered/confirmed the same mechanism `emit.rs`'s
-//!      `verify_tags_reachable` doc already root-caused for a *different* symptom on 2026-07-25):
+//!      `verify_tags_reachable` doc already root-caused for a *different* symptom):
 //!      even a CORRECTLY `%0`-escaped tag numeral is not safe, because of a genuine upstream
 //!      `divvun/foma-rs` defect (filed; the original C foma reader does not have it — see that
 //!      issue for the minimal repro). `foma::lexcread::lexc_add_mc` (the `Multichar_Symbols`
@@ -261,7 +261,7 @@ mod tests {
     #[test]
     fn lexc_tag_distinguishes_leading_zeros_via_zero_glyph() {
         // Regression guard mirroring f0_viability.rs's `lexc_tags_do_not_collide_on_leading_zeros`.
-        // Updated 2026-07-27 (module doc point 3): no more `%0` escaping -- every would-be `0`
+        // Per the module doc's point 3: no more `%0` escaping -- every would-be `0`
         // digit is spelled with `ZERO_GLYPH` instead, so the two numerals stay distinguishable
         // without ever emitting a literal `0` byte at all.
         let a = lexc_tag("R", 1, 4);
