@@ -30,7 +30,12 @@ if (-not $BaselinePath) { $BaselinePath = Join-Path $PSScriptRoot 'comment-hygie
 # regression -- a single total would let 50 new plan references hide behind 50 deleted dates.
 $categories = [ordered]@{
     'plan-reference'  = 'openspec[/\\]changes|tasks\.md|design\.md|docs/fst-plan|IMPLEMENTATION-READINESS|spec\.md'
-    'step-marker'     = 'Step \d+ of \d+|Step \d+ \(|§P\d|Phase [A-Z]\b|Stage \d[A-Z]?\b|task \d+\.\d+|D\d+ decision'
+    # `Phase`/`Stage` are case-SENSITIVE via `(?-i:...)`; everything else stays case-insensitive.
+    # PowerShell's `-match` ignores case, and this codebase uses "stage 1"/"stage 2" for real
+    # algorithm structure (propose then confirm), so a blanket match flags correct domain vocabulary
+    # and pressures a cleanup pass into rewriting it. Scoping the two patterns rather than making the
+    # whole line case-sensitive is deliberate: a capitalised task number must still be caught too.
+    'step-marker'     = 'Step \d+ of \d+|Step \d+ \(|§P\d|(?-i:Phase [A-Z]\b)|(?-i:Stage \d[A-Z]?\b)|task \d+\.\d+|D\d+ decision'
     'wiring-status'   = 'purely additive|Purely additive|not wired|NOT wired|reachable from no|Reachable from no|not yet consumed|Not yet consumed'
     'date-in-comment' = '\b20\d\d-\d\d-\d\d\b'
     'history-prose'   = 'used to read|previously read|this paragraph|renamed from|was stale|corrected in place'
