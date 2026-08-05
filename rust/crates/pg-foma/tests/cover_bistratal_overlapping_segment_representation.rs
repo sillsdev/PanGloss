@@ -6,21 +6,17 @@
 //! 1. the capability gate's `ConfirmOnly` verdict (`multi-table.faithful-table-threading`), and
 //! 2. the oracle's (`pg_parse::Morpher`) own correct, unaffected analysis of every reachable word.
 //!
-//! ## Flipped from `Refuse` (`plan-construct-coverage-completion` task 4.4b)
-//! This test used to pin a `Refuse` verdict, with a doc note that it "is the one that should FAIL
-//! -- prompting deliberate review -- the day `MultiTableFaithfulThreadingPredicate` is promoted to
-//! admit a shared-representation configuration". That day is this task: `docs/conformance/
-//! multitable-shared-representation-design.md`'s own headline finding is that a shared
-//! representation is a FALSE-NEGATIVE risk (a table-B rule failing to fire on table-A-originated
-//! material spelled the same way), not the false-POSITIVE risk the predicate's old doc assumed --
-//! and `crate::replace::RepresentationAliasMap`/`SegAlphabet::render_tokens` (render-time
-//! cross-table token aliasing) closes that gap for rewrite rules, so `Refuse` was strictly more
-//! conservative than the real risk warranted. This fixture's OWN grammar has no rule threading
-//! material between the two tables at all (each stratum's own lexicon is independent, STAGING.md's
-//! own "Verification" note) — a plain, uncomplicated shared-representation grammar with nothing for
-//! the aliasing fix to actually exercise — so it stays exactly the right fixture to pin the
-//! predicate's OWN verdict; `tests/two_table_shared_representation_recall.rs` (this same task) is
-//! the fixture that actually exercises aliasing firing on cross-table material.
+//! ## Why this pins `ConfirmOnly`, not `Refuse`
+//! A shared representation is a FALSE-NEGATIVE risk (a table-B rule failing to fire on
+//! table-A-originated material spelled the same way), not a false-POSITIVE risk -- and
+//! `crate::replace::RepresentationAliasMap`/`SegAlphabet::render_tokens` (render-time cross-table
+//! token aliasing) closes that gap for rewrite rules, so a `Refuse` verdict would be strictly more
+//! conservative than the real risk warrants. This fixture's OWN grammar has no rule threading
+//! material between the two tables at all (each stratum's own lexicon is independent, per
+//! STAGING.md's own "Verification" note) — a plain, uncomplicated shared-representation grammar
+//! with nothing for the aliasing fix to actually exercise — so it stays exactly the right fixture
+//! to pin the predicate's OWN verdict; `tests/two_table_shared_representation_recall.rs` is the
+//! fixture that actually exercises aliasing firing on cross-table material.
 
 use std::fs;
 use std::path::Path;
