@@ -169,7 +169,7 @@
         "strategies": [
           "tuned-surface-probed"
         ],
-        "note": "FailClosed: containment is not the applicable property here -- this witness proves compose_envelope genuinely Refuses whenever MprGroupOutput::Overwrite is observed."
+        "note": "Non-narrowing-baseline containment for MprGroupOutput::Overwrite: this witness proves compose_envelope resolves an observed Overwrite group to ConfirmOnly, never Admit."
       },
       "strategies_cannot_represent": [],
       "strategies_unwitnessed": [

@@ -1,19 +1,11 @@
-//! Citation liveness for the coverage ledger's containment/refusal evidence.
+//! Citation liveness for the coverage ledger's containment evidence.
 //!
 //! # Why this gate exists
-//! `crate::coverage_ledger::containment_evidence_for` returns hand-curated
-//! [`pg_foma::coverage_ledger::ContainmentEvidence`] citations of the form `tests/<file>.rs::<test_fn>`, and
-//! `build_ledger` grades a [`pg_foma::capability::Disposition::FailClosed`] row `Covered` **iff** such a citation
-//! exists with `kind == RefusalWitness` (G8: a refused construct can never have a passing
-//! analysis fixture, so the refusal witness is its only admissible evidence). That makes the
-//! ledger's own `Covered` verdict depend on a **string** — and nothing, before this file,
-//! checked that the string pointed at anything real.
-//!
-//! A citation that names a deleted file, or a `#[test]` that was renamed or removed, would keep
-//! reporting `Covered` forever. That is precisely the shape of overclaim ADR 0001 exists to
-//! forbid: the ledger would assert evidence it does not have. Renaming a test is routine; this
-//! gate is what makes that routine change fail loudly instead of silently downgrading the
-//! ledger's honesty.
+//! `pg_foma::coverage_ledger::containment_evidence_for` returns hand-curated
+//! [`pg_foma::coverage_ledger::ContainmentEvidence`] citations of the form
+//! `tests/<file>.rs::<test_fn>`. A citation that names a deleted file, or a `#[test]` that was
+//! renamed or removed, is a dangling pointer the ledger keeps reporting as evidence it does not
+//! have. Renaming a test is routine; this gate is what makes that routine change fail loudly.
 //!
 //! # What it checks
 //! For every citation string on every ledger row:
@@ -148,8 +140,7 @@ fn concat_rs_sources(dir: &Path) -> String {
 
 /// Every ledger citation's file paths resolve to a file that exists.
 ///
-/// This is the half that catches a deleted or renamed test FILE. A `FailClosed` row whose
-/// refusal-witness file no longer exists would otherwise keep reporting `Covered`.
+/// This is the half that catches a deleted or renamed test FILE.
 #[test]
 fn every_ledger_citation_names_a_file_that_exists() {
     let ledger = build_ledger(&default_registry(), &std::collections::HashSet::new());
@@ -225,87 +216,4 @@ fn every_ledger_citation_names_a_test_fn_that_exists() {
         missing.len(),
         missing.join("\n  ")
     );
-}
-
-/// The specific row whose `Covered` verdict depends ENTIRELY on a citation string.
-///
-/// Every other disposition is graded against the passing-fixture set, which is computed from real
-/// fixture runs; `FailClosed` is the one disposition where the citation IS the evidence (G8,
-/// `build_ledger`'s own doc). So this pins the strongest form of the check for exactly that row:
-/// not merely that the citation resolves, but that it resolves to a `#[test]`.
-#[test]
-fn fail_closed_refusal_witness_resolves_to_an_actual_test() {
-    use pg_foma::capability::Disposition;
-
-    let ledger = build_ledger(&default_registry(), &std::collections::HashSet::new());
-    let root = crate_root();
-    let mut fail_closed_rows = 0usize;
-
-    for row in &ledger.rows {
-        if row.disposition != Disposition::FailClosed {
-            continue;
-        }
-        fail_closed_rows += 1;
-        let ev = row.containment.as_ref().unwrap_or_else(|| {
-            panic!(
-                "{:?} is FailClosed, so its Covered verdict can ONLY come from a refusal-witness \
-                 citation — it has none, which means build_ledger must be reporting it Uncovered; \
-                 if that changed, this gate needs updating deliberately",
-                row.kind
-            )
-        });
-
-        // Read every cited file up front so an ident may legitimately live in any ONE of them,
-        // while still being REQUIRED to live in at least one — a `continue`-on-not-found loop
-        // would silently pass a citation whose ident exists nowhere, which is the exact failure
-        // this test is here to catch.
-        let mut cited_sources: Vec<(String, String)> = Vec::new();
-        for rel in cited_paths(&ev.citation) {
-            let path = root.join(&rel);
-            let text = std::fs::read_to_string(&path).unwrap_or_else(|e| {
-                panic!("{:?} cites {rel}, which cannot be read: {e}", row.kind)
-            });
-            cited_sources.push((rel, text));
-        }
-        assert!(
-            !cited_sources.is_empty(),
-            "{:?} is FailClosed and its citation names no readable file at all",
-            row.kind
-        );
-
-        let idents = cited_test_fns(&ev.citation);
-        assert!(
-            !idents.is_empty(),
-            "{:?} is FailClosed but its citation names no test function — the Covered verdict \
-             would rest on a file path alone, which cannot witness a refusal",
-            row.kind
-        );
-
-        for ident in idents {
-            let needle = format!("fn {ident}");
-            let hit = cited_sources
-                .iter()
-                .find_map(|(rel, text)| text.find(&needle).map(|at| (rel, text, at)));
-            let (rel, text, at) = hit.unwrap_or_else(|| {
-                panic!(
-                    "{:?}'s refusal witness `{ident}` appears in NONE of its own cited files \
-                     ({}) — a FailClosed row's entire Covered verdict rests on this citation",
-                    row.kind,
-                    cited_sources
-                        .iter()
-                        .map(|(r, _)| r.as_str())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                )
-            });
-            let preamble = &text[at.saturating_sub(200)..at];
-            assert!(
-                preamble.contains("#[test]"),
-                "{:?}'s refusal witness `{ident}` in {rel} is not a #[test] — it must name a \
-                 test that actually runs, not a helper",
-                row.kind
-            );
-        }
-    }
-    let _ = fail_closed_rows;
 }

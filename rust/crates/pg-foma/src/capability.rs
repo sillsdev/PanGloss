@@ -22,7 +22,7 @@
 //! [`CapabilityPredicate`] is an oracle-verified proof-obligation trait: conservative by
 //! construction (`evaluate` may return [`PredicateVerdict::Refuse`] too eagerly, never
 //! [`PredicateVerdict::Admit`] too eagerly). [`PredicateRegistry`]/[`undischarged_kinds`] give the
-//! "no silent vacuous pass" coverage check: every `FailClosed`/
+//! "no silent vacuous pass" coverage check: every
 //! `ConfigPredicate` [`CharacteristicKind`] must be named by at least one registered predicate's
 //! [`CapabilityPredicate::discharges`].
 //!
@@ -78,9 +78,6 @@ pub enum Disposition {
     /// Recall-preserving only if the proposer proposes the superset (no proven no-false-negative
     /// admission filter) — a first-class, non-failure verdict.
     ConfirmOnly,
-    /// Hard compile-time refusal by default; only the explicit, indelibly-stamped capability
-    /// override force-compiles it.
-    FailClosed,
 }
 
 /// The closed set of observed grammar characteristics, one variant per characteristic family.
@@ -238,7 +235,7 @@ impl CharacteristicKind {
             // contract) and proposes their budget-bounded, depth-budgeted cross product through
             // the "bounded compound loop" lexc construction (`build_compound_chain`) -- a
             // genuinely faithful (over-approximating, never under-proposing) FST proposal for
-            // EVERY observed configuration, recursive or not, no longer bare FailClosed for either
+            // EVERY observed configuration, recursive or not, for either
             // split. No proven no-false-negative admission-filter argument exists, so the resting
             // disposition is the same ConfigPredicate landing spot every other construct in this
             // file uses -- still `ConfigPredicate` at the KIND level (a predicate IS registered,
@@ -267,7 +264,7 @@ impl CharacteristicKind {
             // The reversal-plus-safety-net-union construction
             // (`crate::replace::compile_rtl_branch_net`) makes RTL rewrite compilation faithful
             // (never a silent LTR mis-compile) for the same pattern shapes any other rewrite rule
-            // already needs -- no longer bare FailClosed, but no proven no-false-positive
+            // already needs -- but no proven no-false-positive
             // admission-filter argument exists either, so the resting disposition is the
             // ConfigPredicate landing spot: ConfirmOnly unless/until
             // `RightToLeftRewriteFaithfulReversalPredicate` proves `Admit` (it never does today --
@@ -276,7 +273,7 @@ impl CharacteristicKind {
             // The dedicated swap-relation construction (`crate::replace::compile_metathesis_rule`)
             // makes `Dir::LeftToRight` metathesis compilation faithful (never a silent wrong
             // reorder) for the same `pattern_slots`-acceptable pattern shape any other rewrite
-            // rule already needs -- no longer bare FailClosed, but no proven no-false-negative
+            // rule already needs -- but no proven no-false-negative
             // admission-filter argument exists either, so the resting disposition is the
             // ConfigPredicate landing spot: ConfirmOnly unless/until
             // `MetathesisFaithfulSwapPredicate` proves the shape is in scope (it never proves
@@ -292,7 +289,7 @@ impl CharacteristicKind {
             // nested-chain recursion chain-depth-budgeted (never a silent recall gap OR an
             // unbounded blow-up). A `RealizationalRule` allomorph carrying the same true-redup RHS
             // shape is never peel-eligible (a real, faithfully-preserved C# quirk, `crate::
-            // peel::is_reduplication_rule`'s own doc) -- no longer bare FailClosed, but no proven
+            // peel::is_reduplication_rule`'s own doc) -- but no proven
             // no-false-negative admission-filter argument exists, so the resting disposition is
             // the ConfigPredicate landing spot: ConfirmOnly for the peel-eligible case, Refuse for
             // the `RealizationalRule` carve-out, per `ReduplicationPeelSupportedPredicate`'s own
@@ -300,9 +297,9 @@ impl CharacteristicKind {
             CharacteristicKind::Reduplication => Disposition::ConfigPredicate,
             CharacteristicKind::CoOccurrenceConstraint => Disposition::ConfirmOnly,
             CharacteristicKind::NaturalClassDefinition => Disposition::Proven,
-            // Rewrite-rule compilation now threads each rule's own owning table faithfully (no
-            // more implicit table-zero default), so multi-table is no longer bare FailClosed --
-            // but no no-false-positive admission-filter proof exists yet, so the resting
+            // Rewrite-rule compilation threads each rule's own owning table faithfully (no
+            // implicit table-zero default), but no no-false-positive admission-filter proof
+            // exists yet, so the resting
             // disposition is the ConfigPredicate landing spot: ConfirmOnly unless/until
             // `MultiTableFaithfulThreadingPredicate` proves `Admit` for the specific configuration
             // observed (pairwise-disjoint table representations).
@@ -321,16 +318,16 @@ impl CharacteristicKind {
             // `precision.rs`'s own `ConstraintFamily::StemName` says "Not populated" too), so a
             // stem-restricted root allomorph is proposed unconditionally and discharged ONLY by
             // `pg_rules::validity::stem_name_gate_reason` at confirm time. `ConfirmOnly` is the
-            // honest resting disposition — never `Proven` (no admission-filter argument exists)
-            // and never `FailClosed` (the superset proposal is already faithful/never
-            // under-proposes, which is the bar for a first-class non-failure verdict).
+            // honest resting disposition — never `Proven`, since no admission-filter argument
+            // exists; the superset proposal is already faithful and never under-proposes, which
+            // is the bar for a first-class non-failure verdict.
             CharacteristicKind::StemName => Disposition::ConfirmOnly,
             // Same shape: the disjunctive-allomorph re-check has no compile-time
             // ordering/preference machinery in `crate::emit` at all (every allomorph of a
             // multi-allomorph root entry is proposed uniformly) — confirm is the only place
-            // "first-listed matching allomorph wins" is ever enforced. `ConfirmOnly`, not
-            // `FailClosed`: over-proposing every allomorph is still a faithful superset, never a
-            // silent recall loss.
+            // "first-listed matching allomorph wins" is ever enforced. `ConfirmOnly`:
+            // over-proposing every allomorph is still a faithful superset, never a silent recall
+            // loss.
             CharacteristicKind::FreeFluctuation => Disposition::ConfirmOnly,
         }
     }
@@ -449,8 +446,7 @@ pub struct MultiTableDetail {
 /// detail is only ever computed for `Dir::RightToLeft` rules (`characterize`'s
 /// own `Dir::RightToLeft` arm) — a rule that is BOTH `Simultaneous` and `RightToLeft` gets both
 /// observations, and `RightToLeftRewriteFaithfulReversalPredicate`'s own verdict is irrelevant
-/// there since `SimultaneousRewrite`'s `FailClosed`-by-default disposition already dominates under
-/// `meet`.
+/// there since `SimultaneousRewrite`'s own predicate verdict already dominates under `meet`.
 #[derive(Debug, Clone, Copy)]
 pub struct RightToLeftRewriteDetail {
     pub rule: PRuleId,
@@ -657,9 +653,9 @@ pub struct UnorderedStratumDetail {
     pub rule_count: usize,
     /// `true` iff `rule_count` is within [`crate::compose_budget::DEFAULT_ORDERING_MULTIPLICITY_BUDGET`]
     /// — `unordered-application.chain-depth-bounded` (target `ConfirmOnly`). `false` means
-    /// `unordered-application.unbounded` (stays `Refuse`/`FailClosed`; an explicit, indelibly-
-    /// stamped override is its on-ramp) — two distinct configuration predicates, independently
-    /// registered and independently promotable.
+    /// `unordered-application.unbounded` (`Refuse`; an explicit, indelibly-stamped override is its
+    /// on-ramp) — two distinct configuration predicates, independently registered and
+    /// independently promotable.
     pub within_bound: bool,
 }
 
@@ -1656,7 +1652,7 @@ pub fn characterize(g: &Grammar) -> CharacteristicsProfile {
             }
             MorphRuleDef::Compounding(_) => {
                 // `compounding.non-recursive` (target `ConfirmOnly`) vs `compounding.recursive`
-                // (stays `FailClosed`/`Refuse`) — see
+                // (`Refuse`) — see
                 // `CompoundingDetail`'s own doc. `CharacteristicKind::Compounding`'s own
                 // `default_disposition` is the PRE-predicate resting spot (`ConfigPredicate`);
                 // `CompoundingRecursionSafePredicate` reads this detail to decide `ConfirmOnly` vs
@@ -2331,8 +2327,8 @@ pub(crate) fn simultaneous_rule_admitted_for_compile(
 /// themselves).
 ///
 /// # Node applicability
-/// Grammar-wide, not node-specific (same shape as the `FailClosedPlaceholder`s this module's own
-/// `compose_envelope` doc names as having "no corresponding `PlanNodeKind`" — `MultiTable`'s own
+/// Grammar-wide, not node-specific (the same "no corresponding `PlanNodeKind`" shape this module's
+/// own `compose_envelope` doc names — `MultiTable`'s own
 /// `ModelLocation` is attributed to a representative stratum, but the DETAIL this predicate reads
 /// is grammar-wide): `evaluate` ignores `plan_node` entirely and returns the SAME verdict at every
 /// node the walk visits, which is safe (`node_decision`'s own doc: a predicate whose construct is
@@ -3029,7 +3025,7 @@ impl CapabilityPredicate for CompoundingRecursionSafePredicate {
 /// - **`unordered-application.unbounded`** (at least one observed `Unordered` stratum has
 ///   `detail.within_bound == false` — its own loose-rule count exceeds
 ///   [`crate::compose_budget::DEFAULT_ORDERING_MULTIPLICITY_BUDGET`]):
-///   [`PredicateVerdict::Refuse`] — the "stays FailClosed" landing for the
+///   [`PredicateVerdict::Refuse`] — the landing for the
 ///   uncalibrated-bound case; the capability override remains this stratum's on-ramp to
 ///   force-compile it. Mirrors `crate::analyzer::FomaProposer::new_with_budget`'s own,
 ///   INDEPENDENTLY-derived refusal (`crate::compose_budget::ComposeError::
@@ -3087,7 +3083,7 @@ impl CapabilityPredicate for UnorderedOrderingUnionPredicate {
                               exceeds crate::compose_budget::DEFAULT_ORDERING_MULTIPLICITY_BUDGET, \
                               the calibrated joint bound design.md/spec.md require before \
                               unordered-application.chain-depth-bounded's ConfirmOnly proposal \
-                              applies. Stays FailClosed/Refuse; the ADR 0005 override is the on-ramp \
+                              applies. Refused; an explicit capability override is the on-ramp \
                               to force-compile it."
                         .to_string(),
                 });
@@ -3108,8 +3104,8 @@ impl CapabilityPredicate for UnorderedOrderingUnionPredicate {
 /// The capability predicate for `MprGroupAppend`: the
 /// NON-TRACKING baseline for `MprGroupOutput::Append` groups. The split is drawn
 /// on `MprGroupOutput`, not on `MprGroup` wholesale — this predicate discharges ONLY
-/// [`CharacteristicKind::MprGroupAppend`]; `Overwrite` is [`MprGroupOverwriteFailClosedPredicate`]'s
-/// own, permanently different-verdict predicate, never inferred from this one.
+/// [`CharacteristicKind::MprGroupAppend`]; `Overwrite` is [`MprGroupOverwritePredicate`]'s
+/// own, separately-argued predicate, never inferred from this one.
 ///
 /// # The baseline this predicate verifies
 /// Checked here, not merely asserted: NEITHER of this crate's own MPR-consuming propose code paths
@@ -3210,58 +3206,31 @@ impl CapabilityPredicate for MprGroupAppendNonNarrowingPredicate {
     }
 }
 
-/// The capability predicate for `MprGroupOverwrite`: `MprGroupOutput::
-/// Overwrite` stays `FailClosed` PERMANENTLY by default — not "not yet proven" the way
-/// `compounding.recursive`/`unordered-application.unbounded` are provisionally refused pending a
-/// future proof, but categorically refused. A monotone-accumulation admission-filter argument (the
-/// basis for `mpr-group.append-output`'s own EVENTUAL, still-unproven `Admit` candidacy) is UNSOUND
-/// BY CONSTRUCTION for `Overwrite` — [`pg_grammar::model::mpr_add_output`]'s own doc (model.rs:
-/// 915-932): a LATER rule application can retract exactly the feature an EARLIER one added, so the
-/// accumulated set at any derivation point depends on the SEQUENCE, not just the MULTISET, of prior
-/// outputs. This is the literal case a naive FST filter would fall into: silently omitting, e.g.,
-/// a history-dependent `MprGroup::Overwrite`.
+/// The capability predicate for `MprGroupOverwrite`: the non-narrowing superset baseline
+/// [`MprGroupAppendNonNarrowingPredicate`] verifies for `Append` holds for `Overwrite` too, so an
+/// observed `Overwrite` group rests at [`PredicateVerdict::ConfirmOnly`] and an absent one is
+/// vacuously [`PredicateVerdict::Admit`].
 ///
-/// Replaces this crate's own `mpr-group-overwrite.placeholder` [`FailClosedPlaceholder`] with a
-/// real, permanently-refusing predicate — the SAME
-/// unconditional-`Refuse`-when-observed BEHAVIOR the placeholder already had (so no already-compiling
-/// grammar's verdict changes), now documented as this construct's own deliberate, named landing spot
-/// rather than a generic "not implemented yet" stub.
-///
-/// # Disposition
-/// - **Not observed at all**: vacuously `Admit` — mirrors every other predicate in this file's own
-///   convention.
-/// - **At least one `Overwrite`-output `MprGroup` observed**: [`PredicateVerdict::Refuse`],
-///   UNCONDITIONALLY. The SAME non-tracking `ConfirmOnly` baseline `mpr-group.append-output` uses
-///   is available here too — not narrowing at all is trivially safe regardless of output policy —
-///   but this predicate's OWN obligation is stronger: it must
-///   guarantee no admission-FILTER code path is EVER reached for an `Overwrite`-touching
-///   configuration, permanently, not merely "not yet proven" — so it refuses outright rather than
-///   resting at `ConfirmOnly` (it SHALL remain `FailClosed` until a proof
-///   characterizes the group's history-dependent replace semantics as a sound admission filter).
-///   The capability override remains the on-ramp for anyone who wants to force-compile and
-///   experiment with an `Overwrite`-bearing grammar under the degraded-trust signal before that proof
-///   exists — mirrors
-///   [`CompoundingRecursionSafePredicate`]'s identical treatment for `compounding.recursive`.
+/// # Why this can never be promoted to `Admit`
+/// A monotone-accumulation admission-filter argument — the basis for `mpr-group.append-output`'s
+/// own eventual `Admit` candidacy — is UNSOUND BY CONSTRUCTION here.
+/// [`pg_grammar::model::mpr_add_output`]'s own doc: a later rule application can retract exactly
+/// the feature an earlier one added, so the accumulated set at any derivation point depends on the
+/// SEQUENCE, not just the multiset, of prior outputs. An FST filter sees a single transition and
+/// cannot reconstruct that history, so it would silently omit history-dependent analyses. Never add
+/// an admission filter on this construct's behalf; confirm is the only sound place to enforce it.
 ///
 /// # Node applicability
 /// Same "no corresponding [`crate::plan::PlanNodeKind`]" shape
 /// [`MprGroupAppendNonNarrowingPredicate`]'s own doc describes — `evaluate` ignores `plan_node` and
 /// scans observations directly.
 ///
-/// # Big-O + runtime-feature declaration
-/// Trivial: this predicate's `Refuse` verdict means no propose construction is ever attempted for an
-/// `Overwrite`-touching configuration at all (absent the capability override) — zero compiled states/
-/// arcs, zero query-time operations, nothing to declare a required-runtime-feature for.
-///
 /// # Provenance
 /// [`EvidenceProvenance::Structural`]: `MprGroupOutput::Overwrite` is directly-inspectable
-/// `model.rs` structure (`characterize`'s own `MprGroupOutput::Overwrite` match arm) — there is no
-/// admission-filter construction to verify at all, so no oracle witness could ever promote this
-/// predicate past `Refuse`; `Structural` names the only evidence this predicate ever consults, not a
-/// placeholder for missing behavioral evidence.
-pub struct MprGroupOverwriteFailClosedPredicate;
+/// `model.rs` structure (`characterize`'s own `MprGroupOutput::Overwrite` match arm).
+pub struct MprGroupOverwritePredicate;
 
-impl CapabilityPredicate for MprGroupOverwriteFailClosedPredicate {
+impl CapabilityPredicate for MprGroupOverwritePredicate {
     fn id(&self) -> PredicateId {
         "mpr-group.overwrite-output"
     }
@@ -3399,11 +3368,10 @@ impl CapabilityPredicate for QuantifierBoundedExpansionPredicate {
 }
 
 // -------------------------------------------------------------------------------------------
-// Epenthesis: replaces the last remaining `epenthesis.placeholder` `FailClosedPlaceholder`
+// Epenthesis
 // -------------------------------------------------------------------------------------------
 
-/// Replaces this crate's own `epenthesis.placeholder` [`FailClosedPlaceholder`] with a real
-/// predicate — this crate's LAST remaining bare placeholder. `CharacteristicKind::Epenthesis`'s own trigger
+/// The capability predicate for `Epenthesis`. `CharacteristicKind::Epenthesis`'s own trigger
 /// (`RewriteRuleDef::lhs.nodes.is_empty()`, `characterize`'s own comment on model.rs:417's "empty
 /// pattern if absent (epenthesis rules)" convention) is, on inspection, ALREADY handled faithfully
 /// by mechanisms this crate ships for an unrelated reason — this predicate documents and verifies
@@ -3486,7 +3454,7 @@ impl CapabilityPredicate for QuantifierBoundedExpansionPredicate {
 /// leaf address captures. `evaluate` therefore ignores `plan_node` and scans
 /// [`CharacteristicsProfile::observations`] directly instead, the same "grammar-wide, not
 /// node-specific" shape [`MprGroupAppendNonNarrowingPredicate`]/
-/// [`MprGroupOverwriteFailClosedPredicate`]'s own docs describe, for a different underlying reason
+/// [`MprGroupOverwritePredicate`]'s own docs describe, for a different underlying reason
 /// (those two truly have no corresponding leaf at all; this one has a leaf whose address is simply
 /// irrelevant to the question this predicate asks).
 ///
@@ -3534,63 +3502,6 @@ impl CapabilityPredicate for EpenthesisStructuralRoutePredicate {
 // The predicate registry (the "no silent vacuous pass" coverage check)
 // =================================================================================================
 
-/// A placeholder [`CapabilityPredicate`] for a `FailClosed`/`ConfigPredicate` characteristic that
-/// has no real predicate implemented yet. Unconditionally `Refuse`s —
-/// correct under this module's conservative discipline (over-refuse is always safe), and exists
-/// only so [`undischarged_kinds`] can report TRUE 100% coverage of the registry contract rather
-/// than a coverage check that itself has silent gaps. `owning_change` names the change expected to
-/// replace this placeholder with a real per-construct predicate.
-pub struct FailClosedPlaceholder {
-    id: PredicateId,
-    discharges: Vec<CharacteristicKind>,
-    owning_change: &'static str,
-}
-
-impl FailClosedPlaceholder {
-    pub fn new(
-        id: PredicateId,
-        discharges: &[CharacteristicKind],
-        owning_change: &'static str,
-    ) -> Self {
-        FailClosedPlaceholder {
-            id,
-            discharges: discharges.to_vec(),
-            owning_change,
-        }
-    }
-}
-
-impl CapabilityPredicate for FailClosedPlaceholder {
-    fn id(&self) -> PredicateId {
-        self.id
-    }
-
-    fn discharges(&self) -> &[CharacteristicKind] {
-        &self.discharges
-    }
-
-    fn provenance(&self) -> EvidenceProvenance {
-        // No real evidence is gathered at all -- this is a stub, not a proof.
-        EvidenceProvenance::Behavioral
-    }
-
-    fn evaluate(
-        &self,
-        _profile: &CharacteristicsProfile,
-        _plan_node: &PlanNodeKind,
-    ) -> PredicateVerdict {
-        PredicateVerdict::Refuse(CapabilityDiagnostic {
-            predicate: self.id,
-            construct: format!("{:?}", self.discharges),
-            witness: format!(
-                "no real predicate implemented yet (Step 1 of add-capability-characteristics-check \
-                 registers only a conservative placeholder here); owning Stage-2 change: {}",
-                self.owning_change
-            ),
-        })
-    }
-}
-
 /// A collection of [`CapabilityPredicate`]s, queryable for whether a [`CharacteristicKind`] is
 /// discharged by at least one of them.
 #[derive(Default)]
@@ -3624,15 +3535,10 @@ impl PredicateRegistry {
 /// [`MetathesisFaithfulSwapPredicate`], [`CircumfixStructuralCompositePredicate`],
 /// [`ReduplicationPeelSupportedPredicate`], [`CompoundingRecursionSafePredicate`],
 /// [`UnorderedOrderingUnionPredicate`], [`MprGroupAppendNonNarrowingPredicate`],
-/// [`MprGroupOverwriteFailClosedPredicate`], [`EpenthesisStructuralRoutePredicate`]) — proving the
-/// coverage contract holds with a real, evidenced proof for every `FailClosed`/`ConfigPredicate`
-/// characteristic this crate's `model.rs` names. This registry has NO remaining bare
-/// [`FailClosedPlaceholder`]: every characteristic is discharged by a
-/// predicate that actually reads `profile`, not a bare
-/// [`FailClosedPlaceholder`] that unconditionally refuses regardless of what the grammar contains.
-/// [`FailClosedPlaceholder`] itself stays defined (not dead code): it
-/// remains the correct, conservative landing spot for any FUTURE `FailClosed`/`ConfigPredicate`
-/// characteristic added to `model.rs` before its own owning change ships a real predicate.
+/// [`MprGroupOverwritePredicate`], [`EpenthesisStructuralRoutePredicate`]) — proving the coverage
+/// contract holds with a real, evidenced proof for every `ConfigPredicate` characteristic this
+/// crate's `model.rs` names. Every one of them reads `profile` for real; none is a stub that
+/// refuses regardless of what the grammar contains.
 pub fn default_registry() -> PredicateRegistry {
     let mut r = PredicateRegistry::new();
     r.register(Box::new(SimultaneousSubruleOverlapPredicate));
@@ -3645,26 +3551,21 @@ pub fn default_registry() -> PredicateRegistry {
     r.register(Box::new(CompoundingRecursionSafePredicate));
     r.register(Box::new(UnorderedOrderingUnionPredicate));
     r.register(Box::new(MprGroupAppendNonNarrowingPredicate));
-    r.register(Box::new(MprGroupOverwriteFailClosedPredicate));
+    r.register(Box::new(MprGroupOverwritePredicate));
     r.register(Box::new(EpenthesisStructuralRoutePredicate));
     r
 }
 
 /// The "no silent vacuous pass" requirement: every [`CharacteristicKind`]
-/// whose [`CharacteristicKind::default_disposition`] is [`Disposition::FailClosed`] or
-/// [`Disposition::ConfigPredicate`] must be named by at least one registered predicate's
+/// whose [`CharacteristicKind::default_disposition`] is [`Disposition::ConfigPredicate`] must be
+/// named by at least one registered predicate's
 /// [`CapabilityPredicate::discharges`]. Returns the undischarged kinds (empty iff `registry` is
 /// complete) rather than a bool, so a failing check can report exactly what's missing.
 pub fn undischarged_kinds(registry: &PredicateRegistry) -> Vec<CharacteristicKind> {
     CharacteristicKind::ALL
         .iter()
         .copied()
-        .filter(|k| {
-            matches!(
-                k.default_disposition(),
-                Disposition::FailClosed | Disposition::ConfigPredicate
-            )
-        })
+        .filter(|k| k.default_disposition() == Disposition::ConfigPredicate)
         .filter(|k| !registry.discharges(*k))
         .collect()
 }
@@ -3756,36 +3657,19 @@ fn verdict_to_decision(verdict: PredicateVerdict) -> CompileDecision {
 ///   [`CharacteristicKind::CoOccurrenceConstraint`]: [`default_registry`] intentionally registers no
 ///   predicate for it at all (`ConfirmOnly` already IS its resting disposition —
 ///   there is nothing to prove up to `Admit` and no coverage gap either, since
-///   [`undischarged_kinds`] only requires coverage for `FailClosed`/`ConfigPredicate` kinds).
+///   [`undischarged_kinds`] only requires coverage for `ConfigPredicate` kinds).
 ///   [`CharacteristicKind::MprGroupAppend`] rests at the SAME `ConfirmOnly` disposition, but (unlike
 ///   `CoOccurrenceConstraint`) DOES have a registered predicate,
 ///   [`MprGroupAppendNonNarrowingPredicate`] — registered anyway, to positively verify the baseline
 ///   never uses tracked accumulated MPR state to reject a candidate, even though
 ///   [`undischarged_kinds`] would not have required it.
-/// - [`Disposition::FailClosed`] with NO discharging predicate registered at all is a REGISTRY
-///   COVERAGE GAP ([`undischarged_kinds`] exists precisely to catch this at the registry level, and
-///   [`default_registry`]'s own test proves it never happens for that registry). Handled here
-///   defensively for any OTHER caller-supplied [`PredicateRegistry`] that omits it, by folding in a
-///   synthetic `Refuse` naming the gap rather than silently `Admit`ting an unproven-by-construction
-///   characteristic.
 /// - [`Disposition::Proven`] never actually reaches this function in practice (callers only invoke
 ///   it for observations already filtered to `disposition != Proven`); matched here anyway for the
 ///   same no-catch-all discipline the rest of this module holds itself to.
-fn disposition_floor(kind: CharacteristicKind, disposition: Disposition) -> CompileDecision {
+fn disposition_floor(disposition: Disposition) -> CompileDecision {
     match disposition {
         Disposition::Proven => CompileDecision::Admit,
         Disposition::ConfigPredicate | Disposition::ConfirmOnly => CompileDecision::ConfirmOnly,
-        Disposition::FailClosed => CompileDecision::Refuse(vec![CapabilityDiagnostic {
-            predicate: "registry-coverage-gap.no-predicate-registered",
-            construct: format!("{kind:?}"),
-            witness: format!(
-                "{kind:?} is FailClosed by default disposition (design.md D1) but the supplied \
-                 PredicateRegistry registers no predicate discharging it -- conservatively \
-                 refusing rather than silently admitting an unproven-by-construction \
-                 characteristic (run undischarged_kinds() against any production registry to catch \
-                 this earlier)"
-            ),
-        }]),
     }
 }
 
@@ -3796,12 +3680,12 @@ fn disposition_floor(kind: CharacteristicKind, disposition: Disposition) -> Comp
 ///
 /// A node's "own predicate verdicts" are every predicate in `registry` whose
 /// [`CapabilityPredicate::discharges`] names a [`CharacteristicKind`] present in `relevant_kinds`
-/// (every kind `compose_envelope` found the profile observed with a non-`Proven` disposition). This
-/// guard exists because [`FailClosedPlaceholder`]'s `evaluate` ignores both `profile` and
-/// `plan_node` and unconditionally `Refuse`s — calling it at every node of every plan regardless of
-/// whether its characteristic was ever observed would force every grammar to `Refuse`, including
-/// ordinary ones that never exercise that construct at all. Gating on "was this kind observed
-/// anywhere" makes a predicate a pure no-op at every node when its construct genuinely does not
+/// (every kind `compose_envelope` found the profile observed with a non-`Proven` disposition). The
+/// guard matters because a predicate is free to ignore both `profile` and `plan_node`: calling one
+/// at every node of every plan regardless of whether its characteristic was ever observed could
+/// force an ordinary grammar to `Refuse` over a construct it never uses. Gating on "was this kind
+/// observed anywhere" makes a predicate a pure no-op at every node when its construct genuinely
+/// does not
 /// occur in this grammar, which is always safe (there is nothing to refuse if the construct is
 /// absent) — never a shortcut that could skip a predicate whose construct actually IS present.
 ///
@@ -3882,14 +3766,14 @@ fn node_decision(
 /// 5. The two folds [`meet`] into the final, overall [`CompileDecision`].
 ///
 /// # Judgment call: constructs with no distinct plan node
-/// Several `FailClosed`/`ConfigPredicate` characteristics ([`CharacteristicKind::Compounding`],
+/// Several `ConfigPredicate` characteristics ([`CharacteristicKind::Compounding`],
 /// [`CharacteristicKind::UnorderedMorphRuleApplication`], [`CharacteristicKind::MprGroupAppend`],
 /// [`CharacteristicKind::MprGroupOverwrite`]) have NO corresponding [`crate::plan::PlanNodeKind`]
 /// in today's `enumerate_default` shape at all — that module's own doc: it only ever mints leaves
 /// for the lexicon (per gate group), one per rewrite rule, and the two composite-emission markers,
 /// nothing addressed by `MRuleId`/`StratumId`/an mpr-group index. All four now have real predicates
 /// ([`CompoundingRecursionSafePredicate`], [`UnorderedOrderingUnionPredicate`],
-/// [`MprGroupAppendNonNarrowingPredicate`], [`MprGroupOverwriteFailClosedPredicate`]) that each scan
+/// [`MprGroupAppendNonNarrowingPredicate`], [`MprGroupOverwritePredicate`]) that each scan
 /// [`CharacteristicsProfile`] directly rather than unconditionally refusing. Which specific node
 /// the predicate is evaluated against is behaviorally irrelevant here (every one of these
 /// predicates ignores `plan_node` and reaches the SAME verdict regardless), and
@@ -3910,13 +3794,11 @@ fn node_decision(
 /// ask at that exact leaf) — it is the GRAMMAR-WIDE side effect the rule's mere presence has on
 /// OTHER rules' own propose route ([`crate::emit::probe_would_refuse`]/[`crate::emit::
 /// structural_candidate_rules`], that predicate's own doc), which no single leaf address captures
-/// even though one exists. Superseded a bare [`FailClosedPlaceholder`] (whose `evaluate`
-/// unconditionally `Refuse`d REGARDLESS of which node it was called at or what `profile` said —
-/// that type's own doc) with a predicate that reads `profile` for real.
+/// even though one exists.
 /// [`CharacteristicKind::CircumfixOutputAction`] and [`CharacteristicKind::Reduplication`] are the
 /// SAME "no distinct plan node" shape (peeling and structural-composite resynthesis both happen
-/// entirely OUTSIDE the compiled FST, so there is genuinely no plan node to address either by), but
-/// are no longer bare placeholders: [`CircumfixStructuralCompositePredicate`]
+/// entirely OUTSIDE the compiled FST, so there is genuinely no plan node to address either by):
+/// [`CircumfixStructuralCompositePredicate`]
 /// and [`ReduplicationPeelSupportedPredicate`]
 /// ALSO ignore `plan_node` (same reasoning), but each
 /// own `evaluate` reads real per-allomorph structural facts rather than unconditionally refusing —
@@ -3960,7 +3842,7 @@ pub fn compose_envelope_with_semantics(
         if !registry.discharges(kind) {
             decision = meet(
                 decision,
-                disposition_floor(kind, kind.default_disposition()),
+                disposition_floor(kind.default_disposition()),
             );
         }
     }
@@ -4105,11 +3987,11 @@ mod tests {
     }
 
     // ---------------------------------------------------------------------------------------
-    // characterize(): FailClosed triggers
+    // characterize(): ConfigPredicate triggers
     // ---------------------------------------------------------------------------------------
 
     /// `MorphRuleDef::Compounding` characterizes at the
-    /// `ConfigPredicate` landing spot (not bare `FailClosed`), and a single, isolated,
+    /// `ConfigPredicate` landing spot, and a single, isolated,
     /// `multipleApplication`-default (1) `CompoundingRule` characterizes as `compounding.non-recursive`
     /// (`CompoundingDetail::recursive == false`) — `compounding_recursive`'s reachability pass finds
     /// no other `Compounding` rule and no self-application to flag.
@@ -4585,8 +4467,8 @@ mod tests {
         }
     }
 
-    /// `cover-unordered-morph-rules`: `MorphRuleOrder::Unordered` now characterizes
-    /// `ConfigPredicate` (never bare `FailClosed`) -- this zero-rule stratum is trivially
+    /// `MorphRuleOrder::Unordered` characterizes
+    /// `ConfigPredicate` -- this zero-rule stratum is trivially
     /// `within_bound` (`UnorderedStratumDetail`'s own doc), so its resolved verdict (proven by
     /// `compose_envelope_confirm_only_for_unordered_within_bound` below) is `ConfirmOnly`, not
     /// `Refuse`.
@@ -4622,10 +4504,9 @@ mod tests {
         );
     }
 
-    /// `MprGroupOutput::Append` -> ConfirmOnly, `MprGroupOutput::Overwrite` ->
-    /// FailClosed.
+    /// `MprGroupOutput::Append` -> ConfirmOnly, `MprGroupOutput::Overwrite` -> ConfigPredicate.
     #[test]
-    fn characterize_marks_append_confirm_only_and_overwrite_fail_closed() {
+    fn characterize_marks_append_confirm_only_and_overwrite_config_predicate() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
           <MorphologicalPhonologicalRuleFeatures>
             <MorphologicalPhonologicalRuleFeature id="mprA">A</MorphologicalPhonologicalRuleFeature>
@@ -4825,7 +4706,7 @@ mod tests {
 
     /// Two tables with DISJOINT representations characterize
     /// `MultiTable`/`ConfigPredicate` (`ConfirmOnly` unless/until a predicate proves
-    /// `Admit`) — never `FailClosed` outright, since per-rule table resolution is faithful.
+    /// `Admit`), since per-rule table resolution is faithful.
     #[test]
     fn characterize_marks_disjoint_multi_table_config_predicate() {
         let g = load(TWO_TABLE_DISJOINT_XML);
@@ -4966,7 +4847,7 @@ mod tests {
                 .iter()
                 .any(|o| o.kind == CharacteristicKind::RightToLeftRewrite
                     && o.disposition == Disposition::ConfigPredicate),
-            "Dir::RightToLeft must characterize ConfigPredicate (no longer bare FailClosed): {:?}",
+            "Dir::RightToLeft must characterize ConfigPredicate: {:?}",
             profile.observations()
         );
         let detail = profile
@@ -5426,8 +5307,7 @@ mod tests {
                 .iter()
                 .any(|o| o.kind == CharacteristicKind::Metathesis
                     && o.disposition == Disposition::ConfigPredicate),
-            "PhonRuleDef::Metathesis must characterize ConfigPredicate (no longer bare \
-             FailClosed): {:?}",
+            "PhonRuleDef::Metathesis must characterize ConfigPredicate: {:?}",
             profile.observations()
         );
         let detail = profile
@@ -6176,7 +6056,7 @@ mod tests {
 
     /// An ordinary affix + iterative-rewrite grammar (no Compounding, no Unordered strata, no MPR
     /// groups, no Simultaneous/RightToLeft/Metathesis rules, no true reduplication, no dropped-LHS
-    /// output) must characterize with NO FailClosed and NO ConfigPredicate observations at all.
+    /// output) must characterize with NO ConfigPredicate observations at all.
     #[test]
     fn ordinary_affix_and_iterative_rewrite_grammar_characterizes_proven() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>Ordinary</Name>
@@ -6229,13 +6109,8 @@ mod tests {
 
         let profile = characterize(&g);
         assert!(
-            !profile.has_disposition(Disposition::FailClosed),
-            "ordinary grammar must have NO FailClosed observations: {:?}",
-            profile.observations()
-        );
-        assert!(
             !profile.has_disposition(Disposition::ConfigPredicate),
-            "ordinary grammar must have NO ConfigPredicate observations either: {:?}",
+            "ordinary grammar must have NO ConfigPredicate observations: {:?}",
             profile.observations()
         );
         // Sanity: it DOES characterize the expected Proven/ConfirmOnly-free constructs.
@@ -6839,15 +6714,15 @@ mod tests {
     // Registry coverage
     // ---------------------------------------------------------------------------------------
 
-    /// Every `FailClosed`/`ConfigPredicate` characteristic must be
+    /// Every `ConfigPredicate` characteristic must be
     /// discharged by >= 1 registered predicate, else the build "breaks" (here: the test fails).
     #[test]
-    fn default_registry_discharges_every_fail_closed_or_config_predicate_kind() {
+    fn default_registry_discharges_every_config_predicate_kind() {
         let registry = default_registry();
         let missing = undischarged_kinds(&registry);
         assert!(
             missing.is_empty(),
-            "undischarged FailClosed/ConfigPredicate characteristics: {missing:?}"
+            "undischarged ConfigPredicate characteristics: {missing:?}"
         );
     }
 
@@ -7183,7 +7058,7 @@ mod tests {
 
     /// A grammar whose `Unordered` stratum's own loose-rule count exceeds the calibrated
     /// `DEFAULT_ORDERING_MULTIPLICITY_BUDGET` must compose to `Refuse`, naming
-    /// `unordered-application.unbounded` -- the split half that stays FailClosed.
+    /// `unordered-application.unbounded` -- the refusing half of the split.
     #[test]
     fn compose_envelope_refuses_unordered_morph_rule_order_grammar() {
         let xml = unordered_stratum_xml(
@@ -7206,7 +7081,7 @@ mod tests {
 
     /// A grammar with an `MprGroupOutput::Append` group and nothing worse must compose to
     /// `ConfirmOnly` -- not `Admit` (the group is real, unproven-to-Admit material) and not
-    /// `Refuse` (nothing FailClosed is present).
+    /// `Refuse` (no predicate refuses it).
     #[test]
     fn compose_envelope_confirm_only_for_append_group_alone() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>AppendOnly</Name>
@@ -7244,13 +7119,11 @@ mod tests {
         );
     }
 
-    /// `cover-mpr-groups`: the mirror image of `compose_envelope_confirm_only_for_append_group_alone`
-    /// -- a grammar with an `MprGroupOutput::Overwrite` group and nothing else must compose to
-    /// `Refuse` (never `ConfirmOnly`, never `Admit`), carrying a diagnostic from
-    /// `mpr-group.overwrite-output` naming the Overwrite group, proving
-    /// `MprGroupOverwriteFailClosedPredicate` (which REPLACED the bare `mpr-group-overwrite.
-    /// placeholder` `FailClosedPlaceholder`) reaches the identical verdict the placeholder always
-    /// gave -- this change's own promotion changes NO already-compiling grammar's outcome.
+    /// The mirror image of `compose_envelope_confirm_only_for_append_group_alone`: a grammar with
+    /// an `MprGroupOutput::Overwrite` group and nothing else composes to `ConfirmOnly` --
+    /// `MprGroupOverwritePredicate` rests at the same non-narrowing superset baseline `Append`
+    /// does, and never `Admit`s (see that predicate's own doc for why no admission filter is sound
+    /// here).
     #[test]
     fn compose_envelope_confirms_overwrite_group_alone() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>OverwriteOnly</Name>
@@ -7292,7 +7165,7 @@ mod tests {
     /// A judgment-call check: a grammar with an `Epenthesis`
     /// occurrence (an empty-LHS `PhonologicalRule`) and nothing worse must compose to `ConfirmOnly`
     /// -- not `Admit` (no no-false-negative admission-filter proof exists) and not
-    /// `Refuse` (`epenthesis.structural-composite-route` is not a bare `FailClosedPlaceholder`
+    /// `Refuse` (`epenthesis.structural-composite-route` rests at `ConfirmOnly` whenever observed
     /// -- `EpenthesisStructuralRoutePredicate`'s own doc). Bare-root phonology (no morphological
     /// rule needed at all): `characterize`'s own per-`PhonRuleDef` walk observes `Epenthesis` from
     /// the rule's OWN empty LHS alone, the same granularity
@@ -7352,14 +7225,14 @@ mod tests {
         assert_eq!(
             compose_envelope(&g, &plan, &registry),
             CompileDecision::ConfirmOnly,
-            "an epenthesis-only fixture must compose to ConfirmOnly, never Refuse/FailClosed"
+            "an epenthesis-only fixture must compose to ConfirmOnly, never Refuse"
         );
     }
 
     /// `cover-realizational-morphology-constraints`: a grammar with a `RealizationalRule` and
     /// nothing worse must compose to `ConfirmOnly` — not `Admit` (no compiled admission filter is
     /// ever attempted for this construct, see `characterize_marks_realizational_rule_confirm_only`'s
-    /// own doc) and not `Refuse` (nothing `FailClosed` is present).
+    /// own doc) and not `Refuse` (no predicate refuses it).
     #[test]
     fn compose_envelope_confirm_only_for_realizational_rule_alone() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>RealizAlone</Name>
@@ -7579,7 +7452,7 @@ mod tests {
     /// Meet correctness: a grammar containing BOTH a self-feeding, `ConfirmOnly`-disposed
     /// `Compounding` rule (`multipleApplication="2"`) AND
     /// an `Overwrite`-output `MprGroup` (the construct
-    /// `MprGroupOverwriteFailClosedPredicate` discharges) must compose to a single, deterministic
+    /// `MprGroupOverwritePredicate` discharges) must compose to a single, deterministic
     /// [`CompileDecision`] via [`meet`] over both constructs' verdicts, not silently dropping
     /// either one's contribution because the other is also present.
     #[test]

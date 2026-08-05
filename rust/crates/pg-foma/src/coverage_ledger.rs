@@ -29,7 +29,7 @@
 //!   here.
 //! - Every ledger row's disposition and evidence owner is validated exhaustively by this module's
 //!   own `tests` submodule (`every_characteristic_kind_appears_exactly_once`,
-//!   `every_config_predicate_or_fail_closed_row_names_a_discharging_predicate`, and this file's
+//!   `every_config_predicate_row_names_a_discharging_predicate`, and this file's
 //!   own "A future model-shape change" note below), hand-maintained because Rust has no enum
 //!   reflection (the same reason `crate::capability::CharacteristicKind::ALL`'s own doc gives).
 //!
@@ -179,7 +179,6 @@ fn disposition_wire_name(disposition: Disposition) -> &'static str {
         Disposition::Proven => "proven",
         Disposition::ConfigPredicate => "config_predicate",
         Disposition::ConfirmOnly => "confirm_only",
-        Disposition::FailClosed => "fail_closed",
     }
 }
 
@@ -188,7 +187,6 @@ fn disposition_from_wire_name(s: &str) -> Option<Disposition> {
         "proven" => Some(Disposition::Proven),
         "config_predicate" => Some(Disposition::ConfigPredicate),
         "confirm_only" => Some(Disposition::ConfirmOnly),
-        "fail_closed" => Some(Disposition::FailClosed),
         _ => None,
     }
 }
@@ -287,11 +285,6 @@ pub enum ContainmentEvidenceKind {
     /// f2_junction_gate.rs`, `tests/f4_composite_gate.rs`, etc.) rather than by any one
     /// construct-specific fixture.
     GeneralPervasive,
-    /// The characteristic is [`Disposition::FailClosed`]: "containment" is not the applicable
-    /// property (nothing may compile) — the cited test instead proves [`crate::capability::
-    /// compose_envelope`] genuinely `Refuse`s whenever this construct is observed, never a silent
-    /// compile.
-    RefusalWitness,
 }
 
 /// One curated, hand-reviewed containment-evidence citation. Every field is a
@@ -353,7 +346,7 @@ fn ev(
 }
 
 /// `kind`'s curated proposer-to-confirm
-/// containment (or, for [`Disposition::FailClosed`], refusal) witness, if this crate's test suite
+/// containment witness, if this crate's test suite
 /// has one — `None` only where no witness exists at all (a genuine, honestly-reported gap, never
 /// silently invented; see [`CharacteristicKind::NaturalClassDefinition`]'s own arm below).
 /// Exhaustively matched (no catch-all) — same discipline `crate::capability::characterize`/
@@ -418,8 +411,8 @@ pub fn containment_evidence_for(kind: CharacteristicKind) -> Option<ContainmentE
             Dedicated,
             "tests/cover_mpr_groups.rs::overwrite_group_composes_to_confirm_only",
             &[EmissionStrategy::TunedSurfaceProbed],
-            "FailClosed: containment is not the applicable property here -- this witness proves \
-             compose_envelope genuinely Refuses whenever MprGroupOutput::Overwrite is observed.",
+            "Non-narrowing-baseline containment for MprGroupOutput::Overwrite: this witness proves \
+             compose_envelope resolves an observed Overwrite group to ConfirmOnly, never Admit.",
         ),
         IterativeRewrite => ev(
             GeneralPervasive,
@@ -592,9 +585,8 @@ pub struct LedgerRow {
     /// Every registered [`crate::capability::CapabilityPredicate`] whose [`crate::capability::
     /// CapabilityPredicate::discharges`] names this row's `kind`. Empty for every [`Disposition::
     /// Proven`] kind (none needed) and for a [`Disposition::ConfirmOnly`] kind with no registered
-    /// predicate (also fine — see [`crate::capability::disposition_floor`]'s own doc: only
-    /// `FailClosed`/`ConfigPredicate` kinds REQUIRE one, per [`crate::capability::
-    /// undischarged_kinds`]).
+    /// predicate (also fine — only `ConfigPredicate` kinds REQUIRE one, per
+    /// [`crate::capability::undischarged_kinds`]).
     #[serde(default)]
     pub discharging_predicates: Vec<DischargingPredicate>,
     /// `machine/conformance/constructs.txt` identifier(s) this kind maps to (reused verbatim from
@@ -605,7 +597,7 @@ pub struct LedgerRow {
     /// passing-construct set (see [`build_ledger`]'s own doc: this ledger reuses [`construct_ids_
     /// for`]/[`CoverageStatus`] rather than re-deriving the classification rule).
     pub conformance_status: CoverageStatus,
-    /// The curated proposer-to-confirm containment (or refusal) witness, if this crate's test
+    /// The curated proposer-to-confirm containment witness, if this crate's test
     /// suite has one for this construct (`None` only for a genuine, honestly-reported gap).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub containment: Option<ContainmentEvidence>,
@@ -665,30 +657,12 @@ impl CoverageLedger {
 ///
 /// `conformance_status`'s classification is the identical three-way rule
 /// [`crate::conformance_coverage::supported_coverage_report`]'s own inner closure uses
-/// (`construct_ids.is_empty()` -> [`CoverageStatus::Unmappable`]; the row's own
-/// [`crate::conformance_coverage::EvidenceRequirement`] satisfied -> [`CoverageStatus::Covered`];
-/// otherwise [`CoverageStatus::Uncovered`]) — re-stated here rather than called, because the two
-/// callers thread their evidence sets differently, not because the two scopes differ. **G8 note:**
-/// `supported_kinds` used to be the `Proven`-only subset while this ledger walked all 20 kinds;
-/// that asymmetry is GONE — `supported_kinds` now returns every [`crate::capability::
-/// CharacteristicKind`], so both sides cover the same rows and differ only in plumbing. The
-/// underlying contract ([`construct_ids_for`] plus [`CoverageStatus`] itself) is reused unchanged,
-/// never re-derived.
-///
-/// # G8 fix: `FailClosed` rows are graded by refusal-witness evidence, not `passing_covered_constructs`
-/// Before this fix, EVERY row -- `FailClosed` included -- was graded uniformly against
-/// `passing_covered_constructs` alone. That is unsound for a [`Disposition::FailClosed`] row:
-/// nothing compiles for a refused construct, so a passing ANALYSIS fixture can never exist for it,
-/// and worse, a `FailClosed` kind sharing a `constructs.txt` id with a non-`FailClosed` sibling
-/// could show `Covered` purely because the SIBLING's passing fixture tagged the same shared id --
-/// exactly [`CharacteristicKind::MprGroupOverwrite`] (`FailClosed`) sharing `"MPR
-/// features/groups"` with [`CharacteristicKind::MprGroupAppend`] (`ConfirmOnly`). This function
-/// now uses [`crate::conformance_coverage::evidence_requirement_for`] to pick the right evidence
-/// source per row: `FailClosed` rows are `Covered` iff [`containment_evidence_for`] names a
-/// [`ContainmentEvidenceKind::RefusalWitness`] for that kind (a hand-curated fact, independent of
-/// `passing_covered_constructs` entirely); every other disposition keeps the original
-/// passing-fixture rule. No new parameter was needed: the refusal-witness signal was already
-/// computed locally as `containment` below, just not consulted for `conformance_status` before.
+/// (`construct_ids.is_empty()` -> [`CoverageStatus::Unmappable`]; at least one of the row's
+/// construct ids in `passing_covered_constructs` -> [`CoverageStatus::Covered`]; otherwise
+/// [`CoverageStatus::Uncovered`]) — re-stated here rather than called, because the two callers
+/// thread their evidence sets differently, not because the two scopes differ. The underlying
+/// contract ([`construct_ids_for`] plus [`CoverageStatus`] itself) is reused unchanged, never
+/// re-derived.
 pub fn build_ledger(
     registry: &PredicateRegistry,
     passing_covered_constructs: &HashSet<&str>,
@@ -716,23 +690,13 @@ pub fn build_ledger(
 
             let conformance_status = if construct_ids_static.is_empty() {
                 CoverageStatus::Unmappable
+            } else if construct_ids_static
+                .iter()
+                .any(|c| passing_covered_constructs.contains(c))
+            {
+                CoverageStatus::Covered
             } else {
-                use crate::conformance_coverage::EvidenceRequirement;
-                let is_evidenced =
-                    match crate::conformance_coverage::evidence_requirement_for(disposition) {
-                        EvidenceRequirement::PassingFixture => construct_ids_static
-                            .iter()
-                            .any(|c| passing_covered_constructs.contains(c)),
-                        EvidenceRequirement::RefusalWitness => matches!(
-                            &containment,
-                            Some(ev) if ev.kind == ContainmentEvidenceKind::RefusalWitness
-                        ),
-                    };
-                if is_evidenced {
-                    CoverageStatus::Covered
-                } else {
-                    CoverageStatus::Uncovered
-                }
+                CoverageStatus::Uncovered
             };
 
             // The per-strategy account (`crate::strategy_coverage`), projected onto this row. Both
@@ -832,25 +796,21 @@ mod tests {
         }
     }
 
-    /// Every non-vacuous `FailClosed`/`ConfigPredicate` row names at least one discharging
+    /// Every non-vacuous `ConfigPredicate` row names at least one discharging
     /// predicate -- exactly [`undischarged_kinds`]'s own coverage requirement, cross-checked
     /// directly against the ledger's own per-row data (not re-derived: this test asserts the
     /// ledger AGREES with `undischarged_kinds`, the crate's existing single source of truth for
     /// this rule).
     #[test]
-    fn every_config_predicate_or_fail_closed_row_names_a_discharging_predicate() {
+    fn every_config_predicate_row_names_a_discharging_predicate() {
         let registry = default_registry();
         assert!(
             undischarged_kinds(&registry).is_empty(),
-            "sanity: default_registry() is expected to already discharge every FailClosed/\
-             ConfigPredicate kind"
+            "sanity: default_registry() is expected to already discharge every ConfigPredicate kind"
         );
         let ledger = build_ledger(&registry, &HashSet::new());
         for row in &ledger.rows {
-            if matches!(
-                row.disposition,
-                Disposition::FailClosed | Disposition::ConfigPredicate
-            ) {
+            if row.disposition == Disposition::ConfigPredicate {
                 assert!(
                     !row.discharging_predicates.is_empty(),
                     "{:?} is {:?} but the ledger names no discharging predicate",
@@ -1019,12 +979,6 @@ mod tests {
     fn build_ledger_with_empty_passing_set_never_marks_a_fixture_evidenced_row_covered() {
         let ledger = build_ledger(&default_registry(), &HashSet::new());
         for row in &ledger.rows {
-            if row.disposition == Disposition::FailClosed {
-                // FailClosed rows are graded by refusal-witness evidence (see build_ledger's own
-                // G8-fix doc), independent of the passing-fixture set entirely -- covered below by
-                // `fail_closed_row_is_covered_via_refusal_witness_regardless_of_passing_set`.
-                continue;
-            }
             assert_ne!(
                 row.conformance_status,
                 CoverageStatus::Covered,
@@ -1032,30 +986,6 @@ mod tests {
                 row.kind
             );
         }
-    }
-
-    /// G8 regression pin: a `FailClosed` row (`MprGroupOverwrite`) is `Covered` purely via its
-    /// curated refusal witness, EVEN with a completely empty passing-fixture set -- proving the
-    /// old cross-contamination bug (a `FailClosed` row showing `Covered` only because a sibling's
-    /// passing fixture tagged the same shared `constructs.txt` id) can no longer happen, and that
-    /// a genuine refusal witness is honored on its own terms.
-    #[test]
-    fn fail_closed_row_is_covered_via_refusal_witness_regardless_of_passing_set() {
-        let ledger = build_ledger(&default_registry(), &fully_covered_constructs());
-        let row = ledger
-            .row(CharacteristicKind::MprGroupOverwrite)
-            .expect("MprGroupOverwrite row must exist");
-        assert_eq!(row.disposition, Disposition::ConfigPredicate);
-        assert_eq!(
-            row.conformance_status,
-            CoverageStatus::Covered,
-            "a FailClosed row with a curated RefusalWitness must be Covered even with zero \
-             passing-fixture evidence"
-        );
-        assert_eq!(
-            row.containment.as_ref().map(|c| c.kind),
-            Some(ContainmentEvidenceKind::Dedicated)
-        );
     }
 
     #[test]

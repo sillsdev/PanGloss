@@ -116,23 +116,17 @@ fn plan_interaction_coverage_has_no_uncovered_required_tuples() {
         .filter(|r| r.status == TupleStatus::Covered)
         .count();
     let uncovered = report.uncovered();
-    let unsupported_n = report
-        .required
-        .iter()
-        .filter(|r| r.status == TupleStatus::ContainsUnsupported)
-        .count();
 
     eprintln!(
         "=== plan-node/subtree interaction coverage (Stage 3, ADR 0001) BUILD-BREAKING ===\n\
-         Required adjacency tuples: {} total | {covered_n} covered | {} uncovered | \
-         {unsupported_n} contains-unsupported",
+         Required adjacency tuples: {} total | {covered_n} covered | {} uncovered",
         report.required.len(),
         uncovered.len(),
     );
     for row in &report.required {
         eprintln!(
-            "  {:?}: {:?} (tags: {:?}, covering fixtures: {:?}, unsupported-instance fixtures: {:?})",
-            row.tuple, row.status, row.tags, row.covering_fixtures, row.unsupported_fixtures
+            "  {:?}: {:?} (tags: {:?}, covering fixtures: {:?})",
+            row.tuple, row.status, row.tags, row.covering_fixtures
         );
     }
     eprintln!("RETIRED (proven orthogonal, never fuzzed):");
@@ -140,17 +134,12 @@ fn plan_interaction_coverage_has_no_uncovered_required_tuples() {
         eprintln!("  {}: {}", r.label, r.evidence);
     }
 
-    // The gate. A `ContainsUnsupported` tuple is deliberately NOT included in `uncovered()` (that
-    // status was never a candidate for "needs a covering fixture" -- see `TupleStatus`'s own doc),
-    // so this assertion is exactly "every required, coverable tuple has at least one clean
-    // occurrence in the discovered corpus", not "every tuple is Covered".
     assert!(
         uncovered.is_empty(),
-        "COVERAGE REGRESSION: {} required adjacency tuple(s) have zero clean covering fixture in \
+        "COVERAGE REGRESSION: {} required adjacency tuple(s) have zero covering fixture in \
          the discovered corpus (machine/conformance/** + conformance-staging/**): {:?}\n\
-         Either an existing fixture regressed (its plan no longer realizes this tuple shape, or \
-         every occurrence of it is now FailClosed-tagged and so counts as contains-unsupported \
-         instead), or the corpus lost its only fixture exercising this shape. Author or restore a \
+         Either an existing fixture regressed (its plan no longer realizes this tuple shape), or \
+         the corpus lost its only fixture exercising this shape. Author or restore a \
          conformance fixture whose grammar structurally realizes this tuple -- see \
          legal_adjacency_tuples()'s own doc (this module's top-doc \"The tuple model\" section) for \
          what each of the 7 shapes requires. Full report above.",

@@ -1,6 +1,5 @@
 //! `crate::capability::EpenthesisStructuralRoutePredicate`'s own containment witness: replacing
-//! this crate's last remaining `epenthesis.placeholder` `FailClosedPlaceholder`
-//! (`CharacteristicKind::Epenthesis`) with a real predicate rests on two pieces of evidence, both
+//! `CharacteristicKind::Epenthesis`'s predicate rests on two pieces of evidence, both
 //! verified here end-to-end rather than merely asserted:
 //!
 //! 1. **PROPOSE side** (`crate::emit`): an empty-LHS `PhonologicalRule` makes
@@ -166,7 +165,7 @@ fn fixture_has_epenthesis_and_composes_to_confirm_only() {
     assert_eq!(
         compose_envelope(&g, &plan, &registry),
         CompileDecision::ConfirmOnly,
-        "an epenthesis + ordinary-suffix fixture must compose to ConfirmOnly, never Refuse/FailClosed"
+        "an epenthesis + ordinary-suffix fixture must compose to ConfirmOnly, never Refuse"
     );
 }
 

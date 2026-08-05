@@ -14,10 +14,10 @@
 //! file's grammar is smaller and single-owner (`pg-foma`'s own test tree, not the
 //! `machine/conformance` submodule), built to isolate JUST these four constructs from that
 //! fixture's `Compounding`/`MorphRuleOrder::Unordered` material (both still
-//! `Disposition::FailClosed` per `capability.rs`, so a containment test that also depended on THEM
-//! would conflate two different constructs' proofs). `morphologicalRuleOrder="linear"` throughout,
-//! deliberately, for the same reason: `Disposition::Proven` today
-//! (`CharacteristicKind::OrderedMorphRuleApplication`), never `Unordered`'s `FailClosed`.
+//! `Disposition::ConfigPredicate` per `capability.rs`, so a containment test that also depended on
+//! THEM would conflate two different constructs' proofs). `morphologicalRuleOrder="linear"`
+//! throughout, deliberately, for the same reason: `Disposition::Proven` today
+//! (`CharacteristicKind::OrderedMorphRuleApplication`), never `Unordered`'s `ConfigPredicate`.
 //!
 //! ## The proposer-overapproximates / confirm-prunes property this file proves
 //! Every construct below is `Disposition::ConfirmOnly` (`capability.rs`'s `RealizationalMorphology`/
@@ -54,7 +54,7 @@
 //! Admit-vs-Refuse split for a `CapabilityPredicate` to discriminate; every observed shape is
 //! `ConfirmOnly`, unconditionally, by construction, not merely by omission. `default_disposition`
 //! already reflects this (`Disposition::ConfirmOnly` needs no registered `CapabilityPredicate` —
-//! only `FailClosed`/`ConfigPredicate` kinds do, `capability.rs`'s own `undischarged_kinds` doc) —
+//! only `ConfigPredicate` kinds do, `capability.rs`'s own `undischarged_kinds` doc) —
 //! so what this file adds is not a new predicate but oracle-backed positive AND negative witnesses
 //! proving the `ConfirmOnly` claim is actually true (over-propose, never under-propose) rather than
 //! an unproven assertion, for all four constructs at once. `StemName`/`Family`/`Blocking` have no

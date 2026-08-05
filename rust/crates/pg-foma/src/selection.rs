@@ -421,14 +421,9 @@ mod tests {
         </Language></HermitCrabInput>"#
     }
 
-    /// An `Overwrite`-output `MprGroup`: capability.rs's own
-    /// compose_envelope_refuses_for_overwrite_group_alone fixture, reused verbatim.
-    /// `compose_envelope` must permanently `Refuse` it
-    /// (`MprGroupOverwriteFailClosedPredicate`, unconditional), so a selector run over
-    /// this grammar's own candidates must find NONE admissible. A self-feeding
-    /// (`multipleApplication="2"`) `Compounding` rule no longer serves this purpose, since
-    /// `compounding.recursive` now composes to `ConfirmOnly` rather than `Refuse` -- this fixture
-    /// uses a construct that still refuses unconditionally instead.
+    /// A grammar `compose_envelope` refuses, so a selector run over its candidates must find NONE
+    /// admissible. Genuinely-overlapping simultaneous subrules are the construct: a construct
+    /// refused only pending a proof (`compounding.recursive`) can be reclassified later.
     fn refuse_overwrite_mpr_group_fixture_xml() -> &'static str {
         include_str!("../../../../conformance-staging/edge-cases/simultaneous-subrule-genuine-overlap/grammar.xml")
     }

@@ -1,6 +1,6 @@
 //! Proposer-to-confirm containment for `MprGroupOutput::Append`'s `mpr-group.append-output`
 //! configuration predicate (target: `ConfirmOnly` via a NON-TRACKING baseline), plus the
-//! `mpr-group.overwrite-output` FailClosed witness and the Append/Overwrite
+//! `mpr-group.overwrite-output` witness and the Append/Overwrite
 //! order-(in)dependence distinction.
 //!
 //! ## The non-tracking baseline this file proves, not merely asserts
@@ -234,7 +234,7 @@ fn fixture_is_append_only_and_confirm_only() {
     assert_eq!(
         compose_envelope(&g, &plan, &registry),
         CompileDecision::ConfirmOnly,
-        "an Append-only MprGroup fixture must compose to ConfirmOnly, never Refuse/FailClosed"
+        "an Append-only MprGroup fixture must compose to ConfirmOnly, never Refuse"
     );
 }
 
@@ -321,8 +321,8 @@ fn all_type_group_excludes_partial_match_like_confirm() {
 /// final accumulated state under `Append` (set union is commutative), but a DIFFERENT final state
 /// under `Overwrite` (each new output retracts every OTHER member of its own group first) --
 /// literally the property `mpr-group.append-output`'s `ConfirmOnly` promotion depends on, and
-/// which [`pg_foma::capability::MprGroupOverwriteFailClosedPredicate`] never gets to assume for
-/// `mpr-group.overwrite-output` (permanently `FailClosed` instead).
+/// which [`pg_foma::capability::MprGroupOverwritePredicate`] never gets to assume for
+/// `mpr-group.overwrite-output`.
 #[test]
 fn append_output_is_order_invariant_overwrite_output_is_not() {
     use pg_grammar::model::{mpr_add_output, MprGroup, MprGroupMatchType, MprGroupOutput, MprSet};

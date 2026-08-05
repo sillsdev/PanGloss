@@ -521,18 +521,12 @@ mod tests {
 </HermitCrabInput>
 "#;
 
-    /// An `Overwrite`-output `MprGroup` -- `MprGroupOverwriteFailClosedPredicate` (`pg_foma::
-    /// capability`) `Refuse`s this UNCONDITIONALLY and PERMANENTLY (a monotone-accumulation
-    /// admission filter is structurally unsound for history-dependent `Overwrite` replace
-    /// semantics, `pg_grammar::model::mpr_add_output`'s own doc) -- no promotion can ever flip this
-    /// fixture's own verdict. A self-feeding (`multipleApplication="2"`) `Compounding`
-    /// rule is NOT a safe "known-Refuse" fixture here, because `compounding.recursive` is a
-    /// `ConfigPredicate`-disposition construct and can be promoted to `ConfirmOnly` by a later
-    /// grammar/capability change. Do not point a future "known-Refuse" fixture at any
-    /// `ConfigPredicate`-disposition construct (every one of those has at least one promotable
-    /// configuration) -- `MprGroupOverwrite` is the
-    /// stable, by-construction-permanent choice (`main.rs`'s own
-    /// `capability_gate_tests::PERMANENTLY_REFUSED_GRAMMAR_XML`, same swap, same rationale).
+    /// A grammar with genuinely-overlapping simultaneous subrules: `simultaneous.subrule-overlap`
+    /// refuses it on a real automaton intersection, so the `Refuse` verdict is a structural fact
+    /// about the fixture. Do not point a future "known-Refuse" fixture at a construct that is
+    /// refused only pending a proof (e.g. `compounding.recursive`) -- promoting it to `ConfirmOnly`
+    /// would make these tests vacuous (`main.rs`'s own
+    /// `capability_gate_tests::PERMANENTLY_REFUSED_GRAMMAR_XML`, same rationale).
     const REFUSE_GRAMMAR_XML: &str = include_str!("../../../../conformance-staging/edge-cases/simultaneous-subrule-genuine-overlap/grammar.xml");
 
     /// A grammar with one ordinary `MorphologicalRule` whose subrule's output copies the SAME input

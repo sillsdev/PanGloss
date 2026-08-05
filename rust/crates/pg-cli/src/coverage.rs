@@ -105,7 +105,6 @@ struct DispositionCounts {
     proven: usize,
     confirm_only: usize,
     config_predicate: usize,
-    fail_closed: usize,
     total: usize,
 }
 
@@ -114,7 +113,6 @@ fn compute_disposition_counts(ledger: &CoverageLedger) -> DispositionCounts {
         proven: 0,
         confirm_only: 0,
         config_predicate: 0,
-        fail_closed: 0,
         total: ledger.rows.len(),
     };
     for row in &ledger.rows {
@@ -122,7 +120,6 @@ fn compute_disposition_counts(ledger: &CoverageLedger) -> DispositionCounts {
             Disposition::Proven => c.proven += 1,
             Disposition::ConfirmOnly => c.confirm_only += 1,
             Disposition::ConfigPredicate => c.config_predicate += 1,
-            Disposition::FailClosed => c.fail_closed += 1,
         }
     }
     c
@@ -205,7 +202,6 @@ struct PlanInteractionSummary {
     required_total: usize,
     covered: usize,
     uncovered: usize,
-    contains_unsupported: usize,
     retired: usize,
     unexpected_tuples: usize,
     rows: Vec<PlanInteractionRow>,
@@ -241,18 +237,11 @@ fn plan_interaction_summary(grammar_path: &str, g: &Grammar) -> PlanInteractionS
         .iter()
         .filter(|r| r.status == TupleStatus::Uncovered)
         .count();
-    let contains_unsupported = report
-        .required
-        .iter()
-        .filter(|r| r.status == TupleStatus::ContainsUnsupported)
-        .count();
-
     PlanInteractionSummary {
         grammar_path: grammar_path.to_string(),
         required_total: report.required.len(),
         covered,
         uncovered,
-        contains_unsupported,
         retired: report.retired.len(),
         unexpected_tuples: report.unexpected_tuples.len(),
         rows,
@@ -272,10 +261,9 @@ fn build_headline(ledger: &CoverageLedger, disp: &DispositionCounts) -> String {
         .count();
     let unmappable = disp.total - mappable;
 
-    if disp.fail_closed == 0 && disp.config_predicate == 0 && covered == mappable && unmappable == 0
-    {
+    if disp.config_predicate == 0 && covered == mappable && unmappable == 0 {
         format!(
-            "FULL HC coverage: all {} constructs are Proven/ConfirmOnly (no FailClosed/ConfigPredicate \
+            "FULL HC coverage: all {} constructs are Proven/ConfirmOnly (no ConfigPredicate \
              gap), and every construct maps to a conformance construct id covered by a passing fixture.",
             disp.total
         )
@@ -283,14 +271,13 @@ fn build_headline(ledger: &CoverageLedger, disp: &DispositionCounts) -> String {
         format!(
             "NOT full HC coverage: {}/{} constructs Proven, {} ConfirmOnly (recall-preserving via \
              confirm, not admission-proven), {} ConfigPredicate (compiles only when a registered \
-             predicate proves the specific configuration observed), {} FailClosed (refused by default; \
-             ADR 0005 override only). Conformance mapping: {}/{} constructs Covered by a passing \
-             fixture, {} constructs Unmappable (no constructs.txt id exists for them at all).",
+             predicate proves the specific configuration observed). Conformance mapping: {}/{} \
+             constructs Covered by a passing fixture, {} constructs Unmappable (no constructs.txt \
+             id exists for them at all).",
             disp.proven,
             disp.total,
             disp.confirm_only,
             disp.config_predicate,
-            disp.fail_closed,
             covered,
             mappable,
             unmappable,
@@ -345,7 +332,6 @@ fn render_human(summary: &CoverageSummary) -> String {
     out.push_str(&format!("  Proven:          {}\n", d.proven));
     out.push_str(&format!("  ConfirmOnly:     {}\n", d.confirm_only));
     out.push_str(&format!("  ConfigPredicate: {}\n", d.config_predicate));
-    out.push_str(&format!("  FailClosed:      {}\n", d.fail_closed));
     out.push_str(&format!("  Total:           {}\n\n", d.total));
 
     let e = &summary.evidence_counts;
@@ -408,12 +394,11 @@ fn render_human(summary: &CoverageSummary) -> String {
         Some(pi) => {
             out.push_str(&format!(
                 "\nPlan-node interaction coverage (grammar: {}):\n  required={} covered={} \
-                 uncovered={} contains_unsupported={} retired={} unexpected_tuples={}\n",
+                 uncovered={} retired={} unexpected_tuples={}\n",
                 pi.grammar_path,
                 pi.required_total,
                 pi.covered,
                 pi.uncovered,
-                pi.contains_unsupported,
                 pi.retired,
                 pi.unexpected_tuples
             ));
@@ -526,7 +511,6 @@ mod tests {
             recount.config_predicate,
             summary.disposition_counts.config_predicate
         );
-        assert_eq!(recount.fail_closed, summary.disposition_counts.fail_closed);
         assert_eq!(recount.total, summary.disposition_counts.total);
         assert_eq!(recount.total, CharacteristicKind::ALL.len());
 

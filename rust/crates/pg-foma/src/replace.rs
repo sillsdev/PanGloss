@@ -908,8 +908,7 @@ fn reversed_slots(slots: &[Slot]) -> Vec<Slot> {
 /// RHS `"0"` deletion literal is exercised by the reference grammars; the LHS `"[..]"` epenthesis
 /// literal has no existing caller yet (`rule.lhs.nodes.is_empty()` is
 /// [`CharacteristicKind::Epenthesis`](crate::capability::CharacteristicKind::Epenthesis)'s own
-/// trigger, still `FailClosed`-placeholder'd in `capability.rs` for unrelated reasons), so this
-/// changes no existing test's compiled output.
+/// trigger), so this changes no existing test's compiled output.
 fn render_branch_regex(
     alphabet: &SegAlphabet,
     lhs_slots: &[Slot],

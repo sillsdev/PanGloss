@@ -218,8 +218,8 @@ fn assert_confirm_matches_oracle(
 
 /// Deliverable 3 / capability.rs judgment call check: this fixture's OWN `CompoundingRuleDef` must
 /// characterize `compounding.non-recursive` and compose to `ConfirmOnly` — proving the containment
-/// tests below exercise the promoted, non-`FailClosed` disposition this change ships, not an
-/// accident of some other predicate meeting it down.
+/// tests below exercise this construct's own resting disposition, not an accident of some other
+/// predicate meeting it down.
 #[test]
 fn fixture_is_non_recursive_and_confirm_only() {
     let g = load();
@@ -237,7 +237,7 @@ fn fixture_is_non_recursive_and_confirm_only() {
     assert_eq!(
         compose_envelope(&g, &plan, &registry),
         CompileDecision::ConfirmOnly,
-        "a non-recursive Compounding fixture must compose to ConfirmOnly, never Refuse/FailClosed"
+        "a non-recursive Compounding fixture must compose to ConfirmOnly, never Refuse"
     );
 }
 

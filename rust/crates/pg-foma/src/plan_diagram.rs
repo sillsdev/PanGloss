@@ -42,7 +42,7 @@
 //! several: `Compounding`, `UnorderedMorphRuleApplication`, `MprGroupAppend`, `MprGroupOverwrite`,
 //! `CircumfixOutputAction`, `Reduplication`). This module's own `plan_diagram_root_verdict_matches_
 //! compose_envelope` test pins that the two agree for `crate::capability::default_registry`, whose
-//! own test already proves it leaves no `FailClosed` characteristic undischarged.
+//! own test already proves it leaves no `ConfigPredicate` characteristic undischarged.
 //!
 //! **A grammar-wide characteristic with no distinct plan node legitimately marks EVERY node
 //! refused** (because the predicate that discharges it ignores which node it is asked about and
@@ -1344,7 +1344,7 @@ mod tests {
     /// The root's OWN per-node verdict (computed by this module's `node_decision_mirror`) must
     /// equal the real, unmodified `compose_envelope` verdict -- pins that the mirror is faithful,
     /// not a second, independently-drifting computation. Holds for `default_registry` because that
-    /// registry's own test proves it leaves no `FailClosed` characteristic undischarged (so `compose
+    /// registry's own test proves it leaves no `ConfigPredicate` characteristic undischarged (so `compose
     /// _envelope`'s extra `disposition_floor` fold-in, which this module's per-node mirror does NOT
     /// replicate, is always a no-op for it).
     #[test]

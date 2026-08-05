@@ -447,18 +447,13 @@ mod tests {
         );
     }
 
-    /// This module's semantic-uncertainty scenario: an `Overwrite`-output `MprGroup` resolves to
-    /// [`crate::capability::CompileDecision::Refuse`] (capability.rs's own
-    /// compose_envelope_refuses_for_overwrite_group_alone fixture, ported verbatim -- this crate's
-    /// repo-wide "port a fixture across a module boundary" convention) — preflight must report it
-    /// as a `Critical`
-    /// `UnknownUnboundedConstruct` finding naming the Overwrite construct, before foma ever runs.
-    /// `MprGroupOverwrite` (`MprGroupOverwriteFailClosedPredicate`, unconditional) is this crate's
-    /// clearest permanently-refusing construct, which is why this fixture uses it rather than a
-    /// self-feeding `Compounding` rule: `compounding.recursive` can be (and has been) reclassified
-    /// to `ConfirmOnly` under a different predicate
-    /// (`crate::capability::CompoundingRecursionSafePredicate`), so it is not a reliable Refuse
-    /// case for this test.
+    /// This module's semantic-uncertainty scenario: a grammar whose capability verdict is
+    /// [`crate::capability::CompileDecision::Refuse`] must produce a `Critical`
+    /// `UnknownUnboundedConstruct` finding naming the refusing construct, before foma ever runs.
+    /// Genuinely-overlapping simultaneous subrules are the fixture because
+    /// `simultaneous.subrule-overlap` refuses on a structural automaton intersection; a construct
+    /// refused only pending a proof (`compounding.recursive`) can be reclassified later and is not
+    /// a reliable Refuse case.
     #[test]
     fn preflight_raises_critical_finding_for_refuse_verdict() {
         const REFUSE_XML: &str = include_str!("../../../../conformance-staging/edge-cases/simultaneous-subrule-genuine-overlap/grammar.xml");

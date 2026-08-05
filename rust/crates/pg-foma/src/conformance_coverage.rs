@@ -14,10 +14,10 @@
 //! # The two sides of the cross-check
 //! - **The registry side**: [`crate::capability::CharacteristicKind`] + [`crate::capability::
 //!   CharacteristicKind::default_disposition`] — [`Disposition::Proven`] is today's actual
-//!   "supported (admission-proven)" set; `ConfirmOnly`/`ConfigPredicate`/
-//!   `FailClosed` are compiled-or-relied-upon capabilities in their own right, just not
-//!   admission-proven — see "G8: widening the cross-check ledger-wide" below for why this module
-//!   now reasons about all four dispositions, not `Proven` alone.
+//!   "supported (admission-proven)" set; `ConfirmOnly`/`ConfigPredicate`
+//!   are compiled-or-relied-upon capabilities in their own right, just not
+//!   admission-proven — see "The cross-check is ledger-wide" below for why this module
+//!   reasons about every disposition, not `Proven` alone.
 //! - **The coverage side**: `machine/conformance/constructs.txt`'s flat checklist of construct
 //!   identifiers, which every fixture's `words.yaml` `exercises:` entries (per-word AND per-parse,
 //!   `pg_conformance_fixtures::{WordEntry, ParseEntry}`) are supposed to draw verbatim from
@@ -27,30 +27,14 @@
 //!   workspace does not invoke), it re-derives the same "which construct ids are exercised"
 //!   question straight from `words.yaml`, which is the actual committed ground truth.
 //!
-//! # G8: widening the cross-check ledger-wide
-//! Before this step, [`supported_kinds`] scoped itself to the 6 [`Disposition::Proven`] kinds
-//! only — narrower than the ledger's 20 rows ([`crate::capability::CharacteristicKind::ALL`]).
-//! That made the cross-check either **vacuous** (14 of 20 rows were never asked about at all) or
-//! **misleading**: every row, `Proven` or not, was graded against the SAME "does a passing
-//! analysis fixture exist" yardstick — which is simply the wrong question for a
-//! [`Disposition::FailClosed`] construct (nothing compiles for it; there can never BE a passing
-//! analysis fixture). Concretely, [`CharacteristicKind::MprGroupOverwrite`] (`FailClosed`) and
-//! [`CharacteristicKind::MprGroupAppend`] (`ConfirmOnly`) both map to the same `constructs.txt`
-//! id, `"MPR features/groups"` — so under the old uniform rule, an `MprGroupAppend` passing
-//! fixture could make `MprGroupOverwrite` show falsely `Covered` too, despite `Overwrite` being
-//! refused at compile time and never analyzed by anything.
-//!
-//! [`supported_kinds`] now returns every [`CharacteristicKind`] ([`crate::capability::
-//! CharacteristicKind::ALL`]), and [`evidence_requirement_for`] encodes this crate's honest
-//! per-disposition rule as code: `Proven`/`ConfigPredicate`/`ConfirmOnly` all still need a
-//! covering, PASSING analysis fixture ([`EvidenceRequirement::PassingFixture`] — the same
-//! requirement, kept distinguishable from `Proven` via [`CoverageReportRow::disposition`] so a
-//! later flip can stage `Proven` first); `FailClosed` needs a REFUSAL witness instead
-//! ([`EvidenceRequirement::RefusalWitness`] — a fixture/test proving `compose_envelope` genuinely
-//! refuses the construct, never a passing fixture). [`supported_coverage_report`] takes two
-//! separate evidence sets (one per requirement) so the two can never cross-contaminate.
-//! **Still advisory** — this widening does not flip anything to build-breaking; see "End state"
-//! below.
+//! # The cross-check is ledger-wide
+//! [`supported_kinds`] returns every [`CharacteristicKind`] ([`crate::capability::
+//! CharacteristicKind::ALL`]), not just the [`Disposition::Proven`] subset. Scoping it to `Proven`
+//! made the cross-check vacuous for most of the ledger — the majority of rows were never asked
+//! about at all. Every disposition here is a compiled-or-relied-upon capability, so every row
+//! needs the same evidence: a covering, PASSING analysis fixture.
+//! [`CoverageReportRow::disposition`] stays on the row so a build-breaking flip can stage `Proven`
+//! ahead of `ConfigPredicate`/`ConfirmOnly` without re-deriving the report.
 //!
 //! # What "passing" means here (a judgment call, flagged)
 //! This crate's honest-capability discipline says a construct needs "a covering, **passing** fixture" — not merely a fixture that
@@ -62,13 +46,7 @@
 //! `pg_parse::Morpher` — the SAME oracle `pg-parse`'s own `conformance_fixtures_gate.rs` already
 //! runs the full suite against — and only credits a word's/parse's `exercises:` tags toward
 //! coverage when that word's engine output actually matches the fixture's declared ground truth
-//! signature. A currently-*failing* word's `exercises:` tags do not count. The analogous "refusal
-//! witness" evidence ([`EvidenceRequirement::RefusalWitness`]) is NOT established by fixture
-//! replay at all — today it lives in [`crate::coverage_ledger::containment_evidence_for`]'s
-//! curated [`crate::coverage_ledger::ContainmentEvidenceKind::RefusalWitness`] citations (a
-//! hand-reviewed table naming a specific Rust test, e.g. `tests/cover_mpr_groups.rs::
-//! overwrite_group_composes_to_confirm_only`), which the caller is responsible for translating into a
-//! `refusal_witnessed_kinds: &HashSet<CharacteristicKind>`.
+//! signature. A currently-*failing* word's `exercises:` tags do not count.
 //!
 //! # The mapping (deliverable 1 — THE CONTRACT)
 //! [`construct_ids_for`] is hand-authored and exhaustively matched (no catch-all arm — adding a
@@ -104,16 +82,11 @@
 //! `words.yaml` states and what this cross-check needs, closed here by re-deriving pass/fail via
 //! replay rather than by asking for new fixture tagging.
 //!
-//! # End state (deferred, NOT this step)
-//! A hard CI gate would mechanically replace this module's non-
-//! assertion with `assert!(supported_uncovered(&covered, &witnessed).is_empty(), "...")` in
-//! `tests/conformance_coverage_gate.rs`. Deferred here deliberately: gaps exist today (see that
-//! test's own report), and this crate's own non-blocking-first precedent (`compose_envelope`/
-//! `CompileDecision` were CHECK-ONLY for a full step before any compile path consulted them) is
-//! the model to repeat. G8 makes the widened report accurate and
-//! flip-ready but deliberately does NOT flip it — a real flip should stage `Proven` rows (a hard
-//! error) ahead of `ConfigPredicate`/`ConfirmOnly` rows (also required, but distinguishable via
-//! `disposition` so they can gate on a later date).
+//! # End state
+//! A hard CI gate asserts `supported_uncovered(&covered).is_empty()` in
+//! `tests/conformance_coverage_gate.rs`. A staged flip is still available if gaps reappear:
+//! `Proven` rows are a hard error ahead of `ConfigPredicate`/`ConfirmOnly` rows, distinguishable
+//! via `disposition`.
 //!
 //! # The structural-witness gate: closing the last silent-inheritance hole before a flip
 //! [`construct_ids_for`] maps some `constructs.txt` row ids from MORE THAN ONE [`CharacteristicKind`]
@@ -129,19 +102,10 @@
 //! makes flipping this cross-check to build-breaking on faith irresponsible.
 //!
 //! [`shared_construct_ids`] computes every such shared id directly from [`construct_ids_for`] (never
-//! hardcoded — a future mapping edit is picked up automatically). [`passing_fixture_shared_construct_ids`]
-//! narrows that to the ids actually AT RISK of this inheritance: both sharing kinds must independently
-//! need [`EvidenceRequirement::PassingFixture`] (a kind needing [`EvidenceRequirement::RefusalWitness`]
-//! instead — [`Disposition::FailClosed`] — can never inherit a sibling's passing fixture, since
-//! `supported_coverage_report` never consults `passing_covered_constructs` for it at all; see
-//! [`fail_closed_row_never_covered_by_a_siblings_passing_fixture`]). Today that is exactly three ids
-//! (`Stratum (Linear/Unordered rule order)`, `RewriteRule Iterative (...)`, `AffixProcessRule: prefix/
-//! suffix/circumfix/infix`) — the fourth, `MPR features/groups`, is a genuine shared id too but is
-//! NOT at risk, because [`CharacteristicKind::MprGroupOverwrite`] moved to `FailClosed`/
-//! `RefusalWitness` (see this module's own G8 section above), so it structurally cannot inherit
-//! [`CharacteristicKind::MprGroupAppend`]'s passing-fixture evidence any more.
+//! hardcoded — a future mapping edit is picked up automatically). Every sharing kind is graded
+//! against the passing-fixture set, so every shared id is at risk of this inheritance.
 //!
-//! [`registered_structural_witnesses`] pairs each of today's three at-risk ids with a
+//! [`registered_structural_witnesses`] pairs each at-risk id with a
 //! [`StructuralWitness`]: a predicate over the LOADED [`pg_grammar::model::Grammar`] (never a second
 //! hand-rolled definition of the construct, never a regex over the source XML) that decides whether
 //! a grammar structurally exhibits the FINER characteristic — independent of whatever `exercises:`
@@ -149,9 +113,9 @@
 //! RUNS these predicates against every discovered, PASSING fixture and asserts each one is satisfied
 //! by at least one fixture that *also* tags the shared id on a passing word/parse — pinning the
 //! finer characteristic's evidence mechanically rather than leaving it to only ever have been
-//! verified by hand. `every_passing_fixture_shared_id_has_a_registered_structural_witness` (below,
+//! verified by hand. `every_shared_id_has_a_registered_structural_witness` (below,
 //! this module) is the generic, string-driven half that needs no fixture I/O at all: it fails loudly
-//! if [`construct_ids_for`] ever grows a NEW at-risk shared id with no registered witness, so this
+//! if [`construct_ids_for`] ever grows a NEW shared id with no registered witness, so this
 //! protection cannot be silently defeated by a future mapping edit the way the original four ids
 //! went unnoticed.
 
@@ -206,8 +170,8 @@ use pg_grammar::model::{Grammar, MorphRuleOrder, MprGroupOutput, PhonRuleDef};
 /// exactly why each was a genuine, deliberate non-mapping; that reasoning is preserved below per
 /// arm, now paired with the row that was added to resolve it). No other characteristic's mapping
 /// changed. [`CharacteristicKind::MultiTable`] is exhaustively re-verified as the true empty-
-/// mapping was NOT a permanent property — see [`ledger_wide_uncovered_today`] below for which rows
-/// (mapped or not) still lack a *passing/refusal-witnessed* fixture even after this mapping fix.
+/// mapping was NOT a permanent property — see [`supported_uncovered`] for which rows (mapped or
+/// not) still lack a *passing* fixture even after this mapping fix.
 pub fn construct_ids_for(kind: CharacteristicKind) -> &'static [&'static str] {
     use CharacteristicKind::*;
     match kind {
@@ -369,64 +333,23 @@ pub const ORPHAN_CONSTRUCT_ROWS: &[(&str, &str)] = &[
     ),
 ];
 
-/// **G8 ("widen the cross-check ledger-wide"):** every [`CharacteristicKind`] the cross-check
-/// reasons over — literally `CharacteristicKind::ALL` (20 kinds), not the narrower
-/// `Disposition::Proven`-only 6 this function returned before G8. Narrowing to `Proven` made the
-/// cross-check either vacuous (14 of the ledger's 20 rows were never asked about at all) or
-/// misleading (a `FailClosed` row like [`CharacteristicKind::MprGroupOverwrite`], had it been
-/// asked, would have been graded by the SAME "passing analysis fixture" yardstick as `Proven` rows
-/// — nothing compiles for a refused construct, so that yardstick can never honestly apply to it;
-/// see [`evidence_requirement_for`]). Kept as a named function (rather than every caller reaching
+/// Every [`CharacteristicKind`] the cross-check reasons over — literally `CharacteristicKind::ALL`,
+/// not the narrower `Disposition::Proven` subset, which made the cross-check vacuous for most of
+/// the ledger. Kept as a named function (rather than every caller reaching
 /// for `CharacteristicKind::ALL` directly) so call sites read as making a deliberate scope choice,
 /// matching this file's own established naming.
 pub fn supported_kinds() -> Vec<CharacteristicKind> {
     CharacteristicKind::ALL.to_vec()
 }
 
-/// Which evidence shape a disposition's honest, per-disposition rule (G8) demands.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EvidenceRequirement {
-    /// [`Disposition::Proven`], [`Disposition::ConfigPredicate`], [`Disposition::ConfirmOnly`]:
-    /// each is a compiled/relied-upon capability (a grammar CAN actually compile through it
-    /// today), so each needs a covering, PASSING analysis fixture — the same requirement, even
-    /// though only `Proven` is admission-proven. A build-breaking flip can and should stage these
-    /// three differently (gate on `Proven` first); this module reports `disposition` on every row
-    /// precisely so that staging is possible without re-deriving the report.
-    PassingFixture,
-    /// [`Disposition::FailClosed`]: nothing compiles for this construct by design (an
-    /// indelible override is the only escape hatch), so a passing ANALYSIS fixture is not even the
-    /// right kind of evidence to demand. Needs a REFUSAL witness instead: a fixture/test proving
-    /// [`crate::capability::compose_envelope`] refuses this construct, e.g. `tests/
-    /// cover_mpr_groups.rs::overwrite_group_composes_to_confirm_only` (the curated citation for
-    /// [`CharacteristicKind::MprGroupOverwrite`] in [`crate::coverage_ledger::
-    /// containment_evidence_for`]) — never a passing fixture, which cannot exist for a refused
-    /// construct.
-    RefusalWitness,
-}
-
-/// `disposition`'s [`EvidenceRequirement`] — the G8 honest per-disposition rule, as code.
-/// Exhaustively matched (no catch-all): adding a [`Disposition`] variant breaks this build too.
-pub fn evidence_requirement_for(disposition: Disposition) -> EvidenceRequirement {
-    match disposition {
-        Disposition::Proven | Disposition::ConfigPredicate | Disposition::ConfirmOnly => {
-            EvidenceRequirement::PassingFixture
-        }
-        Disposition::FailClosed => EvidenceRequirement::RefusalWitness,
-    }
-}
-
 /// One [`CharacteristicKind`]'s cross-check outcome (deliverable 2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CoverageStatus {
-    /// The evidence [`EvidenceRequirement`] demands was found: for [`EvidenceRequirement::
-    /// PassingFixture`], at least one of [`construct_ids_for`]'s ids is in the caller's
-    /// passing-covered set; for [`EvidenceRequirement::RefusalWitness`], the kind is in the
-    /// caller's refusal-witnessed set.
+    /// At least one of [`construct_ids_for`]'s ids is in the caller's passing-covered set.
     Covered,
-    /// [`construct_ids_for`] names at least one construct id, but the evidence
-    /// [`EvidenceRequirement`] demands was NOT found — a gap ("marking anything
-    /// supported without a covering, passing fixture" case, generalized to `FailClosed`'s own
-    /// refusal-witness requirement).
+    /// [`construct_ids_for`] names at least one construct id, but none of them is in the caller's
+    /// passing-covered set — the "marking anything supported without a covering, passing fixture"
+    /// gap.
     Uncovered,
     /// [`construct_ids_for`] returns an empty slice for this kind: no `constructs.txt` identifier
     /// corresponds to it at all, so no fixture -- however written -- could satisfy this cross-check
@@ -438,73 +361,46 @@ pub enum CoverageStatus {
     Unmappable,
 }
 
-/// One row of the full advisory report: a [`CharacteristicKind`], its [`Disposition`] and
-/// resulting [`EvidenceRequirement`] (kept explicit and distinct from `status` so a reader — or a
-/// later staged flip — can tell `Proven`'s hard-error rows apart from `ConfigPredicate`/
-/// `ConfirmOnly`'s "also needs a fixture, but not yet admission-proven" rows and `FailClosed`'s
-/// "needs a refusal witness, never a passing fixture" rows without re-deriving anything), its
-/// mapped construct id(s) (possibly empty), and the [`CoverageStatus`] that resolves to against
-/// the caller-supplied evidence sets.
+/// One row of the full report: a [`CharacteristicKind`], its [`Disposition`] (kept explicit and
+/// distinct from `status` so a reader — or a later staged flip — can tell `Proven`'s hard-error
+/// rows apart from `ConfigPredicate`/`ConfirmOnly`'s "also needs a fixture, but not yet
+/// admission-proven" rows without re-deriving anything), its mapped construct id(s) (possibly
+/// empty), and the [`CoverageStatus`] that resolves to against the caller-supplied evidence set.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CoverageReportRow {
     pub kind: CharacteristicKind,
     pub disposition: Disposition,
-    pub evidence_requirement: EvidenceRequirement,
     pub status: CoverageStatus,
     pub construct_ids: &'static [&'static str],
 }
 
-/// Deliverable 2, THE CROSS-CHECK, **widened ledger-wide (G8)**: one [`CoverageReportRow`] per
-/// [`supported_kinds`] entry (now literally every [`CharacteristicKind`]), resolved against TWO
-/// caller-supplied evidence sets, selected per row by [`evidence_requirement_for`]:
-/// - `passing_covered_constructs`: `constructs.txt` identifiers exercised by at least one
-///   word/parse whose engine output CURRENTLY MATCHES its fixture's declared ground truth (see
-///   this module's own top-doc "What 'passing' means here") — the evidence
-///   [`EvidenceRequirement::PassingFixture`] rows (`Proven`/`ConfigPredicate`/`ConfirmOnly`) need.
-/// - `refusal_witnessed_kinds`: [`CharacteristicKind`]s for which the caller has independently
-///   established a genuine refusal witness exists (in practice, built from [`crate::
-///   coverage_ledger::containment_evidence_for`]'s [`crate::coverage_ledger::
-///   ContainmentEvidenceKind::RefusalWitness`] citations) — the evidence
-///   [`EvidenceRequirement::RefusalWitness`] rows (`FailClosed`) need instead. Deliberately NOT
-///   consulted for `PassingFixture` rows and vice versa: before this fix, every row (including
-///   `FailClosed` ones) was graded uniformly against `passing_covered_constructs` alone, so a
-///   `FailClosed` construct sharing a `constructs.txt` id with a `ConfirmOnly`/`Proven` sibling
-///   (e.g. [`CharacteristicKind::MprGroupAppend`] and [`CharacteristicKind::MprGroupOverwrite`]
-///   both map to `"MPR features/groups"`) could show `Covered` purely because the SIBLING's
-///   passing fixture happened to tag the same shared id — a real, silent cross-contamination this
-///   split makes structurally impossible.
+/// Deliverable 2, THE CROSS-CHECK: one [`CoverageReportRow`] per [`supported_kinds`] entry,
+/// resolved against `passing_covered_constructs` — the `constructs.txt` identifiers exercised by
+/// at least one word/parse whose engine output CURRENTLY MATCHES its fixture's declared ground
+/// truth (see this module's own top-doc "What 'passing' means here").
 ///
 /// A pure function deliberately kept free of any fixture-loading or engine-replay dependency, so
 /// it stays cheaply unit-testable with hand-built sets.
 pub fn supported_coverage_report(
     passing_covered_constructs: &HashSet<&str>,
-    refusal_witnessed_kinds: &HashSet<CharacteristicKind>,
 ) -> Vec<CoverageReportRow> {
     supported_kinds()
         .into_iter()
         .map(|kind| {
-            let disposition = kind.default_disposition();
-            let evidence_requirement = evidence_requirement_for(disposition);
             let construct_ids = construct_ids_for(kind);
             let status = if construct_ids.is_empty() {
                 CoverageStatus::Unmappable
+            } else if construct_ids
+                .iter()
+                .any(|c| passing_covered_constructs.contains(c))
+            {
+                CoverageStatus::Covered
             } else {
-                let is_evidenced = match evidence_requirement {
-                    EvidenceRequirement::PassingFixture => construct_ids
-                        .iter()
-                        .any(|c| passing_covered_constructs.contains(c)),
-                    EvidenceRequirement::RefusalWitness => refusal_witnessed_kinds.contains(&kind),
-                };
-                if is_evidenced {
-                    CoverageStatus::Covered
-                } else {
-                    CoverageStatus::Uncovered
-                }
+                CoverageStatus::Uncovered
             };
             CoverageReportRow {
                 kind,
-                disposition,
-                evidence_requirement,
+                disposition: kind.default_disposition(),
                 status,
                 construct_ids,
             }
@@ -515,15 +411,10 @@ pub fn supported_coverage_report(
 /// Convenience projection of [`supported_coverage_report`]: every [`CharacteristicKind`] whose
 /// status is NOT [`CoverageStatus::Covered`] (i.e. `Uncovered` or `Unmappable` — both are "not
 /// demonstrably covered by the evidence its own disposition demands today", the task's "gaps").
-/// **NON-BLOCKING**: callers must NOT assert this is empty yet — see this module's own top-doc
-/// "End state". This is the "which rows would fail a flip today" list (task G8's own final
-/// deliverable) — see `tests/conformance_coverage_gate.rs`'s own printed report for the concrete,
-/// currently-computed list against the real conformance corpus.
-pub fn supported_uncovered(
-    passing_covered_constructs: &HashSet<&str>,
-    refusal_witnessed_kinds: &HashSet<CharacteristicKind>,
-) -> Vec<CharacteristicKind> {
-    supported_coverage_report(passing_covered_constructs, refusal_witnessed_kinds)
+/// `tests/conformance_coverage_gate.rs` asserts this is empty against the real conformance corpus
+/// and prints the full report either way.
+pub fn supported_uncovered(passing_covered_constructs: &HashSet<&str>) -> Vec<CharacteristicKind> {
+    supported_coverage_report(passing_covered_constructs)
         .into_iter()
         .filter(|row| row.status != CoverageStatus::Covered)
         .map(|row| row.kind)
@@ -546,31 +437,6 @@ pub fn shared_construct_ids() -> Vec<(&'static str, Vec<CharacteristicKind>)> {
     by_id
         .into_iter()
         .filter(|(_, kinds)| kinds.len() > 1)
-        .collect()
-}
-
-/// The subset of [`shared_construct_ids`] genuinely AT RISK of one kind's `Covered` status
-/// silently inheriting from a sibling's passing fixture: at least two of the sharing kinds must
-/// independently resolve to [`EvidenceRequirement::PassingFixture`] (computed via
-/// [`evidence_requirement_for`], never hardcoded either). A kind needing
-/// [`EvidenceRequirement::RefusalWitness`] instead can never be satisfied by a sibling's passing
-/// fixture in the first place — [`supported_coverage_report`] never even looks at
-/// `passing_covered_constructs` for it — so a shared id where only ONE sharing kind needs a
-/// passing fixture (today: `MPR features/groups`, since [`CharacteristicKind::MprGroupOverwrite`]
-/// is `FailClosed`) is a genuine shared id but not one this gate needs to structurally pin.
-pub fn passing_fixture_shared_construct_ids() -> Vec<(&'static str, Vec<CharacteristicKind>)> {
-    shared_construct_ids()
-        .into_iter()
-        .filter(|(_, kinds)| {
-            kinds
-                .iter()
-                .filter(|&&k| {
-                    evidence_requirement_for(k.default_disposition())
-                        == EvidenceRequirement::PassingFixture
-                })
-                .count()
-                >= 2
-        })
         .collect()
 }
 
@@ -652,12 +518,7 @@ pub fn grammar_has_overwrite_mpr_group(g: &Grammar) -> bool {
         .any(|group| group.output == MprGroupOutput::Overwrite)
 }
 
-/// Today's three live [`StructuralWitness`]es — one per at-risk shared id
-/// ([`passing_fixture_shared_construct_ids`]'s current three-element result). The `MPR
-/// features/groups` id is deliberately NOT here: it is shared but not at-risk (this module's own
-/// top-doc), so [`CharacteristicKind::MprGroupOverwrite`]'s `RefusalWitness` evidence (a curated
-/// [`crate::coverage_ledger`] citation, not a structural grammar predicate) is the correct — and
-/// already-existing — mechanism for it.
+/// The live [`StructuralWitness`]es — one per [`shared_construct_ids`] entry.
 pub fn registered_structural_witnesses() -> Vec<StructuralWitness> {
     vec![
         StructuralWitness {
@@ -699,8 +560,8 @@ mod tests {
         }
     }
 
-    /// G8: [`supported_kinds`] must be EXACTLY `CharacteristicKind::ALL`, not the old
-    /// `Proven`-only 6 — the whole point of "widen the cross-check ledger-wide".
+    /// [`supported_kinds`] must be EXACTLY `CharacteristicKind::ALL`, never narrowed back to the
+    /// `Proven` subset — a narrowed set makes the cross-check vacuous for most of the ledger.
     #[test]
     fn supported_kinds_is_exactly_characteristic_kind_all() {
         let supported = supported_kinds();
@@ -715,29 +576,13 @@ mod tests {
         assert!(supported.len() > proven_only);
     }
 
-    /// [`evidence_requirement_for`] is exhaustive and matches the honest-capability rule literally:
-    /// `FailClosed` needs a `RefusalWitness`, everything else needs a `PassingFixture`.
-    #[test]
-    fn evidence_requirement_matches_disposition_exactly() {
-        for &kind in CharacteristicKind::ALL {
-            let disposition = kind.default_disposition();
-            let requirement = evidence_requirement_for(disposition);
-            if disposition == Disposition::FailClosed {
-                assert_eq!(requirement, EvidenceRequirement::RefusalWitness, "{kind:?}");
-            } else {
-                assert_eq!(requirement, EvidenceRequirement::PassingFixture, "{kind:?}");
-            }
-        }
-    }
-
-    /// With both evidence sets empty, every kind must be `Uncovered` (has mapped construct ids) or
+    /// With an empty evidence set, every kind must be `Uncovered` (has mapped construct ids) or
     /// `Unmappable` (has none) — never `Covered`. Zero `Unmappable` rows remain after G9 (every
     /// kind now maps to a real `constructs.txt` row) — see `zero_unmappable_after_g9` below.
     #[test]
     fn empty_evidence_sets_yield_no_covered_rows() {
         let covered: HashSet<&str> = HashSet::new();
-        let witnessed: HashSet<CharacteristicKind> = HashSet::new();
-        let report = supported_coverage_report(&covered, &witnessed);
+        let report = supported_coverage_report(&covered);
         assert!(!report.is_empty());
         for row in &report {
             assert_ne!(row.status, CoverageStatus::Covered, "{:?}", row.kind);
@@ -752,8 +597,7 @@ mod tests {
     #[test]
     fn zero_unmappable_after_g9() {
         let covered: HashSet<&str> = HashSet::new();
-        let witnessed: HashSet<CharacteristicKind> = HashSet::new();
-        let report = supported_coverage_report(&covered, &witnessed);
+        let report = supported_coverage_report(&covered);
         let unmappable: Vec<CharacteristicKind> = report
             .iter()
             .filter(|r| r.status == CoverageStatus::Unmappable)
@@ -771,65 +615,51 @@ mod tests {
         }
     }
 
-    /// Feeding in every construct id [`construct_ids_for`] ever names, PLUS every `FailClosed`
-    /// kind as refusal-witnessed, must make every kind `Covered` (all 20 are mappable after G9).
+    /// Feeding in every construct id [`construct_ids_for`] ever names must make every kind
+    /// `Covered` (all 20 are mappable after G9).
     #[test]
     fn fully_evidenced_sets_cover_every_kind() {
         let mut covered: HashSet<&str> = HashSet::new();
-        let mut witnessed: HashSet<CharacteristicKind> = HashSet::new();
         for &kind in CharacteristicKind::ALL {
             for &id in construct_ids_for(kind) {
                 covered.insert(id);
             }
-            if kind.default_disposition() == Disposition::FailClosed {
-                witnessed.insert(kind);
-            }
         }
-        let report = supported_coverage_report(&covered, &witnessed);
+        let report = supported_coverage_report(&covered);
         for row in &report {
             assert_eq!(
                 row.status,
                 CoverageStatus::Covered,
-                "{:?} (requirement {:?}) has mapped construct ids {:?} but was not Covered",
+                "{:?} has mapped construct ids {:?} but was not Covered",
                 row.kind,
-                row.evidence_requirement,
                 row.construct_ids
             );
         }
     }
 
-    /// The core G8 honesty guarantee: a `FailClosed` kind's status must depend ONLY on the
-    /// refusal-witnessed set, never on `passing_covered_constructs` — even when a SIBLING kind
-    /// (sharing the same `constructs.txt` id) is fully covered by a passing fixture. Regression
-    /// test for the exact cross-contamination this split closes: before this fix,
-    /// `MprGroupOverwrite` (`FailClosed`) could show `Covered` purely because `MprGroupAppend`
-    /// (`ConfirmOnly`) shares its `"MPR features/groups"` construct id and had a passing fixture.
+    /// `MprGroupOverwrite` is graded by the passing-fixture set like every other row — it shares
+    /// `"MPR features/groups"` with `MprGroupAppend`, which is exactly the shared-id inheritance
+    /// `registered_structural_witnesses` pins structurally rather than by disposition.
     #[test]
     fn overwrite_row_uses_passing_fixture_evidence() {
         let mut covered: HashSet<&str> = HashSet::new();
         for &id in construct_ids_for(CharacteristicKind::MprGroupAppend) {
             covered.insert(id);
         }
-        let witnessed: HashSet<CharacteristicKind> = HashSet::new(); // no refusal witness supplied
-        let report = supported_coverage_report(&covered, &witnessed);
+        let report = supported_coverage_report(&covered);
         let overwrite_row = report
             .iter()
             .find(|r| r.kind == CharacteristicKind::MprGroupOverwrite)
             .expect("MprGroupOverwrite must appear in the ledger-wide report");
-        assert_eq!(
-            overwrite_row.status,
-            CoverageStatus::Covered,
-            "MprGroupOverwrite now uses passing-fixture evidence"
-        );
+        assert_eq!(overwrite_row.status, CoverageStatus::Covered);
     }
 
     /// [`supported_uncovered`] is exactly the non-`Covered` projection of the same report.
     #[test]
     fn supported_uncovered_matches_report_non_covered_rows() {
         let covered: HashSet<&str> = HashSet::new();
-        let witnessed: HashSet<CharacteristicKind> = HashSet::new();
-        let report = supported_coverage_report(&covered, &witnessed);
-        let uncovered = supported_uncovered(&covered, &witnessed);
+        let report = supported_coverage_report(&covered);
+        let uncovered = supported_uncovered(&covered);
         let expected: Vec<CharacteristicKind> = report
             .iter()
             .filter(|r| r.status != CoverageStatus::Covered)
@@ -889,47 +719,14 @@ mod tests {
         assert_eq!(shared.len(), 4, "{shared:?}");
     }
 
-    /// The core distinction [`passing_fixture_shared_construct_ids`] exists to draw: the MPR pair
-    /// is a genuine shared id (still reported by [`shared_construct_ids`]) but is NOT at-risk —
-    /// [`CharacteristicKind::MprGroupOverwrite`]'s `FailClosed` disposition needs a REFUSAL
-    /// witness, so it structurally cannot inherit [`CharacteristicKind::MprGroupAppend`]'s
-    /// passing-fixture evidence the way the other three pairs could.
-    #[test]
-    fn mpr_pair_is_shared_and_passing_fixture_at_risk() {
-        let shared = shared_construct_ids();
-        assert!(
-            shared.iter().any(
-                |(_, kinds)| kinds.contains(&CharacteristicKind::MprGroupAppend)
-                    && kinds.contains(&CharacteristicKind::MprGroupOverwrite)
-            ),
-            "{shared:?}"
-        );
-
-        let at_risk = passing_fixture_shared_construct_ids();
-        assert!(
-            at_risk
-                .iter()
-                .any(|(_, kinds)| kinds.contains(&CharacteristicKind::MprGroupOverwrite)),
-            "MprGroupOverwrite must appear in the at-risk set: {at_risk:?}"
-        );
-    }
-
-    /// Today's exact three at-risk shared ids — pinned so a silent shape change shows up here,
-    /// on top of (not instead of) the generic witness-coverage check below.
-    #[test]
-    fn passing_fixture_shared_construct_ids_is_exactly_four_today() {
-        let at_risk = passing_fixture_shared_construct_ids();
-        assert_eq!(at_risk.len(), 4, "{at_risk:?}");
-    }
-
-    /// **The generic drift guard.** Every AT-RISK shared id must have a registered
+    /// **The generic drift guard.** Every shared id must have a registered
     /// [`StructuralWitness`] — computed here with NO hardcoded id list on either side, so a
     /// future `construct_ids_for` edit that introduces a new coarser/finer shared-id pair with no
     /// structural predicate fails LOUDLY, rather than silently reintroducing the exact inheritance
     /// risk this whole gate exists to close.
     #[test]
-    fn every_passing_fixture_shared_id_has_a_registered_structural_witness() {
-        let at_risk = passing_fixture_shared_construct_ids();
+    fn every_shared_id_has_a_registered_structural_witness() {
+        let at_risk = shared_construct_ids();
         assert!(
             !at_risk.is_empty(),
             "the at-risk-shared-id scan found nothing -- construct_ids_for's shape changed and \

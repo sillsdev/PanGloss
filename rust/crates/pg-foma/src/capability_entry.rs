@@ -48,9 +48,8 @@ use crate::replace::SegAlphabet;
 
 /// Computes the overall, whole-grammar [`CompileDecision`] for `g` — `characterize` + `enumerate_
 /// default` + `compose_envelope`, assembled the way a real caller would, over
-/// [`crate::capability::default_registry`] (today's shipped predicate set: the one real
-/// `simultaneous.subrule-overlap` predicate plus a conservative `FailClosedPlaceholder` for every
-/// other `FailClosed`/`ConfigPredicate` characteristic — see that function's own doc).
+/// [`crate::capability::default_registry`] (today's shipped predicate set — see that function's
+/// own doc).
 ///
 /// **Check-only.** Calling this function has no effect on `g` or on any other compile path; it does
 /// not build a live `Fsm`, does not run foma, and does not touch `emit.rs`/`gate.rs`/`replace.rs`/

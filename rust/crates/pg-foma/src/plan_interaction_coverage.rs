@@ -91,7 +91,7 @@
 //! soundness bug once lived, see `crate::plan::ReplaceCascadeSpec`'s own doc). Both retirements operate one
 //! level down: characteristic CO-OCCURRENCE at a shared node, and sibling-ORDER independence under a
 //! shared parent. [`InteractionCoverageReport`] reports them in their own `retired` section,
-//! separate from (not a subtype of) the required/covered/uncovered/contains-unsupported adjacency-
+//! separate from (not a subtype of) the required/covered/uncovered adjacency-
 //! tuple table — a deliberate, documented shape, not a missing unification.
 //!
 //! # The coverage report
@@ -102,13 +102,8 @@
 //! exist for this crate's own `src/`, only its `dev-dependencies` — `tests/
 //! plan_interaction_coverage_gate.rs` supplies the corpus). Classification is PER FIXTURE, not a
 //! single tag aggregate over the whole corpus (see [`TupleStatus`]'s own doc for why that matters):
-//! a tuple is `Covered` iff at least one supplied fixture exhibits a CLEAN occurrence of it;
-//! `ContainsUnsupported` iff every fixture exhibiting it does so only via an occurrence tagged with
-//! a [`crate::capability::Disposition::FailClosed`] characteristic (today, only `MprGroupOverwrite`
-//! — see [`crate::capability::MprGroupOverwriteFailClosedPredicate`]'s own doc: it refuses
-//! UNCONDITIONALLY whenever observed, so such an occurrence can never be soundly required to have a
-//! passing covering fixture); otherwise `Uncovered`. [`InteractionCoverageReport::unexpected_tuples`]
-//! names any OBSERVED
+//! a tuple is `Covered` iff at least one supplied fixture exhibits an occurrence of it, otherwise
+//! `Uncovered`. [`InteractionCoverageReport::unexpected_tuples`] names any OBSERVED
 //! adjacency tuple outside [`legal_adjacency_tuples`]'s documented closed set — expected to always be
 //! empty given `enumerate_default`'s fixed shape, reported rather than silently dropped if it ever
 //! isn't (a genuine finding, not a bug in this module).
@@ -131,14 +126,9 @@
 //! `Compose` node somewhere unconnected — the edge itself must exist. The one honest limitation this
 //! module still has (flagged, not fixed, because it cannot produce a false `Covered`): non-`Proven`,
 //! non-rule-keyed characteristics (`representative_kinds`) fold onto the single representative
-//! `Gate` node GRAMMAR-WIDE rather than being attributed to a specific branch, so a fixture with an
-//! unrelated `FailClosed` characteristic anywhere gets its whole `(Gate, Compose)` occurrence marked
-//! `ContainsUnsupported` for that fixture even if the refusing construct lives in a different branch.
-//! This can only make the gate MORE conservative (an occurrence that should count as clean gets
-//! excluded, pushing a tuple toward `Uncovered`/`ContainsUnsupported`), never less — it cannot turn a
-//! genuinely-unexercised tuple into a false `Covered`. That asymmetry is exactly why it is safe to
-//! flip on this analysis alone, without first mechanizing a mitigation the way the sibling flip
-//! needed `structural_witness_gate.rs` before it could go build-breaking.
+//! `Gate` node GRAMMAR-WIDE rather than being attributed to a specific branch, so a tag reported on
+//! a `(Gate, Compose)` occurrence may belong to a construct in a different branch. `tags` is
+//! informative context only; it never drives `status`.
 //!
 //! # Fuzz slice
 //! [`fuzz_gate_group_reordering_for_grammar`] is TARGETED subtree fuzzing for the `Gate` node — the
@@ -423,47 +413,27 @@ pub fn retired_interactions() -> Vec<RetiredInteraction> {
 // The coverage report (deliverables 3-4)
 // =================================================================================================
 
-/// One [`AdjacencyTuple`]'s cross-check outcome, mirroring [`crate::conformance_coverage::
-/// CoverageStatus`]'s own three-way split (adapted to this module's own categories).
-///
-/// Classification is PER-FIXTURE, not a single corpus-wide aggregate over the tuple's tags: a tuple
-/// is `Covered` iff at least one fixture exhibits a "clean" occurrence of it (no
-/// [`Disposition::FailClosed`] tag on that occurrence), even if some OTHER fixture's occurrence of
-/// the SAME tuple shape happens to carry an unsupported tag too (e.g. one fixture's `Overwrite`
-/// `MprGroup` tags its own `Gate` node, but that must not mask the 22 OTHER fixtures' perfectly
-/// ordinary `Gate -> Compose` edges as unsupported — an earlier version of this module aggregated
-/// tags globally per tuple-kind across the whole corpus and got exactly this wrong; fixed here).
+/// One [`AdjacencyTuple`]'s cross-check outcome.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TupleStatus {
-    /// At least one supplied fixture exhibits a clean (non-unsupported-tagged) occurrence.
+    /// At least one supplied fixture exhibits an occurrence of this tuple.
     Covered,
     /// A legal, required tuple with zero supplied fixtures exhibiting ANY occurrence of it at all.
     Uncovered,
-    /// Every fixture that exhibits this tuple does so only via an occurrence tagged with a
-    /// [`Disposition::FailClosed`] characteristic (today, only `MprGroupOverwrite`) — a tuple
-    /// containing a permanently-refusing construct is `contains-unsupported`, not `required` (this
-    /// task's own framing, citing `crate::capability::compose_envelope`'s own "which tuples are
-    /// capability-legal" note). No clean covering fixture exists for it, by design (the construct is
-    /// refused, not merely uncovered).
-    ContainsUnsupported,
 }
 
 /// One row of the required-tuple report: an [`AdjacencyTuple`] from [`legal_adjacency_tuples`], its
 /// [`TupleStatus`], every [`CharacteristicKind`] observed tagging it anywhere in the supplied corpus
-/// (across BOTH clean and unsupported occurrences — informative context, not itself the status
-/// signal), and the two disjoint fixture-label lists the status is actually computed from.
+/// (informative context, not itself the status signal), and the fixture labels the status is
+/// actually computed from.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TupleReport {
     pub tuple: AdjacencyTuple,
     pub status: TupleStatus,
     /// Sorted by `{:?}` text for deterministic display ([`CharacteristicKind`] has no [`Ord`] impl).
     pub tags: Vec<CharacteristicKind>,
-    /// Fixtures (by caller-supplied label) exhibiting a CLEAN occurrence of this tuple.
+    /// Fixtures (by caller-supplied label) exhibiting an occurrence of this tuple.
     pub covering_fixtures: Vec<String>,
-    /// Fixtures exhibiting this tuple only via an occurrence carrying a `FailClosed` tag — disjoint
-    /// from `covering_fixtures` (a fixture with BOTH a clean and an unsupported occurrence of the
-    /// same tuple shape counts as covering; see [`TupleStatus`]'s own doc).
-    pub unsupported_fixtures: Vec<String>,
 }
 
 /// The full report (deliverables 3-4): every [`legal_adjacency_tuples`] entry as a
@@ -478,15 +448,9 @@ pub struct InteractionCoverageReport {
 
 impl InteractionCoverageReport {
     /// Convenience projection: every required tuple with status `Uncovered` — mirrors
-    /// [`crate::conformance_coverage::supported_uncovered`]'s own convenience method, but NOTE the
-    /// analogy is not exact: unlike that method, this one does NOT also include
-    /// `ContainsUnsupported` rows (the `filter` below reads `TupleStatus::Uncovered` only). That is
-    /// deliberate, not a mismatch to fix — a `ContainsUnsupported` tuple was never a candidate for
-    /// "needs a covering fixture" to begin with (`TupleStatus`'s own doc; the
-    /// `compute_interaction_coverage_flags_contains_unsupported_for_overwrite_tagged_gate_edge` test
-    /// below pins exactly this exclusion). **BUILD-BREAKING**:
-    /// `tests/plan_interaction_coverage_gate.rs` asserts this is empty over the full discovered
-    /// corpus — see this module's own top-doc for why that flip is honest.
+    /// [`crate::conformance_coverage::supported_uncovered`]'s own convenience method.
+    /// **BUILD-BREAKING**: `tests/plan_interaction_coverage_gate.rs` asserts this is empty over the
+    /// full discovered corpus — see this module's own top-doc for why that flip is honest.
     pub fn uncovered(&self) -> Vec<&TupleReport> {
         self.required
             .iter()
@@ -499,10 +463,10 @@ impl InteractionCoverageReport {
 /// corpus of `(fixture label, plan, characteristics profile)` triples — a pure function, same
 /// "pure core, wired-up glue lives at the edge" split [`crate::conformance_coverage::
 /// supported_coverage_report`] itself uses (this module's own top-doc).
-/// One [`AdjacencyTuple`]'s accumulated corpus evidence: every tag ever observed on it, its
-/// clean-covering fixture labels, and its unsupported-only fixture labels — named (clippy
-/// `type_complexity`) rather than left as an inline nested tuple type.
-type TupleEvidence = (HashSet<CharacteristicKind>, Vec<String>, Vec<String>);
+/// One [`AdjacencyTuple`]'s accumulated corpus evidence: every tag ever observed on it and its
+/// covering fixture labels — named (clippy `type_complexity`) rather than left as an inline nested
+/// tuple type.
+type TupleEvidence = (HashSet<CharacteristicKind>, Vec<String>);
 
 pub fn compute_interaction_coverage(
     fixtures: &[(&str, &Plan, &CharacteristicsProfile)],
@@ -510,19 +474,15 @@ pub fn compute_interaction_coverage(
     let legal = legal_adjacency_tuples();
     let legal_set: HashSet<&AdjacencyTuple> = legal.iter().collect();
 
-    // tuple -> its accumulated TupleEvidence -- classification happens PER FIXTURE below
-    // (TupleStatus's own doc: one fixture's Overwrite-tagged Gate node must never mask another
-    // fixture's perfectly ordinary occurrence of the same tuple shape).
     let mut by_tuple: HashMap<AdjacencyTuple, TupleEvidence> = HashMap::new();
     let mut unexpected: HashSet<AdjacencyTuple> = HashSet::new();
 
     for &(label, plan, profile) in fixtures {
         let own = node_own_characteristics(plan, profile);
 
-        // This FIXTURE's own tuple -> tags map first (a fixture can realize the same tuple SHAPE
-        // more than once, e.g. one Replace -> Leaf/RewriteRule edge per rule; fold them together
-        // before deciding whether THIS fixture's occurrence of the tuple counts as clean or
-        // unsupported, so that decision is made once per (tuple, fixture), not once per edge).
+        // This FIXTURE's own tuple -> tags map first: a fixture can realize the same tuple SHAPE
+        // more than once (e.g. one Replace -> Leaf/RewriteRule edge per rule), and it must be
+        // credited once per (tuple, fixture), not once per edge.
         let mut fixture_tags: HashMap<AdjacencyTuple, HashSet<CharacteristicKind>> = HashMap::new();
         for (parent_id, parent_kind) in plan.iter() {
             for &child_id in parent_kind.children() {
@@ -544,17 +504,10 @@ pub fn compute_interaction_coverage(
         }
 
         for (tuple, tags) in fixture_tags {
-            let is_unsupported = tags
-                .iter()
-                .any(|k| k.default_disposition() == Disposition::FailClosed);
             let global = by_tuple.entry(tuple).or_default();
             global.0.extend(tags);
             let label = label.to_string();
-            if is_unsupported {
-                if !global.2.contains(&label) {
-                    global.2.push(label);
-                }
-            } else if !global.1.contains(&label) {
+            if !global.1.contains(&label) {
                 global.1.push(label);
             }
         }
@@ -562,14 +515,11 @@ pub fn compute_interaction_coverage(
 
     let mut required = Vec::with_capacity(legal.len());
     for tuple in &legal {
-        let (tags, covering_fixtures, unsupported_fixtures) =
-            by_tuple.remove(tuple).unwrap_or_default();
-        let status = if !covering_fixtures.is_empty() {
-            TupleStatus::Covered
-        } else if !unsupported_fixtures.is_empty() {
-            TupleStatus::ContainsUnsupported
-        } else {
+        let (tags, covering_fixtures) = by_tuple.remove(tuple).unwrap_or_default();
+        let status = if covering_fixtures.is_empty() {
             TupleStatus::Uncovered
+        } else {
+            TupleStatus::Covered
         };
         let mut tag_list: Vec<CharacteristicKind> = tags.into_iter().collect();
         tag_list.sort_by_key(|k| format!("{k:?}"));
@@ -578,7 +528,6 @@ pub fn compute_interaction_coverage(
             status,
             tags: tag_list,
             covering_fixtures,
-            unsupported_fixtures,
         });
     }
 
@@ -868,7 +817,7 @@ mod tests {
     }
 
     // ---------------------------------------------------------------------------------------
-    // compute_interaction_coverage: required/covered/uncovered/contains-unsupported
+    // compute_interaction_coverage: required/covered/uncovered
     // ---------------------------------------------------------------------------------------
 
     #[test]
@@ -943,29 +892,22 @@ mod tests {
         assert_eq!(
             gate_compose_row.status,
             TupleStatus::Covered,
-            "the Gate node's own representative tag includes MprGroupOverwrite (FailClosed), so its \
-             Gate -> Compose edge must be contains-unsupported, not required/covered: {gate_compose_row:?}"
+            "an MprGroupOverwrite tag on the Gate node is informative context, never a reason to \
+             withhold coverage: {gate_compose_row:?}"
         );
         assert!(gate_compose_row
             .tags
             .contains(&CharacteristicKind::MprGroupOverwrite));
-        // A contains-unsupported tuple is EXCLUDED from `uncovered()` -- it was never a candidate
-        // for "needs a covering fixture" to begin with (module top-doc).
         assert!(!report
             .uncovered()
             .iter()
             .any(|r| r.tuple == gate_compose_row.tuple));
     }
 
-    /// Regression pin for the per-fixture classification fix (this module's own top-doc note under
-    /// "The coverage report"): a corpus with BOTH an ordinary fixture and an `Overwrite`-tagged
-    /// fixture must classify `Gate -> Compose` as `Covered` (the ordinary fixture's clean occurrence
-    /// wins), never `ContainsUnsupported` -- an EARLIER version of this module aggregated tags
-    /// globally per tuple-kind across the whole corpus and got exactly this wrong (one fixture's
-    /// Overwrite group masked every other fixture's perfectly ordinary Gate node). The unsupported
-    /// fixture must still be named in `unsupported_fixtures`, not silently dropped.
+    /// Every fixture exhibiting a tuple is credited, including one whose Gate node carries an
+    /// `Overwrite` tag: `covering_fixtures` names both, in supplied order.
     #[test]
-    fn compute_interaction_coverage_lets_a_clean_fixture_cover_a_tuple_another_fixture_taints() {
+    fn compute_interaction_coverage_credits_every_fixture_exhibiting_a_tuple() {
         let ordinary_g = load(gated_two_group_with_rule_fixture_xml());
         let (ordinary_plan, ordinary_profile) = plan_and_profile(&ordinary_g);
         let overwrite_g = load(overwrite_group_fixture_xml());
@@ -984,13 +926,12 @@ mod tests {
         assert_eq!(
             gate_compose_row.status,
             TupleStatus::Covered,
-            "the ordinary fixture's clean Gate -> Compose occurrence must win: {gate_compose_row:?}"
+            "both fixtures' Gate -> Compose occurrences count: {gate_compose_row:?}"
         );
         assert_eq!(
             gate_compose_row.covering_fixtures,
             vec!["ordinary".to_string(), "overwrite".to_string()]
         );
-        assert_eq!(gate_compose_row.unsupported_fixtures, Vec::<String>::new());
         assert!(gate_compose_row
             .tags
             .contains(&CharacteristicKind::MprGroupOverwrite));

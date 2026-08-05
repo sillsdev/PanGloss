@@ -745,7 +745,7 @@ pub struct ComposeBudget {
     /// `None`, uncalibrated), [`Self::from_env`] defaults this to
     /// `Some(DEFAULT_ORDERING_MULTIPLICITY_BUDGET)` -- a real, if conservative, calibrated default
     /// ships with THIS change (mirroring the four size caps' own default-ON convention), since
-    /// promoting `unordered-application.chain-depth-bounded` off `FailClosed` needs a concrete
+    /// promoting `unordered-application.chain-depth-bounded` off `Refuse` needs a concrete
     /// bound to promote AGAINST, not an uncalibrated placeholder. [`Self::with_caps`]/
     /// `Self::unbounded` leave it `None` (mirrors [`Self::chain_depth_cap`]'s own "tests opt in
     /// via an explicit builder" convention) -- use [`Self::with_ordering_multiplicity_cap`].

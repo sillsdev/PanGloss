@@ -2,19 +2,15 @@
 //! **BUILD-BREAKING**.
 //!
 //! This test computes, for EVERY `CharacteristicKind` (`pg_foma::capability`) — not just the
-//! `Proven` ("supported") subset — whether the evidence its own disposition demands exists: a
-//! covering, PASSING conformance fixture for `Proven`/`ConfigPredicate`/`ConfirmOnly`, or a
-//! curated REFUSAL witness for `FailClosed` (see `pg_foma::conformance_coverage::
-//! evidence_requirement_for`). It prints the full report on every run **and fails the build** if
-//! any row lacks its required evidence.
+//! `Proven` ("supported") subset — whether a covering, PASSING conformance fixture exists. It
+//! prints the full report on every run **and fails the build** if any row lacks that evidence.
 //!
-//! It was deliberately non-blocking for a long time, and the flip was gated on four fixes rather
-//! than done when the count first looked good — a green build-breaking gate that can silently
-//! start lying is worse than an advisory report, because the green light is what gets cited. See
-//! `supported_construct_conformance_coverage_has_no_gaps`'s own doc for the four, for what this
-//! gate still does not assert, and for why row-level coverage is not the same claim as
-//! configuration-level completeness. `pg_foma::conformance_coverage`'s module doc has the mapping
-//! contract and what "passing" means here.
+//! A green build-breaking gate that can silently start lying is worse than an advisory report,
+//! because the green light is what gets cited. See
+//! `supported_construct_conformance_coverage_has_no_gaps`'s own doc for what had to be true before
+//! the flip, for what this gate still does not assert, and for why row-level coverage is not the
+//! same claim as configuration-level completeness. `pg_foma::conformance_coverage`'s module doc has
+//! the mapping contract and what "passing" means here.
 //!
 //! # Home
 //! `pg-foma` (this crate) because `capability.rs`'s disposition table — the registry side of the
@@ -25,40 +21,17 @@
 //! crate's own `capability.rs`/`capability_entry.rs` split for the same "pure core, wired-up test/
 //! entry-point glue lives at the edge" pattern).
 //!
-//! # Non-blocking, additive: what this file does NOT do
+//! # What this file does NOT do
 //! - Does not modify `machine/conformance/` fixtures or the conformance runner.
 //! - Does not touch `conformance_fixtures_gate.rs` (`pg-parse`'s own full-suite oracle-replay
 //!   gate) — this file re-derives its own "passing" replay independently (same oracle, same
 //!   `pg_conformance_fixtures::discover`), rather than depending on that test's internals.
-//! - Does not fail if `supported_uncovered` is non-empty — see the module doc above.
 
 use std::collections::HashSet;
 
 use pg_conformance_fixtures::discover;
-use pg_foma::capability::CharacteristicKind;
 use pg_foma::conformance_coverage::{supported_coverage_report, CoverageStatus};
-use pg_foma::coverage_ledger::{containment_evidence_for, ContainmentEvidenceKind};
 use pg_parse::Morpher;
-
-/// G8's second evidence set: every [`CharacteristicKind`] for which this crate's own curated
-/// containment table ([`containment_evidence_for`]) names a genuine
-/// [`ContainmentEvidenceKind::RefusalWitness`] — the "FailClosed needs a refusal witness, not a
-/// passing fixture" evidence [`pg_foma::conformance_coverage::supported_coverage_report`]'s second
-/// parameter expects. Built here (not in `conformance_coverage.rs` itself) to keep that module
-/// free of any dependency on `coverage_ledger`'s curated table — this gate test is the natural
-/// place two independent evidence sources get composed for the cross-check's own sake.
-fn refusal_witnessed_kinds() -> HashSet<CharacteristicKind> {
-    CharacteristicKind::ALL
-        .iter()
-        .copied()
-        .filter(|&k| {
-            matches!(
-                containment_evidence_for(k),
-                Some(ev) if ev.kind == ContainmentEvidenceKind::RefusalWitness
-            )
-        })
-        .collect()
-}
 
 /// Replays every discovered fixture (`machine/conformance/**` + `conformance-staging/**`) against
 /// `pg_parse::Morpher` — the same oracle `pg-parse`'s own `conformance_fixtures_gate.rs` runs the
@@ -118,30 +91,22 @@ fn passing_covered_constructs() -> HashSet<String> {
 ///
 /// # What flipping asserts, and what had to be true first
 /// It asserts **zero `Uncovered` and zero `Unmappable` rows** across all 20 `CharacteristicKind`s,
-/// each graded against its own [`EvidenceRequirement`] (`PassingFixture` for
-/// `Proven`/`ConfigPredicate`/`ConfirmOnly`; `RefusalWitness` for `FailClosed`, since nothing
-/// compiles for a refused construct and demanding a passing analysis fixture for one would be
-/// incoherent).
+/// each graded against a covering, passing conformance fixture.
 ///
-/// The flip waited on four things, because a green build-breaking gate that can silently start
+/// The flip waited on three things, because a green build-breaking gate that can silently start
 /// lying is worse than an advisory report — the green light is what gets cited:
 /// 1. **G9** — `Unmappable` had to reach zero; 4 `constructs.txt` rows were missing entirely
 ///    (sillsdev/machine#465).
-/// 2. **G8** — the check had to cover all 20 rows, not just the 6 `Proven` ones, and had to stop
-///    grading `FailClosed` rows against the passing-fixture set (which let `MprGroupOverwrite`
-///    report `Covered` off its sibling's shared construct id, refusal never exercised).
-/// 3. **`tests/exercises_tag_liveness.rs`** — three fixtures tagged CHARACTERISTIC NAMES where a
+/// 2. **`tests/exercises_tag_liveness.rs`** — three fixtures tagged CHARACTERISTIC NAMES where a
 ///    row id is required, so their evidence silently counted for nothing. An unknown tag is now a
 ///    hard error rather than `constructs.txt`'s own documented "soft warning".
-/// 4. **`tests/structural_witness_gate.rs`** — four row ids are each mapped by two characteristics,
-///    so the finer one could report `Covered` on the coarser sibling's evidence. Three now have a
-///    mechanized grammar-shape witness; the fourth pair is excluded by derivation, not assertion
-///    (`MprGroupOverwrite` needs a `RefusalWitness`). Full reasoning:
+/// 3. **`tests/structural_witness_gate.rs`** — four row ids are each mapped by two characteristics,
+///    so the finer one could report `Covered` on the coarser sibling's evidence. Each now has a
+///    mechanized grammar-shape witness. Full reasoning:
 ///    `docs/conformance/shared-construct-id-analysis.md`.
 ///
-/// Plus `tests/coverage_citation_liveness.rs`, which keeps the `RefusalWitness` citations from
-/// becoming dangling pointers — the one place a row's `Covered` verdict rests on a hand-written
-/// string.
+/// Plus `tests/coverage_citation_liveness.rs`, which keeps the curated containment citations from
+/// becoming dangling pointers.
 ///
 /// # What it still does NOT assert
 /// - That a fixture tags the RIGHT construct. A tag claiming something the fixture does not
@@ -159,8 +124,7 @@ fn passing_covered_constructs() -> HashSet<String> {
 fn supported_construct_conformance_coverage_has_no_gaps() {
     let covered = passing_covered_constructs();
     let covered_refs: HashSet<&str> = covered.iter().map(String::as_str).collect();
-    let witnessed = refusal_witnessed_kinds();
-    let report = supported_coverage_report(&covered_refs, &witnessed);
+    let report = supported_coverage_report(&covered_refs);
 
     // Non-vacuity first: a report that enumerated nothing would make every assertion below pass
     // trivially, which is the failure mode this whole subsystem's gates are written against.
@@ -176,12 +140,10 @@ fn supported_construct_conformance_coverage_has_no_gaps() {
     let mut covered_n = 0usize;
     let mut uncovered = Vec::new();
     let mut unmappable = Vec::new();
-    // G8: staged-flip preview -- split the non-Covered set by disposition, since a real flip
-    // should gate Proven (hard error) ahead of ConfigPredicate/ConfirmOnly (also required, but
-    // stageable) and FailClosed (needs a refusal witness, not a passing fixture).
+    // Staged-flip preview -- split the non-Covered set by disposition, since a real flip should
+    // gate Proven (hard error) ahead of ConfigPredicate/ConfirmOnly (also required, but stageable).
     let mut proven_gaps = Vec::new();
     let mut config_or_confirm_gaps = Vec::new();
-    let mut fail_closed_gaps = Vec::new();
     for row in &report {
         match row.status {
             CoverageStatus::Covered => covered_n += 1,
@@ -195,7 +157,6 @@ fn supported_construct_conformance_coverage_has_no_gaps() {
                 | pg_foma::capability::Disposition::ConfirmOnly => {
                     config_or_confirm_gaps.push(row.kind)
                 }
-                pg_foma::capability::Disposition::FailClosed => fail_closed_gaps.push(row.kind),
             }
         }
     }
@@ -210,8 +171,8 @@ fn supported_construct_conformance_coverage_has_no_gaps() {
     );
     for row in &report {
         eprintln!(
-            "  {:?}: disposition={:?} requirement={:?} status={:?} (mapped construct ids: {:?})",
-            row.kind, row.disposition, row.evidence_requirement, row.status, row.construct_ids
+            "  {:?}: disposition={:?} status={:?} (mapped construct ids: {:?})",
+            row.kind, row.disposition, row.status, row.construct_ids
         );
     }
     // The gate. Reported by disposition rather than as one undifferentiated count, so a failure
@@ -241,14 +202,6 @@ fn supported_construct_conformance_coverage_has_no_gaps() {
          compiled and relied upon, and ADR 0001 requires them evidenced too -- ConfirmOnly means \
          'the oracle prunes over-generation', never 'no fixture needed'. Same two likely causes as \
          the Proven case above. Full report above."
-    );
-    assert!(
-        fail_closed_gaps.is_empty(),
-        "REFUSAL-WITNESS REGRESSION (FailClosed): {fail_closed_gaps:?} need a curated \
-         ContainmentEvidenceKind::RefusalWitness in `coverage_ledger::containment_evidence_for`, \
-         NOT a passing analysis fixture -- nothing compiles for a refused construct. If the \
-         citation exists, tests/coverage_citation_liveness.rs will tell you whether it still \
-         resolves to a real #[test]. Full report above."
     );
     assert_eq!(
         covered_n,

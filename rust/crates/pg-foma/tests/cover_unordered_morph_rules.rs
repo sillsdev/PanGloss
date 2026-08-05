@@ -211,8 +211,8 @@ fn assert_confirm_matches_oracle(
 
 /// Deliverable 3 / capability.rs judgment call check: this fixture's OWN `Unordered` stratum must
 /// characterize `unordered-application.chain-depth-bounded` and compose to `ConfirmOnly` -- proving
-/// the containment tests below exercise the promoted, non-`FailClosed` disposition this change
-/// ships, not an accident of some other predicate meeting it down.
+/// the containment tests below exercise this construct's own resting disposition, not an accident
+/// of some other predicate meeting it down.
 #[test]
 fn fixture_is_chain_depth_bounded_and_confirm_only() {
     let g = load(&fixture_xml("unordered"));
@@ -230,7 +230,7 @@ fn fixture_is_chain_depth_bounded_and_confirm_only() {
     assert_eq!(
         compose_envelope(&g, &plan, &registry),
         CompileDecision::ConfirmOnly,
-        "a chain-depth-bounded Unordered fixture must compose to ConfirmOnly, never Refuse/FailClosed"
+        "a chain-depth-bounded Unordered fixture must compose to ConfirmOnly, never Refuse"
     );
 }
 

@@ -1032,10 +1032,9 @@ mod tests {
 </HermitCrabInput>
 "#;
 
-    /// A `MprGroup` with `outputType="overwrite"`, refused unconditionally and permanently by
-    /// [`pg_foma::capability::MprGroupOverwriteFailClosedPredicate`] (same fixture shape
-    /// `pack.rs`'s own tests and `main.rs`'s `capability_gate_tests` use for their
-    /// "known-Refuse, by construction, forever" fixture).
+    /// Genuinely-overlapping simultaneous subrules, refused by `simultaneous.subrule-overlap` (the
+    /// same fixture `pack.rs`'s own tests and `main.rs`'s `capability_gate_tests` use for their
+    /// known-Refuse grammar).
     const REFUSE_GRAMMAR_XML: &str = include_str!("../../../../conformance-staging/edge-cases/simultaneous-subrule-genuine-overlap/grammar.xml");
 
     fn run_make_report_raw(

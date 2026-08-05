@@ -1916,25 +1916,12 @@ mod tests {
         use std::fs;
         use std::sync::atomic::{AtomicU32, Ordering};
 
-        /// An `Overwrite`-output `MprGroup` grammar -- `MprGroupOverwriteFailClosedPredicate`
-        /// (`crate::capability` in `pg-foma`) `Refuse`s this UNCONDITIONALLY and PERMANENTLY: a
-        /// monotone-accumulation admission filter is structurally unsound for history-dependent
-        /// `Overwrite` replace semantics (`pg_grammar::model::mpr_add_output`'s own doc), so there
-        /// is no promotion path that could ever flip this fixture's own verdict the way a
-        /// `ConfigPredicate` construct's could. A self-feeding `CompoundingRule`
-        /// (`multipleApplication` absent, isolated) is NOT a safe "known-Refuse" stand-in for this
-        /// whole test module's capability-gate-ENFORCEMENT tests, because `compounding.recursive`
-        /// is a `ConfigPredicate`-disposition construct and can be promoted to `ConfirmOnly` by a
-        /// later grammar/capability change. **Do not point a future "known-Refuse" test fixture at
-        /// any `ConfigPredicate`-disposition construct** (`Compounding`, `UnorderedMorphRuleApplication`,
-        /// `RightToLeftRewrite`, `CircumfixOutputAction`, `Reduplication`, `MultiTable`,
-        /// `QuantifierPattern`, `SimultaneousRewrite` -- every one of these has at least one
-        /// configuration that is ELIGIBLE for promotion and will eventually be promoted) -- only
-        /// `MprGroupOverwrite` (this
-        /// fixture) and `MprGroupOverwrite`'s sibling permanent carve-outs
-        /// (`RealizationalMorphology`/`MprGroupAppend`/`CoOccurrenceConstraint`, though those are
-        /// always `ConfirmOnly`/`Admit`, never `Refuse`, so they cannot serve this fixture's own
-        /// purpose) are stable, by-construction-permanent `Refuse` verdicts.
+        /// A grammar with genuinely-overlapping simultaneous subrules: `simultaneous.subrule-overlap`
+        /// refuses it on a real automaton intersection, so the `Refuse` verdict is a structural
+        /// fact about the fixture rather than a not-yet-proven configuration. A construct refused
+        /// only pending a proof (e.g. `compounding.recursive`) is NOT a safe "known-Refuse" fixture
+        /// for these enforcement tests: it can be promoted to `ConfirmOnly` by a later capability
+        /// change and silently make the whole module vacuous.
         const PERMANENTLY_REFUSED_GRAMMAR_XML: &str = include_str!("../../../../conformance-staging/edge-cases/simultaneous-subrule-genuine-overlap/grammar.xml");
 
         fn load(xml: &str) -> pg_grammar::model::Grammar {
