@@ -449,7 +449,7 @@ mod tests {
         assert!(warnings.iter().any(|w| w.contains("also-missing")));
     }
 
-    // --- warning codes (add-grammar-assessment task 3.8) ------------------------------------
+    // --- warning codes -----------------------------------------------------------------------
 
     #[test]
     fn validate_dangling_reference_carries_the_expected_code() {
@@ -467,7 +467,7 @@ mod tests {
 
     /// Two structurally different situations -- a plain dangling cross-reference vs. a sense's
     /// MSA reference that resolves fine globally but not within its own owning entry -- must get
-    /// different codes (task 3.8 requirement (b)).
+    /// different codes.
     #[test]
     fn validate_out_of_scope_reference_gets_a_different_code_than_dangling_reference() {
         let mut snap = sample_snapshot();
