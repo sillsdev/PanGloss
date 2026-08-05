@@ -16,12 +16,12 @@
 //!
 //! Reduplication (7 corpus words: `membagi-bagi`, `memijit-mijit`, `meminta-minta`,
 //! `mengamat-amati`, `mengayuh-ngayuh`, `menulis-nulis`, `menyewa-nyewa`) is explicitly OUT OF
-//! SCOPE for this stage (plan D6 — the peel is P2's job); every rule that produces a reduplicated
-//! form (`-Cont`, `-Pl`, `REDUP-meN`) already gets routed to `emit`'s `uncovered` list by the same
-//! zone-mismatch logic stage 1 uses for every other exotic role, so these words simply have no
+//! SCOPE here -- the peel that covers it is a separate mechanism's job; every rule that produces a
+//! reduplicated form (`-Cont`, `-Pl`, `REDUP-meN`) already gets routed to `emit`'s `uncovered` list
+//! by the same zone-mismatch logic used for every other exotic role, so these words simply have no
 //! foma-proposed analysis at all. Test (b) excludes them from the recall denominator explicitly,
-//! printing each with its reason, per the task's requirement — not because the engine has no
-//! analysis for them (it does), but because this stage doesn't attempt to cover it.
+//! printing each with its reason -- not because the engine has no analysis for them (it does), but
+//! because this gate doesn't attempt to cover it.
 //!
 //! ## Test-timing policy
 //! The default local `cargo test --workspace --release` run must stay under ~60s and must not

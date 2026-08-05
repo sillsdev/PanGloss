@@ -246,9 +246,9 @@ fn load_feature_grammar() -> Grammar {
 /// (over-approximation flagged in `parity-out/audit/C-loader-pipeline.md` row 1 as "narrower but
 /// still real" on feature-bearing grammars); the fix must render exactly `[bd]p`, not `[bdga]p`.
 ///
-/// Root text is `"p"`, not `"a"` (P5, `docs/p5-crosstable-featurestruct-design.md`): `p` is the
-/// table's only `voi-` segment, so it is FeatureStruct-unique and its own rendering stays a plain
-/// `"p"`. Rooting on `"a"` would (correctly, post-P5) also render the root's OWN segment as
+/// Root text is `"p"`, not `"a"`: `p` is the table's only `voi-` segment, so it is
+/// FeatureStruct-unique and its own rendering stays a plain `"p"`. Rooting on `"a"` would
+/// (correctly) also render the root's OWN segment as
 /// `[bdga]` -- confirmed against the C# oracle (`CharacterDefinitionTable.cs:125`,
 /// `new ShapeNode(cd.FeatureStruct.Clone())`: a feature-bearing char-def's segmented node carries
 /// no `StrRep` at all, so `GetMatchingStrReps` genuinely unifies `a` against `b`/`d`/`g` too, since

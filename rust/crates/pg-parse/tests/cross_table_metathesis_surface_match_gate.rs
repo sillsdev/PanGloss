@@ -1,4 +1,4 @@
-//! Regression gate for the "cross-table surface-match gate" defect (2026-07-27 follow-up to
+//! Regression gate for the "cross-table surface-match gate" defect (a follow-up to
 //! `conformance-staging/edge-cases/multi-table-metathesis-shared-representation`'s own STAGING.md):
 //! `pg_parse::Morpher::is_match_traced` renders a synthesized word's concrete char-def identities
 //! via `pg_parse::surface::matching_reps_for_node` against the grammar's OUTERMOST stratum's table.
