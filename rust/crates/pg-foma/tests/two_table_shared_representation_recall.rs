@@ -1,17 +1,16 @@
-//! `openspec/changes/plan-construct-coverage-completion` task 4.4b, `docs/conformance/
-//! multitable-shared-representation-design.md`: the RECALL-side counterpart to
-//! `tests/cover_bistratal_overlapping_segment_representation.rs` (the refusal/verdict-side pin).
+//! The RECALL-side counterpart to `tests/cover_bistratal_overlapping_segment_representation.rs`
+//! (the refusal/verdict-side pin).
 //! Fixture: `conformance-staging/edge-cases/two-table-shared-representation-recall`.
 //!
 //! Proves, in three steps, over the REAL production compile path (`pg_foma::replace`, never a
 //! hand-rolled token-math simulation):
 //!
 //! 1. **The loss is real.** A rule net compiled the PRE-FIX way (`SegAlphabet::token`, table-blind,
-//!    no aliasing -- exactly what `render_slots`/`render_branch_regex` produced before this task)
-//!    never fires when fed a token drawn from a DIFFERENT table's raw index for the same spelling,
-//!    even though the ORACLE (`pg_parse::Morpher`, which resolves every segment via genuine
-//!    feature-lane unification, never a raw-index comparison) correctly analyzes the corresponding
-//!    surface word.
+//!    no aliasing -- exactly what `render_slots`/`render_branch_regex` produced before cross-table
+//!    aliasing existed) never fires when fed a token drawn from a DIFFERENT table's raw index for
+//!    the same spelling, even though the ORACLE (`pg_parse::Morpher`, which resolves every
+//!    segment via genuine feature-lane unification, never a raw-index comparison) correctly
+//!    analyzes the corresponding surface word.
 //! 2. **The fix closes it.** The SAME rule, compiled via the CURRENT (fixed)
 //!    `pg_foma::replace::compile_and_compose_rules_with_budget`, DOES fire on that exact material --
 //!    cross-table representation aliasing (`crate::replace::RepresentationAliasMap`/`SegAlphabet::
