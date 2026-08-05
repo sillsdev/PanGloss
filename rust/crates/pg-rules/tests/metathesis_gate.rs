@@ -1,7 +1,6 @@
-//! Regression gate for the two `pg_rules::metathesis` analysis-side bugs fixed alongside
-//! `openspec/changes/compile-fst-metathesis` (discovered while building that change's FST
-//! containment suite, `pg_foma::tests::phase_c_metathesis` — see that file's top doc for the full
-//! empirical reproductions this gate pins as **fixed**, and `pg_rules::metathesis::
+//! Regression gate for the two `pg_rules::metathesis` analysis-side bugs discovered while building
+//! an FST containment suite (`pg_foma::tests::phase_c_metathesis` — see that file's top doc for
+//! the full empirical reproductions this gate pins as **fixed**, and `pg_rules::metathesis::
 //! build_analysis_pattern`'s own doc for the C# citations + rationale). Both tests round-trip a
 //! hand-built rule through `synthesize` then `analyze` and assert the un-applied shape recovers
 //! (is unifiable with) the pre-synthesis original — modeled on `rewrite_gate.rs`'s own
