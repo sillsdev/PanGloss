@@ -383,8 +383,8 @@ fn compound_synthesis_joins_head_and_non_head() {
     let g = load_alpha_grammar();
     let mut head = root_word(&g, "apa", 100);
     // `non_head_unapplied` (not a raw `.push`): pushes AND advances `non_head_app_index` in
-    // lock-step, matching C#'s `Word.NonHeadUnapplied` (Word.cs:477-482) -- required since P4
-    // (2026-07-09) made `Word::current_non_head()` read by that index rather than `.last()`.
+    // lock-step, matching C#'s `Word.NonHeadUnapplied` (Word.cs:477-482) -- required because
+    // `Word::current_non_head()` reads by that index rather than `.last()`.
     head.non_head_unapplied(root_word(&g, "ka", 300));
     let rule = compound_rule_with(&g);
 
@@ -406,7 +406,7 @@ fn compound_synthesis_joins_head_and_non_head() {
         vec![MorphemeId(100), MorphemeId(300)]
     );
     // The current non-head's material was consumed into the compound's `shape`/`morphs`, but
-    // (P4, 2026-07-09) `non_heads` itself is NOT cleared: C#'s `SynthesisCompoundingRule` never
+    // `non_heads` itself is NOT cleared: C#'s `SynthesisCompoundingRule` never
     // removes an entry from `_nonHeadApps` (only `_nonHeadAppIndex` moves, via the confirmation
     // step in `stratum.rs`'s `guided_synth`, not exercised by this raw `morph::synthesize` call) --
     // the non-head stays as permanent history, which is exactly what lets `Word::dedup_key()`

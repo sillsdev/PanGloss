@@ -1,6 +1,6 @@
-//! Pins the fix for the deep-truncation-chain-stress-grammar pilot hang
-//! (`docs/fst-plan/deep-chain-pilot-non-completion.md`): `recipe_runtime::evaluate_plans`
-//! used to compute its ground-truth oracle with `pg_parse::Morpher::new(grammar, usize::MAX)` and no
+//! Pins the fix for the deep-truncation-chain-stress-grammar pilot hang: `recipe_runtime::
+//! evaluate_plans` used to compute its ground-truth oracle with
+//! `pg_parse::Morpher::new(grammar, usize::MAX)` and no
 //! `.with_word_timeout(..)` -- both axes that could stop a pathological word were disabled, so one
 //! bad corpus word hung the whole evaluator call forever, before any FST build/propose/confirm work
 //! ever ran.

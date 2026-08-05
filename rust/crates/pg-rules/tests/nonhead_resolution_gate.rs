@@ -251,8 +251,8 @@ fn synthesis_records_non_head_root_morph_in_the_final_signature() {
     nh.root_allomorph = Some(sine_allo);
     nh.morphs = vec![MorphRecord::new(sine_allo, sine.morpheme, 0)];
     // `non_head_unapplied` (not a raw `.push`): pushes AND advances `non_head_app_index` in
-    // lock-step, matching C#'s `Word.NonHeadUnapplied` (Word.cs:477-482) -- required since P4
-    // (2026-07-09) made `Word::current_non_head()` read by that index rather than `.last()`.
+    // lock-step, matching C#'s `Word.NonHeadUnapplied` (Word.cs:477-482) -- required because
+    // `Word::current_non_head()` reads by that index rather than `.last()`.
     head.non_head_unapplied(nh);
 
     let out = synthesize(&g, &head, &rule);
@@ -273,8 +273,8 @@ fn synthesis_records_non_head_root_morph_in_the_final_signature() {
         "compound signature must include BOTH the non-head and head morpheme ids, non-head first \
          (surface order: nonhead + '+' + head)"
     );
-    // The non-head's material was consumed into the compound's `shape`/`morphs`, but (P4,
-    // 2026-07-09) `non_heads` itself is NOT cleared: C#'s `SynthesisCompoundingRule` never removes
+    // The non-head's material was consumed into the compound's `shape`/`morphs`, but
+    // `non_heads` itself is NOT cleared: C#'s `SynthesisCompoundingRule` never removes
     // an entry from `_nonHeadApps` (only `_nonHeadAppIndex` moves, via the confirmation step in
     // `stratum.rs`'s `guided_synth`, not exercised by this raw `morph::synthesize` call) -- the
     // non-head stays as permanent history, which is exactly what lets `Word::dedup_key()`

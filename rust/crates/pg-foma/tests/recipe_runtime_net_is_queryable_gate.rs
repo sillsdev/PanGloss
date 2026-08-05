@@ -70,7 +70,7 @@ use pg_foma::replace::SegAlphabet;
 ///   `build_controllable`'s controllable-subtree network -- a candidate compiled by a whole-grammar
 ///   strategy has no marker gap to attribute anything to, so its verdict is a real measurement and
 ///   must be read as one; and
-/// * task 7.13: the BASELINE rule applies to whichever candidate the runtime treats as the baseline,
+/// * the BASELINE rule applies to whichever candidate the runtime treats as the baseline,
 ///   and this gate used to identify that candidate by POSITION (`index == 0`) because
 ///   `evaluate_plans` itself did. It no longer does -- the fact is `LoweredCandidate::role` -- and
 ///   position was never right here anyway: `materialize_distinct` orders candidates by FAMILY ID,
@@ -116,8 +116,8 @@ fn materialize_and_evaluate(
 ///
 /// Fail-closed on a missing corpus rather than the usual skip-with-a-message: this test only ever
 /// runs when someone asks for it explicitly with `--include-ignored`, and at that point silently
-/// returning success while testing nothing is the exact "second false-success path" that
-/// `docs/superpowers/specs/2026-07-29-categorical-build-hardening-design.md` was written to close.
+/// returning success while testing nothing is the exact "second false-success path" a fail-closed
+/// corpus gate exists to prevent.
 #[test]
 #[ignore = "needs the private corpus at samples/data/indonesian-hc.xml; run with --include-ignored"]
 fn corpus_indonesian_confirms_after_the_finish_step() {

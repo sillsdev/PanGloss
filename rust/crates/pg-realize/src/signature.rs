@@ -1,10 +1,8 @@
-//! The R4 gloss signature — Stage 0E's shared canonical gloss/analysis-signature unit
-//! (`openspec/changes/IMPLEMENTATION-READINESS.md` R4; `machine/conformance/PROTOCOL.md` §3-4's
-//! multiset comparison semantics; `openspec/changes/add-reference-hermitcrab-parity/design.md`
-//! D4/D5). Both the Rust side of `add-reference-hermitcrab-parity`'s gloss-signature parity check
-//! and `add-grammar-diagnostics`'s downstream evidence are meant to call this one implementation
-//! instead of growing their own — see this module's doc for why no such unit existed to extract
-//! before this change (only the morpheme-ID-keyed `pg_parse::result_signature` did).
+//! The R4 gloss signature: a shared canonical gloss/analysis-signature unit, matching
+//! `machine/conformance/PROTOCOL.md`'s §3-4 multiset comparison semantics. Any caller doing a
+//! gloss-signature parity check or gloss-based diagnostics is meant to call this one
+//! implementation instead of growing its own — see this module's doc for why no such unit existed
+//! to extract before this change (only the morpheme-ID-keyed `pg_parse::result_signature` did).
 //!
 //! **A parallel, gloss-keyed signature, not a replacement.** `pg_parse::result_signature`
 //! (`crates/pg-parse/src/lib.rs`) is the frozen PROTOCOL.md §3 adapter-contract format —
